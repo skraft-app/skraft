@@ -1,0 +1,13 @@
+[package]
+name = "solidsketch-model"
+description = "SolidSketch: the document (definitions, solids, instances), its operations, undo history and file format"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+solidsketch-kernel.workspace = true
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = ["crates/kernel", "crates/model", "crates/render", "crates/tools", "apps/solidsketch"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Internal
+solidsketch-kernel = { path = "crates/kernel" }
+solidsketch-model = { path = "crates/model" }
+solidsketch-render = { path = "crates/render" }
+solidsketch-tools = { path = "crates/tools" }
+
+# SolidCore (tangency-labs/solidcore, Apache-2.0): the B-rep kernel, its record (geometry as
+# data) and its mesher. Only `solidcore` is on crates.io; the others come from the mirror,
+# pinned to one revision so the four crates always agree.
+solidcore = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
+solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
+solidcore-convert = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
+solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
+
+glam = { version = "0.30", features = ["serde"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+
+egui = "0.37"
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "persistence"] }
+egui-wgpu = "0.37"
+egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
+rfd = "0.17"
+bytemuck = { version = "1", features = ["derive"] }
+# The wgpu egui-wgpu 0.37 is built on.
+wgpu = "30"
+pollster = "0.4"
+
+[profile.dev.package."*"]
+# The kernel is far too slow unoptimised.
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "thin"

@@ -1,0 +1,18 @@
+[package]
+name = "solidsketch-kernel"
+description = "SolidSketch: SolidCore behind a small, safe, record-based API (primitives, booleans, transforms, display meshes)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+solidcore.workspace = true
+solidcore-record.workspace = true
+solidcore-convert.workspace = true
+solidcore-tess.workspace = true
+glam.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

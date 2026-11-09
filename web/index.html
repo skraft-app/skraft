@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SolidSketch</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #eceef0; }
+    canvas { display: block; width: 100%; height: 100%; outline: none; }
+  </style>
+</head>
+<body>
+  <canvas id="solidsketch"></canvas>
+  <script type="module">
+    import init from "./pkg/solidsketch.js";
+
+    // Chrome and Safari report mouse wheel notches in pixels (deltaMode 0), like trackpad
+    // scrolling: eframe then hands them as MouseWheelUnit::Point, which the viewport takes for
+    // a trackpad (orbit). Tell them apart with the non-standard wheelDeltaY: a trackpad gives
+    // wheelDeltaY == -3 * deltaY, a wheel multiples of 120. Wheel events are re-dispatched in
+    // lines (one per notch), as winit does natively, so the viewport zooms.
+    const canvas = document.getElementById("solidsketch");
+    const isWheelNotch = (e) => {
+      if (e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || e.ctrlKey) return false; // ctrl: pinch
+      const w = e.wheelDeltaY;
+      if (typeof w !== "number" || w === 0 || w % 120 !== 0 || e.deltaX !== 0) return false;
+      return Math.abs(w + 3 * e.deltaY) > 1;
+    };
+    window.addEventListener("wheel", (e) => {
+      if (!e.isTrusted || e.target !== canvas || !isWheelNotch(e)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      canvas.dispatchEvent(new WheelEvent("wheel", {
+        deltaX: 0, deltaY: -e.wheelDeltaY / 120, deltaMode: WheelEvent.DOM_DELTA_LINE,
+        clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY,
+        shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey,
+        bubbles: true, cancelable: true,
+      }));
+    }, { capture: true, passive: false });
+
+    init();
+  </script>
+</body>
+</html>

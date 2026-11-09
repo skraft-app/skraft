@@ -1,0 +1,42 @@
+[package]
+name = "solidsketch"
+description = "SolidSketch: a 3D CAD prototype modelling with exact solids, groups and components (native and web)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "solidsketch"
+path = "src/main.rs"
+
+[lib]
+# The web build (wasm-pack) uses the library; the desktop build the binary.
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+solidsketch-model.workspace = true
+solidsketch-render.workspace = true
+solidsketch-tools.workspace = true
+glam.workspace = true
+egui.workspace = true
+eframe.workspace = true
+egui-wgpu.workspace = true
+egui_extras.workspace = true
+wgpu.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd.workspace = true
+env_logger = "0.11"
+dirs = "6"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rfd.workspace = true
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Storage"] }
+js-sys = "0.3"
+console_error_panic_hook = "0.1"

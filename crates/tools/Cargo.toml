@@ -1,0 +1,11 @@
+[package]
+name = "solidsketch-tools"
+description = "SolidSketch: camera, display scene (mesh caches, picking), selection, editing context and the interactive tools — testable without a UI or a GPU"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+solidsketch-model.workspace = true
+solidsketch-kernel.workspace = true
+glam.workspace = true

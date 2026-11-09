@@ -1,0 +1,3 @@
+# SolidCore recurses legitimately; wasm has no guard page, so give it a native-sized stack.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=8388608", "--cfg", "getrandom_backend=\"wasm_js\""]

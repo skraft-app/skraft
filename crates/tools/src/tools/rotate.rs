@@ -1,0 +1,314 @@
+//! Rotate (SketchUp's protractor): click the centre — the axis is the normal of the face under
+//! it, else the context's Z; the arrow keys lock it (→ red X, ← green Y, ↑ blue Z, ↓ free) —
+//! then a reference direction (0°), then the angle, which snaps to 15° steps. The angle can be
+//! typed in degrees. A tap of the copy modifier (Option on macOS, Ctrl elsewhere) toggles
+//! copying; right after a copy, `6x` makes a circular array of 6 at the same angle and `/6`
+//! spreads 6 copies over it. With nothing selected, the first click takes the entity under
+//! the cursor.
+
+use glam::{DAffine3, DQuat, DVec2, DVec3};
+use solidsketch_model::{EntityPath, Id, Operation, Units};
+use crate::infer::Inference;
+
+use super::{BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, Preview, PreviewLine, RED, Tool, ToolInput, ToolKind, cross, guide_color};
+
+/// Snapping step and how close the angle must be to snap (radians).
+const SNAP_STEP: f64 = std::f64::consts::PI / 12.0;
+const SNAP_WITHIN: f64 = 2.0 * std::f64::consts::PI / 180.0;
+/// Radius of the protractor, in pixels.
+const PROTRACTOR_PX: f64 = 70.0;
+
+#[derive(Default)]
+pub struct RotateTool {
+    state: State,
+    copy: bool,
+    moving: Vec<Id>,
+    /// Where the protractor would go, and its axis, before the first click.
+    cursor: Option<(DVec3, DVec3)>,
+    snap: Option<Inference>,
+    /// The copy just made, which a typed count turns into an array.
+    last: Option<LastCopy>,
+}
+
+#[derive(Default, Clone, Copy)]
+enum State {
+    #[default]
+    Center,
+    Reference { center: DVec3, axis: DVec3, dir: Option<DVec3> },
+    Angle { center: DVec3, axis: DVec3, reference: DVec3, angle: f64 },
+}
+
+/// The context's axis `k`, in the world.
+fn context_axis(cx: &Cx<'_>, k: usize) -> DVec3 {
+    cx.context_transform.matrix3.col(k).normalize()
+}
+
+/// Parses an angle in degrees (`30`, `-45`, `22,5°`), in radians.
+pub fn parse_degrees(s: &str) -> Option<f64> {
+    let t = s.trim().trim_end_matches('°').trim().replace(',', ".");
+    t.parse::<f64>().ok().filter(|v| v.is_finite()).map(f64::to_radians)
+}
+
+/// The rotation of `angle` about the line through `center` along `axis` (world).
+pub fn rotation_about(center: DVec3, axis: DVec3, angle: f64) -> DAffine3 {
+    DAffine3::from_translation(center)
+        * DAffine3::from_quat(DQuat::from_axis_angle(axis.normalize(), angle))
+        * DAffine3::from_translation(-center)
+}
+
+impl RotateTool {
+    /// The centre and axis the cursor gives before the first click: the point inferred, and
+    /// the normal of the face under the cursor (else the context's Z), unless an axis is locked.
+    fn center_at(&self, cx: &Cx<'_>, px: DVec2) -> Option<(DVec3, DVec3, Inference)> {
+        let inf = cx.infer(px, |_| true, None)?;
+        let axis = match (cx.axis_lock, &inf.hit) {
+            (Some(k), _) => context_axis(cx, k),
+            (None, Some(h)) => h.normal,
+            (None, None) => context_axis(cx, 2),
+        };
+        Some((inf.point, axis, inf))
+    }
+
+    /// The direction from `center` to the cursor, in the protractor's plane: towards a feature
+    /// inferred (its projection on the plane) or along an axis or an edge's parallel lying in
+    /// the plane, else where the cursor's ray meets the plane. While turning, what turns is not
+    /// inferred on.
+    fn direction(&self, cx: &Cx<'_>, px: DVec2, center: DVec3, axis: DVec3) -> (Option<DVec3>, Option<Inference>) {
+        let turning = matches!(self.state, State::Angle { .. });
+        let keep = |p: &EntityPath| !(turning && cx.selectable(p).is_some_and(|id| self.moving.contains(&id)));
+        let inf = cx.infer_in_plane(px, keep, (center, axis), center).filter(|i| i.kind.is_feature());
+        let p = match &inf {
+            Some(i) => Some(i.point),
+            None => cx.ray(px).hit_plane(center, axis),
+        };
+        let dir = p.and_then(|p| {
+            let d = p - center;
+            (d - axis * d.dot(axis)).try_normalize()
+        });
+        (dir, inf.filter(|_| dir.is_some()))
+    }
+
+    fn finish(&mut self, cx: &Cx<'_>, center: DVec3, axis: DVec3, angle: f64) -> Vec<Command> {
+        let world = rotation_about(center, axis, angle);
+        let transform = cx.context_transform.inverse() * world * cx.context_transform;
+        let entities = std::mem::take(&mut self.moving);
+        let copy = self.copy;
+        self.reset();
+        let op = if copy {
+            let motion = Motion::Rotate { center, axis, angle, frame: cx.context_transform };
+            let last = LastCopy::new(cx.context_def, entities, motion);
+            let op = last.op.clone();
+            self.last = Some(last);
+            op
+        } else {
+            Operation::Transform { context: cx.context_def, entities, transform }
+        };
+        vec![Command::Apply(op)]
+    }
+
+    fn color(&self, cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
+        [(0, RED), (1, GREEN), (2, BLUE)]
+            .into_iter()
+            .find(|(k, _)| context_axis(cx, *k).dot(axis).abs() > 0.9999)
+            .map_or(INK, |(_, c)| c)
+    }
+}
+
+impl Tool for RotateTool {
+    fn kind(&self) -> ToolKind {
+        ToolKind::Rotate
+    }
+
+    fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
+        match (input, self.state) {
+            (ToolInput::Hover { px }, State::Center) => {
+                let c = self.center_at(cx, *px);
+                self.cursor = c.as_ref().map(|(p, a, _)| (*p, *a));
+                self.snap = c.map(|(_, _, i)| i);
+            }
+            (ToolInput::Hover { px }, State::Reference { center, axis, .. }) => {
+                let (dir, snap) = self.direction(cx, *px, center, axis);
+                self.state = State::Reference { center, axis, dir };
+                self.snap = snap;
+            }
+            (ToolInput::Hover { px }, State::Angle { center, axis, reference, .. }) => {
+                let (dir, snap) = self.direction(cx, *px, center, axis);
+                if let Some(d) = dir {
+                    let mut angle = axis.dot(reference.cross(d)).atan2(reference.dot(d));
+                    // Steps of 15°, unless a feature gives the angle.
+                    let snapped = (angle / SNAP_STEP).round() * SNAP_STEP;
+                    if snap.is_none() && (angle - snapped).abs() < SNAP_WITHIN {
+                        angle = snapped;
+                    }
+                    self.state = State::Angle { center, axis, reference, angle };
+                }
+                self.snap = snap;
+            }
+            (ToolInput::Key { key: Key::Copy, .. }, _) => self.copy = !self.copy,
+            (ToolInput::Click { px, .. }, State::Center) => {
+                self.last = None;
+                let mut out = vec![];
+                self.moving = cx.selection.to_vec();
+                if self.moving.is_empty() {
+                    let inf = cx.infer(*px, |_| true, None);
+                    let under = inf.as_ref().and_then(|i| i.hit.as_ref().map(|h| &h.path).or(i.path.as_ref()));
+                    match under.and_then(|p| cx.selectable(p)) {
+                        Some(id) => {
+                            self.moving = vec![id];
+                            out.push(Command::Select(vec![id]));
+                        }
+                        None => return vec![Command::Say("Rien à faire pivoter : sélectionner d'abord".into())],
+                    }
+                }
+                let Some((center, axis, _)) = self.center_at(cx, *px) else { return out };
+                self.state = State::Reference { center, axis, dir: None };
+                return out;
+            }
+            (ToolInput::Click { .. }, State::Reference { center, axis, dir }) => {
+                let Some(reference) = dir else {
+                    return vec![Command::Say("Cliquer à distance du centre pour l'origine de l'angle".into())];
+                };
+                self.state = State::Angle { center, axis, reference, angle: 0.0 };
+            }
+            (ToolInput::Click { .. }, State::Angle { center, axis, angle, .. }) => {
+                return self.finish(cx, center, axis, angle);
+            }
+            (ToolInput::Vcb(text), State::Center) => {
+                let Some(last) = &mut self.last else { return vec![] };
+                return last
+                    .retype(text)
+                    .unwrap_or_else(|| vec![Command::Say(format!("Nombre de copies non compris : « {text} » (6x, /6)"))]);
+            }
+            (ToolInput::Vcb(text), State::Reference { center, axis, .. } | State::Angle { center, axis, .. }) => {
+                let Some(angle) = parse_degrees(text) else {
+                    return vec![Command::Say(format!("Angle non compris : « {text} » (en degrés)"))];
+                };
+                return self.finish(cx, center, axis, angle);
+            }
+            _ => {}
+        }
+        vec![]
+    }
+
+    fn preview(&self, cx: &Cx<'_>) -> Preview {
+        let protractor = |center: DVec3, axis: DVec3, color: [f32; 4]| -> Vec<PreviewLine> {
+            let r = cx.camera.world_per_pixel(cx.size, center) * PROTRACTOR_PX;
+            let u = axis.any_orthonormal_vector();
+            let v = axis.cross(u);
+            const N: usize = 48;
+            let p = |i: usize| {
+                let a = i as f64 / N as f64 * std::f64::consts::TAU;
+                center + (u * a.cos() + v * a.sin()) * r
+            };
+            let mut lines: Vec<PreviewLine> = (0..N).map(|i| PreviewLine { a: p(i), b: p(i + 1), color }).collect();
+            // Ticks every 15°.
+            for k in 0..24 {
+                let a = k as f64 * SNAP_STEP;
+                let d = u * a.cos() + v * a.sin();
+                let inner = if k % 6 == 0 { 0.8 } else { 0.9 };
+                lines.push(PreviewLine { a: center + d * r * inner, b: center + d * r, color });
+            }
+            lines
+        };
+        let radius = |c: DVec3| cx.camera.world_per_pixel(cx.size, c) * PROTRACTOR_PX * 1.4;
+        match self.state {
+            State::Center => Preview {
+                lines: self.cursor.map(|(c, a)| protractor(c, a, self.color(cx, a))).unwrap_or_default(),
+                inference: self.snap.clone(),
+                ..Default::default()
+            },
+            State::Reference { center, axis, dir } => {
+                let mut lines = protractor(center, axis, self.color(cx, axis));
+                if let Some(d) = dir {
+                    let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
+                    lines.push(PreviewLine { a: center, b: center + d * radius(center), color });
+                }
+                Preview { lines, inference: self.snap.clone(), ..Default::default() }
+            }
+            State::Angle { center, axis, reference, angle } => {
+                let mut lines = protractor(center, axis, self.color(cx, axis));
+                let r = radius(center);
+                let now = DQuat::from_axis_angle(axis, angle) * reference;
+                lines.push(PreviewLine { a: center, b: center + reference * r, color: INK });
+                let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
+                lines.push(PreviewLine { a: center, b: center + now * r, color });
+                lines.extend(cross(cx, center, INK));
+                Preview {
+                    lines,
+                    ghost: Some(rotation_about(center, axis, angle)),
+                    inference: self.snap.clone(),
+                    ..Default::default()
+                }
+            }
+        }
+    }
+
+    fn status(&self) -> String {
+        let copy = if self.copy { " (copie)" } else { "" };
+        match self.state {
+            State::Center if self.last.is_some() => {
+                "Taper 6x pour un réseau de 6 copies, ou /6 pour 6 copies sur l'angle".into()
+            }
+            State::Center => {
+                format!("Cliquer le centre de rotation · flèches : axe rouge, vert, bleu · {} : copier{copy}", super::COPY_KEY)
+            }
+            State::Reference { .. } => "Cliquer l'origine de l'angle".into(),
+            State::Angle { .. } => format!("Cliquer l'angle (pas de 15°), ou le taper en degrés{copy}"),
+        }
+    }
+
+    fn vcb_label(&self) -> Option<&'static str> {
+        match self.state {
+            State::Center => self.last.as_ref().map(|_| "Copies"),
+            _ => Some("Angle"),
+        }
+    }
+
+    fn vcb_value(&self, _units: &Units) -> String {
+        match self.state {
+            State::Angle { angle, .. } => {
+                let d = (angle.to_degrees() * 10.0).round() / 10.0;
+                format!("{d}°").replace('.', ",")
+            }
+            _ => String::new(),
+        }
+    }
+
+    fn copying(&self) -> bool {
+        self.copy
+    }
+
+    fn busy(&self) -> bool {
+        !matches!(self.state, State::Center)
+    }
+
+    fn reset(&mut self) {
+        self.state = State::Center;
+        self.copy = false;
+        self.last = None;
+        self.moving.clear();
+        self.snap = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn degrees() {
+        assert_eq!(parse_degrees("90"), Some(std::f64::consts::FRAC_PI_2));
+        assert_eq!(parse_degrees("-45°"), Some(-std::f64::consts::FRAC_PI_4));
+        assert!((parse_degrees("22,5").unwrap() - 22.5f64.to_radians()).abs() < 1e-15);
+        assert_eq!(parse_degrees("abc"), None);
+    }
+
+    #[test]
+    fn rotation_keeps_the_centre() {
+        let c = DVec3::new(10.0, 20.0, 0.0);
+        let r = rotation_about(c, DVec3::Z, 1.0);
+        assert!((r.transform_point3(c) - c).length() < 1e-12);
+        let p = r.transform_point3(c + DVec3::X);
+        assert!((p - (c + DVec3::new(1f64.cos(), 1f64.sin(), 0.0))).length() < 1e-12);
+    }
+}
