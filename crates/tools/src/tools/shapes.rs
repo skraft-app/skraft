@@ -15,7 +15,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::Primitive;
 
 use super::{Command, Cx, INK, Preview, PreviewLine, Tool, ToolInput, ToolKind, cross};
-use crate::infer::Inference;
+use crate::infer::{InferKind, Inference};
 use crate::vcb::{Vcb, VcbKind, VcbValue};
 
 /// The smallest dimension built (mm).
@@ -107,6 +107,12 @@ fn height_at(cx: &Cx<'_>, px: DVec2, f: &Frame, p: DVec3) -> (f64, Option<Infere
 
 fn line(cx: &Cx<'_>, a: DVec3, b: DVec3) -> PreviewLine {
     PreviewLine { a: cx.to_world(a), b: cx.to_world(b), color: INK }
+}
+
+/// Whether the cursor's point is an inferred feature, worth a cross: not on the empty ground
+/// (the fallback plane), nor without any inference.
+fn snapped(snap: &Option<Inference>) -> bool {
+    snap.as_ref().is_some_and(|i| i.kind != InferKind::OnPlane)
 }
 
 // ---- Box ---------------------------------------------------------------------------------------
@@ -212,7 +218,7 @@ impl Tool for BoxTool {
         };
         match self.state {
             BoxState::First => {
-                if let Some(p) = self.cursor {
+                if let Some(p) = self.cursor.filter(|_| snapped(&self.snap)) {
                     lines.extend(cross(cx, cx.to_world(p), INK));
                 }
             }
@@ -344,7 +350,7 @@ impl Tool for CylinderTool {
         let mut lines = Vec::new();
         match self.state {
             CylState::Center => {
-                if let Some(p) = self.cursor {
+                if let Some(p) = self.cursor.filter(|_| snapped(&self.snap)) {
                     lines.extend(cross(cx, cx.to_world(p), INK));
                 }
             }

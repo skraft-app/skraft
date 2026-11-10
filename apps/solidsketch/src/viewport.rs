@@ -55,7 +55,8 @@ impl Viewport {
         let cursor = match editor.tool_kind() {
             _ if editor.busy() => egui::CursorIcon::Progress, // the kernel is at work
             _ if editor.tool_copying() => egui::CursorIcon::Copy, // SketchUp's « + »
-            ToolKind::Select => egui::CursorIcon::Default,
+            // Primitives keep the arrow: the crosshair hides the snap point.
+            ToolKind::Select | ToolKind::Box | ToolKind::Cylinder => egui::CursorIcon::Default,
             ToolKind::Move => egui::CursorIcon::Move,
             ToolKind::Paint => egui::CursorIcon::PointingHand,
             _ => egui::CursorIcon::Crosshair,
