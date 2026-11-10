@@ -77,11 +77,16 @@ pub struct Part {
     /// blank is the shape). A cache saved with the file: the recipe is the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) shape: Option<Arc<Solid>>,
+    /// The material of single faces of the shape, by their index in its record (§7 quater):
+    /// over the occurrence's. A boolean renumbers faces: an index may then name another
+    /// face, or none (ignored).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub faces: BTreeMap<u32, Id>,
 }
 
 impl Part {
     pub fn new(blank: Arc<Solid>) -> Self {
-        Part { blank, machinings: Vec::new(), shape: None }
+        Part { blank, machinings: Vec::new(), shape: None, faces: BTreeMap::new() }
     }
 
     /// The part as it is drawn and used: the blank with its machinings cut.
@@ -140,6 +145,17 @@ pub struct Occurrence {
     /// From the component's axes to its assembly's: a move, a rotation, maybe a mirror; never
     /// a scale.
     pub transform: DAffine3,
+    /// The copy's material (its faces without one of their own take it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<Id>,
+}
+
+/// A material: a name and a colour (§7 quater). Wood species, panels… come later.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Material {
+    pub name: String,
+    /// sRGB.
+    pub color: [u8; 3],
 }
 
 /// An occurrence in the scene: the occurrences of assemblies leading to it from the root,
@@ -175,6 +191,9 @@ pub struct PlacedPart {
     /// Part to world.
     pub transform: DAffine3,
     pub shape: Arc<Solid>,
+    /// The material its faces take: the occurrence's own, else the nearest assembly
+    /// occurrence's above it that has one (an assembly painted paints its parts).
+    pub material: Option<Id>,
 }
 
 /// The whole model.
@@ -187,6 +206,9 @@ pub struct Document {
     /// Display style and units, saved with the model.
     #[serde(default)]
     pub(crate) settings: Settings,
+    /// The materials parts and occurrences are painted with, by id (ids from `next_id`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) materials: BTreeMap<Id, Material>,
 }
 
 impl Default for Document {
@@ -205,11 +227,20 @@ impl Document {
     pub fn with_settings(settings: Settings) -> Self {
         let root = Id(1);
         let c = Component { id: root, name: t!("default_name.model"), named: true, kind: ComponentKind::Assembly(Assembly::default()) };
-        Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings }
+        Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings, materials: BTreeMap::new() }
     }
 
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Every material, in id order.
+    pub fn materials(&self) -> impl Iterator<Item = (Id, &Material)> {
+        self.materials.iter().map(|(id, m)| (*id, m))
+    }
+
+    pub fn material(&self, id: Id) -> Result<&Material> {
+        self.materials.get(&id).ok_or(Error::NotFound(id))
     }
 
     pub fn root(&self) -> Id {
@@ -298,11 +329,19 @@ impl Document {
     /// three times.
     pub fn placed_parts(&self) -> Vec<PlacedPart> {
         let mut out = Vec::new();
-        self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, &mut out, 0);
+        self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
         out
     }
 
-    fn walk(&self, assembly: Id, path: &mut Vec<Id>, t: DAffine3, out: &mut Vec<PlacedPart>, depth: usize) {
+    fn walk(
+        &self,
+        assembly: Id,
+        path: &mut Vec<Id>,
+        t: DAffine3,
+        material: Option<Id>,
+        out: &mut Vec<PlacedPart>,
+        depth: usize,
+    ) {
         let Ok(a) = self.assembly(assembly) else { return };
         if depth > MAX_DEPTH {
             return;
@@ -316,10 +355,11 @@ impl Document {
                     part: c.id,
                     transform: t,
                     shape: p.shape().clone(),
+                    material: o.material.or(material),
                 }),
                 ComponentKind::Assembly(_) => {
                     path.push(o.id);
-                    self.walk(c.id, path, t, out, depth + 1);
+                    self.walk(c.id, path, t, o.material.or(material), out, depth + 1);
                     path.pop();
                 }
             }

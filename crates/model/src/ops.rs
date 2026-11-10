@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 use solidsketch_kernel::{BooleanOp, Display, Job, Output, Primitive, Solid, Task};
 
-use crate::document::{Assembly, ComponentKind, Document, EntityPath, Id, Machining, MachiningSource, Occurrence, Part};
+use crate::document::{Assembly, ComponentKind, Document, EntityPath, Id, Machining, MachiningSource, Material, Occurrence, Part};
 use crate::settings::Settings;
 use crate::{Error, Refusal, Result};
 
@@ -106,6 +106,17 @@ pub enum Operation {
     },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
+    /// A new material (§7 quater).
+    AddMaterial { name: String, color: [u8; 3] },
+    /// Renames or recolours a material.
+    EditMaterial { material: Id, name: String, color: [u8; 3] },
+    /// Removes a material: what was painted with it is not any more.
+    DeleteMaterial { material: Id },
+    /// Paints occurrences of `context` (`None`: their material is removed).
+    PaintOccurrences { context: Id, entities: Vec<Id>, material: Option<Id> },
+    /// Paints faces of a part's shape, by their index in its record (every occurrence of the
+    /// part shows it; `None`: they take the occurrence's material again).
+    PaintFaces { part: Id, faces: Vec<u32>, material: Option<Id> },
 }
 
 impl Operation {
@@ -126,13 +137,21 @@ impl Operation {
             Operation::Boolean { op: Boolean::Difference, .. } => t!("operation.difference"),
             Operation::Boolean { op: Boolean::Intersection, .. } => t!("operation.intersection"),
             Operation::SetSettings(_) => t!("operation.settings"),
+            Operation::AddMaterial { .. } => t!("operation.add_material"),
+            Operation::EditMaterial { .. } => t!("operation.edit_material"),
+            Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
+            Operation::PaintOccurrences { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
         }
     }
 
     /// Does this step fold into the previous one `prev` in the undo history? (Settings
     /// changed in a row, e.g. while dragging a colour, undo in one go.)
     pub fn merges_into(&self, prev: &Operation) -> bool {
-        matches!((self, prev), (Operation::SetSettings(_), Operation::SetSettings(_)))
+        match (self, prev) {
+            (Operation::SetSettings(_), Operation::SetSettings(_)) => true,
+            (Operation::EditMaterial { material: a, .. }, Operation::EditMaterial { material: b, .. }) => a == b,
+            _ => false,
+        }
     }
 }
 
@@ -144,6 +163,8 @@ pub const MAX_ARRAY: u32 = 1000;
 pub struct Outcome {
     /// Occurrences created, in the operation's context (the target's, for a boolean).
     pub created: Vec<Id>,
+    /// The material created.
+    pub material: Option<Id>,
 }
 
 /// An operation applied: the new document, what it created, and the displays the kernel made
@@ -207,6 +228,71 @@ impl Document {
                 self.settings = settings.clone();
                 Ok(Outcome::default())
             }
+            Operation::AddMaterial { name, color } => {
+                let id = self.fresh_id();
+                self.materials.insert(id, Material { name: name.clone(), color: *color });
+                Ok(Outcome { material: Some(id), ..Outcome::default() })
+            }
+            Operation::EditMaterial { material, name, color } => {
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                *m = Material { name: name.clone(), color: *color };
+                Ok(Outcome::default())
+            }
+            Operation::DeleteMaterial { material } => {
+                self.materials.remove(material).ok_or(Error::NotFound(*material))?;
+                // Unpaint what used it, copying only the components that did.
+                let users: Vec<Id> = self
+                    .components
+                    .values()
+                    .filter(|c| match &c.kind {
+                        ComponentKind::Part(p) => p.faces.values().any(|m| m == material),
+                        ComponentKind::Assembly(a) => a.occurrences.iter().any(|o| o.material == Some(*material)),
+                    })
+                    .map(|c| c.id)
+                    .collect();
+                for id in users {
+                    match &mut self.component_mut(id)?.kind {
+                        ComponentKind::Part(p) => p.faces.retain(|_, m| m != material),
+                        ComponentKind::Assembly(a) => {
+                            for o in &mut a.occurrences {
+                                if o.material == Some(*material) {
+                                    o.material = None;
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(Outcome::default())
+            }
+            Operation::PaintOccurrences { context, entities, material } => {
+                if let Some(m) = material {
+                    self.material(*m)?;
+                }
+                self.occurrences_of(*context, entities)?;
+                for o in &mut self.assembly_mut(*context)?.occurrences {
+                    if entities.contains(&o.id) {
+                        o.material = *material;
+                    }
+                }
+                Ok(Outcome::default())
+            }
+            Operation::PaintFaces { part, faces, material } => {
+                if let Some(m) = material {
+                    self.material(*m)?;
+                }
+                let count = self.part(*part)?.shape().record().faces.len() as u32;
+                if faces.is_empty() || faces.iter().any(|f| *f >= count) {
+                    return Err(Error::Invalid(Refusal::NoSuchFace));
+                }
+                let p = self.part_mut(*part)?;
+                for f in faces {
+                    match material {
+                        Some(m) => p.faces.insert(*f, *m),
+                        None => p.faces.remove(f),
+                    };
+                }
+                Ok(Outcome::default())
+            }
             Operation::AddPrimitive { context, primitive, placement } => {
                 self.assembly(*context)?;
                 if !is_rigid(placement) {
@@ -217,8 +303,8 @@ impl Document {
                 let part = self.insert_component(&primitive_name(primitive), false, ComponentKind::Part(Part::new(blank)));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
-                self.assembly_mut(*context)?.occurrences.push(Occurrence { id, name: String::new(), component: part, transform });
-                Ok(Outcome { created: vec![id] })
+                self.assembly_mut(*context)?.occurrences.push(Occurrence { id, name: String::new(), component: part, transform, material: None });
+                Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::Transform { context, entities, transform } => {
                 if !is_rigid(transform) {
@@ -238,7 +324,7 @@ impl Document {
                 }
                 let sources = self.occurrences_of(*context, entities)?;
                 let created = self.add_copies(*context, &sources, transform)?;
-                Ok(Outcome { created })
+                Ok(Outcome { created, ..Outcome::default() })
             }
             Operation::Array { context, entities, step, count } => {
                 if *count == 0 || *count > MAX_ARRAY {
@@ -254,7 +340,7 @@ impl Document {
                     at = *step * at;
                     created.extend(self.add_copies(*context, &sources, &at)?);
                 }
-                Ok(Outcome { created })
+                Ok(Outcome { created, ..Outcome::default() })
             }
             Operation::Delete { context, entities } => {
                 self.occurrences_of(*context, entities)?;
@@ -295,8 +381,14 @@ impl Document {
                 let at = ctx.occurrences.iter().position(|o| entities.contains(&o.id)).unwrap_or(ctx.occurrences.len());
                 ctx.occurrences.retain(|o| !entities.contains(&o.id));
                 let at = at.min(ctx.occurrences.len());
-                ctx.occurrences.insert(at, Occurrence { id, name: String::new(), component: assembly, transform: DAffine3::IDENTITY });
-                Ok(Outcome { created: vec![id] })
+                ctx.occurrences.insert(at, Occurrence {
+                    id,
+                    name: String::new(),
+                    component: assembly,
+                    transform: DAffine3::IDENTITY,
+                    material: None,
+                });
+                Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::Explode { context, occurrence } => {
                 let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);
@@ -310,7 +402,7 @@ impl Document {
                 let ctx = self.assembly_mut(*context)?;
                 let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
                 ctx.occurrences.splice(at..=at, copies);
-                Ok(Outcome { created })
+                Ok(Outcome { created, ..Outcome::default() })
             }
             Operation::MakeUnique { context, occurrence } => {
                 let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);
@@ -342,8 +434,9 @@ impl Document {
                     name: String::new(),
                     component: *component,
                     transform: *transform,
+                    material: None,
                 });
-                Ok(Outcome { created: vec![id] })
+                Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::Boolean { target, tool, op, scope } => {
                 if *scope == Scope::This {
@@ -380,7 +473,7 @@ impl Document {
         };
         *self.part_mut(part)? = next;
         self.assembly_mut(tool_ctx)?.occurrences.retain(|o| o.id != tool.entity);
-        Ok(Outcome { created: vec![target.entity] })
+        Ok(Outcome { created: vec![target.entity], ..Outcome::default() })
     }
 
     /// Makes what `path` names its own (§2.5, scope "only this one"): top down, every

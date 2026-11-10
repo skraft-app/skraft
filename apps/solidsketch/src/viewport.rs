@@ -1,12 +1,22 @@
 //! The 3D viewport: input to the editor (SketchUp navigation, tool clicks), the editor's view
 //! to the renderer, the renderer's off-screen target shown as an egui image.
 
+use std::collections::HashMap;
+
 use glam::{DMat4, DVec2};
 use solidsketch_i18n::t;
+use solidsketch_model::Id;
 use solidsketch_render as render;
+use solidsketch_theme::{Rgba, Theme};
 use solidsketch_tools::{Editor, InferKind, Mark, Modifiers, ToolInput, ToolKind};
 
 use crate::prefs::Navigation;
+
+/// A token as an egui colour (sRGB, unmultiplied alpha).
+pub fn color(c: Rgba) -> egui::Color32 {
+    let [r, g, b, a] = solidsketch_theme::to_srgba8(c);
+    egui::Color32::from_rgba_unmultiplied(r, g, b, a)
+}
 
 /// How long without trackpad scrolling ends a trackpad gesture (seconds): the next one picks
 /// a new orbit pivot.
@@ -18,6 +28,11 @@ pub struct Viewport {
     texture: Option<(egui::TextureId, u64)>,
     last_hover: Option<egui::Pos2>,
     last_trackpad: f64,
+    /// Each material's palette entry, for the session: an entry is never given to another
+    /// material, so meshes with painted faces stay valid when materials come and go.
+    slots: HashMap<Id, u32>,
+    /// The size of the last frame drawn (pixels).
+    size: [u32; 2],
 }
 
 /// What the copy modifier is on this platform (SketchUp: Option on macOS, Ctrl elsewhere).
@@ -31,7 +46,7 @@ impl Viewport {
         Viewport::default()
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, editor: &mut Editor, nav: &Navigation) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, editor: &mut Editor, nav: &Navigation, theme: &Theme) {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         editor.set_viewport_size(DVec2::new(rect.width() as f64, rect.height() as f64));
@@ -42,6 +57,7 @@ impl Viewport {
             _ if editor.tool_copying() => egui::CursorIcon::Copy, // SketchUp's « + »
             ToolKind::Select => egui::CursorIcon::Default,
             ToolKind::Move => egui::CursorIcon::Move,
+            ToolKind::Paint => egui::CursorIcon::PointingHand,
             _ => egui::CursorIcon::Crosshair,
         };
         if response.hovered() {
@@ -54,16 +70,16 @@ impl Viewport {
             ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, t!("status.no_wgpu"), Default::default(), egui::Color32::RED);
             return;
         };
-        self.render(state, size, ppp, editor);
+        self.render(state, size, ppp, editor, theme);
         if let Some((id, _)) = self.texture {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
             ui.painter().image(id, rect, uv, egui::Color32::WHITE);
         }
         if let Some(cursor) = response.hover_pos() {
-            paint_inference(ui.painter(), rect, cursor, editor);
+            paint_inference(ui.painter(), rect, cursor, editor, theme);
         }
         if let Some(m) = editor.marquee() {
-            paint_marquee(ui.painter(), rect, &m);
+            paint_marquee(ui.painter(), rect, &m, theme);
         }
     }
 
@@ -157,26 +173,57 @@ impl Viewport {
         }
     }
 
-    fn render(&mut self, state: &egui_wgpu::RenderState, size: [u32; 2], pixels_per_point: f32, editor: &Editor) {
-        let device = &state.device;
-        let renderer = self.renderer.get_or_insert_with(|| render::Renderer::new(device));
+    /// The palette entry of `material`, given on first use (§7 quater).
+    fn slot(&mut self, material: Option<Id>) -> u32 {
+        let Some(m) = material else { return render::NO_MATERIAL };
+        let next = self.slots.len() as u32;
+        *self.slots.entry(m).or_insert(next)
+    }
 
-        // Meshes: one per definition, re-uploaded when its revision changes.
+    fn render(&mut self, state: &egui_wgpu::RenderState, size: [u32; 2], pixels_per_point: f32, editor: &Editor, theme: &Theme) {
+        let device = &state.device;
+        let doc = editor.document();
+        // The palette: every material at its entry (entries of deleted ones stay unused).
+        let materials: Vec<(Id, [u8; 3])> = doc.materials().map(|(id, m)| (id, m.color)).collect();
+        for (id, _) in &materials {
+            self.slot(Some(*id));
+        }
+        let mut palette = vec![[0.0f32; 4]; self.slots.len()];
+        for (id, [r, g, b]) in &materials {
+            palette[self.slots[id] as usize] = solidsketch_theme::srgb(*r, *g, *b);
+        }
+
+        // Meshes: one per definition, re-uploaded when its revision (faces' paint included)
+        // changes.
         let scene = editor.scene();
+        let mut uploads = Vec::new();
         for dm in scene.definition_meshes() {
-            if !renderer.has_mesh(dm.definition.0, dm.revision) {
-                let parts: Vec<render::Part<'_>> = dm.parts.iter().map(|p| render::Part { id: p.solid.0, mesh: &p.mesh }).collect();
-                renderer.set_mesh(device, dm.definition.0, dm.revision, &parts);
+            if self.renderer.as_ref().is_some_and(|r| r.has_mesh(dm.definition.0, dm.revision)) {
+                continue;
             }
+            let len = dm.faces.keys().next_back().map_or(0, |f| *f as usize + 1);
+            let mut paint = vec![render::NO_MATERIAL; len];
+            for (f, m) in &dm.faces {
+                paint[*f as usize] = self.slot(Some(*m));
+            }
+            uploads.push((dm, paint));
+        }
+        let renderer = self.renderer.get_or_insert_with(|| render::Renderer::new(device));
+        for (dm, paint) in &uploads {
+            let parts: Vec<render::Part<'_>> =
+                dm.parts.iter().map(|p| render::Part { id: p.solid.0, mesh: &p.mesh, face_paint: paint }).collect();
+            renderer.set_mesh(device, dm.definition.0, dm.revision, &parts);
         }
         renderer.retain_meshes(|k| scene.definition_mesh(solidsketch_model::Id(k)).is_some());
 
-        let display = &editor.document().settings().display;
+        let display = &doc.settings().display;
         let [r, g, b] = display.background;
         let bg = egui::Rgba::from(egui::Color32::from_rgb(r, g, b)); // linear
         let background = [bg.r(), bg.g(), bg.b()];
         let view = editor.view();
-        let fade: render::Tint = [background[0], background[1], background[2], 0.7];
+        let fade: render::Tint = [background[0], background[1], background[2], theme.fade];
+        let slots = &self.slots;
+        let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
         let batches: Vec<render::Batch> = view
             .batches
             .iter()
@@ -187,6 +234,7 @@ impl Viewport {
                     .map(|p| render::Placement {
                         transform: DMat4::from(p.transform),
                         tint: if p.faded { fade } else { render::NO_TINT },
+                        material: slot(p.material),
                     })
                     .collect(),
             })
@@ -195,15 +243,22 @@ impl Viewport {
             .highlights
             .iter()
             .map(|h| {
-                let (face_tint, edge_tint) = match h.mark {
-                    Mark::Selected => ([0.15, 0.35, 1.0, 0.35], [0.05, 0.2, 1.0, 1.0]),
-                    Mark::Hover => ([0.2, 0.45, 1.0, 0.12], [0.1, 0.35, 1.0, 0.7]),
-                    Mark::Picked => ([1.0, 0.45, 0.05, 0.4], [0.9, 0.3, 0.0, 1.0]),
-                    Mark::Ghost => ([0.3, 0.5, 1.0, 0.3], [0.05, 0.2, 1.0, 1.0]),
+                let colors = match h.mark {
+                    Mark::Selected => theme.selected,
+                    Mark::Hover => theme.hover,
+                    Mark::Picked => theme.picked,
+                    Mark::Ghost => theme.ghost,
                     // The other copies a change reaches: the picked target's orange, lighter.
-                    Mark::Related => ([1.0, 0.55, 0.15, 0.2], [0.95, 0.45, 0.1, 0.6]),
+                    Mark::Related => theme.related,
                 };
-                render::Highlight { key: h.definition.0, part: h.solid.0, transform: DMat4::from(h.transform), face_tint, edge_tint }
+                render::Highlight {
+                    key: h.definition.0,
+                    part: h.solid.0,
+                    transform: DMat4::from(h.transform),
+                    face_tint: colors.face,
+                    edge_tint: colors.edge,
+                    material: slot(h.material),
+                }
             })
             .collect();
         let overlay: Vec<render::Line> =
@@ -211,10 +266,21 @@ impl Viewport {
 
         let aspect = size[0] as f64 / size[1] as f64;
         let cam = &editor.camera;
+        let rgb = |c: Rgba| [c[0], c[1], c[2]];
+        let style = render::Style {
+            face_front: rgb(theme.face_front),
+            face_back: rgb(theme.face_back),
+            edge: rgb(theme.edge),
+            palette: &palette,
+            silhouettes: display.silhouettes,
+            section: view.section.map(|s| render::Section { origin: s.origin, normal: s.normal }),
+            cap_shade: theme.cap_shade,
+        };
         let frame = render::Frame {
             view: cam.view(),
             proj: cam.proj(aspect, scene.bounds()),
             background,
+            style,
             batches: &batches,
             highlights: &highlights,
             lines: &[],
@@ -225,8 +291,11 @@ impl Viewport {
             pixels_per_point,
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
-        renderer.render(device, &state.queue, &mut encoder, size, &frame);
-        state.queue.submit([encoder.finish()]);
+        // A still view draws nothing: the target keeps its picture (§7 quater).
+        if renderer.render(device, &state.queue, &mut encoder, size, &frame) {
+            state.queue.submit([encoder.finish()]);
+        }
+        self.size = size;
 
         // Show the target through egui: (re-)register it when it was recreated.
         if let Some((target, generation)) = renderer.target() {
@@ -250,12 +319,12 @@ impl Viewport {
 
 /// The selection rectangle: solid when it takes what it encloses (drawn left to right),
 /// dashed when it takes what it touches (right to left), as in SketchUp.
-fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &solidsketch_tools::Marquee) {
-    use egui::{Color32, Stroke};
+fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &solidsketch_tools::Marquee, theme: &Theme) {
+    use egui::Stroke;
     let at = |p: DVec2| rect.min + egui::vec2(p.x as f32, p.y as f32);
     let r = egui::Rect::from_two_pos(at(m.from), at(m.to));
-    painter.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(60, 110, 230, 25));
-    let stroke = Stroke::new(1.0, Color32::from_rgb(40, 80, 200));
+    painter.rect_filled(r, 0.0, color(theme.marquee_fill));
+    let stroke = Stroke::new(1.0, color(theme.marquee_stroke));
     if m.crossing {
         let path = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
         painter.extend(egui::Shape::dashed_line(&path, stroke, 5.0, 4.0));
@@ -265,31 +334,31 @@ fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &solidsketch_tool
 }
 
 /// The inferred point's marker, coloured by kind, and its tooltip by the cursor (§6 ter).
-fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2, editor: &Editor) {
+fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2, editor: &Editor, theme: &Theme) {
     use egui::{Color32, Stroke, pos2, vec2};
     // Tracked points: a small ring each.
     for p in editor.tracked() {
         if let Some(at) = editor.camera.project(*p, editor.viewport_size()) {
             let at = rect.min + vec2(at.x as f32, at.y as f32);
-            painter.circle_stroke(at, 4.0, Stroke::new(1.5, Color32::from_rgb(150, 40, 160)));
+            painter.circle_stroke(at, 4.0, Stroke::new(1.5, color(theme.tracked)));
         }
     }
     let Some((point, kind)) = editor.inference() else { return };
     let Some(at) = editor.camera.project(point, editor.viewport_size()) else { return };
     let at = rect.min + vec2(at.x as f32, at.y as f32);
-    let outline = Stroke::new(1.0, Color32::from_gray(30));
+    let outline = Stroke::new(1.0, color(theme.marker_outline));
     match kind {
         InferKind::Endpoint => {
-            painter.circle(at, 5.0, Color32::from_rgb(40, 190, 60), outline);
+            painter.circle(at, 5.0, color(theme.endpoint), outline);
         }
         InferKind::Midpoint => {
-            painter.circle(at, 5.0, Color32::from_rgb(40, 200, 220), outline);
+            painter.circle(at, 5.0, color(theme.midpoint), outline);
         }
         InferKind::Center => {
-            painter.circle(at, 5.0, Color32::from_rgb(170, 70, 220), outline);
+            painter.circle(at, 5.0, color(theme.center), outline);
         }
         InferKind::Origin => {
-            painter.circle(at, 5.0, Color32::from_rgb(240, 180, 30), outline);
+            painter.circle(at, 5.0, color(theme.origin), outline);
         }
         InferKind::OnTwoLines(_, second) => {
             // The first line's colour, ringed with the second's.
@@ -308,12 +377,12 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
         }
         InferKind::OnEdge => {
             let square = egui::Rect::from_center_size(at, vec2(8.0, 8.0));
-            painter.rect(square, 0.0, Color32::from_rgb(220, 40, 40), outline, egui::StrokeKind::Middle);
+            painter.rect(square, 0.0, color(theme.on_edge), outline, egui::StrokeKind::Middle);
         }
         InferKind::OnFace => {
             let d = 5.0;
             let pts = vec![at + vec2(0.0, -d), at + vec2(d, 0.0), at + vec2(0.0, d), at + vec2(-d, 0.0)];
-            painter.add(egui::Shape::convex_polygon(pts, Color32::from_rgb(60, 90, 230), outline));
+            painter.add(egui::Shape::convex_polygon(pts, color(theme.on_face), outline));
         }
         InferKind::OnLine(_) => {
             let [r, g, b, _] = solidsketch_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
@@ -325,15 +394,53 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
     if label.is_empty() {
         return;
     }
-    let galley = painter.layout_no_wrap(label, egui::FontId::proportional(12.0), Color32::from_gray(20));
+    let text = color(theme.tooltip_text);
+    let galley = painter.layout_no_wrap(label, egui::FontId::proportional(12.0), text);
     let pos = pos2(cursor.x + 14.0, cursor.y + 16.0);
     let bg = egui::Rect::from_min_size(pos, galley.size()).expand2(vec2(5.0, 2.0));
-    painter.rect(bg, 3.0, Color32::from_rgb(255, 250, 215), Stroke::new(1.0, Color32::from_gray(120)), egui::StrokeKind::Inside);
-    painter.galley(pos, galley, Color32::from_gray(20));
+    painter.rect(bg, 3.0, color(theme.tooltip_fill), Stroke::new(1.0, color(theme.tooltip_border)), egui::StrokeKind::Inside);
+    painter.galley(pos, galley, text);
 }
 
 /// A grid whose spacing follows the zoom (powers of ten, 100 lines).
 fn grid_for(focus: f64) -> render::Grid {
     let spacing = 10f64.powf((focus / 20.0).max(1.0).log10().floor());
     render::Grid { spacing, count: 100 }
+}
+
+impl Viewport {
+    /// The picture last drawn, as RGBA rows (sRGB): the control channel's screenshot. Waits
+    /// for the GPU.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn capture(&self, state: &egui_wgpu::RenderState) -> Option<(u32, u32, Vec<u8>)> {
+        let texture = self.renderer.as_ref()?.target_texture()?;
+        let [w, h] = [texture.width(), texture.height()];
+        let (device, queue) = (&state.device, &state.queue);
+        let row = (w * 4).div_ceil(256) * 256;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("screenshot"),
+            size: (row * h) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut enc = device.create_command_encoder(&Default::default());
+        enc.copy_texture_to_buffer(
+            texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: None },
+            },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+        queue.submit([enc.finish()]);
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+        let data = buffer.slice(..).get_mapped_range().ok()?;
+        let mut px = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            let s = (y * row) as usize;
+            px.extend_from_slice(&data[s..s + (w * 4) as usize]);
+        }
+        Some((w, h, px))
+    }
 }

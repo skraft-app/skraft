@@ -9,6 +9,7 @@ license.workspace = true
 solidsketch-i18n.workspace = true
 solidsketch-model.workspace = true
 solidsketch-kernel.workspace = true
+solidsketch-theme.workspace = true
 glam.workspace = true
 serde.workspace = true
 

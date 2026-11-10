@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::{Display, Mesh, Snaps, Solid};
-use solidsketch_model::{ComponentKind, Document, EntityPath, Id, MAX_DEPTH};
+use solidsketch_model::{ComponentKind, Document, EntityPath, Id, MAX_DEPTH, Section};
 
 use crate::camera::Ray;
 
@@ -37,8 +37,11 @@ pub struct PartMesh {
 #[derive(Clone, Debug)]
 pub struct DefinitionMesh {
     pub definition: Id,
+    /// Changes with the mesh and with the faces' materials.
     pub revision: u64,
     pub parts: Vec<PartMesh>,
+    /// The materials of single faces (by face index), over the occurrences' (§7 quater).
+    pub faces: BTreeMap<u32, Id>,
 }
 
 /// One occurrence of a part in the scene.
@@ -48,6 +51,8 @@ pub struct Placement {
     pub path: Vec<Id>,
     /// Part to world.
     pub transform: DAffine3,
+    /// The material its faces take (its occurrence's, else an assembly's above it).
+    pub material: Option<Id>,
 }
 
 impl Placement {
@@ -111,6 +116,8 @@ pub struct DisplayScene {
     /// Solids of the document without a mesh, not handed out yet.
     missing: Vec<Arc<Solid>>,
     bounds: Option<(DVec3, DVec3)>,
+    /// The active section: picking ignores what it cuts away.
+    section: Option<Section>,
 }
 
 impl DisplayScene {
@@ -137,8 +144,11 @@ impl DisplayScene {
             part.solid = c.id;
             // The mesh changes with the state (a stand-in, then the real one).
             let mut h = std::collections::hash_map::DefaultHasher::new();
-            (key, entry.state == State::Ready).hash(&mut h);
-            self.definitions.insert(c.id, DefinitionMesh { definition: c.id, revision: h.finish(), parts: vec![part] });
+            (key, entry.state == State::Ready, &p.faces).hash(&mut h);
+            self.definitions.insert(
+                c.id,
+                DefinitionMesh { definition: c.id, revision: h.finish(), parts: vec![part], faces: p.faces.clone() },
+            );
         }
         // Keep what the document shows, and what something else holds (undo, a job).
         self.solids.retain(|key, c| seen.contains(key) || Arc::strong_count(&c.solid) > 1);
@@ -147,8 +157,9 @@ impl DisplayScene {
         for p in doc.placed_parts() {
             let mut path = p.path.instances;
             path.push(p.path.entity);
-            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform });
+            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material: p.material });
         }
+        self.section = doc.settings().display.active_section();
 
         self.bounds = None;
         for (def, places) in &self.placements {
@@ -207,6 +218,11 @@ impl DisplayScene {
         self.solids.get(&(Arc::as_ptr(solid) as usize)).is_some_and(|c| matches!(c.state, State::Pending { .. }))
     }
 
+    /// The active section: what it cuts away is neither picked nor inferred.
+    pub fn section(&self) -> Option<Section> {
+        self.section
+    }
+
     /// World bounds of everything drawn.
     pub fn bounds(&self) -> Option<(DVec3, DVec3)> {
         self.bounds
@@ -245,7 +261,9 @@ impl DisplayScene {
                     if !keep(&path) {
                         continue;
                     }
-                    let Some((t, tri, n_local)) = ray_mesh(o, d, &part.mesh, ray.t_min) else { continue };
+                    // The section, in the part's axes (placements are rigid).
+                    let clip = self.section.map(|s| (inv.transform_point3(s.origin), inv.transform_vector3(s.normal)));
+                    let Some((t, tri, n_local)) = ray_mesh(o, d, &part.mesh, ray.t_min, clip) else { continue };
                     // t is in units of the local direction: re-measure it in the world.
                     let point = p.transform.transform_point3(o + d * t);
                     let world_t = (point - ray.origin).dot(ray.dir);
@@ -265,28 +283,45 @@ impl DisplayScene {
     }
 }
 
+/// A part drawn under an occurrence ([`solids_under`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Under {
+    pub part: Id,
+    /// Part to world.
+    pub transform: DAffine3,
+    /// The material its faces take there.
+    pub material: Option<Id>,
+}
+
 /// Where the parts under `entity` (an occurrence of the assembly `context_path` leads into)
-/// are drawn: `(part, part, world transform)`. For an assembly's occurrence, every part below
-/// it, at any depth.
-pub fn solids_under(doc: &Document, context_path: &[Id], entity: Id) -> Vec<(Id, Id, DAffine3)> {
+/// are drawn. For an assembly's occurrence, every part below it, at any depth.
+pub fn solids_under(doc: &Document, context_path: &[Id], entity: Id) -> Vec<Under> {
     let mut out = Vec::new();
     let (Ok(ctx), Ok(t)) = (doc.context_of(context_path), doc.transform_of(context_path)) else { return out };
     let Some(o) = doc.assembly(ctx).ok().and_then(|a| a.occurrence(entity)) else { return out };
-    fn walk(doc: &Document, component: Id, t: DAffine3, out: &mut Vec<(Id, Id, DAffine3)>, depth: usize) {
+    // The material the assemblies above the context give.
+    let mut inherited = None;
+    let mut at = doc.root();
+    for &i in context_path {
+        let Some(occ) = doc.assembly(at).ok().and_then(|a| a.occurrence(i)) else { break };
+        inherited = occ.material.or(inherited);
+        at = occ.component;
+    }
+    fn walk(doc: &Document, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
         if depth > MAX_DEPTH {
             return;
         }
         match doc.component(component).map(|c| &c.kind) {
-            Ok(ComponentKind::Part(_)) => out.push((component, component, t)),
+            Ok(ComponentKind::Part(_)) => out.push(Under { part: component, transform: t, material }),
             Ok(ComponentKind::Assembly(a)) => {
                 for o in &a.occurrences {
-                    walk(doc, o.component, t * o.transform, out, depth + 1);
+                    walk(doc, o.component, t * o.transform, o.material.or(material), out, depth + 1);
                 }
             }
             Err(_) => {}
         }
     }
-    walk(doc, o.component, t * o.transform, &mut out, 0);
+    walk(doc, o.component, t * o.transform, o.material.or(inherited), &mut out, 0);
     out
 }
 
@@ -339,8 +374,10 @@ pub(crate) fn ray_box(o: DVec3, d: DVec3, (lo, hi): (DVec3, DVec3), t_min: f64) 
     true
 }
 
-/// The nearest triangle of `m` along `o + t·d`: (t, triangle, geometric normal).
-fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64) -> Option<(f64, usize, DVec3)> {
+/// The nearest triangle of `m` along `o + t·d`: (t, triangle, geometric normal); a point
+/// `clip` (a plane's point and normal) cuts away is not a hit.
+fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64, clip: Option<(DVec3, DVec3)>) -> Option<(f64, usize, DVec3)> {
+    let clip = clip.map(|(p, n)| (p - m.origin, n));
     let o = o - m.origin;
     let v = |i: u32| m.positions.get(i as usize).map(|p| DVec3::new(p[0] as f64, p[1] as f64, p[2] as f64));
     let mut best: Option<(f64, usize, DVec3)> = None;
@@ -366,6 +403,9 @@ fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64) -> Option<(f64, usize, DVe
         }
         let t = e2.dot(q) * inv;
         if t < t_min || best.is_some_and(|(bt, _, _)| bt <= t) {
+            continue;
+        }
+        if clip.is_some_and(|(p, n)| (o + d * t - p).dot(n) > 0.0) {
             continue;
         }
         best = Some((t, k, e1.cross(e2)));

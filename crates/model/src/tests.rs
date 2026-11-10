@@ -482,3 +482,77 @@ fn only_this_one_makes_the_way_to_it_unique() {
     assert_eq!(h.document().part(part).unwrap().machinings.len(), 1);
     assert_eq!(h.document().resolve_part(&EntityPath::root(loose)).unwrap().0, part);
 }
+
+#[test]
+fn materials_paint_occurrences_assemblies_and_faces() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
+    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    let walnut = h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap().material.unwrap();
+    assert_eq!(h.document().materials().count(), 2);
+
+    // An occurrence painted: its placed part takes the material, the other does not.
+    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
+    let placed = |h: &History, o: Id| h.document().placed_parts().into_iter().find(|p| p.path.entity == o).unwrap().material;
+    assert_eq!(placed(&h, a), Some(oak));
+    assert_eq!(placed(&h, b), None);
+
+    // An assembly painted paints the parts in it that have no material of their own.
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
+    h.apply(Operation::PaintOccurrences { context: root, entities: vec![asm], material: Some(walnut) }).unwrap();
+    assert_eq!(placed(&h, a), Some(oak));
+    assert_eq!(placed(&h, b), Some(walnut));
+
+    // A face of a part: kept by the part (every occurrence), refused past the last face.
+    let part = h.document().placed_parts().into_iter().find(|p| p.path.entity == b).unwrap().part;
+    h.apply(Operation::PaintFaces { part, faces: vec![0, 2], material: Some(oak) }).unwrap();
+    assert_eq!(h.document().part(part).unwrap().faces.len(), 2);
+    assert!(h.apply(Operation::PaintFaces { part, faces: vec![6], material: Some(oak) }).is_err());
+    h.apply(Operation::PaintFaces { part, faces: vec![2], material: None }).unwrap();
+    assert_eq!(h.document().part(part).unwrap().faces.keys().copied().collect::<Vec<_>>(), [0]);
+
+    // Recolouring in a row is one step; the file keeps it all.
+    let before = h.document().clone();
+    h.apply(Operation::EditMaterial { material: oak, name: "Chêne".into(), color: [190, 150, 100] }).unwrap();
+    h.apply(Operation::EditMaterial { material: oak, name: "Chêne".into(), color: [200, 160, 110] }).unwrap();
+    assert_eq!(h.document().material(oak).unwrap().color, [200, 160, 110]);
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(&back, h.document());
+    assert!(h.undo());
+    assert_eq!(h.document(), &before, "both recolourings undo together");
+
+    // Deleting a material unpaints what used it.
+    h.apply(Operation::DeleteMaterial { material: oak }).unwrap();
+    assert_eq!(placed(&h, a), Some(walnut), "the assembly's material shows through");
+    assert!(h.document().part(part).unwrap().faces.is_empty());
+    assert!(h.apply(Operation::PaintOccurrences { context: root, entities: vec![asm], material: Some(oak) }).is_err());
+}
+
+#[test]
+fn a_file_with_an_unknown_material_is_refused() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let m = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(m) }).unwrap();
+    let json = h.document().to_json().unwrap();
+    let broken = json.replace(&format!("\"material\":{}", m.0), "\"material\":999");
+    assert_ne!(broken, json);
+    assert!(Document::from_json(&broken).is_err());
+}
+
+#[test]
+fn the_section_is_a_setting() {
+    let mut h = History::new(Document::new());
+    let mut s = h.document().settings().clone();
+    assert!(s.display.silhouettes && s.display.active_section().is_none());
+    s.display.section = Some(Section { origin: DVec3::new(0.0, 0.0, 5.0), normal: DVec3::Z });
+    s.display.section_active = true;
+    h.apply(Operation::SetSettings(s)).unwrap();
+    let sec = h.document().settings().display.active_section().unwrap();
+    assert!(sec.cuts(DVec3::new(0.0, 0.0, 6.0)) && !sec.cuts(DVec3::new(0.0, 0.0, 4.0)));
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.settings(), h.document().settings());
+}

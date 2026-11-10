@@ -14,14 +14,14 @@ mod settings;
 mod tests;
 
 pub use document::{
-    Assembly, Component, ComponentKind, Document, EntityPath, Id, MAX_DEPTH, Machining, MachiningSource, Occurrence, Part,
+    Assembly, Component, ComponentKind, Document, EntityPath, Id, MAX_DEPTH, Machining, MachiningSource, Material, Occurrence, Part,
     PlacedPart,
 };
 pub use file::{FORMAT, VERSION};
 pub use history::History;
 pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope};
 pub use solidsketch_kernel::Primitive;
-pub use settings::{Display, LengthUnit, Settings, Units};
+pub use settings::{Display, LengthUnit, Section, Settings, Units};
 pub use solidsketch_kernel as kernel;
 use solidsketch_i18n::t;
 
@@ -59,6 +59,8 @@ pub enum Refusal {
     RootPlaced,
     /// A part is not combined with itself.
     SelfBoolean,
+    /// A face index past the part's faces (§7 quater).
+    NoSuchFace,
 }
 
 /// A file that cannot be opened.
@@ -80,6 +82,9 @@ pub enum FileError {
     /// A part whose shape is there without machinings, or missing with some.
     ShapeOutOfStep(Id),
     DuplicateOccurrence { occurrence: Id, assembly: Id },
+    BadMaterialId(Id),
+    /// Something painted with a material the document does not have.
+    UnknownMaterial(Id),
 }
 
 impl std::fmt::Display for Error {
@@ -110,6 +115,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NotExploded => t!("error.model.not_exploded"),
             Refusal::RootPlaced => t!("error.model.root_placed"),
             Refusal::SelfBoolean => t!("error.model.self_boolean"),
+            Refusal::NoSuchFace => t!("error.model.no_such_face"),
         })
     }
 }
@@ -127,6 +133,8 @@ impl std::fmt::Display for FileError {
             FileError::BadOccurrenceId(id) => t!("error.file.bad_occurrence_id", id = id),
             FileError::Misfiled { id, key } => t!("error.file.misfiled", id = id, key = key),
             FileError::ShapeOutOfStep(id) => t!("error.file.shape_out_of_step", id = id),
+            FileError::BadMaterialId(id) => t!("error.file.bad_material_id", id = id),
+            FileError::UnknownMaterial(id) => t!("error.file.unknown_material", id = id),
             FileError::DuplicateOccurrence { occurrence, assembly } => {
                 t!("error.file.duplicate_occurrence", occurrence = occurrence, assembly = assembly)
             }

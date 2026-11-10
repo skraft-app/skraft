@@ -73,6 +73,15 @@ impl Document {
             Ok(())
         };
         let below = |id: Id| if id.0 < self.next_id { Ok(()) } else { Err(Error::File(FileError::BadOccurrenceId(id))) };
+        for id in self.materials.keys() {
+            if id.0 >= self.next_id {
+                return Err(Error::File(FileError::BadMaterialId(*id)));
+            }
+        }
+        let material = |m: &Option<Id>| match m {
+            Some(id) if !self.materials.contains_key(id) => Err(Error::File(FileError::UnknownMaterial(*id))),
+            _ => Ok(()),
+        };
         for (key, c) in &self.components {
             if *key != c.id {
                 return Err(Error::File(FileError::Misfiled { id: c.id, key: *key }));
@@ -83,6 +92,9 @@ impl Document {
                     for m in &p.machinings {
                         fresh(m.id, FileError::BadMachiningId)?;
                     }
+                    for m in p.faces.values() {
+                        material(&Some(*m))?;
+                    }
                     if p.machinings.is_empty() != p.shape.is_none() {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
@@ -91,6 +103,7 @@ impl Document {
                     let mut here = std::collections::HashSet::new();
                     for o in &a.occurrences {
                         below(o.id)?;
+                        material(&o.material)?;
                         if !here.insert(o.id) {
                             return Err(Error::File(FileError::DuplicateOccurrence { occurrence: o.id, assembly: c.id }));
                         }
@@ -172,14 +185,14 @@ mod v1 {
                 for e in d.entities {
                     occurrences.push(match e {
                         Entity::Instance { id, name, definition, transform } => {
-                            Occurrence { id, name, component: definition, transform }
+                            Occurrence { id, name, component: definition, transform, material: None }
                         }
                         Entity::Solid { id, name, solid } => {
                             let part = Id(next_id);
                             next_id += 1;
                             let kind = ComponentKind::Part(Part::new(solid));
                             components.insert(part, Arc::new(Component { id: part, name: unique(&name), named: false, kind }));
-                            Occurrence { id, name: String::new(), component: part, transform: DAffine3::IDENTITY }
+                            Occurrence { id, name: String::new(), component: part, transform: DAffine3::IDENTITY, material: None }
                         }
                     });
                 }
@@ -187,7 +200,7 @@ mod v1 {
                 let kind = ComponentKind::Assembly(Assembly { occurrences });
                 components.insert(d.id, Arc::new(Component { id: d.id, name: d.name, named, kind }));
             }
-            Ok(super::Document { components, root: self.root, next_id, settings: self.settings })
+            Ok(super::Document { components, root: self.root, next_id, settings: self.settings, materials: Default::default() })
         }
     }
 }

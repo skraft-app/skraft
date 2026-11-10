@@ -19,6 +19,7 @@ solidsketch-i18n.workspace = true
 solidsketch-model.workspace = true
 solidsketch-render.workspace = true
 solidsketch-tools.workspace = true
+solidsketch-theme.workspace = true
 glam.workspace = true
 egui.workspace = true
 eframe.workspace = true
@@ -35,6 +36,8 @@ solidsketch-kernel = { workspace = true, features = ["engine"] }
 rfd.workspace = true
 env_logger = "0.11"
 dirs = "6"
+# Screenshots of the control channel (src/control.rs).
+png = "0.17"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rfd.workspace = true

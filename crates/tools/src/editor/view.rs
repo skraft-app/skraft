@@ -2,7 +2,7 @@
 //! lines and the inferred point.
 
 use glam::{DAffine3, DVec3};
-use solidsketch_model::Id;
+use solidsketch_model::{Id, Section};
 
 use super::Editor;
 use crate::infer::InferKind;
@@ -28,6 +28,8 @@ pub struct ViewPlacement {
     pub transform: DAffine3,
     /// Outside the context being edited (drawn faded).
     pub faded: bool,
+    /// The material its faces take.
+    pub material: Option<Id>,
 }
 
 /// One solid of one occurrence drawn again, marked.
@@ -38,6 +40,8 @@ pub struct ViewHighlight {
     pub solid: Id,
     pub transform: DAffine3,
     pub mark: Mark,
+    /// The material the part takes there.
+    pub material: Option<Id>,
 }
 
 /// What the viewport draws this frame (meshes come from [`Editor::scene`]).
@@ -50,6 +54,8 @@ pub struct View {
     pub inference: Option<(DVec3, InferKind)>,
     /// The selection rectangle being dragged (the app draws it).
     pub marquee: Option<Marquee>,
+    /// The section to draw: a tool's preview, else the document's active one.
+    pub section: Option<Section>,
 }
 
 impl Editor {
@@ -76,13 +82,23 @@ impl Editor {
         for (def, places) in self.scene.placements() {
             let ps = places
                 .iter()
-                .map(|p| ViewPlacement { transform: p.transform, faded: !p.path.starts_with(&self.context) })
+                .map(|p| ViewPlacement {
+                    transform: p.transform,
+                    faded: !p.path.starts_with(&self.context),
+                    material: p.material,
+                })
                 .collect();
             v.batches.push((def, ps));
         }
         let mark = |out: &mut Vec<ViewHighlight>, ctx: &[Id], id: Id, m: Mark, extra: DAffine3| {
-            for (definition, solid, t) in solids_under(doc, ctx, id) {
-                out.push(ViewHighlight { definition, solid, transform: extra * t, mark: m });
+            for u in solids_under(doc, ctx, id) {
+                out.push(ViewHighlight {
+                    definition: u.part,
+                    solid: u.part,
+                    transform: extra * u.transform,
+                    mark: m,
+                    material: u.material,
+                });
             }
         };
         let preview = self.preview();
@@ -107,7 +123,13 @@ impl Editor {
             && let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part)
         {
             for p in places.iter().filter(|p| p.entity_path() != *aimed) {
-                v.highlights.push(ViewHighlight { definition: part, solid: part, transform: p.transform, mark: Mark::Related });
+                v.highlights.push(ViewHighlight {
+                    definition: part,
+                    solid: part,
+                    transform: p.transform,
+                    mark: Mark::Related,
+                    material: p.material,
+                });
             }
         }
         if let Some(g) = preview.ghost {
@@ -127,6 +149,7 @@ impl Editor {
         }
         v.inference = preview.inference.map(|i| (i.point, i.kind));
         v.marquee = preview.marquee;
+        v.section = preview.section.or_else(|| doc.settings().display.active_section());
         v
     }
 }

@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 use solidsketch_model::Settings;
+use solidsketch_theme::Choice;
 use solidsketch_tools::OptionValues;
 
 /// The version this build writes.
@@ -28,6 +29,12 @@ pub struct Preferences {
     pub tool_options: BTreeMap<String, OptionValues>,
     /// The language of the app, a locale of /locales (`fr`).
     pub locale: String,
+    /// The interface's theme (§7 quater): the system's, light or dark.
+    pub theme: Choice,
+    /// Shortcuts changed by the user, by command id (`Cmd+Shift+Z`; empty: none).
+    pub shortcuts: BTreeMap<String, String>,
+    /// The materials panel is shown.
+    pub show_materials: bool,
 }
 
 impl Default for Preferences {
@@ -38,6 +45,9 @@ impl Default for Preferences {
             new_model: Settings::default(),
             tool_options: BTreeMap::new(),
             locale: solidsketch_i18n::DEFAULT_LOCALE.to_owned(),
+            theme: Choice::System,
+            shortcuts: BTreeMap::new(),
+            show_materials: true,
         }
     }
 }

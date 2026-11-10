@@ -18,6 +18,8 @@ key:
   option: "Option"
   ctrl: "Ctrl"
   shift: "Maj"
+  # Off macOS (macOS shows ⌥).
+  alt: "Alt"
   space: "Espace"
   delete: "Suppr"
 
@@ -42,12 +44,18 @@ menu:
     make_assembly: "Créer un assemblage"
     explode: "Éclater"
     make_unique: "Faire une pièce à part"
+    select_all: "Tout sélectionner"
+    command_palette: "Palette de commandes"
     preferences: "Préférences"
   view:
     title: "Vue"
     parallel: "Projection parallèle"
     grid: "Grille"
     axes: "Axes"
+    silhouettes: "Silhouettes"
+    section: "Afficher la coupe"
+    section_clear: "Supprimer la coupe"
+    materials: "Panneau Matières"
     top: "Dessus"
     front: "Face"
     right: "Droite"
@@ -63,26 +71,20 @@ menu:
   debug:
     title: "Débogage"
     crash_kernel: "Faire planter le noyau"
-    crash_kernel_tip: "Teste la reprise après une panique du noyau"
 
-# The tool bar's tooltips.
+# The tool bar's tooltips: a command's label and shortcut, and a hint for some.
 toolbar:
-  select: "Sélection (%{shortcut})"
-  box: "Boîte (%{shortcut})"
-  cylinder: "Cylindre (%{shortcut})"
-  move: "Déplacer (%{shortcut}) · %{copy_key} : copier · flèches : axe"
-  rotate: "Faire pivoter (%{shortcut}) · %{copy_key} : copier · flèches : axe"
-  union: "Union : cible, puis outil"
-  difference: "Soustraire : cible, puis outil"
-  intersection: "Intersecter : cible, puis outil"
-  make_assembly: "Créer un assemblage (%{shortcut})"
-  explode: "Éclater"
-  make_unique: "Faire une pièce à part"
-  erase: "Effacer (%{shortcut})"
-  undo: "Annuler (%{shortcut})"
-  redo: "Rétablir (%{shortcut})"
-  zoom_extents: "Zoom étendu (%{shortcut})"
+  with_shortcut: "%{label} (%{shortcut})"
+  with_hint: "%{tip} · %{hint}"
+  copy_hint: "%{copy_key} : copier · flèches : axe"
+  boolean_hint: "cible, puis outil"
   perspective: "Perspective / parallèle"
+
+# The command palette (Cmd/Ctrl+K).
+palette:
+  title: "Palette de commandes"
+  hint: "Commande"
+  none: "Aucune commande"
 
 # The bar above the view: the active tool's name and options.
 option_bar:
@@ -95,6 +97,8 @@ prefs:
     general: "Général"
     model: "Modèle"
     navigation: "Navigation"
+    interface: "Interface"
+    shortcuts: "Raccourcis"
   general:
     language: "Langue"
   model:
@@ -102,6 +106,8 @@ prefs:
     display: "Affichage"
     grid: "Grille"
     axes: "Axes"
+    silhouettes: "Silhouettes"
+    silhouettes_tip: "Le contour apparent des faces courbes"
     background: "Fond"
     units: "Unités"
     lengths: "Longueurs"
@@ -128,6 +134,17 @@ prefs:
       target: "Cible"
       to_cursor: "vers le curseur"
     defaults: "Valeurs par défaut"
+  interface:
+    theme: "Thème"
+    system: "Système"
+    light: "Clair"
+    dark: "Sombre"
+    panels: "Panneaux"
+    background_note: "La couleur de fond de la vue est un réglage du modèle (onglet Modèle)."
+  shortcuts:
+    intro: "Cliquer « Modifier », puis taper le raccourci (Échap : annuler, ⌫ : aucun)."
+    edit: "Modifier"
+    default: "Défaut"
 
 panel:
   entity_info:
@@ -146,8 +163,17 @@ panel:
     topology: "Topologie"
     topology_counts: "%{faces} faces · %{edges} arêtes · %{vertices} sommets"
     position: "Position"
+    material: "Matière"
     selected: "%{count} sélectionné"
     selected_plural: "%{count} sélectionnés"
+  materials:
+    title: "Matières"
+    none: "Aucune"
+    new: "Nouvelle matière"
+    paint_tip: "Peindre avec cette matière"
+    unpaint_tip: "Dépeindre : le pot de peinture retire la matière"
+    color_tip: "Couleur"
+    delete_tip: "Supprimer (ce qui en est peint ne l'est plus)"
   outliner:
     title: "Arborescence"
     empty: "Modèle vide : dessiner une boîte (%{shortcut})"
@@ -159,6 +185,9 @@ status:
   save_failed: "Enregistrement impossible : %{error}"
   open_failed: "%{file} : %{error}"
   prefs_not_saved: "Préférences non enregistrées : %{error}"
+  control_failed: "Canal de pilotage : %{error}"
+  command_unknown: "commande inconnue « %{id} »"
+  command_unavailable: "« %{id} » n'est pas disponible maintenant"
   # « calcul en cours… (Échap pour abandonner) »: the code joins them with the ellipsis.
   computing: "%{op} : calcul en cours"
   computing_cancel: "(Échap pour abandonner)"
@@ -268,6 +297,24 @@ tool:
       all_tip: "La pièce elle-même : tous ses exemplaires changent"
       this: "Celui-ci"
       this_tip: "Seulement l'exemplaire cliqué : il devient une pièce à part (et son assemblage, s'il est copié)"
+  paint:
+    name: "Peindre"
+    hint: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre) · Tab : l'exemplaire / la face"
+    outside: "Hors de l'élément en cours d'édition"
+    option:
+      target: "Peindre"
+      target_tip: "Ce qu'un clic peint (Tab pour changer)"
+      occurrence: "L'exemplaire"
+      occurrence_tip: "L'exemplaire cliqué, ou toute la sélection s'il en fait partie"
+      face: "La face"
+      face_tip: "La face cliquée, sur tous les exemplaires de sa pièce"
+  section:
+    name: "Plan de coupe"
+    hint:
+      face: "Cliquer une face : le plan de coupe s'y pose"
+      depth: "Déplacer pour enfoncer le plan, ou taper la profondeur ; cliquer pour le poser"
+    vcb:
+      depth: "Profondeur"
   # The measurements box refusing what was typed.
   vcb:
     refused: "%{label} — « %{text} » : %{error}"
@@ -319,6 +366,10 @@ operation:
   difference: "Soustraction"
   intersection: "Intersection"
   settings: "Réglages du modèle"
+  add_material: "Nouvelle matière"
+  edit_material: "Modifier la matière"
+  delete_material: "Supprimer la matière"
+  paint: "Peindre"
 
 unit:
   millimeter: "Millimètres"
@@ -336,6 +387,7 @@ default_name:
   sphere: "Sphère"
   cone: "Cône"
   torus: "Tore"
+  material: "Matière %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"
 
@@ -373,6 +425,7 @@ error:
     not_exploded: "seul un assemblage s'éclate"
     root_placed: "le modèle ne se place pas"
     self_boolean: "une pièce ne se combine pas avec elle-même"
+    no_such_face: "pas de telle face"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"
@@ -386,6 +439,8 @@ error:
     misfiled: "composant %{id} rangé sous %{key}"
     shape_out_of_step: "pièce %{id} : forme sans rapport avec ses usinages"
     duplicate_occurrence: "exemplaire %{occurrence} en double dans %{assembly}"
+    bad_material_id: "identifiant de matière %{id} invalide"
+    unknown_material: "matière %{id} inconnue"
   # Reading or writing a file of the disk (a document, the preferences).
   io: "%{path} : %{error}"
   # The kernel failing (its own messages, from SolidCore, stay in English).

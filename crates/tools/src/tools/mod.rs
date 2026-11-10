@@ -3,13 +3,17 @@
 
 mod boolean;
 mod mover;
+mod paint;
 mod rotate;
+mod section;
 mod select;
 mod shapes;
 
 pub use boolean::BooleanTool;
 pub use mover::MoveTool;
+pub use paint::PaintTool;
 pub use rotate::RotateTool;
+pub use section::SectionTool;
 pub use select::SelectTool;
 pub use shapes::{BoxTool, CylinderTool};
 
@@ -18,7 +22,7 @@ use std::collections::BTreeMap;
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
-use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Units};
+use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Section, Units};
 
 use crate::camera::{Camera, Ray};
 use crate::infer::{self, EdgeRef, InferKind, Inference, LineKind, Lock, Query};
@@ -114,6 +118,8 @@ pub struct Preview {
     /// The occurrence a change is aimed at, when it reaches every occurrence of its part: the
     /// others are marked too (ARCHITECTURE.md §2.5).
     pub propagate: Option<EntityPath>,
+    /// A section being placed, drawn instead of the document's (§7 quater).
+    pub section: Option<Section>,
 }
 
 // ---- options (ARCHITECTURE.md §6 bis, the tool's option bar) ---------------------------------
@@ -179,6 +185,10 @@ pub enum ToolKind {
     Move,
     Rotate,
     Boolean(Boolean),
+    /// Paints occurrences or faces (§7 quater).
+    Paint,
+    /// Places the section plane (§7 quater).
+    Section,
 }
 
 impl ToolKind {
@@ -193,6 +203,8 @@ impl ToolKind {
             ToolKind::Boolean(Boolean::Union) => "union",
             ToolKind::Boolean(Boolean::Difference) => "difference",
             ToolKind::Boolean(Boolean::Intersection) => "intersection",
+            ToolKind::Paint => "paint",
+            ToolKind::Section => "section",
         }
     }
 
@@ -207,6 +219,8 @@ impl ToolKind {
             ToolKind::Boolean(Boolean::Union) => t!("tool.boolean.union.name"),
             ToolKind::Boolean(Boolean::Difference) => t!("tool.boolean.difference.name"),
             ToolKind::Boolean(Boolean::Intersection) => t!("tool.boolean.intersection.name"),
+            ToolKind::Paint => t!("tool.paint.name"),
+            ToolKind::Section => t!("tool.section.name"),
         }
     }
 }
@@ -234,6 +248,8 @@ pub struct Cx<'a> {
     pub reference: Option<EdgeRef>,
     /// The active tool's saved settings.
     pub options: &'a OptionValues,
+    /// The material the paint tool paints with (none: it removes paint).
+    pub material: Option<Id>,
 }
 
 impl Cx<'_> {
@@ -455,6 +471,8 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Move => Box::new(MoveTool::default()),
         ToolKind::Rotate => Box::new(RotateTool::default()),
         ToolKind::Boolean(op) => Box::new(BooleanTool::new(op)),
+        ToolKind::Paint => Box::new(PaintTool::default()),
+        ToolKind::Section => Box::new(SectionTool::default()),
     }
 }
 
@@ -468,16 +486,16 @@ fn with_copying(hint: String, copying: bool) -> String {
     if copying { format!("{hint} {}", t!("tool.copying")) } else { hint }
 }
 
-/// Neutral colour of construction lines.
-pub const INK: [f32; 4] = [0.05, 0.05, 0.08, 1.0];
+/// Neutral colour of construction lines (the theme's tokens, §7 quater).
+pub const INK: [f32; 4] = solidsketch_theme::GUIDE_INK;
 /// Axis colours (SketchUp's red, green, blue).
-pub const RED: [f32; 4] = [0.85, 0.05, 0.05, 1.0];
-pub const GREEN: [f32; 4] = [0.05, 0.6, 0.05, 1.0];
-pub const BLUE: [f32; 4] = [0.05, 0.1, 0.85, 1.0];
+pub const RED: [f32; 4] = solidsketch_theme::AXIS_X;
+pub const GREEN: [f32; 4] = solidsketch_theme::AXIS_Y;
+pub const BLUE: [f32; 4] = solidsketch_theme::AXIS_Z;
 /// Parallel and perpendicular guides (SketchUp's magenta).
-pub const MAGENTA: [f32; 4] = [0.8, 0.05, 0.75, 1.0];
+pub const MAGENTA: [f32; 4] = solidsketch_theme::FREE_LINE;
 /// The highlight colour of picked things.
-pub const PICK: [f32; 4] = [0.85, 0.35, 0.0, 1.0];
+pub const PICK: [f32; 4] = solidsketch_theme::PICK;
 
 /// A small cross marking a point, sized for the screen.
 pub fn cross(cx: &Cx<'_>, p: DVec3, color: [f32; 4]) -> Vec<PreviewLine> {

@@ -265,7 +265,9 @@ Decided on 2026-11-09.
   `egui_extras` (`svg`): no build step, no binary asset.
 - **SketchUp shortcuts**: Space = Select, M = Move, Q = Rotate, G = Make assembly, Delete =
   Erase, Cmd/Ctrl+Z / Shift+Cmd+Z = Undo / Redo, Shift+Z = Zoom extents; ours: R = Box,
-  C = Cylinder, Cmd/Ctrl+1…6 = standard views, Cmd/Ctrl+, = Preferences. Once a digit is typed
+  C = Cylinder, B = Paint, Cmd/Ctrl+K = command palette, Cmd/Ctrl+1…6 = standard views,
+  Cmd/Ctrl+, = Preferences. They all come from the command registry (§7 quater) and can be
+  changed in the preferences. Once a digit is typed
   (or `@ ( [ < + - * / ;`), keystrokes go to the VCB, confirmed by Enter. Menus and tooltips
   write shortcuts as the platform does (§6 quater).
 - The viewport is the image of `render`'s off-screen target, registered as an egui texture;
@@ -454,6 +456,7 @@ error = e)`. The code holds no user-visible string.
 | Crate | Role | Depends on |
 |---|---|---|
 | `crates/i18n` — `solidsketch-i18n` | The texts (§6 quater): the `/locales` catalogs compiled in, `t!` / `tp!`, the current locale, plurals, decimal separator, platform key names. | `rust-i18n` |
+| `crates/theme` — `solidsketch-theme` | The colour tokens (§7 quater), light and dark themes, sRGB ↔ linear. No UI toolkit. | `serde` |
 | `crates/kernel` — `solidsketch-kernel` | `Solid` (record), primitives, booleans, transformation, face offset, display mesh (`Mesh`: positions, normals, indices, B-rep face per triangle, edges). Runs each call on a fresh `Kernel` and catches its panics. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `glam`, `i18n` |
 | `crates/model` — `solidsketch-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, versioned JSON file, reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
 | `crates/render` — `solidsketch-render` | wgpu pipelines (shaded faces, edges, grid, axes, highlight, previews), GPU cache of meshes per part, drawing of a list of `DrawItem { mesh, transform, style }` with a view-projection matrix. Knows neither egui nor the document. Usable off screen. | `kernel` (for `Mesh`), `wgpu`, `glam` |
@@ -552,6 +555,94 @@ wasm) only kills the worker.
 - **Testing the recovery**: **Debug › Crash the kernel** menu (task `Task::Panic`, followed by a
   normal task that must succeed). The menu is turned on at launch, in any build: `?debug` in the
   page's address, `SOLIDSKETCH_DEBUG` in the environment on the desktop.
+
+## 7 quater. Taken from SolidCraft: rendering and interface
+
+Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIEW.md`.
+
+### Still image
+
+- `Renderer::render` computes a **fingerprint** of everything the picture depends on:
+  `Frame` (view, projection, background, style, batches, highlights, lines, grid, axes,
+  pixel density, section), the target size, and a generation counter bumped by every mesh
+  upload and target change. Same fingerprint as the last picture: nothing is encoded, the
+  target keeps it, `render` returns `false`. A still view costs no GPU work.
+
+### Theme
+
+- **`crates/theme`** (no egui, like `render`): named **tokens** in linear RGBA — default front
+  and back faces, edge ink, highlights (selected, hover, picked, ghost, other occurrences),
+  fading outside the context, section cap shade, axes, selection rectangle, inference markers,
+  tooltip. Two themes, **light** and **dark**; the app sets egui's theme from the user's
+  `theme` preference (system by default, light, dark). The background colour stays a
+  **document setting** (its style, as in SketchUp).
+- `render` keeps no colour of its own: faces and ink come in `Frame::style`.
+
+### Palette and materials
+
+- **Model**: `Document.materials: Id → Material { name, color }` (sRGB);
+  `Occurrence.material: Option<Id>` (the copy's material, as in OpenCutList; an assembly's
+  occurrence paints the parts below it that have none); `Part.faces: BTreeMap<u32, Id>`, the
+  material of single **faces** of the part's final B-rep (so of all its occurrences).
+  Priority: face > occurrence > the theme's default; back faces keep the back colour.
+  **Accepted limit**: a face is named by its index in the record, which a boolean renumbers
+  (risk 5); an index past the solid's faces is ignored.
+- Operations: `AddMaterial`, `EditMaterial` (name, colour; dragging a colour merges into one
+  step), `DeleteMaterial` (unpaints what used it), `PaintOccurrences`, `PaintFaces`. None
+  calls the kernel. A file painting with an unknown material is refused.
+- **Rendering**: a **palette** (a storage buffer of linear RGBA); each instance carries a
+  palette index, each vertex the index of its painted face (or none). Changing a material's
+  colour rewrites only the palette; painting an occurrence only the instances (rewritten each
+  frame); painting a face re-uploads that one part's mesh. The app gives each material a
+  palette slot for the session, never reused, so baked face indices stay valid.
+- **Interface**: the **Paint** tool (B, as in SketchUp), option « Peindre : l'exemplaire / la
+  face » in its bar (Tab switches); the **Materials** panel (list, colour, name, add, delete,
+  the current material — picking one starts the paint tool); the occurrence's material in
+  the entity info.
+
+### Silhouettes
+
+- **Geometric, in the shader**: when a mesh is uploaded, `render` collects every mesh edge
+  shared by two triangles (vertices welded by position) that is not a B-rep edge and whose
+  normals differ, with both normals. The lines' vertex shader draws it only where one
+  triangle faces the eye and the other does not: the outline of a curved surface (a
+  cylinder's sides). Same wide lines as edges. Document setting `display.silhouettes` (on by
+  default).
+
+### Section view
+
+- **One plane** in the document settings: `display.section: Option<Section { origin, normal
+  }>` in world coordinates, and `display.section_active`. What lies on the side the normal
+  points to is cut away. Changing it is a `SetSettings` (undoable).
+- **Cut** in the fragment shader (faces, edges, silhouettes); the plane is passed in camera
+  coordinates (computed in `f64`).
+- **Cap without a stencil**: our parts are closed B-reps, so through the cut only their back
+  shows. A back-facing fragment, section on, is painted as the plane: the part's colour
+  (its material), flat and darker, at the depth of the plane along the pixel's ray
+  (`frag_depth`). One pass, a colour per part, exact. (The stencil first proposed gave one
+  colour to the whole cap.) Writing the depth drops the faces' depth bias, so a second face
+  pipeline is used only while a section is on. Hatches later.
+- **Picking and inferences** ignore what is cut away.
+- **Section plane tool**: click a face → the plane lies on it, normal outwards; move the
+  cursor to sink it along the normal, a second click (or a typed depth) places it.
+  *View › Show section* toggles it, *View › Remove section* removes it.
+
+### Command registry and external driving
+
+- `apps/solidsketch/src/commands.rs`: every command has a **stable id** (`edit.undo`,
+  `tool.move`, `view.top`…), a label (a catalog text), its menu and a default shortcut. The
+  app says whether it is enabled (or checked) and runs it. Menus, tool bar and keyboard come
+  from it (the active tool's own keys — Esc, arrows, Tab, Delete, typed values — stay apart).
+- **Changeable shortcuts**: preference `shortcuts: id → shortcut` (absent = default, empty
+  = none), *Shortcuts* tab of the preferences (conflicts flagged). **Command palette**:
+  Cmd/Ctrl+K, searches labels and ids (accents ignored), Enter runs.
+- **External driving** (desktop): an HTTP server on the **loopback** interface
+  (127.0.0.1:7858, `SOLIDSKETCH_CONTROL_PORT`), **off by default**, started by
+  `SOLIDSKETCH_CONTROL=1`. The header `X-SolidSketch: 1` is required (CSRF guard, as the
+  Claude Bridge). `GET /ping`, `GET /commands` (ids, labels, enabled, checked, shortcut),
+  `POST /run` (body: an id), `GET /state` (tool, context, selection, status, revision,
+  modified), `GET /screenshot` (the view, as a PNG). Each request is handed to the UI thread,
+  which answers at its next frame.
 
 ## 8. File
 

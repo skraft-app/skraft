@@ -731,8 +731,12 @@ fn near_ray(camera: &Camera, size: DVec2, ray: &Ray, (lo, hi): (DVec3, DVec3)) -
     ray_box(ray.origin, ray.dir, (lo - pad, hi + pad), ray.t_min)
 }
 
-/// Is `p` seen from the camera: does nothing stand before it on its own ray?
+/// Is `p` seen from the camera: not cut away by the section, and nothing before it on its
+/// own ray?
 fn visible(scene: &DisplayScene, camera: &Camera, size: DVec2, screen: &Projector, p: DVec3, q: &Query<'_>) -> bool {
+    if scene.section().is_some_and(|s| s.cuts(p)) {
+        return false;
+    }
     let Some(s) = screen.project(p) else { return false };
     let ray = camera.ray(s, size);
     let depth = (p - ray.origin).dot(ray.dir);

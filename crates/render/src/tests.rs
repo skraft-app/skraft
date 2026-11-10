@@ -68,9 +68,9 @@ fn scene(
     let cube = Solid::new_box(offset, DVec3::splat(10.0)).unwrap().mesh().unwrap();
     let cyl = Solid::new_cylinder(offset + DVec3::new(5.0, 5.0, 10.0), 3.0, 8.0).unwrap().mesh().unwrap();
     // The revision changes with the offset: the definition's mesh is re-uploaded.
-    r.set_mesh(device, 7, offset.x.to_bits(), &[Part { id: 1, mesh: &cube }, Part { id: 2, mesh: &cyl }]);
+    r.set_mesh(device, 7, offset.x.to_bits(), &[Part { id: 1, mesh: &cube, face_paint: &[] }, Part { id: 2, mesh: &cyl, face_paint: &[] }]);
     let at = |i: i32| DMat4::from_translation(DVec3::new(i as f64 * 20.0 - 25.0, 0.0, 0.0));
-    let placements = (0..3).map(|i| Placement { transform: at(i), tint: NO_TINT }).collect();
+    let placements = (0..3).map(|i| Placement::new(at(i))).collect();
     let batches = [Batch { key: 7, placements }];
     let size = SIZE;
     let eye = offset + DVec3::new(-20.0, -70.0, 50.0);
@@ -82,11 +82,13 @@ fn scene(
         transform: at(1),
         face_tint: [0.1, 0.3, 0.9, 0.5],
         edge_tint: [0.1, 0.3, 0.9, 1.0],
+        material: NO_MATERIAL,
     }];
     let frame = Frame {
         view,
         proj,
         background: [1.0, 1.0, 1.0],
+        style: Style::default(),
         batches: &batches,
         highlights: if highlight { &hl } else { &[] },
         lines: &[],
@@ -154,8 +156,8 @@ fn concave_edges_are_not_buried() {
     let pocket = Solid::new_box(DVec3::new(10.0, 10.0, 5.0), DVec3::new(20.0, 20.0, 20.0)).unwrap();
     let mesh = block.boolean(&pocket, BooleanOp::Difference).unwrap().mesh().unwrap();
     let mut r = Renderer::new(&device);
-    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &mesh }]);
-    let batches = [Batch { key: 1, placements: vec![Placement { transform: DMat4::IDENTITY, tint: NO_TINT }] }];
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &mesh, face_paint: &[] }]);
+    let batches = [Batch { key: 1, placements: vec![Placement::new(DMat4::IDENTITY)] }];
     let size = [640, 400];
     let view = DMat4::look_at_rh(DVec3::new(-30.0, -60.0, 90.0), DVec3::new(20.0, 20.0, 5.0), DVec3::Z);
     let proj = Mat4::perspective_infinite_reverse_rh(0.6, size[0] as f32 / size[1] as f32, 1.0);
@@ -163,6 +165,7 @@ fn concave_edges_are_not_buried() {
         view,
         proj,
         background: [1.0, 1.0, 1.0],
+        style: Style::default(),
         batches: &batches,
         highlights: &[],
         lines: &[],
@@ -205,15 +208,16 @@ fn a_mirrored_placement_shows_its_outside() {
     // A cube centred on the origin: mirrored about X it covers the same pixels, its triangles
     // wound the other way. Its faces must stay front faces (not the blue-grey of back faces).
     let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
-    r.set_mesh(&device, 3, 1, &[Part { id: 1, mesh: &cube }]);
+    r.set_mesh(&device, 3, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
     let view = DMat4::look_at_rh(DVec3::new(-20.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z);
     let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let mut shot = |transform: DMat4| {
-        let batches = [Batch { key: 3, placements: vec![Placement { transform, tint: NO_TINT }] }];
+        let batches = [Batch { key: 3, placements: vec![Placement::new(transform)] }];
         let frame = Frame {
             view,
             proj,
             background: [1.0, 1.0, 1.0],
+        style: Style::default(),
             batches: &batches,
             highlights: &[],
             lines: &[],
@@ -232,4 +236,166 @@ fn a_mirrored_placement_shows_its_outside() {
     assert_ne!(a, [255, 255, 255, 255], "the cube covers the centre");
     let diff = a.iter().zip(&b).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
     assert!(diff <= 2, "mirrored {b:?} vs plain {a:?}");
+}
+
+
+fn shot(
+    r: &mut Renderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    view: DMat4,
+    placement: Placement,
+    style: Style<'_>,
+) -> (Vec<u8>, bool) {
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let batches = [Batch { key: 1, placements: vec![placement] }];
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style,
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        overlay: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+    };
+    let mut enc = device.create_command_encoder(&Default::default());
+    let drew = r.render(device, queue, &mut enc, SIZE, &frame);
+    queue.submit([enc.finish()]);
+    (draw(r, device, queue, SIZE, &frame), drew)
+}
+
+fn front_view() -> DMat4 {
+    DMat4::look_at_rh(DVec3::new(-20.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z)
+}
+
+#[test]
+fn a_still_frame_is_not_drawn_again() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    let p = Placement::new(DMat4::IDENTITY);
+    let (first, drew) = shot(&mut r, &device, &queue, front_view(), p, Style::default());
+    assert!(drew, "the first frame is drawn");
+    // `shot` renders the same frame twice: the second time, nothing is drawn.
+    let mut enc = device.create_command_encoder(&Default::default());
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let batches = [Batch { key: 1, placements: vec![p] }];
+    let frame = Frame {
+        view: front_view(),
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        overlay: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+    };
+    assert!(!r.render(&device, &queue, &mut enc, SIZE, &frame), "the same frame again");
+    // The target still holds the picture.
+    let again = draw(&mut r, &device, &queue, SIZE, &frame);
+    assert_eq!(first, again);
+    // Anything that changes the picture draws it: the camera, a colour, a new mesh.
+    let moved = DMat4::look_at_rh(DVec3::new(-21.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z);
+    assert!(shot(&mut r, &device, &queue, moved, p, Style::default()).1);
+    let red = [[0.8, 0.05, 0.05, 1.0]];
+    let style = Style { palette: &red, ..Style::default() };
+    assert!(shot(&mut r, &device, &queue, moved, p, style).1, "a palette change");
+    r.set_mesh(&device, 1, 2, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    assert!(shot(&mut r, &device, &queue, moved, p, style).1, "a new mesh");
+}
+
+#[test]
+fn faces_take_their_colour_from_the_palette() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    let palette = [[0.8, 0.05, 0.05, 1.0], [0.05, 0.05, 0.8, 1.0]];
+    let style = Style { palette: &palette, ..Style::default() };
+    let at_centre = |px: &[u8]| pixel(px, SIZE[0], 160, 100);
+
+    // The placement's colour: red.
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    let p = Placement { material: 0, ..Placement::new(DMat4::IDENTITY) };
+    let (px, _) = shot(&mut r, &device, &queue, front_view(), p, style);
+    save(&px, SIZE, "palette_placement");
+    let c = at_centre(&px);
+    assert!(c[0] > c[1] + 60 && c[0] > c[2] + 60, "{c:?} is not red");
+
+    // Every face painted blue wins over the placement's red.
+    let faces: Vec<u32> = vec![1; 6];
+    r.set_mesh(&device, 1, 2, &[Part { id: 1, mesh: &cube, face_paint: &faces }]);
+    let (px, _) = shot(&mut r, &device, &queue, front_view(), p, style);
+    save(&px, SIZE, "palette_faces");
+    let c = at_centre(&px);
+    assert!(c[2] > c[0] + 60 && c[2] > c[1] + 60, "{c:?} is not blue");
+
+    // No colour anywhere: the default front.
+    r.set_mesh(&device, 1, 3, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    let (px, _) = shot(&mut r, &device, &queue, front_view(), Placement::new(DMat4::IDENTITY), Style::default());
+    let c = at_centre(&px);
+    assert!(c[0].abs_diff(c[2]) < 60, "{c:?} is not the warm white");
+}
+
+#[test]
+fn a_cylinder_shows_its_outline() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    // A tall cylinder seen from the side: its B-rep edges are the two circles; its sides
+    // are only silhouettes.
+    let cyl = Solid::new_cylinder(DVec3::new(0.0, 0.0, -15.0), 6.0, 30.0).unwrap().mesh().unwrap();
+    let view = DMat4::look_at_rh(DVec3::new(0.0, -60.0, 0.0), DVec3::ZERO, DVec3::Z);
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cyl, face_paint: &[] }]);
+    let p = Placement::new(DMat4::IDENTITY);
+    let (with, _) = shot(&mut r, &device, &queue, view, p, Style::default());
+    let (without, _) = shot(&mut r, &device, &queue, view, p, Style { silhouettes: false, ..Style::default() });
+    save(&with, SIZE, "silhouette");
+    // Along the middle row, the darkest pixel near each side.
+    let dark = |px: &[u8]| (0..SIZE[0]).filter(|&x| pixel(px, SIZE[0], x, 100)[0] < 60).count();
+    assert!(dark(&with) >= 2, "no outline drawn on the sides");
+    assert_eq!(dark(&without), 0, "dark pixels without silhouettes");
+}
+
+#[test]
+fn a_section_cuts_and_caps() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    // A cube cut by the plane x = 0, the +x half removed; seen from +x, the cap faces the eye.
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    let view = DMat4::look_at_rh(DVec3::new(30.0, -10.0, 8.0), DVec3::ZERO, DVec3::Z);
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    let palette = [[0.05, 0.6, 0.05, 1.0]];
+    let p = Placement { material: 0, ..Placement::new(DMat4::IDENTITY) };
+    let section = Some(Section { origin: DVec3::ZERO, normal: DVec3::X });
+    let style = Style { palette: &palette, section, cap_shade: 0.0, ..Style::default() };
+    let (plain, _) = shot(&mut r, &device, &queue, view, p, Style { section: None, ..style });
+    let (cut, _) = shot(&mut r, &device, &queue, view, p, style);
+    save(&cut, SIZE, "section");
+    let c = pixel(&cut, SIZE[0], 160, 100);
+    // The centre shows the cap: flat, the part's green at full strength (no shading).
+    assert!(c[1] > c[0] + 60 && c[1] > c[2] + 60, "cap {c:?} is not green");
+    // The cut part is smaller on screen: fewer non-background pixels.
+    let covered = |px: &[u8]| px.chunks(4).filter(|p| p[..3] != [255, 255, 255]).count();
+    assert!(covered(&cut) < covered(&plain), "nothing was cut away");
 }

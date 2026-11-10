@@ -3,6 +3,7 @@
 //!
 //! Every field has a default, so a file written before a setting existed still loads.
 
+use glam::DVec3;
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 
@@ -21,11 +22,47 @@ pub struct Display {
     pub axes: bool,
     /// Background colour, sRGB.
     pub background: [u8; 3],
+    /// The outline of curved faces (§7 quater).
+    pub silhouettes: bool,
+    /// The section plane, if one was placed; shown while `section_active`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<Section>,
+    pub section_active: bool,
 }
 
 impl Default for Display {
     fn default() -> Self {
-        Display { grid: false, axes: true, background: [246, 247, 249] }
+        Display {
+            grid: false,
+            axes: true,
+            background: [246, 247, 249],
+            silhouettes: true,
+            section: None,
+            section_active: false,
+        }
+    }
+}
+
+impl Display {
+    /// The section plane, when it is shown.
+    pub fn active_section(&self) -> Option<Section> {
+        self.section.filter(|_| self.section_active)
+    }
+}
+
+/// A section plane, in the model's (root) axes: what lies on the side `normal` points to is
+/// cut away from the view (§7 quater).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Section {
+    pub origin: DVec3,
+    /// Unit.
+    pub normal: DVec3,
+}
+
+impl Section {
+    /// Is the world point `p` cut away?
+    pub fn cuts(&self, p: DVec3) -> bool {
+        (p - self.origin).dot(self.normal) > 0.0
     }
 }
 

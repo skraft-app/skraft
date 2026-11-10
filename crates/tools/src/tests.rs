@@ -691,3 +691,76 @@ fn copy_is_a_toggle_in_the_bar() {
     assert_eq!(copy(&e).value, OptionValue::Toggle(false));
     assert!(e.tool_settings().is_empty());
 }
+
+/// The occurrence `o` of the root, as drawn: its material.
+fn drawn_material(e: &Editor, o: Id) -> Option<Id> {
+    e.view().batches.iter().flat_map(|(def, ps)| {
+        let paths = e.scene().placements().find(|(d, _)| d == def).map(|(_, p)| p.to_vec()).unwrap_or_default();
+        paths.into_iter().zip(ps.clone())
+    })
+    .find(|(p, _)| p.path.last() == Some(&o))
+    .and_then(|(_, v)| v.material)
+}
+
+#[test]
+fn paint_tool_paints_occurrences_the_selection_and_faces() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    let c = draw_box(&mut e, DVec3::new(600.0, 0.0, 0.0), DVec3::new(700.0, 100.0, 0.0), "50");
+    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap();
+    let oak = e.document().materials().next().unwrap().0;
+    e.set_paint_material(Some(oak));
+    assert_eq!(e.paint_material(), Some(oak));
+
+    // A click on an occurrence paints it.
+    e.set_tool(ToolKind::Paint);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(drawn_material(&e, a), Some(oak));
+    assert_eq!(drawn_material(&e, b), None);
+
+    // A click on a selected one paints the whole selection.
+    let selection = vec![b, c];
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(350.0, 50.0, 50.0));
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(650.0, 50.0, 50.0)), mods: Modifiers { toggle: true, copy: false } });
+    assert_eq!(e.selection(), selection.as_slice());
+    e.set_tool(ToolKind::Paint);
+    e.set_paint_material(None);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(drawn_material(&e, a), None, "no material: the paint is removed");
+    e.set_paint_material(Some(oak));
+    click(&mut e, DVec3::new(350.0, 50.0, 50.0));
+    assert_eq!((drawn_material(&e, b), drawn_material(&e, c)), (Some(oak), Some(oak)));
+
+    // Faces: the top face of the first box, on its part.
+    e.set_tool_option("target", OptionValue::Choice("face".into()));
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    let (part, p, _) = e.document().resolve_part(&EntityPath::root(a)).unwrap();
+    assert_eq!(p.faces.len(), 1, "one face painted");
+    let dm = e.scene().definition_mesh(part).unwrap();
+    assert_eq!(dm.faces.values().copied().collect::<Vec<_>>(), [oak]);
+}
+
+#[test]
+fn section_tool_places_a_plane_and_picking_ignores_what_it_cuts() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "100");
+    e.set_tool(ToolKind::Section);
+    // On the top face (seen from above, its normal points up), 30 typed: 30 mm down.
+    click(&mut e, DVec3::new(50.0, 50.0, 100.0));
+    assert!(e.vcb().is_some(), "the depth is typed in the box");
+    assert!(e.view().section.is_some(), "the cut shows while placing");
+    e.input(ToolInput::Vcb("30".into()));
+    let s = e.document().settings().display.active_section().expect("a section");
+    assert!(close(s.normal, DVec3::Z) && (s.origin.z - 70.0).abs() < 1e-6, "{s:?}");
+
+    // Looking down, the ray first meets the box at its cut, not at its old top.
+    let hit = e.scene().pick(&e.camera.ray(px(&e, DVec3::new(50.0, 50.0, 0.0)), e.viewport_size()), |_| true).unwrap();
+    assert_eq!(hit.path, EntityPath::root(a));
+    assert!(hit.point.z < 70.0 + 1e-6, "hit at {}", hit.point);
+
+    // Undo removes it.
+    e.undo();
+    assert!(e.document().settings().display.active_section().is_none());
+}

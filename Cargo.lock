@@ -2717,6 +2717,7 @@ dependencies = [
  "glam",
  "js-sys",
  "log",
+ "png 0.17.16",
  "rfd",
  "serde",
  "serde_json",
@@ -2724,6 +2725,7 @@ dependencies = [
  "solidsketch-kernel",
  "solidsketch-model",
  "solidsketch-render",
+ "solidsketch-theme",
  "solidsketch-tools",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2787,6 +2789,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "solidsketch-theme"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "solidsketch-tools"
 version = "0.1.0"
 dependencies = [
@@ -2795,6 +2804,7 @@ dependencies = [
  "solidsketch-i18n",
  "solidsketch-kernel",
  "solidsketch-model",
+ "solidsketch-theme",
 ]
 
 [[package]]

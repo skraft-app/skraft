@@ -1,29 +1,64 @@
-//! Side panels: the tool bar (left), the outliner and the entity info (right).
+//! Side panels: the tool bar (left), the entity info, the materials and the outliner (right),
+//! and the menu items, all drawn from the command registry's state (docs/ARCHITECTURE.md
+//! §7 quater).
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::{t, tp};
-use solidsketch_model::{Boolean, ComponentKind, Document, EntityPath, Id, Occurrence, Operation, Units, measure};
-use solidsketch_tools::{Editor, OptionValue, ToolKind};
+use solidsketch_model::{ComponentKind, Document, EntityPath, Id, Occurrence, Operation, Units, measure};
+use solidsketch_tools::{Editor, OptionValue};
 
+use crate::commands::Menu;
 use crate::icons;
 
 /// What a panel asks the app to do (applied after drawing, so the panels only read).
 pub enum Action {
-    Tool(ToolKind),
-    Undo,
-    Redo,
-    Erase,
-    MakeAssembly,
-    Explode,
-    MakeUnique,
-    ZoomExtents,
-    ToggleParallel,
+    /// A command of the registry, by id.
+    Command(&'static str),
     SelectPath(EntityPath),
     Apply(Operation),
-    /// The debug menu (`?debug`, `SOLIDSKETCH_DEBUG`): make the kernel panic.
-    CrashKernel,
     /// An option of the active tool changed in its bar.
     ToolOption(&'static str, OptionValue),
+    /// Paint with this material (none: remove paint): the paint tool starts.
+    PaintWith(Option<Id>),
+}
+
+/// A command as shown now: its label, whether it can run, its state, its shortcut.
+#[derive(Clone, Debug)]
+pub struct CommandView {
+    pub id: &'static str,
+    pub label: String,
+    pub menu: Menu,
+    pub group: bool,
+    pub enabled: bool,
+    /// A toggle's state, or whether a tool is the active one.
+    pub checked: Option<bool>,
+    /// As shown on this platform.
+    pub shortcut: Option<String>,
+}
+
+impl CommandView {
+    /// Its tool tip: the label and the shortcut.
+    pub fn tip(&self) -> String {
+        match &self.shortcut {
+            Some(s) => t!("toolbar.with_shortcut", label = self.label, shortcut = s),
+            None => self.label.clone(),
+        }
+    }
+}
+
+/// A menu item: a check box for a toggle, else a button with its shortcut. True when clicked.
+pub fn command_item(ui: &mut egui::Ui, v: &CommandView) -> bool {
+    let toggle = v.checked.is_some() && v.id.starts_with("view.");
+    let mut button = if toggle {
+        let mark = if v.checked == Some(true) { "✔ " } else { "    " };
+        egui::Button::new(format!("{mark}{}", v.label))
+    } else {
+        egui::Button::new(&v.label).selected(v.checked == Some(true))
+    };
+    if let Some(s) = &v.shortcut {
+        button = button.shortcut_text(s);
+    }
+    ui.add_enabled(v.enabled, button).on_hover_text(v.id).clicked()
 }
 
 /// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its name, then its options —
@@ -60,77 +95,69 @@ fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, selected: bo
         .clicked()
 }
 
-/// A keyboard shortcut as the platform writes it: `⇧⌘Z` on macOS, `Ctrl+Maj+Z` elsewhere.
-pub fn shortcut(command: bool, shift: bool, key: &str) -> String {
-    if solidsketch_i18n::mac() {
-        format!("{}{}{key}", if shift { "⇧" } else { "" }, if command { "⌘" } else { "" })
-    } else {
-        let mut parts = Vec::new();
-        if command {
-            parts.push(t!("key.ctrl"));
-        }
-        if shift {
-            parts.push(t!("key.shift"));
-        }
-        parts.push(key.to_owned());
-        parts.join("+")
-    }
-}
-
 /// The delete key's name (Backspace works too).
 fn delete_key() -> String {
     if solidsketch_i18n::mac() { "⌫".to_owned() } else { t!("key.delete") }
 }
 
-pub fn toolbar(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
-    let kind = editor.tool_kind();
-    let has_sel = !editor.selection().is_empty();
-    let copy_key = solidsketch_tools::tools::copy_key();
-    ui.add_space(4.0);
-    let tools: [(egui::ImageSource<'static>, ToolKind, String); 8] = [
-        (icons::SELECT, ToolKind::Select, t!("toolbar.select", shortcut = t!("key.space"))),
-        (icons::BOX, ToolKind::Box, t!("toolbar.box", shortcut = "R")),
-        (icons::CYLINDER, ToolKind::Cylinder, t!("toolbar.cylinder", shortcut = "C")),
-        (icons::MOVE, ToolKind::Move, t!("toolbar.move", shortcut = "M", copy_key = copy_key)),
-        (icons::ROTATE, ToolKind::Rotate, t!("toolbar.rotate", shortcut = "Q", copy_key = copy_key)),
-        (icons::UNION, ToolKind::Boolean(Boolean::Union), t!("toolbar.union")),
-        (icons::SUBTRACT, ToolKind::Boolean(Boolean::Difference), t!("toolbar.difference")),
-        (icons::INTERSECT, ToolKind::Boolean(Boolean::Intersection), t!("toolbar.intersection")),
+/// What a tool bar button adds to its command's tip.
+#[derive(Clone, Copy)]
+enum Hint {
+    None,
+    /// The copy modifier and the axis keys (move, rotate).
+    Copy,
+    /// Target, then tool (booleans).
+    Boolean,
+    /// The delete key (erase is not a command shortcut: the tool reads it).
+    Delete,
+}
+
+/// The tool bar: each button a command (its state and tip from the registry); `None` is a
+/// separator.
+pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
+    let buttons: [Option<(egui::ImageSource<'static>, &str, Hint)>; 22] = [
+        Some((icons::SELECT, "tool.select", Hint::None)),
+        Some((icons::BOX, "tool.box", Hint::None)),
+        Some((icons::CYLINDER, "tool.cylinder", Hint::None)),
+        Some((icons::MOVE, "tool.move", Hint::Copy)),
+        Some((icons::ROTATE, "tool.rotate", Hint::Copy)),
+        Some((icons::PAINT, "tool.paint", Hint::None)),
+        Some((icons::SECTION, "tool.section", Hint::None)),
+        None,
+        Some((icons::UNION, "tool.union", Hint::Boolean)),
+        Some((icons::SUBTRACT, "tool.difference", Hint::Boolean)),
+        Some((icons::INTERSECT, "tool.intersection", Hint::Boolean)),
+        None,
+        Some((icons::COMPONENT, "edit.make_assembly", Hint::None)),
+        Some((icons::EXPLODE, "edit.explode", Hint::None)),
+        Some((icons::UNIQUE, "edit.make_unique", Hint::None)),
+        Some((icons::ERASE, "edit.erase", Hint::Delete)),
+        None,
+        Some((icons::UNDO, "edit.undo", Hint::None)),
+        Some((icons::REDO, "edit.redo", Hint::None)),
+        None,
+        Some((icons::EXTENTS, "view.zoom_extents", Hint::None)),
+        Some((icons::PERSPECTIVE, "view.parallel", Hint::None)),
     ];
-    for (i, (icon, k, tip)) in tools.into_iter().enumerate() {
-        if i == 5 {
+    ui.add_space(4.0);
+    for b in buttons {
+        let Some((icon, id, hint)) = b else {
             ui.separator();
+            continue;
+        };
+        let Some(v) = views.iter().find(|v| v.id == id) else { continue };
+        // The perspective button is lit in perspective (the command toggles parallel).
+        let selected = if id == "view.parallel" { v.checked == Some(false) } else { v.checked == Some(true) };
+        let tip = match hint {
+            _ if id == "view.parallel" => t!("toolbar.perspective"),
+            Hint::None => v.tip(),
+            Hint::Copy => t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.copy_hint", copy_key = solidsketch_tools::tools::copy_key())),
+            Hint::Boolean => t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.boolean_hint")),
+            Hint::Delete => t!("toolbar.with_shortcut", label = v.label, shortcut = delete_key()),
+        };
+        if icon_button(ui, icon, selected, v.enabled, &tip) {
+            actions.push(Action::Command(v.id));
         }
-        if icon_button(ui, icon, kind == k, true, &tip) {
-            actions.push(Action::Tool(k));
-        }
-    }
-    ui.separator();
-    if icon_button(ui, icons::COMPONENT, false, has_sel, &t!("toolbar.make_assembly", shortcut = "G")) {
-        actions.push(Action::MakeAssembly);
-    }
-    if icon_button(ui, icons::EXPLODE, false, has_sel, &t!("toolbar.explode")) {
-        actions.push(Action::Explode);
-    }
-    if icon_button(ui, icons::UNIQUE, false, has_sel, &t!("toolbar.make_unique")) {
-        actions.push(Action::MakeUnique);
-    }
-    if icon_button(ui, icons::ERASE, false, has_sel, &t!("toolbar.erase", shortcut = delete_key())) {
-        actions.push(Action::Erase);
-    }
-    ui.separator();
-    if icon_button(ui, icons::UNDO, false, editor.history().can_undo(), &t!("toolbar.undo", shortcut = shortcut(true, false, "Z"))) {
-        actions.push(Action::Undo);
-    }
-    if icon_button(ui, icons::REDO, false, editor.history().can_redo(), &t!("toolbar.redo", shortcut = shortcut(true, true, "Z"))) {
-        actions.push(Action::Redo);
-    }
-    ui.separator();
-    if icon_button(ui, icons::EXTENTS, false, true, &t!("toolbar.zoom_extents", shortcut = shortcut(false, true, "Z"))) {
-        actions.push(Action::ZoomExtents);
-    }
-    if icon_button(ui, icons::PERSPECTIVE, !editor.camera.is_parallel(), true, &t!("toolbar.perspective")) {
-        actions.push(Action::ToggleParallel);
     }
 }
 
@@ -271,6 +298,11 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                 ui.label(t!("panel.entity_info.occurrences"));
                 ui.label(doc.occurrence_count(c.id).to_string());
                 ui.end_row();
+                ui.label(t!("panel.entity_info.material"));
+                if let Some(m) = material_choice(ui, doc, ("occurrence_material", o.id), o.material, field) {
+                    actions.push(Action::Apply(Operation::PaintOccurrences { context, entities: vec![o.id], material: m }));
+                }
+                ui.end_row();
                 if let ComponentKind::Part(p) = &c.kind {
                     // In the part's own axes: length, width, thickness as the part lies.
                     if let Some((lo, hi)) = p.blank.vertex_bounds() {
@@ -320,5 +352,88 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
         many => {
             ui.label(tp!("panel.entity_info.selected", many.len()));
         }
+    }
+}
+
+// ---- materials ---------------------------------------------------------------------------------
+
+/// Colours new materials take in turn (woods, then panels).
+const NEW_COLORS: [[u8; 3]; 6] = [[196, 152, 98], [120, 78, 48], [222, 196, 150], [160, 110, 70], [235, 235, 228], [90, 92, 96]];
+
+/// A swatch of `color`, `size` points square.
+fn swatch(ui: &mut egui::Ui, color: Option<[u8; 3]>, size: f32) {
+    let (r, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    let stroke = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.fg_stroke.color);
+    match color {
+        Some([red, g, b]) => {
+            ui.painter().rect(r, 2.0, egui::Color32::from_rgb(red, g, b), stroke, egui::StrokeKind::Inside);
+        }
+        None => {
+            ui.painter().rect_stroke(r, 2.0, stroke, egui::StrokeKind::Inside);
+            ui.painter().line_segment([r.left_bottom(), r.right_top()], stroke);
+        }
+    }
+}
+
+/// A material picked in a list (« Aucune » first): `Some(choice)` when it changed.
+fn material_choice(ui: &mut egui::Ui, doc: &Document, salt: (&str, Id), current: Option<Id>, width: f32) -> Option<Option<Id>> {
+    let name = |m: Option<Id>| match m {
+        Some(id) => doc.material(id).map_or("?".to_owned(), |m| m.name.clone()),
+        None => t!("panel.materials.none"),
+    };
+    let mut picked = current;
+    egui::ComboBox::from_id_salt(salt).width(width).selected_text(name(current)).show_ui(ui, |ui| {
+        ui.selectable_value(&mut picked, None, t!("panel.materials.none"));
+        for (id, m) in doc.materials() {
+            ui.horizontal(|ui| {
+                swatch(ui, Some(m.color), 12.0);
+                ui.selectable_value(&mut picked, Some(id), &m.name);
+            });
+        }
+    });
+    (picked != current).then_some(picked)
+}
+
+/// The Matières panel (§7 quater): the document's materials — colour, name, delete — and the
+/// one the paint tool paints with; picking one starts the paint tool.
+pub fn materials(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: &mut Vec<Action>) {
+    let doc = editor.document();
+    let painting = editor.tool_kind() == solidsketch_tools::ToolKind::Paint;
+    let current = editor.paint_material();
+    let tint = ui.visuals().text_color();
+    let brush = |ui: &mut egui::Ui, on: bool, tip: &str| {
+        let img = egui::Image::new(icons::PAINT).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint);
+        ui.add(egui::Button::image(img).selected(on)).on_hover_text(tip).clicked()
+    };
+    ui.horizontal(|ui| {
+        if brush(ui, painting && current.is_none(), &t!("panel.materials.unpaint_tip")) {
+            actions.push(Action::PaintWith(None));
+        }
+        swatch(ui, None, 16.0);
+        ui.label(t!("panel.materials.none"));
+    });
+    for (id, m) in doc.materials() {
+        ui.horizontal(|ui| {
+            if brush(ui, painting && current == Some(id), &t!("panel.materials.paint_tip")) {
+                actions.push(Action::PaintWith(Some(id)));
+            }
+            let mut c = m.color;
+            if ui.color_edit_button_srgb(&mut c).on_hover_text(t!("panel.materials.color_tip")).changed() {
+                actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
+            }
+            let width = (ui.available_width() - 30.0).max(60.0);
+            if let Some(name) = text_field(ui, state, (id, 2), &m.name, width) {
+                actions.push(Action::Apply(Operation::EditMaterial { material: id, name, color: m.color }));
+            }
+            if ui.small_button("✕").on_hover_text(t!("panel.materials.delete_tip")).clicked() {
+                actions.push(Action::Apply(Operation::DeleteMaterial { material: id }));
+            }
+        });
+    }
+    if ui.button(format!("+ {}", t!("panel.materials.new"))).clicked() {
+        let count = doc.materials().count();
+        let taken = |n: &str| doc.materials().any(|(_, m)| m.name == n);
+        let name = (count + 1..).map(|k| t!("default_name.material", number = k)).find(|n| !taken(n)).unwrap_or_default();
+        actions.push(Action::Apply(Operation::AddMaterial { name, color: NEW_COLORS[count % NEW_COLORS.len()] }));
     }
 }

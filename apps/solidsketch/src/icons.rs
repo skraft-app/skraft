@@ -24,3 +24,5 @@ icon!(UNIQUE, "unique");
 icon!(EXTENTS, "extents");
 icon!(PERSPECTIVE, "perspective");
 icon!(ERASE, "erase");
+icon!(PAINT, "paint");
+icon!(SECTION, "section");

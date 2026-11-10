@@ -75,6 +75,8 @@ pub struct Editor {
     last_hover: Option<DVec2>,
     /// The tools' saved settings (the option bar's, ARCHITECTURE.md §6 bis), by tool id.
     tool_settings: BTreeMap<String, OptionValues>,
+    /// The material the paint tool paints with (§7 quater).
+    paint: Option<Id>,
 }
 
 /// The settings of a tool that has none saved.
@@ -117,6 +119,7 @@ impl Editor {
             reference: None,
             last_hover: None,
             tool_settings: BTreeMap::new(),
+            paint: None,
         };
         e.after_change();
         e.zoom_extents();
@@ -236,7 +239,17 @@ impl Editor {
             tracked: &self.tracked,
             reference: self.reference,
             options: self.tool_settings.get(kind.id()).unwrap_or(&NO_SETTINGS),
+            material: self.paint_material(),
         }
+    }
+
+    /// The material the paint tool paints with: none, or one of the document's.
+    pub fn paint_material(&self) -> Option<Id> {
+        self.paint.filter(|m| self.document().material(*m).is_ok())
+    }
+
+    pub fn set_paint_material(&mut self, material: Option<Id>) {
+        self.paint = material;
     }
 
     // ---- the tool's options (the option bar) -------------------------------------------------

@@ -2,6 +2,9 @@
 //! driven by the `solidsketch-tools` editor. Native and web (docs/ARCHITECTURE.md §6 bis).
 
 mod app;
+mod commands;
+#[cfg(not(target_arch = "wasm32"))]
+mod control;
 mod file;
 mod icons;
 mod panels;
