@@ -444,7 +444,7 @@ fn crossing(
     let mut found: Vec<(f64, Crossing)> = Vec::new();
     for (place, part) in scene.parts() {
         let Some(b) = part.bounds else { continue };
-        let path = EntityPath::new(place.path.clone(), part.solid);
+        let path = place.entity_path();
         if !(q.keep)(&path) || !near_ray(camera, size, &ray, transform_bounds(&place.transform, b)) {
             continue;
         }
@@ -563,7 +563,7 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     }
     for (place, part) in scene.parts() {
         let Some(b) = part.bounds else { continue };
-        let path = EntityPath::new(place.path.clone(), part.solid);
+        let path = place.entity_path();
         if !(q.keep)(&path) || !near_ray(camera, size, &ray, transform_bounds(&place.transform, b)) {
             continue;
         }
@@ -739,7 +739,7 @@ fn visible(scene: &DisplayScene, camera: &Camera, size: DVec2, screen: &Projecto
 #[cfg(test)]
 mod tests {
     use glam::{DAffine3, DVec2, DVec3};
-    use solidsketch_model::{DefinitionKind, Document, Id, Operation, Primitive};
+    use solidsketch_model::{Document, EntityPath, Id, Operation, Primitive};
 
     use super::*;
     use crate::{Editor, Modifiers, StandardView, ToolInput, ToolKind, ViewArea};
@@ -750,7 +750,7 @@ mod tests {
     }
 
     fn view_editor(view: StandardView, at: DVec3) -> Editor {
-        let mut e = Editor::new(Document::new());
+        let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
         e.set_viewport_size(DVec2::new(1000.0, 1000.0));
         e.set_parallel(true);
         let b = (at - DVec3::splat(1000.0), at + DVec3::splat(1000.0));
@@ -760,7 +760,7 @@ mod tests {
 
     fn add(e: &mut Editor, primitive: Primitive) -> Id {
         let root = e.document().root();
-        e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().created[0]
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().expect("done").created[0]
     }
 
     fn add_box(e: &mut Editor, origin: DVec3, size: DVec3) -> Id {
@@ -885,7 +885,7 @@ mod tests {
             let mut e = top_editor(far);
             let a = add_box(&mut e, far, DVec3::new(100.0, 100.0, 37.5));
             e.select(vec![a]);
-            e.make_container(DefinitionKind::Group);
+            e.make_assembly();
             let g = e.selection()[0];
             let root = e.document().root();
             let t = DAffine3::from_translation(DVec3::new(500.0, 250.0, 0.0));
@@ -913,8 +913,7 @@ mod tests {
         e.input(ToolInput::Hover { px: p });
         assert_eq!(e.view().inference.map(|i| i.1), Some(InferKind::Endpoint));
         e.input(ToolInput::Click { px: p, mods: Modifiers::default() });
-        let s = e.document().root_definition().entity(a).unwrap().as_solid().unwrap().solid.clone();
-        let (lo, _) = s.vertex_bounds().unwrap();
+        let (lo, _) = bounds(&e, a);
         assert_eq!(lo, DVec3::new(200.0, 0.0, 0.0));
     }
 
@@ -934,9 +933,8 @@ mod tests {
         // The height of that same corner.
         click(&mut e, DVec3::new(97.0, 103.0, 50.0));
         let id = e.selection()[0];
-        let s = e.document().root_definition().entity(id).unwrap().as_solid().unwrap().solid.clone();
         // The corners inferred are exact; the first one, clicked on the ground, is not.
-        let (lo, hi) = s.vertex_bounds().unwrap();
+        let (lo, hi) = bounds(&e, id);
         assert_eq!(lo, DVec3::new(100.0, 100.0, 0.0));
         assert!((hi - DVec3::new(300.0, 300.0, 50.0)).length() < 1e-4 && hi.z == 50.0, "{hi}");
     }
@@ -1008,8 +1006,10 @@ mod tests {
         e.input(ToolInput::Click { px: p, mods: Modifiers::default() });
     }
 
+    /// World bounds of the part the root's occurrence `id` places.
     fn bounds(e: &Editor, id: Id) -> (DVec3, DVec3) {
-        e.document().root_definition().entity(id).unwrap().as_solid().unwrap().solid.vertex_bounds().unwrap()
+        let (_, part, t) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+        crate::scene::transform_bounds(&t, part.shape().vertex_bounds().unwrap())
     }
 
     #[test]

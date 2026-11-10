@@ -194,3 +194,42 @@ fn concave_edges_are_not_buried() {
     }
     assert_eq!(buried, 0, "{buried} of 9 samples of the concave edge are not drawn");
 }
+
+#[test]
+fn a_mirrored_placement_shows_its_outside() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    // A cube centred on the origin: mirrored about X it covers the same pixels, its triangles
+    // wound the other way. Its faces must stay front faces (not the blue-grey of back faces).
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 3, 1, &[Part { id: 1, mesh: &cube }]);
+    let view = DMat4::look_at_rh(DVec3::new(-20.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z);
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let mut shot = |transform: DMat4| {
+        let batches = [Batch { key: 3, placements: vec![Placement { transform, tint: NO_TINT }] }];
+        let frame = Frame {
+            view,
+            proj,
+            background: [1.0, 1.0, 1.0],
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            overlay: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 1.0,
+        };
+        draw(&mut r, &device, &queue, SIZE, &frame)
+    };
+    let plain = shot(DMat4::IDENTITY);
+    let mirrored = shot(DMat4::from_scale(DVec3::new(-1.0, 1.0, 1.0)));
+    save(&mirrored, SIZE, "mirrored");
+    let (a, b) = (pixel(&plain, SIZE[0], 160, 100), pixel(&mirrored, SIZE[0], 160, 100));
+    assert_ne!(a, [255, 255, 255, 255], "the cube covers the centre");
+    let diff = a.iter().zip(&b).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
+    assert!(diff <= 2, "mirrored {b:?} vs plain {a:?}");
+}

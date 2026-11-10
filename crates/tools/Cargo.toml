@@ -9,3 +9,8 @@ license.workspace = true
 solidsketch-model.workspace = true
 solidsketch-kernel.workspace = true
 glam.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+solidsketch-model = { workspace = true, features = ["engine"] }
+solidsketch-kernel = { workspace = true, features = ["engine"] }

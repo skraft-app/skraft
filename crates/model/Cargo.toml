@@ -5,9 +5,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# `Document::apply` / `History::apply`, running the kernel in place (tests, tools).
+engine = ["solidsketch-kernel/engine"]
+
 [dependencies]
 solidsketch-kernel.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+solidsketch-kernel = { workspace = true, features = ["engine"] }

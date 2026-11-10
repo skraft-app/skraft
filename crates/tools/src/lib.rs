@@ -17,4 +17,4 @@ pub use camera::{Camera, Projection, Ray, StandardView, ViewArea};
 pub use editor::{Editor, Mark, View, ViewHighlight, ViewPlacement};
 pub use infer::{EdgeRef, InferKind, Inference, LineKind};
 pub use scene::{DefinitionMesh, DisplayScene, Hit, PartMesh, Placement};
-pub use tools::{Key, Modifiers, PreviewLine, ToolInput, ToolKind};
+pub use tools::{Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PreviewLine, ToolInput, ToolKind, ToolOption};

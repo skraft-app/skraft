@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/kernel", "crates/model", "crates/render", "crates/tools", "apps/solidsketch"]
+members = ["crates/kernel", "crates/model", "crates/render", "crates/tools", "apps/solidsketch", "apps/kernel-worker"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,7 +10,8 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # Internal
-solidsketch-kernel = { path = "crates/kernel" }
+# Without its `engine` (SolidCore) unless a crate asks for it: the web UI does not (§7 ter).
+solidsketch-kernel = { path = "crates/kernel", default-features = false }
 solidsketch-model = { path = "crates/model" }
 solidsketch-render = { path = "crates/render" }
 solidsketch-tools = { path = "crates/tools" }
@@ -26,6 +27,8 @@ solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "e4
 glam = { version = "0.30", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
+# Messages to and from the kernel's web worker (ARCHITECTURE.md §7 ter).
+rmp-serde = "1"
 thiserror = "2"
 log = "0.4"
 
@@ -39,9 +42,15 @@ bytemuck = { version = "1", features = ["derive"] }
 wgpu = "30"
 pollster = "0.4"
 
+[profile.dev]
+# Line numbers only (panic backtraces): full debug info made the build tree tens of GB.
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 # The kernel is far too slow unoptimised.
 opt-level = 2
+# Nobody steps through wgpu or SolidCore: no debug info for dependencies.
+debug = false
 
 [profile.release]
 opt-level = 3

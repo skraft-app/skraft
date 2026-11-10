@@ -1,38 +1,91 @@
-//! The measurements box (SketchUp's VCB): lengths typed while a tool runs.
+//! The measurements box (SketchUp's VCB): values typed while a tool runs.
 //!
-//! `250`, `25cm`, `1,5m`, `2.5 m`, `-40`; several values separated by `;` (`300;200`). A
-//! bare number is in the document's unit. Both `.` and `,` are decimal points (French keyboards), so
-//! `;` is the only list separator.
+//! The tool says what it takes now ([`Vcb`]: lengths, an angle, a count of copies, and
+//! whether a point does too) with its current values; the editor reads what is typed with
+//! [`solidsketch_model::measure`] — expressions (`2m*(2+3)`, `min(@; 300)`), `@` for the current
+//! value, `;` lists with `=` to repeat, points `[x;y;z]` and `<dx;dy;dz>` — and gives the tool a
+//! [`VcbValue`]. A bare number is in the document's unit; `,` and `.` are both decimal points.
 
-use solidsketch_model::Units;
+use glam::{DAffine3, DVec3};
+use solidsketch_model::{Units, measure};
 
-/// Parses one length, in mm; a bare number is in `units`.
-pub fn length(s: &str, units: &Units) -> Option<f64> {
-    let s = s.trim().replace(',', ".");
-    if s.is_empty() {
-        return None;
-    }
-    let split = s.find(|c: char| c.is_ascii_alphabetic() || c == '"' || c == '\'').unwrap_or(s.len());
-    let (num, unit) = s.split_at(split);
-    let v: f64 = num.trim().parse().ok()?;
-    let scale = match unit.trim() {
-        "" => units.length.mm(),
-        "mm" => 1.0,
-        "cm" => 10.0,
-        "m" => 1000.0,
-        "km" => 1e6,
-        "\"" | "in" => 25.4,
-        "'" | "ft" => 304.8,
-        _ => return None,
-    };
-    v.is_finite().then_some(v * scale)
+/// What the measurements box takes now.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Vcb {
+    /// Its label (« Distance »).
+    pub label: &'static str,
+    pub kind: VcbKind,
+    /// A typed point is taken too: `[x;y;z]` in the context's axes, `<dx;dy;dz>` along them
+    /// from `from`; `to` is the point the cursor gives (world).
+    pub point: Option<PointRef>,
 }
 
-/// Parses `;`-separated lengths; an empty item is `None` (keep the current value).
-pub fn lengths(s: &str, units: &Units) -> Option<Vec<Option<f64>>> {
-    s.split(';')
-        .map(|item| if item.trim().is_empty() { Some(None) } else { length(item, units).map(Some) })
-        .collect()
+impl Vcb {
+    pub fn new(label: &'static str, kind: VcbKind) -> Self {
+        Vcb { label, kind, point: None }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum VcbKind {
+    /// Lengths (mm), as many as given, at their current values, signed: a typed one keeps
+    /// its sign (the gesture's direction). `@` is a value's current one.
+    Lengths(Vec<f64>),
+    /// An angle (radians), at its current value.
+    Angle(f64),
+    /// A number of copies (`5x`, `/5`).
+    Count,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PointRef {
+    pub from: DVec3,
+    pub to: DVec3,
+}
+
+/// What was typed, read.
+#[derive(Clone, Debug, PartialEq)]
+pub enum VcbValue {
+    /// One per current value, signed.
+    Lengths(Vec<f64>),
+    /// Radians.
+    Angle(f64),
+    Count(Repeat),
+    /// World.
+    Point(DVec3),
+}
+
+/// Reads `text` for `vcb`; `context` is the context's frame (to world), for points. The error
+/// is the status bar's message.
+pub fn read(vcb: &Vcb, text: &str, units: &Units, context: &DAffine3) -> Result<VcbValue, String> {
+    let refused = |e: &dyn std::fmt::Display| format!("{} — « {} » : {e}", vcb.label, text.trim());
+    if let Some(r) = vcb.point {
+        let inv = context.inverse();
+        let (to, from) = (inv.transform_point3(r.to), inv.transform_point3(r.from));
+        if let Some(p) = measure::point(text, units, to, from) {
+            return p.map(|p| VcbValue::Point(context.transform_point3(p))).map_err(|e| refused(&e));
+        }
+    }
+    match &vcb.kind {
+        VcbKind::Lengths(current) => measure::lengths(text, units, current).map(VcbValue::Lengths).map_err(|e| refused(&e)),
+        VcbKind::Angle(current) => {
+            measure::angle(text, current.to_degrees()).map(|a| VcbValue::Angle(a.to_radians())).map_err(|e| refused(&e))
+        }
+        VcbKind::Count => repeat(text).map(VcbValue::Count).ok_or_else(|| refused(&"taper 5x ou /5")),
+    }
+}
+
+/// The value shown in the box while nothing is typed.
+pub fn display(kind: &VcbKind, units: &Units) -> String {
+    match kind {
+        VcbKind::Lengths(v) => v.iter().map(|&x| format(x.abs(), units)).collect::<Vec<_>>().join("; "),
+        VcbKind::Angle(a) => {
+            let d = (a.to_degrees() * 10.0).round() / 10.0;
+            let d = if d == 0.0 { 0.0 } else { d };
+            format!("{d}°").replace('.', ",")
+        }
+        VcbKind::Count => String::new(),
+    }
 }
 
 /// A count typed after a copy (SketchUp): `5x`, `x5`, `*5`, `5*` repeat it 5 times; `/5`
@@ -65,17 +118,46 @@ mod tests {
     use solidsketch_model::LengthUnit;
 
     #[test]
-    fn parses() {
+    fn reads_for_the_tool() {
         let mm = Units::default();
-        assert_eq!(length("250", &mm), Some(250.0));
-        assert_eq!(length("1,5m", &mm), Some(1500.0));
-        assert_eq!(length(" 2.5 cm ", &mm), Some(25.0));
-        assert_eq!(length("-40", &mm), Some(-40.0));
-        assert_eq!(length("1\"", &mm), Some(25.4));
-        assert_eq!(length("abc", &mm), None);
-        assert_eq!(lengths("300;;2m", &mm), Some(vec![Some(300.0), None, Some(2000.0)]));
-        assert_eq!(format(12.5, &mm), "12,5 mm");
-        assert_eq!(format(300.0, &mm), "300 mm");
+        let id = DAffine3::IDENTITY;
+        let base = Vcb::new("Dimensions", VcbKind::Lengths(vec![100.0, -50.0]));
+        assert_eq!(read(&base, "600=", &mm, &id), Ok(VcbValue::Lengths(vec![600.0, -600.0])));
+        assert_eq!(read(&base, ";@*2", &mm, &id), Ok(VcbValue::Lengths(vec![100.0, -100.0])));
+        assert_eq!(read(&base, "2m*3m", &mm, &id), Err("Dimensions — « 2m*3m » : unités incompatibles".into()));
+        let angle = Vcb::new("Angle", VcbKind::Angle(90f64.to_radians()));
+        assert_eq!(read(&angle, "@/2", &mm, &id), Ok(VcbValue::Angle(45f64.to_radians())));
+        let count = Vcb::new("Copies", VcbKind::Count);
+        assert_eq!(read(&count, "5x", &mm, &id), Ok(VcbValue::Count(Repeat::Times(5))));
+        assert!(read(&count, "5", &mm, &id).is_err());
+    }
+
+    #[test]
+    fn points_are_in_the_context_s_axes() {
+        let mm = Units::default();
+        // A context shifted by (1000, 0, 0) and turned a quarter about Z.
+        let context = DAffine3::from_translation(DVec3::new(1000.0, 0.0, 0.0)) * DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+        let from = context.transform_point3(DVec3::new(10.0, 0.0, 0.0));
+        let to = context.transform_point3(DVec3::new(10.0, 40.0, 0.0));
+        let mut v = Vcb::new("Distance", VcbKind::Lengths(vec![40.0]));
+        v.point = Some(PointRef { from, to });
+        let close = |r: Result<VcbValue, String>, p: DVec3| match r {
+            Ok(VcbValue::Point(q)) => (q - context.transform_point3(p)).length() < 1e-9,
+            _ => false,
+        };
+        assert!(close(read(&v, "[0;0;0]", &mm, &context), DVec3::ZERO));
+        assert!(close(read(&v, "<5;0;0>", &mm, &context), DVec3::new(15.0, 0.0, 0.0)));
+        assert!(close(read(&v, "<;@/2;>", &mm, &context), DVec3::new(10.0, 20.0, 0.0)));
+        assert_eq!(read(&v, "@/2", &mm, &context), Ok(VcbValue::Lengths(vec![20.0])));
+    }
+
+    #[test]
+    fn displays() {
+        let mm = Units::default();
+        assert_eq!(display(&VcbKind::Lengths(vec![12.5, -300.0]), &mm), "12,5 mm; 300 mm");
+        assert_eq!(display(&VcbKind::Angle(-22.5f64.to_radians()), &mm), "-22,5°");
+        let cm = Units { length: LengthUnit::Centimeter, ..Default::default() };
+        assert_eq!(display(&VcbKind::Lengths(vec![250.0]), &cm), "25 cm");
     }
 
     #[test]
@@ -87,13 +169,5 @@ mod tests {
         assert_eq!(repeat("6/"), Some(Repeat::Divide(6)));
         assert_eq!(repeat("0x"), None);
         assert_eq!(repeat("250"), None);
-    }
-
-    #[test]
-    fn bare_numbers_are_in_the_document_unit() {
-        let cm = Units { length: LengthUnit::Centimeter, ..Default::default() };
-        assert_eq!(length("25", &cm), Some(250.0));
-        assert_eq!(length("25mm", &cm), Some(25.0));
-        assert_eq!(format(250.0, &cm), "25 cm");
     }
 }

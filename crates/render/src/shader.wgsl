@@ -12,8 +12,9 @@ struct Globals {
 
 @group(0) @binding(0) var<uniform> g: Globals;
 
-// One placement of a definition's mesh: its transform to the camera (model-view), the inverse
-// transpose of its linear part for normals, and a tint (rgb mixed in by a: 0 = untouched).
+// One placement of a part's mesh: its transform to the camera (model-view), the inverse
+// transpose of its linear part for normals (n0.w: -1 when the placement mirrors, which turns
+// the triangles' winding over), and a tint (rgb mixed in by a: 0 = untouched).
 struct Instance {
     @location(4) m0: vec4<f32>,
     @location(5) m1: vec4<f32>,
@@ -32,6 +33,7 @@ struct FaceOut {
     @location(0) world: vec3<f32>, // camera coordinates
     @location(1) normal: vec3<f32>,
     @location(2) tint: vec4<f32>,
+    @location(3) @interpolate(flat) mirrored: f32,
 };
 
 @vertex
@@ -44,12 +46,15 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, inst: In
     out.world = world.xyz;
     out.normal = nmat * normal;
     out.tint = inst.tint;
+    out.mirrored = inst.n0.w;
     return out;
 }
 
 @fragment
-fn fs_face(in: FaceOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn fs_face(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec4<f32> {
     var n = normalize(in.normal);
+    // A mirrored placement turns the winding over: its outside faces the other way.
+    let front = facing != (in.mirrored < 0.0);
     // SketchUp's convention: warm white front faces, blue-grey back faces.
     var base = vec3<f32>(0.92, 0.91, 0.87);
     if (!front) {

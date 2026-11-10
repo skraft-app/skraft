@@ -1,0 +1,583 @@
+//! The kernel itself (feature `engine`): SolidCore calls on records, [`run`] for a whole
+//! [`Job`], and the services that run jobs inline or on a thread.
+
+use glam::{DAffine3, DVec3};
+use solidcore::kernel::{Kernel, KernelOptions};
+use solidcore::primitive::api_primitives as prim;
+use solidcore_record::brep::Brep as Record;
+
+use crate::job::{Display, Job, JobId, JobResult, KernelService, Output, Task};
+use crate::{BooleanOp, Error, Mesh, Primitive, Result, Snaps, Solid};
+
+impl Primitive {
+    pub fn build(&self) -> Result<Solid> {
+        match *self {
+            Primitive::Box { origin, size } => Solid::new_box(origin, size),
+            Primitive::Cylinder { origin, radius, height } => Solid::new_cylinder(origin, radius, height),
+            Primitive::Sphere { center, radius } => Solid::new_sphere(center, radius),
+            Primitive::Cone { origin, base_radius, top_radius, height } => {
+                Solid::new_cone(origin, base_radius, top_radius, height)
+            }
+            Primitive::Torus { center, major_radius, minor_radius } => {
+                Solid::new_torus(center, major_radius, minor_radius)
+            }
+        }
+    }
+}
+
+impl Solid {
+    /// A box with one corner at `origin` and the given extents along X, Y, Z.
+    pub fn new_box(origin: DVec3, size: DVec3) -> Result<Self> {
+        create("box", |k| prim::create_box(k, p3(origin), size.x, size.y, size.z))
+    }
+
+    /// A cylinder standing on the XY plane at `origin`, along +Z.
+    pub fn new_cylinder(origin: DVec3, radius: f64, height: f64) -> Result<Self> {
+        create("cylinder", |k| prim::create_cylinder(k, p3(origin), radius, height))
+    }
+
+    /// A sphere centred at `center`.
+    pub fn new_sphere(center: DVec3, radius: f64) -> Result<Self> {
+        create("sphere", |k| prim::create_sphere(k, p3(center), radius))
+    }
+
+    /// A cone (or truncated cone) standing on the XY plane at `origin`, along +Z.
+    pub fn new_cone(origin: DVec3, base_radius: f64, top_radius: f64, height: f64) -> Result<Self> {
+        create("cone", |k| prim::create_cone(k, p3(origin), base_radius, top_radius, height))
+    }
+
+    /// A torus centred at `center`, around +Z.
+    pub fn new_torus(center: DVec3, major_radius: f64, minor_radius: f64) -> Result<Self> {
+        create("torus", |k| prim::create_torus(k, p3(center), major_radius, minor_radius))
+    }
+
+    /// This solid moved by the rigid (or uniformly scaled) transform `t`.
+    pub fn transformed(&self, t: &DAffine3) -> Result<Self> {
+        let m = row_major(t);
+        guarded("transform", || {
+            let mut k = kernel();
+            let mut body = to_kernel(&mut k, &self.record, "transform")?;
+            solidcore::topology::brep::mirror::transform_matrix(&mut k, &mut body, &m, false)
+                .map_err(|e| kernel_err("transform", e))?;
+            to_record(&mut k, &mut body, "transform")
+        })
+    }
+
+    /// `self op other`, both in the same coordinate system.
+    pub fn boolean(&self, other: &Solid, op: BooleanOp) -> Result<Self> {
+        let call = op.call();
+        guarded(call, || {
+            use solidcore::boolean::api_brep as b;
+            let mut k = kernel();
+            let a = to_kernel(&mut k, &self.record, call)?;
+            let o = to_kernel(&mut k, &other.record, call)?;
+            let r = match op {
+                BooleanOp::Union => b::boolean_union(&mut k, a, o),
+                BooleanOp::Difference => b::boolean_difference(&mut k, a, o),
+                BooleanOp::Intersection => b::boolean_intersection(&mut k, a, o),
+            };
+            let mut body = r.map_err(|e| kernel_err(call, e))?;
+            // Nothing left (a tool swallowing the target): said so, before the conversion
+            // refuses a body without shells.
+            if solidcore::topology::brep::p1::num_faces(&body) == 0 {
+                return Err(Error::Empty(call.into()));
+            }
+            let out = to_record(&mut k, &mut body, call)?;
+            if out.record.faces.is_empty() {
+                return Err(Error::Empty(call.into()));
+            }
+            Ok(out)
+        })
+    }
+
+    /// A display mesh of the solid, in its own coordinates.
+    pub fn mesh(&self) -> Result<Mesh> {
+        self.display().map(|d| d.mesh)
+    }
+
+    /// The display mesh and the snap features (what tools infer on), in the solid's own
+    /// coordinates: one tessellation for both.
+    pub fn display(&self) -> Result<Display> {
+        let size = self
+            .vertex_bounds()
+            .map(|(lo, hi)| (hi - lo).length())
+            .filter(|s| *s > 1e-6)
+            .unwrap_or(100.0);
+        guarded("mesh", || {
+            let tol = solidcore_tess::MeshTolerance::display_of(size);
+            let (plan, _stats) =
+                solidcore_tess::plan(&self.record, &tol, size).map_err(|e| Error::Mesh(e.to_string()))?;
+            let (m, _refused) = plan.evaluate();
+            let visible: Vec<bool> = (0..m.edges.len()).map(|i| edge_drawn(&self.record, &m, i)).collect();
+            let polylines: Vec<Vec<DVec3>> =
+                m.edges.iter().map(|e| e.iter().map(|p| DVec3::new(p.x, p.y, p.z)).collect()).collect();
+            Ok(Display { mesh: Mesh::from_tess(&m, &visible), snaps: Snaps::build(&self.record, &polylines, &visible) })
+        })
+    }
+}
+
+// ---- jobs -----------------------------------------------------------------------------------
+
+/// Runs every task of `job` in order. A task producing a solid that fails fails the job.
+pub fn run(job: &Job) -> JobResult {
+    let input = |i: u32| {
+        job.inputs.get(i as usize).ok_or_else(|| Error::Convert { call: "job".into(), message: format!("no input {i}") })
+    };
+    let solid = |s: Solid| {
+        let display = s.display().map_err(|e| e.to_string());
+        Output::Solid { solid: s, display }
+    };
+    let mut out = Vec::with_capacity(job.tasks.len());
+    for task in &job.tasks {
+        out.push(match task {
+            Task::Primitive { primitive, placement } => {
+                let mut s = primitive.build()?;
+                if !placement.abs_diff_eq(DAffine3::IDENTITY, 1e-12) {
+                    s = s.transformed(placement)?;
+                }
+                solid(s)
+            }
+            Task::Transform { solid: i, transform } => solid(input(*i)?.transformed(transform)?),
+            Task::Boolean { target, tool, tool_transform, op } => {
+                let tool = input(*tool)?;
+                let r = match tool_transform {
+                    Some(t) => input(*target)?.boolean(&tool.transformed(t)?, *op)?,
+                    None => input(*target)?.boolean(tool, *op)?,
+                };
+                solid(r)
+            }
+            Task::Display { solid: i } => Output::Display(input(*i)?.display().map_err(|e| e.to_string())),
+            Task::Panic { message } => guarded("panic", || -> Result<Output> { panic!("{message}") })?,
+        });
+    }
+    Ok(out)
+}
+
+/// Runs each job as it is submitted: results are ready at the next [`KernelService::poll`].
+/// For tests, and wherever blocking is fine.
+#[derive(Default)]
+pub struct Inline {
+    ready: Vec<(JobId, JobResult)>,
+}
+
+impl KernelService for Inline {
+    fn submit(&mut self, id: JobId, job: Job) {
+        self.ready.push((id, run(&job)));
+    }
+
+    fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+        std::mem::take(&mut self.ready)
+    }
+}
+
+/// Runs jobs one after the other on a thread of its own (the desktop app).
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Threaded {
+    jobs: std::sync::mpsc::Sender<(JobId, Job)>,
+    results: std::sync::mpsc::Receiver<(JobId, JobResult)>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Threaded {
+    /// SolidCore recurses legitimately: give its thread a generous stack (a stack overflow
+    /// aborts, it is no panic).
+    const STACK: usize = 256 << 20;
+
+    pub fn new(waker: Option<crate::Waker>) -> Self {
+        let (jobs, job_rx) = std::sync::mpsc::channel::<(JobId, Job)>();
+        let (result_tx, results) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("kernel".into())
+            .stack_size(Self::STACK)
+            .spawn(move || {
+                // Ends when the service is dropped (its sender with it).
+                for (id, job) in job_rx {
+                    if result_tx.send((id, run(&job))).is_err() {
+                        return;
+                    }
+                    if let Some(w) = &waker {
+                        w();
+                    }
+                }
+            })
+            .expect("the kernel thread starts");
+        Threaded { jobs, results }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl KernelService for Threaded {
+    fn submit(&mut self, id: JobId, job: Job) {
+        // The thread only stops with the service: a send cannot fail before.
+        let _ = self.jobs.send((id, job));
+    }
+
+    fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+        self.results.try_iter().collect()
+    }
+}
+
+// ---- helpers --------------------------------------------------------------------------------
+
+/// Does the viewport draw edge `i` of `record`'s tessellation `m`? Not a seam: the mesher
+/// leaves `seams` empty, so they are told from the record.
+fn edge_drawn(record: &Record, m: &solidcore_tess::Mesh, i: usize) -> bool {
+    m.shaded_edge_visible(i) && !m.seams.get(i).copied().unwrap_or(false) && !is_seam(record, i)
+}
+
+/// Is edge `i` a seam: where a face meets itself (a cylinder's side), or between two pieces
+/// of one surface?
+fn is_seam(record: &Record, i: usize) -> bool {
+    let Some(e) = record.edges.get(i) else { return false };
+    let [a, b] = match e.uses.as_slice() {
+        [a, b] => [a.face, b.face],
+        _ => return false,
+    };
+    if a == b {
+        return true;
+    }
+    match (record.faces.get(a as usize), record.faces.get(b as usize)) {
+        (Some(fa), Some(fb)) => fa.surface == fb.surface,
+        _ => false,
+    }
+}
+
+impl Mesh {
+    /// `drawn[i]`: is edge `i` drawn.
+    fn from_tess(m: &solidcore_tess::Mesh, drawn: &[bool]) -> Self {
+        let d = |p: &solidcore_record::Vec3| DVec3::new(p.x, p.y, p.z);
+        let origin = m
+            .positions
+            .iter()
+            .map(d)
+            .fold(None, |b: Option<(DVec3, DVec3)>, p| Some(b.map_or((p, p), |(lo, hi)| (lo.min(p), hi.max(p)))))
+            .map_or(DVec3::ZERO, |(lo, hi)| (lo + hi) * 0.5);
+        let rel = |p: &solidcore_record::Vec3| (d(p) - origin).as_vec3().to_array();
+        let dir = |p: &solidcore_record::Vec3| d(p).as_vec3().to_array();
+        let (edges, edge_ids) = m
+            .edges
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| drawn.get(*i).copied().unwrap_or(false))
+            .map(|(i, e)| (e.iter().map(rel).collect::<Vec<_>>(), i as u32))
+            .unzip();
+        Mesh {
+            origin,
+            positions: m.positions.iter().map(rel).collect(),
+            normals: m.normals.iter().map(dir).collect(),
+            indices: m.triangles.iter().flatten().copied().collect(),
+            tri_face: m.tri_face.clone(),
+            edges,
+            edge_ids,
+        }
+    }
+}
+
+fn kernel() -> Kernel {
+    Kernel::new(&KernelOptions::default())
+}
+
+fn p3(v: DVec3) -> solidcore::Point3 {
+    solidcore::Point3::new(v.x, v.y, v.z)
+}
+
+/// SolidCore's matrix convention: row vectors, linear part in rows 0..3, translation in row 3.
+fn row_major(t: &DAffine3) -> [[f64; 4]; 4] {
+    let (x, y, z, w) = (t.matrix3.x_axis, t.matrix3.y_axis, t.matrix3.z_axis, t.translation);
+    [[x.x, x.y, x.z, 0.0], [y.x, y.y, y.z, 0.0], [z.x, z.y, z.z, 0.0], [w.x, w.y, w.z, 1.0]]
+}
+
+fn kernel_err(call: &str, e: solidcore::SolidError) -> Error {
+    Error::Kernel { call: call.into(), message: e.to_string() }
+}
+
+fn to_kernel(k: &mut Kernel, r: &Record, call: &str) -> Result<solidcore::Brep> {
+    solidcore_convert::brep::to_kernel_body(k, r, true)
+        .map_err(|e| Error::Convert { call: call.into(), message: e.to_string() })
+}
+
+fn to_record(k: &mut Kernel, b: &mut solidcore::Brep, call: &str) -> Result<Solid> {
+    solidcore_convert::brep::to_record(k, b)
+        .map(|(mut record, _order)| {
+            square_frames(&mut record);
+            Solid::from_record(record)
+        })
+        .map_err(|e| Error::Convert { call: call.into(), message: e.to_string() })
+}
+
+/// Makes every frame of `r` square again. A rotation about a slanted axis leaves a plane's or
+/// a frame's axes off square by ~1e-15, while SolidCore reads a record back only within ~3e-16
+/// (`surface::from_parameters`): the next operation on the solid would be refused ("the
+/// plane's axes are not square"). Moves nothing measurable: the corrections are at rounding.
+fn square_frames(r: &mut Record) {
+    use solidcore_record::brep::{Curve, Frame, Surface};
+    fn v(a: [f64; 3]) -> DVec3 {
+        DVec3::from_array(a)
+    }
+    /// `b` made square to `a`, its length kept.
+    fn square_to(a: DVec3, b: DVec3) -> DVec3 {
+        let n = a.normalize_or_zero();
+        let s = b - n * n.dot(b);
+        if s == DVec3::ZERO { b } else { s.normalize() * b.length() }
+    }
+    fn frame(f: &mut Frame) {
+        let x = v(f.x_axis).normalize_or_zero();
+        if x == DVec3::ZERO {
+            return;
+        }
+        f.x_axis = x.to_array();
+        f.y_axis = square_to(x, v(f.y_axis)).normalize_or_zero().to_array();
+    }
+    fn curve(c: &mut Curve) {
+        if let Curve::Circle { frame: f, .. } | Curve::Ellipse { frame: f, .. } = c {
+            frame(f);
+        }
+    }
+    for face in &mut r.faces {
+        match &mut face.surface {
+            Surface::Plane { u_axis, v_axis, .. } => *v_axis = square_to(v(*u_axis), v(*v_axis)).to_array(),
+            Surface::Cylinder { frame: f, .. }
+            | Surface::Cone { frame: f, .. }
+            | Surface::Sphere { frame: f, .. }
+            | Surface::Torus { frame: f, .. } => frame(f),
+            Surface::PlacedRevolution { profile, axis, .. } => {
+                *axis = v(*axis).normalize_or_zero().to_array();
+                curve(profile);
+            }
+            _ => {}
+        }
+    }
+    for edge in &mut r.edges {
+        curve(&mut edge.curve);
+    }
+}
+
+fn create(call: &'static str, f: impl FnOnce(&mut Kernel) -> solidcore::Result<solidcore::Brep>) -> Result<Solid> {
+    guarded(call, || {
+        let mut k = kernel();
+        let mut body = f(&mut k).map_err(|e| kernel_err(call, e))?;
+        to_record(&mut k, &mut body, call)
+    })
+}
+
+/// Runs `f`, turning a kernel panic into an error where unwinding is available.
+fn guarded<T>(call: &str, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(r) => r,
+        Err(p) => {
+            let message = p
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| p.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown".to_owned());
+            Err(Error::Panic { call: call.into(), message })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{SnapCurve, decode, encode};
+
+    #[test]
+    fn box_meshes() {
+        let b = Solid::new_box(DVec3::ZERO, DVec3::new(10.0, 20.0, 30.0)).unwrap();
+        assert_eq!(b.topology_counts(), (6, 12, 8));
+        let m = b.mesh().unwrap();
+        // The mesher refines planar faces too: count nothing but what the model relies on.
+        assert_eq!(m.indices.len(), m.tri_face.len() * 3);
+        let mut faces: Vec<u32> = m.tri_face.clone();
+        faces.sort_unstable();
+        faces.dedup();
+        assert_eq!(faces, (0..6).collect::<Vec<_>>());
+        assert_eq!(m.edges.len(), 12);
+        assert_eq!(m.normals.len(), m.positions.len());
+        for n in &m.normals {
+            let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            assert!((l - 1.0).abs() < 1e-4);
+        }
+        assert!((m.origin - DVec3::new(5.0, 10.0, 15.0)).length() < 1e-9);
+    }
+
+    #[test]
+    fn far_mesh_keeps_precision() {
+        // 100 km from the origin, a 0.01 mm step must survive: positions are relative.
+        let at = DVec3::new(1e8, 0.0, 0.0);
+        let m = Solid::new_box(at, DVec3::new(0.01, 1.0, 1.0)).unwrap().mesh().unwrap();
+        let xs: Vec<f32> = m.positions.iter().map(|p| p[0]).collect();
+        let (lo, hi) = xs.iter().fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(*x), hi.max(*x)));
+        assert!(((hi - lo) - 0.01).abs() < 1e-6, "{lo} {hi}");
+    }
+
+    #[test]
+    fn primitives_mesh() {
+        for s in [
+            Solid::new_cylinder(DVec3::ZERO, 5.0, 10.0),
+            Solid::new_sphere(DVec3::ZERO, 5.0),
+            Solid::new_cone(DVec3::ZERO, 5.0, 2.0, 10.0),
+            Solid::new_torus(DVec3::ZERO, 10.0, 3.0),
+        ] {
+            let m = s.unwrap().mesh().unwrap();
+            assert!(m.indices.len() > 30);
+        }
+    }
+
+    #[test]
+    fn boolean_difference_and_transform() {
+        let a = Solid::new_box(DVec3::ZERO, DVec3::splat(20.0)).unwrap();
+        let c = Solid::new_cylinder(DVec3::new(10.0, 10.0, -5.0), 4.0, 30.0).unwrap();
+        let d = a.boolean(&c, BooleanOp::Difference).unwrap();
+        assert!(d.topology_counts().0 >= 7, "{:?}", d.topology_counts());
+        let u = a.boolean(&Solid::new_box(DVec3::splat(10.0), DVec3::splat(20.0)).unwrap(), BooleanOp::Union);
+        assert!(u.unwrap().topology_counts().0 >= 9);
+        let moved = a.transformed(&DAffine3::from_translation(DVec3::new(100.0, 0.0, 0.0))).unwrap();
+        let (lo, _) = moved.vertex_bounds().unwrap();
+        assert!((lo.x - 100.0).abs() < 1e-9);
+        d.mesh().unwrap();
+    }
+
+    #[test]
+    fn box_snaps() {
+        let b = Solid::new_box(DVec3::ZERO, DVec3::new(10.0, 20.0, 30.0)).unwrap();
+        let Display { mesh: m, snaps: s } = b.display().unwrap();
+        assert_eq!(m.edge_ids.len(), m.edges.len());
+        assert_eq!(s.vertices.len(), 8);
+        assert!(s.vertices.contains(&DVec3::new(10.0, 20.0, 30.0)));
+        assert_eq!(s.edges.len(), 12);
+        assert!(s.edges.iter().all(|e| matches!(e.curve, SnapCurve::Segment { .. })));
+        let mids: Vec<DVec3> = s.edges.iter().filter_map(|e| e.curve.midpoint()).collect();
+        assert!(mids.contains(&DVec3::new(5.0, 0.0, 0.0)), "{mids:?}");
+        assert_eq!(s.planes.len(), 6);
+        assert!(s.planes.iter().all(Option::is_some));
+    }
+
+    #[test]
+    fn cylinder_snaps() {
+        let c = Solid::new_cylinder(DVec3::new(1.0, 2.0, 3.0), 5.0, 10.0).unwrap();
+        let s = c.display().unwrap().snaps;
+        // Two circles; the side's seam is not drawn, and a circle's vertex is no endpoint.
+        assert!(s.vertices.is_empty(), "{:?} {:?}", s.vertices, s.edges);
+        assert_eq!(c.mesh().unwrap().edges.len(), 2, "the side's seam is not drawn");
+        assert_eq!(s.edges.len(), 2, "{:?}", s.edges);
+        let mut centers: Vec<DVec3> = s.edges.iter().filter_map(|e| e.curve.center()).collect();
+        centers.sort_by(|a, b| a.z.total_cmp(&b.z));
+        assert!((centers[0] - DVec3::new(1.0, 2.0, 3.0)).length() < 1e-9, "{centers:?}");
+        assert!((centers[1] - DVec3::new(1.0, 2.0, 13.0)).length() < 1e-9, "{centers:?}");
+        assert!(s.edges.iter().all(|e| e.curve.is_closed_arc()));
+        assert_eq!(s.planes.iter().filter(|p| p.is_some()).count(), 2);
+    }
+
+    #[test]
+    fn half_disc_arc_snaps() {
+        // A box cut by a cylinder through its side: the cut leaves open arcs.
+        let a = Solid::new_box(DVec3::ZERO, DVec3::splat(20.0)).unwrap();
+        let c = Solid::new_cylinder(DVec3::new(10.0, 0.0, -5.0), 4.0, 30.0).unwrap();
+        let d = a.boolean(&c, BooleanOp::Difference).unwrap();
+        let s = d.display().unwrap().snaps;
+        let arcs: Vec<&SnapCurve> = s.edges.iter().map(|e| &e.curve).filter(|c| matches!(c, SnapCurve::Arc { .. })).collect();
+        assert_eq!(arcs.len(), 2, "{:?}", s.edges);
+        for arc in arcs {
+            let SnapCurve::Arc { center, sweep, .. } = arc else { unreachable!() };
+            assert!((sweep - std::f64::consts::PI).abs() < 1e-6, "{sweep}");
+            let m = arc.midpoint().unwrap();
+            // The middle of the half circle is the deepest point of the notch.
+            assert!((m - (*center + DVec3::new(0.0, 4.0, 0.0))).length() < 1e-9, "{m} {center}");
+        }
+    }
+
+    #[test]
+    fn serde_round_trip() {
+        let a = Solid::new_cylinder(DVec3::ZERO, 3.0, 7.0).unwrap();
+        let json = serde_json::to_string(&a).unwrap();
+        let b: Solid = serde_json::from_str(&json).unwrap();
+        assert_eq!(a, b);
+        b.mesh().unwrap();
+    }
+
+    /// A job and its result cross the worker boundary as MessagePack, exactly.
+    #[test]
+    fn job_round_trip_messagepack() {
+        let a = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::splat(20.0)).unwrap());
+        let c = Arc::new(Solid::new_cylinder(DVec3::new(10.0, 10.0, -5.0), 4.0, 30.0).unwrap());
+        let job = Job {
+            inputs: vec![a.clone(), c],
+            tasks: vec![
+                Task::Boolean { target: 0, tool: 1, tool_transform: Some(DAffine3::from_translation(DVec3::X)), op: BooleanOp::Difference },
+                Task::Primitive { primitive: Primitive::Sphere { center: DVec3::ZERO, radius: 2.0 }, placement: DAffine3::IDENTITY },
+                Task::Display { solid: 0 },
+            ],
+        };
+        let back: Job = decode(&encode(&job).unwrap()).unwrap();
+        assert_eq!(back.tasks, job.tasks);
+        assert_eq!(*back.inputs[0], *a);
+        let result = run(&back);
+        let bytes = encode(&result).unwrap();
+        let outputs = decode::<JobResult>(&bytes).unwrap().unwrap();
+        let expected = result.unwrap();
+        assert_eq!(outputs.len(), 3);
+        for (o, e) in outputs.iter().zip(&expected) {
+            match (o, e) {
+                (Output::Solid { solid: s, display: Ok(d) }, Output::Solid { solid: t, display: Ok(f) }) => {
+                    assert_eq!(s, t);
+                    assert_eq!(d.mesh.positions, f.mesh.positions);
+                    assert_eq!(d.snaps, f.snaps);
+                }
+                (Output::Display(Ok(d)), Output::Display(Ok(f))) => assert_eq!(d.mesh.indices, f.mesh.indices),
+                _ => panic!("unexpected outputs"),
+            }
+        }
+    }
+
+    #[test]
+    fn failing_task_fails_the_job() {
+        let a = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::splat(1.0)).unwrap());
+        let far = Arc::new(Solid::new_box(DVec3::splat(10.0), DVec3::splat(1.0)).unwrap());
+        let job = Job { inputs: vec![a, far], tasks: vec![Task::Boolean { target: 0, tool: 1, tool_transform: None, op: BooleanOp::Intersection }] };
+        assert!(run(&job).is_err());
+        let mut inline = Inline::default();
+        inline.submit(7, job);
+        let r = inline.poll();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].0, 7);
+        assert!(r[0].1.is_err());
+    }
+
+    #[test]
+    fn panic_task_is_caught_natively() {
+        let job = Job { inputs: vec![], tasks: vec![Task::Panic { message: "exprès".into() }] };
+        match run(&job) {
+            Err(Error::Panic { message, .. }) => assert_eq!(message, "exprès"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn threaded_runs_and_wakes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let woken = Arc::new(AtomicUsize::new(0));
+        let w = woken.clone();
+        let mut t = Threaded::new(Some(Arc::new(move || {
+            w.fetch_add(1, Ordering::SeqCst);
+        })));
+        let job = Job { inputs: vec![], tasks: vec![Task::Primitive { primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE }, placement: DAffine3::IDENTITY }] };
+        t.submit(1, job.clone());
+        t.submit(2, job);
+        let mut got = Vec::new();
+        let start = std::time::Instant::now();
+        while got.len() < 2 && start.elapsed().as_secs() < 30 {
+            got.extend(t.poll());
+            std::thread::yield_now();
+        }
+        assert_eq!(got.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![1, 2]);
+        assert!(got.iter().all(|(_, r)| r.is_ok()));
+        // The thread wakes right after sending.
+        while woken.load(Ordering::SeqCst) < 2 && start.elapsed().as_secs() < 30 {
+            std::thread::yield_now();
+        }
+        assert_eq!(woken.load(Ordering::SeqCst), 2);
+    }
+}

@@ -2,8 +2,9 @@
 //! operations applied.
 
 use crate::document::Document;
-use crate::ops::{Operation, Outcome};
-use crate::Result;
+use crate::ops::Operation;
+#[cfg(any(test, feature = "engine"))]
+use crate::{Result, ops::Outcome};
 
 /// The current document, the documents before it and those undone after it.
 ///
@@ -36,10 +37,18 @@ impl History {
         self.revision
     }
 
-    /// Applies `op`; on success it becomes the last step and the redo steps are dropped. An
-    /// operation that merges into the last step (`Operation::merges_into`) replaces it.
+    /// Applies `op`, running the kernel here (see [`History::push`]).
+    #[cfg(any(test, feature = "engine"))]
     pub fn apply(&mut self, op: Operation) -> Result<Outcome> {
         let (next, outcome) = self.current.apply(&op)?;
+        self.push(next, op);
+        Ok(outcome)
+    }
+
+    /// Makes `next`, the current document with `op` applied, the last step; the redo steps are
+    /// dropped. An operation that merges into the last step (`Operation::merges_into`) replaces
+    /// it.
+    pub fn push(&mut self, next: Document, op: Operation) {
         let prev = std::mem::replace(&mut self.current, next);
         self.last_revision += 1;
         let prev_revision = std::mem::replace(&mut self.revision, self.last_revision);
@@ -48,7 +57,6 @@ impl History {
             _ => self.past.push((prev, prev_revision, op)),
         }
         self.future.clear();
-        Ok(outcome)
     }
 
     pub fn can_undo(&self) -> bool {

@@ -37,6 +37,7 @@ impl Viewport {
         self.input(ui, &response, rect, editor, nav);
 
         let cursor = match editor.tool_kind() {
+            _ if editor.busy() => egui::CursorIcon::Progress, // the kernel is at work
             _ if editor.tool_copying() => egui::CursorIcon::Copy, // SketchUp's « + »
             ToolKind::Select => egui::CursorIcon::Default,
             ToolKind::Move => egui::CursorIcon::Move,
@@ -59,6 +60,9 @@ impl Viewport {
         }
         if let Some(cursor) = response.hover_pos() {
             paint_inference(ui.painter(), rect, cursor, editor);
+        }
+        if let Some(m) = editor.marquee() {
+            paint_marquee(ui.painter(), rect, &m);
         }
     }
 
@@ -106,13 +110,23 @@ impl Viewport {
             editor.recenter(local(p));
         }
 
-        // Primary button: the tool.
+        // Primary button: the tool (clicks; drags from where the button went down).
         if let Some(p) = response.interact_pointer_pos() {
             let m = modifiers(ctx, mods);
             if response.double_clicked_by(Primary) {
                 editor.input(ToolInput::DoubleClick { px: local(p), mods: m });
             } else if response.clicked_by(Primary) {
                 editor.input(ToolInput::Click { px: local(p), mods: m });
+            } else if response.drag_started_by(Primary) {
+                let from = ui.input(|i| i.pointer.press_origin()).unwrap_or(p);
+                editor.input(ToolInput::DragStart { px: local(from), mods: m });
+                editor.input(ToolInput::Drag { px: local(p) });
+            } else if response.dragged_by(Primary) && response.drag_delta() != egui::Vec2::ZERO {
+                editor.input(ToolInput::Drag { px: local(p) });
+            }
+            // Started and released in the same frame: ended too.
+            if response.drag_stopped_by(Primary) {
+                editor.input(ToolInput::DragEnd { px: local(p), mods: m });
             }
         }
 
@@ -185,6 +199,8 @@ impl Viewport {
                     Mark::Hover => ([0.2, 0.45, 1.0, 0.12], [0.1, 0.35, 1.0, 0.7]),
                     Mark::Picked => ([1.0, 0.45, 0.05, 0.4], [0.9, 0.3, 0.0, 1.0]),
                     Mark::Ghost => ([0.3, 0.5, 1.0, 0.3], [0.05, 0.2, 1.0, 1.0]),
+                    // The other copies a change reaches: the picked target's orange, lighter.
+                    Mark::Related => ([1.0, 0.55, 0.15, 0.2], [0.95, 0.45, 0.1, 0.6]),
                 };
                 render::Highlight { key: h.definition.0, part: h.solid.0, transform: DMat4::from(h.transform), face_tint, edge_tint }
             })
@@ -228,6 +244,22 @@ impl Viewport {
                 }
             }
         }
+    }
+}
+
+/// The selection rectangle: solid when it takes what it encloses (drawn left to right),
+/// dashed when it takes what it touches (right to left), as in SketchUp.
+fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &solidsketch_tools::Marquee) {
+    use egui::{Color32, Stroke};
+    let at = |p: DVec2| rect.min + egui::vec2(p.x as f32, p.y as f32);
+    let r = egui::Rect::from_two_pos(at(m.from), at(m.to));
+    painter.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(60, 110, 230, 25));
+    let stroke = Stroke::new(1.0, Color32::from_rgb(40, 80, 200));
+    if m.crossing {
+        let path = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
+        painter.extend(egui::Shape::dashed_line(&path, stroke, 5.0, 4.0));
+    } else {
+        painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Inside);
     }
 }
 

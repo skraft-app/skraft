@@ -1,9 +1,20 @@
-//! Union / Subtract / Intersect: click the target solid, then the tool solid, in any contexts
-//! (ARCHITECTURE.md §4: the target is changed in its own context, the tool is consumed).
+//! Union / Subtract / Intersect: click the target part, then the tool part, in any contexts
+//! (ARCHITECTURE.md §4: the target is changed in its own axes, the tool is consumed). The
+//! scope option says whether every occurrence of the target's part changes, or only the one
+//! clicked (§2.5).
 
-use solidsketch_model::{Boolean, EntityPath, Operation};
+use solidsketch_model::{Boolean, EntityPath, Operation, Scope};
 
-use super::{Command, Cx, Preview, Tool, ToolInput, ToolKind};
+use super::{Command, Cx, OptionChoice, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption};
+
+/// The scope option's key and values.
+pub const SCOPE: &str = "scope";
+const ALL: &str = "all";
+const THIS: &str = "this";
+
+fn scope(cx: &Cx<'_>) -> Scope {
+    if cx.choice(SCOPE) == Some(THIS) { Scope::This } else { Scope::All }
+}
 
 pub struct BooleanTool {
     op: Boolean,
@@ -39,7 +50,8 @@ impl Tool for BooleanTool {
                     None => self.target = Some(path),
                     Some(target) if target == path => {}
                     Some(target) => {
-                        return vec![Command::Apply(Operation::Boolean { target, tool: path, op: self.op, keep_tool: false })];
+                        let op = Operation::Boolean { target, tool: path, op: self.op, scope: scope(cx) };
+                        return vec![Command::Apply(op)];
                     }
                 }
             }
@@ -48,14 +60,42 @@ impl Tool for BooleanTool {
         vec![]
     }
 
-    fn preview(&self, _: &Cx<'_>) -> Preview {
-        Preview { hover_solid: self.hover.clone(), picked_solid: self.target.clone(), ..Default::default() }
+    fn preview(&self, cx: &Cx<'_>) -> Preview {
+        // What a click would change: the target picked, else the part under the cursor.
+        let aimed = self.target.clone().or_else(|| self.hover.clone());
+        let propagate = aimed.filter(|_| scope(cx) == Scope::All);
+        Preview { hover_solid: self.hover.clone(), picked_solid: self.target.clone(), propagate, ..Default::default() }
+    }
+
+    fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
+        let aimed = self.target.as_ref().or(self.hover.as_ref());
+        let all = match aimed.map(|p| cx.copies_shown(p)) {
+            Some(n) if n > 1 => format!("Tous les exemplaires ×{n}"),
+            Some(_) => "Tous les exemplaires (un seul)".to_owned(),
+            None => "Tous les exemplaires".to_owned(),
+        };
+        let value = if scope(cx) == Scope::This { THIS } else { ALL };
+        vec![ToolOption {
+            key: SCOPE,
+            label: "Portée".into(),
+            tip: "Ce que l'opération modifie (Tab pour changer)".into(),
+            value: OptionValue::Choice(value.into()),
+            choices: vec![
+                OptionChoice { value: ALL, label: all, tip: "La pièce elle-même : tous ses exemplaires changent".into() },
+                OptionChoice {
+                    value: THIS,
+                    label: "Celui-ci".into(),
+                    tip: "Seulement l'exemplaire cliqué : il devient une pièce à part (et son assemblage, s'il est copié)".into(),
+                },
+            ],
+            saved: true,
+        }]
     }
 
     fn status(&self) -> String {
         match self.target {
-            None => format!("Cliquer le solide à modifier ({})", self.noun()),
-            Some(_) => format!("Cliquer le solide outil (il sera consommé) pour {}", self.noun()),
+            None => format!("Cliquer la pièce à modifier ({}) · Tab : changer la portée", self.noun()),
+            Some(_) => format!("Cliquer la pièce outil (elle sera consommée) pour {} · Tab : changer la portée", self.noun()),
         }
     }
 

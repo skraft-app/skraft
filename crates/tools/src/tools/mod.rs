@@ -13,12 +13,16 @@ pub use rotate::RotateTool;
 pub use select::SelectTool;
 pub use shapes::{BoxTool, CylinderTool};
 
+use std::collections::BTreeMap;
+
 use glam::{DAffine3, DVec2, DVec3};
+use serde::{Deserialize, Serialize};
 use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Units};
 
 use crate::camera::{Camera, Ray};
 use crate::infer::{self, EdgeRef, InferKind, Inference, LineKind, Lock, Query};
 use crate::scene::{DisplayScene, Hit};
+use crate::vcb::{Repeat, Vcb, VcbValue};
 
 /// Keyboard modifiers, as the app maps them. `copy` is SketchUp's copy toggle (Ctrl on
 /// Windows/Linux, Option on macOS); `toggle` adds to / removes from the selection (Shift).
@@ -39,6 +43,8 @@ pub enum Key {
     Down,
     /// The copy modifier tapped alone (Option on macOS, Ctrl elsewhere): toggles copying.
     Copy,
+    /// Turns the tool's first choice over to its next value (the booleans' scope).
+    Tab,
 }
 
 /// Primary-button and keyboard input for the active tool (navigation is the editor's). Pixel
@@ -48,9 +54,18 @@ pub enum ToolInput {
     Hover { px: DVec2 },
     Click { px: DVec2, mods: Modifiers },
     DoubleClick { px: DVec2, mods: Modifiers },
+    /// The primary button pressed at `px` and dragged away (past the click distance).
+    DragStart { px: DVec2, mods: Modifiers },
+    /// The cursor moved while dragging.
+    Drag { px: DVec2 },
+    /// The primary button released at `px`, ending a drag.
+    DragEnd { px: DVec2, mods: Modifiers },
     Key { key: Key, mods: Modifiers },
-    /// A value typed in the measurements box and validated with Enter.
+    /// A value typed in the measurements box and validated with Enter (the editor reads it
+    /// for the tool's [`Tool::vcb`] and gives it a [`ToolInput::Value`]).
     Vcb(String),
+    /// What was typed, read for the tool's [`Tool::vcb`].
+    Value(VcbValue),
 }
 
 /// What a tool asks the editor to do.
@@ -59,7 +74,7 @@ pub enum Command {
     Apply(Operation),
     /// Replaces the selection (entities of the active context).
     Select(Vec<Id>),
-    /// Enters the group or component instance `Id` of the active context.
+    /// Enters the assembly the occurrence `Id` of the active context places.
     Enter(Id),
     /// Leaves the active context for its parent.
     Exit,
@@ -93,6 +108,65 @@ pub struct Preview {
     pub ghost: Option<DAffine3>,
     /// The point the tool infers under the cursor (marker and tooltip).
     pub inference: Option<Inference>,
+    /// The selection rectangle being dragged.
+    pub marquee: Option<Marquee>,
+    /// The occurrence a change is aimed at, when it reaches every occurrence of its part: the
+    /// others are marked too (ARCHITECTURE.md §2.5).
+    pub propagate: Option<EntityPath>,
+}
+
+// ---- options (ARCHITECTURE.md §6 bis, the tool's option bar) ---------------------------------
+
+/// The value of a tool option.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptionValue {
+    /// One of a choice's values.
+    Choice(String),
+    Toggle(bool),
+}
+
+/// One of a choice's values, as the bar shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OptionChoice {
+    pub value: &'static str,
+    pub label: String,
+    pub tip: String,
+}
+
+/// An option of the active tool, as the bar shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolOption {
+    pub key: &'static str,
+    /// The option's name ("Portée"), shown before a choice, on a toggle.
+    pub label: String,
+    pub tip: String,
+    pub value: OptionValue,
+    /// A choice's values; empty for a toggle.
+    pub choices: Vec<OptionChoice>,
+    /// A setting, kept per tool in the user's preferences (read back in [`Cx::options`]); else
+    /// the gesture's own state (copying), which the tool keeps.
+    pub saved: bool,
+}
+
+/// One tool's saved settings, by option key.
+pub type OptionValues = BTreeMap<String, OptionValue>;
+
+/// A selection rectangle (pixels, origin top left), as the select tool drags it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Marquee {
+    pub from: DVec2,
+    pub to: DVec2,
+    /// Drawn right to left (SketchUp): what it touches is taken, not only what it encloses.
+    pub crossing: bool,
+    /// The entities of the active context it would take now.
+    pub hits: Vec<Id>,
+}
+
+impl Marquee {
+    pub fn new(from: DVec2, to: DVec2) -> Self {
+        Marquee { from, to, crossing: to.x < from.x, hits: Vec::new() }
+    }
 }
 
 /// Which tool.
@@ -106,13 +180,43 @@ pub enum ToolKind {
     Boolean(Boolean),
 }
 
+impl ToolKind {
+    /// A stable name, for the settings kept per tool.
+    pub fn id(self) -> &'static str {
+        match self {
+            ToolKind::Select => "select",
+            ToolKind::Box => "box",
+            ToolKind::Cylinder => "cylinder",
+            ToolKind::Move => "move",
+            ToolKind::Rotate => "rotate",
+            ToolKind::Boolean(Boolean::Union) => "union",
+            ToolKind::Boolean(Boolean::Difference) => "difference",
+            ToolKind::Boolean(Boolean::Intersection) => "intersection",
+        }
+    }
+
+    /// Its name in the option bar.
+    pub fn label(self) -> &'static str {
+        match self {
+            ToolKind::Select => "Sélection",
+            ToolKind::Box => "Boîte",
+            ToolKind::Cylinder => "Cylindre",
+            ToolKind::Move => "Déplacer",
+            ToolKind::Rotate => "Faire pivoter",
+            ToolKind::Boolean(Boolean::Union) => "Union",
+            ToolKind::Boolean(Boolean::Difference) => "Soustraire",
+            ToolKind::Boolean(Boolean::Intersection) => "Intersecter",
+        }
+    }
+}
+
 /// What a tool sees of the editor.
 pub struct Cx<'a> {
     pub doc: &'a Document,
     pub scene: &'a DisplayScene,
     pub camera: &'a Camera,
     pub size: DVec2,
-    /// Instance path of the context being edited (empty: the model).
+    /// Occurrence path of the context being edited (empty: the model).
     pub context: &'a [Id],
     /// The definition being edited.
     pub context_def: Id,
@@ -127,6 +231,8 @@ pub struct Cx<'a> {
     pub tracked: &'a [DVec3],
     /// The last edge hovered, straight or arc (world).
     pub reference: Option<EdgeRef>,
+    /// The active tool's saved settings.
+    pub options: &'a OptionValues,
 }
 
 impl Cx<'_> {
@@ -147,7 +253,7 @@ impl Cx<'_> {
     }
 
     /// The entity of the active context a hit belongs to: the solid itself if it is in the
-    /// context, else the context's instance that leads to it; `None` outside the context.
+    /// context, else the context's occurrence that leads to it; `None` outside the context.
     pub fn selectable(&self, path: &EntityPath) -> Option<Id> {
         let rest = path.instances.strip_prefix(self.context)?;
         Some(rest.first().copied().unwrap_or(path.entity))
@@ -227,6 +333,21 @@ impl Cx<'_> {
         infer::infer(self.scene, self.camera, self.size, px, &q)
     }
 
+    /// The saved value of the choice `key`, if any.
+    pub fn choice(&self, key: &str) -> Option<&str> {
+        match self.options.get(key) {
+            Some(OptionValue::Choice(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// How many occurrences of the part `path` names the scene shows (through copies of
+    /// assemblies too).
+    pub fn copies_shown(&self, path: &EntityPath) -> usize {
+        let Ok((part, _, _)) = self.doc.resolve_part(path) else { return 0 };
+        self.scene.placements().find(|(p, _)| *p == part).map_or(0, |(_, places)| places.len())
+    }
+
     /// The line a lock holds, if any: Shift's, else the arrow keys' axis.
     pub fn lock(&self) -> Option<Lock> {
         self.shift_lock.or_else(|| self.axis_lock.map(|k| Lock { origin: None, dir: self.axis(k), line: LineKind::Axis(k) }))
@@ -252,13 +373,9 @@ pub trait Tool {
     fn preview(&self, cx: &Cx<'_>) -> Preview;
     /// A hint for the status bar.
     fn status(&self) -> String;
-    /// The measurements box's label, when the tool takes a value now.
-    fn vcb_label(&self) -> Option<&'static str> {
+    /// What the measurements box takes now, with the current values, if anything.
+    fn vcb(&self) -> Option<Vcb> {
         None
-    }
-    /// The measurements box's current value, lengths in `units`.
-    fn vcb_value(&self, _units: &Units) -> String {
-        String::new()
     }
     /// Does the tool copy rather than move (the cursor shows a « + »)?
     fn copying(&self) -> bool {
@@ -266,6 +383,13 @@ pub trait Tool {
     }
     /// Is an operation under way (Esc cancels it rather than clearing the selection)?
     fn busy(&self) -> bool;
+    /// The options the bar shows (ARCHITECTURE.md §6 bis), labels as they read now.
+    fn options(&self, _cx: &Cx<'_>) -> Vec<ToolOption> {
+        Vec::new()
+    }
+    /// An option of the gesture changed (a saved one is stored by the editor, read in
+    /// [`Cx::options`]).
+    fn set_option(&mut self, _key: &str, _value: &OptionValue) {}
     /// Back to the first step.
     fn reset(&mut self);
 }
@@ -310,16 +434,15 @@ impl LastCopy {
         LastCopy { context, entities, motion, op }
     }
 
-    /// A typed count: the commands replacing the copy (or the last array) by the new array,
-    /// `None` if `text` is not a count.
-    pub fn retype(&mut self, text: &str) -> Option<Vec<Command>> {
-        let (fraction, count) = match crate::vcb::repeat(text)? {
-            crate::vcb::Repeat::Times(n) => (1.0, n),
-            crate::vcb::Repeat::Divide(n) => (1.0 / n as f64, n),
+    /// A typed count: the commands replacing the copy (or the last array) by the new array.
+    pub fn retype(&mut self, repeat: Repeat) -> Vec<Command> {
+        let (fraction, count) = match repeat {
+            Repeat::Times(n) => (1.0, n),
+            Repeat::Divide(n) => (1.0 / n as f64, n),
         };
         let op = Operation::Array { context: self.context, entities: self.entities.clone(), step: self.motion.part(fraction), count };
         let previous = std::mem::replace(&mut self.op, op.clone());
-        Some(vec![Command::Replace { previous, op }])
+        vec![Command::Replace { previous, op }]
     }
 }
 

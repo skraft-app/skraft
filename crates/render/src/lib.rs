@@ -149,11 +149,14 @@ struct InstanceRaw {
 impl InstanceRaw {
     /// `model_view`: from the mesh's (recentred) coordinates to the camera's, in `f64`.
     fn new(model_view: &DMat4, tint: Tint) -> Self {
-        let n = DMat3::from_mat4(*model_view).inverse().transpose();
-        let c = |v: DVec3| [v.x as f32, v.y as f32, v.z as f32, 0.0];
+        let linear = DMat3::from_mat4(*model_view);
+        let n = linear.inverse().transpose();
+        let c = |v: DVec3, w: f64| [v.x as f32, v.y as f32, v.z as f32, w as f32];
+        // The winding's sign, for the shader to tell outside from inside under a mirror.
+        let mirrored = if linear.determinant() < 0.0 { -1.0 } else { 1.0 };
         InstanceRaw {
             model: model_view.as_mat4().to_cols_array_2d(),
-            normal: [c(n.x_axis), c(n.y_axis), c(n.z_axis)],
+            normal: [c(n.x_axis, mirrored), c(n.y_axis, 0.0), c(n.z_axis, 0.0)],
             tint,
         }
     }

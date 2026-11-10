@@ -12,5 +12,6 @@ glam.workspace = true
 bytemuck.workspace = true
 
 [dev-dependencies]
+solidsketch-kernel = { workspace = true, features = ["engine"] }
 pollster.workspace = true
 png = "0.17"

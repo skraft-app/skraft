@@ -1,16 +1,17 @@
 //! Rotate (SketchUp's protractor): click the centre — the axis is the normal of the face under
 //! it, else the context's Z; the arrow keys lock it (→ red X, ← green Y, ↑ blue Z, ↓ free) —
 //! then a reference direction (0°), then the angle, which snaps to 15° steps. The angle can be
-//! typed in degrees. A tap of the copy modifier (Option on macOS, Ctrl elsewhere) toggles
+//! typed in degrees (`360/7`, `@/2`: half the angle so far). A tap of the copy modifier (Option on macOS, Ctrl elsewhere) toggles
 //! copying; right after a copy, `6x` makes a circular array of 6 at the same angle and `/6`
 //! spreads 6 copies over it. With nothing selected, the first click takes the entity under
 //! the cursor.
 
 use glam::{DAffine3, DQuat, DVec2, DVec3};
-use solidsketch_model::{EntityPath, Id, Operation, Units};
+use solidsketch_model::{EntityPath, Id, Operation};
 use crate::infer::Inference;
+use crate::vcb::{Vcb, VcbKind, VcbValue};
 
-use super::{BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, Preview, PreviewLine, RED, Tool, ToolInput, ToolKind, cross, guide_color};
+use super::{BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, RED, Tool, ToolInput, ToolKind, ToolOption, cross, guide_color};
 
 /// Snapping step and how close the angle must be to snap (radians).
 const SNAP_STEP: f64 = std::f64::consts::PI / 12.0;
@@ -41,12 +42,6 @@ enum State {
 /// The context's axis `k`, in the world.
 fn context_axis(cx: &Cx<'_>, k: usize) -> DVec3 {
     cx.context_transform.matrix3.col(k).normalize()
-}
-
-/// Parses an angle in degrees (`30`, `-45`, `22,5°`), in radians.
-pub fn parse_degrees(s: &str) -> Option<f64> {
-    let t = s.trim().trim_end_matches('°').trim().replace(',', ".");
-    t.parse::<f64>().ok().filter(|v| v.is_finite()).map(f64::to_radians)
 }
 
 /// The rotation of `angle` about the line through `center` along `axis` (world).
@@ -173,17 +168,15 @@ impl Tool for RotateTool {
             (ToolInput::Click { .. }, State::Angle { center, axis, angle, .. }) => {
                 return self.finish(cx, center, axis, angle);
             }
-            (ToolInput::Vcb(text), State::Center) => {
+            (ToolInput::Value(VcbValue::Count(r)), State::Center) => {
                 let Some(last) = &mut self.last else { return vec![] };
-                return last
-                    .retype(text)
-                    .unwrap_or_else(|| vec![Command::Say(format!("Nombre de copies non compris : « {text} » (6x, /6)"))]);
+                return last.retype(*r);
             }
-            (ToolInput::Vcb(text), State::Reference { center, axis, .. } | State::Angle { center, axis, .. }) => {
-                let Some(angle) = parse_degrees(text) else {
-                    return vec![Command::Say(format!("Angle non compris : « {text} » (en degrés)"))];
-                };
-                return self.finish(cx, center, axis, angle);
+            (
+                ToolInput::Value(VcbValue::Angle(angle)),
+                State::Reference { center, axis, .. } | State::Angle { center, axis, .. },
+            ) => {
+                return self.finish(cx, center, axis, *angle);
             }
             _ => {}
         }
@@ -257,25 +250,33 @@ impl Tool for RotateTool {
         }
     }
 
-    fn vcb_label(&self) -> Option<&'static str> {
+    fn vcb(&self) -> Option<Vcb> {
         match self.state {
-            State::Center => self.last.as_ref().map(|_| "Copies"),
-            _ => Some("Angle"),
-        }
-    }
-
-    fn vcb_value(&self, _units: &Units) -> String {
-        match self.state {
-            State::Angle { angle, .. } => {
-                let d = (angle.to_degrees() * 10.0).round() / 10.0;
-                format!("{d}°").replace('.', ",")
-            }
-            _ => String::new(),
+            State::Center => self.last.as_ref().map(|_| Vcb::new("Copies", VcbKind::Count)),
+            State::Reference { .. } => Some(Vcb::new("Angle", VcbKind::Angle(0.0))),
+            State::Angle { angle, .. } => Some(Vcb::new("Angle", VcbKind::Angle(angle))),
         }
     }
 
     fn copying(&self) -> bool {
         self.copy
+    }
+
+    fn options(&self, _: &Cx<'_>) -> Vec<ToolOption> {
+        vec![ToolOption {
+            key: "copy",
+            label: "Copier".into(),
+            tip: format!("Copier au lieu de déplacer ({} : basculer)", super::COPY_KEY),
+            value: OptionValue::Toggle(self.copy),
+            choices: Vec::new(),
+            saved: false,
+        }]
+    }
+
+    fn set_option(&mut self, key: &str, value: &OptionValue) {
+        if let ("copy", OptionValue::Toggle(on)) = (key, value) {
+            self.copy = *on;
+        }
     }
 
     fn busy(&self) -> bool {
@@ -294,14 +295,6 @@ impl Tool for RotateTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn degrees() {
-        assert_eq!(parse_degrees("90"), Some(std::f64::consts::FRAC_PI_2));
-        assert_eq!(parse_degrees("-45°"), Some(-std::f64::consts::FRAC_PI_4));
-        assert!((parse_degrees("22,5").unwrap() - 22.5f64.to_radians()).abs() < 1e-15);
-        assert_eq!(parse_degrees("abc"), None);
-    }
 
     #[test]
     fn rotation_keeps_the_centre() {

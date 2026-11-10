@@ -5,11 +5,15 @@
 //! Built from the record, with the mesher's edge polylines for what has no simple exact form
 //! (splines, intersection curves) and to tell which way an arc runs.
 
+// Building snaps follows tessellation, which only the `engine` has.
+#![cfg_attr(not(feature = "engine"), allow(dead_code))]
+
 use glam::DVec3;
+use serde::{Deserialize, Serialize};
 use solidcore_record::brep::{Brep as Record, Curve, Surface};
 
 /// Snap features of one solid.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Snaps {
     /// Endpoints of visible edges (B-rep vertices), each once.
     pub vertices: Vec<DVec3>,
@@ -20,7 +24,7 @@ pub struct Snaps {
 }
 
 /// A plane: a point on it and its unit normal (sign as the surface has it).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Plane {
     pub point: DVec3,
     pub normal: DVec3,
@@ -34,14 +38,14 @@ impl Plane {
 }
 
 /// One visible B-rep edge.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SnapEdge {
     /// Index of the edge in the record.
     pub id: u32,
     pub curve: SnapCurve,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SnapCurve {
     /// A straight edge from `a` to `b`.
     Segment { a: DVec3, b: DVec3 },

@@ -4,15 +4,16 @@
 //! tap of the copy modifier (Option on macOS, Ctrl elsewhere), before or while moving, toggles
 //! copying; right after a copy, `5x` makes an array of 5 at the same step and `/5` spreads 5
 //! copies over the same distance. A typed distance finishes the move along the current
-//! direction. With nothing selected, the first click takes the entity under the cursor
+//! direction (`@/2`: half the way so far), a typed point at it (`[x;y;z]` in the context's
+//! axes, `<dx;dy;dz>` from the start). With nothing selected, the first click takes the entity under the cursor
 //! (SketchUp).
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_model::{EntityPath, Id, Operation, Units};
+use solidsketch_model::{EntityPath, Id, Operation};
 
-use super::{Command, Cx, INK, Key, LastCopy, Motion, Preview, PreviewLine, Tool, ToolInput, ToolKind, cross, guide_color};
+use super::{Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, Tool, ToolInput, ToolKind, ToolOption, cross, guide_color};
 use crate::infer::Inference;
-use crate::vcb;
+use crate::vcb::{PointRef, Vcb, VcbKind, VcbValue};
 
 #[derive(Default)]
 pub struct MoveTool {
@@ -107,16 +108,13 @@ impl Tool for MoveTool {
                 return out;
             }
             (ToolInput::Click { .. }, State::Moving { from, to }) => return self.finish(cx, from, to),
-            (ToolInput::Vcb(text), State::Start) => {
+            (ToolInput::Value(VcbValue::Count(r)), State::Start) => {
                 let Some(last) = &mut self.last else { return vec![] };
-                return last
-                    .retype(text)
-                    .unwrap_or_else(|| vec![Command::Say(format!("Nombre de copies non compris : « {text} » (5x, /5)"))]);
+                return last.retype(*r);
             }
-            (ToolInput::Vcb(text), State::Moving { from, to }) => {
-                let Some(d) = vcb::length(text, cx.units()) else {
-                    return vec![Command::Say(format!("Distance non comprise : « {text} »"))];
-                };
+            (ToolInput::Value(VcbValue::Point(p)), State::Moving { from, .. }) => return self.finish(cx, from, *p),
+            (ToolInput::Value(VcbValue::Lengths(v)), State::Moving { from, to }) => {
+                let d = v[0];
                 // Along the locked line, on the cursor's side; else towards the cursor.
                 let dir = match cx.lock().map(|l| l.dir) {
                     Some(d) if (to - from).dot(d) < 0.0 => -d,
@@ -162,22 +160,35 @@ impl Tool for MoveTool {
         }
     }
 
-    fn vcb_label(&self) -> Option<&'static str> {
+    fn vcb(&self) -> Option<Vcb> {
         match self.state {
-            State::Moving { .. } => Some("Distance"),
-            State::Start => self.last.as_ref().map(|_| "Copies"),
-        }
-    }
-
-    fn vcb_value(&self, units: &Units) -> String {
-        match self.state {
-            State::Moving { from, to } => vcb::format((to - from).length(), units),
-            State::Start => String::new(),
+            State::Moving { from, to } => Some(Vcb {
+                point: Some(PointRef { from, to }),
+                ..Vcb::new("Distance", VcbKind::Lengths(vec![(to - from).length()]))
+            }),
+            State::Start => self.last.as_ref().map(|_| Vcb::new("Copies", VcbKind::Count)),
         }
     }
 
     fn copying(&self) -> bool {
         self.copy
+    }
+
+    fn options(&self, _: &Cx<'_>) -> Vec<ToolOption> {
+        vec![ToolOption {
+            key: "copy",
+            label: "Copier".into(),
+            tip: format!("Copier au lieu de déplacer ({} : basculer)", super::COPY_KEY),
+            value: OptionValue::Toggle(self.copy),
+            choices: Vec::new(),
+            saved: false,
+        }]
+    }
+
+    fn set_option(&mut self, key: &str, value: &OptionValue) {
+        if let ("copy", OptionValue::Toggle(on)) = (key, value) {
+            self.copy = *on;
+        }
     }
 
     fn busy(&self) -> bool {

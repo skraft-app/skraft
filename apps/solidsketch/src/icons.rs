@@ -18,7 +18,6 @@ icon!(SUBTRACT, "subtract");
 icon!(INTERSECT, "intersect");
 icon!(UNDO, "undo");
 icon!(REDO, "redo");
-icon!(GROUP, "group");
 icon!(COMPONENT, "component");
 icon!(EXPLODE, "explode");
 icon!(UNIQUE, "unique");

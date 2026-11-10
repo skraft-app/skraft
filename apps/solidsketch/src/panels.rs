@@ -1,8 +1,8 @@
 //! Side panels: the tool bar (left), the outliner and the entity info (right).
 
 use glam::{DAffine3, DVec3};
-use solidsketch_model::{Boolean, DefinitionKind, Document, Entity, EntityPath, Id, Operation, Units};
-use solidsketch_tools::{Editor, ToolKind};
+use solidsketch_model::{Boolean, ComponentKind, Document, EntityPath, Id, Occurrence, Operation, Units, measure};
+use solidsketch_tools::{Editor, OptionValue, ToolKind};
 
 use crate::icons;
 
@@ -12,13 +12,43 @@ pub enum Action {
     Undo,
     Redo,
     Erase,
-    Make(DefinitionKind),
+    MakeAssembly,
     Explode,
     MakeUnique,
     ZoomExtents,
     ToggleParallel,
     SelectPath(EntityPath),
     Apply(Operation),
+    /// Débogage (`?debug`, `SOLIDSKETCH_DEBUG`): make the kernel panic.
+    CrashKernel,
+    /// An option of the active tool changed in its bar.
+    ToolOption(&'static str, OptionValue),
+}
+
+/// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its name, then its options —
+/// a choice as a row of buttons, a toggle as one.
+pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
+    ui.horizontal(|ui| {
+        ui.strong(editor.tool_kind().label());
+        for o in editor.tool_options() {
+            ui.separator();
+            match &o.value {
+                OptionValue::Choice(current) => {
+                    ui.label(format!("{} :", o.label)).on_hover_text(&o.tip);
+                    for c in &o.choices {
+                        if ui.selectable_label(current == c.value, &c.label).on_hover_text(&c.tip).clicked() && current != c.value {
+                            actions.push(Action::ToolOption(o.key, OptionValue::Choice(c.value.to_owned())));
+                        }
+                    }
+                }
+                OptionValue::Toggle(on) => {
+                    if ui.selectable_label(*on, &o.label).on_hover_text(&o.tip).clicked() {
+                        actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, selected: bool, enabled: bool, tip: &str) -> bool {
@@ -52,16 +82,13 @@ pub fn toolbar(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
         }
     }
     ui.separator();
-    if icon_button(ui, icons::GROUP, false, has_sel, "Créer un groupe") {
-        actions.push(Action::Make(DefinitionKind::Group));
-    }
-    if icon_button(ui, icons::COMPONENT, false, has_sel, "Créer un composant (G)") {
-        actions.push(Action::Make(DefinitionKind::Component));
+    if icon_button(ui, icons::COMPONENT, false, has_sel, "Créer un assemblage (G)") {
+        actions.push(Action::MakeAssembly);
     }
     if icon_button(ui, icons::EXPLODE, false, has_sel, "Éclater") {
         actions.push(Action::Explode);
     }
-    if icon_button(ui, icons::UNIQUE, false, has_sel, "Rendre unique") {
+    if icon_button(ui, icons::UNIQUE, false, has_sel, "Faire une pièce à part") {
         actions.push(Action::MakeUnique);
     }
     if icon_button(ui, icons::ERASE, false, has_sel, "Effacer (Suppr)") {
@@ -85,74 +112,66 @@ pub fn toolbar(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
 
 // ---- outliner ----------------------------------------------------------------------------------
 
-fn entity_icon(doc: &Document, e: &Entity) -> egui::ImageSource<'static> {
-    match e {
-        Entity::Solid(_) => icons::BOX,
-        Entity::Instance(i) => match doc.definition(i.definition).map(|d| d.kind) {
-            Ok(DefinitionKind::Component) => icons::COMPONENT,
-            _ => icons::GROUP,
-        },
-    }
+fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static> {
+    if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
 }
 
-pub fn entity_label(doc: &Document, e: &Entity) -> String {
-    match e {
-        Entity::Solid(s) => s.name.clone(),
-        Entity::Instance(i) => {
-            let def = doc.definition(i.definition).map(|d| d.name.as_str()).unwrap_or("?");
-            if i.name.is_empty() { def.to_owned() } else { format!("{} <{def}>", i.name) }
-        }
+/// "Pied", "Gauche <Pied>", with "×4" when the part has several copies (the propagation made
+/// visible, ARCHITECTURE.md §2.5).
+pub fn occurrence_label(doc: &Document, o: &Occurrence) -> String {
+    let name = doc.component(o.component).map(|c| c.name.as_str()).unwrap_or("?");
+    let mut label = if o.name.is_empty() { name.to_owned() } else { format!("{} <{name}>", o.name) };
+    let n = doc.occurrence_count(o.component);
+    if n > 1 {
+        label.push_str(&format!("  ×{n}"));
     }
+    label
 }
 
 pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let doc = editor.document();
-    let root = doc.root_definition();
-    if root.entities.is_empty() {
+    if doc.root_assembly().occurrences.is_empty() {
         ui.weak("Modèle vide : dessiner une boîte (B)");
         return;
     }
     tree(ui, editor, doc, doc.root(), &mut Vec::new(), actions, 0);
 }
 
-fn tree(ui: &mut egui::Ui, editor: &Editor, doc: &Document, def: Id, path: &mut Vec<Id>, actions: &mut Vec<Action>, depth: usize) {
-    let Ok(d) = doc.definition(def) else { return };
+fn tree(ui: &mut egui::Ui, editor: &Editor, doc: &Document, assembly: Id, path: &mut Vec<Id>, actions: &mut Vec<Action>, depth: usize) {
+    let Ok(a) = doc.assembly(assembly) else { return };
     if depth > solidsketch_model::MAX_DEPTH {
         return;
     }
     let tint = ui.visuals().text_color();
-    for e in &d.entities {
-        let selected = editor.context() == path.as_slice() && editor.selection().contains(&e.id());
+    for o in &a.occurrences {
+        let selected = editor.context() == path.as_slice() && editor.selection().contains(&o.id);
         let row = |ui: &mut egui::Ui| {
             ui.horizontal(|ui| {
-                ui.add(egui::Image::new(entity_icon(doc, e)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-                ui.selectable_label(selected, entity_label(doc, e))
+                ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
+                ui.selectable_label(selected, occurrence_label(doc, o))
             })
             .inner
         };
-        match e {
-            Entity::Solid(_) => {
-                if row(ui).clicked() {
-                    actions.push(Action::SelectPath(EntityPath::new(path.clone(), e.id())));
-                }
+        if doc.assembly(o.component).is_err() {
+            if row(ui).clicked() {
+                actions.push(Action::SelectPath(EntityPath::new(path.clone(), o.id)));
             }
-            Entity::Instance(i) => {
-                let id = ui.make_persistent_id(("outliner", path.clone(), i.id));
-                // Open along the context being edited.
-                let in_context = editor.context().starts_with(&[path.as_slice(), &[i.id]].concat());
-                let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
-                if in_context {
-                    state.set_open(true);
-                }
-                let (_, header, _) = state.show_header(ui, |ui| row(ui)).body(|ui| {
-                    path.push(i.id);
-                    tree(ui, editor, doc, i.definition, path, actions, depth + 1);
-                    path.pop();
-                });
-                if header.inner.clicked() {
-                    actions.push(Action::SelectPath(EntityPath::new(path.clone(), i.id)));
-                }
-            }
+            continue;
+        }
+        let id = ui.make_persistent_id(("outliner", path.clone(), o.id));
+        // Open along the context being edited.
+        let in_context = editor.context().starts_with(&[path.as_slice(), &[o.id]].concat());
+        let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+        if in_context {
+            state.set_open(true);
+        }
+        let (_, header, _) = state.show_header(ui, |ui| row(ui)).body(|ui| {
+            path.push(o.id);
+            tree(ui, editor, doc, o.component, path, actions, depth + 1);
+            path.pop();
+        });
+        if header.inner.clicked() {
+            actions.push(Action::SelectPath(EntityPath::new(path.clone(), o.id)));
         }
     }
 }
@@ -195,101 +214,84 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
     let units = &doc.settings().units;
     let context = editor.context_definition();
     let sel = editor.selection();
-    let Ok(def) = doc.definition(context) else { return };
+    let Ok(asm) = doc.assembly(context) else { return };
     match sel {
         [] => {
             if editor.context().is_empty() {
                 ui.weak("Aucune sélection");
             } else {
-                ui.label(format!("Édition de « {} »", def.name));
+                let name = doc.component(context).map(|c| c.name.as_str()).unwrap_or("?");
+                ui.label(format!("Édition de « {name} »"));
                 ui.weak("Double-clic dans le vide pour sortir");
             }
         }
         [id] => {
-            let Some(e) = def.entity(*id) else { return };
+            let Some(o) = asm.occurrence(*id) else { return };
+            let Ok(c) = doc.component(o.component) else { return };
             // Room left for the value column (labels ~ 80 pt, plus the grid spacing).
             let field = (ui.available_width() - 90.0).max(60.0);
-            egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| match e {
-                Entity::Solid(s) => {
-                    ui.label("Type");
-                    ui.label("Solide (B-rep)");
-                    ui.end_row();
-                    ui.label("Nom");
-                    if let Some(name) = text_field(ui, state, (s.id, 0), &s.name, field) {
-                        actions.push(Action::Apply(Operation::RenameEntity { context, entity: s.id, name }));
+            egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                ui.label("Type");
+                ui.label(if c.is_part() { "Pièce" } else { "Assemblage" });
+                ui.end_row();
+                ui.label("Nom");
+                if let Some(name) = text_field(ui, state, (c.id, 1), &c.name, field) {
+                    actions.push(Action::Apply(Operation::RenameComponent { component: c.id, name }));
+                }
+                ui.end_row();
+                ui.label("Exemplaire");
+                if let Some(name) = text_field(ui, state, (o.id, 0), &o.name, field) {
+                    actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
+                }
+                ui.end_row();
+                ui.label("Exemplaires");
+                ui.label(doc.occurrence_count(c.id).to_string());
+                ui.end_row();
+                if let ComponentKind::Part(p) = &c.kind {
+                    // In the part's own axes: length, width, thickness as the part lies.
+                    if let Some((lo, hi)) = p.blank.vertex_bounds() {
+                        ui.label("Dimensions");
+                        ui.label(dims(lo, hi, units));
+                        ui.end_row();
                     }
+                    ui.label("Usinages");
+                    ui.label(p.machinings.len().to_string());
                     ui.end_row();
-                    let (f, ed, v) = s.solid.topology_counts();
+                    let (f, ed, v) = p.shape().topology_counts();
                     ui.label("Topologie");
                     ui.label(format!("{f} faces · {ed} arêtes · {v} sommets"));
                     ui.end_row();
-                    if let Some(b) = editor
-                        .scene()
-                        .definition_mesh(context)
-                        .and_then(|dm| dm.parts.iter().find(|p| p.solid == s.id))
-                        .and_then(|p| p.bounds)
-                    {
-                        ui.label("Dimensions");
-                        ui.label(dims(b.0, b.1, units));
-                        ui.end_row();
-                    }
                 }
-                Entity::Instance(i) => {
-                    let Ok(d) = doc.definition(i.definition) else { return };
-                    let component = d.kind == DefinitionKind::Component;
-                    ui.label("Type");
-                    ui.label(if component { "Composant" } else { "Groupe" });
-                    ui.end_row();
-                    ui.label(if component { "Définition" } else { "Nom" });
-                    if let Some(name) = text_field(ui, state, (d.id, 1), &d.name, field) {
-                        actions.push(Action::Apply(Operation::RenameDefinition { definition: d.id, name }));
+                ui.label("Position");
+                // Shown in the document's unit; the model stays in mm.
+                let unit = units.length.mm();
+                let mut t = o.transform.translation / unit;
+                let before = t;
+                ui.horizontal(|ui| {
+                    for v in [&mut t.x, &mut t.y, &mut t.z] {
+                        // Typed like in the measurements box: `@+19`, `600-2*19`, `2cm`.
+                        let current = *v * unit;
+                        ui.add(
+                            egui::DragValue::new(v)
+                                .speed(1.0)
+                                .suffix(format!(" {}", units.length.symbol()))
+                                .max_decimals(units.decimals as usize)
+                                .custom_parser(move |s| measure::coordinate(s, units, current).ok().map(|mm| mm / unit)),
+                        );
                     }
-                    ui.end_row();
-                    if component {
-                        ui.label("Instance");
-                        if let Some(name) = text_field(ui, state, (i.id, 0), &i.name, field) {
-                            actions.push(Action::Apply(Operation::RenameEntity { context, entity: i.id, name }));
-                        }
-                        ui.end_row();
-                        ui.label("Instances");
-                        ui.label(doc.instance_count(d.id).to_string());
-                        ui.end_row();
-                    }
-                    ui.label("Position");
-                    // Shown in the document's unit; the model stays in mm.
-                    let unit = units.length.mm();
-                    let mut t = i.transform.translation / unit;
-                    let before = t;
-                    ui.horizontal(|ui| {
-                        for v in [&mut t.x, &mut t.y, &mut t.z] {
-                            ui.add(
-                                egui::DragValue::new(v)
-                                    .speed(1.0)
-                                    .suffix(format!(" {}", units.length.symbol()))
-                                    .max_decimals(units.decimals as usize),
-                            );
-                        }
-                    });
-                    if t != before {
-                        actions.push(Action::Apply(Operation::Transform {
-                            context,
-                            entities: vec![i.id],
-                            transform: DAffine3::from_translation((t - before) * unit),
-                        }));
-                    }
-                    ui.end_row();
-                    ui.label("");
-                    let kind = if component { DefinitionKind::Group } else { DefinitionKind::Component };
-                    let label = if component { "Convertir en groupe" } else { "Convertir en composant" };
-                    if ui.add_enabled(!component || doc.instance_count(d.id) <= 1, egui::Button::new(label)).clicked() {
-                        actions.push(Action::Apply(Operation::SetKind { definition: d.id, kind }));
-                    }
-                    ui.end_row();
+                });
+                if t != before {
+                    actions.push(Action::Apply(Operation::Transform {
+                        context,
+                        entities: vec![o.id],
+                        transform: DAffine3::from_translation((t - before) * unit),
+                    }));
                 }
+                ui.end_row();
             });
         }
         many => {
-            ui.label(format!("{} entités sélectionnées", many.len()));
+            ui.label(format!("{} sélectionnés", many.len()));
         }
     }
 }

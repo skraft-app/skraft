@@ -7,8 +7,11 @@
 //! read is left alone (the defaults are used, and it is only replaced once a preference
 //! changes).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use solidsketch_model::Settings;
+use solidsketch_tools::OptionValues;
 
 /// The version this build writes.
 pub const VERSION: u32 = 1;
@@ -20,11 +23,13 @@ pub struct Preferences {
     pub navigation: Navigation,
     /// The display style and units of new models.
     pub new_model: Settings,
+    /// The tools' settings from their option bar (the booleans' scope…), by tool id.
+    pub tool_options: BTreeMap<String, OptionValues>,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Preferences { version: VERSION, navigation: Navigation::default(), new_model: Settings::default() }
+        Preferences { version: VERSION, navigation: Navigation::default(), new_model: Settings::default(), tool_options: BTreeMap::new() }
     }
 }
 

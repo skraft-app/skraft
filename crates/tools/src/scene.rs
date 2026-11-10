@@ -1,25 +1,31 @@
 //! The display scene (ARCHITECTURE.md §7 bis): the document flattened for drawing and picking.
 //!
 //! - Level 1: one display mesh per solid, cached by the solid's `Arc` (an unchanged solid is
-//!   never tessellated again, across undo and redo too).
-//! - Level 2: per definition, the list of its direct solids and a revision that changes when
-//!   that list changes: the renderer re-uploads the definition's merged mesh only then.
-//! - Placements: every occurrence of every definition in the scene, with its instance path and
-//!   world transform.
+//!   never tessellated again, across undo and redo too: a mesh is kept while anything — the
+//!   undo history — holds its solid). Meshes come from the kernel's service
+//!   (docs/ARCHITECTURE.md §7 ter): with an operation's result, or asked for by the editor for
+//!   solids that have none ([`DisplayScene::take_missing`]); until then a solid is drawn as the
+//!   outline of its bounding box.
+//! - Level 2: per part (docs/ARCHITECTURE.md §2), its shape's mesh and a revision that changes
+//!   when the shape (or its mesh) does: the renderer re-uploads the part's mesh only then.
+//!   Assemblies have no geometry of their own.
+//! - Placements: every occurrence of every part in the scene, with its occurrence path and
+//!   world transform; a part is drawn once, instanced at all of them.
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
-use solidsketch_kernel::{Mesh, Snaps, Solid};
-use solidsketch_model::{Document, Entity, EntityPath, Id, MAX_DEPTH};
+use solidsketch_kernel::{Display, Mesh, Snaps, Solid};
+use solidsketch_model::{ComponentKind, Document, EntityPath, Id, MAX_DEPTH};
 
 use crate::camera::Ray;
 
-/// One solid's display mesh with its bounds (in the definition's coordinates).
+/// One part's display mesh with its bounds (in the part's axes).
 #[derive(Clone, Debug)]
 pub struct PartMesh {
+    /// The part.
     pub solid: Id,
     pub mesh: Arc<Mesh>,
     /// What tools infer on (§6 ter), from the same tessellation.
@@ -27,7 +33,7 @@ pub struct PartMesh {
     pub bounds: Option<(DVec3, DVec3)>,
 }
 
-/// A definition's direct solids, as the renderer uploads them.
+/// A part's mesh, as the renderer uploads it (one entry in `parts`).
 #[derive(Clone, Debug)]
 pub struct DefinitionMesh {
     pub definition: Id,
@@ -35,13 +41,20 @@ pub struct DefinitionMesh {
     pub parts: Vec<PartMesh>,
 }
 
-/// One occurrence of a definition in the scene.
+/// One occurrence of a part in the scene.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
-    /// Instances from the root to this occurrence (empty for the root).
+    /// Occurrences from the root to the part's, that one included.
     pub path: Vec<Id>,
-    /// Definition to world.
+    /// Part to world.
     pub transform: DAffine3,
+}
+
+impl Placement {
+    /// The path naming this occurrence.
+    pub fn entity_path(&self) -> EntityPath {
+        EntityPath::from_chain(&self.path).unwrap_or_else(|| EntityPath::root(Id(0)))
+    }
 }
 
 /// What a picking ray hit.
@@ -58,14 +71,45 @@ pub struct Hit {
     pub t: f64,
 }
 
+/// A solid's display, as far as it is known.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum State {
+    /// Not meshed yet: drawn as its bounding box; `asked` once handed to the editor.
+    Pending { asked: bool },
+    Ready,
+    /// The mesher refused it: its bounding box stays.
+    Failed,
+}
+
+struct Cached {
+    /// Held so the address (the key) is not reused.
+    solid: Arc<Solid>,
+    part: PartMesh,
+    state: State,
+}
+
+impl Cached {
+    fn pending(solid: Arc<Solid>) -> Self {
+        let mesh = solid.vertex_bounds().map(|(lo, hi)| Mesh::outline(lo, hi)).unwrap_or_default();
+        Cached::new(solid, mesh, Snaps::default(), State::Pending { asked: false })
+    }
+
+    fn new(solid: Arc<Solid>, mesh: Mesh, snaps: Snaps, state: State) -> Self {
+        let bounds = mesh_bounds(&mesh);
+        // `part.solid` is set by each part showing it.
+        let part = PartMesh { solid: Id(0), mesh: Arc::new(mesh), snaps: Arc::new(snaps), bounds };
+        Cached { solid, part, state }
+    }
+}
+
 #[derive(Default)]
 pub struct DisplayScene {
-    /// Level 1: by `Arc<Solid>` address; the `Arc` is held so the address is not reused.
-    solids: HashMap<usize, (Arc<Solid>, PartMesh)>,
+    /// Level 1: by `Arc<Solid>` address.
+    solids: HashMap<usize, Cached>,
     definitions: BTreeMap<Id, DefinitionMesh>,
     placements: BTreeMap<Id, Vec<Placement>>,
-    /// Solids the mesher refused, with why.
-    errors: Vec<(Id, String)>,
+    /// Solids of the document without a mesh, not handed out yet.
+    missing: Vec<Arc<Solid>>,
     bounds: Option<(DVec3, DVec3)>,
 }
 
@@ -74,50 +118,37 @@ impl DisplayScene {
         Self::default()
     }
 
-    /// Brings the scene up to date with `doc`. Only solids not seen before are tessellated.
+    /// Brings the scene up to date with `doc`. Solids not seen before get a stand-in until
+    /// their mesh comes ([`DisplayScene::take_missing`], [`DisplayScene::insert`]).
     pub fn sync(&mut self, doc: &Document) {
-        let mut seen = HashMap::with_capacity(self.solids.len());
-        self.errors.clear();
+        let mut seen = std::collections::HashSet::new();
         self.definitions.clear();
-        for def in doc.definitions() {
-            let mut parts = Vec::new();
+        self.missing.clear();
+        for c in doc.components() {
+            let ComponentKind::Part(p) = &c.kind else { continue };
+            let shape = p.shape();
+            let key = Arc::as_ptr(shape) as usize;
+            let entry = self.solids.entry(key).or_insert_with(|| Cached::pending(shape.clone()));
+            // A part made unique shares its shape until it changes: ask for it once.
+            if seen.insert(key) && entry.state == (State::Pending { asked: false }) {
+                self.missing.push(shape.clone());
+            }
+            let mut part = entry.part.clone();
+            part.solid = c.id;
+            // The mesh changes with the state (a stand-in, then the real one).
             let mut h = std::collections::hash_map::DefaultHasher::new();
-            for e in &def.entities {
-                let Entity::Solid(s) = e else { continue };
-                let key = Arc::as_ptr(&s.solid) as usize;
-                // The same Arc may be in several definitions (a component made unique shares
-                // its solids until they change): look in what this sync has seen first.
-                let cached = seen.get(&key).cloned().or_else(|| self.solids.remove(&key));
-                let entry = match cached {
-                    Some(hit) => hit,
-                    None => {
-                        let (mesh, snaps) = match s.solid.display() {
-                            Ok(m) => m,
-                            Err(err) => {
-                                self.errors.push((s.id, err.to_string()));
-                                (Mesh::default(), Snaps::default())
-                            }
-                        };
-                        let bounds = mesh_bounds(&mesh);
-                        let part = PartMesh { solid: s.id, mesh: Arc::new(mesh), snaps: Arc::new(snaps), bounds };
-                        (s.solid.clone(), part)
-                    }
-                };
-                let mut part = entry.1.clone();
-                part.solid = s.id;
-                (s.id, key).hash(&mut h);
-                parts.push(part);
-                seen.insert(key, entry);
-            }
-            if !parts.is_empty() {
-                self.definitions.insert(def.id, DefinitionMesh { definition: def.id, revision: h.finish(), parts });
-            }
+            (key, entry.state == State::Ready).hash(&mut h);
+            self.definitions.insert(c.id, DefinitionMesh { definition: c.id, revision: h.finish(), parts: vec![part] });
         }
-        self.solids = seen;
+        // Keep what the document shows, and what something else holds (undo, a job).
+        self.solids.retain(|key, c| seen.contains(key) || Arc::strong_count(&c.solid) > 1);
 
         self.placements.clear();
-        let mut path = Vec::new();
-        self.place(doc, doc.root(), &mut path, DAffine3::IDENTITY, 0);
+        for p in doc.placed_parts() {
+            let mut path = p.path.instances;
+            path.push(p.path.entity);
+            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform });
+        }
 
         self.bounds = None;
         for (def, places) in &self.placements {
@@ -131,22 +162,7 @@ impl DisplayScene {
         }
     }
 
-    fn place(&mut self, doc: &Document, def: Id, path: &mut Vec<Id>, t: DAffine3, depth: usize) {
-        let Ok(d) = doc.definition(def) else { return };
-        if depth > MAX_DEPTH {
-            return;
-        }
-        self.placements.entry(def).or_default().push(Placement { path: path.clone(), transform: t });
-        for e in &d.entities {
-            if let Entity::Instance(i) = e {
-                path.push(i.id);
-                self.place(doc, i.definition, path, t * i.transform, depth + 1);
-                path.pop();
-            }
-        }
-    }
-
-    /// Definitions with solids, as the renderer uploads them.
+    /// Parts, as the renderer uploads them.
     pub fn definition_meshes(&self) -> impl Iterator<Item = &DefinitionMesh> {
         self.definitions.values()
     }
@@ -155,7 +171,7 @@ impl DisplayScene {
         self.definitions.get(&def)
     }
 
-    /// Every occurrence of every definition that has solids.
+    /// Every occurrence of every part.
     pub fn placements(&self) -> impl Iterator<Item = (Id, &[Placement])> {
         self.placements
             .iter()
@@ -163,8 +179,32 @@ impl DisplayScene {
             .map(|(d, p)| (*d, p.as_slice()))
     }
 
-    pub fn errors(&self) -> &[(Id, String)] {
-        &self.errors
+    /// The document's solids that have no mesh and were not handed out before: the caller
+    /// asks the kernel for them, then [`DisplayScene::insert`]s each.
+    pub fn take_missing(&mut self) -> Vec<Arc<Solid>> {
+        let missing = std::mem::take(&mut self.missing);
+        for s in &missing {
+            if let Some(c) = self.solids.get_mut(&(Arc::as_ptr(s) as usize)) {
+                c.state = State::Pending { asked: true };
+            }
+        }
+        missing
+    }
+
+    /// The kernel's display of `solid` (from an operation, or asked for): in the cache, for
+    /// the next [`DisplayScene::sync`]. A refused one keeps the stand-in.
+    pub fn insert(&mut self, solid: &Arc<Solid>, display: Result<Display, String>) {
+        let key = Arc::as_ptr(solid) as usize;
+        let cached = match display {
+            Ok(d) => Cached::new(solid.clone(), d.mesh, d.snaps, State::Ready),
+            Err(_) => Cached { state: State::Failed, ..Cached::pending(solid.clone()) },
+        };
+        self.solids.insert(key, cached);
+    }
+
+    /// Is `solid`'s mesh still on its way?
+    pub fn is_pending(&self, solid: &Arc<Solid>) -> bool {
+        self.solids.get(&(Arc::as_ptr(solid) as usize)).is_some_and(|c| matches!(c.state, State::Pending { .. }))
     }
 
     /// World bounds of everything drawn.
@@ -172,7 +212,7 @@ impl DisplayScene {
         self.bounds
     }
 
-    /// Every solid drawn, once per occurrence: its placement and its part.
+    /// Every part drawn, once per occurrence: its placement and its mesh.
     pub fn parts(&self) -> impl Iterator<Item = (&Placement, &PartMesh)> {
         self.placements.iter().flat_map(move |(def, places)| {
             let parts = self.definitions.get(def).map(|d| d.parts.as_slice()).unwrap_or(&[]);
@@ -180,10 +220,10 @@ impl DisplayScene {
         })
     }
 
-    /// The occurrence `path` names: its definition-to-world transform and its part.
+    /// The occurrence `path` names: its part-to-world transform and its mesh.
     pub fn part_at(&self, path: &EntityPath) -> Option<(DAffine3, &PartMesh)> {
         self.parts()
-            .find(|(p, part)| part.solid == path.entity && p.path == path.instances)
+            .find(|(p, _)| p.path.split_last().is_some_and(|(last, rest)| *last == path.entity && rest == path.instances))
             .map(|(p, part)| (p.transform, part))
     }
 
@@ -201,7 +241,7 @@ impl DisplayScene {
                     if !ray_box(o, d, b, ray.t_min) {
                         continue;
                     }
-                    let path = EntityPath::new(p.path.clone(), part.solid);
+                    let path = p.entity_path();
                     if !keep(&path) {
                         continue;
                     }
@@ -225,29 +265,28 @@ impl DisplayScene {
     }
 }
 
-/// Where the solids under `entity` (an entity of the definition `context_path` leads into)
-/// are drawn: `(definition holding the solid, solid, world transform)`. For an instance, every
-/// solid below it, at any depth.
+/// Where the parts under `entity` (an occurrence of the assembly `context_path` leads into)
+/// are drawn: `(part, part, world transform)`. For an assembly's occurrence, every part below
+/// it, at any depth.
 pub fn solids_under(doc: &Document, context_path: &[Id], entity: Id) -> Vec<(Id, Id, DAffine3)> {
     let mut out = Vec::new();
     let (Ok(ctx), Ok(t)) = (doc.context_of(context_path), doc.transform_of(context_path)) else { return out };
-    let Some(e) = doc.definition(ctx).ok().and_then(|d| d.entity(entity)) else { return out };
-    fn walk(doc: &Document, def: Id, e: &Entity, t: DAffine3, out: &mut Vec<(Id, Id, DAffine3)>, depth: usize) {
+    let Some(o) = doc.assembly(ctx).ok().and_then(|a| a.occurrence(entity)) else { return out };
+    fn walk(doc: &Document, component: Id, t: DAffine3, out: &mut Vec<(Id, Id, DAffine3)>, depth: usize) {
         if depth > MAX_DEPTH {
             return;
         }
-        match e {
-            Entity::Solid(s) => out.push((def, s.id, t)),
-            Entity::Instance(i) => {
-                let Ok(d) = doc.definition(i.definition) else { return };
-                let t = t * i.transform;
-                for child in &d.entities {
-                    walk(doc, i.definition, child, t, out, depth + 1);
+        match doc.component(component).map(|c| &c.kind) {
+            Ok(ComponentKind::Part(_)) => out.push((component, component, t)),
+            Ok(ComponentKind::Assembly(a)) => {
+                for o in &a.occurrences {
+                    walk(doc, o.component, t * o.transform, out, depth + 1);
                 }
             }
+            Err(_) => {}
         }
     }
-    walk(doc, ctx, e, t, &mut out, 0);
+    walk(doc, o.component, t * o.transform, &mut out, 0);
     out
 }
 

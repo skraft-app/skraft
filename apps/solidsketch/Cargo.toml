@@ -29,6 +29,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The kernel runs on a thread of the app; on the web, in its own worker (ARCHITECTURE.md §7 ter).
+solidsketch-kernel = { workspace = true, features = ["engine"] }
 rfd.workspace = true
 env_logger = "0.11"
 dirs = "6"
@@ -37,6 +39,6 @@ dirs = "6"
 rfd.workspace = true
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Storage"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Storage", "Location", "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent"] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"

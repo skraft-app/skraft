@@ -1,18 +1,25 @@
 [package]
 name = "solidsketch-kernel"
-description = "SolidSketch: SolidCore behind a small, safe, record-based API (primitives, booleans, transforms, display meshes)"
+description = "SolidSketch: SolidCore behind a small, safe, record-based API (primitives, booleans, transforms, display meshes), run as jobs off the UI thread"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["engine"]
+# The kernel itself (SolidCore). Without it: only the types (solids, meshes, jobs) and the
+# record — what the web UI needs, the kernel running in its worker (ARCHITECTURE.md §7 ter).
+engine = ["dep:solidcore", "dep:solidcore-convert", "dep:solidcore-tess"]
+
 [dependencies]
-solidcore.workspace = true
+solidcore = { workspace = true, optional = true }
 solidcore-record.workspace = true
-solidcore-convert.workspace = true
-solidcore-tess.workspace = true
+solidcore-convert = { workspace = true, optional = true }
+solidcore-tess = { workspace = true, optional = true }
 glam.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+rmp-serde.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

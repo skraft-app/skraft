@@ -1,55 +1,37 @@
 //! Operations: every change to a document (docs/ARCHITECTURE.md §1).
 //!
-//! An operation is plain, serialisable data. [`Document::apply`] never changes the document it
-//! is called on: it returns a new one that shares everything the operation left alone.
+//! An operation is plain, serialisable data. Applying it never changes the document it is
+//! called on: it gives a new one that shares everything the operation left alone.
+//!
+//! The kernel runs elsewhere (docs/ARCHITECTURE.md §7 ter), so an operation applies in two
+//! steps: [`Document::prepare`] validates it and gathers the kernel calls it needs into a
+//! [`Job`] — or, needing none, is already done; [`Document::commit`] applies it with the job's
+//! outputs. Both run the same code (`apply_in_place`) over a [`Solver`]: one records the calls,
+//! the other hands out their results in order.
+//!
+//! Moving, copying, arraying and grouping never need the kernel: they only change occurrences
+//! (§2.2, §2.5). Building a part and cutting it do.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
-use solidsketch_kernel::{BooleanOp, Solid};
+use solidsketch_kernel::{BooleanOp, Display, Job, Output, Primitive, Solid, Task};
 
-use crate::document::{Definition, DefinitionKind, Document, Entity, EntityPath, Id, Instance, SolidEntity};
+use crate::document::{Assembly, ComponentKind, Document, EntityPath, Id, Machining, MachiningSource, Occurrence, Part};
 use crate::settings::Settings;
 use crate::{Error, Result};
 
-/// A primitive solid, by its parameters (mm), in its context's coordinates.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Primitive {
-    /// One corner at `origin`, extents along X, Y, Z.
-    Box { origin: DVec3, size: DVec3 },
-    /// Standing on Z = `origin.z`, along +Z.
-    Cylinder { origin: DVec3, radius: f64, height: f64 },
-    Sphere { center: DVec3, radius: f64 },
-    Cone { origin: DVec3, base_radius: f64, top_radius: f64, height: f64 },
-    Torus { center: DVec3, major_radius: f64, minor_radius: f64 },
-}
-
-impl Primitive {
-    pub fn build(&self) -> Result<Solid> {
-        Ok(match *self {
-            Primitive::Box { origin, size } => Solid::new_box(origin, size)?,
-            Primitive::Cylinder { origin, radius, height } => Solid::new_cylinder(origin, radius, height)?,
-            Primitive::Sphere { center, radius } => Solid::new_sphere(center, radius)?,
-            Primitive::Cone { origin, base_radius, top_radius, height } => {
-                Solid::new_cone(origin, base_radius, top_radius, height)?
-            }
-            Primitive::Torus { center, major_radius, minor_radius } => {
-                Solid::new_torus(center, major_radius, minor_radius)?
-            }
-        })
-    }
-
-    /// The default name of a solid built from this primitive.
-    pub fn noun(&self) -> &'static str {
-        match self {
-            Primitive::Box { .. } => "Boîte",
-            Primitive::Cylinder { .. } => "Cylindre",
-            Primitive::Sphere { .. } => "Sphère",
-            Primitive::Cone { .. } => "Cône",
-            Primitive::Torus { .. } => "Tore",
-        }
-    }
+/// What a change to a part touches (ARCHITECTURE.md §2.5).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Scope {
+    /// The part itself: every occurrence of it shows the change.
+    #[default]
+    All,
+    /// Only the occurrence picked: the assemblies on its way shown elsewhere, then the part,
+    /// are made unique first.
+    This,
 }
 
 /// A boolean operation, serialisable.
@@ -74,44 +56,53 @@ fn identity() -> DAffine3 {
     DAffine3::IDENTITY
 }
 
-/// Every change to a document. `context` is always the id of the definition being edited.
+/// Every change to a document. `context` is always the id of the assembly being edited, and
+/// `entities` occurrences of it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Operation {
-    /// Adds a primitive solid to `context`, built in its own frame then placed by the rigid
-    /// `placement` (a box drawn on a wall, §6 ter); identity for an axis-aligned one.
+    /// A new part built from a primitive, and its first occurrence in `context`: the blank in
+    /// the part's own axes, the occurrence placed by the rigid `placement` (a box drawn on a
+    /// wall, §6 ter; identity for an axis-aligned one) and where the primitive stood.
     AddPrimitive {
         context: Id,
         primitive: Primitive,
         #[serde(default = "identity", skip_serializing_if = "is_identity")]
         placement: DAffine3,
     },
-    /// Moves (rotates, scales) entities of `context` by `transform`, in `context`'s coordinates:
-    /// an instance's transform is premultiplied, a solid's B-rep is transformed.
+    /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
+    /// Rigid only: a scale changes a part, not its place (§2.2).
     Transform { context: Id, entities: Vec<Id>, transform: DAffine3 },
-    /// Copies entities of `context`, the copies moved by `transform`.
+    /// Copies occurrences of `context`, moved by `transform`: more copies of the same parts.
     Duplicate { context: Id, entities: Vec<Id>, transform: DAffine3 },
-    /// `count` copies of entities of `context`, the k-th moved by `step` applied k times (a
+    /// `count` copies of occurrences of `context`, the k-th moved by `step` applied k times (a
     /// linear array for a translation, a circular one for a rotation).
     Array { context: Id, entities: Vec<Id>, step: DAffine3, count: u32 },
-    /// Removes entities from `context`.
+    /// Removes occurrences from `context`.
     Delete { context: Id, entities: Vec<Id> },
-    /// Renames an entity of `context` (an instance's own name, or a solid's).
-    RenameEntity { context: Id, entity: Id, name: String },
-    /// Renames a group's or component's definition.
-    RenameDefinition { definition: Id, name: String },
-    /// Moves entities of `context` into a new group or component, placed by one new instance.
-    MakeContainer { context: Id, entities: Vec<Id>, kind: DefinitionKind, name: Option<String> },
-    /// Replaces an instance by its definition's contents, placed by its transform.
-    Explode { context: Id, instance: Id },
-    /// Gives one instance of a shared component a definition of its own.
-    MakeUnique { context: Id, instance: Id },
-    /// Turns a group into a component or a component with at most one instance into a group.
-    SetKind { definition: Id, kind: DefinitionKind },
-    /// Places a new instance of a component in `context`.
-    PlaceInstance { context: Id, definition: Id, transform: DAffine3 },
-    /// `target op tool`. The target is replaced in its own context; the tool is brought into
-    /// the target's coordinates, then removed unless `keep_tool` (ARCHITECTURE.md §4).
-    Boolean { target: EntityPath, tool: EntityPath, op: Boolean, keep_tool: bool },
+    /// Names one occurrence of `context` ("Gauche"); empty to clear.
+    RenameOccurrence { context: Id, occurrence: Id, name: String },
+    /// Names a part or an assembly; a named component is kept while unused.
+    RenameComponent { component: Id, name: String },
+    /// Moves occurrences of `context` into a new assembly, placed by one new occurrence.
+    MakeAssembly { context: Id, entities: Vec<Id>, name: Option<String> },
+    /// Replaces an occurrence of an assembly by the assembly's occurrences, placed by it.
+    Explode { context: Id, occurrence: Id },
+    /// Gives one occurrence a component of its own, a copy of the one it shared ("faire une
+    /// pièce à part").
+    MakeUnique { context: Id, occurrence: Id },
+    /// Places one more occurrence of a component in `context`.
+    PlaceOccurrence { context: Id, component: Id, transform: DAffine3 },
+    /// `target op tool`, on the target's part, the tool brought into its axes
+    /// (ARCHITECTURE.md §4): on every occurrence of the part, or only the one picked
+    /// (`scope`, §2.5). A difference adds a machining; a union or an intersection makes a new
+    /// blank. The tool's occurrence leaves the model.
+    Boolean {
+        target: EntityPath,
+        tool: EntityPath,
+        op: Boolean,
+        #[serde(default)]
+        scope: Scope,
+    },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
 }
@@ -125,13 +116,11 @@ impl Operation {
             Operation::Duplicate { .. } => "Copier",
             Operation::Array { .. } => "Réseau",
             Operation::Delete { .. } => "Effacer",
-            Operation::RenameEntity { .. } | Operation::RenameDefinition { .. } => "Renommer",
-            Operation::MakeContainer { kind: DefinitionKind::Component, .. } => "Créer un composant",
-            Operation::MakeContainer { .. } => "Créer un groupe",
+            Operation::RenameOccurrence { .. } | Operation::RenameComponent { .. } => "Renommer",
+            Operation::MakeAssembly { .. } => "Créer un assemblage",
             Operation::Explode { .. } => "Éclater",
-            Operation::MakeUnique { .. } => "Rendre unique",
-            Operation::SetKind { .. } => "Changer de type",
-            Operation::PlaceInstance { .. } => "Placer un composant",
+            Operation::MakeUnique { .. } => "Faire une pièce à part",
+            Operation::PlaceOccurrence { .. } => "Placer",
             Operation::Boolean { op: Boolean::Union, .. } => "Union",
             Operation::Boolean { op: Boolean::Difference, .. } => "Soustraction",
             Operation::Boolean { op: Boolean::Intersection, .. } => "Intersection",
@@ -152,248 +141,375 @@ pub const MAX_ARRAY: u32 = 1000;
 /// What an operation did, for the caller to update its selection.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Outcome {
-    /// Entities created, in the operation's context (the target's, for a boolean).
+    /// Occurrences created, in the operation's context (the target's, for a boolean).
     pub created: Vec<Id>,
 }
 
+/// An operation applied: the new document, what it created, and the displays the kernel made
+/// of the solids it produced (to feed the display scene's cache).
+#[derive(Clone, Debug)]
+pub struct Applied {
+    pub document: Document,
+    pub outcome: Outcome,
+    pub displays: Vec<(Arc<Solid>, std::result::Result<Display, String>)>,
+}
+
+/// The first step of applying an operation.
+#[derive(Clone, Debug)]
+pub enum Prepared {
+    /// The operation needs no kernel: here is the result.
+    Done(Applied),
+    /// Run this job, then [`Document::commit`] its outputs.
+    Kernel(Job),
+}
+
 impl Document {
-    /// Applies `op` to a copy of this document. On error the document is unchanged.
-    pub fn apply(&self, op: &Operation) -> Result<(Document, Outcome)> {
+    /// Validates `op` and gathers the kernel calls it needs. On error the document is unchanged.
+    pub fn prepare(&self, op: &Operation) -> Result<Prepared> {
+        let mut recorder = Recorder::default();
         let mut doc = self.clone();
-        let outcome = doc.apply_in_place(op)?;
-        doc.purge_orphan_groups();
-        Ok((doc, outcome))
+        let outcome = doc.apply_in_place(op, &mut recorder)?;
+        if recorder.job.tasks.is_empty() {
+            doc.purge();
+            return Ok(Prepared::Done(Applied { document: doc, outcome, displays: Vec::new() }));
+        }
+        Ok(Prepared::Kernel(recorder.job))
     }
 
-    fn apply_in_place(&mut self, op: &Operation) -> Result<Outcome> {
+    /// Applies `op` with the outputs of the job [`Document::prepare`] gave for it, on this same
+    /// document.
+    pub fn commit(&self, op: &Operation, outputs: Vec<Output>) -> Result<Applied> {
+        let mut replayer = Replayer { outputs: outputs.into_iter(), displays: Vec::new() };
+        let mut doc = self.clone();
+        let outcome = doc.apply_in_place(op, &mut replayer)?;
+        if replayer.outputs.next().is_some() {
+            return Err(Error::Invalid("kernel outputs out of step with the operation"));
+        }
+        doc.purge();
+        Ok(Applied { document: doc, outcome, displays: replayer.displays })
+    }
+
+    /// Applies `op` to a copy of this document, running the kernel here. On error the
+    /// document is unchanged.
+    #[cfg(any(test, feature = "engine"))]
+    pub fn apply(&self, op: &Operation) -> Result<(Document, Outcome)> {
+        let applied = match self.prepare(op)? {
+            Prepared::Done(a) => a,
+            Prepared::Kernel(job) => self.commit(op, solidsketch_kernel::run(&job)?)?,
+        };
+        Ok((applied.document, applied.outcome))
+    }
+
+    fn apply_in_place(&mut self, op: &Operation, solver: &mut dyn Solver) -> Result<Outcome> {
         match op {
             Operation::SetSettings(settings) => {
                 self.settings = settings.clone();
                 Ok(Outcome::default())
             }
             Operation::AddPrimitive { context, primitive, placement } => {
-                self.definition(*context)?;
-                let mut solid = primitive.build()?;
-                if !is_identity(placement) {
-                    solid = solid.transformed(placement)?;
+                self.assembly(*context)?;
+                if !is_rigid(placement) {
+                    return Err(Error::Invalid("a placement is a move and a rotation"));
                 }
+                let (local, at) = primitive.at_origin();
+                let blank = solver.primitive(&local)?;
+                let part = self.insert_component(primitive.noun(), false, ComponentKind::Part(Part::new(blank)));
                 let id = self.fresh_id();
-                let name = primitive.noun().to_owned();
-                self.definition_mut(*context)?.entities.push(Entity::Solid(SolidEntity { id, name, solid: Arc::new(solid) }));
+                let transform = *placement * DAffine3::from_translation(at);
+                self.assembly_mut(*context)?.occurrences.push(Occurrence { id, name: String::new(), component: part, transform });
                 Ok(Outcome { created: vec![id] })
             }
             Operation::Transform { context, entities, transform } => {
-                let def = self.definition(*context)?;
-                let mut moved = Vec::with_capacity(entities.len());
-                for &id in entities {
-                    let e = def.entity(id).ok_or(Error::NotFound(id))?;
-                    moved.push(transformed(e.clone(), transform)?);
+                if !is_rigid(transform) {
+                    return Err(Error::Invalid("only moves, rotations and mirrors place an occurrence"));
                 }
-                let def = self.definition_mut(*context)?;
-                for e in moved {
-                    if let Some(slot) = def.entity_mut(e.id()) {
-                        *slot = e;
+                self.occurrences_of(*context, entities)?;
+                for o in &mut self.assembly_mut(*context)?.occurrences {
+                    if entities.contains(&o.id) {
+                        o.transform = *transform * o.transform;
                     }
                 }
                 Ok(Outcome::default())
             }
             Operation::Duplicate { context, entities, transform } => {
-                let sources = self.entities_of(*context, entities)?;
-                let copies = self.copy_entities(&sources)?;
-                let copies = copies.into_iter().map(|e| transformed(e, transform)).collect::<Result<Vec<_>>>()?;
-                let created = copies.iter().map(Entity::id).collect();
-                self.definition_mut(*context)?.entities.extend(copies);
+                if !is_rigid(transform) {
+                    return Err(Error::Invalid("only moves, rotations and mirrors place an occurrence"));
+                }
+                let sources = self.occurrences_of(*context, entities)?;
+                let created = self.add_copies(*context, &sources, transform)?;
                 Ok(Outcome { created })
             }
             Operation::Array { context, entities, step, count } => {
                 if *count == 0 || *count > MAX_ARRAY {
                     return Err(Error::Invalid("array count out of range"));
                 }
-                let sources = self.entities_of(*context, entities)?;
+                if !is_rigid(step) {
+                    return Err(Error::Invalid("only moves, rotations and mirrors place an occurrence"));
+                }
+                let sources = self.occurrences_of(*context, entities)?;
                 let mut at = DAffine3::IDENTITY;
                 let mut created = Vec::new();
                 for _ in 0..*count {
                     at = *step * at;
-                    let copies = self.copy_entities(&sources)?;
-                    let copies = copies.into_iter().map(|e| transformed(e, &at)).collect::<Result<Vec<_>>>()?;
-                    created.extend(copies.iter().map(Entity::id));
-                    self.definition_mut(*context)?.entities.extend(copies);
+                    created.extend(self.add_copies(*context, &sources, &at)?);
                 }
                 Ok(Outcome { created })
             }
             Operation::Delete { context, entities } => {
-                self.entities_of(*context, entities)?;
-                self.definition_mut(*context)?.entities.retain(|e| !entities.contains(&e.id()));
+                self.occurrences_of(*context, entities)?;
+                self.assembly_mut(*context)?.occurrences.retain(|o| !entities.contains(&o.id));
                 Ok(Outcome::default())
             }
-            Operation::RenameEntity { context, entity, name } => {
-                self.definition(*context)?.entity(*entity).ok_or(Error::NotFound(*entity))?;
-                if let Some(e) = self.definition_mut(*context)?.entity_mut(*entity) {
-                    e.set_name(name.clone());
+            Operation::RenameOccurrence { context, occurrence, name } => {
+                self.occurrences_of(*context, &[*occurrence])?;
+                if let Some(o) = self.assembly_mut(*context)?.occurrence_mut(*occurrence) {
+                    o.name = name.clone();
                 }
                 Ok(Outcome::default())
             }
-            Operation::RenameDefinition { definition, name } => {
-                if self.definition(*definition)?.kind == DefinitionKind::Root {
+            Operation::RenameComponent { component, name } => {
+                if *component == self.root {
                     return Err(Error::Invalid("the model is not renamed"));
                 }
-                if self.definitions().any(|d| d.id != *definition && d.name == *name) {
-                    return Err(Error::Invalid("another definition has that name"));
+                self.component(*component)?;
+                if self.components().any(|c| c.id != *component && c.name == *name) {
+                    return Err(Error::Invalid("another part or assembly has that name"));
                 }
-                self.definition_mut(*definition)?.name = name.clone();
+                let c = self.component_mut(*component)?;
+                c.name = name.clone();
+                c.named = true;
                 Ok(Outcome::default())
             }
-            Operation::MakeContainer { context, entities, kind, name } => {
-                if *kind == DefinitionKind::Root {
-                    return Err(Error::Invalid("a container is a group or a component"));
-                }
+            Operation::MakeAssembly { context, entities, name } => {
                 if entities.is_empty() {
-                    return Err(Error::Invalid("nothing to put in the container"));
+                    return Err(Error::Invalid("nothing to put in the assembly"));
                 }
-                let moved = self.entities_of(*context, entities)?;
-                let def_id = self.fresh_id();
-                let base = match (name, kind) {
-                    (Some(n), _) => n.clone(),
-                    (None, DefinitionKind::Component) => "Composant".to_owned(),
-                    (None, _) => "Groupe".to_owned(),
-                };
-                let name = self.unique_definition_name(&base);
-                self.insert_definition(Definition { id: def_id, name, kind: *kind, entities: moved });
-                let inst = self.fresh_id();
-                let ctx = self.definition_mut(*context)?;
-                ctx.entities.retain(|e| !entities.contains(&e.id()));
-                ctx.entities.push(Entity::Instance(Instance {
-                    id: inst,
-                    name: String::new(),
-                    definition: def_id,
-                    transform: DAffine3::IDENTITY,
-                }));
-                Ok(Outcome { created: vec![inst] })
+                let moved = self.occurrences_of(*context, entities)?;
+                let base = name.clone().unwrap_or_else(|| "Assemblage".to_owned());
+                let assembly =
+                    self.insert_component(&base, name.is_some(), ComponentKind::Assembly(Assembly { occurrences: moved }));
+                let id = self.fresh_id();
+                let ctx = self.assembly_mut(*context)?;
+                // The new occurrence stands where the first moved one stood, in the tree.
+                let at = ctx.occurrences.iter().position(|o| entities.contains(&o.id)).unwrap_or(ctx.occurrences.len());
+                ctx.occurrences.retain(|o| !entities.contains(&o.id));
+                let at = at.min(ctx.occurrences.len());
+                ctx.occurrences.insert(at, Occurrence { id, name: String::new(), component: assembly, transform: DAffine3::IDENTITY });
+                Ok(Outcome { created: vec![id] })
             }
-            Operation::Explode { context, instance } => {
-                let inst = self.instance_of(*context, *instance)?;
-                let contents = self.definition(inst.definition)?.entities.clone();
-                let copies = self.copy_entities(&contents)?;
-                let copies =
-                    copies.into_iter().map(|e| transformed(e, &inst.transform)).collect::<Result<Vec<_>>>()?;
-                let created = copies.iter().map(Entity::id).collect();
-                let ctx = self.definition_mut(*context)?;
-                let at = ctx.position(*instance).ok_or(Error::NotFound(*instance))?;
-                ctx.entities.splice(at..=at, copies);
+            Operation::Explode { context, occurrence } => {
+                let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);
+                let contents = self.assembly(o.component).map_err(|_| Error::Invalid("only an assembly is exploded"))?.occurrences.clone();
+                let mut copies = Vec::with_capacity(contents.len());
+                for c in contents {
+                    let id = self.fresh_id();
+                    copies.push(Occurrence { id, transform: o.transform * c.transform, ..c });
+                }
+                let created = copies.iter().map(|c| c.id).collect();
+                let ctx = self.assembly_mut(*context)?;
+                let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
+                ctx.occurrences.splice(at..=at, copies);
                 Ok(Outcome { created })
             }
-            Operation::MakeUnique { context, instance } => {
-                let inst = self.instance_of(*context, *instance)?;
-                if self.definition(inst.definition)?.kind != DefinitionKind::Component
-                    || self.instance_count(inst.definition) < 2
-                {
+            Operation::MakeUnique { context, occurrence } => {
+                let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);
+                if self.occurrence_count(o.component) < 2 {
                     return Ok(Outcome::default());
                 }
-                let def = self.copy_definition(inst.definition, DefinitionKind::Component)?;
-                if let Some(Entity::Instance(i)) = self.definition_mut(*context)?.entity_mut(*instance) {
-                    i.definition = def;
+                let src = self.component(o.component)?.clone();
+                let copy = self.insert_component(&src.name, src.named, src.kind);
+                if let Some(o) = self.assembly_mut(*context)?.occurrence_mut(*occurrence) {
+                    o.component = copy;
                 }
                 Ok(Outcome::default())
             }
-            Operation::SetKind { definition, kind } => {
-                let current = self.definition(*definition)?.kind;
-                if current == DefinitionKind::Root || *kind == DefinitionKind::Root {
-                    return Err(Error::Invalid("the model is neither a group nor a component"));
+            Operation::PlaceOccurrence { context, component, transform } => {
+                if *component == self.root {
+                    return Err(Error::Invalid("the model is not placed"));
                 }
-                if *kind == DefinitionKind::Group && self.instance_count(*definition) > 1 {
-                    return Err(Error::Invalid("a component with several instances cannot become a group"));
+                if !is_rigid(transform) {
+                    return Err(Error::Invalid("only moves, rotations and mirrors place an occurrence"));
                 }
-                if current != *kind {
-                    let base = self.definition(*definition)?.name.clone();
-                    let d = self.definition_mut(*definition)?;
-                    d.kind = *kind;
-                    // keep names unique among components
-                    if *kind == DefinitionKind::Component {
-                        d.name = String::new();
-                        let name = self.unique_definition_name(&base);
-                        self.definition_mut(*definition)?.name = name;
-                    }
-                }
-                Ok(Outcome::default())
-            }
-            Operation::PlaceInstance { context, definition, transform } => {
-                if self.definition(*definition)?.kind != DefinitionKind::Component {
-                    return Err(Error::Invalid("only a component is placed again"));
-                }
-                self.definition(*context)?;
-                if self.contains_definition(*definition, *context) {
+                self.component(*component)?;
+                self.assembly(*context)?;
+                if self.contains_component(*component, *context) {
                     return Err(Error::Cycle);
                 }
                 let id = self.fresh_id();
-                self.definition_mut(*context)?.entities.push(Entity::Instance(Instance {
+                self.assembly_mut(*context)?.occurrences.push(Occurrence {
                     id,
                     name: String::new(),
-                    definition: *definition,
+                    component: *component,
                     transform: *transform,
-                }));
+                });
                 Ok(Outcome { created: vec![id] })
             }
-            Operation::Boolean { target, tool, op, keep_tool } => self.boolean(target, tool, *op, *keep_tool),
+            Operation::Boolean { target, tool, op, scope } => {
+                if *scope == Scope::This {
+                    self.separate(target)?;
+                }
+                self.boolean(target, tool, *op, solver)
+            }
         }
     }
 
-    fn boolean(&mut self, target: &EntityPath, tool: &EntityPath, op: Boolean, keep_tool: bool) -> Result<Outcome> {
-        let target_ctx = self.context_of(&target.instances)?;
+    fn boolean(&mut self, target: &EntityPath, tool: &EntityPath, op: Boolean, solver: &mut dyn Solver) -> Result<Outcome> {
+        if target == tool {
+            return Err(Error::Invalid("a part is not combined with itself"));
+        }
+        let (part, p, t_target) = self.resolve_part(target)?;
+        let p = p.clone();
+        let (_, q, t_tool) = self.resolve_part(tool)?;
+        let tool_shape = q.shape().clone();
         let tool_ctx = self.context_of(&tool.instances)?;
-        if target_ctx == tool_ctx && target.entity == tool.entity {
-            return Err(Error::Invalid("a solid is not combined with itself"));
-        }
-        let a = self.resolve(target)?.as_solid().ok_or(Error::NotASolid(target.entity))?.solid.clone();
-        let b = self.resolve(tool)?.as_solid().ok_or(Error::NotASolid(tool.entity))?.solid.clone();
-        // The tool, in the target's coordinates.
-        let relative = self.transform_of(&target.instances)?.inverse() * self.transform_of(&tool.instances)?;
-        let b = if is_identity(&relative) { b } else { Arc::new(b.transformed(&relative)?) };
-        let result = a.boolean(&b, op.into())?;
-        if let Some(Entity::Solid(s)) = self.definition_mut(target_ctx)?.entity_mut(target.entity) {
-            s.solid = Arc::new(result);
-        }
-        if !keep_tool {
-            self.definition_mut(tool_ctx)?.entities.retain(|e| e.id() != tool.entity);
-        }
+        // The tool, in the target part's axes.
+        let relative = t_target.inverse() * t_tool;
+        let moved = if is_identity(&relative) { None } else { Some(relative) };
+        let result = solver.boolean(p.shape(), &tool_shape, moved, op.into())?;
+        let next = match op {
+            Boolean::Difference => {
+                let id = self.fresh_id();
+                let mut next = p;
+                next.machinings.push(Machining { id, tool: tool_shape, placement: relative, source: MachiningSource::Local });
+                next.shape = Some(result);
+                next
+            }
+            // A new blank, the machinings of both in it.
+            Boolean::Union | Boolean::Intersection => Part::new(result),
+        };
+        *self.part_mut(part)? = next;
+        self.assembly_mut(tool_ctx)?.occurrences.retain(|o| o.id != tool.entity);
         Ok(Outcome { created: vec![target.entity] })
     }
 
-    /// Clones of the entities `ids` of `context`, in the context's order; every id must be there.
-    fn entities_of(&self, context: Id, ids: &[Id]) -> Result<Vec<Entity>> {
-        let def = self.definition(context)?;
-        if let Some(&missing) = ids.iter().find(|id| def.entity(**id).is_none()) {
+    /// Makes what `path` names its own (§2.5, scope "only this one"): top down, every
+    /// component on the way shown by other occurrences too gets a copy of its own, the
+    /// occurrence repointed to it. The copies keep their occurrences' ids (unique within an
+    /// assembly, §2.6): `path` stays valid, and names the same thing.
+    fn separate(&mut self, path: &EntityPath) -> Result<()> {
+        let mut at = self.root;
+        for &i in path.instances.iter().chain(std::iter::once(&path.entity)) {
+            let o = self.assembly(at)?.occurrence(i).ok_or(Error::NotFound(i))?.component;
+            let own = if self.occurrence_count(o) > 1 {
+                let src = self.component(o)?.clone();
+                let copy = self.insert_component(&src.name, src.named, src.kind);
+                if let Some(occ) = self.assembly_mut(at)?.occurrence_mut(i) {
+                    occ.component = copy;
+                }
+                copy
+            } else {
+                o
+            };
+            at = own;
+        }
+        Ok(())
+    }
+
+    /// Clones of the occurrences `ids` of `context`, in the context's order; every id must be
+    /// there.
+    fn occurrences_of(&self, context: Id, ids: &[Id]) -> Result<Vec<Occurrence>> {
+        let a = self.assembly(context)?;
+        if let Some(&missing) = ids.iter().find(|id| a.occurrence(**id).is_none()) {
             return Err(Error::NotFound(missing));
         }
-        Ok(def.entities.iter().filter(|e| ids.contains(&e.id())).cloned().collect())
+        Ok(a.occurrences.iter().filter(|o| ids.contains(&o.id)).cloned().collect())
     }
 
-    fn instance_of(&self, context: Id, id: Id) -> Result<Instance> {
-        self.definition(context)?
-            .entity(id)
-            .ok_or(Error::NotFound(id))?
-            .as_instance()
-            .cloned()
-            .ok_or(Error::NotAnInstance(id))
-    }
-}
-
-/// `e` moved by `t`: a solid's B-rep is transformed, an instance's transform premultiplied.
-fn transformed(e: Entity, t: &DAffine3) -> Result<Entity> {
-    if is_identity(t) {
-        return Ok(e);
-    }
-    Ok(match e {
-        Entity::Solid(mut s) => {
-            s.solid = Arc::new(s.solid.transformed(t)?);
-            Entity::Solid(s)
+    /// Adds copies of `sources` (fresh ids, same components) to `context`, moved by `t`.
+    fn add_copies(&mut self, context: Id, sources: &[Occurrence], t: &DAffine3) -> Result<Vec<Id>> {
+        let mut copies = Vec::with_capacity(sources.len());
+        for s in sources {
+            let id = self.fresh_id();
+            copies.push(Occurrence { id, transform: *t * s.transform, ..s.clone() });
         }
-        Entity::Instance(mut i) => {
-            i.transform = *t * i.transform;
-            Entity::Instance(i)
-        }
-    })
+        let created = copies.iter().map(|c| c.id).collect();
+        self.assembly_mut(context)?.occurrences.extend(copies);
+        Ok(created)
+    }
 }
 
 fn is_identity(t: &DAffine3) -> bool {
     t.abs_diff_eq(DAffine3::IDENTITY, 1e-12)
+}
+
+/// A move, a rotation and maybe a mirror: unit, square axes (§2.2).
+pub(crate) fn is_rigid(t: &DAffine3) -> bool {
+    let m = t.matrix3;
+    let unit = |v: DVec3| (v.length_squared() - 1.0).abs() < 1e-9;
+    unit(m.x_axis) && unit(m.y_axis) && unit(m.z_axis) && m.x_axis.dot(m.y_axis).abs() < 1e-9
+        && m.y_axis.dot(m.z_axis).abs() < 1e-9
+        && m.z_axis.dot(m.x_axis).abs() < 1e-9
+        && t.translation.is_finite()
+}
+
+// ---- the kernel calls of an operation -------------------------------------------------------
+
+/// The kernel, as an operation sees it.
+trait Solver {
+    fn primitive(&mut self, primitive: &Primitive) -> Result<Arc<Solid>>;
+    /// `target op tool`, the tool first moved by `tool_transform`.
+    fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>>;
+}
+
+/// Records the calls into a job and answers with stand-ins (the operation only stores them).
+#[derive(Default)]
+struct Recorder {
+    job: Job,
+    /// Inputs already in the job, by `Arc` address.
+    inputs: HashMap<*const Solid, u32>,
+    stand_in: Option<Arc<Solid>>,
+}
+
+impl Recorder {
+    fn input(&mut self, s: &Arc<Solid>) -> u32 {
+        *self.inputs.entry(Arc::as_ptr(s)).or_insert_with(|| {
+            self.job.inputs.push(s.clone());
+            (self.job.inputs.len() - 1) as u32
+        })
+    }
+
+    fn task(&mut self, task: Task) -> Result<Arc<Solid>> {
+        self.job.tasks.push(task);
+        Ok(self.stand_in.get_or_insert_with(|| Arc::new(Solid::empty())).clone())
+    }
+}
+
+impl Solver for Recorder {
+    fn primitive(&mut self, primitive: &Primitive) -> Result<Arc<Solid>> {
+        self.task(Task::Primitive { primitive: primitive.clone(), placement: DAffine3::IDENTITY })
+    }
+
+    fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>> {
+        let (target, tool) = (self.input(target), self.input(tool));
+        self.task(Task::Boolean { target, tool, tool_transform, op })
+    }
+}
+
+/// Hands out the job's outputs, in the order the calls come (the order they were recorded).
+struct Replayer {
+    outputs: std::vec::IntoIter<Output>,
+    displays: Vec<(Arc<Solid>, std::result::Result<Display, String>)>,
+}
+
+impl Replayer {
+    fn next(&mut self) -> Result<Arc<Solid>> {
+        match self.outputs.next() {
+            Some(Output::Solid { solid, display }) => {
+                let solid = Arc::new(solid);
+                self.displays.push((solid.clone(), display));
+                Ok(solid)
+            }
+            _ => Err(Error::Invalid("kernel outputs out of step with the operation")),
+        }
+    }
+}
+
+impl Solver for Replayer {
+    fn primitive(&mut self, _: &Primitive) -> Result<Arc<Solid>> {
+        self.next()
+    }
+
+    fn boolean(&mut self, _: &Arc<Solid>, _: &Arc<Solid>, _: Option<DAffine3>, _: BooleanOp) -> Result<Arc<Solid>> {
+        self.next()
+    }
 }

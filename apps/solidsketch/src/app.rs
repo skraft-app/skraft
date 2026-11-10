@@ -1,7 +1,8 @@
 //! The application window: menus, tool bar (left), outliner and entity info (right), status
 //! bar with the measurements box (bottom), viewport (centre). Keyboard: SketchUp's shortcuts.
 
-use solidsketch_model::{Boolean, DefinitionKind, Document, LengthUnit, Operation, Settings};
+use solidsketch_model::kernel::KernelService;
+use solidsketch_model::{Boolean, Document, LengthUnit, Operation, Settings};
 use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
 
 use crate::file::{self, Inbox};
@@ -32,6 +33,23 @@ pub struct SolidSketchApp {
     /// is a tap, which toggles copying (SketchUp).
     copy_down: bool,
     copy_tap: bool,
+    /// Shows the Débogage menu ([`debug_menu_wanted`]).
+    debug_menu: bool,
+}
+
+/// The Débogage menu is asked for at launch, in any build (no dev build needed): `?debug` in
+/// the page's address on the web, `SOLIDSKETCH_DEBUG` set in the environment on the desktop.
+fn debug_menu_wanted() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.location().search().ok())
+            .is_some_and(|q| q.trim_start_matches('?').split('&').any(|p| p == "debug" || p.starts_with("debug=")))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::env::var_os("SOLIDSKETCH_DEBUG").is_some()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -40,13 +58,30 @@ enum PrefsTab {
     Navigation,
 }
 
+/// Where the kernel runs (docs/ARCHITECTURE.md §7 ter): its own thread on the desktop, a web
+/// worker in the browser. Either wakes the UI when a result is ready.
+fn kernel_service(ctx: &egui::Context) -> Box<dyn KernelService> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let ctx = ctx.clone();
+        Box::new(solidsketch_model::kernel::Threaded::new(Some(std::sync::Arc::new(move || ctx.request_repaint()))))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let ctx = ctx.clone();
+        Box::new(crate::worker::WebKernel::new(std::rc::Rc::new(move || ctx.request_repaint())))
+    }
+}
+
 impl SolidSketchApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         cc.egui_ctx.set_theme(egui::Theme::Light);
         let (prefs, error) = Preferences::load();
+        let mut editor = Editor::new(Document::with_settings(prefs.new_model.clone()), kernel_service(&cc.egui_ctx));
+        editor.set_tool_settings(prefs.tool_options.clone());
         SolidSketchApp {
-            editor: Editor::new(Document::with_settings(prefs.new_model.clone())),
+            editor,
             viewport: Viewport::new(),
             info: InfoState::default(),
             vcb: String::new(),
@@ -59,6 +94,7 @@ impl SolidSketchApp {
             prefs_window: None,
             copy_down: false,
             copy_tap: false,
+            debug_menu: debug_menu_wanted(),
         }
     }
 
@@ -83,7 +119,7 @@ impl SolidSketchApp {
             Action::Undo => e.undo(),
             Action::Redo => e.redo(),
             Action::Erase => e.delete_selection(),
-            Action::Make(kind) => e.make_container(kind),
+            Action::MakeAssembly => e.make_assembly(),
             Action::Explode => e.explode(),
             Action::MakeUnique => e.make_unique(),
             Action::ZoomExtents => e.zoom_extents(),
@@ -95,6 +131,8 @@ impl SolidSketchApp {
             Action::Apply(op) => {
                 let _ = e.apply(op);
             }
+            Action::CrashKernel => e.crash_kernel(),
+            Action::ToolOption(key, value) => e.set_tool_option(key, value),
         }
     }
 
@@ -146,8 +184,11 @@ impl SolidSketchApp {
         for ev in events {
             match ev {
                 egui::Event::Text(t) => {
-                    // `*5` and `/5` (arrays) start a value too.
-                    let starts_value = t.starts_with(|c: char| c.is_ascii_digit() || matches!(c, '-' | '.' | ',' | '*' | '/'));
+                    // `*5` and `/5` (arrays), `@` (the current value), `(`, and points `[x;y;z]`,
+                    // `<dx;dy;dz>` start a value too.
+                    let starts_value = t.starts_with(|c: char| {
+                        c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | ',' | '*' | '/' | '@' | '(' | '[' | '<' | ';')
+                    });
                     if vcb_open && (!self.vcb.is_empty() || starts_value) {
                         self.vcb.push_str(&t);
                     }
@@ -173,6 +214,7 @@ impl SolidSketchApp {
                         K::ArrowRight => self.editor.input(tool_key(Key::Right)),
                         K::ArrowUp => self.editor.input(tool_key(Key::Up)),
                         K::ArrowDown => self.editor.input(tool_key(Key::Down)),
+                        K::Tab => self.editor.input(tool_key(Key::Tab)),
                         K::Z if modifiers.command && modifiers.shift => self.editor.redo(),
                         K::Z if modifiers.command => self.editor.undo(),
                         K::Y if modifiers.command => self.editor.redo(),
@@ -194,7 +236,7 @@ impl SolidSketchApp {
                         K::C => self.act(Action::Tool(ToolKind::Cylinder)),
                         K::M => self.act(Action::Tool(ToolKind::Move)),
                         K::Q => self.act(Action::Tool(ToolKind::Rotate)),
-                        K::G => self.editor.make_container(DefinitionKind::Component),
+                        K::G => self.editor.make_assembly(),
                         _ => {}
                     }
                 }
@@ -236,16 +278,13 @@ impl SolidSketchApp {
                     actions.push(Action::Erase);
                 }
                 ui.separator();
-                if ui.add_enabled(has_sel, egui::Button::new("Créer un groupe")).clicked() {
-                    actions.push(Action::Make(DefinitionKind::Group));
-                }
-                if ui.add_enabled(has_sel, egui::Button::new("Créer un composant")).clicked() {
-                    actions.push(Action::Make(DefinitionKind::Component));
+                if ui.add_enabled(has_sel, egui::Button::new("Créer un assemblage").shortcut_text("G")).clicked() {
+                    actions.push(Action::MakeAssembly);
                 }
                 if ui.add_enabled(has_sel, egui::Button::new("Éclater")).clicked() {
                     actions.push(Action::Explode);
                 }
-                if ui.add_enabled(has_sel, egui::Button::new("Rendre unique")).clicked() {
+                if ui.add_enabled(has_sel, egui::Button::new("Faire une pièce à part")).clicked() {
                     actions.push(Action::MakeUnique);
                 }
                 ui.separator();
@@ -306,6 +345,13 @@ impl SolidSketchApp {
                     }
                 }
             });
+            if self.debug_menu {
+                ui.menu_button("Débogage", |ui| {
+                    if ui.button("Faire planter le noyau").on_hover_text("Teste la reprise après une panique du noyau").clicked() {
+                        actions.push(Action::CrashKernel);
+                    }
+                });
+            }
         });
     }
 
@@ -396,7 +442,10 @@ impl SolidSketchApp {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            let status = self.message.clone().unwrap_or_else(|| self.editor.status());
+            let status = match &self.message {
+                Some(m) if !self.editor.busy() => m.clone(),
+                _ => self.editor.status(),
+            };
             ui.label(status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (label, value) = self.editor.vcb().unwrap_or(("Mesures", String::new()));
@@ -421,6 +470,8 @@ impl SolidSketchApp {
 impl eframe::App for SolidSketchApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // What the kernel finished since the last frame (it wakes the UI when it does).
+        self.editor.poll();
         if let Some((name, text)) = self.inbox.take() {
             match Document::from_json(&text) {
                 Ok(doc) => {
@@ -446,6 +497,7 @@ impl eframe::App for SolidSketchApp {
 
         let mut actions = Vec::new();
         egui::Panel::top("menu").show(ui, |ui| self.menus(ui, &mut actions));
+        egui::Panel::top("tool_options").show(ui, |ui| panels::tool_options(ui, &self.editor, &mut actions));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         // The 3D view fills everything between the menu and the status bar; the tools and the
         // side panel float over it, so opening or resizing them never resizes the view.
@@ -478,7 +530,11 @@ impl eframe::App for SolidSketchApp {
                     });
                     ui.separator();
                     egui::CollapsingHeader::new(egui::RichText::new("Arborescence").strong()).default_open(true).show(ui, |ui| {
-                        egui::ScrollArea::vertical().id_salt("outliner").max_height(view.height() * 0.45).show(ui, |ui| {
+                        // Grows with its content down to the bottom of the view, then scrolls.
+                        // An `Area` only offers last frame's size as available room, so the
+                        // height is forced (`min_scrolled_height`) and auto-shrink trims it.
+                        let room = (view.bottom() - margin - 12.0 - ui.cursor().top()).max(80.0);
+                        egui::ScrollArea::vertical().id_salt("outliner").max_height(room).min_scrolled_height(room).show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
                             panels::outliner(ui, &self.editor, &mut actions);
                         });
@@ -498,6 +554,10 @@ impl eframe::App for SolidSketchApp {
         self.preferences_window(&ctx);
         for a in actions {
             self.act(a);
+        }
+        // A tool's option changed (in the bar, or by Tab): kept with the preferences.
+        if self.prefs.tool_options != *self.editor.tool_settings() {
+            self.prefs.tool_options = self.editor.tool_settings().clone();
         }
         if self.prefs != self.stored_prefs {
             if let Err(e) = self.prefs.save() {
