@@ -147,6 +147,7 @@ impl SolidSketchApp {
         solidsketch_i18n::set_locale(&prefs.locale);
         let mut editor = Editor::new(Document::with_settings(prefs.new_model.clone()), kernel_service(&cc.egui_ctx));
         editor.set_tool_settings(prefs.tool_options.clone());
+        editor.set_machinings_switch(prefs.show_machinings);
         #[cfg(not(target_arch = "wasm32"))]
         let (control, error) = {
             let ctx = cc.egui_ctx.clone();
@@ -370,6 +371,13 @@ impl SolidSketchApp {
                 let _ = e.apply(op);
             }
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
+            Action::PartScope(s) => e.set_part_scope(s),
+            Action::SelectMachinings(ids) => e.select(ids),
+            Action::HoverMachining(m) => e.set_listed_hover(m),
+            Action::ToggleMachinings => {
+                self.prefs.show_machinings = !self.prefs.show_machinings;
+                e.set_machinings_switch(self.prefs.show_machinings);
+            }
             Action::PaintWith(m) => {
                 e.set_paint_material(m);
                 if e.tool_kind() != ToolKind::Paint {
@@ -787,6 +795,7 @@ impl SolidSketchApp {
                         json!({
                             "tool": e.tool_kind().id(),
                             "context": e.context().iter().map(|i| i.0).collect::<Vec<_>>(),
+                            "open_part": e.open_part().map(|i| i.0),
                             "selection": e.selection().iter().map(|i| i.0).collect::<Vec<_>>(),
                             "status": e.status(),
                             "busy": e.busy(),

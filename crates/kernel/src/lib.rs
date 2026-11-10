@@ -29,7 +29,7 @@ mod snaps;
 pub use engine::{Inline, run};
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]
 pub use engine::Threaded;
-pub use job::{Display, Job, JobId, JobResult, KernelService, Output, Task, Waker, decode, encode};
+pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task, Waker, decode, encode};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
 
 /// Why a kernel call failed. SolidCore's own messages stay as it words them (English).

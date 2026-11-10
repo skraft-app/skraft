@@ -60,9 +60,9 @@ impl Document {
     }
 
     /// The structural invariants a file must keep: the root an assembly, known components, no
-    /// cycle, ids below `next_id` — unique in the document for components and machinings,
-    /// within their assembly for occurrences (§2.6) —, a part's shape there exactly when it has
-    /// machinings.
+    /// cycle, ids below `next_id` — unique in the document for components, within their
+    /// assembly for occurrences and within their part for machinings (§2.6) —, a part's shape
+    /// there exactly when it has machinings, and only its machinings marked failed.
     fn check(&self) -> Result<()> {
         self.assembly(self.root).map_err(|_| Error::File(FileError::RootNotAssembly))?;
         let mut seen = std::collections::HashSet::new();
@@ -89,8 +89,14 @@ impl Document {
             fresh(c.id, FileError::BadComponentId)?;
             match &c.kind {
                 ComponentKind::Part(p) => {
+                    let mut here = std::collections::HashSet::new();
                     for m in &p.machinings {
-                        fresh(m.id, FileError::BadMachiningId)?;
+                        if m.id.0 >= self.next_id || !here.insert(m.id) {
+                            return Err(Error::File(FileError::BadMachiningId(m.id)));
+                        }
+                    }
+                    if p.failed.iter().any(|id| !here.contains(id)) {
+                        return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
                     for m in p.faces.values() {
                         material(&Some(*m))?;

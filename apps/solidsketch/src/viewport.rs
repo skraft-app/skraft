@@ -8,7 +8,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::Id;
 use solidsketch_render as render;
 use solidsketch_theme::{Rgba, Theme};
-use solidsketch_tools::{Editor, InferKind, Mark, Modifiers, ToolInput, ToolKind};
+use solidsketch_tools::{Editor, InferKind, Look, Mark, Modifiers, ToolInput, ToolKind};
 
 use crate::prefs::Navigation;
 
@@ -192,6 +192,10 @@ impl Viewport {
         for (id, [r, g, b]) in &materials {
             palette[self.slots[id] as usize] = solidsketch_theme::srgb(*r, *g, *b);
         }
+        // Then the colours of an open part's tools (§2.9).
+        let tool_slot = palette.len() as u32;
+        palette.push(theme.machining);
+        palette.push(theme.machining_failed);
 
         // Meshes: one per definition, re-uploaded when its revision (faces' paint included)
         // changes.
@@ -234,9 +238,14 @@ impl Viewport {
                     .map(|p| render::Placement {
                         transform: DMat4::from(p.transform),
                         tint: if p.faded { fade } else { render::NO_TINT },
-                        material: slot(p.material),
+                        material: match p.look {
+                            Look::Tool => tool_slot,
+                            Look::FailedTool => tool_slot + 1,
+                            Look::Shape | Look::Blank => slot(p.material),
+                        },
                     })
                     .collect(),
+                ghost: places.iter().any(|p| p.look == Look::Blank),
             })
             .collect();
         let highlights: Vec<render::Highlight> = view
@@ -278,6 +287,7 @@ impl Viewport {
             silhouettes: display.silhouettes,
             section: view.section.map(|s| render::Section { origin: s.origin, normal: s.normal }),
             cap_shade: theme.cap_shade,
+            ghost_opacity: theme.ghost_opacity,
         };
         let frame = render::Frame {
             view: cam.view(),
@@ -289,8 +299,9 @@ impl Viewport {
             lines: &lines,
             overlay: &overlay,
             grid: display.grid.then(|| grid_for(cam.focus)),
-            axes: display.axes,
-            axes_frame: DMat4::from(editor.context_transform()),
+            // An open part always shows its axes (ARCHITECTURE.md §2.9).
+            axes: display.axes || editor.open_part().is_some(),
+            axes_frame: DMat4::from(editor.axes_transform()),
             pixels_per_point,
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });

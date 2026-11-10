@@ -204,6 +204,11 @@ pub struct Theme {
     pub fade: f32,
     /// How much darker than its part a section cap is (0: the same colour).
     pub cap_shade: f32,
+    /// How opaque an open part's blank is while its machinings show (§2.9).
+    pub ghost_opacity: f32,
+    /// The tools of an open part's machinings, and those that failed to cut.
+    pub machining: Rgba,
+    pub machining_failed: Rgba,
     pub selected: MarkColors,
     pub hover: MarkColors,
     /// Picked by a tool (the boolean's target).
@@ -260,6 +265,9 @@ impl Theme {
             edge: [0.02, 0.02, 0.03, 1.0],
             fade: 0.7,
             cap_shade: 0.25,
+            ghost_opacity: 0.15,
+            machining: srgb(70, 135, 205),
+            machining_failed: srgb(225, 45, 45),
             selected: MarkColors { face: [0.05, 0.2, 1.0, 0.5], edge: [0.005, 0.035, 1.0, 1.0] },
             hover: MarkColors { face: [0.07, 0.25, 1.0, 0.2], edge: [0.01, 0.1, 1.0, 0.75] },
             picked: MarkColors { face: [1.0, 0.3, 0.0, 0.55], edge: [0.79, 0.073, 0.0, 1.0] },

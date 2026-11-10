@@ -22,6 +22,20 @@ pub enum Mark {
     Related,
 }
 
+/// How a placement is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Look {
+    /// A part's shape.
+    #[default]
+    Shape,
+    /// An open part's blank, its machinings shown: a ghost (ARCHITECTURE.md §2.9).
+    Blank,
+    /// One of its machinings' tools.
+    Tool,
+    /// A tool that failed to cut.
+    FailedTool,
+}
+
 /// One occurrence of a definition to draw.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ViewPlacement {
@@ -30,6 +44,7 @@ pub struct ViewPlacement {
     pub faded: bool,
     /// The material its faces take.
     pub material: Option<Id>,
+    pub look: Look,
 }
 
 /// One solid of one occurrence drawn again, marked.
@@ -59,12 +74,45 @@ pub struct View {
     /// The bounding boxes of the selected assemblies' content, dashed segments in the world
     /// (the app draws them depth-tested, in the selection's colour).
     pub selection_boxes: Vec<(DVec3, DVec3)>,
-    /// The same box for the assembly being edited, grown by a few pixels (drawn in grey).
+    /// The same box for the part open or the assembly being edited, grown by a few pixels
+    /// (drawn in grey).
     pub context_box: Vec<(DVec3, DVec3)>,
 }
 
 /// How far the box of the assembly being edited stands off its content, in pixels.
 const CONTEXT_BOX_OFFSET_PX: f64 = 8.0;
+
+/// A box in its own axes: `frame` (rigid) maps them to the world.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct OrientedBox {
+    pub frame: DAffine3,
+    pub lo: DVec3,
+    pub hi: DVec3,
+}
+
+impl OrientedBox {
+    /// Does `ray` pass through the box (slab test in its axes)?
+    pub fn hit_by(&self, ray: &crate::camera::Ray) -> bool {
+        let inv = self.frame.inverse();
+        let (o, d) = (inv.transform_point3(ray.origin), inv.transform_vector3(ray.dir));
+        let (mut t0, mut t1) = (ray.t_min, f64::INFINITY);
+        for k in 0..3 {
+            if d[k].abs() < 1e-12 {
+                if o[k] < self.lo[k] || o[k] > self.hi[k] {
+                    return false;
+                }
+                continue;
+            }
+            let (a, b) = ((self.lo[k] - o[k]) / d[k], (self.hi[k] - o[k]) / d[k]);
+            t0 = t0.max(a.min(b));
+            t1 = t1.min(a.max(b));
+            if t0 > t1 {
+                return false;
+            }
+        }
+        true
+    }
+}
 
 impl Editor {
     // ---- drawing -------------------------------------------------------------------------------
@@ -84,35 +132,42 @@ impl Editor {
         }
     }
 
-    /// The box bounding what the assembly occurrence `id` of the context `ctx_path` holds, in
-    /// its own axes, moved by `extra` and grown by `offset_px` pixels on every side, as dashed
-    /// segments. Nothing for a part's occurrence.
-    fn assembly_box(&self, out: &mut Vec<(DVec3, DVec3)>, ctx_path: &[Id], id: Id, extra: DAffine3, offset_px: f64) {
+    /// The box bounding what the occurrence `id` of the context `ctx_path` holds, in its own
+    /// axes, moved by `extra` and grown by `offset_px` pixels on every side: its frame (to
+    /// world) and its bounds in it. For a part's occurrence only when `parts` (the open
+    /// part's box): its blank's.
+    fn content_bounds(&self, ctx_path: &[Id], id: Id, extra: DAffine3, offset_px: f64, parts: bool) -> Option<OrientedBox> {
         let doc = self.document();
-        let Ok(ctx) = doc.context_of(ctx_path) else { return };
-        if !doc.is_assembly_occurrence(ctx, id) {
-            return;
+        let ctx = doc.context_of(ctx_path).ok()?;
+        if !parts && !doc.is_assembly_occurrence(ctx, id) {
+            return None;
         }
-        let (Ok(t), Some(o)) = (doc.transform_of(ctx_path), doc.assembly(ctx).ok().and_then(|a| a.occurrence(id))) else {
-            return;
-        };
+        let t = doc.transform_of(ctx_path).ok()?;
+        let o = doc.assembly(ctx).ok().and_then(|a| a.occurrence(id))?;
         let frame = extra * t * o.transform;
         let to_local = frame.inverse();
         let mut bounds: Option<(DVec3, DVec3)> = None;
         for u in solids_under(doc, ctx_path, id) {
-            let Some(dm) = self.scene.definition_mesh(u.part) else { continue };
+            // A part's recipe shown: its blank holds the tools' cuts.
+            let key = self.scene.recipe().filter(|r| r.part == u.part).map_or(u.part, |r| r.blank);
+            let Some(dm) = self.scene.definition_mesh(key) else { continue };
             let rel = to_local * extra * u.transform;
             for b in dm.parts.iter().filter_map(|p| p.bounds) {
                 let (lo, hi) = transform_bounds(&rel, b);
                 bounds = Some(bounds.map_or((lo, hi), |(l, h)| (l.min(lo), h.max(hi))));
             }
         }
-        let Some((mut lo, mut hi)) = bounds else { return };
+        let (mut lo, mut hi) = bounds?;
         if offset_px > 0.0 {
             // Pixels measured at the box's centre (the frame is rigid: no scale).
             let d = self.camera.world_per_pixel(self.size, frame.transform_point3((lo + hi) * 0.5)) * offset_px;
             (lo, hi) = (lo - DVec3::splat(d), hi + DVec3::splat(d));
         }
+        Some(OrientedBox { frame, lo, hi })
+    }
+
+    /// A box's edges, as dashed segments.
+    fn dashed_box(&self, out: &mut Vec<(DVec3, DVec3)>, OrientedBox { frame, lo, hi }: OrientedBox) {
         let corner = |i: usize| {
             frame.transform_point3(DVec3::new(
                 if i & 1 == 0 { lo.x } else { hi.x },
@@ -131,6 +186,16 @@ impl Editor {
         out.extend(lines.into_iter().map(|l| (l.a, l.b)));
     }
 
+    /// The grey box drawn around the part open, else the assembly being edited (`None` at the
+    /// model's level).
+    pub(super) fn context_bounds(&self) -> Option<OrientedBox> {
+        match (self.open_part, self.context.split_last()) {
+            (Some(id), _) => self.content_bounds(&self.context, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX, true),
+            (None, Some((&id, parent))) => self.content_bounds(parent, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX, false),
+            (None, None) => None,
+        }
+    }
+
     /// What to draw now.
     pub fn view(&self) -> View {
         let mut v = View::default();
@@ -140,8 +205,12 @@ impl Editor {
         // original stays in place only when a copy is left behind.
         let hide_original = preview.ghost.is_some() && !self.tool_copying();
         let depth = self.context.len();
+        let open = self.open_part_path();
+        // An open part showing its machinings is drawn as its recipe instead.
+        let recipe = self.scene.recipe().filter(|_| self.showing_machinings());
         let hidden = |p: &&crate::scene::Placement| {
-            hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| self.selection.contains(id))
+            (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| self.selection.contains(id)))
+                || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
         };
         for (def, places) in self.scene.placements() {
             let ps = places
@@ -149,13 +218,48 @@ impl Editor {
                 .filter(|p| !hidden(p))
                 .map(|p| ViewPlacement {
                     transform: p.transform,
-                    faded: !p.path.starts_with(&self.context),
+                    faded: match &open {
+                        Some(o) => p.entity_path() != *o,
+                        None => !p.path.starts_with(&self.context),
+                    },
                     material: p.material,
+                    look: Look::Shape,
                 })
                 .collect();
             v.batches.push((def, ps));
         }
+        if let (Some(r), Some(o)) = (recipe, &open)
+            && let Ok((_, _, t)) = doc.resolve_part(o)
+        {
+            let material = self.scene.placements().find(|(p, _)| *p == r.part).and_then(|(_, places)| {
+                places.iter().find(|p| p.entity_path() == *o).and_then(|p| p.material)
+            });
+            v.batches.push((r.blank, vec![ViewPlacement { transform: t, faded: false, material, look: Look::Blank }]));
+            let mut tools: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
+            // A tool moved without a copy is drawn only where it goes.
+            for tool in r.tools.iter().filter(|tool| !(hide_original && self.selection.contains(&tool.machining))) {
+                let look = if tool.failed { Look::FailedTool } else { Look::Tool };
+                let p = ViewPlacement { transform: t * tool.placement, faded: false, material: None, look };
+                match tools.iter_mut().find(|(k, _)| *k == tool.key) {
+                    Some((_, ps)) => ps.push(p),
+                    None => tools.push((tool.key, vec![p])),
+                }
+            }
+            v.batches.extend(tools);
+        }
+        // While an open part's machinings show, the selection and hover are its machinings.
+        let tool_at = |id: Id| {
+            let r = recipe?;
+            let t = doc.resolve_part(open.as_ref()?).ok()?.2;
+            r.tools.iter().find(|tool| tool.machining == id).map(|tool| (tool.key, t * tool.placement))
+        };
         let mark = |out: &mut Vec<ViewHighlight>, ctx: &[Id], id: Id, m: Mark, extra: DAffine3| {
+            if recipe.is_some() {
+                if let Some((key, t)) = tool_at(id) {
+                    out.push(ViewHighlight { definition: key, solid: key, transform: extra * t, mark: m, material: None });
+                }
+                return;
+            }
             for u in solids_under(doc, ctx, id) {
                 out.push(ViewHighlight {
                     definition: u.part,
@@ -173,13 +277,16 @@ impl Editor {
         // when the original is hidden).
         let box_at = if hide_original { preview.ghost } else { Some(DAffine3::IDENTITY) };
         for (id, extra) in self.selection.iter().filter_map(|id| box_at.map(|g| (*id, g))) {
-            self.assembly_box(&mut v.selection_boxes, &self.context, id, extra, 0.0);
+            if let Some(b) = self.content_bounds(&self.context, id, extra, 0.0, false) {
+                self.dashed_box(&mut v.selection_boxes, b);
+            }
         }
-        // The assembly being edited: its content's box, a little larger.
-        if let Some((&id, parent)) = self.context.split_last() {
-            self.assembly_box(&mut v.context_box, parent, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX);
+        // The part open, else the assembly being edited: its content's box, a little larger.
+        if let Some(b) = self.context_bounds() {
+            self.dashed_box(&mut v.context_box, b);
         }
-        if let Some(h) = preview.hover.filter(|h| !self.selection.contains(h)) {
+        let listed = self.listed_hover.filter(|_| recipe.is_some());
+        if let Some(h) = listed.or(preview.hover).filter(|h| !self.selection.contains(h)) {
             mark(&mut v.highlights, &self.context, h, Mark::Hover, DAffine3::IDENTITY);
         }
         // What the selection rectangle would take, as if hovered.
@@ -191,8 +298,10 @@ impl Editor {
                 mark(&mut v.highlights, &p.instances, p.entity, m, DAffine3::IDENTITY);
             }
         }
-        // The other occurrences a change reaches, the one aimed at excepted.
-        if let Some(aimed) = &preview.propagate
+        // The other occurrences a change reaches, the one aimed at excepted: those of the open
+        // part (§2.9), else of the part a tool aims at.
+        let open_reaches_all = open.as_ref().filter(|_| self.part_scope == solidsketch_model::Scope::All);
+        if let Some(aimed) = open_reaches_all.or(preview.propagate.as_ref())
             && let Ok((part, _, _)) = doc.resolve_part(aimed)
             && let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part)
         {

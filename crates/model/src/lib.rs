@@ -61,6 +61,8 @@ pub enum Refusal {
     SelfBoolean,
     /// A face index past the part's faces (§7 quater).
     NoSuchFace,
+    /// A change to machinings names none.
+    NoMachinings,
 }
 
 /// A file that cannot be opened.
@@ -116,6 +118,7 @@ impl std::fmt::Display for Refusal {
             Refusal::RootPlaced => t!("error.model.root_placed"),
             Refusal::SelfBoolean => t!("error.model.self_boolean"),
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
+            Refusal::NoMachinings => t!("error.model.no_machinings"),
         })
     }
 }

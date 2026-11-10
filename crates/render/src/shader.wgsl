@@ -12,7 +12,7 @@ struct Globals {
     face_back: vec4<f32>,  // the back of every face
     edge: vec4<f32>,       // edges and silhouettes
     clip: vec4<f32>,       // the section plane: dot(xyz, p) + w > 0 is cut away
-    section: vec4<f32>,    // x: section on; y: how much darker caps are
+    section: vec4<f32>,    // x: section on; y: how much darker caps are; z: ghosts' opacity
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -93,6 +93,16 @@ fn fs_face_cut(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0)
         discard;
     }
     return shade(in, facing, true);
+}
+
+// A ghost's faces (an open part's blank): its fronts only, shaded, blended at the ghosts'
+// opacity; cut by the section like the rest.
+@fragment
+fn fs_face_ghost(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec4<f32> {
+    if (cut(in.world) || !is_front(in, facing)) {
+        discard;
+    }
+    return vec4<f32>(shade(in, facing, false).rgb, g.section.z);
 }
 
 // Does the fragment show the outside of its part? (A mirrored placement turns the winding

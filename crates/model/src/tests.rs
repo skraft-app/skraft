@@ -556,3 +556,141 @@ fn the_section_is_a_setting() {
     let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
     assert_eq!(back.settings(), h.document().settings());
 }
+
+/// A board drilled once at (20, 25), its occurrence and part.
+fn drilled_board(h: &mut History) -> (EntityPath, Id, Id) {
+    let board = add(h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let drill = add(h, Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, -5.0), radius: 4.0, height: 30.0 });
+    let target = EntityPath::root(board);
+    h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    let (part, p, _) = h.document().resolve_part(&target).unwrap();
+    (target, part, p.machinings[0].id)
+}
+
+fn faces(doc: &Document, part: Id) -> usize {
+    doc.part(part).unwrap().shape().topology_counts().0
+}
+
+#[test]
+fn machinings_are_copied_arrayed_moved_and_deleted() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    let one = faces(h.document(), part);
+
+    // A copy is cut from the shape as it is: one tool in the recipe.
+    let dx = |x: f64| DAffine3::from_translation(DVec3::X * x);
+    let op = Operation::DuplicateMachinings { target: target.clone(), machinings: vec![hole], transform: dx(40.0), scope: Scope::All };
+    let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
+    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { tools, .. }] if tools.len() == 1), "{:?}", job.tasks);
+    let copy = h.apply(op).unwrap().machinings[0];
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.machinings.len(), 2);
+    assert!(close(p.machining(copy).unwrap().placement.translation, DVec3::new(60.0, 25.0, -5.0)));
+    let two = faces(h.document(), part);
+    assert!(two > one, "{two} > {one}");
+
+    // An array: three more, 40 apart.
+    let created = h.apply(Operation::ArrayMachinings { target: target.clone(), machinings: vec![copy], step: dx(40.0), count: 3, scope: Scope::All }).unwrap().machinings;
+    assert_eq!(created.len(), 3);
+    let p = h.document().part(part).unwrap();
+    assert!(close(p.machining(created[2]).unwrap().placement.translation, DVec3::new(180.0, 25.0, -5.0)));
+    assert!(p.failed.is_empty());
+
+    // A move computes the part again from the blank: every tool in the recipe.
+    let op = Operation::TransformMachinings { target: target.clone(), machinings: vec![hole], transform: dx(-10.0), scope: Scope::All };
+    let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
+    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { tools, .. }] if tools.len() == 5));
+    h.apply(op).unwrap();
+    assert!(close(h.document().part(part).unwrap().machining(hole).unwrap().placement.translation, DVec3::new(10.0, 25.0, -5.0)));
+    assert!(h.apply(Operation::TransformMachinings { target: target.clone(), machinings: vec![hole], transform: DAffine3::from_scale(DVec3::splat(2.0)), scope: Scope::All }).is_err());
+
+    // Deleting all but one, then the last: the blank is the shape again, without the kernel.
+    let all: Vec<Id> = h.document().part(part).unwrap().machinings.iter().map(|m| m.id).collect();
+    h.apply(Operation::DeleteMachinings { target: target.clone(), machinings: all[1..].to_vec(), scope: Scope::All }).unwrap();
+    assert_eq!(faces(h.document(), part), one);
+    let op = Operation::DeleteMachinings { target: target.clone(), machinings: vec![hole], scope: Scope::All };
+    assert!(matches!(h.document().prepare(&op).unwrap(), Prepared::Done(_)));
+    h.apply(op).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert!(p.machinings.is_empty() && p.shape.is_none());
+
+    // Refused: no machining named, one the part does not have.
+    assert!(h.apply(Operation::DeleteMachinings { target: target.clone(), machinings: vec![], scope: Scope::All }).is_err());
+    assert!(h.apply(Operation::DeleteMachinings { target, machinings: vec![hole], scope: Scope::All }).is_err());
+    // Undo brings them back.
+    h.undo();
+    assert_eq!(h.document().part(part).unwrap().machinings.len(), 1);
+}
+
+#[test]
+fn a_failing_machining_is_skipped_and_reported() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    // A tool swallowing the board, as a moved machining could (put in by hand: a boolean
+    // refuses it at once).
+    let mut doc = h.document().clone();
+    let huge = doc.fresh_id();
+    let tool = Arc::new(kernel::Solid::new_box(DVec3::splat(-100.0), DVec3::splat(1000.0)).unwrap());
+    doc.part_mut(part).unwrap().machinings.push(Machining { id: huge, tool, placement: DAffine3::IDENTITY, source: MachiningSource::Local });
+    let mut h = History::new(doc);
+
+    // Moving the hole computes the part from the blank: the huge tool fails, the hole cuts.
+    h.apply(Operation::TransformMachinings { target: target.clone(), machinings: vec![hole], transform: DAffine3::from_translation(DVec3::X * 50.0), scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert!(p.is_failed(huge) && !p.is_failed(hole));
+    let blank = p.blank.topology_counts().0;
+    assert!(faces(h.document(), part) > blank);
+    // Saved with the file.
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert!(back.part(part).unwrap().is_failed(huge));
+    // Gone with it.
+    h.apply(Operation::DeleteMachinings { target, machinings: vec![huge], scope: Scope::All }).unwrap();
+    assert!(h.document().part(part).unwrap().failed.is_empty());
+}
+
+#[test]
+fn only_this_one_separates_a_machined_part_keeping_machining_ids() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let (target, part, hole) = drilled_board(&mut h);
+    let other = h.apply(Operation::Duplicate { context: root, entities: vec![target.entity], transform: DAffine3::from_translation(DVec3::Y * 100.0) }).unwrap().created[0];
+
+    h.apply(Operation::DeleteMachinings { target: target.clone(), machinings: vec![hole], scope: Scope::This }).unwrap();
+    let doc = h.document();
+    let (own, p, _) = doc.resolve_part(&target).unwrap();
+    assert_ne!(own, part);
+    assert!(p.machinings.is_empty());
+    // The other occurrence keeps the hole, under the same id.
+    let (shared, q, _) = doc.resolve_part(&EntityPath::root(other)).unwrap();
+    assert_eq!(shared, part);
+    assert!(q.machining(hole).is_some());
+
+    // Two parts with the same machining id: the file opens again (ids are unique per part).
+    let mut h = History::new(Document::new());
+    let (target, _, hole) = drilled_board(&mut h);
+    let root = h.document().root();
+    h.apply(Operation::Duplicate { context: root, entities: vec![target.entity], transform: DAffine3::from_translation(DVec3::Y * 100.0) }).unwrap();
+    h.apply(Operation::TransformMachinings { target: target.clone(), machinings: vec![hole], transform: DAffine3::from_translation(DVec3::X * 30.0), scope: Scope::This }).unwrap();
+    let doc = h.document();
+    assert_eq!(doc.components().filter(|c| c.as_part().is_some_and(|p| p.machining(hole).is_some())).count(), 2);
+    assert_eq!(Document::from_json(&doc.to_json().unwrap()).unwrap(), *doc);
+}
+
+#[test]
+fn a_primitive_drawn_in_a_part_is_a_machining() {
+    let mut h = History::new(Document::new());
+    let (target, part, _) = drilled_board(&mut h);
+    let before = faces(h.document(), part);
+    // A groove along the board's top, flush with its ends, over the hole, in its axes.
+    let groove = Primitive::Box { origin: DVec3::new(0.0, 20.0, 12.0), size: DVec3::new(200.0, 10.0, 10.0) };
+    let out = h.apply(Operation::AddMachining { target: target.clone(), primitive: groove, placement: DAffine3::IDENTITY, scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.machinings.len(), 2);
+    let m = p.machining(out.machinings[0]).unwrap();
+    // The tool at its own origin, placed where it was drawn.
+    assert!(close(m.placement.translation, DVec3::new(0.0, 20.0, 12.0)));
+    assert!(close(m.tool.vertex_bounds().unwrap().0, DVec3::ZERO));
+    assert!(p.failed.is_empty(), "{:?}", p.failed);
+    assert!(faces(h.document(), part) > before, "{} {before}", faces(h.document(), part));
+    assert!(h.apply(Operation::AddMachining { target, primitive: cube(DVec3::ZERO, 5.0), placement: DAffine3::from_scale(DVec3::splat(2.0)), scope: Scope::All }).is_err());
+}

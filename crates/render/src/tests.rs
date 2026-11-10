@@ -71,7 +71,7 @@ fn scene(
     r.set_mesh(device, 7, offset.x.to_bits(), &[Part { id: 1, mesh: &cube, face_paint: &[] }, Part { id: 2, mesh: &cyl, face_paint: &[] }]);
     let at = |i: i32| DMat4::from_translation(DVec3::new(i as f64 * 20.0 - 25.0, 0.0, 0.0));
     let placements = (0..3).map(|i| Placement::new(at(i))).collect();
-    let batches = [Batch { key: 7, placements }];
+    let batches = [Batch::new(7, placements)];
     let size = SIZE;
     let eye = offset + DVec3::new(-20.0, -70.0, 50.0);
     let view = DMat4::look_at_rh(eye, offset + DVec3::new(0.0, 5.0, 5.0), DVec3::Z);
@@ -157,7 +157,7 @@ fn concave_edges_are_not_buried() {
     let mesh = block.boolean(&pocket, BooleanOp::Difference).unwrap().mesh().unwrap();
     let mut r = Renderer::new(&device);
     r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &mesh, face_paint: &[] }]);
-    let batches = [Batch { key: 1, placements: vec![Placement::new(DMat4::IDENTITY)] }];
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
     let size = [640, 400];
     let view = DMat4::look_at_rh(DVec3::new(-30.0, -60.0, 90.0), DVec3::new(20.0, 20.0, 5.0), DVec3::Z);
     let proj = Mat4::perspective_infinite_reverse_rh(0.6, size[0] as f32 / size[1] as f32, 1.0);
@@ -212,7 +212,7 @@ fn a_mirrored_placement_shows_its_outside() {
     let view = DMat4::look_at_rh(DVec3::new(-20.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z);
     let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let mut shot = |transform: DMat4| {
-        let batches = [Batch { key: 3, placements: vec![Placement::new(transform)] }];
+        let batches = [Batch::new(3, vec![Placement::new(transform)])];
         let frame = Frame {
             view,
             proj,
@@ -248,7 +248,7 @@ fn shot(
     style: Style<'_>,
 ) -> (Vec<u8>, bool) {
     let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
-    let batches = [Batch { key: 1, placements: vec![placement] }];
+    let batches = [Batch::new(1, vec![placement])];
     let frame = Frame {
         view,
         proj,
@@ -288,7 +288,7 @@ fn a_still_frame_is_not_drawn_again() {
     // `shot` renders the same frame twice: the second time, nothing is drawn.
     let mut enc = device.create_command_encoder(&Default::default());
     let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
-    let batches = [Batch { key: 1, placements: vec![p] }];
+    let batches = [Batch::new(1, vec![p])];
     let frame = Frame {
         view: front_view(),
         proj,
@@ -428,4 +428,50 @@ fn a_section_caps_only_where_it_cuts() {
     let covered = plain.chunks(4).filter(|p| p[..3] != [255, 255, 255]).count();
     let differ = plain.chunks(4).zip(cut.chunks(4)).filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 2)).count();
     assert!(differ * 100 < covered * 2, "{differ} of {covered} pixels differ from the uncut picture");
+}
+
+#[test]
+fn a_ghost_shows_what_it_holds() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    // A large blank around a small red tool.
+    let blank = Solid::new_box(DVec3::splat(-8.0), DVec3::splat(16.0)).unwrap().mesh().unwrap();
+    let tool = Solid::new_box(DVec3::splat(-2.0), DVec3::splat(4.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &blank, face_paint: &[] }]);
+    r.set_mesh(&device, 2, 1, &[Part { id: 2, mesh: &tool, face_paint: &[] }]);
+    let red = [[0.8, 0.02, 0.02, 1.0]];
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let shoot = |r: &mut Renderer, ghost: bool| {
+        let batches = [
+            Batch { ghost, ..Batch::new(1, vec![Placement::new(DMat4::IDENTITY)]) },
+            Batch::new(2, vec![Placement { material: 0, ..Placement::new(DMat4::IDENTITY) }]),
+        ];
+        let frame = Frame {
+            view: front_view(),
+            proj,
+            background: [1.0, 1.0, 1.0],
+            style: Style { palette: &red, ..Style::default() },
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            overlay: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 1.0,
+        };
+        draw(r, &device, &queue, SIZE, &frame)
+    };
+    let centre = |px: &[u8]| pixel(px, SIZE[0], SIZE[0] / 2, SIZE[1] / 2);
+    let solid = shoot(&mut r, false);
+    let ghost = shoot(&mut r, true);
+    save(&ghost, SIZE, "ghost");
+    // Opaque, the blank hides the tool; a ghost, it shows it, red.
+    let [sr, sg, _, _] = centre(&solid);
+    assert!(sr.abs_diff(sg) < 30, "{:?}", centre(&solid));
+    let [gr, gg, gb, _] = centre(&ghost);
+    assert!(gr > gg + 60 && gr > gb + 60, "{:?}", centre(&ghost));
 }

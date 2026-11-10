@@ -1,5 +1,5 @@
-//! Selection and the context being edited: select, enter and leave assemblies, erase, make
-//! an assembly, explode, make a part on its own.
+//! Selection and the context being edited: select, enter and leave assemblies, open and close
+//! a part (ARCHITECTURE.md §2.9), erase, make an assembly, explode, make a part on its own.
 
 use solidsketch_i18n::t;
 use solidsketch_model::{EntityPath, Id, Operation};
@@ -12,6 +12,10 @@ impl Editor {
     }
 
     pub fn select_all(&mut self) {
+        if self.open_part.is_some() {
+            self.selection = self.scene.recipe().filter(|_| self.showing_machinings()).map(|r| r.tools.iter().map(|t| t.machining).collect()).unwrap_or_default();
+            return;
+        }
         let ctx = self.context_definition();
         self.selection = self.document().assembly(ctx).map(|a| a.occurrences.iter().map(|o| o.id).collect()).unwrap_or_default();
     }
@@ -21,27 +25,46 @@ impl Editor {
         if self.document().resolve(path).is_err() {
             return;
         }
-        if self.context != path.instances {
+        if self.context != path.instances || self.open_part.is_some() {
             self.tool.reset();
             self.context = path.instances.clone();
+            self.open_part = None;
+            self.sync_scene();
         }
         self.selection = vec![path.entity];
     }
 
-    /// Edits the assembly the occurrence `id` of the active context places.
+    /// Edits the assembly the occurrence `id` of the active context places, or opens the part
+    /// it places.
     pub fn enter(&mut self, id: Id) {
-        if self.document().is_assembly_occurrence(self.context_definition(), id) {
-            self.tool.reset();
-            self.context.push(id);
-            self.selection.clear();
+        if self.open_part.is_some() {
+            return;
         }
+        let doc = self.document();
+        let ctx = self.context_definition();
+        let is_part = doc.assembly(ctx).ok().and_then(|a| a.occurrence(id)).is_some_and(|o| doc.part(o.component).is_ok());
+        if doc.is_assembly_occurrence(ctx, id) {
+            self.context.push(id);
+        } else if is_part {
+            self.open_part = Some(id);
+            self.part_scope = solidsketch_model::Scope::All;
+        } else {
+            return;
+        }
+        self.tool.reset();
+        self.selection.clear();
+        self.listed_hover = None;
+        self.sync_scene();
     }
 
-    /// Goes back to the parent context, the assembly's occurrence left selected.
+    /// Closes the open part, else goes back to the parent context; the occurrence left is
+    /// selected.
     pub fn exit(&mut self) {
-        if let Some(id) = self.context.pop() {
+        if let Some(id) = self.open_part.take().or_else(|| self.context.pop()) {
             self.tool.reset();
             self.selection = vec![id];
+            self.listed_hover = None;
+            self.sync_scene();
         }
     }
 
@@ -50,7 +73,11 @@ impl Editor {
             return;
         }
         let entities = std::mem::take(&mut self.selection);
-        let _ = self.start(Operation::Delete { context: self.context_definition(), entities }, After::Nothing, false);
+        let op = match self.open_part_path().filter(|_| self.showing_machinings()) {
+            Some(target) => Operation::DeleteMachinings { target, machinings: entities, scope: self.part_scope },
+            None => Operation::Delete { context: self.context_definition(), entities },
+        };
+        let _ = self.start(op, After::Nothing, false);
     }
 
     /// Puts the selection in a new assembly.

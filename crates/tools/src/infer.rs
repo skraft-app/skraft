@@ -20,7 +20,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::EntityPath;
 
 use crate::camera::{Camera, Projector, Ray};
-use crate::scene::{DisplayScene, Hit, ray_box, transform_bounds};
+use crate::scene::{DisplayScene, Hit, Owner, ray_box, transform_bounds};
 
 /// How far from the cursor a feature is inferred (pixels).
 pub const APERTURE_PX: f64 = 10.0;
@@ -207,8 +207,8 @@ pub struct Lock {
 /// What a tool asks for.
 #[derive(Clone, Copy)]
 pub struct Query<'a> {
-    /// The solids to infer on (and that may hide others), e.g. all but what is moving.
-    pub keep: &'a dyn Fn(&EntityPath) -> bool,
+    /// The geometry to infer on (and that may hide others), e.g. all but what is moving.
+    pub keep: &'a dyn Fn(&Owner<'_>) -> bool,
     /// Where the point falls when nothing is under the cursor: world point and normal.
     pub plane: (DVec3, DVec3),
     /// A point offered as [`InferKind::Origin`] (world).
@@ -450,10 +450,10 @@ fn crossing(
 ) -> Option<Crossing> {
     let ray = camera.ray(px, size);
     let mut found: Vec<(f64, Crossing)> = Vec::new();
-    for (place, part) in scene.parts() {
+    for (place, part, piece) in scene.inferable() {
         let Some(b) = part.bounds else { continue };
         let path = place.entity_path();
-        if !(q.keep)(&path) || !near_ray(camera, size, &ray, transform_bounds(&place.transform, b)) {
+        if !(q.keep)(&Owner { path: &path, piece }) || !near_ray(camera, size, &ray, transform_bounds(&place.transform, b)) {
             continue;
         }
         let t = &place.transform;
@@ -554,7 +554,7 @@ fn line_meets_segment(from: DVec3, dir: DVec3, a: DVec3, b: DVec3, tol: &impl Fn
 fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &Query<'_>) -> Option<Inference> {
     let ray = camera.ray(px, size);
     let screen = camera.projector(size);
-    let hit = scene.pick(&ray, |p| (q.keep)(p));
+    let hit = scene.pick_inferable(&ray, q.keep);
 
     let mut cands = Vec::new();
     let mut offer = |point: DVec3, kind: InferKind, path: Option<&EntityPath>, edge: Option<EdgeRef>| {
@@ -569,10 +569,10 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     if let Some(o) = q.origin {
         offer(o, InferKind::Origin, None, None);
     }
-    for (place, part) in scene.parts() {
+    for (place, part, piece) in scene.inferable() {
         let Some(b) = part.bounds else { continue };
         let path = place.entity_path();
-        if !(q.keep)(&path) || !near_ray(camera, size, &ray, transform_bounds(&place.transform, b)) {
+        if !(q.keep)(&Owner { path: &path, piece }) || !near_ray(camera, size, &ray, transform_bounds(&place.transform, b)) {
             continue;
         }
         let t = &place.transform;
@@ -600,7 +600,7 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     if let Some(h) = hit {
         // On a planar face, the point is put exactly on its plane.
         let point = scene
-            .part_at(&h.path)
+            .inferable_at(&h)
             .and_then(|(t, part)| {
                 let plane = part.snaps.planes.get(h.face as usize).copied().flatten()?;
                 Some(t.transform_point3(plane.project(t.inverse().transform_point3(h.point))))
@@ -740,7 +740,7 @@ fn visible(scene: &DisplayScene, camera: &Camera, size: DVec2, screen: &Projecto
     let Some(s) = screen.project(p) else { return false };
     let ray = camera.ray(s, size);
     let depth = (p - ray.origin).dot(ray.dir);
-    match scene.pick(&ray, |path| (q.keep)(path)) {
+    match scene.pick_inferable(&ray, q.keep) {
         None => true,
         // Points on the surface hit are seen: allow a few pixels (a mesh only approximates
         // curved faces) and a hair for rounding.
@@ -786,7 +786,7 @@ mod tests {
     /// What is inferred with the cursor at `px`, with lines through `from`.
     fn at_px_from(e: &Editor, px: DVec2, from: DVec3, reference: Option<EdgeRef>, lock: Option<(DVec3, LineKind)>) -> Inference {
         let lock = lock.map(|(dir, line)| Lock { origin: None, dir, line });
-        let keep = |_: &EntityPath| true;
+        let keep = |_: &Owner<'_>| true;
         let q = Query {
             keep: &keep,
             plane: (from, DVec3::Z),
@@ -817,7 +817,7 @@ mod tests {
 
     /// What is inferred with the cursor over the world point `p` (no exclusion, ground z = 0).
     fn at(e: &Editor, p: DVec3) -> Inference {
-        let keep = |_: &EntityPath| true;
+        let keep = |_: &Owner<'_>| true;
         let q = Query {
             keep: &keep,
             plane: (DVec3::ZERO, DVec3::Z),
@@ -1190,7 +1190,7 @@ mod tests {
 
     /// What is inferred at the world point `p` with these tracked points (and maybe a start).
     fn tracking(e: &Editor, p: DVec3, from: Option<DVec3>, tracked: &[DVec3]) -> Inference {
-        let keep = |_: &EntityPath| true;
+        let keep = |_: &Owner<'_>| true;
         let q = Query {
             keep: &keep,
             plane: (DVec3::ZERO, DVec3::Z),

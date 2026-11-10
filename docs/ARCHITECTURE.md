@@ -79,7 +79,13 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
 
 - The B-rep's frame **is** the part's: the length runs along the red axis, and **the grain is
   always the length** (no separate property). The cut-list dimensions are read on the blank's
-  bounding box in this frame.
+  bounding box in this frame — its **exact** box, which only the kernel computes
+  (`Solid::bounds`): the record's vertices miss curved faces (a cylinder has one vertex per
+  circle, a torus none). The worker gives it with each display (`Display::bounds`), the scene
+  keeps it per solid (`DisplayScene::bounds_of`), for the shapes, the blanks of machined parts
+  and the open part's tools. SolidCore's tight box is taken within its loose one: the tight
+  box of a mirrored cylinder read back from a record is wrong along its axis (1234567,
+  `solidcore_quirks.rs`).
 - Tools working on a part use its axes; elsewhere, the context's.
 - Changing a part's axes = re-expressing its B-rep in another frame and compensating the T of
   each of its occurrences.
@@ -97,8 +103,14 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
   Adding a machining = one subtraction on the cached final; removing one = starting again from
   the blank (or from an intermediate final kept in cache).
 - **Measured failures**: a tool outside the blank, flush with a face, touching an edge or
-  tangent does nothing abnormal; a tool that swallows the whole blank gives a conversion error
-  (to be reported as "empty result").
+  tangent does nothing abnormal; a tool that swallows the whole blank gives "empty result".
+- **The recipe task** (`Task::Recipe`, 2026-11-10): a solid minus placed tools, one after the
+  other; a subtraction that fails is skipped and reported by its index, the others still cut —
+  the task never fails on a tool. Removing or moving machinings computes the part again from
+  the blank; copying them cuts only the copies from the shape as it is. The failed machinings
+  are kept with the shape (`Part::failed`, the same cache, saved with the file) for the
+  interface to show. In the web worker a kernel panic still aborts the whole job (§7 ter): only
+  failures SolidCore reports are isolated there.
 - Low level: the tool is **any B-rep**, placed in the part's frame, anchored at its origin.
   **Machining types** (hole, groove, mortise…) will come on top and generate that tool from
   their parameters.
@@ -136,10 +148,11 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
 ### 2.6 Ids, paths, context
 
 - **Stable `u64` ids**, drawn from one counter, for components, occurrences and machinings.
-  Those of components and machinings are unique in the document; those of **occurrences** are
-  unique **within their assembly**: a copy of an assembly ("make a separate part", scope "only
-  this one") keeps the ids of its occurrences, so that paths, the context and the selection
-  stay valid. A path is always resolved from the root. An operation designates a face by
+  Those of components are unique in the document; those of **occurrences** are unique
+  **within their assembly**, those of **machinings within their part**: a copy of a component
+  ("make a separate part", scope "only this one") keeps the ids of its occurrences and of its
+  machinings, so that paths, the context and the selection stay valid. A machining is named
+  by `(part, machining id)`. A path is always resolved from the root. An operation designates a face by
   `(part id, face index in the final B-rep)` — enough in direct modelling, since the operation
   applies at once.
 - **Occurrence path**: an entity of the scene is designated by the path of occurrences from
@@ -163,9 +176,8 @@ id.
 
 ### 2.8 Not in place yet
 
-- **Recipe recomputed**: today a subtraction cuts the cached final and the machining is added
-  to the list; there is no removing, editing or "integrating" a machining yet, hence no
-  recomputation from the blank.
+- **Machinings**: no "integrating" a machining into the blank yet, nor a cache of
+  intermediate shapes; no marquee selection of machinings.
 - **"All occurrences / only this one"** and the automatic separate part: a geometry change
   affects all the part's occurrences today.
 - **Material per occurrence, properties** (type, exclusion from the cut list): not in the
@@ -173,6 +185,62 @@ id.
 - **Tools in the part's axes** (§2.3), highlighting of occurrences during a change, list of
   machinings in the interface.
 - "Make a separate part" on an assembly copies only its first level (not in depth).
+
+### 2.9 Opening a part: its axes and its machinings
+
+Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
+
+- **Double-clicking a part's occurrence opens the part**, as double-clicking an assembly's
+  enters it: the editor keeps the assembly context and adds the occurrence open in it
+  (`Editor::open_part`). Esc (Select, nothing selected), a click off its grey box or a click in
+  the outliner close it, the occurrence left selected; an undo that removes it closes it.
+  While it is open nothing else is selectable.
+- **What surrounds it is faded**, as outside any context; the part's **other occurrences** are
+  marked `Related`: whatever is changed reaches them, under the scope (§2.5). A **grey dashed
+  box**, a few pixels off its blank, says the part is open, as for an assembly entered.
+- **The part's axes** replace the drawn axes, as an assembly's do when it is entered, and show
+  even when the axes are hidden: its origin, through the occurrence's T (a mirrored occurrence
+  shows its left-handed frame). In an open part, **tools draw and infer in these axes** (§2.3):
+  axis locks, inferred axes, the ground, typed points, the frame of a box drawn. The tools see
+  two frames: the context's, which operations are expressed in, and the axes
+  (`Cx::axes`, `Cx::axes_in_context` = the occurrence's T). **Drawing in an open part adds a
+  machining** to it (`Operation::AddMachining`): the shape drawn, in the part's axes, is a
+  tool, cut at once; the part stays open.
+- **Shown by default: the shape**, as anywhere else. A **"Machinings" switch** — a button at
+  the head of the option bar while a part is open, remembered in the preferences; neither a
+  menu command nor a shortcut — shows instead **the blank as a ghost** (very light faces, sharp edges and
+  silhouettes, drawn after the opaque pass, depth tested without writing) and **each
+  machining's tool as a solid**, in a colour of the theme, another for those that failed.
+  The tools are picked first; the ghost blank is not picked but keeps its snaps.
+  Built (step 3): the display scene meshes the recipe of the part shown — its blank and one
+  mesh per distinct tool solid (a copied machining shares its original's) — under keys apart
+  from components' ids (`RecipeMeshes`); the view gives each placement a `Look` (shape,
+  blank, tool, failed tool) and leaves out the open occurrence's shape; the renderer draws a
+  **ghost batch**'s edges like any other, then, after everything opaque, its front faces
+  blended at the theme's `ghost_opacity`, depth tested without writing depth (no cap in a
+  section); the tools take two palette entries the viewport adds after the materials.
+- **Inferences see what is drawn**: while the machinings show, the blank and the tools stand
+  in for the open occurrence's shape (`DisplayScene::inferable`, `pick_inferable`), with their
+  snaps — a tool's axis, the centre of its end, its edges out of the blank. Each piece says
+  what it is (`Piece`: shape, blank, tool of a machining); a tool's filter sees it
+  (`Owner`), so a move or a rotation leaves the machinings it moves out (`Cx::is_moving`).
+  Picking for the other tools (paint, booleans, section, navigation) stays on the shapes.
+- **Machinings are edited there**, while they are shown: the selection is then the open
+  part's machinings (a click on a tool, Select all), erased (Delete), moved (copy and array
+  too) and turned; while dragging, the moved tool is a ghost where it goes, not drawn where it
+  was, and the part is computed again when the change is applied (asynchronous, §7 ter). Move
+  and Rotate say what they change through `Cx::moved` (`Moved`: occurrences of the context, or
+  machinings of the open part, each in its frame), copies and arrays through `LastCopy`.
+- **The scope** of every change to the open part (drawing, editing machinings) is a choice of
+  the option bar while it is open, next to the switch: "All occurrences ×N" / "Only this
+  one", **back to "all" at each opening** (a change to one occurrence only makes it a
+  separate part: better chosen each time). The `Related` marks follow it.
+- **The entity info of an open part lists its machinings** ("Machining 3 · 8 × 8 × 30 mm",
+  in the part's order; a failed one in the error colour, said so): hovering a row draws its
+  tool hovered, hovering a tool in the view makes its row bold; a click selects it (Shift adds
+  or removes), first showing the machinings if they are not.
+- Later: integrating a machining into the blank, machining types, and changing a part's axes
+  (§2.3) from there.
 
 ## 3. Storing solids: the SolidCore record
 
@@ -217,8 +285,9 @@ id.
   Perspective projection by default, switch to parallel, standard views (top, front, right,
   back, left, iso) and zoom extents.
 - **SketchUp selection**: a click selects the top-level entity of the active context,
-  Shift+click adds/removes, double-click on a group/component enters it, double-click in empty
-  space leaves it, Esc cancels the tool then clears the selection. Dragging draws a selection
+  Shift+click adds/removes, double-click on a group/component enters it, a click off the grey box
+  of the one being edited (void or another entity) leaves it, one level per click; inside the
+  box, a click in the void only clears the selection; Esc cancels the tool then clears the selection. Dragging draws a selection
   rectangle: left to right (solid line, "window"), it takes the entities it fully contains;
   right to left (dashed, "crossing"), those it touches; Shift adds/removes. The test is done on
   screen, on the projected vertices and triangles of the display meshes. Outside the active
@@ -537,8 +606,10 @@ wasm) only kills the worker.
   1. `Document::prepare` (UI thread) runs the operation with a *recorder* in place of the
      kernel: it validates everything (ids, cycles…), gathers the kernel calls into a `Job`
      (`kernel::Job`: deduplicated input records + `Task`s — primitive, transformation, boolean,
-     display) and returns placeholder solids. An operation with no kernel call (rename, group,
-     move…) is **done at this step**, with no round trip;
+     recipe, display) and returns placeholder solids, one per task: a placeholder handed to a
+     later call names that task's output (`EARLIER | task`), so a primitive can be cut by a
+     recipe in the same job. An operation with no kernel call (rename, group, move…) is
+     **done at this step**, with no round trip;
   2. the `Job` goes to the kernel service, which returns for each solid produced its record
      **and its display** (mesh + snaps), in a single round trip;
   3. `Document::commit` replays the operation on the same document, handing out the results in
@@ -733,7 +804,9 @@ are only regenerated for a new version (`write_reference_files`).
 - Rust **1.97.1** pinned by `rust-toolchain.toml` (the SolidCore crates ask for ≥ 1.88), with
   the `wasm32-unknown-unknown` target.
 - `solidcore` is on crates.io, but `solidcore-record`, `-convert` and `-tess` are not: all four
-  come from the git mirror `tangency-labs/solidcore`, **pinned to one commit**.
+  come from the git mirror `tangency-labs/solidcore`, **pinned to one commit**. Its known bugs
+  are reproduced on SolidCore alone in `crates/kernel/tests/solidcore_quirks.rs`, each test
+  asserting the bug is still there: run first on an upgrade (REVIEW, "Work: SolidCore").
 - wasm: an 8 MiB stack (`.cargo/config.toml`) — SolidCore recurses legitimately and wasm has no
   guard page. Kernel panics cannot be caught in wasm (`panic = abort`): they are confined to the
   kernel's Web Worker (§7 ter).

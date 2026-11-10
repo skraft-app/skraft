@@ -19,6 +19,10 @@
 //! Colours (§7 quater): faces take a colour from the frame's **palette** — the face's own
 //! (baked in the mesh, [`Part::face_paint`]), else its placement's ([`Placement::material`]),
 //! else [`Style::face_front`]. Changing a palette colour re-uploads no vertex.
+//!
+//! A **ghost** batch (an open part's blank, ARCHITECTURE.md §2.9) has its edges drawn like any
+//! other, but its faces only after everything opaque: their fronts, blended at
+//! [`Style::ghost_opacity`], depth tested without writing depth.
 
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -67,6 +71,14 @@ pub const NO_TINT: Tint = [0.0; 4];
 pub struct Batch {
     pub key: u64,
     pub placements: Vec<Placement>,
+    /// Faces see-through (see the module doc); no section cap.
+    pub ghost: bool,
+}
+
+impl Batch {
+    pub fn new(key: u64, placements: Vec<Placement>) -> Self {
+        Batch { key, placements, ghost: false }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -136,6 +148,8 @@ pub struct Style<'a> {
     pub section: Option<Section>,
     /// How much darker than its part a section cap is (0–1).
     pub cap_shade: f32,
+    /// How opaque a ghost batch's faces are (0–1).
+    pub ghost_opacity: f32,
 }
 
 impl Default for Style<'_> {
@@ -148,6 +162,7 @@ impl Default for Style<'_> {
             silhouettes: true,
             section: None,
             cap_shade: 0.25,
+            ghost_opacity: 0.15,
         }
     }
 }
@@ -346,6 +361,8 @@ pub struct Renderer {
     faces: wgpu::RenderPipeline,
     /// Faces while a section is on: cut, the backs seen through the cut painted as caps.
     faces_cut: wgpu::RenderPipeline,
+    /// A ghost batch's faces: their fronts blended, cut by the section, no depth written.
+    faces_ghost: wgpu::RenderPipeline,
     /// Then the caps marked in the stencil (the parity of the faces left along each ray), and
     /// their depth brought onto the plane.
     cap_mark: wgpu::RenderPipeline,
@@ -450,12 +467,13 @@ impl Renderer {
             attributes: &line_attrs,
         };
 
-        let pipeline = |label: &str,
-                        vs: &str,
-                        fs: &str,
-                        buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
-                        depth: wgpu::DepthStencilState,
-                        write_mask: wgpu::ColorWrites| {
+        let blended = |label: &str,
+                       vs: &str,
+                       fs: &str,
+                       buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+                       depth: wgpu::DepthStencilState,
+                       write_mask: wgpu::ColorWrites,
+                       blend: Option<wgpu::BlendState>| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
@@ -476,16 +494,18 @@ impl Renderer {
                     module: &shader,
                     entry_point: Some(fs),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: TARGET_FORMAT,
-                        blend: None,
-                        write_mask,
-                    })],
+                    targets: &[Some(wgpu::ColorTargetState { format: TARGET_FORMAT, blend, write_mask })],
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
+        let pipeline = |label: &str,
+                        vs: &str,
+                        fs: &str,
+                        buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+                        depth: wgpu::DepthStencilState,
+                        write_mask: wgpu::ColorWrites| blended(label, vs, fs, buffers, depth, write_mask, None);
         let depth_format = depth_format(device);
         let depth = |write: bool, compare: wgpu::CompareFunction, bias: wgpu::DepthBiasState| wgpu::DepthStencilState {
             format: depth_format,
@@ -520,6 +540,15 @@ impl Renderer {
             &[Some(face_layout.clone()), Some(instance_layout.clone())],
             depth(true, nearer, face_bias),
             all,
+        );
+        let faces_ghost = blended(
+            "faces (ghost)",
+            "vs_face",
+            "fs_face_ghost",
+            &[Some(face_layout.clone()), Some(instance_layout.clone())],
+            depth(false, nearer, face_bias),
+            all,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
         );
         // Every fragment left flips the stencil: an odd count, the ray meets the plane inside
         // a part.
@@ -581,6 +610,7 @@ impl Renderer {
         Renderer {
             faces,
             faces_cut,
+            faces_ghost,
             cap_mark,
             cap_depth,
             depth_format,
@@ -769,7 +799,7 @@ impl Renderer {
                 face_back: rgb(style.face_back),
                 edge: rgb(style.edge),
                 clip,
-                section: [section_on, style.cap_shade, 0.0, 0.0],
+                section: [section_on, style.cap_shade, style.ghost_opacity, 0.0],
             }),
         );
         // The palette: never empty (a binding needs a buffer).
@@ -844,7 +874,7 @@ impl Renderer {
             // Faces.
             pass.set_pipeline(if section_on > 0.0 { &self.faces_cut } else { &self.faces });
             pass.set_vertex_buffer(1, inst.slice(..));
-            for (b, r) in frame.batches.iter().zip(&batch_ranges) {
+            for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.ghost) {
                 let Some(m) = self.meshes.get(&b.key) else { continue };
                 if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
                     pass.set_vertex_buffer(0, v.slice(..));
@@ -867,7 +897,7 @@ impl Renderer {
                 // what lies behind the cap stays hidden.
                 pass.set_stencil_reference(1);
                 pass.set_pipeline(&self.cap_mark);
-                for (b, r) in frame.batches.iter().zip(&batch_ranges) {
+                for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.ghost) {
                     let Some(m) = self.meshes.get(&b.key) else { continue };
                     if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
                         pass.set_vertex_buffer(0, v.slice(..));
@@ -911,6 +941,21 @@ impl Renderer {
                         pass.set_vertex_buffer(0, s.slice(..));
                         pass.draw(part.silhouettes.clone(), at..at + 1);
                     }
+                }
+            }
+        }
+        // Ghosts' faces, over everything opaque.
+        if let Some(inst) = &self.instances.buffer
+            && frame.batches.iter().any(|b| b.ghost)
+        {
+            pass.set_pipeline(&self.faces_ghost);
+            pass.set_vertex_buffer(1, inst.slice(..));
+            for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| b.ghost) {
+                let Some(m) = self.meshes.get(&b.key) else { continue };
+                if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
+                    pass.set_vertex_buffer(0, v.slice(..));
+                    pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..m.index_count, 0, r.clone());
                 }
             }
         }
@@ -1012,7 +1057,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     h.fs(&s.face_front);
     h.fs(&s.face_back);
     h.fs(&s.edge);
-    h.fs(&[s.cap_shade]);
+    h.fs(&[s.cap_shade, s.ghost_opacity]);
     s.palette.len().hash(&mut h.0);
     for c in s.palette {
         h.fs(c);
@@ -1028,7 +1073,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     }
     frame.batches.len().hash(&mut h.0);
     for b in frame.batches {
-        (b.key, b.placements.len()).hash(&mut h.0);
+        (b.key, b.placements.len(), b.ghost).hash(&mut h.0);
         for p in &b.placements {
             h.m(&p.transform);
             h.fs(&p.tint);

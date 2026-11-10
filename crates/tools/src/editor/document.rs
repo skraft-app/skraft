@@ -4,7 +4,7 @@
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::kernel::{Job, JobId, Output, Task};
-use solidsketch_model::{Applied, Document, History, Operation, Outcome, Prepared, Primitive};
+use solidsketch_model::{Applied, Document, EntityPath, History, Operation, Outcome, Prepared, Primitive};
 
 use super::Editor;
 
@@ -87,6 +87,10 @@ impl Editor {
         }
         match after {
             After::Select if !outcome.created.is_empty() => self.selection = outcome.created.clone(),
+            // Machinings made in an open part: selected while they are shown.
+            After::Select if !outcome.machinings.is_empty() => {
+                self.selection = if self.showing_machinings() { outcome.machinings.clone() } else { Vec::new() };
+            }
             After::Collect => self.collected.extend(outcome.created.iter().copied()),
             _ => {}
         }
@@ -240,23 +244,37 @@ impl Editor {
         self.queue.clear();
         self.collected.clear();
         self.context.clear();
+        self.open_part = None;
         self.selection.clear();
         self.tool.reset();
         self.after_change();
         self.zoom_extents();
     }
 
-    /// Keeps the context and the selection valid, and the scene in step.
+    /// Keeps the context, the open part and the selection valid, and the scene in step.
     pub(super) fn after_change(&mut self) {
         let doc = self.history.document();
         while !self.context.is_empty() && doc.context_of(&self.context).is_err() {
             self.context.pop();
+            self.open_part = None;
         }
         let ctx = doc.context_of(&self.context).unwrap_or(doc.root());
-        if let Ok(a) = doc.assembly(ctx) {
-            self.selection.retain(|id| a.occurrence(*id).is_some());
+        let open = self.open_part.and_then(|id| doc.resolve_part(&EntityPath::new(self.context.clone(), id)).ok());
+        if open.is_none() {
+            self.open_part = None;
         }
-        self.scene.sync(doc);
-        self.request_meshes();
+        match open {
+            // An open part: its machinings while shown, else nothing.
+            Some((_, p, _)) => {
+                let shown = self.machinings_shown;
+                self.selection.retain(|id| shown && p.machining(*id).is_some());
+            }
+            None => {
+                if let Ok(a) = doc.assembly(ctx) {
+                    self.selection.retain(|id| a.occurrence(*id).is_some());
+                }
+            }
+        }
+        self.sync_scene();
     }
 }

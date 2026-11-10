@@ -18,7 +18,7 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
-use solidsketch_kernel::{BooleanOp, Display, Job, Output, Primitive, Solid, Task};
+use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Task};
 
 use crate::document::{Assembly, ComponentKind, Document, EntityPath, Id, Machining, MachiningSource, Material, Occurrence, Part};
 use crate::settings::Settings;
@@ -104,6 +104,53 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
+    /// A primitive cut from the part `target` places, as a new machining (drawn in an open
+    /// part, ARCHITECTURE.md §2.9): built in its own axes, placed by the rigid `placement` in
+    /// the part's, as [`Operation::AddPrimitive`] places a blank in its context.
+    AddMachining {
+        target: EntityPath,
+        primitive: Primitive,
+        #[serde(default = "identity", skip_serializing_if = "is_identity")]
+        placement: DAffine3,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Removes machinings from the part `target` places; the part is computed again from its
+    /// blank.
+    DeleteMachinings {
+        target: EntityPath,
+        machinings: Vec<Id>,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Moves (rotates, mirrors) machinings of the part `target` places by `transform`, in the
+    /// part's axes; the part is computed again from its blank.
+    TransformMachinings {
+        target: EntityPath,
+        machinings: Vec<Id>,
+        transform: DAffine3,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Copies machinings of the part `target` places, moved by `transform` in its axes: the
+    /// copies are cut from the part as it is.
+    DuplicateMachinings {
+        target: EntityPath,
+        machinings: Vec<Id>,
+        transform: DAffine3,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// `count` copies of machinings of the part `target` places, the k-th moved by `step`
+    /// applied k times, in its axes.
+    ArrayMachinings {
+        target: EntityPath,
+        machinings: Vec<Id>,
+        step: DAffine3,
+        count: u32,
+        #[serde(default)]
+        scope: Scope,
+    },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
     /// A new material (§7 quater).
@@ -141,6 +188,11 @@ impl Operation {
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
             Operation::PaintOccurrences { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
+            Operation::AddMachining { .. } => t!("operation.add_machining"),
+            Operation::DeleteMachinings { .. } => t!("operation.delete"),
+            Operation::TransformMachinings { .. } => t!("operation.transform"),
+            Operation::DuplicateMachinings { .. } => t!("operation.duplicate"),
+            Operation::ArrayMachinings { .. } => t!("operation.array"),
         }
     }
 
@@ -163,6 +215,8 @@ pub const MAX_ARRAY: u32 = 1000;
 pub struct Outcome {
     /// Occurrences created, in the operation's context (the target's, for a boolean).
     pub created: Vec<Id>,
+    /// Machinings created, in the target's part (as it is after the operation).
+    pub machinings: Vec<Id>,
     /// The material created.
     pub material: Option<Id>,
 }
@@ -444,7 +498,127 @@ impl Document {
                 }
                 self.boolean(target, tool, *op, solver)
             }
+            Operation::AddMachining { target, primitive, placement, scope } => {
+                if !is_rigid(placement) {
+                    return Err(Error::Invalid(Refusal::PlacementNotRigid));
+                }
+                self.resolve_part(target)?;
+                if *scope == Scope::This {
+                    self.separate(target)?;
+                }
+                let (part, _, _) = self.resolve_part(target)?;
+                let (local, at) = primitive.at_origin();
+                let tool = solver.primitive(&local)?;
+                let id = self.fresh_id();
+                let placement = *placement * DAffine3::from_translation(at);
+                self.part_mut(part)?.machinings.push(Machining { id, tool, placement, source: MachiningSource::Local });
+                self.recompute(part, Some(&[id]), solver)?;
+                Ok(Outcome { machinings: vec![id], ..Outcome::default() })
+            }
+            Operation::DeleteMachinings { target, machinings, scope } => {
+                let part = self.machined_part(target, machinings, *scope)?;
+                let p = self.part_mut(part)?;
+                p.machinings.retain(|m| !machinings.contains(&m.id));
+                self.recompute(part, None, solver)?;
+                Ok(Outcome::default())
+            }
+            Operation::TransformMachinings { target, machinings, transform, scope } => {
+                if !is_rigid(transform) {
+                    return Err(Error::Invalid(Refusal::NotRigid));
+                }
+                let part = self.machined_part(target, machinings, *scope)?;
+                for m in &mut self.part_mut(part)?.machinings {
+                    if machinings.contains(&m.id) {
+                        m.placement = *transform * m.placement;
+                    }
+                }
+                self.recompute(part, None, solver)?;
+                Ok(Outcome::default())
+            }
+            Operation::DuplicateMachinings { target, machinings, transform, scope } => {
+                if !is_rigid(transform) {
+                    return Err(Error::Invalid(Refusal::NotRigid));
+                }
+                let part = self.machined_part(target, machinings, *scope)?;
+                let created = self.copy_machinings(part, machinings, &[*transform])?;
+                self.recompute(part, Some(&created), solver)?;
+                Ok(Outcome { machinings: created, ..Outcome::default() })
+            }
+            Operation::ArrayMachinings { target, machinings, step, count, scope } => {
+                if *count == 0 || *count > MAX_ARRAY {
+                    return Err(Error::Invalid(Refusal::ArrayCount));
+                }
+                if !is_rigid(step) {
+                    return Err(Error::Invalid(Refusal::NotRigid));
+                }
+                let part = self.machined_part(target, machinings, *scope)?;
+                let steps: Vec<DAffine3> =
+                    std::iter::successors(Some(*step), |at| Some(*step * *at)).take(*count as usize).collect();
+                let created = self.copy_machinings(part, machinings, &steps)?;
+                self.recompute(part, Some(&created), solver)?;
+                Ok(Outcome { machinings: created, ..Outcome::default() })
+            }
         }
+    }
+
+    /// The part `target` places, with every machining of `ids` (at least one) in it; made its
+    /// own first under the scope "only this one" (the machinings keep their ids, §2.6).
+    fn machined_part(&mut self, target: &EntityPath, ids: &[Id], scope: Scope) -> Result<Id> {
+        if ids.is_empty() {
+            return Err(Error::Invalid(Refusal::NoMachinings));
+        }
+        let (part, p, _) = self.resolve_part(target)?;
+        if let Some(&missing) = ids.iter().find(|id| p.machining(**id).is_none()) {
+            return Err(Error::NotFound(missing));
+        }
+        if scope == Scope::This {
+            self.separate(target)?;
+            return Ok(self.resolve_part(target)?.0);
+        }
+        Ok(part)
+    }
+
+    /// Adds to `part`, for each transform of `steps`, a copy of its machinings `ids` moved by
+    /// it (in the part's axes), with fresh ids; returns them in order.
+    fn copy_machinings(&mut self, part: Id, ids: &[Id], steps: &[DAffine3]) -> Result<Vec<Id>> {
+        let sources: Vec<Machining> = self.part(part)?.machinings.iter().filter(|m| ids.contains(&m.id)).cloned().collect();
+        let mut copies = Vec::with_capacity(sources.len() * steps.len());
+        for t in steps {
+            for m in &sources {
+                copies.push(Machining { id: self.fresh_id(), placement: *t * m.placement, ..m.clone() });
+            }
+        }
+        let created = copies.iter().map(|m| m.id).collect();
+        self.part_mut(part)?.machinings.extend(copies);
+        Ok(created)
+    }
+
+    /// Computes `part`'s shape again from its recipe (§2.4): only the machinings `added` cut
+    /// from the shape as it is, when given (they were just added); else all of them from the
+    /// blank. Without machinings, the blank is the shape: no kernel.
+    fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
+        let p = self.part(part)?;
+        if p.machinings.is_empty() {
+            let p = self.part_mut(part)?;
+            p.shape = None;
+            p.failed.clear();
+            return Ok(());
+        }
+        let (start, cut): (Arc<Solid>, Vec<&Machining>) = match added {
+            Some(ids) => (p.shape().clone(), p.machinings.iter().filter(|m| ids.contains(&m.id)).collect()),
+            None => (p.blank.clone(), p.machinings.iter().collect()),
+        };
+        let tools: Vec<(Arc<Solid>, DAffine3)> = cut.iter().map(|m| (m.tool.clone(), m.placement)).collect();
+        let ids: Vec<Id> = cut.iter().map(|m| m.id).collect();
+        let (shape, failed) = solver.recipe(&start, &tools)?;
+        let p = self.part_mut(part)?;
+        // From the blank, the failures are all new; else those of the machinings added join.
+        if added.is_none() {
+            p.failed.clear();
+        }
+        p.failed.extend(failed.iter().filter_map(|k| ids.get(*k).copied()));
+        p.shape = Some(shape);
+        Ok(())
     }
 
     fn boolean(&mut self, target: &EntityPath, tool: &EntityPath, op: Boolean, solver: &mut dyn Solver) -> Result<Outcome> {
@@ -543,15 +717,20 @@ trait Solver {
     fn primitive(&mut self, primitive: &Primitive) -> Result<Arc<Solid>>;
     /// `target op tool`, the tool first moved by `tool_transform`.
     fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>>;
+    /// `blank` minus each placed tool in turn; the solid, and the tools (by index) that failed.
+    fn recipe(&mut self, blank: &Arc<Solid>, tools: &[(Arc<Solid>, DAffine3)]) -> Result<(Arc<Solid>, Vec<usize>)>;
 }
 
-/// Records the calls into a job and answers with stand-ins (the operation only stores them).
+/// Records the calls into a job and answers with stand-ins (the operation only stores them,
+/// or hands them to a later call: they then name that task's output, [`EARLIER`]).
 #[derive(Default)]
 struct Recorder {
     job: Job,
-    /// Inputs already in the job, by `Arc` address.
+    /// Inputs already in the job, and the stand-ins handed out (as `EARLIER | task`), by
+    /// `Arc` address.
     inputs: HashMap<*const Solid, u32>,
-    stand_in: Option<Arc<Solid>>,
+    /// Held so their addresses stay theirs.
+    stand_ins: Vec<Arc<Solid>>,
 }
 
 impl Recorder {
@@ -563,8 +742,12 @@ impl Recorder {
     }
 
     fn task(&mut self, task: Task) -> Result<Arc<Solid>> {
+        let at = self.job.tasks.len() as u32;
         self.job.tasks.push(task);
-        Ok(self.stand_in.get_or_insert_with(|| Arc::new(Solid::empty())).clone())
+        let stand_in = Arc::new(Solid::empty());
+        self.inputs.insert(Arc::as_ptr(&stand_in), EARLIER | at);
+        self.stand_ins.push(stand_in.clone());
+        Ok(stand_in)
     }
 }
 
@@ -576,6 +759,12 @@ impl Solver for Recorder {
     fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>> {
         let (target, tool) = (self.input(target), self.input(tool));
         self.task(Task::Boolean { target, tool, tool_transform, op })
+    }
+
+    fn recipe(&mut self, blank: &Arc<Solid>, tools: &[(Arc<Solid>, DAffine3)]) -> Result<(Arc<Solid>, Vec<usize>)> {
+        let blank = self.input(blank);
+        let tools = tools.iter().map(|(t, p)| (self.input(t), *p)).collect();
+        Ok((self.task(Task::Recipe { blank, tools })?, Vec::new()))
     }
 }
 
@@ -605,5 +794,16 @@ impl Solver for Replayer {
 
     fn boolean(&mut self, _: &Arc<Solid>, _: &Arc<Solid>, _: Option<DAffine3>, _: BooleanOp) -> Result<Arc<Solid>> {
         self.next()
+    }
+
+    fn recipe(&mut self, _: &Arc<Solid>, _: &[(Arc<Solid>, DAffine3)]) -> Result<(Arc<Solid>, Vec<usize>)> {
+        match self.outputs.next() {
+            Some(Output::Recipe { solid, display, failed }) => {
+                let solid = Arc::new(solid);
+                self.displays.push((solid.clone(), display));
+                Ok((solid, failed.into_iter().map(|k| k as usize).collect()))
+            }
+            _ => Err(Error::Invalid(Refusal::OutOfStep)),
+        }
     }
 }

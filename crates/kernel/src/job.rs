@@ -12,8 +12,13 @@ use crate::{BooleanOp, Error, Mesh, Primitive, Snaps, Solid};
 /// Names a job to its service; results come back with it.
 pub type JobId = u64;
 
+/// A task input `EARLIER | k` is the solid task `k` of the same job produced.
+pub const EARLIER: u32 = 1 << 31;
+
 /// Records in, tasks to run in order. Tasks name their input solids by index in `inputs`, so
-/// a record many tasks read (an array of copies) crosses once.
+/// a record many tasks read (an array of copies) crosses once — or, the index ORed with
+/// [`EARLIER`], the solid an earlier task of the job produced (a primitive then cut by a
+/// recipe).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Job {
     pub inputs: Vec<Arc<Solid>>,
@@ -21,7 +26,7 @@ pub struct Job {
 }
 
 /// One kernel call. Every task but `Display` produces a solid, which comes back with its
-/// display.
+/// display (and, for a recipe, the tools that failed).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Task {
     /// A primitive built in its own frame, then placed by the rigid `placement`.
@@ -31,6 +36,11 @@ pub enum Task {
     /// `inputs[target] op inputs[tool]`, the tool first moved by `tool_transform` into the
     /// target's coordinates.
     Boolean { target: u32, tool: u32, tool_transform: Option<DAffine3>, op: BooleanOp },
+    /// A part's recipe (docs/ARCHITECTURE.md §2.4): `inputs[blank]` minus each tool
+    /// `inputs[tool]` placed by its transform, one after the other. A subtraction that fails
+    /// is skipped and reported (by its index in `tools`), the others still cut: the task
+    /// itself never fails on a tool.
+    Recipe { blank: u32, tools: Vec<(u32, DAffine3)> },
     /// The display mesh and snap features of `inputs[solid]`.
     Display { solid: u32 },
     /// Panics with `message`, on purpose: tests how a kernel crash is recovered from (the
@@ -39,11 +49,15 @@ pub enum Task {
     Panic { message: String },
 }
 
-/// What the viewport draws of a solid and what the tools infer on, from one tessellation.
+/// What the viewport draws of a solid and what the tools infer on, from one tessellation;
+/// with the solid's exact bounding box (what dimensions are read on: the mesh's lies inside
+/// curved faces, the vertices' misses them).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Display {
     pub mesh: Mesh,
     pub snaps: Snaps,
+    #[serde(default)]
+    pub bounds: Option<(glam::DVec3, glam::DVec3)>,
 }
 
 /// One task's result. A display the mesher refused does not fail the task: the solid is
@@ -52,6 +66,8 @@ pub struct Display {
 pub enum Output {
     Solid { solid: Solid, display: Result<Display, String> },
     Display(Result<Display, String>),
+    /// A recipe's final solid, and the tools (by index in the task's list) that failed to cut.
+    Recipe { solid: Solid, display: Result<Display, String>, failed: Vec<u32> },
 }
 
 /// The outputs of a job's tasks, in order; or why a task producing a solid failed (the whole

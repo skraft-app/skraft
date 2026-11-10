@@ -16,7 +16,7 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::kernel::{JobId, KernelService, Solid};
-use solidsketch_model::{Document, History, Id, Operation, Outcome};
+use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope};
 
 use crate::camera::{Camera, ViewArea};
 use crate::infer::{EdgeRef, InferKind, Lock};
@@ -29,7 +29,7 @@ mod navigation;
 mod selection;
 mod view;
 
-pub use view::{Mark, View, ViewHighlight, ViewPlacement};
+pub use view::{Look, Mark, View, ViewHighlight, ViewPlacement};
 use document::{After, Pending, Probe};
 
 pub struct Editor {
@@ -52,6 +52,15 @@ pub struct Editor {
     size: DVec2,
     /// Occurrence path of the context being edited.
     context: Vec<Id>,
+    /// The part open in the context, by its occurrence there (ARCHITECTURE.md §2.9).
+    open_part: Option<Id>,
+    /// The "Machinings" switch: an open part shows its blank as a ghost and its tools.
+    machinings_shown: bool,
+    /// What a change to the open part reaches (§2.5): every occurrence, until said otherwise
+    /// for this opening.
+    part_scope: Scope,
+    /// The machining hovered in the entity info's list (drawn hovered in the view).
+    listed_hover: Option<Id>,
     selection: Vec<Id>,
     tool: Box<dyn Tool>,
     pivot: Option<DVec3>,
@@ -105,6 +114,10 @@ impl Editor {
             camera: Camera::default(),
             size: DVec2::new(800.0, 600.0),
             context: Vec::new(),
+            open_part: None,
+            machinings_shown: false,
+            part_scope: Scope::All,
+            listed_hover: None,
             selection: Vec::new(),
             tool: tools::make(ToolKind::Select),
             pivot: None,
@@ -153,6 +166,91 @@ impl Editor {
     /// The frame of the context being edited, to world (identity for the model).
     pub fn context_transform(&self) -> DAffine3 {
         self.document().transform_of(&self.context).unwrap_or(DAffine3::IDENTITY)
+    }
+
+    /// The part open in the context, by its occurrence there (ARCHITECTURE.md §2.9).
+    pub fn open_part(&self) -> Option<Id> {
+        self.open_part
+    }
+
+    /// The path of the open part's occurrence.
+    pub fn open_part_path(&self) -> Option<EntityPath> {
+        self.open_part.map(|id| EntityPath::new(self.context.clone(), id))
+    }
+
+    /// The "Machinings" switch (a preference: it holds for every part opened).
+    pub fn machinings_switch(&self) -> bool {
+        self.machinings_shown
+    }
+
+    pub fn set_machinings_switch(&mut self, on: bool) {
+        if on != self.machinings_shown {
+            self.machinings_shown = on;
+            // The selection was machinings, or would become them.
+            if self.open_part.is_some() {
+                self.tool.reset();
+                self.selection.clear();
+            }
+            self.sync_scene();
+        }
+    }
+
+    /// How many occurrences of the open part the scene shows (through copies of assemblies
+    /// too): what a change reaches under the scope "all".
+    pub fn open_part_copies(&self) -> usize {
+        self.open_part_path().map_or(0, |p| self.cx().copies_shown(&p))
+    }
+
+    /// The machining of the open part hovered: in the entity info's list, else in the view
+    /// (its tool under the cursor).
+    pub fn hovered_machining(&self) -> Option<Id> {
+        if !self.showing_machinings() {
+            return None;
+        }
+        self.listed_hover.or_else(|| self.preview().hover)
+    }
+
+    /// The machining hovered in the entity info's list, if any.
+    pub fn set_listed_hover(&mut self, machining: Option<Id>) {
+        self.listed_hover = machining;
+    }
+
+    /// What a change to the open part reaches.
+    pub fn part_scope(&self) -> Scope {
+        self.part_scope
+    }
+
+    pub fn set_part_scope(&mut self, scope: Scope) {
+        self.part_scope = scope;
+    }
+
+    /// Are an open part's machinings shown now (its blank a ghost)?
+    pub fn showing_machinings(&self) -> bool {
+        self.machinings_shown && self.open_part.is_some()
+    }
+
+
+
+    /// Brings the display scene up to date (the document, the recipe shown) and asks for the
+    /// meshes it lacks.
+    pub(super) fn sync_scene(&mut self) {
+        self.scene.set_recipe(self.open_part_path(), self.machinings_shown);
+        self.scene.sync(self.history.document());
+        self.request_meshes();
+    }
+
+    /// The open part's axes in the context's (its occurrence's T); identity without one.
+    fn axes_in_context(&self) -> DAffine3 {
+        let doc = self.document();
+        self.open_part
+            .and_then(|id| doc.assembly(self.context_definition()).ok()?.occurrence(id).map(|o| o.transform))
+            .unwrap_or(DAffine3::IDENTITY)
+    }
+
+    /// The frame tools draw and infer in, to world: the open part's axes, else the context's
+    /// (§2.3). The axes drawn are these.
+    pub fn axes_transform(&self) -> DAffine3 {
+        self.context_transform() * self.axes_in_context()
     }
 
     /// Selected entities, in the active context.
@@ -233,6 +331,10 @@ impl Editor {
             context: &self.context,
             context_def: doc.context_of(&self.context).unwrap_or(doc.root()),
             context_transform: doc.transform_of(&self.context).unwrap_or(DAffine3::IDENTITY),
+            open_part: self.open_part,
+            axes_in_context: self.axes_in_context(),
+            recipe: self.scene.recipe().filter(|_| self.showing_machinings()),
+            part_scope: self.part_scope,
             selection: &self.selection,
             axis_lock: self.axis_lock,
             shift_lock: self.shift_lock,
@@ -379,7 +481,7 @@ impl Editor {
         let input = match input {
             ToolInput::Vcb(text) => {
                 let Some(spec) = self.tool.vcb() else { return };
-                match vcb::read(&spec, &text, &self.document().settings().units, &self.context_transform()) {
+                match vcb::read(&spec, &text, &self.document().settings().units, &self.axes_transform()) {
                     Ok(v) => ToolInput::Value(v),
                     Err(message) => {
                         self.message = Some(message);
@@ -409,6 +511,8 @@ impl Editor {
                     self.tool.reset();
                 } else if self.tool.kind() != ToolKind::Select {
                     self.set_tool(ToolKind::Select);
+                } else if self.selection.is_empty() && self.open_part.is_some() {
+                    self.exit();
                 } else {
                     self.selection.clear();
                 }
@@ -456,6 +560,10 @@ impl Editor {
             Command::Select(ids) => self.selection = ids,
             Command::Enter(id) => self.enter(id),
             Command::Exit => self.exit(),
+            Command::ClickOff(px) => match self.context_bounds() {
+                Some(b) if !b.hit_by(&self.camera.ray(px, self.size)) => self.exit(),
+                _ => self.selection.clear(),
+            },
             Command::Say(s) => self.message = Some(s),
             Command::Replace { previous, op } => {
                 if self.history.undo_op() == Some(&previous) && self.history.undo() {

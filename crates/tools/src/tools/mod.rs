@@ -22,11 +22,11 @@ use std::collections::BTreeMap;
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
-use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Section, Units};
+use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope, Section, Units};
 
 use crate::camera::{Camera, Ray};
 use crate::infer::{self, EdgeRef, InferKind, Inference, LineKind, Lock, Query};
-use crate::scene::{DisplayScene, Hit};
+use crate::scene::{DisplayScene, Hit, Owner, Piece, RecipeMeshes};
 use crate::vcb::{Repeat, Vcb, VcbValue};
 
 /// Keyboard modifiers, as the app maps them. `copy` is SketchUp's copy toggle (Ctrl on
@@ -79,10 +79,15 @@ pub enum Command {
     Apply(Operation),
     /// Replaces the selection (entities of the active context).
     Select(Vec<Id>),
-    /// Enters the assembly the occurrence `Id` of the active context places.
+    /// Enters the assembly the occurrence `Id` of the active context places, or opens its
+    /// part.
     Enter(Id),
-    /// Leaves the active context for its parent.
+    /// Closes the open part, else leaves the active context for its parent.
     Exit,
+    /// A click on nothing of the active context, at this pixel: off the grey box of the part
+    /// open or the assembly being edited, it leaves it ([`Command::Exit`]); inside, it clears
+    /// the selection.
+    ClickOff(DVec2),
     /// A message for the status bar (e.g. why a value was refused).
     Say(String),
     /// Undoes the last step, which must be `previous`, and applies `op` instead (a copy
@@ -235,8 +240,18 @@ pub struct Cx<'a> {
     pub context: &'a [Id],
     /// The definition being edited.
     pub context_def: Id,
-    /// Definition to world, for the context.
+    /// Definition to world, for the context: operations are expressed in it.
     pub context_transform: DAffine3,
+    /// The part open in the context, by its occurrence there (ARCHITECTURE.md §2.9).
+    pub open_part: Option<Id>,
+    /// The open part's axes in the context's (identity without one): tools draw and infer
+    /// in these axes (§2.3), see [`Cx::axes`].
+    pub axes_in_context: DAffine3,
+    /// The open part's recipe, while its machinings are shown: the selection is machinings
+    /// then, and the tools act on them (§2.9).
+    pub recipe: Option<&'a RecipeMeshes>,
+    /// What a change to the open part reaches (§2.5).
+    pub part_scope: Scope,
     pub selection: &'a [Id],
     /// The context axis the arrow keys lock (→ 0 red, ← 1 green, ↑ 2 blue; ↓ frees it).
     pub axis_lock: Option<usize>,
@@ -257,11 +272,71 @@ impl Cx<'_> {
         self.camera.ray(px, self.size)
     }
 
-    /// The ray in the context's coordinates.
-    pub fn context_ray(&self, px: DVec2) -> Ray {
+    /// The frame tools draw and infer in, to world: the open part's axes, else the context's.
+    pub fn axes(&self) -> DAffine3 {
+        self.context_transform * self.axes_in_context
+    }
+
+    /// The ray in the axes' coordinates.
+    pub fn axes_ray(&self, px: DVec2) -> Ray {
         let r = self.ray(px);
-        let inv = self.context_transform.inverse();
+        let inv = self.axes().inverse();
         Ray { origin: inv.transform_point3(r.origin), dir: inv.transform_vector3(r.dir).normalize(), t_min: r.t_min }
+    }
+
+    /// The open part's occurrence path.
+    pub fn open_part_path(&self) -> Option<EntityPath> {
+        self.open_part.map(|id| EntityPath::new(self.context.to_vec(), id))
+    }
+
+    /// Are the open part's machinings shown (the selection being machinings)?
+    pub fn machinings_shown(&self) -> bool {
+        self.recipe.is_some() && self.open_part.is_some()
+    }
+
+    /// The machining whose tool is under `px`, while they are shown.
+    pub fn pick_machining(&self, px: DVec2) -> Option<Id> {
+        if !self.machinings_shown() {
+            return None;
+        }
+        self.scene.pick_tool(&self.ray(px), self.axes()).map(|(id, _)| id)
+    }
+
+    /// What a click at `px` takes when nothing is selected (move, rotate): the machining
+    /// under it while they are shown, else the entity of the context `inf` is on.
+    pub fn entity_under(&self, px: DVec2, inf: Option<&Inference>) -> Option<Id> {
+        if self.machinings_shown() {
+            return self.pick_machining(px);
+        }
+        let under = inf.and_then(|i| i.hit.as_ref().map(|h| &h.path).or(i.path.as_ref()));
+        under.and_then(|p| self.selectable(p))
+    }
+
+    /// What moving the selection changes, and in which frame.
+    pub fn moved(&self) -> Moved {
+        match self.open_part_path().filter(|_| self.machinings_shown()) {
+            Some(target) => Moved::Machinings { target, scope: self.part_scope, frame: self.axes() },
+            None => Moved::Occurrences { context: self.context_def, frame: self.context_transform },
+        }
+    }
+
+    /// The operation making `primitive`, drawn in the axes and placed by `placement` there:
+    /// in an open part, a machining of it (§2.9); else a new part of the context.
+    pub fn add_primitive(&self, primitive: Primitive, placement: DAffine3) -> Operation {
+        match self.open_part_path() {
+            Some(target) => Operation::AddMachining { target, primitive, placement, scope: self.part_scope },
+            None => Operation::AddPrimitive { context: self.context_def, primitive, placement: self.axes_in_context * placement },
+        }
+    }
+
+    /// Is `o` one of `moving` (occurrences of the context, or machinings of the open part)?
+    /// What a move or a rotation leaves out of inferences.
+    pub fn is_moving(&self, o: &Owner<'_>, moving: &[Id]) -> bool {
+        match o.piece {
+            Piece::Tool(id) => moving.contains(&id),
+            Piece::Blank => false,
+            Piece::Shape => self.selectable(o.path).is_some_and(|id| moving.contains(&id)),
+        }
     }
 
     /// The nearest solid under `px`, anywhere.
@@ -270,8 +345,12 @@ impl Cx<'_> {
     }
 
     /// The entity of the active context a hit belongs to: the solid itself if it is in the
-    /// context, else the context's occurrence that leads to it; `None` outside the context.
+    /// context, else the context's occurrence that leads to it; `None` outside the context,
+    /// and while a part is open (its machinings are picked otherwise).
     pub fn selectable(&self, path: &EntityPath) -> Option<Id> {
+        if self.open_part.is_some() {
+            return None;
+        }
         let rest = path.instances.strip_prefix(self.context)?;
         Some(rest.first().copied().unwrap_or(path.entity))
     }
@@ -286,27 +365,29 @@ impl Cx<'_> {
         &self.doc.settings().units
     }
 
+    /// A point of the axes' coordinates, in the world.
     pub fn to_world(&self, p: DVec3) -> DVec3 {
-        self.context_transform.transform_point3(p)
+        self.axes().transform_point3(p)
     }
 
-    pub fn to_context(&self, p: DVec3) -> DVec3 {
-        self.context_transform.inverse().transform_point3(p)
+    /// A world point, in the axes' coordinates.
+    pub fn to_axes(&self, p: DVec3) -> DVec3 {
+        self.axes().inverse().transform_point3(p)
     }
 
-    /// The context's axis `k` (0 red X, 1 green Y, 2 blue Z), in the world.
+    /// The axis `k` (0 red X, 1 green Y, 2 blue Z) of the axes, in the world.
     pub fn axis(&self, k: usize) -> DVec3 {
-        self.context_transform.matrix3.col(k).normalize()
+        self.axes().matrix3.col(k).normalize()
     }
 
-    /// The context's ground: its origin and Z axis, in the world.
+    /// The ground of the axes: their origin and Z axis, in the world.
     pub fn ground(&self) -> (DVec3, DVec3) {
         (self.to_world(DVec3::ZERO), self.axis(2))
     }
 
     /// The point inferred under `px` (§6 ter), on the solids `keep` accepts; `plane` (world
     /// point and normal) when nothing is under the cursor, by default the context's ground.
-    pub fn infer(&self, px: DVec2, keep: impl Fn(&EntityPath) -> bool, plane: Option<(DVec3, DVec3)>) -> Option<Inference> {
+    pub fn infer(&self, px: DVec2, keep: impl Fn(&Owner<'_>) -> bool, plane: Option<(DVec3, DVec3)>) -> Option<Inference> {
         self.query(px, &keep, plane, None, false, None)
     }
 
@@ -314,7 +395,7 @@ impl Cx<'_> {
     pub fn infer_from(
         &self,
         px: DVec2,
-        keep: impl Fn(&EntityPath) -> bool,
+        keep: impl Fn(&Owner<'_>) -> bool,
         plane: Option<(DVec3, DVec3)>,
         from: DVec3,
         lock: Option<Lock>,
@@ -323,14 +404,14 @@ impl Cx<'_> {
     }
 
     /// Lines through `from` that lie in `plane` only (a protractor's), never locked.
-    pub fn infer_in_plane(&self, px: DVec2, keep: impl Fn(&EntityPath) -> bool, plane: (DVec3, DVec3), from: DVec3) -> Option<Inference> {
+    pub fn infer_in_plane(&self, px: DVec2, keep: impl Fn(&Owner<'_>) -> bool, plane: (DVec3, DVec3), from: DVec3) -> Option<Inference> {
         self.query(px, &keep, Some(plane), Some(from), true, None)
     }
 
     fn query(
         &self,
         px: DVec2,
-        keep: &dyn Fn(&EntityPath) -> bool,
+        keep: &dyn Fn(&Owner<'_>) -> bool,
         plane: Option<(DVec3, DVec3)>,
         from: Option<DVec3>,
         in_plane: bool,
@@ -411,23 +492,69 @@ pub trait Tool {
     fn reset(&mut self);
 }
 
-/// How a copy was moved, as a function of a fraction of the way (for arrays).
+/// How a copy was moved, in the world, as a function of a fraction of the way (for arrays).
 #[derive(Clone, Copy, Debug)]
 pub enum Motion {
-    /// A translation, in the context's coordinates.
     Translate(DVec3),
-    /// A rotation about the line through `center` along `axis` (world), the context's frame
-    /// being `frame` (to world).
-    Rotate { center: DVec3, axis: DVec3, angle: f64, frame: DAffine3 },
+    /// A rotation about the line through `center` along `axis`.
+    Rotate { center: DVec3, axis: DVec3, angle: f64 },
 }
 
 impl Motion {
-    /// `fraction` of the motion, in the context's coordinates.
+    /// `fraction` of the motion, in the world.
     pub fn part(&self, fraction: f64) -> DAffine3 {
         match *self {
             Motion::Translate(v) => DAffine3::from_translation(v * fraction),
-            Motion::Rotate { center, axis, angle, frame } => {
-                frame.inverse() * rotate::rotation_about(center, axis, angle * fraction) * frame
+            Motion::Rotate { center, axis, angle } => rotate::rotation_about(center, axis, angle * fraction),
+        }
+    }
+}
+
+/// What the move and rotate tools change: occurrences of the context, or machinings of the
+/// open part (§2.9); each in its own frame (to world), which operations are expressed in.
+#[derive(Clone, Debug)]
+pub enum Moved {
+    Occurrences { context: Id, frame: DAffine3 },
+    Machinings { target: EntityPath, scope: Scope, frame: DAffine3 },
+}
+
+impl Moved {
+    /// The world motion `world`, in the frame.
+    fn local(&self, world: DAffine3) -> DAffine3 {
+        let (Moved::Occurrences { frame, .. } | Moved::Machinings { frame, .. }) = self;
+        if world.matrix3 == glam::DMat3::IDENTITY {
+            // A translation stays one exactly.
+            return DAffine3::from_translation(frame.matrix3.inverse().mul_vec3(world.translation));
+        }
+        frame.inverse() * world * *frame
+    }
+
+    pub fn transform(&self, entities: Vec<Id>, world: DAffine3) -> Operation {
+        let transform = self.local(world);
+        match self {
+            Moved::Occurrences { context, .. } => Operation::Transform { context: *context, entities, transform },
+            Moved::Machinings { target, scope, .. } => {
+                Operation::TransformMachinings { target: target.clone(), machinings: entities, transform, scope: *scope }
+            }
+        }
+    }
+
+    pub fn duplicate(&self, entities: Vec<Id>, world: DAffine3) -> Operation {
+        let transform = self.local(world);
+        match self {
+            Moved::Occurrences { context, .. } => Operation::Duplicate { context: *context, entities, transform },
+            Moved::Machinings { target, scope, .. } => {
+                Operation::DuplicateMachinings { target: target.clone(), machinings: entities, transform, scope: *scope }
+            }
+        }
+    }
+
+    pub fn array(&self, entities: Vec<Id>, world_step: DAffine3, count: u32) -> Operation {
+        let step = self.local(world_step);
+        match self {
+            Moved::Occurrences { context, .. } => Operation::Array { context: *context, entities, step, count },
+            Moved::Machinings { target, scope, .. } => {
+                Operation::ArrayMachinings { target: target.clone(), machinings: entities, step, count, scope: *scope }
             }
         }
     }
@@ -437,7 +564,7 @@ impl Motion {
 /// step, `/5` 5 copies spread over the same way; retyping corrects (SketchUp).
 #[derive(Clone, Debug)]
 pub struct LastCopy {
-    pub context: Id,
+    pub moved: Moved,
     pub entities: Vec<Id>,
     pub motion: Motion,
     /// The operation applied last for it (the one a new count replaces).
@@ -446,9 +573,9 @@ pub struct LastCopy {
 
 impl LastCopy {
     /// The operation for the copy itself.
-    pub fn new(context: Id, entities: Vec<Id>, motion: Motion) -> Self {
-        let op = Operation::Duplicate { context, entities: entities.clone(), transform: motion.part(1.0) };
-        LastCopy { context, entities, motion, op }
+    pub fn new(moved: Moved, entities: Vec<Id>, motion: Motion) -> Self {
+        let op = moved.duplicate(entities.clone(), motion.part(1.0));
+        LastCopy { moved, entities, motion, op }
     }
 
     /// A typed count: the commands replacing the copy (or the last array) by the new array.
@@ -457,7 +584,7 @@ impl LastCopy {
             Repeat::Times(n) => (1.0, n),
             Repeat::Divide(n) => (1.0 / n as f64, n),
         };
-        let op = Operation::Array { context: self.context, entities: self.entities.clone(), step: self.motion.part(fraction), count };
+        let op = self.moved.array(self.entities.clone(), self.motion.part(fraction), count);
         let previous = std::mem::replace(&mut self.op, op.clone());
         vec![Command::Replace { previous, op }]
     }

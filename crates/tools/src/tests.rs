@@ -283,10 +283,29 @@ fn groups_enter_fade_exit() {
     draw_box(&mut e, DVec3::new(0.0, 200.0, 0.0), DVec3::new(50.0, 250.0, 0.0), "5");
     let gdef = e.context_definition();
     assert_eq!(e.document().assembly(gdef).unwrap().occurrences.len(), 2);
-    // Double-click in the void leaves, the group selected.
-    e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(-800.0, -800.0, 0.0)), mods: Modifiers::default() });
+    // A click in the void inside its box keeps it, the selection cleared.
+    click(&mut e, DVec3::new(80.0, 225.0, 0.0));
+    assert_eq!(e.context(), &[g]);
+    assert!(e.selection().is_empty());
+    // A click off its box leaves, the group selected; a double-click there does nothing more.
+    click(&mut e, DVec3::new(-800.0, -800.0, 0.0));
     assert!(e.context().is_empty());
     assert_eq!(e.selection(), &[g]);
+    e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(-800.0, -800.0, 0.0)), mods: Modifiers::default() });
+    assert!(e.context().is_empty());
+    // Nested, a click off the inner box leaves one level only, even inside the outer one.
+    e.select(vec![g, _b]);
+    e.make_assembly();
+    let outer = e.selection()[0];
+    e.enter(outer);
+    e.enter(g);
+    click(&mut e, DVec3::new(200.0, 50.0, 0.0));
+    assert_eq!((e.context(), e.selection()), (&[outer][..], &[g][..]));
+    click(&mut e, DVec3::new(200.0, 50.0, 0.0));
+    assert_eq!((e.context(), e.selection()), (&[outer][..], &[][..]));
+    click(&mut e, DVec3::new(-800.0, -800.0, 0.0));
+    assert_eq!((e.context(), e.selection()), (&[][..], &[outer][..]));
+    e.undo();
     // Undo back past the group: the context and selection stay valid.
     e.enter(g);
     e.undo();
@@ -802,4 +821,285 @@ fn section_tool_places_a_plane_and_picking_ignores_what_it_cuts() {
     // Undo removes it.
     e.undo();
     assert!(e.document().settings().display.active_section().is_none());
+}
+
+#[test]
+fn a_part_opens_with_its_axes_the_rest_faded() {
+    use glam::{DAffine3, DQuat};
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 0.0), "50");
+    let c = draw_box(&mut e, DVec3::new(-700.0, 0.0, 0.0), DVec3::new(-600.0, 100.0, 0.0), "50");
+    // A copy of `a`'s part, turned 30° and moved: its axes are not the model's.
+    let turn = DAffine3::from_translation(DVec3::new(600.0, -500.0, 0.0)) * DAffine3::from_quat(DQuat::from_rotation_z(30f64.to_radians()));
+    let b = e.apply(Operation::Duplicate { context: root, entities: vec![a], transform: turn }).unwrap().unwrap().created[0];
+    let tb = e.document().resolve(&EntityPath::root(b)).unwrap().transform;
+    let on_b = |p: DVec3| tb.transform_point3(p);
+
+    // Double-click opens the part: its axes, the rest faded, its other occurrence related.
+    e.input(ToolInput::DoubleClick { px: px(&e, on_b(DVec3::new(200.0, 200.0, 50.0))), mods: Modifiers::default() });
+    assert_eq!(e.open_part(), Some(b));
+    assert!(e.context().is_empty() && e.selection().is_empty());
+    assert!(e.axes_transform().abs_diff_eq(tb, 1e-9));
+    let v = e.view();
+    let faded: Vec<bool> = v.batches.iter().flat_map(|(_, p)| p.iter().map(|p| p.faded)).collect();
+    assert_eq!((faded.len(), faded.iter().filter(|f| **f).count()), (3, 2), "{faded:?}");
+    let related: Vec<_> = v.highlights.iter().filter(|h| h.mark == Mark::Related).collect();
+    assert_eq!(related.len(), 1);
+    // A dashed box around it, a few pixels off its faces (its top is at z = 50).
+    assert!(!v.context_box.is_empty());
+    let top = v.context_box.iter().flat_map(|(a, b)| [a.z, b.z]).fold(f64::MIN, f64::max);
+    assert!(top > 50.0 && top < 80.0, "{top}");
+    assert!(related[0].transform.abs_diff_eq(e.document().resolve(&EntityPath::root(a)).unwrap().transform, 1e-9));
+    // A click on something else, off its box, closes it, the occurrence left selected.
+    click(&mut e, DVec3::new(-650.0, 50.0, 50.0));
+    assert_eq!((e.open_part(), e.selection()), (None, &[b][..]));
+    let _ = c;
+    // A click on it keeps it open, so does a double-click.
+    e.enter(b);
+    click(&mut e, on_b(DVec3::new(200.0, 200.0, 50.0)));
+    assert_eq!(e.open_part(), Some(b));
+    e.input(ToolInput::DoubleClick { px: px(&e, on_b(DVec3::new(200.0, 200.0, 50.0))), mods: Modifiers::default() });
+    assert_eq!(e.open_part(), Some(b));
+
+    // A box drawn on it lies in its axes and is cut from it: a pocket, the part still open.
+    e.set_tool(ToolKind::Box);
+    click(&mut e, on_b(DVec3::new(100.0, 100.0, 50.0)));
+    click(&mut e, on_b(DVec3::new(250.0, 200.0, 50.0)));
+    e.input(ToolInput::Vcb("-20".into()));
+    e.set_tool(ToolKind::Select);
+    assert_eq!(e.open_part(), Some(b), "{}", e.status());
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    assert_eq!(part.machinings.len(), 1);
+    let m = &part.machinings[0];
+    assert!(close(m.placement.translation, DVec3::new(100.0, 100.0, 30.0)), "{}", m.placement.translation);
+    let (lo, hi) = m.tool.vertex_bounds().unwrap();
+    assert!(close(hi - lo, DVec3::new(150.0, 100.0, 20.0)), "{lo} {hi}");
+    // Every occurrence shows it (scope "all"): `a` is the same part.
+    assert_eq!(e.document().resolve_part(&EntityPath::root(a)).unwrap().1.machinings.len(), 1);
+
+    // Esc closes it, the occurrence left selected; so does a click in the void.
+    e.enter(b);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!((e.open_part(), e.selection()), (None, &[b][..]));
+    e.enter(b);
+    click(&mut e, DVec3::new(-800.0, -800.0, 0.0));
+    assert_eq!(e.open_part(), None);
+    assert!(e.axes_transform().abs_diff_eq(DAffine3::IDENTITY, 1e-12));
+    assert!(e.view().context_box.is_empty());
+
+    // Undo: the pocket goes, the part stays open; then the copy goes, and the part closes.
+    e.enter(b);
+    e.undo();
+    assert_eq!(e.open_part(), Some(b));
+    assert!(e.document().resolve_part(&EntityPath::root(b)).unwrap().1.machinings.is_empty());
+    e.undo();
+    assert_eq!(e.open_part(), None);
+}
+
+#[test]
+fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
+    use glam::DAffine3;
+    use solidsketch_model::Scope;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    let drill = e
+        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 }, placement: DAffine3::IDENTITY })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let target = EntityPath::root(board);
+    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    let (part, p, _) = e.document().resolve_part(&target).unwrap();
+    let hole = p.machinings[0].id;
+    e.apply(Operation::DuplicateMachinings { target: target.clone(), machinings: vec![hole], transform: DAffine3::from_translation(DVec3::X * 100.0), scope: Scope::All }).unwrap();
+    let looks = |e: &Editor| e.view().batches.iter().flat_map(|(k, ps)| ps.iter().map(move |p| (*k, p.look))).collect::<Vec<_>>();
+
+    // Off, or no part open: shapes only.
+    e.set_machinings_switch(true);
+    assert!(!e.showing_machinings());
+    assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
+    e.enter(board);
+    assert!(e.showing_machinings());
+    let l = looks(&e);
+    // The part's shape gives way to its blank, a ghost, and its two tools (one mesh).
+    assert!(!l.iter().any(|(k, look)| *k == part && *look == Look::Shape), "{l:?}");
+    let blank: Vec<_> = l.iter().filter(|(_, look)| *look == Look::Blank).collect();
+    assert_eq!(blank.len(), 1);
+    let tools: Vec<_> = l.iter().filter(|(_, look)| *look == Look::Tool).collect();
+    assert_eq!(tools.len(), 2);
+    assert_eq!(tools[0].0, tools[1].0, "a copied machining shares its tool's mesh");
+    // Meshed like shapes (the kernel is inline here).
+    for (k, _) in blank.iter().chain(&tools) {
+        assert!(e.scene().definition_mesh(*k).is_some_and(|m| m.parts[0].mesh.indices.len() > 36));
+    }
+    // A tool placed in the world through the occurrence.
+    let r = e.scene().recipe().unwrap();
+    assert!(close(r.tools[1].placement.translation, DVec3::new(150.0, 100.0, -5.0)));
+    // Hovered in the entity info's list: drawn hovered in the view.
+    let copy = r.tools[1].machining;
+    e.set_listed_hover(Some(copy));
+    assert_eq!(e.hovered_machining(), Some(copy));
+    let hovered: Vec<_> = e.view().highlights.into_iter().filter(|h| h.mark == Mark::Hover).collect();
+    assert_eq!(hovered.len(), 1);
+    assert!(close(hovered[0].transform.translation, DVec3::new(150.0, 100.0, -5.0)));
+    e.set_listed_hover(None);
+
+    // Switched off, or closed: the shape again.
+    e.set_machinings_switch(false);
+    assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
+    e.set_machinings_switch(true);
+    e.exit();
+    assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
+    assert!(e.scene().recipe().is_none());
+}
+
+#[test]
+fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
+    use glam::DAffine3;
+    use solidsketch_model::Scope;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    let other = e.apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * 500.0) }).unwrap().unwrap().created[0];
+    // A drill standing out of the board's top (z 18 → 25).
+    let drill = e
+        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 }, placement: DAffine3::IDENTITY })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let target = EntityPath::root(board);
+    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    let machinings = |e: &Editor, o: Id| e.document().resolve_part(&EntityPath::root(o)).unwrap().1.machinings.clone();
+    let hole = machinings(&e, board)[0].id;
+    e.set_machinings_switch(true);
+    e.enter(board);
+
+    // A click on the tool selects its machining; the void clears.
+    click(&mut e, DVec3::new(50.0, 100.0, 25.0));
+    assert_eq!(e.selection(), &[hole]);
+    assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Selected));
+    // Between the board and its grey box (8 px off its faces), the part stays open.
+    let corner = px(&e, DVec3::new(400.0, 200.0, 18.0)) + DVec2::new(4.0, -4.0);
+    e.input(ToolInput::Click { px: corner, mods: Modifiers::default() });
+    assert!(e.selection().is_empty());
+    assert_eq!(e.open_part(), Some(board), "a click inside its box keeps the part open");
+
+    // Move, nothing selected: the tool under the first click; 100 along red. While moving, the
+    // tool is a ghost where it goes, not drawn where it was.
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(50.0, 100.0, 25.0));
+    assert_eq!(e.selection(), &[hole]);
+    e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(250.0, 100.0, 25.0)) });
+    let v = e.view();
+    assert!(v.highlights.iter().any(|h| h.mark == Mark::Ghost));
+    assert!(!v.batches.iter().flat_map(|(_, p)| p).any(|p| p.look == Look::Tool));
+    e.input(ToolInput::Vcb("100".into()));
+    assert!(close(machinings(&e, board)[0].placement.translation, DVec3::new(150.0, 100.0, -5.0)));
+    assert_eq!(e.selection(), &[hole]);
+
+    // A copy 50 further, then `3x`: an array of three, every occurrence shows them.
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    click(&mut e, DVec3::new(150.0, 100.0, 25.0));
+    e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, 100.0, 25.0)) });
+    e.input(ToolInput::Vcb("50".into()));
+    assert_eq!(machinings(&e, board).len(), 2, "{}", e.status());
+    e.input(ToolInput::Vcb("3x".into()));
+    let ms = machinings(&e, board);
+    assert_eq!(ms.len(), 4, "{}", e.status());
+    let mut xs: Vec<f64> = ms.iter().map(|m| m.placement.translation.x).collect();
+    xs.sort_by(f64::total_cmp);
+    assert!(xs.iter().zip([150.0, 200.0, 250.0, 300.0]).all(|(x, w)| (x - w).abs() < 1e-6), "{xs:?}");
+    assert_eq!(e.selection().len(), 3);
+    assert_eq!(machinings(&e, other).len(), 4);
+
+    // Erased under "only this one": this occurrence gets a part of its own, the other keeps
+    // the holes.
+    e.set_tool(ToolKind::Select);
+    e.select_all();
+    assert_eq!(e.selection().len(), 4);
+    e.set_part_scope(Scope::This);
+    e.input(ToolInput::Key { key: Key::Delete, mods: Modifiers::default() });
+    assert!(machinings(&e, board).is_empty(), "{}", e.status());
+    assert_eq!(machinings(&e, other).len(), 4);
+    assert_ne!(e.document().resolve_part(&target).unwrap().0, e.document().resolve_part(&EntityPath::root(other)).unwrap().0);
+    assert_eq!(e.open_part(), Some(board));
+    // Reopened, the scope is "all" again.
+    e.exit();
+    e.enter(board);
+    assert_eq!(e.part_scope(), Scope::All);
+}
+
+#[test]
+fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
+    use glam::DAffine3;
+    use solidsketch_model::Scope;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    // A drill standing out of the board's top: its top circle at z 25, in no shape.
+    let drill = e
+        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 }, placement: DAffine3::IDENTITY })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    e.apply(Operation::Boolean { target: EntityPath::root(board), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    let hover = |e: &mut Editor, p: DVec3| {
+        let at = px(e, p);
+        e.input(ToolInput::Hover { px: at });
+        e.inference()
+    };
+    let centre = DVec3::new(50.0, 100.0, 25.0);
+    e.set_tool(ToolKind::Move);
+
+    // The part open, its machinings hidden: the shape only (the hole's rim, at z 18).
+    e.enter(board);
+    let (p, _) = hover(&mut e, centre).unwrap();
+    assert!(p.z < 18.0 + 1e-6, "{p}");
+
+    // Shown: the tool's top circle, its centre inferred.
+    e.set_machinings_switch(true);
+    e.set_tool(ToolKind::Move);
+    let (p, kind) = hover(&mut e, centre).unwrap();
+    assert_eq!(kind, InferKind::Center);
+    assert!(close(p, centre), "{p}");
+
+    // Moving it from there: it is left out, the blank's top is what is under the cursor.
+    let at = px(&e, centre);
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    assert_eq!(e.selection().len(), 1);
+    let (p, _) = hover(&mut e, DVec3::new(52.0, 100.0, 25.0)).unwrap();
+    assert!(p.z < 18.0 + 1e-6, "{p}");
+}
+
+#[test]
+fn exact_sizes_of_tools_and_blanks() {
+    use glam::DAffine3;
+    use solidsketch_model::Scope;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let rod = e
+        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::ZERO, radius: 20.0, height: 300.0 }, placement: DAffine3::IDENTITY })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let drill = e
+        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::new(0.0, 0.0, -5.0), radius: 4.0, height: 30.0 }, placement: DAffine3::IDENTITY })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let target = EntityPath::root(rod);
+    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    let (_, p, _) = e.document().resolve_part(&target).unwrap();
+    let (blank, tool) = (p.blank.clone(), p.machinings[0].tool.clone());
+    let near = |b: Option<(DVec3, DVec3)>, lo: DVec3, hi: DVec3| b.is_some_and(|(a, b)| close(a, lo) && close(b, hi));
+    // A machined part's blank: its exact box, not its vertices' (a cylinder has one per circle).
+    assert!(near(e.scene().bounds_of(&blank), DVec3::new(-20.0, -20.0, 0.0), DVec3::new(20.0, 20.0, 300.0)), "{:?}", e.scene().bounds_of(&blank));
+    // The open part's tools, their machinings hidden.
+    e.enter(rod);
+    assert!(!e.showing_machinings());
+    assert!(near(e.scene().bounds_of(&tool), DVec3::new(-4.0, -4.0, 0.0), DVec3::new(4.0, 4.0, 30.0)), "{:?}", e.scene().bounds_of(&tool));
 }

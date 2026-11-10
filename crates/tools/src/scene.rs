@@ -11,6 +11,11 @@
 //!   Assemblies have no geometry of their own.
 //! - Placements: every occurrence of every part in the scene, with its occurrence path and
 //!   world transform; a part is drawn once, instanced at all of them.
+//! - The recipe of one open part (ARCHITECTURE.md §2.9), when its machinings are shown: its
+//!   blank and its tools, meshed like shapes, under keys of their own ([`RecipeMeshes`]); one
+//!   mesh per distinct tool solid, a copied machining sharing its original's. Drawn by the
+//!   view; for inferences ([`DisplayScene::inferable`]) they stand in for the open
+//!   occurrence's shape, each saying what it is ([`Piece`]).
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
@@ -67,6 +72,8 @@ impl Placement {
 pub struct Hit {
     /// The solid hit, by its full path.
     pub path: EntityPath,
+    /// Which of its geometry ([`DisplayScene::pick_inferable`]; a shape otherwise).
+    pub piece: Piece,
     /// The B-rep face (index in the solid's record).
     pub face: u32,
     /// World point and unit normal (facing the ray).
@@ -96,15 +103,58 @@ struct Cached {
 impl Cached {
     fn pending(solid: Arc<Solid>) -> Self {
         let mesh = solid.vertex_bounds().map(|(lo, hi)| Mesh::outline(lo, hi)).unwrap_or_default();
-        Cached::new(solid, mesh, Snaps::default(), State::Pending { asked: false })
+        Cached::new(solid, mesh, Snaps::default(), None, State::Pending { asked: false })
     }
 
-    fn new(solid: Arc<Solid>, mesh: Mesh, snaps: Snaps, state: State) -> Self {
-        let bounds = mesh_bounds(&mesh);
+    /// `exact`: the solid's bounding box, from the kernel; else the mesh's.
+    fn new(solid: Arc<Solid>, mesh: Mesh, snaps: Snaps, exact: Option<(DVec3, DVec3)>, state: State) -> Self {
+        let bounds = exact.or_else(|| mesh_bounds(&mesh));
         // `part.solid` is set by each part showing it.
         let part = PartMesh { solid: Id(0), mesh: Arc::new(mesh), snaps: Arc::new(snaps), bounds };
         Cached { solid, part, state }
     }
+}
+
+/// The keys of a recipe's meshes, apart from components' ids (small numbers from the
+/// document's counter).
+const RECIPE_KEY: u64 = 1 << 63;
+const TOOL_KEY: u64 = 1 << 62;
+
+/// What a piece of geometry of the scene is, for inferences: an occurrence's shape, or — an
+/// open part's recipe shown — its blank or the tool of one of its machinings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Piece {
+    #[default]
+    Shape,
+    Blank,
+    Tool(Id),
+}
+
+/// Whose geometry an inference is asked to consider (a tool's filter).
+#[derive(Clone, Copy, Debug)]
+pub struct Owner<'a> {
+    /// The occurrence (the open part's, for its blank and tools).
+    pub path: &'a EntityPath,
+    pub piece: Piece,
+}
+
+/// One machining of the recipe shown.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecipeTool {
+    pub machining: Id,
+    /// The mesh of its tool.
+    pub key: Id,
+    /// Its tool in the part's axes.
+    pub placement: DAffine3,
+    pub failed: bool,
+}
+
+/// The meshes of the recipe shown: the blank's and the tools', in the part's axes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecipeMeshes {
+    pub part: Id,
+    pub blank: Id,
+    pub tools: Vec<RecipeTool>,
 }
 
 #[derive(Default)]
@@ -118,6 +168,13 @@ pub struct DisplayScene {
     bounds: Option<(DVec3, DVec3)>,
     /// The active section: picking ignores what it cuts away.
     section: Option<Section>,
+    /// The open occurrence whose recipe is shown, its meshes, and their placements in the
+    /// world (the blank's, then each tool's).
+    recipe_path: Option<EntityPath>,
+    /// Drawn and inferred on (else only meshed: the entity info reads its tools' sizes).
+    recipe_shown: bool,
+    recipe: Option<RecipeMeshes>,
+    recipe_places: Vec<(Placement, Id, Piece)>,
 }
 
 impl DisplayScene {
@@ -133,22 +190,37 @@ impl DisplayScene {
         self.missing.clear();
         for c in doc.components() {
             let ComponentKind::Part(p) = &c.kind else { continue };
-            let shape = p.shape();
-            let key = Arc::as_ptr(shape) as usize;
-            let entry = self.solids.entry(key).or_insert_with(|| Cached::pending(shape.clone()));
-            // A part made unique shares its shape until it changes: ask for it once.
-            if seen.insert(key) && entry.state == (State::Pending { asked: false }) {
-                self.missing.push(shape.clone());
+            let dm = self.mesh_of(p.shape(), c.id, &p.faces, &mut seen);
+            self.definitions.insert(c.id, dm);
+            // A machined part's blank too, for its exact size (its dimensions).
+            if !p.machinings.is_empty() {
+                self.mesh_of(&p.blank, c.id, &BTreeMap::new(), &mut seen);
             }
-            let mut part = entry.part.clone();
-            part.solid = c.id;
-            // The mesh changes with the state (a stand-in, then the real one).
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            (key, entry.state == State::Ready, &p.faces).hash(&mut h);
-            self.definitions.insert(
-                c.id,
-                DefinitionMesh { definition: c.id, revision: h.finish(), parts: vec![part], faces: p.faces.clone() },
-            );
+        }
+        self.recipe = None;
+        let shown = self.recipe_path.as_ref().and_then(|path| doc.resolve_part(path).ok());
+        if let Some((part, p, _)) = shown {
+            let blank = Id(RECIPE_KEY | part.0);
+            let dm = self.mesh_of(&p.blank, blank, &BTreeMap::new(), &mut seen);
+            self.definitions.insert(blank, dm);
+            // One mesh per distinct tool solid, keyed by the first machining using it.
+            let mut keys: HashMap<usize, Id> = HashMap::new();
+            let mut tools = Vec::with_capacity(p.machinings.len());
+            for m in &p.machinings {
+                let at = Arc::as_ptr(&m.tool) as usize;
+                let key = match keys.get(&at) {
+                    Some(k) => *k,
+                    None => {
+                        let key = Id(RECIPE_KEY | TOOL_KEY | m.id.0);
+                        let dm = self.mesh_of(&m.tool, key, &BTreeMap::new(), &mut seen);
+                        self.definitions.insert(key, dm);
+                        keys.insert(at, key);
+                        key
+                    }
+                };
+                tools.push(RecipeTool { machining: m.id, key, placement: m.placement, failed: p.is_failed(m.id) });
+            }
+            self.recipe = Some(RecipeMeshes { part, blank, tools });
         }
         // Keep what the document shows, and what something else holds (undo, a job).
         self.solids.retain(|key, c| seen.contains(key) || Arc::strong_count(&c.solid) > 1);
@@ -161,6 +233,19 @@ impl DisplayScene {
         }
         self.section = doc.settings().display.active_section();
 
+        // Where the recipe shown stands: at its occurrence.
+        self.recipe_places.clear();
+        if let (Some(r), Some(path), true) = (&self.recipe, &self.recipe_path, self.recipe_shown) {
+            let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
+            if let Some(open) = self.placements.get(&r.part).and_then(|ps| ps.iter().find(|p| p.path == chain)).cloned() {
+                self.recipe_places.push((open.clone(), r.blank, Piece::Blank));
+                for t in &r.tools {
+                    let place = Placement { transform: open.transform * t.placement, material: None, ..open.clone() };
+                    self.recipe_places.push((place, t.key, Piece::Tool(t.machining)));
+                }
+            }
+        }
+
         self.bounds = None;
         for (def, places) in &self.placements {
             let Some(dm) = self.definitions.get(def) else { continue };
@@ -171,6 +256,66 @@ impl DisplayScene {
                 }
             }
         }
+    }
+
+    /// The mesh of `solid` under the key `key` (a part, or a recipe's solid): cached, or a
+    /// stand-in asked for once.
+    fn mesh_of(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut std::collections::HashSet<usize>) -> DefinitionMesh {
+        let at = Arc::as_ptr(solid) as usize;
+        let entry = self.solids.entry(at).or_insert_with(|| Cached::pending(solid.clone()));
+        // A part made unique shares its shape until it changes: ask for it once.
+        if seen.insert(at) && entry.state == (State::Pending { asked: false }) {
+            self.missing.push(solid.clone());
+        }
+        let mut part = entry.part.clone();
+        part.solid = key;
+        // The mesh changes with the state (a stand-in, then the real one).
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (at, entry.state == State::Ready, faces).hash(&mut h);
+        DefinitionMesh { definition: key, revision: h.finish(), parts: vec![part], faces: faces.clone() }
+    }
+
+    /// Meshes the recipe of the part the occurrence `path` places (its blank and tools) from
+    /// the next [`DisplayScene::sync`], or none; `shown`: drawn and inferred on instead of
+    /// the occurrence's shape.
+    pub fn set_recipe(&mut self, path: Option<EntityPath>, shown: bool) {
+        self.recipe_path = path;
+        self.recipe_shown = shown;
+    }
+
+    /// Is the recipe drawn and inferred on?
+    pub fn recipe_shown(&self) -> bool {
+        self.recipe_shown && self.recipe.is_some()
+    }
+
+    /// The exact bounding box of `solid` in its own axes, once the kernel has given its
+    /// display (the scene's solids, the open part's recipe, machined parts' blanks).
+    pub fn bounds_of(&self, solid: &Arc<Solid>) -> Option<(DVec3, DVec3)> {
+        let c = self.solids.get(&(Arc::as_ptr(solid) as usize))?;
+        (c.state == State::Ready).then_some(c.part.bounds).flatten()
+    }
+
+    /// The geometry inferences see, once per occurrence: every shape, but the open part's
+    /// while its recipe is shown — its blank and its tools instead.
+    pub fn inferable(&self) -> impl Iterator<Item = (&Placement, &PartMesh, Piece)> {
+        let open = self.recipe_places.first().map(|(p, _, _)| p.path.clone());
+        let shapes = self.parts().filter(move |(p, _)| open.as_ref() != Some(&p.path)).map(|(p, m)| (p, m, Piece::Shape));
+        let recipe = self
+            .recipe_places
+            .iter()
+            .filter_map(|(p, key, piece)| self.definitions.get(key).and_then(|d| d.parts.first()).map(|m| (p, m, *piece)));
+        shapes.chain(recipe)
+    }
+
+    /// The mesh a hit of [`DisplayScene::pick_inferable`] is on, and its placement.
+    pub fn inferable_at(&self, hit: &Hit) -> Option<(DAffine3, &PartMesh)> {
+        let chain: Vec<Id> = hit.path.instances.iter().copied().chain([hit.path.entity]).collect();
+        self.inferable().find(|(p, _, piece)| p.path == chain && *piece == hit.piece).map(|(p, m, _)| (p.transform, m))
+    }
+
+    /// The recipe shown, as meshed.
+    pub fn recipe(&self) -> Option<&RecipeMeshes> {
+        self.recipe.as_ref()
     }
 
     /// Parts, as the renderer uploads them.
@@ -207,7 +352,7 @@ impl DisplayScene {
     pub fn insert(&mut self, solid: &Arc<Solid>, display: Result<Display, String>) {
         let key = Arc::as_ptr(solid) as usize;
         let cached = match display {
-            Ok(d) => Cached::new(solid.clone(), d.mesh, d.snaps, State::Ready),
+            Ok(d) => Cached::new(solid.clone(), d.mesh, d.snaps, d.bounds, State::Ready),
             Err(_) => Cached { state: State::Failed, ..Cached::pending(solid.clone()) },
         };
         self.solids.insert(key, cached);
@@ -243,40 +388,76 @@ impl DisplayScene {
             .map(|(p, part)| (p.transform, part))
     }
 
-    /// The nearest solid along `ray`, among those `keep` accepts.
+    /// The nearest shape along `ray`, among those `keep` accepts.
     pub fn pick(&self, ray: &Ray, keep: impl Fn(&EntityPath) -> bool) -> Option<Hit> {
+        self.pick_among(ray, self.parts().map(|(p, m)| (p, m, Piece::Shape)), |o| keep(o.path))
+    }
+
+    /// The nearest geometry inferences see along `ray` ([`DisplayScene::inferable`]), among
+    /// what `keep` accepts.
+    pub fn pick_inferable(&self, ray: &Ray, keep: impl Fn(&Owner<'_>) -> bool) -> Option<Hit> {
+        self.pick_among(ray, self.inferable(), keep)
+    }
+
+    fn pick_among<'s>(
+        &'s self,
+        ray: &Ray,
+        items: impl Iterator<Item = (&'s Placement, &'s PartMesh, Piece)>,
+        keep: impl Fn(&Owner<'_>) -> bool,
+    ) -> Option<Hit> {
         let mut best: Option<Hit> = None;
-        for (def, places) in &self.placements {
-            let Some(dm) = self.definitions.get(def) else { continue };
-            for p in places {
-                let inv = p.transform.inverse();
-                let o = inv.transform_point3(ray.origin);
-                let d = inv.transform_vector3(ray.dir);
-                for part in &dm.parts {
-                    let Some(b) = part.bounds else { continue };
-                    if !ray_box(o, d, b, ray.t_min) {
-                        continue;
-                    }
-                    let path = p.entity_path();
-                    if !keep(&path) {
-                        continue;
-                    }
-                    // The section, in the part's axes (placements are rigid).
-                    let clip = self.section.map(|s| (inv.transform_point3(s.origin), inv.transform_vector3(s.normal)));
-                    let Some((t, tri, n_local)) = ray_mesh(o, d, &part.mesh, ray.t_min, clip) else { continue };
-                    // t is in units of the local direction: re-measure it in the world.
-                    let point = p.transform.transform_point3(o + d * t);
-                    let world_t = (point - ray.origin).dot(ray.dir);
-                    if best.as_ref().is_some_and(|b| b.t <= world_t) {
-                        continue;
-                    }
-                    let mut normal = p.transform.matrix3.inverse().transpose().mul_vec3(n_local).normalize_or_zero();
-                    if normal.dot(ray.dir) > 0.0 {
-                        normal = -normal;
-                    }
-                    let face = part.mesh.tri_face.get(tri).copied().unwrap_or(0);
-                    best = Some(Hit { path, face, point, normal, t: world_t });
-                }
+        for (p, part, piece) in items {
+            let Some(b) = part.bounds else { continue };
+            let inv = p.transform.inverse();
+            let o = inv.transform_point3(ray.origin);
+            let d = inv.transform_vector3(ray.dir);
+            if !ray_box(o, d, b, ray.t_min) {
+                continue;
+            }
+            let path = p.entity_path();
+            if !keep(&Owner { path: &path, piece }) {
+                continue;
+            }
+            // The section, in the part's axes (placements are rigid).
+            let clip = self.section.map(|s| (inv.transform_point3(s.origin), inv.transform_vector3(s.normal)));
+            let Some((t, tri, n_local)) = ray_mesh(o, d, &part.mesh, ray.t_min, clip) else { continue };
+            // t is in units of the local direction: re-measure it in the world.
+            let point = p.transform.transform_point3(o + d * t);
+            let world_t = (point - ray.origin).dot(ray.dir);
+            if best.as_ref().is_some_and(|b| b.t <= world_t) {
+                continue;
+            }
+            let mut normal = p.transform.matrix3.inverse().transpose().mul_vec3(n_local).normalize_or_zero();
+            if normal.dot(ray.dir) > 0.0 {
+                normal = -normal;
+            }
+            let face = part.mesh.tri_face.get(tri).copied().unwrap_or(0);
+            best = Some(Hit { path, piece, face, point, normal, t: world_t });
+        }
+        best
+    }
+}
+
+impl DisplayScene {
+    /// The machining of the recipe shown whose tool `ray` meets first, the part drawn by
+    /// `part_to_world`, with the distance along the ray.
+    pub fn pick_tool(&self, ray: &Ray, part_to_world: DAffine3) -> Option<(Id, f64)> {
+        let recipe = self.recipe.as_ref()?;
+        let mut best: Option<(Id, f64)> = None;
+        for tool in &recipe.tools {
+            let Some(part) = self.definitions.get(&tool.key).and_then(|d| d.parts.first()) else { continue };
+            let Some(b) = part.bounds else { continue };
+            let t = part_to_world * tool.placement;
+            let inv = t.inverse();
+            let (o, d) = (inv.transform_point3(ray.origin), inv.transform_vector3(ray.dir));
+            if !ray_box(o, d, b, ray.t_min) {
+                continue;
+            }
+            let clip = self.section.map(|s| (inv.transform_point3(s.origin), inv.transform_vector3(s.normal)));
+            let Some((k, _, _)) = ray_mesh(o, d, &part.mesh, ray.t_min, clip) else { continue };
+            let world_t = (t.transform_point3(o + d * k) - ray.origin).dot(ray.dir);
+            if best.is_none_or(|(_, b)| world_t < b) {
+                best = Some((tool.machining, world_t));
             }
         }
         best

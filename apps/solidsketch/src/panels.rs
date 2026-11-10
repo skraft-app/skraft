@@ -4,7 +4,7 @@
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::{t, tp};
-use solidsketch_model::{ComponentKind, Document, EntityPath, Id, Occurrence, Operation, Units, measure};
+use solidsketch_model::{ComponentKind, Document, EntityPath, Id, Occurrence, Operation, Scope, Units, measure};
 use solidsketch_tools::{Editor, OptionValue};
 
 use crate::commands::Menu;
@@ -20,6 +20,14 @@ pub enum Action {
     ToolOption(&'static str, OptionValue),
     /// Paint with this material (none: remove paint): the paint tool starts.
     PaintWith(Option<Id>),
+    /// The "Machinings" switch of an open part (ARCHITECTURE.md §2.9), kept in the preferences.
+    ToggleMachinings,
+    /// What changes to the open part reach (§2.5).
+    PartScope(Scope),
+    /// Machinings of the open part chosen in its list: shown, then selected.
+    SelectMachinings(Vec<Id>),
+    /// The machining hovered in the list, if any.
+    HoverMachining(Option<Id>),
 }
 
 /// A command as shown now: its label, whether it can run, its state, its shortcut.
@@ -62,9 +70,32 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView) -> bool {
 }
 
 /// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its name, then its options —
-/// a choice as a row of buttons, a toggle as one.
+/// a choice as a row of buttons, a toggle as one. An open part puts its "Machinings" switch
+/// first (§2.9).
 pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
+        if editor.open_part().is_some() {
+            let on = editor.machinings_switch();
+            if ui.selectable_label(on, t!("option_bar.machinings")).on_hover_text(t!("option_bar.machinings_tip")).clicked() {
+                actions.push(Action::ToggleMachinings);
+            }
+            ui.separator();
+            ui.label(t!("option_bar.choice", option = t!("tool.boolean.option.scope"))).on_hover_text(t!("option_bar.part_scope_tip"));
+            let all = match editor.open_part_copies() {
+                n if n > 1 => t!("tool.boolean.option.all_count", count = n),
+                _ => t!("tool.boolean.option.all_one"),
+            };
+            let scope = editor.part_scope();
+            for (s, label, tip) in [
+                (Scope::All, all, t!("tool.boolean.option.all_tip")),
+                (Scope::This, t!("tool.boolean.option.this"), t!("tool.boolean.option.this_tip")),
+            ] {
+                if ui.selectable_label(scope == s, label).on_hover_text(tip).clicked() && scope != s {
+                    actions.push(Action::PartScope(s));
+                }
+            }
+            ui.separator();
+        }
         ui.strong(editor.tool_kind().label());
         for o in editor.tool_options() {
             ui.separator();
@@ -188,7 +219,7 @@ fn tree(ui: &mut egui::Ui, editor: &Editor, doc: &Document, assembly: Id, path: 
     }
     let tint = ui.visuals().text_color();
     for o in &a.occurrences {
-        let selected = editor.context() == path.as_slice() && editor.selection().contains(&o.id);
+        let selected = editor.context() == path.as_slice() && (editor.selection().contains(&o.id) || editor.open_part() == Some(o.id));
         let row = |ui: &mut egui::Ui| {
             ui.horizontal(|ui| {
                 ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
@@ -259,6 +290,10 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
     let context = editor.context_definition();
     let sel = editor.selection();
     let Ok(asm) = doc.assembly(context) else { return };
+    if let Some(open) = editor.open_part().and_then(|id| asm.occurrence(id)) {
+        open_part_info(ui, editor, open, actions);
+        return;
+    }
     match sel {
         [] => {
             if editor.context().is_empty() {
@@ -297,8 +332,9 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                 }
                 ui.end_row();
                 if let ComponentKind::Part(p) = &c.kind {
-                    // In the part's own axes: length, width, thickness as the part lies.
-                    if let Some((lo, hi)) = p.blank.vertex_bounds() {
+                    // In the part's own axes: length, width, thickness as the part lies; the
+                    // blank's exact box, once the kernel has given it.
+                    if let Some((lo, hi)) = editor.scene().bounds_of(&p.blank) {
                         ui.label(t!("panel.entity_info.dimensions"));
                         ui.label(dims(lo, hi, units));
                         ui.end_row();
@@ -346,6 +382,58 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
             ui.label(tp!("panel.entity_info.selected", many.len()));
         }
     }
+}
+
+/// The open part (ARCHITECTURE.md §2.9): its name, how to close it, and its machinings — each
+/// with its tool's size, the failed ones marked; hovered and selected with the view. A click
+/// shows the machinings if they are not, and selects (Shift: adds or removes).
+fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions: &mut Vec<Action>) {
+    let doc = editor.document();
+    let units = &doc.settings().units;
+    let Ok(c) = doc.component(open.component) else { return };
+    ui.label(t!("panel.entity_info.editing", name = c.name));
+    ui.weak(t!("panel.entity_info.editing_part_exit"));
+    let Some(p) = c.as_part() else { return };
+    ui.add_space(6.0);
+    if p.machinings.is_empty() {
+        ui.weak(t!("panel.entity_info.no_machinings"));
+        return;
+    }
+    ui.strong(t!("panel.entity_info.machinings_count", count = p.machinings.len()));
+    let shown = editor.showing_machinings();
+    let hovered = editor.hovered_machining();
+    let mut over = None;
+    for (k, m) in p.machinings.iter().enumerate() {
+        // The tool's exact box, once the kernel has given it.
+        let size = editor.scene().bounds_of(&m.tool).map_or_else(|| solidsketch_i18n::ellipsis(String::new()), |(lo, hi)| dims(lo, hi, units));
+        let mut text = egui::RichText::new(t!("panel.entity_info.machining_row", number = k + 1, size = size));
+        if p.is_failed(m.id) {
+            text = egui::RichText::new(t!("panel.entity_info.machining_failed", row = text.text())).color(ui.visuals().error_fg_color);
+        }
+        if shown && hovered == Some(m.id) {
+            text = text.strong();
+        }
+        let selected = shown && editor.selection().contains(&m.id);
+        let r = ui.selectable_label(selected, text);
+        let r = if shown { r } else { r.on_hover_text(t!("panel.entity_info.machining_show_tip")) };
+        if r.hovered() {
+            over = Some(m.id);
+        }
+        if r.clicked() {
+            if !shown {
+                actions.push(Action::ToggleMachinings);
+            }
+            let mut ids = if shown && ui.input(|i| i.modifiers.shift) { editor.selection().to_vec() } else { Vec::new() };
+            match ids.iter().position(|id| *id == m.id) {
+                Some(i) => {
+                    ids.remove(i);
+                }
+                None => ids.push(m.id),
+            }
+            actions.push(Action::SelectMachinings(ids));
+        }
+    }
+    actions.push(Action::HoverMachining(over));
 }
 
 // ---- materials ---------------------------------------------------------------------------------

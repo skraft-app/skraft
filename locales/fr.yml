@@ -43,6 +43,7 @@ common:
   assembly: "Assemblage"
   material: "Matière"
   materials: "Matières"
+  machinings: "Usinages"
 
 # Key names, in hints and shortcuts.
 key:
@@ -144,6 +145,12 @@ palette:
 option_bar:
   # Before a choice's values.
   choice: "%{option} :"
+  # The switch shown while a part is open: its blank as a ghost, its machinings' tools
+  # (ARCHITECTURE.md §2.9).
+  machinings: "$t(common.machinings)"
+  machinings_tip: "Montrer le brut en transparence et les outils de ses usinages"
+  # The open part's scope, before its choices (those of the booleans' scope).
+  part_scope_tip: "Ce que les modifications de la pièce ouverte changent (revient à tous les exemplaires à chaque ouverture)"
 
 prefs:
   title: "$t(common.preferences)"
@@ -210,7 +217,16 @@ panel:
     title: "Infos sur l'entité"
     no_selection: "Aucune sélection"
     editing: "Édition de « %{name} »"
-    editing_exit: "Double-clic dans le vide pour sortir"
+    editing_exit: "Clic hors de la boîte pour sortir"
+    # An open part (its axes shown, the rest faded).
+    editing_part_exit: "Clic hors de la boîte ou Échap pour fermer la pièce"
+    # The open part's machinings, listed (ARCHITECTURE.md §2.9).
+    no_machinings: "Aucun usinage"
+    machinings_count: "$t(common.machinings) (%{count})"
+    # One machining: its number in the part, its tool's size.
+    machining_row: "Usinage %{number} · %{size}"
+    machining_failed: "%{row} — n'a pas pu être découpé"
+    machining_show_tip: "Cliquer pour montrer les usinages et choisir celui-ci"
     type: "Type"
     type_part: "$t(common.part)"
     type_assembly: "$t(common.assembly)"
@@ -218,7 +234,7 @@ panel:
     occurrence: "Exemplaire"
     occurrences: "Exemplaires"
     dimensions: "$t(common.dimensions)"
-    machinings: "Usinages"
+    machinings: "$t(common.machinings)"
     topology: "Topologie"
     topology_counts: "%{faces} faces · %{edges} arêtes · %{vertices} sommets"
     position: "Position"
@@ -276,7 +292,7 @@ tool:
   select:
     name: "Sélection"
     hint:
-      idle: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché) · Maj : ajouter/retirer · Double-clic : entrer dans un assemblage, ou en sortir"
+      idle: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché) · Maj : ajouter/retirer · Double-clic : entrer dans un assemblage ou ouvrir une pièce, ou en sortir"
       crossing: "Capture : sélectionne ce que le rectangle touche · Maj : ajouter/retirer"
       window: "Fenêtre : sélectionne ce que le rectangle contient entièrement · Maj : ajouter/retirer"
   box:
@@ -414,6 +430,8 @@ infer:
 operation:
   # Drawing a part, whatever its shape.
   add_part: "$t(common.part)"
+  # A shape drawn in an open part: cut from it.
+  add_machining: "Usinage"
   transform: "$t(common.move)"
   duplicate: "$t(common.copy)"
   array: "Réseau"
@@ -484,6 +502,7 @@ error:
     root_placed: "le modèle ne se place pas"
     self_boolean: "une pièce ne se combine pas avec elle-même"
     no_such_face: "pas de telle face"
+    no_machinings: "aucun usinage désigné"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"

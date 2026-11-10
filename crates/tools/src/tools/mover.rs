@@ -10,7 +10,8 @@
 
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, Id, Operation};
+use solidsketch_model::Id;
+use crate::scene::Owner;
 
 use super::{Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, Tool, ToolInput, ToolKind, ToolOption, cross, guide_color};
 use crate::infer::Inference;
@@ -35,9 +36,9 @@ enum State {
     Moving { from: DVec3, to: DVec3 },
 }
 
-/// The context's axes, in the world.
+/// The axes' axis `k`, in the world.
 fn axis(cx: &Cx<'_>, k: usize) -> DVec3 {
-    cx.context_transform.matrix3.col(k).normalize()
+    cx.axis(k)
 }
 
 impl MoveTool {
@@ -45,7 +46,7 @@ impl MoveTool {
     /// lines through `from`, held on the locked line if any, else on the horizontal plane
     /// through `from`.
     fn target(&self, cx: &Cx<'_>, px: DVec2, from: DVec3) -> (DVec3, Option<Inference>) {
-        let keep = |p: &EntityPath| !cx.selectable(p).is_some_and(|id| self.moving.contains(&id));
+        let keep = |o: &Owner<'_>| !cx.is_moving(o, &self.moving);
         match cx.infer_from(px, keep, Some((from, axis(cx, 2))), from, cx.lock()) {
             Some(i) => (i.point, Some(i)),
             None => (from, None),
@@ -54,16 +55,14 @@ impl MoveTool {
 
     fn finish(&mut self, cx: &Cx<'_>, from: DVec3, to: DVec3) -> Vec<Command> {
         self.state = State::Start;
-        let inv = cx.context_transform.matrix3.inverse();
-        let transform = DAffine3::from_translation(inv.mul_vec3(to - from));
         let entities = std::mem::take(&mut self.moving);
         let op = if self.copy {
-            let last = LastCopy::new(cx.context_def, entities, Motion::Translate(transform.translation));
+            let last = LastCopy::new(cx.moved(), entities, Motion::Translate(to - from));
             let op = last.op.clone();
             self.last = Some(last);
             op
         } else {
-            Operation::Transform { context: cx.context_def, entities, transform }
+            cx.moved().transform(entities, DAffine3::from_translation(to - from))
         };
         self.copy = false;
         self.snap = None;
@@ -95,8 +94,7 @@ impl Tool for MoveTool {
                 self.moving = cx.selection.to_vec();
                 if self.moving.is_empty() {
                     // What is under the cursor, else what the inferred point is on.
-                    let under = inf.as_ref().and_then(|i| i.hit.as_ref().map(|h| &h.path).or(i.path.as_ref()));
-                    match under.and_then(|p| cx.selectable(p)) {
+                    match cx.entity_under(*px, inf.as_ref()) {
                         Some(id) => {
                             self.moving = vec![id];
                             out.push(Command::Select(vec![id]));

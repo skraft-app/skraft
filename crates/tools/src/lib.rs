@@ -14,7 +14,7 @@ pub mod vcb;
 mod tests;
 
 pub use camera::{Camera, Projection, Ray, StandardView, ViewArea};
-pub use editor::{Editor, Mark, View, ViewHighlight, ViewPlacement};
+pub use editor::{Editor, Look, Mark, View, ViewHighlight, ViewPlacement};
 pub use infer::{EdgeRef, InferKind, Inference, LineKind};
-pub use scene::{DefinitionMesh, DisplayScene, Hit, PartMesh, Placement};
+pub use scene::{DefinitionMesh, DisplayScene, Hit, PartMesh, Owner, Piece, Placement, RecipeMeshes, RecipeTool};
 pub use tools::{Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PreviewLine, ToolInput, ToolKind, ToolOption};

@@ -8,7 +8,8 @@
 
 use glam::{DAffine3, DQuat, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, Id, Operation};
+use solidsketch_model::Id;
+use crate::scene::Owner;
 use crate::infer::Inference;
 use crate::vcb::{Vcb, VcbKind, VcbValue};
 
@@ -40,9 +41,9 @@ enum State {
     Angle { center: DVec3, axis: DVec3, reference: DVec3, angle: f64 },
 }
 
-/// The context's axis `k`, in the world.
+/// The axes' axis `k` (the open part's, else the context's), in the world.
 fn context_axis(cx: &Cx<'_>, k: usize) -> DVec3 {
-    cx.context_transform.matrix3.col(k).normalize()
+    cx.axis(k)
 }
 
 /// The rotation of `angle` about the line through `center` along `axis` (world).
@@ -71,7 +72,7 @@ impl RotateTool {
     /// inferred on.
     fn direction(&self, cx: &Cx<'_>, px: DVec2, center: DVec3, axis: DVec3) -> (Option<DVec3>, Option<Inference>) {
         let turning = matches!(self.state, State::Angle { .. });
-        let keep = |p: &EntityPath| !(turning && cx.selectable(p).is_some_and(|id| self.moving.contains(&id)));
+        let keep = |o: &Owner<'_>| !(turning && cx.is_moving(o, &self.moving));
         let inf = cx.infer_in_plane(px, keep, (center, axis), center).filter(|i| i.kind.is_feature());
         let p = match &inf {
             Some(i) => Some(i.point),
@@ -86,18 +87,16 @@ impl RotateTool {
 
     fn finish(&mut self, cx: &Cx<'_>, center: DVec3, axis: DVec3, angle: f64) -> Vec<Command> {
         let world = rotation_about(center, axis, angle);
-        let transform = cx.context_transform.inverse() * world * cx.context_transform;
         let entities = std::mem::take(&mut self.moving);
         let copy = self.copy;
         self.reset();
         let op = if copy {
-            let motion = Motion::Rotate { center, axis, angle, frame: cx.context_transform };
-            let last = LastCopy::new(cx.context_def, entities, motion);
+            let last = LastCopy::new(cx.moved(), entities, Motion::Rotate { center, axis, angle });
             let op = last.op.clone();
             self.last = Some(last);
             op
         } else {
-            Operation::Transform { context: cx.context_def, entities, transform }
+            cx.moved().transform(entities, world)
         };
         vec![Command::Apply(op)]
     }
@@ -147,8 +146,7 @@ impl Tool for RotateTool {
                 self.moving = cx.selection.to_vec();
                 if self.moving.is_empty() {
                     let inf = cx.infer(*px, |_| true, None);
-                    let under = inf.as_ref().and_then(|i| i.hit.as_ref().map(|h| &h.path).or(i.path.as_ref()));
-                    match under.and_then(|p| cx.selectable(p)) {
+                    match cx.entity_under(*px, inf.as_ref()) {
                         Some(id) => {
                             self.moving = vec![id];
                             out.push(Command::Select(vec![id]));

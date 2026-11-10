@@ -6,7 +6,7 @@ use solidcore::kernel::{Kernel, KernelOptions};
 use solidcore::primitive::api_primitives as prim;
 use solidcore_record::brep::Brep as Record;
 
-use crate::job::{Display, Job, JobId, JobResult, KernelService, Output, Task};
+use crate::job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task};
 use crate::{BooleanOp, Error, Mesh, Primitive, Result, Snaps, Solid};
 
 impl Primitive {
@@ -90,6 +90,30 @@ impl Solid {
         })
     }
 
+    /// The solid's exact bounding box, in its own coordinates (the extremes of its faces, not
+    /// only of its vertices — a cylinder has a vertex per circle). SolidCore's tight box,
+    /// within its loose one: the loose box always holds the solid (larger once turned), and the
+    /// tight one of a mirrored cylinder is wrong along its axis (1234567, a placeholder:
+    /// `tests/solidcore_quirks.rs`), which the loose one bounds.
+    pub fn bounds(&self) -> Result<(DVec3, DVec3)> {
+        guarded("bounds", || {
+            use solidcore::query::api_queries::brep_bounding_box;
+            let mut k = kernel();
+            let b = to_kernel(&mut k, &self.record, "bounds")?;
+            let corners = |e: solidcore::geom::extent3d::Extent3d| {
+                (DVec3::new(e.min_at(0), e.min_at(1), e.min_at(2)), DVec3::new(e.max_at(0), e.max_at(1), e.max_at(2)))
+            };
+            let loose = brep_bounding_box(&k, &b, false).map_err(|e| kernel_err("bounds", e))?;
+            if !loose.is_defined() {
+                return Err(Error::Empty("bounds".into()));
+            }
+            let (llo, lhi) = corners(loose);
+            let Ok(tight) = brep_bounding_box(&k, &b, true).map(corners) else { return Ok((llo, lhi)) };
+            let (lo, hi) = (tight.0.max(llo), tight.1.min(lhi));
+            Ok(if lo.cmple(hi).all() { (lo, hi) } else { (llo, lhi) })
+        })
+    }
+
     /// A display mesh of the solid, in its own coordinates.
     pub fn mesh(&self) -> Result<Mesh> {
         self.display().map(|d| d.mesh)
@@ -98,8 +122,9 @@ impl Solid {
     /// The display mesh and the snap features (what tools infer on), in the solid's own
     /// coordinates: one tessellation for both.
     pub fn display(&self) -> Result<Display> {
-        let size = self
-            .vertex_bounds()
+        let bounds = self.bounds().ok();
+        let size = bounds
+            .or_else(|| self.vertex_bounds())
             .map(|(lo, hi)| (hi - lo).length())
             .filter(|s| *s > 1e-6)
             .unwrap_or(100.0);
@@ -111,25 +136,36 @@ impl Solid {
             let visible: Vec<bool> = (0..m.edges.len()).map(|i| edge_drawn(&self.record, &m, i)).collect();
             let polylines: Vec<Vec<DVec3>> =
                 m.edges.iter().map(|e| e.iter().map(|p| DVec3::new(p.x, p.y, p.z)).collect()).collect();
-            Ok(Display { mesh: Mesh::from_tess(&m, &visible), snaps: Snaps::build(&self.record, &polylines, &visible) })
+            Ok(Display { mesh: Mesh::from_tess(&m, &visible), snaps: Snaps::build(&self.record, &polylines, &visible), bounds })
         })
     }
 }
 
 // ---- jobs -----------------------------------------------------------------------------------
 
+/// The solid a task input names: one of the job's inputs, or what an earlier task produced.
+fn input<'a>(job: &'a Job, out: &'a [Output], i: u32) -> Result<&'a Solid> {
+    let found = if i & EARLIER != 0 {
+        match out.get((i & !EARLIER) as usize) {
+            Some(Output::Solid { solid, .. } | Output::Recipe { solid, .. }) => Some(solid),
+            _ => None,
+        }
+    } else {
+        job.inputs.get(i as usize).map(|s| &**s)
+    };
+    found.ok_or_else(|| Error::Convert { call: "job".into(), message: format!("no input {i:#x}") })
+}
+
 /// Runs every task of `job` in order. A task producing a solid that fails fails the job.
 pub fn run(job: &Job) -> JobResult {
-    let input = |i: u32| {
-        job.inputs.get(i as usize).ok_or_else(|| Error::Convert { call: "job".into(), message: format!("no input {i}") })
-    };
     let solid = |s: Solid| {
         let display = s.display().map_err(|e| e.to_string());
         Output::Solid { solid: s, display }
     };
     let mut out = Vec::with_capacity(job.tasks.len());
     for task in &job.tasks {
-        out.push(match task {
+        let input = |i: u32| input(job, &out, i);
+        let done = match task {
             Task::Primitive { primitive, placement } => {
                 let mut s = primitive.build()?;
                 if !placement.abs_diff_eq(DAffine3::IDENTITY, 1e-12) {
@@ -146,9 +182,28 @@ pub fn run(job: &Job) -> JobResult {
                 };
                 solid(r)
             }
+            Task::Recipe { blank, tools } => {
+                let mut shape = input(*blank)?.clone();
+                let mut failed = Vec::new();
+                for (k, (tool, placement)) in tools.iter().enumerate() {
+                    let tool = input(*tool)?;
+                    let cut = if placement.abs_diff_eq(DAffine3::IDENTITY, 1e-12) {
+                        shape.boolean(tool, BooleanOp::Difference)
+                    } else {
+                        tool.transformed(placement).and_then(|t| shape.boolean(&t, BooleanOp::Difference))
+                    };
+                    match cut {
+                        Ok(s) => shape = s,
+                        Err(_) => failed.push(k as u32),
+                    }
+                }
+                let display = shape.display().map_err(|e| e.to_string());
+                Output::Recipe { solid: shape, display, failed }
+            }
             Task::Display { solid: i } => Output::Display(input(*i)?.display().map_err(|e| e.to_string())),
             Task::Panic { message } => guarded("panic", || -> Result<Output> { panic!("{message}") })?,
-        });
+        };
+        out.push(done);
     }
     Ok(out)
 }
@@ -306,7 +361,8 @@ fn to_record(k: &mut Kernel, b: &mut solidcore::Brep, call: &str) -> Result<Soli
 }
 
 /// Makes every frame of `r` square again. A rotation about a slanted axis leaves a plane's or
-/// a frame's axes off square by ~1e-15, while SolidCore reads a record back only within ~3e-16
+/// a frame's axes off square by ~1e-15 (`tests/solidcore_quirks.rs`), while SolidCore reads a
+/// record back only within ~3e-16
 /// (`surface::from_parameters`): the next operation on the solid would be refused ("the
 /// plane's axes are not square"). Moves nothing measurable: the corrections are at rounding.
 fn square_frames(r: &mut Record) {
@@ -442,7 +498,7 @@ mod tests {
     #[test]
     fn box_snaps() {
         let b = Solid::new_box(DVec3::ZERO, DVec3::new(10.0, 20.0, 30.0)).unwrap();
-        let Display { mesh: m, snaps: s } = b.display().unwrap();
+        let Display { mesh: m, snaps: s, .. } = b.display().unwrap();
         assert_eq!(m.edge_ids.len(), m.edges.len());
         assert_eq!(s.vertices.len(), 8);
         assert!(s.vertices.contains(&DVec3::new(10.0, 20.0, 30.0)));
@@ -529,6 +585,54 @@ mod tests {
                 _ => panic!("unexpected outputs"),
             }
         }
+    }
+
+    #[test]
+    fn exact_bounds_of_curved_solids() {
+        let close = |(lo, hi): (DVec3, DVec3), (a, b): (DVec3, DVec3)| (lo - a).length() < 1e-6 && (hi - b).length() < 1e-6;
+        let cyl = Solid::new_cylinder(DVec3::ZERO, 4.0, 30.0).unwrap();
+        assert!(close(cyl.bounds().unwrap(), (DVec3::new(-4.0, -4.0, 0.0), DVec3::new(4.0, 4.0, 30.0))), "{:?}", cyl.bounds());
+        let sphere = Solid::new_sphere(DVec3::splat(1.0), 5.0).unwrap();
+        assert!(close(sphere.bounds().unwrap(), (DVec3::splat(-4.0), DVec3::splat(6.0))), "{:?}", sphere.bounds());
+        let torus = Solid::new_torus(DVec3::ZERO, 10.0, 2.0).unwrap();
+        assert!(close(torus.bounds().unwrap(), (DVec3::new(-12.0, -12.0, -2.0), DVec3::new(12.0, 12.0, 2.0))), "{:?}", torus.bounds());
+        let cone = Solid::new_cone(DVec3::ZERO, 6.0, 2.0, 10.0).unwrap();
+        assert!(close(cone.bounds().unwrap(), (DVec3::new(-6.0, -6.0, 0.0), DVec3::new(6.0, 6.0, 10.0))), "{:?}", cone.bounds());
+        // Mirrored (SolidCore's tight box of a mirrored cylinder is wrong along its axis) and
+        // turned (its loose box grows).
+        let mirrored = cyl.transformed(&DAffine3::from_scale(DVec3::new(-1.0, 1.0, 1.0))).unwrap();
+        // There, the loose box: grown by SolidCore's tolerance (2e-5 mm).
+        let (lo, hi) = mirrored.bounds().unwrap();
+        assert!((lo - DVec3::new(-4.0, -4.0, 0.0)).length() < 1e-4 && (hi - DVec3::new(4.0, 4.0, 30.0)).length() < 1e-4, "{lo} {hi}");
+        let turned = cyl.transformed(&DAffine3::from_rotation_z(0.5)).unwrap();
+        assert!(close(turned.bounds().unwrap(), (DVec3::new(-4.0, -4.0, 0.0), DVec3::new(4.0, 4.0, 30.0))), "{:?}", turned.bounds());
+        // Cut: a box with a half cylinder off one side keeps the box's extents.
+        let b = Solid::new_box(DVec3::ZERO, DVec3::new(20.0, 10.0, 5.0)).unwrap();
+        let cut = b.boolean(&Solid::new_cylinder(DVec3::new(10.0, 0.0, -1.0), 3.0, 7.0).unwrap(), BooleanOp::Difference).unwrap();
+        assert!(close(cut.bounds().unwrap(), (DVec3::ZERO, DVec3::new(20.0, 10.0, 5.0))), "{:?}", cut.bounds());
+    }
+
+    #[test]
+    fn a_recipe_skips_the_tools_that_fail() {
+        let board = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::new(100.0, 50.0, 18.0)).unwrap());
+        let drill = Arc::new(Solid::new_cylinder(DVec3::ZERO, 4.0, 30.0).unwrap());
+        let huge = Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap());
+        let at = |x: f64| DAffine3::from_translation(DVec3::new(x, 25.0, -5.0));
+        // Two holes, and a tool swallowing the whole board between them.
+        let job = Job { inputs: vec![board.clone(), drill, huge], tasks: vec![Task::Recipe { blank: 0, tools: vec![(1, at(20.0)), (2, DAffine3::IDENTITY), (1, at(80.0))] }] };
+        let out = run(&job).unwrap();
+        let [Output::Recipe { solid, display, failed }] = out.as_slice() else { panic!("{out:?}") };
+        assert_eq!(failed, &[1]);
+        assert!(display.is_ok());
+        // A box with two through holes: 6 + 2 faces at least.
+        assert!(solid.topology_counts().0 >= board.topology_counts().0 + 2, "{:?}", solid.topology_counts());
+
+        // Every tool failing leaves the blank.
+        let job = Job { inputs: vec![board.clone(), Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap())], tasks: vec![Task::Recipe { blank: 0, tools: vec![(1, DAffine3::IDENTITY)] }] };
+        let out = run(&job).unwrap();
+        let [Output::Recipe { solid, failed, .. }] = out.as_slice() else { panic!("{out:?}") };
+        assert_eq!(failed, &[0]);
+        assert_eq!(solid.topology_counts(), board.topology_counts());
     }
 
     #[test]

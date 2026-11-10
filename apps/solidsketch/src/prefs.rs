@@ -37,6 +37,8 @@ pub struct Preferences {
     pub shortcuts: BTreeMap<String, String>,
     /// The materials panel is shown.
     pub show_materials: bool,
+    /// An open part shows its machinings (ARCHITECTURE.md §2.9).
+    pub show_machinings: bool,
 }
 
 impl Default for Preferences {
@@ -51,6 +53,7 @@ impl Default for Preferences {
             palette: Palette::Neutral,
             shortcuts: BTreeMap::new(),
             show_materials: true,
+            show_machinings: false,
         }
     }
 }

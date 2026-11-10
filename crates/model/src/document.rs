@@ -4,7 +4,7 @@
 //! The document is immutable piece by piece: components and solids sit behind `Arc`, so a
 //! clone shares everything and an operation copies only what it changes (`Arc::make_mut`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use glam::DAffine3;
@@ -16,8 +16,9 @@ use solidsketch_kernel::Solid;
 
 use crate::{Error, Result};
 
-/// A stable identifier, from one counter: unique across a document for components and
-/// machinings, within their assembly for occurrences (docs/ARCHITECTURE.md §2.6).
+/// A stable identifier, from one counter: unique across a document for components, within
+/// their assembly for occurrences and within their part for machinings (a copy of a component
+/// keeps them, docs/ARCHITECTURE.md §2.6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Id(pub u64);
@@ -77,6 +78,10 @@ pub struct Part {
     /// blank is the shape). A cache saved with the file: the recipe is the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) shape: Option<Arc<Solid>>,
+    /// The machinings that failed to cut when the shape was computed: skipped, the others
+    /// cut (§2.4). Part of the same cache.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(crate) failed: BTreeSet<Id>,
     /// The material of single faces of the shape, by their index in its record (§7 quater):
     /// over the occurrence's. A boolean renumbers faces: an index may then name another
     /// face, or none (ignored).
@@ -86,12 +91,21 @@ pub struct Part {
 
 impl Part {
     pub fn new(blank: Arc<Solid>) -> Self {
-        Part { blank, machinings: Vec::new(), shape: None, faces: BTreeMap::new() }
+        Part { blank, machinings: Vec::new(), shape: None, failed: BTreeSet::new(), faces: BTreeMap::new() }
     }
 
     /// The part as it is drawn and used: the blank with its machinings cut.
     pub fn shape(&self) -> &Arc<Solid> {
         self.shape.as_ref().unwrap_or(&self.blank)
+    }
+
+    pub fn machining(&self, id: Id) -> Option<&Machining> {
+        self.machinings.iter().find(|m| m.id == id)
+    }
+
+    /// Did the machining `id` fail to cut, the last time the shape was computed?
+    pub fn is_failed(&self, id: Id) -> bool {
+        self.failed.contains(&id)
     }
 }
 

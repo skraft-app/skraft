@@ -4,14 +4,15 @@
 //! come with the base (`600;400;19`, `600==` a cube; `r;h` for a cylinder): the shape is done.
 //!
 //! The base lies in the plane of the face under the first click, through the point inferred
-//! there (§6 ter), and the height runs along its normal; with no face, on the context's ground.
+//! there (§6 ter), and the height runs along its normal; with no face, on the ground of the
+//! axes (the open part's, ARCHITECTURE.md §2.9, else the context's).
 //! The arrow keys choose the plane instead: ↑ horizontal, → across the red axis, ← across the
-//! green one. A shape aligned with the context is built as is; any other is built in its own
+//! green one. A shape aligned with the axes is built as is; any other is built in its own
 //! frame and placed.
 
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::{Operation, Primitive};
+use solidsketch_model::Primitive;
 
 use super::{Command, Cx, INK, Preview, PreviewLine, Tool, ToolInput, ToolKind, cross};
 use crate::infer::Inference;
@@ -20,7 +21,7 @@ use crate::vcb::{Vcb, VcbKind, VcbValue};
 /// The smallest dimension built (mm).
 const MIN: f64 = 1e-3;
 
-/// A drawing frame, in context coordinates: origin `o`, in-plane axes `u` and `v`, normal `n`
+/// A drawing frame, in the axes' coordinates: origin `o`, in-plane axes `u` and `v`, normal `n`
 /// (right-handed, orthonormal).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Frame {
@@ -52,12 +53,12 @@ impl Frame {
         DVec3::new(d.dot(self.u), d.dot(self.v), d.dot(self.n))
     }
 
-    /// The frame's point `l`, in context coordinates.
+    /// The frame's point `l`, in the axes' coordinates.
     fn at(&self, l: DVec3) -> DVec3 {
         self.o + self.u * l.x + self.v * l.y + self.n * l.z
     }
 
-    /// The context's own axes?
+    /// Along the axes themselves?
     fn aligned(&self) -> bool {
         self.u == DVec3::X && self.v == DVec3::Y && self.n == DVec3::Z
     }
@@ -77,31 +78,31 @@ fn frame_at(cx: &Cx<'_>, px: DVec2) -> Option<(Frame, Inference)> {
     let inf = cx.infer(px, |_| true, None)?;
     let n = match (cx.axis_lock, &inf.hit) {
         (Some(k), _) => DVec3::AXES[k],
-        // A normal goes to the context by the transpose of context → world.
-        (None, Some(h)) => cx.context_transform.matrix3.transpose().mul_vec3(h.normal),
+        // A normal goes to the axes by the transpose of axes → world.
+        (None, Some(h)) => cx.axes().matrix3.transpose().mul_vec3(h.normal),
         (None, None) => DVec3::Z,
     };
-    Some((Frame::new(cx.to_context(inf.point), n), inf))
+    Some((Frame::new(cx.to_axes(inf.point), n), inf))
 }
 
-/// The cursor's point on the frame's plane (context coordinates): a feature inferred anywhere
+/// The cursor's point on the frame's plane (the axes' coordinates): a feature inferred anywhere
 /// (endpoint, midpoint, edge…) is brought along the normal onto the plane; otherwise the
 /// cursor's ray meets the plane.
 fn on_plane(cx: &Cx<'_>, px: DVec2, f: &Frame) -> Option<(DVec3, Option<Inference>)> {
-    let n_world = cx.context_transform.matrix3.inverse().transpose().mul_vec3(f.n).normalize();
+    let n_world = cx.axes().matrix3.inverse().transpose().mul_vec3(f.n).normalize();
     if let Some(inf) = cx.infer(px, |_| true, Some((cx.to_world(f.o), n_world))).filter(|i| i.kind.is_feature()) {
-        return Some((f.flatten(cx.to_context(inf.point)), Some(inf)));
+        return Some((f.flatten(cx.to_axes(inf.point)), Some(inf)));
     }
-    cx.context_ray(px).hit_plane(f.o, f.n).map(|p| (p, None))
+    cx.axes_ray(px).hit_plane(f.o, f.n).map(|p| (p, None))
 }
 
-/// The height the cursor gives above the plane at `p` (context coordinates): that of a feature
+/// The height the cursor gives above the plane at `p` (the axes' coordinates): that of a feature
 /// inferred, else that of the closest point of the normal through `p` to the cursor's ray.
 fn height_at(cx: &Cx<'_>, px: DVec2, f: &Frame, p: DVec3) -> (f64, Option<Inference>) {
     if let Some(inf) = cx.infer(px, |_| true, None).filter(|i| i.kind.is_feature()) {
-        return (f.local(cx.to_context(inf.point)).z, Some(inf));
+        return (f.local(cx.to_axes(inf.point)).z, Some(inf));
     }
-    (f.local(cx.context_ray(px).closest_on_line(p, f.n)).z, None)
+    (f.local(cx.axes_ray(px).closest_on_line(p, f.n)).z, None)
 }
 
 fn line(cx: &Cx<'_>, a: DVec3, b: DVec3) -> PreviewLine {
@@ -136,14 +137,14 @@ impl BoxTool {
         }
         let size = DVec3::new(d.x.abs(), d.y.abs(), h.abs());
         let (primitive, placement) = if f.aligned() {
-            // In the context's axes: corners as clicked, no rounding through a frame.
+            // In the axes: corners as clicked, no rounding through a frame.
             let lo = f.o.min(p2);
             (Primitive::Box { origin: DVec3::new(lo.x, lo.y, f.o.z + h.min(0.0)), size }, DAffine3::IDENTITY)
         } else {
             let lo = DVec3::new(d.x.min(0.0), d.y.min(0.0), h.min(0.0));
             (Primitive::Box { origin: lo, size }, f.placement())
         };
-        vec![Command::Apply(Operation::AddPrimitive { context: cx.context_def, primitive, placement })]
+        vec![Command::Apply(cx.add_primitive(primitive, placement))]
     }
 }
 
@@ -286,7 +287,7 @@ impl CylinderTool {
             (DVec3::new(0.0, 0.0, h.min(0.0)), f.placement())
         };
         let primitive = Primitive::Cylinder { origin, radius: r, height: h.abs() };
-        vec![Command::Apply(Operation::AddPrimitive { context: cx.context_def, primitive, placement })]
+        vec![Command::Apply(cx.add_primitive(primitive, placement))]
     }
 }
 

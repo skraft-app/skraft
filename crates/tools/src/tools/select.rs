@@ -1,5 +1,6 @@
-//! Select: click, Shift+click, double-click to enter an assembly, double-click in the
-//! void (or outside the context) to leave it. Dragging draws a selection rectangle (SketchUp):
+//! Select: click, Shift+click, double-click to enter an assembly or open a part
+//! (ARCHITECTURE.md §2.9), a click off its grey box to leave it. In an open part showing its
+//! machinings, clicks take its machinings' tools. Dragging draws a selection rectangle (SketchUp):
 //! left to right it takes the entities it encloses entirely (window), right to left those it
 //! touches (crossing); Shift toggles them instead of replacing the selection.
 
@@ -23,12 +24,13 @@ pub struct SelectTool {
 
 impl SelectTool {
     fn click(&self, px: DVec2, mods: Modifiers, cx: &Cx<'_>) -> Vec<Command> {
-        match cx.pick(px).map(|h| cx.selectable(&h.path)) {
+        let target = if cx.machinings_shown() { Some(cx.pick_machining(px)) } else { cx.pick(px).map(|h| cx.selectable(&h.path)) };
+        match target {
             Some(Some(id)) if mods.toggle => vec![Command::Select(toggled(cx.selection, &[id]))],
             Some(Some(id)) => vec![Command::Select(vec![id])],
-            // Outside the context, or the void.
+            // Outside the context, or the void: off its box, it is left.
             _ if mods.toggle => vec![],
-            _ => vec![Command::Select(vec![])],
+            _ => vec![Command::ClickOff(px)],
         }
     }
 }
@@ -53,19 +55,20 @@ impl Tool for SelectTool {
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        let target = |px: DVec2| cx.pick(px).map(|h| cx.selectable(&h.path));
+        let target = |px: DVec2| {
+            if cx.machinings_shown() { cx.pick_machining(px) } else { cx.pick(px).and_then(|h| cx.selectable(&h.path)) }
+        };
         match input {
             ToolInput::Hover { px } => {
-                self.hover = if self.marquee.is_some() { None } else { target(*px).flatten() };
+                self.hover = if self.marquee.is_some() { None } else { target(*px) };
                 vec![]
             }
             ToolInput::Click { px, mods } => self.click(*px, *mods, cx),
-            ToolInput::DoubleClick { px, .. } => match target(*px) {
-                Some(Some(id)) => {
-                    if cx.doc.is_assembly_occurrence(cx.context_def, id) { vec![Command::Enter(id)] } else { vec![] }
-                }
-                _ if !cx.context.is_empty() => vec![Command::Exit],
-                _ => vec![],
+            // Its first click has already left the context when off its box: a double-click
+            // only enters (one level left per double-click, as per click).
+            ToolInput::DoubleClick { px, .. } => match cx.pick(*px).and_then(|h| cx.selectable(&h.path)) {
+                Some(id) => vec![Command::Enter(id)],
+                None => vec![],
             },
             ToolInput::DragStart { px, .. } => {
                 self.hover = None;
