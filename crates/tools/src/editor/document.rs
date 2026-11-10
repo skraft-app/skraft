@@ -2,6 +2,7 @@
 //! abandoned; undo, redo, opening a file; the scene kept in step (docs/ARCHITECTURE.md §7 ter).
 
 use glam::{DAffine3, DVec3};
+use solidsketch_i18n::t;
 use solidsketch_model::kernel::{Job, JobId, Output, Task};
 use solidsketch_model::{Applied, Document, History, Operation, Outcome, Prepared, Primitive};
 
@@ -47,7 +48,7 @@ impl Editor {
 
     pub(super) fn start(&mut self, op: Operation, after: After, restore: bool) -> Result<Option<Outcome>, String> {
         if self.pending.is_some() {
-            let msg = "Un calcul est déjà en cours".to_owned();
+            let msg = t!("status.busy");
             self.message = Some(msg.clone());
             return Err(msg);
         }
@@ -80,7 +81,7 @@ impl Editor {
         self.history.push(document, op);
         for (solid, display) in displays {
             if let Err(e) = &display {
-                self.message = Some(format!("Affichage impossible : {e}"));
+                self.message = Some(t!("status.display_failed", error = e));
             }
             self.scene.insert(&solid, display);
         }
@@ -95,7 +96,7 @@ impl Editor {
 
     /// Says why `op` failed; puts back the step it replaced. Returns the message.
     pub(super) fn fail(&mut self, op: &Operation, why: String, restore: bool) -> String {
-        let msg = format!("{} : {why}", op.label());
+        let msg = t!("status.op_failed", op = op.label(), error = why);
         if restore && self.history.redo() {
             self.after_change();
         }
@@ -114,10 +115,10 @@ impl Editor {
         for (id, result) in results {
             if let Some(probe) = self.probes.remove(&id) {
                 self.probe_report.push(match (probe, &result) {
-                    (Probe::Crash, Err(e)) => format!("Plantage provoqué : {e}"),
-                    (Probe::Crash, Ok(_)) => "Plantage provoqué : le noyau n'a pas planté".into(),
-                    (Probe::Next, Ok(_)) => "la tâche suivante a abouti".into(),
-                    (Probe::Next, Err(e)) => format!("la tâche suivante a échoué : {e}"),
+                    (Probe::Crash, Err(e)) => t!("status.debug.crashed", error = e),
+                    (Probe::Crash, Ok(_)) => t!("status.debug.not_crashed"),
+                    (Probe::Next, Ok(_)) => t!("status.debug.next_done"),
+                    (Probe::Next, Err(e)) => t!("status.debug.next_failed", error = e),
                 });
                 self.message = Some(self.probe_report.join(" — "));
                 if self.probes.is_empty() {
@@ -127,12 +128,12 @@ impl Editor {
                 let display = match result {
                     Ok(mut outputs) => match outputs.pop() {
                         Some(Output::Display(d)) => d,
-                        _ => Err("réponse inattendue du noyau".into()),
+                        _ => Err(t!("status.unexpected_reply")),
                     },
                     Err(e) => Err(e.to_string()),
                 };
                 if let Err(e) = &display {
-                    self.message = Some(format!("Affichage impossible : {e}"));
+                    self.message = Some(t!("status.display_failed", error = e));
                 }
                 self.scene.insert(&solid, display);
                 meshed = true;
@@ -174,22 +175,22 @@ impl Editor {
         if p.restore && self.history.redo() {
             self.after_change();
         }
-        self.message = Some(format!("{} : abandonné", p.op.label()));
+        self.message = Some(t!("status.abandoned", op = p.op.label()));
     }
 
-    /// Débogage: makes the kernel panic on purpose, a job queued right behind, to check that a
+    /// The debug menu: makes the kernel panic on purpose, a job queued right behind, to check that a
     /// crash is recovered from (docs/ARCHITECTURE.md §7 ter): natively the panic is caught; in
     /// the browser the worker is replaced and the job behind sent to the new one. The status
     /// bar says how both went.
     pub fn crash_kernel(&mut self) {
         let crash = self.job_id();
         self.probes.insert(crash, Probe::Crash);
-        self.kernel.submit(crash, Job { inputs: Vec::new(), tasks: vec![Task::Panic { message: "plantage voulu (menu Débogage)".into() }] });
+        self.kernel.submit(crash, Job { inputs: Vec::new(), tasks: vec![Task::Panic { message: t!("status.debug.crash_message") }] });
         let next = self.job_id();
         self.probes.insert(next, Probe::Next);
         let sphere = Primitive::Sphere { center: DVec3::ZERO, radius: 10.0 };
         self.kernel.submit(next, Job { inputs: Vec::new(), tasks: vec![Task::Primitive { primitive: sphere, placement: DAffine3::IDENTITY }] });
-        self.message = Some("Plantage du noyau demandé…".into());
+        self.message = Some(solidsketch_i18n::ellipsis(t!("status.debug.crash_asked")));
         // A kernel run inline has answered already.
         self.poll();
     }

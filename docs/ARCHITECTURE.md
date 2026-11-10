@@ -1,581 +1,592 @@
 # SolidSketch — architecture
 
-Prototype d'outil de CAO 3D par solides, 100 % Rust, natif et WebAssembly. Moteur géométrique :
-[SolidCore](https://github.com/tangency-labs/solidcore) (B-rep exact, port Rust de SMLib), celui
-de [SolidCraft](https://github.com/tangency-labs/solidcraft). Modélisation proche de SketchUp,
-pensée pour la menuiserie : **pièces** (B-rep usinés) et **assemblages**, tous deux des
-**composants**, dans une arborescence. Objectif à terme : une fiche de débit et un calepinage
-comme [OpenCutList](https://github.com/lairdubois/lairdubois-opencutlist-sketchup-extension).
+A prototype of a solid-based 3D CAD tool, 100 % Rust, native and WebAssembly. Geometry engine:
+[SolidCore](https://github.com/tangency-labs/solidcore) (exact B-rep, a Rust port of SMLib), the
+one behind [SolidCraft](https://github.com/tangency-labs/solidcraft). Modelling close to
+SketchUp, designed for woodworking: **parts** (machined B-reps) and **assemblies**, both
+**components**, in a tree. Long-term goal: a cut list and a cutting diagram like
+[OpenCutList](https://github.com/lairdubois/lairdubois-opencutlist-sketchup-extension).
 
-Décisions prises le 2026-11-09, et le 2026-11-10 pour le modèle pièces / assemblages (§2),
-**implémenté en partie** : ce qui reste est listé au §2.8 et dans `docs/REVUE.md`.
+Decisions made on 2026-11-09, and on 2026-11-10 for the parts / assemblies model (§2),
+**partly implemented**: what is left is listed in §2.8 and in `docs/REVIEW.md`.
 
-## 1. Paradigme : modélisation directe, ouverte au paramétrique
+## 1. Paradigm: direct modelling, open to parametric
 
-- On modélise **directement** : pousser/tirer, déplacer, booléens appliqués immédiatement. Le
-  B-rep *est* l'état ; il n'y a pas d'historique de reconstruction.
-- Pour ne pas fermer la porte au paramétrique, **toute modification du document passe par une
-  `Operation` typée et sérialisable** (`AddPrimitive`, `Transform`, `Boolean`, `PushPull`,
-  `MakeAssembly`, …), jamais par mutation directe. Aujourd'hui les opérations alimentent l'annulation
-  et un journal ; demain, une timeline pourra les rejouer (le verrou étant alors le nommage
-  persistant des faces).
+- Modelling is **direct**: push/pull, move, booleans applied at once. The B-rep *is* the
+  state; there is no rebuild history.
+- To keep the door open to parametric modelling, **every change to the document goes through
+  a typed, serialisable `Operation`** (`AddPrimitive`, `Transform`, `Boolean`, `PushPull`,
+  `MakeAssembly`, …), never through direct mutation. Today operations feed undo and a log;
+  tomorrow a timeline could replay them (the blocker then being persistent face naming).
 
-## 2. Modèle de données : pièces, assemblages, usinages
+## 2. Data model: parts, assemblies, machinings
 
-Décidé le 2026-11-10, en place depuis le même jour (sauf le §2.8) ; l'ancien modèle est résumé
-au §2.7.
+Decided on 2026-11-10, in place since the same day (except §2.8); the former model is summed
+up in §2.7.
 
 ```
 Document
 ├─ components : Id → Arc<Component>
-├─ root       : Id de l'assemblage racine (le modèle, jamais compté lui-même)
+├─ root       : Id of the root assembly (the model, never counted itself)
 └─ next_id
 
 Component { id, name, props, kind }
-  props   : type (bois massif, panneau, quincaillerie…), exclu de la fiche de débit, …
-  kind    = Part     { blank: Arc<Brep>, machinings: Vec<Machining> }      — une pièce
-          | Assembly { occurrences: Vec<Occurrence> }                      — un assemblage
-Occurrence { id, component: Id, transform: T, material, name }            — un exemplaire
-Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — un usinage
-            (plus tard : source = Linked { … }, §2.4)
+  props   : type (solid wood, panel, hardware…), excluded from the cut list, …
+  kind    = Part     { blank: Arc<Brep>, machinings: Vec<Machining> }      — a part
+          | Assembly { occurrences: Vec<Occurrence> }                      — an assembly
+Occurrence { id, component: Id, transform: T, material, name }            — an occurrence
+Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a machining
+            (later: source = Linked { … }, §2.4)
 ```
 
-### 2.1 Composants : pièces et assemblages
+### 2.1 Components: parts and assemblies
 
-- **Un seul mécanisme de partage** : un composant est une définition partagée et nommée, placée
-  par des exemplaires. Une **pièce** contient un B-rep (son brut et ses usinages) ; un
-  **assemblage** contient des exemplaires d'autres composants. « Composant » est le terme
-  commun, que l'interface emploie peu : elle parle de pièces et d'assemblages.
-- **Plus de groupes**, plus de géométrie libre : tout ce qui est dans le modèle est un
-  exemplaire. Dessiner une boîte crée une pièce et son premier exemplaire ; rassembler des
-  exemplaires crée un assemblage (nommé « Assemblage N » tant que l'utilisateur ne le renomme
-  pas).
-- Une pièce s'édite **directement** (pas d'« entrer dedans ») ; un assemblage s'ouvre comme un
-  composant SketchUp (contexte actif, §2.6).
-- Les **propriétés** (type, exclusion de la fiche…) se posent sur n'importe quel composant : une
-  charnière modélisée en plusieurs pièces est un assemblage de type quincaillerie, compté comme
-  un article sans détailler son contenu.
-- **Nom** : celui du composant est le nom de la pièce ; le **nom d'exemplaire** nomme un
-  exemplaire de cette pièce (« Gauche », « Droite »), comme dans OpenCutList.
-- **Purge** : une pièce sans exemplaire disparaît, sauf si l'utilisateur l'a nommée (elle reste
-  alors dans la bibliothèque du modèle).
+- **A single sharing mechanism**: a component is a shared, named definition, placed by
+  occurrences. A **part** holds a B-rep (its blank and its machinings); an **assembly** holds
+  occurrences of other components. "Component" is the common term, which the interface seldom
+  uses: it speaks of parts and assemblies.
+- **No more groups**, no more loose geometry: everything in the model is an occurrence.
+  Drawing a box creates a part and its first occurrence; gathering occurrences creates an
+  assembly (named "Assembly N" until the user renames it).
+- A part is edited **directly** (no "entering" it); an assembly is opened like a SketchUp
+  component (active context, §2.6).
+- **Properties** (type, exclusion from the cut list…) go on any component: a hinge modelled in
+  several parts is an assembly of type hardware, counted as one item without detailing its
+  content.
+- **Name**: the component's name is the part's name; the **occurrence name** names one
+  occurrence of that part ("Left", "Right"), as in OpenCutList.
+- **Purge**: a part with no occurrence disappears, unless the user named it (it then stays in
+  the model's library).
 
-### 2.2 Exemplaires et transformation
+### 2.2 Occurrences and transformation
 
-- Un exemplaire porte **T = déplacement + rotation + miroir éventuel** (déterminant ±1), sa
-  **matière** et son nom d'exemplaire. Déplacer ou faire pivoter ne change que T : instantané,
-  sans noyau, sans remaillage, sans dérive de la géométrie.
-- **T n'est jamais intégré au B-rep.** Booléens et (plus tard) pousser/tirer travaillent dans le
-  repère de la pièce, l'autre opérande ramené par la transformation relative ; l'export applique
-  T à la volée.
-- **Pas d'échelle dans T.** Mettre à l'échelle (uniformément) change les cotes, donc la pièce :
-  c'est une modification de géométrie (§2.5). L'**échelle non uniforme est interdite** partout :
-  elle casse cercles, inférences et cotes.
-- Le **miroir reste dans T** : une pièce et sa symétrique restent la même pièce (la fiche les
-  distingue, sauf si la pièce est déclarée symétrique). Vérifié le 2026-11-10
-  (`crates/kernel/tests/part_model.rs`) : SolidCore applique une symétrie, seule ou avec une
-  rotation, à toutes les géométries (plans, cylindres, sphères, cônes, tores, courbes
-  d'intersection), retourne correctement les faces, et le solide symétrique sert ensuite de
-  cible comme d'outil ; couper puis symétriser = symétriser puis couper.
+- An occurrence carries **T = translation + rotation + optional mirror** (determinant ±1), its
+  **material** and its occurrence name. Moving or rotating only changes T: instant, no kernel,
+  no remeshing, no drift of the geometry.
+- **T is never baked into the B-rep.** Booleans and (later) push/pull work in the part's frame,
+  the other operand brought in by the relative transformation; export applies T on the fly.
+- **No scale in T.** Scaling (uniformly) changes the dimensions, hence the part: it is a
+  geometry change (§2.5). **Non-uniform scaling is forbidden** everywhere: it breaks circles,
+  inferences and dimensions.
+- The **mirror stays in T**: a part and its mirror image remain the same part (the cut list
+  tells them apart, unless the part is declared symmetric). Checked on 2026-11-10
+  (`crates/kernel/tests/part_model.rs`): SolidCore applies a mirror, alone or with a rotation,
+  to every geometry (planes, cylinders, spheres, cones, tori, intersection curves), flips the
+  faces correctly, and the mirrored solid then serves as target and as tool alike; cutting then
+  mirroring = mirroring then cutting.
 
-### 2.3 Axes d'une pièce
+### 2.3 A part's axes
 
-- Le repère du B-rep **est** celui de la pièce : la longueur suit l'axe rouge, et le **fil est
-  toujours la longueur** (pas de propriété à part). Les cotes de débit sont lues sur la boîte
-  englobante du brut dans ce repère.
-- Les outils travaillant sur une pièce utilisent ses axes ; ailleurs, ceux du contexte.
-- Changer les axes d'une pièce = réexprimer son B-rep dans un autre repère et compenser le T de
-  chacun de ses exemplaires.
+- The B-rep's frame **is** the part's: the length runs along the red axis, and **the grain is
+  always the length** (no separate property). The cut-list dimensions are read on the blank's
+  bounding box in this frame.
+- Tools working on a part use its axes; elsewhere, the context's.
+- Changing a part's axes = re-expressing its B-rep in another frame and compensating the T of
+  each of its occurrences.
 
-### 2.4 Usinages
+### 2.4 Machinings
 
-- Une pièce est **une recette** : **brut** − (outil₁ ∪ outil₂ ∪ …). Le **B-rep final** est
-  calculé par le noyau (asynchrone, §7 ter) et mis en cache, identifié par la recette ; il n'est
-  jamais la source.
-- **Toujours de l'enlèvement de matière** : l'ordre des usinages ne compte pas (un ensemble pour
-  l'utilisateur), le calcul peut être incrémental, et un usinage qui échoue est isolé et signalé
-  sans bloquer les autres.
-- **Calcul : soustractions successives, incrémentales.** Mesuré (planche − n perçages, build de
-  dev) : réunir d'abord les outils puis couper une fois n'est pas plus rapide (50 perçages :
-  ~0,4–0,8 s dans les deux cas). Ajouter un usinage = une soustraction sur le final en cache ;
-  en retirer un = repartir du brut (ou d'un final intermédiaire gardé en cache).
-- **Échecs mesurés** : un outil hors du brut, affleurant une face, touchant une arête ou tangent
-  ne fait rien d'anormal ; un outil qui avale tout le brut donne une erreur de conversion (à
-  rapporter comme « résultat vide »).
-- Bas niveau : l'outil est **un B-rep quelconque**, placé dans le repère de la pièce, ancré à son
-  origine. Les **types d'usinage** (perçage, rainure, mortaise…) viendront au-dessus et
-  généreront cet outil depuis leurs paramètres.
-- **Liens, plus tard** : chaque usinage a un id stable et une `source`. Une quincaillerie fixée
-  pourra porter ses outils et produire des usinages *liés* dans la pièce, placés par
-  `T_pièce⁻¹ · T_quincaillerie · T_outil`, recalculés quand elle bouge. Le format prévoit le
-  champ dès maintenant (toujours `Local` pour l'instant).
+- A part is **a recipe**: **blank** − (tool₁ ∪ tool₂ ∪ …). The **final B-rep** is computed by
+  the kernel (asynchronous, §7 ter) and cached, identified by the recipe; it is never the
+  source.
+- **Always material removal**: the order of machinings does not matter (a set, for the user),
+  the computation can be incremental, and a failing machining is isolated and reported without
+  blocking the others.
+- **Computation: successive, incremental subtractions.** Measured (board − n holes, dev build):
+  joining the tools first then cutting once is not faster (50 holes: ~0.4–0.8 s either way).
+  Adding a machining = one subtraction on the cached final; removing one = starting again from
+  the blank (or from an intermediate final kept in cache).
+- **Measured failures**: a tool outside the blank, flush with a face, touching an edge or
+  tangent does nothing abnormal; a tool that swallows the whole blank gives a conversion error
+  (to be reported as "empty result").
+- Low level: the tool is **any B-rep**, placed in the part's frame, anchored at its origin.
+  **Machining types** (hole, groove, mortise…) will come on top and generate that tool from
+  their parameters.
+- **Links, later**: each machining has a stable id and a `source`. A fitted piece of hardware
+  could carry its tools and produce *linked* machinings in the part, placed by
+  `T_part⁻¹ · T_hardware · T_tool`, recomputed when it moves. The format has the field from now
+  on (always `Local` for the time being).
 
-### 2.5 Copies et propagation
+### 2.5 Copies and propagation
 
-- **Copier un exemplaire crée un exemplaire de la même pièce** : « Pied ×4 », compté sans rien
-  deviner, sans penser à « faire un composant » avant de copier.
-- Une **modification de la pièce** (géométrie, usinages, propriétés) touche **tous ses
-  exemplaires** ou **seulement celui-ci** : la **portée**, une option de l'outil (barre
-  d'options, §6 bis), « tous les exemplaires » par défaut, mémorisée par outil. Décidé le
-  2026-11-10, sur le modèle des opérations de solides de Smart Reshape (OpenCutList,
-  `common_solid_boolean_apply_worker.rb`) :
-  - **tous les exemplaires** (`make_unique: false` d'OCL) : la pièce est modifiée sur place, et
-    tous ses exemplaires — y compris ceux qu'on voit à travers des copies d'un assemblage —
-    montrent le résultat. L'opération est calculée dans le repère de l'exemplaire cliqué ;
-  - **seulement celui-ci** (`make_unique`) : seul l'objet cliqué change. Sur son chemin, du haut
-    vers le bas, chaque assemblage montré ailleurs devient un assemblage à part, puis la pièce
-    devient une pièce à part ; les autres exemplaires ne sont jamais touchés ;
-  - quand une opération aura **plusieurs cibles** (plus tard) : des exemplaires d'une même pièce
-    que l'opération laisse identiques dans leur propre repère gardent une seule pièce ; s'ils
-    divergent, ils deviennent des pièces à part même en « tous les exemplaires », la pièce ne
-    pouvant porter deux résultats (règle d'OCL) ;
-  - les **verrous** (plus tard) : un exemplaire verrouillé n'est jamais modifié par
-    propagation, comme dans OCL.
-- **La propagation doit être visible** : nombre d'exemplaires concernés dans la barre
-  d'options (« Tous les exemplaires ×4 »), exemplaires concernés mis en évidence pendant une
-  modification. « Rendre unique » devient **« Faire une pièce à part »**,
-  avec une version en profondeur pour un assemblage.
-- La **fiche de débit** peut réunir des pièces de mêmes cotes et matière (option d'affichage) ;
-  le modèle, le calepinage et les exports les gardent toujours distinctes (mêmes cotes ne veut
-  pas dire même forme).
+- **Copying an occurrence creates an occurrence of the same part**: "Leg ×4", counted without
+  guessing anything, without thinking of "making a component" before copying.
+- A **change to the part** (geometry, machinings, properties) affects **all its occurrences**
+  or **only this one**: the **scope**, an option of the tool (option bar, §6 bis), "all
+  occurrences" by default, remembered per tool. Decided on 2026-11-10, after the solid
+  operations of Smart Reshape (OpenCutList, `common_solid_boolean_apply_worker.rb`):
+  - **all occurrences** (OCL's `make_unique: false`): the part is changed in place, and all its
+    occurrences — including those seen through copies of an assembly — show the result. The
+    operation is computed in the frame of the clicked occurrence;
+  - **only this one** (`make_unique`): only the clicked object changes. Along its path, top
+    down, each assembly shown elsewhere becomes a separate assembly, then the part becomes a
+    separate part; the other occurrences are never touched;
+  - when an operation has **several targets** (later): occurrences of one part that the
+    operation leaves identical in their own frame keep a single part; if they diverge, they
+    become separate parts even under "all occurrences", since the part cannot hold two results
+    (OCL's rule);
+  - **locks** (later): a locked occurrence is never changed by propagation, as in OCL.
+- **Propagation must be visible**: the number of occurrences affected in the option bar ("All
+  occurrences ×4"), the affected occurrences highlighted during a change. "Make unique" becomes
+  **"Make a separate part"**, with a deep version for an assembly.
+- The **cut list** may merge parts with the same dimensions and material (a display option);
+  the model, the cutting diagram and the exports always keep them apart (same dimensions does
+  not mean same shape).
 
-### 2.6 Identifiants, chemins, contexte
+### 2.6 Ids, paths, context
 
-- Identifiants **stables `u64`**, tirés d'un même compteur, pour composants, exemplaires et
-  usinages. Ceux des composants et des usinages sont uniques dans le document ; ceux des
-  **exemplaires** le sont **dans leur assemblage** : une copie d'assemblage (« faire une pièce à
-  part », portée « seulement celui-ci ») garde les ids de ses exemplaires, si bien que les
-  chemins, le contexte et la sélection restent valides. Un chemin est toujours résolu depuis la
-  racine. Une opération désigne
-  une face par `(id de la pièce, index de face du B-rep final)` — suffisant en modélisation
-  directe puisque l'opération s'applique tout de suite.
-- **Chemin d'exemplaire** : une entité de la scène est désignée par le chemin des exemplaires
-  depuis la racine ; sa transformation monde est le produit des T du chemin.
-- **Contexte actif** : l'assemblage en cours d'édition, et le chemin qui y mène.
+- **Stable `u64` ids**, drawn from one counter, for components, occurrences and machinings.
+  Those of components and machinings are unique in the document; those of **occurrences** are
+  unique **within their assembly**: a copy of an assembly ("make a separate part", scope "only
+  this one") keeps the ids of its occurrences, so that paths, the context and the selection
+  stay valid. A path is always resolved from the root. An operation designates a face by
+  `(part id, face index in the final B-rep)` — enough in direct modelling, since the operation
+  applies at once.
+- **Occurrence path**: an entity of the scene is designated by the path of occurrences from
+  the root; its world transformation is the product of the T along the path.
+- **Active context**: the assembly being edited, and the path leading to it.
 
-### 2.7 Ancien modèle (fichiers version 1)
+### 2.7 Former model (version 1 files)
 
 ```
 Definition { id, name, kind: Root | Group | Component, entities: Vec<Entity> }
-Entity      = Solid    { id, name, brep: Arc<Brep> }             — coordonnées de sa définition
+Entity      = Solid    { id, name, brep: Arc<Brep> }             — in its definition's coordinates
             | Instance { id, name, definition: Id, transform }
 ```
 
-Solides libres dans n'importe quelle définition, sans transformation propre (les déplacer
-réécrivait leur B-rep) ; groupes = définitions à instance unique. À l'ouverture d'un fichier v1
-(`file.rs`, module `v1`) : chaque définition devient un assemblage (nommé pour un composant, pas
-pour un groupe), chaque instance un exemplaire, et chaque solide libre une pièce — ses axes
-ceux de sa définition, donc rien ne bouge et le noyau n'est pas appelé — avec son exemplaire,
-qui garde l'id du solide.
+Loose solids in any definition, with no transformation of their own (moving them rewrote their
+B-rep); groups = definitions with a single instance. When a v1 file is opened (`file.rs`,
+module `v1`): each definition becomes an assembly (named for a component, not for a group),
+each instance an occurrence, and each loose solid a part — its axes those of its definition,
+so nothing moves and the kernel is not called — with its occurrence, which keeps the solid's
+id.
 
-### 2.8 Pas encore en place
+### 2.8 Not in place yet
 
-- **Recette recalculée** : aujourd'hui, une soustraction coupe le final en cache et l'usinage
-  est ajouté à la liste ; il n'y a encore ni retrait, ni modification, ni « intégrer » d'un
-  usinage, donc pas de recalcul depuis le brut.
-- **« Tous les exemplaires / seulement celui-ci »** et la pièce à part automatique : une
-  modification de géométrie touche aujourd'hui tous les exemplaires de la pièce.
-- **Matière par exemplaire, propriétés** (type, exclusion de la fiche) : absentes du format pour
-  l'instant ; elles y entreront avec une valeur par défaut (les fichiers v2 resteront lisibles).
-- **Outils dans les axes de la pièce** (§2.3), mise en évidence des exemplaires pendant une
-  modification, liste des usinages dans l'interface.
-- « Faire une pièce à part » sur un assemblage n'en copie que le premier niveau (pas en
-  profondeur).
+- **Recipe recomputed**: today a subtraction cuts the cached final and the machining is added
+  to the list; there is no removing, editing or "integrating" a machining yet, hence no
+  recomputation from the blank.
+- **"All occurrences / only this one"** and the automatic separate part: a geometry change
+  affects all the part's occurrences today.
+- **Material per occurrence, properties** (type, exclusion from the cut list): not in the
+  format yet; they will enter it with a default value (v2 files will stay readable).
+- **Tools in the part's axes** (§2.3), highlighting of occurrences during a change, list of
+  machinings in the interface.
+- "Make a separate part" on an assembly copies only its first level (not in depth).
 
-## 3. Stockage des solides : record SolidCore
+## 3. Storing solids: the SolidCore record
 
-- Un solide est un **`solidcore_record::brep::Brep`** : données pures, `Clone` + `serde`,
-  partagé par `Arc`. Le noyau (`solidcore::Kernel` + `solidcore::Brep`) n'est instancié que le
-  temps d'une opération : record → noyau → opération → record.
-- Après chaque opération, le record est **remis d'équerre** (`square_frames`, `engine.rs`) :
-  une rotation autour d'un axe oblique laisse des axes de plan à ~1e-15 de l'angle droit, que
-  SolidCore refuse ensuite de relire (tolérance ~3e-16) — l'opération suivante échouait.
-- Avantages : instantanés d'annulation quasi gratuits, sauvegarde directe, aucun état noyau à
-  maintenir. Coût : une conversion par opération. Si elle devient un goulot, on ajoutera un
-  cache paresseux de corps noyau, invalidé à chaque modification.
+- A solid is a **`solidcore_record::brep::Brep`**: plain data, `Clone` + `serde`, shared by
+  `Arc`. The kernel (`solidcore::Kernel` + `solidcore::Brep`) is instantiated only for the
+  duration of an operation: record → kernel → operation → record.
+- After each operation, the record is **squared up** (`square_frames`, `engine.rs`): a
+  rotation about an oblique axis leaves plane axes ~1e-15 off a right angle, which SolidCore
+  then refuses to read back (tolerance ~3e-16) — the next operation used to fail.
+- Benefits: nearly free undo snapshots, direct saving, no kernel state to maintain. Cost: one
+  conversion per operation. If it becomes a bottleneck, a lazy cache of kernel bodies will be
+  added, invalidated on every change.
 
-## 4. Booléens entre contextes
+## 4. Booleans across contexts
 
-- La **cible est modifiée dans son propre repère** : l'outil est ramené dans le repère de la
-  pièce cible par la transformation relative `inv(monde(cible)) · monde(outil)`.
-- **Soustraire** (modèle du §2) : l'exemplaire outil devient un **usinage** de la pièce cible,
-  sans détruire sa géométrie ; il quitte le modèle, les autres exemplaires de sa pièce restent.
-  **Intégrer** applique un usinage au brut et le retire de la liste.
-- **Union et intersection** sont destructives : un nouveau brut, fait des formes finales, où les
-  usinages des deux pièces sont intégrés.
-- La modification touche tous les exemplaires de la pièce cible ou seulement celui-ci (§2.5).
-- Pas d'option « garder l'outil » : l'outil quitte toujours le modèle (il vit dans l'usinage).
+- The **target is changed in its own frame**: the tool is brought into the target part's frame
+  by the relative transformation `inv(world(target)) · world(tool)`.
+- **Subtract** (model of §2): the tool occurrence becomes a **machining** of the target part,
+  without destroying its geometry; it leaves the model, the other occurrences of its part stay.
+  **Integrate** applies a machining to the blank and removes it from the list.
+- **Union and intersection** are destructive: a new blank, made of the final shapes, into which
+  the machinings of both parts are integrated.
+- The change affects all occurrences of the target part or only this one (§2.5).
+- No "keep the tool" option: the tool always leaves the model (it lives in the machining).
 
-## 5. Annuler / rétablir : instantanés partagés
+## 5. Undo / redo: shared snapshots
 
-- Le document est **immuable par morceaux** (`Arc` sur les définitions et les B-rep). Appliquer
-  une opération produit un nouveau `Document` qui partage tout ce qui n'a pas changé.
-- Annuler = revenir au document précédent ; rétablir = avancer. Aucune inverse à écrire.
-- Le journal des opérations appliquées est conservé à côté (pour le futur paramétrique et le
-  débogage).
+- The document is **immutable piece by piece** (`Arc` on definitions and B-reps). Applying an
+  operation produces a new `Document` that shares everything that did not change.
+- Undo = going back to the previous document; redo = going forward. No inverse to write.
+- The log of applied operations is kept alongside (for future parametric modelling and for
+  debugging).
 
-## 6. Interaction : outils à la SketchUp
+## 6. Interaction: SketchUp-style tools
 
-- Un **outil actif** (Sélection, Boîte, Cylindre, Déplacer, Rotation, Pousser/tirer, Orbite…)
-  reçoit les événements du viewport (survol, clic, glisser, touches) et produit, à la fin, une
-  `Operation`. Pendant l'interaction, il expose un **aperçu** (géométrie fantôme) sans toucher
-  au document.
-- **Navigation SketchUp** (décidé le 2026-11-09) : bouton du milieu = orbite autour du point
-  visé, Maj+milieu = panoramique, molette = zoom vers le curseur, double-clic milieu =
-  recentrer ; trackpad : deux doigts = orbite, Maj+deux doigts = pan, pincer = zoom. Z reste
-  vertical. Projection perspective par défaut, bascule en parallèle, vues standard (dessus,
-  face, droite, arrière, gauche, iso) et zoom étendu.
-- **Sélection SketchUp** : un clic sélectionne l'entité de premier niveau du contexte actif,
-  Maj+clic ajoute/retire, double-clic sur un groupe/composant y entre, double-clic dans le vide
-  en sort, Échap annule l'outil puis vide la sélection. Glisser trace un rectangle de
-  sélection : de gauche à droite (trait plein, « fenêtre »), il prend les entités qu'il contient
-  entièrement ; de droite à gauche (pointillé, « capture »), celles qu'il touche ; Maj
-  ajoute/retire. Le test se fait à l'écran, sur les sommets et triangles projetés des maillages
-  d'affichage. Hors du contexte actif, le modèle est
-  estompé.
-- **Booléens = outil en deux clics** (cible, puis outil), qui désigne des solides de n'importe
-  quel contexte : c'est ainsi que s'exprime la règle du §4.
-- **Saisie de cote au clavier** (VCB ; décidé le 2026-11-10, repris d'OpenCutList,
-  `UserTextHelper` + `LengthExpressionUtils`) : pendant un outil, taper une valeur fixe la
-  dimension. On peut taper :
-  - des expressions : `600-2*19`, `2m*(2+3)`, `min(@; 300)`, `floor(@ - 5; 12; 15; 20)` ;
-  - `@`, la valeur courante du geste : `@/2`, `@+19` ;
-  - des listes séparées par `;` (case vide = valeur courante : `;400`) ; `=` répète une
-    valeur (`600=` = `600;600`) ;
-  - des points : `[x;y;z]` dans les axes du contexte, `<dx;dy;dz>` depuis le point de
-    départ (Déplacer).
+- An **active tool** (Select, Box, Cylinder, Move, Rotate, Push/pull, Orbit…) receives the
+  viewport's events (hover, click, drag, keys) and produces, at the end, an `Operation`. During
+  the interaction it exposes a **preview** (ghost geometry) without touching the document.
+- **SketchUp navigation** (decided on 2026-11-09): middle button = orbit around the point
+  aimed at, Shift+middle = pan, wheel = zoom towards the cursor, middle double-click = recentre;
+  trackpad: two fingers = orbit, Shift+two fingers = pan, pinch = zoom. Z stays vertical.
+  Perspective projection by default, switch to parallel, standard views (top, front, right,
+  back, left, iso) and zoom extents.
+- **SketchUp selection**: a click selects the top-level entity of the active context,
+  Shift+click adds/removes, double-click on a group/component enters it, double-click in empty
+  space leaves it, Esc cancels the tool then clears the selection. Dragging draws a selection
+  rectangle: left to right (solid line, "window"), it takes the entities it fully contains;
+  right to left (dashed, "crossing"), those it touches; Shift adds/removes. The test is done on
+  screen, on the projected vertices and triangles of the display meshes. Outside the active
+  context, the model is faded.
+- **Booleans = a two-click tool** (target, then tool), which designates solids of any context:
+  this is how the rule of §4 is expressed.
+- **Typed dimensions** (VCB; decided on 2026-11-10, taken from OpenCutList, `UserTextHelper` +
+  `LengthExpressionUtils`): during a tool, typing a value sets the dimension. One can type:
+  - expressions: `600-2*19`, `2m*(2+3)`, `min(@; 300)`, `floor(@ - 5; 12; 15; 20)`;
+  - `@`, the gesture's current value: `@/2`, `@+19`;
+  - lists separated by `;` (empty slot = current value: `;400`); `=` repeats a value (`600=`
+    = `600;600`);
+  - a shape's height right with the first input, optional: `600;400;19`, `50==` (a cube),
+    `radius;height` for the cylinder; the shape is then done;
+  - points: `[x;y;z]` in the context's axes, `<dx;dy;dz>` from the start point (Move).
 
-  Un nombre nu est dans l'unité du document : le calcul s'y fait, donc `@*3` et `@-2` se
-  lisent tous deux. Les unités sont contrôlées strictement (`2m*3m` et `@/@` sont refusés).
-  Une longueur tapée garde le sens du geste. `,` et `.` sont tous deux des virgules
-  décimales, donc `;` est le seul séparateur, et il ne coupe qu'hors parenthèses.
-  L'évaluateur vit dans `model` (`expr`, `measure`), pour servir aussi aux champs (Position
-  des propriétés) et plus tard aux cotes des pièces. Chaque outil déclare ce qu'il prend
-  (`Tool::vcb` : longueurs, angle, nombre de copies, point accepté ou non) avec ses valeurs
-  courantes ; l'éditeur lit la saisie et lui passe une `ToolInput::Value`, ou affiche
-  l'erreur.
-- **Copie et réseaux à la SketchUp** (Déplacer, Faire pivoter ; décidé le 2026-11-09) : un
-  appui bref sur le modificateur de copie (Option sur macOS, Ctrl ailleurs), seul, bascule la
-  copie, avant ou pendant le geste ; le curseur porte un « + » et la copie retombe une fois
-  faite. Juste après une copie, taper `5x` (ou `*5`) en fait un réseau de 5 au même pas, `/5`
-  répartit 5 copies sur le même chemin ; on peut retaper pour corriger. Le réseau est une
-  opération (`Operation::Array` : `count` copies, la k-ième transformée k fois par `step`),
-  qui remplace la copie dans l'historique (`Command::Replace`) : une seule étape d'annulation.
-  Translation comme rotation (réseau circulaire).
-- Inférences : voir §6 ter.
+  A bare number is in the document's unit: the computation is done in it, so `@*3` and `@-2`
+  both read. Units are checked strictly (`2m*3m` and `@/@` are refused). A typed length keeps
+  the direction of the gesture. `,` and `.` are both decimal separators, so `;` is the only
+  list separator, and it only splits outside parentheses. The evaluator lives in `model`
+  (`expr`, `measure`), to serve the fields too (Position in the entity info) and later the
+  parts' dimensions. Each tool declares what it takes (`Tool::vcb`: lengths, angle, number of
+  copies, whether a point is accepted) with its current values; the editor reads the input and
+  passes it a `ToolInput::Value`, or shows the error.
+- **SketchUp copies and arrays** (Move, Rotate; decided on 2026-11-09): a short tap of the copy
+  modifier (Option on macOS, Ctrl elsewhere), alone, toggles copying, before or during the
+  gesture; the cursor carries a "+" and copying drops once done. Right after a copy, typing
+  `5x` (or `*5`) makes it an array of 5 with the same step, `/5` spreads 5 copies over the same
+  way; one can retype to correct. The array is an operation (`Operation::Array`: `count`
+  copies, the k-th transformed k times by `step`), which replaces the copy in the history
+  (`Command::Replace`): a single undo step. Translation as well as rotation (circular array).
+- Inferences: see §6 ter.
 
-## 6 bis. Interface de l'application
+## 6 bis. Application interface
 
-Décidé le 2026-11-09.
+Decided on 2026-11-09.
 
-- **Agencement** : menu en haut, barre d'état en bas avec la saisie de cote (VCB) à droite ;
-  entre les deux, la **vue 3D occupe toute la largeur** et les panneaux **flottent dessus**
-  (cartes ancrées) : **barre d'outils verticale à gauche** ; à droite, **Infos sur
-  l'entité** au-dessus de l'**Arborescence**, repliables. Ouvrir ou redimensionner un panneau ne
-  redimensionne donc jamais la vue ; le zoom étendu cadre sur la zone laissée libre.
-- **Icônes SVG originales** (dessinées pour le projet), blanches et teintées par le thème,
-  chargées par `egui_extras` (`svg`) : ni étape de build, ni asset binaire.
-- **Raccourcis SketchUp** : Espace = Sélection, M = Déplacer, Q = Faire pivoter, G = Créer un composant,
-  Suppr = Effacer, Cmd/Ctrl+Z / Maj+Cmd+Z = Annuler / Rétablir, Maj+Z = Zoom étendu ; les
-  nôtres : B = Boîte, C = Cylindre, Cmd/Ctrl+1…6 = vues standard, Cmd/Ctrl+, = Préférences. Une fois un chiffre tapé
-  (ou `@ ( [ < + - * / ;`), la frappe va à la VCB, validée par Entrée.
-- Le viewport est l'image de la cible hors écran de `render`, enregistrée comme texture egui ;
-  le rendu est soumis pendant `update`, avant la peinture d'egui.
-- Molette (unités « ligne ») = zoom ; défilement trackpad (unités « point ») = orbite,
-  Maj = pan ; pincer = zoom. Modificateur de copie : Option sur macOS, Ctrl ailleurs (appui bref = bascule, §6).
-- **Réglages à deux niveaux** (décidé le 2026-11-09, sur le modèle des styles de SketchUp) :
-  - **réglages du document** (`model::Settings`) : affichage (grille — masquée par défaut —,
-    axes, couleur de fond) et unités (unité des longueurs, décimales). Enregistrés dans le
-    fichier ; les changer est une opération (`Operation::SetSettings`), donc annulable, et
-    des changements successifs (glisser une couleur) fusionnent en un seul pas. Les longueurs
-    restent stockées en mm : l'unité ne sert qu'à la saisie (un nombre nu est dans l'unité du
-    document) et à l'affichage ;
-  - **préférences de l'utilisateur** (`apps/solidsketch/src/prefs.rs`) : navigation (vitesse
-    et sens de l'orbite, souris et trackpad séparément ; vitesse, sens et cible du zoom) et
-    les réglages des nouveaux modèles. Fichier JSON versionné à nous,
-    `preferences.json` dans le dossier de configuration de l'OS
-    (`~/Library/Application Support/SolidSketch/` sur macOS), `localStorage` dans le
-    navigateur ; réécrit dès qu'une préférence change.
-  - Partout `#[serde(default)]` : un fichier plus ancien ou partiel se charge, un nouveau
-    réglage ne demande pas de migration.
-  - Fenêtre **Préférences** (Cmd/Ctrl+,) : onglet *Modèle* (réglages du document, avec
-    « Utiliser pour les nouveaux modèles » / « Reprendre les réglages par défaut ») et onglet
-    *Navigation*. *Vue › Grille / Axes* change aussi le document.
-- **Barre d'options de l'outil** (décidé le 2026-11-10, sur le modèle des outils d'OCL) : une
-  bande fixe entre le menu et la vue (elle ne masque rien), avec le nom de l'outil et ses
-  options — choix exclusifs et bascules. Tout choix y est visible et cliquable ; un raccourci
-  n'en est qu'un complément (Tab fait tourner la portée). La barre d'état garde le guidage de
-  l'étape en cours.
-  - **Les outils décrivent leurs options, l'app les dessine** : `Tool::options` rend une liste
-    de `ToolOption` (clé, libellé — qui peut dépendre de ce qui est survolé, « ×4 » —,
-    info-bulle, valeur, choix), `Tool::set_option` reçoit un changement. `tools` reste sans
-    interface : un test change une option comme un clic.
-  - **Deux sortes d'options** : les **réglages** (la portée…), mémorisés par outil dans les
-    préférences de l'utilisateur (`tool_options`), lus par l'outil dans son `Cx` ; et l'**état
-    du geste** (copier, pour Déplacer et Faire pivoter), que l'outil tient lui-même et qui
-    n'est pas mémorisé.
-  - Premières options : portée des booléens (tous les exemplaires / celui-ci) ; copier
-    (Déplacer, Faire pivoter). Plus tard : axes (modèle / pièce, §2.3), garder l'outil d'un
-    booléen (`keep_cuts` d'OCL), options de pousser/tirer et des usinages.
+- **Layout**: menu at the top, status bar at the bottom with the measurements box (VCB) on the
+  right; in between, the **3D view takes the whole width** and the panels **float over it**
+  (anchored cards): **vertical tool bar on the left**; on the right, **Entity info** above the
+  **Outliner**, collapsible. Opening or resizing a panel therefore never resizes the view; zoom
+  extents frames the area left free.
+- **Original SVG icons** (drawn for the project), white and tinted by the theme, loaded by
+  `egui_extras` (`svg`): no build step, no binary asset.
+- **SketchUp shortcuts**: Space = Select, M = Move, Q = Rotate, G = Make assembly, Delete =
+  Erase, Cmd/Ctrl+Z / Shift+Cmd+Z = Undo / Redo, Shift+Z = Zoom extents; ours: R = Box,
+  C = Cylinder, Cmd/Ctrl+1…6 = standard views, Cmd/Ctrl+, = Preferences. Once a digit is typed
+  (or `@ ( [ < + - * / ;`), keystrokes go to the VCB, confirmed by Enter. Menus and tooltips
+  write shortcuts as the platform does (§6 quater).
+- The viewport is the image of `render`'s off-screen target, registered as an egui texture;
+  rendering is submitted during `update`, before egui paints.
+- Wheel ("line" units) = zoom; trackpad scroll ("point" units) = orbit, Shift = pan; pinch =
+  zoom. Copy modifier: Option on macOS, Ctrl elsewhere (short tap = toggle, §6).
+- **Two levels of settings** (decided on 2026-11-09, after SketchUp's styles):
+  - **document settings** (`model::Settings`): display (grid — hidden by default —, axes,
+    background colour) and units (length unit, decimals). Saved in the file; changing them is
+    an operation (`Operation::SetSettings`), hence undoable, and successive changes (dragging a
+    colour) merge into a single step. Lengths stay stored in mm: the unit only serves for input
+    (a bare number is in the document's unit) and display;
+  - **user preferences** (`apps/solidsketch/src/prefs.rs`): language (§6 quater), navigation
+    (orbit speed and direction, mouse and trackpad separately; zoom speed, direction and
+    target), the tools' settings and the settings of new models. A versioned JSON file of our
+    own, `preferences.json` in the OS's configuration folder
+    (`~/Library/Application Support/SolidSketch/` on macOS), `localStorage` in the browser;
+    rewritten as soon as a preference changes.
+  - `#[serde(default)]` everywhere: an older or partial file loads, a new setting needs no
+    migration.
+  - **Preferences** window (Cmd/Ctrl+,): *General* tab (language), *Model* tab (document
+    settings, with "Use for new models" / "Restore the default settings") and *Navigation* tab.
+    *View › Grid / Axes* changes the document too.
+- **Tool option bar** (decided on 2026-11-10, after OCL's tools): a fixed strip between the
+  menu and the view (it hides nothing), with the tool's name and its options — exclusive
+  choices and toggles. Every choice is visible and clickable there; a shortcut is only a
+  complement (Tab cycles the scope). The status bar keeps the guidance for the current step.
+  - **Tools describe their options, the app draws them**: `Tool::options` returns a list of
+    `ToolOption` (key, label — which may depend on what is hovered, "×4" —, tooltip, value,
+    choices), `Tool::set_option` receives a change. `tools` stays without an interface: a test
+    changes an option like a click does.
+  - **Two kinds of options**: **settings** (the scope…), remembered per tool in the user
+    preferences (`tool_options`), read by the tool from its `Cx`; and the **gesture's state**
+    (copy, for Move and Rotate), which the tool holds itself and which is not remembered.
+  - First options: the booleans' scope (all occurrences / this one); copy (Move, Rotate).
+    Later: axes (model / part, §2.3), keep a boolean's tool (OCL's `keep_cuts`), options of
+    push/pull and of machinings.
 
-## 6 ter. Inférences
+## 6 ter. Inferences
 
-Décidé le 2026-11-09.
+Decided on 2026-11-09.
 
-- **Un moteur central** (`tools/src/infer.rs`, sans UI ni GPU) remplace les choix de point
-  propres à chaque outil (`base_point`, `target`, `center_at`…). Un outil demande
-  `cx.infer(px, &Query { from, lock, exclude })` et reçoit une `Inference { point, kind, guides,
-  path }` : point monde, genre d'inférence, lignes de guidage et solide d'appui éventuel.
-- **Géométrie exacte** : les candidats viennent du **record B-rep** (sommets `f64`, courbes
-  typées : milieu d'une droite, centre d'un cercle exacts), pas du maillage. Un `SnapIndex` par
-  solide (sommets, arêtes et leur courbe, boîte englobante) est mis en cache par `Arc<Solid>`
-  comme les maillages ; il est transformé par chaque placement. Repli sur la polyligne du
-  mailleur pour les splines et courbes d'intersection (`Mesh::edges` doit garder l'index
-  d'arête du record).
-- **Priorités** (à priorité égale, le plus proche du curseur à l'écran, tolérance ≈ 10 px) :
-  extrémité > milieu / centre / origine > intersection (contrainte linéaire × arête ou face) >
-  linéaire (axes rouge / vert / bleu depuis `from`, parallèle / perpendiculaire à une arête) >
-  sur arête > sur face (projeté exactement si la face est plane) > plan du sol ou plan par
-  `from`.
-- **Occlusion** : un sommet ou une arête derrière la surface touchée par le rayon n'est pas
-  candidat (à une tolérance près) ; les arêtes de la face survolée restent accessibles.
-  L'inférence porte sur toute la scène visible, y compris hors du contexte actif.
-- **Verrous**, tenus par l'éditeur pour tous les outils : flèches → / ← / ↑ = axe rouge / vert /
-  bleu, ↓ = libre ; Maj maintenue verrouille l'inférence linéaire en cours. Un point survolé
-  pendant un verrou est projeté sur la ligne (alignement). Les verrous tombent à chaque
-  opération appliquée, à Échap, au changement d'outil et à l'annulation. Selon l'outil, le
-  verrou d'axe donne la direction (Déplacer), l'axe de rotation (Rotation) ou la normale du plan
-  de dessin (Boîte, Cylindre : ↑ horizontal, → perpendiculaire au rouge, ← au vert).
-- **Lignes** : passant par le point de départ de l'outil, axes du contexte et, pour l'arête
-  droite survolée en dernier, parallèle et perpendiculaire (dans le plan de l'outil). Une ligne
-  presque alignée sur la direction de vue est ignorée (elle n'est qu'un point à l'écran). Si
-  elle perce la face sous le curseur près de lui, c'est ce point qui est pris.
-- **Retour visuel** : lignes de guidage (couleur de l'axe) par l'overlay existant ; marqueurs
-  colorés par genre et info-bulle en français (« Extrémité », « Milieu », « Sur l'axe rouge »…)
-  peints par egui par-dessus le viewport (`camera.project`) : `render` ne change pas.
-- **Plan de dessin** : Boîte et Cylindre se dessinent dans le plan de la face survolée au
-  premier clic (hauteur selon sa normale), comme SketchUp ; sinon sur le sol du contexte.
-  `Operation::AddPrimitive` reçoit pour cela un repère rigide (`placement: DAffine3`, identité
-  par défaut en serde pour relire les fichiers existants) ; la primitive est construite alignée
-  sur les axes puis transformée.
-- **Performances** : force brute avec élimination par boîtes englobantes contre le cône de
-  sélection ; une BVH seulement si la mesure l'exige.
-- **Étapes** : (1) points — extrémité, milieu, centre, sur arête, sur face, sol — avec
-  marqueurs, info-bulle et branchement dans Boîte, Cylindre, Déplacer, Rotation ;
-  (2) linéaire — axes depuis `from`, parallèle / perpendiculaire, verrou Maj, flèches
-  factorisées. **Livrées ensemble.** Plus tard : (3) suivi de points (références temporaires,
-  intersection de deux contraintes), tangente aux arcs.
-- Tests sans affichage, caméra fixe : chaque genre, priorités, occlusion, inférence dans un
-  composant transformé, scène à 100 km de l'origine.
-- **État (2026-11-09)** : étapes 1 et 2 faites — `kernel::Snaps` (construit avec le maillage
-  par `Solid::display()`, mis en cache par solide dans la scène), `tools::infer`, lignes et
-  verrous, marqueurs et info-bulle dans l'app, branchement dans Boîte, Cylindre, Déplacer,
-  Rotation ; Boîte et Cylindre orientés sur la face (`AddPrimitive::placement`). Reste
-  l'étape 3 : suivi de points, intersection d'une ligne avec une arête, tangente aux arcs.
-  Les **coutures** (arête entre une face et elle-même, ou entre deux faces d'une même
-  surface) sont reconnues sur le record : le mailleur ne remplit pas `seams`, si bien que la
-  couture d'un cylindre était dessinée jusque-là.
+- **A central engine** (`tools/src/infer.rs`, no UI, no GPU) replaces the point choices of each
+  tool (`base_point`, `target`, `center_at`…). A tool asks
+  `cx.infer(px, &Query { from, lock, exclude })` and gets an `Inference { point, kind, guides,
+  path }`: world point, kind of inference, guide lines and the supporting solid if any.
+- **Exact geometry**: candidates come from the **B-rep record** (`f64` vertices, typed curves:
+  exact midpoint of a line, exact centre of a circle), not from the mesh. A `SnapIndex` per
+  solid (vertices, edges and their curve, bounding box) is cached per `Arc<Solid>` like the
+  meshes; it is transformed by each placement. Fallback on the mesher's polyline for splines
+  and intersection curves (`Mesh::edges` must keep the record's edge index).
+- **Priorities** (at equal priority, the closest to the cursor on screen, tolerance ≈ 10 px):
+  endpoint > midpoint / centre / origin > intersection (linear constraint × edge or face) >
+  linear (red / green / blue axes from `from`, parallel / perpendicular to an edge) > on edge >
+  on face (projected exactly if the face is planar) > ground plane or plane through `from`.
+- **Occlusion**: a vertex or an edge behind the surface the ray hits is not a candidate (up to
+  a tolerance); the edges of the hovered face stay reachable. Inference covers the whole
+  visible scene, including outside the active context.
+- **Locks**, held by the editor for every tool: arrows → / ← / ↑ = red / green / blue axis, ↓ =
+  free; holding Shift locks the current linear inference. A point hovered during a lock is
+  projected onto the line (alignment). Locks drop on every applied operation, on Esc, on a
+  change of tool and on undo. Depending on the tool, the axis lock gives the direction (Move),
+  the rotation axis (Rotate) or the normal of the drawing plane (Box, Cylinder: ↑ horizontal,
+  → perpendicular to red, ← to green).
+- **Lines**: through the tool's start point, the context's axes and, for the straight edge
+  hovered last, parallel and perpendicular (in the tool's plane). A line almost aligned with
+  the view direction is ignored (it is only a point on screen). If it pierces the face under
+  the cursor near it, that point is taken.
+- **Visual feedback**: guide lines (axis colour) through the existing overlay; markers coloured
+  by kind and a tooltip ("Endpoint", "Midpoint", "On red axis"…: §6 quater) painted by egui over
+  the viewport (`camera.project`): `render` does not change.
+- **Drawing plane**: Box and Cylinder are drawn in the plane of the face hovered at the first
+  click (height along its normal), like SketchUp; otherwise on the context's ground.
+  `Operation::AddPrimitive` takes a rigid frame for that (`placement: DAffine3`, identity by
+  default in serde to read existing files back); the primitive is built axis-aligned then
+  transformed.
+- **Performance**: brute force with culling by bounding boxes against the picking cone; a BVH
+  only if measurements call for it.
+- **Steps**: (1) points — endpoint, midpoint, centre, on edge, on face, ground — with markers,
+  tooltip and wiring into Box, Cylinder, Move, Rotate; (2) linear — axes from `from`, parallel /
+  perpendicular, Shift lock, arrows shared. **Delivered together.** Later: (3) point tracking
+  (temporary references, intersection of two constraints), tangent to arcs.
+- Tests without display, fixed camera: each kind, priorities, occlusion, inference inside a
+  transformed component, scene 100 km from the origin.
+- **Status (2026-11-09)**: steps 1 and 2 done — `kernel::Snaps` (built with the mesh by
+  `Solid::display()`, cached per solid in the scene), `tools::infer`, lines and locks, markers
+  and tooltip in the app, wiring into Box, Cylinder, Move, Rotate; Box and Cylinder oriented on
+  the face (`AddPrimitive::placement`). Step 3 is left: point tracking, intersection of a line
+  with an edge, tangent to arcs. **Seams** (an edge between a face and itself, or between two
+  faces of one surface) are recognised on the record: the mesher does not fill `seams`, so a
+  cylinder's seam was drawn until then.
 
-### Étape 3 — inférences relatives (décidé le 2026-11-09)
+### Step 3 — relative inferences (decided on 2026-11-09)
 
-- **Suivi de points** : un point (extrémité, milieu, centre, origine) survolé **environ 0,5 s**
-  devient une **référence temporaire**, sans clic ni touche, comme dans SketchUp. L'app transmet
-  l'heure à l'éditeur avec chaque survol. On en garde **deux**, les plus récentes ; chacune
-  reste marquée à l'écran. Elles tombent quand une opération est appliquée, à Échap et au
-  changement d'outil.
-- **Lignes depuis les références** : en plus de celles qui partent du point de départ, le
-  moteur infère les axes rouge / vert / bleu passant par chaque référence (« Depuis le point,
-  sur l'axe rouge », guide pointillé partant de la référence).
-- **Intersections** (rang « point construit », juste après milieux et centres) : ligne × ligne
-  (deux axes de sources différentes) et ligne × arête. Deux droites 3D étant rarement
-  sécantes, l'intersection est acceptée quand leur écart minimal est sous une fraction de pixel
-  ramenée à la profondeur ; le point retenu est pris sur la ligne la plus forte (un axe), pour
-  rester exactement dessus. Ligne × face : déjà fait.
-- **Tangente aux arcs** : un point sur un arc donne sa tangente exacte comme arête de
-  référence ; d'où « Tangente à l'arc » (parallèle à la tangente par le point de départ) et
-  « Perpendiculaire à l'arc » (vers le centre).
-- **Livraison progressive**, chaque partie testée avant la suivante : (a) tangente aux arcs,
-  (b) ligne × arête, (c) suivi de points et ligne × ligne.
-- **État** : (a) fait — un point sur un arc (ou son milieu) devient la référence
-  `EdgeRef::Arc { tangent, radial }` au point exact ; une arête droite, `EdgeRef::Straight`.
-  Une tangente ou un rayon confondu avec un axe est annoncé comme l'axe.
-  (b) fait — les genres linéaires sont regroupés en `LineKind` (axe, parallèle,
-  perpendiculaire, tangente, rayon) : `InferKind::OnLine(l)` sur une ligne,
-  `InferKind::OnEdgeAndLine(l)` où elle croise une arête (segment, arc — dans son plan ou en le
-  traversant —, polyligne), à moins d'un demi-pixel ramené à la profondeur ; le point est pris
-  sur la ligne. Sous un verrou, l'arête croisée près du curseur donne ce croisement avant toute
-  projection. Marqueur : le carré de l'arête, dans la couleur de la ligne ; info-bulle
-  « Arête × axe rouge »…
-  (c) fait — l'éditeur reçoit l'heure de l'app (`Editor::tick`, appelé à chaque image ; il
-  demande un rafraîchissement tant qu'un point attend) ; un point de la géométrie (extrémité,
-  milieu, centre, origine) survolé `TRACK_AFTER` = 0,5 s est suivi, `MAX_TRACKED` = 2. Ses axes
-  sont des lignes `LineKind::TrackedAxis(k)` (« Depuis le point, sur l'axe rouge ») ; deux
-  lignes d'origines différentes qui se croisent à moins d'un demi-pixel donnent
-  `InferKind::OnTwoLines(a, b)`, le point pris sur la première (celle du départ s'il y en a
-  une). Croisement en 3D strict : deux lignes à des hauteurs différentes ne se croisent pas,
-  même superposées à l'écran. Le verrou (`Lock`) retient l'origine de sa ligne : Maj tient
-  aussi une ligne issue d'un point suivi. Les points suivis sont marqués d'un anneau ; les
-  guides qui en partent sont en pointillés. Ils tombent avec les verrous.
+- **Point tracking**: a point (endpoint, midpoint, centre, origin) hovered for **about 0.5 s**
+  becomes a **temporary reference**, with no click or key, as in SketchUp. The app passes the
+  time to the editor with each hover. **Two** are kept, the most recent; each stays marked on
+  screen. They drop when an operation is applied, on Esc and on a change of tool.
+- **Lines from the references**: besides those from the start point, the engine infers the
+  red / green / blue axes through each reference ("From point, on red axis", a dashed guide
+  from the reference).
+- **Intersections** (rank "constructed point", right after midpoints and centres): line × line
+  (two axes from different sources) and line × edge. Two 3D lines seldom meet, so the
+  intersection is accepted when their minimal distance is below a fraction of a pixel brought
+  to depth; the point kept is taken on the strongest line (an axis), to stay exactly on it.
+  Line × face: already done.
+- **Tangent to arcs**: a point on an arc gives its exact tangent as the reference edge; hence
+  "Tangent to arc" (parallel to the tangent through the start point) and "Perpendicular to
+  arc" (towards the centre).
+- **Progressive delivery**, each part tested before the next: (a) tangent to arcs, (b) line ×
+  edge, (c) point tracking and line × line.
+- **Status**: (a) done — a point on an arc (or its midpoint) becomes the reference
+  `EdgeRef::Arc { tangent, radial }` at the exact point; a straight edge, `EdgeRef::Straight`.
+  A tangent or a radius that coincides with an axis is announced as the axis.
+  (b) done — the linear kinds are grouped in `LineKind` (axis, parallel, perpendicular,
+  tangent, radius): `InferKind::OnLine(l)` on a line, `InferKind::OnEdgeAndLine(l)` where it
+  crosses an edge (segment, arc — in its plane or through it —, polyline), within half a pixel
+  brought to depth; the point is taken on the line. Under a lock, the edge crossed near the
+  cursor gives that crossing before any projection. Marker: the edge's square, in the line's
+  colour; tooltip "Edge × red axis"…
+  (c) done — the editor gets the time from the app (`Editor::tick`, called every frame; it asks
+  for a repaint while a point is waiting); a point of the geometry (endpoint, midpoint, centre,
+  origin) hovered for `TRACK_AFTER` = 0.5 s is tracked, `MAX_TRACKED` = 2. Its axes are
+  `LineKind::TrackedAxis(k)` lines ("From point, on red axis"); two lines of different origins
+  crossing within half a pixel give `InferKind::OnTwoLines(a, b)`, the point taken on the first
+  (the start point's, if any). Strict 3D crossing: two lines at different heights do not cross,
+  even when they overlap on screen. The lock (`Lock`) remembers its line's origin: Shift also
+  holds a line from a tracked point. Tracked points are marked with a ring; the guides from
+  them are dashed. They drop with the locks.
 
-## 7. Découpage en crates
+## 6 quater. Texts and languages
+
+Every text the user sees is in a YAML catalog, one file per locale in `/locales` (`fr.yml`
+is the reference; English comes next). The `solidsketch-i18n` crate compiles them in with
+rust-i18n and is the only way to them: `t!("menu.file.open")`, `t!("status.save_failed",
+error = e)`. The code holds no user-visible string.
+
+- **Keys** are paths that follow where the text shows: `menu.*`, `toolbar.*`, `option_bar.*`,
+  `prefs.*`, `panel.entity_info.*`, `panel.outliner.*`, `status.*`, then per tool
+  `tool.<tool>.{name, hint.*, vcb.*, option.*, say.*}`, `infer.*`, `operation.*` (Undo /
+  Redo), `unit.*`, `default_name.*` and `error.{expr, model, file, kernel, worker,
+  preferences}.*`. A text shown in two places has two keys.
+- **Values** are named, `%{name}`, and few: a sentence is one key, but a label built from
+  parts stays built by the code ("Edge × red axis" is `infer.edge`, "×", `infer.line.axis`).
+- **No ellipsis** (…) in a catalog: the code adds it (`solidsketch_i18n::ellipsis`), the same
+  for every language — "Open…" is `menu.file.open` + `…`. A sentence it would cut in the middle
+  is two keys (`status.computing`, `status.computing_cancel`). A test checks it.
+- **Plurals**: a key and its `_plural` form (OpenCutList's convention), picked by `tp!(key,
+  count)` with the locale's rule (French: 0 and 1 singular). Languages with more forms would
+  need more.
+- **Errors** are typed (`model::Error`, `Refusal`, `FileError`, `ExprError`, `kernel::Error`):
+  their `Display` looks up one key per kind. SolidCore's own messages stay in English inside.
+- **Platform**: hints and shortcuts name keys as the platform does (Option / Ctrl, `⇧⌘Z` /
+  `Ctrl+Shift+Z`); the app tells `solidsketch-i18n` whether it runs on a Mac (`ctx.os()`, right
+  in the browser too).
+- **Numbers** are written with the locale's decimal separator (`locale.decimal_separator`);
+  typed values read `.` and `,` alike and always separate a list with `;`, in any language.
+- **Locale**: in the preferences (General › Language), applied at once — egui draws every frame
+  and nothing caches a text. Texts already in the status bar stay as they were. egui ids never
+  come from a text (fixed `id` / `id_salt`), so a window or a section keeps its state across a
+  change of language.
+- **Checked by the tests** (`crates/i18n`): every key the sources use is in `fr.yml` with the
+  placeholders the call fills, every key there is used, and every other locale has the same
+  keys and placeholders. Keys are therefore always literals.
+
+## 7. Crates
 
 ```
                    ┌──────────────┐
-                   │    kernel    │  SolidCore derrière une API sûre
+                   │    kernel    │  SolidCore behind a safe API
                    └──────┬───────┘
               ┌───────────┴───────────┐
        ┌──────┴──────┐          ┌─────┴──────┐
-       │    model    │          │   render   │  wgpu, sans egui
+       │    model    │          │   render   │  wgpu, no egui
        └──────┬──────┘          └─────┬──────┘
        ┌──────┴──────┐                │
        │    tools    │                │
        └──────┬──────┘                │
               └──────────┬────────────┘
                   ┌──────┴──────┐
-                  │ app (egui)  │  câblage, panneaux, viewport
+                  │ app (egui)  │  wiring, panels, viewport
                   └─────────────┘
+        (i18n: under every crate but render)
 ```
 
-| Crate | Rôle | Dépend de |
+| Crate | Role | Depends on |
 |---|---|---|
-| `crates/kernel` — `solidsketch-kernel` | `Solid` (record), primitives, booléens, transformation, décalage de faces, maillage d'affichage (`Mesh` : positions, normales, indices, face B-rep par triangle, arêtes). Exécute chaque appel sur un `Kernel` neuf et attrape ses paniques. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `glam` |
-| `crates/model` — `solidsketch-model` | `Document`, `Definition`, `Entity`, ids, chemins d'instance, `Operation` + `apply`, historique d'annulation, fichier JSON versionné, lecture des valeurs tapées (expressions, `@`, listes, points). Aucune dépendance UI ; testable sans affichage. | `kernel`, `serde` |
-| `crates/render` — `solidsketch-render` | Pipelines wgpu (faces ombrées, arêtes, grille, axes, surbrillance, aperçus), cache GPU des maillages par solide, dessin d'une liste `DrawItem { mesh, transform, style }` avec une matrice vue-projection. Ne connaît ni egui ni le document. Utilisable hors écran. | `kernel` (pour `Mesh`), `wgpu`, `glam` |
-| `crates/tools` — `solidsketch-tools` | Caméra (orbite/pan/zoom, rayon depuis l'écran), scène d'affichage (aplatissement du document en solides placés + cache de maillages), sélection par rayon (CPU, triangle → face B-rep), machines à états des outils, saisie de cote, inférences. Testable sans UI ni GPU. | `model`, `kernel`, `glam` |
-| `apps/solidsketch` | eframe : barre d'outils, arborescence, propriétés, barre d'état + VCB, viewport (cible hors écran de `render` affichée comme texture egui), service du noyau (thread natif ou Web Worker), traduction des événements egui en événements d'outils, ouverture/enregistrement. Natif et wasm. | tout ce qui précède, `eframe`, `egui-wgpu` |
+| `crates/i18n` — `solidsketch-i18n` | The texts (§6 quater): the `/locales` catalogs compiled in, `t!` / `tp!`, the current locale, plurals, decimal separator, platform key names. | `rust-i18n` |
+| `crates/kernel` — `solidsketch-kernel` | `Solid` (record), primitives, booleans, transformation, face offset, display mesh (`Mesh`: positions, normals, indices, B-rep face per triangle, edges). Runs each call on a fresh `Kernel` and catches its panics. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `glam`, `i18n` |
+| `crates/model` — `solidsketch-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, versioned JSON file, reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
+| `crates/render` — `solidsketch-render` | wgpu pipelines (shaded faces, edges, grid, axes, highlight, previews), GPU cache of meshes per part, drawing of a list of `DrawItem { mesh, transform, style }` with a view-projection matrix. Knows neither egui nor the document. Usable off screen. | `kernel` (for `Mesh`), `wgpu`, `glam` |
+| `crates/tools` — `solidsketch-tools` | Camera (orbit/pan/zoom, ray from the screen), display scene (the document flattened into placed solids + mesh cache), picking by ray (CPU, triangle → B-rep face), the tools' state machines, typed dimensions, inferences. Testable without UI or GPU. | `model`, `kernel`, `i18n`, `glam` |
+| `apps/solidsketch` | eframe: tool bar, outliner, entity info, status bar + VCB, viewport (`render`'s off-screen target shown as an egui texture), kernel service (native thread or Web Worker), translation of egui events into tool events, opening/saving. Native and wasm. | all of the above, `eframe`, `egui-wgpu` |
 
-## 7 bis. Affichage : la définition comme unité de rendu
+## 7 bis. Display: the definition as the rendering unit
 
-Décidé le 2026-11-09. Un composant est un maillage instancié : l'affichage suit le modèle.
+Decided on 2026-11-09. A component is an instanced mesh: the display follows the model.
 
-**Avec le modèle du §2** (en place) : seule une pièce a de la géométrie (son B-rep final), un
-assemblage n'en a pas. L'unité de rendu est donc **le B-rep final d'une pièce** — un buffer par
-pièce, dessiné par instanciation avec les matrices de tous ses exemplaires. Modifier une pièce
-ne renvoie que ses propres triangles au GPU (fin du risque 2 de la revue). Ci-dessous, « une
-définition » se lit donc « une pièce ». **Miroir** : un exemplaire symétrique retourne le sens
-des triangles ; le signe du déterminant est passé au shader (`n0.w`), qui en déduit les faces
-avant (test `a_mirrored_placement_shows_its_outside`).
+**With the model of §2** (in place): only a part has geometry (its final B-rep), an assembly
+has none. The rendering unit is therefore **a part's final B-rep** — one buffer per part, drawn
+by instancing with the matrices of all its occurrences. Changing a part sends only its own
+triangles to the GPU (the end of risk 2 of the review). Below, "a definition" thus reads "a
+part". **Mirror**: a mirrored occurrence flips the winding of the triangles; the sign of the
+determinant is passed to the shader (`n0.w`), which derives the front faces from it (test
+`a_mirrored_placement_shows_its_outside`).
 
 ```
-Niveau 1 (CPU, tools)  Arc<Solid> → Arc<Mesh>      tessellation en cache par solide : un
-                                                   solide inchangé n'est jamais re-tessellé
-Niveau 2 (GPU, render) Definition → GpuMesh        concaténation des maillages de SES solides
-                       + plages [solide → indices] directs ; re-fusionnée (copie) si elle change
-Dessin                 1 draw instancié par définition, avec les N matrices monde de toutes
-                       ses occurrences dans la scène (imbrication comprise)
+Level 1 (CPU, tools)   Arc<Solid> → Arc<Mesh>      tessellation cached per solid: an unchanged
+                                                   solid is never tessellated again
+Level 2 (GPU, render)  Definition → GpuMesh        concatenation of the meshes of ITS direct
+                       + ranges [solid → indices]  solids; merged again (copy) if it changes
+Drawing                1 instanced draw per definition, with the N world matrices of all its
+                       occurrences in the scene (nesting included)
 ```
 
-- Le buffer d'une définition ne contient que ses **solides directs** ; ses sous-groupes ont le
-  leur, dessiné avec les transformations composées.
-- **Surbrillance** : un solide sélectionné l'est sur un chemin (une seule occurrence) ; il est
-  redessiné par-dessus avec sa plage d'indices et la matrice de cette occurrence.
-- **`render` ne connaît pas le document** : il reçoit des maillages par clé (l'id de la
-  définition) avec une révision, et une liste de lots `(clé, matrices)` + surbrillances +
-  lignes d'aperçu. C'est `tools` (la scène d'affichage) qui aplatit le document et décide des
-  révisions.
-- `render` dessine dans **sa propre cible hors écran** (couleur MSAA ×4 + profondeur, résolue
-  dans une texture) : l'app l'affiche comme une image egui. Le rendu est ainsi indépendant
-  d'egui et testable sans fenêtre.
-- **Précision** (le GPU n'a que du `f32`, ni WebGPU, ni WebGL2, ni Metal n'offrent de `f64`) :
-  - **rendu relatif à la caméra** : vue, placements et lignes sont en `f64` ; chaque
-    `vue × monde × recentrage` est calculé en `f64` sur le CPU puis seulement converti en
-    `f32` (le buffer d'instances est réécrit à chaque image de toute façon) ; le shader
-    n'applique que la projection ;
-  - **maillages recentrés** : le `Mesh` du noyau est en `f32` relatif à son centre (`origin`
-    en `f64`), et le maillage GPU d'une définition est relatif au centre de ses solides ;
-  - **profondeur inversée** (proche → 1, loin → 0) dans un `Depth32Float` : précision quasi
-    uniforme ; la projection fournie doit être inversée
-    (`Mat4::perspective_infinite_reverse_rh`).
-  - Vérifié par un test : la même scène à 100 km de l'origine donne la même image.
-- **Traits épais, en points** : les lignes matérielles font un pixel (un demi-point sur un
-  écran haute densité). Arêtes, axes, grille et aperçus d'outils sont donc des quads (deux
-  triangles par segment) élargis à l'écran par le vertex shader, après un découpage du
-  segment devant l'œil. Les largeurs sont en points (`EDGE_WIDTH` 1,5 ; `LINE_WIDTH` 1,5 ;
-  `GRID_WIDTH` 1) et multipliées par la densité de pixels de l'écran
-  (`Frame::pixels_per_point`) : même épaisseur apparente partout. Le quad a la profondeur de
-  sa ligne centrale, alors qu'à un pixel de là une face voisine peut être plus proche (coins
-  rentrants, faces rasantes) : les traits sont donc **tirés vers l'œil** de 3 demi-largeurs
-  mesurées à leur profondeur (homothétie vers l'œil en perspective, translation sur l'axe de
-  vue en parallèle : le pixel ne bouge pas). Test : les arêtes d'une poche ne sont pas
-  enfouies. WebGPU n'a pas de largeur de ligne (Metal n'en a pas du tout).
+- A definition's buffer only holds its **direct solids**; its subgroups have their own, drawn
+  with the composed transformations.
+- **Highlight**: a selected solid is selected along a path (a single occurrence); it is drawn
+  again on top with its index range and that occurrence's matrix.
+- **`render` does not know the document**: it receives meshes by key (the definition's id) with
+  a revision, and a list of batches `(key, matrices)` + highlights + preview lines. It is
+  `tools` (the display scene) that flattens the document and decides the revisions.
+- `render` draws into **its own off-screen target** (MSAA ×4 colour + depth, resolved into a
+  texture): the app shows it as an egui image. Rendering is thus independent of egui and
+  testable without a window.
+- **Precision** (the GPU only has `f32`; neither WebGPU, WebGL2 nor Metal offer `f64`):
+  - **camera-relative rendering**: view, placements and lines are in `f64`; each
+    `view × world × recentring` is computed in `f64` on the CPU and only then converted to
+    `f32` (the instance buffer is rewritten every frame anyway); the shader only applies the
+    projection;
+  - **recentred meshes**: the kernel's `Mesh` is in `f32` relative to its centre (`origin` in
+    `f64`), and a definition's GPU mesh is relative to the centre of its solids;
+  - **reversed depth** (near → 1, far → 0) in a `Depth32Float`: nearly uniform precision; the
+    projection given must be reversed (`Mat4::perspective_infinite_reverse_rh`).
+  - Checked by a test: the same scene 100 km from the origin gives the same image.
+- **Wide lines, in points**: hardware lines are one pixel wide (half a point on a high-density
+  screen). Edges, axes, grid and tool previews are therefore quads (two triangles per segment)
+  widened on screen by the vertex shader, after clipping the segment in front of the eye. Widths
+  are in points (`EDGE_WIDTH` 1.5; `LINE_WIDTH` 1.5; `GRID_WIDTH` 1) and multiplied by the
+  screen's pixel density (`Frame::pixels_per_point`): the same apparent thickness everywhere.
+  The quad has the depth of its centre line, while a pixel away a neighbouring face can be
+  closer (inner corners, grazing faces): lines are therefore **pulled towards the eye** by 3
+  half-widths measured at their depth (scaling towards the eye in perspective, translation along
+  the view axis in parallel: the pixel does not move). Test: the edges of a pocket are not
+  buried. WebGPU has no line width (Metal has none at all).
 
-## 7 ter. Noyau asynchrone
+## 7 ter. Asynchronous kernel
 
-Décidé le 2026-11-09 (questions/réponses). Le noyau ne tourne plus sur le thread de l'UI : un
-booléen lourd ne gèle plus l'interface et, dans le navigateur, une panique du noyau (`panic =
-abort` en wasm) ne tue plus que le worker.
+Decided on 2026-11-09 (questions/answers). The kernel no longer runs on the UI thread: a heavy
+boolean no longer freezes the interface and, in the browser, a kernel panic (`panic = abort` in
+wasm) only kills the worker.
 
-- **Tâches noyau pures.** Une `Operation` s'applique en deux temps :
-  1. `Document::prepare` (thread de l'UI) exécute l'opération avec un *enregistreur* à la
-     place du noyau : il valide tout (ids, cycles…), relève les appels au noyau dans un `Job`
-     (`kernel::Job` : records d'entrée dédoublonnés + `Task`s — primitive, transformation,
-     booléen, affichage) et rend des solides fictifs. Une opération sans appel au noyau
-     (renommer, regrouper, déplacer un groupe…) est **finie dès cette étape**, sans aller-retour ;
-  2. le `Job` part au service du noyau, qui rend pour chaque solide produit son record **et son
-     affichage** (maillage + accroches), d'un seul aller-retour ;
-  3. `Document::commit` rejoue l'opération sur le même document en distribuant les résultats
-     dans l'ordre ; `History::push` l'enregistre.
+- **Pure kernel tasks.** An `Operation` applies in two steps:
+  1. `Document::prepare` (UI thread) runs the operation with a *recorder* in place of the
+     kernel: it validates everything (ids, cycles…), gathers the kernel calls into a `Job`
+     (`kernel::Job`: deduplicated input records + `Task`s — primitive, transformation, boolean,
+     display) and returns placeholder solids. An operation with no kernel call (rename, group,
+     move…) is **done at this step**, with no round trip;
+  2. the `Job` goes to the kernel service, which returns for each solid produced its record
+     **and its display** (mesh + snaps), in a single round trip;
+  3. `Document::commit` replays the operation on the same document, handing out the results in
+     order; `History::push` records it.
 
-  Le document, l'historique et la scène restent sur le thread de l'UI ; le service est sans
-  état.
-- **Un service, trois exécutions** (`kernel::KernelService` : `submit(id, job)`, `poll()`) :
-  `Inline` (synchrone, tests), `Threaded` (un thread, desktop), Web Worker (navigateur, dans
-  l'app). Chaque résultat réveille l'UI (`request_repaint`).
-- **Pendant le calcul** : une seule opération à la fois ; la navigation et le survol restent
-  actifs, les clics d'outils, raccourcis d'édition, annuler / rétablir sont ignorés ; la barre
-  d'état dit « Calcul… » et le curseur attend. Échap abandonne : le résultat sera jeté. Les
-  actions composées (éclater plusieurs instances) passent par une file interne, une opération à
-  la fois. Remplacer une copie par un réseau (`Command::Replace`) rétablit la copie si le
-  réseau échoue ou est abandonné.
-- **Maillages** : la scène garde le maillage de tout solide encore tenu par l'historique
-  (annuler / rétablir ne remaillent pas). Un solide sans maillage (fichier ouvert) est demandé
-  au service (une tâche par solide), dessiné en attendant par les arêtes de sa boîte englobante
-  (calculée sur le record, sans noyau) ; le document reste utilisable.
-- **Web** : deux wasm. `apps/kernel-worker` (noyau seul) tourne dans un Web Worker module
-  (`web/kernel-worker.js`) ; le wasm de l'UI ne contient plus SolidCore : `kernel` a une
-  feature `engine` (exécution : `solidcore`, `-convert`, `-tess`) ; sans elle il n'expose que
-  les types (`Solid`, `Mesh`, `Snaps`, `Job`…) et `solidcore-record`. Messages en
-  **MessagePack** (`rmp-serde`, champs nommés : le record a des enums étiquetées, postcard ou
-  bincode ne conviennent pas), dans des `ArrayBuffer` transférés. Si le worker plante, son
-  travail en cours échoue (message dans la barre d'état), il est relancé et les autres tâches
-  en vol lui sont renvoyées.
-- **Tester la reprise** : menu **Débogage › Faire planter le noyau** (tâche `Task::Panic`, suivie
-  d'une tâche normale qui doit aboutir). Le menu s'active au lancement, dans tout build :
-  `?debug` dans l'adresse de la page, `SOLIDSKETCH_DEBUG` dans l'environnement sur desktop.
+  The document, the history and the scene stay on the UI thread; the service is stateless.
+- **One service, three executions** (`kernel::KernelService`: `submit(id, job)`, `poll()`):
+  `Inline` (synchronous, tests), `Threaded` (a thread, desktop), Web Worker (browser, in the
+  app). Each result wakes the UI (`request_repaint`).
+- **During a computation**: one operation at a time; navigation and hovering stay active, tool
+  clicks, editing shortcuts, undo / redo are ignored; the status bar says it is computing and
+  the cursor waits. Esc abandons: the result will be dropped. Compound actions (exploding
+  several instances) go through an internal queue, one operation at a time. Replacing a copy by
+  an array (`Command::Replace`) restores the copy if the array fails or is abandoned.
+- **Meshes**: the scene keeps the mesh of every solid still held by the history (undo / redo do
+  not remesh). A solid without a mesh (an opened file) is asked from the service (one task per
+  solid), drawn in the meantime by the edges of its bounding box (computed on the record,
+  without the kernel); the document stays usable.
+- **Web**: two wasm. `apps/kernel-worker` (the kernel alone) runs in a module Web Worker
+  (`web/kernel-worker.js`); the UI's wasm no longer holds SolidCore: `kernel` has an `engine`
+  feature (execution: `solidcore`, `-convert`, `-tess`); without it, it only exposes the types
+  (`Solid`, `Mesh`, `Snaps`, `Job`…) and `solidcore-record`. Messages in **MessagePack**
+  (`rmp-serde`, named fields: the record has tagged enums, postcard or bincode do not fit), in
+  transferred `ArrayBuffer`s. If the worker crashes, its current work fails (a message in the
+  status bar), it is restarted and the other tasks in flight are sent to it again.
+- **Testing the recovery**: **Debug › Crash the kernel** menu (task `Task::Panic`, followed by a
+  normal task that must succeed). The menu is turned on at launch, in any build: `?debug` in the
+  page's address, `SOLIDSKETCH_DEBUG` in the environment on the desktop.
 
-## 8. Fichier
+## 8. File
 
-JSON versionné (`{"format": "solidsketch", "version": 1, …}`) : sérialisation serde du
-document, B-rep compris (format record de SolidCore), et ses réglages (`settings`, absent des
-premiers fichiers : valeurs par défaut). Dans le navigateur : téléchargement et
-chargement de fichier.
+Versioned JSON (`{"format": "solidsketch", "version": 1, …}`): serde serialisation of the
+document, B-reps included (SolidCore's record format), and its settings (`settings`, missing
+from the first files: default values). In the browser: download and file upload.
 
-**Version 2** (écrite depuis le 2026-11-10) : composants, exemplaires, recettes des pièces
-(brut + usinages, avec leur `source`). Le B-rep final n'est pas la source : il est enregistré en
-cache (`shape`), présent exactement quand la pièce a des usinages, pour ouvrir sans recalcul.
-Les fichiers version 1 sont convertis à l'ouverture (§2.7). **Fichiers de référence** :
-`crates/model/tests/files/v1.solidsketch` et `v2.solidsketch`, relus par le test
-`reference_files_still_open` — un changement de format qui casserait d'anciens fichiers y
-échoue. Ils ne se régénèrent que pour une nouvelle version (`write_reference_files`).
+**Version 2** (written since 2026-11-10): components, occurrences, the parts' recipes (blank +
+machinings, with their `source`). The final B-rep is not the source: it is saved as a cache
+(`shape`), present exactly when the part has machinings, to open without recomputing. Version
+1 files are converted when opened (§2.7). **Reference files**:
+`crates/model/tests/files/v1.solidsketch` and `v2.solidsketch`, read back by the test
+`reference_files_still_open` — a format change that would break old files fails there. They
+are only regenerated for a new version (`write_reference_files`).
 
-## 9. Chaîne d'outils et dépendances
+## 9. Toolchain and dependencies
 
-- Rust **1.97.1** figé par `rust-toolchain.toml` (les crates SolidCore demandent ≥ 1.88), avec
-  la cible `wasm32-unknown-unknown`.
-- `solidcore` est sur crates.io, mais `solidcore-record`, `-convert` et `-tess` ne le sont pas :
-  les quatre viennent du miroir git `tangency-labs/solidcore`, **figés sur un même commit**.
-- wasm : pile de 8 Mio (`.cargo/config.toml`) — SolidCore récurse légitimement et wasm n'a pas
-  de page de garde. Les paniques du noyau ne sont pas rattrapables en wasm (`panic = abort`) :
-  elles sont confinées au Web Worker du noyau (§7 ter).
+- Rust **1.97.1** pinned by `rust-toolchain.toml` (the SolidCore crates ask for ≥ 1.88), with
+  the `wasm32-unknown-unknown` target.
+- `solidcore` is on crates.io, but `solidcore-record`, `-convert` and `-tess` are not: all four
+  come from the git mirror `tangency-labs/solidcore`, **pinned to one commit**.
+- wasm: an 8 MiB stack (`.cargo/config.toml`) — SolidCore recurses legitimately and wasm has no
+  guard page. Kernel panics cannot be caught in wasm (`panic = abort`): they are confined to the
+  kernel's Web Worker (§7 ter).
+- `rust-i18n` reads the `/locales` catalogs at compile time; `crates/i18n/build.rs` makes a
+  changed catalog rebuild it.
 
-## 10. Périmètre du prototype v0, par étapes
+## 10. Scope of the v0 prototype, in steps
 
-1. **Socle** : `kernel` (fait, à finaliser), `model` (document, opérations, undo, JSON),
-   `render` + app : viewport (orbite/pan/zoom, grille, axes), arborescence, sélection,
-   primitives, déplacer/rotation, annuler/rétablir ; build natif + wasm.
-2. **Groupes & composants** : créer depuis la sélection, éclater, entrer/sortir d'édition,
-   rendre unique, instances multiples. *(Fait, sur l'ancien modèle ; remplacé par le §2.)*
-2 bis. **Pièces, assemblages, usinages** (§2) : voir le plan dans `docs/REVUE.md`.
-3. **Booléens** : union, différence, intersection, y compris entre contextes (§4).
-4. **Pousser/tirer** : sélection d'une face B-rep, décalage (`offset_faces` du noyau, ou
-   extrusion + booléen). Le plus risqué côté noyau : en dernier.
+1. **Foundation**: `kernel` (done, to be finished), `model` (document, operations, undo, JSON),
+   `render` + app: viewport (orbit/pan/zoom, grid, axes), outliner, selection, primitives,
+   move/rotate, undo/redo; native + wasm build.
+2. **Groups & components**: create from the selection, explode, enter/leave editing, make
+   unique, multiple instances. *(Done, on the former model; replaced by §2.)*
+2 bis. **Parts, assemblies, machinings** (§2): see the plan in `docs/REVIEW.md`.
+3. **Booleans**: union, difference, intersection, across contexts too (§4).
+4. **Push/pull**: picking a B-rep face, offset (the kernel's `offset_faces`, or extrusion +
+   boolean). The riskiest on the kernel side: last.

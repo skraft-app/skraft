@@ -16,6 +16,7 @@
 
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_kernel::{SnapCurve, Snaps};
+use solidsketch_i18n::t;
 use solidsketch_model::EntityPath;
 
 use crate::camera::{Camera, Projector, Ray};
@@ -45,29 +46,36 @@ pub enum LineKind {
     Radial,
 }
 
-const AXIS_NAMES: [&str; 3] = ["rouge", "vert", "bleu"];
+/// An axis's colour, as its name says it.
+fn axis_name(k: usize) -> String {
+    match k {
+        0 => t!("infer.axis.red"),
+        1 => t!("infer.axis.green"),
+        _ => t!("infer.axis.blue"),
+    }
+}
 
 impl LineKind {
-    /// The line's name inside a sentence.
+    /// The line's name inside a crossing.
     fn name(self) -> String {
         match self {
-            LineKind::Axis(k) => format!("axe {}", AXIS_NAMES[k.min(2)]),
-            LineKind::TrackedAxis(k) => format!("axe {} depuis le point", AXIS_NAMES[k.min(2)]),
-            LineKind::Parallel => "parallèle".into(),
-            LineKind::Perpendicular => "perpendiculaire".into(),
-            LineKind::Tangent => "tangente".into(),
-            LineKind::Radial => "rayon".into(),
+            LineKind::Axis(k) => t!("infer.line.axis", axis = axis_name(k)),
+            LineKind::TrackedAxis(k) => t!("infer.line.tracked_axis", axis = axis_name(k)),
+            LineKind::Parallel => t!("infer.line.parallel"),
+            LineKind::Perpendicular => t!("infer.line.perpendicular"),
+            LineKind::Tangent => t!("infer.line.tangent"),
+            LineKind::Radial => t!("infer.line.radial"),
         }
     }
 
     fn on_label(self) -> String {
         match self {
-            LineKind::Axis(k) => format!("Sur l'axe {}", AXIS_NAMES[k.min(2)]),
-            LineKind::TrackedAxis(k) => format!("Depuis le point, sur l'axe {}", AXIS_NAMES[k.min(2)]),
-            LineKind::Parallel => "Parallèle à l'arête".into(),
-            LineKind::Perpendicular => "Perpendiculaire à l'arête".into(),
-            LineKind::Tangent => "Tangente à l'arc".into(),
-            LineKind::Radial => "Perpendiculaire à l'arc".into(),
+            LineKind::Axis(k) => t!("infer.on_line.axis", axis = axis_name(k)),
+            LineKind::TrackedAxis(k) => t!("infer.on_line.tracked_axis", axis = axis_name(k)),
+            LineKind::Parallel => t!("infer.on_line.parallel"),
+            LineKind::Perpendicular => t!("infer.on_line.perpendicular"),
+            LineKind::Tangent => t!("infer.on_line.tangent"),
+            LineKind::Radial => t!("infer.on_line.radial"),
         }
     }
 
@@ -140,19 +148,19 @@ impl InferKind {
     /// The tooltip (empty: none).
     pub fn label(self) -> String {
         match self {
-            InferKind::Endpoint => "Extrémité".into(),
-            InferKind::Midpoint => "Milieu".into(),
-            InferKind::Center => "Centre".into(),
-            InferKind::Origin => "Origine".into(),
-            InferKind::OnEdgeAndLine(l) => format!("Arête × {}", l.name()),
+            InferKind::Endpoint => t!("infer.endpoint"),
+            InferKind::Midpoint => t!("infer.midpoint"),
+            InferKind::Center => t!("infer.center"),
+            InferKind::Origin => t!("infer.origin"),
+            InferKind::OnEdgeAndLine(l) => format!("{} × {}", t!("infer.edge"), l.name()),
             InferKind::OnTwoLines(a, b) => {
                 let s = format!("{} × {}", a.name(), b.name());
                 let mut c = s.chars();
                 c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
             }
             InferKind::OnLine(l) => l.on_label(),
-            InferKind::OnEdge => "Sur l'arête".into(),
-            InferKind::OnFace => "Sur la face".into(),
+            InferKind::OnEdge => t!("infer.on_edge"),
+            InferKind::OnFace => t!("infer.on_face"),
             InferKind::OnPlane => String::new(),
         }
     }

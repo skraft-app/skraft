@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
+solidsketch-i18n.workspace = true
 solidsketch-model.workspace = true
 solidsketch-render.workspace = true
 solidsketch-tools.workspace = true

@@ -9,6 +9,8 @@
 
 use std::fmt;
 
+use solidsketch_i18n::{t, tp};
+
 /// A unit mark after a number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mark {
@@ -65,6 +67,13 @@ impl Value {
     }
 }
 
+/// What a field takes, for [`ExprError::NotA`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quantity {
+    Length,
+    Angle,
+}
+
 /// Why an expression can't be evaluated. The messages are the status bar's.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprError {
@@ -78,8 +87,8 @@ pub enum ExprError {
     InvalidDimension,
     /// A literal with a unit that is not the field's: `30mm` for an angle.
     WrongUnit(String),
-    /// The result is a factor (`@/@`), not what the field takes (« une longueur »).
-    NotA(&'static str),
+    /// The result is a factor (`@/@`), not what the field takes.
+    NotA(Quantity),
     UnknownVariable(String),
     /// `floor`, `ceil`: no step fits.
     NoMatchingValue(&'static str),
@@ -93,22 +102,22 @@ pub enum ExprError {
 
 impl fmt::Display for ExprError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ExprError::Syntax(s) => write!(f, "« {s} » incompris"),
-            ExprError::MissingOperand => write!(f, "opérande manquant"),
-            ExprError::MissingCloseParenthesis => write!(f, "parenthèse fermante manquante"),
-            ExprError::UnexpectedCloseParenthesis => write!(f, "parenthèse fermante en trop"),
-            ExprError::ZeroDivision => write!(f, "division par zéro"),
-            ExprError::InvalidDimension => write!(f, "unités incompatibles"),
-            ExprError::WrongUnit(s) => write!(f, "« {s} » : unité inattendue"),
-            ExprError::NotA(what) => write!(f, "le résultat n'est pas {what}"),
-            ExprError::UnknownVariable(s) => write!(f, "@{s} inconnu"),
-            ExprError::NoMatchingValue(func) => write!(f, "{func} : aucune valeur ne convient"),
-            ExprError::ArgumentCount(func) => write!(f, "{func} : au moins deux valeurs"),
-            ExprError::CommaSeparator(func) => write!(f, "{func} : séparer les valeurs par « ; »"),
-            ExprError::TooMany(1) => write!(f, "une seule valeur attendue"),
-            ExprError::TooMany(n) => write!(f, "{n} valeurs au plus"),
-        }
+        f.write_str(&match self {
+            ExprError::Syntax(text) => t!("error.expr.syntax", text = text),
+            ExprError::MissingOperand => t!("error.expr.missing_operand"),
+            ExprError::MissingCloseParenthesis => t!("error.expr.missing_close_parenthesis"),
+            ExprError::UnexpectedCloseParenthesis => t!("error.expr.unexpected_close_parenthesis"),
+            ExprError::ZeroDivision => t!("error.expr.zero_division"),
+            ExprError::InvalidDimension => t!("error.expr.invalid_dimension"),
+            ExprError::WrongUnit(text) => t!("error.expr.wrong_unit", text = text),
+            ExprError::NotA(Quantity::Length) => t!("error.expr.not_a_length"),
+            ExprError::NotA(Quantity::Angle) => t!("error.expr.not_an_angle"),
+            ExprError::UnknownVariable(name) => t!("error.expr.unknown_variable", name = name),
+            ExprError::NoMatchingValue(function) => t!("error.expr.no_matching_value", function = function),
+            ExprError::ArgumentCount(function) => t!("error.expr.argument_count", function = function),
+            ExprError::CommaSeparator(function) => t!("error.expr.comma_separator", function = function),
+            ExprError::TooMany(n) => tp!("error.expr.too_many", *n),
+        })
     }
 }
 

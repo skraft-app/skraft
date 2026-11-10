@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec2, DVec3};
+use solidsketch_i18n::t;
 use solidsketch_model::kernel::{JobId, KernelService, Solid};
 use solidsketch_model::{Document, History, Id, Operation, Outcome};
 
@@ -168,7 +169,7 @@ impl Editor {
     /// The status bar's text: the kernel at work, else the last message, else the tool's hint.
     pub fn status(&self) -> String {
         if let Some(p) = &self.pending {
-            return format!("{} : calcul en cours… (Échap pour abandonner)", p.op.label());
+            return format!("{} {}", solidsketch_i18n::ellipsis(t!("status.computing", op = p.op.label())), t!("status.computing_cancel"));
         }
         self.message.clone().unwrap_or_else(|| self.tool.status())
     }
@@ -180,8 +181,11 @@ impl Editor {
 
     /// The measurements box's label and the value it shows while nothing is typed, when the
     /// tool takes one.
-    pub fn vcb(&self) -> Option<(&'static str, String)> {
-        self.tool.vcb().map(|v| (v.label, vcb::display(&v.kind, &self.document().settings().units)))
+    pub fn vcb(&self) -> Option<(String, String)> {
+        self.tool.vcb().map(|v| {
+            let shown = vcb::display(&v, &self.document().settings().units);
+            (v.label, shown)
+        })
     }
 
     pub fn set_viewport_size(&mut self, size: DVec2) {
@@ -193,7 +197,7 @@ impl Editor {
     }
 
     /// The part of the viewport floating panels leave visible (pixels, origin top left): what
-    /// « zoom étendu » frames.
+    /// zoom extents frames.
     pub fn set_free_area(&mut self, min: DVec2, max: DVec2) {
         self.free = Some((min, max));
     }
@@ -446,7 +450,7 @@ impl Editor {
                     self.clear_locks();
                     let _ = self.start(op, After::Select, true);
                 } else {
-                    self.message = Some("Le dernier pas n'est plus cette copie".into());
+                    self.message = Some(t!("status.copy_not_last"));
                 }
             }
         }

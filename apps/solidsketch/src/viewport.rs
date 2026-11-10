@@ -2,6 +2,7 @@
 //! to the renderer, the renderer's off-screen target shown as an egui image.
 
 use glam::{DMat4, DVec2};
+use solidsketch_i18n::t;
 use solidsketch_render as render;
 use solidsketch_tools::{Editor, InferKind, Mark, Modifiers, ToolInput, ToolKind};
 
@@ -50,7 +51,7 @@ impl Viewport {
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
         let Some(state) = frame.wgpu_render_state() else {
-            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "wgpu indisponible", Default::default(), egui::Color32::RED);
+            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, t!("status.no_wgpu"), Default::default(), egui::Color32::RED);
             return;
         };
         self.render(state, size, ppp, editor);

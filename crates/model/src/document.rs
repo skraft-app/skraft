@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use glam::DAffine3;
 use serde::{Deserialize, Serialize};
+use solidsketch_i18n::t;
 
 use crate::settings::Settings;
 use solidsketch_kernel::Solid;
@@ -203,7 +204,7 @@ impl Document {
     /// An empty model with these settings (the app's defaults for new models).
     pub fn with_settings(settings: Settings) -> Self {
         let root = Id(1);
-        let c = Component { id: root, name: "Modèle".into(), named: true, kind: ComponentKind::Assembly(Assembly::default()) };
+        let c = Component { id: root, name: t!("default_name.model"), named: true, kind: ComponentKind::Assembly(Assembly::default()) };
         Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings }
     }
 

@@ -7,22 +7,31 @@
 //! [`VcbValue`]. A bare number is in the document's unit; `,` and `.` are both decimal points.
 
 use glam::{DAffine3, DVec3};
+use solidsketch_i18n::t;
 use solidsketch_model::{Units, measure};
 
 /// What the measurements box takes now.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Vcb {
-    /// Its label (« Distance »).
-    pub label: &'static str,
+    /// Its label (the move's « Distance »).
+    pub label: String,
     pub kind: VcbKind,
     /// A typed point is taken too: `[x;y;z]` in the context's axes, `<dx;dy;dz>` along them
     /// from `from`; `to` is the point the cursor gives (world).
     pub point: Option<PointRef>,
+    /// How many of the last lengths may be left out (the height typed with the base): they
+    /// are given only if typed, and not shown.
+    pub optional: usize,
 }
 
 impl Vcb {
-    pub fn new(label: &'static str, kind: VcbKind) -> Self {
-        Vcb { label, kind, point: None }
+    pub fn new(label: impl Into<String>, kind: VcbKind) -> Self {
+        Vcb { label: label.into(), kind, point: None, optional: 0 }
+    }
+
+    /// The same, the last `n` lengths optional.
+    pub fn optional(self, n: usize) -> Self {
+        Vcb { optional: n, ..self }
     }
 }
 
@@ -46,7 +55,7 @@ pub struct PointRef {
 /// What was typed, read.
 #[derive(Clone, Debug, PartialEq)]
 pub enum VcbValue {
-    /// One per current value, signed.
+    /// One per current value, signed; optional ones only if typed.
     Lengths(Vec<f64>),
     /// Radians.
     Angle(f64),
@@ -58,7 +67,7 @@ pub enum VcbValue {
 /// Reads `text` for `vcb`; `context` is the context's frame (to world), for points. The error
 /// is the status bar's message.
 pub fn read(vcb: &Vcb, text: &str, units: &Units, context: &DAffine3) -> Result<VcbValue, String> {
-    let refused = |e: &dyn std::fmt::Display| format!("{} — « {} » : {e}", vcb.label, text.trim());
+    let refused = |e: &dyn std::fmt::Display| t!("tool.vcb.refused", label = vcb.label, text = text.trim(), error = e);
     if let Some(r) = vcb.point {
         let inv = context.inverse();
         let (to, from) = (inv.transform_point3(r.to), inv.transform_point3(r.from));
@@ -67,22 +76,30 @@ pub fn read(vcb: &Vcb, text: &str, units: &Units, context: &DAffine3) -> Result<
         }
     }
     match &vcb.kind {
-        VcbKind::Lengths(current) => measure::lengths(text, units, current).map(VcbValue::Lengths).map_err(|e| refused(&e)),
+        VcbKind::Lengths(current) => {
+            let mut v = measure::lengths(text, units, current).map_err(|e| refused(&e))?;
+            let typed = measure::split(text).len();
+            v.truncate(typed.max(current.len().saturating_sub(vcb.optional)));
+            Ok(VcbValue::Lengths(v))
+        }
         VcbKind::Angle(current) => {
             measure::angle(text, current.to_degrees()).map(|a| VcbValue::Angle(a.to_radians())).map_err(|e| refused(&e))
         }
-        VcbKind::Count => repeat(text).map(VcbValue::Count).ok_or_else(|| refused(&"taper 5x ou /5")),
+        VcbKind::Count => repeat(text).map(VcbValue::Count).ok_or_else(|| refused(&t!("tool.vcb.count_expected"))),
     }
 }
 
-/// The value shown in the box while nothing is typed.
-pub fn display(kind: &VcbKind, units: &Units) -> String {
-    match kind {
-        VcbKind::Lengths(v) => v.iter().map(|&x| format(x.abs(), units)).collect::<Vec<_>>().join("; "),
+/// The value shown in the box while nothing is typed (without the optional lengths).
+pub fn display(vcb: &Vcb, units: &Units) -> String {
+    match &vcb.kind {
+        VcbKind::Lengths(v) => {
+            let shown = &v[..v.len().saturating_sub(vcb.optional)];
+            shown.iter().map(|&x| format(x.abs(), units)).collect::<Vec<_>>().join("; ")
+        }
         VcbKind::Angle(a) => {
             let d = (a.to_degrees() * 10.0).round() / 10.0;
             let d = if d == 0.0 { 0.0 } else { d };
-            format!("{d}°").replace('.', ",")
+            solidsketch_i18n::number(&format!("{d}°"))
         }
         VcbKind::Count => String::new(),
     }
@@ -130,6 +147,13 @@ mod tests {
         let count = Vcb::new("Copies", VcbKind::Count);
         assert_eq!(read(&count, "5x", &mm, &id), Ok(VcbValue::Count(Repeat::Times(5))));
         assert!(read(&count, "5", &mm, &id).is_err());
+        // An optional height: given only if typed (`600==`: a cube).
+        let with_height = Vcb::new("Dimensions", VcbKind::Lengths(vec![100.0, -50.0, 0.0])).optional(1);
+        assert_eq!(read(&with_height, "600;400", &mm, &id), Ok(VcbValue::Lengths(vec![600.0, -400.0])));
+        assert_eq!(read(&with_height, "600", &mm, &id), Ok(VcbValue::Lengths(vec![600.0, -50.0])));
+        assert_eq!(read(&with_height, "600==", &mm, &id), Ok(VcbValue::Lengths(vec![600.0, -600.0, 600.0])));
+        assert_eq!(read(&with_height, ";;30", &mm, &id), Ok(VcbValue::Lengths(vec![100.0, -50.0, 30.0])));
+        assert!(read(&with_height, "1;2;3;4", &mm, &id).is_err());
     }
 
     #[test]
@@ -154,10 +178,12 @@ mod tests {
     #[test]
     fn displays() {
         let mm = Units::default();
-        assert_eq!(display(&VcbKind::Lengths(vec![12.5, -300.0]), &mm), "12,5 mm; 300 mm");
-        assert_eq!(display(&VcbKind::Angle(-22.5f64.to_radians()), &mm), "-22,5°");
+        let lengths = |v: Vec<f64>| Vcb::new("", VcbKind::Lengths(v));
+        assert_eq!(display(&lengths(vec![12.5, -300.0]), &mm), "12,5 mm; 300 mm");
+        assert_eq!(display(&lengths(vec![12.5, -300.0, 0.0]).optional(1), &mm), "12,5 mm; 300 mm");
+        assert_eq!(display(&Vcb::new("", VcbKind::Angle(-22.5f64.to_radians())), &mm), "-22,5°");
         let cm = Units { length: LengthUnit::Centimeter, ..Default::default() };
-        assert_eq!(display(&VcbKind::Lengths(vec![250.0]), &cm), "25 cm");
+        assert_eq!(display(&lengths(vec![250.0]), &cm), "25 cm");
     }
 
     #[test]

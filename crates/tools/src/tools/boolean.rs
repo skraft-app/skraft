@@ -3,6 +3,7 @@
 //! scope option says whether every occurrence of the target's part changes, or only the one
 //! clicked (§2.5).
 
+use solidsketch_i18n::t;
 use solidsketch_model::{Boolean, EntityPath, Operation, Scope};
 
 use super::{Command, Cx, OptionChoice, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption};
@@ -27,11 +28,12 @@ impl BooleanTool {
         BooleanTool { op, target: None, hover: None }
     }
 
-    fn noun(&self) -> &'static str {
+    /// What the tool does, inside its hints.
+    fn verb(&self) -> String {
         match self.op {
-            Boolean::Union => "unir",
-            Boolean::Difference => "soustraire",
-            Boolean::Intersection => "intersecter",
+            Boolean::Union => t!("tool.boolean.union.verb"),
+            Boolean::Difference => t!("tool.boolean.difference.verb"),
+            Boolean::Intersection => t!("tool.boolean.intersection.verb"),
         }
     }
 }
@@ -70,22 +72,22 @@ impl Tool for BooleanTool {
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
         let aimed = self.target.as_ref().or(self.hover.as_ref());
         let all = match aimed.map(|p| cx.copies_shown(p)) {
-            Some(n) if n > 1 => format!("Tous les exemplaires ×{n}"),
-            Some(_) => "Tous les exemplaires (un seul)".to_owned(),
-            None => "Tous les exemplaires".to_owned(),
+            Some(n) if n > 1 => t!("tool.boolean.option.all_count", count = n),
+            Some(_) => t!("tool.boolean.option.all_one"),
+            None => t!("tool.boolean.option.all"),
         };
         let value = if scope(cx) == Scope::This { THIS } else { ALL };
         vec![ToolOption {
             key: SCOPE,
-            label: "Portée".into(),
-            tip: "Ce que l'opération modifie (Tab pour changer)".into(),
+            label: t!("tool.boolean.option.scope"),
+            tip: t!("tool.boolean.option.scope_tip"),
             value: OptionValue::Choice(value.into()),
             choices: vec![
-                OptionChoice { value: ALL, label: all, tip: "La pièce elle-même : tous ses exemplaires changent".into() },
+                OptionChoice { value: ALL, label: all, tip: t!("tool.boolean.option.all_tip") },
                 OptionChoice {
                     value: THIS,
-                    label: "Celui-ci".into(),
-                    tip: "Seulement l'exemplaire cliqué : il devient une pièce à part (et son assemblage, s'il est copié)".into(),
+                    label: t!("tool.boolean.option.this"),
+                    tip: t!("tool.boolean.option.this_tip"),
                 },
             ],
             saved: true,
@@ -94,8 +96,8 @@ impl Tool for BooleanTool {
 
     fn status(&self) -> String {
         match self.target {
-            None => format!("Cliquer la pièce à modifier ({}) · Tab : changer la portée", self.noun()),
-            Some(_) => format!("Cliquer la pièce outil (elle sera consommée) pour {} · Tab : changer la portée", self.noun()),
+            None => t!("tool.boolean.hint.target", verb = self.verb()),
+            Some(_) => t!("tool.boolean.hint.tool", verb = self.verb()),
         }
     }
 

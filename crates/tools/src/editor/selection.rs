@@ -1,6 +1,7 @@
 //! Selection and the context being edited: select, enter and leave assemblies, erase, make
 //! an assembly, explode, make a part on its own.
 
+use solidsketch_i18n::t;
 use solidsketch_model::{EntityPath, Id, Operation};
 
 use super::{After, Editor};
@@ -58,7 +59,7 @@ impl Editor {
             return;
         }
         if self.selection.is_empty() {
-            self.message = Some("Sélectionner d'abord ce qu'il faut regrouper".into());
+            self.message = Some(t!("status.nothing_to_group"));
             return;
         }
         let op = Operation::MakeAssembly { context: self.context_definition(), entities: self.selection.clone(), name: None };

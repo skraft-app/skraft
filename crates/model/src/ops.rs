@@ -17,11 +17,12 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
+use solidsketch_i18n::t;
 use solidsketch_kernel::{BooleanOp, Display, Job, Output, Primitive, Solid, Task};
 
 use crate::document::{Assembly, ComponentKind, Document, EntityPath, Id, Machining, MachiningSource, Occurrence, Part};
 use crate::settings::Settings;
-use crate::{Error, Result};
+use crate::{Error, Refusal, Result};
 
 /// What a change to a part touches (ARCHITECTURE.md §2.5).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -109,22 +110,22 @@ pub enum Operation {
 
 impl Operation {
     /// A short label for menus and the undo history.
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            Operation::AddPrimitive { primitive, .. } => primitive.noun(),
-            Operation::Transform { .. } => "Déplacer",
-            Operation::Duplicate { .. } => "Copier",
-            Operation::Array { .. } => "Réseau",
-            Operation::Delete { .. } => "Effacer",
-            Operation::RenameOccurrence { .. } | Operation::RenameComponent { .. } => "Renommer",
-            Operation::MakeAssembly { .. } => "Créer un assemblage",
-            Operation::Explode { .. } => "Éclater",
-            Operation::MakeUnique { .. } => "Faire une pièce à part",
-            Operation::PlaceOccurrence { .. } => "Placer",
-            Operation::Boolean { op: Boolean::Union, .. } => "Union",
-            Operation::Boolean { op: Boolean::Difference, .. } => "Soustraction",
-            Operation::Boolean { op: Boolean::Intersection, .. } => "Intersection",
-            Operation::SetSettings(_) => "Réglages du modèle",
+            Operation::AddPrimitive { primitive, .. } => primitive_name(primitive),
+            Operation::Transform { .. } => t!("operation.transform"),
+            Operation::Duplicate { .. } => t!("operation.duplicate"),
+            Operation::Array { .. } => t!("operation.array"),
+            Operation::Delete { .. } => t!("operation.delete"),
+            Operation::RenameOccurrence { .. } | Operation::RenameComponent { .. } => t!("operation.rename"),
+            Operation::MakeAssembly { .. } => t!("operation.make_assembly"),
+            Operation::Explode { .. } => t!("operation.explode"),
+            Operation::MakeUnique { .. } => t!("operation.make_unique"),
+            Operation::PlaceOccurrence { .. } => t!("operation.place"),
+            Operation::Boolean { op: Boolean::Union, .. } => t!("operation.union"),
+            Operation::Boolean { op: Boolean::Difference, .. } => t!("operation.difference"),
+            Operation::Boolean { op: Boolean::Intersection, .. } => t!("operation.intersection"),
+            Operation::SetSettings(_) => t!("operation.settings"),
         }
     }
 
@@ -183,7 +184,7 @@ impl Document {
         let mut doc = self.clone();
         let outcome = doc.apply_in_place(op, &mut replayer)?;
         if replayer.outputs.next().is_some() {
-            return Err(Error::Invalid("kernel outputs out of step with the operation"));
+            return Err(Error::Invalid(Refusal::OutOfStep));
         }
         doc.purge();
         Ok(Applied { document: doc, outcome, displays: replayer.displays })
@@ -209,11 +210,11 @@ impl Document {
             Operation::AddPrimitive { context, primitive, placement } => {
                 self.assembly(*context)?;
                 if !is_rigid(placement) {
-                    return Err(Error::Invalid("a placement is a move and a rotation"));
+                    return Err(Error::Invalid(Refusal::PlacementNotRigid));
                 }
                 let (local, at) = primitive.at_origin();
                 let blank = solver.primitive(&local)?;
-                let part = self.insert_component(primitive.noun(), false, ComponentKind::Part(Part::new(blank)));
+                let part = self.insert_component(&primitive_name(primitive), false, ComponentKind::Part(Part::new(blank)));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
                 self.assembly_mut(*context)?.occurrences.push(Occurrence { id, name: String::new(), component: part, transform });
@@ -221,7 +222,7 @@ impl Document {
             }
             Operation::Transform { context, entities, transform } => {
                 if !is_rigid(transform) {
-                    return Err(Error::Invalid("only moves, rotations and mirrors place an occurrence"));
+                    return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 self.occurrences_of(*context, entities)?;
                 for o in &mut self.assembly_mut(*context)?.occurrences {
@@ -233,7 +234,7 @@ impl Document {
             }
             Operation::Duplicate { context, entities, transform } => {
                 if !is_rigid(transform) {
-                    return Err(Error::Invalid("only moves, rotations and mirrors place an occurrence"));
+                    return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let sources = self.occurrences_of(*context, entities)?;
                 let created = self.add_copies(*context, &sources, transform)?;
@@ -241,10 +242,10 @@ impl Document {
             }
             Operation::Array { context, entities, step, count } => {
                 if *count == 0 || *count > MAX_ARRAY {
-                    return Err(Error::Invalid("array count out of range"));
+                    return Err(Error::Invalid(Refusal::ArrayCount));
                 }
                 if !is_rigid(step) {
-                    return Err(Error::Invalid("only moves, rotations and mirrors place an occurrence"));
+                    return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let sources = self.occurrences_of(*context, entities)?;
                 let mut at = DAffine3::IDENTITY;
@@ -269,11 +270,11 @@ impl Document {
             }
             Operation::RenameComponent { component, name } => {
                 if *component == self.root {
-                    return Err(Error::Invalid("the model is not renamed"));
+                    return Err(Error::Invalid(Refusal::RootRenamed));
                 }
                 self.component(*component)?;
                 if self.components().any(|c| c.id != *component && c.name == *name) {
-                    return Err(Error::Invalid("another part or assembly has that name"));
+                    return Err(Error::Invalid(Refusal::NameTaken));
                 }
                 let c = self.component_mut(*component)?;
                 c.name = name.clone();
@@ -282,10 +283,10 @@ impl Document {
             }
             Operation::MakeAssembly { context, entities, name } => {
                 if entities.is_empty() {
-                    return Err(Error::Invalid("nothing to put in the assembly"));
+                    return Err(Error::Invalid(Refusal::EmptyAssembly));
                 }
                 let moved = self.occurrences_of(*context, entities)?;
-                let base = name.clone().unwrap_or_else(|| "Assemblage".to_owned());
+                let base = name.clone().unwrap_or_else(|| t!("default_name.assembly"));
                 let assembly =
                     self.insert_component(&base, name.is_some(), ComponentKind::Assembly(Assembly { occurrences: moved }));
                 let id = self.fresh_id();
@@ -299,7 +300,7 @@ impl Document {
             }
             Operation::Explode { context, occurrence } => {
                 let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);
-                let contents = self.assembly(o.component).map_err(|_| Error::Invalid("only an assembly is exploded"))?.occurrences.clone();
+                let contents = self.assembly(o.component).map_err(|_| Error::Invalid(Refusal::NotExploded))?.occurrences.clone();
                 let mut copies = Vec::with_capacity(contents.len());
                 for c in contents {
                     let id = self.fresh_id();
@@ -325,10 +326,10 @@ impl Document {
             }
             Operation::PlaceOccurrence { context, component, transform } => {
                 if *component == self.root {
-                    return Err(Error::Invalid("the model is not placed"));
+                    return Err(Error::Invalid(Refusal::RootPlaced));
                 }
                 if !is_rigid(transform) {
-                    return Err(Error::Invalid("only moves, rotations and mirrors place an occurrence"));
+                    return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 self.component(*component)?;
                 self.assembly(*context)?;
@@ -355,7 +356,7 @@ impl Document {
 
     fn boolean(&mut self, target: &EntityPath, tool: &EntityPath, op: Boolean, solver: &mut dyn Solver) -> Result<Outcome> {
         if target == tool {
-            return Err(Error::Invalid("a part is not combined with itself"));
+            return Err(Error::Invalid(Refusal::SelfBoolean));
         }
         let (part, p, t_target) = self.resolve_part(target)?;
         let p = p.clone();
@@ -499,7 +500,7 @@ impl Replayer {
                 self.displays.push((solid.clone(), display));
                 Ok(solid)
             }
-            _ => Err(Error::Invalid("kernel outputs out of step with the operation")),
+            _ => Err(Error::Invalid(Refusal::OutOfStep)),
         }
     }
 }
@@ -511,5 +512,16 @@ impl Solver for Replayer {
 
     fn boolean(&mut self, _: &Arc<Solid>, _: &Arc<Solid>, _: Option<DAffine3>, _: BooleanOp) -> Result<Arc<Solid>> {
         self.next()
+    }
+}
+
+/// The default name of a part built from `primitive` (and the label of its creation).
+pub fn primitive_name(primitive: &Primitive) -> String {
+    match primitive {
+        Primitive::Box { .. } => t!("default_name.box"),
+        Primitive::Cylinder { .. } => t!("default_name.cylinder"),
+        Primitive::Sphere { .. } => t!("default_name.sphere"),
+        Primitive::Cone { .. } => t!("default_name.cone"),
+        Primitive::Torus { .. } => t!("default_name.torus"),
     }
 }

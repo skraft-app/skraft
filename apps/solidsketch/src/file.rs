@@ -3,6 +3,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use solidsketch_i18n::t;
 use solidsketch_model::Document;
 
 pub const EXTENSION: &str = "solidsketch";
@@ -62,19 +63,20 @@ pub fn save(doc: &Document, path: Option<&str>) -> Result<Option<String>, String
             Some(p) => std::path::PathBuf::from(p),
             None => match rfd::FileDialog::new()
                 .add_filter("SolidSketch", &[EXTENSION])
-                .set_file_name(format!("modele.{EXTENSION}"))
+                .set_file_name(format!("{}.{EXTENSION}", t!("default_name.file")))
                 .save_file()
             {
                 Some(p) => p,
                 None => return Ok(None),
             },
         };
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::fs::write(&path, text).map_err(|e| t!("error.io", path = path.display(), error = e))?;
         Ok(Some(path.display().to_string()))
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let name = path.unwrap_or("modele.solidsketch").rsplit('/').next().unwrap_or("modele.solidsketch").to_owned();
+        let fallback = format!("{}.{EXTENSION}", t!("default_name.file"));
+        let name = path.and_then(|p| p.rsplit('/').next()).unwrap_or(&fallback).to_owned();
         download(&name, &text).map_err(|e| format!("{e:?}"))?;
         Ok(Some(name))
     }

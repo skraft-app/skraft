@@ -9,7 +9,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::document::{ComponentKind, Document, Id};
-use crate::{Error, Result};
+use crate::{Error, FileError, Result};
 
 /// The `format` field of every SolidSketch file.
 pub const FORMAT: &str = "solidsketch";
@@ -35,7 +35,7 @@ struct FileIn<D> {
 }
 
 fn file_err(e: impl std::fmt::Display) -> Error {
-    Error::File(e.to_string())
+    Error::File(FileError::Unreadable(e.to_string()))
 }
 
 impl Document {
@@ -46,10 +46,10 @@ impl Document {
     pub fn from_json(text: &str) -> Result<Document> {
         let h: Header = serde_json::from_str(text).map_err(file_err)?;
         if h.format != FORMAT {
-            return Err(Error::File(format!("not a SolidSketch file ({})", h.format)));
+            return Err(Error::File(FileError::NotSolidSketch(h.format)));
         }
         if h.version > VERSION {
-            return Err(Error::File(format!("file version {} is newer than this build ({VERSION})", h.version)));
+            return Err(Error::File(FileError::TooNew(h.version)));
         }
         let doc = match h.version {
             1 => serde_json::from_str::<FileIn<v1::Document>>(text).map_err(file_err)?.document.convert()?,
@@ -64,27 +64,27 @@ impl Document {
     /// within their assembly for occurrences (§2.6) —, a part's shape there exactly when it has
     /// machinings.
     fn check(&self) -> Result<()> {
-        self.assembly(self.root).map_err(|_| Error::File("the root is not an assembly".into()))?;
+        self.assembly(self.root).map_err(|_| Error::File(FileError::RootNotAssembly))?;
         let mut seen = std::collections::HashSet::new();
-        let mut fresh = |id: Id, what: &str| {
+        let mut fresh = |id: Id, bad: fn(Id) -> FileError| {
             if id.0 >= self.next_id || !seen.insert(id) {
-                return Err(Error::File(format!("bad {what} id {id}")));
+                return Err(Error::File(bad(id)));
             }
             Ok(())
         };
-        let below = |id: Id| if id.0 < self.next_id { Ok(()) } else { Err(Error::File(format!("bad occurrence id {id}"))) };
+        let below = |id: Id| if id.0 < self.next_id { Ok(()) } else { Err(Error::File(FileError::BadOccurrenceId(id))) };
         for (key, c) in &self.components {
             if *key != c.id {
-                return Err(Error::File(format!("component {} filed as {key}", c.id)));
+                return Err(Error::File(FileError::Misfiled { id: c.id, key: *key }));
             }
-            fresh(c.id, "component")?;
+            fresh(c.id, FileError::BadComponentId)?;
             match &c.kind {
                 ComponentKind::Part(p) => {
                     for m in &p.machinings {
-                        fresh(m.id, "machining")?;
+                        fresh(m.id, FileError::BadMachiningId)?;
                     }
                     if p.machinings.is_empty() != p.shape.is_none() {
-                        return Err(Error::File(format!("part {}: shape out of step with its machinings", c.id)));
+                        return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
                 }
                 ComponentKind::Assembly(a) => {
@@ -92,7 +92,7 @@ impl Document {
                     for o in &a.occurrences {
                         below(o.id)?;
                         if !here.insert(o.id) {
-                            return Err(Error::File(format!("occurrence {} twice in {}", o.id, c.id)));
+                            return Err(Error::File(FileError::DuplicateOccurrence { occurrence: o.id, assembly: c.id }));
                         }
                         self.component(o.component)?;
                         if o.component == self.root || self.contains_component(o.component, c.id) {
@@ -153,7 +153,7 @@ mod v1 {
         /// part's one occurrence, under the solid's id so selections and names carry over.
         pub fn convert(self) -> Result<super::Document> {
             if self.definitions.get(&self.root).is_none_or(|d| d.kind != Kind::Root) {
-                return Err(Error::File("the root is not the model".into()));
+                return Err(Error::File(FileError::RootNotModel));
             }
             let mut next_id = self.next_id;
             let mut components = BTreeMap::new();

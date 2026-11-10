@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::{Rc, Weak};
 
+use solidsketch_i18n::t;
 use solidsketch_model::kernel::{Error, Job, JobId, JobResult, KernelService, decode, encode};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -75,7 +76,7 @@ impl KernelService for WebKernel {
                 inner.post(id, &bytes);
                 inner.in_flight.insert(id, bytes);
             }
-            Err(e) => inner.ready.push((id, Err(Error::Crashed(format!("envoi : {e}"))))),
+            Err(e) => inner.ready.push((id, Err(Error::Crashed(t!("error.worker.send", error = e))))),
         }
     }
 
@@ -121,7 +122,7 @@ fn spawn(inner: &Rc<RefCell<Inner>>) {
         Ok(w) => w,
         Err(e) => {
             let mut i = inner.borrow_mut();
-            let why = format!("le worker du noyau ne démarre pas ({e:?})");
+            let why = t!("error.worker.start", error = format!("{e:?}"));
             i.fail_all(&why);
             i.dead = Some(why);
             return;
@@ -135,7 +136,7 @@ fn spawn(inner: &Rc<RefCell<Inner>>) {
     let on_error = Closure::<dyn FnMut(web_sys::ErrorEvent)>::new(move |e: web_sys::ErrorEvent| {
         // The script itself failed (not found, not a module…): no kernel.
         let Some(inner) = weak.upgrade() else { return };
-        let why = format!("le worker du noyau a échoué : {}", e.message());
+        let why = t!("error.worker.failed", error = e.message());
         let wake = {
             let mut i = inner.borrow_mut();
             i.fail_all(&why);
@@ -164,7 +165,7 @@ fn on_message(weak: &Weak<RefCell<Inner>>, data: JsValue) {
             return;
         }
         if let Some(f) = get("fatal") {
-            let why = format!("le noyau ne se charge pas : {}", f.as_string().unwrap_or_default());
+            let why = t!("error.worker.load", error = f.as_string().unwrap_or_default());
             log::error!("{why}");
             i.fail_all(&why);
             i.dead = Some(why);
@@ -174,7 +175,7 @@ fn on_message(weak: &Weak<RefCell<Inner>>, data: JsValue) {
             }
             let result = if let Some(bytes) = get("bytes") {
                 let bytes = js_sys::Uint8Array::new(&bytes).to_vec();
-                decode::<JobResult>(&bytes).unwrap_or_else(|e| Err(Error::Crashed(format!("réponse illisible : {e}"))))
+                decode::<JobResult>(&bytes).unwrap_or_else(|e| Err(Error::Crashed(t!("error.worker.unreadable_reply", error = e))))
             } else {
                 let crashed = get("crashed").and_then(|v| v.as_string()).unwrap_or_default();
                 let why = i.panic.take().unwrap_or(crashed);

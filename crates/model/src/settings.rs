@@ -4,6 +4,7 @@
 //! Every field has a default, so a file written before a setting existed still loads.
 
 use serde::{Deserialize, Serialize};
+use solidsketch_i18n::t;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -79,19 +80,19 @@ impl LengthUnit {
         }
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
-            LengthUnit::Millimeter => "Millimètres",
-            LengthUnit::Centimeter => "Centimètres",
-            LengthUnit::Meter => "Mètres",
-            LengthUnit::Inch => "Pouces",
-            LengthUnit::Foot => "Pieds",
+            LengthUnit::Millimeter => t!("unit.millimeter"),
+            LengthUnit::Centimeter => t!("unit.centimeter"),
+            LengthUnit::Meter => t!("unit.meter"),
+            LengthUnit::Inch => t!("unit.inch"),
+            LengthUnit::Foot => t!("unit.foot"),
         }
     }
 }
 
 impl Units {
-    /// A length in mm, for display in these units: `12,5 cm`.
+    /// A length in mm, for display in these units, as the locale writes it: `12,5 cm`.
     pub fn format(&self, mm: f64) -> String {
         format!("{} {}", self.number(mm), self.length.symbol())
     }
@@ -101,6 +102,6 @@ impl Units {
         let p = 10f64.powi(self.decimals.min(9) as i32);
         let r = (mm / self.length.mm() * p).round() / p;
         let r = if r == 0.0 { 0.0 } else { r }; // no "-0"
-        r.to_string().replace('.', ",")
+        solidsketch_i18n::number(&r.to_string())
     }
 }

@@ -1,0 +1,410 @@
+# SolidSketch's texts in French: the reference catalog (docs/ARCHITECTURE.md §6 quater).
+#
+# A key is a path that follows where the text shows in the app. `%{name}` is a value the
+# code fills in; a key ending in `_plural` is the plural of the same key without it (for a
+# count, `%{count}`). Every other locale has exactly the same keys and placeholders: the
+# solidsketch-i18n tests check it, and that the code uses every key. No text holds an
+# ellipsis (…): the code adds it, the same for every language.
+
+_version: 1
+
+locale:
+  # The language's name in itself, in the language menu.
+  name: "Français"
+  decimal_separator: ","
+
+# Key names, in hints and shortcuts.
+key:
+  option: "Option"
+  ctrl: "Ctrl"
+  shift: "Maj"
+  space: "Espace"
+  delete: "Suppr"
+
+window:
+  # The title of a document never saved.
+  untitled: "Sans titre"
+
+menu:
+  file:
+    title: "Fichier"
+    new: "Nouveau"
+    open: "Ouvrir"
+    save: "Enregistrer"
+    save_as: "Enregistrer sous"
+  edit:
+    title: "Édition"
+    undo: "Annuler"
+    undo_op: "Annuler %{op}"
+    redo: "Rétablir"
+    redo_op: "Rétablir %{op}"
+    erase: "Effacer"
+    make_assembly: "Créer un assemblage"
+    explode: "Éclater"
+    make_unique: "Faire une pièce à part"
+    preferences: "Préférences"
+  view:
+    title: "Vue"
+    parallel: "Projection parallèle"
+    grid: "Grille"
+    axes: "Axes"
+    top: "Dessus"
+    front: "Face"
+    right: "Droite"
+    back: "Arrière"
+    left: "Gauche"
+    iso: "Iso"
+    zoom_extents: "Zoom étendu"
+  tools:
+    title: "Outils"
+  solids:
+    title: "Solides"
+  # Only with `?debug` (web) or SOLIDSKETCH_DEBUG (desktop).
+  debug:
+    title: "Débogage"
+    crash_kernel: "Faire planter le noyau"
+    crash_kernel_tip: "Teste la reprise après une panique du noyau"
+
+# The tool bar's tooltips.
+toolbar:
+  select: "Sélection (%{shortcut})"
+  box: "Boîte (%{shortcut})"
+  cylinder: "Cylindre (%{shortcut})"
+  move: "Déplacer (%{shortcut}) · %{copy_key} : copier · flèches : axe"
+  rotate: "Faire pivoter (%{shortcut}) · %{copy_key} : copier · flèches : axe"
+  union: "Union : cible, puis outil"
+  difference: "Soustraire : cible, puis outil"
+  intersection: "Intersecter : cible, puis outil"
+  make_assembly: "Créer un assemblage (%{shortcut})"
+  explode: "Éclater"
+  make_unique: "Faire une pièce à part"
+  erase: "Effacer (%{shortcut})"
+  undo: "Annuler (%{shortcut})"
+  redo: "Rétablir (%{shortcut})"
+  zoom_extents: "Zoom étendu (%{shortcut})"
+  perspective: "Perspective / parallèle"
+
+# The bar above the view: the active tool's name and options.
+option_bar:
+  # Before a choice's values.
+  choice: "%{option} :"
+
+prefs:
+  title: "Préférences"
+  tab:
+    general: "Général"
+    model: "Modèle"
+    navigation: "Navigation"
+  general:
+    language: "Langue"
+  model:
+    intro: "Réglages de ce modèle, enregistrés avec lui."
+    display: "Affichage"
+    grid: "Grille"
+    axes: "Axes"
+    background: "Fond"
+    units: "Unités"
+    lengths: "Longueurs"
+    decimals: "Décimales"
+    example: "Exemple"
+    use_for_new: "Utiliser pour les nouveaux modèles"
+    use_for_new_tip: "Ces réglages deviennent ceux des prochains modèles (Fichier › Nouveau)"
+    restore: "Reprendre les réglages par défaut"
+    restore_tip: "Applique à ce modèle les réglages des nouveaux modèles"
+    are_defaults: "Ce sont les réglages des nouveaux modèles."
+  navigation:
+    orbit:
+      title: "Orbite"
+      speed: "Vitesse"
+      mouse: "Souris (bouton du milieu)"
+      trackpad: "Trackpad (deux doigts)"
+      invert_x: "inverser ↔"
+      invert_y: "inverser ↕"
+    zoom:
+      title: "Zoom"
+      speed: "Vitesse"
+      wheel: "Molette"
+      wheel_invert: "inverser le sens"
+      target: "Cible"
+      to_cursor: "vers le curseur"
+    defaults: "Valeurs par défaut"
+
+panel:
+  entity_info:
+    title: "Infos sur l'entité"
+    no_selection: "Aucune sélection"
+    editing: "Édition de « %{name} »"
+    editing_exit: "Double-clic dans le vide pour sortir"
+    type: "Type"
+    type_part: "Pièce"
+    type_assembly: "Assemblage"
+    name: "Nom"
+    occurrence: "Exemplaire"
+    occurrences: "Exemplaires"
+    dimensions: "Dimensions"
+    machinings: "Usinages"
+    topology: "Topologie"
+    topology_counts: "%{faces} faces · %{edges} arêtes · %{vertices} sommets"
+    position: "Position"
+    selected: "%{count} sélectionné"
+    selected_plural: "%{count} sélectionnés"
+  outliner:
+    title: "Arborescence"
+    empty: "Modèle vide : dessiner une boîte (%{shortcut})"
+
+# The status bar: the measurements box, and the messages of the app and of the editor.
+status:
+  measurements: "Mesures"
+  saved: "Enregistré"
+  save_failed: "Enregistrement impossible : %{error}"
+  open_failed: "%{file} : %{error}"
+  prefs_not_saved: "Préférences non enregistrées : %{error}"
+  # « calcul en cours… (Échap pour abandonner) »: the code joins them with the ellipsis.
+  computing: "%{op} : calcul en cours"
+  computing_cancel: "(Échap pour abandonner)"
+  busy: "Un calcul est déjà en cours"
+  op_failed: "%{op} : %{error}"
+  abandoned: "%{op} : abandonné"
+  display_failed: "Affichage impossible : %{error}"
+  unexpected_reply: "réponse inattendue du noyau"
+  nothing_to_group: "Sélectionner d'abord ce qu'il faut regrouper"
+  # Typing a count after a copy, when the copy was undone or replaced since.
+  copy_not_last: "Le dernier pas n'est plus cette copie"
+  # In the view, when the GPU cannot draw.
+  no_wgpu: "wgpu indisponible"
+  debug:
+    crash_asked: "Plantage du noyau demandé"
+    crash_message: "plantage voulu (menu Débogage)"
+    crashed: "Plantage provoqué : %{error}"
+    not_crashed: "Plantage provoqué : le noyau n'a pas planté"
+    next_done: "la tâche suivante a abouti"
+    next_failed: "la tâche suivante a échoué : %{error}"
+
+# The tools: their name (option bar, menus), the status bar hints at each step, the
+# measurements box's label, their options and what they say when they refuse.
+tool:
+  # Added to a hint while the tool copies.
+  copying: "(copie)"
+  select:
+    name: "Sélection"
+    hint:
+      idle: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché) · Maj : ajouter/retirer · Double-clic : entrer dans un assemblage, ou en sortir"
+      crossing: "Capture : sélectionne ce que le rectangle touche · Maj : ajouter/retirer"
+      window: "Fenêtre : sélectionne ce que le rectangle contient entièrement · Maj : ajouter/retirer"
+  box:
+    name: "Boîte"
+    hint:
+      first: "Cliquer le premier coin de la base · flèches : plan rouge, vert, bleu"
+      base: "Cliquer le coin opposé, ou taper longueur;largeur (;hauteur)"
+      height: "Cliquer la hauteur, ou la taper"
+    vcb:
+      dimensions: "Dimensions"
+      height: "Hauteur"
+    say:
+      empty: "Boîte vide : une dimension est nulle"
+      empty_base: "Base vide : choisir un coin opposé"
+      base_lengths: "Base vide : deux longueurs sont nécessaires"
+  cylinder:
+    name: "Cylindre"
+    hint:
+      center: "Cliquer le centre de la base · flèches : plan rouge, vert, bleu"
+      radius: "Cliquer le rayon, ou taper rayon (;hauteur)"
+      height: "Cliquer la hauteur, ou la taper"
+    vcb:
+      radius: "Rayon"
+      height: "Hauteur"
+    say:
+      empty: "Cylindre vide : une dimension est nulle"
+      zero_radius: "Rayon nul"
+  move:
+    name: "Déplacer"
+    hint:
+      array: "Taper 5x pour un réseau de 5 copies, ou /5 pour 5 copies sur la distance"
+      start: "Cliquer le point de départ · flèches : bloquer un axe · %{copy_key} : copier"
+      destination: "Cliquer la destination, ou taper une distance · Maj : bloquer l'inférence"
+    vcb:
+      distance: "Distance"
+      copies: "Copies"
+    option:
+      copy: "Copier"
+      copy_tip: "Copier au lieu de déplacer (%{copy_key} : basculer)"
+    say:
+      nothing: "Rien à déplacer : sélectionner d'abord"
+  rotate:
+    name: "Faire pivoter"
+    hint:
+      array: "Taper 6x pour un réseau de 6 copies, ou /6 pour 6 copies sur l'angle"
+      center: "Cliquer le centre de rotation · flèches : axe rouge, vert, bleu · %{copy_key} : copier"
+      reference: "Cliquer l'origine de l'angle"
+      angle: "Cliquer l'angle (pas de 15°), ou le taper en degrés"
+    vcb:
+      copies: "Copies"
+      angle: "Angle"
+    option:
+      copy: "Copier"
+      copy_tip: "Copier au lieu de faire pivoter (%{copy_key} : basculer)"
+    say:
+      nothing: "Rien à faire pivoter : sélectionner d'abord"
+      too_close: "Cliquer à distance du centre pour l'origine de l'angle"
+  boolean:
+    union:
+      name: "Union"
+      verb: "unir"
+    difference:
+      name: "Soustraire"
+      verb: "soustraire"
+    intersection:
+      name: "Intersecter"
+      verb: "intersecter"
+    hint:
+      target: "Cliquer la pièce à modifier (%{verb}) · Tab : changer la portée"
+      tool: "Cliquer la pièce outil (elle sera consommée) pour %{verb} · Tab : changer la portée"
+    option:
+      scope: "Portée"
+      scope_tip: "Ce que l'opération modifie (Tab pour changer)"
+      all: "Tous les exemplaires"
+      all_count: "Tous les exemplaires ×%{count}"
+      all_one: "Tous les exemplaires (un seul)"
+      all_tip: "La pièce elle-même : tous ses exemplaires changent"
+      this: "Celui-ci"
+      this_tip: "Seulement l'exemplaire cliqué : il devient une pièce à part (et son assemblage, s'il est copié)"
+  # The measurements box refusing what was typed.
+  vcb:
+    refused: "%{label} — « %{text} » : %{error}"
+    count_expected: "taper 5x ou /5"
+
+# The inference tooltips (the point under the cursor). Two lines that cross are joined
+# with « × » by the code: « Arête × axe rouge ».
+infer:
+  endpoint: "Extrémité"
+  midpoint: "Milieu"
+  center: "Centre"
+  origin: "Origine"
+  on_edge: "Sur l'arête"
+  on_face: "Sur la face"
+  edge: "Arête"
+  axis:
+    red: "rouge"
+    green: "vert"
+    blue: "bleu"
+  # A line inside a crossing: « axe rouge × parallèle ».
+  line:
+    axis: "axe %{axis}"
+    tracked_axis: "axe %{axis} depuis le point"
+    parallel: "parallèle"
+    perpendicular: "perpendiculaire"
+    tangent: "tangente"
+    radial: "rayon"
+  # On one line.
+  on_line:
+    axis: "Sur l'axe %{axis}"
+    tracked_axis: "Depuis le point, sur l'axe %{axis}"
+    parallel: "Parallèle à l'arête"
+    perpendicular: "Perpendiculaire à l'arête"
+    tangent: "Tangente à l'arc"
+    radial: "Perpendiculaire à l'arc"
+
+# The operations, in Annuler / Rétablir and in the messages about them.
+operation:
+  transform: "Déplacer"
+  duplicate: "Copier"
+  array: "Réseau"
+  delete: "Effacer"
+  rename: "Renommer"
+  make_assembly: "Créer un assemblage"
+  explode: "Éclater"
+  make_unique: "Faire une pièce à part"
+  place: "Placer"
+  union: "Union"
+  difference: "Soustraction"
+  intersection: "Intersection"
+  settings: "Réglages du modèle"
+
+unit:
+  millimeter: "Millimètres"
+  centimeter: "Centimètres"
+  meter: "Mètres"
+  inch: "Pouces"
+  foot: "Pieds"
+
+# The names new components get (then the user's to change).
+default_name:
+  model: "Modèle"
+  assembly: "Assemblage"
+  box: "Boîte"
+  cylinder: "Cylindre"
+  sphere: "Sphère"
+  cone: "Cône"
+  torus: "Tore"
+  # A file name proposed when saving, without its extension.
+  file: "modele"
+
+error:
+  # A typed value that cannot be read (the measurements box, the entity info).
+  expr:
+    syntax: "« %{text} » incompris"
+    missing_operand: "opérande manquant"
+    missing_close_parenthesis: "parenthèse fermante manquante"
+    unexpected_close_parenthesis: "parenthèse fermante en trop"
+    zero_division: "division par zéro"
+    invalid_dimension: "unités incompatibles"
+    wrong_unit: "« %{text} » : unité inattendue"
+    not_a_length: "le résultat n'est pas une longueur"
+    not_an_angle: "le résultat n'est pas un angle"
+    unknown_variable: "@%{name} inconnu"
+    no_matching_value: "%{function} : aucune valeur ne convient"
+    argument_count: "%{function} : au moins deux valeurs"
+    comma_separator: "%{function} : séparer les valeurs par « ; »"
+    too_many: "%{count} valeur au plus"
+    too_many_plural: "%{count} valeurs au plus"
+  # An operation refused by the document.
+  model:
+    not_found: "%{id} introuvable"
+    not_a_part: "%{id} n'est pas une pièce"
+    not_an_assembly: "%{id} n'est pas un assemblage"
+    cycle: "un assemblage se contiendrait lui-même"
+    out_of_step: "les résultats du noyau ne correspondent pas à l'opération"
+    placement_not_rigid: "un placement est un déplacement et une rotation"
+    not_rigid: "seuls les déplacements, rotations et symétries placent un exemplaire"
+    array_count: "nombre de copies hors limites"
+    root_renamed: "le modèle ne se renomme pas"
+    name_taken: "une autre pièce ou un autre assemblage porte ce nom"
+    empty_assembly: "rien à mettre dans l'assemblage"
+    not_exploded: "seul un assemblage s'éclate"
+    root_placed: "le modèle ne se place pas"
+    self_boolean: "une pièce ne se combine pas avec elle-même"
+  # A file that cannot be opened.
+  file:
+    unreadable: "fichier illisible : %{error}"
+    not_solidsketch: "pas un fichier SolidSketch (%{format})"
+    too_new: "fichier en version %{version}, plus récente que celle de cette application (%{supported})"
+    root_not_assembly: "la racine n'est pas un assemblage"
+    root_not_model: "la racine n'est pas le modèle"
+    bad_component_id: "identifiant de composant %{id} invalide"
+    bad_machining_id: "identifiant d'usinage %{id} invalide"
+    bad_occurrence_id: "identifiant d'exemplaire %{id} invalide"
+    misfiled: "composant %{id} rangé sous %{key}"
+    shape_out_of_step: "pièce %{id} : forme sans rapport avec ses usinages"
+    duplicate_occurrence: "exemplaire %{occurrence} en double dans %{assembly}"
+  # Reading or writing a file of the disk (a document, the preferences).
+  io: "%{path} : %{error}"
+  # The kernel failing (its own messages, from SolidCore, stay in English).
+  kernel:
+    failed: "%{call} : %{message}"
+    conversion: "%{call} : conversion : %{message}"
+    mesh: "maillage : %{message}"
+    empty: "%{call} : résultat vide"
+    panic: "%{call} : panique du noyau : %{message}"
+    crashed: "le noyau s'est arrêté : %{why}"
+  # The web worker the kernel runs in (browser).
+  worker:
+    send: "envoi : %{error}"
+    start: "le worker du noyau ne démarre pas (%{error})"
+    failed: "le worker du noyau a échoué : %{error}"
+    load: "le noyau ne se charge pas : %{error}"
+    unreadable_reply: "réponse illisible : %{error}"
+  preferences:
+    newer: "préférences d'une version plus récente (%{version})"
+    unreadable: "préférences illisibles : %{error}"
+    no_config_dir: "pas de dossier de configuration"
+    no_browser_storage: "stockage du navigateur indisponible"

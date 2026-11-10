@@ -18,6 +18,7 @@
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
 use solidcore_record::brep::Brep as Record;
+use solidsketch_i18n::t;
 
 #[cfg(feature = "engine")]
 mod engine;
@@ -31,28 +32,38 @@ pub use engine::Threaded;
 pub use job::{Display, Job, JobId, JobResult, KernelService, Output, Task, Waker, decode, encode};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
 
-/// Why a kernel call failed.
-#[derive(Clone, Debug, thiserror::Error, Serialize, Deserialize)]
+/// Why a kernel call failed. SolidCore's own messages stay as it words them (English).
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Error {
     /// SolidCore reported an error.
-    #[error("{call}: {message}")]
     Kernel { call: String, message: String },
     /// The record could not go to the kernel, or the kernel's body back to the record.
-    #[error("{call}: conversion: {message}")]
     Convert { call: String, message: String },
     /// The mesher refused the body.
-    #[error("tessellation: {0}")]
     Mesh(String),
     /// The operation produced nothing (e.g. the intersection of disjoint solids).
-    #[error("{0}: empty result")]
     Empty(String),
     /// SolidCore panicked; the guard caught it.
-    #[error("{call}: kernel panic: {message}")]
     Panic { call: String, message: String },
     /// What runs the kernel stopped while running the job (the web worker crashed).
-    #[error("le noyau s'est arrêté : {0}")]
     Crashed(String),
 }
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Error::Kernel { call, message } => t!("error.kernel.failed", call = call, message = message),
+            Error::Convert { call, message } => t!("error.kernel.conversion", call = call, message = message),
+            Error::Mesh(message) => t!("error.kernel.mesh", message = message),
+            Error::Empty(call) => t!("error.kernel.empty", call = call),
+            Error::Panic { call, message } => t!("error.kernel.panic", call = call, message = message),
+            Error::Crashed(why) => t!("error.kernel.crashed", why = why),
+        };
+        f.write_str(&text)
+    }
+}
+
+impl std::error::Error for Error {}
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -88,17 +99,6 @@ pub enum Primitive {
 }
 
 impl Primitive {
-    /// The default name of a solid built from this primitive.
-    pub fn noun(&self) -> &'static str {
-        match self {
-            Primitive::Box { .. } => "Boîte",
-            Primitive::Cylinder { .. } => "Cylindre",
-            Primitive::Sphere { .. } => "Sphère",
-            Primitive::Cone { .. } => "Cône",
-            Primitive::Torus { .. } => "Tore",
-        }
-    }
-
     /// The same primitive at the origin of its own axes, and where that origin was: a part's
     /// blank is built in the part's axes and placed by its occurrence (docs/ARCHITECTURE.md
     /// §2.2). A box's origin is its lowest corner (its extents made positive), a cylinder's or

@@ -7,6 +7,7 @@
 //! the cursor.
 
 use glam::{DAffine3, DQuat, DVec2, DVec3};
+use solidsketch_i18n::t;
 use solidsketch_model::{EntityPath, Id, Operation};
 use crate::infer::Inference;
 use crate::vcb::{Vcb, VcbKind, VcbValue};
@@ -152,7 +153,7 @@ impl Tool for RotateTool {
                             self.moving = vec![id];
                             out.push(Command::Select(vec![id]));
                         }
-                        None => return vec![Command::Say("Rien à faire pivoter : sélectionner d'abord".into())],
+                        None => return vec![Command::Say(t!("tool.rotate.say.nothing"))],
                     }
                 }
                 let Some((center, axis, _)) = self.center_at(cx, *px) else { return out };
@@ -161,7 +162,7 @@ impl Tool for RotateTool {
             }
             (ToolInput::Click { .. }, State::Reference { center, axis, dir }) => {
                 let Some(reference) = dir else {
-                    return vec![Command::Say("Cliquer à distance du centre pour l'origine de l'angle".into())];
+                    return vec![Command::Say(t!("tool.rotate.say.too_close"))];
                 };
                 self.state = State::Angle { center, axis, reference, angle: 0.0 };
             }
@@ -237,24 +238,20 @@ impl Tool for RotateTool {
     }
 
     fn status(&self) -> String {
-        let copy = if self.copy { " (copie)" } else { "" };
-        match self.state {
-            State::Center if self.last.is_some() => {
-                "Taper 6x pour un réseau de 6 copies, ou /6 pour 6 copies sur l'angle".into()
-            }
-            State::Center => {
-                format!("Cliquer le centre de rotation · flèches : axe rouge, vert, bleu · {} : copier{copy}", super::COPY_KEY)
-            }
-            State::Reference { .. } => "Cliquer l'origine de l'angle".into(),
-            State::Angle { .. } => format!("Cliquer l'angle (pas de 15°), ou le taper en degrés{copy}"),
-        }
+        let hint = match self.state {
+            State::Center if self.last.is_some() => return t!("tool.rotate.hint.array"),
+            State::Center => t!("tool.rotate.hint.center", copy_key = super::copy_key()),
+            State::Reference { .. } => return t!("tool.rotate.hint.reference"),
+            State::Angle { .. } => t!("tool.rotate.hint.angle"),
+        };
+        super::with_copying(hint, self.copy)
     }
 
     fn vcb(&self) -> Option<Vcb> {
         match self.state {
-            State::Center => self.last.as_ref().map(|_| Vcb::new("Copies", VcbKind::Count)),
-            State::Reference { .. } => Some(Vcb::new("Angle", VcbKind::Angle(0.0))),
-            State::Angle { angle, .. } => Some(Vcb::new("Angle", VcbKind::Angle(angle))),
+            State::Center => self.last.as_ref().map(|_| Vcb::new(t!("tool.rotate.vcb.copies"), VcbKind::Count)),
+            State::Reference { .. } => Some(Vcb::new(t!("tool.rotate.vcb.angle"), VcbKind::Angle(0.0))),
+            State::Angle { angle, .. } => Some(Vcb::new(t!("tool.rotate.vcb.angle"), VcbKind::Angle(angle))),
         }
     }
 
@@ -265,8 +262,8 @@ impl Tool for RotateTool {
     fn options(&self, _: &Cx<'_>) -> Vec<ToolOption> {
         vec![ToolOption {
             key: "copy",
-            label: "Copier".into(),
-            tip: format!("Copier au lieu de déplacer ({} : basculer)", super::COPY_KEY),
+            label: t!("tool.rotate.option.copy"),
+            tip: t!("tool.rotate.option.copy_tip", copy_key = super::copy_key()),
             value: OptionValue::Toggle(self.copy),
             choices: Vec::new(),
             saved: false,

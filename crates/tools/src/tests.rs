@@ -92,6 +92,18 @@ fn typed_expressions_lists_and_points() {
     let (lo, hi) = bounds_of(&e, &EntityPath::root(e.selection()[0]));
     assert!(close(lo, DVec3::new(-500.0, -600.0, 0.0)) && close(hi, DVec3::new(-400.0, -500.0, 10.0)), "{lo} {hi}");
 
+    // The height with the base: done at once (`50==`: a cube), and `r;h` for a cylinder.
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::new(700.0, 700.0, 0.0));
+    e.input(ToolInput::Vcb("50==".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(e.selection()[0]));
+    assert!(close(lo, DVec3::new(700.0, 700.0, 0.0)) && close(hi, DVec3::new(750.0, 750.0, 50.0)), "{lo} {hi}");
+    e.set_tool(ToolKind::Cylinder);
+    click(&mut e, DVec3::new(-700.0, 700.0, 0.0));
+    e.input(ToolInput::Vcb("20;-30".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(e.selection()[0]));
+    assert!((lo.z + 30.0).abs() < 1e-6 && hi.z.abs() < 1e-6, "{lo} {hi}");
+
     // A typed point: absolute, then relative to the start.
     e.set_tool(ToolKind::Select);
     click(&mut e, DVec3::new(300.0, 300.0, 100.0));

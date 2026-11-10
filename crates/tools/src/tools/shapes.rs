@@ -1,6 +1,7 @@
 //! Box and Cylinder: click the base, then the height (SketchUp's rectangle then push/pull, in
 //! one tool). Values can be typed at each step: `600;400` or `600=` for the base, `@*2` for
-//! twice the value so far; a typed length keeps the direction of the gesture.
+//! twice the value so far; a typed length keeps the direction of the gesture. The height can
+//! come with the base (`600;400;19`, `600==` a cube; `r;h` for a cylinder): the shape is done.
 //!
 //! The base lies in the plane of the face under the first click, through the point inferred
 //! there (§6 ter), and the height runs along its normal; with no face, on the context's ground.
@@ -9,6 +10,7 @@
 //! frame and placed.
 
 use glam::{DAffine3, DVec2, DVec3};
+use solidsketch_i18n::t;
 use solidsketch_model::{Operation, Primitive};
 
 use super::{Command, Cx, INK, Preview, PreviewLine, Tool, ToolInput, ToolKind, cross};
@@ -130,7 +132,7 @@ impl BoxTool {
         self.state = BoxState::First;
         let d = f.local(p2);
         if d.x.abs() < MIN || d.y.abs() < MIN || h.abs() < MIN {
-            return vec![Command::Say("Boîte vide : une dimension est nulle".into())];
+            return vec![Command::Say(t!("tool.box.say.empty"))];
         }
         let size = DVec3::new(d.x.abs(), d.y.abs(), h.abs());
         let (primitive, placement) = if f.aligned() {
@@ -174,7 +176,7 @@ impl Tool for BoxTool {
             (ToolInput::Click { .. }, BoxState::Base { f, p2 }) => {
                 let d = f.local(p2);
                 if d.x.abs() < MIN || d.y.abs() < MIN {
-                    return vec![Command::Say("Base vide : choisir un coin opposé".into())];
+                    return vec![Command::Say(t!("tool.box.say.empty_base"))];
                 }
                 self.state = BoxState::Height { f, p2, h: 0.0 };
             }
@@ -183,10 +185,13 @@ impl Tool for BoxTool {
                 // Signed as the drag (the box's VCB gives the current ones).
                 let (w, l) = (v[0], v[1]);
                 if w.abs() < MIN || l.abs() < MIN {
-                    return vec![Command::Say("Base vide : deux longueurs sont nécessaires".into())];
+                    return vec![Command::Say(t!("tool.box.say.base_lengths"))];
                 }
                 let p2 = if f.aligned() { f.o + DVec3::new(w, l, 0.0) } else { f.at(DVec3::new(w, l, 0.0)) };
-                self.state = BoxState::Height { f, p2, h: 0.0 };
+                match v.get(2) {
+                    Some(&h) => return self.finish(cx, f, p2, h),
+                    None => self.state = BoxState::Height { f, p2, h: 0.0 },
+                }
             }
             (ToolInput::Value(VcbValue::Lengths(v)), BoxState::Height { f, p2, .. }) => {
                 return self.finish(cx, f, p2, v[0]);
@@ -224,9 +229,9 @@ impl Tool for BoxTool {
 
     fn status(&self) -> String {
         match self.state {
-            BoxState::First => "Cliquer le premier coin de la base · flèches : plan rouge, vert, bleu".into(),
-            BoxState::Base { .. } => "Cliquer le coin opposé, ou taper longueur;largeur".into(),
-            BoxState::Height { .. } => "Cliquer la hauteur, ou la taper".into(),
+            BoxState::First => t!("tool.box.hint.first"),
+            BoxState::Base { .. } => t!("tool.box.hint.base"),
+            BoxState::Height { .. } => t!("tool.box.hint.height"),
         }
     }
 
@@ -235,9 +240,9 @@ impl Tool for BoxTool {
             BoxState::First => None,
             BoxState::Base { f, p2 } => {
                 let d = f.local(p2);
-                Some(Vcb::new("Dimensions", VcbKind::Lengths(vec![d.x, d.y])))
+                Some(Vcb::new(t!("tool.box.vcb.dimensions"), VcbKind::Lengths(vec![d.x, d.y, 0.0])).optional(1))
             }
-            BoxState::Height { h, .. } => Some(Vcb::new("Hauteur", VcbKind::Lengths(vec![h]))),
+            BoxState::Height { h, .. } => Some(Vcb::new(t!("tool.box.vcb.height"), VcbKind::Lengths(vec![h]))),
         }
     }
 
@@ -273,7 +278,7 @@ impl CylinderTool {
     fn finish(&mut self, cx: &Cx<'_>, f: Frame, r: f64, h: f64) -> Vec<Command> {
         self.state = CylState::Center;
         if r < MIN || h.abs() < MIN {
-            return vec![Command::Say("Cylindre vide : une dimension est nulle".into())];
+            return vec![Command::Say(t!("tool.cylinder.say.empty"))];
         }
         let (origin, placement) = if f.aligned() {
             (DVec3::new(f.o.x, f.o.y, f.o.z + h.min(0.0)), DAffine3::IDENTITY)
@@ -315,9 +320,10 @@ impl Tool for CylinderTool {
                 self.state = CylState::Height { f, r, h: 0.0 };
             }
             (ToolInput::Click { .. }, CylState::Height { f, r, h }) => return self.finish(cx, f, r, h),
-            (ToolInput::Value(VcbValue::Lengths(v)), CylState::Radius { f, .. }) => match v[0] {
-                r if r >= MIN => self.state = CylState::Height { f, r, h: 0.0 },
-                _ => return vec![Command::Say("Rayon nul".into())],
+            (ToolInput::Value(VcbValue::Lengths(v)), CylState::Radius { f, .. }) => match (v[0], v.get(1)) {
+                (r, _) if r < MIN => return vec![Command::Say(t!("tool.cylinder.say.zero_radius"))],
+                (r, Some(&h)) => return self.finish(cx, f, r, h),
+                (r, None) => self.state = CylState::Height { f, r, h: 0.0 },
             },
             (ToolInput::Value(VcbValue::Lengths(v)), CylState::Height { f, r, .. }) => return self.finish(cx, f, r, v[0]),
             _ => {}
@@ -359,17 +365,17 @@ impl Tool for CylinderTool {
 
     fn status(&self) -> String {
         match self.state {
-            CylState::Center => "Cliquer le centre de la base · flèches : plan rouge, vert, bleu".into(),
-            CylState::Radius { .. } => "Cliquer le rayon, ou le taper".into(),
-            CylState::Height { .. } => "Cliquer la hauteur, ou la taper".into(),
+            CylState::Center => t!("tool.cylinder.hint.center"),
+            CylState::Radius { .. } => t!("tool.cylinder.hint.radius"),
+            CylState::Height { .. } => t!("tool.cylinder.hint.height"),
         }
     }
 
     fn vcb(&self) -> Option<Vcb> {
         match self.state {
             CylState::Center => None,
-            CylState::Radius { r, .. } => Some(Vcb::new("Rayon", VcbKind::Lengths(vec![r]))),
-            CylState::Height { h, .. } => Some(Vcb::new("Hauteur", VcbKind::Lengths(vec![h]))),
+            CylState::Radius { r, .. } => Some(Vcb::new(t!("tool.cylinder.vcb.radius"), VcbKind::Lengths(vec![r, 0.0])).optional(1)),
+            CylState::Height { h, .. } => Some(Vcb::new(t!("tool.cylinder.vcb.height"), VcbKind::Lengths(vec![h]))),
         }
     }
 

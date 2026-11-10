@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/kernel", "crates/model", "crates/render", "crates/tools", "apps/solidsketch", "apps/kernel-worker"]
+members = ["crates/i18n", "crates/kernel", "crates/model", "crates/render", "crates/tools", "apps/solidsketch", "apps/kernel-worker"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +10,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # Internal
+solidsketch-i18n = { path = "crates/i18n" }
 # Without its `engine` (SolidCore) unless a crate asks for it: the web UI does not (§7 ter).
 solidsketch-kernel = { path = "crates/kernel", default-features = false }
 solidsketch-model = { path = "crates/model" }
@@ -30,6 +31,8 @@ serde_json = "1"
 # Messages to and from the kernel's web worker (ARCHITECTURE.md §7 ter).
 rmp-serde = "1"
 thiserror = "2"
+# The texts of the app, from /locales (crates/i18n).
+rust-i18n = "4"
 log = "0.4"
 
 egui = "0.37"

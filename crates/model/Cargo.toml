@@ -10,11 +10,11 @@ license.workspace = true
 engine = ["solidsketch-kernel/engine"]
 
 [dependencies]
+solidsketch-i18n.workspace = true
 solidsketch-kernel.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 solidsketch-kernel = { workspace = true, features = ["engine"] }

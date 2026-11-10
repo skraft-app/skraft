@@ -9,6 +9,7 @@
 //! (SketchUp).
 
 use glam::{DAffine3, DVec2, DVec3};
+use solidsketch_i18n::t;
 use solidsketch_model::{EntityPath, Id, Operation};
 
 use super::{Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, Tool, ToolInput, ToolKind, ToolOption, cross, guide_color};
@@ -100,7 +101,7 @@ impl Tool for MoveTool {
                             self.moving = vec![id];
                             out.push(Command::Select(vec![id]));
                         }
-                        None => return vec![Command::Say("Rien à déplacer : sélectionner d'abord".into())],
+                        None => return vec![Command::Say(t!("tool.move.say.nothing"))],
                     }
                 }
                 let Some(from) = inf.map(|i| i.point) else { return out };
@@ -150,23 +151,21 @@ impl Tool for MoveTool {
     }
 
     fn status(&self) -> String {
-        let copy = if self.copy { " (copie)" } else { "" };
-        match self.state {
-            State::Start if self.last.is_some() => "Taper 5x pour un réseau de 5 copies, ou /5 pour 5 copies sur la distance".into(),
-            State::Start => format!("Cliquer le point de départ · flèches : bloquer un axe · {} : copier{copy}", super::COPY_KEY),
-            State::Moving { .. } => {
-                format!("Cliquer la destination, ou taper une distance · Maj : bloquer l'inférence{copy}")
-            }
-        }
+        let hint = match self.state {
+            State::Start if self.last.is_some() => return t!("tool.move.hint.array"),
+            State::Start => t!("tool.move.hint.start", copy_key = super::copy_key()),
+            State::Moving { .. } => t!("tool.move.hint.destination"),
+        };
+        super::with_copying(hint, self.copy)
     }
 
     fn vcb(&self) -> Option<Vcb> {
         match self.state {
             State::Moving { from, to } => Some(Vcb {
                 point: Some(PointRef { from, to }),
-                ..Vcb::new("Distance", VcbKind::Lengths(vec![(to - from).length()]))
+                ..Vcb::new(t!("tool.move.vcb.distance"), VcbKind::Lengths(vec![(to - from).length()]))
             }),
-            State::Start => self.last.as_ref().map(|_| Vcb::new("Copies", VcbKind::Count)),
+            State::Start => self.last.as_ref().map(|_| Vcb::new(t!("tool.move.vcb.copies"), VcbKind::Count)),
         }
     }
 
@@ -177,8 +176,8 @@ impl Tool for MoveTool {
     fn options(&self, _: &Cx<'_>) -> Vec<ToolOption> {
         vec![ToolOption {
             key: "copy",
-            label: "Copier".into(),
-            tip: format!("Copier au lieu de déplacer ({} : basculer)", super::COPY_KEY),
+            label: t!("tool.move.option.copy"),
+            tip: t!("tool.move.option.copy_tip", copy_key = super::copy_key()),
             value: OptionValue::Toggle(self.copy),
             choices: Vec::new(),
             saved: false,

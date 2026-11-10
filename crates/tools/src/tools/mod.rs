@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
+use solidsketch_i18n::t;
 use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Units};
 
 use crate::camera::{Camera, Ray};
@@ -138,7 +139,7 @@ pub struct OptionChoice {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolOption {
     pub key: &'static str,
-    /// The option's name ("Portée"), shown before a choice, on a toggle.
+    /// The option's name (the boolean's scope), shown before a choice, on a toggle.
     pub label: String,
     pub tip: String,
     pub value: OptionValue,
@@ -195,17 +196,17 @@ impl ToolKind {
         }
     }
 
-    /// Its name in the option bar.
-    pub fn label(self) -> &'static str {
+    /// Its name in the option bar and the menus.
+    pub fn label(self) -> String {
         match self {
-            ToolKind::Select => "Sélection",
-            ToolKind::Box => "Boîte",
-            ToolKind::Cylinder => "Cylindre",
-            ToolKind::Move => "Déplacer",
-            ToolKind::Rotate => "Faire pivoter",
-            ToolKind::Boolean(Boolean::Union) => "Union",
-            ToolKind::Boolean(Boolean::Difference) => "Soustraire",
-            ToolKind::Boolean(Boolean::Intersection) => "Intersecter",
+            ToolKind::Select => t!("tool.select.name"),
+            ToolKind::Box => t!("tool.box.name"),
+            ToolKind::Cylinder => t!("tool.cylinder.name"),
+            ToolKind::Move => t!("tool.move.name"),
+            ToolKind::Rotate => t!("tool.rotate.name"),
+            ToolKind::Boolean(Boolean::Union) => t!("tool.boolean.union.name"),
+            ToolKind::Boolean(Boolean::Difference) => t!("tool.boolean.difference.name"),
+            ToolKind::Boolean(Boolean::Intersection) => t!("tool.boolean.intersection.name"),
         }
     }
 }
@@ -458,7 +459,14 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
 }
 
 /// The copy modifier's name for hints (SketchUp: Option on macOS, Ctrl elsewhere).
-pub const COPY_KEY: &str = if cfg!(target_os = "macos") { "Option" } else { "Ctrl" };
+pub fn copy_key() -> String {
+    if solidsketch_i18n::mac() { t!("key.option") } else { t!("key.ctrl") }
+}
+
+/// `hint`, said to be copying when it is.
+fn with_copying(hint: String, copying: bool) -> String {
+    if copying { format!("{hint} {}", t!("tool.copying")) } else { hint }
+}
 
 /// Neutral colour of construction lines.
 pub const INK: [f32; 4] = [0.05, 0.05, 0.08, 1.0];

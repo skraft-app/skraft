@@ -12,12 +12,12 @@ default = ["engine"]
 engine = ["dep:solidcore", "dep:solidcore-convert", "dep:solidcore-tess"]
 
 [dependencies]
+solidsketch-i18n.workspace = true
 solidcore = { workspace = true, optional = true }
 solidcore-record.workspace = true
 solidcore-convert = { workspace = true, optional = true }
 solidcore-tess = { workspace = true, optional = true }
 glam.workspace = true
-thiserror.workspace = true
 serde.workspace = true
 rmp-serde.workspace = true
 

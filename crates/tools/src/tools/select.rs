@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use glam::{DVec2, DVec3};
+use solidsketch_i18n::t;
 use solidsketch_model::Id;
 
 use super::{Command, Cx, Marquee, Modifiers, Preview, Tool, ToolInput, ToolKind};
@@ -98,11 +99,9 @@ impl Tool for SelectTool {
 
     fn status(&self) -> String {
         match &self.marquee {
-            Some(m) if m.crossing => "Capture : sélectionne ce que le rectangle touche · Maj : ajouter/retirer".into(),
-            Some(_) => "Fenêtre : sélectionne ce que le rectangle contient entièrement · Maj : ajouter/retirer".into(),
-            None => "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché) · Maj : ajouter/retirer · \
-                     Double-clic : entrer dans un assemblage, ou en sortir"
-                .into(),
+            Some(m) if m.crossing => t!("tool.select.hint.crossing"),
+            Some(_) => t!("tool.select.hint.window"),
+            None => t!("tool.select.hint.idle"),
         }
     }
 

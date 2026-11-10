@@ -1,6 +1,7 @@
 //! The application window: menus, tool bar (left), outliner and entity info (right), status
 //! bar with the measurements box (bottom), viewport (centre). Keyboard: SketchUp's shortcuts.
 
+use solidsketch_i18n::t;
 use solidsketch_model::kernel::KernelService;
 use solidsketch_model::{Boolean, Document, LengthUnit, Operation, Settings};
 use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
@@ -33,11 +34,11 @@ pub struct SolidSketchApp {
     /// is a tap, which toggles copying (SketchUp).
     copy_down: bool,
     copy_tap: bool,
-    /// Shows the Débogage menu ([`debug_menu_wanted`]).
+    /// Shows the debug menu ([`debug_menu_wanted`]).
     debug_menu: bool,
 }
 
-/// The Débogage menu is asked for at launch, in any build (no dev build needed): `?debug` in
+/// The debug menu is asked for at launch, in any build (no dev build needed): `?debug` in
 /// the page's address on the web, `SOLIDSKETCH_DEBUG` set in the environment on the desktop.
 fn debug_menu_wanted() -> bool {
     #[cfg(target_arch = "wasm32")]
@@ -54,6 +55,7 @@ fn debug_menu_wanted() -> bool {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PrefsTab {
+    General,
     Model,
     Navigation,
 }
@@ -77,7 +79,10 @@ impl SolidSketchApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         cc.egui_ctx.set_theme(egui::Theme::Light);
+        // The texts name keys as the platform does (in the browser too).
+        solidsketch_i18n::set_mac(cc.egui_ctx.os() == egui::os::OperatingSystem::Mac);
         let (prefs, error) = Preferences::load();
+        solidsketch_i18n::set_locale(&prefs.locale);
         let mut editor = Editor::new(Document::with_settings(prefs.new_model.clone()), kernel_service(&cc.egui_ctx));
         editor.set_tool_settings(prefs.tool_options.clone());
         SolidSketchApp {
@@ -148,10 +153,10 @@ impl SolidSketchApp {
             Ok(Some(p)) => {
                 self.path = Some(p);
                 self.saved_at = self.editor.history().revision();
-                self.message = Some("Enregistré".into());
+                self.message = Some(t!("status.saved"));
             }
             Ok(None) => {}
-            Err(e) => self.message = Some(format!("Enregistrement impossible : {e}")),
+            Err(e) => self.message = Some(t!("status.save_failed", error = e)),
         }
     }
 
@@ -248,106 +253,101 @@ impl SolidSketchApp {
     fn menus(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         let ctx = ui.ctx().clone();
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("Fichier", |ui| {
-                if ui.button("Nouveau").clicked() {
+            ui.menu_button(t!("menu.file.title"), |ui| {
+                if ui.add(egui::Button::new(t!("menu.file.new")).shortcut_text(panels::shortcut(true, false, "N"))).clicked() {
                     self.new_document();
                 }
-                if ui.button("Ouvrir…").clicked() {
+                if ui.add(egui::Button::new(solidsketch_i18n::ellipsis(t!("menu.file.open"))).shortcut_text(panels::shortcut(true, false, "O"))).clicked() {
                     file::open(&self.inbox, &ctx);
                 }
-                if ui.button("Enregistrer").clicked() {
+                if ui.add(egui::Button::new(t!("menu.file.save")).shortcut_text(panels::shortcut(true, false, "S"))).clicked() {
                     self.save(false);
                 }
-                if ui.button("Enregistrer sous…").clicked() {
+                if ui.add(egui::Button::new(solidsketch_i18n::ellipsis(t!("menu.file.save_as"))).shortcut_text(panels::shortcut(true, true, "S"))).clicked() {
                     self.save(true);
                 }
             });
-            ui.menu_button("Édition", |ui| {
+            ui.menu_button(t!("menu.edit.title"), |ui| {
                 let e = &self.editor;
                 let has_sel = !e.selection().is_empty();
-                let undo = e.history().undo_op().map(|o| format!("Annuler {}", o.label())).unwrap_or("Annuler".into());
-                let redo = e.history().redo_op().map(|o| format!("Rétablir {}", o.label())).unwrap_or("Rétablir".into());
-                if ui.add_enabled(e.history().can_undo(), egui::Button::new(undo)).clicked() {
+                let undo = e.history().undo_op().map(|o| t!("menu.edit.undo_op", op = o.label())).unwrap_or_else(|| t!("menu.edit.undo"));
+                let redo = e.history().redo_op().map(|o| t!("menu.edit.redo_op", op = o.label())).unwrap_or_else(|| t!("menu.edit.redo"));
+                if ui.add_enabled(e.history().can_undo(), egui::Button::new(undo).shortcut_text(panels::shortcut(true, false, "Z"))).clicked() {
                     actions.push(Action::Undo);
                 }
-                if ui.add_enabled(e.history().can_redo(), egui::Button::new(redo)).clicked() {
+                if ui.add_enabled(e.history().can_redo(), egui::Button::new(redo).shortcut_text(panels::shortcut(true, true, "Z"))).clicked() {
                     actions.push(Action::Redo);
                 }
                 ui.separator();
-                if ui.add_enabled(has_sel, egui::Button::new("Effacer")).clicked() {
+                if ui.add_enabled(has_sel, egui::Button::new(t!("menu.edit.erase"))).clicked() {
                     actions.push(Action::Erase);
                 }
                 ui.separator();
-                if ui.add_enabled(has_sel, egui::Button::new("Créer un assemblage").shortcut_text("G")).clicked() {
+                if ui.add_enabled(has_sel, egui::Button::new(t!("menu.edit.make_assembly")).shortcut_text("G")).clicked() {
                     actions.push(Action::MakeAssembly);
                 }
-                if ui.add_enabled(has_sel, egui::Button::new("Éclater")).clicked() {
+                if ui.add_enabled(has_sel, egui::Button::new(t!("menu.edit.explode"))).clicked() {
                     actions.push(Action::Explode);
                 }
-                if ui.add_enabled(has_sel, egui::Button::new("Faire une pièce à part")).clicked() {
+                if ui.add_enabled(has_sel, egui::Button::new(t!("menu.edit.make_unique"))).clicked() {
                     actions.push(Action::MakeUnique);
                 }
                 ui.separator();
-                if ui.add(egui::Button::new("Préférences…").shortcut_text("⌘,")).clicked() {
+                if ui.add(egui::Button::new(solidsketch_i18n::ellipsis(t!("menu.edit.preferences"))).shortcut_text(panels::shortcut(true, false, ","))).clicked() {
                     self.prefs_window = Some(PrefsTab::Model);
                 }
             });
-            ui.menu_button("Vue", |ui| {
+            ui.menu_button(t!("menu.view.title"), |ui| {
                 let mut parallel = self.editor.camera.is_parallel();
-                if ui.checkbox(&mut parallel, "Projection parallèle").changed() {
+                if ui.checkbox(&mut parallel, t!("menu.view.parallel")).changed() {
                     actions.push(Action::ToggleParallel);
                 }
                 let mut s = self.editor.document().settings().clone();
-                let grid = ui.checkbox(&mut s.display.grid, "Grille").changed();
-                let axes = ui.checkbox(&mut s.display.axes, "Axes").changed();
+                let grid = ui.checkbox(&mut s.display.grid, t!("menu.view.grid")).changed();
+                let axes = ui.checkbox(&mut s.display.axes, t!("menu.view.axes")).changed();
                 if grid || axes {
                     self.set_settings(s);
                 }
                 ui.separator();
-                for (label, v) in [
-                    ("Dessus", StandardView::Top),
-                    ("Face", StandardView::Front),
-                    ("Droite", StandardView::Right),
-                    ("Arrière", StandardView::Back),
-                    ("Gauche", StandardView::Left),
-                    ("Iso", StandardView::Iso),
-                ] {
-                    if ui.button(label).clicked() {
+                for (i, (label, v)) in [
+                    (t!("menu.view.top"), StandardView::Top),
+                    (t!("menu.view.front"), StandardView::Front),
+                    (t!("menu.view.right"), StandardView::Right),
+                    (t!("menu.view.back"), StandardView::Back),
+                    (t!("menu.view.left"), StandardView::Left),
+                    (t!("menu.view.iso"), StandardView::Iso),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let key = (i + 1).to_string();
+                    if ui.add(egui::Button::new(label).shortcut_text(panels::shortcut(true, false, &key))).clicked() {
                         self.editor.standard_view(v);
                     }
                 }
                 ui.separator();
-                if ui.button("Zoom étendu").clicked() {
+                if ui.add(egui::Button::new(t!("menu.view.zoom_extents")).shortcut_text(panels::shortcut(false, true, "Z"))).clicked() {
                     actions.push(Action::ZoomExtents);
                 }
             });
-            ui.menu_button("Outils", |ui| {
-                for (label, k) in [
-                    ("Sélection", ToolKind::Select),
-                    ("Boîte", ToolKind::Box),
-                    ("Cylindre", ToolKind::Cylinder),
-                    ("Déplacer", ToolKind::Move),
-                    ("Faire pivoter", ToolKind::Rotate),
-                ] {
-                    if ui.button(label).clicked() {
+            ui.menu_button(t!("menu.tools.title"), |ui| {
+                for k in [ToolKind::Select, ToolKind::Box, ToolKind::Cylinder, ToolKind::Move, ToolKind::Rotate] {
+                    if ui.button(k.label()).clicked() {
                         actions.push(Action::Tool(k));
                     }
                 }
             });
-            ui.menu_button("Solides", |ui| {
-                for (label, op) in [
-                    ("Union", Boolean::Union),
-                    ("Soustraire", Boolean::Difference),
-                    ("Intersecter", Boolean::Intersection),
-                ] {
-                    if ui.button(label).clicked() {
-                        actions.push(Action::Tool(ToolKind::Boolean(op)));
+            ui.menu_button(t!("menu.solids.title"), |ui| {
+                for op in [Boolean::Union, Boolean::Difference, Boolean::Intersection] {
+                    let k = ToolKind::Boolean(op);
+                    if ui.button(k.label()).clicked() {
+                        actions.push(Action::Tool(k));
                     }
                 }
             });
             if self.debug_menu {
-                ui.menu_button("Débogage", |ui| {
-                    if ui.button("Faire planter le noyau").on_hover_text("Teste la reprise après une panique du noyau").clicked() {
+                ui.menu_button(t!("menu.debug.title"), |ui| {
+                    if ui.button(t!("menu.debug.crash_kernel")).on_hover_text(t!("menu.debug.crash_kernel_tip")).clicked() {
                         actions.push(Action::CrashKernel);
                     }
                 });
@@ -355,12 +355,14 @@ impl SolidSketchApp {
         });
     }
 
-    /// Préférences (⌘,): the model's display and units, saved with it, which can become the
-    /// defaults of new models; and the navigation, the user's own.
+    /// The preferences (⌘,): the language; the model's display and units, saved with it, which
+    /// can become the defaults of new models; and the navigation, the user's own.
     fn preferences_window(&mut self, ctx: &egui::Context) {
         let Some(mut tab) = self.prefs_window else { return };
         let mut open = true;
-        egui::Window::new("Préférences")
+        // A fixed id: the title changes with the language.
+        egui::Window::new(t!("prefs.title"))
+            .id(egui::Id::unique("preferences"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -369,11 +371,13 @@ impl SolidSketchApp {
             .default_pos(ctx.content_rect().center())
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut tab, PrefsTab::Model, "Modèle");
-                    ui.selectable_value(&mut tab, PrefsTab::Navigation, "Navigation");
+                    ui.selectable_value(&mut tab, PrefsTab::General, t!("prefs.tab.general"));
+                    ui.selectable_value(&mut tab, PrefsTab::Model, t!("prefs.tab.model"));
+                    ui.selectable_value(&mut tab, PrefsTab::Navigation, t!("prefs.tab.navigation"));
                 });
                 ui.separator();
                 match tab {
+                    PrefsTab::General => general_settings(ui, &mut self.prefs),
                     PrefsTab::Model => self.model_settings(ui),
                     PrefsTab::Navigation => navigation_settings(ui, &mut self.prefs.navigation),
                 }
@@ -384,33 +388,33 @@ impl SolidSketchApp {
     fn model_settings(&mut self, ui: &mut egui::Ui) {
         let current = self.editor.document().settings().clone();
         let mut s = current.clone();
-        ui.weak("Réglages de ce modèle, enregistrés avec lui.");
+        ui.weak(t!("prefs.model.intro"));
         ui.add_space(4.0);
         egui::Grid::new("model_settings").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-            ui.strong("Affichage");
+            ui.strong(t!("prefs.model.display"));
             ui.end_row();
-            ui.label("Grille");
+            ui.label(t!("prefs.model.grid"));
             ui.checkbox(&mut s.display.grid, "");
             ui.end_row();
-            ui.label("Axes");
+            ui.label(t!("prefs.model.axes"));
             ui.checkbox(&mut s.display.axes, "");
             ui.end_row();
-            ui.label("Fond");
+            ui.label(t!("prefs.model.background"));
             ui.color_edit_button_srgb(&mut s.display.background);
             ui.end_row();
-            ui.strong("Unités");
+            ui.strong(t!("prefs.model.units"));
             ui.end_row();
-            ui.label("Longueurs");
+            ui.label(t!("prefs.model.lengths"));
             egui::ComboBox::from_id_salt("length_unit").selected_text(s.units.length.name()).show_ui(ui, |ui| {
                 for u in LengthUnit::ALL {
                     ui.selectable_value(&mut s.units.length, u, u.name());
                 }
             });
             ui.end_row();
-            ui.label("Décimales");
+            ui.label(t!("prefs.model.decimals"));
             ui.add(egui::Slider::new(&mut s.units.decimals, 0..=6));
             ui.end_row();
-            ui.label("Exemple");
+            ui.label(t!("prefs.model.example"));
             ui.weak(s.units.format(1234.5678));
             ui.end_row();
         });
@@ -421,22 +425,22 @@ impl SolidSketchApp {
         let defaults = s == self.prefs.new_model;
         ui.horizontal(|ui| {
             if ui
-                .add_enabled(!defaults, egui::Button::new("Utiliser pour les nouveaux modèles"))
-                .on_hover_text("Ces réglages deviennent ceux des prochains modèles (Fichier › Nouveau)")
+                .add_enabled(!defaults, egui::Button::new(t!("prefs.model.use_for_new")))
+                .on_hover_text(t!("prefs.model.use_for_new_tip"))
                 .clicked()
             {
                 self.prefs.new_model = s.clone();
             }
             if ui
-                .add_enabled(!defaults, egui::Button::new("Reprendre les réglages par défaut"))
-                .on_hover_text("Applique à ce modèle les réglages des nouveaux modèles")
+                .add_enabled(!defaults, egui::Button::new(t!("prefs.model.restore")))
+                .on_hover_text(t!("prefs.model.restore_tip"))
                 .clicked()
             {
                 self.set_settings(self.prefs.new_model.clone());
             }
         });
         if defaults {
-            ui.weak("Ce sont les réglages des nouveaux modèles.");
+            ui.weak(t!("prefs.model.are_defaults"));
         }
     }
 
@@ -448,7 +452,7 @@ impl SolidSketchApp {
             };
             ui.label(status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (label, value) = self.editor.vcb().unwrap_or(("Mesures", String::new()));
+                let (label, value) = self.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
                 let mut text = if self.vcb.is_empty() { value } else { self.vcb.clone() };
                 let r = ui.add_enabled(
                     self.editor.vcb().is_some(),
@@ -479,7 +483,7 @@ impl eframe::App for SolidSketchApp {
                     self.path = Some(name);
                     self.saved_at = 0;
                 }
-                Err(e) => self.message = Some(format!("{name} : {e}")),
+                Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
             }
         }
         // Any input clears the last app message.
@@ -490,7 +494,7 @@ impl eframe::App for SolidSketchApp {
 
         let title = format!(
             "SolidSketch — {}{}",
-            self.path.as_deref().and_then(|p| p.rsplit(['/', '\\']).next()).unwrap_or("Sans titre"),
+            self.path.as_deref().and_then(|p| p.rsplit(['/', '\\']).next()).map(str::to_owned).unwrap_or_else(|| t!("window.untitled")),
             if self.modified() { " •" } else { "" }
         );
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
@@ -525,11 +529,13 @@ impl eframe::App for SolidSketchApp {
             .show(&ctx, |ui| {
                 card(ui).show(ui, |ui| {
                     ui.set_width(SIDE_WIDTH);
-                    egui::CollapsingHeader::new(egui::RichText::new("Infos sur l'entité").strong()).default_open(true).show(ui, |ui| {
+                    // Fixed ids: the titles change with the language.
+                    let title = |key: String| egui::RichText::new(key).strong();
+                    egui::CollapsingHeader::new(title(t!("panel.entity_info.title"))).id_salt("entity_info").default_open(true).show(ui, |ui| {
                         panels::info(ui, &self.editor, &mut self.info, &mut actions);
                     });
                     ui.separator();
-                    egui::CollapsingHeader::new(egui::RichText::new("Arborescence").strong()).default_open(true).show(ui, |ui| {
+                    egui::CollapsingHeader::new(title(t!("panel.outliner.title"))).id_salt("outliner_header").default_open(true).show(ui, |ui| {
                         // Grows with its content down to the bottom of the view, then scrolls.
                         // An `Area` only offers last frame's size as available room, so the
                         // height is forced (`min_scrolled_height`) and auto-shrink trims it.
@@ -543,7 +549,7 @@ impl eframe::App for SolidSketchApp {
             })
             .response
             .rect;
-        // What « zoom étendu » frames: between the two cards, in viewport pixels.
+        // What zoom extents frames: between the two cards, in viewport pixels.
         let free_min = egui::vec2(tools.right() + margin - view.left(), 0.0);
         let free_max = egui::vec2(side.left() - margin - view.left(), view.height());
         self.editor.set_free_area(
@@ -561,46 +567,64 @@ impl eframe::App for SolidSketchApp {
         }
         if self.prefs != self.stored_prefs {
             if let Err(e) = self.prefs.save() {
-                self.message = Some(format!("Préférences non enregistrées : {e}"));
+                self.message = Some(t!("status.prefs_not_saved", error = e));
             }
             self.stored_prefs = self.prefs.clone();
         }
     }
 }
 
+/// The language: every text changes at once.
+fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
+    egui::Grid::new("general").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+        ui.label(t!("prefs.general.language"));
+        let before = prefs.locale.clone();
+        egui::ComboBox::from_id_salt("locale").selected_text(solidsketch_i18n::locale_name(&prefs.locale)).show_ui(ui, |ui| {
+            for l in solidsketch_i18n::available_locales() {
+                let name = solidsketch_i18n::locale_name(&l);
+                ui.selectable_value(&mut prefs.locale, l, name);
+            }
+        });
+        if prefs.locale != before {
+            solidsketch_i18n::set_locale(&prefs.locale);
+        }
+        ui.end_row();
+    });
+}
+
 fn navigation_settings(ui: &mut egui::Ui, nav: &mut Navigation) {
     egui::Grid::new("navigation").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-        ui.strong("Orbite");
+        ui.strong(t!("prefs.navigation.orbit.title"));
         ui.end_row();
-        ui.label("Vitesse");
+        ui.label(t!("prefs.navigation.orbit.speed"));
         ui.add(egui::Slider::new(&mut nav.orbit_speed, 0.25..=4.0).logarithmic(true).fixed_decimals(2));
         ui.end_row();
-        ui.label("Souris (bouton du milieu)");
+        ui.label(t!("prefs.navigation.orbit.mouse"));
         ui.horizontal(|ui| {
-            ui.checkbox(&mut nav.mouse_invert_x, "inverser ↔");
-            ui.checkbox(&mut nav.mouse_invert_y, "inverser ↕");
+            ui.checkbox(&mut nav.mouse_invert_x, t!("prefs.navigation.orbit.invert_x"));
+            ui.checkbox(&mut nav.mouse_invert_y, t!("prefs.navigation.orbit.invert_y"));
         });
         ui.end_row();
-        ui.label("Trackpad (deux doigts)");
+        ui.label(t!("prefs.navigation.orbit.trackpad"));
         ui.horizontal(|ui| {
-            ui.checkbox(&mut nav.trackpad_invert_x, "inverser ↔");
-            ui.checkbox(&mut nav.trackpad_invert_y, "inverser ↕");
+            ui.checkbox(&mut nav.trackpad_invert_x, t!("prefs.navigation.orbit.invert_x"));
+            ui.checkbox(&mut nav.trackpad_invert_y, t!("prefs.navigation.orbit.invert_y"));
         });
         ui.end_row();
-        ui.strong("Zoom");
+        ui.strong(t!("prefs.navigation.zoom.title"));
         ui.end_row();
-        ui.label("Vitesse");
+        ui.label(t!("prefs.navigation.zoom.speed"));
         ui.add(egui::Slider::new(&mut nav.zoom_speed, 0.25..=4.0).logarithmic(true).fixed_decimals(2));
         ui.end_row();
-        ui.label("Molette");
-        ui.checkbox(&mut nav.wheel_invert, "inverser le sens");
+        ui.label(t!("prefs.navigation.zoom.wheel"));
+        ui.checkbox(&mut nav.wheel_invert, t!("prefs.navigation.zoom.wheel_invert"));
         ui.end_row();
-        ui.label("Cible");
-        ui.checkbox(&mut nav.zoom_to_cursor, "vers le curseur");
+        ui.label(t!("prefs.navigation.zoom.target"));
+        ui.checkbox(&mut nav.zoom_to_cursor, t!("prefs.navigation.zoom.to_cursor"));
         ui.end_row();
     });
     ui.add_space(8.0);
-    if ui.add_enabled(*nav != Navigation::default(), egui::Button::new("Valeurs par défaut")).clicked() {
+    if ui.add_enabled(*nav != Navigation::default(), egui::Button::new(t!("prefs.navigation.defaults"))).clicked() {
         *nav = Navigation::default();
     }
 }

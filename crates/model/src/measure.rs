@@ -15,7 +15,7 @@
 use glam::DVec3;
 
 use crate::Units;
-use crate::expr::{self, ExprError, Literal, Result, Value};
+use crate::expr::{self, ExprError, Literal, Quantity, Result, Value};
 
 /// A length in mm. `@` is `current`'s magnitude and the result takes `current`'s sign (a
 /// typed length keeps the direction of the gesture: `-40` goes the other way); empty, it is
@@ -42,7 +42,7 @@ pub fn coordinate(text: &str, units: &Units, current: f64) -> Result<f64> {
         },
         &|name: &str| variable(name, current / unit),
     )?;
-    result(v, "une longueur").map(|n| n * unit)
+    result(v, Quantity::Length).map(|n| n * unit)
 }
 
 /// An angle in degrees, `@` being `current` (degrees); a bare number is in degrees, `°` may
@@ -60,7 +60,7 @@ pub fn angle(text: &str, current: f64) -> Result<f64> {
         },
         &|name: &str| variable(name, current),
     )?;
-    result(v, "un angle")
+    result(v, Quantity::Angle)
 }
 
 /// `;`-separated lengths (mm), at most one per current value (see [`length`] for each);
@@ -131,7 +131,7 @@ fn variable(name: &str, current: f64) -> Result<Value> {
 }
 
 /// The number of a measure: a factor (`@/@`) is refused, a bare number is the measure.
-fn result(v: Value, what: &'static str) -> Result<f64> {
+fn result(v: Value, what: Quantity) -> Result<f64> {
     if v.dimension == Some(0) {
         return Err(ExprError::NotA(what));
     }
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(length("@/2", &mm(), 300.0), Ok(150.0));
         assert_eq!(length("", &mm(), 300.0), Ok(300.0));
         assert_eq!(length("2m*3m", &mm(), 0.0), Err(ExprError::InvalidDimension));
-        assert_eq!(length("@/@", &mm(), 10.0), Err(ExprError::NotA("une longueur")));
+        assert_eq!(length("@/@", &mm(), 10.0), Err(ExprError::NotA(Quantity::Length)));
         assert_eq!(length("30°", &mm(), 0.0), Err(ExprError::WrongUnit("30°".into())));
     }
 
