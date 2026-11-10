@@ -3,8 +3,9 @@
 # A key is a path that follows where the text shows in the app. `%{name}` is a value the
 # code fills in; a key ending in `_plural` is the plural of the same key without it (for a
 # count, `%{count}`). Every other locale has exactly the same keys and placeholders: the
-# solidsketch-i18n tests check it, and that the code uses every key. No text holds an
-# ellipsis (…): the code adds it, the same for every language.
+# solidsketch-i18n tests check it, and that the code uses every key. `$t(key)` takes another
+# text in (see `common`). No text holds an ellipsis (…): the code adds it, the same for every
+# language.
 
 _version: 1
 
@@ -12,6 +13,36 @@ locale:
   # The language's name in itself, in the language menu.
   name: "Français"
   decimal_separator: ","
+
+# Generic terms, written once: other texts take them in with `$t(common.undo)` (any key can
+# be taken in this way). Named by meaning, not by the French word: « Annuler » is `undo` here,
+# and would be another key as a dialog's Cancel. A text taken in is used as is: no change of
+# case, so a term inside a sentence is written in the sentence.
+common:
+  undo: "Annuler"
+  redo: "Rétablir"
+  erase: "Effacer"
+  copy: "Copier"
+  copies: "Copies"
+  move: "Déplacer"
+  rotate: "Faire pivoter"
+  paint: "Peindre"
+  make_assembly: "Créer un assemblage"
+  explode: "Éclater"
+  make_unique: "Faire une pièce à part"
+  preferences: "Préférences"
+  command_palette: "Palette de commandes"
+  grid: "Grille"
+  axes: "Axes"
+  silhouettes: "Silhouettes"
+  dimensions: "Dimensions"
+  height: "Hauteur"
+  speed: "Vitesse"
+  model: "Modèle"
+  part: "Pièce"
+  assembly: "Assemblage"
+  material: "Matière"
+  materials: "Matières"
 
 # Key names, in hints and shortcuts.
 key:
@@ -36,26 +67,26 @@ menu:
     save_as: "Enregistrer sous"
   edit:
     title: "Édition"
-    undo: "Annuler"
-    undo_op: "Annuler %{op}"
-    redo: "Rétablir"
-    redo_op: "Rétablir %{op}"
-    erase: "Effacer"
-    make_assembly: "Créer un assemblage"
-    explode: "Éclater"
-    make_unique: "Faire une pièce à part"
+    undo: "$t(common.undo)"
+    undo_op: "$t(common.undo) %{op}"
+    redo: "$t(common.redo)"
+    redo_op: "$t(common.redo) %{op}"
+    erase: "$t(common.erase)"
+    make_assembly: "$t(common.make_assembly)"
+    explode: "$t(common.explode)"
+    make_unique: "$t(common.make_unique)"
     select_all: "Tout sélectionner"
-    command_palette: "Palette de commandes"
-    preferences: "Préférences"
+    command_palette: "$t(common.command_palette)"
+    preferences: "$t(common.preferences)"
   view:
     title: "Vue"
     parallel: "Projection parallèle"
-    grid: "Grille"
-    axes: "Axes"
-    silhouettes: "Silhouettes"
+    grid: "$t(common.grid)"
+    axes: "$t(common.axes)"
+    silhouettes: "$t(common.silhouettes)"
     section: "Afficher la coupe"
     section_clear: "Supprimer la coupe"
-    materials: "Panneau Matières"
+    materials: "Panneau $t(common.materials)"
     top: "Dessus"
     front: "Face"
     right: "Droite"
@@ -82,7 +113,7 @@ toolbar:
 
 # The command palette (Cmd/Ctrl+K).
 palette:
-  title: "Palette de commandes"
+  title: "$t(common.command_palette)"
   hint: "Commande"
   none: "Aucune commande"
 
@@ -92,10 +123,10 @@ option_bar:
   choice: "%{option} :"
 
 prefs:
-  title: "Préférences"
+  title: "$t(common.preferences)"
   tab:
     general: "Général"
-    model: "Modèle"
+    model: "$t(common.model)"
     navigation: "Navigation"
     interface: "Interface"
     shortcuts: "Raccourcis"
@@ -104,9 +135,9 @@ prefs:
   model:
     intro: "Réglages de ce modèle, enregistrés avec lui."
     display: "Affichage"
-    grid: "Grille"
-    axes: "Axes"
-    silhouettes: "Silhouettes"
+    grid: "$t(common.grid)"
+    axes: "$t(common.axes)"
+    silhouettes: "$t(common.silhouettes)"
     silhouettes_tip: "Le contour apparent des faces courbes"
     background: "Fond"
     units: "Unités"
@@ -121,14 +152,14 @@ prefs:
   navigation:
     orbit:
       title: "Orbite"
-      speed: "Vitesse"
+      speed: "$t(common.speed)"
       mouse: "Souris (bouton du milieu)"
       trackpad: "Trackpad (deux doigts)"
       invert_x: "inverser ↔"
       invert_y: "inverser ↕"
     zoom:
       title: "Zoom"
-      speed: "Vitesse"
+      speed: "$t(common.speed)"
       wheel: "Molette"
       wheel_invert: "inverser le sens"
       target: "Cible"
@@ -153,21 +184,21 @@ panel:
     editing: "Édition de « %{name} »"
     editing_exit: "Double-clic dans le vide pour sortir"
     type: "Type"
-    type_part: "Pièce"
-    type_assembly: "Assemblage"
+    type_part: "$t(common.part)"
+    type_assembly: "$t(common.assembly)"
     name: "Nom"
     occurrence: "Exemplaire"
     occurrences: "Exemplaires"
-    dimensions: "Dimensions"
+    dimensions: "$t(common.dimensions)"
     machinings: "Usinages"
     topology: "Topologie"
     topology_counts: "%{faces} faces · %{edges} arêtes · %{vertices} sommets"
     position: "Position"
-    material: "Matière"
+    material: "$t(common.material)"
     selected: "%{count} sélectionné"
     selected_plural: "%{count} sélectionnés"
   materials:
-    title: "Matières"
+    title: "$t(common.materials)"
     none: "Aucune"
     new: "Nouvelle matière"
     paint_tip: "Peindre avec cette matière"
@@ -227,8 +258,8 @@ tool:
       base: "Cliquer le coin opposé, ou taper longueur;largeur (;hauteur)"
       height: "Cliquer la hauteur, ou la taper"
     vcb:
-      dimensions: "Dimensions"
-      height: "Hauteur"
+      dimensions: "$t(common.dimensions)"
+      height: "$t(common.height)"
     say:
       empty: "Boîte vide : une dimension est nulle"
       empty_base: "Base vide : choisir un coin opposé"
@@ -241,36 +272,36 @@ tool:
       height: "Cliquer la hauteur, ou la taper"
     vcb:
       radius: "Rayon"
-      height: "Hauteur"
+      height: "$t(common.height)"
     say:
       empty: "Cylindre vide : une dimension est nulle"
       zero_radius: "Rayon nul"
   move:
-    name: "Déplacer"
+    name: "$t(common.move)"
     hint:
       array: "Taper 5x pour un réseau de 5 copies, ou /5 pour 5 copies sur la distance"
       start: "Cliquer le point de départ · flèches : bloquer un axe · %{copy_key} : copier"
       destination: "Cliquer la destination, ou taper une distance · Maj : bloquer l'inférence"
     vcb:
       distance: "Distance"
-      copies: "Copies"
+      copies: "$t(common.copies)"
     option:
-      copy: "Copier"
+      copy: "$t(common.copy)"
       copy_tip: "Copier au lieu de déplacer (%{copy_key} : basculer)"
     say:
       nothing: "Rien à déplacer : sélectionner d'abord"
   rotate:
-    name: "Faire pivoter"
+    name: "$t(common.rotate)"
     hint:
       array: "Taper 6x pour un réseau de 6 copies, ou /6 pour 6 copies sur l'angle"
       center: "Cliquer le centre de rotation · flèches : axe rouge, vert, bleu · %{copy_key} : copier"
       reference: "Cliquer l'origine de l'angle"
       angle: "Cliquer l'angle (pas de 15°), ou le taper en degrés"
     vcb:
-      copies: "Copies"
+      copies: "$t(common.copies)"
       angle: "Angle"
     option:
-      copy: "Copier"
+      copy: "$t(common.copy)"
       copy_tip: "Copier au lieu de faire pivoter (%{copy_key} : basculer)"
     say:
       nothing: "Rien à faire pivoter : sélectionner d'abord"
@@ -298,11 +329,11 @@ tool:
       this: "Celui-ci"
       this_tip: "Seulement l'exemplaire cliqué : il devient une pièce à part (et son assemblage, s'il est copié)"
   paint:
-    name: "Peindre"
+    name: "$t(common.paint)"
     hint: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre) · Tab : l'exemplaire / la face"
     outside: "Hors de l'élément en cours d'édition"
     option:
-      target: "Peindre"
+      target: "$t(common.paint)"
       target_tip: "Ce qu'un clic peint (Tab pour changer)"
       occurrence: "L'exemplaire"
       occurrence_tip: "L'exemplaire cliqué, ou toute la sélection s'il en fait partie"
@@ -353,14 +384,14 @@ infer:
 
 # The operations, in Annuler / Rétablir and in the messages about them.
 operation:
-  transform: "Déplacer"
-  duplicate: "Copier"
+  transform: "$t(common.move)"
+  duplicate: "$t(common.copy)"
   array: "Réseau"
-  delete: "Effacer"
+  delete: "$t(common.erase)"
   rename: "Renommer"
-  make_assembly: "Créer un assemblage"
-  explode: "Éclater"
-  make_unique: "Faire une pièce à part"
+  make_assembly: "$t(common.make_assembly)"
+  explode: "$t(common.explode)"
+  make_unique: "$t(common.make_unique)"
   place: "Placer"
   union: "Union"
   difference: "Soustraction"
@@ -369,7 +400,7 @@ operation:
   add_material: "Nouvelle matière"
   edit_material: "Modifier la matière"
   delete_material: "Supprimer la matière"
-  paint: "Peindre"
+  paint: "$t(common.paint)"
 
 unit:
   millimeter: "Millimètres"
@@ -380,14 +411,14 @@ unit:
 
 # The names new components get (then the user's to change).
 default_name:
-  model: "Modèle"
-  assembly: "Assemblage"
+  model: "$t(common.model)"
+  assembly: "$t(common.assembly)"
   box: "Boîte"
   cylinder: "Cylindre"
   sphere: "Sphère"
   cone: "Cône"
   torus: "Tore"
-  material: "Matière %{number}"
+  material: "$t(common.material) %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"
 

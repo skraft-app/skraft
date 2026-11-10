@@ -1,6 +1,7 @@
 //! The code and the catalogs agree: every key the code asks for is in the reference catalog
-//! with the placeholders the code fills, every key there is used, and every other locale has
-//! the same keys and placeholders.
+//! with the placeholders the code fills, every key there is used (by the code or by a
+//! `$t(…)` reference), every reference leads somewhere without a cycle, and every other locale
+//! has the same keys and placeholders.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -27,6 +28,11 @@ fn catalog(locale: &str) -> BTreeMap<String, String> {
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .filter(|(k, _)| !k.starts_with('_')) // the file's own fields (`_version`)
         .collect()
+}
+
+/// A locale's texts with their references resolved, as the app shows them.
+fn resolved(locale: &str) -> BTreeMap<String, String> {
+    catalog(locale).into_iter().map(|(k, v)| (k, resolve(locale, &v))).collect()
 }
 
 fn placeholders(text: &str) -> BTreeSet<String> {
@@ -147,7 +153,7 @@ fn the_scanner_reads_calls() {
 
 #[test]
 fn the_code_and_the_reference_catalog_agree() {
-    let fr = catalog(DEFAULT_LOCALE);
+    let fr = resolved(DEFAULT_LOCALE);
     assert!(!fr.is_empty());
     let calls = all_calls();
     assert!(calls.len() > 100, "the sources were not found ({} calls)", calls.len());
@@ -175,6 +181,8 @@ fn the_code_and_the_reference_catalog_agree() {
             }
         }
     }
+    // A text taken in by another one is used.
+    used.extend(catalog(DEFAULT_LOCALE).values().flat_map(|t| references(t).into_iter().map(str::to_owned).collect::<Vec<_>>()));
     for k in fr.keys().filter(|k| !used.contains(*k)) {
         problems.push(format!("`{k}` in {DEFAULT_LOCALE}.yml is not used"));
     }
@@ -183,10 +191,10 @@ fn the_code_and_the_reference_catalog_agree() {
 
 #[test]
 fn every_locale_has_the_reference_keys_and_placeholders() {
-    let fr = catalog(DEFAULT_LOCALE);
+    let fr = resolved(DEFAULT_LOCALE);
     let mut problems = Vec::new();
     for locale in available_locales().iter().filter(|l| *l != DEFAULT_LOCALE) {
-        let other = catalog(locale);
+        let other = resolved(locale);
         for (k, text) in &fr {
             match other.get(k) {
                 None => problems.push(format!("{locale}: `{k}` missing")),
@@ -199,6 +207,46 @@ fn every_locale_has_the_reference_keys_and_placeholders() {
         }
     }
     assert!(problems.is_empty(), "\n{}", problems.join("\n"));
+}
+
+/// Every `$t(key)` leads to a text of the same locale, and no text takes itself in, even
+/// through others.
+#[test]
+fn references_lead_somewhere_without_a_cycle() {
+    let mut problems = Vec::new();
+    for locale in available_locales() {
+        let texts = catalog(&locale);
+        for (key, text) in &texts {
+            for r in references(text) {
+                if !texts.contains_key(r) {
+                    problems.push(format!("{locale}: `{key}` refers to `{r}`, which is not there"));
+                }
+            }
+            // Depth first from `key`: a path that comes back to a key on it is a cycle.
+            let mut stack = vec![(key.as_str(), vec![key.as_str()])];
+            while let Some((at, path)) = stack.pop() {
+                for r in texts.get(at).map(|t| references(t)).unwrap_or_default() {
+                    if path.contains(&r) {
+                        problems.push(format!("{locale}: cycle {} → {r}", path.join(" → ")));
+                    } else if texts.contains_key(r) {
+                        stack.push((r, [path.clone(), vec![r]].concat()));
+                    }
+                }
+            }
+        }
+    }
+    problems.dedup();
+    assert!(problems.is_empty(), "\n{}", problems.join("\n"));
+}
+
+#[test]
+fn references_are_resolved() {
+    let fr = catalog(DEFAULT_LOCALE);
+    let (key, text) = fr.iter().find(|(_, t)| !references(t).is_empty()).expect("a text with a reference");
+    let shown = translate(key, &[]);
+    assert!(!shown.contains("$t("), "{key}: {text} → {shown}");
+    assert_eq!(references("$t(a.b) et $t(c)"), ["a.b", "c"]);
+    assert_eq!(resolve(DEFAULT_LOCALE, "$t(no.such.key) !"), "$t(no.such.key) !");
 }
 
 #[test]

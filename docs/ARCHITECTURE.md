@@ -409,7 +409,14 @@ error = e)`. The code holds no user-visible string.
   `prefs.*`, `panel.entity_info.*`, `panel.outliner.*`, `status.*`, then per tool
   `tool.<tool>.{name, hint.*, vcb.*, option.*, say.*}`, `infer.*`, `operation.*` (Undo /
   Redo), `unit.*`, `default_name.*` and `error.{expr, model, file, kernel, worker,
-  preferences}.*`. A text shown in two places has two keys.
+  preferences}.*`. A text shown in two places has two keys — which may share their words
+  through `common`.
+- **Shared terms**: `common.*` holds generic terms (Undo, Erase, Copy, Grid…), named by meaning
+  (`common.undo`, not after the French « Annuler », which is also a dialog's Cancel). A text
+  takes one in with **`$t(key)`** — `menu.edit.undo_op: "$t(common.undo) %{op}"` — resolved at
+  lookup (`solidsketch_i18n::resolve`), nested references too, before the placeholders are
+  filled. Any key can be referred to; a term is taken as is (no change of case), so one used
+  inside a sentence is written in the sentence. Each locale chooses its own references.
 - **Values** are named, `%{name}`, and few: a sentence is one key, but a label built from
   parts stays built by the code ("Edge × red axis" is `infer.edge`, "×", `infer.line.axis`).
 - **No ellipsis** (…) in a catalog: the code adds it (`solidsketch_i18n::ellipsis`), the same
@@ -430,8 +437,9 @@ error = e)`. The code holds no user-visible string.
   come from a text (fixed `id` / `id_salt`), so a window or a section keeps its state across a
   change of language.
 - **Checked by the tests** (`crates/i18n`): every key the sources use is in `fr.yml` with the
-  placeholders the call fills, every key there is used, and every other locale has the same
-  keys and placeholders. Keys are therefore always literals.
+  placeholders the call fills (references resolved), every key there is used by the code or by
+  a reference, every `$t(…)` leads to a key of its locale without a cycle, and every other
+  locale has the same keys and placeholders. Keys are therefore always literals.
 
 ## 7. Crates
 

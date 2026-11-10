@@ -3,8 +3,10 @@
 //!
 //! A key is a dotted path that follows where the text shows in the app: `menu.file.open`,
 //! `tool.move.hint.start`, `error.expr.zero_division`. A text takes named values (`%{name}`);
-//! a count picks a key or its `_plural` form ([`tp!`]). Keys are always literals, so the tests
-//! check both ways that the code and the catalogs agree, placeholders included.
+//! a count picks a key or its `_plural` form ([`tp!`]). A text can take another one in,
+//! `$t(common.undo)`: generic terms are written once, in `common` ([`resolve`]). Keys are
+//! always literals, so the tests check both ways that the code and the catalogs agree,
+//! placeholders and references included.
 //!
 //! Nothing is cached: egui draws every frame, so [`set_locale`] changes the app at once.
 
@@ -47,8 +49,54 @@ macro_rules! tp {
 /// Behind [`t!`]. A missing key shows as itself (the tests make sure none is).
 #[doc(hidden)]
 pub fn translate(key: &str, args: &[(&str, String)]) -> String {
-    let text = _rust_i18n_try_translate(&locale(), key).map(|t| t.into_owned()).unwrap_or_else(|| key.to_owned());
-    fill(&text, args)
+    let locale = locale();
+    let text = _rust_i18n_try_translate(&locale, key).map(|t| t.into_owned()).unwrap_or_else(|| key.to_owned());
+    fill(&resolve(&locale, &text), args)
+}
+
+/// Opens a reference to another text.
+const REFERENCE: &str = "$t(";
+/// References inside references, at most (beyond, a cycle: the tests forbid them).
+const MAX_DEPTH: usize = 8;
+
+/// `text` with each `$t(key)` replaced by the text of `key` in `locale`, itself resolved:
+/// `"$t(common.undo) %{op}"` → `"Annuler %{op}"`. The placeholders are left for the caller to
+/// fill, those of the texts taken in included. An unknown key is left as written.
+pub fn resolve(locale: &str, text: &str) -> String {
+    resolve_at(locale, text, 0)
+}
+
+fn resolve_at(locale: &str, text: &str, depth: usize) -> String {
+    if depth >= MAX_DEPTH || !text.contains(REFERENCE) {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(REFERENCE) {
+        let after = &rest[i + REFERENCE.len()..];
+        let Some(end) = after.find(')') else { break };
+        out.push_str(&rest[..i]);
+        match _rust_i18n_try_translate(locale, &after[..end]) {
+            Some(t) => out.push_str(&resolve_at(locale, &t, depth + 1)),
+            None => out.push_str(&rest[i..i + REFERENCE.len() + end + 1]),
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The keys `text` refers to (`$t(key)`), in order.
+pub fn references(text: &str) -> Vec<&str> {
+    let mut keys = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find(REFERENCE) {
+        let after = &rest[i + REFERENCE.len()..];
+        let Some(end) = after.find(')') else { break };
+        keys.push(&after[..end]);
+        rest = &after[end + 1..];
+    }
+    keys
 }
 
 /// Behind [`tp!`].
