@@ -59,6 +59,21 @@ window:
   untitled: "Sans titre"
 
 menu:
+  # The macOS app menu, titled with the app's name (%{app}).
+  app:
+    about: "À propos de %{app}"
+    services: "Services"
+    hide: "Masquer %{app}"
+    hide_others: "Masquer les autres"
+    show_all: "Tout afficher"
+    quit: "Quitter %{app}"
+  # The macOS Window menu.
+  window:
+    title: "Fenêtre"
+    minimize: "Placer dans le Dock"
+    zoom: "Zoom"
+    fullscreen: "Passer en mode plein écran"
+    bring_all_to_front: "Tout ramener au premier plan"
   file:
     title: "Fichier"
     new: "Nouveau"
@@ -110,6 +125,14 @@ toolbar:
   copy_hint: "%{copy_key} : copier · flèches : axe"
   boolean_hint: "cible, puis outil"
   perspective: "Perspective / parallèle"
+
+# The title bar: the document, the view's toggles, the command search.
+titlebar:
+  modified: "Modifié depuis le dernier enregistrement"
+  # The ☰ button (web, Windows, Linux: macOS has its menu bar).
+  menu: "Menus"
+  views: "Vues standard"
+  search: "Rechercher une commande"
 
 # The command palette (Cmd/Ctrl+K).
 palette:
@@ -170,6 +193,11 @@ prefs:
     system: "Système"
     light: "Clair"
     dark: "Sombre"
+    palette: "Palette"
+    palettes:
+      neutral: "Neutre"
+      warm: "Chaud"
+      graphite: "Graphite"
     panels: "Panneaux"
     background_note: "La couleur de fond de la vue est un réglage du modèle (onglet Modèle)."
   shortcuts:
@@ -384,6 +412,8 @@ infer:
 
 # The operations, in Annuler / Rétablir and in the messages about them.
 operation:
+  # Drawing a part, whatever its shape.
+  add_part: "$t(common.part)"
   transform: "$t(common.move)"
   duplicate: "$t(common.copy)"
   array: "Réseau"
@@ -413,11 +443,8 @@ unit:
 default_name:
   model: "$t(common.model)"
   assembly: "$t(common.assembly)"
-  box: "Boîte"
-  cylinder: "Cylindre"
-  sphere: "Sphère"
-  cone: "Cône"
-  torus: "Tore"
+  # Every part a drawing tool makes, whatever its shape.
+  part: "$t(common.part)"
   material: "$t(common.material) %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"

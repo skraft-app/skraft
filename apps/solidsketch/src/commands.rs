@@ -152,6 +152,11 @@ impl Shortcut {
             egui::Key::Comma => ",".to_owned(),
             egui::Key::Space => t!("key.space"),
             egui::Key::Delete => t!("key.delete"),
+            // Plain arrows: the interface's font has them, not egui's triangles (⏴).
+            egui::Key::ArrowLeft => "←".to_owned(),
+            egui::Key::ArrowRight => "→".to_owned(),
+            egui::Key::ArrowUp => "↑".to_owned(),
+            egui::Key::ArrowDown => "↓".to_owned(),
             k => k.symbol_or_name().to_owned(),
         };
         if mac {

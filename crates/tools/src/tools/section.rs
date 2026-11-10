@@ -54,6 +54,48 @@ fn along(cx: &Cx<'_>, px: DVec2, origin: DVec3, dir: DVec3) -> f64 {
     (d - b * e) / denom
 }
 
+/// The polygon where the plane through `origin` (unit `normal`) crosses the box `lo`–`hi`, its
+/// corners in order around it; empty when the plane misses the box.
+fn plane_in_box(origin: DVec3, normal: DVec3, lo: DVec3, hi: DVec3) -> Vec<DVec3> {
+    let corner = |i: usize| {
+        DVec3::new(
+            if i & 1 == 0 { lo.x } else { hi.x },
+            if i & 2 == 0 { lo.y } else { hi.y },
+            if i & 4 == 0 { lo.z } else { hi.z },
+        )
+    };
+    let side = |p: DVec3| (p - origin).dot(normal);
+    // The 12 edges: corners differing by one bit.
+    let mut points: Vec<DVec3> = Vec::new();
+    for i in 0..8 {
+        for bit in [1, 2, 4] {
+            if i & bit != 0 {
+                continue;
+            }
+            let (a, b) = (corner(i), corner(i | bit));
+            let (da, db) = (side(a), side(b));
+            if (da > 0.0) == (db > 0.0) && da != 0.0 && db != 0.0 {
+                continue;
+            }
+            let t = if da == db { 0.0 } else { da / (da - db) };
+            let p = a + (b - a) * t;
+            if !points.iter().any(|q| (*q - p).length_squared() < 1e-12) {
+                points.push(p);
+            }
+        }
+    }
+    if points.len() < 3 {
+        return Vec::new();
+    }
+    // In order around their centre, in the plane's axes.
+    let centre = points.iter().sum::<DVec3>() / points.len() as f64;
+    let u = normal.any_orthonormal_vector();
+    let v = normal.cross(u);
+    let angle = |p: &DVec3| (*p - centre).dot(v).atan2((*p - centre).dot(u));
+    points.sort_by(|a, b| angle(a).total_cmp(&angle(b)));
+    points
+}
+
 impl Tool for SectionTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Section
@@ -90,17 +132,30 @@ impl Tool for SectionTool {
             (None, Some((o, n))) => (*o, *n, None),
             (None, None) => return Preview::default(),
         };
-        // A square on the plane, sized for the model.
-        let half = cx.scene.bounds().map_or(100.0, |(lo, hi)| ((hi - lo).length() * 0.35).max(10.0));
-        let u = normal.any_orthonormal_vector();
-        let v = normal.cross(u);
-        let c = |a: f64, b: f64| origin + (u * a + v * b) * half;
-        let corners = [c(-1.0, -1.0), c(1.0, -1.0), c(1.0, 1.0), c(-1.0, 1.0)];
         let color = super::PICK;
+        // The plane where it crosses the model's box (padded): it stays where the geometry
+        // is, and does not reach behind the eye when the plane is seen edge on. A plane past
+        // the box (sunk too deep) shows as a square, sized for the model.
+        let bounds = cx.scene.bounds();
+        let size = bounds.map_or(100.0, |(lo, hi)| (hi - lo).length().max(10.0));
+        let corners = bounds
+            .map(|(lo, hi)| {
+                let pad = DVec3::splat(size * 0.05);
+                plane_in_box(origin, normal, lo - pad, hi + pad)
+            })
+            .filter(|c| c.len() >= 3)
+            .unwrap_or_else(|| {
+                let half = size * 0.35;
+                let u = normal.any_orthonormal_vector();
+                let v = normal.cross(u);
+                let c = |a: f64, b: f64| origin + (u * a + v * b) * half;
+                vec![c(-1.0, -1.0), c(1.0, -1.0), c(1.0, 1.0), c(-1.0, 1.0)]
+            });
+        let n = corners.len();
         let mut lines: Vec<PreviewLine> =
-            (0..4).map(|k| PreviewLine { a: corners[k], b: corners[(k + 1) % 4], color }).collect();
+            (0..n).map(|k| PreviewLine { a: corners[k], b: corners[(k + 1) % n], color }).collect();
         // Its normal: towards what is cut away.
-        lines.push(PreviewLine { a: origin, b: origin + normal * half * 0.3, color });
+        lines.push(PreviewLine { a: origin, b: origin + normal * size * 0.1, color });
         Preview { lines, section, ..Default::default() }
     }
 
@@ -121,5 +176,33 @@ impl Tool for SectionTool {
 
     fn reset(&mut self) {
         self.placing = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_plane_crosses_a_box_as_a_polygon() {
+        let (lo, hi) = (DVec3::ZERO, DVec3::splat(10.0));
+        // Parallel to a face: a square at the plane's height.
+        let sq = plane_in_box(DVec3::new(3.0, 3.0, 4.0), DVec3::Z, lo, hi);
+        assert_eq!(sq.len(), 4);
+        assert!(sq.iter().all(|p| (p.z - 4.0).abs() < 1e-9));
+        // Through the centre, along the diagonal: a hexagon.
+        let hex = plane_in_box(DVec3::splat(5.0), DVec3::ONE.normalize(), lo, hi);
+        assert_eq!(hex.len(), 6);
+        // In order: consecutive corners lie on a common face of the box (no crossing).
+        for k in 0..hex.len() {
+            let (a, b) = (hex[k], hex[(k + 1) % hex.len()]);
+            let shared = (0..3).any(|i| {
+                let (x, y) = (a[i], b[i]);
+                (x.abs() < 1e-9 && y.abs() < 1e-9) || ((x - 10.0).abs() < 1e-9 && (y - 10.0).abs() < 1e-9)
+            });
+            assert!(shared, "{a} – {b} cross the box");
+        }
+        // Past the box: nothing.
+        assert!(plane_in_box(DVec3::splat(20.0), DVec3::Z, lo, hi).is_empty());
     }
 }

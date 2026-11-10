@@ -39,6 +39,10 @@ dirs = "6"
 # Screenshots of the control channel (src/control.rs).
 png = "0.17"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# The native menu bar (src/native_menu.rs): the same commands as the ☰ menu elsewhere.
+muda = { version = "0.21", default-features = false }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rfd.workspace = true
 wasm-bindgen = "0.2"

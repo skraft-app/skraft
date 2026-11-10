@@ -87,7 +87,7 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
     });
 }
 
-fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, selected: bool, enabled: bool, tip: &str) -> bool {
+pub fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, selected: bool, enabled: bool, tip: &str) -> bool {
     let tint = ui.visuals().text_color();
     let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(24.0, 24.0)).tint(tint);
     ui.add_enabled(enabled, egui::Button::image(img).selected(selected).min_size(egui::vec2(34.0, 34.0)))
@@ -113,9 +113,9 @@ enum Hint {
 }
 
 /// The tool bar: each button a command (its state and tip from the registry); `None` is a
-/// separator.
+/// separator. Undo, redo and the view's toggles are in the title bar ([`crate::titlebar`]).
 pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
-    let buttons: [Option<(egui::ImageSource<'static>, &str, Hint)>; 22] = [
+    let buttons: [Option<(egui::ImageSource<'static>, &str, Hint)>; 18] = [
         Some((icons::SELECT, "tool.select", Hint::None)),
         Some((icons::BOX, "tool.box", Hint::None)),
         Some((icons::CYLINDER, "tool.cylinder", Hint::None)),
@@ -133,23 +133,16 @@ pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Actio
         Some((icons::UNIQUE, "edit.make_unique", Hint::None)),
         Some((icons::ERASE, "edit.erase", Hint::Delete)),
         None,
-        Some((icons::UNDO, "edit.undo", Hint::None)),
-        Some((icons::REDO, "edit.redo", Hint::None)),
-        None,
         Some((icons::EXTENTS, "view.zoom_extents", Hint::None)),
-        Some((icons::PERSPECTIVE, "view.parallel", Hint::None)),
     ];
-    ui.add_space(4.0);
     for b in buttons {
         let Some((icon, id, hint)) = b else {
             ui.separator();
             continue;
         };
         let Some(v) = views.iter().find(|v| v.id == id) else { continue };
-        // The perspective button is lit in perspective (the command toggles parallel).
-        let selected = if id == "view.parallel" { v.checked == Some(false) } else { v.checked == Some(true) };
+        let selected = v.checked == Some(true);
         let tip = match hint {
-            _ if id == "view.parallel" => t!("toolbar.perspective"),
             Hint::None => v.tip(),
             Hint::Copy => t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.copy_hint", copy_key = solidsketch_tools::tools::copy_key())),
             Hint::Boolean => t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.boolean_hint")),

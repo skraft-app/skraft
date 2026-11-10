@@ -256,10 +256,11 @@ id.
 
 Decided on 2026-11-09.
 
-- **Layout**: menu at the top, status bar at the bottom with the measurements box (VCB) on the
+- **Layout**: title bar at the top (§7 quinquies), status bar at the bottom with the measurements box (VCB) on the
   right; in between, the **3D view takes the whole width** and the panels **float over it**
-  (anchored cards): **vertical tool bar on the left**; on the right, **Entity info** above the
-  **Outliner**, collapsible. Opening or resizing a panel therefore never resizes the view; zoom
+  (anchored cards): **horizontal tool bar centered at the top** (never over the side panel),
+  the tool option bar centered as its footer; on the left, **Entity info** above the **Outliner**,
+  collapsible (layout changed on 2026-11-10). Opening or resizing a panel therefore never resizes the view; zoom
   extents frames the area left free.
 - **Original SVG icons** (drawn for the project), white and tinted by the theme, loaded by
   `egui_extras` (`svg`): no build step, no binary asset.
@@ -291,9 +292,9 @@ Decided on 2026-11-09.
   - **Preferences** window (Cmd/Ctrl+,): *General* tab (language), *Model* tab (document
     settings, with "Use for new models" / "Restore the default settings") and *Navigation* tab.
     *View › Grid / Axes* changes the document too.
-- **Tool option bar** (decided on 2026-11-10, after OCL's tools): a fixed strip between the
-  menu and the view (it hides nothing), with the tool's name and its options — exclusive
-  choices and toggles. Every choice is visible and clickable there; a shortcut is only a
+- **Tool option bar** (decided on 2026-11-10, after OCL's tools): the footer of the tool
+  bar's card (at first a fixed strip under the title bar, moved there the same day), with the
+  tool's name and its options — exclusive choices and toggles. Every choice is visible and clickable there; a shortcut is only a
   complement (Tab cycles the scope). The status bar keeps the guidance for the current step.
   - **Tools describe their options, the app draws them**: `Tool::options` returns a list of
     `ToolOption` (key, label — which may depend on what is hovered, "×4" —, tooltip, value,
@@ -464,7 +465,7 @@ error = e)`. The code holds no user-visible string.
 | Crate | Role | Depends on |
 |---|---|---|
 | `crates/i18n` — `solidsketch-i18n` | The texts (§6 quater): the `/locales` catalogs compiled in, `t!` / `tp!`, the current locale, plurals, decimal separator, platform key names. | `rust-i18n` |
-| `crates/theme` — `solidsketch-theme` | The colour tokens (§7 quater), light and dark themes, sRGB ↔ linear. No UI toolkit. | `serde` |
+| `crates/theme` — `solidsketch-theme` | The colour tokens (§7 quater) of the viewport and the interface, light and dark themes, sRGB ↔ linear. No UI toolkit. | `serde` |
 | `crates/kernel` — `solidsketch-kernel` | `Solid` (record), primitives, booleans, transformation, face offset, display mesh (`Mesh`: positions, normals, indices, B-rep face per triangle, edges). Runs each call on a fresh `Kernel` and catches its panics. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `glam`, `i18n` |
 | `crates/model` — `solidsketch-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, versioned JSON file, reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
 | `crates/render` — `solidsketch-render` | wgpu pipelines (shaded faces, edges, grid, axes, highlight, previews), GPU cache of meshes per part, drawing of a list of `DrawItem { mesh, transform, style }` with a view-projection matrix. Knows neither egui nor the document. Usable off screen. | `kernel` (for `Mesh`), `wgpu`, `glam` |
@@ -495,7 +496,10 @@ Drawing                1 instanced draw per definition, with the N world matrice
 - A definition's buffer only holds its **direct solids**; its subgroups have their own, drawn
   with the composed transformations.
 - **Highlight**: a selected solid is selected along a path (a single occurrence); it is drawn
-  again on top with its index range and that occurrence's matrix.
+  again on top with its index range and that occurrence's matrix. A selected **assembly** also
+  shows the bounding box of its content, in its own axes, dashed in the selection's colour and
+  depth-tested (`View::selection_boxes`); it follows the move tool's ghost. The assembly being
+  edited shows the same box in grey, grown by a few pixels (`View::context_box`).
 - **`render` does not know the document**: it receives meshes by key (the definition's id) with
   a revision, and a list of batches `(key, matrices)` + highlights + preview lines. It is
   `tools` (the display scene) that flattens the document and decides the revisions.
@@ -584,6 +588,28 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   tooltip. Two themes, **light** and **dark**; the app sets egui's theme from the user's
   `theme` preference (system by default, light, dark). The background colour stays a
   **document setting** (its style, as in SketchUp).
+- **Interface tokens** (`UiTokens`, decided on 2026-11-10): panel, header, field, border,
+  text, dim text, hover, accent and soft accent, corner radii, spacing.
+- **Palettes** (decided on 2026-11-10): a `Palette` (user preference `palette`) gives the
+  interface's colours, **each in a light and a dark variant**; the `theme` preference
+  (system, light, dark) picks the variant, so the two settings are independent. Built in
+  code, no theme files: *Neutral* (SolidCraft's: neutral greys, blue accent, the default),
+  *Warm* (warm greys, amber), *Graphite* (cool, deeper greys, teal). A palette changes the
+  interface only: the model's and the overlays' tokens stay the theme's. A test holds every
+  variant to text ≥ 7:1 and dim text ≥ 3:1 on its grounds.
+- `apps/solidsketch/src/style.rs` turns a palette's tokens into egui's visuals and spacing for
+  **both** egui styles (light and dark) when it is chosen (at start-up, then on a change);
+  egui switches with its theme, nothing is restyled per frame. *Preferences › Interface*
+  shows each palette as a card drawn in its colours (the variant shown now); a click applies
+  it at once.
+- **Fonts**: IBM Plex Sans (variable) and IBM Plex Mono (regular), SIL OFL
+  (`apps/solidsketch/assets/fonts/`), embedded in the binary (≈ 670 kB): Sans regular for
+  text, semibold for headings, Mono for monospace; then the **key symbols**, then egui's
+  fonts (symbols, emoji). Neither Plex nor egui's fonts have the macOS key symbols (⌘ ⌥ ⌃ ⌫ ⌦
+  ⏎ ⇥): a subset of DejaVu Sans (Bitstream Vera licence, `assets/fonts/dejavu-sans/`, ≈ 18 kB),
+  its arrows and technical symbols blocks only (U+2190–21FF, U+2300–23FF), fills them in. The
+  arrow keys are written ← ↑ → ↓ (Plex's), not with egui's triangles (⏴), which no font here
+  has.
 - `render` keeps no colour of its own: faces and ink come in `Frame::style`.
 
 ### Palette and materials
@@ -624,12 +650,18 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   points to is cut away. Changing it is a `SetSettings` (undoable).
 - **Cut** in the fragment shader (faces, edges, silhouettes); the plane is passed in camera
   coordinates (computed in `f64`).
-- **Cap without a stencil**: our parts are closed B-reps, so through the cut only their back
-  shows. A back-facing fragment, section on, is painted as the plane: the part's colour
-  (its material), flat and darker, at the depth of the plane along the pixel's ray
-  (`frag_depth`). One pass, a colour per part, exact. (The stencil first proposed gave one
-  colour to the whole cap.) Writing the depth drops the faces' depth bias, so a second face
-  pipeline is used only while a section is on. Hatches later.
+- **Caps: colour from the back faces, extent from a stencil.** Our parts are closed B-reps,
+  so through the cut only their back shows: a back-facing fragment, section on, is painted
+  flat and darker in its part's colour (a colour per part), at its **true depth** with the
+  faces' usual bias (edges keep winning). Then, while a section is on: (1) the faces left are
+  drawn again without depth test nor colour, each fragment flipping the stencil's low bit —
+  an odd count means the ray meets the plane inside a part; (2) a full-screen triangle, where
+  the bit is set and the plane is nearer than what is drawn, writes the plane's depth along
+  the pixel's ray (no colour), so what lies behind the cap (the part's far edges) is hidden.
+  (Writing the plane's depth on every back face instead, without knowing whether the ray is
+  inside the part there, painted every kept part behind the plane as a cap and hid its
+  edges.) The depth buffer is `Depth32FloatStencil8` when the device has it, else
+  `Depth24PlusStencil8`. Hatches later.
 - **Picking and inferences** ignore what is cut away.
 - **Section plane tool**: click a face → the plane lies on it, normal outwards; move the
   cursor to sink it along the normal, a second click (or a typed depth) places it.
@@ -651,6 +683,36 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   `POST /run` (body: an id), `GET /state` (tool, context, selection, status, revision,
   modified), `GET /screenshot` (the view, as a PNG). Each request is handed to the UI thread,
   which answers at its next frame.
+
+## 7 quinquies. Title bar and native menus
+
+Decided on 2026-11-10, after SolidCraft (`ui-kit/src/window_chrome.rs`, `app_bar.rs`). The
+menu strip is gone: its room goes to one bar holding the document and the commands used most.
+
+- **Title bar** (`apps/solidsketch/src/titlebar.rs`, 34 pt): the document's name (its path as a
+  tooltip, a dot when modified), Undo / Redo, the standard views (a menu), the view's toggles
+  (perspective, grid, axes, silhouettes, section, Materials panel), and at the right the
+  command search (opens the palette, shows its shortcut; only its icon when the window is
+  narrow) and the preferences. Every button is a registry command, its state and tip from it.
+  The tool bar keeps the tools, the booleans, the assembly commands and zoom extents.
+- **macOS desktop**: the bar *is* the window's title bar — the OS one is hidden and the content
+  runs under it (`with_fullsize_content_view`, `titlebar_shown(false)`, `title_shown(false)`,
+  `native_options` in `lib.rs`), 76 pt are left for the traffic lights (none in full screen),
+  the bar's empty space moves the window (`ViewportCommand::StartDrag`) and a double-click
+  zooms it. The window title is still set (Window menu, Mission Control).
+- **Native menus on macOS** (`native_menu.rs`, `muda`): the app menu (About, Preferences,
+  Services, Hide, Quit), the registry's menus, the system's Window menu. The items follow the
+  app every frame (enabled, checked, « Annuler Déplacer »); the bar is rebuilt when the
+  language or the shortcuts change. A chosen item is its command's id, run as everywhere else.
+  - Only **⌘ shortcuts** become key equivalents: AppKit takes them before the window sees the
+    key, so single letters (R, M, Space…) would be lost to the VCB and the text fields — they
+    stay with the app's keymap, and the menu does not show them.
+  - For the same reason, a ⌘ command chosen while egui owns the key goes back to egui as that
+    key (`raw_input_hook`): while a shortcut is captured in the preferences, and for Undo,
+    Redo and Select all in a text field.
+- **Web, Windows, Linux**: the OS frame is kept (no caption buttons of our own: resizing,
+  snapping and the move loop are the OS's), and the menus are behind a **☰** button at the
+  bar's start, the registry's menus as submenus.
 
 ## 8. File
 

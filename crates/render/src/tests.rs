@@ -399,3 +399,33 @@ fn a_section_cuts_and_caps() {
     let covered = |px: &[u8]| px.chunks(4).filter(|p| p[..3] != [255, 255, 255]).count();
     assert!(covered(&cut) < covered(&plain), "nothing was cut away");
 }
+
+#[test]
+fn a_section_caps_only_where_it_cuts() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    // The plane lies between the eye and the cube: the cube is wholly kept, so it must look
+    // as without a section — shaded, with its edges — not painted over as a cap.
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    let view = DMat4::look_at_rh(DVec3::new(30.0, -10.0, 8.0), DVec3::ZERO, DVec3::Z);
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    let palette = [[0.05, 0.6, 0.05, 1.0]];
+    let p = Placement { material: 0, ..Placement::new(DMat4::IDENTITY) };
+    let section = Some(Section { origin: DVec3::new(15.0, 0.0, 0.0), normal: DVec3::X });
+    let style = Style { palette: &palette, section, ..Style::default() };
+    let (plain, _) = shot(&mut r, &device, &queue, view, p, Style { section: None, ..style });
+    let (cut, _) = shot(&mut r, &device, &queue, view, p, style);
+    save(&cut, SIZE, "section_kept");
+    save(&plain, SIZE, "section_kept_plain");
+    // Its edges all show (dark ink)…
+    let ink = |px: &[u8]| px.chunks(4).filter(|p| p[..3].iter().all(|c| *c < 60)).count();
+    assert!(ink(&cut) * 100 >= ink(&plain) * 95, "edges lost: {} ink pixels, {} uncut", ink(&cut), ink(&plain));
+    // …and its faces are not painted over: only a sliver along the outline may differ, where
+    // a back face already shows through between the edge's samples.
+    let covered = plain.chunks(4).filter(|p| p[..3] != [255, 255, 255]).count();
+    let differ = plain.chunks(4).zip(cut.chunks(4)).filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 2)).count();
+    assert!(differ * 100 < covered * 2, "{differ} of {covered} pixels differ from the uncut picture");
+}

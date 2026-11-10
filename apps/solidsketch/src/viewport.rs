@@ -263,6 +263,9 @@ impl Viewport {
             .collect();
         let overlay: Vec<render::Line> =
             view.overlay.iter().map(|l| render::Line { a: l.a, b: l.b, color: l.color }).collect();
+        let lines: Vec<render::Line> = (view.selection_boxes.iter().map(|&(a, b)| render::Line { a, b, color: theme.selected.edge }))
+            .chain(view.context_box.iter().map(|&(a, b)| render::Line { a, b, color: theme.context_box }))
+            .collect();
 
         let aspect = size[0] as f64 / size[1] as f64;
         let cam = &editor.camera;
@@ -283,7 +286,7 @@ impl Viewport {
             style,
             batches: &batches,
             highlights: &highlights,
-            lines: &[],
+            lines: &lines,
             overlay: &overlay,
             grid: display.grid.then(|| grid_for(cam.focus)),
             axes: display.axes,

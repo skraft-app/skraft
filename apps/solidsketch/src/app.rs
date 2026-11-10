@@ -1,18 +1,22 @@
-//! The application window: menus, tool bar (left), entity info, materials and outliner
-//! (right), status bar with the measurements box (bottom), viewport (centre). Every action
-//! goes through the command registry (docs/ARCHITECTURE.md §7 quater): menus, tool bar,
-//! keyboard (SketchUp's shortcuts, changeable), the command palette and the control channel.
+//! The application window: title bar (top), tool bar with the tool option bar as its footer
+//! (centered at the top), entity info, materials and outliner (left), status bar with the
+//! measurements box (bottom), viewport (centre). Every action goes through the command registry (docs/ARCHITECTURE.md §7 quater):
+//! menus (native on macOS, ☰ elsewhere), title bar, tool bar, keyboard (SketchUp's shortcuts,
+//! changeable), the command palette and the control channel.
 
 use solidsketch_i18n::{ellipsis, t};
 use solidsketch_model::kernel::KernelService;
 use solidsketch_model::{Boolean, Document, LengthUnit, Operation, Settings};
-use solidsketch_theme::{Choice, Mode, Theme};
+use solidsketch_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
 
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
+#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+use crate::native_menu::NativeMenu;
 use crate::file::{self, Inbox};
 use crate::panels::{self, Action, CommandView, InfoState};
 use crate::prefs::{Navigation, Preferences};
+use crate::titlebar;
 use crate::viewport::{self, Viewport};
 
 /// Width of the floating side panel (outliner and entity info), in points.
@@ -41,6 +45,8 @@ pub struct SolidSketchApp {
     capturing: Option<&'static str>,
     palette: Option<Palette>,
     theme: Theme,
+    /// The palette egui's styles were installed for (`None`: not yet).
+    styled: Option<UiPalette>,
     /// The copy modifier is down, and nothing else happened since it went down: released, it
     /// is a tap, which toggles copying (SketchUp).
     copy_down: bool,
@@ -49,6 +55,11 @@ pub struct SolidSketchApp {
     debug_menu: bool,
     #[cfg(not(target_arch = "wasm32"))]
     control: Option<crate::control::Control>,
+    /// The macOS menu bar (`None` if it could not be built: the ☰ menu then).
+    #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+    native_menu: Option<NativeMenu>,
+    /// Keys given back to egui on the next frame ([`Self::native_command`]).
+    pending_keys: Vec<egui::Event>,
 }
 
 /// The command palette (Cmd/Ctrl+K): what is typed, and the line picked.
@@ -129,6 +140,7 @@ fn view_of(id: &str) -> Option<StandardView> {
 impl SolidSketchApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        crate::style::install_fonts(&cc.egui_ctx);
         let (prefs, error) = Preferences::load();
         // The texts name keys as the platform does (in the browser too).
         solidsketch_i18n::set_mac(cc.egui_ctx.os() == egui::os::OperatingSystem::Mac);
@@ -147,7 +159,9 @@ impl SolidSketchApp {
                 None => (None, error),
             }
         };
-        SolidSketchApp {
+        // Its native menu is added below, on macOS.
+        #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(unused_mut))]
+        let mut app = SolidSketchApp {
             ctx: cc.egui_ctx.clone(),
             editor,
             viewport: Viewport::new(),
@@ -164,11 +178,50 @@ impl SolidSketchApp {
             capturing: None,
             palette: None,
             theme: Theme::light(),
+            styled: None,
             copy_down: false,
             copy_tap: false,
             debug_menu: debug_menu_wanted(),
             #[cfg(not(target_arch = "wasm32"))]
             control,
+            #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+            native_menu: None,
+            pending_keys: Vec::new(),
+        };
+        #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+        {
+            let views = app.command_views();
+            app.native_menu = NativeMenu::new(&cc.egui_ctx, &views, &app.keymap, app.debug_menu)
+                .inspect_err(|e| log::warn!("no native menu bar: {e}"))
+                .ok();
+        }
+        app
+    }
+
+    /// The menus are the native ones (macOS desktop).
+    fn native_menus(&self) -> bool {
+        #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+        return self.native_menu.is_some();
+        #[cfg(not(all(target_os = "macos", not(target_arch = "wasm32"))))]
+        false
+    }
+
+    /// A command chosen in the native menu bar. AppKit takes its ⌘ shortcut before egui sees
+    /// the key, so it goes back to egui as that key when it is egui's: while a shortcut is
+    /// being captured, and for undo, redo and select all in a text field.
+    #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(dead_code))]
+    fn native_command(&mut self, id: &'static str, actions: &mut Vec<Action>) {
+        let text = self.ctx.egui_wants_keyboard_input() && matches!(id, "edit.undo" | "edit.redo" | "edit.select_all");
+        if let Some(s) = self.keymap.get(id)
+            && (self.capturing.is_some() || text)
+        {
+            let modifiers = egui::Modifiers { alt: s.alt, shift: s.shift, mac_cmd: s.command, command: s.command, ctrl: false };
+            for pressed in [true, false] {
+                self.pending_keys.push(egui::Event::Key { key: s.key, physical_key: None, pressed, repeat: false, modifiers });
+            }
+            self.ctx.request_repaint();
+        } else {
+            actions.push(Action::Command(id));
         }
     }
 
@@ -420,28 +473,6 @@ impl SolidSketchApp {
         }
     }
 
-    fn menus(&self, ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
-        egui::MenuBar::new().ui(ui, |ui| {
-            for menu in Menu::BAR {
-                if menu == Menu::Debug && !self.debug_menu {
-                    continue;
-                }
-                ui.menu_button(menu.label(), |ui| {
-                    let mut first = true;
-                    for v in views.iter().filter(|v| v.menu == menu) {
-                        if v.group && !first {
-                            ui.separator();
-                        }
-                        first = false;
-                        if panels::command_item(ui, v) {
-                            actions.push(Action::Command(v.id));
-                        }
-                    }
-                });
-            }
-        });
-    }
-
     /// The command palette (Cmd/Ctrl+K): type to filter, ↑↓ to pick, Entrée to run.
     fn palette_window(&mut self, ctx: &egui::Context, views: &[CommandView], actions: &mut Vec<Action>) {
         let Some(p) = &mut self.palette else { return };
@@ -526,8 +557,12 @@ impl SolidSketchApp {
             .collapsible(false)
             .resizable(false)
             .default_width(420.0)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
+            // Pinned by its title bar: changing tabs moves only its bottom edge.
+            .pivot(egui::Align2::CENTER_TOP)
+            .default_pos({
+                let r = ctx.content_rect();
+                egui::pos2(r.center().x, r.top() + r.height() * 0.15)
+            })
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut tab, PrefsTab::General, t!("prefs.tab.general"));
@@ -716,12 +751,13 @@ impl SolidSketchApp {
             Choice::Light => egui::ThemePreference::Light,
             Choice::Dark => egui::ThemePreference::Dark,
         });
+        // egui's two styles come from the palette's tokens, installed when it changes.
+        if self.styled != Some(self.prefs.palette) {
+            crate::style::install_palette(ctx, self.prefs.palette);
+            self.styled = Some(self.prefs.palette);
+        }
         let mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
-        self.theme = Theme::of(mode);
-        // The selection colour of egui's widgets: the theme's.
-        let selected = viewport::color(self.theme.selected.edge);
-        let theme = ctx.theme();
-        ctx.style_mut_of(theme, |s| s.visuals.selection.stroke.color = selected);
+        self.theme = Theme::of(self.prefs.palette, mode);
     }
 
     /// Answers the control channel's requests (desktop, `SOLIDSKETCH_CONTROL=1`).
@@ -775,6 +811,10 @@ impl SolidSketchApp {
 }
 
 impl eframe::App for SolidSketchApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        raw_input.events.append(&mut self.pending_keys);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.apply_theme(&ctx);
@@ -798,20 +838,32 @@ impl eframe::App for SolidSketchApp {
         #[cfg(not(target_arch = "wasm32"))]
         self.serve_control(frame);
 
-        let title = format!(
-            "SolidSketch — {}{}",
-            self.path.as_deref().and_then(|p| p.rsplit(['/', '\\']).next()).map(str::to_owned).unwrap_or_else(|| t!("window.untitled")),
-            if self.modified() { " •" } else { "" }
-        );
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        let name = self.path.as_deref().and_then(|p| p.rsplit(['/', '\\']).next()).map(str::to_owned).unwrap_or_else(|| t!("window.untitled"));
+        let modified = self.modified();
+        // Still the window's title where the OS shows it (Window menu, Mission Control).
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("SolidSketch — {name}{}", if modified { " •" } else { "" })));
 
         let views = self.command_views();
         let mut actions = Vec::new();
-        egui::Panel::top("menu").show(ui, |ui| self.menus(ui, &views, &mut actions));
-        egui::Panel::top("tool_options").show(ui, |ui| panels::tool_options(ui, &self.editor, &mut actions));
+        #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+        if let Some(menu) = &mut self.native_menu {
+            for id in menu.update(&views, &self.keymap, self.debug_menu) {
+                self.native_command(id, &mut actions);
+            }
+        }
+        let bar = titlebar::Bar {
+            name: &name,
+            path: self.path.as_deref(),
+            modified,
+            integrated: crate::INTEGRATED_TITLEBAR,
+            native_menus: self.native_menus(),
+            debug_menu: self.debug_menu,
+        };
+        titlebar::show(ui, &bar, &views, &mut actions);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        // The 3D view fills everything between the menu and the status bar; the tools and the
-        // side panel float over it, so opening or resizing them never resizes the view.
+        // The 3D view fills everything between the title bar and the status bar; the tools (with
+        // the active tool's option bar as their footer) and the side panel float over it, so
+        // opening or resizing them never resizes the view.
         let theme = self.theme;
         let view = egui::CentralPanel::no_frame()
             .show(ui, |ui| self.viewport.ui(ui, frame, &mut self.editor, &self.prefs.navigation, &theme))
@@ -819,24 +871,9 @@ impl eframe::App for SolidSketchApp {
             .rect;
         let margin = 8.0;
         let card = |ui: &egui::Ui| egui::Frame::window(ui.style()).inner_margin(6.0);
-        let tools = egui::Area::new(egui::Id::unique("tools"))
-            .fixed_pos(view.left_top() + egui::vec2(margin, margin))
-            .constrain_to(view)
-            .show(&ctx, |ui| {
-                card(ui).show(ui, |ui| {
-                    // Scrolls only when the window is too short for all the buttons.
-                    let room = view.height() - 2.0 * margin - 12.0;
-                    egui::ScrollArea::vertical().max_height(room).min_scrolled_height(room).show(ui, |ui| {
-                        ui.vertical_centered(|ui| panels::toolbar(ui, &views, &mut actions));
-                    });
-                });
-            })
-            .response
-            .rect;
         let show_materials = self.prefs.show_materials;
         let side = egui::Area::new(egui::Id::unique("side"))
-            .pivot(egui::Align2::RIGHT_TOP)
-            .fixed_pos(view.right_top() + egui::vec2(-margin, margin))
+            .fixed_pos(view.left_top() + egui::vec2(margin, margin))
             .constrain_to(view)
             .show(&ctx, |ui| {
                 card(ui).show(ui, |ui| {
@@ -867,9 +904,40 @@ impl eframe::App for SolidSketchApp {
             })
             .response
             .rect;
-        // What zoom extents frames: between the two cards, in viewport pixels.
-        let free_min = egui::vec2(tools.right() + margin - view.left(), 0.0);
-        let free_max = egui::vec2(side.left() - margin - view.left(), view.height());
+        // Centered over the view, but never over the side panel (its width is last frame's).
+        let tools_id = egui::Id::unique("tools");
+        let tools_width = ctx.memory(|m| m.area_rect(tools_id)).map_or(0.0, |r| r.width());
+        let tools_left = (view.center().x - tools_width / 2.0).max(side.right() + margin);
+        let tools = egui::Area::new(tools_id)
+            .fixed_pos(egui::pos2(tools_left, view.top() + margin))
+            .constrain_to(view)
+            .show(&ctx, |ui| {
+                card(ui).show(ui, |ui| {
+                    // Scrolls only when the window is too narrow for all the buttons.
+                    let room = view.right() - margin - 12.0 - tools_left;
+                    egui::ScrollArea::horizontal().max_width(room).min_scrolled_width(room).show(ui, |ui| {
+                        ui.horizontal(|ui| panels::toolbar(ui, &views, &mut actions));
+                    });
+                    ui.separator();
+                    // Centered under the buttons: egui lays a row out from the left, so the
+                    // row is shifted by half the room it left last frame.
+                    let width_id = tools_id.with("options_width");
+                    let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+                        let used = ui.scope(|ui| panels::tool_options(ui, &self.editor, &mut actions)).response.rect.width();
+                        if used != width {
+                            ui.data_mut(|d| d.insert_temp(width_id, used));
+                            ui.ctx().request_repaint();
+                        }
+                    });
+                });
+            })
+            .response
+            .rect;
+        // What zoom extents frames: below the tool bar, right of the side panel, in viewport pixels.
+        let free_min = egui::vec2(side.right() + margin - view.left(), tools.bottom() + margin - view.top());
+        let free_max = egui::vec2(view.width(), view.height());
         self.editor.set_free_area(
             glam::DVec2::new(free_min.x as f64, free_min.y as f64),
             glam::DVec2::new(free_max.x as f64, free_max.y as f64),
@@ -914,6 +982,15 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
     });
 }
 
+/// A palette's name in the preferences.
+fn palette_name(palette: UiPalette) -> String {
+    match palette {
+        UiPalette::Neutral => t!("prefs.interface.palettes.neutral"),
+        UiPalette::Warm => t!("prefs.interface.palettes.warm"),
+        UiPalette::Graphite => t!("prefs.interface.palettes.graphite"),
+    }
+}
+
 fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
     egui::Grid::new("interface").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.interface.theme"));
@@ -921,6 +998,19 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
             ui.selectable_value(&mut prefs.theme, Choice::System, t!("prefs.interface.system"));
             ui.selectable_value(&mut prefs.theme, Choice::Light, t!("prefs.interface.light"));
             ui.selectable_value(&mut prefs.theme, Choice::Dark, t!("prefs.interface.dark"));
+        });
+        ui.end_row();
+        ui.label(t!("prefs.interface.palette"));
+        // The cards show the variant the theme draws now.
+        let mode = if ui.ctx().theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 12.0;
+            for palette in UiPalette::ALL {
+                let name = palette_name(palette);
+                if crate::style::palette_card(ui, palette, mode, &name, prefs.palette == palette).clicked() {
+                    prefs.palette = palette;
+                }
+            }
         });
         ui.end_row();
         ui.label(t!("prefs.interface.panels"));

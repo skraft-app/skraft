@@ -207,7 +207,17 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
     click(&mut e, DVec3::new(50.0, 50.0, 50.0));
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, 80.0, 50.0)) });
+    // Moved, not copied: drawn only where it goes, not twice.
+    let shown = |e: &Editor| e.view().batches.iter().map(|(_, ps)| ps.len()).sum::<usize>();
+    let selected = |e: &Editor| e.view().highlights.iter().any(|h| h.mark == Mark::Selected);
     assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Ghost));
+    assert_eq!(shown(&e), 0);
+    assert!(!selected(&e));
+    // Copying, the original stays.
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    assert_eq!(shown(&e), 1);
+    assert!(selected(&e));
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
     e.input(ToolInput::Vcb("250".into()));
     let (lo, _) = bounds_of(&e, &EntityPath::root(a));
     assert!(close(lo, DVec3::new(250.0, 0.0, 0.0)), "{lo}");
@@ -282,6 +292,35 @@ fn groups_enter_fade_exit() {
     e.undo();
     e.undo();
     assert!(e.context().is_empty());
+}
+
+#[test]
+fn a_selected_assembly_shows_its_content_box() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 200.0, 0.0), "80");
+    // A part alone: no box.
+    e.select(vec![a]);
+    assert!(e.view().selection_boxes.is_empty());
+    e.select(vec![a, b]);
+    e.make_assembly();
+    let segs = e.view().selection_boxes;
+    assert!(!segs.is_empty());
+    // Dashed, the box spans the content's bounds exactly.
+    let (lo, hi) = segs.iter().flat_map(|(a, b)| [*a, *b]).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(400.0, 200.0, 80.0)), "{lo} {hi}");
+    e.select(vec![]);
+    assert!(e.view().selection_boxes.is_empty());
+    assert!(e.view().context_box.is_empty());
+    // Inside the assembly: its box stays, a little larger than the content.
+    let g = { e.select_all(); e.selection()[0] };
+    e.enter(g);
+    let v = e.view();
+    assert!(v.selection_boxes.is_empty());
+    let (lo, hi) = v.context_box.iter().flat_map(|(a, b)| [*a, *b]).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+    let d = lo - DVec3::ZERO;
+    assert!(d.x < 0.0 && (d.x - d.y).abs() < 1e-3 && (d.x - d.z).abs() < 1e-3, "{lo}");
+    assert!(close(hi - DVec3::new(400.0, 200.0, 80.0), -d), "{lo} {hi}");
 }
 
 #[test]

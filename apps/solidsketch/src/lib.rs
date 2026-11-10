@@ -7,13 +7,34 @@ mod commands;
 mod control;
 mod file;
 mod icons;
+#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+mod native_menu;
 mod panels;
 mod prefs;
+mod style;
+mod titlebar;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod worker;
 
 pub use app::SolidSketchApp;
+
+/// The bar is the window's title bar: on the macOS desktop (docs/ARCHITECTURE.md §7 quinquies).
+pub(crate) const INTEGRATED_TITLEBAR: bool = cfg!(all(target_os = "macos", not(target_arch = "wasm32")));
+
+/// The desktop window. On macOS the OS title bar is hidden and the content runs under it, the
+/// traffic lights kept: the app's bar ([`titlebar`]) takes its place.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn native_options() -> eframe::NativeOptions {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("SolidSketch")
+        .with_inner_size([1280.0, 800.0])
+        .with_min_inner_size([640.0, 400.0]);
+    if INTEGRATED_TITLEBAR {
+        viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
+    }
+    eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, ..Default::default() }
+}
 
 /// Web entry point: starts the app on the `<canvas id="solidsketch">`.
 #[cfg(target_arch = "wasm32")]

@@ -6,7 +6,7 @@ use solidsketch_model::{Id, Section};
 
 use super::Editor;
 use crate::infer::InferKind;
-use crate::scene::solids_under;
+use crate::scene::{solids_under, transform_bounds};
 use crate::tools::{self, Marquee, PreviewLine};
 
 /// How a highlighted solid is marked.
@@ -56,32 +56,97 @@ pub struct View {
     pub marquee: Option<Marquee>,
     /// The section to draw: a tool's preview, else the document's active one.
     pub section: Option<Section>,
+    /// The bounding boxes of the selected assemblies' content, dashed segments in the world
+    /// (the app draws them depth-tested, in the selection's colour).
+    pub selection_boxes: Vec<(DVec3, DVec3)>,
+    /// The same box for the assembly being edited, grown by a few pixels (drawn in grey).
+    pub context_box: Vec<(DVec3, DVec3)>,
 }
+
+/// How far the box of the assembly being edited stands off its content, in pixels.
+const CONTEXT_BOX_OFFSET_PX: f64 = 8.0;
 
 impl Editor {
     // ---- drawing -------------------------------------------------------------------------------
 
-    /// A dashed line from `a` to `b` (dashes of a few pixels at their depth).
+    /// A dashed line from `a` to `b` (dashes of a few pixels at their depth), dashes at both ends.
     pub(super) fn dashed(&self, out: &mut Vec<PreviewLine>, a: DVec3, b: DVec3, color: [f32; 4]) {
         let len = (b - a).length();
         let step = self.camera.world_per_pixel(self.size, (a + b) * 0.5) * 10.0;
         if len < 1e-12 || step <= 0.0 {
             return;
         }
-        let n = ((len / step).ceil() as usize).min(400);
+        // Odd, so that a dash starts and ends the line (a box's corners stay drawn).
+        let n = ((len / step).ceil() as usize).min(400) | 1;
         for k in (0..n).step_by(2) {
             let (t0, t1) = (k as f64 / n as f64, ((k + 1) as f64 / n as f64).min(1.0));
             out.push(PreviewLine { a: a.lerp(b, t0), b: a.lerp(b, t1), color });
         }
     }
 
+    /// The box bounding what the assembly occurrence `id` of the context `ctx_path` holds, in
+    /// its own axes, moved by `extra` and grown by `offset_px` pixels on every side, as dashed
+    /// segments. Nothing for a part's occurrence.
+    fn assembly_box(&self, out: &mut Vec<(DVec3, DVec3)>, ctx_path: &[Id], id: Id, extra: DAffine3, offset_px: f64) {
+        let doc = self.document();
+        let Ok(ctx) = doc.context_of(ctx_path) else { return };
+        if !doc.is_assembly_occurrence(ctx, id) {
+            return;
+        }
+        let (Ok(t), Some(o)) = (doc.transform_of(ctx_path), doc.assembly(ctx).ok().and_then(|a| a.occurrence(id))) else {
+            return;
+        };
+        let frame = extra * t * o.transform;
+        let to_local = frame.inverse();
+        let mut bounds: Option<(DVec3, DVec3)> = None;
+        for u in solids_under(doc, ctx_path, id) {
+            let Some(dm) = self.scene.definition_mesh(u.part) else { continue };
+            let rel = to_local * extra * u.transform;
+            for b in dm.parts.iter().filter_map(|p| p.bounds) {
+                let (lo, hi) = transform_bounds(&rel, b);
+                bounds = Some(bounds.map_or((lo, hi), |(l, h)| (l.min(lo), h.max(hi))));
+            }
+        }
+        let Some((mut lo, mut hi)) = bounds else { return };
+        if offset_px > 0.0 {
+            // Pixels measured at the box's centre (the frame is rigid: no scale).
+            let d = self.camera.world_per_pixel(self.size, frame.transform_point3((lo + hi) * 0.5)) * offset_px;
+            (lo, hi) = (lo - DVec3::splat(d), hi + DVec3::splat(d));
+        }
+        let corner = |i: usize| {
+            frame.transform_point3(DVec3::new(
+                if i & 1 == 0 { lo.x } else { hi.x },
+                if i & 2 == 0 { lo.y } else { hi.y },
+                if i & 4 == 0 { lo.z } else { hi.z },
+            ))
+        };
+        let mut lines = Vec::new();
+        for i in 0..8 {
+            for bit in [1, 2, 4] {
+                if i & bit == 0 {
+                    self.dashed(&mut lines, corner(i), corner(i | bit), [0.0; 4]);
+                }
+            }
+        }
+        out.extend(lines.into_iter().map(|l| (l.a, l.b)));
+    }
+
     /// What to draw now.
     pub fn view(&self) -> View {
         let mut v = View::default();
         let doc = self.document();
+        let preview = self.preview();
+        // Moved or turned without copying, the selection is only drawn where it goes: the
+        // original stays in place only when a copy is left behind.
+        let hide_original = preview.ghost.is_some() && !self.tool_copying();
+        let depth = self.context.len();
+        let hidden = |p: &&crate::scene::Placement| {
+            hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| self.selection.contains(id))
+        };
         for (def, places) in self.scene.placements() {
             let ps = places
                 .iter()
+                .filter(|p| !hidden(p))
                 .map(|p| ViewPlacement {
                     transform: p.transform,
                     faded: !p.path.starts_with(&self.context),
@@ -101,9 +166,18 @@ impl Editor {
                 });
             }
         };
-        let preview = self.preview();
-        for id in &self.selection {
+        for id in self.selection.iter().filter(|_| !hide_original) {
             mark(&mut v.highlights, &self.context, *id, Mark::Selected, DAffine3::IDENTITY);
+        }
+        // The selected assemblies' boxes, where the selection is drawn (moved with the ghost
+        // when the original is hidden).
+        let box_at = if hide_original { preview.ghost } else { Some(DAffine3::IDENTITY) };
+        for (id, extra) in self.selection.iter().filter_map(|id| box_at.map(|g| (*id, g))) {
+            self.assembly_box(&mut v.selection_boxes, &self.context, id, extra, 0.0);
+        }
+        // The assembly being edited: its content's box, a little larger.
+        if let Some((&id, parent)) = self.context.split_last() {
+            self.assembly_box(&mut v.context_box, parent, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX);
         }
         if let Some(h) = preview.hover.filter(|h| !self.selection.contains(h)) {
             mark(&mut v.highlights, &self.context, h, Mark::Hover, DAffine3::IDENTITY);

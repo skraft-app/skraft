@@ -76,47 +76,40 @@ fn front_colour(i: u32) -> vec3<f32> {
     return g.face_front.rgb;
 }
 
-struct FaceFrag {
-    @location(0) colour: vec4<f32>,
-    @builtin(frag_depth) depth: f32,
-};
-
-// Without a section: the hardware depth (and its bias, which lets edges win).
+// Without a section.
 @fragment
 fn fs_face(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec4<f32> {
-    return shade(in, facing, in.clip.z, false).colour;
+    return shade(in, facing, false);
 }
 
-// With a section: cut, and caps written at the plane's depth. Writing the depth drops the
-// bias, so this pipeline is only used while a section is on.
+// With a section: what is cut away is discarded, and the backs seen through the cut are
+// painted as caps (§7 quater). Parts are closed, so where the nearest surface left is a back
+// face, the eye looks into the part through the plane: that pixel is the cap. Faces keep
+// their true depth (and its bias, which lets edges win); `fs_cap_mark` then `fs_cap_depth`
+// bring the caps' depth onto the plane.
 @fragment
-fn fs_face_cut(in: FaceOut, @builtin(front_facing) facing: bool) -> FaceFrag {
+fn fs_face_cut(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec4<f32> {
     if (cut(in.world)) {
         discard;
     }
-    return shade(in, facing, in.clip.z, true);
+    return shade(in, facing, true);
 }
 
-fn shade(in: FaceOut, facing: bool, depth: f32, caps: bool) -> FaceFrag {
-    var out: FaceFrag;
-    out.depth = depth;
+// Does the fragment show the outside of its part? (A mirrored placement turns the winding
+// over.)
+fn is_front(in: FaceOut, facing: bool) -> bool {
+    return facing != (in.mirrored < 0.0);
+}
+
+fn shade(in: FaceOut, facing: bool, caps: bool) -> vec4<f32> {
     var n = normalize(in.normal);
-    // A mirrored placement turns the winding over: its outside faces the other way.
-    let front = facing != (in.mirrored < 0.0);
+    let front = is_front(in, facing);
     var base = front_colour(in.colour);
     if (!front) {
         if (caps) {
-            // A section cap (§7 quater): parts are closed, so through the cut only their back
-            // shows. Paint it as the plane: the part's colour, flat and darker, at the depth
-            // of the plane along this pixel's ray.
-            let p = on_plane(in.world);
-            if (p.w > 0.0) {
-                let c = g.proj * vec4<f32>(p.xyz, 1.0);
-                out.depth = c.z / c.w;
-                let cap = base * (1.0 - g.section.y);
-                out.colour = vec4<f32>(mix(cap, in.tint.rgb, in.tint.a), 1.0);
-                return out;
-            }
+            // A section cap: the part's colour, flat and darker.
+            let cap = base * (1.0 - g.section.y);
+            return vec4<f32>(mix(cap, in.tint.rgb, in.tint.a), 1.0);
         }
         n = -n;
         base = g.face_back.rgb;
@@ -126,7 +119,55 @@ fn shade(in: FaceOut, facing: bool, depth: f32, caps: bool) -> FaceFrag {
     let sky = 0.5 + 0.5 * dot(n, g.up.xyz);
     let light = 0.30 + 0.45 * head + 0.15 * max(dot(n, g.key.xyz), 0.0) + 0.10 * sky;
     let shaded = base * light;
-    out.colour = vec4<f32>(mix(shaded, in.tint.rgb, in.tint.a), 1.0);
+    return vec4<f32>(mix(shaded, in.tint.rgb, in.tint.a), 1.0);
+}
+
+// Second pass over the faces, without depth test nor colour: each fragment left flips the
+// stencil. Parts are closed, so an odd count means the ray meets the plane inside a part —
+// there, the plane is a cap.
+@fragment
+fn fs_cap_mark(in: FaceOut) -> @location(0) vec4<f32> {
+    if (cut(in.world)) {
+        discard;
+    }
+    return vec4<f32>(0.0);
+}
+
+// ---- section caps' depth (a full-screen triangle, where the stencil marks a cap) --------------
+
+@vertex
+fn vs_screen(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+
+struct CapDepth {
+    @location(0) colour: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+};
+
+// Where the stencil count is odd and the plane is nearer than what is drawn, a cap: its depth
+// goes onto the plane, so what is behind it (the part's far edges) stays hidden.
+@fragment
+fn fs_cap_depth(@builtin(position) pos: vec4<f32>) -> CapDepth {
+    let size = g.viewport.xy;
+    let ndc = vec2<f32>(pos.x / size.x * 2.0 - 1.0, 1.0 - pos.y / size.y * 2.0);
+    // A camera-space point on this pixel's ray.
+    var p: vec3<f32>;
+    if (g.proj[3][3] == 0.0) {
+        // Perspective, at z = -1 (where w = 1).
+        p = vec3<f32>((ndc.x + g.proj[2][0]) / g.proj[0][0], (ndc.y + g.proj[2][1]) / g.proj[1][1], -1.0);
+    } else {
+        p = vec3<f32>((ndc.x - g.proj[3][0]) / g.proj[0][0], (ndc.y - g.proj[3][1]) / g.proj[1][1], 0.0);
+    }
+    let q = on_plane(p);
+    if (q.w == 0.0) {
+        discard; // the plane seen edge on: the cap keeps its face's depth
+    }
+    let c = g.proj * vec4<f32>(q.xyz, 1.0);
+    var out: CapDepth;
+    out.colour = vec4<f32>(0.0);
+    out.depth = clamp(c.z / c.w, 0.0, 1.0);
     return out;
 }
 

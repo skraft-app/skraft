@@ -123,7 +123,7 @@ impl Operation {
     /// A short label for menus and the undo history.
     pub fn label(&self) -> String {
         match self {
-            Operation::AddPrimitive { primitive, .. } => primitive_name(primitive),
+            Operation::AddPrimitive { .. } => t!("operation.add_part"),
             Operation::Transform { .. } => t!("operation.transform"),
             Operation::Duplicate { .. } => t!("operation.duplicate"),
             Operation::Array { .. } => t!("operation.array"),
@@ -300,7 +300,7 @@ impl Document {
                 }
                 let (local, at) = primitive.at_origin();
                 let blank = solver.primitive(&local)?;
-                let part = self.insert_component(&primitive_name(primitive), false, ComponentKind::Part(Part::new(blank)));
+                let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(Part::new(blank)));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
                 self.assembly_mut(*context)?.occurrences.push(Occurrence { id, name: String::new(), component: part, transform, material: None });
@@ -605,16 +605,5 @@ impl Solver for Replayer {
 
     fn boolean(&mut self, _: &Arc<Solid>, _: &Arc<Solid>, _: Option<DAffine3>, _: BooleanOp) -> Result<Arc<Solid>> {
         self.next()
-    }
-}
-
-/// The default name of a part built from `primitive` (and the label of its creation).
-pub fn primitive_name(primitive: &Primitive) -> String {
-    match primitive {
-        Primitive::Box { .. } => t!("default_name.box"),
-        Primitive::Cylinder { .. } => t!("default_name.cylinder"),
-        Primitive::Sphere { .. } => t!("default_name.sphere"),
-        Primitive::Cone { .. } => t!("default_name.cone"),
-        Primitive::Torus { .. } => t!("default_name.torus"),
     }
 }

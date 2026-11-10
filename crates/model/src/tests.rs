@@ -50,7 +50,7 @@ fn a_primitive_is_a_part_in_its_own_axes() {
     let (lo, hi) = part.blank.vertex_bounds().unwrap();
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(5.0, 6.0, 7.0)), "{lo} {hi}");
     assert!(close(o.transform.translation, DVec3::new(5.0, 20.0, 30.0)));
-    assert_eq!(doc.component(o.component).unwrap().name, "Boîte");
+    assert_eq!(doc.component(o.component).unwrap().name, "Pièce");
     assert!(!doc.component(o.component).unwrap().named);
 
     assert!(h.undo());
@@ -115,7 +115,7 @@ fn unnamed_parts_go_with_their_last_occurrence() {
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
     let b = add(&mut h, cube(DVec3::splat(20.0), 5.0));
     let (pa, pb) = (occ(h.document(), &EntityPath::root(a)).component, occ(h.document(), &EntityPath::root(b)).component);
-    assert_eq!(h.document().component(pb).unwrap().name, "Boîte#2");
+    assert_eq!(h.document().component(pb).unwrap().name, "Pièce#2");
     h.apply(Operation::RenameComponent { component: pb, name: "Pied".into() }).unwrap();
     assert!(h.apply(Operation::RenameComponent { component: pa, name: "Pied".into() }).is_err(), "names are unique");
     h.apply(Operation::Delete { context: root, entities: vec![a, b] }).unwrap();

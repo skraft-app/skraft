@@ -13,8 +13,8 @@
 //! **relative to the camera**. Placements, the view and lines are `f64`; each placement's
 //! `view × world × recentre` is computed on the CPU in `f64` and only then made `f32`, and each
 //! definition's mesh is stored around its own centre. Depth is **reversed** (1 near, 0 far) in
-//! a `Depth32Float` buffer: [`Frame::proj`] must map near to 1, e.g.
-//! `Mat4::perspective_infinite_reverse_rh`.
+//! a float depth buffer (with a stencil, for section caps): [`Frame::proj`] must map near to
+//! 1, e.g. `Mat4::perspective_infinite_reverse_rh`.
 //!
 //! Colours (§7 quater): faces take a colour from the frame's **palette** — the face's own
 //! (baked in the mesh, [`Part::face_paint`]), else its placement's ([`Placement::material`]),
@@ -28,9 +28,21 @@ use glam::{DMat3, DMat4, DVec3, Mat4, Vec3};
 use solidsketch_kernel::Mesh;
 use wgpu::util::DeviceExt;
 
-/// The format of the resolved target: what a UI samples.
+/// The format the viewport is drawn in: sRGB-encoded bytes, blended in linear.
 pub const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// The format [`Renderer::target`] is viewed with: the same bytes, without sRGB decoding,
+/// which is what egui's renderer expects of a native texture.
+pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// Depth with a stencil (section caps, §7 quater): 32-bit float when the device has it — reversed
+/// depth needs it to stay precise far away — else whatever the device picks for 24 bits (on
+/// Apple Silicon, 32-bit float anyway).
+fn depth_format(device: &wgpu::Device) -> wgpu::TextureFormat {
+    if device.features().contains(wgpu::Features::DEPTH32FLOAT_STENCIL8) {
+        wgpu::TextureFormat::Depth32FloatStencil8
+    } else {
+        wgpu::TextureFormat::Depth24PlusStencil8
+    }
+}
 const SAMPLES: u32 = 4;
 
 /// No palette entry: the colour comes from the next level (placement, then the default).
@@ -286,6 +298,9 @@ struct Target {
     depth: wgpu::TextureView,
     resolved: wgpu::Texture,
     resolved_view: wgpu::TextureView,
+    /// The resolved target seen as plain `Rgba8Unorm`: egui treats texels as sRGB-encoded
+    /// values, so it must read the stored bytes, not the sRGB view's decoded (linear) ones.
+    display_view: wgpu::TextureView,
 }
 
 /// A growable buffer rewritten each frame.
@@ -329,8 +344,13 @@ impl Dynamic {
 /// The viewport renderer.
 pub struct Renderer {
     faces: wgpu::RenderPipeline,
-    /// Faces while a section is on: cut, with caps (they write their depth).
+    /// Faces while a section is on: cut, the backs seen through the cut painted as caps.
     faces_cut: wgpu::RenderPipeline,
+    /// Then the caps marked in the stencil (the parity of the faces left along each ray), and
+    /// their depth brought onto the plane.
+    cap_mark: wgpu::RenderPipeline,
+    cap_depth: wgpu::RenderPipeline,
+    depth_format: wgpu::TextureFormat,
     edges: wgpu::RenderPipeline,
     silhouettes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
@@ -434,7 +454,8 @@ impl Renderer {
                         vs: &str,
                         fs: &str,
                         buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
-                        depth: wgpu::DepthStencilState| {
+                        depth: wgpu::DepthStencilState,
+                        write_mask: wgpu::ColorWrites| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
@@ -458,20 +479,28 @@ impl Renderer {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: TARGET_FORMAT,
                         blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask,
                     })],
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
+        let depth_format = depth_format(device);
         let depth = |write: bool, compare: wgpu::CompareFunction, bias: wgpu::DepthBiasState| wgpu::DepthStencilState {
-            format: DEPTH_FORMAT,
+            format: depth_format,
             depth_write_enabled: Some(write),
             depth_compare: Some(compare),
             stencil: Default::default(),
             bias,
         };
+        // The stencil of the caps: its low bit flipped by `cap_mark`, tested by `cap_depth`.
+        let stencil = |compare: wgpu::CompareFunction, pass_op: wgpu::StencilOperation| {
+            let face = wgpu::StencilFaceState { compare, fail_op: Keep, depth_fail_op: Keep, pass_op };
+            wgpu::StencilState { front: face, back: face, read_mask: 1, write_mask: 1 }
+        };
+        use wgpu::StencilOperation::Keep;
+        let all = wgpu::ColorWrites::ALL;
         // Reversed depth: nearer is greater. Faces are pushed back (towards 0) a little so
         // their edges win the depth test.
         let face_bias = wgpu::DepthBiasState { constant: -2, slope_scale: -1.0, clamp: 0.0 };
@@ -482,13 +511,39 @@ impl Renderer {
             "fs_face",
             &[Some(face_layout.clone()), Some(instance_layout.clone())],
             depth(true, nearer, face_bias),
+            all,
         );
         let faces_cut = pipeline(
             "faces (section)",
             "vs_face",
             "fs_face_cut",
+            &[Some(face_layout.clone()), Some(instance_layout.clone())],
+            depth(true, nearer, face_bias),
+            all,
+        );
+        // Every fragment left flips the stencil: an odd count, the ray meets the plane inside
+        // a part.
+        let cap_mark = pipeline(
+            "caps (mark)",
+            "vs_face",
+            "fs_cap_mark",
             &[Some(face_layout), Some(instance_layout.clone())],
-            depth(true, nearer, Default::default()),
+            wgpu::DepthStencilState {
+                stencil: stencil(wgpu::CompareFunction::Always, wgpu::StencilOperation::Invert),
+                ..depth(false, wgpu::CompareFunction::Always, Default::default())
+            },
+            wgpu::ColorWrites::empty(),
+        );
+        let cap_depth = pipeline(
+            "caps (depth)",
+            "vs_screen",
+            "fs_cap_depth",
+            &[],
+            wgpu::DepthStencilState {
+                stencil: stencil(wgpu::CompareFunction::Equal, Keep),
+                ..depth(true, nearer, Default::default())
+            },
+            wgpu::ColorWrites::empty(),
         );
         let edges = pipeline(
             "edges",
@@ -496,6 +551,7 @@ impl Renderer {
             "fs_edge",
             &[Some(edge_layout), Some(instance_layout.clone())],
             depth(true, nearer, Default::default()),
+            all,
         );
         let silhouettes = pipeline(
             "silhouettes",
@@ -503,20 +559,31 @@ impl Renderer {
             "fs_edge",
             &[Some(sil_layout), Some(instance_layout)],
             depth(true, nearer, Default::default()),
+            all,
         );
-        let lines =
-            pipeline("lines", "vs_line", "fs_line", &[Some(line_layout.clone())], depth(true, nearer, Default::default()));
+        let lines = pipeline(
+            "lines",
+            "vs_line",
+            "fs_line",
+            &[Some(line_layout.clone())],
+            depth(true, nearer, Default::default()),
+            all,
+        );
         let overlay = pipeline(
             "overlay",
             "vs_line",
             "fs_line",
             &[Some(line_layout)],
             depth(false, wgpu::CompareFunction::Always, Default::default()),
+            all,
         );
 
         Renderer {
             faces,
             faces_cut,
+            cap_mark,
+            cap_depth,
+            depth_format,
             edges,
             silhouettes,
             lines,
@@ -645,10 +712,10 @@ impl Renderer {
         }
     }
 
-    /// The resolved target of the last frame, and a number that changes whenever it is
-    /// recreated (a UI re-registers its texture then).
+    /// The resolved target of the last frame, as a [`DISPLAY_FORMAT`] view for egui, and a
+    /// number that changes whenever it is recreated (a UI re-registers its texture then).
     pub fn target(&self) -> Option<(&wgpu::TextureView, u64)> {
-        self.target.as_ref().map(|t| (&t.resolved_view, self.target_generation))
+        self.target.as_ref().map(|t| (&t.display_view, self.target_generation))
     }
 
     /// The resolved target texture (to copy it out, e.g. for a screenshot).
@@ -765,7 +832,7 @@ impl Renderer {
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &target.depth,
                 depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Discard }),
-                stencil_ops: None,
+                stencil_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0), store: wgpu::StoreOp::Discard }),
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
@@ -793,6 +860,23 @@ impl Renderer {
                     pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(part.indices.clone(), 0, at..at + 1);
                 }
+            }
+            if section_on > 0.0 {
+                // The caps: where the faces left along the ray are odd in number, the ray
+                // meets the plane inside a part; there, the depth goes onto the plane, so
+                // what lies behind the cap stays hidden.
+                pass.set_stencil_reference(1);
+                pass.set_pipeline(&self.cap_mark);
+                for (b, r) in frame.batches.iter().zip(&batch_ranges) {
+                    let Some(m) = self.meshes.get(&b.key) else { continue };
+                    if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
+                        pass.set_vertex_buffer(0, v.slice(..));
+                        pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..m.index_count, 0, r.clone());
+                    }
+                }
+                pass.set_pipeline(&self.cap_depth);
+                pass.draw(0..3, 0..1);
             }
             // Edges, then silhouettes (same ink, same instances).
             pass.set_pipeline(&self.edges);
@@ -852,7 +936,7 @@ impl Renderer {
             return;
         }
         let extent = wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 };
-        let texture = |label: &str, format, samples, usage| {
+        let texture = |label: &str, format, samples, usage, view_formats: &[wgpu::TextureFormat]| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
                 size: extent,
@@ -861,16 +945,17 @@ impl Renderer {
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage,
-                view_formats: &[],
+                view_formats,
             })
         };
-        let msaa = texture("viewport msaa", TARGET_FORMAT, SAMPLES, wgpu::TextureUsages::RENDER_ATTACHMENT);
-        let depth = texture("viewport depth", DEPTH_FORMAT, SAMPLES, wgpu::TextureUsages::RENDER_ATTACHMENT);
+        let msaa = texture("viewport msaa", TARGET_FORMAT, SAMPLES, wgpu::TextureUsages::RENDER_ATTACHMENT, &[]);
+        let depth = texture("viewport depth", self.depth_format, SAMPLES, wgpu::TextureUsages::RENDER_ATTACHMENT, &[]);
         let resolved = texture(
             "viewport",
             TARGET_FORMAT,
             1,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            &[DISPLAY_FORMAT],
         );
         let view = |t: &wgpu::Texture| t.create_view(&Default::default());
         self.target = Some(Target {
@@ -878,6 +963,10 @@ impl Renderer {
             msaa: view(&msaa),
             depth: view(&depth),
             resolved_view: view(&resolved),
+            display_view: resolved.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(DISPLAY_FORMAT),
+                ..Default::default()
+            }),
             resolved,
         });
         self.target_generation += 1;
