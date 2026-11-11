@@ -380,19 +380,30 @@ Decided on 2026-11-09.
 
 Decided on 2026-11-09.
 
-- **A central engine** (`tools/src/infer.rs`, no UI, no GPU) replaces the point choices of each
-  tool (`base_point`, `target`, `center_at`…). A tool asks
-  `cx.infer(px, &Query { from, lock, exclude })` and gets an `Inference { point, kind, guides,
-  path }`: world point, kind of inference, guide lines and the supporting solid if any.
+- **A central engine** (`tools/src/infer.rs`, no UI, no GPU, no state) replaces the point
+  choices of each tool (`base_point`, `target`, `center_at`…). A tool calls `cx.infer(px, keep,
+  plane)`, `cx.infer_from(…)` or `cx.infer_in_plane(…)`; the `Cx` fills a `Query` with what the
+  editor holds and calls `infer::infer(scene, camera, size, px, &query)`.
+  - `Query`: `keep` (the geometry to infer on, and that may hide others: all but what is
+    moving), `plane` (fallback plane, world point and normal), `origin` (a point offered as
+    `Origin`), `from` (the tool's start point), `tracked` (the tracked points), `in_plane`
+    (only lines lying in `plane`: the rotate tool's protractor), `axes` (the context's, in the
+    world), `reference` (the last edge hovered, `EdgeRef`), `lock`.
+  - `Inference`: `point` (world), `kind` (`InferKind`), `path` (the solid it belongs to, if
+    any), `hit` (what the ray hits, whatever was inferred: tools orient themselves on its
+    face), `line` / `line2` (the line(s) the point is on: origin and unit direction; the app
+    draws the guides from them), `edge` (the edge at the point, the next reference).
 - **Exact geometry**: candidates come from the **B-rep record** (`f64` vertices, typed curves:
   exact midpoint of a line, exact centre of a circle), not from the mesh. A `SnapIndex` per
   solid (vertices, edges and their curve, bounding box) is cached per `Arc<Solid>` like the
   meshes; it is transformed by each placement. Fallback on the mesher's polyline for splines
   and intersection curves (`Mesh::edges` must keep the record's edge index).
-- **Priorities** (at equal priority, the closest to the cursor on screen, tolerance ≈ 10 px):
-  endpoint > midpoint / centre / origin > intersection (linear constraint × edge or face) >
-  linear (red / green / blue axes from `from`, parallel / perpendicular to an edge) > on edge >
-  on face (projected exactly if the face is planar) > ground plane or plane through `from`.
+- **Priorities** (`InferKind::rank`; at equal rank, the closest to the cursor on screen within
+  `APERTURE_PX` = 10 px, then the nearest to the eye): endpoint > midpoint / centre / origin >
+  constructed point (a line × an edge, two lines of different origins) > on a line (axes from
+  `from` or from a tracked point, parallel / perpendicular to an edge, tangent / radial to an
+  arc) > on edge > on face (projected exactly if the face is planar) > fallback plane. A lock
+  comes before everything: the point stays on its line.
 - **Occlusion**: a vertex or an edge behind the surface the ray hits is not a candidate (up to
   a tolerance); the edges of the hovered face stay reachable. Inference covers the whole
   visible scene, including outside the active context.

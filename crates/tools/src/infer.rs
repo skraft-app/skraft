@@ -11,8 +11,9 @@
 //! A point hovered a while is **tracked**: its axes are inferred too, and where two lines of
 //! different origins cross.
 //!
-//! A **lock** (an arrow key, or Shift held on a line) keeps the point on one line: a feature hovered is then projected onto it ("aligned with that corner"), an
-//! edge it crosses gives the crossing.
+//! A **lock** (an arrow key, or Shift held on a line) keeps the point on one line: a feature
+//! hovered is then projected onto it ("aligned with that corner"), an edge it crosses gives
+//! the crossing.
 
 use std::f64::consts::TAU;
 
@@ -115,8 +116,12 @@ pub enum InferKind {
     OnPlane,
 }
 
+/// How many ranks [`InferKind::rank`] gives.
+const RANKS: usize = InferKind::OnPlane.rank() + 1;
+
 impl InferKind {
-    fn rank(self) -> usize {
+    /// Its priority, best first (0); kinds of one rank are equals.
+    const fn rank(self) -> usize {
         match self {
             InferKind::Endpoint => 0,
             InferKind::Midpoint | InferKind::Center | InferKind::Origin => 1,
@@ -196,6 +201,18 @@ pub struct Inference {
     pub edge: Option<EdgeRef>,
 }
 
+impl Inference {
+    /// A point on no line: of the geometry, of a face or of the fallback plane.
+    fn at(point: DVec3, kind: InferKind, path: Option<EntityPath>, hit: Option<Hit>, edge: Option<EdgeRef>) -> Self {
+        Inference { point, kind, path, hit, line: None, line2: None, edge }
+    }
+
+    /// A point on the line `a`, and on `b` where two lines cross.
+    fn on_lines(point: DVec3, kind: InferKind, path: Option<EntityPath>, hit: Option<Hit>, a: &Line, b: Option<&Line>) -> Self {
+        Inference { point, kind, path, hit, line: Some((a.origin, a.dir)), line2: b.map(|b| (b.origin, b.dir)), edge: None }
+    }
+}
+
 /// A lock: the point stays on this line.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Lock {
@@ -258,15 +275,6 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
     let ray = camera.ray(px, size);
     let screen = camera.projector(size);
     let hit = base.as_ref().and_then(|b| b.hit.clone());
-    let on = |point: DVec3, l: &Line, kind: InferKind, path: Option<EntityPath>| Inference {
-        point,
-        kind,
-        path,
-        hit: hit.clone(),
-        line: Some((l.origin, l.dir)),
-        line2: None,
-        edge: None,
-    };
 
     if let Some(lock) = q.lock
         && let Some(origin) = lock.origin.or(q.from)
@@ -274,14 +282,14 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
         let l = Line { origin, dir: lock.dir, kind: lock.line, source: 0 };
         // An edge the locked line crosses near the cursor: the crossing.
         if let Some(c) = crossing(scene, camera, size, &screen, px, q, &[l]) {
-            return Some(on(c.point, &l, InferKind::OnEdgeAndLine(l.kind), c.path));
+            return Some(Inference::on_lines(c.point, InferKind::OnEdgeAndLine(l.kind), c.path, hit, &l, None));
         }
         let point = match &base {
             // A feature hovered: the point of the line nearest to it.
             Some(b) if b.kind.is_feature() => origin + l.dir * (b.point - origin).dot(l.dir),
             _ => on_line(&ray, &screen, px, &l, hit.as_ref()),
         };
-        return Some(on(point, &l, InferKind::OnLine(l.kind), None));
+        return Some(Inference::on_lines(point, InferKind::OnLine(l.kind), None, hit, &l, None));
     }
     // Points of the geometry beat what lines give.
     if base.as_ref().is_some_and(|b| b.kind.is_point()) {
@@ -297,15 +305,16 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
     let edge = crossing(scene, camera, size, &screen, px, q, &lines);
     let two = two_lines(camera, size, &screen, px, &lines);
     let edge_dist = edge.as_ref().and_then(|c| screen.project(c.point)).map(|s| s.distance(px));
+    let meet = |p, a: &Line, b: &Line, hit| Inference::on_lines(p, InferKind::OnTwoLines(a.kind, b.kind), None, hit, a, Some(b));
     match (edge, two) {
         (Some(_), Some((d2, p, i, j))) if d2 < edge_dist.unwrap_or(f64::INFINITY) => {
-            return Some(two_lines_inference(p, &lines[i], &lines[j], hit.clone()));
+            return Some(meet(p, &lines[i], &lines[j], hit));
         }
         (Some(c), _) => {
-            let l = lines[c.line];
-            return Some(on(c.point, &l, InferKind::OnEdgeAndLine(l.kind), c.path));
+            let l = &lines[c.line];
+            return Some(Inference::on_lines(c.point, InferKind::OnEdgeAndLine(l.kind), c.path, hit, l, None));
         }
-        (None, Some((_, p, i, j))) => return Some(two_lines_inference(p, &lines[i], &lines[j], hit.clone())),
+        (None, Some((_, p, i, j))) => return Some(meet(p, &lines[i], &lines[j], hit)),
         (None, None) => {}
     }
 
@@ -323,20 +332,8 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
         }
     }
     match best {
-        Some((_, p, k)) => Some(on(p, &lines[k], InferKind::OnLine(lines[k].kind), None)),
+        Some((_, p, k)) => Some(Inference::on_lines(p, InferKind::OnLine(lines[k].kind), None, hit, &lines[k], None)),
         None => base,
-    }
-}
-
-fn two_lines_inference(point: DVec3, a: &Line, b: &Line, hit: Option<Hit>) -> Inference {
-    Inference {
-        point,
-        kind: InferKind::OnTwoLines(a.kind, b.kind),
-        path: None,
-        hit,
-        line: Some((a.origin, a.dir)),
-        line2: Some((b.origin, b.dir)),
-        edge: None,
     }
 }
 
@@ -583,7 +580,7 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
 
     // Best kind first; within a kind, those within a pixel of the nearest are equals (features
     // stacked on screen, as a top and a bottom corner seen from above): the nearest to the eye.
-    let mut nearest = [f64::INFINITY; 7];
+    let mut nearest = [f64::INFINITY; RANKS];
     for c in &cands {
         let r = c.kind.rank();
         nearest[r] = nearest[r].min(c.dist);
@@ -595,7 +592,7 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     cands.sort_by(|a, b| key(a).partial_cmp(&key(b)).unwrap_or(std::cmp::Ordering::Equal));
     for c in cands {
         if visible(scene, camera, size, &screen, c.point, q) {
-            return Some(Inference { point: c.point, kind: c.kind, path: c.path, hit, line: None, line2: None, edge: c.edge });
+            return Some(Inference::at(c.point, c.kind, c.path, hit, c.edge));
         }
     }
 
@@ -608,18 +605,11 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
                 Some(t.transform_point3(plane.project(t.inverse().transform_point3(h.point))))
             })
             .unwrap_or(h.point);
-        return Some(Inference {
-            point,
-            kind: InferKind::OnFace,
-            path: Some(h.path.clone()),
-            hit: Some(h),
-            line: None,
-            line2: None,
-            edge: None,
-        });
+        let path = Some(h.path.clone());
+        return Some(Inference::at(point, InferKind::OnFace, path, Some(h), None));
     }
     let point = ray.hit_plane(q.plane.0, q.plane.1)?;
-    Some(Inference { point, kind: InferKind::OnPlane, path: None, hit: None, line: None, line2: None, edge: None })
+    Some(Inference::at(point, InferKind::OnPlane, None, None, None))
 }
 
 /// Offers the snap features of one occurrence (definition to world `t`): its vertices, the
