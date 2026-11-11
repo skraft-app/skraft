@@ -1590,6 +1590,11 @@ fn the_tape_measures_and_draws_guides() {
     click(&mut e, DVec3::new(300.0, 50.0, 100.0));
     hover(&mut e, DVec3::new(420.0, 120.0, 100.0));
     assert_eq!(e.vcb(), Some(("Décalage".into(), "120 mm".into())));
+    // The edge referred to, end to end, bolder.
+    let refs: Vec<_> = e.preview().lines.into_iter().filter(|l| l.color == crate::tools::MAGENTA).collect();
+    let (a, b) = (DVec3::new(300.0, 0.0, 100.0), DVec3::new(300.0, 200.0, 100.0));
+    let [r] = refs[..] else { panic!("{refs:?}") };
+    assert!(r.bold && ((close(r.a, a) && close(r.b, b)) || (close(r.a, b) && close(r.b, a))), "{r:?}");
     // The offset runs from the point clicked, square to the edge, to the guide.
     let l = &e.labels()[0];
     assert!(close(l.a, DVec3::new(300.0, 50.0, 100.0)) && close(l.b, DVec3::new(420.0, 50.0, 100.0)), "{} {}", l.a, l.b);
@@ -1778,7 +1783,13 @@ fn the_tape_draws_a_tangent_from_the_end_of_an_arc_and_marks_its_reference() {
     e.apply(Operation::Boolean { target, tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
     e.select(vec![]);
     let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
-    let magenta = |e: &Editor| e.preview().guides.iter().any(|(_, c)| *c == crate::tools::MAGENTA);
+    // The arc referred to, as drawn: its own points, bolder, and no guide in its stead.
+    let magenta = |e: &Editor| {
+        let p = e.preview();
+        let on_arc = |q: DVec3| ((q - DVec3::new(300.0, 200.0, 50.0)).length() - 100.0).abs() < 1e-6 && (q.z - 50.0).abs() < 1e-9;
+        let arc = p.lines.iter().filter(|l| l.color == crate::tools::MAGENTA && l.bold).collect::<Vec<_>>();
+        !arc.is_empty() && arc.iter().all(|l| on_arc(l.a) && on_arc(l.b)) && !p.guides.iter().any(|(_, c)| *c == crate::tools::MAGENTA)
+    };
     e.set_tool(ToolKind::Measure);
     e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
 
@@ -1859,9 +1870,16 @@ fn the_tape_starts_a_guide_from_a_guide() {
     let circle = GuideShape::Circle { center: DVec3::new(400.0, 400.0, 0.0), normal: DVec3::Z, radius: 150.0 };
     e.apply(Operation::AddGuide { component: root, shape: circle }).unwrap();
     e.set_tool(ToolKind::Measure);
+    // The guide referred to, dashed where it is: its very strokes, in magenta.
+    let marks_guide = |e: &Editor| {
+        let refs: Vec<_> = e.preview().guides.into_iter().filter(|(_, c)| *c == crate::tools::MAGENTA).map(|(s, _)| s).collect();
+        let drawn = e.view().guides;
+        !refs.is_empty() && refs.iter().all(|s| drawn.contains(s))
+    };
     // From the guide line: a parallel one.
     click(&mut e, DVec3::new(-200.0, -300.0, 0.0));
     hover(&mut e, DVec3::new(-200.0, -200.0, 0.0));
+    assert!(marks_guide(&e));
     e.input(ToolInput::Vcb("40".into()));
     let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
     let GuideShape::Line { origin, dir } = guides(&e)[2] else { panic!("{:?}", guides(&e)) };
@@ -1869,6 +1887,7 @@ fn the_tape_starts_a_guide_from_a_guide() {
     // From the guide circle: a concentric one.
     click(&mut e, DVec3::new(400.0, 550.0, 0.0));
     hover(&mut e, DVec3::new(400.0, 700.0, 0.0));
+    assert!(marks_guide(&e));
     e.input(ToolInput::Vcb("50".into()));
     let GuideShape::Circle { radius, .. } = guides(&e)[3] else { panic!("{:?}", guides(&e)) };
     assert!((radius - 200.0).abs() < 1e-6, "{radius}");
@@ -2000,6 +2019,10 @@ fn the_tape_draws_a_guide_from_an_axis() {
     // On the red axis, in the void: a guide along it, offset level.
     click(&mut e, DVec3::new(-300.0, 4.0, 0.0));
     hover(&mut e, DVec3::new(-300.0, 150.0, 0.0));
+    // The axis referred to, across the view.
+    let refs: Vec<_> = e.preview().lines.into_iter().filter(|l| l.color == crate::tools::MAGENTA).collect();
+    let [r] = refs[..] else { panic!("{refs:?}") };
+    assert!(r.a.y.abs() < 1e-6 && r.b.y.abs() < 1e-6 && (r.b - r.a).cross(DVec3::X).length() < 1e-6 * (r.b - r.a).length(), "{r:?}");
     e.input(ToolInput::Vcb("100".into()));
     let [g] = &e.document().component(root).unwrap().guides[..] else { panic!("{}", e.status()) };
     let GuideShape::Line { origin, dir } = g.shape else { panic!() };

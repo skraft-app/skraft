@@ -485,6 +485,7 @@ fn dashed_lines_are_dashed_on_screen() {
         b: DVec3::new(150.0, 0.0, z),
         color: [0.0, 0.0, 0.0, 1.0],
         dash: Some(Dash { length: 5.0, phase: 2.0 }),
+        width: LINE_WIDTH,
     };
     let frame = Frame {
         view,

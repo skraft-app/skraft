@@ -148,9 +148,10 @@ impl Tool for SectionTool {
                 vec![c(-1.0, -1.0), c(1.0, -1.0), c(1.0, 1.0), c(-1.0, 1.0)]
             });
         let n = corners.len();
-        let mut lines: Vec<PreviewLine> = (0..n).map(|k| PreviewLine { a: corners[k], b: corners[(k + 1) % n], color }).collect();
+        let mut lines: Vec<PreviewLine> =
+            (0..n).map(|k| PreviewLine { a: corners[k], b: corners[(k + 1) % n], color, bold: false }).collect();
         // Its normal: towards what is cut away.
-        lines.push(PreviewLine { a: origin, b: origin + normal * size * 0.1, color });
+        lines.push(PreviewLine { a: origin, b: origin + normal * size * 0.1, color, bold: false });
         Preview { lines, section, ..Default::default() }
     }
 

@@ -198,13 +198,13 @@ impl Tool for RotateTool {
                 let a = i as f64 / N as f64 * std::f64::consts::TAU;
                 center + (u * a.cos() + v * a.sin()) * r
             };
-            let mut lines: Vec<PreviewLine> = (0..N).map(|i| PreviewLine { a: p(i), b: p(i + 1), color }).collect();
+            let mut lines: Vec<PreviewLine> = (0..N).map(|i| PreviewLine { a: p(i), b: p(i + 1), color, bold: false }).collect();
             // Ticks every 15°.
             for k in 0..24 {
                 let a = k as f64 * SNAP_STEP;
                 let d = u * a.cos() + v * a.sin();
                 let inner = if k % 6 == 0 { 0.8 } else { 0.9 };
-                lines.push(PreviewLine { a: center + d * r * inner, b: center + d * r, color });
+                lines.push(PreviewLine { a: center + d * r * inner, b: center + d * r, color, bold: false });
             }
             lines
         };
@@ -219,7 +219,7 @@ impl Tool for RotateTool {
                 let mut lines = protractor(center, axis, self.color(cx, axis));
                 if let Some(d) = dir {
                     let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                    lines.push(PreviewLine { a: center, b: center + d * radius(center), color });
+                    lines.push(PreviewLine { a: center, b: center + d * radius(center), color, bold: false });
                 }
                 Preview { lines, inference: self.snap.clone(), ..Default::default() }
             }
@@ -227,9 +227,9 @@ impl Tool for RotateTool {
                 let mut lines = protractor(center, axis, self.color(cx, axis));
                 let r = radius(center);
                 let now = DQuat::from_axis_angle(axis, angle) * reference;
-                lines.push(PreviewLine { a: center, b: center + reference * r, color: INK });
+                lines.push(PreviewLine { a: center, b: center + reference * r, color: INK, bold: false });
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                lines.push(PreviewLine { a: center, b: center + now * r, color });
+                lines.push(PreviewLine { a: center, b: center + now * r, color, bold: false });
                 Preview {
                     lines,
                     marks: vec![center],

@@ -137,7 +137,7 @@ impl Tool for MoveTool {
             State::Start => Preview { marks: self.cursor.into_iter().collect(), inference: self.snap.clone(), ..Default::default() },
             State::Moving { from, to } => {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                let lines = vec![PreviewLine { a: from, b: to, color }];
+                let lines = vec![PreviewLine { a: from, b: to, color, bold: false }];
                 Preview {
                     lines,
                     marks: vec![from],

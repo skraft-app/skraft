@@ -110,13 +110,14 @@ pub struct Highlight {
 }
 
 /// A world-space segment, coloured (`rgb` linear, `a` mixed over the background), plain or
-/// dashed.
+/// dashed, `width` points wide.
 #[derive(Clone, Copy, Debug)]
 pub struct Line {
     pub a: DVec3,
     pub b: DVec3,
     pub color: [f32; 4],
     pub dash: Option<Dash>,
+    pub width: f32,
 }
 
 /// A line's dashes, on screen: a dash of `length` points, a gap as long, the pattern at
@@ -210,6 +211,8 @@ pub struct Frame<'a> {
 /// Line widths, in points.
 pub const EDGE_WIDTH: f32 = 1.5;
 pub const LINE_WIDTH: f32 = 1.5;
+/// A line drawn bolder (the curve a tool refers to).
+pub const BOLD_WIDTH: f32 = 3.0;
 pub const GRID_WIDTH: f32 = 1.0;
 
 #[repr(C)]
@@ -853,11 +856,10 @@ impl Renderer {
         // Lines: grid and axes, depth-tested lines, then the overlay.
         let mut lv = Vec::new();
         let ppp = frame.pixels_per_point;
-        let line_half = LINE_WIDTH * ppp / 2.0;
         push_scene_lines(&mut lv, frame);
         let tested = lv.len() as u32;
         for l in frame.overlay {
-            push_line(&mut lv, &frame.view, l, line_half, ppp);
+            push_line(&mut lv, &frame.view, l, ppp);
         }
         self.line_vertices.write(device, queue, bytemuck::cast_slice(&lv));
 
@@ -1196,9 +1198,10 @@ fn silhouette_edges(m: &Mesh) -> Vec<SilhouetteEdge> {
     out
 }
 
-/// A world line, in camera coordinates (subtracted in `f64`), `half` pixels on each side.
+/// A world line, in camera coordinates (subtracted in `f64`), as wide as it says.
 /// `ppp`: pixels per point (dashes are in points).
-fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, half: f32, ppp: f32) {
+fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, ppp: f32) {
+    let half = l.width * ppp / 2.0;
     let a = view.transform_point3(l.a).as_vec3().to_array();
     let b = view.transform_point3(l.b).as_vec3().to_array();
     let dash = l.dash.map_or([0.0, 0.0], |d| [2.0 * d.length * ppp, d.phase * ppp]);
@@ -1216,7 +1219,6 @@ fn push_scene_lines(out: &mut Vec<LineVertex>, frame: &Frame<'_>) {
     // The grid in the context's frame (composed in f64, so far frames stay exact).
     let v = &(frame.view * frame.axes_frame);
     let ppp = frame.pixels_per_point;
-    let (grid_half, line_half) = (GRID_WIDTH * ppp / 2.0, LINE_WIDTH * ppp / 2.0);
     if let Some(g) = frame.grid {
         let n = g.count as i32;
         let ext = g.spacing * g.count as f64;
@@ -1227,12 +1229,22 @@ fn push_scene_lines(out: &mut Vec<LineVertex>, frame: &Frame<'_>) {
             let t = i as f64 * g.spacing;
             let alpha = if i % 10 == 0 { 0.30 } else { 0.12 };
             let c = [0.3, 0.3, 0.3, alpha];
-            push_line(out, v, &Line { a: DVec3::new(-ext, t, 0.0), b: DVec3::new(ext, t, 0.0), color: c, dash: None }, grid_half, ppp);
-            push_line(out, v, &Line { a: DVec3::new(t, -ext, 0.0), b: DVec3::new(t, ext, 0.0), color: c, dash: None }, grid_half, ppp);
+            push_line(
+                out,
+                v,
+                &Line { a: DVec3::new(-ext, t, 0.0), b: DVec3::new(ext, t, 0.0), color: c, dash: None, width: GRID_WIDTH },
+                ppp,
+            );
+            push_line(
+                out,
+                v,
+                &Line { a: DVec3::new(t, -ext, 0.0), b: DVec3::new(t, ext, 0.0), color: c, dash: None, width: GRID_WIDTH },
+                ppp,
+            );
         }
     }
     for l in frame.lines {
-        push_line(out, &frame.view, l, line_half, ppp);
+        push_line(out, &frame.view, l, ppp);
     }
 }
 

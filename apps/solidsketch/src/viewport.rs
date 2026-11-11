@@ -287,16 +287,21 @@ impl Viewport {
                 }
             })
             .collect();
-        let plain = |a, b, color| render::Line { a, b, color, dash: None };
+        let plain = |a, b, color| render::Line { a, b, color, dash: None, width: render::LINE_WIDTH };
         // A guide's stroke, dashed by the renderer.
         let dashed = |s: &solidsketch_tools::guides::Stroke, color| render::Line {
             a: s.a,
             b: s.b,
             color,
             dash: Some(render::Dash { length: solidsketch_tools::guides::DASH_PX as f32, phase: s.phase as f32 }),
+            width: render::LINE_WIDTH,
+        };
+        let preview = |l: &solidsketch_tools::tools::PreviewLine| render::Line {
+            width: if l.bold { render::BOLD_WIDTH } else { render::LINE_WIDTH },
+            ..plain(l.a, l.b, l.color)
         };
         let overlay: Vec<render::Line> =
-            (view.overlay.iter().map(|l| plain(l.a, l.b, l.color))).chain(view.overlay_guides.iter().map(|(s, c)| dashed(s, *c))).collect();
+            (view.overlay.iter().map(preview)).chain(view.overlay_guides.iter().map(|(s, c)| dashed(s, *c))).collect();
         // An open part always shows its axes (ARCHITECTURE.md §2.9).
         let axes = display.axes || editor.open_part().is_some();
         let axis_lines = view.axes.iter().zip([render::AXIS_X, render::AXIS_Y, render::AXIS_Z]).flat_map(|(halves, c)| {

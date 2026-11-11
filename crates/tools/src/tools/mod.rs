@@ -139,6 +139,8 @@ pub struct PreviewLine {
     pub a: DVec3,
     pub b: DVec3,
     pub color: [f32; 4],
+    /// Drawn bolder: the edge a tool refers to (the tape's guide offset from it).
+    pub bold: bool,
 }
 
 /// A length a tool writes by what it measures (a side being drawn): the side `a`–`b` (world),
@@ -781,6 +783,6 @@ pub fn dashed(camera: &Camera, size: DVec2, out: &mut Vec<PreviewLine>, a: DVec3
     let n = ((len / step).ceil() as usize).min(1000) | 1;
     for k in (0..n).step_by(2) {
         let (t0, t1) = (k as f64 / n as f64, ((k + 1) as f64 / n as f64).min(1.0));
-        out.push(PreviewLine { a: a.lerp(b, t0), b: a.lerp(b, t1), color });
+        out.push(PreviewLine { a: a.lerp(b, t0), b: a.lerp(b, t1), color, bold: false });
     }
 }

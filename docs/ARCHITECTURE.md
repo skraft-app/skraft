@@ -633,10 +633,14 @@ model, the file, the display and the tool; (2) inferences on guides; (3) managin
     naming the guide ("Tangent guide", "Parallel guide"…). The last edge hovered alone could
     not choose: coming along a circle to where it crosses a line, the cursor is within the
     line's aperture before the crossing's, so the line is always last.
-  - **The reference is marked**: the curve the guide refers to — its line or its whole
-    circle, through the point clicked — is drawn dashed in magenta (`Preview::guides`), from
-    the first click on; before it, at a point where several cross, the one the click would
-    take.
+  - **The reference is marked**: the curve the guide refers to is drawn in magenta as it is
+    drawn itself, from the first click on; before it, at a point where several cross, the one
+    the click would take. The inference hands it over with its `EdgeRef` (`Inference::curve`,
+    and each of `Inference::crossed`, an `infer::Curve`): an edge, end to end, and an arc as
+    sampled, bolder (`PreviewLine::bold`, `render::BOLD_WIDTH`); a guide by its very strokes
+    (`Preview::guides`), so the magenta dashes fall on its own; an axis as drawn, across the
+    view (decided on 2026-11-11: an infinite line through the point clicked hid what it
+    was taken from, and its dashes fell between a guide's).
 
     The offset is drawn dashed — in the colour of the axis it runs along, else ink — from
     the point clicked to the guide,

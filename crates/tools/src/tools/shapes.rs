@@ -231,7 +231,7 @@ fn start_at(cx: &Cx<'_>, px: DVec2) -> Option<StartAt> {
     if cx.copy_down
         && let Some(c) = face.as_ref().map(Face::centroid)
     {
-        inf = Inference { point: c, kind: InferKind::Center, line: None, line2: None, edge: None, crossed: Vec::new(), ..inf };
+        inf = Inference { point: c, kind: InferKind::Center, line: None, line2: None, edge: None, curve: None, crossed: Vec::new(), ..inf };
     }
     let o = cx.to_axes(inf.point);
     // A guide line gives its direction as an edge does.
@@ -503,7 +503,7 @@ fn mark(cx: &Cx<'_>, marks: &mut Vec<DVec3>, p: DVec3) {
 }
 
 fn line(cx: &Cx<'_>, a: DVec3, b: DVec3, color: [f32; 4]) -> PreviewLine {
-    PreviewLine { a: cx.to_world(a), b: cx.to_world(b), color }
+    PreviewLine { a: cx.to_world(a), b: cx.to_world(b), color, bold: false }
 }
 
 /// Whether the cursor's point is an inferred feature, worth a cross: not on the empty ground

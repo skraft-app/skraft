@@ -11,11 +11,11 @@ use solidsketch_i18n::t;
 use solidsketch_model::{GuideShape, Operation};
 
 use super::{
-    BLUE, Command, Cx, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, PreviewLabel, RED, Tool, ToolInput, ToolKind,
-    ToolOption, alt_key, copy_key,
+    BLUE, Command, Cx, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, PreviewLabel, PreviewLine, RED, Tool, ToolInput,
+    ToolKind, ToolOption, alt_key, copy_key,
 };
 use crate::guides;
-use crate::infer::{EdgeRef, InferKind, Inference};
+use crate::infer::{Curve, EdgeRef, InferKind, Inference};
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 
 /// The saved option: an edge starts a guide (on unless turned off).
@@ -64,6 +64,9 @@ enum State {
     Through { from: DVec3 },
 }
 
+/// A guide the first click may start, with the curve it refers to (none for the fallback).
+type Start = (Option<(EdgeRef, Curve)>, State);
+
 pub struct MeasureTool {
     state: State,
     /// The point under the cursor.
@@ -76,7 +79,7 @@ pub struct MeasureTool {
     first: Option<Inference>,
     /// What the first click may start, each with the curve it refers to (see
     /// [`MeasureTool::starts`]); the one `state` is.
-    starts: Vec<(Option<EdgeRef>, State)>,
+    starts: Vec<Start>,
     pick: usize,
     /// The cursor, last hovered (pixels): the point again when the guide changes.
     px: Option<DVec2>,
@@ -144,7 +147,7 @@ impl MeasureTool {
     /// there, at a vertex), then the fallback (a measure, a line through two points, a circle
     /// centred there). At a point, the guide from the edge last hovered when it is one of them
     /// (`Cx::reference`), else — and always in Auto, which measures from a point — the fallback.
-    fn starts(&self, cx: &Cx<'_>, inf: &Inference) -> (Vec<(Option<EdgeRef>, State)>, usize) {
+    fn starts(&self, cx: &Cx<'_>, inf: &Inference) -> (Vec<Start>, usize) {
         let at = inf.point;
         if !self.guides {
             return (vec![(None, State::Measure { from: at })], 0);
@@ -155,16 +158,18 @@ impl MeasureTool {
             InferKind::OnLine(l) => l.is_fixed(),
             _ => false,
         };
-        let curves: Vec<EdgeRef> = if on_edge { inf.edge.into_iter().collect() } else { inf.crossed.clone() };
-        let guides: Vec<(EdgeRef, State)> = curves.into_iter().filter_map(|e| Some((e, self.guide_from(cx, inf, e)?))).collect();
+        let curves: Vec<(EdgeRef, Curve)> =
+            if on_edge { inf.edge.zip(inf.curve.clone()).into_iter().collect() } else { inf.crossed.clone() };
+        let guides: Vec<((EdgeRef, Curve), State)> =
+            curves.into_iter().filter_map(|(e, c)| Some(((e, c), self.guide_from(cx, inf, e)?))).collect();
         let pick = if on_edge && !guides.is_empty() {
             0
         } else if self.shape == Shape::Auto {
             guides.len()
         } else {
-            cx.reference.and_then(|r| guides.iter().position(|(e, _)| same_curve(*e, r))).unwrap_or(guides.len())
+            cx.reference.and_then(|r| guides.iter().position(|((e, _), _)| same_curve(*e, r))).unwrap_or(guides.len())
         };
-        let mut starts: Vec<(Option<EdgeRef>, State)> = guides.into_iter().map(|(e, s)| (Some(e), s)).collect();
+        let mut starts: Vec<Start> = guides.into_iter().map(|(e, s)| (Some(e), s)).collect();
         let fallback = match self.shape {
             Shape::Auto => State::Measure { from: at },
             Shape::Line => State::Through { from: at },
@@ -398,22 +403,30 @@ impl Tool for MeasureTool {
         let Some(p) = inference.as_ref().map(|i| i.point) else { return Preview::default() };
         // The curve the guide refers to, in magenta: the one picked; before the first click, at
         // a point where several cross, the one it would take.
+        // As drawn: an edge (bolder), a guide (its dashes where they are), an axis.
         let reference = match (&self.first, &inference) {
-            (Some(first), _) if self.state != State::Idle => self.starts.get(self.pick).and_then(|s| s.0).map(|e| (first.point, e)),
+            (Some(_), _) if self.state != State::Idle => self.starts.get(self.pick).and_then(|s| s.0.clone()),
             (_, Some(hover)) if !hover.crossed.is_empty() => {
-                let (starts, pick) = self.starts(cx, hover);
-                starts[pick].0.map(|e| (hover.point, e))
+                let (mut starts, pick) = self.starts(cx, hover);
+                starts.swap_remove(pick).0
             }
             _ => None,
         };
-        if let Some((at, edge)) = reference {
-            let shape = match edge {
-                EdgeRef::Straight(dir) => GuideShape::Line { origin: at, dir },
-                EdgeRef::Arc { tangent, radial, center, radius } => {
-                    GuideShape::Circle { center, normal: radial.cross(tangent).normalize(), radius }
+        match reference.map(|(_, c)| c) {
+            Some(Curve::Segment(a, b)) => lines.push(PreviewLine { a, b, color: MAGENTA, bold: true }),
+            Some(Curve::Arc(points)) => {
+                lines.extend(points.windows(2).map(|w| PreviewLine { a: w[0], b: w[1], color: MAGENTA, bold: true }));
+            }
+            Some(Curve::Guide(shape)) => {
+                guide_strokes.extend(guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, MAGENTA)));
+            }
+            Some(Curve::Axis { origin, dir }) => {
+                let range = (f64::NEG_INFINITY, f64::INFINITY);
+                if let Some((a, b)) = guides::visible_line(cx.camera, cx.size, origin, dir, range) {
+                    lines.push(PreviewLine { a, b, color: MAGENTA, bold: false });
                 }
-            };
-            guide_strokes.extend(guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, MAGENTA)));
+            }
+            None => {}
         }
         match self.state {
             State::Idle => {}
