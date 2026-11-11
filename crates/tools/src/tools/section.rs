@@ -58,11 +58,7 @@ fn along(cx: &Cx<'_>, px: DVec2, origin: DVec3, dir: DVec3) -> f64 {
 /// corners in order around it; empty when the plane misses the box.
 fn plane_in_box(origin: DVec3, normal: DVec3, lo: DVec3, hi: DVec3) -> Vec<DVec3> {
     let corner = |i: usize| {
-        DVec3::new(
-            if i & 1 == 0 { lo.x } else { hi.x },
-            if i & 2 == 0 { lo.y } else { hi.y },
-            if i & 4 == 0 { lo.z } else { hi.z },
-        )
+        DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z })
     };
     let side = |p: DVec3| (p - origin).dot(normal);
     // The 12 edges: corners differing by one bit.
@@ -152,8 +148,7 @@ impl Tool for SectionTool {
                 vec![c(-1.0, -1.0), c(1.0, -1.0), c(1.0, 1.0), c(-1.0, 1.0)]
             });
         let n = corners.len();
-        let mut lines: Vec<PreviewLine> =
-            (0..n).map(|k| PreviewLine { a: corners[k], b: corners[(k + 1) % n], color }).collect();
+        let mut lines: Vec<PreviewLine> = (0..n).map(|k| PreviewLine { a: corners[k], b: corners[(k + 1) % n], color }).collect();
         // Its normal: towards what is cut away.
         lines.push(PreviewLine { a: origin, b: origin + normal * size * 0.1, color });
         Preview { lines, section, ..Default::default() }

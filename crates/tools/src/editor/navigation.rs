@@ -13,10 +13,7 @@ impl Editor {
     pub fn nav_begin(&mut self, px: DVec2) {
         let ray = self.camera.ray(px, self.size);
         self.pivot = Some(
-            self.scene
-                .pick(&ray, |_| true)
-                .map(|h| h.point)
-                .unwrap_or_else(|| self.camera.eye + self.camera.forward() * self.camera.focus),
+            self.scene.pick(&ray, |_| true).map(|h| h.point).unwrap_or_else(|| self.camera.eye + self.camera.forward() * self.camera.focus),
         );
     }
 

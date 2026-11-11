@@ -287,12 +287,7 @@ impl Document {
     /// How many occurrences of `component` there are, in all assemblies (not multiplied by
     /// the occurrences of those assemblies).
     pub fn occurrence_count(&self, component: Id) -> usize {
-        self.components
-            .values()
-            .filter_map(|c| c.as_assembly())
-            .flat_map(|a| &a.occurrences)
-            .filter(|o| o.component == component)
-            .count()
+        self.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| &a.occurrences).filter(|o| o.component == component).count()
     }
 
     /// The assembly an occurrence path leads into (the root for an empty path).
@@ -333,10 +328,7 @@ impl Document {
 
     /// Is the occurrence `id` of the assembly `context` an assembly's (can it be entered)?
     pub fn is_assembly_occurrence(&self, context: Id, id: Id) -> bool {
-        self.assembly(context)
-            .ok()
-            .and_then(|a| a.occurrence(id))
-            .is_some_and(|o| self.assembly(o.component).is_ok())
+        self.assembly(context).ok().and_then(|a| a.occurrence(id)).is_some_and(|o| self.assembly(o.component).is_ok())
     }
 
     /// Every part of the scene, placed: a part of an assembly with three occurrences appears
@@ -347,15 +339,7 @@ impl Document {
         out
     }
 
-    fn walk(
-        &self,
-        assembly: Id,
-        path: &mut Vec<Id>,
-        t: DAffine3,
-        material: Option<Id>,
-        out: &mut Vec<PlacedPart>,
-        depth: usize,
-    ) {
+    fn walk(&self, assembly: Id, path: &mut Vec<Id>, t: DAffine3, material: Option<Id>, out: &mut Vec<PlacedPart>, depth: usize) {
         let Ok(a) = self.assembly(assembly) else { return };
         if depth > MAX_DEPTH {
             return;

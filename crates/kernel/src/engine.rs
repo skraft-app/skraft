@@ -15,12 +15,8 @@ impl Primitive {
             Primitive::Box { origin, size } => Solid::new_box(origin, size),
             Primitive::Cylinder { origin, radius, height } => Solid::new_cylinder(origin, radius, height),
             Primitive::Sphere { center, radius } => Solid::new_sphere(center, radius),
-            Primitive::Cone { origin, base_radius, top_radius, height } => {
-                Solid::new_cone(origin, base_radius, top_radius, height)
-            }
-            Primitive::Torus { center, major_radius, minor_radius } => {
-                Solid::new_torus(center, major_radius, minor_radius)
-            }
+            Primitive::Cone { origin, base_radius, top_radius, height } => Solid::new_cone(origin, base_radius, top_radius, height),
+            Primitive::Torus { center, major_radius, minor_radius } => Solid::new_torus(center, major_radius, minor_radius),
         }
     }
 }
@@ -57,8 +53,7 @@ impl Solid {
         guarded("transform", || {
             let mut k = kernel();
             let mut body = to_kernel(&mut k, &self.record, "transform")?;
-            solidcore::topology::brep::mirror::transform_matrix(&mut k, &mut body, &m, false)
-                .map_err(|e| kernel_err("transform", e))?;
+            solidcore::topology::brep::mirror::transform_matrix(&mut k, &mut body, &m, false).map_err(|e| kernel_err("transform", e))?;
             to_record(&mut k, &mut body, "transform")
         })
     }
@@ -123,19 +118,13 @@ impl Solid {
     /// coordinates: one tessellation for both.
     pub fn display(&self) -> Result<Display> {
         let bounds = self.bounds().ok();
-        let size = bounds
-            .or_else(|| self.vertex_bounds())
-            .map(|(lo, hi)| (hi - lo).length())
-            .filter(|s| *s > 1e-6)
-            .unwrap_or(100.0);
+        let size = bounds.or_else(|| self.vertex_bounds()).map(|(lo, hi)| (hi - lo).length()).filter(|s| *s > 1e-6).unwrap_or(100.0);
         guarded("mesh", || {
             let tol = solidcore_tess::MeshTolerance::display_of(size);
-            let (plan, _stats) =
-                solidcore_tess::plan(&self.record, &tol, size).map_err(|e| Error::Mesh(e.to_string()))?;
+            let (plan, _stats) = solidcore_tess::plan(&self.record, &tol, size).map_err(|e| Error::Mesh(e.to_string()))?;
             let (m, _refused) = plan.evaluate();
             let visible: Vec<bool> = (0..m.edges.len()).map(|i| edge_drawn(&self.record, &m, i)).collect();
-            let polylines: Vec<Vec<DVec3>> =
-                m.edges.iter().map(|e| e.iter().map(|p| DVec3::new(p.x, p.y, p.z)).collect()).collect();
+            let polylines: Vec<Vec<DVec3>> = m.edges.iter().map(|e| e.iter().map(|p| DVec3::new(p.x, p.y, p.z)).collect()).collect();
             Ok(Display { mesh: Mesh::from_tess(&m, &visible), snaps: Snaps::build(&self.record, &polylines, &visible), bounds })
         })
     }
@@ -347,8 +336,7 @@ fn kernel_err(call: &str, e: solidcore::SolidError) -> Error {
 }
 
 fn to_kernel(k: &mut Kernel, r: &Record, call: &str) -> Result<solidcore::Brep> {
-    solidcore_convert::brep::to_kernel_body(k, r, true)
-        .map_err(|e| Error::Convert { call: call.into(), message: e.to_string() })
+    solidcore_convert::brep::to_kernel_body(k, r, true).map_err(|e| Error::Convert { call: call.into(), message: e.to_string() })
 }
 
 fn to_record(k: &mut Kernel, b: &mut solidcore::Brep, call: &str) -> Result<Solid> {
@@ -619,7 +607,10 @@ mod tests {
         let huge = Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap());
         let at = |x: f64| DAffine3::from_translation(DVec3::new(x, 25.0, -5.0));
         // Two holes, and a tool swallowing the whole board between them.
-        let job = Job { inputs: vec![board.clone(), drill, huge], tasks: vec![Task::Recipe { blank: 0, tools: vec![(1, at(20.0)), (2, DAffine3::IDENTITY), (1, at(80.0))] }] };
+        let job = Job {
+            inputs: vec![board.clone(), drill, huge],
+            tasks: vec![Task::Recipe { blank: 0, tools: vec![(1, at(20.0)), (2, DAffine3::IDENTITY), (1, at(80.0))] }],
+        };
         let out = run(&job).unwrap();
         let [Output::Recipe { solid, display, failed }] = out.as_slice() else { panic!("{out:?}") };
         assert_eq!(failed, &[1]);
@@ -628,7 +619,10 @@ mod tests {
         assert!(solid.topology_counts().0 >= board.topology_counts().0 + 2, "{:?}", solid.topology_counts());
 
         // Every tool failing leaves the blank.
-        let job = Job { inputs: vec![board.clone(), Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap())], tasks: vec![Task::Recipe { blank: 0, tools: vec![(1, DAffine3::IDENTITY)] }] };
+        let job = Job {
+            inputs: vec![board.clone(), Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap())],
+            tasks: vec![Task::Recipe { blank: 0, tools: vec![(1, DAffine3::IDENTITY)] }],
+        };
         let out = run(&job).unwrap();
         let [Output::Recipe { solid, failed, .. }] = out.as_slice() else { panic!("{out:?}") };
         assert_eq!(failed, &[0]);
@@ -639,7 +633,10 @@ mod tests {
     fn failing_task_fails_the_job() {
         let a = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::splat(1.0)).unwrap());
         let far = Arc::new(Solid::new_box(DVec3::splat(10.0), DVec3::splat(1.0)).unwrap());
-        let job = Job { inputs: vec![a, far], tasks: vec![Task::Boolean { target: 0, tool: 1, tool_transform: None, op: BooleanOp::Intersection }] };
+        let job = Job {
+            inputs: vec![a, far],
+            tasks: vec![Task::Boolean { target: 0, tool: 1, tool_transform: None, op: BooleanOp::Intersection }],
+        };
         assert!(run(&job).is_err());
         let mut inline = Inline::default();
         inline.submit(7, job);
@@ -667,7 +664,13 @@ mod tests {
         let mut t = Threaded::new(Some(Arc::new(move || {
             w.fetch_add(1, Ordering::SeqCst);
         })));
-        let job = Job { inputs: vec![], tasks: vec![Task::Primitive { primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE }, placement: DAffine3::IDENTITY }] };
+        let job = Job {
+            inputs: vec![],
+            tasks: vec![Task::Primitive {
+                primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE },
+                placement: DAffine3::IDENTITY,
+            }],
+        };
         t.submit(1, job.clone());
         t.submit(2, job);
         let mut got = Vec::new();

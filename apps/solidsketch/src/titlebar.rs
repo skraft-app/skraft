@@ -84,7 +84,8 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
     for id in ["view.parallel", "view.grid", "view.axes", "view.silhouettes", "view.section", "view.materials"] {
         let Some(v) = find(id) else { continue };
         // The perspective button is lit in perspective (the command toggles parallel).
-        let (lit, tip) = if id == "view.parallel" { (v.checked == Some(false), t!("toolbar.perspective")) } else { (v.checked == Some(true), v.tip()) };
+        let (lit, tip) =
+            if id == "view.parallel" { (v.checked == Some(false), t!("toolbar.perspective")) } else { (v.checked == Some(true), v.tip()) };
         command_button(ui, id_icon(id), v, lit, &tip, actions);
     }
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -206,7 +207,12 @@ fn search(ui: &mut egui::Ui, v: &CommandView, width: f32) -> bool {
         right -= 8.0;
     }
     let left = icon.right() + 6.0;
-    let hint = egui::WidgetText::from(ellipsis(t!("titlebar.search"))).into_galley(ui, Some(egui::TextWrapMode::Truncate), (right - left).max(0.0), font);
+    let hint = egui::WidgetText::from(ellipsis(t!("titlebar.search"))).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        (right - left).max(0.0),
+        font,
+    );
     ui.painter().galley(egui::pos2(left, rect.center().y - hint.size().y / 2.0), hint, weak);
     r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
 }

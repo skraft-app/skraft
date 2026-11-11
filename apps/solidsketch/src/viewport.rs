@@ -53,7 +53,7 @@ impl Viewport {
         self.input(ui, &response, rect, editor, nav);
 
         let cursor = match editor.tool_kind() {
-            _ if editor.busy() => egui::CursorIcon::Progress, // the kernel is at work
+            _ if editor.busy() => egui::CursorIcon::Progress,     // the kernel is at work
             _ if editor.tool_copying() => egui::CursorIcon::Copy, // SketchUp's « + »
             // Primitives keep the arrow: the crosshair hides the snap point.
             ToolKind::Select | ToolKind::Box | ToolKind::Cylinder => egui::CursorIcon::Default,
@@ -91,7 +91,8 @@ impl Viewport {
         let sign = |invert: bool| if invert { -1.0 } else { 1.0 };
         let mouse_orbit = DVec2::new(sign(nav.mouse_invert_x), sign(nav.mouse_invert_y)) * nav.orbit_speed;
         let trackpad_orbit = DVec2::new(sign(nav.trackpad_invert_x), sign(nav.trackpad_invert_y)) * nav.orbit_speed;
-        let zoom_at = |p: egui::Pos2| if nav.zoom_to_cursor { local(p) } else { DVec2::new(rect.width() as f64, rect.height() as f64) / 2.0 };
+        let zoom_at =
+            |p: egui::Pos2| if nav.zoom_to_cursor { local(p) } else { DVec2::new(rect.width() as f64, rect.height() as f64) / 2.0 };
         let zoom_steps = nav.zoom_speed * sign(nav.wheel_invert);
         let (mods, events, time, zoom) = ui.input(|i| (i.modifiers, i.events.clone(), i.time, i.zoom_delta()));
         // Shift held locks the line inferred (§6 ter); a point hovered a while is tracked: the
@@ -271,8 +272,7 @@ impl Viewport {
                 }
             })
             .collect();
-        let overlay: Vec<render::Line> =
-            view.overlay.iter().map(|l| render::Line { a: l.a, b: l.b, color: l.color }).collect();
+        let overlay: Vec<render::Line> = view.overlay.iter().map(|l| render::Line { a: l.a, b: l.b, color: l.color }).collect();
         let lines: Vec<render::Line> = (view.selection_boxes.iter().map(|&(a, b)| render::Line { a, b, color: theme.selected.edge }))
             .chain(view.context_box.iter().map(|&(a, b)| render::Line { a, b, color: theme.context_box }))
             .collect();

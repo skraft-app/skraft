@@ -20,10 +20,10 @@ pub use document::{
 pub use file::{FORMAT, VERSION};
 pub use history::History;
 pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope};
-pub use solidsketch_kernel::Primitive;
 pub use settings::{Display, LengthUnit, Section, Settings, Units};
-pub use solidsketch_kernel as kernel;
 use solidsketch_i18n::t;
+pub use solidsketch_kernel as kernel;
+pub use solidsketch_kernel::Primitive;
 
 /// Why an operation (or a file) was refused. Shown to the user: each kind has its text in
 /// the catalog (`error.model.*`, `error.file.*`).
@@ -80,10 +80,16 @@ pub enum FileError {
     BadMachiningId(Id),
     BadOccurrenceId(Id),
     /// A component filed under another id than its own.
-    Misfiled { id: Id, key: Id },
+    Misfiled {
+        id: Id,
+        key: Id,
+    },
     /// A part whose shape is there without machinings, or missing with some.
     ShapeOutOfStep(Id),
-    DuplicateOccurrence { occurrence: Id, assembly: Id },
+    DuplicateOccurrence {
+        occurrence: Id,
+        assembly: Id,
+    },
     BadMaterialId(Id),
     /// Something painted with a material the document does not have.
     UnknownMaterial(Id),

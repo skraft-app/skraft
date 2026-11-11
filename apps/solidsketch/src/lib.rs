@@ -26,10 +26,8 @@ pub(crate) const INTEGRATED_TITLEBAR: bool = cfg!(all(target_os = "macos", not(t
 /// traffic lights kept: the app's bar ([`titlebar`]) takes its place.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn native_options() -> eframe::NativeOptions {
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title("SolidSketch")
-        .with_inner_size([1280.0, 800.0])
-        .with_min_inner_size([640.0, 400.0]);
+    let mut viewport =
+        egui::ViewportBuilder::default().with_title("SolidSketch").with_inner_size([1280.0, 800.0]).with_min_inner_size([640.0, 400.0]);
     if INTEGRATED_TITLEBAR {
         viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
     }
@@ -50,9 +48,7 @@ pub fn start() {
             .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
             .expect("no <canvas id=\"solidsketch\">");
         let options = eframe::WebOptions::default();
-        let result = eframe::WebRunner::new()
-            .start(canvas, options, Box::new(|cc| Ok(Box::new(SolidSketchApp::new(cc)))))
-            .await;
+        let result = eframe::WebRunner::new().start(canvas, options, Box::new(|cc| Ok(Box::new(SolidSketchApp::new(cc))))).await;
         if let Err(e) = result {
             log::error!("SolidSketch failed to start: {e:?}");
         }

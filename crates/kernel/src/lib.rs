@@ -25,10 +25,10 @@ mod engine;
 mod job;
 mod snaps;
 
-#[cfg(feature = "engine")]
-pub use engine::{Inline, run};
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]
 pub use engine::Threaded;
+#[cfg(feature = "engine")]
+pub use engine::{Inline, run};
 pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task, Waker, decode, encode};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
 
@@ -90,12 +90,31 @@ impl BooleanOp {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Primitive {
     /// One corner at `origin`, extents along X, Y, Z.
-    Box { origin: DVec3, size: DVec3 },
+    Box {
+        origin: DVec3,
+        size: DVec3,
+    },
     /// Standing on Z = `origin.z`, along +Z.
-    Cylinder { origin: DVec3, radius: f64, height: f64 },
-    Sphere { center: DVec3, radius: f64 },
-    Cone { origin: DVec3, base_radius: f64, top_radius: f64, height: f64 },
-    Torus { center: DVec3, major_radius: f64, minor_radius: f64 },
+    Cylinder {
+        origin: DVec3,
+        radius: f64,
+        height: f64,
+    },
+    Sphere {
+        center: DVec3,
+        radius: f64,
+    },
+    Cone {
+        origin: DVec3,
+        base_radius: f64,
+        top_radius: f64,
+        height: f64,
+    },
+    Torus {
+        center: DVec3,
+        major_radius: f64,
+        minor_radius: f64,
+    },
 }
 
 impl Primitive {
@@ -109,9 +128,7 @@ impl Primitive {
                 let lo = origin.min(origin + size);
                 (Primitive::Box { origin: DVec3::ZERO, size: size.abs() }, lo)
             }
-            Primitive::Cylinder { origin, radius, height } => {
-                (Primitive::Cylinder { origin: DVec3::ZERO, radius, height }, origin)
-            }
+            Primitive::Cylinder { origin, radius, height } => (Primitive::Cylinder { origin: DVec3::ZERO, radius, height }, origin),
             Primitive::Sphere { center, radius } => (Primitive::Sphere { center: DVec3::ZERO, radius }, center),
             Primitive::Cone { origin, base_radius, top_radius, height } => {
                 (Primitive::Cone { origin: DVec3::ZERO, base_radius, top_radius, height }, origin)

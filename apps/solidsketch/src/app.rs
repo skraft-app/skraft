@@ -11,9 +11,9 @@ use solidsketch_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
 
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
+use crate::file::{self, Inbox};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::native_menu::NativeMenu;
-use crate::file::{self, Inbox};
 use crate::panels::{self, Action, CommandView, InfoState};
 use crate::prefs::{Navigation, Preferences};
 use crate::titlebar;
@@ -515,7 +515,8 @@ impl SolidSketchApp {
             .fixed_size([420.0, 0.0])
             .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
             .show(ctx, |ui| {
-                let r = ui.add(egui::TextEdit::singleline(&mut p.query).hint_text(ellipsis(t!("palette.hint"))).desired_width(f32::INFINITY));
+                let r =
+                    ui.add(egui::TextEdit::singleline(&mut p.query).hint_text(ellipsis(t!("palette.hint"))).desired_width(f32::INFINITY));
                 r.request_focus();
                 if r.changed() {
                     p.picked = 0;
@@ -736,10 +737,7 @@ impl SolidSketchApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (label, value) = self.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
                 let mut text = if self.vcb.is_empty() { value } else { self.vcb.clone() };
-                let r = ui.add_enabled(
-                    self.editor.vcb().is_some(),
-                    egui::TextEdit::singleline(&mut text).desired_width(160.0),
-                );
+                let r = ui.add_enabled(self.editor.vcb().is_some(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
                 if r.changed() {
                     self.vcb = text.clone();
                 }
@@ -780,7 +778,9 @@ impl SolidSketchApp {
                     let list: Vec<_> = self
                         .command_views()
                         .into_iter()
-                        .map(|v| json!({ "id": v.id, "label": v.label, "enabled": v.enabled, "checked": v.checked, "shortcut": v.shortcut }))
+                        .map(
+                            |v| json!({ "id": v.id, "label": v.label, "enabled": v.enabled, "checked": v.checked, "shortcut": v.shortcut }),
+                        )
                         .collect();
                     Reply::json(200, json!(list))
                 }
@@ -847,7 +847,8 @@ impl eframe::App for SolidSketchApp {
         #[cfg(not(target_arch = "wasm32"))]
         self.serve_control(frame);
 
-        let name = self.path.as_deref().and_then(|p| p.rsplit(['/', '\\']).next()).map(str::to_owned).unwrap_or_else(|| t!("window.untitled"));
+        let name =
+            self.path.as_deref().and_then(|p| p.rsplit(['/', '\\']).next()).map(str::to_owned).unwrap_or_else(|| t!("window.untitled"));
         let modified = self.modified();
         // Still the window's title where the OS shows it (Window menu, Mission Control).
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("SolidSketch — {name}{}", if modified { " •" } else { "" })));
@@ -889,26 +890,35 @@ impl eframe::App for SolidSketchApp {
                     ui.set_width(SIDE_WIDTH);
                     // Fixed ids: the titles change with the language.
                     let title = |key: String| egui::RichText::new(key).strong();
-                    egui::CollapsingHeader::new(title(t!("panel.entity_info.title"))).id_salt("entity_info").default_open(true).show(ui, |ui| {
-                        panels::info(ui, &self.editor, &mut self.info, &mut actions);
-                    });
+                    egui::CollapsingHeader::new(title(t!("panel.entity_info.title"))).id_salt("entity_info").default_open(true).show(
+                        ui,
+                        |ui| {
+                            panels::info(ui, &self.editor, &mut self.info, &mut actions);
+                        },
+                    );
                     if show_materials {
                         ui.separator();
-                        egui::CollapsingHeader::new(title(t!("panel.materials.title"))).id_salt("materials").default_open(true).show(ui, |ui| {
-                            panels::materials(ui, &self.editor, &mut self.info, &mut actions);
-                        });
+                        egui::CollapsingHeader::new(title(t!("panel.materials.title"))).id_salt("materials").default_open(true).show(
+                            ui,
+                            |ui| {
+                                panels::materials(ui, &self.editor, &mut self.info, &mut actions);
+                            },
+                        );
                     }
                     ui.separator();
-                    egui::CollapsingHeader::new(title(t!("panel.outliner.title"))).id_salt("outliner_header").default_open(true).show(ui, |ui| {
-                        // Grows with its content down to the bottom of the view, then scrolls.
-                        // An `Area` only offers last frame's size as available room, so the
-                        // height is forced (`min_scrolled_height`) and auto-shrink trims it.
-                        let room = (view.bottom() - margin - 12.0 - ui.cursor().top()).max(80.0);
-                        egui::ScrollArea::vertical().id_salt("outliner").max_height(room).min_scrolled_height(room).show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            panels::outliner(ui, &self.editor, &mut actions);
-                        });
-                    });
+                    egui::CollapsingHeader::new(title(t!("panel.outliner.title"))).id_salt("outliner_header").default_open(true).show(
+                        ui,
+                        |ui| {
+                            // Grows with its content down to the bottom of the view, then scrolls.
+                            // An `Area` only offers last frame's size as available room, so the
+                            // height is forced (`min_scrolled_height`) and auto-shrink trims it.
+                            let room = (view.bottom() - margin - 12.0 - ui.cursor().top()).max(80.0);
+                            egui::ScrollArea::vertical().id_salt("outliner").max_height(room).min_scrolled_height(room).show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                panels::outliner(ui, &self.editor, &mut actions);
+                            });
+                        },
+                    );
                 });
             })
             .response
@@ -947,10 +957,8 @@ impl eframe::App for SolidSketchApp {
         // What zoom extents frames: below the tool bar, right of the side panel, in viewport pixels.
         let free_min = egui::vec2(side.right() + margin - view.left(), tools.bottom() + margin - view.top());
         let free_max = egui::vec2(view.width(), view.height());
-        self.editor.set_free_area(
-            glam::DVec2::new(free_min.x as f64, free_min.y as f64),
-            glam::DVec2::new(free_max.x as f64, free_max.y as f64),
-        );
+        self.editor
+            .set_free_area(glam::DVec2::new(free_min.x as f64, free_min.y as f64), glam::DVec2::new(free_max.x as f64, free_max.y as f64));
 
         self.preferences_window(&ctx);
         self.palette_window(&ctx, &views, &mut actions);
@@ -1072,7 +1080,10 @@ fn navigation_settings(ui: &mut egui::Ui, nav: &mut Navigation) {
 fn interrupts_tap(e: &egui::Event) -> bool {
     use egui::Key as K;
     let modifier = |k: &K| {
-        matches!(k, K::ShiftLeft | K::ShiftRight | K::ControlLeft | K::ControlRight | K::AltLeft | K::AltRight | K::SuperLeft | K::SuperRight)
+        matches!(
+            k,
+            K::ShiftLeft | K::ShiftRight | K::ControlLeft | K::ControlRight | K::AltLeft | K::AltRight | K::SuperLeft | K::SuperRight
+        )
     };
     match e {
         egui::Event::Key { key, physical_key, .. } => !(modifier(key) || physical_key.as_ref().is_some_and(modifier)),

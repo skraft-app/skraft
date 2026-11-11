@@ -81,11 +81,8 @@ fn mirrored_tool_cuts_like_the_mirrored_part() {
     // Cutting a mirrored copy = mirroring the cut copy: left and right stay the same part.
     let groove = Solid::new_box(DVec3::new(50.0, -1.0, 10.0), DVec3::new(20.0, 302.0, 9.0)).unwrap();
     let cut_then_mirror = board().boolean(&groove, BooleanOp::Difference).unwrap().transformed(&skew_mirror()).unwrap();
-    let mirror_then_cut = board()
-        .transformed(&skew_mirror())
-        .unwrap()
-        .boolean(&groove.transformed(&skew_mirror()).unwrap(), BooleanOp::Difference)
-        .unwrap();
+    let mirror_then_cut =
+        board().transformed(&skew_mirror()).unwrap().boolean(&groove.transformed(&skew_mirror()).unwrap(), BooleanOp::Difference).unwrap();
     assert_eq!(cut_then_mirror.topology_counts(), mirror_then_cut.topology_counts());
     let (a, b) = (mesh_volume(&cut_then_mirror), mesh_volume(&mirror_then_cut));
     assert!((a - b).abs() < 1e-6 * a, "{a} {b}");

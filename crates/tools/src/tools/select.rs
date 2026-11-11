@@ -140,8 +140,7 @@ pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> 
                 s.1 = true;
             }
         } else if s.0 {
-            s.0 = !m.positions.is_empty()
-                && m.positions.iter().all(|p| proj.project(world(p)).is_some_and(|q| inside(q, rect)));
+            s.0 = !m.positions.is_empty() && m.positions.iter().all(|p| proj.project(world(p)).is_some_and(|q| inside(q, rect)));
         }
     }
     order.into_iter().filter(|id| state.get(id).is_some_and(|&(all, any)| if crossing { any } else { all })).collect()
@@ -152,9 +151,10 @@ fn part_touches(proj: &Projector, m: &solidsketch_kernel::Mesh, world: &dyn Fn(&
     // Triangles; a stand-in (a box outline) has edges only.
     if m.indices.is_empty() {
         let at = |p: &[f32; 3]| proj.project(world(p));
-        return m.edges.iter().any(|e| {
-            e.windows(2).any(|w| matches!((at(&w[0]), at(&w[1])), (Some(p), Some(q)) if segment_hits(p, q, rect)))
-        });
+        return m
+            .edges
+            .iter()
+            .any(|e| e.windows(2).any(|w| matches!((at(&w[0]), at(&w[1])), (Some(p), Some(q)) if segment_hits(p, q, rect))));
     }
     let center = (rect.0 + rect.1) * 0.5;
     m.indices.chunks_exact(3).any(|t| {
@@ -181,7 +181,11 @@ fn segment_hits(a: DVec2, b: DVec2, (lo, hi): (DVec2, DVec2)) -> bool {
                 }
             } else {
                 let r = q / p;
-                if p < 0.0 { t0 = t0.max(r) } else { t1 = t1.min(r) }
+                if p < 0.0 {
+                    t0 = t0.max(r)
+                } else {
+                    t1 = t1.min(r)
+                }
                 if t0 > t1 {
                     return false;
                 }

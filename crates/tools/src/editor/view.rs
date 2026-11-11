@@ -231,9 +231,11 @@ impl Editor {
         if let (Some(r), Some(o)) = (recipe, &open)
             && let Ok((_, _, t)) = doc.resolve_part(o)
         {
-            let material = self.scene.placements().find(|(p, _)| *p == r.part).and_then(|(_, places)| {
-                places.iter().find(|p| p.entity_path() == *o).and_then(|p| p.material)
-            });
+            let material = self
+                .scene
+                .placements()
+                .find(|(p, _)| *p == r.part)
+                .and_then(|(_, places)| places.iter().find(|p| p.entity_path() == *o).and_then(|p| p.material));
             v.batches.push((r.blank, vec![ViewPlacement { transform: t, faded: false, material, look: Look::Blank }]));
             let mut tools: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
             // A tool moved without a copy is drawn only where it goes.

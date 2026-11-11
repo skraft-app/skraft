@@ -6,14 +6,17 @@
 //! spreads 6 copies over it. With nothing selected, the first click takes the entity under
 //! the cursor.
 
+use crate::infer::Inference;
+use crate::scene::Owner;
+use crate::vcb::{Vcb, VcbKind, VcbValue};
 use glam::{DAffine3, DQuat, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Id;
-use crate::scene::Owner;
-use crate::infer::Inference;
-use crate::vcb::{Vcb, VcbKind, VcbValue};
 
-use super::{BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, RED, Tool, ToolInput, ToolKind, ToolOption, cross, guide_color};
+use super::{
+    BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, RED, Tool, ToolInput, ToolKind, ToolOption,
+    cross, guide_color,
+};
 
 /// Snapping step and how close the angle must be to snap (radians).
 const SNAP_STEP: f64 = std::f64::consts::PI / 12.0;
@@ -37,8 +40,17 @@ pub struct RotateTool {
 enum State {
     #[default]
     Center,
-    Reference { center: DVec3, axis: DVec3, dir: Option<DVec3> },
-    Angle { center: DVec3, axis: DVec3, reference: DVec3, angle: f64 },
+    Reference {
+        center: DVec3,
+        axis: DVec3,
+        dir: Option<DVec3>,
+    },
+    Angle {
+        center: DVec3,
+        axis: DVec3,
+        reference: DVec3,
+        angle: f64,
+    },
 }
 
 /// The axes' axis `k` (the open part's, else the context's), in the world.
@@ -102,10 +114,7 @@ impl RotateTool {
     }
 
     fn color(&self, cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
-        [(0, RED), (1, GREEN), (2, BLUE)]
-            .into_iter()
-            .find(|(k, _)| context_axis(cx, *k).dot(axis).abs() > 0.9999)
-            .map_or(INK, |(_, c)| c)
+        [(0, RED), (1, GREEN), (2, BLUE)].into_iter().find(|(k, _)| context_axis(cx, *k).dot(axis).abs() > 0.9999).map_or(INK, |(_, c)| c)
     }
 }
 
@@ -171,10 +180,7 @@ impl Tool for RotateTool {
                 let Some(last) = &mut self.last else { return vec![] };
                 return last.retype(*r);
             }
-            (
-                ToolInput::Value(VcbValue::Angle(angle)),
-                State::Reference { center, axis, .. } | State::Angle { center, axis, .. },
-            ) => {
+            (ToolInput::Value(VcbValue::Angle(angle)), State::Reference { center, axis, .. } | State::Angle { center, axis, .. }) => {
                 return self.finish(cx, center, axis, *angle);
             }
             _ => {}
@@ -225,12 +231,7 @@ impl Tool for RotateTool {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
                 lines.push(PreviewLine { a: center, b: center + now * r, color });
                 lines.extend(cross(cx, center, INK));
-                Preview {
-                    lines,
-                    ghost: Some(rotation_about(center, axis, angle)),
-                    inference: self.snap.clone(),
-                    ..Default::default()
-                }
+                Preview { lines, ghost: Some(rotation_about(center, axis, angle)), inference: self.snap.clone(), ..Default::default() }
             }
         }
     }

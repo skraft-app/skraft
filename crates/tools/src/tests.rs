@@ -10,7 +10,11 @@ fn top_editor(doc: Document) -> Editor {
     let mut e = Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.set_parallel(true);
-    e.camera.set_standard_view(StandardView::Top, Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))), crate::camera::ViewArea::full(e.viewport_size()));
+    e.camera.set_standard_view(
+        StandardView::Top,
+        Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
+        crate::camera::ViewArea::full(e.viewport_size()),
+    );
     e
 }
 
@@ -249,7 +253,8 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
     e.input(ToolInput::Vcb("3x".into()));
     assert_eq!(e.document().root_assembly().occurrences.len(), 4);
     assert_eq!(e.selection().len(), 3);
-    let top = e.selection().iter().map(|id| bounds_of(&e, &EntityPath::root(*id)).0.z).fold(0.0f64, |m, z| if z.abs() > m.abs() { z } else { m });
+    let top =
+        e.selection().iter().map(|id| bounds_of(&e, &EntityPath::root(*id)).0.z).fold(0.0f64, |m, z| if z.abs() > m.abs() { z } else { m });
     assert!((top - 3.0 * dz).abs() < 1e-6, "{top}");
     e.input(ToolInput::Vcb("/4".into()));
     assert_eq!(e.document().root_assembly().occurrences.len(), 5);
@@ -332,7 +337,10 @@ fn a_selected_assembly_shows_its_content_box() {
     assert!(e.view().selection_boxes.is_empty());
     assert!(e.view().context_box.is_empty());
     // Inside the assembly: its box stays, a little larger than the content.
-    let g = { e.select_all(); e.selection()[0] };
+    let g = {
+        e.select_all();
+        e.selection()[0]
+    };
     e.enter(g);
     let v = e.view();
     assert!(v.selection_boxes.is_empty());
@@ -346,10 +354,14 @@ fn a_selected_assembly_shows_its_content_box() {
 fn component_instances_and_scene_caches() {
     let doc = Document::new();
     let root = doc.root();
-    let (d, out) = doc.apply(&Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) }, placement: glam::DAffine3::IDENTITY }).unwrap();
-    let (d, out) = d
-        .apply(&Operation::MakeAssembly { context: root, entities: out.created, name: None })
+    let (d, out) = doc
+        .apply(&Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
+            placement: glam::DAffine3::IDENTITY,
+        })
         .unwrap();
+    let (d, out) = d.apply(&Operation::MakeAssembly { context: root, entities: out.created, name: None }).unwrap();
     let i1 = out.created[0];
     let asm = d.resolve(&EntityPath::root(i1)).unwrap().component;
     // Meshes are per part: the assembly's one part.
@@ -505,21 +517,29 @@ mod deferred {
     }
 }
 
-use deferred::Deferred;
 use crate::tools::Command;
+use deferred::Deferred;
 
 fn deferred_editor(doc: Document) -> (Editor, Deferred) {
     let k = Deferred::default();
     let mut e = Editor::new(doc, Box::new(k.clone()));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.set_parallel(true);
-    e.camera.set_standard_view(StandardView::Top, Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))), crate::camera::ViewArea::full(e.viewport_size()));
+    e.camera.set_standard_view(
+        StandardView::Top,
+        Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
+        crate::camera::ViewArea::full(e.viewport_size()),
+    );
     (e, k)
 }
 
 fn add_cube(e: &mut Editor, k: &Deferred) -> Id {
     let root = e.document().root();
-    let op = Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) }, placement: glam::DAffine3::IDENTITY };
+    let op = Operation::AddPrimitive {
+        context: root,
+        primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
+        placement: glam::DAffine3::IDENTITY,
+    };
     assert_eq!(e.apply(op), Ok(None), "waits for the kernel");
     k.run_all();
     assert!(e.poll());
@@ -530,7 +550,11 @@ fn add_cube(e: &mut Editor, k: &Deferred) -> Id {
 fn pending_operation_blocks_editing_until_its_result() {
     let (mut e, k) = deferred_editor(Document::new());
     let root = e.document().root();
-    let op = Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) }, placement: glam::DAffine3::IDENTITY };
+    let op = Operation::AddPrimitive {
+        context: root,
+        primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
+        placement: glam::DAffine3::IDENTITY,
+    };
     assert_eq!(e.apply(op.clone()), Ok(None));
     assert!(e.busy());
     assert!(e.status().contains("calcul en cours"), "{}", e.status());
@@ -558,7 +582,11 @@ fn pending_operation_blocks_editing_until_its_result() {
 fn escape_abandons_and_failures_leave_the_document() {
     let (mut e, k) = deferred_editor(Document::new());
     let root = e.document().root();
-    let op = Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) }, placement: glam::DAffine3::IDENTITY };
+    let op = Operation::AddPrimitive {
+        context: root,
+        primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
+        placement: glam::DAffine3::IDENTITY,
+    };
     assert_eq!(e.apply(op.clone()), Ok(None));
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
     assert!(!e.busy());
@@ -608,7 +636,11 @@ fn opened_solids_are_outlined_until_meshed_and_undo_does_not_remesh() {
     let doc = Document::new();
     let root = doc.root();
     let (doc, _) = doc
-        .apply(&Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) }, placement: glam::DAffine3::IDENTITY })
+        .apply(&Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
+            placement: glam::DAffine3::IDENTITY,
+        })
         .unwrap();
     let (mut e, k) = deferred_editor(doc);
     // Outlined: twelve edges, no faces; its mesh asked for once.
@@ -752,12 +784,15 @@ fn copy_is_a_toggle_in_the_bar() {
 
 /// The occurrence `o` of the root, as drawn: its material.
 fn drawn_material(e: &Editor, o: Id) -> Option<Id> {
-    e.view().batches.iter().flat_map(|(def, ps)| {
-        let paths = e.scene().placements().find(|(d, _)| d == def).map(|(_, p)| p.to_vec()).unwrap_or_default();
-        paths.into_iter().zip(ps.clone())
-    })
-    .find(|(p, _)| p.path.last() == Some(&o))
-    .and_then(|(_, v)| v.material)
+    e.view()
+        .batches
+        .iter()
+        .flat_map(|(def, ps)| {
+            let paths = e.scene().placements().find(|(d, _)| d == def).map(|(_, p)| p.to_vec()).unwrap_or_default();
+            paths.into_iter().zip(ps.clone())
+        })
+        .find(|(p, _)| p.path.last() == Some(&o))
+        .and_then(|(_, v)| v.material)
 }
 
 #[test]
@@ -905,15 +940,26 @@ fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
     let root = e.document().root();
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
     let drill = e
-        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 }, placement: DAffine3::IDENTITY })
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: DAffine3::IDENTITY,
+        })
         .unwrap()
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+        .unwrap();
     let (part, p, _) = e.document().resolve_part(&target).unwrap();
     let hole = p.machinings[0].id;
-    e.apply(Operation::DuplicateMachinings { target: target.clone(), machinings: vec![hole], transform: DAffine3::from_translation(DVec3::X * 100.0), scope: Scope::All }).unwrap();
+    e.apply(Operation::DuplicateMachinings {
+        target: target.clone(),
+        machinings: vec![hole],
+        transform: DAffine3::from_translation(DVec3::X * 100.0),
+        scope: Scope::All,
+    })
+    .unwrap();
     let looks = |e: &Editor| e.view().batches.iter().flat_map(|(k, ps)| ps.iter().map(move |p| (*k, p.look))).collect::<Vec<_>>();
 
     // Off, or no part open: shapes only.
@@ -962,15 +1008,24 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
-    let other = e.apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * 500.0) }).unwrap().unwrap().created[0];
+    let other = e
+        .apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * 500.0) })
+        .unwrap()
+        .unwrap()
+        .created[0];
     // A drill standing out of the board's top (z 18 → 25).
     let drill = e
-        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 }, placement: DAffine3::IDENTITY })
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: DAffine3::IDENTITY,
+        })
         .unwrap()
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+        .unwrap();
     let machinings = |e: &Editor, o: Id| e.document().resolve_part(&EntityPath::root(o)).unwrap().1.machinings.clone();
     let hole = machinings(&e, board)[0].id;
     e.set_machinings_switch(true);
@@ -1042,11 +1097,21 @@ fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
     // A drill standing out of the board's top: its top circle at z 25, in no shape.
     let drill = e
-        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 }, placement: DAffine3::IDENTITY })
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: DAffine3::IDENTITY,
+        })
         .unwrap()
         .unwrap()
         .created[0];
-    e.apply(Operation::Boolean { target: EntityPath::root(board), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    e.apply(Operation::Boolean {
+        target: EntityPath::root(board),
+        tool: EntityPath::root(drill),
+        op: Boolean::Difference,
+        scope: Scope::All,
+    })
+    .unwrap();
     let hover = |e: &mut Editor, p: DVec3| {
         let at = px(e, p);
         e.input(ToolInput::Hover { px: at });
@@ -1082,22 +1147,35 @@ fn exact_sizes_of_tools_and_blanks() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let rod = e
-        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::ZERO, radius: 20.0, height: 300.0 }, placement: DAffine3::IDENTITY })
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::ZERO, radius: 20.0, height: 300.0 },
+            placement: DAffine3::IDENTITY,
+        })
         .unwrap()
         .unwrap()
         .created[0];
     let drill = e
-        .apply(Operation::AddPrimitive { context: root, primitive: Primitive::Cylinder { origin: DVec3::new(0.0, 0.0, -5.0), radius: 4.0, height: 30.0 }, placement: DAffine3::IDENTITY })
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(0.0, 0.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: DAffine3::IDENTITY,
+        })
         .unwrap()
         .unwrap()
         .created[0];
     let target = EntityPath::root(rod);
-    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+        .unwrap();
     let (_, p, _) = e.document().resolve_part(&target).unwrap();
     let (blank, tool) = (p.blank.clone(), p.machinings[0].tool.clone());
     let near = |b: Option<(DVec3, DVec3)>, lo: DVec3, hi: DVec3| b.is_some_and(|(a, b)| close(a, lo) && close(b, hi));
     // A machined part's blank: its exact box, not its vertices' (a cylinder has one per circle).
-    assert!(near(e.scene().bounds_of(&blank), DVec3::new(-20.0, -20.0, 0.0), DVec3::new(20.0, 20.0, 300.0)), "{:?}", e.scene().bounds_of(&blank));
+    assert!(
+        near(e.scene().bounds_of(&blank), DVec3::new(-20.0, -20.0, 0.0), DVec3::new(20.0, 20.0, 300.0)),
+        "{:?}",
+        e.scene().bounds_of(&blank)
+    );
     // The open part's tools, their machinings hidden.
     e.enter(rod);
     assert!(!e.showing_machinings());

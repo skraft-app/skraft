@@ -13,7 +13,12 @@ impl Editor {
 
     pub fn select_all(&mut self) {
         if self.open_part.is_some() {
-            self.selection = self.scene.recipe().filter(|_| self.showing_machinings()).map(|r| r.tools.iter().map(|t| t.machining).collect()).unwrap_or_default();
+            self.selection = self
+                .scene
+                .recipe()
+                .filter(|_| self.showing_machinings())
+                .map(|r| r.tools.iter().map(|t| t.machining).collect())
+                .unwrap_or_default();
             return;
         }
         let ctx = self.context_definition();

@@ -97,14 +97,13 @@ impl ViewArea {
 
 impl Default for Camera {
     fn default() -> Self {
-        let mut c = Camera {
-            eye: DVec3::ZERO,
-            yaw: 0.0,
-            pitch: 0.0,
-            projection: Projection::Perspective { fov_y: DEFAULT_FOV },
-            focus: 1.0,
-        };
-        c.set_standard_view(StandardView::Iso, Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))), ViewArea::full(DVec2::new(1200.0, 800.0)));
+        let mut c =
+            Camera { eye: DVec3::ZERO, yaw: 0.0, pitch: 0.0, projection: Projection::Perspective { fov_y: DEFAULT_FOV }, focus: 1.0 };
+        c.set_standard_view(
+            StandardView::Iso,
+            Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
+            ViewArea::full(DVec2::new(1200.0, 800.0)),
+        );
         c
     }
 }
@@ -315,11 +314,7 @@ impl Camera {
 
     /// Projects many points into a `size` viewport (the matrices computed once).
     pub fn projector(&self, size: DVec2) -> Projector {
-        Projector {
-            view_proj: self.proj(size.x / size.y.max(1.0), None).as_dmat4() * self.view(),
-            parallel: self.is_parallel(),
-            size,
-        }
+        Projector { view_proj: self.proj(size.x / size.y.max(1.0), None).as_dmat4() * self.view(), parallel: self.is_parallel(), size }
     }
 }
 
@@ -430,7 +425,11 @@ mod tests {
             assert!((p - DVec2::new(250.0, 300.0)).length() < 1.0, "{p}");
             // The corners stay inside the free area.
             for k in 0..8 {
-                let corner = DVec3::new(if k & 1 == 0 { -50.0 } else { 50.0 }, if k & 2 == 0 { -50.0 } else { 50.0 }, if k & 4 == 0 { -50.0 } else { 50.0 });
+                let corner = DVec3::new(
+                    if k & 1 == 0 { -50.0 } else { 50.0 },
+                    if k & 2 == 0 { -50.0 } else { 50.0 },
+                    if k & 4 == 0 { -50.0 } else { 50.0 },
+                );
                 let q = c.project(corner, SIZE).unwrap();
                 assert!(q.x > -0.5 && q.x < 500.5 && q.y > -0.5 && q.y < 600.5, "{q}");
             }

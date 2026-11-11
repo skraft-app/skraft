@@ -453,8 +453,7 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &edge_attrs,
         };
-        let sil_attrs =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x3, 13 => Float32x3];
+        let sil_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x3, 13 => Float32x3];
         let sil_layout = wgpu::VertexBufferLayout {
             array_stride: size_of::<SilhouetteVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -477,17 +476,8 @@ impl Renderer {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some(vs),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
+                vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), compilation_options: Default::default(), buffers },
+                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
                 depth_stencil: Some(depth),
                 multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
                 fragment: Some(wgpu::FragmentState {
@@ -568,10 +558,7 @@ impl Renderer {
             "vs_screen",
             "fs_cap_depth",
             &[],
-            wgpu::DepthStencilState {
-                stencil: stencil(wgpu::CompareFunction::Equal, Keep),
-                ..depth(true, nearer, Default::default())
-            },
+            wgpu::DepthStencilState { stencil: stencil(wgpu::CompareFunction::Equal, Keep), ..depth(true, nearer, Default::default()) },
             wgpu::ColorWrites::empty(),
         );
         let edges = pipeline(
@@ -590,14 +577,7 @@ impl Renderer {
             depth(true, nearer, Default::default()),
             all,
         );
-        let lines = pipeline(
-            "lines",
-            "vs_line",
-            "fs_line",
-            &[Some(line_layout.clone())],
-            depth(true, nearer, Default::default()),
-            all,
-        );
+        let lines = pipeline("lines", "vs_line", "fs_line", &[Some(line_layout.clone())], depth(true, nearer, Default::default()), all);
         let overlay = pipeline(
             "overlay",
             "vs_line",
@@ -677,11 +657,7 @@ impl Renderer {
                         }
                         Some(q) if *q == paint => tri_indices.push(i + base),
                         Some(_) => {
-                            let v = Vertex {
-                                pos: at(&p.mesh.positions[i as usize]),
-                                normal: p.mesh.normals[i as usize],
-                                paint,
-                            };
+                            let v = Vertex { pos: at(&p.mesh.positions[i as usize]), normal: p.mesh.normals[i as usize], paint };
                             tri_indices.push(base + p.mesh.positions.len() as u32 + extra.len() as u32);
                             extra.push(v);
                         }
@@ -713,9 +689,8 @@ impl Renderer {
             });
         }
         let buffer = |label: &str, bytes: &[u8], usage: wgpu::BufferUsages| {
-            (!bytes.is_empty()).then(|| {
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytes, usage })
-            })
+            (!bytes.is_empty())
+                .then(|| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytes, usage }))
         };
         let mesh = GpuMesh {
             revision,
@@ -824,9 +799,7 @@ impl Renderer {
         let mut batch_ranges = Vec::with_capacity(frame.batches.len());
         for b in frame.batches {
             let start = raw.len() as u32;
-            raw.extend(
-                b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material)),
-            );
+            raw.extend(b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material)));
             batch_ranges.push(start..raw.len() as u32);
         }
         let highlight_start = raw.len() as u32;
@@ -1008,10 +981,7 @@ impl Renderer {
             msaa: view(&msaa),
             depth: view(&depth),
             resolved_view: view(&resolved),
-            display_view: resolved.create_view(&wgpu::TextureViewDescriptor {
-                format: Some(DISPLAY_FORMAT),
-                ..Default::default()
-            }),
+            display_view: resolved.create_view(&wgpu::TextureViewDescriptor { format: Some(DISPLAY_FORMAT), ..Default::default() }),
             resolved,
         });
         self.target_generation += 1;

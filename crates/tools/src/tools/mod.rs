@@ -56,16 +56,35 @@ pub enum Key {
 /// positions are in the viewport, origin top left.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToolInput {
-    Hover { px: DVec2 },
-    Click { px: DVec2, mods: Modifiers },
-    DoubleClick { px: DVec2, mods: Modifiers },
+    Hover {
+        px: DVec2,
+    },
+    Click {
+        px: DVec2,
+        mods: Modifiers,
+    },
+    DoubleClick {
+        px: DVec2,
+        mods: Modifiers,
+    },
     /// The primary button pressed at `px` and dragged away (past the click distance).
-    DragStart { px: DVec2, mods: Modifiers },
+    DragStart {
+        px: DVec2,
+        mods: Modifiers,
+    },
     /// The cursor moved while dragging.
-    Drag { px: DVec2 },
+    Drag {
+        px: DVec2,
+    },
     /// The primary button released at `px`, ending a drag.
-    DragEnd { px: DVec2, mods: Modifiers },
-    Key { key: Key, mods: Modifiers },
+    DragEnd {
+        px: DVec2,
+        mods: Modifiers,
+    },
+    Key {
+        key: Key,
+        mods: Modifiers,
+    },
     /// A value typed in the measurements box and validated with Enter (the editor reads it
     /// for the tool's [`Tool::vcb`] and gives it a [`ToolInput::Value`]).
     Vcb(String),
@@ -92,7 +111,10 @@ pub enum Command {
     Say(String),
     /// Undoes the last step, which must be `previous`, and applies `op` instead (a copy
     /// turned into an array by a typed `5x`).
-    Replace { previous: Operation, op: Operation },
+    Replace {
+        previous: Operation,
+        op: Operation,
+    },
 }
 
 /// A line a tool previews, in world coordinates (linear RGBA).
@@ -497,7 +519,11 @@ pub trait Tool {
 pub enum Motion {
     Translate(DVec3),
     /// A rotation about the line through `center` along `axis`.
-    Rotate { center: DVec3, axis: DVec3, angle: f64 },
+    Rotate {
+        center: DVec3,
+        axis: DVec3,
+        angle: f64,
+    },
 }
 
 impl Motion {
@@ -627,8 +653,5 @@ pub const PICK: [f32; 4] = solidsketch_theme::PICK;
 /// A small cross marking a point, sized for the screen.
 pub fn cross(cx: &Cx<'_>, p: DVec3, color: [f32; 4]) -> Vec<PreviewLine> {
     let s = cx.camera.world_per_pixel(cx.size, p) * 6.0;
-    [DVec3::X, DVec3::Y, DVec3::Z]
-        .into_iter()
-        .map(|d| PreviewLine { a: p - d * s, b: p + d * s, color })
-        .collect()
+    [DVec3::X, DVec3::Y, DVec3::Z].into_iter().map(|d| PreviewLine { a: p - d * s, b: p + d * s, color }).collect()
 }

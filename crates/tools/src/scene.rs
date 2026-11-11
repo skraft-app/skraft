@@ -87,7 +87,9 @@ pub struct Hit {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     /// Not meshed yet: drawn as its bounding box; `asked` once handed to the editor.
-    Pending { asked: bool },
+    Pending {
+        asked: bool,
+    },
     Ready,
     /// The mesher refused it: its bounding box stays.
     Failed,
@@ -260,7 +262,13 @@ impl DisplayScene {
 
     /// The mesh of `solid` under the key `key` (a part, or a recipe's solid): cached, or a
     /// stand-in asked for once.
-    fn mesh_of(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut std::collections::HashSet<usize>) -> DefinitionMesh {
+    fn mesh_of(
+        &mut self,
+        solid: &Arc<Solid>,
+        key: Id,
+        faces: &BTreeMap<u32, Id>,
+        seen: &mut std::collections::HashSet<usize>,
+    ) -> DefinitionMesh {
         let at = Arc::as_ptr(solid) as usize;
         let entry = self.solids.entry(at).or_insert_with(|| Cached::pending(solid.clone()));
         // A part made unique shares its shape until it changes: ask for it once.
@@ -329,10 +337,7 @@ impl DisplayScene {
 
     /// Every occurrence of every part.
     pub fn placements(&self) -> impl Iterator<Item = (Id, &[Placement])> {
-        self.placements
-            .iter()
-            .filter(|(d, _)| self.definitions.contains_key(d))
-            .map(|(d, p)| (*d, p.as_slice()))
+        self.placements.iter().filter(|(d, _)| self.definitions.contains_key(d)).map(|(d, p)| (*d, p.as_slice()))
     }
 
     /// The document's solids that have no mesh and were not handed out before: the caller
@@ -522,11 +527,8 @@ fn union(a: Option<(DVec3, DVec3)>, b: (DVec3, DVec3)) -> (DVec3, DVec3) {
 pub(crate) fn transform_bounds(t: &DAffine3, (lo, hi): (DVec3, DVec3)) -> (DVec3, DVec3) {
     let mut out: Option<(DVec3, DVec3)> = None;
     for i in 0..8 {
-        let c = DVec3::new(
-            if i & 1 == 0 { lo.x } else { hi.x },
-            if i & 2 == 0 { lo.y } else { hi.y },
-            if i & 4 == 0 { lo.z } else { hi.z },
-        );
+        let c =
+            DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z });
         let p = t.transform_point3(c);
         out = Some(union(out, (p, p)));
     }

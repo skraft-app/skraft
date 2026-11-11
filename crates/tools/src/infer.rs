@@ -17,8 +17,8 @@
 use std::f64::consts::TAU;
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_kernel::{SnapCurve, Snaps};
 use solidsketch_i18n::t;
+use solidsketch_kernel::{SnapCurve, Snaps};
 use solidsketch_model::EntityPath;
 
 use crate::camera::{Camera, Projector, Ray};
@@ -351,9 +351,7 @@ fn lines(q: &Query<'_>) -> Vec<Line> {
             out.push(Line { origin: from, dir: q.axes[k], kind: LineKind::Axis(k), source: 0 });
         }
         let refs = match q.reference {
-            Some(EdgeRef::Straight(r)) => {
-                [(Some(r), LineKind::Parallel), (q.plane.1.cross(r).try_normalize(), LineKind::Perpendicular)]
-            }
+            Some(EdgeRef::Straight(r)) => [(Some(r), LineKind::Parallel), (q.plane.1.cross(r).try_normalize(), LineKind::Perpendicular)],
             Some(EdgeRef::Arc { tangent, radial }) => [(Some(tangent), LineKind::Tangent), (Some(radial), LineKind::Radial)],
             None => [(None, LineKind::Parallel), (None, LineKind::Perpendicular)],
         };
@@ -610,7 +608,15 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
                 Some(t.transform_point3(plane.project(t.inverse().transform_point3(h.point))))
             })
             .unwrap_or(h.point);
-        return Some(Inference { point, kind: InferKind::OnFace, path: Some(h.path.clone()), hit: Some(h), line: None, line2: None, edge: None });
+        return Some(Inference {
+            point,
+            kind: InferKind::OnFace,
+            path: Some(h.path.clone()),
+            hit: Some(h),
+            line: None,
+            line2: None,
+            edge: None,
+        });
     }
     let point = ray.hit_plane(q.plane.0, q.plane.1)?;
     Some(Inference { point, kind: InferKind::OnPlane, path: None, hit: None, line: None, line2: None, edge: None })
@@ -619,14 +625,7 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
 /// Offers the snap features of one occurrence (definition to world `t`): its vertices, the
 /// midpoints and centres of its edges, and the point of each edge nearest the cursor (with the
 /// edge there, straight or arc, as the next reference).
-fn features(
-    s: &Snaps,
-    t: &DAffine3,
-    ray: &Ray,
-    screen: &Projector,
-    px: DVec2,
-    offer: &mut impl FnMut(DVec3, InferKind, Option<EdgeRef>),
-) {
+fn features(s: &Snaps, t: &DAffine3, ray: &Ray, screen: &Projector, px: DVec2, offer: &mut impl FnMut(DVec3, InferKind, Option<EdgeRef>)) {
     for v in &s.vertices {
         offer(t.transform_point3(*v), InferKind::Endpoint, None);
     }
@@ -811,7 +810,8 @@ mod tests {
 
     fn add(e: &mut Editor, primitive: Primitive) -> Id {
         let root = e.document().root();
-        e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().expect("done").created[0]
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().expect("done").created
+            [0]
     }
 
     fn add_box(e: &mut Editor, origin: DVec3, size: DVec3) -> Id {

@@ -277,8 +277,15 @@ enum CylState {
     #[default]
     Center,
     /// The centre (`f.o`) is set; the radius follows the cursor.
-    Radius { f: Frame, r: f64 },
-    Height { f: Frame, r: f64, h: f64 },
+    Radius {
+        f: Frame,
+        r: f64,
+    },
+    Height {
+        f: Frame,
+        r: f64,
+        h: f64,
+    },
 }
 
 impl CylinderTool {

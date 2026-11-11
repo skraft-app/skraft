@@ -150,9 +150,7 @@ mod store {
     const KEY: &str = "solidsketch.preferences";
 
     fn storage() -> Result<web_sys::Storage, String> {
-        web_sys::window()
-            .and_then(|w| w.local_storage().ok().flatten())
-            .ok_or_else(|| t!("error.preferences.no_browser_storage"))
+        web_sys::window().and_then(|w| w.local_storage().ok().flatten()).ok_or_else(|| t!("error.preferences.no_browser_storage"))
     }
 
     pub fn read() -> Result<Option<String>, String> {

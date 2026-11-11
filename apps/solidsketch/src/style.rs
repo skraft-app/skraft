@@ -46,7 +46,8 @@ pub fn palette_card(ui: &mut egui::Ui, palette: Palette, mode: Mode, name: &str,
     // A header, two lines of text, a button and a selected row.
     let header = egui::Rect::from_min_size(card.min, egui::vec2(size.x, 14.0));
     p.rect_filled(header, CornerRadius { nw: t.radius_md, ne: t.radius_md, sw: 0, se: 0 }, color(t.panel_header));
-    let line = |y: f32, w: f32, c| p.rect_filled(egui::Rect::from_min_size(card.min + egui::vec2(8.0, y), egui::vec2(w, 3.0)), 1.0, color(c));
+    let line =
+        |y: f32, w: f32, c| p.rect_filled(egui::Rect::from_min_size(card.min + egui::vec2(8.0, y), egui::vec2(w, 3.0)), 1.0, color(c));
     line(22.0, 44.0, t.text);
     line(30.0, 32.0, t.text_dim);
     let row = egui::Rect::from_min_size(card.min + egui::vec2(6.0, 38.0), egui::vec2(52.0, 9.0));

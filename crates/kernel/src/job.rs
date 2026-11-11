@@ -64,10 +64,17 @@ pub struct Display {
 /// still the operation's result, it is only not drawn.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Output {
-    Solid { solid: Solid, display: Result<Display, String> },
+    Solid {
+        solid: Solid,
+        display: Result<Display, String>,
+    },
     Display(Result<Display, String>),
     /// A recipe's final solid, and the tools (by index in the task's list) that failed to cut.
-    Recipe { solid: Solid, display: Result<Display, String>, failed: Vec<u32> },
+    Recipe {
+        solid: Solid,
+        display: Result<Display, String>,
+        failed: Vec<u32>,
+    },
 }
 
 /// The outputs of a job's tasks, in order; or why a task producing a solid failed (the whole

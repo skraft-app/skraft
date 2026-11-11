@@ -57,14 +57,7 @@ fn save(px: &[u8], size: [u32; 2], name: &str) {
 
 /// Three placements of one definition (a cube with a cylinder on top), seen from a camera, all
 /// shifted by `offset` (the camera too): the picture must not depend on it.
-fn scene(
-    r: &mut Renderer,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    offset: DVec3,
-    highlight: bool,
-    decor: bool,
-) -> Vec<u8> {
+fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: DVec3, highlight: bool, decor: bool) -> Vec<u8> {
     let cube = Solid::new_box(offset, DVec3::splat(10.0)).unwrap().mesh().unwrap();
     let cyl = Solid::new_cylinder(offset + DVec3::new(5.0, 5.0, 10.0), 3.0, 8.0).unwrap().mesh().unwrap();
     // The revision changes with the offset: the definition's mesh is re-uploaded.
@@ -135,11 +128,7 @@ fn far_from_the_origin_looks_the_same() {
     let far = scene(&mut r, &device, &queue, DVec3::new(1e8, -3e7, 0.0), true, false);
     save(&far, SIZE, "far");
     // The same picture (no grid or axes: those stay at the world origin).
-    let differing = near
-        .chunks(4)
-        .zip(far.chunks(4))
-        .filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| x.abs_diff(*y) > 8))
-        .count();
+    let differing = near.chunks(4).zip(far.chunks(4)).filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| x.abs_diff(*y) > 8)).count();
     assert!(differing < 40, "{differing} pixels differ 100 km away");
 }
 
@@ -217,7 +206,7 @@ fn a_mirrored_placement_shows_its_outside() {
             view,
             proj,
             background: [1.0, 1.0, 1.0],
-        style: Style::default(),
+            style: Style::default(),
             batches: &batches,
             highlights: &[],
             lines: &[],
@@ -237,7 +226,6 @@ fn a_mirrored_placement_shows_its_outside() {
     let diff = a.iter().zip(&b).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
     assert!(diff <= 2, "mirrored {b:?} vs plain {a:?}");
 }
-
 
 fn shot(
     r: &mut Renderer,

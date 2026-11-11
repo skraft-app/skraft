@@ -84,11 +84,7 @@ impl Tool for BooleanTool {
             value: OptionValue::Choice(value.into()),
             choices: vec![
                 OptionChoice { value: ALL, label: all, tip: t!("tool.boolean.option.all_tip") },
-                OptionChoice {
-                    value: THIS,
-                    label: t!("tool.boolean.option.this"),
-                    tip: t!("tool.boolean.option.this_tip"),
-                },
+                OptionChoice { value: THIS, label: t!("tool.boolean.option.this"), tip: t!("tool.boolean.option.this_tip") },
             ],
             saved: true,
         }]

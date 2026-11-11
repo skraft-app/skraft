@@ -121,9 +121,7 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
 pub fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, selected: bool, enabled: bool, tip: &str) -> bool {
     let tint = ui.visuals().text_color();
     let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(24.0, 24.0)).tint(tint);
-    ui.add_enabled(enabled, egui::Button::image(img).selected(selected).min_size(egui::vec2(34.0, 34.0)))
-        .on_hover_text(tip)
-        .clicked()
+    ui.add_enabled(enabled, egui::Button::image(img).selected(selected).min_size(egui::vec2(34.0, 34.0))).on_hover_text(tip).clicked()
 }
 
 /// The delete key's name (Backspace works too).
@@ -175,7 +173,9 @@ pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Actio
         let selected = v.checked == Some(true);
         let tip = match hint {
             Hint::None => v.tip(),
-            Hint::Copy => t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.copy_hint", copy_key = solidsketch_tools::tools::copy_key())),
+            Hint::Copy => {
+                t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.copy_hint", copy_key = solidsketch_tools::tools::copy_key()))
+            }
             Hint::Boolean => t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.boolean_hint")),
             Hint::Delete => t!("toolbar.with_shortcut", label = v.label, shortcut = delete_key()),
         };
@@ -405,7 +405,8 @@ fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions
     let mut over = None;
     for (k, m) in p.machinings.iter().enumerate() {
         // The tool's exact box, once the kernel has given it.
-        let size = editor.scene().bounds_of(&m.tool).map_or_else(|| solidsketch_i18n::ellipsis(String::new()), |(lo, hi)| dims(lo, hi, units));
+        let size =
+            editor.scene().bounds_of(&m.tool).map_or_else(|| solidsketch_i18n::ellipsis(String::new()), |(lo, hi)| dims(lo, hi, units));
         let mut text = egui::RichText::new(t!("panel.entity_info.machining_row", number = k + 1, size = size));
         if p.is_failed(m.id) {
             text = egui::RichText::new(t!("panel.entity_info.machining_failed", row = text.text())).color(ui.visuals().error_fg_color);

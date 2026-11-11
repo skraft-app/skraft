@@ -32,14 +32,7 @@ pub struct Display {
 
 impl Default for Display {
     fn default() -> Self {
-        Display {
-            grid: false,
-            axes: true,
-            background: [246, 247, 249],
-            silhouettes: true,
-            section: None,
-            section_active: false,
-        }
+        Display { grid: false, axes: true, background: [246, 247, 249], silhouettes: true, section: None, section_active: false }
     }
 }
 

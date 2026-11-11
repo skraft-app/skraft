@@ -8,12 +8,14 @@
 //! axes, `<dx;dy;dz>` from the start). With nothing selected, the first click takes the entity under the cursor
 //! (SketchUp).
 
+use crate::scene::Owner;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Id;
-use crate::scene::Owner;
 
-use super::{Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, Tool, ToolInput, ToolKind, ToolOption, cross, guide_color};
+use super::{
+    Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, Tool, ToolInput, ToolKind, ToolOption, cross, guide_color,
+};
 use crate::infer::Inference;
 use crate::vcb::{PointRef, Vcb, VcbKind, VcbValue};
 
@@ -33,7 +35,10 @@ pub struct MoveTool {
 enum State {
     #[default]
     Start,
-    Moving { from: DVec3, to: DVec3 },
+    Moving {
+        from: DVec3,
+        to: DVec3,
+    },
 }
 
 /// The axes' axis `k`, in the world.
@@ -138,12 +143,7 @@ impl Tool for MoveTool {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
                 let mut lines = vec![PreviewLine { a: from, b: to, color }];
                 lines.extend(cross(cx, from, INK));
-                Preview {
-                    lines,
-                    ghost: Some(DAffine3::from_translation(to - from)),
-                    inference: self.snap.clone(),
-                    ..Default::default()
-                }
+                Preview { lines, ghost: Some(DAffine3::from_translation(to - from)), inference: self.snap.clone(), ..Default::default() }
             }
         }
     }

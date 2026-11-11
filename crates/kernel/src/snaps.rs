@@ -136,13 +136,7 @@ impl Snaps {
             }
             edges.push(SnapEdge { id: i as u32, curve });
         }
-        let vertices = record
-            .vertices
-            .iter()
-            .zip(&vertex_used)
-            .filter(|(_, used)| **used)
-            .map(|(v, _)| v3(v.point))
-            .collect();
+        let vertices = record.vertices.iter().zip(&vertex_used).filter(|(_, used)| **used).map(|(v, _)| v3(v.point)).collect();
         let planes = record.faces.iter().map(|f| plane_of(&f.surface)).collect();
         Snaps { vertices, edges, planes }
     }

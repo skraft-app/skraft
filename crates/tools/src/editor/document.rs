@@ -193,7 +193,8 @@ impl Editor {
         let next = self.job_id();
         self.probes.insert(next, Probe::Next);
         let sphere = Primitive::Sphere { center: DVec3::ZERO, radius: 10.0 };
-        self.kernel.submit(next, Job { inputs: Vec::new(), tasks: vec![Task::Primitive { primitive: sphere, placement: DAffine3::IDENTITY }] });
+        self.kernel
+            .submit(next, Job { inputs: Vec::new(), tasks: vec![Task::Primitive { primitive: sphere, placement: DAffine3::IDENTITY }] });
         self.message = Some(solidsketch_i18n::ellipsis(t!("status.debug.crash_asked")));
         // A kernel run inline has answered already.
         self.poll();

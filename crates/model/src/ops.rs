@@ -357,7 +357,13 @@ impl Document {
                 let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(Part::new(blank)));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
-                self.assembly_mut(*context)?.occurrences.push(Occurrence { id, name: String::new(), component: part, transform, material: None });
+                self.assembly_mut(*context)?.occurrences.push(Occurrence {
+                    id,
+                    name: String::new(),
+                    component: part,
+                    transform,
+                    material: None,
+                });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::Transform { context, entities, transform } => {
@@ -427,21 +433,15 @@ impl Document {
                 }
                 let moved = self.occurrences_of(*context, entities)?;
                 let base = name.clone().unwrap_or_else(|| t!("default_name.assembly"));
-                let assembly =
-                    self.insert_component(&base, name.is_some(), ComponentKind::Assembly(Assembly { occurrences: moved }));
+                let assembly = self.insert_component(&base, name.is_some(), ComponentKind::Assembly(Assembly { occurrences: moved }));
                 let id = self.fresh_id();
                 let ctx = self.assembly_mut(*context)?;
                 // The new occurrence stands where the first moved one stood, in the tree.
                 let at = ctx.occurrences.iter().position(|o| entities.contains(&o.id)).unwrap_or(ctx.occurrences.len());
                 ctx.occurrences.retain(|o| !entities.contains(&o.id));
                 let at = at.min(ctx.occurrences.len());
-                ctx.occurrences.insert(at, Occurrence {
-                    id,
-                    name: String::new(),
-                    component: assembly,
-                    transform: DAffine3::IDENTITY,
-                    material: None,
-                });
+                ctx.occurrences
+                    .insert(at, Occurrence { id, name: String::new(), component: assembly, transform: DAffine3::IDENTITY, material: None });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::Explode { context, occurrence } => {
@@ -552,8 +552,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let part = self.machined_part(target, machinings, *scope)?;
-                let steps: Vec<DAffine3> =
-                    std::iter::successors(Some(*step), |at| Some(*step * *at)).take(*count as usize).collect();
+                let steps: Vec<DAffine3> = std::iter::successors(Some(*step), |at| Some(*step * *at)).take(*count as usize).collect();
                 let created = self.copy_machinings(part, machinings, &steps)?;
                 self.recompute(part, Some(&created), solver)?;
                 Ok(Outcome { machinings: created, ..Outcome::default() })
@@ -704,7 +703,10 @@ fn is_identity(t: &DAffine3) -> bool {
 pub(crate) fn is_rigid(t: &DAffine3) -> bool {
     let m = t.matrix3;
     let unit = |v: DVec3| (v.length_squared() - 1.0).abs() < 1e-9;
-    unit(m.x_axis) && unit(m.y_axis) && unit(m.z_axis) && m.x_axis.dot(m.y_axis).abs() < 1e-9
+    unit(m.x_axis)
+        && unit(m.y_axis)
+        && unit(m.z_axis)
+        && m.x_axis.dot(m.y_axis).abs() < 1e-9
         && m.y_axis.dot(m.z_axis).abs() < 1e-9
         && m.z_axis.dot(m.x_axis).abs() < 1e-9
         && t.translation.is_finite()

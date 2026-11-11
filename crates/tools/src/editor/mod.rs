@@ -21,16 +21,16 @@ use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, S
 use crate::camera::{Camera, ViewArea};
 use crate::infer::{EdgeRef, InferKind, Lock};
 use crate::scene::DisplayScene;
-use crate::vcb;
 use crate::tools::{self, Command, Cx, Key, OptionValue, OptionValues, Preview, Tool, ToolInput, ToolKind, ToolOption};
+use crate::vcb;
 
 mod document;
 mod navigation;
 mod selection;
 mod view;
 
-pub use view::{Look, Mark, View, ViewHighlight, ViewPlacement};
 use document::{After, Pending, Probe};
+pub use view::{Look, Mark, View, ViewHighlight, ViewPlacement};
 
 pub struct Editor {
     history: History,
@@ -228,8 +228,6 @@ impl Editor {
     pub fn showing_machinings(&self) -> bool {
         self.machinings_shown && self.open_part.is_some()
     }
-
-
 
     /// Brings the display scene up to date (the document, the recipe shown) and asks for the
     /// meshes it lacks.
