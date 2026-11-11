@@ -388,7 +388,7 @@ Decided on 2026-11-09.
 
 Decided on 2026-11-09.
 
-- **A central engine** (`tools/src/infer.rs`, no UI, no GPU, no state) replaces the point
+- **A central engine** (`tools/src/infer/`, no UI, no GPU, no state) replaces the point
   choices of each tool (`base_point`, `target`, `center_at`…). A tool calls `cx.infer(px, keep,
   plane)`, `cx.infer_from(…)` or `cx.infer_in_plane(…)`; the `Cx` fills a `Query` with what the
   editor holds and calls `infer::infer(scene, camera, size, px, &query)`.
