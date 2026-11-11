@@ -1732,3 +1732,45 @@ fn the_tape_draws_a_guide_from_an_axis() {
     let GuideShape::Line { origin, dir } = g.shape else { panic!() };
     assert!((origin.y - 100.0).abs() < 1e-6 && origin.z.abs() < 1e-6 && dir.cross(DVec3::X).length() < 1e-9, "{origin} {dir}");
 }
+
+/// A document with one box per (origin, size), added in that order.
+fn boxes_doc(boxes: &[(DVec3, DVec3)]) -> (Document, Vec<Id>) {
+    let mut d = Document::new();
+    let mut ids = Vec::new();
+    for &(origin, size) in boxes {
+        let root = d.root();
+        let primitive = Primitive::Box { origin, size };
+        let (next, out) = d.apply(&Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap();
+        d = next;
+        ids.push(out.created[0]);
+    }
+    (d, ids)
+}
+
+#[test]
+fn picking_coincident_faces_prefers_the_smaller_solid_whatever_the_order() {
+    let big = (DVec3::ZERO, DVec3::splat(100.0));
+    let small = (DVec3::new(0.0, 0.0, 50.0), DVec3::new(50.0, 100.0, 50.0));
+    for small_first in [false, true] {
+        let (doc, ids) = boxes_doc(&if small_first { [small, big] } else { [big, small] });
+        let small_id = ids[if small_first { 0 } else { 1 }];
+        let e = top_editor(doc);
+        // Both tops are at z = 100: the smaller box wins.
+        let hit = e.scene().pick(&e.camera.ray(px(&e, DVec3::new(25.0, 50.0, 100.0)), e.viewport_size()), |_| true).unwrap();
+        assert_eq!(hit.path, EntityPath::root(small_id), "small first: {small_first}");
+        // Off the small one, the big one.
+        let hit = e.scene().pick(&e.camera.ray(px(&e, DVec3::new(75.0, 50.0, 100.0)), e.viewport_size()), |_| true).unwrap();
+        assert_ne!(hit.path, EntityPath::root(small_id));
+    }
+}
+
+#[test]
+fn picking_coincident_faces_prefers_the_solid_the_ray_enters() {
+    // The lower box, entered at z = 100, is the bigger; the upper one is left there.
+    let (doc, ids) = boxes_doc(&[(DVec3::new(0.0, 0.0, 100.0), DVec3::splat(100.0)), (DVec3::ZERO, DVec3::new(200.0, 200.0, 100.0))]);
+    let e = top_editor(doc);
+    let ray = crate::camera::Ray { origin: DVec3::new(50.0, 50.0, 150.0), dir: -DVec3::Z, t_min: 0.0 };
+    let hit = e.scene().pick(&ray, |_| true).unwrap();
+    assert_eq!(hit.path, EntityPath::root(ids[1]));
+    assert!((hit.point.z - 100.0).abs() < 1e-6);
+}

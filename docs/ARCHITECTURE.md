@@ -721,6 +721,13 @@ Drawing                1 instanced draw per definition, with the N world matrice
   shows the bounding box of its content, in its own axes, dashed in the selection's colour and
   depth-tested (`View::selection_boxes`); it follows the move tool's ghost. The assembly being
   edited shows the same box in grey, grown by a few pixels (`View::context_box`).
+- **Coincident faces** (decided on 2026-11-11): picking takes the nearest hit, but hits within
+  `tie_tolerance` along the ray (1 µm + 1 ppm of the distance) are a tie, broken in a fixed
+  order: the solid the ray enters (outward normal against the ray, from the vertex normals)
+  before one it leaves (seen through a section, from inside), then the smaller bounding box,
+  then the scene order. The choice no longer flickers from one pixel to the next and the same
+  rule serves every tool (selection, inferences, paint, booleans). Reaching the other solid
+  (cycling, a list under the cursor) is left for later.
 - **`render` does not know the document**: it receives meshes by key (the definition's id) with
   a revision, and a list of batches `(key, matrices)` + highlights + preview lines. It is
   `tools` (the display scene) that flattens the document and decides the revisions.

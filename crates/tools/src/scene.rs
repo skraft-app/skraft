@@ -438,7 +438,9 @@ impl DisplayScene {
         items: impl Iterator<Item = (&'s Placement, &'s PartMesh, Piece)>,
         keep: impl Fn(&Owner<'_>) -> bool,
     ) -> Option<Hit> {
-        let mut best: Option<Hit> = None;
+        // The best hit, with what breaks a tie with it: does the ray enter the solid there,
+        // and the volume of the solid's box.
+        let mut best: Option<(Hit, bool, f64)> = None;
         for (p, part, piece) in items {
             let Some(b) = part.bounds else { continue };
             let inv = p.transform.inverse();
@@ -457,7 +459,20 @@ impl DisplayScene {
             // t is in units of the local direction: re-measure it in the world.
             let point = p.transform.transform_point3(o + d * t);
             let world_t = (point - ray.origin).dot(ray.dir);
-            if best.as_ref().is_some_and(|b| b.t <= world_t) {
+            let entering = n_local.dot(d) < 0.0;
+            let volume = (b.1 - b.0).max(DVec3::ZERO).element_product();
+            if best.as_ref().is_some_and(|(b, b_entering, b_volume)| {
+                if (world_t - b.t).abs() > tie_tolerance(b.t) {
+                    return b.t < world_t;
+                }
+                // Coincident faces: the solid the ray enters, rather than one it leaves (seen
+                // through a section, from inside), then the smaller one, then the scene order.
+                match (entering, *b_entering) {
+                    (true, false) => false,
+                    (false, true) => true,
+                    _ => *b_volume <= volume,
+                }
+            }) {
                 continue;
             }
             let mut normal = p.transform.matrix3.inverse().transpose().mul_vec3(n_local).normalize_or_zero();
@@ -465,9 +480,9 @@ impl DisplayScene {
                 normal = -normal;
             }
             let face = part.mesh.tri_face.get(tri).copied().unwrap_or(0);
-            best = Some(Hit { path, piece, face, point, normal, t: world_t });
+            best = Some((Hit { path, piece, face, point, normal, t: world_t }, entering, volume));
         }
-        best
+        best.map(|(hit, _, _)| hit)
     }
 }
 
@@ -585,8 +600,15 @@ pub(crate) fn ray_box(o: DVec3, d: DVec3, (lo, hi): (DVec3, DVec3), t_min: f64) 
     true
 }
 
-/// The nearest triangle of `m` along `o + t·d`: (t, triangle, geometric normal); a point
-/// `clip` (a plane's point and normal) cuts away is not a hit.
+/// How far apart (mm, along the ray) two hits at about `t` may be and still be on coincident
+/// faces: meshes are single precision, placed by double transforms.
+fn tie_tolerance(t: f64) -> f64 {
+    1e-3 + 1e-6 * t.abs()
+}
+
+/// The nearest triangle of `m` along `o + t·d`: (t, triangle, geometric normal, pointing out
+/// of the solid as its vertex normals do); a point `clip` (a plane's point and normal) cuts
+/// away is not a hit.
 fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64, clip: Option<(DVec3, DVec3)>) -> Option<(f64, usize, DVec3)> {
     let clip = clip.map(|(p, n)| (p - m.origin, n));
     let o = o - m.origin;
@@ -619,7 +641,12 @@ fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64, clip: Option<(DVec3, DVec3
         if clip.is_some_and(|(p, n)| (o + d * t - p).dot(n) > 0.0) {
             continue;
         }
-        best = Some((t, k, e1.cross(e2)));
+        let mut n = e1.cross(e2);
+        let vn = |i: u32| m.normals.get(i as usize).map_or(DVec3::ZERO, |n| DVec3::new(n[0] as f64, n[1] as f64, n[2] as f64));
+        if n.dot(vn(tri[0]) + vn(tri[1]) + vn(tri[2])) < 0.0 {
+            n = -n;
+        }
+        best = Some((t, k, n));
     }
     best
 }
