@@ -14,6 +14,8 @@
 //! A **lock** (an arrow key, or Shift held on a line) keeps the point on one line: a feature hovered is then projected onto it ("aligned with that corner"), an
 //! edge it crosses gives the crossing.
 
+use std::f64::consts::TAU;
+
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_kernel::{SnapCurve, Snaps};
 use solidsketch_i18n::t;
@@ -401,7 +403,12 @@ fn two_lines(camera: &Camera, size: DVec2, screen: &Projector, px: DVec2, lines:
             if a.source == b.source {
                 continue;
             }
-            let Some(p) = lines_meet(a, b, |p| camera.world_per_pixel(size, p) * CROSSING_PX) else { continue };
+            let tol = |p: DVec3| camera.world_per_pixel(size, p) * CROSSING_PX;
+            let Some(p) = lines_meet(a, b, tol) else { continue };
+            // Where one line passes through the other's origin, that point is all they give.
+            if [a.origin, b.origin].iter().any(|o| (p - *o).length() <= tol(p)) {
+                continue;
+            }
             let Some(s) = screen.project(p) else { continue };
             let dist = s.distance(px);
             if dist <= APERTURE_PX && best.as_ref().is_none_or(|x| dist < x.0) {
@@ -459,7 +466,12 @@ fn crossing(
         let t = &place.transform;
         for e in &part.snaps.edges {
             for (k, l) in lines.iter().enumerate() {
-                for p in line_meets_curve(l.origin, l.dir, &e.curve, t, |p| camera.world_per_pixel(size, p) * CROSSING_PX) {
+                let tol = |p: DVec3| camera.world_per_pixel(size, p) * CROSSING_PX;
+                for p in line_meets_curve(l.origin, l.dir, &e.curve, t, tol) {
+                    // A line meets the edge its origin lies on there: no crossing.
+                    if (p - l.origin).length() <= tol(p) {
+                        continue;
+                    }
                     let Some(s) = screen.project(p) else { continue };
                     let dist = s.distance(px);
                     if dist <= APERTURE_PX {
@@ -481,24 +493,16 @@ fn line_meets_curve(from: DVec3, dir: DVec3, curve: &SnapCurve, t: &DAffine3, to
             line_meets_segment(from, dir, t.transform_point3(a), t.transform_point3(b), &tol).into_iter().collect()
         }
         SnapCurve::Arc { center, x, y, radius, sweep } => {
-            let (c, xw, yw) = (t.transform_point3(center), t.transform_vector3(x), t.transform_vector3(y));
-            let (rx, ry) = (xw.length() * radius, yw.length() * radius);
-            if (rx - ry).abs() > 1e-9 * rx.max(1.0) {
+            let arc = PlacedArc::new(t, center, x, y, radius, sweep);
+            if !arc.is_circle() {
                 // Unevenly scaled: an ellipse. Its samples will do.
-                let pts: Vec<DVec3> =
-                    (0..=64).map(|i| c + xw * (radius * (sweep * i as f64 / 64.0).cos()) + yw * (radius * (sweep * i as f64 / 64.0).sin())).collect();
-                return pts.windows(2).filter_map(|w| line_meets_segment(from, dir, w[0], w[1], &tol)).collect();
+                return arc.samples().windows(2).filter_map(|w| line_meets_segment(from, dir, w[0], w[1], &tol)).collect();
             }
-            let (x, y) = (xw.normalize(), yw.normalize());
-            let n = x.cross(y);
+            let PlacedArc { c, rx, n, .. } = arc;
             let on_arc = |p: DVec3| {
-                let d = p - c;
-                let mut a = d.dot(y).atan2(d.dot(x));
-                if a < 0.0 {
-                    a += std::f64::consts::TAU;
-                }
+                let a = arc.angle_of(p);
                 let slack = tol(p) / rx;
-                a <= sweep + slack || a >= std::f64::consts::TAU - slack
+                a <= sweep + slack || a >= TAU - slack
             };
             let dn = dir.dot(n);
             if dn.abs() > 1e-9 {
@@ -630,9 +634,9 @@ fn features(
         // The edge at a point of it (world), as a reference.
         let edge_at = |p: DVec3| match e.curve {
             SnapCurve::Segment { a, b } => t.transform_vector3(b - a).try_normalize().map(EdgeRef::Straight),
-            SnapCurve::Arc { center, x, y, .. } => {
-                let n = t.transform_vector3(x).cross(t.transform_vector3(y)).try_normalize()?;
-                let d = p - t.transform_point3(center);
+            SnapCurve::Arc { center, x, y, radius, sweep } => {
+                let PlacedArc { c, n, .. } = PlacedArc::new(t, center, x, y, radius, sweep);
+                let d = p - c;
                 let radial = (d - n * d.dot(n)).try_normalize()?;
                 Some(EdgeRef::Arc { tangent: n.cross(radial), radial })
             }
@@ -656,39 +660,74 @@ fn on_curve(curve: &SnapCurve, t: &DAffine3, ray: &Ray, screen: &Projector, px: 
     match *curve {
         SnapCurve::Segment { a, b } => Some(on_segment(ray, t.transform_point3(a), t.transform_point3(b))),
         SnapCurve::Arc { center, x, y, radius, sweep } => {
-            let (c, x, y) = (t.transform_point3(center), t.transform_vector3(x), t.transform_vector3(y));
-            // A placement may scale: measure the radius along each placed axis.
-            let (rx, ry) = (x.length() * radius, y.length() * radius);
-            let (x, y) = (x.normalize(), y.normalize());
-            let n = x.cross(y);
-            let at = |a: f64| c + x * (rx * a.cos()) + y * (ry * a.sin());
-            if ray.dir.dot(n).abs() > 1e-3 && (rx - ry).abs() <= 1e-9 * rx.max(1.0) {
-                // Seen from the side of its plane: where the ray meets the plane, radially.
-                let q = ray.hit_plane(c, n).or_else(|| {
-                    // Parallel projection may start past the plane: use the line, not the half-line.
-                    let d = ray.dir.dot(n);
-                    Some(ray.origin + ray.dir * ((c - ray.origin).dot(n) / d))
-                })?;
-                let d = q - c;
-                let mut a = d.dot(y).atan2(d.dot(x));
-                if a < 0.0 {
-                    a += std::f64::consts::TAU;
-                }
+            let arc = PlacedArc::new(t, center, x, y, radius, sweep);
+            let dn = ray.dir.dot(arc.n);
+            if dn.abs() > 1e-3 && arc.is_circle() {
+                // Seen from the side of its plane: where the ray's line meets the plane (a parallel
+                // projection may start past it: the line, not the half-line), radially.
+                let q = ray.origin + ray.dir * ((arc.c - ray.origin).dot(arc.n) / dn);
+                let mut a = arc.angle_of(q);
                 if a > sweep {
                     // Past the arc's end: the nearer end.
-                    a = if a - sweep < std::f64::consts::TAU - a { sweep } else { 0.0 };
+                    a = if a - sweep < TAU - a { sweep } else { 0.0 };
                 }
-                return Some(at(a));
+                return Some(arc.at(a));
             }
             // Edge on (or unevenly scaled): sample it.
-            const N: usize = 64;
-            let pts: Vec<DVec3> = (0..=N).map(|i| at(sweep * i as f64 / N as f64)).collect();
-            on_polyline(&pts, ray, screen, px)
+            on_polyline(&arc.samples(), ray, screen, px)
         }
         SnapCurve::Polyline { ref points, .. } => {
             let pts: Vec<DVec3> = points.iter().map(|p| t.transform_point3(*p)).collect();
             on_polyline(&pts, ray, screen, px)
         }
+    }
+}
+
+/// An arc placed in the world: a placement may scale it, unevenly into an ellipse.
+#[derive(Clone, Copy)]
+struct PlacedArc {
+    c: DVec3,
+    /// Unit axes of the arc's plane, from the placed `x` and `y`.
+    x: DVec3,
+    y: DVec3,
+    /// Unit normal.
+    n: DVec3,
+    /// Radius along each axis.
+    rx: f64,
+    ry: f64,
+    sweep: f64,
+}
+
+impl PlacedArc {
+    /// How many chords stand for an arc that has to be sampled.
+    const SAMPLES: usize = 64;
+
+    fn new(t: &DAffine3, center: DVec3, x: DVec3, y: DVec3, radius: f64, sweep: f64) -> Self {
+        let (xw, yw) = (t.transform_vector3(x), t.transform_vector3(y));
+        let (x, y) = (xw.normalize(), yw.normalize());
+        PlacedArc { c: t.transform_point3(center), x, y, n: x.cross(y), rx: xw.length() * radius, ry: yw.length() * radius, sweep }
+    }
+
+    /// Still a circle (evenly scaled).
+    fn is_circle(&self) -> bool {
+        (self.rx - self.ry).abs() <= 1e-9 * self.rx.max(1.0)
+    }
+
+    /// The point at angle `a`.
+    fn at(&self, a: f64) -> DVec3 {
+        self.c + self.x * (self.rx * a.cos()) + self.y * (self.ry * a.sin())
+    }
+
+    /// The angle of `p` around the centre, in [0, 2π).
+    fn angle_of(&self, p: DVec3) -> f64 {
+        let d = p - self.c;
+        let a = d.dot(self.y).atan2(d.dot(self.x));
+        if a < 0.0 { a + TAU } else { a }
+    }
+
+    /// [`Self::SAMPLES`] + 1 points along it, ends included.
+    fn samples(&self) -> Vec<DVec3> {
+        (0..=Self::SAMPLES).map(|i| self.at(self.sweep * i as f64 / Self::SAMPLES as f64)).collect()
     }
 }
 
@@ -1275,5 +1314,19 @@ mod tests {
         assert_eq!(e.tracked(), &corners[1..]);
         e.input(ToolInput::Key { key: crate::Key::Escape, mods: Modifiers::default() });
         assert!(e.tracked().is_empty());
+    }
+
+    #[test]
+    fn a_line_does_not_cross_an_edge_at_its_own_origin() {
+        let mut e = top_editor(DVec3::ZERO);
+        add_box(&mut e, DVec3::ZERO, DVec3::new(1000.0, 400.0, 50.0));
+        // A start point on the top front edge (away from its midpoint): the green axis through it
+        // meets that edge right there, which is no crossing.
+        let from = DVec3::new(300.0, 0.0, 50.0);
+        let i = at_from(&e, DVec3::new(310.0, -15.0, 50.0), from, None, None);
+        assert_eq!(i.kind, InferKind::OnEdge, "{i:?}");
+        // Nor do two lines meet at the start point: a tracked point level with it on the red axis.
+        let i = tracking(&e, DVec3::new(310.0, -15.0, 50.0), Some(from), &[DVec3::new(-400.0, 0.0, 50.0)]);
+        assert!(!matches!(i.kind, InferKind::OnTwoLines(..)), "{i:?}");
     }
 }
