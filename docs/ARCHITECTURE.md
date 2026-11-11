@@ -30,8 +30,9 @@ Document
 ├─ root       : Id of the root assembly (the model, never counted itself)
 └─ next_id
 
-Component { id, name, props, kind }
+Component { id, name, props, kind, guides }
   props   : excluded from the cut list, … (the part's type comes from its material, §2.2)
+  guides  : construction lines and circles in the component's axes (§6 quinquies)
   kind    = Part     { blank: Arc<Brep>, machinings: Vec<Machining> }      — a part
           | Assembly { occurrences: Vec<Occurrence> }                      — an assembly
 Occurrence { id, component: Id, transform: T, material, name }            — an occurrence
@@ -565,6 +566,103 @@ error = e)`. The code holds no user-visible string.
   a reference, every `$t(…)` leads to a key of its locale without a cycle, and every other
   locale has the same keys and placeholders. Keys are therefore always literals.
 
+## 6 quinquies. Tape measure and guides
+
+Decided on 2026-11-11, after SketchUp's Tape Measure tool. Built in three steps: (1) the
+model, the file, the display and the tool; (2) inferences on guides; (3) managing them.
+
+- **Guides are document entities**: `Component::guides`, a list of `Guide { id, shape }` in the
+  component's own axes, saved with the file (**version 3**; v2 files read with none) and
+  undone like everything else (snapshots, §5). `GuideShape` is an infinite `Line { origin, dir }`
+  or a whole `Circle { center, normal, radius }`; a finite `Segment` (a guide a shape tool would
+  leave, e.g. a box's diagonal) will come as one more variant.
+- **They belong to the active context**: the open part when one is (§2.9), else the assembly
+  being edited (the model at the top). A part's guide shows in each of its occurrences and
+  moves with them; changing a part's guides ignores the scope (§2.5): it changes no geometry,
+  so no part is made separate for it. A guide drawn with no part open belongs to the assembly
+  and does not follow a part moved later. Copying a component (separate part) copies its
+  guides; exploding an assembly hands its guides to the context, placed as it was.
+- **Ids**: from the document's counter, unique within their component, never equal to an
+  occurrence's (assembly) or a machining's (part) of the same component: the selection (step
+  3) holds them with those, and `Delete`, `Transform`, `Duplicate` will take them.
+- **Operation**: `AddGuide { component, shape }`, the shape in the component's axes; no kernel.
+- **Display**: dashed, depth-tested lines (`View::guides`, `guides::Stroke`). A line is
+  drawn **as far as the view shows it** (`Camera::visible_segment`, 2026-11-11): clipped to
+  the view's sides (a few pixels past them), kept off the eye in perspective, and an end
+  running off to infinity stops within a quarter of a pixel of its vanishing point; seen end
+  on in parallel (within 1 mrad: the standard views stop short of the zenith), it is not
+  drawn. A circle is a polyline. The renderer dashes them **on screen** (`render::Dash`):
+  dashes and gaps of 6 points, the pattern anchored on the line's origin (when in front of
+  the eye; else its first point drawn) and running on along a circle's chords, so it holds
+  still as the view pans. An infinite line is never inside a selection rectangle: only a
+  crossing one takes it. The axes are drawn the same way, across the view (their negative
+  halves faded). Those of the active context in the theme's `guide`,
+  the others (outside it, or in another occurrence of the open part) in `guide_faded`. Step 3
+  adds a "Guides" toggle to the display (with it off, they are not inferred either).
+- **The tool** (`ToolKind::Measure`, `T`, `tools/measure.rs`):
+  - the first click takes the inferred point. **On an edge** (`OnEdge`, not an endpoint nor a
+    midpoint) with the saved option **"Create guides"** on (the default; a tap of the copy
+    modifier turns it over, as SketchUp's Ctrl), it starts a guide: **parallel** to a straight
+    edge — the line through the point hovered, along the edge; the length shown is the
+    distance between the two lines — or **concentric** to an arc or a circle — the circle in
+    its plane through the point hovered (projected on that plane); the length shown is the
+    difference of the radii. That length is drawn dashed — in the colour of the axis it runs along, else ink — from
+    the point clicked to the guide,
+    square to the edge (for an arc, along the radius through the cursor). Pointing at nothing,
+    the cursor gives a point of the horizontal plane (the axes') through the point clicked —
+    for an upright edge, of the face clicked, else of the upright plane through it facing the
+    eye; the perpendicular is inferred in that plane. The second click, or a typed length (the offset, towards the
+    cursor's side), adds the guide. An offset of zero, or a circle shrunk to nothing, adds
+    nothing (said in the status bar);
+  - **anywhere else**, or with the option off, it measures: the length from the first point
+    to the point hovered, written on the dashed segment between them (`PreviewLabel`) and in
+    the measurements box; the second click ends the measure. A length typed then does nothing
+    (no scaling of the model, meaningless for cut-list parts);
+  - lines are inferred from the first point (axes, parallel and perpendicular to the edge
+    clicked, tangent and radial to the arc), so that a guide is offset square to its edge.
+    Esc goes back to the first click. `EdgeRef::Arc` carries the arc's centre and radius for
+    this.
+- **Step 2 — inferences** (done on 2026-11-11): the display scene keeps every guide placed in
+  the world (`DisplayScene::guides`, `SceneGuide`, rebuilt with the document), which the
+  view draws and the engine infers on, for every tool. A guide line is one more line
+  (`LineKind::Guide`, one source each): "On the guide" (rank of the lines; the guide becomes
+  the reference edge, so the tape offsets a guide from a guide), "Edge × guide", "Guide ×
+  guide" and crossings with the tool's lines; a point of it hidden behind the model is not
+  inferred (it is drawn depth-tested), and only one lying in the protractor's plane counts
+  for the rotate tool. A guide circle is a whole arc: "On the guide" (`InferKind::OnGuide`,
+  its arc as the reference), its centre (`Center`, tracked like any) and where a line crosses
+  it (`InferKind::OnGuideAndLine`), and where it crosses an edge (`InferKind::OnGuideAndEdge`,
+  exact: a segment, an arc in its plane — two circles —, or across it — on the line where both
+  planes meet; a polyline by its segments). Such a point built by the geometry ranks with
+  those built by lines (the nearer on screen wins) and beats any point on a line; where two
+  guide circles cross likewise (`InferKind::OnTwoGuides`, "Guide × guide").
+- **The axes as drawn are lines too** (2026-11-11, for every tool, as in SketchUp): while
+  they show (`Display::axes`, or a part open), the context's three axes through its origin
+  (`LineKind::ModelAxis`, "On red axis") — crossings with edges, guides and the tool's
+  lines; not inferred where hidden; an edge to refer to, so the tape draws a guide from an
+  axis as from an edge.
+- **Step 3 — managing** (done on 2026-11-11):
+  - **Picking**: a guide of the active context within `GUIDE_PICK_PX` (5 px) of the cursor
+    and not hidden by the model (`Cx::pick_guide`) comes before the solid under it, for the
+    select tool's click and hover and for what Move and Rotate take with nothing selected.
+    The marquee takes a guide like a solid: a window one lying wholly inside it (a circle), a
+    crossing one any of it touches. Select all takes them. In an open part, its guides are
+    selectable, its machinings shown or not; the part's guides are not, from outside it.
+  - **Operations**: no new ones. `Delete`, `Transform`, `Duplicate`, `Array` and
+    `MakeAssembly` take guide ids of their context among their entities (the guides go into
+    the new assembly; guides alone make none; `PaintOccurrences` leaves them out); the
+    operations on machinings take the part's guides — with guides alone, no kernel and no
+    separate part, whatever the scope. In an open part, Move, Rotate and Delete always aim at
+    the part (`Cx::moved`), its machinings shown or not.
+  - **Inference**: a guide is an `Owner` with `Piece::Guide(id)` (its path: the component's
+    occurrences, then its id): the guides being moved are left out (`Cx::is_moving`).
+  - **Display**: the selected guides in the selection's colour, those hovered (or in the
+    marquee) in the hover's; while moving, the selected ones are drawn where they go, and
+    where they were only when copying. `Display::guides` (on by default; View › Guides, its
+    title-bar button, the model's preferences) hides them: not drawn, inferred nor picked,
+    dropped from the selection. Edit › "Delete guides" erases those of the active context,
+    shown or not. The entity info of one guide says its shape (a circle's radius).
+
 ## 7. Crates
 
 ```
@@ -644,6 +742,12 @@ Drawing                1 instanced draw per definition, with the N world matrice
   widened on screen by the vertex shader, after clipping the segment in front of the eye. Widths
   are in points (`EDGE_WIDTH` 1.5; `LINE_WIDTH` 1.5; `GRID_WIDTH` 1) and multiplied by the
   screen's pixel density (`Frame::pixels_per_point`): the same apparent thickness everywhere.
+  A `Line` may be **dashed** (`Dash`: length and phase in points): the vertex shader passes
+  the distance along the segment on screen, interpolated linearly on screen, and the fragment
+  shader discards the gaps. Lines that run past a parallel projection's depth range (infinite
+  guides and axes) are clamped to it, not cut: the line pipeline uses `unclipped_depth` where
+  the device has `DEPTH_CLIP_CONTROL` (`render::OPTIONAL_FEATURES`, which the app asks egui's
+  device for).
   The quad has the depth of its centre line, while a pixel away a neighbouring face can be
   closer (inner corners, grazing faces): lines are therefore **pulled towards the eye** by 3
   half-widths measured at their depth (scaling towards the eye in perspective, translation along
@@ -853,6 +957,9 @@ machinings, with their `source`). The final B-rep is not the source: it is saved
 `crates/model/tests/files/v1.solidsketch` and `v2.solidsketch`, read back by the test
 `reference_files_still_open` — a format change that would break old files fails there. They
 are only regenerated for a new version (`write_reference_files`).
+
+**Version 3** (written since 2026-11-11): the components' guides (§6 quinquies). Reference file
+`v3.solidsketch`.
 
 ## 9. Toolchain and dependencies
 

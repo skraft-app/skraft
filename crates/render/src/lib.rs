@@ -109,13 +109,28 @@ pub struct Highlight {
     pub material: u32,
 }
 
-/// A world-space segment, coloured (`rgb` linear, `a` mixed over the background).
+/// A world-space segment, coloured (`rgb` linear, `a` mixed over the background), plain or
+/// dashed.
 #[derive(Clone, Copy, Debug)]
 pub struct Line {
     pub a: DVec3,
     pub b: DVec3,
     pub color: [f32; 4],
+    pub dash: Option<Dash>,
 }
+
+/// A line's dashes, on screen: a dash of `length` points, a gap as long, the pattern at
+/// `phase` points at the line's `a` (so that it can hold still on the line as the view moves).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Dash {
+    pub length: f32,
+    pub phase: f32,
+}
+
+/// The optional device features the renderer uses when the device has them:
+/// `DEPTH_CLIP_CONTROL`, so that depth-tested lines past the parallel projection's depth range
+/// (infinite guides and axes) are clamped to it rather than cut.
+pub const OPTIONAL_FEATURES: wgpu::Features = wgpu::Features::DEPTH_CLIP_CONTROL;
 
 /// A square grid on the XY plane centred on the origin.
 #[derive(Clone, Copy, Debug)]
@@ -183,8 +198,9 @@ pub struct Frame<'a> {
     /// Lines drawn over everything (tool previews).
     pub overlay: &'a [Line],
     pub grid: Option<Grid>,
+    /// The axes are drawn (in `lines`): the grid leaves out its lines along them.
     pub axes: bool,
-    /// Where the grid and the axes are: the frame of the context being edited, to world.
+    /// Where the grid is: the frame of the context being edited, to world.
     pub axes_frame: DMat4,
     /// Pixels per point of the screen: line widths are in points, so they look the same on
     /// any display.
@@ -228,7 +244,8 @@ struct SilhouetteVertex {
     n2: [f32; 3],
 }
 
-/// A corner of a coloured line's quad; `corner.z` is its half width in pixels.
+/// A corner of a coloured line's quad; `corner.z` is its half width in pixels; `dash`: the
+/// period of its dash pattern (pixels, 0 when plain) and where the pattern is at `a`.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct LineVertex {
@@ -236,6 +253,7 @@ struct LineVertex {
     b: [f32; 3],
     corner: [f32; 3],
     color: [f32; 4],
+    dash: [f32; 2],
 }
 
 /// The corners of a segment's quad, in drawing order.
@@ -459,7 +477,7 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &sil_attrs,
         };
-        let line_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x4];
+        let line_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x4, 4 => Float32x2];
         let line_layout = wgpu::VertexBufferLayout {
             array_stride: size_of::<LineVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -472,12 +490,18 @@ impl Renderer {
                        buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
                        depth: wgpu::DepthStencilState,
                        write_mask: wgpu::ColorWrites,
-                       blend: Option<wgpu::BlendState>| {
+                       blend: Option<wgpu::BlendState>,
+                       unclipped_depth: bool| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), compilation_options: Default::default(), buffers },
-                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    unclipped_depth,
+                    ..Default::default()
+                },
                 depth_stencil: Some(depth),
                 multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
                 fragment: Some(wgpu::FragmentState {
@@ -490,12 +514,13 @@ impl Renderer {
                 cache: None,
             })
         };
-        let pipeline = |label: &str,
-                        vs: &str,
-                        fs: &str,
-                        buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
-                        depth: wgpu::DepthStencilState,
-                        write_mask: wgpu::ColorWrites| blended(label, vs, fs, buffers, depth, write_mask, None);
+        let pipeline =
+            |label: &str,
+             vs: &str,
+             fs: &str,
+             buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+             depth: wgpu::DepthStencilState,
+             write_mask: wgpu::ColorWrites| blended(label, vs, fs, buffers, depth, write_mask, None, false);
         let depth_format = depth_format(device);
         let depth = |write: bool, compare: wgpu::CompareFunction, bias: wgpu::DepthBiasState| wgpu::DepthStencilState {
             format: depth_format,
@@ -539,6 +564,7 @@ impl Renderer {
             depth(false, nearer, face_bias),
             all,
             Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
         );
         // Every fragment left flips the stencil: an odd count, the ray meets the plane inside
         // a part.
@@ -577,14 +603,28 @@ impl Renderer {
             depth(true, nearer, Default::default()),
             all,
         );
-        let lines = pipeline("lines", "vs_line", "fs_line", &[Some(line_layout.clone())], depth(true, nearer, Default::default()), all);
-        let overlay = pipeline(
+        // Infinite lines (here and in the overlay) reach past the parallel projection's depth
+        // range: clamped to it, where the device can.
+        let unclipped = device.features().contains(wgpu::Features::DEPTH_CLIP_CONTROL);
+        let lines = blended(
+            "lines",
+            "vs_line",
+            "fs_line",
+            &[Some(line_layout.clone())],
+            depth(true, nearer, Default::default()),
+            all,
+            None,
+            unclipped,
+        );
+        let overlay = blended(
             "overlay",
             "vs_line",
             "fs_line",
             &[Some(line_layout)],
             depth(false, wgpu::CompareFunction::Always, Default::default()),
             all,
+            None,
+            unclipped,
         );
 
         Renderer {
@@ -812,11 +852,12 @@ impl Renderer {
 
         // Lines: grid and axes, depth-tested lines, then the overlay.
         let mut lv = Vec::new();
-        let line_half = LINE_WIDTH * frame.pixels_per_point / 2.0;
+        let ppp = frame.pixels_per_point;
+        let line_half = LINE_WIDTH * ppp / 2.0;
         push_scene_lines(&mut lv, frame);
         let tested = lv.len() as u32;
         for l in frame.overlay {
-            push_line(&mut lv, &frame.view, l, line_half);
+            push_line(&mut lv, &frame.view, l, line_half, ppp);
         }
         self.line_vertices.write(device, queue, bytemuck::cast_slice(&lv));
 
@@ -1063,6 +1104,10 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
             h.v(l.a);
             h.v(l.b);
             h.fs(&l.color);
+            match l.dash {
+                Some(d) => h.fs(&[1.0, d.length, d.phase]),
+                None => 0u8.hash(&mut h.0),
+            }
         }
     }
     match frame.grid {
@@ -1152,19 +1197,23 @@ fn silhouette_edges(m: &Mesh) -> Vec<SilhouetteEdge> {
 }
 
 /// A world line, in camera coordinates (subtracted in `f64`), `half` pixels on each side.
-fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, half: f32) {
+/// `ppp`: pixels per point (dashes are in points).
+fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, half: f32, ppp: f32) {
     let a = view.transform_point3(l.a).as_vec3().to_array();
     let b = view.transform_point3(l.b).as_vec3().to_array();
-    out.extend(QUAD.map(|[end, side]| LineVertex { a, b, corner: [end, side, half], color: l.color }));
+    let dash = l.dash.map_or([0.0, 0.0], |d| [2.0 * d.length * ppp, d.phase * ppp]);
+    out.extend(QUAD.map(|[end, side]| LineVertex { a, b, corner: [end, side, half], color: l.color, dash }));
 }
 
-/// SketchUp's axis colours (linear).
+/// SketchUp's axis colours (linear), the positive halves'; the negative ones are drawn at
+/// [`AXIS_NEGATIVE_ALPHA`].
 pub const AXIS_X: [f32; 4] = [0.85, 0.05, 0.05, 1.0];
 pub const AXIS_Y: [f32; 4] = [0.05, 0.6, 0.05, 1.0];
 pub const AXIS_Z: [f32; 4] = [0.05, 0.1, 0.85, 1.0];
+pub const AXIS_NEGATIVE_ALPHA: f32 = 0.35;
 
 fn push_scene_lines(out: &mut Vec<LineVertex>, frame: &Frame<'_>) {
-    // Grid and axes in the context's frame (composed in f64, so far frames stay exact).
+    // The grid in the context's frame (composed in f64, so far frames stay exact).
     let v = &(frame.view * frame.axes_frame);
     let ppp = frame.pixels_per_point;
     let (grid_half, line_half) = (GRID_WIDTH * ppp / 2.0, LINE_WIDTH * ppp / 2.0);
@@ -1178,19 +1227,12 @@ fn push_scene_lines(out: &mut Vec<LineVertex>, frame: &Frame<'_>) {
             let t = i as f64 * g.spacing;
             let alpha = if i % 10 == 0 { 0.30 } else { 0.12 };
             let c = [0.3, 0.3, 0.3, alpha];
-            push_line(out, v, &Line { a: DVec3::new(-ext, t, 0.0), b: DVec3::new(ext, t, 0.0), color: c }, grid_half);
-            push_line(out, v, &Line { a: DVec3::new(t, -ext, 0.0), b: DVec3::new(t, ext, 0.0), color: c }, grid_half);
-        }
-    }
-    if frame.axes {
-        let ext = frame.grid.map_or(1e4, |g| g.spacing * g.count as f64);
-        for (dir, c) in [(DVec3::X, AXIS_X), (DVec3::Y, AXIS_Y), (DVec3::Z, AXIS_Z)] {
-            push_line(out, v, &Line { a: DVec3::ZERO, b: dir * ext, color: c }, line_half);
-            push_line(out, v, &Line { a: DVec3::ZERO, b: -dir * ext, color: [c[0], c[1], c[2], 0.35] }, line_half);
+            push_line(out, v, &Line { a: DVec3::new(-ext, t, 0.0), b: DVec3::new(ext, t, 0.0), color: c, dash: None }, grid_half, ppp);
+            push_line(out, v, &Line { a: DVec3::new(t, -ext, 0.0), b: DVec3::new(t, ext, 0.0), color: c, dash: None }, grid_half, ppp);
         }
     }
     for l in frame.lines {
-        push_line(out, &frame.view, l, line_half);
+        push_line(out, &frame.view, l, line_half, ppp);
     }
 }
 

@@ -28,11 +28,21 @@ pub struct Display {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<Section>,
     pub section_active: bool,
+    /// The construction guides (§6 quinquies): drawn, inferred on and picked only when shown.
+    pub guides: bool,
 }
 
 impl Default for Display {
     fn default() -> Self {
-        Display { grid: false, axes: true, background: [246, 247, 249], silhouettes: true, section: None, section_active: false }
+        Display {
+            grid: false,
+            axes: true,
+            background: [246, 247, 249],
+            silhouettes: true,
+            section: None,
+            section_active: false,
+            guides: true,
+        }
     }
 }
 

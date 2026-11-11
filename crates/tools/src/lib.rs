@@ -5,6 +5,7 @@
 
 pub mod camera;
 mod editor;
+pub mod guides;
 pub mod infer;
 pub mod scene;
 pub mod tools;
@@ -16,7 +17,7 @@ mod tests;
 pub use camera::{Camera, Projection, Ray, StandardView, ViewArea};
 pub use editor::{Editor, Look, Mark, View, ViewHighlight, ViewPlacement};
 pub use infer::{EdgeRef, InferKind, Inference, LineKind};
-pub use scene::{DefinitionMesh, DisplayScene, Hit, Owner, PartMesh, Piece, Placement, RecipeMeshes, RecipeTool};
+pub use scene::{DefinitionMesh, DisplayScene, Hit, Owner, PartMesh, Piece, Placement, RecipeMeshes, RecipeTool, SceneGuide};
 pub use tools::{
     Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PreviewLabel, PreviewLine, ToolInput, ToolKind, ToolOption,
 };

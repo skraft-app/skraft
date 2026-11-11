@@ -123,7 +123,11 @@ fn typed_expressions_lists_and_points() {
     let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
     assert!((lo.z + 30.0).abs() < 1e-6 && hi.z.abs() < 1e-6, "{lo} {hi}");
 
-    // A typed point: absolute, then relative to the start.
+    // A typed point: absolute, then relative to the start. The axes hidden: the cursor would
+    // take the red one, a few pixels off.
+    let mut s = e.document().settings().clone();
+    s.display.axes = false;
+    e.apply(Operation::SetSettings(s)).unwrap();
     e.set_tool(ToolKind::Select);
     click(&mut e, DVec3::new(300.0, 300.0, 100.0));
     e.set_tool(ToolKind::Move);
@@ -1457,4 +1461,274 @@ fn exact_sizes_of_tools_and_blanks() {
     e.enter(rod);
     assert!(!e.showing_machinings());
     assert!(near(e.scene().bounds_of(&tool), DVec3::new(-4.0, -4.0, 0.0), DVec3::new(4.0, 4.0, 30.0)), "{:?}", e.scene().bounds_of(&tool));
+}
+
+#[test]
+fn the_tape_measures_and_draws_guides() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
+    let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 100.0, height: 50.0 };
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
+    let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
+    e.set_tool(ToolKind::Measure);
+    assert!(e.vcb().is_none());
+
+    // From a corner to the opposite one: the length, and nothing added.
+    click(&mut e, DVec3::new(0.0, 0.0, 100.0));
+    hover(&mut e, DVec3::new(300.0, 200.0, 100.0));
+    assert_eq!(e.vcb(), Some(("Longueur".into(), "360,56 mm".into())));
+    assert_eq!(e.labels().len(), 1, "the length written on the segment");
+    click(&mut e, DVec3::new(300.0, 200.0, 100.0));
+    assert!(e.vcb().is_none(), "the second click ends the measure");
+    assert!(guides(&e).is_empty());
+
+    // From an edge: a parallel guide through the point clicked next, the offset shown.
+    click(&mut e, DVec3::new(300.0, 50.0, 100.0));
+    hover(&mut e, DVec3::new(420.0, 120.0, 100.0));
+    assert_eq!(e.vcb(), Some(("Décalage".into(), "120 mm".into())));
+    // The offset runs from the point clicked, square to the edge, to the guide.
+    let l = &e.labels()[0];
+    assert!(close(l.a, DVec3::new(300.0, 50.0, 100.0)) && close(l.b, DVec3::new(420.0, 50.0, 100.0)), "{} {}", l.a, l.b);
+    // Along the red axis, whatever the cursor snaps to: red.
+    assert_eq!(l.color, crate::tools::RED);
+    click(&mut e, DVec3::new(420.0, 120.0, 100.0));
+    let [GuideShape::Line { origin, dir }] = guides(&e)[..] else { panic!("{:?}", guides(&e)) };
+    assert!((origin.x - 420.0).abs() < 1e-3 && (origin.z - 100.0).abs() < 1e-3 && dir.cross(DVec3::Y).length() < 1e-9, "{origin} {dir}");
+    assert!(!e.view().guides.is_empty(), "drawn");
+
+    // Typed: the offset towards the cursor's side.
+    click(&mut e, DVec3::new(300.0, 50.0, 100.0));
+    hover(&mut e, DVec3::new(400.0, 150.0, 100.0));
+    e.input(ToolInput::Vcb("50".into()));
+    let GuideShape::Line { origin, .. } = guides(&e)[1] else { panic!() };
+    assert!(close(origin, DVec3::new(350.0, 50.0, 100.0)), "{origin}");
+
+    // From an arc: a concentric circle, in its plane.
+    let a = 45f64.to_radians();
+    let radial = DVec3::new(a.cos(), a.sin(), 0.0);
+    let c = DVec3::new(600.0, 600.0, 50.0);
+    click(&mut e, c + radial * 100.0);
+    // The offset runs along the radius through the cursor.
+    hover(&mut e, c + DVec3::new(0.0, 250.0, 0.0));
+    let l = &e.labels()[0];
+    assert_eq!(l.color, crate::tools::GREEN, "along green");
+    assert!(close(l.a, c + DVec3::new(0.0, 100.0, 0.0)) && close(l.b, c + DVec3::new(0.0, 250.0, 0.0)), "{} {}", l.a, l.b);
+    hover(&mut e, c + radial * 160.0);
+    assert_eq!(e.vcb(), Some(("Décalage".into(), "60 mm".into())));
+    hover(&mut e, c + radial * 300.0);
+    assert_eq!(e.labels()[0].color, crate::tools::INK, "askew: ink");
+    e.input(ToolInput::Vcb("20".into()));
+    let GuideShape::Circle { center, normal, radius } = guides(&e)[2] else { panic!("{:?}", guides(&e)) };
+    assert!(close(center, c) && normal.cross(DVec3::Z).length() < 1e-9 && (radius - 120.0).abs() < 1e-3, "{center} {normal} {radius}");
+    // Inwards, past the centre: refused.
+    click(&mut e, c + radial * 100.0);
+    hover(&mut e, c + radial * 40.0);
+    e.input(ToolInput::Vcb("150".into()));
+    assert_eq!(e.status(), "Le cercle n'aurait plus de rayon : pas de guide");
+    assert_eq!(guides(&e).len(), 3);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+
+    // Undone like any change.
+    e.undo();
+    assert_eq!(guides(&e).len(), 2);
+
+    // The copy modifier turns guides off: an edge is then measured from.
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    click(&mut e, DVec3::new(300.0, 50.0, 100.0));
+    assert_eq!(e.vcb().map(|v| v.0), Some("Longueur".into()));
+}
+
+#[test]
+fn a_guide_drawn_in_an_open_part_is_the_part_s() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::new(100.0, 100.0, 0.0), DVec3::new(400.0, 300.0, 0.0), "50");
+    e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(200.0, 200.0, 50.0)), mods: Modifiers::default() });
+    assert_eq!(e.open_part(), Some(a));
+    e.set_tool(ToolKind::Measure);
+    click(&mut e, DVec3::new(400.0, 150.0, 50.0));
+    hover(&mut e, DVec3::new(450.0, 150.0, 50.0));
+    e.input(ToolInput::Vcb("25".into()));
+    let doc = e.document();
+    assert!(doc.component(doc.root()).unwrap().guides.is_empty());
+    let part = doc.resolve(&EntityPath::root(a)).unwrap().component;
+    // In the part's axes: its blank starts at its origin, the occurrence at (100, 100, 0).
+    let [GuideShape::Line { origin, .. }] = doc.component(part).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>()[..] else {
+        panic!()
+    };
+    assert!((origin.x - 325.0).abs() < 1e-3 && (origin.z - 50.0).abs() < 1e-3, "{origin}");
+    let v = e.view();
+    assert!(!v.guides.is_empty() && v.faded_guides.is_empty());
+    // Closed, the part's guide is outside the context: faded.
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    e.set_tool(ToolKind::Select);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!(e.open_part(), None);
+    let v = e.view();
+    assert!(v.guides.is_empty() && !v.faded_guides.is_empty());
+}
+
+fn hover(e: &mut Editor, p: DVec3) {
+    let at = px(e, p);
+    e.input(ToolInput::Hover { px: at });
+}
+
+#[test]
+fn the_tape_starts_a_guide_from_a_guide() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let line = GuideShape::Line { origin: DVec3::new(0.0, -300.0, 0.0), dir: DVec3::X };
+    e.apply(Operation::AddGuide { component: root, shape: line }).unwrap();
+    let circle = GuideShape::Circle { center: DVec3::new(400.0, 400.0, 0.0), normal: DVec3::Z, radius: 150.0 };
+    e.apply(Operation::AddGuide { component: root, shape: circle }).unwrap();
+    e.set_tool(ToolKind::Measure);
+    // From the guide line: a parallel one.
+    click(&mut e, DVec3::new(-200.0, -300.0, 0.0));
+    hover(&mut e, DVec3::new(-200.0, -200.0, 0.0));
+    e.input(ToolInput::Vcb("40".into()));
+    let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
+    let GuideShape::Line { origin, dir } = guides(&e)[2] else { panic!("{:?}", guides(&e)) };
+    assert!((origin.y + 260.0).abs() < 1e-3 && dir.cross(DVec3::X).length() < 1e-9, "{origin}");
+    // From the guide circle: a concentric one.
+    click(&mut e, DVec3::new(400.0, 550.0, 0.0));
+    hover(&mut e, DVec3::new(400.0, 700.0, 0.0));
+    e.input(ToolInput::Vcb("50".into()));
+    let GuideShape::Circle { radius, .. } = guides(&e)[3] else { panic!("{:?}", guides(&e)) };
+    assert!((radius - 200.0).abs() < 1e-6, "{radius}");
+}
+
+#[test]
+fn guides_are_selected_moved_copied_and_erased() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 200.0, 0.0), "50");
+    e.select(vec![]);
+    let line = GuideShape::Line { origin: DVec3::new(0.0, -300.0, 0.0), dir: DVec3::X };
+    let g = e.apply(Operation::AddGuide { component: root, shape: line }).unwrap().unwrap().guide.unwrap();
+    let circle = GuideShape::Circle { center: DVec3::new(-500.0, 500.0, 0.0), normal: DVec3::Z, radius: 100.0 };
+    let c = e.apply(Operation::AddGuide { component: root, shape: circle }).unwrap().unwrap().guide.unwrap();
+    let guides = |e: &Editor| e.document().component(root).unwrap().guides.clone();
+    let none = Modifiers::default();
+    e.set_tool(ToolKind::Select);
+
+    // A click near a guide takes it; hovered then selected, drawn so.
+    hover(&mut e, DVec3::new(100.0, -303.0, 0.0));
+    assert!(!e.view().hovered_guides.is_empty());
+    click(&mut e, DVec3::new(100.0, -303.0, 0.0));
+    assert_eq!(e.selection(), &[g]);
+    assert!(!e.view().selected_guides.is_empty());
+    // Select all takes the guides too.
+    e.select_all();
+    assert_eq!(e.selection(), &[a, g, c]);
+
+    // A window around the circle takes it alone; a crossing over the line, it and the box.
+    drag(&mut e, DVec3::new(-650.0, 650.0, 0.0), DVec3::new(-350.0, 350.0, 0.0), none);
+    assert_eq!(e.selection(), &[c]);
+    drag(&mut e, DVec3::new(150.0, -350.0, 0.0), DVec3::new(50.0, 100.0, 0.0), none);
+    assert_eq!(e.selection(), &[a, g]);
+
+    // Moved with the box: 100 along green.
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(0.0, 0.0, 50.0));
+    hover(&mut e, DVec3::new(0.0, 100.0, 50.0));
+    e.input(ToolInput::Vcb("100".into()));
+    let GuideShape::Line { origin, .. } = guides(&e)[0].shape else { panic!() };
+    assert!((origin.y + 200.0).abs() < 1e-6, "{origin}");
+
+    // Copied alone: the copy is selected after.
+    e.select(vec![g]);
+    e.set_copy(true);
+    e.input(ToolInput::Key { key: Key::Copy, mods: none });
+    e.set_copy(false);
+    click(&mut e, DVec3::new(0.0, -200.0, 0.0));
+    hover(&mut e, DVec3::new(0.0, -100.0, 0.0));
+    e.input(ToolInput::Vcb("50".into()));
+    assert_eq!(guides(&e).len(), 3, "{:?}", guides(&e));
+
+    // Erased with Delete; then all of them with Edit › Delete guides.
+    e.set_tool(ToolKind::Select);
+    e.select(vec![g]);
+    e.delete_selection();
+    assert_eq!(guides(&e).len(), 2);
+    e.delete_guides();
+    assert!(guides(&e).is_empty());
+    e.undo();
+    assert_eq!(guides(&e).len(), 2);
+
+    // Hidden: not drawn, picked nor inferred on; dropped from the selection.
+    e.select_all();
+    let mut s = e.document().settings().clone();
+    s.display.guides = false;
+    e.apply(Operation::SetSettings(s)).unwrap();
+    assert_eq!(e.selection(), &[a]);
+    let v = e.view();
+    assert!(v.guides.is_empty() && v.selected_guides.is_empty());
+    e.set_tool(ToolKind::Box);
+    hover(&mut e, DVec3::new(-400.0, 503.0, 0.0));
+    assert_ne!(e.inference().map(|i| i.1), Some(crate::InferKind::OnGuide));
+}
+
+#[test]
+fn an_open_part_s_guides_are_its_own_to_select() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 0.0), "50");
+    let part = e.document().resolve(&EntityPath::root(a)).unwrap().component;
+    let line = GuideShape::Line { origin: DVec3::new(0.0, 100.0, 50.0), dir: DVec3::X };
+    let g = e.apply(Operation::AddGuide { component: part, shape: line }).unwrap().unwrap().guide.unwrap();
+    // Closed: the part's guide is not the context's.
+    e.select(vec![]);
+    click(&mut e, DVec3::new(200.0, 103.0, 50.0));
+    assert_eq!(e.selection(), &[a], "the box, not its guide");
+    // Open: its guide is taken, and erased from the part.
+    e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(200.0, 200.0, 50.0)), mods: Modifiers::default() });
+    assert_eq!(e.open_part(), Some(a));
+    click(&mut e, DVec3::new(200.0, 103.0, 50.0));
+    assert_eq!(e.selection(), &[g]);
+    e.delete_selection();
+    assert!(e.document().component(part).unwrap().guides.is_empty());
+}
+
+#[test]
+fn a_guide_from_a_level_edge_is_offset_level_in_the_void() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
+    e.select(vec![]);
+    // Seen askew: the top front edge is clicked where its front face is.
+    let area = crate::camera::ViewArea::full(e.viewport_size());
+    e.camera.set_standard_view(StandardView::Iso, Some((DVec3::splat(-500.0), DVec3::splat(500.0))), area);
+    e.set_tool(ToolKind::Measure);
+    let on_edge = e.camera.project(DVec3::new(90.0, 0.0, 100.0), e.viewport_size()).unwrap() + DVec2::new(0.0, 1.0);
+    e.input(ToolInput::Hover { px: on_edge });
+    e.input(ToolInput::Click { px: on_edge, mods: Modifiers::default() });
+    assert_eq!(e.vcb().map(|v| v.0), Some("Décalage".into()), "{}", e.status());
+    // The void in front of the box: the guide stays at the edge's height.
+    hover(&mut e, DVec3::new(160.0, -200.0, 100.0));
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(160.0, -200.0, 100.0)), mods: Modifiers::default() });
+    let [g] = &e.document().component(root).unwrap().guides[..] else { panic!() };
+    let GuideShape::Line { origin, dir } = g.shape else { panic!() };
+    assert!((origin.z - 100.0).abs() < 1e-3 && (origin.y + 200.0).abs() < 1e-3, "{origin}");
+    assert!(dir.cross(DVec3::X).length() < 1e-9);
+}
+
+#[test]
+fn the_tape_draws_a_guide_from_an_axis() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    e.set_tool(ToolKind::Measure);
+    // On the red axis, in the void: a guide along it, offset level.
+    click(&mut e, DVec3::new(-300.0, 4.0, 0.0));
+    hover(&mut e, DVec3::new(-300.0, 150.0, 0.0));
+    e.input(ToolInput::Vcb("100".into()));
+    let [g] = &e.document().component(root).unwrap().guides[..] else { panic!("{}", e.status()) };
+    let GuideShape::Line { origin, dir } = g.shape else { panic!() };
+    assert!((origin.y - 100.0).abs() < 1e-6 && origin.z.abs() < 1e-6 && dir.cross(DVec3::X).length() < 1e-9, "{origin} {dir}");
 }

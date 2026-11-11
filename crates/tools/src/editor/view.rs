@@ -5,6 +5,7 @@ use glam::{DAffine3, DVec3};
 use solidsketch_model::{Id, Section};
 
 use super::Editor;
+use crate::guides::Stroke;
 use crate::infer::InferKind;
 use crate::scene::{solids_under, transform_bounds};
 use crate::tools::{self, Marquee, PreviewLine};
@@ -77,6 +78,21 @@ pub struct View {
     /// The same box for the part open or the assembly being edited, grown by a few pixels
     /// (drawn in grey).
     pub context_box: Vec<(DVec3, DVec3)>,
+    /// The guides of the active context (ARCHITECTURE.md §6 quinquies), as strokes the app
+    /// draws dashed and depth-tested.
+    pub guides: Vec<Stroke>,
+    /// Those of the other components, and of the open part's other occurrences (faded).
+    pub faded_guides: Vec<Stroke>,
+    /// The selected guides, where they are or where a move puts them.
+    pub selected_guides: Vec<Stroke>,
+    /// The guide under the cursor, or those the selection rectangle would take.
+    pub hovered_guides: Vec<Stroke>,
+    /// The guides a tool previews, drawn over everything, with their colour.
+    pub overlay_guides: Vec<(Stroke, [f32; 4])>,
+    /// The axes of the context (its frame's), as far as the view shows them: per axis, its
+    /// positive half and its negative half (world segments, `None` out of view). The app draws
+    /// them when they are shown.
+    pub axes: [[Option<(DVec3, DVec3)>; 2]; 3],
 }
 
 /// How far the box of the assembly being edited stands off its content, in pixels.
@@ -277,6 +293,33 @@ impl Editor {
         if let Some(b) = self.context_bounds() {
             self.dashed_box(&mut v.context_box, b);
         }
+        // The guides: the active context's (the open part's occurrence, else the context) —
+        // selected, hovered or not —, and the others faded.
+        let active: Vec<Id> = self.context.iter().copied().chain(self.open_part).collect();
+        let hovered = |id: Id| preview.hover == Some(id) || preview.marquee.as_ref().is_some_and(|m| m.hits.contains(&id));
+        for g in self.scene.guides() {
+            let dashes = |shape: &solidsketch_model::GuideShape| crate::guides::strokes(&self.camera, self.size, shape);
+            if g.path != active {
+                v.faded_guides.extend(dashes(&g.shape));
+                continue;
+            }
+            let selected = self.selection.contains(&g.id);
+            if selected && let Some(t) = preview.ghost {
+                v.selected_guides.extend(dashes(&g.shape.transformed(&t)));
+                if !hide_original {
+                    v.guides.extend(dashes(&g.shape));
+                }
+                continue;
+            }
+            let out = if selected {
+                &mut v.selected_guides
+            } else if hovered(g.id) {
+                &mut v.hovered_guides
+            } else {
+                &mut v.guides
+            };
+            out.extend(dashes(&g.shape));
+        }
         let listed = self.listed_hover.filter(|_| recipe.is_some());
         if let Some(h) = listed.or(preview.hover).filter(|h| !self.selection.contains(h)) {
             mark(&mut v.highlights, &self.context, h, Mark::Hover, DAffine3::IDENTITY);
@@ -313,6 +356,15 @@ impl Editor {
             }
         }
         v.overlay = preview.lines;
+        v.overlay_guides = preview.guides;
+        // The axes, across the view.
+        let frame = self.axes_transform();
+        for (k, halves) in v.axes.iter_mut().enumerate() {
+            let dir = frame.matrix3.col(k);
+            for (half, range) in halves.iter_mut().zip([(0.0, f64::INFINITY), (f64::NEG_INFINITY, 0.0)]) {
+                *half = crate::guides::visible_line(&self.camera, self.size, frame.translation, dir, range);
+            }
+        }
         // Guides from tracked points, dashed (the tools draw those from their start point).
         if let Some(i) = &preview.inference {
             let color = tools::guide_color(i.kind);

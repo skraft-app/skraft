@@ -35,6 +35,12 @@ pub struct Viewport {
     size: [u32; 2],
 }
 
+/// `c` mixed with the background by `fade` (what is outside the context being edited).
+fn faded(c: Rgba, background: [f32; 3], fade: f32) -> Rgba {
+    let mix = |k: usize| c[k] + (background[k] - c[k]) * fade;
+    [mix(0), mix(1), mix(2), c[3]]
+}
+
 /// What the copy modifier is on this platform (SketchUp: Option on macOS, Ctrl elsewhere).
 pub fn modifiers(ctx: &egui::Context, m: egui::Modifiers) -> Modifiers {
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
@@ -281,9 +287,29 @@ impl Viewport {
                 }
             })
             .collect();
-        let overlay: Vec<render::Line> = view.overlay.iter().map(|l| render::Line { a: l.a, b: l.b, color: l.color }).collect();
-        let lines: Vec<render::Line> = (view.selection_boxes.iter().map(|&(a, b)| render::Line { a, b, color: theme.selected.edge }))
-            .chain(view.context_box.iter().map(|&(a, b)| render::Line { a, b, color: theme.context_box }))
+        let plain = |a, b, color| render::Line { a, b, color, dash: None };
+        // A guide's stroke, dashed by the renderer.
+        let dashed = |s: &solidsketch_tools::guides::Stroke, color| render::Line {
+            a: s.a,
+            b: s.b,
+            color,
+            dash: Some(render::Dash { length: solidsketch_tools::guides::DASH_PX as f32, phase: s.phase as f32 }),
+        };
+        let overlay: Vec<render::Line> =
+            (view.overlay.iter().map(|l| plain(l.a, l.b, l.color))).chain(view.overlay_guides.iter().map(|(s, c)| dashed(s, *c))).collect();
+        // An open part always shows its axes (ARCHITECTURE.md §2.9).
+        let axes = display.axes || editor.open_part().is_some();
+        let axis_lines = view.axes.iter().zip([render::AXIS_X, render::AXIS_Y, render::AXIS_Z]).flat_map(|(halves, c)| {
+            let negative = [c[0], c[1], c[2], render::AXIS_NEGATIVE_ALPHA];
+            halves.iter().zip([c, negative]).filter_map(|(h, c)| h.map(|(a, b)| plain(a, b, c)))
+        });
+        let lines: Vec<render::Line> = (view.selection_boxes.iter().map(|&(a, b)| plain(a, b, theme.selected.edge)))
+            .chain(axis_lines.filter(|_| axes))
+            .chain(view.context_box.iter().map(|&(a, b)| plain(a, b, theme.context_box)))
+            .chain(view.guides.iter().map(|s| dashed(s, theme.guide)))
+            .chain(view.faded_guides.iter().map(|s| dashed(s, faded(theme.guide, background, theme.fade))))
+            .chain(view.hovered_guides.iter().map(|s| dashed(s, theme.hover.edge)))
+            .chain(view.selected_guides.iter().map(|s| dashed(s, theme.selected.edge)))
             .collect();
 
         let aspect = size[0] as f64 / size[1] as f64;
@@ -309,8 +335,7 @@ impl Viewport {
             lines: &lines,
             overlay: &overlay,
             grid: display.grid.then(|| grid_for(cam.focus)),
-            // An open part always shows its axes (ARCHITECTURE.md §2.9).
-            axes: display.axes || editor.open_part().is_some(),
+            axes,
             axes_frame: DMat4::from(editor.axes_transform()),
             pixels_per_point,
         };
@@ -459,7 +484,7 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
             painter.circle(at, 6.0, rgb(InferKind::OnLine(second)), outline);
             painter.circle(at, 3.0, rgb(kind), Stroke::NONE);
         }
-        InferKind::OnEdgeAndLine(_) => {
+        InferKind::OnEdgeAndLine(_) | InferKind::OnGuideAndLine(_) | InferKind::OnGuideAndEdge | InferKind::OnTwoGuides => {
             // The edge's square, in the line's colour.
             let [r, g, b, _] = solidsketch_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
             let square = egui::Rect::from_center_size(at, vec2(9.0, 9.0));
@@ -474,7 +499,7 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
             let pts = vec![at + vec2(0.0, -d), at + vec2(d, 0.0), at + vec2(0.0, d), at + vec2(-d, 0.0)];
             painter.add(egui::Shape::convex_polygon(pts, color(theme.on_face), outline));
         }
-        InferKind::OnLine(_) => {
+        InferKind::OnLine(_) | InferKind::OnGuide => {
             let [r, g, b, _] = solidsketch_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
             painter.circle(at, 4.0, Color32::from_rgb(r, g, b), outline);
         }

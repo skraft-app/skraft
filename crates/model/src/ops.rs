@@ -20,7 +20,9 @@ use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Task};
 
-use crate::document::{Assembly, ComponentKind, Document, EntityPath, Id, Machining, MachiningSource, Material, Occurrence, Part};
+use crate::document::{
+    Assembly, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Machining, MachiningSource, Material, Occurrence, Part,
+};
 use crate::settings::Settings;
 use crate::{Error, Refusal, Result};
 
@@ -58,7 +60,8 @@ fn identity() -> DAffine3 {
 }
 
 /// Every change to a document. `context` is always the id of the assembly being edited, and
-/// `entities` occurrences of it.
+/// `entities` occurrences of it — or its guides (§6 quinquies), which removing, moving,
+/// copying and grouping take too, as the operations on machinings take the part's.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Operation {
     /// A new part built from a primitive, and its first occurrence in `context`: the blank in
@@ -164,6 +167,9 @@ pub enum Operation {
     /// Paints faces of a part's shape, by their index in its record (every occurrence of the
     /// part shows it; `None`: they take the occurrence's material again).
     PaintFaces { part: Id, faces: Vec<u32>, material: Option<Id> },
+    /// A construction guide added to `component` (a part or an assembly), in its axes
+    /// (ARCHITECTURE.md §6 quinquies). Every occurrence shows it; no scope.
+    AddGuide { component: Id, shape: GuideShape },
 }
 
 impl Operation {
@@ -193,6 +199,7 @@ impl Operation {
             Operation::TransformMachinings { .. } => t!("operation.transform"),
             Operation::DuplicateMachinings { .. } => t!("operation.duplicate"),
             Operation::ArrayMachinings { .. } => t!("operation.array"),
+            Operation::AddGuide { .. } => t!("operation.add_guide"),
         }
     }
 
@@ -219,6 +226,8 @@ pub struct Outcome {
     pub machinings: Vec<Id>,
     /// The material created.
     pub material: Option<Id>,
+    /// The guide created, in the operation's component.
+    pub guide: Option<Id>,
 }
 
 /// An operation applied: the new document, what it created, and the displays the kernel made
@@ -322,6 +331,8 @@ impl Document {
                 if let Some(m) = material {
                     self.material(*m)?;
                 }
+                // Guides take no paint.
+                let (_, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
                 for o in &mut self.assembly_mut(*context)?.occurrences {
                     if entities.contains(&o.id) {
@@ -347,6 +358,15 @@ impl Document {
                 }
                 Ok(Outcome::default())
             }
+            Operation::AddGuide { component, shape } => {
+                self.component(*component)?;
+                if !shape.is_valid() {
+                    return Err(Error::Invalid(Refusal::BadGuide));
+                }
+                let id = self.fresh_id();
+                self.component_mut(*component)?.guides.push(Guide { id, shape: *shape });
+                Ok(Outcome { guide: Some(id), ..Outcome::default() })
+            }
             Operation::AddPrimitive { context, primitive, placement } => {
                 self.assembly(*context)?;
                 if !is_rigid(placement) {
@@ -370,20 +390,24 @@ impl Document {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
+                let (guides, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
                 for o in &mut self.assembly_mut(*context)?.occurrences {
                     if entities.contains(&o.id) {
                         o.transform = *transform * o.transform;
                     }
                 }
+                self.move_guides(*context, guides, transform)?;
                 Ok(Outcome::default())
             }
             Operation::Duplicate { context, entities, transform } => {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
+                let (guides, entities) = &self.split_guides(*context, entities)?;
                 let sources = self.occurrences_of(*context, entities)?;
-                let created = self.add_copies(*context, &sources, transform)?;
+                let mut created = self.add_copies(*context, &sources, transform)?;
+                created.extend(self.copy_guides(*context, guides, &[*transform])?);
                 Ok(Outcome { created, ..Outcome::default() })
             }
             Operation::Array { context, entities, step, count } => {
@@ -393,18 +417,24 @@ impl Document {
                 if !is_rigid(step) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
+                let (guides, entities) = &self.split_guides(*context, entities)?;
                 let sources = self.occurrences_of(*context, entities)?;
                 let mut at = DAffine3::IDENTITY;
                 let mut created = Vec::new();
+                let mut steps = Vec::new();
                 for _ in 0..*count {
                     at = *step * at;
                     created.extend(self.add_copies(*context, &sources, &at)?);
+                    steps.push(at);
                 }
+                created.extend(self.copy_guides(*context, guides, &steps)?);
                 Ok(Outcome { created, ..Outcome::default() })
             }
             Operation::Delete { context, entities } => {
+                let (guides, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
                 self.assembly_mut(*context)?.occurrences.retain(|o| !entities.contains(&o.id));
+                self.component_mut(*context)?.guides.retain(|g| !guides.contains(&g.id));
                 Ok(Outcome::default())
             }
             Operation::RenameOccurrence { context, occurrence, name } => {
@@ -428,12 +458,17 @@ impl Document {
                 Ok(Outcome::default())
             }
             Operation::MakeAssembly { context, entities, name } => {
+                // The guides go along, where they stand (the new occurrence is not moved).
+                let (guides, entities) = &self.split_guides(*context, entities)?;
                 if entities.is_empty() {
                     return Err(Error::Invalid(Refusal::EmptyAssembly));
                 }
                 let moved = self.occurrences_of(*context, entities)?;
                 let base = name.clone().unwrap_or_else(|| t!("default_name.assembly"));
                 let assembly = self.insert_component(&base, name.is_some(), ComponentKind::Assembly(Assembly { occurrences: moved }));
+                let taken: Vec<Guide> = self.component(*context)?.guides.iter().filter(|g| guides.contains(&g.id)).cloned().collect();
+                self.component_mut(*context)?.guides.retain(|g| !guides.contains(&g.id));
+                self.component_mut(assembly)?.guides = taken;
                 let id = self.fresh_id();
                 let ctx = self.assembly_mut(*context)?;
                 // The new occurrence stands where the first moved one stood, in the tree.
@@ -453,6 +488,11 @@ impl Document {
                     copies.push(Occurrence { id, transform: o.transform * c.transform, ..c });
                 }
                 let created = copies.iter().map(|c| c.id).collect();
+                // Its guides stay where they were, in the context.
+                let guides = self.component(o.component)?.guides.clone();
+                let guides: Vec<Guide> =
+                    guides.iter().map(|g| Guide { id: self.fresh_id(), shape: g.shape.transformed(&o.transform) }).collect();
+                self.component_mut(*context)?.guides.extend(guides);
                 let ctx = self.assembly_mut(*context)?;
                 let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
                 ctx.occurrences.splice(at..=at, copies);
@@ -463,8 +503,7 @@ impl Document {
                 if self.occurrence_count(o.component) < 2 {
                     return Ok(Outcome::default());
                 }
-                let src = self.component(o.component)?.clone();
-                let copy = self.insert_component(&src.name, src.named, src.kind);
+                let copy = self.copy_component(o.component)?;
                 if let Some(o) = self.assembly_mut(*context)?.occurrence_mut(*occurrence) {
                     o.component = copy;
                 }
@@ -516,32 +555,40 @@ impl Document {
                 Ok(Outcome { machinings: vec![id], ..Outcome::default() })
             }
             Operation::DeleteMachinings { target, machinings, scope } => {
-                let part = self.machined_part(target, machinings, *scope)?;
-                let p = self.part_mut(part)?;
-                p.machinings.retain(|m| !machinings.contains(&m.id));
-                self.recompute(part, None, solver)?;
+                let (part, guides, machinings) = &self.machined_part(target, machinings, *scope)?;
+                self.component_mut(*part)?.guides.retain(|g| !guides.contains(&g.id));
+                if !machinings.is_empty() {
+                    self.part_mut(*part)?.machinings.retain(|m| !machinings.contains(&m.id));
+                    self.recompute(*part, None, solver)?;
+                }
                 Ok(Outcome::default())
             }
             Operation::TransformMachinings { target, machinings, transform, scope } => {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                let part = self.machined_part(target, machinings, *scope)?;
-                for m in &mut self.part_mut(part)?.machinings {
-                    if machinings.contains(&m.id) {
-                        m.placement = *transform * m.placement;
+                let (part, guides, machinings) = self.machined_part(target, machinings, *scope)?;
+                self.move_guides(part, &guides, transform)?;
+                if !machinings.is_empty() {
+                    for m in &mut self.part_mut(part)?.machinings {
+                        if machinings.contains(&m.id) {
+                            m.placement = *transform * m.placement;
+                        }
                     }
+                    self.recompute(part, None, solver)?;
                 }
-                self.recompute(part, None, solver)?;
                 Ok(Outcome::default())
             }
             Operation::DuplicateMachinings { target, machinings, transform, scope } => {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                let part = self.machined_part(target, machinings, *scope)?;
-                let created = self.copy_machinings(part, machinings, &[*transform])?;
-                self.recompute(part, Some(&created), solver)?;
+                let (part, guides, machinings) = self.machined_part(target, machinings, *scope)?;
+                let mut created = self.copy_machinings(part, &machinings, &[*transform])?;
+                if !created.is_empty() {
+                    self.recompute(part, Some(&created), solver)?;
+                }
+                created.extend(self.copy_guides(part, &guides, &[*transform])?);
                 Ok(Outcome { machinings: created, ..Outcome::default() })
             }
             Operation::ArrayMachinings { target, machinings, step, count, scope } => {
@@ -551,30 +598,74 @@ impl Document {
                 if !is_rigid(step) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                let part = self.machined_part(target, machinings, *scope)?;
+                let (part, guides, machinings) = self.machined_part(target, machinings, *scope)?;
                 let steps: Vec<DAffine3> = std::iter::successors(Some(*step), |at| Some(*step * *at)).take(*count as usize).collect();
-                let created = self.copy_machinings(part, machinings, &steps)?;
-                self.recompute(part, Some(&created), solver)?;
+                let mut created = self.copy_machinings(part, &machinings, &steps)?;
+                if !created.is_empty() {
+                    self.recompute(part, Some(&created), solver)?;
+                }
+                created.extend(self.copy_guides(part, &guides, &steps)?);
                 Ok(Outcome { machinings: created, ..Outcome::default() })
             }
         }
     }
 
-    /// The part `target` places, with every machining of `ids` (at least one) in it; made its
-    /// own first under the scope "only this one" (the machinings keep their ids, §2.6).
-    fn machined_part(&mut self, target: &EntityPath, ids: &[Id], scope: Scope) -> Result<Id> {
+    /// The part `target` places, `ids` (at least one) split into its guides and its
+    /// machinings, every one in it; made its own first under the scope "only this one" when
+    /// machinings change (they and the guides keep their ids, §2.6) — guides alone ignore the
+    /// scope (§6 quinquies).
+    fn machined_part(&mut self, target: &EntityPath, ids: &[Id], scope: Scope) -> Result<(Id, Vec<Id>, Vec<Id>)> {
         if ids.is_empty() {
             return Err(Error::Invalid(Refusal::NoMachinings));
         }
         let (part, p, _) = self.resolve_part(target)?;
-        if let Some(&missing) = ids.iter().find(|id| p.machining(**id).is_none()) {
+        let p = p.clone();
+        let (guides, machinings) = self.split_guides(part, ids)?;
+        if let Some(&missing) = machinings.iter().find(|id| p.machining(**id).is_none()) {
             return Err(Error::NotFound(missing));
         }
-        if scope == Scope::This {
+        if scope == Scope::This && !machinings.is_empty() {
             self.separate(target)?;
-            return Ok(self.resolve_part(target)?.0);
+            return Ok((self.resolve_part(target)?.0, guides, machinings));
         }
-        Ok(part)
+        Ok((part, guides, machinings))
+    }
+
+    /// `ids` split into the guides of `component` and the rest, each in the order given.
+    fn split_guides(&self, component: Id, ids: &[Id]) -> Result<(Vec<Id>, Vec<Id>)> {
+        let c = self.component(component)?;
+        Ok(ids.iter().partition(|id| c.guide(**id).is_some()))
+    }
+
+    /// Moves the guides `ids` of `component` by the rigid `t`, in its axes.
+    fn move_guides(&mut self, component: Id, ids: &[Id], t: &DAffine3) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        for g in &mut self.component_mut(component)?.guides {
+            if ids.contains(&g.id) {
+                g.shape = g.shape.transformed(t);
+            }
+        }
+        Ok(())
+    }
+
+    /// Adds to `component`, for each transform of `steps`, a copy of its guides `ids` moved by
+    /// it, with fresh ids; returns them in order.
+    fn copy_guides(&mut self, component: Id, ids: &[Id], steps: &[DAffine3]) -> Result<Vec<Id>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sources: Vec<Guide> = self.component(component)?.guides.iter().filter(|g| ids.contains(&g.id)).cloned().collect();
+        let mut copies = Vec::with_capacity(sources.len() * steps.len());
+        for t in steps {
+            for g in &sources {
+                copies.push(Guide { id: self.fresh_id(), shape: g.shape.transformed(t) });
+            }
+        }
+        let created = copies.iter().map(|g| g.id).collect();
+        self.component_mut(component)?.guides.extend(copies);
+        Ok(created)
     }
 
     /// Adds to `part`, for each transform of `steps`, a copy of its machinings `ids` moved by
@@ -658,8 +749,7 @@ impl Document {
         for &i in path.instances.iter().chain(std::iter::once(&path.entity)) {
             let o = self.assembly(at)?.occurrence(i).ok_or(Error::NotFound(i))?.component;
             let own = if self.occurrence_count(o) > 1 {
-                let src = self.component(o)?.clone();
-                let copy = self.insert_component(&src.name, src.named, src.kind);
+                let copy = self.copy_component(o)?;
                 if let Some(occ) = self.assembly_mut(at)?.occurrence_mut(i) {
                     occ.component = copy;
                 }

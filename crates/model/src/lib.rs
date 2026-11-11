@@ -14,8 +14,8 @@ mod settings;
 mod tests;
 
 pub use document::{
-    Assembly, Component, ComponentKind, Document, EntityPath, Id, MAX_DEPTH, Machining, MachiningSource, Material, Occurrence, Part,
-    PlacedPart,
+    Assembly, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH, Machining, MachiningSource, Material,
+    Occurrence, Part, PlacedGuide, PlacedPart,
 };
 pub use file::{FORMAT, VERSION};
 pub use history::History;
@@ -63,6 +63,8 @@ pub enum Refusal {
     NoSuchFace,
     /// A change to machinings names none.
     NoMachinings,
+    /// A guide with no length or direction, or not finite.
+    BadGuide,
 }
 
 /// A file that cannot be opened.
@@ -79,6 +81,8 @@ pub enum FileError {
     BadComponentId(Id),
     BadMachiningId(Id),
     BadOccurrenceId(Id),
+    /// A guide's id taken twice in its component, past the counter, or a guide not well formed.
+    BadGuide(Id),
     /// A component filed under another id than its own.
     Misfiled {
         id: Id,
@@ -125,6 +129,7 @@ impl std::fmt::Display for Refusal {
             Refusal::SelfBoolean => t!("error.model.self_boolean"),
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
             Refusal::NoMachinings => t!("error.model.no_machinings"),
+            Refusal::BadGuide => t!("error.model.bad_guide"),
         })
     }
 }
@@ -140,6 +145,7 @@ impl std::fmt::Display for FileError {
             FileError::BadComponentId(id) => t!("error.file.bad_component_id", id = id),
             FileError::BadMachiningId(id) => t!("error.file.bad_machining_id", id = id),
             FileError::BadOccurrenceId(id) => t!("error.file.bad_occurrence_id", id = id),
+            FileError::BadGuide(id) => t!("error.file.bad_guide", id = id),
             FileError::Misfiled { id, key } => t!("error.file.misfiled", id = id, key = key),
             FileError::ShapeOutOfStep(id) => t!("error.file.shape_out_of_step", id = id),
             FileError::BadMaterialId(id) => t!("error.file.bad_material_id", id = id),

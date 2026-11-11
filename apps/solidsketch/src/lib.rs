@@ -31,7 +31,22 @@ pub fn native_options() -> eframe::NativeOptions {
     if INTEGRATED_TITLEBAR {
         viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
     }
-    eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, ..Default::default() }
+    eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, wgpu_options: wgpu_options(), ..Default::default() }
+}
+
+/// egui's wgpu setup, the device also asked for the optional features the viewport uses
+/// where the adapter has them ([`solidsketch_render::OPTIONAL_FEATURES`]).
+fn wgpu_options() -> egui_wgpu::WgpuConfiguration {
+    let mut options = egui_wgpu::WgpuConfiguration::default();
+    if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_setup {
+        let base = setup.device_descriptor.clone();
+        setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+            let mut descriptor = base(adapter);
+            descriptor.required_features |= adapter.features() & solidsketch_render::OPTIONAL_FEATURES;
+            descriptor
+        });
+    }
+    options
 }
 
 /// Web entry point: starts the app on the `<canvas id="solidsketch">`.
@@ -47,7 +62,7 @@ pub fn start() {
             .and_then(|d| d.get_element_by_id("solidsketch"))
             .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
             .expect("no <canvas id=\"solidsketch\">");
-        let options = eframe::WebOptions::default();
+        let options = eframe::WebOptions { wgpu_options: wgpu_options(), ..Default::default() };
         let result = eframe::WebRunner::new().start(canvas, options, Box::new(|cc| Ok(Box::new(SolidSketchApp::new(cc))))).await;
         if let Err(e) = result {
             log::error!("SolidSketch failed to start: {e:?}");

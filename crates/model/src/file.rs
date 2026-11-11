@@ -1,7 +1,8 @@
 //! The file format: versioned JSON of the document (docs/ARCHITECTURE.md §8).
 //!
-//! Version 2 is the parts / assemblies model (§2). Version 1 files (free solids, groups and
-//! components) are converted when opened ([`v1`]).
+//! Version 2 is the parts / assemblies model (§2); version 3 adds the components' guides
+//! (§6 quinquies), which version 2 files read without. Version 1 files (free solids, groups
+//! and components) are converted when opened ([`v1`]).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use crate::{Error, FileError, Result};
 /// The `format` field of every SolidSketch file.
 pub const FORMAT: &str = "solidsketch";
 /// The version this build writes, and the newest it reads.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 #[derive(Serialize)]
 struct FileOut<'a> {
@@ -61,8 +62,9 @@ impl Document {
 
     /// The structural invariants a file must keep: the root an assembly, known components, no
     /// cycle, ids below `next_id` — unique in the document for components, within their
-    /// assembly for occurrences and within their part for machinings (§2.6) —, a part's shape
-    /// there exactly when it has machinings, and only its machinings marked failed.
+    /// assembly for occurrences and within their part for machinings (§2.6), guides within
+    /// their component and apart from its occurrences or machinings —, a part's shape there
+    /// exactly when it has machinings, and only its machinings marked failed.
     fn check(&self) -> Result<()> {
         self.assembly(self.root).map_err(|_| Error::File(FileError::RootNotAssembly))?;
         let mut seen = std::collections::HashSet::new();
@@ -87,15 +89,21 @@ impl Document {
                 return Err(Error::File(FileError::Misfiled { id: c.id, key: *key }));
             }
             fresh(c.id, FileError::BadComponentId)?;
+            // A component's guides, apart from its occurrences or machinings.
+            let mut here = std::collections::HashSet::new();
+            for g in &c.guides {
+                if g.id.0 >= self.next_id || !g.shape.is_valid() || !here.insert(g.id) {
+                    return Err(Error::File(FileError::BadGuide(g.id)));
+                }
+            }
             match &c.kind {
                 ComponentKind::Part(p) => {
-                    let mut here = std::collections::HashSet::new();
                     for m in &p.machinings {
                         if m.id.0 >= self.next_id || !here.insert(m.id) {
                             return Err(Error::File(FileError::BadMachiningId(m.id)));
                         }
                     }
-                    if p.failed.iter().any(|id| !here.contains(id)) {
+                    if p.failed.iter().any(|id| !p.machinings.iter().any(|m| m.id == *id)) {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
                     for m in p.faces.values() {
@@ -106,7 +114,6 @@ impl Document {
                     }
                 }
                 ComponentKind::Assembly(a) => {
-                    let mut here = std::collections::HashSet::new();
                     for o in &a.occurrences {
                         below(o.id)?;
                         material(&o.material)?;
@@ -197,14 +204,15 @@ mod v1 {
                             let part = Id(next_id);
                             next_id += 1;
                             let kind = ComponentKind::Part(Part::new(solid));
-                            components.insert(part, Arc::new(Component { id: part, name: unique(&name), named: false, kind }));
+                            let name = unique(&name);
+                            components.insert(part, Arc::new(Component { id: part, name, named: false, kind, guides: Vec::new() }));
                             Occurrence { id, name: String::new(), component: part, transform: DAffine3::IDENTITY, material: None }
                         }
                     });
                 }
                 let named = d.kind != Kind::Group;
                 let kind = ComponentKind::Assembly(Assembly { occurrences });
-                components.insert(d.id, Arc::new(Component { id: d.id, name: d.name, named, kind }));
+                components.insert(d.id, Arc::new(Component { id: d.id, name: d.name, named, kind, guides: Vec::new() }));
             }
             Ok(super::Document { components, root: self.root, next_id, settings: self.settings, materials: Default::default() })
         }

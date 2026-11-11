@@ -34,6 +34,7 @@ common:
   command_palette: "Palette de commandes"
   grid: "Grille"
   axes: "Axes"
+  guides: "Guides"
   silhouettes: "Silhouettes"
   dimensions: "Dimensions"
   height: "Hauteur"
@@ -92,6 +93,7 @@ menu:
     make_assembly: "$t(common.make_assembly)"
     explode: "$t(common.explode)"
     make_unique: "$t(common.make_unique)"
+    delete_guides: "Supprimer les guides"
     select_all: "Tout sélectionner"
     command_palette: "$t(common.command_palette)"
     preferences: "$t(common.preferences)"
@@ -100,6 +102,7 @@ menu:
     parallel: "Projection parallèle"
     grid: "$t(common.grid)"
     axes: "$t(common.axes)"
+    guides: "$t(common.guides)"
     silhouettes: "$t(common.silhouettes)"
     section: "Afficher la coupe"
     section_clear: "Supprimer la coupe"
@@ -168,6 +171,7 @@ prefs:
     display: "Affichage"
     grid: "$t(common.grid)"
     axes: "$t(common.axes)"
+    guides: "$t(common.guides)"
     silhouettes: "$t(common.silhouettes)"
     silhouettes_tip: "Le contour apparent des faces courbes"
     background: "Fond"
@@ -231,6 +235,10 @@ panel:
     type: "Type"
     type_part: "$t(common.part)"
     type_assembly: "$t(common.assembly)"
+    type_guide: "Guide"
+    shape: "Forme"
+    guide_line: "Ligne"
+    guide_circle: "Cercle · rayon %{radius}"
     name: "Nom"
     occurrence: "Exemplaire"
     occurrences: "Exemplaires"
@@ -273,6 +281,7 @@ status:
   display_failed: "Affichage impossible : %{error}"
   unexpected_reply: "réponse inattendue du noyau"
   nothing_to_group: "Sélectionner d'abord ce qu'il faut regrouper"
+  no_guides: "Aucun guide ici"
   # Typing a count after a copy, when the copy was undone or replaced since.
   copy_not_last: "Le dernier pas n'est plus cette copie"
   # In the view, when the GPU cannot draw.
@@ -412,6 +421,22 @@ tool:
       depth: "Déplacer pour enfoncer le plan, ou taper la profondeur ; cliquer pour le poser"
     vcb:
       depth: "Profondeur"
+  measure:
+    name: "Mètre"
+    hint:
+      first: "Cliquer un point pour mesurer, ou une arête ou un arc pour tracer un guide parallèle ou concentrique · %{copy_key} : sans guide"
+      first_measure_only: "Cliquer un point pour mesurer · %{copy_key} : tracer aussi des guides"
+      measure: "Cliquer pour finir la mesure · Échap : recommencer"
+      guide: "Cliquer pour poser le guide, ou taper le décalage · Échap : revenir"
+    vcb:
+      length: "Longueur"
+      offset: "Décalage"
+    option:
+      guides: "Créer des guides"
+      guides_tip: "Partir d'une arête ou d'un arc trace un guide parallèle ou concentrique (%{copy_key} pour basculer)"
+    say:
+      no_offset: "Décalage nul : pas de guide"
+      no_radius: "Le cercle n'aurait plus de rayon : pas de guide"
   # The measurements box refusing what was typed.
   vcb:
     refused: "%{label} — « %{text} » : %{error}"
@@ -427,6 +452,9 @@ infer:
   on_edge: "Sur l'arête"
   on_face: "Sur la face"
   edge: "Arête"
+  # A guide circle inside a crossing: « Guide × axe rouge ».
+  guide: "Guide"
+  on_guide: "Sur le guide"
   axis:
     red: "rouge"
     green: "vert"
@@ -439,6 +467,7 @@ infer:
     perpendicular: "perpendiculaire"
     tangent: "tangente"
     radial: "rayon"
+    guide: "guide"
   # On one line.
   on_line:
     axis: "Sur l'axe %{axis}"
@@ -454,6 +483,7 @@ operation:
   add_part: "$t(common.part)"
   # A shape drawn in an open part: cut from it.
   add_machining: "Usinage"
+  add_guide: "Guide"
   transform: "$t(common.move)"
   duplicate: "$t(common.copy)"
   array: "Réseau"
@@ -525,6 +555,7 @@ error:
     self_boolean: "une pièce ne se combine pas avec elle-même"
     no_such_face: "pas de telle face"
     no_machinings: "aucun usinage désigné"
+    bad_guide: "guide sans direction ou sans rayon"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"
@@ -535,6 +566,7 @@ error:
     bad_component_id: "identifiant de composant %{id} invalide"
     bad_machining_id: "identifiant d'usinage %{id} invalide"
     bad_occurrence_id: "identifiant d'exemplaire %{id} invalide"
+    bad_guide: "guide %{id} invalide"
     misfiled: "composant %{id} rangé sous %{key}"
     shape_out_of_step: "pièce %{id} : forme sans rapport avec ses usinages"
     duplicate_occurrence: "exemplaire %{occurrence} en double dans %{assembly}"

@@ -211,19 +211,45 @@ fn on_plane(p: vec3<f32>) -> vec4<f32> {
 // pixels: hardware lines are one pixel wide, half a point on a high-density display.
 // `ca`, `cb`: the ends in clip space; `corner.x`: which end (0 = a, 1 = b); `corner.y`: which
 // side (±1); `half`: half the width, in pixels.
-fn wide(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) -> vec4<f32> {
-    // Keep the segment in front of the eye (clip space is linear along it).
+// A segment in clip space.
+struct Segment {
+    a: vec4<f32>,
+    b: vec4<f32>,
+};
+
+// The part of a segment in front of the eye (clip space is linear along it); at least one end
+// must be.
+fn in_front(ca_in: vec4<f32>, cb_in: vec4<f32>) -> Segment {
     let near = 1e-4;
     var ca = ca_in;
     var cb = cb_in;
-    if (ca.w < near && cb.w < near) {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0); // degenerate: nothing drawn
-    }
     if (ca.w < near) {
         ca = mix(ca, cb, (near - ca.w) / (cb.w - ca.w));
     } else if (cb.w < near) {
         cb = mix(cb, ca, (near - cb.w) / (ca.w - cb.w));
     }
+    return Segment(ca, cb);
+}
+
+// How far along the segment its quad's corner is, on screen (pixels from `a`): the quad runs
+// half a width past each end.
+fn along_px(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) -> f32 {
+    if (ca_in.w < 1e-4 && cb_in.w < 1e-4) {
+        return 0.0;
+    }
+    let s = in_front(ca_in, cb_in);
+    let size = g.viewport.xy;
+    let len = length(s.b.xy / s.b.w * size * 0.5 - s.a.xy / s.a.w * size * 0.5);
+    return select(0.0, len, corner.x > 0.5) + (corner.x * 2.0 - 1.0) * half;
+}
+
+fn wide(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) -> vec4<f32> {
+    if (ca_in.w < 1e-4 && cb_in.w < 1e-4) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0); // degenerate: nothing drawn
+    }
+    let s = in_front(ca_in, cb_in);
+    let ca = s.a;
+    let cb = s.b;
     let size = g.viewport.xy;
     let sa = ca.xy / ca.w * size * 0.5;
     let sb = cb.xy / cb.w * size * 0.5;
@@ -324,19 +350,35 @@ fn fs_edge(in: EdgeOut) -> @location(0) vec4<f32> {
 struct LineOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) color: vec4<f32>,
+    // The dash pattern's period (px, 0 for a plain line), and where the pattern is here (px
+    // along the line on screen, interpolated on screen).
+    @location(1) @interpolate(flat) period: f32,
+    @location(2) @interpolate(linear) along: f32,
 };
 
 @vertex
-fn vs_line(@location(0) a: vec3<f32>, @location(1) b: vec3<f32>, @location(2) corner: vec3<f32>, @location(3) color: vec4<f32>) -> LineOut {
+fn vs_line(
+    @location(0) a: vec3<f32>,
+    @location(1) b: vec3<f32>,
+    @location(2) corner: vec3<f32>,
+    @location(3) color: vec4<f32>,
+    @location(4) dash: vec2<f32>,
+) -> LineOut {
     var out: LineOut;
     let ca = g.proj * pulled(vec4<f32>(a, 1.0), corner.z);
     let cb = g.proj * pulled(vec4<f32>(b, 1.0), corner.z);
     out.clip = wide(ca, cb, corner.xy, corner.z);
     out.color = color;
+    out.period = dash.x;
+    out.along = dash.y + select(0.0, along_px(ca, cb, corner.xy, corner.z), dash.x > 0.0);
     return out;
 }
 
 @fragment
 fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
+    // A dash, then a gap as long.
+    if (in.period > 0.0 && fract(in.along / in.period) >= 0.5) {
+        discard;
+    }
     return vec4<f32>(mix(g.background.rgb, in.color.rgb, in.color.a), 1.0);
 }

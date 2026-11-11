@@ -117,6 +117,7 @@ fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.rotate" => ToolKind::Rotate,
         "tool.paint" => ToolKind::Paint,
         "tool.section" => ToolKind::Section,
+        "tool.measure" => ToolKind::Measure,
         "tool.union" => ToolKind::Boolean(Boolean::Union),
         "tool.difference" => ToolKind::Boolean(Boolean::Difference),
         "tool.intersection" => ToolKind::Boolean(Boolean::Intersection),
@@ -247,6 +248,7 @@ impl SolidSketchApp {
             "edit.redo" => e.history().can_redo(),
             "edit.erase" | "edit.make_assembly" | "edit.explode" | "edit.make_unique" => has_sel,
             "view.section" | "view.section_clear" => section,
+            "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "debug.crash_kernel" => self.debug_menu,
             _ => commands::find(id).is_some(),
         }
@@ -259,6 +261,7 @@ impl SolidSketchApp {
             "view.parallel" => Some(self.editor.camera.is_parallel()),
             "view.grid" => Some(d.grid),
             "view.axes" => Some(d.axes),
+            "view.guides" => Some(d.guides),
             "view.silhouettes" => Some(d.silhouettes),
             "view.section" => Some(d.section_active),
             "view.materials" => Some(self.prefs.show_materials),
@@ -328,16 +331,18 @@ impl SolidSketchApp {
             "edit.make_assembly" => e.make_assembly(),
             "edit.explode" => e.explode(),
             "edit.make_unique" => e.make_unique(),
+            "edit.delete_guides" => e.delete_guides(),
             "app.command_palette" => self.palette = Some(Palette::default()),
             "app.preferences" => self.prefs_window = Some(self.prefs_window.unwrap_or(PrefsTab::Model)),
             "view.parallel" => {
                 let p = !e.camera.is_parallel();
                 e.set_parallel(p);
             }
-            "view.grid" | "view.axes" | "view.silhouettes" | "view.section" | "view.section_clear" => {
+            "view.grid" | "view.axes" | "view.guides" | "view.silhouettes" | "view.section" | "view.section_clear" => {
                 let d = &mut s.display;
                 match id {
                     "view.grid" => d.grid = !d.grid,
+                    "view.guides" => d.guides = !d.guides,
                     "view.axes" => d.axes = !d.axes,
                     "view.silhouettes" => d.silhouettes = !d.silhouettes,
                     "view.section" => d.section_active = !d.section_active,
@@ -607,6 +612,9 @@ impl SolidSketchApp {
             ui.end_row();
             ui.label(t!("prefs.model.axes"));
             ui.checkbox(&mut s.display.axes, "");
+            ui.end_row();
+            ui.label(t!("prefs.model.guides"));
+            ui.checkbox(&mut s.display.guides, "");
             ui.end_row();
             ui.label(t!("prefs.model.silhouettes"));
             ui.checkbox(&mut s.display.silhouettes, "").on_hover_text(t!("prefs.model.silhouettes_tip"));

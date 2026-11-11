@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::{Display, Mesh, Snaps, Solid};
-use solidsketch_model::{ComponentKind, Document, EntityPath, Id, MAX_DEPTH, Section};
+use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Section};
 
 use crate::camera::Ray;
 
@@ -130,6 +130,9 @@ pub enum Piece {
     Shape,
     Blank,
     Tool(Id),
+    /// A guide (§6 quinquies); its owner's path names its component's occurrences then the
+    /// guide's id.
+    Guide(Id),
 }
 
 /// Whose geometry an inference is asked to consider (a tool's filter).
@@ -159,6 +162,16 @@ pub struct RecipeMeshes {
     pub tools: Vec<RecipeTool>,
 }
 
+/// A guide placed in the world (ARCHITECTURE.md §6 quinquies): drawn and inferred on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SceneGuide {
+    /// The occurrences from the root to its component (empty: the model's).
+    pub path: Vec<Id>,
+    pub id: Id,
+    /// World.
+    pub shape: GuideShape,
+}
+
 #[derive(Default)]
 pub struct DisplayScene {
     /// Level 1: by `Arc<Solid>` address.
@@ -177,6 +190,7 @@ pub struct DisplayScene {
     recipe_shown: bool,
     recipe: Option<RecipeMeshes>,
     recipe_places: Vec<(Placement, Id, Piece)>,
+    guides: Vec<SceneGuide>,
 }
 
 impl DisplayScene {
@@ -234,6 +248,15 @@ impl DisplayScene {
             self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material: p.material });
         }
         self.section = doc.settings().display.active_section();
+        // Hidden, they are neither drawn, inferred on nor picked.
+        self.guides = if doc.settings().display.guides {
+            doc.placed_guides()
+                .into_iter()
+                .map(|g| SceneGuide { path: g.path, id: g.guide.id, shape: g.guide.shape.transformed(&g.transform) })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         // Where the recipe shown stands: at its occurrence.
         self.recipe_places.clear();
@@ -369,6 +392,11 @@ impl DisplayScene {
     }
 
     /// The active section: what it cuts away is neither picked nor inferred.
+    /// Every guide of the document, placed in the world (none while they are hidden).
+    pub fn guides(&self) -> &[SceneGuide] {
+        &self.guides
+    }
+
     pub fn section(&self) -> Option<Section> {
         self.section
     }

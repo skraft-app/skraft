@@ -24,7 +24,13 @@ pub struct SelectTool {
 
 impl SelectTool {
     fn click(&self, px: DVec2, mods: Modifiers, cx: &Cx<'_>) -> Vec<Command> {
-        let target = if cx.machinings_shown() { Some(cx.pick_machining(px)) } else { cx.pick(px).map(|h| cx.selectable(&h.path)) };
+        let target = if let Some(g) = cx.pick_guide(px) {
+            Some(Some(g))
+        } else if cx.machinings_shown() {
+            Some(cx.pick_machining(px))
+        } else {
+            cx.pick(px).map(|h| cx.selectable(&h.path))
+        };
         match target {
             Some(Some(id)) if mods.toggle => vec![Command::Select(toggled(cx.selection, &[id]))],
             Some(Some(id)) => vec![Command::Select(vec![id])],
@@ -56,7 +62,8 @@ impl Tool for SelectTool {
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         let target = |px: DVec2| {
-            if cx.machinings_shown() { cx.pick_machining(px) } else { cx.pick(px).and_then(|h| cx.selectable(&h.path)) }
+            cx.pick_guide(px)
+                .or_else(|| if cx.machinings_shown() { cx.pick_machining(px) } else { cx.pick(px).and_then(|h| cx.selectable(&h.path)) })
         };
         match input {
             ToolInput::Hover { px } => {
@@ -120,7 +127,7 @@ impl Tool for SelectTool {
 
 /// The entities of the active context the rectangle `a`–`b` (pixels) takes: those whose every
 /// part lies entirely inside it, or with `crossing`, those any part of which it touches. In
-/// the order of the scene.
+/// the order of the scene, then its guides.
 pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> {
     let rect = (a.min(b), a.max(b));
     let proj = cx.camera.projector(cx.size);
@@ -142,6 +149,12 @@ pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> 
         } else if s.0 {
             s.0 = !m.positions.is_empty() && m.positions.iter().all(|p| proj.project(world(p)).is_some_and(|q| inside(q, rect)));
         }
+    }
+    // The guides of the active context (§6 quinquies).
+    let path = cx.guide_path();
+    for g in cx.scene.guides().iter().filter(|g| g.path == path) {
+        order.push(g.id);
+        state.insert(g.id, crate::guides::in_rect(cx.camera, cx.size, &g.shape, rect));
     }
     order.into_iter().filter(|id| state.get(id).is_some_and(|&(all, any)| if crossing { any } else { all })).collect()
 }

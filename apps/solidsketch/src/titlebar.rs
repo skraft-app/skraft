@@ -81,7 +81,7 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
     }
     ui.separator();
     views_menu(ui, views, actions);
-    for id in ["view.parallel", "view.grid", "view.axes", "view.silhouettes", "view.section", "view.materials"] {
+    for id in ["view.parallel", "view.grid", "view.axes", "view.guides", "view.silhouettes", "view.section", "view.materials"] {
         let Some(v) = find(id) else { continue };
         // The perspective button is lit in perspective (the command toggles parallel).
         let (lit, tip) =
@@ -112,6 +112,7 @@ fn id_icon(id: &str) -> egui::ImageSource<'static> {
         "edit.redo" => icons::REDO,
         "view.parallel" => icons::PERSPECTIVE,
         "view.grid" => icons::GRID,
+        "view.guides" => icons::GUIDES,
         "view.axes" => icons::AXES,
         "view.silhouettes" => icons::SILHOUETTES,
         "view.section" => icons::SECTION,

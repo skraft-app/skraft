@@ -20,10 +20,10 @@ use std::f64::consts::TAU;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_kernel::{SnapCurve, Snaps};
-use solidsketch_model::EntityPath;
+use solidsketch_model::{EntityPath, GuideShape};
 
 use crate::camera::{Camera, Projector, Ray};
-use crate::scene::{DisplayScene, Hit, Owner, ray_box, transform_bounds};
+use crate::scene::{DisplayScene, Hit, Owner, Piece, SceneGuide, ray_box, transform_bounds};
 
 /// How far from the cursor a feature is inferred (pixels).
 pub const APERTURE_PX: f64 = 10.0;
@@ -47,6 +47,10 @@ pub enum LineKind {
     Tangent,
     /// Along the radius of the last arc hovered, where it was hovered.
     Radial,
+    /// A guide line of the document (§6 quinquies).
+    Guide,
+    /// The axis `k` of the context's axes, as drawn: through their origin.
+    ModelAxis(usize),
 }
 
 /// An axis's colour, as its name says it.
@@ -59,6 +63,13 @@ fn axis_name(k: usize) -> String {
 }
 
 impl LineKind {
+    /// A line of the scene itself — a guide, an axis as drawn —, not one a tool's point
+    /// gives: it is drawn depth-tested (not inferred where hidden), and it is an edge to refer
+    /// to (the tape offsets a guide from it).
+    pub fn is_fixed(self) -> bool {
+        matches!(self, LineKind::Guide | LineKind::ModelAxis(_))
+    }
+
     /// The line's name inside a crossing.
     fn name(self) -> String {
         match self {
@@ -68,6 +79,8 @@ impl LineKind {
             LineKind::Perpendicular => t!("infer.line.perpendicular"),
             LineKind::Tangent => t!("infer.line.tangent"),
             LineKind::Radial => t!("infer.line.radial"),
+            LineKind::Guide => t!("infer.line.guide"),
+            LineKind::ModelAxis(k) => t!("infer.line.axis", axis = axis_name(k)),
         }
     }
 
@@ -79,13 +92,15 @@ impl LineKind {
             LineKind::Perpendicular => t!("infer.on_line.perpendicular"),
             LineKind::Tangent => t!("infer.on_line.tangent"),
             LineKind::Radial => t!("infer.on_line.radial"),
+            LineKind::Guide => t!("infer.on_guide"),
+            LineKind::ModelAxis(k) => t!("infer.on_line.axis", axis = axis_name(k)),
         }
     }
 
     /// The axis it runs along, if any (its colour).
     pub fn axis(self) -> Option<usize> {
         match self {
-            LineKind::Axis(k) | LineKind::TrackedAxis(k) => Some(k),
+            LineKind::Axis(k) | LineKind::TrackedAxis(k) | LineKind::ModelAxis(k) => Some(k),
             _ => None,
         }
     }
@@ -106,8 +121,16 @@ pub enum InferKind {
     OnEdgeAndLine(LineKind),
     /// Where two lines of different origins cross.
     OnTwoLines(LineKind, LineKind),
+    /// Where a line crosses a guide circle.
+    OnGuideAndLine(LineKind),
+    /// Where a guide circle crosses an edge.
+    OnGuideAndEdge,
+    /// Where two guide circles cross.
+    OnTwoGuides,
     /// On a line.
     OnLine(LineKind),
+    /// On a guide circle (a guide line gives `OnLine(LineKind::Guide)`).
+    OnGuide,
     /// A point on an edge.
     OnEdge,
     /// A point on the face under the cursor.
@@ -125,8 +148,12 @@ impl InferKind {
         match self {
             InferKind::Endpoint => 0,
             InferKind::Midpoint | InferKind::Center | InferKind::Origin => 1,
-            InferKind::OnEdgeAndLine(_) | InferKind::OnTwoLines(..) => 2,
-            InferKind::OnLine(_) => 3,
+            InferKind::OnEdgeAndLine(_)
+            | InferKind::OnTwoLines(..)
+            | InferKind::OnGuideAndLine(_)
+            | InferKind::OnGuideAndEdge
+            | InferKind::OnTwoGuides => 2,
+            InferKind::OnLine(_) | InferKind::OnGuide => 3,
             InferKind::OnEdge => 4,
             InferKind::OnFace => 5,
             InferKind::OnPlane => 6,
@@ -147,7 +174,7 @@ impl InferKind {
     /// The (first) line the point is on, if any.
     pub fn line(self) -> Option<LineKind> {
         match self {
-            InferKind::OnLine(l) | InferKind::OnEdgeAndLine(l) | InferKind::OnTwoLines(l, _) => Some(l),
+            InferKind::OnLine(l) | InferKind::OnEdgeAndLine(l) | InferKind::OnTwoLines(l, _) | InferKind::OnGuideAndLine(l) => Some(l),
             _ => None,
         }
     }
@@ -165,7 +192,11 @@ impl InferKind {
                 let mut c = s.chars();
                 c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
             }
+            InferKind::OnGuideAndLine(l) => format!("{} × {}", t!("infer.guide"), l.name()),
+            InferKind::OnGuideAndEdge => format!("{} × {}", t!("infer.guide"), t!("infer.edge").to_lowercase()),
+            InferKind::OnTwoGuides => format!("{} × {}", t!("infer.guide"), t!("infer.line.guide")),
             InferKind::OnLine(l) => l.on_label(),
+            InferKind::OnGuide => t!("infer.on_guide"),
             InferKind::OnEdge => t!("infer.on_edge"),
             InferKind::OnFace => t!("infer.on_face"),
             InferKind::OnPlane => String::new(),
@@ -178,8 +209,9 @@ impl InferKind {
 pub enum EdgeRef {
     /// A straight edge's direction.
     Straight(DVec3),
-    /// An arc where the point is: its tangent there, and its radius (from the centre out).
-    Arc { tangent: DVec3, radial: DVec3 },
+    /// An arc where the point is: its tangent there, and its radius (from the centre out);
+    /// its centre and radius length (a concentric guide's).
+    Arc { tangent: DVec3, radial: DVec3, center: DVec3, radius: f64 },
 }
 
 /// The point inferred under the cursor.
@@ -232,6 +264,8 @@ pub struct Query<'a> {
     pub plane: (DVec3, DVec3),
     /// A point offered as [`InferKind::Origin`] (world).
     pub origin: Option<DVec3>,
+    /// The axes are drawn: their lines through `origin` are inferred on.
+    pub model_axes: bool,
     /// The tool's start point: lines are inferred through it.
     pub from: Option<DVec3>,
     /// Points tracked (hovered a while): their axes are inferred too.
@@ -264,7 +298,8 @@ struct Line {
     /// Unit.
     dir: DVec3,
     kind: LineKind,
-    /// 0 for the start point, 1 + i for tracked point i: lines of one origin cross only there.
+    /// 0 for the start point, 1 + i for tracked point i, then the drawn axes, then one per
+    /// guide line: lines of one origin cross only there.
     source: usize,
 }
 
@@ -282,7 +317,7 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
         let l = Line { origin, dir: lock.dir, kind: lock.line, source: 0 };
         // An edge the locked line crosses near the cursor: the crossing.
         if let Some(c) = crossing(scene, camera, size, &screen, px, q, &[l]) {
-            return Some(Inference::on_lines(c.point, InferKind::OnEdgeAndLine(l.kind), c.path, hit, &l, None));
+            return Some(Inference::on_lines(c.point, c.kind(l.kind), c.path, hit, &l, None));
         }
         let point = match &base {
             // A feature hovered: the point of the line nearest to it.
@@ -295,8 +330,12 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
     if base.as_ref().is_some_and(|b| b.kind.is_point()) {
         return base;
     }
+    // A point built by the geometry (a guide circle across an edge or another): as good as one built by
+    // lines, the nearer on screen wins; better than any point on a line.
+    let built = base.as_ref().filter(|b| b.kind.rank() == InferKind::OnGuideAndEdge.rank());
+    let built_dist = built.and_then(|b| screen.project(b.point)).map_or(f64::INFINITY, |s| s.distance(px));
     // A line seen nearly end on is a point on screen: its "nearest point" runs off anywhere.
-    let lines: Vec<Line> = lines(q).into_iter().filter(|l| l.dir.dot(ray.dir).abs() <= 0.995).collect();
+    let lines: Vec<Line> = lines(q, &kept_guides(scene, q)).into_iter().filter(|l| l.dir.dot(ray.dir).abs() <= 0.995).collect();
     if lines.is_empty() {
         return base;
     }
@@ -307,23 +346,31 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
     let edge_dist = edge.as_ref().and_then(|c| screen.project(c.point)).map(|s| s.distance(px));
     let meet = |p, a: &Line, b: &Line, hit| Inference::on_lines(p, InferKind::OnTwoLines(a.kind, b.kind), None, hit, a, Some(b));
     match (edge, two) {
-        (Some(_), Some((d2, p, i, j))) if d2 < edge_dist.unwrap_or(f64::INFINITY) => {
+        (Some(_), Some((d2, p, i, j))) if d2 < edge_dist.unwrap_or(f64::INFINITY) && d2 < built_dist => {
             return Some(meet(p, &lines[i], &lines[j], hit));
         }
-        (Some(c), _) => {
+        (Some(c), _) if edge_dist.unwrap_or(f64::INFINITY) < built_dist => {
             let l = &lines[c.line];
-            return Some(Inference::on_lines(c.point, InferKind::OnEdgeAndLine(l.kind), c.path, hit, l, None));
+            return Some(Inference::on_lines(c.point, c.kind(l.kind), c.path, hit, l, None));
         }
-        (None, Some((_, p, i, j))) => return Some(meet(p, &lines[i], &lines[j], hit)),
-        (None, None) => {}
+        (None, Some((d2, p, i, j))) if d2 < built_dist => return Some(meet(p, &lines[i], &lines[j], hit)),
+        _ => {}
+    }
+    if built.is_some() {
+        return base;
     }
 
     let mut best: Option<(f64, DVec3, usize)> = None;
     for (k, l) in lines.iter().enumerate() {
         let p = on_line(&ray, &screen, px, l, hit.as_ref());
         let Some(s) = screen.project(p) else { continue };
-        // Every line passes through its origin: there, none means anything.
-        if screen.project(l.origin).is_some_and(|o| o.distance(s) < APERTURE_PX) {
+        if l.kind.is_fixed() {
+            // Drawn depth-tested: not inferred where it is hidden.
+            if !visible(scene, camera, size, &screen, p, q) {
+                continue;
+            }
+        } else if screen.project(l.origin).is_some_and(|o| o.distance(s) < APERTURE_PX) {
+            // Every line passes through its origin: there, none means anything.
             continue;
         }
         let dist = s.distance(px);
@@ -332,15 +379,25 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
         }
     }
     match best {
-        Some((_, p, k)) => Some(Inference::on_lines(p, InferKind::OnLine(lines[k].kind), None, hit, &lines[k], None)),
+        Some((_, p, k)) => {
+            let l = &lines[k];
+            let mut i = Inference::on_lines(p, InferKind::OnLine(l.kind), None, hit, l, None);
+            // A guide or an axis is an edge to refer to (parallel, perpendicular; a guide offset
+            // from it).
+            if l.kind.is_fixed() {
+                i.edge = Some(EdgeRef::Straight(l.dir));
+            }
+            Some(i)
+        }
         None => base,
     }
 }
 
 /// The lines inferred on: through the start point, the axes, then those of the reference edge
 /// when not an axis already (parallel and perpendicular — in the tool's plane — to a straight
-/// edge, tangent and radial to an arc); through each tracked point, the axes.
-fn lines(q: &Query<'_>) -> Vec<Line> {
+/// edge, tangent and radial to an arc); through each tracked point, the axes; the axes as
+/// drawn; the guide lines of the document.
+fn lines(q: &Query<'_>, guides: &[&SceneGuide]) -> Vec<Line> {
     let mut out = Vec::new();
     let known = |d: DVec3| q.axes.iter().any(|a| a.dot(d).abs() > 1.0 - 1e-9);
     if let Some(from) = q.from {
@@ -349,7 +406,7 @@ fn lines(q: &Query<'_>) -> Vec<Line> {
         }
         let refs = match q.reference {
             Some(EdgeRef::Straight(r)) => [(Some(r), LineKind::Parallel), (q.plane.1.cross(r).try_normalize(), LineKind::Perpendicular)],
-            Some(EdgeRef::Arc { tangent, radial }) => [(Some(tangent), LineKind::Tangent), (Some(radial), LineKind::Radial)],
+            Some(EdgeRef::Arc { tangent, radial, .. }) => [(Some(tangent), LineKind::Tangent), (Some(radial), LineKind::Radial)],
             None => [(None, LineKind::Parallel), (None, LineKind::Perpendicular)],
         };
         for (d, kind) in refs {
@@ -367,10 +424,43 @@ fn lines(q: &Query<'_>) -> Vec<Line> {
             out.push(Line { origin: *t, dir: q.axes[k], kind: LineKind::TrackedAxis(k), source: 1 + i });
         }
     }
+    // The axes as drawn, but where the start point's run already.
+    let first = 1 + q.tracked.len();
+    if let Some(o) = q.origin.filter(|o| q.model_axes && q.from.is_none_or(|f| (f - *o).length() >= 1e-9)) {
+        for k in 0..3 {
+            out.push(Line { origin: o, dir: q.axes[k], kind: LineKind::ModelAxis(k), source: first });
+        }
+    }
+    for (i, g) in guides.iter().enumerate() {
+        if let GuideShape::Line { origin, dir } = g.shape {
+            out.push(Line { origin, dir, kind: LineKind::Guide, source: first + 1 + i });
+        }
+    }
     if q.in_plane {
-        out.retain(|l| l.dir.dot(q.plane.1).abs() < 1e-9);
+        // A line of the scene, only lying in the plane.
+        let (o, n) = q.plane;
+        out.retain(|l| l.dir.dot(n).abs() < 1e-9 && (!l.kind.is_fixed() || (l.origin - o).dot(n).abs() < 1e-6));
     }
     out
+}
+
+/// A guide circle as an arc (a whole one), in the world.
+fn guide_arc(center: DVec3, normal: DVec3, radius: f64) -> SnapCurve {
+    let x = normal.any_orthonormal_vector();
+    SnapCurve::Arc { center, x, y: normal.cross(x), radius, sweep: TAU }
+}
+
+/// The guides the tool's filter keeps (not those it moves).
+fn kept_guides<'a>(scene: &'a DisplayScene, q: &Query<'_>) -> Vec<&'a SceneGuide> {
+    scene.guides().iter().filter(|g| (q.keep)(&Owner { path: &EntityPath::new(g.path.clone(), g.id), piece: Piece::Guide(g.id) })).collect()
+}
+
+/// The guide circles among `guides`, as arcs.
+fn guide_arcs<'a>(guides: &'a [&SceneGuide]) -> impl Iterator<Item = SnapCurve> + 'a {
+    guides.iter().filter_map(|g| match g.shape {
+        GuideShape::Circle { center, normal, radius } => Some(guide_arc(center, normal, radius)),
+        GuideShape::Line { .. } => None,
+    })
 }
 
 /// The point of the line the cursor gives: where it pierces the face under the cursor if that
@@ -437,6 +527,15 @@ struct Crossing {
     line: usize,
     /// The solid whose edge it is.
     path: Option<EntityPath>,
+    /// A guide circle's, not an edge's.
+    guide: bool,
+}
+
+impl Crossing {
+    /// The kind of the crossing with the line `l`.
+    fn kind(&self, l: LineKind) -> InferKind {
+        if self.guide { InferKind::OnGuideAndLine(l) } else { InferKind::OnEdgeAndLine(l) }
+    }
 }
 
 /// The visible crossing nearest the cursor (within the aperture) of one of `lines` with an
@@ -470,8 +569,23 @@ fn crossing(
                     let Some(s) = screen.project(p) else { continue };
                     let dist = s.distance(px);
                     if dist <= APERTURE_PX {
-                        found.push((dist, Crossing { point: p, line: k, path: Some(path.clone()) }));
+                        found.push((dist, Crossing { point: p, line: k, path: Some(path.clone()), guide: false }));
                     }
+                }
+            }
+        }
+    }
+    for arc in guide_arcs(&kept_guides(scene, q)) {
+        for (k, l) in lines.iter().enumerate() {
+            let tol = |p: DVec3| camera.world_per_pixel(size, p) * CROSSING_PX;
+            for p in line_meets_curve(l.origin, l.dir, &arc, &DAffine3::IDENTITY, tol) {
+                if (p - l.origin).length() <= tol(p) {
+                    continue;
+                }
+                let Some(s) = screen.project(p) else { continue };
+                let dist = s.distance(px);
+                if dist <= APERTURE_PX {
+                    found.push((dist, Crossing { point: p, line: k, path: None, guide: true }));
                 }
             }
         }
@@ -525,6 +639,65 @@ fn line_meets_curve(from: DVec3, dir: DVec3, curve: &SnapCurve, t: &DAffine3, to
     }
 }
 
+/// Where the circle about `c` (unit normal `n`, radius `r`, world) meets `curve` placed by
+/// `t`, within `tol(p)` of both.
+fn circle_meets_curve(c: DVec3, n: DVec3, r: f64, curve: &SnapCurve, t: &DAffine3, tol: impl Fn(DVec3) -> f64) -> Vec<DVec3> {
+    let circle = guide_arc(c, n, r);
+    // A segment: where its line meets the circle, within the segment.
+    let on_segment = |a: DVec3, b: DVec3| -> Vec<DVec3> {
+        let len = (b - a).length();
+        let Some(u) = (b - a).try_normalize() else { return vec![] };
+        line_meets_curve(a, u, &circle, &DAffine3::IDENTITY, &tol)
+            .into_iter()
+            .filter(|p| {
+                let s = (*p - a).dot(u);
+                s >= -tol(*p) && s <= len + tol(*p)
+            })
+            .collect()
+    };
+    match *curve {
+        SnapCurve::Segment { a, b } => on_segment(t.transform_point3(a), t.transform_point3(b)),
+        SnapCurve::Arc { center, x, y, radius, sweep } => {
+            let arc = PlacedArc::new(t, center, x, y, radius, sweep);
+            if !arc.is_circle() {
+                return arc.samples().windows(2).flat_map(|w| on_segment(w[0], w[1])).collect();
+            }
+            let PlacedArc { c: c2, n: n2, rx: r2, .. } = arc;
+            let on_arc = |p: DVec3| {
+                let a = arc.angle_of(p);
+                let slack = tol(p) / r2;
+                a <= sweep + slack || a >= TAU - slack
+            };
+            let on_edge = |p: &DVec3| ((*p - c2).length() - r2).abs() <= tol(*p) && on_arc(*p);
+            let axis = n.cross(n2);
+            if axis.length() < 1e-9 {
+                // In parallel planes: in one plane, two circles meet in up to two points.
+                if (c2 - c).dot(n).abs() > tol(c) {
+                    return vec![];
+                }
+                let w = (c2 - c) - n * (c2 - c).dot(n);
+                let d = w.length();
+                if d < 1e-9 || d > r + r2 + tol(c) || d < (r - r2).abs() - tol(c) {
+                    return vec![];
+                }
+                let (u, a) = (w / d, (r * r - r2 * r2 + d * d) / (2.0 * d));
+                let h = (r * r - a * a).max(0.0).sqrt();
+                let v = n.cross(u);
+                let base = c + u * a;
+                return [base + v * h, base - v * h].into_iter().filter(on_edge).collect();
+            }
+            // Else on the line where both planes meet: its points on the guide, kept on the arc.
+            let (d1, d2) = (n.dot(c), n2.dot(c2));
+            let on_both = (n2.cross(axis) * d1 + axis.cross(n) * d2) / axis.length_squared();
+            line_meets_curve(on_both, axis.normalize(), &circle, &DAffine3::IDENTITY, &tol).into_iter().filter(on_edge).collect()
+        }
+        SnapCurve::Polyline { ref points, .. } => {
+            let pts: Vec<DVec3> = points.iter().map(|p| t.transform_point3(*p)).collect();
+            pts.windows(2).flat_map(|w| on_segment(w[0], w[1])).collect()
+        }
+    }
+}
+
 /// Where the line `from + s·dir` (unit `dir`) passes within `tol` of the segment `[a, b]`
 /// (not parallel to it): the line's point there.
 fn line_meets_segment(from: DVec3, dir: DVec3, a: DVec3, b: DVec3, tol: &impl Fn(DVec3) -> f64) -> Option<DVec3> {
@@ -568,6 +741,15 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     if let Some(o) = q.origin {
         offer(o, InferKind::Origin, None, None);
     }
+    let kept = kept_guides(scene, q);
+    let circles: Vec<(DVec3, DVec3, f64)> = kept
+        .iter()
+        .filter_map(|g| match g.shape {
+            GuideShape::Circle { center, normal, radius } => Some((center, normal, radius)),
+            GuideShape::Line { .. } => None,
+        })
+        .collect();
+    let tol = |p: DVec3| camera.world_per_pixel(size, p) * CROSSING_PX;
     for (place, part, piece) in scene.inferable() {
         let Some(b) = part.bounds else { continue };
         let path = place.entity_path();
@@ -576,6 +758,33 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
         }
         let t = &place.transform;
         features(&part.snaps, t, &ray, &screen, px, &mut |p, k, e| offer(p, k, Some(&path), e));
+        // Where a guide circle crosses an edge.
+        for &(c, n, r) in &circles {
+            for e in &part.snaps.edges {
+                for p in circle_meets_curve(c, n, r, &e.curve, t, tol) {
+                    offer(p, InferKind::OnGuideAndEdge, Some(&path), None);
+                }
+            }
+        }
+    }
+    // Where two guide circles cross.
+    for (i, &(c, n, r)) in circles.iter().enumerate() {
+        for &(c2, n2, r2) in &circles[i + 1..] {
+            for p in circle_meets_curve(c, n, r, &guide_arc(c2, n2, r2), &DAffine3::IDENTITY, tol) {
+                offer(p, InferKind::OnTwoGuides, None, None);
+            }
+        }
+    }
+    // The guide circles: their centres, and the point nearest the cursor (an arc to refer to).
+    for arc in guide_arcs(&kept_guides(scene, q)) {
+        let SnapCurve::Arc { center, x, y, radius, .. } = arc else { continue };
+        offer(center, InferKind::Center, None, None);
+        if let Some(p) = on_curve(&arc, &DAffine3::IDENTITY, &ray, &screen, px)
+            && let Some(radial) = (p - center).try_normalize()
+        {
+            let tangent = x.cross(y).cross(radial);
+            offer(p, InferKind::OnGuide, None, Some(EdgeRef::Arc { tangent, radial, center, radius }));
+        }
     }
 
     // Best kind first; within a kind, those within a pixel of the nearest are equals (features
@@ -624,10 +833,13 @@ fn features(s: &Snaps, t: &DAffine3, ray: &Ray, screen: &Projector, px: DVec2, o
         let edge_at = |p: DVec3| match e.curve {
             SnapCurve::Segment { a, b } => t.transform_vector3(b - a).try_normalize().map(EdgeRef::Straight),
             SnapCurve::Arc { center, x, y, radius, sweep } => {
-                let PlacedArc { c, n, .. } = PlacedArc::new(t, center, x, y, radius, sweep);
+                let arc = PlacedArc::new(t, center, x, y, radius, sweep);
+                let PlacedArc { c, n, rx, .. } = arc;
                 let d = p - c;
                 let radial = (d - n * d.dot(n)).try_normalize()?;
-                Some(EdgeRef::Arc { tangent: n.cross(radial), radial })
+                // An arc scaled into an ellipse has no one radius.
+                let radius = if arc.is_circle() { rx } else { (d - n * d.dot(n)).length() };
+                Some(EdgeRef::Arc { tangent: n.cross(radial), radial, center: c, radius })
             }
             SnapCurve::Polyline { .. } => None,
         };
@@ -820,6 +1032,7 @@ mod tests {
             keep: &keep,
             plane: (from, DVec3::Z),
             origin: Some(DVec3::ZERO),
+            model_axes: false,
             from: Some(from),
             tracked: &[],
             in_plane: false,
@@ -851,6 +1064,7 @@ mod tests {
             keep: &keep,
             plane: (DVec3::ZERO, DVec3::Z),
             origin: Some(DVec3::ZERO),
+            model_axes: false,
             from: None,
             tracked: &[],
             in_plane: false,
@@ -1123,7 +1337,8 @@ mod tests {
         let radial = DVec3::new(a.cos(), a.sin(), 0.0);
         let i = at(&e, c + radial * 603.0);
         assert_eq!(i.kind, InferKind::OnEdge);
-        let Some(EdgeRef::Arc { tangent, radial: r }) = i.edge else { panic!("{:?}", i.edge) };
+        let Some(EdgeRef::Arc { tangent, radial: r, center, radius }) = i.edge else { panic!("{:?}", i.edge) };
+        assert!((center - c).length() < 1e-6 && (radius - 600.0).abs() < 1e-6, "{center} {radius}");
         // The angle comes from the cursor (rounded); the frame at the point found is exact.
         assert!((r - radial).length() < 1e-6 && (tangent - DVec3::new(-a.sin(), a.cos(), 0.0)).length() < 1e-6, "{r} {tangent}");
         assert!((i.point - c).normalize().dot(r) > 1.0 - 1e-12 && tangent.dot(r).abs() < 1e-12 && tangent.z == 0.0);
@@ -1138,7 +1353,7 @@ mod tests {
         let e = top_editor(DVec3::ZERO);
         let a = 30f64.to_radians();
         let (tangent, radial) = (DVec3::new(-a.sin(), a.cos(), 0.0), DVec3::new(a.cos(), a.sin(), 0.0));
-        let arc = Some(EdgeRef::Arc { tangent, radial });
+        let arc = Some(EdgeRef::Arc { tangent, radial, center: DVec3::ZERO, radius: 1.0 });
         let from = DVec3::new(-200.0, -100.0, 0.0);
         let i = at_from(&e, from + tangent * 500.0 + radial * 3.0, from, arc, None);
         assert_eq!(i.kind, InferKind::OnLine(LineKind::Tangent));
@@ -1147,7 +1362,7 @@ mod tests {
         assert_eq!(i.kind, InferKind::OnLine(LineKind::Radial));
         assert!((i.point - from).cross(radial).length() < 1e-6);
         // At 0°, the tangent is the green axis: the axis says it.
-        let arc = Some(EdgeRef::Arc { tangent: DVec3::Y, radial: DVec3::X });
+        let arc = Some(EdgeRef::Arc { tangent: DVec3::Y, radial: DVec3::X, center: DVec3::ZERO, radius: 1.0 });
         let i = at_from(&e, from + DVec3::Y * 500.0, from, arc, None);
         assert_eq!(i.kind, InferKind::OnLine(LineKind::Axis(1)));
     }
@@ -1224,6 +1439,7 @@ mod tests {
             keep: &keep,
             plane: (DVec3::ZERO, DVec3::Z),
             origin: Some(DVec3::ZERO),
+            model_axes: false,
             from,
             tracked,
             in_plane: false,
@@ -1396,6 +1612,7 @@ mod tests {
                     keep: &keep,
                     plane: (DVec3::ZERO, DVec3::Z),
                     origin: Some(DVec3::ZERO),
+                    model_axes: false,
                     from,
                     tracked,
                     in_plane: false,
@@ -1435,5 +1652,137 @@ mod tests {
         for k in [5, 7] {
             run(&format!("board, {} holes", 1 << k), &drilled(k));
         }
+    }
+
+    fn add_guide(e: &mut Editor, shape: GuideShape) {
+        let root = e.document().root();
+        e.apply(Operation::AddGuide { component: root, shape }).unwrap();
+    }
+
+    #[test]
+    fn guides_are_inferred_on() {
+        let mut e = top_editor(DVec3::ZERO);
+        let along_x = |y: f64| GuideShape::Line { origin: DVec3::new(0.0, y, 0.0), dir: DVec3::X };
+        add_guide(&mut e, along_x(-400.0));
+        add_guide(&mut e, GuideShape::Line { origin: DVec3::new(-500.0, 0.0, 0.0), dir: DVec3::Y });
+        // On a guide line: the point on it, the guide as the next reference.
+        let i = at(&e, DVec3::new(-200.0, -404.0, 0.0));
+        assert_eq!(i.kind, InferKind::OnLine(LineKind::Guide), "{i:?}");
+        assert!(about(i.point, DVec3::new(-200.0, -400.0, 0.0)), "{}", i.point);
+        assert_eq!(i.edge, Some(EdgeRef::Straight(DVec3::X)));
+        assert_eq!(i.kind.label(), "Sur le guide");
+        // Where two guides cross.
+        let i = at(&e, DVec3::new(-503.0, -404.0, 0.0));
+        assert_eq!(i.kind, InferKind::OnTwoLines(LineKind::Guide, LineKind::Guide), "{i:?}");
+        assert!(about(i.point, DVec3::new(-500.0, -400.0, 0.0)), "{}", i.point);
+        assert_eq!(i.kind.label(), "Guide × guide");
+
+        // Where a guide crosses an edge, at the top of a box.
+        add_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 150.0));
+        add_guide(&mut e, GuideShape::Line { origin: DVec3::new(0.0, 50.0, 150.0), dir: DVec3::X });
+        let i = at(&e, DVec3::new(303.0, 53.0, 150.0));
+        assert_eq!(i.kind, InferKind::OnEdgeAndLine(LineKind::Guide), "{i:?}");
+        assert!(about(i.point, DVec3::new(300.0, 50.0, 150.0)), "{}", i.point);
+        // A guide hidden under the box is not inferred.
+        add_guide(&mut e, along_x(120.0));
+        let i = at(&e, DVec3::new(150.0, 123.0, 150.0));
+        assert_eq!(i.kind, InferKind::OnFace, "{i:?}");
+    }
+
+    #[test]
+    fn guide_circles_are_arcs() {
+        let mut e = top_editor(DVec3::ZERO);
+        let c = DVec3::new(400.0, 400.0, 0.0);
+        add_guide(&mut e, GuideShape::Circle { center: c, normal: DVec3::Z, radius: 200.0 });
+        add_guide(&mut e, GuideShape::Line { origin: DVec3::new(0.0, 400.0, 0.0), dir: DVec3::X });
+        // On it: the point at its radius, an arc to refer to.
+        let a = 60f64.to_radians();
+        let radial = DVec3::new(a.cos(), a.sin(), 0.0);
+        let i = at(&e, c + radial * 204.0);
+        assert_eq!(i.kind, InferKind::OnGuide, "{i:?}");
+        assert!(((i.point - c).length() - 200.0).abs() < 1e-6, "{}", i.point);
+        let Some(EdgeRef::Arc { center, radius, .. }) = i.edge else { panic!("{:?}", i.edge) };
+        assert!(near(center, c) && (radius - 200.0).abs() < 1e-9);
+        // Its centre.
+        let i = at(&e, c + DVec3::new(3.0, 30.0, 0.0));
+        assert_eq!((i.kind, i.point), (InferKind::Center, c));
+        // Where the guide line crosses it.
+        let i = at(&e, c + DVec3::new(203.0, 4.0, 0.0));
+        assert_eq!(i.kind, InferKind::OnGuideAndLine(LineKind::Guide), "{i:?}");
+        assert!(about(i.point, c + DVec3::new(200.0, 0.0, 0.0)), "{}", i.point);
+        assert_eq!(i.kind.label(), "Guide × guide");
+    }
+
+    #[test]
+    fn the_axes_as_drawn_are_lines() {
+        let e = top_editor(DVec3::ZERO);
+        let keep = |_: &Owner<'_>| true;
+        let q = |model_axes| Query {
+            keep: &keep,
+            plane: (DVec3::ZERO, DVec3::Z),
+            origin: Some(DVec3::ZERO),
+            model_axes,
+            from: None,
+            tracked: &[],
+            in_plane: false,
+            axes: [DVec3::X, DVec3::Y, DVec3::Z],
+            reference: None,
+            lock: None,
+        };
+        let px = px(&e, DVec3::new(-300.0, 6.0, 0.0));
+        let i = infer(e.scene(), &e.camera, e.viewport_size(), px, &q(true)).unwrap();
+        assert_eq!(i.kind, InferKind::OnLine(LineKind::ModelAxis(0)), "{i:?}");
+        assert!(about(i.point, DVec3::new(-300.0, 0.0, 0.0)), "{}", i.point);
+        assert_eq!(i.edge, Some(EdgeRef::Straight(DVec3::X)));
+        assert_eq!(i.kind.label(), "Sur l'axe rouge");
+        // Hidden axes: not inferred on.
+        let i = infer(e.scene(), &e.camera, e.viewport_size(), px, &q(false)).unwrap();
+        assert_eq!(i.kind, InferKind::OnPlane);
+    }
+
+    #[test]
+    fn a_guide_circle_crosses_edges() {
+        let mut e = top_editor(DVec3::ZERO);
+        // Across the top front edge of a box: 66.33 either side of x = 150.
+        add_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 150.0));
+        add_guide(&mut e, GuideShape::Circle { center: DVec3::new(150.0, 100.0, 150.0), normal: DVec3::Z, radius: 120.0 });
+        let x = 150.0 + (120.0f64 * 120.0 - 100.0 * 100.0).sqrt();
+        let i = at(&e, DVec3::new(x + 3.0, 4.0, 150.0));
+        assert_eq!(i.kind, InferKind::OnGuideAndEdge, "{i:?}");
+        assert!(near(i.point, DVec3::new(x, 0.0, 150.0)), "{}", i.point);
+        assert_eq!(i.kind.label(), "Guide × arête");
+
+        // Across a cylinder's top circle, in its plane: at x = 650, y = 600 ± 86.6.
+        let c = DVec3::new(600.0, 600.0, 50.0);
+        add(&mut e, Primitive::Cylinder { origin: c.with_z(0.0), radius: 100.0, height: 50.0 });
+        add_guide(&mut e, GuideShape::Circle { center: c + DVec3::X * 100.0, normal: DVec3::Z, radius: 100.0 });
+        let p = c + DVec3::new(50.0, 75f64.sqrt() * 10.0, 0.0);
+        let i = at(&e, p + DVec3::new(3.0, 3.0, 0.0));
+        assert_eq!(i.kind, InferKind::OnGuideAndEdge, "{i:?}");
+        assert!(near(i.point, p), "{}", i.point);
+        // And upright, through its centre: where the circle's plane is crossed.
+        add_guide(&mut e, GuideShape::Circle { center: c, normal: DVec3::Y, radius: 100.0 });
+        let i = at(&e, c + DVec3::new(-103.0, 3.0, 0.0));
+        assert_eq!(i.kind, InferKind::OnGuideAndEdge, "{i:?}");
+        assert!(near(i.point, c - DVec3::X * 100.0), "{}", i.point);
+    }
+
+    #[test]
+    fn two_guide_circles_cross() {
+        let mut e = top_editor(DVec3::ZERO);
+        let c = DVec3::new(-300.0, 200.0, 0.0);
+        add_guide(&mut e, GuideShape::Circle { center: c, normal: DVec3::Z, radius: 200.0 });
+        add_guide(&mut e, GuideShape::Circle { center: c + DVec3::X * 200.0, normal: DVec3::Z, radius: 200.0 });
+        // At x = 100 from the first centre, y = ±173.2.
+        let p = c + DVec3::new(100.0, 30000f64.sqrt(), 0.0);
+        let i = at(&e, p + DVec3::new(3.0, -4.0, 0.0));
+        assert_eq!(i.kind, InferKind::OnTwoGuides, "{i:?}");
+        assert!(near(i.point, p), "{}", i.point);
+        assert_eq!(i.kind.label(), "Guide × guide");
+        // Upright, through the first one's centre: across its plane.
+        add_guide(&mut e, GuideShape::Circle { center: c, normal: DVec3::Y, radius: 200.0 });
+        let i = at(&e, c + DVec3::new(-203.0, 3.0, 0.0));
+        assert_eq!(i.kind, InferKind::OnTwoGuides, "{i:?}");
+        assert!(near(i.point, c - DVec3::X * 200.0), "{}", i.point);
     }
 }

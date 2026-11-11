@@ -245,11 +245,11 @@ fn file_round_trip() {
         .unwrap();
     h.apply(Operation::MakeAssembly { context: root, entities: vec![a], name: Some("Tiroir".into()) }).unwrap();
     let json = h.document().to_json().unwrap();
-    assert!(json.contains("\"version\":2"));
+    assert!(json.contains("\"version\":3"));
     let back = Document::from_json(&json).unwrap();
     assert_eq!(back, *h.document());
     assert!(Document::from_json(r#"{"format":"other","version":1}"#).is_err());
-    assert!(Document::from_json(&json.replacen("\"version\":2", "\"version\":99", 1)).is_err());
+    assert!(Document::from_json(&json.replacen("\"version\":3", "\"version\":99", 1)).is_err());
 }
 
 /// Reference files of each version, read back as they were written (docs/ARCHITECTURE.md §8):
@@ -283,10 +283,82 @@ fn reference_files_still_open() {
     assert_eq!(parts.len(), 1);
     assert_eq!(parts[0].machinings.len(), 1);
     assert!(v2.components().any(|c| c.name == "Tiroir" && c.named));
+    assert!(v2.placed_guides().is_empty(), "no guides before version 3");
+
+    // v3: the same, with a guide line in the model and a guide circle in the board's part.
+    let v3 = Document::from_json(include_str!("../tests/files/v3.solidsketch")).unwrap();
+    let guides = v3.placed_guides();
+    assert_eq!(guides.len(), 2, "{guides:?}");
+    assert!(guides.iter().any(|g| g.path.is_empty() && matches!(g.guide.shape, GuideShape::Line { .. })));
+    assert!(guides.iter().any(|g| g.path.len() == 2 && matches!(g.guide.shape, GuideShape::Circle { radius: 10.0, .. })));
+}
+
+#[test]
+fn guides_belong_to_their_component() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::new(100.0, 0.0, 0.0), 10.0));
+    let part = occ(h.document(), &EntityPath::root(a)).component;
+    let line = GuideShape::Line { origin: DVec3::new(0.0, 5.0, 0.0), dir: DVec3::X };
+    let g = h.apply(Operation::AddGuide { component: part, shape: line }).unwrap().guide.unwrap();
+    assert_eq!(h.document().component(part).unwrap().guide(g).unwrap().shape, line);
+    // Placed by its occurrence, as the part.
+    let placed = h.document().placed_guides();
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0].path, vec![a]);
+    assert!(close(placed[0].transform.translation, DVec3::new(100.0, 0.0, 0.0)));
+
+    // Refused: no direction, no radius; unknown component.
+    let flat = GuideShape::Line { origin: DVec3::ZERO, dir: DVec3::ZERO };
+    assert!(h.apply(Operation::AddGuide { component: root, shape: flat }).is_err());
+    let dot = GuideShape::Circle { center: DVec3::ZERO, normal: DVec3::Z, radius: 0.0 };
+    assert!(h.apply(Operation::AddGuide { component: root, shape: dot }).is_err());
+    assert!(h.apply(Operation::AddGuide { component: Id(999), shape: line }).is_err());
+
+    // Saved and read back; undone.
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.component(part).unwrap().guides.len(), 1);
+    assert!(h.undo());
+    assert!(h.document().component(part).unwrap().guides.is_empty());
+    assert!(h.redo());
+
+    // A separate part keeps its guides, ids and all.
+    let b = h.apply(Operation::Duplicate { context: root, entities: vec![a], transform: DAffine3::IDENTITY }).unwrap().created[0];
+    h.apply(Operation::MakeUnique { context: root, occurrence: b }).unwrap();
+    let copy = occ(h.document(), &EntityPath::root(b)).component;
+    assert_ne!(copy, part);
+    assert_eq!(h.document().component(copy).unwrap().guide(g).unwrap().shape, line);
+
+    // An exploded assembly hands its guides to the context, where they stood.
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a], name: None }).unwrap().created[0];
+    let asm_def = occ(h.document(), &EntityPath::root(asm)).component;
+    h.apply(Operation::AddGuide { component: asm_def, shape: line }).unwrap();
+    let shift = DAffine3::from_translation(DVec3::new(0.0, 0.0, 50.0));
+    h.apply(Operation::Transform { context: root, entities: vec![asm], transform: shift }).unwrap();
+    h.apply(Operation::Explode { context: root, occurrence: asm }).unwrap();
+    let guides = &h.document().component(root).unwrap().guides;
+    assert_eq!(guides.len(), 1);
+    assert_eq!(guides[0].shape, GuideShape::Line { origin: DVec3::new(0.0, 5.0, 50.0), dir: DVec3::X });
+}
+
+#[test]
+fn a_file_with_a_bad_guide_is_refused() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    h.apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin: DVec3::ZERO, dir: DVec3::Y } }).unwrap();
+    let json = h.document().to_json().unwrap();
+    // A guide whose id is past the counter.
+    let past = json.replace("\"guides\":[{\"id\":2", "\"guides\":[{\"id\":99");
+    assert_ne!(past, json);
+    assert!(matches!(Document::from_json(&past), Err(Error::File(FileError::BadGuide(Id(99))))));
+    // A version 2 file reads with no guides.
+    let v2 = json.replace("\"version\":3", "\"version\":2");
+    assert!(Document::from_json(&v2).is_ok());
 }
 
 /// Writes the reference files again: `SOLIDSKETCH_WRITE_FILES=1 cargo test -p solidsketch-model
-/// write_reference_files`. Only for a new version: the old ones must stay as they are.
+/// write_reference_files`. Only for a new version: the old ones must stay as they are (the
+/// version 2 file was written by this scenario without its guides).
 #[test]
 fn write_reference_files() {
     if std::env::var_os("SOLIDSKETCH_WRITE_FILES").is_none() {
@@ -299,9 +371,15 @@ fn write_reference_files() {
     h.apply(Operation::Boolean { target: EntityPath::root(a), tool: EntityPath::root(b), op: Boolean::Difference, scope: Scope::All })
         .unwrap();
     h.apply(Operation::MakeAssembly { context: root, entities: vec![a], name: Some("Tiroir".into()) }).unwrap();
+    // Version 3: guides, one in the model, one in the board's part.
+    h.apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin: DVec3::new(0.0, 80.0, 0.0), dir: DVec3::X } })
+        .unwrap();
+    let part = h.document().components().find(|c| c.is_part()).unwrap().id;
+    let circle = GuideShape::Circle { center: DVec3::new(50.0, 25.0, 18.0), normal: DVec3::Z, radius: 10.0 };
+    h.apply(Operation::AddGuide { component: part, shape: circle }).unwrap();
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/files");
     std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(format!("{dir}/v2.solidsketch"), h.document().to_json().unwrap()).unwrap();
+    std::fs::write(format!("{dir}/v3.solidsketch"), h.document().to_json().unwrap()).unwrap();
 
     // Version 1 as its serde wrote it (definitions holding solids and instances; the layout
     // checked against a file saved by that version).
@@ -764,4 +842,73 @@ fn a_primitive_drawn_in_a_part_is_a_machining() {
         })
         .is_err()
     );
+}
+
+#[test]
+fn guides_are_erased_moved_copied_and_grouped_like_occurrences() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let line = GuideShape::Line { origin: DVec3::new(0.0, 5.0, 0.0), dir: DVec3::X };
+    let g = h.apply(Operation::AddGuide { component: root, shape: line }).unwrap().guide.unwrap();
+    let guides = |h: &History| h.document().component(root).unwrap().guides.clone();
+    let up = DAffine3::from_translation(DVec3::new(0.0, 0.0, 20.0));
+
+    // Moved with an occurrence.
+    h.apply(Operation::Transform { context: root, entities: vec![a, g], transform: up }).unwrap();
+    assert_eq!(guides(&h)[0].shape, GuideShape::Line { origin: DVec3::new(0.0, 5.0, 20.0), dir: DVec3::X });
+    assert!(close(occ(h.document(), &EntityPath::root(a)).transform.translation, DVec3::new(0.0, 0.0, 20.0)));
+    // Copied, alone (no kernel): the copy among what was created.
+    let out = h.apply(Operation::Array { context: root, entities: vec![g], step: up, count: 2 }).unwrap();
+    assert_eq!(out.created.len(), 2);
+    assert_eq!(guides(&h).len(), 3);
+    assert_eq!(guides(&h)[2].shape, GuideShape::Line { origin: DVec3::new(0.0, 5.0, 60.0), dir: DVec3::X });
+    // Painting a selection holding a guide paints only the occurrences.
+    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a, g], material: Some(oak) }).unwrap();
+    // Erased.
+    h.apply(Operation::Delete { context: root, entities: vec![out.created[0]] }).unwrap();
+    assert_eq!(guides(&h).len(), 2);
+    // Grouped: the guide goes into the assembly, where it stood.
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, g], name: None }).unwrap().created[0];
+    assert_eq!(guides(&h).len(), 1);
+    let def = occ(h.document(), &EntityPath::root(asm)).component;
+    let moved = GuideShape::Line { origin: DVec3::new(0.0, 5.0, 20.0), dir: DVec3::X };
+    assert_eq!(h.document().component(def).unwrap().guide(g).unwrap().shape, moved);
+    // Only guides: no assembly.
+    let rest = guides(&h)[0].id;
+    assert!(h.apply(Operation::MakeAssembly { context: root, entities: vec![rest], name: None }).is_err());
+}
+
+#[test]
+fn a_part_s_guides_go_with_its_machinings() {
+    let mut h = History::new(Document::new());
+    let a = add(&mut h, cube(DVec3::ZERO, 100.0));
+    let b = add(&mut h, Primitive::Cylinder { origin: DVec3::new(50.0, 50.0, 80.0), radius: 5.0, height: 30.0 });
+    h.apply(Operation::Boolean { target: EntityPath::root(a), tool: EntityPath::root(b), op: Boolean::Difference, scope: Scope::All })
+        .unwrap();
+    let target = EntityPath::root(a);
+    let part = occ(h.document(), &target).component;
+    let circle = GuideShape::Circle { center: DVec3::new(50.0, 50.0, 100.0), normal: DVec3::Z, radius: 20.0 };
+    let g = h.apply(Operation::AddGuide { component: part, shape: circle }).unwrap().guide.unwrap();
+    let m = h.document().part(part).unwrap().machinings[0].id;
+    let shift = DAffine3::from_translation(DVec3::new(10.0, 0.0, 0.0));
+
+    // Guides alone: no kernel, no separate part even "only this one".
+    let doc = h.document().clone();
+    let op = Operation::TransformMachinings { target: target.clone(), machinings: vec![g], transform: shift, scope: Scope::This };
+    assert!(matches!(doc.prepare(&op).unwrap(), Prepared::Done(_)));
+    h.apply(op).unwrap();
+    assert_eq!(occ(h.document(), &target).component, part);
+    let GuideShape::Circle { center, .. } = h.document().component(part).unwrap().guide(g).unwrap().shape else { panic!() };
+    assert!(close(center, DVec3::new(60.0, 50.0, 100.0)));
+    // Copied with a machining: both copies created.
+    let out =
+        h.apply(Operation::DuplicateMachinings { target: target.clone(), machinings: vec![m, g], transform: shift, scope: Scope::All });
+    assert_eq!(out.unwrap().machinings.len(), 2);
+    assert_eq!(h.document().component(part).unwrap().guides.len(), 2);
+    // Erased alone.
+    h.apply(Operation::DeleteMachinings { target, machinings: vec![g], scope: Scope::All }).unwrap();
+    assert_eq!(h.document().component(part).unwrap().guides.len(), 1);
+    assert_eq!(h.document().part(part).unwrap().machinings.len(), 2);
 }

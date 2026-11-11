@@ -219,6 +219,9 @@ pub struct Theme {
     pub related: MarkColors,
     /// The dashed box around the assembly being edited.
     pub context_box: Rgba,
+    /// Construction guides (§6 quinquies); those outside the active context are faded like
+    /// the parts.
+    pub guide: Rgba,
     pub marquee_fill: Rgba,
     pub marquee_stroke: Rgba,
     /// Inference markers (§6 ter).
@@ -274,6 +277,7 @@ impl Theme {
             ghost: MarkColors { face: [0.1, 0.25, 1.0, 0.4], edge: [0.005, 0.035, 1.0, 1.0] },
             related: MarkColors { face: [1.0, 0.4, 0.02, 0.28], edge: [0.89, 0.17, 0.01, 0.65] },
             context_box: [0.45, 0.45, 0.48, 1.0],
+            guide: srgb(70, 70, 90),
             marquee_fill: srgba(60, 110, 230, 25),
             marquee_stroke: srgb(40, 80, 200),
             endpoint: srgb(40, 190, 60),

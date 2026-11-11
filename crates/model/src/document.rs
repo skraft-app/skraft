@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use glam::DAffine3;
+use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 
@@ -39,6 +39,9 @@ pub struct Component {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub named: bool,
     pub kind: ComponentKind,
+    /// Construction guides, in the component's axes (ARCHITECTURE.md §6 quinquies).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guides: Vec<Guide>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -65,6 +68,50 @@ impl Component {
 
     pub fn is_part(&self) -> bool {
         self.as_part().is_some()
+    }
+
+    pub fn guide(&self, id: Id) -> Option<&Guide> {
+        self.guides.iter().find(|g| g.id == id)
+    }
+}
+
+/// A construction guide of a component (§6 quinquies): drawn and inferred, never cut.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Guide {
+    pub id: Id,
+    pub shape: GuideShape,
+}
+
+/// A guide's geometry, in its component's axes.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuideShape {
+    /// The infinite line through `origin` along `dir` (unit).
+    Line { origin: DVec3, dir: DVec3 },
+    /// The whole circle of `radius` about `center`, in the plane of `normal` (unit).
+    Circle { center: DVec3, normal: DVec3, radius: f64 },
+}
+
+impl GuideShape {
+    /// The shape moved by the rigid `t`, its directions kept unit.
+    pub fn transformed(&self, t: &DAffine3) -> GuideShape {
+        match *self {
+            GuideShape::Line { origin, dir } => {
+                GuideShape::Line { origin: t.transform_point3(origin), dir: t.transform_vector3(dir).normalize_or_zero() }
+            }
+            GuideShape::Circle { center, normal, radius } => {
+                GuideShape::Circle { center: t.transform_point3(center), normal: t.transform_vector3(normal).normalize_or_zero(), radius }
+            }
+        }
+    }
+
+    /// Finite values, unit directions, a positive radius.
+    pub fn is_valid(&self) -> bool {
+        let unit = |v: DVec3| v.is_finite() && (v.length() - 1.0).abs() < 1e-6;
+        match *self {
+            GuideShape::Line { origin, dir } => origin.is_finite() && unit(dir),
+            GuideShape::Circle { center, normal, radius } => center.is_finite() && unit(normal) && radius.is_finite() && radius > 0.0,
+        }
     }
 }
 
@@ -210,6 +257,17 @@ pub struct PlacedPart {
     pub material: Option<Id>,
 }
 
+/// A guide placed in the scene, by [`Document::placed_guides`].
+#[derive(Clone, Debug)]
+pub struct PlacedGuide {
+    /// The occurrences from the root to the component holding it (empty: the root's).
+    pub path: Vec<Id>,
+    pub component: Id,
+    /// The component's axes to world.
+    pub transform: DAffine3,
+    pub guide: Guide,
+}
+
 /// The whole model.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Document {
@@ -240,7 +298,8 @@ impl Document {
     /// An empty model with these settings (the app's defaults for new models).
     pub fn with_settings(settings: Settings) -> Self {
         let root = Id(1);
-        let c = Component { id: root, name: t!("default_name.model"), named: true, kind: ComponentKind::Assembly(Assembly::default()) };
+        let kind = ComponentKind::Assembly(Assembly::default());
+        let c = Component { id: root, name: t!("default_name.model"), named: true, kind, guides: Vec::new() };
         Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings, materials: BTreeMap::new() }
     }
 
@@ -364,6 +423,31 @@ impl Document {
         }
     }
 
+    /// Every component's guides as the scene shows them: the root's, then each occurrence's
+    /// down the tree, a part's in each of its occurrences.
+    pub fn placed_guides(&self) -> Vec<PlacedGuide> {
+        let mut out = Vec::new();
+        self.walk_guides(self.root, &mut Vec::new(), DAffine3::IDENTITY, &mut out, 0);
+        out
+    }
+
+    fn walk_guides(&self, component: Id, path: &mut Vec<Id>, t: DAffine3, out: &mut Vec<PlacedGuide>, depth: usize) {
+        let Ok(c) = self.component(component) else { return };
+        if depth > MAX_DEPTH {
+            return;
+        }
+        for g in &c.guides {
+            out.push(PlacedGuide { path: path.clone(), component, transform: t, guide: g.clone() });
+        }
+        if let ComponentKind::Assembly(a) = &c.kind {
+            for o in &a.occurrences {
+                path.push(o.id);
+                self.walk_guides(o.component, path, t * o.transform, out, depth + 1);
+                path.pop();
+            }
+        }
+    }
+
     /// Does `component` contain an occurrence of `target`, at any depth (or is it `target`)?
     pub fn contains_component(&self, component: Id, target: Id) -> bool {
         fn go(doc: &Document, c: Id, target: Id, depth: usize) -> bool {
@@ -408,8 +492,17 @@ impl Document {
     pub(crate) fn insert_component(&mut self, base: &str, named: bool, kind: ComponentKind) -> Id {
         let id = self.fresh_id();
         let name = self.unique_name(base);
-        self.components.insert(id, Arc::new(Component { id, name, named, kind }));
+        self.components.insert(id, Arc::new(Component { id, name, named, kind, guides: Vec::new() }));
         id
+    }
+
+    /// Adds a copy of the component `src` (its recipe or its occurrences, and its guides, ids
+    /// kept), under a name of its own.
+    pub(crate) fn copy_component(&mut self, src: Id) -> Result<Id> {
+        let src = self.component(src)?.clone();
+        let copy = self.insert_component(&src.name, src.named, src.kind);
+        self.component_mut(copy)?.guides = src.guides;
+        Ok(copy)
     }
 
     /// A name not used by another component: `base`, else `base#2`, `base#3`, …

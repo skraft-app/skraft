@@ -3,6 +3,7 @@
 
 mod boolean;
 mod face;
+mod measure;
 mod mover;
 mod paint;
 mod rotate;
@@ -11,6 +12,7 @@ mod select;
 mod shapes;
 
 pub use boolean::BooleanTool;
+pub use measure::MeasureTool;
 pub use mover::MoveTool;
 pub use paint::PaintTool;
 pub use rotate::RotateTool;
@@ -156,6 +158,8 @@ pub struct PreviewLabel {
 pub struct Preview {
     /// Lines drawn over the scene.
     pub lines: Vec<PreviewLine>,
+    /// Guides previewed (drawn dashed over everything), with their colour.
+    pub guides: Vec<(crate::guides::Stroke, [f32; 4])>,
     /// Lengths written over the scene.
     pub labels: Vec<PreviewLabel>,
     /// Points marked with a cross (world; the app draws a `+` on the screen), which the lengths
@@ -247,6 +251,8 @@ pub enum ToolKind {
     Paint,
     /// Places the section plane (§7 quater).
     Section,
+    /// Measures, and draws guides (§6 quinquies).
+    Measure,
 }
 
 impl ToolKind {
@@ -263,6 +269,7 @@ impl ToolKind {
             ToolKind::Boolean(Boolean::Intersection) => "intersection",
             ToolKind::Paint => "paint",
             ToolKind::Section => "section",
+            ToolKind::Measure => "measure",
         }
     }
 
@@ -279,6 +286,7 @@ impl ToolKind {
             ToolKind::Boolean(Boolean::Intersection) => t!("tool.boolean.intersection.name"),
             ToolKind::Paint => t!("tool.paint.name"),
             ToolKind::Section => t!("tool.section.name"),
+            ToolKind::Measure => t!("tool.measure.name"),
         }
     }
 }
@@ -363,9 +371,41 @@ impl Cx<'_> {
         self.scene.pick_tool(&self.ray(px), self.axes()).map(|(id, _)| id)
     }
 
-    /// What a click at `px` takes when nothing is selected (move, rotate): the machining
-    /// under it while they are shown, else the entity of the context `inf` is on.
+    /// The occurrences from the root to the component guides are drawn in now: the open
+    /// part's, else the context's (§6 quinquies).
+    pub fn guide_path(&self) -> Vec<Id> {
+        self.context.iter().copied().chain(self.open_part).collect()
+    }
+
+    /// The guide of the active context under `px` (within [`GUIDE_PICK_PX`], not hidden by the
+    /// model), the nearest on screen.
+    pub fn pick_guide(&self, px: DVec2) -> Option<Id> {
+        let path = self.guide_path();
+        let ray = self.ray(px);
+        let mut best: Option<(f64, Id)> = None;
+        for g in self.scene.guides().iter().filter(|g| g.path == path) {
+            let Some((dist, p)) = crate::guides::distance(self.camera, self.size, &g.shape, px) else { continue };
+            if dist > GUIDE_PICK_PX || best.is_some_and(|b| dist >= b.0) {
+                continue;
+            }
+            // Behind the model where the cursor is: hidden (a few pixels of slack).
+            let depth = (p - ray.origin).dot(ray.dir);
+            let slack = self.camera.world_per_pixel(self.size, p) * 3.0;
+            if self.scene.pick(&ray, |_| true).is_some_and(|h| h.t < depth - slack) {
+                continue;
+            }
+            best = Some((dist, g.id));
+        }
+        best.map(|b| b.1)
+    }
+
+    /// What a click at `px` takes when nothing is selected (move, rotate): a guide of the
+    /// active context near it, else the machining under it while they are shown, else the
+    /// entity of the context `inf` is on.
     pub fn entity_under(&self, px: DVec2, inf: Option<&Inference>) -> Option<Id> {
+        if let Some(g) = self.pick_guide(px) {
+            return Some(g);
+        }
         if self.machinings_shown() {
             return self.pick_machining(px);
         }
@@ -373,9 +413,10 @@ impl Cx<'_> {
         under.and_then(|p| self.selectable(p))
     }
 
-    /// What moving the selection changes, and in which frame.
+    /// What moving the selection changes, and in which frame: in an open part, its
+    /// machinings and guides; else the context's occurrences and guides.
     pub fn moved(&self) -> Moved {
-        match self.open_part_path().filter(|_| self.machinings_shown()) {
+        match self.open_part_path() {
             Some(target) => Moved::Machinings { target, scope: self.part_scope, frame: self.axes() },
             None => Moved::Occurrences { context: self.context_def, frame: self.context_transform },
         }
@@ -390,13 +431,22 @@ impl Cx<'_> {
         }
     }
 
-    /// Is `o` one of `moving` (occurrences of the context, or machinings of the open part)?
+    /// The component a guide drawn now belongs to (§6 quinquies) — the open part, else the
+    /// context — and its axes to world.
+    pub fn guide_owner(&self) -> (Id, DAffine3) {
+        let part = self.open_part_path().and_then(|p| self.doc.resolve(&p).ok()).map(|o| o.component);
+        (part.unwrap_or(self.context_def), self.axes())
+    }
+
+    /// Is `o` one of `moving` (occurrences of the context, or machinings of the open part, and
+    /// their guides)?
     /// What a move or a rotation leaves out of inferences.
     pub fn is_moving(&self, o: &Owner<'_>, moving: &[Id]) -> bool {
         match o.piece {
             Piece::Tool(id) => moving.contains(&id),
             Piece::Blank => false,
             Piece::Shape => self.selectable(o.path).is_some_and(|id| moving.contains(&id)),
+            Piece::Guide(id) => moving.contains(&id) && o.path.instances == self.guide_path(),
         }
     }
 
@@ -482,6 +532,8 @@ impl Cx<'_> {
             keep,
             plane: plane.unwrap_or_else(|| self.ground()),
             origin: Some(self.to_world(DVec3::ZERO)),
+            // As the app draws them: shown, or an open part's.
+            model_axes: self.doc.settings().display.axes || self.open_part.is_some(),
             from,
             tracked: self.tracked,
             in_plane,
@@ -519,8 +571,11 @@ impl Cx<'_> {
 }
 
 /// The colour of a guide for `kind`: an axis's own, magenta for an edge's parallel or
-/// perpendicular, else ink.
+/// perpendicular, else ink (a guide of the document too).
 pub fn guide_color(kind: InferKind) -> [f32; 4] {
+    if kind == InferKind::OnGuide || kind.line() == Some(LineKind::Guide) {
+        return INK;
+    }
     match kind.line().map(|l| l.axis()) {
         Some(Some(0)) => RED,
         Some(Some(1)) => GREEN,
@@ -681,8 +736,12 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Boolean(op) => Box::new(BooleanTool::new(op)),
         ToolKind::Paint => Box::new(PaintTool::default()),
         ToolKind::Section => Box::new(SectionTool::default()),
+        ToolKind::Measure => Box::new(MeasureTool::default()),
     }
 }
+
+/// How near a guide the cursor picks it (pixels).
+pub const GUIDE_PICK_PX: f64 = 5.0;
 
 /// The copy modifier's name for hints (SketchUp: Option on macOS, Ctrl elsewhere).
 pub fn copy_key() -> String {
@@ -710,16 +769,16 @@ pub const MAGENTA: [f32; 4] = solidsketch_theme::FREE_LINE;
 /// The highlight colour of picked things.
 pub const PICK: [f32; 4] = solidsketch_theme::PICK;
 
-/// A dashed line from `a` to `b` (world; dashes of a few pixels at their depth), dashes at
-/// both ends.
+/// A dashed line from `a` to `b` (world; dashes about as long as the guides', at the depth of
+/// its middle), dashes at both ends.
 pub fn dashed(camera: &Camera, size: DVec2, out: &mut Vec<PreviewLine>, a: DVec3, b: DVec3, color: [f32; 4]) {
     let len = (b - a).length();
-    let step = camera.world_per_pixel(size, (a + b) * 0.5) * 10.0;
+    let step = camera.world_per_pixel(size, (a + b) * 0.5) * crate::guides::DASH_PX;
     if len < 1e-12 || step <= 0.0 {
         return;
     }
     // Odd, so that a dash starts and ends the line (a box's corners stay drawn).
-    let n = ((len / step).ceil() as usize).min(400) | 1;
+    let n = ((len / step).ceil() as usize).min(1000) | 1;
     for k in (0..n).step_by(2) {
         let (t0, t1) = (k as f64 / n as f64, ((k + 1) as f64 / n as f64).min(1.0));
         out.push(PreviewLine { a: a.lerp(b, t0), b: a.lerp(b, t1), color });

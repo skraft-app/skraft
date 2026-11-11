@@ -4,7 +4,7 @@
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::{t, tp};
-use solidsketch_model::{ComponentKind, Document, EntityPath, Id, Occurrence, Operation, Scope, Units, measure};
+use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, Occurrence, Operation, Scope, Units, measure};
 use solidsketch_tools::{Editor, OptionValue};
 
 use crate::commands::Menu;
@@ -149,7 +149,7 @@ enum Hint {
 /// The tool bar: each button a command (its state and tip from the registry); `None` is a
 /// separator. Undo, redo and the view's toggles are in the title bar ([`crate::titlebar`]).
 pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
-    let buttons: [Option<(egui::ImageSource<'static>, &str, Hint)>; 18] = [
+    let buttons: [Option<(egui::ImageSource<'static>, &str, Hint)>; 19] = [
         Some((icons::SELECT, "tool.select", Hint::None)),
         Some((icons::BOX, "tool.box", Hint::None)),
         Some((icons::CYLINDER, "tool.cylinder", Hint::None)),
@@ -157,6 +157,7 @@ pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Actio
         Some((icons::ROTATE, "tool.rotate", Hint::Copy)),
         Some((icons::PAINT, "tool.paint", Hint::None)),
         Some((icons::SECTION, "tool.section", Hint::None)),
+        Some((icons::MEASURE, "tool.measure", Hint::None)),
         None,
         Some((icons::UNION, "tool.union", Hint::Boolean)),
         Some((icons::SUBTRACT, "tool.difference", Hint::Boolean)),
@@ -311,6 +312,20 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                 ui.label(t!("panel.entity_info.editing", name = name));
                 ui.weak(t!("panel.entity_info.editing_exit"));
             }
+        }
+        [id] if doc.component(context).is_ok_and(|c| c.guide(*id).is_some()) => {
+            let Some(g) = doc.component(context).ok().and_then(|c| c.guide(*id)) else { return };
+            egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                ui.label(t!("panel.entity_info.type"));
+                ui.label(t!("panel.entity_info.type_guide"));
+                ui.end_row();
+                ui.label(t!("panel.entity_info.shape"));
+                ui.label(match g.shape {
+                    GuideShape::Line { .. } => t!("panel.entity_info.guide_line"),
+                    GuideShape::Circle { radius, .. } => t!("panel.entity_info.guide_circle", radius = units.format(radius)),
+                });
+                ui.end_row();
+            });
         }
         [id] => {
             let Some(o) = asm.occurrence(*id) else { return };

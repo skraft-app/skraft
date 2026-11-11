@@ -274,15 +274,22 @@ impl Editor {
         if open.is_none() {
             self.open_part = None;
         }
+        // The guides of the active context stay selected while they are shown.
+        let guide_component = match &open {
+            Some((part, _, _)) => *part,
+            None => ctx,
+        };
+        let guides_shown = doc.settings().display.guides;
+        let guide = |id: &solidsketch_model::Id| guides_shown && doc.component(guide_component).is_ok_and(|c| c.guide(*id).is_some());
         match open {
-            // An open part: its machinings while shown, else nothing.
+            // An open part: its machinings while shown, and its guides.
             Some((_, p, _)) => {
                 let shown = self.machinings_shown;
-                self.selection.retain(|id| shown && p.machining(*id).is_some());
+                self.selection.retain(|id| (shown && p.machining(*id).is_some()) || guide(id));
             }
             None => {
                 if let Ok(a) = doc.assembly(ctx) {
-                    self.selection.retain(|id| a.occurrence(*id).is_some());
+                    self.selection.retain(|id| a.occurrence(*id).is_some() || guide(id));
                 }
             }
         }

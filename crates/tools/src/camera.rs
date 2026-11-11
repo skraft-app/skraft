@@ -5,6 +5,12 @@
 
 use glam::{DMat4, DVec2, DVec3, Mat4};
 
+/// How close to its vanishing point an infinite line is drawn, in pixels.
+pub const VANISHING_PX: f64 = 0.25;
+/// How far from the view's direction (radians) a line is still seen end on, in parallel: a
+/// point, not drawn. The standard views stop 0.01° short of the zenith ([`MAX_PITCH`]).
+const END_ON: f64 = 1e-3;
+
 /// A half-line from the camera through a pixel. `t_min` is where hits start counting (minus
 /// infinity in parallel projection, where the scene may lie behind the eye plane).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -310,6 +316,84 @@ impl Camera {
     /// front of the camera.
     pub fn project(&self, p: DVec3, size: DVec2) -> Option<DVec2> {
         self.projector(size).project(p)
+    }
+
+    /// The part of the line `origin + t·dir`, `t` in `range` (ends may be infinite), a `size`
+    /// viewport shows: clipped to the view's sides, grown by `margin` pixels, and in
+    /// perspective to `near` in front of the eye. An end running off to infinity stops where
+    /// it is within [`VANISHING_PX`] of its vanishing point. `None` when nothing of it shows,
+    /// or when a parallel view sees it end on.
+    pub fn visible_segment(
+        &self,
+        size: DVec2,
+        origin: DVec3,
+        dir: DVec3,
+        range: (f64, f64),
+        near: f64,
+        margin: f64,
+    ) -> Option<(DVec3, DVec3)> {
+        let len = dir.length();
+        if len < 1e-12 {
+            return None;
+        }
+        let d = dir / len;
+        let (mut t0, mut t1) = (range.0 * len, range.1 * len);
+        let (f, r, u) = (self.forward(), self.right(), self.up());
+        let o = origin - self.eye;
+        let (ox, oy, oz) = (o.dot(r), o.dot(u), o.dot(f));
+        let (dx, dy, dz) = (d.dot(r), d.dot(u), d.dot(f));
+        let (gx, gy) = (1.0 + 2.0 * margin / size.x.max(1.0), 1.0 + 2.0 * margin / size.y.max(1.0));
+        let aspect = size.x / size.y.max(1.0);
+        // The half-spaces `a + b·t ≥ 0` the view is made of.
+        let half_spaces: Vec<(f64, f64)> = match self.projection {
+            Projection::Perspective { fov_y } => {
+                let (tx, ty) = ((fov_y / 2.0).tan() * aspect * gx, (fov_y / 2.0).tan() * gy);
+                vec![
+                    (oz - near, dz),
+                    (tx * oz - ox, tx * dz - dx),
+                    (tx * oz + ox, tx * dz + dx),
+                    (ty * oz - oy, ty * dz - dy),
+                    (ty * oz + oy, ty * dz + dy),
+                ]
+            }
+            Projection::Parallel { height } => {
+                // Seen end on, give or take the standard views stopping short of the zenith.
+                if dx.hypot(dy) < END_ON {
+                    return None;
+                }
+                let (hw, hh) = (height / 2.0 * aspect * gx, height / 2.0 * gy);
+                vec![(hw - ox, -dx), (hw + ox, dx), (hh - oy, -dy), (hh + oy, dy)]
+            }
+        };
+        for (a, b) in half_spaces {
+            if b.abs() < 1e-15 {
+                if a < 0.0 {
+                    return None;
+                }
+            } else if b > 0.0 {
+                t0 = t0.max(-a / b);
+            } else {
+                t1 = t1.min(-a / b);
+            }
+        }
+        // Perspective only: an end left infinite runs to its vanishing point (the sides keep
+        // it in view only if it recedes, dz ≠ 0). At depth z it is `|cross| / (|dz|·z)` from
+        // it (in units of depth): it stops at the depth where that is VANISHING_PX.
+        if let Projection::Perspective { fov_y } = self.projection
+            && t0 < t1
+            && (t0.is_infinite() || t1.is_infinite())
+            && dz.abs() > 1e-15
+        {
+            let focal_px = size.y.max(1.0) / (2.0 * (fov_y / 2.0).tan());
+            let cross = (ox * dz - dx * oz).hypot(oy * dz - dy * oz);
+            let far_t = (focal_px * cross / (dz.abs() * VANISHING_PX) - oz) / dz;
+            if t1.is_infinite() {
+                t1 = far_t;
+            } else {
+                t0 = far_t;
+            }
+        }
+        (t0.is_finite() && t1.is_finite() && t0 < t1).then(|| (origin + d * t0, origin + d * t1))
     }
 
     /// Projects many points into a `size` viewport (the matrices computed once).

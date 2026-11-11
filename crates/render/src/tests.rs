@@ -8,7 +8,8 @@ use super::*;
 fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).ok()?;
-    pollster::block_on(adapter.request_device(&Default::default())).ok()
+    let required_features = adapter.features() & OPTIONAL_FEATURES;
+    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_features, ..Default::default() })).ok()
 }
 
 /// Renders `frame` and reads the target back as RGBA8 rows.
@@ -462,4 +463,58 @@ fn a_ghost_shows_what_it_holds() {
     assert!(sr.abs_diff(sg) < 30, "{:?}", centre(&solid));
     let [gr, gg, gb, _] = centre(&ghost);
     assert!(gr > gg + 60 && gr > gb + 60, "{:?}", centre(&ghost));
+}
+
+/// A dashed line: dashes and gaps as long as asked, the pattern where it is said to be at the
+/// line's start. Where the device clamps depth, past the parallel projection's depth range too.
+#[test]
+fn dashed_lines_are_dashed_on_screen() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    // Looking down -Z, a pixel a unit, the plane z = 0 at depth 10 in a 5–15 range.
+    let size = [200, 40];
+    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let clamped = device.features().contains(wgpu::Features::DEPTH_CLIP_CONTROL);
+    let z = if clamped { 1000.0 } else { 2.0 };
+    let line = Line {
+        a: DVec3::new(-150.0, 0.0, -z),
+        b: DVec3::new(150.0, 0.0, z),
+        color: [0.0, 0.0, 0.0, 1.0],
+        dash: Some(Dash { length: 5.0, phase: 2.0 }),
+    };
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &[],
+        highlights: &[],
+        lines: &[line],
+        overlay: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "dashes");
+    // The line starts 50 px left of the picture: at pixel x, the pattern is at 2 + 50 + x. It
+    // runs between two rows of pixels: each takes half its ink.
+    let ink = |x: u32| (19..=20).map(|y| pixel(&px, size[0], x, y)[0]).min().unwrap();
+    let (mut dashes, mut gaps) = (0, 0);
+    for x in 5..195 {
+        let at = (2.0 + 50.0 + x as f64 + 0.5).rem_euclid(10.0);
+        if (1.0..4.0).contains(&at) {
+            assert!(ink(x) < 200, "no dash at {x} ({at}): {}", ink(x));
+            dashes += 1;
+        } else if (6.0..9.0).contains(&at) {
+            assert!(ink(x) > 230, "no gap at {x} ({at}): {}", ink(x));
+            gaps += 1;
+        }
+    }
+    assert!(dashes > 40 && gaps > 40, "{dashes} {gaps}");
 }

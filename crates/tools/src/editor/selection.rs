@@ -12,6 +12,7 @@ impl Editor {
     }
 
     pub fn select_all(&mut self) {
+        let guides = self.shown_guides();
         if self.open_part.is_some() {
             self.selection = self
                 .scene
@@ -19,10 +20,27 @@ impl Editor {
                 .filter(|_| self.showing_machinings())
                 .map(|r| r.tools.iter().map(|t| t.machining).collect())
                 .unwrap_or_default();
+            self.selection.extend(guides);
             return;
         }
         let ctx = self.context_definition();
         self.selection = self.document().assembly(ctx).map(|a| a.occurrences.iter().map(|o| o.id).collect()).unwrap_or_default();
+        self.selection.extend(guides);
+    }
+
+    /// The component guides are drawn in now (§6 quinquies): the open part's, else the
+    /// context's.
+    pub fn guide_component(&self) -> Id {
+        let doc = self.document();
+        self.open_part_path().and_then(|p| doc.resolve(&p).ok()).map_or_else(|| self.context_definition(), |o| o.component)
+    }
+
+    /// The guides of the active context, while guides are shown.
+    pub fn shown_guides(&self) -> Vec<Id> {
+        if !self.document().settings().display.guides {
+            return Vec::new();
+        }
+        self.document().component(self.guide_component()).map(|c| c.guides.iter().map(|g| g.id).collect()).unwrap_or_default()
     }
 
     /// Selects the entity `path` names, editing the context it is in (the outliner's click).
@@ -78,11 +96,32 @@ impl Editor {
             return;
         }
         let entities = std::mem::take(&mut self.selection);
-        let op = match self.open_part_path().filter(|_| self.showing_machinings()) {
+        self.erase(entities);
+    }
+
+    /// Erases entities of the active context: occurrences and guides, or, in an open part,
+    /// its machinings and guides.
+    fn erase(&mut self, entities: Vec<Id>) {
+        let op = match self.open_part_path() {
             Some(target) => Operation::DeleteMachinings { target, machinings: entities, scope: self.part_scope },
             None => Operation::Delete { context: self.context_definition(), entities },
         };
         let _ = self.start(op, After::Nothing, false);
+    }
+
+    /// Erases every guide of the active context (Edit › Delete guides), shown or not.
+    pub fn delete_guides(&mut self) {
+        if self.busy() {
+            return;
+        }
+        let guides: Vec<Id> =
+            self.document().component(self.guide_component()).map(|c| c.guides.iter().map(|g| g.id).collect()).unwrap_or_default();
+        if guides.is_empty() {
+            self.message = Some(t!("status.no_guides"));
+            return;
+        }
+        self.selection.retain(|id| !guides.contains(id));
+        self.erase(guides);
     }
 
     /// Puts the selection in a new assembly.
@@ -121,7 +160,9 @@ impl Editor {
             return;
         }
         let context = self.context_definition();
-        for occurrence in self.selection.clone() {
+        let Ok(a) = self.document().assembly(context) else { return };
+        let occurrences: Vec<Id> = self.selection.iter().copied().filter(|id| a.occurrence(*id).is_some()).collect();
+        for occurrence in occurrences {
             self.queue.push_back((Operation::MakeUnique { context, occurrence }, After::Nothing));
         }
         self.pump();
