@@ -18,7 +18,8 @@
 //! edge, from its nearer end; across a face, from the two sides at its corner nearest the
 //! cursor; the distances are typed (`d` or `d1;d2`).
 //!
-//! The height, after OpenCutList: Shift held takes the last height again (the cursor's way), as
+//! The height takes that of a feature inferred, or the plane of a planar face parallel to the
+//! base (not in its plane) the cursor is on. After OpenCutList: Shift held takes the last height again (the cursor's way), as
 //! a double-click on the opposite corner does; the copy modifier held runs it up to the first
 //! face along the normal from the middle of the base; tapped, it centres the height on the
 //! plane (the "Centred height" option, saved), typed heights then being the whole ones.
@@ -425,10 +426,22 @@ fn base_at(cx: &Cx<'_>, px: DVec2, f: &Frame, dir: Option<DVec3>) -> Option<(Fra
 }
 
 /// The height the cursor gives above the plane at `p` (the axes' coordinates): that of a feature
-/// inferred, else that of the closest point of the normal through `p` to the cursor's ray.
+/// inferred, or of a planar face parallel to the plane (not in it) the cursor is on; else that
+/// of the closest point of the normal through `p` to the cursor's ray.
 fn height_at(cx: &Cx<'_>, px: DVec2, f: &Frame, p: DVec3) -> (f64, Option<Inference>) {
-    if let Some(inf) = cx.infer(px, |_| true, None).filter(|i| i.kind.is_feature()) {
-        return (f.local(cx.to_axes(inf.point)).z, Some(inf));
+    if let Some(inf) = cx.infer(px, |_| true, None) {
+        if inf.kind.is_feature() {
+            return (f.local(cx.to_axes(inf.point)).z, Some(inf));
+        }
+        if inf.kind == InferKind::OnFace
+            && let Some((q, n)) = inf.hit.as_ref().and_then(|h| face::plane_at(cx.scene, h))
+            && dir_to_axes(cx, n).dot(f.n).abs() > 1.0 - SQUARE
+        {
+            let h = f.local(cx.to_axes(q)).z;
+            if h.abs() >= ON {
+                return (h, Some(inf));
+            }
+        }
     }
     (f.local(cx.axes_ray(px).closest_on_line(p, f.n)).z, None)
 }

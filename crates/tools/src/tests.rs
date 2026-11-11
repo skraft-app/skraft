@@ -443,6 +443,28 @@ fn the_height_takes_the_last_one_the_next_face_or_both_sides() {
 }
 
 #[test]
+fn the_height_takes_a_face_parallel_to_the_plane() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+
+    // A base on the ground beside `a`, the height clicked inside `a`'s top: up to that plane.
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::new(400.0, 0.0, 0.0));
+    click(&mut e, DVec3::new(500.0, 100.0, 0.0));
+    click(&mut e, DVec3::new(120.0, 80.0, 150.0));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(400.0, 0.0, 0.0)) && close(hi, DVec3::new(500.0, 100.0, 150.0)), "{lo} {hi}");
+
+    // The cylinder likewise.
+    e.set_tool(ToolKind::Cylinder);
+    click(&mut e, DVec3::new(-300.0, -300.0, 0.0));
+    click(&mut e, DVec3::new(-250.0, -300.0, 0.0));
+    click(&mut e, DVec3::new(120.0, 80.0, 150.0));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(-250.0, -300.0, 0.0)) && close(hi, DVec3::new(-250.0, -300.0, 150.0)), "{lo} {hi}");
+}
+
+#[test]
 fn the_first_point_from_a_face_centre_a_whole_face_or_a_corner() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();

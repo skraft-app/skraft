@@ -34,12 +34,7 @@ impl Face {
     /// The face `hit` is on, when planar.
     pub fn at(scene: &DisplayScene, hit: &Hit) -> Option<Face> {
         let (t, part) = scene.inferable_at(hit)?;
-        let plane = part.snaps.planes.get(hit.face as usize).copied().flatten()?;
-        let mut normal = t.matrix3.inverse().transpose().mul_vec3(plane.normal).normalize();
-        if normal.dot(hit.normal) < 0.0 {
-            normal = -normal;
-        }
-        let point = t.transform_point3(plane.point);
+        let (point, normal) = plane_at(scene, hit)?;
         let flat = |p: DVec3| p - normal * (p - point).dot(normal);
 
         let m = &part.mesh;
@@ -125,6 +120,18 @@ impl Face {
             .collect();
         Some((v, sides))
     }
+}
+
+/// The plane of the face `hit` is on, when planar (in the world): a point of it and its unit
+/// normal towards the eye (as the hit's). Cheaper than [`Face::at`].
+pub(super) fn plane_at(scene: &DisplayScene, hit: &Hit) -> Option<(DVec3, DVec3)> {
+    let (t, part) = scene.inferable_at(hit)?;
+    let plane = part.snaps.planes.get(hit.face as usize).copied().flatten()?;
+    let mut normal = t.matrix3.inverse().transpose().mul_vec3(plane.normal).normalize();
+    if normal.dot(hit.normal) < 0.0 {
+        normal = -normal;
+    }
+    Some((t.transform_point3(plane.point), normal))
 }
 
 /// The straight edge `inf` is on (its ends, in the world), looked for on the solid it names.
