@@ -1319,4 +1319,121 @@ mod tests {
         let i = tracking(&e, DVec3::new(310.0, -15.0, 50.0), Some(from), &[DVec3::new(-400.0, 0.0, 50.0)]);
         assert!(!matches!(i.kind, InferKind::OnTwoLines(..)), "{i:?}");
     }
+
+    /// Timing, not a check (review finding 7): hovers swept over large scenes, iso perspective.
+    /// `cargo test --release -p solidsketch-tools infer_timing -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn infer_timing() {
+        use solidsketch_model::{Boolean, Scope};
+        use std::time::Instant;
+
+        let iso = |e: &mut Editor| {
+            e.set_parallel(false);
+            let b = e.scene().bounds();
+            e.camera.set_standard_view(StandardView::Iso, b, ViewArea::full(e.viewport_size()));
+        };
+        let array = |e: &mut Editor, ids: Vec<Id>, step: DVec3, count: u32| -> Vec<Id> {
+            let root = e.document().root();
+            let op = Operation::Array { context: root, entities: ids.clone(), step: DAffine3::from_translation(step), count };
+            let mut all = ids;
+            all.extend(e.apply(op).unwrap().expect("done").created);
+            all
+        };
+
+        // Many parts: n × n occurrences of one board (a cabinet maker's sheet of parts).
+        let grid = |n: u32| {
+            let mut e = view_editor(StandardView::Iso, DVec3::ZERO);
+            let a = add_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 60.0, 18.0));
+            let row = array(&mut e, vec![a], DVec3::X * 150.0, n - 1);
+            array(&mut e, row, DVec3::Y * 100.0, n - 1);
+            iso(&mut e);
+            e
+        };
+        // One heavy part: a board drilled with 2^k holes (circles: arcs, a dense mesh).
+        let drilled = |k: usize| {
+            let mut e = view_editor(StandardView::Iso, DVec3::ZERO);
+            let root = e.document().root();
+            let board = add_box(&mut e, DVec3::ZERO, DVec3::new(2000.0, 1000.0, 18.0));
+            let drill = add(&mut e, Primitive::Cylinder { origin: DVec3::new(50.0, 50.0, -5.0), radius: 4.0, height: 30.0 });
+            let target = EntityPath::root(board);
+            e.apply(Operation::Boolean {
+                target: target.clone(),
+                tool: EntityPath::root(drill),
+                op: Boolean::Difference,
+                scope: Scope::All,
+            })
+            .unwrap();
+            let _ = root;
+            for i in 0..k {
+                let holes = e.document().resolve_part(&target).unwrap().1.machinings.iter().map(|m| m.id).collect();
+                let step = if i < 4 { DVec3::X * (100.0 * (1 << i) as f64) } else { DVec3::Y * (100.0 * (1 << (i - 4)) as f64) };
+                e.apply(Operation::DuplicateMachinings {
+                    target: target.clone(),
+                    machinings: holes,
+                    transform: DAffine3::from_translation(step),
+                    scope: Scope::All,
+                })
+                .unwrap();
+            }
+            assert!(!e.busy());
+            iso(&mut e);
+            e
+        };
+
+        let run = |name: &str, e: &Editor| {
+            let (parts, edges, tris) = e
+                .scene()
+                .inferable()
+                .fold((0, 0, 0), |(p, ed, t), (_, m, _)| (p + 1, ed + m.snaps.edges.len(), t + m.mesh.indices.len() / 3));
+            let keep = |_: &Owner<'_>| true;
+            let tracked = [DVec3::new(10.0, 10.0, 18.0), DVec3::new(300.0, 500.0, 18.0)];
+            let diagonal = Some(EdgeRef::Straight(DVec3::new(1.0, 1.0, 0.0).normalize()));
+            for (case, from, tracked, reference) in
+                [("points", None, &[][..], None), ("11 lines", Some(DVec3::new(0.0, 0.0, 18.0)), &tracked[..], diagonal)]
+            {
+                let q = Query {
+                    keep: &keep,
+                    plane: (DVec3::ZERO, DVec3::Z),
+                    origin: Some(DVec3::ZERO),
+                    from,
+                    tracked,
+                    in_plane: false,
+                    axes: [DVec3::X, DVec3::Y, DVec3::Z],
+                    reference,
+                    lock: None,
+                };
+                // Only the hovers over the geometry: elsewhere there is next to nothing to do.
+                let mut times = Vec::new();
+                for i in 0..100 {
+                    for j in 0..100 {
+                        let px = DVec2::new(5.0 + 10.0 * i as f64, 5.0 + 10.0 * j as f64);
+                        let t = Instant::now();
+                        let r = std::hint::black_box(infer(e.scene(), &e.camera, e.viewport_size(), px, &q));
+                        let ms = t.elapsed().as_secs_f64() * 1e3;
+                        if r.is_some_and(|r| r.hit.is_some()) {
+                            times.push(ms);
+                        }
+                    }
+                }
+                times.sort_by(f64::total_cmp);
+                let mean = times.iter().sum::<f64>() / times.len() as f64;
+                let pct = |q: f64| times[((times.len() - 1) as f64 * q) as usize];
+                println!(
+                    "{name:<18} {parts:>5} parts {edges:>6} edges {tris:>7} tris | {case:<8} {:>5} hovers | mean {mean:6.2} ms  p50 {:6.2}  p95 {:6.2}  max {:6.2}",
+                    times.len(),
+                    pct(0.5),
+                    pct(0.95),
+                    pct(1.0)
+                );
+            }
+        };
+
+        for n in [10, 20, 40] {
+            run(&format!("grid {n}x{n}"), &grid(n));
+        }
+        for k in [5, 7] {
+            run(&format!("board, {} holes", 1 << k), &drilled(k));
+        }
+    }
 }
