@@ -81,10 +81,10 @@ impl RotateTool {
     /// The direction from `center` to the cursor, in the protractor's plane: towards a feature
     /// inferred (its projection on the plane) or along an axis or an edge's parallel lying in
     /// the plane, else where the cursor's ray meets the plane. While turning, what turns is not
-    /// inferred on.
+    /// inferred on, unless copying: then the original stays in place.
     fn direction(&self, cx: &Cx<'_>, px: DVec2, center: DVec3, axis: DVec3) -> (Option<DVec3>, Option<Inference>) {
         let turning = matches!(self.state, State::Angle { .. });
-        let keep = |o: &Owner<'_>| !(turning && cx.is_moving(o, &self.moving));
+        let keep = |o: &Owner<'_>| self.copy || !(turning && cx.is_moving(o, &self.moving));
         let inf = cx.infer_in_plane(px, keep, (center, axis), center).filter(|i| i.kind.is_feature());
         let p = match &inf {
             Some(i) => Some(i.point),

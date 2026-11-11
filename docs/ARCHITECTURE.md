@@ -435,9 +435,12 @@ Decided on 2026-11-09.
   the rules in `tools/shapes.rs`): the first click takes the plane of the face hovered (on an
   edge, the face it bounds, else the ground or the upright plane through the edge), otherwise
   the context's ground; a straight edge askew to the axes there turns the base's sides along
-  it. The box's second corner sets the plane again: an axis plane through the first corner it
+  it (a guide line likewise, taken as an edge; a guide circle by its tangent there, in its
+  plane off a face). The box's second corner sets the plane again: an axis plane through the first corner it
   lies in, the plane through an edge aimed at and the first corner, the plane of a face the
-  first corner lies on, else the upright plane through both corners. The cylinder keeps the
+  first corner lies on, else the upright plane through both corners; a guide aimed at (a
+  line, a circle by its tangent there) acts as an edge and always turns the base's sides
+  along it (even locked plane). The cylinder keeps the
   plane of its centre. The height runs along the normal, towards the eye. Esc goes back one
   step. Before the first click a small shape at the cursor shows the plane, the lines take the
   colour of its normal's axis (magenta for another locked one) and the sides being drawn get
@@ -600,21 +603,51 @@ model, the file, the display and the tool; (2) inferences on guides; (3) managin
   the others (outside it, or in another occurrence of the open part) in `guide_faded`. Step 3
   adds a "Guides" toggle to the display (with it off, they are not inferred either).
 - **The tool** (`ToolKind::Measure`, `T`, `tools/measure.rs`):
-  - the first click takes the inferred point. **On an edge** (`OnEdge`, not an endpoint nor a
-    midpoint) with the saved option **"Create guides"** on (the default; a tap of the copy
-    modifier turns it over, as SketchUp's Ctrl), it starts a guide: **parallel** to a straight
-    edge — the line through the point hovered, along the edge; the length shown is the
-    distance between the two lines — or **concentric** to an arc or a circle — the circle in
-    its plane through the point hovered (projected on that plane); the length shown is the
-    difference of the radii. That length is drawn dashed — in the colour of the axis it runs along, else ink — from
+  - the first click takes the inferred point. With the saved option **"Create guides"** on
+    (the default; a tap of the copy modifier turns it over, as SketchUp's Ctrl), it starts a
+    guide of the kind the saved choice **"Guide"** says (decided on 2026-11-11; Tab turns it
+    over, also between the two clicks — the first click is kept and starts again):
+    - **Auto** (the default): **on an edge** (`OnEdge`, not an endpoint nor a midpoint),
+      **parallel** to a straight edge — the line through the point hovered, along the edge;
+      the length shown is the distance between the two lines — or **concentric** to an arc or
+      a circle — the circle in its plane through the point hovered (projected on that plane);
+      the length shown is the difference of the radii; anywhere else, a measure (below);
+    - **Line**: parallel to a straight edge; **tangent** to an arc — a line along its tangent
+      at the point clicked, offset along its radius in its plane; anywhere else, the line
+      **through the point clicked and the next one** (the length between them shown, a length
+      typed doing nothing);
+    - **Circle**: concentric to an arc; anywhere else, **centred on the point clicked** — in the
+      face clicked, else level —, the cursor giving the radius (shown and typed as "Radius"):
+      the concentric case of a circle of radius zero, so a guide crossing two others (a
+      fillet's centre) takes its circle.
+
+    **Where curves cross** (edges, guides, the axes as drawn: `Inference::crossed`, each curve
+    at the point, set on `OnEdgeAndLine`, `OnGuideAndLine`, `OnTwoLines`, `OnGuideAndEdge` and
+    `OnTwoGuides`; not a reference for the next lines) **and at a vertex** (`Endpoint`: the
+    edges ending there, `SnapCurve::ends`, looked for only at a vertex near the cursor — so
+    the end of an arc gives its tangent), each gives its guide of the kind chosen, and the
+    fallback above one more (decided on 2026-11-11). The first click takes, in Line and
+    Circle, the one from the edge last hovered (`Cx::reference`) when it is one of them, else
+    the fallback; in Auto always the fallback (a point is measured from, as before). The
+    other modifier tapped (Command on macOS, Alt elsewhere) turns them over, the status bar
+    naming the guide ("Tangent guide", "Parallel guide"…). The last edge hovered alone could
+    not choose: coming along a circle to where it crosses a line, the cursor is within the
+    line's aperture before the crossing's, so the line is always last.
+  - **The reference is marked**: the curve the guide refers to — its line or its whole
+    circle, through the point clicked — is drawn dashed in magenta (`Preview::guides`), from
+    the first click on; before it, at a point where several cross, the one the click would
+    take.
+
+    The offset is drawn dashed — in the colour of the axis it runs along, else ink — from
     the point clicked to the guide,
     square to the edge (for an arc, along the radius through the cursor). Pointing at nothing,
     the cursor gives a point of the horizontal plane (the axes') through the point clicked —
     for an upright edge, of the face clicked, else of the upright plane through it facing the
     eye; the perpendicular is inferred in that plane. The second click, or a typed length (the offset, towards the
-    cursor's side), adds the guide. An offset of zero, or a circle shrunk to nothing, adds
-    nothing (said in the status bar);
-  - **anywhere else**, or with the option off, it measures: the length from the first point
+    cursor's side), adds the guide. A guide may be offset by zero (along the edge, the tangent
+    itself, or the whole circle of an arc); a circle shrunk to nothing adds nothing (said in
+    the status bar);
+  - **anywhere else** in Auto, or with the option off, it measures: the length from the first point
     to the point hovered, written on the dashed segment between them (`PreviewLabel`) and in
     the measurements box; the second click ends the measure. A length typed then does nothing
     (no scaling of the model, meaningless for cut-list parts);

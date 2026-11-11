@@ -80,6 +80,20 @@ impl SnapCurve {
         }
     }
 
+    /// The ends, for a segment, an open arc or an open polyline (none for a closed curve).
+    pub fn ends(&self) -> Vec<DVec3> {
+        match *self {
+            SnapCurve::Segment { a, b } => vec![a, b],
+            SnapCurve::Arc { center, x, y, radius, sweep } if sweep < TAU - 1e-9 => {
+                vec![Self::arc_point(center, x, y, radius, 0.0), Self::arc_point(center, x, y, radius, sweep)]
+            }
+            SnapCurve::Polyline { ref points, .. } if points.len() > 1 && points[0] != points[points.len() - 1] => {
+                vec![points[0], points[points.len() - 1]]
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// The centre, for an arc, a circle or an ellipse.
     pub fn center(&self) -> Option<DVec3> {
         match *self {

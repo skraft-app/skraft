@@ -47,11 +47,11 @@ fn axis(cx: &Cx<'_>, k: usize) -> DVec3 {
 }
 
 impl MoveTool {
-    /// The destination under `px`: inferred on the scene (ignoring what moves) and on the
-    /// lines through `from`, held on the locked line if any, else on the horizontal plane
-    /// through `from`.
+    /// The destination under `px`: inferred on the scene (ignoring what moves, unless copying:
+    /// then the original stays in place) and on the lines through `from`, held on the locked
+    /// line if any, else on the horizontal plane through `from`.
     fn target(&self, cx: &Cx<'_>, px: DVec2, from: DVec3) -> (DVec3, Option<Inference>) {
-        let keep = |o: &Owner<'_>| !cx.is_moving(o, &self.moving);
+        let keep = |o: &Owner<'_>| self.copy || !cx.is_moving(o, &self.moving);
         match cx.infer_from(px, keep, Some((from, axis(cx, 2))), from, cx.lock()) {
             Some(i) => (i.point, Some(i)),
             None => (from, None),

@@ -19,7 +19,7 @@ use std::f64::consts::TAU;
 
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_kernel::{SnapCurve, Snaps};
+use solidsketch_kernel::{SnapCurve, SnapEdge, Snaps};
 use solidsketch_model::{EntityPath, GuideShape};
 
 use crate::camera::{Camera, Projector, Ray};
@@ -231,17 +231,22 @@ pub struct Inference {
     /// For a point of a straight edge or of an arc: the edge there (the next parallel,
     /// perpendicular or tangent inference refers to it).
     pub edge: Option<EdgeRef>,
+    /// For a point where two curves cross — edges, guides, the axes as drawn —: each of them
+    /// there, as `edge` would give it (the tape's guide from a crossing picks one). Not a
+    /// reference for the next lines: `edge` stays empty.
+    pub crossed: Vec<EdgeRef>,
 }
 
 impl Inference {
     /// A point on no line: of the geometry, of a face or of the fallback plane.
     fn at(point: DVec3, kind: InferKind, path: Option<EntityPath>, hit: Option<Hit>, edge: Option<EdgeRef>) -> Self {
-        Inference { point, kind, path, hit, line: None, line2: None, edge }
+        Inference { point, kind, path, hit, line: None, line2: None, edge, crossed: Vec::new() }
     }
 
-    /// A point on the line `a`, and on `b` where two lines cross.
+    /// A point on the line `a`, and on `b` where two lines cross (those fixed then crossed).
     fn on_lines(point: DVec3, kind: InferKind, path: Option<EntityPath>, hit: Option<Hit>, a: &Line, b: Option<&Line>) -> Self {
-        Inference { point, kind, path, hit, line: Some((a.origin, a.dir)), line2: b.map(|b| (b.origin, b.dir)), edge: None }
+        let crossed = b.map_or_else(Vec::new, |b| [a, b].iter().filter_map(|l| l.as_ref()).collect());
+        Inference { point, kind, path, hit, line: Some((a.origin, a.dir)), line2: b.map(|b| (b.origin, b.dir)), edge: None, crossed }
     }
 }
 
@@ -285,6 +290,8 @@ struct Candidate {
     kind: InferKind,
     path: Option<EntityPath>,
     edge: Option<EdgeRef>,
+    /// The curves crossing there (see [`Inference::crossed`]).
+    crossed: Vec<EdgeRef>,
     /// Screen distance to the cursor (pixels).
     dist: f64,
     /// Depth along the cursor's ray.
@@ -303,6 +310,13 @@ struct Line {
     source: usize,
 }
 
+impl Line {
+    /// The line as an edge to refer to, when one is drawn (a guide, an axis as drawn).
+    fn as_ref(&self) -> Option<EdgeRef> {
+        self.kind.is_fixed().then_some(EdgeRef::Straight(self.dir))
+    }
+}
+
 /// The point inferred at `px`; `None` only when nothing is under the cursor and the ray
 /// misses the fallback plane.
 pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &Query<'_>) -> Option<Inference> {
@@ -317,7 +331,7 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
         let l = Line { origin, dir: lock.dir, kind: lock.line, source: 0 };
         // An edge the locked line crosses near the cursor: the crossing.
         if let Some(c) = crossing(scene, camera, size, &screen, px, q, &[l]) {
-            return Some(Inference::on_lines(c.point, c.kind(l.kind), c.path, hit, &l, None));
+            return Some(c.inference(&l, hit));
         }
         let point = match &base {
             // A feature hovered: the point of the line nearest to it.
@@ -350,8 +364,8 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
             return Some(meet(p, &lines[i], &lines[j], hit));
         }
         (Some(c), _) if edge_dist.unwrap_or(f64::INFINITY) < built_dist => {
-            let l = &lines[c.line];
-            return Some(Inference::on_lines(c.point, c.kind(l.kind), c.path, hit, l, None));
+            let l = lines[c.line];
+            return Some(c.inference(&l, hit));
         }
         (None, Some((d2, p, i, j))) if d2 < built_dist => return Some(meet(p, &lines[i], &lines[j], hit)),
         _ => {}
@@ -529,12 +543,17 @@ struct Crossing {
     path: Option<EntityPath>,
     /// A guide circle's, not an edge's.
     guide: bool,
+    /// The edge or the guide circle there.
+    curve: Option<EdgeRef>,
 }
 
 impl Crossing {
-    /// The kind of the crossing with the line `l`.
-    fn kind(&self, l: LineKind) -> InferKind {
-        if self.guide { InferKind::OnGuideAndLine(l) } else { InferKind::OnEdgeAndLine(l) }
+    /// The point inferred where it crosses the line `l` (the one given by its index).
+    fn inference(self, l: &Line, hit: Option<Hit>) -> Inference {
+        let kind = if self.guide { InferKind::OnGuideAndLine(l.kind) } else { InferKind::OnEdgeAndLine(l.kind) };
+        let mut i = Inference::on_lines(self.point, kind, self.path, hit, l, None);
+        i.crossed = l.as_ref().into_iter().chain(self.curve).collect();
+        i
     }
 }
 
@@ -569,7 +588,8 @@ fn crossing(
                     let Some(s) = screen.project(p) else { continue };
                     let dist = s.distance(px);
                     if dist <= APERTURE_PX {
-                        found.push((dist, Crossing { point: p, line: k, path: Some(path.clone()), guide: false }));
+                        let curve = curve_ref(&e.curve, t, p);
+                        found.push((dist, Crossing { point: p, line: k, path: Some(path.clone()), guide: false, curve }));
                     }
                 }
             }
@@ -585,7 +605,8 @@ fn crossing(
                 let Some(s) = screen.project(p) else { continue };
                 let dist = s.distance(px);
                 if dist <= APERTURE_PX {
-                    found.push((dist, Crossing { point: p, line: k, path: None, guide: true }));
+                    let curve = curve_ref(&arc, &DAffine3::IDENTITY, p);
+                    found.push((dist, Crossing { point: p, line: k, path: None, guide: true, curve }));
                 }
             }
         }
@@ -729,17 +750,17 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     let hit = scene.pick_inferable(&ray, q.keep);
 
     let mut cands = Vec::new();
-    let mut offer = |point: DVec3, kind: InferKind, path: Option<&EntityPath>, edge: Option<EdgeRef>| {
+    let mut offer = |point: DVec3, kind: InferKind, path: Option<&EntityPath>, edge: Option<EdgeRef>, crossed: Vec<EdgeRef>| {
         let Some(s) = screen.project(point) else { return };
         let dist = (s - px).length();
         if dist <= APERTURE_PX {
             let depth = (point - ray.origin).dot(ray.dir);
-            cands.push(Candidate { point, kind, path: path.cloned(), edge, dist, depth });
+            cands.push(Candidate { point, kind, path: path.cloned(), edge, crossed, dist, depth });
         }
     };
 
     if let Some(o) = q.origin {
-        offer(o, InferKind::Origin, None, None);
+        offer(o, InferKind::Origin, None, None, Vec::new());
     }
     let kept = kept_guides(scene, q);
     let circles: Vec<(DVec3, DVec3, f64)> = kept
@@ -757,12 +778,13 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
             continue;
         }
         let t = &place.transform;
-        features(&part.snaps, t, &ray, &screen, px, &mut |p, k, e| offer(p, k, Some(&path), e));
+        features(&part.snaps, t, &ray, &screen, px, &mut |p, k, e, x| offer(p, k, Some(&path), e, x));
         // Where a guide circle crosses an edge.
         for &(c, n, r) in &circles {
             for e in &part.snaps.edges {
                 for p in circle_meets_curve(c, n, r, &e.curve, t, tol) {
-                    offer(p, InferKind::OnGuideAndEdge, Some(&path), None);
+                    let crossed = [curve_ref(&guide_arc(c, n, r), &DAffine3::IDENTITY, p), curve_ref(&e.curve, t, p)];
+                    offer(p, InferKind::OnGuideAndEdge, Some(&path), None, crossed.into_iter().flatten().collect());
                 }
             }
         }
@@ -771,19 +793,20 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     for (i, &(c, n, r)) in circles.iter().enumerate() {
         for &(c2, n2, r2) in &circles[i + 1..] {
             for p in circle_meets_curve(c, n, r, &guide_arc(c2, n2, r2), &DAffine3::IDENTITY, tol) {
-                offer(p, InferKind::OnTwoGuides, None, None);
+                let crossed = [(c, n, r), (c2, n2, r2)].map(|(c, n, r)| curve_ref(&guide_arc(c, n, r), &DAffine3::IDENTITY, p));
+                offer(p, InferKind::OnTwoGuides, None, None, crossed.into_iter().flatten().collect());
             }
         }
     }
     // The guide circles: their centres, and the point nearest the cursor (an arc to refer to).
     for arc in guide_arcs(&kept_guides(scene, q)) {
         let SnapCurve::Arc { center, x, y, radius, .. } = arc else { continue };
-        offer(center, InferKind::Center, None, None);
+        offer(center, InferKind::Center, None, None, Vec::new());
         if let Some(p) = on_curve(&arc, &DAffine3::IDENTITY, &ray, &screen, px)
             && let Some(radial) = (p - center).try_normalize()
         {
             let tangent = x.cross(y).cross(radial);
-            offer(p, InferKind::OnGuide, None, Some(EdgeRef::Arc { tangent, radial, center, radius }));
+            offer(p, InferKind::OnGuide, None, Some(EdgeRef::Arc { tangent, radial, center, radius }), Vec::new());
         }
     }
 
@@ -801,7 +824,9 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     cands.sort_by(|a, b| key(a).partial_cmp(&key(b)).unwrap_or(std::cmp::Ordering::Equal));
     for c in cands {
         if visible(scene, camera, size, &screen, c.point, q) {
-            return Some(Inference::at(c.point, c.kind, c.path, hit, c.edge));
+            let mut i = Inference::at(c.point, c.kind, c.path, hit, c.edge);
+            i.crossed = c.crossed;
+            return Some(i);
         }
     }
 
@@ -821,38 +846,58 @@ fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q
     Some(Inference::at(point, InferKind::OnPlane, None, None, None))
 }
 
-/// Offers the snap features of one occurrence (definition to world `t`): its vertices, the
+/// Offers the snap features of one occurrence (definition to world `t`): its vertices (with
+/// the edges ending there as the curves crossing, for a vertex near the cursor), the
 /// midpoints and centres of its edges, and the point of each edge nearest the cursor (with the
 /// edge there, straight or arc, as the next reference).
-fn features(s: &Snaps, t: &DAffine3, ray: &Ray, screen: &Projector, px: DVec2, offer: &mut impl FnMut(DVec3, InferKind, Option<EdgeRef>)) {
+fn features(
+    s: &Snaps,
+    t: &DAffine3,
+    ray: &Ray,
+    screen: &Projector,
+    px: DVec2,
+    offer: &mut impl FnMut(DVec3, InferKind, Option<EdgeRef>, Vec<EdgeRef>),
+) {
     for v in &s.vertices {
-        offer(t.transform_point3(*v), InferKind::Endpoint, None);
+        let p = t.transform_point3(*v);
+        let near = screen.project(p).is_some_and(|s| s.distance(px) <= APERTURE_PX);
+        let crossed = if near {
+            let ends_here = |e: &&SnapEdge| e.curve.ends().iter().any(|end| (*end - *v).length() < 1e-6);
+            s.edges.iter().filter(ends_here).filter_map(|e| curve_ref(&e.curve, t, p)).collect()
+        } else {
+            Vec::new()
+        };
+        offer(p, InferKind::Endpoint, None, crossed);
     }
     for e in &s.edges {
-        // The edge at a point of it (world), as a reference.
-        let edge_at = |p: DVec3| match e.curve {
-            SnapCurve::Segment { a, b } => t.transform_vector3(b - a).try_normalize().map(EdgeRef::Straight),
-            SnapCurve::Arc { center, x, y, radius, sweep } => {
-                let arc = PlacedArc::new(t, center, x, y, radius, sweep);
-                let PlacedArc { c, n, rx, .. } = arc;
-                let d = p - c;
-                let radial = (d - n * d.dot(n)).try_normalize()?;
-                // An arc scaled into an ellipse has no one radius.
-                let radius = if arc.is_circle() { rx } else { (d - n * d.dot(n)).length() };
-                Some(EdgeRef::Arc { tangent: n.cross(radial), radial, center: c, radius })
-            }
-            SnapCurve::Polyline { .. } => None,
-        };
+        let edge_at = |p: DVec3| curve_ref(&e.curve, t, p);
         if let Some(m) = e.curve.midpoint() {
             let m = t.transform_point3(m);
-            offer(m, InferKind::Midpoint, edge_at(m));
+            offer(m, InferKind::Midpoint, edge_at(m), Vec::new());
         }
         if let Some(c) = e.curve.center() {
-            offer(t.transform_point3(c), InferKind::Center, None);
+            offer(t.transform_point3(c), InferKind::Center, None, Vec::new());
         }
         if let Some(p) = on_curve(&e.curve, t, ray, screen, px) {
-            offer(p, InferKind::OnEdge, edge_at(p));
+            offer(p, InferKind::OnEdge, edge_at(p), Vec::new());
         }
+    }
+}
+
+/// The curve `curve` (placed by `t`) at its point `p` (world), as a reference.
+fn curve_ref(curve: &SnapCurve, t: &DAffine3, p: DVec3) -> Option<EdgeRef> {
+    match *curve {
+        SnapCurve::Segment { a, b } => t.transform_vector3(b - a).try_normalize().map(EdgeRef::Straight),
+        SnapCurve::Arc { center, x, y, radius, sweep } => {
+            let arc = PlacedArc::new(t, center, x, y, radius, sweep);
+            let PlacedArc { c, n, rx, .. } = arc;
+            let d = p - c;
+            let radial = (d - n * d.dot(n)).try_normalize()?;
+            // An arc scaled into an ellipse has no one radius.
+            let radius = if arc.is_circle() { rx } else { (d - n * d.dot(n)).length() };
+            Some(EdgeRef::Arc { tangent: n.cross(radial), radial, center: c, radius })
+        }
+        SnapCurve::Polyline { .. } => None,
     }
 }
 

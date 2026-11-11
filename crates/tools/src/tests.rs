@@ -240,6 +240,107 @@ fn a_base_started_on_an_askew_edge_runs_along_it() {
 }
 
 #[test]
+fn a_base_whose_second_corner_is_on_a_guide_runs_along_it() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let d = DVec3::new(30f64.to_radians().cos(), 30f64.to_radians().sin(), 0.0);
+    let origin = DVec3::new(400.0, 0.0, 0.0);
+    e.apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin, dir: d } }).unwrap();
+    // From the origin to a point of the guide: the sides along it, the corner on it.
+    let q = origin + d * 200.0;
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::ZERO);
+    hover(&mut e, q);
+    assert_eq!(e.inference().map(|i| i.1), Some(crate::InferKind::OnLine(crate::LineKind::Guide)));
+    click(&mut e, q);
+    e.input(ToolInput::Vcb("20".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    let v = DVec3::Z.cross(d);
+    let corners = [DVec3::ZERO, d * q.dot(d), q, v * q.dot(v)];
+    let want_lo = corners.iter().fold(DVec3::splat(f64::MAX), |m, c| m.min(*c));
+    let want_hi = corners.iter().fold(DVec3::splat(f64::MIN), |m, c| m.max(*c)) + DVec3::Z * 20.0;
+    assert!(close(lo, want_lo) && close(hi, want_hi), "{lo} {hi} / {want_lo} {want_hi}");
+}
+
+#[test]
+fn a_base_started_on_a_guide_runs_along_it() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let d = DVec3::new(30f64.to_radians().cos(), 30f64.to_radians().sin(), 0.0);
+    let origin = DVec3::new(-300.0, -200.0, 0.0);
+    e.apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin, dir: d } }).unwrap();
+    // From a point of the guide to one off it: the sides along the guide.
+    let a = origin + d * 200.0;
+    let b = DVec3::new(300.0, -150.0, 0.0);
+    e.set_tool(ToolKind::Box);
+    hover(&mut e, a);
+    assert_eq!(e.inference().map(|i| i.1), Some(crate::InferKind::OnLine(crate::LineKind::Guide)));
+    click(&mut e, a);
+    click(&mut e, b);
+    e.input(ToolInput::Vcb("20".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    let (v, w) = (DVec3::Z.cross(d), b - a);
+    let corners = [a, a + d * w.dot(d), b, a + v * w.dot(v)];
+    let want_lo = corners.iter().fold(DVec3::splat(f64::MAX), |m, c| m.min(*c));
+    let want_hi = corners.iter().fold(DVec3::splat(f64::MIN), |m, c| m.max(*c)) + DVec3::Z * 20.0;
+    assert!(close(lo, want_lo) && close(hi, want_hi), "{lo} {hi} / {want_lo} {want_hi}");
+}
+
+#[test]
+fn a_base_on_a_guide_circle_runs_along_its_tangent() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    e.apply(Operation::AddGuide { component: root, shape: GuideShape::Circle { center: DVec3::ZERO, normal: DVec3::Z, radius: 300.0 } })
+        .unwrap();
+    let t = 60f64.to_radians();
+    let on = DVec3::new(t.cos(), t.sin(), 0.0) * 300.0;
+    let d = DVec3::new(-t.sin(), t.cos(), 0.0);
+    // The rectangle from `a` to `b`, its sides along `d`, pulled up 20.
+    let want = |a: DVec3, b: DVec3| {
+        let (v, w) = (DVec3::Z.cross(d), b - a);
+        let corners = [a, a + d * w.dot(d), b, a + v * w.dot(v)];
+        let lo = corners.iter().fold(DVec3::splat(f64::MAX), |m, c| m.min(*c));
+        (lo, corners.iter().fold(DVec3::splat(f64::MIN), |m, c| m.max(*c)) + DVec3::Z * 20.0)
+    };
+    for (a, b) in [(DVec3::new(-500.0, -100.0, 0.0), on), (on, DVec3::new(500.0, -200.0, 0.0))] {
+        e.set_tool(ToolKind::Box);
+        hover(&mut e, a);
+        click(&mut e, a);
+        hover(&mut e, b);
+        click(&mut e, b);
+        e.input(ToolInput::Vcb("20".into()));
+        let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+        let (want_lo, want_hi) = want(a, b);
+        assert!(close(lo, want_lo) && close(hi, want_hi), "{a} {b}: {lo} {hi} / {want_lo} {want_hi}");
+        e.undo();
+    }
+}
+
+#[test]
+fn a_cylinder_s_radius_reaches_a_guide_circle() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let g = DVec3::new(-600.0, 300.0, 0.0);
+    e.apply(Operation::AddGuide { component: root, shape: GuideShape::Circle { center: g, normal: DVec3::Z, radius: 200.0 } }).unwrap();
+    let c = DVec3::new(-100.0, 100.0, 0.0);
+    let t = 70f64.to_radians();
+    let p = g + DVec3::new(t.cos(), t.sin(), 0.0) * 200.0;
+    e.set_tool(ToolKind::Cylinder);
+    click(&mut e, c);
+    hover(&mut e, p);
+    assert_eq!(e.inference().map(|i| i.1), Some(crate::InferKind::OnGuide));
+    click(&mut e, p);
+    e.input(ToolInput::Vcb("20".into()));
+    // (A cylinder's vertices are its seam's ends: the centre plus the radius along red.)
+    let (lo, _) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!((lo.x - c.x - c.distance(p)).abs() < 1e-3, "{} / {}", lo.x - c.x, c.distance(p));
+}
+
+#[test]
 fn once_drawn_the_plane_shows_under_the_cursor_again() {
     let mut e = top_editor(Document::new());
     let (a, b) = (DVec3::new(-200.0, -200.0, 0.0), DVec3::new(100.0, 50.0, 0.0));
@@ -1542,6 +1643,178 @@ fn the_tape_measures_and_draws_guides() {
 }
 
 #[test]
+fn the_tape_draws_the_kind_of_guide_chosen() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
+    let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 100.0, height: 50.0 };
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
+    let tab = |e: &mut Editor| e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
+    e.set_tool(ToolKind::Measure);
+
+    // Auto, a zero offset: the guide along the edge, through the point clicked.
+    click(&mut e, DVec3::new(300.0, 50.0, 100.0));
+    e.input(ToolInput::Vcb("0".into()));
+    let [GuideShape::Line { origin, dir }] = guides(&e)[..] else { panic!("{} {:?}", e.status(), guides(&e)) };
+    assert!(close(origin, DVec3::new(300.0, 50.0, 100.0)) && dir.cross(DVec3::Y).length() < 1e-9, "{origin}");
+
+    // Line: tangent to the arc at the point clicked, offset along its radius.
+    tab(&mut e);
+    let a = 45f64.to_radians();
+    let radial = DVec3::new(a.cos(), a.sin(), 0.0);
+    let c = DVec3::new(600.0, 600.0, 50.0);
+    // The tangent itself: a zero offset.
+    click(&mut e, c + radial * 100.0);
+    assert_eq!(e.vcb().map(|v| v.0), Some("Décalage".into()), "{}", e.status());
+    e.input(ToolInput::Vcb("0".into()));
+    let GuideShape::Line { origin, dir } = guides(&e)[1] else { panic!("{:?}", guides(&e)) };
+    assert!(close(origin, c + radial * 100.0) && dir.dot(radial).abs() < 1e-9 && dir.z.abs() < 1e-9, "{origin} {dir}");
+    // Elsewhere on the arc, offset along its radius.
+    let radial = DVec3::new(-a.cos(), a.sin(), 0.0);
+    click(&mut e, c + radial * 100.0);
+    hover(&mut e, c + radial * 150.0);
+    e.input(ToolInput::Vcb("30".into()));
+    let GuideShape::Line { origin, dir } = guides(&e)[2] else { panic!("{:?}", guides(&e)) };
+    assert!(close(origin, c + radial * 130.0) && dir.dot(radial).abs() < 1e-6, "{origin} {dir}");
+    // Line, from a corner: through it and the point clicked next.
+    click(&mut e, DVec3::new(0.0, 0.0, 100.0));
+    assert_eq!(e.vcb().map(|v| v.0), Some("Longueur".into()));
+    click(&mut e, DVec3::new(300.0, 200.0, 100.0));
+    let GuideShape::Line { origin, dir } = guides(&e)[3] else { panic!("{:?}", guides(&e)) };
+    assert!(close(origin, DVec3::new(0.0, 0.0, 100.0)) && dir.cross(DVec3::new(3.0, 2.0, 0.0).normalize()).length() < 1e-6, "{dir}");
+
+    // Circle: concentric to the arc, a zero offset: the arc's whole circle.
+    tab(&mut e);
+    click(&mut e, c - DVec3::Y * 100.0);
+    e.input(ToolInput::Vcb("0".into()));
+    let GuideShape::Circle { center, radius, .. } = guides(&e)[4] else { panic!("{} {:?}", e.status(), guides(&e)) };
+    assert!(close(center, c) && (radius - 100.0).abs() < 1e-6, "{radius}");
+    // Centred on the corner clicked, level, the radius typed.
+    click(&mut e, DVec3::new(300.0, 200.0, 100.0));
+    assert_eq!(e.vcb().map(|v| v.0), Some("Rayon".into()));
+    hover(&mut e, DVec3::new(380.0, 200.0, 100.0));
+    assert_eq!(e.vcb().map(|v| v.1), Some("80 mm".into()));
+    e.input(ToolInput::Vcb("25".into()));
+    let GuideShape::Circle { center, normal, radius } = guides(&e)[5] else { panic!("{:?}", guides(&e)) };
+    assert!(close(center, DVec3::new(300.0, 200.0, 100.0)) && normal.cross(DVec3::Z).length() < 1e-9 && (radius - 25.0).abs() < 1e-9);
+    // A circle of no radius: refused.
+    click(&mut e, DVec3::new(300.0, 200.0, 100.0));
+    e.input(ToolInput::Vcb("0".into()));
+    assert_eq!(e.status(), "Le cercle n'aurait plus de rayon : pas de guide");
+    assert_eq!(guides(&e).len(), 6);
+
+    // Changed in between: what the first click starts follows (circle, then auto: a measure).
+    tab(&mut e);
+    assert_eq!(e.vcb().map(|v| v.0), Some("Longueur".into()), "{}", e.status());
+    tab(&mut e);
+    assert_eq!(e.vcb().map(|v| v.0), Some("Longueur".into()), "line through two points");
+}
+
+#[test]
+fn at_a_crossing_the_other_modifier_picks_the_guide() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let add = |e: &mut Editor, shape| {
+        e.apply(Operation::AddGuide { component: root, shape }).unwrap();
+    };
+    add(&mut e, GuideShape::Line { origin: DVec3::new(0.0, -100.0, 0.0), dir: DVec3::X });
+    let c = DVec3::new(0.0, 100.0, 0.0);
+    add(&mut e, GuideShape::Circle { center: c, normal: DVec3::Z, radius: 250.0 });
+    add(&mut e, GuideShape::Line { origin: DVec3::new(600.0, 0.0, 0.0), dir: DVec3::Y });
+    let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
+    let alt = |e: &mut Editor| e.input(ToolInput::Key { key: Key::Alt, mods: Modifiers::default() });
+    // They cross at (150, -100): 150² + 200² = 250².
+    let x = DVec3::new(150.0, -100.0, 0.0);
+    e.set_tool(ToolKind::Measure);
+    e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
+
+    // Coming from the circle: tangent to it.
+    hover(&mut e, c + DVec3::new(-250.0, 0.0, 0.0));
+    hover(&mut e, x);
+    assert_eq!(e.inference().map(|i| i.1), Some(crate::InferKind::OnGuideAndLine(crate::LineKind::Guide)));
+    click(&mut e, x);
+    assert!(e.status().starts_with("Guide tangent"), "{}", e.status());
+    assert!(e.status().contains("autre guide"), "{}", e.status());
+    e.input(ToolInput::Vcb("0".into()));
+    let GuideShape::Line { origin, dir } = guides(&e)[3] else { panic!("{:?}", guides(&e)) };
+    assert!(close(origin, x) && dir.dot((x - c).normalize()).abs() < 1e-6, "{origin} {dir}");
+
+    // Coming from the line: parallel to it; the other modifier turns it over to the tangent,
+    // then to the line through two points, then back.
+    hover(&mut e, DVec3::new(-300.0, -100.0, 0.0));
+    hover(&mut e, x);
+    click(&mut e, x);
+    assert!(e.status().starts_with("Guide parallèle"), "{}", e.status());
+    alt(&mut e);
+    assert!(e.status().starts_with("Guide tangent"), "{}", e.status());
+    alt(&mut e);
+    assert!(e.status().starts_with("Guide par deux points"), "{}", e.status());
+    alt(&mut e);
+    assert!(e.status().starts_with("Guide parallèle"), "{}", e.status());
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+
+    // Coming from neither: the line through two points.
+    hover(&mut e, DVec3::new(600.0, 300.0, 0.0));
+    hover(&mut e, x);
+    click(&mut e, x);
+    assert!(e.status().starts_with("Guide par deux points"), "{}", e.status());
+}
+
+#[test]
+fn the_tape_draws_a_tangent_from_the_end_of_an_arc_and_marks_its_reference() {
+    use solidsketch_model::{GuideShape, Scope};
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let add = |e: &mut Editor, primitive| {
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created[0]
+    };
+    // A board with its corner (300, 200) cut round: an arc from (200, 200) to (300, 100) on top.
+    let board = add(&mut e, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(300.0, 200.0, 50.0) });
+    let drill = add(&mut e, Primitive::Cylinder { origin: DVec3::new(300.0, 200.0, -10.0), radius: 100.0, height: 70.0 });
+    let target = EntityPath::root(board);
+    e.apply(Operation::Boolean { target, tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    e.select(vec![]);
+    let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
+    let magenta = |e: &Editor| e.preview().guides.iter().any(|(_, c)| *c == crate::tools::MAGENTA);
+    e.set_tool(ToolKind::Measure);
+    e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
+
+    // Along the arc to its end: the end gives the arc's tangent there, marked before the click.
+    let a = 225f64.to_radians();
+    hover(&mut e, DVec3::new(300.0, 200.0, 50.0) + DVec3::new(a.cos(), a.sin(), 0.0) * 100.0);
+    let end = DVec3::new(200.0, 200.0, 50.0);
+    hover(&mut e, end);
+    assert_eq!(e.inference().map(|i| i.1), Some(crate::InferKind::Endpoint));
+    assert!(magenta(&e), "the arc it would refer to");
+    click(&mut e, end);
+    assert!(e.status().starts_with("Guide tangent"), "{}", e.status());
+    assert!(magenta(&e), "the arc referred to");
+    e.input(ToolInput::Vcb("0".into()));
+    let [GuideShape::Line { origin, dir }] = guides(&e)[..] else { panic!("{:?}", guides(&e)) };
+    assert!(close(origin, end) && dir.cross(DVec3::Y).length() < 1e-6, "{origin} {dir}");
+
+    // In Auto, the end is measured from: nothing marked; the other modifier gives its guides.
+    e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
+    e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
+    hover(&mut e, end);
+    assert!(!magenta(&e));
+    click(&mut e, end);
+    assert_eq!(e.vcb().map(|v| v.0), Some("Longueur".into()), "{}", e.status());
+    // Turned over to the arc's concentric guide (the upright edge's, seen end on, is not drawn).
+    for _ in 0..4 {
+        e.input(ToolInput::Key { key: Key::Alt, mods: Modifiers::default() });
+        if e.status().starts_with("Guide concentrique") {
+            break;
+        }
+    }
+    assert!(e.status().starts_with("Guide concentrique"), "{}", e.status());
+    assert!(magenta(&e));
+}
+
+#[test]
 fn a_guide_drawn_in_an_open_part_is_the_part_s() {
     use solidsketch_model::GuideShape;
     let mut e = top_editor(Document::new());
@@ -1773,4 +2046,26 @@ fn picking_coincident_faces_prefers_the_solid_the_ray_enters() {
     let hit = e.scene().pick(&ray, |_| true).unwrap();
     assert_eq!(hit.path, EntityPath::root(ids[1]));
     assert!((hit.point.z - 100.0).abs() < 1e-6);
+}
+
+#[test]
+fn copying_infers_on_the_original_left_in_place() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    let corner = DVec3::new(400.0, 200.0, 18.0);
+    let kind = |e: &Editor| e.inference().map(|i| i.1);
+
+    // Moved, the box goes away from where it was: its corner is not inferred on.
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(0.0, 0.0, 18.0));
+    hover(&mut e, corner);
+    assert_ne!(kind(&e), Some(crate::InferKind::Endpoint));
+
+    // Copied, the original stays: its corner is.
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    hover(&mut e, corner);
+    assert_eq!(kind(&e), Some(crate::InferKind::Endpoint));
+    e.input(ToolInput::Click { px: px(&e, corner), mods: Modifiers::default() });
+    let (min, max) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(min, DVec3::new(400.0, 200.0, 0.0)) && close(max, DVec3::new(800.0, 400.0, 18.0)), "{min:?} {max:?}");
 }

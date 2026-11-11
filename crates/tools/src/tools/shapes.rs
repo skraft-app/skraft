@@ -27,11 +27,14 @@
 //! - the first click: the plane of the face under it, through the point inferred there
 //!   (§6 ter); on an edge, the face it bounds, else the ground, else the upright plane
 //!   through it; with nothing, the ground of the axes (the open part's, ARCHITECTURE.md §2.9,
-//!   else the context's). On a straight edge askew to the axes, the base's sides run along it;
+//!   else the context's). A guide line is taken as an edge, a guide circle as its tangent
+//!   there (off a face, in its plane). On a straight edge or a guide askew to the axes, the
+//!   base's sides run along it;
 //! - the box's second corner (a cylinder keeps the plane of its centre) sets the plane again:
 //!   a point in the ground, or in the red or green upright plane through the first corner,
 //!   takes that plane; an edge, the plane through it and the first corner (its sides along the
-//!   edge unless the first click gave them); a face the first corner lies on, its plane;
+//!   edge unless the first click gave them); a guide (a line, a circle's tangent there),
+//!   likewise, its sides always along it; a face the first corner lies on, its plane;
 //!   another face or a point off the ground, the upright plane through both corners; else the
 //!   plane so far is kept.
 //!
@@ -50,7 +53,7 @@ use super::{
     ToolKind, ToolOption, alt_key, copy_key, dashed,
 };
 use crate::camera::Ray;
-use crate::infer::{EdgeRef, InferKind, Inference};
+use crate::infer::{EdgeRef, InferKind, Inference, LineKind};
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 
 /// The smallest dimension built (mm).
@@ -165,6 +168,25 @@ fn edge_dir(cx: &Cx<'_>, inf: &Inference) -> Option<DVec3> {
     }
 }
 
+/// The direction (axes) of the guide `inf` is on, if any: a line's, a circle's tangent there.
+fn guide_dir(cx: &Cx<'_>, inf: &Inference) -> Option<DVec3> {
+    match (inf.kind, inf.line, inf.edge) {
+        (InferKind::OnLine(LineKind::Guide), Some((_, d)), _) => Some(dir_to_axes(cx, d)),
+        (InferKind::OnGuide, _, Some(EdgeRef::Arc { tangent, .. })) => Some(dir_to_axes(cx, tangent)),
+        _ => None,
+    }
+}
+
+/// The normal (axes) of the guide circle `inf` is on, if any.
+fn guide_normal(cx: &Cx<'_>, inf: &Inference) -> Option<DVec3> {
+    match (inf.kind, inf.edge) {
+        (InferKind::OnGuide, Some(EdgeRef::Arc { tangent, radial, .. })) => {
+            radial.cross(tangent).try_normalize().map(|n| dir_to_axes(cx, n))
+        }
+        _ => None,
+    }
+}
+
 /// The normal (axes) of the face the cursor's ray hits, and a point of it.
 fn hit_face(cx: &Cx<'_>, inf: &Inference) -> Option<(DVec3, DVec3)> {
     inf.hit.as_ref().map(|h| (dir_to_axes(cx, h.normal), cx.to_axes(h.point)))
@@ -209,17 +231,21 @@ fn start_at(cx: &Cx<'_>, px: DVec2) -> Option<StartAt> {
     if cx.copy_down
         && let Some(c) = face.as_ref().map(Face::centroid)
     {
-        inf = Inference { point: c, kind: InferKind::Center, line: None, line2: None, edge: None, ..inf };
+        inf = Inference { point: c, kind: InferKind::Center, line: None, line2: None, edge: None, crossed: Vec::new(), ..inf };
     }
     let o = cx.to_axes(inf.point);
-    let dir = edge_dir(cx, &inf);
-    let n = match (locked_normal(cx), dir, hit_face(cx, &inf)) {
+    // A guide line gives its direction as an edge does.
+    let dir = edge_dir(cx, &inf).or_else(|| guide_dir(cx, &inf));
+    let ray = cx.axes_ray(px).dir;
+    let n = match (locked_normal(cx), dir, hit_face(cx, &inf), guide_normal(cx, &inf)) {
         (Some(n), ..) => n,
         // An edge: the face it bounds, if that is the one aimed at.
-        (None, Some(d), Some((n, p))) if d.dot(n).abs() < SQUARE && (o - p).dot(n).abs() < ON => n,
-        (None, Some(d), _) => edge_plane(d, cx.axes_ray(px).dir),
-        (None, None, Some((n, _))) => n,
-        (None, None, None) => DVec3::Z,
+        (None, Some(d), Some((n, p)), _) if d.dot(n).abs() < SQUARE && (o - p).dot(n).abs() < ON => n,
+        // A guide circle: its plane.
+        (None, Some(_), _, Some(n)) => facing(n, ray),
+        (None, Some(d), _, None) => edge_plane(d, ray),
+        (None, None, Some((n, _)), _) => n,
+        (None, None, None, _) => DVec3::Z,
     };
     Some(StartAt { f: Frame::new(o, n, dir), dir, inf, face })
 }
@@ -357,9 +383,10 @@ fn on_plane(cx: &Cx<'_>, px: DVec2, f: &Frame) -> Option<(DVec3, Option<Inferenc
 fn base_at(cx: &Cx<'_>, px: DVec2, f: &Frame, dir: Option<DVec3>) -> Option<(Frame, DVec3, Option<Inference>)> {
     let o = f.o;
     if let Some(n) = locked_normal(cx) {
-        let f = Frame::new(o, n, dir);
-        let (p2, snap) = on_plane(cx, px, &f)?;
-        return Some((f, p2, snap));
+        let (p2, snap) = on_plane(cx, px, &Frame::new(o, n, dir))?;
+        // A guide aimed at: the sides along it.
+        let dir = snap.as_ref().and_then(|i| guide_dir(cx, i)).or(dir);
+        return Some((Frame::new(o, n, dir), p2, snap));
     }
     let ray = cx.axes_ray(px).dir;
     // Nothing under the cursor: the ground through the first corner.
@@ -369,13 +396,21 @@ fn base_at(cx: &Cx<'_>, px: DVec2, f: &Frame, dir: Option<DVec3>) -> Option<(Fra
     // An axis plane through the first corner, its normal the way the plane so far has it.
     let axis = |a: DVec3| Frame::new(o, if f.n == -a { -a } else { a }, dir);
     let axes = [DVec3::Z, DVec3::X, DVec3::Y];
-    let g = match edge_dir(cx, &inf) {
-        // An edge across an axis plane it touches there: that plane; else the plane through
-        // the edge and the first corner (an edge lying in the ground among them), its sides
-        // along the edge unless the first click gave them.
+    // A guide aimed at gives the sides its direction, whatever the first click gave.
+    let guide = guide_dir(cx, &inf);
+    let dir = guide.or(dir);
+    let g = match edge_dir(cx, &inf).or(guide) {
+        // An edge or a guide across an axis plane it touches there: that plane; else the plane
+        // through it and the first corner (one lying in the ground among them), its sides
+        // along it unless the first click gave them (a guide's always).
         Some(d) => match axes.into_iter().find(|&a| on(a) && d.dot(a).abs() > SQUARE) {
             Some(a) => axis(a),
-            None => d.cross(q - o).try_normalize().map_or(*f, |n| Frame::new(o, facing(n, ray), dir.or(Some(d)))),
+            None => match d.cross(q - o).try_normalize() {
+                Some(n) => Frame::new(o, facing(n, ray), dir.or(Some(d))),
+                // A guide through the first corner: the plane so far, along it.
+                None if guide.is_some() => Frame::new(o, f.n, dir),
+                None => *f,
+            },
         },
         None if inf.kind.is_point() => axes.into_iter().find(|&a| on(a)).map_or(*f, axis),
         None if inf.kind == InferKind::OnFace => match hit_face(cx, &inf) {

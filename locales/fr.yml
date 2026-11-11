@@ -424,18 +424,35 @@ tool:
   measure:
     name: "Mètre"
     hint:
-      first: "Cliquer un point pour mesurer, ou une arête ou un arc pour tracer un guide parallèle ou concentrique · %{copy_key} : sans guide"
+      first: "Cliquer un point pour mesurer, ou une arête ou un arc pour tracer un guide parallèle ou concentrique · Tab : type de guide · %{copy_key} : sans guide"
+      first_line: "Cliquer une arête pour un guide parallèle, un arc pour un guide tangent, ou un point pour un guide passant par deux points · Tab : type de guide · %{copy_key} : sans guide"
+      first_circle: "Cliquer un arc pour un guide concentrique, ou un point pour un cercle centré dessus · Tab : type de guide · %{copy_key} : sans guide"
       first_measure_only: "Cliquer un point pour mesurer · %{copy_key} : tracer aussi des guides"
       measure: "Cliquer pour finir la mesure · Échap : recommencer"
-      guide: "Cliquer pour poser le guide, ou taper le décalage · Échap : revenir"
+      parallel: "Guide parallèle : cliquer pour le poser, ou taper le décalage · Échap : revenir"
+      tangent: "Guide tangent : cliquer pour le poser, ou taper le décalage · Échap : revenir"
+      concentric: "Guide concentrique : cliquer pour le poser, ou taper le décalage · Échap : revenir"
+      through: "Guide par deux points : cliquer le second point · Échap : revenir"
+      centered: "Cercle centré : cliquer pour le poser, ou taper son rayon · Échap : revenir"
+      other: "%{alt_key} : autre guide"
     vcb:
       length: "Longueur"
       offset: "Décalage"
+      radius: "Rayon"
     option:
       guides: "Créer des guides"
-      guides_tip: "Partir d'une arête ou d'un arc trace un guide parallèle ou concentrique (%{copy_key} pour basculer)"
+      guides_tip: "Partir d'une arête, d'un arc ou d'un point trace un guide, du type choisi (%{copy_key} pour basculer)"
+      shape: "Guide"
+      shape_tip: "Le type de guide tracé (Tab pour changer)"
+      auto: "Auto"
+      auto_tip: "Selon ce qui est cliqué : parallèle à une arête, concentrique à un arc ; ailleurs, une mesure"
+      line: "Ligne"
+      line_tip: "Parallèle à une arête, tangente à un arc, ou passant par deux points"
+      circle: "Cercle"
+      circle_tip: "Concentrique à un arc, ou centré sur le point cliqué"
     say:
-      no_offset: "Décalage nul : pas de guide"
+      no_side: "Pointer le côté où décaler le guide"
+      no_line: "Points confondus : pas de guide"
       no_radius: "Le cercle n'aurait plus de rayon : pas de guide"
   # The measurements box refusing what was typed.
   vcb:
