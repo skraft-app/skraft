@@ -119,17 +119,7 @@ impl Editor {
 
     /// A dashed line from `a` to `b` (dashes of a few pixels at their depth), dashes at both ends.
     pub(super) fn dashed(&self, out: &mut Vec<PreviewLine>, a: DVec3, b: DVec3, color: [f32; 4]) {
-        let len = (b - a).length();
-        let step = self.camera.world_per_pixel(self.size, (a + b) * 0.5) * 10.0;
-        if len < 1e-12 || step <= 0.0 {
-            return;
-        }
-        // Odd, so that a dash starts and ends the line (a box's corners stay drawn).
-        let n = ((len / step).ceil() as usize).min(400) | 1;
-        for k in (0..n).step_by(2) {
-            let (t0, t1) = (k as f64 / n as f64, ((k + 1) as f64 / n as f64).min(1.0));
-            out.push(PreviewLine { a: a.lerp(b, t0), b: a.lerp(b, t1), color });
-        }
+        tools::dashed(&self.camera, self.size, out, a, b, color);
     }
 
     /// The box bounding what the occurrence `id` of the context `ctx_path` holds, in its own

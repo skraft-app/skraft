@@ -38,15 +38,30 @@ fn close(a: DVec3, b: DVec3) -> bool {
     (a - b).length() < 1e-3
 }
 
-/// Draws a box with the tool: two corners clicked, the height typed.
+/// What the last drawing made: the newest occurrence of the context being edited, or the
+/// newest machining of the open part.
+pub(crate) fn drawn(e: &Editor) -> Id {
+    let doc = e.document();
+    if let Some(part) = e.open_part() {
+        let (_, part, _) = doc.resolve_part(&EntityPath::new(e.context().to_vec(), part)).unwrap();
+        return part.machinings.last().unwrap().id;
+    }
+    doc.assembly(doc.context_of(e.context()).unwrap()).unwrap().occurrences.last().unwrap().id
+}
+
+/// Draws a box with the tool: two corners clicked, the height typed. The selection is left
+/// as it was; the box is then selected, as the steps that follow expect.
 fn draw_box(e: &mut Editor, a: DVec3, b: DVec3, h: &str) -> Id {
+    let before = e.selection().to_vec();
     e.set_tool(ToolKind::Box);
     click(e, a);
     click(e, b);
     e.input(ToolInput::Vcb(h.into()));
     e.set_tool(ToolKind::Select);
-    assert_eq!(e.selection().len(), 1, "{}", e.status());
-    e.selection()[0]
+    assert_eq!(e.selection(), before.as_slice(), "{}", e.status());
+    let id = drawn(e);
+    e.select(vec![id]);
+    id
 }
 
 #[test]
@@ -62,7 +77,7 @@ fn box_tool_by_clicks_and_values() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(-400.0, -400.0, 0.0)) });
     e.input(ToolInput::Vcb("60cm;0,4m".into()));
     e.input(ToolInput::Vcb("10".into()));
-    let id2 = e.selection()[0];
+    let id2 = drawn(&e);
     let (lo, hi) = bounds_of(&e, &EntityPath::root(id2));
     assert!(close(lo, DVec3::new(-500.0, -500.0, 0.0)) && close(hi, DVec3::new(100.0, -100.0, 10.0)), "{lo} {hi}");
 
@@ -83,7 +98,7 @@ fn typed_expressions_lists_and_points() {
     e.input(ToolInput::Vcb("2m*3m".into()));
     assert_eq!(e.status(), "Hauteur — « 2m*3m » : unités incompatibles");
     e.input(ToolInput::Vcb("200/2".into()));
-    let id = e.selection()[0];
+    let id = drawn(&e);
     let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(600.0, 600.0, 100.0)), "{lo} {hi}");
 
@@ -93,19 +108,19 @@ fn typed_expressions_lists_and_points() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(-400.0, -550.0, 0.0)) });
     e.input(ToolInput::Vcb(";@*2".into()));
     e.input(ToolInput::Vcb("10".into()));
-    let (lo, hi) = bounds_of(&e, &EntityPath::root(e.selection()[0]));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
     assert!(close(lo, DVec3::new(-500.0, -600.0, 0.0)) && close(hi, DVec3::new(-400.0, -500.0, 10.0)), "{lo} {hi}");
 
     // The height with the base: done at once (`50==`: a cube), and `r;h` for a cylinder.
     e.set_tool(ToolKind::Box);
     click(&mut e, DVec3::new(700.0, 700.0, 0.0));
     e.input(ToolInput::Vcb("50==".into()));
-    let (lo, hi) = bounds_of(&e, &EntityPath::root(e.selection()[0]));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
     assert!(close(lo, DVec3::new(700.0, 700.0, 0.0)) && close(hi, DVec3::new(750.0, 750.0, 50.0)), "{lo} {hi}");
     e.set_tool(ToolKind::Cylinder);
     click(&mut e, DVec3::new(-700.0, 700.0, 0.0));
     e.input(ToolInput::Vcb("20;-30".into()));
-    let (lo, hi) = bounds_of(&e, &EntityPath::root(e.selection()[0]));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
     assert!((lo.z + 30.0).abs() < 1e-6 && hi.z.abs() < 1e-6, "{lo} {hi}");
 
     // A typed point: absolute, then relative to the start.
@@ -131,9 +146,271 @@ fn cylinder_tool() {
     click(&mut e, DVec3::new(100.0, 100.0, 0.0));
     e.input(ToolInput::Vcb("50".into()));
     e.input(ToolInput::Vcb("-30".into()));
-    let id = e.selection()[0];
+    let id = drawn(&e);
     let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
     assert!((lo.z + 30.0).abs() < 1e-6 && hi.z.abs() < 1e-6, "{lo} {hi}");
+    // (A cylinder's vertices are its seam's ends: the centre plus the radius along red.)
+    assert!((lo.x - 150.0).abs() < 1e-3, "radius 50: {lo} {hi}");
+
+    // Measured across (Tab turns the measure over): the typed length is the diameter.
+    e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
+    click(&mut e, DVec3::new(300.0, 100.0, 0.0));
+    e.input(ToolInput::Vcb("50;10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!((lo.x - 325.0).abs() < 1e-3, "diameter 50: {lo} {hi}");
+}
+
+/// Two boxes on the ground: `a` 300 × 200 × 150 at the origin, `b` 200 × 200 × 50 beside it.
+fn two_boxes(e: &mut Editor) {
+    draw_box(e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    draw_box(e, DVec3::new(400.0, 0.0, 0.0), DVec3::new(600.0, 200.0, 0.0), "50");
+}
+
+/// Draws a box with the tool: two corners clicked, the height typed; its world bounds.
+fn box_bounds(e: &mut Editor, a: DVec3, b: DVec3, h: &str) -> (DVec3, DVec3) {
+    e.set_tool(ToolKind::Box);
+    click(e, a);
+    click(e, b);
+    e.input(ToolInput::Vcb(h.into()));
+    bounds_of(e, &EntityPath::root(drawn(e)))
+}
+
+#[test]
+fn box_base_takes_the_plane_the_second_corner_aims_at() {
+    let mut e = top_editor(Document::new());
+    two_boxes(&mut e);
+
+    // From the ground to the top of `a`, off the ground plane: upright through both corners,
+    // the height towards the eye (the top view looks a hair towards +y).
+    let (lo, hi) = box_bounds(&mut e, DVec3::new(-300.0, 100.0, 0.0), DVec3::new(100.0, 100.0, 150.0), "20");
+    assert!(close(lo, DVec3::new(-300.0, 80.0, 0.0)) && close(hi, DVec3::new(100.0, 100.0, 150.0)), "{lo} {hi}");
+
+    e.undo();
+    // To the midpoint of an edge of `a`'s top: the plane through that edge and the first corner.
+    let (lo, hi) = box_bounds(&mut e, DVec3::new(-300.0, 50.0, 0.0), DVec3::new(0.0, 100.0, 150.0), "10");
+    let n = DVec3::new(-1.0, 0.0, 2.0).normalize() * 10.0;
+    assert!(close(lo, DVec3::new(-300.0 + n.x, 50.0, 0.0)), "{lo}");
+    assert!(close(hi, DVec3::new(0.0, 100.0, 150.0 + n.z)), "{hi}");
+}
+
+#[test]
+fn down_locks_the_plane_of_the_face_under_the_cursor() {
+    let mut e = top_editor(Document::new());
+    two_boxes(&mut e);
+    e.set_tool(ToolKind::Box);
+    let down = Key::Down;
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 100.0, 150.0)) });
+    e.input(ToolInput::Key { key: down, mods: Modifiers::default() });
+    assert_eq!(e.face_lock(), Some(DVec3::Z));
+    // The same face again: free; and once more, locked.
+    e.input(ToolInput::Key { key: down, mods: Modifiers::default() });
+    assert_eq!(e.face_lock(), None);
+    e.input(ToolInput::Key { key: down, mods: Modifiers::default() });
+    // The second corner on `b`'s top stays in the plane of `a`'s, instead of standing up.
+    click(&mut e, DVec3::new(100.0, 100.0, 150.0));
+    click(&mut e, DVec3::new(500.0, 150.0, 50.0));
+    e.input(ToolInput::Vcb("10".into()));
+    // (The top view looks a hair askew: the cursor's ray meets the plane 100 higher a bit off.)
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    let near = |a: DVec3, b: DVec3| (a - b).length() < 0.05;
+    assert!(near(lo, DVec3::new(100.0, 100.0, 150.0)) && near(hi, DVec3::new(500.0, 150.0, 160.0)), "{lo} {hi}");
+    // Gone with the operation.
+    assert_eq!(e.face_lock(), None);
+}
+
+#[test]
+fn a_base_started_on_an_askew_edge_runs_along_it() {
+    use glam::{DAffine3, DQuat};
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 0.0), "50");
+    let turn =
+        DAffine3::from_translation(DVec3::new(-200.0, -200.0, 0.0)) * DAffine3::from_quat(DQuat::from_rotation_z(30f64.to_radians()));
+    e.apply(Operation::Transform { context: e.document().root(), entities: vec![a], transform: turn }).unwrap();
+    let on_a = |p: DVec3| turn.transform_point3(p);
+    // From the midpoint of its first edge to a point of its top: a base square to the box.
+    let (lo, hi) = box_bounds(&mut e, on_a(DVec3::new(200.0, 0.0, 50.0)), on_a(DVec3::new(300.0, 100.0, 50.0)), "20");
+    let corners = [(200.0, 0.0), (300.0, 0.0), (300.0, 100.0), (200.0, 100.0)].map(|(x, y)| on_a(DVec3::new(x, y, 50.0)));
+    let want_lo = corners.iter().fold(DVec3::splat(f64::MAX), |m, c| m.min(*c));
+    let want_hi = corners.iter().fold(DVec3::splat(f64::MIN), |m, c| m.max(*c)) + DVec3::Z * 20.0;
+    assert!(close(lo, want_lo) && close(hi, want_hi), "{lo} {hi} / {want_lo} {want_hi}");
+}
+
+#[test]
+fn once_drawn_the_plane_shows_under_the_cursor_again() {
+    let mut e = top_editor(Document::new());
+    let (a, b) = (DVec3::new(-200.0, -200.0, 0.0), DVec3::new(100.0, 50.0, 0.0));
+    e.set_tool(ToolKind::Box);
+    click(&mut e, a);
+    click(&mut e, b);
+    e.input(ToolInput::Vcb("150".into()));
+    // The cursor is still where the second corner was: the small base starts there, on the top
+    // of the new box, not where the first corner was.
+    let at = |p: DVec3| e.view().overlay.iter().any(|l| (l.a.truncate() - p.truncate()).length() < 1e-3);
+    assert!(at(b) && !at(a));
+}
+
+#[test]
+fn box_base_snaps_to_the_square_and_draws_from_its_centre() {
+    let mut e = top_editor(Document::new());
+    // A corner a few pixels off the square's: the square.
+    let (lo, hi) = box_bounds(&mut e, DVec3::ZERO, DVec3::new(100.0, 95.0, 0.0), "10");
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(100.0, 100.0, 10.0)), "{lo} {hi}");
+
+    // The copy modifier tapped while drawing the base (not before: held there, it takes a
+    // face's centroid): centred, kept for the tool.
+    let centered = |e: &Editor| e.tool_options().iter().find(|o| o.key == "centered").map(|o| o.value.clone());
+    let tap = ToolInput::Key { key: Key::Copy, mods: Modifiers::default() };
+    e.set_tool(ToolKind::Box);
+    e.input(tap.clone());
+    assert_eq!(centered(&e), Some(OptionValue::Toggle(false)));
+    click(&mut e, DVec3::new(-500.0, -500.0, 0.0));
+    e.input(tap);
+    assert_eq!(centered(&e), Some(OptionValue::Toggle(true)));
+    click(&mut e, DVec3::new(-400.0, -540.0, 0.0));
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(-600.0, -540.0, 0.0)) && close(hi, DVec3::new(-400.0, -460.0, 10.0)), "{lo} {hi}");
+    // Typed, the whole lengths, signed as the drag.
+    e.set_tool(ToolKind::Box);
+    assert_eq!(centered(&e), Some(OptionValue::Toggle(true)));
+    click(&mut e, DVec3::new(500.0, 500.0, 0.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(520.0, 480.0, 0.0)) });
+    e.input(ToolInput::Vcb("200;100;10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(400.0, 450.0, 0.0)) && close(hi, DVec3::new(600.0, 550.0, 10.0)), "{lo} {hi}");
+}
+
+#[test]
+fn the_shape_at_the_cursor_hides_when_it_leaves_the_view() {
+    let mut e = top_editor(Document::new());
+    for tool in [ToolKind::Box, ToolKind::Cylinder] {
+        e.set_tool(tool);
+        e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 100.0, 0.0)) });
+        assert!(!e.view().overlay.is_empty());
+        e.leave();
+        assert!(e.view().overlay.is_empty());
+        // Back in the view: shown again.
+        e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 100.0, 0.0)) });
+        assert!(!e.view().overlay.is_empty());
+    }
+}
+
+#[test]
+fn the_height_takes_the_last_one_the_next_face_or_both_sides() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    // A block floating above the middle of `a`'s top.
+    let block = Primitive::Box { origin: DVec3::new(120.0, 70.0, 350.0), size: DVec3::new(60.0, 60.0, 50.0) };
+    e.apply(Operation::AddPrimitive { context: root, primitive: block, placement: glam::DAffine3::IDENTITY }).unwrap();
+
+    // A double-click on the opposite corner: the last height (150).
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::new(500.0, 500.0, 0.0));
+    click(&mut e, DVec3::new(600.0, 600.0, 0.0));
+    e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(600.0, 600.0, 0.0)), mods: Modifiers::default() });
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(500.0, 500.0, 0.0)) && close(hi, DVec3::new(600.0, 600.0, 150.0)), "{lo} {hi}");
+
+    // Shift held: the last height, whatever the cursor.
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::new(-500.0, -500.0, 0.0));
+    click(&mut e, DVec3::new(-400.0, -400.0, 0.0));
+    e.set_shift(true);
+    assert!(e.vcb().is_some_and(|(_, v)| v.contains("150")), "{:?}", e.vcb());
+    e.set_shift(false);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+
+    // The copy modifier held: up to the first face along the normal (the block's bottom).
+    click(&mut e, DVec3::new(50.0, 40.0, 150.0));
+    click(&mut e, DVec3::new(250.0, 160.0, 150.0));
+    e.set_copy(true);
+    click(&mut e, DVec3::new(180.0, 130.0, 400.0));
+    e.set_copy(false);
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(50.0, 40.0, 150.0)) && close(hi, DVec3::new(250.0, 160.0, 350.0)), "{lo} {hi}");
+
+    // Centred: the whole height typed, half on each side of the plane.
+    e.set_tool_option("pull_centered", OptionValue::Toggle(true));
+    let (lo, hi) = box_bounds(&mut e, DVec3::new(-800.0, 500.0, 0.0), DVec3::new(-700.0, 600.0, 0.0), "40");
+    assert!(close(lo, DVec3::new(-800.0, 500.0, -20.0)) && close(hi, DVec3::new(-700.0, 600.0, 20.0)), "{lo} {hi}");
+}
+
+#[test]
+fn the_first_point_from_a_face_centre_a_whole_face_or_a_corner() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 50.0, height: 30.0 };
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
+
+    // The copy modifier held over a face: its centroid.
+    e.set_tool(ToolKind::Box);
+    e.set_copy(true);
+    hover(&mut e, DVec3::new(100.0, 50.0, 150.0));
+    let (at, kind) = e.inference().unwrap();
+    assert!(close(at, DVec3::new(150.0, 100.0, 150.0)) && kind == InferKind::Center, "{at} {kind:?}");
+    // And Shift tapped: the whole face as the base.
+    e.input(ToolInput::Key { key: Key::Shift, mods: Modifiers::default() });
+    e.set_copy(false);
+    // (The cursor on a corner of the face: a typed height goes the way the cursor gives.)
+    hover(&mut e, DVec3::new(300.0, 200.0, 150.0));
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(0.0, 0.0, 150.0)) && close(hi, DVec3::new(300.0, 200.0, 160.0)), "{lo} {hi}");
+    e.undo();
+
+    // The cylinder over a disc: that circle.
+    e.set_tool(ToolKind::Cylinder);
+    e.set_copy(true);
+    hover(&mut e, DVec3::new(610.0, 590.0, 30.0));
+    e.input(ToolInput::Key { key: Key::Shift, mods: Modifiers::default() });
+    e.set_copy(false);
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    // (A cylinder's vertices are its seam's ends: the centre plus the radius along red.)
+    assert!(close(lo, DVec3::new(650.0, 600.0, 30.0)) && close(hi, DVec3::new(650.0, 600.0, 40.0)), "{lo} {hi}");
+
+    // From a corner (the other modifier tapped): across a face, the distances from its sides.
+    e.set_tool(ToolKind::Box);
+    e.input(ToolInput::Key { key: Key::Alt, mods: Modifiers::default() });
+    hover(&mut e, DVec3::new(80.0, 60.0, 150.0));
+    let (_, shown) = e.vcb().unwrap();
+    assert!(shown.contains("60") && shown.contains("80"), "{shown}");
+    e.input(ToolInput::Vcb("10;10".into()));
+    click(&mut e, DVec3::new(100.0, 60.0, 150.0));
+    e.input(ToolInput::Vcb("5".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(10.0, 10.0, 150.0)) && close(hi, DVec3::new(100.0, 60.0, 155.0)), "{lo} {hi}");
+    // Along an edge, the distance from its nearer end; the mode ends with the first point.
+    assert!(e.tool_options().iter().any(|o| o.key == "from_corner" && o.value == OptionValue::Toggle(false)));
+    e.input(ToolInput::Key { key: Key::Alt, mods: Modifiers::default() });
+    hover(&mut e, DVec3::new(300.0, 150.0, 150.0));
+    e.input(ToolInput::Vcb("70".into()));
+    click(&mut e, DVec3::new(200.0, 100.0, 150.0));
+    e.input(ToolInput::Vcb("5".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(200.0, 100.0, 150.0)) && close(hi, DVec3::new(300.0, 130.0, 155.0)), "{lo} {hi}");
+}
+
+#[test]
+fn escape_goes_back_one_step() {
+    use solidsketch_i18n::t;
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::ZERO);
+    click(&mut e, DVec3::new(100.0, 100.0, 0.0));
+    let esc = ToolInput::Key { key: Key::Escape, mods: Modifiers::default() };
+    e.input(esc.clone());
+    let key = crate::tools::copy_key();
+    assert_eq!(e.status(), t!("tool.box.hint.base", copy_key = key.clone()));
+    e.input(esc.clone());
+    assert_eq!(e.status(), t!("tool.box.hint.first", copy_key = key.clone(), alt_key = crate::tools::alt_key()));
+    // At the first step, Esc does nothing: the tool stays.
+    e.input(esc);
+    assert_eq!((e.tool_kind(), e.status()), (ToolKind::Box, t!("tool.box.hint.first", copy_key = key, alt_key = crate::tools::alt_key())));
 }
 
 #[test]

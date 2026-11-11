@@ -14,7 +14,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::Id;
 
 use super::{
-    Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, Tool, ToolInput, ToolKind, ToolOption, cross, guide_color,
+    Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, Tool, ToolInput, ToolKind, ToolOption, guide_color,
 };
 use crate::infer::Inference;
 use crate::vcb::{PointRef, Vcb, VcbKind, VcbValue};
@@ -132,18 +132,19 @@ impl Tool for MoveTool {
         vec![]
     }
 
-    fn preview(&self, cx: &Cx<'_>) -> Preview {
+    fn preview(&self, _cx: &Cx<'_>) -> Preview {
         match self.state {
-            State::Start => Preview {
-                lines: self.cursor.map(|p| cross(cx, p, INK)).unwrap_or_default(),
-                inference: self.snap.clone(),
-                ..Default::default()
-            },
+            State::Start => Preview { marks: self.cursor.into_iter().collect(), inference: self.snap.clone(), ..Default::default() },
             State::Moving { from, to } => {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                let mut lines = vec![PreviewLine { a: from, b: to, color }];
-                lines.extend(cross(cx, from, INK));
-                Preview { lines, ghost: Some(DAffine3::from_translation(to - from)), inference: self.snap.clone(), ..Default::default() }
+                let lines = vec![PreviewLine { a: from, b: to, color }];
+                Preview {
+                    lines,
+                    marks: vec![from],
+                    ghost: Some(DAffine3::from_translation(to - from)),
+                    inference: self.snap.clone(),
+                    ..Default::default()
+                }
             }
         }
     }

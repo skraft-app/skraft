@@ -95,7 +95,16 @@ impl Editor {
             _ => {}
         }
         self.after_change();
+        self.follow_cursor();
         outcome
+    }
+
+    /// Once nothing is under way any more, the tool follows the cursor where it is now (a
+    /// shape tool back at its first step shows its plane there).
+    fn follow_cursor(&mut self) {
+        if !self.busy() {
+            self.rehover();
+        }
     }
 
     /// Says why `op` failed; puts back the step it replaced. Returns the message.
@@ -105,6 +114,7 @@ impl Editor {
             self.after_change();
         }
         self.message = Some(msg.clone());
+        self.follow_cursor();
         msg
     }
 

@@ -52,6 +52,7 @@ key:
   shift: "Maj"
   # Off macOS (macOS shows ⌥).
   alt: "Alt"
+  command: "Cmd"
   space: "Espace"
   delete: "Suppr"
 
@@ -295,12 +296,22 @@ tool:
       idle: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché) · Maj : ajouter/retirer · Double-clic : entrer dans un assemblage ou ouvrir une pièce, ou en sortir"
       crossing: "Capture : sélectionne ce que le rectangle touche · Maj : ajouter/retirer"
       window: "Fenêtre : sélectionne ce que le rectangle contient entièrement · Maj : ajouter/retirer"
+  # What the box and the cylinder share.
+  shape:
+    hint:
+      height: "Cliquer la hauteur, ou la taper · Maj : la dernière hauteur · double-clic : la dernière hauteur · %{copy_key} maintenu : jusqu'à la face, appui bref : hauteur centrée"
+    vcb:
+      distances: "Distances"
+    option:
+      pull_centered: "Hauteur centrée"
+      pull_centered_tip: "La hauteur s'étend autant de part et d'autre du plan (%{copy_key} pendant la hauteur : basculer)"
+      from_corner: "Depuis un coin"
+      from_corner_tip: "Le premier point se mesure depuis le coin le plus proche : taper les distances (%{alt_key} : basculer)"
   box:
     name: "Boîte"
     hint:
-      first: "Cliquer le premier coin de la base · flèches : plan rouge, vert, bleu"
-      base: "Cliquer le coin opposé, ou taper longueur;largeur (;hauteur)"
-      height: "Cliquer la hauteur, ou la taper"
+      first: "Cliquer le premier coin de la base · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
+      base: "Cliquer le coin opposé, ou taper longueur;largeur (;hauteur) · flèches : bloquer le plan · %{copy_key} : centré · Échap : revenir"
     vcb:
       dimensions: "$t(common.dimensions)"
       height: "$t(common.height)"
@@ -308,18 +319,29 @@ tool:
       empty: "Boîte vide : une dimension est nulle"
       empty_base: "Base vide : choisir un coin opposé"
       base_lengths: "Base vide : deux longueurs sont nécessaires"
+    option:
+      centered: "Centré"
+      centered_tip: "Le premier clic est le centre de la base (%{copy_key} : basculer)"
   cylinder:
     name: "Cylindre"
     hint:
-      center: "Cliquer le centre de la base · flèches : plan rouge, vert, bleu"
-      radius: "Cliquer le rayon, ou taper rayon (;hauteur)"
-      height: "Cliquer la hauteur, ou la taper"
+      center: "Cliquer le centre de la base · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : disque entier · %{alt_key} : depuis un coin"
+      radius: "Cliquer le rayon, ou taper rayon (;hauteur) · Tab : mesurer le diamètre"
+      diameter: "Cliquer le bord, ou taper diamètre (;hauteur) · Tab : mesurer le rayon"
     vcb:
       radius: "Rayon"
+      diameter: "Diamètre"
       height: "$t(common.height)"
     say:
       empty: "Cylindre vide : une dimension est nulle"
       zero_radius: "Rayon nul"
+    option:
+      measure: "Mesure"
+      measure_tip: "La longueur affichée et tapée pour la base (Tab pour changer)"
+      radius: "Rayon"
+      radius_tip: "Du centre au bord"
+      diameter: "Diamètre"
+      diameter_tip: "D'un bord à l'autre, par le centre"
   move:
     name: "$t(common.move)"
     hint:

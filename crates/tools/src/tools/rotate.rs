@@ -15,7 +15,7 @@ use solidsketch_model::Id;
 
 use super::{
     BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, RED, Tool, ToolInput, ToolKind, ToolOption,
-    cross, guide_color,
+    guide_color,
 };
 
 /// Snapping step and how close the angle must be to snap (radians).
@@ -230,8 +230,13 @@ impl Tool for RotateTool {
                 lines.push(PreviewLine { a: center, b: center + reference * r, color: INK });
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
                 lines.push(PreviewLine { a: center, b: center + now * r, color });
-                lines.extend(cross(cx, center, INK));
-                Preview { lines, ghost: Some(rotation_about(center, axis, angle)), inference: self.snap.clone(), ..Default::default() }
+                Preview {
+                    lines,
+                    marks: vec![center],
+                    ghost: Some(rotation_about(center, axis, angle)),
+                    inference: self.snap.clone(),
+                    ..Default::default()
+                }
             }
         }
     }

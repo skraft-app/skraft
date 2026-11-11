@@ -973,7 +973,7 @@ mod tests {
         click(&mut e, DVec3::new(103.0, 97.0, 50.0));
         // The height of that same corner.
         click(&mut e, DVec3::new(97.0, 103.0, 50.0));
-        let id = e.selection()[0];
+        let id = crate::tests::drawn(&e);
         // The corners inferred are exact; the first one, clicked on the ground, is not.
         let (lo, hi) = bounds(&e, id);
         assert_eq!(lo, DVec3::new(100.0, 100.0, 0.0));
@@ -1064,7 +1064,7 @@ mod tests {
         click_at(&mut e, DVec3::new(200.0, y, 150.0));
         click_at(&mut e, DVec3::new(500.0, y, 400.0));
         e.input(ToolInput::Vcb("30".into()));
-        let id = e.selection()[0];
+        let id = crate::tests::drawn(&e);
         let (lo, hi) = bounds(&e, id);
         let (y0, y1) = if out < 0.0 { (y - 30.0, y) } else { (y, y + 30.0) };
         assert!(about(lo, DVec3::new(200.0, y0, 150.0)) && about(hi, DVec3::new(500.0, y1, 400.0)), "{lo} {hi}");
@@ -1081,7 +1081,7 @@ mod tests {
         click_at(&mut e, DVec3::ZERO);
         e.input(ToolInput::Vcb("40".into()));
         e.input(ToolInput::Vcb("-25".into()));
-        let id = e.selection()[0];
+        let id = crate::tests::drawn(&e);
         // A cylinder's B-rep has a vertex per circle only: both 40 from the red axis, at x 0
         // and -25.
         let (lo, hi) = bounds(&e, id);

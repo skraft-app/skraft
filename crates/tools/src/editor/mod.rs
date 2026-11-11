@@ -69,8 +69,14 @@ pub struct Editor {
     free: Option<(DVec2, DVec2)>,
     /// Inference locks (§6 ter): the arrow keys' axis, and the line Shift holds.
     axis_lock: Option<usize>,
+    /// The normal ↓ locks for the shape tools (world): the face's under the cursor.
+    face_lock: Option<DVec3>,
     shift: bool,
+    /// The copy modifier held (Option on macOS, Ctrl elsewhere).
+    copy: bool,
     shift_lock: Option<Lock>,
+    /// The height (whole) of the last shape drawn: the next can take it again.
+    last_height: Option<f64>,
     /// Points tracked (§6 ter, step 3): hovered [`TRACK_AFTER`] seconds; the latest
     /// [`MAX_TRACKED`].
     tracked: Vec<DVec3>,
@@ -124,8 +130,11 @@ impl Editor {
             message: None,
             free: None,
             axis_lock: None,
+            face_lock: None,
             shift: false,
+            copy: false,
             shift_lock: None,
+            last_height: None,
             tracked: Vec::new(),
             dwell: None,
             now: 0.0,
@@ -335,6 +344,10 @@ impl Editor {
             part_scope: self.part_scope,
             selection: &self.selection,
             axis_lock: self.axis_lock,
+            face_lock: self.face_lock,
+            shift_down: self.shift,
+            copy_down: self.copy,
+            last_height: self.last_height,
             shift_lock: self.shift_lock,
             tracked: &self.tracked,
             reference: self.reference,
@@ -393,6 +406,11 @@ impl Editor {
         self.axis_lock
     }
 
+    /// The normal ↓ locks for the shape tools (world).
+    pub fn face_lock(&self) -> Option<DVec3> {
+        self.face_lock
+    }
+
     /// Shift pressed or released (the app tells every frame): pressed on a linear inference,
     /// it holds that line until released.
     pub fn set_shift(&mut self, down: bool) {
@@ -411,9 +429,19 @@ impl Editor {
         self.rehover();
     }
 
+    /// The copy modifier pressed or released (the app tells every frame): the tool follows the
+    /// cursor again with it.
+    pub fn set_copy(&mut self, down: bool) {
+        if down != self.copy {
+            self.copy = down;
+            self.rehover();
+        }
+    }
+
     /// Locks and tracked points go with each operation, Esc, a tool change, undo and redo.
     fn clear_locks(&mut self) {
         self.axis_lock = None;
+        self.face_lock = None;
         self.shift_lock = None;
         self.tracked.clear();
         self.dwell = None;
@@ -445,6 +473,15 @@ impl Editor {
         false
     }
 
+    /// The cursor left the view (off it, or over a panel): the tool hides what follows it,
+    /// and nothing follows it again until it comes back.
+    pub fn leave(&mut self) {
+        if self.last_hover.take().is_some() {
+            self.dwell = None;
+            self.tool.leave();
+        }
+    }
+
     /// Feeds the tool the last cursor position again (a lock changed).
     fn rehover(&mut self) {
         if let Some(px) = self.last_hover {
@@ -461,8 +498,9 @@ impl Editor {
         self.reference = None;
     }
 
-    /// Feeds the active tool. Esc cancels the tool's step, else clears the selection; Delete
-    /// erases the selection.
+    /// Feeds the active tool. Esc goes back one step of the tool; at its first step, it does
+    /// nothing more, but with Select, where it clears the selection (or closes the open part).
+    /// Delete erases the selection.
     pub fn input(&mut self, input: ToolInput) {
         if self.busy() {
             match input {
@@ -491,7 +529,19 @@ impl Editor {
         };
         match &input {
             ToolInput::Hover { px } => self.last_hover = Some(*px),
-            // The arrow keys lock an axis for every tool: → red, ← green, ↑ blue, ↓ free.
+            // The arrow keys lock an axis for every tool: → red, ← green, ↑ blue, ↓ free; for
+            // the shape tools, ↓ locks the normal of the face under the cursor (the same face
+            // again, or none: free).
+            ToolInput::Key { key: Key::Down, .. } if self.tool.down_locks_face() => {
+                let face = self.last_hover.and_then(|px| self.cx().pick(px)).map(|h| h.normal);
+                self.face_lock = match (face, self.face_lock) {
+                    (Some(n), Some(l)) if n.dot(l) > 1.0 - 1e-9 => None,
+                    (face, _) => face,
+                };
+                self.axis_lock = None;
+                self.rehover();
+                return;
+            }
             ToolInput::Key { key: key @ (Key::Right | Key::Left | Key::Up | Key::Down), .. } => {
                 let k = match key {
                     Key::Right => Some(0),
@@ -500,19 +550,23 @@ impl Editor {
                     _ => None,
                 };
                 self.axis_lock = if k == self.axis_lock { None } else { k };
+                self.face_lock = None;
                 self.rehover();
                 return;
             }
             ToolInput::Key { key: Key::Escape, .. } => {
                 self.clear_locks();
+                // A tool at its first step stays active (only Space goes back to Select): Esc
+                // only drops the locks.
                 if self.tool.busy() {
-                    self.tool.reset();
-                } else if self.tool.kind() != ToolKind::Select {
-                    self.set_tool(ToolKind::Select);
-                } else if self.selection.is_empty() && self.open_part.is_some() {
-                    self.exit();
-                } else {
-                    self.selection.clear();
+                    self.tool.back();
+                    self.rehover();
+                } else if self.tool.kind() == ToolKind::Select {
+                    if self.selection.is_empty() && self.open_part.is_some() {
+                        self.exit();
+                    } else {
+                        self.selection.clear();
+                    }
                 }
                 return;
             }
@@ -552,10 +606,17 @@ impl Editor {
         match c {
             Command::Apply(op) => {
                 self.clear_locks();
-                let after = if matches!(op, Operation::Boolean { .. }) { After::Nothing } else { After::Select };
+                // What a boolean or a drawing tool makes is not selected: the next shape is
+                // drawn straight away.
+                let after = match op {
+                    Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddMachining { .. } => After::Nothing,
+                    _ => After::Select,
+                };
                 let _ = self.start(op, after, false);
             }
             Command::Select(ids) => self.selection = ids,
+            Command::SetOption { key, value } => self.set_tool_option(key, value),
+            Command::RememberHeight(h) => self.last_height = Some(h),
             Command::Enter(id) => self.enter(id),
             Command::Exit => self.exit(),
             Command::ClickOff(px) => match self.context_bounds() {
@@ -587,5 +648,15 @@ impl Editor {
     /// The selection rectangle being dragged, if any (the app draws it).
     pub fn marquee(&self) -> Option<tools::Marquee> {
         self.preview().marquee
+    }
+
+    /// The lengths the tool writes over the scene (the app draws them).
+    pub fn labels(&self) -> Vec<tools::PreviewLabel> {
+        self.preview().labels
+    }
+
+    /// The points the tool marks with a cross (world), which the lengths keep clear of.
+    pub fn marks(&self) -> Vec<DVec3> {
+        self.preview().marks
     }
 }

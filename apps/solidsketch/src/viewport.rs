@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use glam::{DMat4, DVec2};
+use glam::{DMat4, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Id;
 use solidsketch_render as render;
@@ -76,12 +76,18 @@ impl Viewport {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
             ui.painter().image(id, rect, uv, egui::Color32::WHITE);
         }
+        paint_marks(ui.painter(), rect, editor);
+        let mut clear = Vec::new();
         if let Some(cursor) = response.hover_pos() {
-            paint_inference(ui.painter(), rect, cursor, editor, theme);
+            clear.push(egui::Rect::from_center_size(cursor, egui::vec2(CURSOR_CLEAR, CURSOR_CLEAR)));
+            clear.extend(paint_inference(ui.painter(), rect, cursor, editor, theme));
         }
         if let Some(m) = editor.marquee() {
             paint_marquee(ui.painter(), rect, &m, theme);
         }
+        // Last: the lengths stay above everything (markers, tooltip, marquee), placed clear of
+        // the cursor, the markers, the tooltip and the crosses.
+        paint_labels(ui.painter(), rect, editor, clear);
     }
 
     fn input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: egui::Rect, editor: &mut Editor, nav: &Navigation) {
@@ -98,17 +104,20 @@ impl Viewport {
         // Shift held locks the line inferred (§6 ter); a point hovered a while is tracked: the
         // editor needs the time, every frame while it waits.
         editor.set_shift(mods.shift);
+        editor.set_copy(modifiers(ctx, mods).copy);
         if editor.tick(time) {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
         let hover = response.hover_pos();
 
-        // Hover: tools follow the cursor.
-        if let Some(p) = hover
-            && self.last_hover != Some(p)
-        {
-            self.last_hover = Some(p);
-            editor.input(ToolInput::Hover { px: local(p) });
+        // Hover: tools follow the cursor; off the view or over a panel, they hide what follows it.
+        match hover {
+            Some(p) if self.last_hover != Some(p) => {
+                self.last_hover = Some(p);
+                editor.input(ToolInput::Hover { px: local(p) });
+            }
+            None if self.last_hover.take().is_some() => editor.leave(),
+            _ => {}
         }
 
         // Middle button: orbit, Shift = pan; double-click = recentre.
@@ -348,19 +357,85 @@ fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &solidsketch_tool
     }
 }
 
+/// Half the arm of a cross marking a point (points).
+const MARK_ARM: f32 = 6.0;
+
+/// The points a tool marks (a centre, a start): a `+` on the screen.
+fn paint_marks(painter: &egui::Painter, rect: egui::Rect, editor: &Editor) {
+    let stroke = egui::Stroke::new(1.5, color(solidsketch_theme::GUIDE_INK));
+    for p in editor.marks() {
+        let Some(at) = editor.camera.project(p, editor.viewport_size()) else { continue };
+        let at = rect.min + egui::vec2(at.x as f32, at.y as f32);
+        painter.line_segment([at - egui::vec2(MARK_ARM, 0.0), at + egui::vec2(MARK_ARM, 0.0)], stroke);
+        painter.line_segment([at - egui::vec2(0.0, MARK_ARM), at + egui::vec2(0.0, MARK_ARM)], stroke);
+    }
+}
+
+/// The square around the cursor (points) the lengths keep clear of.
+const CURSOR_CLEAR: f32 = 24.0;
+/// The square around a cross or a marker (points) the lengths keep clear of.
+const MARK_CLEAR: f32 = 16.0;
+/// The gap (points) between a length moved off its side and the side.
+const LABEL_GAP: f32 = 4.0;
+
+/// The lengths a tool writes by what it draws, framed in their axis's colour, on white with
+/// square corners: at the middle of their side, else slid along it or off it to keep clear of
+/// `clear` (the cursor, the markers, the tooltip), the crosses and the lengths placed before.
+fn paint_labels(painter: &egui::Painter, rect: egui::Rect, editor: &Editor, mut clear: Vec<egui::Rect>) {
+    use egui::{Stroke, vec2};
+    let size = editor.viewport_size();
+    let screen = |p: DVec3| editor.camera.project(p, size).map(|at| rect.min + vec2(at.x as f32, at.y as f32));
+    clear.extend(editor.marks().into_iter().filter_map(screen).map(|at| egui::Rect::from_center_size(at, vec2(MARK_CLEAR, MARK_CLEAR))));
+    for l in editor.labels() {
+        // A side half behind the eye: its middle only.
+        let Some((a, b)) = screen(l.a).zip(screen(l.b)).or_else(|| screen((l.a + l.b) / 2.0).map(|m| (m, m))) else { continue };
+        let galley = painter.layout_no_wrap(l.text, egui::FontId::proportional(12.0), color(l.color));
+        let bg = place(galley.size() + vec2(10.0, 4.0), a, b, &clear);
+        painter.rect(bg, 0.0, egui::Color32::WHITE, Stroke::new(1.0, color(l.color)), egui::StrokeKind::Inside);
+        painter.galley(bg.center() - galley.size() / 2.0, galley, color(l.color));
+        clear.push(bg);
+    }
+}
+
+/// Where a length of `size` (its frame) goes for the side `a`–`b` (screen): the first spot,
+/// in order, that overlaps nothing of `clear` — the middle, then along the side towards either
+/// end, then off it on either side; with none free, the middle.
+fn place(size: egui::Vec2, a: egui::Pos2, b: egui::Pos2, clear: &[egui::Rect]) -> egui::Rect {
+    let at = |p: egui::Pos2| egui::Rect::from_center_size(p, size);
+    let d = b - a;
+    // Off the side: along its normal, far enough for the frame to leave it.
+    let n = if d.length() > 1e-3 { egui::vec2(-d.y, d.x).normalized() } else { egui::vec2(0.0, -1.0) };
+    let off = (n.x.abs() * size.x + n.y.abs() * size.y) / 2.0 + LABEL_GAP;
+    let along = [0.5, 0.3, 0.7, 0.15, 0.85];
+    along
+        .iter()
+        .map(|&t| a + d * t)
+        .chain(along.iter().flat_map(|&t| [a + d * t + n * off, a + d * t - n * off]))
+        .map(at)
+        .find(|r| !clear.iter().any(|c| c.intersects(*r)))
+        .unwrap_or_else(|| at(a + d * 0.5))
+}
+
 /// The inferred point's marker, coloured by kind, and its tooltip by the cursor (§6 ter).
-fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2, editor: &Editor, theme: &Theme) {
+/// What it draws (screen), for the lengths to keep clear of.
+fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2, editor: &Editor, theme: &Theme) -> Vec<egui::Rect> {
     use egui::{Color32, Stroke, pos2, vec2};
+    let mut drawn = Vec::new();
+    let mut mark = |at: egui::Pos2| drawn.push(egui::Rect::from_center_size(at, vec2(MARK_CLEAR, MARK_CLEAR)));
     // Tracked points: a small ring each.
     for p in editor.tracked() {
         if let Some(at) = editor.camera.project(*p, editor.viewport_size()) {
             let at = rect.min + vec2(at.x as f32, at.y as f32);
             painter.circle_stroke(at, 4.0, Stroke::new(1.5, color(theme.tracked)));
+            mark(at);
         }
     }
-    let Some((point, kind)) = editor.inference() else { return };
-    let Some(at) = editor.camera.project(point, editor.viewport_size()) else { return };
+    let Some((point, kind)) = editor.inference() else { return drawn };
+    let Some(at) = editor.camera.project(point, editor.viewport_size()) else { return drawn };
     let at = rect.min + vec2(at.x as f32, at.y as f32);
+    if kind != InferKind::OnPlane {
+        mark(at);
+    }
     let outline = Stroke::new(1.0, color(theme.marker_outline));
     match kind {
         InferKind::Endpoint => {
@@ -407,7 +482,7 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
     }
     let label = kind.label();
     if label.is_empty() {
-        return;
+        return drawn;
     }
     let text = color(theme.tooltip_text);
     let galley = painter.layout_no_wrap(label, egui::FontId::proportional(12.0), text);
@@ -415,6 +490,8 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
     let bg = egui::Rect::from_min_size(pos, galley.size()).expand2(vec2(5.0, 2.0));
     painter.rect(bg, 3.0, color(theme.tooltip_fill), Stroke::new(1.0, color(theme.tooltip_border)), egui::StrokeKind::Inside);
     painter.galley(pos, galley, text);
+    drawn.push(bg);
+    drawn
 }
 
 /// A grid whose spacing follows the zoom (powers of ten, 100 lines).
@@ -457,5 +534,29 @@ impl Viewport {
             px.extend_from_slice(&data[s..s + (w * 4) as usize]);
         }
         Some((w, h, px))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::place;
+    use egui::{Rect, pos2, vec2};
+
+    #[test]
+    fn a_length_keeps_clear() {
+        let size = vec2(40.0, 16.0);
+        let (a, b) = (pos2(0.0, 100.0), pos2(200.0, 100.0));
+        // Nothing in the way: the middle.
+        assert_eq!(place(size, a, b, &[]).center(), pos2(100.0, 100.0));
+        // The middle taken: along the side.
+        let mid = Rect::from_center_size(pos2(100.0, 100.0), vec2(16.0, 16.0));
+        assert_eq!(place(size, a, b, &[mid]).center(), pos2(60.0, 100.0));
+        // The whole side taken: off it, the frame clear of the side.
+        let side = Rect::from_min_max(pos2(-50.0, 99.0), pos2(250.0, 101.0));
+        let r = place(size, a, b, &[side]);
+        assert!(!r.intersects(side) && r.center().x == 100.0, "{r:?}");
+        // Nowhere free: the middle.
+        let all = Rect::from_min_max(pos2(-500.0, -500.0), pos2(500.0, 500.0));
+        assert_eq!(place(size, a, b, &[all]).center(), pos2(100.0, 100.0));
     }
 }

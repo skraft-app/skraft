@@ -2,6 +2,7 @@
 //! input; it previews without touching the document and, when done, emits an `Operation`.
 
 mod boolean;
+mod face;
 mod mover;
 mod paint;
 mod rotate;
@@ -48,6 +49,11 @@ pub enum Key {
     Down,
     /// The copy modifier tapped alone (Option on macOS, Ctrl elsewhere): toggles copying.
     Copy,
+    /// Shift tapped alone (with the copy modifier held, a shape tool takes the whole face).
+    Shift,
+    /// The other modifier tapped alone (Command on macOS, Alt elsewhere): a shape tool measures
+    /// its first point from a corner.
+    Alt,
     /// Turns the tool's first choice over to its next value (the booleans' scope).
     Tab,
 }
@@ -109,6 +115,14 @@ pub enum Command {
     ClickOff(DVec2),
     /// A message for the status bar (e.g. why a value was refused).
     Say(String),
+    /// The height (whole) of the shape just drawn: the next one can take it again (Shift,
+    /// double-click).
+    RememberHeight(f64),
+    /// Sets an option of the active tool, as a click in the bar does (a key that toggles it).
+    SetOption {
+        key: &'static str,
+        value: OptionValue,
+    },
     /// Undoes the last step, which must be `previous`, and applies `op` instead (a copy
     /// turned into an array by a typed `5x`).
     Replace {
@@ -125,11 +139,28 @@ pub struct PreviewLine {
     pub color: [f32; 4],
 }
 
+/// A length a tool writes by what it measures (a side being drawn): the side `a`–`b` (world),
+/// written at its middle, or slid along it or off it to keep clear of what matters (the app
+/// places it).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreviewLabel {
+    pub a: DVec3,
+    pub b: DVec3,
+    pub text: String,
+    /// Its text and frame (linear RGBA): the axis it runs along.
+    pub color: [f32; 4],
+}
+
 /// What a tool shows while it works.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Preview {
     /// Lines drawn over the scene.
     pub lines: Vec<PreviewLine>,
+    /// Lengths written over the scene.
+    pub labels: Vec<PreviewLabel>,
+    /// Points marked with a cross (world; the app draws a `+` on the screen), which the lengths
+    /// keep clear of.
+    pub marks: Vec<DVec3>,
     /// The entity of the active context under the cursor.
     pub hover: Option<Id>,
     /// A solid anywhere in the scene under the cursor (tools that reach across contexts).
@@ -277,6 +308,14 @@ pub struct Cx<'a> {
     pub selection: &'a [Id],
     /// The context axis the arrow keys lock (→ 0 red, ← 1 green, ↑ 2 blue; ↓ frees it).
     pub axis_lock: Option<usize>,
+    /// The normal ↓ locks for a tool that takes it ([`Tool::down_locks_face`]): the face's
+    /// under the cursor when the key was pressed (world, unit, towards the eye).
+    pub face_lock: Option<DVec3>,
+    /// Shift held, and the copy modifier (Option on macOS, Ctrl elsewhere).
+    pub shift_down: bool,
+    pub copy_down: bool,
+    /// The height (whole) of the last shape drawn, if any.
+    pub last_height: Option<f64>,
     /// The line Shift holds.
     pub shift_lock: Option<Lock>,
     /// Points tracked (hovered a while), world.
@@ -453,6 +492,11 @@ impl Cx<'_> {
         infer::infer(self.scene, self.camera, self.size, px, &q)
     }
 
+    /// The saved value of the toggle `key` (off when never set).
+    pub fn toggle(&self, key: &str) -> bool {
+        matches!(self.options.get(key), Some(OptionValue::Toggle(true)))
+    }
+
     /// The saved value of the choice `key`, if any.
     pub fn choice(&self, key: &str) -> Option<&str> {
         match self.options.get(key) {
@@ -510,6 +554,17 @@ pub trait Tool {
     /// An option of the gesture changed (a saved one is stored by the editor, read in
     /// [`Cx::options`]).
     fn set_option(&mut self, _key: &str, _value: &OptionValue) {}
+    /// Does ↓ lock the normal of the face under the cursor now, rather than free the axis
+    /// (the shape tools' drawing plane)?
+    fn down_locks_face(&self) -> bool {
+        false
+    }
+    /// The cursor left the view (off it, or over a panel): what follows it is hidden.
+    fn leave(&mut self) {}
+    /// One step back (Esc while busy); by default, back to the first.
+    fn back(&mut self) {
+        self.reset();
+    }
     /// Back to the first step.
     fn reset(&mut self);
 }
@@ -634,6 +689,11 @@ pub fn copy_key() -> String {
     if solidsketch_i18n::mac() { t!("key.option") } else { t!("key.ctrl") }
 }
 
+/// The other modifier's name for hints (Command on macOS, Alt elsewhere).
+pub fn alt_key() -> String {
+    if solidsketch_i18n::mac() { t!("key.command") } else { t!("key.alt") }
+}
+
 /// `hint`, said to be copying when it is.
 fn with_copying(hint: String, copying: bool) -> String {
     if copying { format!("{hint} {}", t!("tool.copying")) } else { hint }
@@ -650,8 +710,18 @@ pub const MAGENTA: [f32; 4] = solidsketch_theme::FREE_LINE;
 /// The highlight colour of picked things.
 pub const PICK: [f32; 4] = solidsketch_theme::PICK;
 
-/// A small cross marking a point, sized for the screen.
-pub fn cross(cx: &Cx<'_>, p: DVec3, color: [f32; 4]) -> Vec<PreviewLine> {
-    let s = cx.camera.world_per_pixel(cx.size, p) * 6.0;
-    [DVec3::X, DVec3::Y, DVec3::Z].into_iter().map(|d| PreviewLine { a: p - d * s, b: p + d * s, color }).collect()
+/// A dashed line from `a` to `b` (world; dashes of a few pixels at their depth), dashes at
+/// both ends.
+pub fn dashed(camera: &Camera, size: DVec2, out: &mut Vec<PreviewLine>, a: DVec3, b: DVec3, color: [f32; 4]) {
+    let len = (b - a).length();
+    let step = camera.world_per_pixel(size, (a + b) * 0.5) * 10.0;
+    if len < 1e-12 || step <= 0.0 {
+        return;
+    }
+    // Odd, so that a dash starts and ends the line (a box's corners stay drawn).
+    let n = ((len / step).ceil() as usize).min(400) | 1;
+    for k in (0..n).step_by(2) {
+        let (t0, t1) = (k as f64 / n as f64, ((k + 1) as f64 / n as f64).min(1.0));
+        out.push(PreviewLine { a: a.lerp(b, t0), b: a.lerp(b, t1), color });
+    }
 }

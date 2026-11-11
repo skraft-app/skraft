@@ -31,7 +31,7 @@ Document
 └─ next_id
 
 Component { id, name, props, kind }
-  props   : type (solid wood, panel, hardware…), excluded from the cut list, …
+  props   : excluded from the cut list, … (the part's type comes from its material, §2.2)
   kind    = Part     { blank: Arc<Brep>, machinings: Vec<Machining> }      — a part
           | Assembly { occurrences: Vec<Occurrence> }                      — an assembly
 Occurrence { id, component: Id, transform: T, material, name }            — an occurrence
@@ -50,9 +50,12 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
   assembly (named "Assembly N" until the user renames it).
 - A part is edited **directly** (no "entering" it); an assembly is opened like a SketchUp
   component (active context, §2.6).
-- **Properties** (type, exclusion from the cut list…) go on any component: a hinge modelled in
-  several parts is an assembly of type hardware, counted as one item without detailing its
-  content.
+- **Properties** (exclusion from the cut list…) go on any component. The part's **type**
+  (solid wood, sheet good, dimensional, edge, veneer, hardware…) is not a component property:
+  it comes from the **material** applied to the occurrence, as in OpenCutList
+  (`MaterialAttributes.type`). A hinge modelled in several parts is an assembly whose
+  occurrence is painted with a hardware material: counted as one item, without detailing its
+  content (OCL does not descend into an instance painted with a hardware material).
 - **Name**: the component's name is the part's name; the **occurrence name** names one
   occurrence of that part ("Left", "Right"), as in OpenCutList.
 - **Purge**: a part with no occurrence disappears, unless the user named it (it then stays in
@@ -180,7 +183,7 @@ id.
   intermediate shapes; no marquee selection of machinings.
 - **"All occurrences / only this one"** and the automatic separate part: a geometry change
   affects all the part's occurrences today.
-- **Material per occurrence, properties** (type, exclusion from the cut list): not in the
+- **Material type** (§2.1), **properties** (exclusion from the cut list): not in the
   format yet; they will enter it with a default value (v2 files will stay readable).
 - **Tools in the part's axes** (§2.3), highlighting of occurrences during a change, list of
   machinings in the interface.
@@ -287,7 +290,10 @@ Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
 - **SketchUp selection**: a click selects the top-level entity of the active context,
   Shift+click adds/removes, double-click on a group/component enters it, a click off the grey box
   of the one being edited (void or another entity) leaves it, one level per click; inside the
-  box, a click in the void only clears the selection; Esc cancels the tool then clears the selection. Dragging draws a selection
+  box, a click in the void only clears the selection; Esc goes back one step of the active tool; at its
+  first step, it does nothing more for a tool other than Select (the tool stays: only Space —
+  the `tool.select` command — goes back to Select; decided on 2026-11-11), and clears the
+  selection with Select. Dragging draws a selection
   rectangle: left to right (solid line, "window"), it takes the entities it fully contains;
   right to left (dashed, "crossing"), those it touches; Shift adds/removes. The test is done on
   screen, on the projected vertices and triangles of the display meshes. Outside the active
@@ -363,7 +369,8 @@ Decided on 2026-11-09.
     *View › Grid / Axes* changes the document too.
 - **Tool option bar** (decided on 2026-11-10, after OCL's tools): the footer of the tool
   bar's card (at first a fixed strip under the title bar, moved there the same day), with the
-  tool's name and its options — exclusive choices and toggles. Every choice is visible and clickable there; a shortcut is only a
+  tool's options — exclusive choices and toggles; no tool name, and no footer at all for a tool
+  without options (nor open part). Every choice is visible and clickable there; a shortcut is only a
   complement (Tab cycles the scope). The status bar keeps the guidance for the current step.
   - **Tools describe their options, the app draws them**: `Tool::options` returns a list of
     `ToolOption` (key, label — which may depend on what is hovered, "×4" —, tooltip, value,
@@ -412,7 +419,10 @@ Decided on 2026-11-09.
   projected onto the line (alignment). Locks drop on every applied operation, on Esc, on a
   change of tool and on undo. Depending on the tool, the axis lock gives the direction (Move),
   the rotation axis (Rotate) or the normal of the drawing plane (Box, Cylinder: ↑ horizontal,
-  → perpendicular to red, ← to green).
+  → perpendicular to red, ← to green, reversed so that the plane's second side points up).
+  For the shape tools (`Tool::down_locks_face`), ↓ locks the normal of the face under the
+  cursor instead (`face_lock`, taken when pressed); the same face again, or none, frees it
+  (decided on 2026-11-11, after OpenCutList's smart draw tool).
 - **Lines**: through the tool's start point, the context's axes and, for the straight edge
   hovered last, parallel and perpendicular (in the tool's plane). A line almost aligned with
   the view direction is ignored (it is only a point on screen). If it pierces the face under
@@ -420,8 +430,41 @@ Decided on 2026-11-09.
 - **Visual feedback**: guide lines (axis colour) through the existing overlay; markers coloured
   by kind and a tooltip ("Endpoint", "Midpoint", "On red axis"…: §6 quater) painted by egui over
   the viewport (`camera.project`): `render` does not change.
-- **Drawing plane**: Box and Cylinder are drawn in the plane of the face hovered at the first
-  click (height along its normal), like SketchUp; otherwise on the context's ground.
+- **Drawing plane** (revised on 2026-11-11, after OpenCutList's `SmartDrawShapeActionHandler`;
+  the rules in `tools/shapes.rs`): the first click takes the plane of the face hovered (on an
+  edge, the face it bounds, else the ground or the upright plane through the edge), otherwise
+  the context's ground; a straight edge askew to the axes there turns the base's sides along
+  it. The box's second corner sets the plane again: an axis plane through the first corner it
+  lies in, the plane through an edge aimed at and the first corner, the plane of a face the
+  first corner lies on, else the upright plane through both corners. The cylinder keeps the
+  plane of its centre. The height runs along the normal, towards the eye. Esc goes back one
+  step. Before the first click a small shape at the cursor shows the plane, the lines take the
+  colour of its normal's axis (magenta for another locked one) and the sides being drawn get
+  their lengths written (`Preview::labels`, painted by egui like the tooltip, last, above
+  everything). A length is written at the middle of its side; when that covers the cursor, a
+  marker, the inference tooltip, a cross (`Preview::marks`, a centre or a start, drawn by the app as a flat `+`) or a length placed before, it
+  slides along its side, then off it on either side (the first spot free, else the middle).
+  The box's opposite corner snaps to the square's within 10 px (not on a feature, nor on a
+  plane seen edge on), its diagonal then drawn; its saved option "Centred" (the bar, or a tap
+  of the copy modifier, through `Command::SetOption`) takes the first click as the centre of
+  the base, typed lengths being the whole ones.
+  The cylinder's radius snaps likewise to the red, green or blue axis through the centre, and
+  is dashed in that axis's colour when along it. Its saved option "Measure" (Radius or
+  Diameter, Tab to turn it over) sets the length shown and typed for the base; the diameter
+  is drawn across, through the centre.
+  The first point (decided on 2026-11-11): the copy modifier held over a face takes its centroid
+  and, with Shift tapped, the whole face as the base (OpenCutList does this for its polygon
+  only; here the box takes the rectangle around the face along its longest side, the cylinder
+  a disc's circle); the other modifier tapped (Command on macOS, Alt elsewhere) measures it
+  from a corner, typed as `d` (along an edge) or `d1;d2` (across a face). The height: Shift
+  held, or a double-click on the opposite corner, takes the last height again (kept by the
+  editor across tools); the copy modifier held runs it to the first face along the normal from
+  the middle of the base; tapped, it centres the height ("Centred height", saved). The app
+  tells a modifier tapped alone (`Key::Copy`, `Key::Shift`, `Key::Alt`) when nothing else, nor
+  another modifier pressed, came in between, and tells the copy modifier held every frame
+  (`Editor::set_copy`), as Shift (`Editor::set_shift`).
+  What a shape tool makes is not selected (decided on 2026-11-11), nor what a boolean makes:
+  the selection stays as it was and the next shape follows at once.
   `Operation::AddPrimitive` takes a rigid frame for that (`placement: DAffine3`, identity by
   default in serde to read existing files back); the primitive is built axis-aligned then
   transformed.
@@ -696,7 +739,8 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
 
 ### Palette and materials
 
-- **Model**: `Document.materials: Id → Material { name, color }` (sRGB);
+- **Model**: `Document.materials: Id → Material { name, color }` (sRGB; later a `type`, the
+  part's nature for the cut list, §2.1);
   `Occurrence.material: Option<Id>` (the copy's material, as in OpenCutList; an assembly's
   occurrence paints the parts below it that have none); `Part.faces: BTreeMap<u32, Id>`, the
   material of single **faces** of the part's final B-rep (so of all its occurrences).

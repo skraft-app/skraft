@@ -47,10 +47,9 @@ pub struct SolidSketchApp {
     theme: Theme,
     /// The palette egui's styles were installed for (`None`: not yet).
     styled: Option<UiPalette>,
-    /// The copy modifier is down, and nothing else happened since it went down: released, it
-    /// is a tap, which toggles copying (SketchUp).
-    copy_down: bool,
-    copy_tap: bool,
+    /// The copy modifier, Shift and the other modifier (Command on macOS, Alt elsewhere), each
+    /// followed to tell a tap of it alone ([`Tap`]).
+    taps: [Tap; 3],
     /// Shows the Débogage menu ([`debug_menu_wanted`]).
     debug_menu: bool,
     #[cfg(not(target_arch = "wasm32"))]
@@ -180,8 +179,7 @@ impl SolidSketchApp {
             palette: None,
             theme: Theme::light(),
             styled: None,
-            copy_down: false,
-            copy_tap: false,
+            taps: Default::default(),
             debug_menu: debug_menu_wanted(),
             #[cfg(not(target_arch = "wasm32"))]
             control,
@@ -407,28 +405,29 @@ impl SolidSketchApp {
         }
     }
 
-    /// A tap of the copy modifier alone (Option on macOS, Ctrl elsewhere) toggles the tool's
-    /// copying. Toggling on release, and only if no key, click or scroll came in between,
-    /// leaves Ctrl+Z and the like alone.
-    fn copy_modifier(&mut self, ctx: &egui::Context) {
-        let (mods, other) = ctx.input(|i| (i.modifiers, i.events.iter().any(interrupts_tap)));
-        let down = viewport::modifiers(ctx, mods).copy;
-        if down && (!self.copy_down || other) {
-            self.copy_tap = !other;
+    /// A modifier tapped alone goes to the tool: the copy modifier (Option on macOS, Ctrl
+    /// elsewhere) toggles copying (SketchUp; the box: its base centred, or its height), Shift
+    /// (with the copy modifier held, a shape tool takes the whole face) and the other modifier
+    /// (Command on macOS, Alt elsewhere: a shape tool measures from a corner). Told on release,
+    /// and only if no key, click or scroll, nor another modifier pressed, came in between: Ctrl+Z
+    /// and the like are left alone, and so is the copy modifier held while Shift is tapped.
+    fn modifier_taps(&mut self, ctx: &egui::Context) {
+        let (mods, events) = ctx.input(|i| (i.modifiers, i.events.iter().any(interrupts_tap)));
+        let other_key = if ctx.os() == egui::os::OperatingSystem::Mac { mods.mac_cmd } else { mods.alt };
+        let down = [viewport::modifiers(ctx, mods).copy, mods.shift, other_key];
+        let pressed: Vec<bool> = down.iter().zip(&self.taps).map(|(d, t)| *d && !t.down).collect();
+        for (k, key) in [Key::Copy, Key::Shift, Key::Alt].into_iter().enumerate() {
+            let other = events || pressed.iter().enumerate().any(|(j, p)| j != k && *p);
+            if self.taps[k].feed(down[k], other) && !ctx.egui_wants_keyboard_input() {
+                self.editor.input(ToolInput::Key { key, mods: Default::default() });
+            }
         }
-        if !down && self.copy_down && self.copy_tap && !ctx.egui_wants_keyboard_input() {
-            self.editor.input(ToolInput::Key { key: Key::Copy, mods: Default::default() });
-        }
-        if !down {
-            self.copy_tap = false;
-        }
-        self.copy_down = down;
     }
 
     /// Keyboard: the tool's keys, the measurements box fed from anywhere (SketchUp), then the
     /// commands' shortcuts.
     fn keyboard(&mut self, ctx: &egui::Context) {
-        self.copy_modifier(ctx);
+        self.modifier_taps(ctx);
         if ctx.egui_wants_keyboard_input() || self.capturing.is_some() || self.palette.is_some() {
             return;
         }
@@ -937,6 +936,10 @@ impl eframe::App for SolidSketchApp {
                     egui::ScrollArea::horizontal().max_width(room).min_scrolled_width(room).show(ui, |ui| {
                         ui.horizontal(|ui| panels::toolbar(ui, &views, &mut actions));
                     });
+                    // No option, no bar.
+                    if !panels::has_tool_options(&self.editor) {
+                        return;
+                    }
                     ui.separator();
                     // Centered under the buttons: egui lays a row out from the left, so the
                     // row is shifted by half the room it left last frame.
@@ -1077,6 +1080,30 @@ fn navigation_settings(ui: &mut egui::Ui, nav: &mut Navigation) {
 
 /// Does `e` make a held copy modifier something else than a tap (a shortcut, a click, a
 /// scroll)? The modifier keys themselves come as key events too: they do not.
+/// A modifier followed to tell a tap of it alone: down, then up, with nothing else in between.
+#[derive(Clone, Copy, Debug, Default)]
+struct Tap {
+    down: bool,
+    /// Down, and nothing else happened since it went down.
+    tap: bool,
+}
+
+impl Tap {
+    /// This frame: the modifier down or not, and whether something `other` happened; true on
+    /// the release that ends a tap.
+    fn feed(&mut self, down: bool, other: bool) -> bool {
+        if down && (!self.down || other) {
+            self.tap = !other;
+        }
+        let tapped = !down && self.down && self.tap;
+        if !down {
+            self.tap = false;
+        }
+        self.down = down;
+        tapped
+    }
+}
+
 fn interrupts_tap(e: &egui::Event) -> bool {
     use egui::Key as K;
     let modifier = |k: &K| {
@@ -1108,6 +1135,16 @@ mod tests {
         assert!(!interrupts_tap(&key(egui::Key::AltLeft)));
         assert!(!interrupts_tap(&key(egui::Key::ControlRight)));
         assert!(interrupts_tap(&key(egui::Key::Z)));
+    }
+
+    #[test]
+    fn a_tap_is_a_press_and_a_release_with_nothing_between() {
+        let mut t = Tap::default();
+        assert!(!t.feed(true, false) && t.feed(false, false));
+        // Something else while it is down: no tap.
+        assert!(!t.feed(true, false) && !t.feed(true, true) && !t.feed(false, false));
+        // Held, then released later, still nothing else: a tap.
+        assert!(!t.feed(true, false) && !t.feed(true, false) && t.feed(false, false));
     }
 
     #[test]

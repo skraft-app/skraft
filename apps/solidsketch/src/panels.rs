@@ -69,9 +69,14 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView) -> bool {
     ui.add_enabled(v.enabled, button).on_hover_text(v.id).clicked()
 }
 
-/// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its name, then its options —
-/// a choice as a row of buttons, a toggle as one. An open part puts its "Machinings" switch
-/// first (§2.9).
+/// Whether the option bar has anything to show: the active tool's options, or an open part's
+/// switches.
+pub fn has_tool_options(editor: &Editor) -> bool {
+    editor.open_part().is_some() || !editor.tool_options().is_empty()
+}
+
+/// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its options — a choice as a
+/// row of buttons, a toggle as one. An open part puts its "Machinings" switch first (§2.9).
 pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         if editor.open_part().is_some() {
@@ -94,11 +99,11 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                     actions.push(Action::PartScope(s));
                 }
             }
-            ui.separator();
         }
-        ui.strong(editor.tool_kind().label());
-        for o in editor.tool_options() {
-            ui.separator();
+        for (i, o) in editor.tool_options().into_iter().enumerate() {
+            if i > 0 || editor.open_part().is_some() {
+                ui.separator();
+            }
             match &o.value {
                 OptionValue::Choice(current) => {
                     ui.label(t!("option_bar.choice", option = o.label)).on_hover_text(&o.tip);
@@ -220,15 +225,18 @@ fn tree(ui: &mut egui::Ui, editor: &Editor, doc: &Document, assembly: Id, path: 
     let tint = ui.visuals().text_color();
     for o in &a.occurrences {
         let selected = editor.context() == path.as_slice() && (editor.selection().contains(&o.id) || editor.open_part() == Some(o.id));
-        let row = |ui: &mut egui::Ui| {
+        // A leaf reserves the toggle button's width (egui gives it the full indent) so all the
+        // icons of a level line up, one indent to the right of their parent's icon.
+        let row = |ui: &mut egui::Ui, lead: f32| {
             ui.horizontal(|ui| {
+                ui.add_space(lead);
                 ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
                 ui.selectable_label(selected, occurrence_label(doc, o))
             })
             .inner
         };
         if doc.assembly(o.component).is_err() {
-            if row(ui).clicked() {
+            if row(ui, ui.spacing().indent).clicked() {
                 actions.push(Action::SelectPath(EntityPath::new(path.clone(), o.id)));
             }
             continue;
@@ -240,7 +248,7 @@ fn tree(ui: &mut egui::Ui, editor: &Editor, doc: &Document, assembly: Id, path: 
         if in_context {
             state.set_open(true);
         }
-        let (_, header, _) = state.show_header(ui, |ui| row(ui)).body(|ui| {
+        let (_, header, _) = state.show_header(ui, |ui| row(ui, 0.0)).body(|ui| {
             path.push(o.id);
             tree(ui, editor, doc, o.component, path, actions, depth + 1);
             path.pop();
