@@ -329,7 +329,7 @@ impl Mesh {
     }
 }
 
-fn kernel() -> Kernel {
+pub(crate) fn kernel() -> Kernel {
     Kernel::new(&KernelOptions::default())
 }
 
@@ -351,7 +351,7 @@ fn to_kernel(k: &mut Kernel, r: &Record, call: &str) -> Result<solidcore::Brep> 
     solidcore_convert::brep::to_kernel_body(k, r, true).map_err(|e| Error::Convert { call: call.into(), message: e.to_string() })
 }
 
-fn to_record(k: &mut Kernel, b: &mut solidcore::Brep, call: &str) -> Result<Solid> {
+pub(crate) fn to_record(k: &mut Kernel, b: &mut solidcore::Brep, call: &str) -> Result<Solid> {
     solidcore_convert::brep::to_record(k, b)
         .map(|(mut record, _order)| {
             square_frames(&mut record);
@@ -417,7 +417,7 @@ fn create(call: &'static str, f: impl FnOnce(&mut Kernel) -> solidcore::Result<s
 }
 
 /// Runs `f`, turning a kernel panic into an error where unwinding is available.
-fn guarded<T>(call: &str, f: impl FnOnce() -> Result<T>) -> Result<T> {
+pub(crate) fn guarded<T>(call: &str, f: impl FnOnce() -> Result<T>) -> Result<T> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(r) => r,
         Err(p) => {

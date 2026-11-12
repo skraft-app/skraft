@@ -1,0 +1,14 @@
+[package]
+name = "solidsketch-import"
+description = "SolidSketch: converts a SketchUp export (scripts/sketchup/export.rb) to a .solidsketch file"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "solidsketch-import"
+path = "src/main.rs"
+
+[dependencies]
+solidsketch-model.workspace = true
+solidsketch-kernel = { workspace = true, features = ["engine"] }

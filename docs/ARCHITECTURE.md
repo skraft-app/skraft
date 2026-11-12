@@ -1390,6 +1390,44 @@ new version and older files are not read — no converter, no reference files. V
 backward compatibility start with the first release. (Files written before by versions 2 and
 3, and the first model's converter, were dropped then.)
 
+## 8 bis. SketchUp import
+
+Decided and built on 2026-11-12, to compare loading and display with SketchUp on real models.
+Formats weighed: STEP keeps exact geometry (SolidCore reads it, but does not apply assembly
+instancing), mesh formats (OBJ, STL, glTF) lose faces or structure; SketchUp itself keeps the
+structure one to one, which a performance comparison needs.
+
+- **Export inside SketchUp**: `scripts/sketchup/export.rb` (run in the Ruby console or through
+  the Claude Bridge) writes JSON `solidsketch-sketchup-export` v1: per definition its visible
+  faces (shared vertices in mm, loops by index, outer first, normal) and instances (definition,
+  name, 4×4 transform with its translation in mm, material), the model's own entities as
+  `root`. Hidden entities and hidden tags left out.
+- **Conversion** (`Document::from_sketchup`, `crates/model/src/import.rs`): a definition's faces
+  make a part, its instances an assembly; both: an assembly whose first occurrence is the part
+  of its faces (« Name (faces) »). An instance's transformation is split into the rigid T of its
+  occurrence and a scale (or shear) **baked into the geometry**, the child definition taken at
+  that scale: one component per (definition, scale), §2.2. `no_scale_mask` becomes the
+  behavior's `no_stretch` (same bits, §6 sexies); groups' definitions are not `named`.
+- **Solids** (`Solid::from_polyhedron`, `crates/kernel/src/polyhedron.rs`): the faces become a
+  STEP neutral body (a plane per face, a line per edge shared by its two faces, one shell per
+  set of joined faces) built by SolidCore's `step-brep` **from its topology only**
+  (`build_from_topology`). Loops are turned to agree with the normals, then the faces of each
+  lump turned alike across their edges (SketchUp keeps reversed faces in solids), the lump
+  turned inside out if its volume is negative. **Only closed solids are kept**, checked
+  before the kernel by counting (each edge between exactly two faces): a definition open,
+  non-manifold or with a face the builder leaves out is excluded and reported (its instances
+  dropped). Measured on 2026-11-12 (a 1373-definition apartment, 52 k faces): letting
+  `build_body` fall back to stitching by geometry on the open ones took 100 s (up to 60 s for
+  one definition of 2668 faces); the count rejects them at once, 1 s for the whole. Built in
+  parallel, one request per (definition, scale).
+- **Curves stay facets**: a hole of 24 segments is 24 planar faces, as SketchUp draws it (a
+  comparison at equal geometry). Recognising `ArcCurve`s and smooth faces to rebuild exact
+  cylinders may come later.
+- **Not carried**: face materials, tags, hidden geometry, attributes (OCL's included).
+- **Entry point**: `solidsketch-import export.json [out.solidsketch]` (`apps/import`), which
+  prints counts and timings; the file then opens in the app like any other. An import from the
+  app's menu may come later.
+
 ## 9. Toolchain and dependencies
 
 - Rust **1.97.1** pinned by `rust-toolchain.toml` (the SolidCore crates ask for ≥ 1.88), with

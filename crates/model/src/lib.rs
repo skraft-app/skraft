@@ -6,6 +6,7 @@ mod document;
 pub mod expr;
 mod file;
 mod history;
+mod import;
 pub mod measure;
 mod ops;
 mod settings;
@@ -20,6 +21,7 @@ pub use document::{
 };
 pub use file::{FORMAT, VERSION};
 pub use history::History;
+pub use import::{ImportReport, SKETCHUP_FORMAT, SKETCHUP_VERSION};
 pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope};
 pub use settings::{Display, LengthUnit, Section, Settings, Units};
 use solidsketch_i18n::t;

@@ -607,6 +607,9 @@ default_name:
   material: "$t(common.material) %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"
+  # An imported SketchUp definition holding both faces and components: its faces make
+  # this part, placed in the assembly that takes the definition's name.
+  loose_faces: "%{name} (faces)"
 
 error:
   # A typed value that cannot be read (the measurements box, the entity info).
