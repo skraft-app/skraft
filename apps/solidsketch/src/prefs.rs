@@ -15,6 +15,8 @@ use solidsketch_model::Settings;
 use solidsketch_theme::{Choice, Palette};
 use solidsketch_tools::OptionValues;
 
+use crate::commands::RECENT_FILES;
+
 /// The version this build writes.
 pub const VERSION: u32 = 1;
 
@@ -41,6 +43,9 @@ pub struct Preferences {
     pub show_machinings: bool,
     /// The render statistics overlay, in a corner of the view.
     pub show_render_stats: bool,
+    /// The last files opened or saved, the latest first (desktop: the browser gives no path to
+    /// open again).
+    pub recent_files: Vec<String>,
 }
 
 impl Default for Preferences {
@@ -57,6 +62,7 @@ impl Default for Preferences {
             show_materials: true,
             show_machinings: false,
             show_render_stats: false,
+            recent_files: Vec::new(),
         }
     }
 }
@@ -106,6 +112,14 @@ impl Preferences {
             },
             Err(e) => (Preferences::default(), Some(t!("error.preferences.unreadable", error = e))),
         }
+    }
+
+    /// Puts `path` first in the recent files, keeping the last [`RECENT_FILES`].
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub fn add_recent_file(&mut self, path: &str) {
+        self.recent_files.retain(|p| p != path);
+        self.recent_files.insert(0, path.to_owned());
+        self.recent_files.truncate(RECENT_FILES);
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -177,5 +191,14 @@ mod tests {
         assert_eq!(p.new_model, Settings::default());
         let back: Preferences = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         assert_eq!(back, p);
+    }
+
+    #[test]
+    fn recent_files_keep_the_last_ones_without_duplicates() {
+        let mut p = Preferences::default();
+        for f in ["a", "b", "c", "d", "e", "c"] {
+            p.add_recent_file(f);
+        }
+        assert_eq!(p.recent_files, ["c", "e", "d", "b"]);
     }
 }

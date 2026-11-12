@@ -251,6 +251,7 @@ impl SolidSketchApp {
             "view.section" | "view.section_clear" => section,
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "debug.crash_kernel" => self.debug_menu,
+            _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
             _ => commands::find(id).is_some(),
         }
     }
@@ -278,6 +279,7 @@ impl SolidSketchApp {
         match c.id {
             "edit.undo" => h.undo_op().map_or_else(|| (c.label)(), |o| t!("menu.edit.undo_op", op = o.label())),
             "edit.redo" => h.redo_op().map_or_else(|| (c.label)(), |o| t!("menu.edit.redo_op", op = o.label())),
+            id if let Some(f) = commands::recent_slot(id).and_then(|k| self.prefs.recent_files.get(k)) => file_name(f).to_owned(),
             _ => (c.label)(),
         }
     }
@@ -291,6 +293,8 @@ impl SolidSketchApp {
         let mac = self.mac();
         COMMANDS
             .iter()
+            // An empty recent file slot is not shown.
+            .filter(|c| commands::recent_slot(c.id).is_none_or(|k| k < self.prefs.recent_files.len()))
             .map(|c| CommandView {
                 id: c.id,
                 label: self.label(c),
@@ -319,6 +323,9 @@ impl SolidSketchApp {
         if let Some(v) = view_of(id) {
             self.editor.standard_view(v);
             return Ok(());
+        }
+        if let Some(k) = commands::recent_slot(id) {
+            return self.open_recent(k);
         }
         let mut s = self.editor.document().settings().clone();
         let e = &mut self.editor;
@@ -389,6 +396,12 @@ impl SolidSketchApp {
             Action::PartScope(s) => e.set_part_scope(s),
             Action::SelectMachinings(ids) => e.select(ids),
             Action::HoverMachining(m) => e.set_listed_hover(m),
+            // The view is drawn before the panels: again, for the hover to show this frame.
+            Action::HoverOutliner(p) => {
+                if e.set_outliner_hover(p) {
+                    self.ctx.request_repaint();
+                }
+            }
             Action::ToggleMachinings => {
                 self.prefs.show_machinings = !self.prefs.show_machinings;
                 e.set_machinings_switch(self.prefs.show_machinings);
@@ -407,6 +420,29 @@ impl SolidSketchApp {
         self.editor.open(Document::with_settings(self.prefs.new_model.clone()));
         self.path = None;
         self.saved_at = 0;
+    }
+
+    /// Opens the recent file `k`; one that cannot be read leaves the list.
+    fn open_recent(&mut self, k: usize) -> Result<(), String> {
+        let Some(path) = self.prefs.recent_files.get(k).cloned() else {
+            return Err(t!("status.command_unavailable", id = format!("file.recent.{}", k + 1)));
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Err(e) = file::open_path(&path, &self.inbox) {
+            self.prefs.recent_files.retain(|p| *p != path);
+            return Err(t!("status.open_failed", file = file_name(&path), error = e));
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = path;
+        Ok(())
+    }
+
+    /// Remembers `path` in the recent files (desktop: the browser gives only a name).
+    fn add_recent_file(&mut self, path: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.prefs.add_recent_file(path);
+        #[cfg(target_arch = "wasm32")]
+        let _ = path;
     }
 
     fn save(&mut self, ask: bool) {
@@ -853,12 +889,14 @@ impl eframe::App for SolidSketchApp {
                 file::Outcome::Opened { name, text } => match Document::from_json(&text) {
                     Ok(doc) => {
                         self.editor.open(doc);
+                        self.add_recent_file(&name);
                         self.path = Some(name);
                         self.saved_at = 0;
                     }
                     Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
                 },
                 file::Outcome::Saved { path, revision } => {
+                    self.add_recent_file(&path);
                     self.path = Some(path);
                     self.saved_at = revision;
                     self.message = Some(t!("status.saved"));
@@ -876,7 +914,7 @@ impl eframe::App for SolidSketchApp {
         self.serve_control(frame);
 
         let name =
-            self.path.as_deref().and_then(|p| p.rsplit(['/', '\\']).next()).map(str::to_owned).unwrap_or_else(|| t!("window.untitled"));
+            self.path.as_deref().map(file_name).map(str::to_owned).unwrap_or_else(|| t!("window.untitled"));
         let modified = self.modified();
         // Still the window's title where the OS shows it (Window menu, Mission Control).
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("SolidSketch — {name}{}", if modified { " •" } else { "" })));
@@ -934,17 +972,21 @@ impl eframe::App for SolidSketchApp {
                         );
                     }
                     ui.separator();
-                    egui::CollapsingHeader::new(title(t!("panel.outliner.title"))).id_salt("outliner_header").default_open(true).show(
-                        ui,
-                        |ui| {
+                    let outliner = egui::CollapsingHeader::new(title(t!("panel.outliner.title")))
+                        .id_salt("outliner_header")
+                        .default_open(true)
+                        .show(ui, |ui| {
                             // Grows with its content down to the bottom of the view, then scrolls.
                             // An `Area` only offers last frame's size as available room, so the
                             // height is forced (`min_scrolled_height`) and auto-shrink trims it.
                             let room = (view.bottom() - margin - 12.0 - ui.cursor().top()).max(80.0);
                             let area = egui::ScrollArea::vertical().id_salt("outliner").max_height(room).min_scrolled_height(room);
                             panels::outliner(ui, &self.editor, &mut actions, area);
-                        },
-                    );
+                        });
+                    // Folded: nothing hovered in it any more.
+                    if outliner.body_returned.is_none() {
+                        actions.push(Action::HoverOutliner(None));
+                    }
                 });
             })
             .response
@@ -1147,6 +1189,28 @@ fn interrupts_tap(e: &egui::Event) -> bool {
     }
 }
 
+/// The name of the file at `path`, without its folders.
+fn file_name(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+/// A row centered in `ui`: egui lays a row out from the left, so it is shifted by half the room
+/// it leaves, from its width as last measured (kept under `width_id`). A new width discards
+/// the pass: the next one, laid out with it, is the one shown.
+fn centered_row(ui: &mut egui::Ui, width_id: egui::Id, add_contents: impl FnOnce(&mut egui::Ui)) {
+    let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
+    ui.horizontal(|ui| {
+        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+        let used = ui.scope(add_contents).response.rect.width();
+        if used != width {
+            ui.data_mut(|d| d.insert_temp(width_id, used));
+            // Past egui's passes for this frame, the discard is refused: the next frame then.
+            ui.ctx().request_discard("tool bar row resized");
+            ui.ctx().request_repaint();
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1186,21 +1250,4 @@ mod tests {
             assert!(view_of(id).is_some(), "{id}");
         }
     }
-}
-
-/// A row centered in `ui`: egui lays a row out from the left, so it is shifted by half the room
-/// it leaves, from its width as last measured (kept under `width_id`). A new width discards
-/// the pass: the next one, laid out with it, is the one shown.
-fn centered_row(ui: &mut egui::Ui, width_id: egui::Id, add_contents: impl FnOnce(&mut egui::Ui)) {
-    let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
-    ui.horizontal(|ui| {
-        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-        let used = ui.scope(add_contents).response.rect.width();
-        if used != width {
-            ui.data_mut(|d| d.insert_temp(width_id, used));
-            // Past egui's passes for this frame, the discard is refused: the next frame then.
-            ui.ctx().request_discard("tool bar row resized");
-            ui.ctx().request_repaint();
-        }
-    });
 }

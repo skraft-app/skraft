@@ -311,8 +311,12 @@ impl Document {
                 .values()
                 .filter_map(|x| {
                     let a = x.as_assembly()?;
-                    let ids: Vec<Id> =
-                        a.occurrences().iter().filter(|o| o.component == *c && !walk.walked.contains(&(x.id, o.id))).map(|o| o.id).collect();
+                    let ids: Vec<Id> = a
+                        .occurrences()
+                        .iter()
+                        .filter(|o| o.component == *c && !walk.walked.contains(&(x.id, o.id)))
+                        .map(|o| o.id)
+                        .collect();
                     (!ids.is_empty()).then_some((x.id, ids))
                 })
                 .collect();

@@ -32,13 +32,17 @@ pub struct NativeMenu {
     _bar: Bar,
     items: Vec<(&'static str, Item)>,
     events: Receiver<MenuEvent>,
-    /// What the bar was built for: the language, the shortcuts, the debug menu.
+    /// What the bar was built for: the language, the shortcuts, the debug menu, the recent files.
     built_for: String,
 }
 
 /// What a bar is built for: it is built again when this changes.
-fn signature(keymap: &Keymap, debug: bool) -> String {
+fn signature(views: &[CommandView], keymap: &Keymap, debug: bool) -> String {
     let mut s = format!("{}|{debug}", solidsketch_i18n::locale());
+    // The recent files come and go with their slots.
+    for v in views.iter().filter(|v| commands::recent_slot(v.id).is_some()) {
+        s.push_str(&format!("|{}={}", v.id, v.label));
+    }
     for c in COMMANDS {
         if let Some(k) = keymap.get(c.id) {
             s.push_str(&format!("|{}={}", c.id, k.text()));
@@ -126,13 +130,13 @@ impl NativeMenu {
             ctx.request_repaint();
         }));
         let (bar, items) = build(views, keymap, debug).map_err(|e| e.to_string())?;
-        Ok(NativeMenu { _bar: bar, items, events, built_for: signature(keymap, debug) })
+        Ok(NativeMenu { _bar: bar, items, events, built_for: signature(views, keymap, debug) })
     }
 
     /// The commands chosen since the last call; the bar follows `views` (and is built again
     /// for new texts or shortcuts).
     pub fn update(&mut self, views: &[CommandView], keymap: &Keymap, debug: bool) -> Vec<&'static str> {
-        let sig = signature(keymap, debug);
+        let sig = signature(views, keymap, debug);
         if sig != self.built_for {
             match build(views, keymap, debug) {
                 // The new bar is installed before the old one goes.

@@ -15,6 +15,8 @@ use crate::tools::{self, Marquee, PreviewFill, PreviewLine};
 pub enum Mark {
     Selected,
     Hover,
+    /// Hovered (in the outliner) outside the context being edited: hovered, still faded.
+    HoverFaded,
     /// Picked by a tool (the boolean's target).
     Picked,
     /// The selection where the move tool would put it.
@@ -220,7 +222,13 @@ impl Editor {
             let at = self.open_part_path().and_then(|o| doc.resolve_part(&o).ok()).map(|(_, _, t)| t);
             for id in &self.selection {
                 if let (Some(t), Some(tool)) = (at, r.tools.iter().find(|tool| tool.machining == *id)) {
-                    marks.push(ViewHighlight { definition: tool.key, solid: tool.key, transform: t * tool.placement, mark: Mark::Selected, material: None });
+                    marks.push(ViewHighlight {
+                        definition: tool.key,
+                        solid: tool.key,
+                        transform: t * tool.placement,
+                        mark: Mark::Selected,
+                        material: None,
+                    });
                 }
             }
         }
@@ -427,6 +435,34 @@ impl Editor {
         let listed = self.listed_hover.filter(|_| recipe.is_some());
         if let Some(h) = listed.or(preview.hover).filter(|h| !selected.contains(h)) {
             mark(&mut v.highlights, &self.context, h, Mark::Hover, DAffine3::IDENTITY);
+        }
+        // The occurrence hovered in the outliner, in any context, as if hovered in the view —
+        // unless selected or open (already marked so) —, still faded outside the active path.
+        if let Some(p) = &self.outliner_hover
+            && open.as_ref() != Some(p)
+            && !(p.instances == self.context && selected.contains(&p.entity))
+            && let Some(index) = ContextIndex::new(doc, &p.instances)
+        {
+            let hovered: Vec<Id> = p.instances.iter().copied().chain([p.entity]).collect();
+            // An assembly holding the active path: only the solids under it are not faded.
+            let inside = match active.split_last() {
+                Some((last, above)) if !hovered.starts_with(&active) && active.starts_with(&hovered) => {
+                    ContextIndex::new(doc, above).map(|i| i.solids_under(*last))
+                }
+                _ => None,
+            };
+            let all_inside = hovered.starts_with(&active);
+            for u in index.solids_under(p.entity) {
+                let faded = !all_inside
+                    && inside.as_ref().is_none_or(|i| !i.iter().any(|w| w.part == u.part && w.transform.abs_diff_eq(u.transform, 1e-9)));
+                v.highlights.push(ViewHighlight {
+                    definition: u.part,
+                    solid: u.part,
+                    transform: u.transform,
+                    mark: if faded { Mark::HoverFaded } else { Mark::Hover },
+                    material: u.material,
+                });
+            }
         }
         // What the selection rectangle would take, as if hovered.
         for h in preview.marquee.iter().flat_map(|m| &m.hits).filter(|h| !selected.contains(h)) {

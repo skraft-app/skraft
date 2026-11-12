@@ -182,7 +182,8 @@ pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> 
 fn screen_box(proj: &Projector, (lo, hi): &(DVec3, DVec3)) -> Option<(DVec2, DVec2)> {
     let mut out: Option<(DVec2, DVec2)> = None;
     for i in 0..8 {
-        let c = DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z });
+        let c =
+            DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z });
         let s = proj.project(c)?;
         out = Some(out.map_or((s, s), |(a, b)| (a.min(s), b.max(s))));
     }
@@ -295,9 +296,13 @@ mod tests {
             }
         }
         let (d, inner) = doc.apply(&Operation::MakeAssembly { context: root, entities: vec![made[0], made[55]], name: None }).unwrap();
-        let (d, outer) = d.apply(&Operation::MakeAssembly { context: root, entities: vec![inner.created[0], made[9], made[90]], name: None }).unwrap();
+        let (d, outer) =
+            d.apply(&Operation::MakeAssembly { context: root, entities: vec![inner.created[0], made[9], made[90]], name: None }).unwrap();
         let outer = outer.created[0];
-        doc = d.apply(&Operation::Duplicate { context: root, entities: vec![outer], transform: DAffine3::from_translation(DVec3::Z * 150.0) }).unwrap().0;
+        doc = d
+            .apply(&Operation::Duplicate { context: root, entities: vec![outer], transform: DAffine3::from_translation(DVec3::Z * 150.0) })
+            .unwrap()
+            .0;
         let mut e = Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()));
         e.set_viewport_size(DVec2::new(800.0, 600.0));
         let scene = (DVec3::ZERO, DVec3::new(900.0, 900.0, 250.0));

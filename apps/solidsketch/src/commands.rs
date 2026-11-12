@@ -69,6 +69,11 @@ pub const COMMANDS: &[Command] = &[
     c("file.import", || ellipsis(t!("menu.file.import")), M::File, Some("Cmd+I")),
     c("file.save", || t!("menu.file.save"), M::File, Some("Cmd+S")),
     c("file.save_as", || ellipsis(t!("menu.file.save_as")), M::File, Some("Cmd+Shift+S")),
+    // The last files opened or saved ([`recent_slot`]): hidden while their slot is empty.
+    g("file.recent.1", || t!("menu.file.recent", n = 1), M::File, None),
+    c("file.recent.2", || t!("menu.file.recent", n = 2), M::File, None),
+    c("file.recent.3", || t!("menu.file.recent", n = 3), M::File, None),
+    c("file.recent.4", || t!("menu.file.recent", n = 4), M::File, None),
     c("edit.undo", || t!("menu.edit.undo"), M::Edit, Some("Cmd+Z")),
     c("edit.redo", || t!("menu.edit.redo"), M::Edit, Some("Cmd+Shift+Z")),
     g("edit.select_all", || t!("menu.edit.select_all"), M::Edit, Some("Cmd+A")),
@@ -110,6 +115,15 @@ pub const COMMANDS: &[Command] = &[
     c("tool.stretch", || t!("tool.stretch.name"), M::Solids, Some("S")),
     c("debug.crash_kernel", || t!("menu.debug.crash_kernel"), M::Debug, None),
 ];
+
+/// How many recent files the File menu keeps (`file.recent.1` to `file.recent.4`).
+pub const RECENT_FILES: usize = 4;
+
+/// The index in the recent files of a `file.recent.N` command.
+pub fn recent_slot(id: &str) -> Option<usize> {
+    let n: usize = id.strip_prefix("file.recent.")?.parse().ok()?;
+    (1..=RECENT_FILES).contains(&n).then(|| n - 1)
+}
 
 pub fn find(id: &str) -> Option<&'static Command> {
     COMMANDS.iter().find(|c| c.id == id)
@@ -269,6 +283,18 @@ mod tests {
                 assert!(keymap.conflicts(c.id, s).is_empty(), "{} shares {}", c.id, s.text());
             }
         }
+    }
+
+    #[test]
+    fn every_recent_file_has_its_command() {
+        for k in 0..RECENT_FILES {
+            let id = format!("file.recent.{}", k + 1);
+            assert!(find(&id).is_some(), "{id}");
+            assert_eq!(recent_slot(&id), Some(k));
+        }
+        assert_eq!(recent_slot("file.recent.0"), None);
+        assert_eq!(recent_slot(&format!("file.recent.{}", RECENT_FILES + 1)), None);
+        assert_eq!(recent_slot("file.open"), None);
     }
 
     #[test]

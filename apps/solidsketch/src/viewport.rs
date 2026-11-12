@@ -57,6 +57,17 @@ fn faded(c: Rgba, background: [f32; 3], fade: f32) -> Rgba {
     [mix(0), mix(1), mix(2), c[3]]
 }
 
+/// One tint `a` then another `b`, as one: mixing `rgb` by `a` (what a tint does) twice is one
+/// mix, by `1 - (1 - a.a)(1 - b.a)` towards their weighted `rgb`.
+fn then_fade(a: render::Tint, b: render::Tint) -> render::Tint {
+    let k = 1.0 - (1.0 - a[3]) * (1.0 - b[3]);
+    if k <= 0.0 {
+        return render::NO_TINT;
+    }
+    let mix = |i: usize| (a[i] * a[3] * (1.0 - b[3]) + b[i] * b[3]) / k;
+    [mix(0), mix(1), mix(2), k]
+}
+
 /// What the copy modifier is on this platform (SketchUp: Option on macOS, Ctrl elsewhere).
 pub fn modifiers(ctx: &egui::Context, m: egui::Modifiers) -> Modifiers {
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
@@ -343,6 +354,9 @@ impl Viewport {
                 let colors = match h.mark {
                     Mark::Selected => theme.selected,
                     Mark::Hover => theme.hover,
+                    Mark::HoverFaded => {
+                        solidsketch_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: then_fade(theme.hover.edge, fade) }
+                    }
                     Mark::Picked => theme.picked,
                     Mark::Ghost => theme.ghost,
                     // The other copies a change reaches: the picked target's orange, lighter.
@@ -462,7 +476,7 @@ fn count(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push('\u{202F}');
         }
         out.push(c);

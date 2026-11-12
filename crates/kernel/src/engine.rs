@@ -227,7 +227,6 @@ impl KernelService for Inline {
     }
 }
 
-
 /// `f` over `items`, on every core where threads exist (each with [`crate::KERNEL_STACK`]), in
 /// order; one after the other in the browser.
 pub fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {

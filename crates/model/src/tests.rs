@@ -1532,7 +1532,8 @@ fn placements_are_counted_over_the_distinct_assemblies() {
     let inner = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, c], name: None }).unwrap().created[0];
     h.apply(Operation::Duplicate { context: root, entities: vec![inner], transform: step }).unwrap();
     let outer = h.apply(Operation::MakeAssembly { context: root, entities: vec![inner, b], name: None }).unwrap().created[0];
-    h.apply(Operation::Array { context: root, entities: vec![outer], step: DAffine3::from_translation(DVec3::Z * 50.0), count: 2 }).unwrap();
+    h.apply(Operation::Array { context: root, entities: vec![outer], step: DAffine3::from_translation(DVec3::Z * 50.0), count: 2 })
+        .unwrap();
     let doc = h.document();
     let (mut fast, mut slow) = (std::collections::HashMap::new(), std::collections::HashMap::new());
     doc.count_placed(doc.root(), &mut fast);

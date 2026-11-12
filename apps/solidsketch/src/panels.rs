@@ -28,6 +28,8 @@ pub enum Action {
     SelectMachinings(Vec<Id>),
     /// The machining hovered in the list, if any.
     HoverMachining(Option<Id>),
+    /// The occurrence hovered in the outliner, if any.
+    HoverOutliner(Option<EntityPath>),
 }
 
 /// A command as shown now: its label, whether it can run, its state, its shortcut.
@@ -238,6 +240,7 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
     let tint = ui.visuals().text_color();
     let height = ui.spacing().interact_size.y;
+    let mut over = None;
     area.show_rows(ui, height, rows.len(), |ui, range| {
         ui.set_min_width(ui.available_width());
         for row in rows.drain(range) {
@@ -245,30 +248,34 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
             let selected = editor.context() == row.path.as_slice() && (selection.contains(&o.id) || editor.open_part() == Some(o.id));
             let width = ui.available_width();
             let layout = egui::Layout::left_to_right(egui::Align::Center);
-            let label = ui
-                .allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
-                    // The toggle button (or, for a part, its room) one indent per level, so all
-                    // the icons of a level line up.
-                    let spacing = ui.spacing().item_spacing.x;
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.add_space(ui.spacing().indent * row.path.len() as f32);
-                    match row.fold {
-                        Some(mut fold) => {
-                            fold.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
-                            fold.store(ui.ctx());
-                        }
-                        None => ui.add_space(ui.spacing().indent),
+            let row_ui = ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
+                // The toggle button (or, for a part, its room) one indent per level, so all
+                // the icons of a level line up.
+                let spacing = ui.spacing().item_spacing.x;
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.add_space(ui.spacing().indent * row.path.len() as f32);
+                match row.fold {
+                    Some(mut fold) => {
+                        fold.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                        fold.store(ui.ctx());
                     }
-                    ui.spacing_mut().item_spacing.x = spacing;
-                    ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-                    ui.selectable_label(selected, occurrence_label(doc, o))
-                })
-                .inner;
-            if label.clicked() {
-                actions.push(Action::SelectPath(EntityPath::new(row.path, o.id)));
+                    None => ui.add_space(ui.spacing().indent),
+                }
+                ui.spacing_mut().item_spacing.x = spacing;
+                ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
+                ui.selectable_label(selected, occurrence_label(doc, o))
+            });
+            let path = EntityPath::new(row.path, o.id);
+            // The whole row, its indent and toggle included.
+            if ui.rect_contains_pointer(row_ui.response.rect) {
+                over = Some(path.clone());
+            }
+            if row_ui.inner.clicked() {
+                actions.push(Action::SelectPath(path));
             }
         }
     });
+    actions.push(Action::HoverOutliner(over));
 }
 
 /// The rows of the tree under `assembly`, those of folded assemblies left out.

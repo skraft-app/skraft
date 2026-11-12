@@ -72,7 +72,12 @@ impl Tool for PaintTool {
             tip: t!("tool.paint.option.target_tip"),
             value: OptionValue::Choice(value.into()),
             choices: vec![
-                OptionChoice { value: OCCURRENCE, label: t!("tool.paint.option.occurrence"), tip: t!("tool.paint.option.occurrence_tip"), icon: None },
+                OptionChoice {
+                    value: OCCURRENCE,
+                    label: t!("tool.paint.option.occurrence"),
+                    tip: t!("tool.paint.option.occurrence_tip"),
+                    icon: None,
+                },
                 OptionChoice { value: FACE, label: t!("tool.paint.option.face"), tip: t!("tool.paint.option.face_tip"), icon: None },
             ],
             saved: true,

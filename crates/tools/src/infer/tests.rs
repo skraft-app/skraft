@@ -811,12 +811,10 @@ fn the_meshes_near_the_ray_are_those_a_scan_finds() {
                 v.into_iter().map(|(p, _, piece)| (p.path.clone(), piece)).collect()
             };
             let found = key(scene.inferable_where(near));
-            let scan = key(
-                scene
-                    .inferable()
-                    .filter(|(p, m, _)| m.bounds.is_some_and(|b| near(&crate::scene::transform_bounds(&p.transform, b))))
-                    .collect(),
-            );
+            let scan = key(scene
+                .inferable()
+                .filter(|(p, m, _)| m.bounds.is_some_and(|b| near(&crate::scene::transform_bounds(&p.transform, b))))
+                .collect());
             assert_eq!(found, scan, "{x} {y}");
             met += found.len();
         }

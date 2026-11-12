@@ -706,6 +706,43 @@ fn hide_rest_of_model() {
 }
 
 #[test]
+fn outliner_hover_marks_in_view() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    e.select(vec![a]);
+    e.make_assembly();
+    let g = e.selection()[0];
+    e.select(vec![]);
+    // The cursor over the void: nothing hovered in the view.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-800.0, -800.0, 0.0)) });
+    let hovered = |e: &Editor| e.view().highlights.into_iter().filter(|h| h.mark == Mark::Hover).count();
+    assert_eq!(hovered(&e), 0);
+    // An occurrence of the context: its solid, as if hovered in the view; changed once.
+    assert!(e.set_outliner_hover(Some(EntityPath::new(vec![], b))));
+    assert!(!e.set_outliner_hover(Some(EntityPath::new(vec![], b))));
+    assert_eq!(hovered(&e), 1);
+    // One inside an assembly not entered, too.
+    e.set_outliner_hover(Some(EntityPath::new(vec![g], a)));
+    assert_eq!(hovered(&e), 1);
+    // Selected: marked so only.
+    e.select(vec![g]);
+    e.set_outliner_hover(Some(EntityPath::new(vec![], g)));
+    assert_eq!(hovered(&e), 0);
+    assert!(e.set_outliner_hover(None));
+    assert_eq!(hovered(&e), 0);
+    // Inside `g`: `b`, outside it, hovered but still faded; `a`, inside, plainly hovered.
+    e.enter(g);
+    let marks = |e: &Editor| {
+        e.view().highlights.into_iter().map(|h| h.mark).filter(|m| matches!(m, Mark::Hover | Mark::HoverFaded)).collect::<Vec<_>>()
+    };
+    e.set_outliner_hover(Some(EntityPath::new(vec![], b)));
+    assert_eq!(marks(&e), [Mark::HoverFaded]);
+    e.set_outliner_hover(Some(EntityPath::new(vec![g], a)));
+    assert_eq!(marks(&e), [Mark::Hover]);
+}
+
+#[test]
 fn groups_enter_fade_exit() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");

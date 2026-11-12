@@ -23,7 +23,11 @@ fn bench_array() {
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.set_parallel(true);
     let span = 100.0 * n as f64;
-    e.camera.set_standard_view(StandardView::Top, Some((DVec3::splat(-100.0), DVec3::splat(span))), crate::camera::ViewArea::full(e.viewport_size()));
+    e.camera.set_standard_view(
+        StandardView::Top,
+        Some((DVec3::splat(-100.0), DVec3::splat(span))),
+        crate::camera::ViewArea::full(e.viewport_size()),
+    );
     let px = |e: &Editor, p: DVec3| e.camera.project(p, e.viewport_size()).unwrap();
     let click = |e: &mut Editor, p: DVec3| {
         let at = px(e, p);
@@ -116,11 +120,16 @@ fn bench_stretch_one_among_many() {
         .created;
     let row: Vec<_> = std::iter::once(a).chain(row).collect();
     time("array rows", || {
-        e.apply(Operation::Array { context: root, entities: row, step: DAffine3::from_translation(DVec3::Y * 200.0), count: n - 1 }).unwrap()
+        e.apply(Operation::Array { context: root, entities: row, step: DAffine3::from_translation(DVec3::Y * 200.0), count: n - 1 })
+            .unwrap()
     });
     eprintln!("occurrences: {}", e.document().root_assembly().occurrences().len());
     // Looking at the first cube from the front, close.
-    e.camera.set_standard_view(StandardView::Front, Some((DVec3::splat(-50.0), DVec3::splat(150.0))), crate::camera::ViewArea::full(e.viewport_size()));
+    e.camera.set_standard_view(
+        StandardView::Front,
+        Some((DVec3::splat(-50.0), DVec3::splat(150.0))),
+        crate::camera::ViewArea::full(e.viewport_size()),
+    );
     let px = |e: &Editor, p: DVec3| e.camera.project(p, e.viewport_size()).unwrap();
     e.select(vec![a]);
     e.set_tool(ToolKind::Stretch);
@@ -150,7 +159,11 @@ fn bench_stretch_one_among_many() {
     // Seen from above, all of it: a hover, a rectangle dragged over a quarter.
     e.set_tool(ToolKind::Select);
     let span = 200.0 * n as f64;
-    e.camera.set_standard_view(StandardView::Top, Some((DVec3::ZERO, DVec3::new(span, span, 100.0))), crate::camera::ViewArea::full(e.viewport_size()));
+    e.camera.set_standard_view(
+        StandardView::Top,
+        Some((DVec3::ZERO, DVec3::new(span, span, 100.0))),
+        crate::camera::ViewArea::full(e.viewport_size()),
+    );
     time("hover (select tool, top)", || e.input(ToolInput::Hover { px: DVec2::new(500.0, 500.0) }));
     let none = Modifiers::default();
     e.input(ToolInput::DragStart { px: DVec2::new(250.0, 250.0), mods: none });
@@ -183,7 +196,11 @@ fn bench_mixed_sizes() {
     let root = e.document().root();
     let cube = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(20.0) };
     let a = e.apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY }).unwrap().unwrap().created[0];
-    let row = e.apply(Operation::Array { context: root, entities: vec![a], step: DAffine3::from_translation(DVec3::X * 100.0), count: 99 }).unwrap().unwrap().created;
+    let row = e
+        .apply(Operation::Array { context: root, entities: vec![a], step: DAffine3::from_translation(DVec3::X * 100.0), count: 99 })
+        .unwrap()
+        .unwrap()
+        .created;
     let row: Vec<_> = std::iter::once(a).chain(row).collect();
     e.apply(Operation::Array { context: root, entities: row, step: DAffine3::from_translation(DVec3::Y * 100.0), count: 99 }).unwrap();
     for k in 0..20 {
@@ -194,7 +211,11 @@ fn bench_mixed_sizes() {
     e.set_tool(ToolKind::Move);
     for (view, parallel) in [(StandardView::Iso, false), (StandardView::Top, true)] {
         e.set_parallel(parallel);
-        e.camera.set_standard_view(view, Some((DVec3::ZERO, DVec3::new(10_000.0, 10_000.0, 700.0))), crate::camera::ViewArea::full(e.viewport_size()));
+        e.camera.set_standard_view(
+            view,
+            Some((DVec3::ZERO, DVec3::new(10_000.0, 10_000.0, 700.0))),
+            crate::camera::ViewArea::full(e.viewport_size()),
+        );
         for k in 0..3 {
             let at = DVec2::new(480.0 + 7.0 * k as f64, 520.0);
             time(&format!("hover {view:?} {k} (move tool)"), || e.input(ToolInput::Hover { px: at }));
@@ -246,7 +267,9 @@ fn bench_meshes_coming_in() {
     for k in 0..defs {
         let (x, y, z) = (100.0 + k as f64, 50.0, 20.0);
         let v: Vec<String> = (0..8)
-            .map(|i| format!("[{},{},{}]", if i & 1 == 0 { 0.0 } else { x }, if i & 2 == 0 { 0.0 } else { y }, if i & 4 == 0 { 0.0 } else { z }))
+            .map(|i| {
+                format!("[{},{},{}]", if i & 1 == 0 { 0.0 } else { x }, if i & 2 == 0 { 0.0 } else { y }, if i & 4 == 0 { 0.0 } else { z })
+            })
             .collect();
         definitions.push(format!(r#"{{"name":"P{k}","vertices":[{}],"faces":{faces}}}"#, v.join(",")));
         for c in 0..4 {

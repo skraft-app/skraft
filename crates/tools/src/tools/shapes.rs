@@ -1141,8 +1141,18 @@ impl Tool for CylinderTool {
             tip: t!("tool.cylinder.option.measure_tip"),
             value: OptionValue::Choice(value.into()),
             choices: vec![
-                OptionChoice { value: RADIUS, label: t!("tool.cylinder.option.radius"), tip: t!("tool.cylinder.option.radius_tip"), icon: Some("measure_radius") },
-                OptionChoice { value: DIAMETER, label: t!("tool.cylinder.option.diameter"), tip: t!("tool.cylinder.option.diameter_tip"), icon: Some("measure_diameter") },
+                OptionChoice {
+                    value: RADIUS,
+                    label: t!("tool.cylinder.option.radius"),
+                    tip: t!("tool.cylinder.option.radius_tip"),
+                    icon: Some("measure_radius"),
+                },
+                OptionChoice {
+                    value: DIAMETER,
+                    label: t!("tool.cylinder.option.diameter"),
+                    tip: t!("tool.cylinder.option.diameter_tip"),
+                    icon: Some("measure_diameter"),
+                },
             ],
             saved: true,
             icon: None,

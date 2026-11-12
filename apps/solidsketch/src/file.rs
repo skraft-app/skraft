@@ -74,6 +74,14 @@ pub fn open(inbox: &Inbox, ctx: &egui::Context) {
     });
 }
 
+/// Reads the file at `path` (a recent file, desktop); its text arrives in `inbox`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_path(path: &str, inbox: &Inbox) -> std::io::Result<()> {
+    let text = std::fs::read(path)?;
+    inbox.put(Outcome::Opened { name: path.to_owned(), text: String::from_utf8_lossy(&text).into_owned() });
+    Ok(())
+}
+
 /// Asks for a file to import (STEP); its name and bytes arrive in `inbox`.
 pub fn import(inbox: &Inbox, ctx: &egui::Context) {
     let inbox = inbox.clone();

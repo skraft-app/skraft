@@ -513,7 +513,11 @@ impl DisplayScene {
             for i in run {
                 let e = self.index.entries[i as usize];
                 let place = &self.placements[&e.def][e.place as usize];
-                let bounds = self.definitions[&e.def].parts.get(e.part as usize).and_then(|m| m.bounds).map(|b| transform_bounds(&place.transform, b));
+                let bounds = self.definitions[&e.def]
+                    .parts
+                    .get(e.part as usize)
+                    .and_then(|m| m.bounds)
+                    .map(|b| transform_bounds(&place.transform, b));
                 rebuild |= bounds.is_some() != e.bounds.is_some();
                 self.index.entries[i as usize].bounds = bounds;
             }

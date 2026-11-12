@@ -86,6 +86,9 @@ menu:
     import: "Importer"
     save: "Enregistrer"
     save_as: "Enregistrer sous"
+    # One of the last files opened or saved (%{n}: 1 to 4), as the command palette and the
+    # shortcut preferences name it; the menu shows the file's name.
+    recent: "Fichier récent %{n}"
   edit:
     title: "Édition"
     undo: "$t(common.undo)"

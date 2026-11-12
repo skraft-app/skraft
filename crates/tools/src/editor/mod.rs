@@ -63,6 +63,8 @@ pub struct Editor {
     part_scope: Scope,
     /// The machining hovered in the entity info's list (drawn hovered in the view).
     listed_hover: Option<Id>,
+    /// The occurrence hovered in the outliner (drawn hovered in the view).
+    outliner_hover: Option<EntityPath>,
     /// The stretch the scene's preview mesh was made for, and the revisions handed out.
     stretch_meshed: Option<tools::StretchPreview>,
     preview_revision: u64,
@@ -139,6 +141,7 @@ impl Editor {
             machinings_shown: false,
             part_scope: Scope::All,
             listed_hover: None,
+            outliner_hover: None,
             stretch_meshed: None,
             preview_revision: 0,
             held_stretch: None,
@@ -243,6 +246,14 @@ impl Editor {
     /// The machining hovered in the entity info's list, if any.
     pub fn set_listed_hover(&mut self, machining: Option<Id>) {
         self.listed_hover = machining;
+    }
+
+    /// The occurrence hovered in the outliner, if any: drawn as if hovered in the view. Did it
+    /// change (the view to draw again)?
+    pub fn set_outliner_hover(&mut self, path: Option<EntityPath>) -> bool {
+        let changed = self.outliner_hover != path;
+        self.outliner_hover = path;
+        changed
     }
 
     /// What a change to the open part reaches.

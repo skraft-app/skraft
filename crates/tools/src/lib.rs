@@ -13,9 +13,9 @@ pub mod tools;
 pub mod vcb;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod bench;
+#[cfg(test)]
+mod tests;
 
 pub use camera::{Camera, Projection, Ray, StandardView, ViewArea};
 pub use editor::{Editor, Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};

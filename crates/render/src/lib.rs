@@ -587,7 +587,8 @@ impl Renderer {
             attributes: &line_attrs,
         };
 
-        let box_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2];
+        let box_attrs =
+            wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2];
         let box_layout = wgpu::VertexBufferLayout {
             array_stride: size_of::<BoxRaw>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
@@ -726,16 +727,8 @@ impl Renderer {
             None,
             unclipped,
         );
-        let boxes = blended(
-            "boxes",
-            "vs_box",
-            "fs_line",
-            &[Some(box_layout)],
-            depth(true, nearer, Default::default()),
-            all,
-            None,
-            unclipped,
-        );
+        let boxes =
+            blended("boxes", "vs_box", "fs_line", &[Some(box_layout)], depth(true, nearer, Default::default()), all, None, unclipped);
         let overlay = blended(
             "overlay",
             "vs_line",
@@ -1037,26 +1030,30 @@ impl Renderer {
         self.fill_vertices.write(device, queue, bytemuck::cast_slice(&fv));
 
         let (Some(target), Some(bind_group)) = (&self.target, &self.bind_group) else { return false };
-        let mut pass = Counted { pass: encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("viewport"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &target.msaa,
-                depth_slice: None,
-                resolve_target: Some(&target.resolved_view),
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color { r: bg[0] as f64, g: bg[1] as f64, b: bg[2] as f64, a: 1.0 }),
-                    store: wgpu::StoreOp::Discard,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &target.depth,
-                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Discard }),
-                stencil_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0), store: wgpu::StoreOp::Discard }),
+        let mut pass = Counted {
+            pass: encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("viewport"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target.msaa,
+                    depth_slice: None,
+                    resolve_target: Some(&target.resolved_view),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: bg[0] as f64, g: bg[1] as f64, b: bg[2] as f64, a: 1.0 }),
+                        store: wgpu::StoreOp::Discard,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &target.depth,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Discard }),
+                    stencil_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0), store: wgpu::StoreOp::Discard }),
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
             }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        }), calls: 0, vertices: 0 };
+            calls: 0,
+            vertices: 0,
+        };
         pass.set_bind_group(0, bind_group, &[]);
 
         if let Some(inst) = &self.instances.buffer {
@@ -1198,13 +1195,8 @@ impl Renderer {
 
     /// The meshes uploaded, and the bytes they take on the GPU.
     pub fn mesh_memory(&self) -> (usize, u64) {
-        let bytes = self
-            .meshes
-            .values()
-            .flat_map(|m| [&m.vertices, &m.indices, &m.edges, &m.silhouettes])
-            .flatten()
-            .map(|b| b.size())
-            .sum();
+        let bytes =
+            self.meshes.values().flat_map(|m| [&m.vertices, &m.indices, &m.edges, &m.silhouettes]).flatten().map(|b| b.size()).sum();
         (self.meshes.len(), bytes)
     }
 
