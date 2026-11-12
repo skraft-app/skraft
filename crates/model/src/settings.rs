@@ -77,11 +77,13 @@ pub struct Units {
     pub length: LengthUnit,
     /// Decimals shown (trailing zeros dropped).
     pub decimals: u8,
+    /// The lengths shown are followed by the unit's symbol (`12,5 mm`, else `12,5`).
+    pub symbol: bool,
 }
 
 impl Default for Units {
     fn default() -> Self {
-        Units { length: LengthUnit::Millimeter, decimals: 2 }
+        Units { length: LengthUnit::Millimeter, decimals: 2, symbol: true }
     }
 }
 
@@ -132,9 +134,16 @@ impl LengthUnit {
 }
 
 impl Units {
-    /// A length in mm, for display in these units, as the locale writes it: `12,5 cm`.
+    /// A length in mm, for display in these units, as the locale writes it: `12,5 cm`
+    /// (`12,5` when the symbol is not shown).
     pub fn format(&self, mm: f64) -> String {
-        format!("{} {}", self.number(mm), self.length.symbol())
+        format!("{}{}", self.number(mm), self.suffix())
+    }
+
+    /// What follows a number shown in these units: ` cm`, or nothing when the symbol is not
+    /// shown.
+    pub fn suffix(&self) -> String {
+        if self.symbol { format!(" {}", self.length.symbol()) } else { String::new() }
     }
 
     /// The number alone, in these units, without needless decimals: `12,5`.

@@ -303,7 +303,7 @@ fn text_field(ui: &mut egui::Ui, state: &mut InfoState, key: (Id, u8), current: 
 
 fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
     let d = hi - lo;
-    format!("{} × {} × {} {}", units.number(d.x), units.number(d.y), units.number(d.z), units.length.symbol())
+    format!("{} × {} × {}{}", units.number(d.x), units.number(d.y), units.number(d.z), units.suffix())
 }
 
 pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: &mut Vec<Action>) {
@@ -395,7 +395,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                         ui.add(
                             egui::DragValue::new(v)
                                 .speed(1.0)
-                                .suffix(format!(" {}", units.length.symbol()))
+                                .suffix(units.suffix())
                                 .max_decimals(units.decimals as usize)
                                 .custom_formatter(|n, decimals| {
                                     solidsketch_i18n::number(&egui::emath::format_with_decimals_in_range(n, decimals))

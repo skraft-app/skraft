@@ -437,6 +437,8 @@ fn units_format() {
     u.decimals = 1;
     assert_eq!(u.format(1234.0), "123,4 cm");
     assert_eq!(u.format(-0.01), "0 cm");
+    u.symbol = false;
+    assert_eq!(u.format(1234.0), "123,4");
 }
 
 #[test]

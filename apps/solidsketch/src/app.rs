@@ -635,6 +635,9 @@ impl SolidSketchApp {
             ui.label(t!("prefs.model.decimals"));
             ui.add(egui::Slider::new(&mut s.units.decimals, 0..=6));
             ui.end_row();
+            ui.label(t!("prefs.model.unit_symbol"));
+            ui.checkbox(&mut s.units.symbol, "").on_hover_text(t!("prefs.model.unit_symbol_tip"));
+            ui.end_row();
             ui.label(t!("prefs.model.example"));
             ui.weak(s.units.format(1234.5678));
             ui.end_row();
@@ -888,13 +891,13 @@ impl eframe::App for SolidSketchApp {
             .response
             .rect;
         let margin = 8.0;
-        let card = |ui: &egui::Ui| egui::Frame::window(ui.style()).inner_margin(6.0);
+        let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(6.0);
         let show_materials = self.prefs.show_materials;
         let side = egui::Area::new(egui::Id::unique("side"))
             .fixed_pos(view.left_top() + egui::vec2(margin, margin))
             .constrain_to(view)
             .show(&ctx, |ui| {
-                card(ui).show(ui, |ui| {
+                card(ui.style()).show(ui, |ui| {
                     ui.set_width(SIDE_WIDTH);
                     // Fixed ids: the titles change with the language.
                     let title = |key: String| egui::RichText::new(key).strong();
@@ -931,30 +934,38 @@ impl eframe::App for SolidSketchApp {
             })
             .response
             .rect;
-        // Centered over the view, but never over the side panel (its width is last frame's).
+        // Centered over the view, but never over the side panel. Its width is known before
+        // drawing it: the wider of its rows (buttons, options), as last measured; a row whose
+        // width changed (another tool, other options) discards the pass, so the card is never
+        // shown misplaced while it settles.
         let tools_id = egui::Id::unique("tools");
-        let tools_width = ctx.memory(|m| m.area_rect(tools_id)).map_or(0.0, |r| r.width());
+        let buttons_id = tools_id.with("buttons_width");
+        let options_id = tools_id.with("options_width");
+        let has_options = panels::has_tool_options(&self.editor);
+        let row_width = |id: egui::Id| ctx.data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
+        let content_width = row_width(buttons_id).max(if has_options { row_width(options_id) } else { 0.0 });
+        let tools_width = content_width + card(&ctx.global_style()).total_margin().sum().x;
         let tools_left = (view.center().x - tools_width / 2.0).max(side.right() + margin);
         let tools = egui::Area::new(tools_id)
             .fixed_pos(egui::pos2(tools_left, view.top() + margin))
             .constrain_to(view)
             .show(&ctx, |ui| {
-                card(ui).show(ui, |ui| {
+                card(ui.style()).show(ui, |ui| {
+                    // Exactly the rows' width: the separator spans it, the rows center in it.
+                    ui.set_width(content_width);
                     // Scrolls only when the window is too narrow for all the buttons.
                     let room = view.right() - margin - 12.0 - tools_left;
-                    // The buttons and the options, each row centered in the card (the
-                    // wider one sets its width).
-                    centered_row(ui, tools_id.with("buttons_width"), |ui| {
+                    centered_row(ui, buttons_id, |ui| {
                         egui::ScrollArea::horizontal().max_width(room).min_scrolled_width(room).show(ui, |ui| {
                             ui.horizontal(|ui| panels::toolbar(ui, &views, &mut actions));
                         });
                     });
                     // No option, no bar.
-                    if !panels::has_tool_options(&self.editor) {
+                    if !has_options {
                         return;
                     }
                     ui.separator();
-                    centered_row(ui, tools_id.with("options_width"), |ui| panels::tool_options(ui, &self.editor, &mut actions));
+                    centered_row(ui, options_id, |ui| panels::tool_options(ui, &self.editor, &mut actions));
                 });
             })
             .response
@@ -1163,7 +1174,8 @@ mod tests {
 }
 
 /// A row centered in `ui`: egui lays a row out from the left, so it is shifted by half the room
-/// it left last frame (its width kept under `width_id`).
+/// it leaves, from its width as last measured (kept under `width_id`). A new width discards
+/// the pass: the next one, laid out with it, is the one shown.
 fn centered_row(ui: &mut egui::Ui, width_id: egui::Id, add_contents: impl FnOnce(&mut egui::Ui)) {
     let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
     ui.horizontal(|ui| {
@@ -1171,6 +1183,8 @@ fn centered_row(ui: &mut egui::Ui, width_id: egui::Id, add_contents: impl FnOnce
         let used = ui.scope(add_contents).response.rect.width();
         if used != width {
             ui.data_mut(|d| d.insert_temp(width_id, used));
+            // Past egui's passes for this frame, the discard is refused: the next frame then.
+            ui.ctx().request_discard("tool bar row resized");
             ui.ctx().request_repaint();
         }
     });

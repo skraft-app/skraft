@@ -180,6 +180,8 @@ prefs:
     units: "Unités"
     lengths: "Longueurs"
     decimals: "Décimales"
+    unit_symbol: "Afficher l'unité"
+    unit_symbol_tip: "« 12,5 mm » plutôt que « 12,5 » dans les dimensions ; une valeur saisie sans unité reste dans celle du modèle"
     example: "Exemple"
     use_for_new: "Utiliser pour les nouveaux modèles"
     use_for_new_tip: "Ces réglages deviennent ceux des prochains modèles (Fichier › Nouveau)"
