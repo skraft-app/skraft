@@ -787,3 +787,39 @@ fn two_guide_circles_cross() {
     assert_eq!(i.kind, InferKind::OnTwoGuides, "{i:?}");
     assert!(near(i.point, c - DVec3::X * 200.0), "{}", i.point);
 }
+
+#[test]
+fn the_meshes_near_the_ray_are_those_a_scan_finds() {
+    // Boxes of mixed sizes at mixed depths, seen in perspective (the aperture grows with
+    // depth): the index's candidates are exactly the scan's, in the same order.
+    let mut e = view_editor(StandardView::Iso, DVec3::new(400.0, 400.0, 0.0));
+    e.set_parallel(false);
+    for i in 0..8 {
+        for j in 0..8 {
+            let size = DVec3::new(30.0 + (i * j % 4) as f64 * 25.0, 40.0, 20.0 + (j % 3) as f64 * 60.0);
+            add_box(&mut e, DVec3::new(i as f64 * 110.0, j as f64 * 110.0, (i % 2) as f64 * 80.0), size);
+        }
+    }
+    add_box(&mut e, DVec3::new(-200.0, -200.0, -30.0), DVec3::new(1300.0, 1300.0, 20.0));
+    let (camera, size, scene) = (&e.camera, e.viewport_size(), e.scene());
+    let mut met = 0;
+    for x in (0..1000).step_by(37) {
+        for y in (0..1000).step_by(37) {
+            let ray = camera.ray(DVec2::new(x as f64, y as f64), size);
+            let near = |b: &(DVec3, DVec3)| near_ray(camera, size, &ray, *b);
+            let key = |v: Vec<(&crate::Placement, &crate::PartMesh, crate::Piece)>| -> Vec<(Vec<Id>, crate::Piece)> {
+                v.into_iter().map(|(p, _, piece)| (p.path.clone(), piece)).collect()
+            };
+            let found = key(scene.inferable_where(near));
+            let scan = key(
+                scene
+                    .inferable()
+                    .filter(|(p, m, _)| m.bounds.is_some_and(|b| near(&crate::scene::transform_bounds(&p.transform, b))))
+                    .collect(),
+            );
+            assert_eq!(found, scan, "{x} {y}");
+            met += found.len();
+        }
+    }
+    assert!(met > 100, "{met}");
+}

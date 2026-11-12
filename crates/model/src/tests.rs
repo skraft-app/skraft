@@ -51,10 +51,10 @@ fn a_primitive_is_a_part_in_its_own_axes() {
     assert!(!doc.component(o.component).unwrap().named);
 
     assert!(h.undo());
-    assert!(h.document().root_assembly().occurrences.is_empty());
+    assert!(h.document().root_assembly().occurrences().is_empty());
     assert_eq!(h.document().components().count(), 0, "the part went with its occurrence");
     assert!(h.redo());
-    assert_eq!(h.document().root_assembly().occurrences[0].id, a);
+    assert_eq!(h.document().root_assembly().occurrences()[0].id, a);
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn assemblies_make_explode_and_share() {
     let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
     let g = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
     let doc = h.document();
-    assert_eq!(doc.root_assembly().occurrences.len(), 1);
+    assert_eq!(doc.root_assembly().occurrences().len(), 1);
     let asm = occ(doc, &EntityPath::root(g)).component;
     assert_eq!(doc.component(asm).unwrap().name, "Assemblage");
     assert_eq!(doc.context_of(&[g]).unwrap(), asm);
@@ -207,7 +207,7 @@ fn a_difference_machines_the_part_for_all_its_occurrences() {
     assert!(p.shape().topology_counts().0 > blank.topology_counts().0);
     // Both occurrences show the hole; the drill left the model, its assembly and part with it.
     assert_eq!(doc.resolve_part(&EntityPath::root(copy)).unwrap().0, part);
-    assert!(doc.resolve(&EntityPath::root(g)).is_err() || doc.assembly(doc.context_of(&[g]).unwrap()).unwrap().occurrences.is_empty());
+    assert!(doc.resolve(&EntityPath::root(g)).is_err() || doc.assembly(doc.context_of(&[g]).unwrap()).unwrap().occurrences().is_empty());
     assert_eq!(doc.components().filter(|c| c.is_part()).count(), 1, "{:?}", doc.components().map(|c| &c.name).collect::<Vec<_>>());
 
     // A union makes a new blank, without machinings.
@@ -1437,7 +1437,7 @@ fn placed_changes_skip_only_what_is_shared() {
     h.apply(Operation::Duplicate { context: root, entities: vec![asm], transform: DAffine3::from_translation(DVec3::Y * 300.0) }).unwrap();
     let before = h.document().clone();
     let component = before.resolve(&EntityPath::root(asm)).unwrap().component;
-    let inner = before.assembly(component).unwrap().occurrences[0].id;
+    let inner = before.assembly(component).unwrap().occurrences()[0].id;
     let part_b = before.resolve(&EntityPath::root(b)).unwrap().component;
 
     // Nothing changed: nothing found; a part named touched: each of its placements.
@@ -1471,4 +1471,72 @@ fn placed_changes_skip_only_what_is_shared() {
     let found = placed_changes_found(h.document(), &before, &[]);
     assert_eq!(found, placed_changes_by_path(h.document(), &before, &[]));
     assert_eq!(found.len(), 1);
+}
+
+/// An occurrence of `component`, for the assembly's own tests.
+fn bare_occurrence(id: u64, component: Id) -> Occurrence {
+    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, material: None }
+}
+
+#[test]
+fn an_assembly_finds_its_occurrences_as_a_scan_does() {
+    let scan = |a: &Assembly, id: Id| a.occurrences().iter().position(|o| o.id == id);
+    let check = |a: &Assembly, what: &str| {
+        // Every id there, some that are not; each asked often enough to build the index.
+        for _ in 0..2 {
+            for id in (0..400).map(Id) {
+                assert_eq!(a.position(id), scan(a, id), "{what}: {id:?}");
+                assert_eq!(a.occurrence(id).map(|o| o.id), scan(a, id).map(|_| id), "{what}");
+            }
+        }
+    };
+    let part = Id(10_000);
+    let mut a = Assembly::new((0..200).map(|i| bare_occurrence(i * 2, part)).collect());
+    check(&a, "built");
+    a.occurrences_mut().retain(|o| o.id.0 % 3 != 0);
+    check(&a, "some removed");
+    a.occurrences_mut().insert(5, bare_occurrence(301, part));
+    a.occurrences_mut().push(bare_occurrence(303, part));
+    a.occurrences_mut().reverse();
+    check(&a, "added, reordered");
+    // A clone keeps the index; changing it leaves the original as it was.
+    let mut b = a.clone();
+    check(&b, "clone");
+    b.occurrences_mut().truncate(10);
+    check(&b, "clone cut");
+    check(&a, "original");
+    // A few: scanned, never indexed.
+    let small = Assembly::new((0..5).map(|i| bare_occurrence(i, part)).collect());
+    check(&small, "small");
+}
+
+#[test]
+fn placements_are_counted_over_the_distinct_assemblies() {
+    // The counts every path gives, one by one.
+    fn by_path(doc: &Document, component: Id, placed: &mut std::collections::HashMap<Id, usize>) {
+        let Ok(a) = doc.assembly(component) else { return };
+        for o in a.occurrences() {
+            *placed.entry(o.component).or_default() += 1;
+            by_path(doc, o.component, placed);
+        }
+    }
+    // Parts in runs and apart, an assembly copied three times holding another twice.
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::X * 20.0, 10.0));
+    let step = DAffine3::from_translation(DVec3::Y * 20.0);
+    h.apply(Operation::Array { context: root, entities: vec![a], step, count: 4 }).unwrap();
+    let c = add(&mut h, cube(DVec3::X * 40.0, 10.0));
+    h.apply(Operation::Array { context: root, entities: vec![b], step, count: 2 }).unwrap();
+    let inner = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, c], name: None }).unwrap().created[0];
+    h.apply(Operation::Duplicate { context: root, entities: vec![inner], transform: step }).unwrap();
+    let outer = h.apply(Operation::MakeAssembly { context: root, entities: vec![inner, b], name: None }).unwrap().created[0];
+    h.apply(Operation::Array { context: root, entities: vec![outer], step: DAffine3::from_translation(DVec3::Z * 50.0), count: 2 }).unwrap();
+    let doc = h.document();
+    let (mut fast, mut slow) = (std::collections::HashMap::new(), std::collections::HashMap::new());
+    doc.count_placed(doc.root(), &mut fast);
+    by_path(doc, doc.root(), &mut slow);
+    assert_eq!(fast, slow);
+    assert!(slow.values().any(|n| *n >= 6), "{slow:?}");
 }

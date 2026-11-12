@@ -48,7 +48,7 @@ fn bench_array() {
         e.set_tool(ToolKind::Select);
         time("select_all", || e.select_all());
     }
-    let count = e.document().root_assembly().occurrences.len();
+    let count = e.document().root_assembly().occurrences().len();
     eprintln!("occurrences: {count}, selected: {}", e.selection().len());
     for _ in 0..2 {
         time("view (all selected)", || e.view());
@@ -99,7 +99,7 @@ fn bench_stretch_one_among_many() {
     time("array rows", || {
         e.apply(Operation::Array { context: root, entities: row, step: DAffine3::from_translation(DVec3::Y * 200.0), count: n - 1 }).unwrap()
     });
-    eprintln!("occurrences: {}", e.document().root_assembly().occurrences.len());
+    eprintln!("occurrences: {}", e.document().root_assembly().occurrences().len());
     // Looking at the first cube from the front, close.
     e.camera.set_standard_view(StandardView::Front, Some((DVec3::splat(-50.0), DVec3::splat(150.0))), crate::camera::ViewArea::full(e.viewport_size()));
     let px = |e: &Editor, p: DVec3| e.camera.project(p, e.viewport_size()).unwrap();
@@ -116,6 +116,17 @@ fn bench_stretch_one_among_many() {
         time(&format!("hover {i} (view)"), || e.view());
     }
     eprintln!("placements drawn: {}", e.view().batches.iter().map(|(_, ps)| ps.len()).sum::<usize>());
+    // BENCH_LOOP set: pulls the one cube for a few seconds, to profile (`sample <pid>`).
+    if std::env::var("BENCH_LOOP").is_ok() {
+        let t = std::time::Instant::now();
+        let mut i = 0;
+        while t.elapsed().as_secs() < 6 {
+            i += 1;
+            let at = px(&e, top + DVec3::Z * (10.0 + (i % 50) as f64));
+            e.input(ToolInput::Hover { px: at });
+        }
+        eprintln!("loops: {i}");
+    }
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
     // Seen from above, all of it: a hover, a rectangle dragged over a quarter.
     e.set_tool(ToolKind::Select);
@@ -131,15 +142,43 @@ fn bench_stretch_one_among_many() {
     e.input(ToolInput::DragEnd { px: DVec2::new(502.0, 500.0), mods: none });
     eprintln!("selected: {}", e.selection().len());
     time("undo (scene synced)", || e.undo());
-    // BENCH_LOOP set: hovers for a few seconds, to profile (`sample <pid>`).
-    if std::env::var("BENCH_LOOP").is_ok() {
-        let t = std::time::Instant::now();
-        let mut i = 0;
-        while t.elapsed().as_secs() < 6 {
-            i += 1;
-            let at = px(&e, top + DVec3::Z * (10.0 + (i % 50) as f64));
-            e.input(ToolInput::Hover { px: at });
+    e.redo();
+    // Everything selected, the stretch tool on it: its grips follow the cursor.
+    e.select_all();
+    e.set_tool(ToolKind::Stretch);
+    eprintln!("selected: {}", e.selection().len());
+    for k in 0..3 {
+        time(&format!("hover {k} (stretch, all selected)"), || e.input(ToolInput::Hover { px: DVec2::new(600.0 + k as f64, 400.0) }));
+    }
+}
+
+/// The index where it is weakest: 10 000 small cubes under 20 plates as wide as the whole
+/// grid (each plate's box spans every node it falls in). Hovers with an inferring tool.
+#[test]
+#[ignore]
+fn bench_mixed_sizes() {
+    use glam::DAffine3;
+    use solidsketch_model::{Operation, Primitive};
+    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    e.set_viewport_size(DVec2::new(1000.0, 1000.0));
+    let root = e.document().root();
+    let cube = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(20.0) };
+    let a = e.apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY }).unwrap().unwrap().created[0];
+    let row = e.apply(Operation::Array { context: root, entities: vec![a], step: DAffine3::from_translation(DVec3::X * 100.0), count: 99 }).unwrap().unwrap().created;
+    let row: Vec<_> = std::iter::once(a).chain(row).collect();
+    e.apply(Operation::Array { context: root, entities: row, step: DAffine3::from_translation(DVec3::Y * 100.0), count: 99 }).unwrap();
+    for k in 0..20 {
+        let plate = Primitive::Box { origin: DVec3::new(-50.0, -50.0, 40.0 + k as f64 * 30.0), size: DVec3::new(10_000.0, 10_000.0, 5.0) };
+        e.apply(Operation::AddPrimitive { context: root, primitive: plate, placement: DAffine3::IDENTITY }).unwrap();
+    }
+    eprintln!("occurrences: {}", e.document().root_assembly().occurrences().len());
+    e.set_tool(ToolKind::Move);
+    for (view, parallel) in [(StandardView::Iso, false), (StandardView::Top, true)] {
+        e.set_parallel(parallel);
+        e.camera.set_standard_view(view, Some((DVec3::ZERO, DVec3::new(10_000.0, 10_000.0, 700.0))), crate::camera::ViewArea::full(e.viewport_size()));
+        for k in 0..3 {
+            let at = DVec2::new(480.0 + 7.0 * k as f64, 520.0);
+            time(&format!("hover {view:?} {k} (move tool)"), || e.input(ToolInput::Hover { px: at }));
         }
-        eprintln!("loops: {i}");
     }
 }

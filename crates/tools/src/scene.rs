@@ -204,6 +204,8 @@ pub struct DisplayScene {
     guides: Vec<SceneGuide>,
     /// The placed meshes, indexed for picking and regions.
     index: SceneIndex,
+    /// Counts the syncs: what was worked out from the scene holds while it stays.
+    generation: u64,
 }
 
 /// One part mesh at one placement ([`DisplayScene::parts`] yields them in this order).
@@ -245,6 +247,7 @@ impl DisplayScene {
     /// Brings the scene up to date with `doc`. Solids not seen before get a stand-in until
     /// their mesh comes ([`DisplayScene::take_missing`], [`DisplayScene::insert`]).
     pub fn sync(&mut self, doc: &Document) {
+        self.generation += 1;
         let mut seen = std::collections::HashSet::new();
         self.definitions.clear();
         self.missing.clear();
@@ -547,6 +550,11 @@ impl DisplayScene {
         self.section
     }
 
+    /// Changes with each [`DisplayScene::sync`] (the document, or a mesh come).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// World bounds of everything drawn.
     pub fn bounds(&self) -> Option<(DVec3, DVec3)> {
         self.bounds
@@ -736,7 +744,7 @@ impl<'d> ContextIndex<'d> {
             inherited = occ.material.or(inherited);
             at = occ.component;
         }
-        let occurrences = doc.assembly(ctx).ok()?.occurrences.iter().map(|o| (o.id, o)).collect();
+        let occurrences = doc.assembly(ctx).ok()?.occurrences().iter().map(|o| (o.id, o)).collect();
         Some(ContextIndex { doc, transform, inherited, occurrences })
     }
 
@@ -759,7 +767,7 @@ impl<'d> ContextIndex<'d> {
             match doc.component(component).map(|c| &c.kind) {
                 Ok(ComponentKind::Part(_)) => out.push(Under { part: component, transform: t, material }),
                 Ok(ComponentKind::Assembly(a)) => {
-                    for o in &a.occurrences {
+                    for o in a.occurrences() {
                         walk(doc, o.component, t * o.transform, o.material.or(material), out, depth + 1);
                     }
                 }

@@ -402,15 +402,8 @@ impl SolidSketchApp {
 
     fn save(&mut self, ask: bool) {
         let path = if ask { None } else { self.path.clone() };
-        match file::save(self.editor.document(), path.as_deref()) {
-            Ok(Some(p)) => {
-                self.path = Some(p);
-                self.saved_at = self.editor.history().revision();
-                self.message = Some(t!("status.saved"));
-            }
-            Ok(None) => {}
-            Err(e) => self.message = Some(t!("status.save_failed", error = e)),
-        }
+        let revision = self.editor.history().revision();
+        file::save(self.editor.document(), revision, path.as_deref(), &self.inbox, &self.ctx);
     }
 
     /// A modifier tapped alone goes to the tool: the copy modifier (Option on macOS, Ctrl
@@ -842,14 +835,23 @@ impl eframe::App for SolidSketchApp {
         self.apply_theme(&ctx);
         // What the kernel finished since the last frame (it wakes the UI when it does).
         self.editor.poll();
-        if let Some((name, text)) = self.inbox.take() {
-            match Document::from_json(&text) {
-                Ok(doc) => {
-                    self.editor.open(doc);
-                    self.path = Some(name);
-                    self.saved_at = 0;
+        // What the file dialogs ended with (they never block the event loop).
+        for outcome in self.inbox.take() {
+            match outcome {
+                file::Outcome::Opened { name, text } => match Document::from_json(&text) {
+                    Ok(doc) => {
+                        self.editor.open(doc);
+                        self.path = Some(name);
+                        self.saved_at = 0;
+                    }
+                    Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
+                },
+                file::Outcome::Saved { path, revision } => {
+                    self.path = Some(path);
+                    self.saved_at = revision;
+                    self.message = Some(t!("status.saved"));
                 }
-                Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
+                file::Outcome::SaveFailed(e) => self.message = Some(t!("status.save_failed", error = e)),
             }
         }
         // Any input clears the last app message.

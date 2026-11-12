@@ -36,6 +36,8 @@ web-time = "1.1"
 # The kernel runs on a thread of the app; on the web, in its own worker (ARCHITECTURE.md §7 ter).
 solidsketch-kernel = { workspace = true, features = ["engine"] }
 rfd.workspace = true
+# Runs the asynchronous file dialogs on a thread (src/file.rs).
+pollster.workspace = true
 env_logger = "0.11"
 dirs = "6"
 # Screenshots of the control channel (src/control.rs).

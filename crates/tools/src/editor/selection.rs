@@ -24,7 +24,7 @@ impl Editor {
             return;
         }
         let ctx = self.context_definition();
-        self.selection = self.document().assembly(ctx).map(|a| a.occurrences.iter().map(|o| o.id).collect()).unwrap_or_default();
+        self.selection = self.document().assembly(ctx).map(|a| a.occurrences().iter().map(|o| o.id).collect()).unwrap_or_default();
         self.selection.extend(guides);
     }
 

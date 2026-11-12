@@ -46,7 +46,7 @@ pub(crate) fn drawn(e: &Editor) -> Id {
         let (_, part, _) = doc.resolve_part(&EntityPath::new(e.context().to_vec(), part)).unwrap();
         return part.machinings.last().unwrap().id;
     }
-    doc.assembly(doc.context_of(e.context()).unwrap()).unwrap().occurrences.last().unwrap().id
+    doc.assembly(doc.context_of(e.context()).unwrap()).unwrap().occurrences().last().unwrap().id
 }
 
 /// Draws a box with the tool: two corners clicked, the height typed. The selection is left
@@ -643,7 +643,7 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
     e.input(ToolInput::Key { key: Key::Up, mods: Modifiers::default() });
     e.input(ToolInput::Vcb("100".into()));
     assert!(!e.tool_copying(), "back to moving after a copy");
-    assert_eq!(e.document().root_assembly().occurrences.len(), 2);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 2);
     let copy = e.selection()[0];
     assert_ne!(copy, a);
     let (lo, _) = bounds_of(&e, &EntityPath::root(copy));
@@ -655,19 +655,19 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
     // spread over the step; both one undo step.
     let steps = e.history().journal().count();
     e.input(ToolInput::Vcb("3x".into()));
-    assert_eq!(e.document().root_assembly().occurrences.len(), 4);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 4);
     assert_eq!(e.selection().len(), 3);
     let top =
         e.selection().iter().map(|id| bounds_of(&e, &EntityPath::root(*id)).0.z).fold(0.0f64, |m, z| if z.abs() > m.abs() { z } else { m });
     assert!((top - 3.0 * dz).abs() < 1e-6, "{top}");
     e.input(ToolInput::Vcb("/4".into()));
-    assert_eq!(e.document().root_assembly().occurrences.len(), 5);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 5);
     let mut zs: Vec<f64> = e.selection().iter().map(|id| bounds_of(&e, &EntityPath::root(*id)).0.z.abs()).collect();
     zs.sort_by(f64::total_cmp);
     assert!(zs.iter().zip([25.0, 50.0, 75.0, 100.0]).all(|(z, w)| (z - w).abs() < 1e-6), "{zs:?}");
     assert_eq!(e.history().journal().count(), steps);
     e.undo();
-    assert_eq!(e.document().root_assembly().occurrences.len(), 1);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 1);
 }
 
 #[test]
@@ -691,7 +691,7 @@ fn groups_enter_fade_exit() {
     // A box drawn now goes into the group.
     draw_box(&mut e, DVec3::new(0.0, 200.0, 0.0), DVec3::new(50.0, 250.0, 0.0), "5");
     let gdef = e.context_definition();
-    assert_eq!(e.document().assembly(gdef).unwrap().occurrences.len(), 2);
+    assert_eq!(e.document().assembly(gdef).unwrap().occurrences().len(), 2);
     // A click in the void inside its box keeps it, the selection cleared.
     click(&mut e, DVec3::new(80.0, 225.0, 0.0));
     assert_eq!(e.context(), &[g]);
@@ -776,7 +776,7 @@ fn component_instances_and_scene_caches() {
     let i1 = out.created[0];
     let asm = d.resolve(&EntityPath::root(i1)).unwrap().component;
     // Meshes are per part: the assembly's one part.
-    let def = d.assembly(asm).unwrap().occurrences[0].component;
+    let def = d.assembly(asm).unwrap().occurrences()[0].component;
     let t = glam::DAffine3::from_translation(DVec3::new(500.0, 0.0, 0.0));
     let (d, out) = d.apply(&Operation::PlaceOccurrence { context: root, component: asm, transform: t }).unwrap();
     let i2 = out.created[0];
@@ -874,13 +874,13 @@ fn rotate_tool_by_clicks_and_typed_angle() {
     e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
     click(&mut e, DVec3::new(-50.0 + 100.0, 100.0, 50.0));
     click(&mut e, DVec3::new(-50.0 + 100.0, 200.0, 50.0));
-    assert_eq!(e.document().root_assembly().occurrences.len(), 2);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 2);
 
     // `/2` right after: two copies spread over the angle (the last one where the copy was).
     let copy = e.selection()[0];
     let before = bounds_of(&e, &EntityPath::root(copy));
     e.input(ToolInput::Vcb("/2".into()));
-    assert_eq!(e.document().root_assembly().occurrences.len(), 3);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 3);
     let last = *e.selection().last().unwrap();
     let after = bounds_of(&e, &EntityPath::root(last));
     assert!(close(before.0, after.0) && close(before.1, after.1), "{before:?} {after:?}");
@@ -954,7 +954,7 @@ fn add_cube(e: &mut Editor, k: &Deferred) -> Id {
     assert_eq!(e.apply(op), Ok(None), "waits for the kernel");
     k.run_all();
     assert!(e.poll());
-    e.document().root_assembly().occurrences[0].id
+    e.document().root_assembly().occurrences()[0].id
 }
 
 #[test]
@@ -977,12 +977,12 @@ fn pending_operation_blocks_editing_until_its_result() {
     assert!(e.apply(op).is_err());
     e.undo();
     assert_eq!(k.queued(), 1, "nothing else reached the kernel");
-    assert!(e.document().root_assembly().occurrences.is_empty());
+    assert!(e.document().root_assembly().occurrences().is_empty());
 
     k.run_all();
     assert!(e.poll());
     assert!(!e.busy());
-    assert_eq!(e.document().root_assembly().occurrences.len(), 1);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 1);
     // The result came with its mesh: drawn and pickable, nothing more asked.
     assert_eq!(k.queued(), 0);
     let hit = e.scene().pick(&e.camera.ray(px(&e, DVec3::new(50.0, 50.0, 100.0)), e.viewport_size()), |_| true);
@@ -1004,13 +1004,13 @@ fn escape_abandons_and_failures_leave_the_document() {
     assert!(e.status().contains("abandonné"), "{}", e.status());
     k.run_all();
     e.poll();
-    assert!(e.document().root_assembly().occurrences.is_empty(), "the late result is dropped");
+    assert!(e.document().root_assembly().occurrences().is_empty(), "the late result is dropped");
 
     assert_eq!(e.apply(op), Ok(None));
     k.crash_all();
     e.poll();
     assert!(!e.busy());
-    assert!(e.document().root_assembly().occurrences.is_empty());
+    assert!(e.document().root_assembly().occurrences().is_empty());
     assert!(e.status().contains("noyau"), "{}", e.status());
     assert!(!e.history().can_undo());
 }
@@ -1023,7 +1023,7 @@ fn copies_and_arrays_need_no_kernel_and_a_refused_array_gives_the_copy_back() {
     let t = glam::DAffine3::from_translation(DVec3::new(200.0, 0.0, 0.0));
     let copy = Operation::Duplicate { context: root, entities: vec![s], transform: t };
     assert!(matches!(e.apply(copy.clone()), Ok(Some(_))), "done at once, more occurrences of the part");
-    assert_eq!(e.document().root_assembly().occurrences.len(), 2);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 2);
 
     // `5x` typed after the copy: the copy is replaced by the array, at once, in one step.
     e.run(Command::Replace {
@@ -1031,10 +1031,10 @@ fn copies_and_arrays_need_no_kernel_and_a_refused_array_gives_the_copy_back() {
         op: Box::new(Operation::Array { context: root, entities: vec![s], step: t, count: 5 }),
     });
     assert!(!e.busy());
-    assert_eq!(e.document().root_assembly().occurrences.len(), 6);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 6);
     assert_eq!(k.queued(), 0, "nothing to mesh: one part");
     e.undo();
-    assert_eq!(e.document().root_assembly().occurrences.len(), 1);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 1);
     e.redo();
 
     // A refused array leaves the copy as it was.
@@ -1045,7 +1045,7 @@ fn copies_and_arrays_need_no_kernel_and_a_refused_array_gives_the_copy_back() {
         op: Box::new(Operation::Array { context: root, entities: vec![s], step: t, count: 0 }),
     });
     assert_eq!(e.history().undo_op(), Some(&copy));
-    assert_eq!(e.document().root_assembly().occurrences.len(), 2);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 2);
 }
 
 #[test]
@@ -1073,7 +1073,7 @@ fn opened_solids_are_outlined_until_meshed_and_undo_does_not_remesh() {
     assert!(!e.scene().definition_meshes().next().unwrap().parts[0].mesh.indices.is_empty());
 
     // Move the part's occurrence (no kernel, the mesh stays), then undo / redo: no meshing.
-    let s = e.document().root_assembly().occurrences[0].id;
+    let s = e.document().root_assembly().occurrences()[0].id;
     let t = glam::DAffine3::from_translation(DVec3::new(10.0, 0.0, 0.0));
     assert!(matches!(e.apply(Operation::Transform { context: root, entities: vec![s], transform: t }), Ok(Some(_))));
     assert_eq!(k.queued(), 0);

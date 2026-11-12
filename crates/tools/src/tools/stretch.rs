@@ -566,6 +566,19 @@ pub struct StretchTool {
     /// The saved options, as the editor last gave them.
     centered: bool,
     overall: bool,
+    /// The last target worked out, and what from: asked again at each input and preview,
+    /// costly for many occurrences (their bounds).
+    memo: RefCell<Option<(TargetKey, Option<Target>)>>,
+}
+
+/// What a [`Target`] is worked out from, but the document and its meshes (the scene's
+/// generation tells they changed).
+#[derive(Clone, Debug, PartialEq)]
+struct TargetKey {
+    generation: u64,
+    context: Vec<Id>,
+    occurrences: Vec<Id>,
+    axes: Axes,
 }
 
 impl Default for StretchTool {
@@ -589,6 +602,7 @@ impl Default for StretchTool {
             shift_ignored: false,
             centered: false,
             overall: true,
+            memo: RefCell::new(None),
         }
     }
 }
@@ -600,16 +614,26 @@ impl StretchTool {
         if let State::Stretch { target, .. } = &self.state {
             return Some((**target).clone());
         }
-        let axes = axes(cx);
-        if let Some(id) = cx.open_part {
-            return Target::of(cx, cx.context.to_vec(), vec![id], axes);
+        let (context, occurrences) = if let Some(id) = cx.open_part {
+            (cx.context.to_vec(), vec![id])
+        } else {
+            let selected = self.selected(cx);
+            if !selected.is_empty() {
+                (cx.context.to_vec(), selected)
+            } else {
+                let p = self.picked.as_ref()?;
+                (p.instances.clone(), vec![p.entity])
+            }
+        };
+        let key = TargetKey { generation: cx.scene.generation(), context, occurrences, axes: axes(cx) };
+        if let Some((k, target)) = &*self.memo.borrow()
+            && *k == key
+        {
+            return target.clone();
         }
-        let selected = self.selected(cx);
-        if !selected.is_empty() {
-            return Target::of(cx, cx.context.to_vec(), selected, axes);
-        }
-        let p = self.picked.as_ref()?;
-        Target::of(cx, p.instances.clone(), vec![p.entity], axes)
+        let target = Target::of(cx, key.context.clone(), key.occurrences.clone(), key.axes);
+        *self.memo.borrow_mut() = Some((key, target.clone()));
+        target
     }
 
     /// The occurrences (of parts or assemblies) selected in the context — none while the
@@ -618,12 +642,13 @@ impl StretchTool {
         if self.gathering {
             return Vec::new();
         }
-        cx.selection.iter().copied().filter(|id| cx.doc.resolve(&EntityPath::new(cx.context.to_vec(), *id)).is_ok()).collect()
+        Self::occurrences(cx, cx.selection.to_vec())
     }
 
     /// The occurrences of the context `ids` names (not its guides).
     fn occurrences(cx: &Cx<'_>, ids: Vec<Id>) -> Vec<Id> {
-        ids.into_iter().filter(|id| cx.doc.resolve(&EntityPath::new(cx.context.to_vec(), *id)).is_ok()).collect()
+        let Ok(a) = cx.doc.context_of(cx.context).and_then(|c| cx.doc.assembly(c)) else { return Vec::new() };
+        ids.into_iter().filter(|id| a.occurrence(*id).is_some()).collect()
     }
 
     /// The cutters kept for `target`, read again when they changed there (another target, an
