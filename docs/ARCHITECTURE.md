@@ -246,6 +246,50 @@ Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
 - Later: integrating a machining into the blank, machining types, and changing a part's axes
   (§2.3) from there.
 
+### 2.10 Future track: procedural parts (not decided)
+
+Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
+
+- **A part is already procedural**: a recipe (§2.4) whose final B-rep is only a cache. The
+  track is to push this further without falling into a general node graph or a timeline:
+  `Part = Blank(params) − Σ Machining(type + params, anchor)`, a two-level CSG tree with a
+  fixed shape and parametrised leaves.
+- **Parametric blank and anchors**: a "board" blank (L × W × T in the part's axes), and
+  machinings anchored on its faces ("face +Z, 37 mm from face −X"): resizing the board, the
+  holes follow. Rule: **anchor only on the blank** (its 6 faces and 12 edges, named stably),
+  **never on a face of the final B-rep**. Since machinings only remove material and their order
+  does not matter, there is no history to replay: this sidesteps persistent face naming, the
+  blocker of parametric modelling (REVIEW, risk 5). A free blank (imported B-rep, boolean
+  result, curved part) stays direct, its machinings placed in the part's axes as today.
+- **Machining types** (hole, groove, mortise…) are the procedural generators of the tools
+  (§2.4).
+- **Shared tool definitions**, rather than "a machining is a solid that has machinings":
+  a tool is composed by **union** (a counterbore = two cylinders, a countersink = cylinder +
+  cone), seldom by subtraction, and it is not a part (no material, type, grain, nor place in
+  the cut list). What is worth having is sharing: a "hole ø8 × 30" defined once, placed many
+  times, changed everywhere — the component / occurrence mechanism applied to tools, and what
+  `source: Linked` (§2.4) prepares for hardware. Needs: a tool kind of its own in the document
+  (not a `Part`), cycles forbidden, a dependency graph to invalidate the parts using a changed
+  tool.
+- **Changing a part's axes** (§2.3) with a parametric blank:
+  - **quarter turns** (re-orienting the grain, standing up a part drawn lying): a signed
+    permutation of the box's axes (24 rotations). L, W, T are permuted, the named faces
+    relabelled by the same permutation, the machinings' parameters unchanged, the occurrences'
+    T compensated — exact, no kernel. Anchors are stored **geometrically** (±X, ±Y, ±Z of the
+    box), the labels end / edge / face **derived** from the current axes: stored semantically,
+    re-orienting the grain would move the holes;
+  - **origin**: a convention (e.g. the min corner), not movable; T absorbs translations;
+  - **oblique rotation**: meaningless for a board (its box no longer gives the cut-list
+    dimensions): only through an explicit "Convert to free shape" (parameters dropped, anchors
+    frozen into placements). A free blank keeps §2.3: any rotation, B-rep and tool placements
+    re-expressed.
+- Possible order: machining types → parametric board blank and anchors → shared tool
+  definitions and hardware-linked machinings. Not: recursive machinings on tools.
+- Open questions: is anchoring on the blank only acceptable (a hole in a chamfered face is
+  then expressed against the box)? Can a non-rectangular blank be parametric? Should the axes
+  tool snap to the 24 orientations on a parametric part, or stay free and offer the conversion
+  only on an oblique angle?
+
 ## 3. Storing solids: the SolidCore record
 
 - A solid is a **`solidcore_record::brep::Brep`**: plain data, `Clone` + `serde`, shared by
@@ -342,7 +386,7 @@ Decided on 2026-11-09.
   `egui_extras` (`svg`): no build step, no binary asset.
 - **SketchUp shortcuts**: Space = Select, M = Move, Q = Rotate, G = Make assembly, Delete =
   Erase, Cmd/Ctrl+Z / Shift+Cmd+Z = Undo / Redo, Shift+Z = Zoom extents; ours: R = Box,
-  C = Cylinder, B = Paint, Cmd/Ctrl+K = command palette, Cmd/Ctrl+1…6 = standard views,
+  C = Cylinder, B = Paint, S = Stretch, Cmd/Ctrl+K = command palette, Cmd/Ctrl+1…6 = standard views,
   Cmd/Ctrl+, = Preferences. They all come from the command registry (§7 quater) and can be
   changed in the preferences. Once a digit is typed
   (or `@ ( [ < + - * / ;`), keystrokes go to the VCB, confirmed by Enter. Menus and tooltips
@@ -700,6 +744,248 @@ model, the file, the display and the tool; (2) inferences on guides; (3) managin
     dropped from the selection. Edit › "Delete guides" erases those of the active context,
     shown or not. The entity info of one guide says its shape (a circle's radius).
 
+## 6 sexies. Stretch
+
+Decided on 2026-11-11, after OpenCutList's Smart Reshape stretch
+(`tool/smart_reshape_tool.rb`, `SmartReshapeStretchActionHandler`; the analysis in
+`worker/common/common_stretch_split_worker.rb` and `model/stretch/`, the application in
+`common_stretch_apply_worker.rb`). Not built yet (REVIEW, "Work: stretch"). Comes **before
+push/pull** (§10): more useful in woodworking, and safer on the kernel side.
+
+**What it does** (as in OCL): the part's box has a grip on each of its 6 faces; pulling one
+stretches the part along that axis, the opposite face anchored. **Cutters** — planes across the
+axis, one in the middle by default, added, moved or removed by the user — split the part into
+**sections**: each section is translated by its share of the move, the matter crossing a cutter
+is lengthened or shortened. A tenon at each end of a rail keeps its length while the rail
+grows. Options: **centred** (both ends move), **measure** as the overall dimension or as the
+offset; the length is typed (VCB, expressions, §6); compression stops 1 mm before two sections
+meet; double-click repeats the last measure. Later: OCL's interior handles (one side stretched,
+the other compressed, overall dimension kept).
+
+**Target: one occurrence, of a part or of an assembly** (assemblies built 2026-11-11), stretched
+**in its component's axes** (§2.3: a part's box is the exact bounds of its shape in its frame;
+an assembly's, its parts' boxes brought into its axes). The tool takes it as the selection
+does: the open part, the one occurrence selected, else the active context's occurrence under
+the cursor (a part, or the assembly holding it — open the assembly to aim at a part in it).
+Later, maybe OCL's way of picking (a click takes the part, the copy key goes up to its parent).
+
+**Several occurrences of one context** (decided on 2026-11-11, after OCL's
+`active_selection_path` + `active_selection_instances`, `root_split`, `_get_edit_transformation`;
+built the same day):
+- **Taking them** as OCL's `SmartSelectActionHandler`: the selection when the tool starts
+  (several ids of the active context); in the tool, a rectangle — left to right a window, right
+  to left a crossing, as the Select tool (`select::marquee_hits`, its guides left out) — and
+  Shift held with clicks toggling occurrences, the set taken when Shift is released
+  (`STATE_SELECT_MULTIPLE`: `StretchTool::gathering`, the selection ignored while Shift is
+  down); a plain click takes one, as before. Both go through the selection (`Command::Select`),
+  drawn as such, as OCL fills the model's selection.
+- **The axes option** (OCL's three, saved; default **entity**, as OCL's stretch preset):
+  *active* — the model's axes, those of the root; *context* — the active context's axes;
+  *entity* — the occurrence's own when there is one, the context's when there are several. In
+  an open part: active the root's, context its assembly's, entity the part's. Only at the root
+  do the three meet.
+- **The box** is common: the bounds, in the chosen axes, of every part placed under the
+  occurrences — its exact box when it lies square to the axes (a part occurrence read from the
+  document, there before its mesh), else its display mesh's vertices (its box's corners would
+  swell it). Its axes with no thickness are not offered. The preview (`StretchPreview`) and
+  `Document::stretch_bounds` / `stretch_spans` take the same context, occurrences and frame.
+- **The operation** is `Operation::Stretch { context, occurrences, frame, axis, cuts,
+  moves, scope }` (none named: `Refusal::NothingStretched`; `frame` rigid): the stretch in the axes `frame` places in the context's (the chosen axes),
+  the occurrences of the context's component it applies to. One occurrence in its own axes is
+  the case built first (`frame` its transform). A part refusing names itself
+  (`Error::InPart`) when several are stretched. (The operation grew: `Command::Replace` boxes
+  its two.)
+- **The walk** starts at the context's component, restricted to those occurrences, each taking
+  the stretch through `frame⁻¹ · its transform`; below, nothing changes (moved or stretched,
+  one component per distinct change, the most common one in place under « all »). The
+  context's component itself is changed in place — as any edit in an open context.
+- **Scope « only these »** (OCL's `make_unique`): the context's path is made its own once
+  (`separate`); then the occurrences that take one change share one copy (OCL's
+  `make_unique_d`: one new definition per deformation, not per instance), a component placed
+  elsewhere too is left as it is. « All » is unchanged.
+- **Cutters**: one occurrence keeps them per component, as before; several share one set, the
+  last used, for the session (OCL's `@@last_cutters_data`; the store's `None` key).
+- Changing the axes option goes back to the grips (OCL's `onToolActionOptionStored`).
+- **Limit** (the kernel's, not OCL's): in the context's or the model's axes, a part turned in
+  them that crosses a cutter has no face along the axis — the stretch is refused, the part
+  named (`Error::InPart`); wholly in a section, it is only moved. OCL deforms any geometry.
+- The preview (`stretch_sketch`, `stretch_swaps`) follows the same walk unchanged.
+
+**Assemblies** (`crates/model/src/stretch.rs`, after OCL's split and apply workers). Walking
+down from the target, the stretch brought into each component's axes (`Stretch::in_frame`),
+each occurrence is:
+- **moved** when its content lies in sections that move alike (its extent along the axis,
+  `Stretch::extent`, conservative for curved faces): only its placement changes, its component
+  is not touched — a leg at the end of a frame;
+- **stretched** otherwise: a part has its recipe stretched as above, an assembly has its
+  occurrences walked in turn (its guides follow their sections). Each component is stretched
+  in its own axes with the sections' own moves — **no anchor**: an occurrence stretched keeps
+  its placement, and the other occurrences of its component show the same change in their own
+  axes, which OCL gets by moving its extern instances back.
+- **What a component becomes** is what the stretch does to each of its pieces (OCL's md5 of
+  section deltas): the move of each vertex, of each end of each edge's and face's extent
+  (`Stretch::piece_moves`), of its machinings' tools, of each occurrence moved whole, of each
+  guide — along its axis turned the canonical way (its first component not negative, OCL's
+  `_axis_sign`), taken from the first piece's move. Wherever the cutters fall between the same
+  pieces, and for a copy turned half round or mirrored stretched alike, it is one change:
+  occurrences taking the same keep one component, the one made by a stretch differing by a
+  move along the axis moved by that move (its placement); different changes make separate
+  components (§2.5). (First built on the stretch itself, cuts and moves: a copy turned half
+  round, stretched alike, became a separate part — fixed 2026-11-11.) Under « all occurrences », the change most of the tree's
+  occurrences take is made in place (shown wherever the component is), the others go to
+  copies; under « only this one », the path is made the target's own (`separate`), then a
+  change goes to a copy whenever its component is placed elsewhere too (counted over every
+  path of the document). Copies keep their ids (§2.6), so paths stay valid.
+- A part below the target that cannot be stretched refuses the whole stretch, named
+  (`Error::InPart`); `Operation::Stretch` takes any occurrence, one undo step, one job for
+  every part. `Outcome::stretched` lists the parts changed (the part after, the part before,
+  its stretch). `Document::stretch_spans` gives the tool its limits (the matter wholly in each
+  section, whole occurrences and parts' edges), `Document::stretch_bounds` an assembly's box
+  from the extents.
+
+**The tool** (`crates/tools/src/tools/stretch.rs`; in the Solids group of the tool bar, after
+the booleans; shortcut S). Rebuilt on 2026-11-11 on OCL's own interaction
+(`SmartReshapeStretchActionHandler`: its states, `_snap_*` and `_preview_*`):
+- **Pick**: the open part, else the one part occurrence selected, else the part clicked (the
+  one under the cursor highlighted until then). A click on nothing, or Esc, lets it go.
+- **Grips and cutters** (OCL's `STATE_STRETCH_START`): a grip at the centre of each face of
+  the part's box (not drawn), a round point drawn over everything and taken near it on screen, seen
+  or not — 30 px for the active axis's, 10 for the others' (the nearer the eye first when two
+  coincide). Hovering a grip makes its axis the active one (the arrow keys lock one); the active
+  axis is dashed between its grips in its colour, the others in grey. The active axis's cutters
+  are translucent planes across the box, 50 px wider than it, drawn in the scene (hidden
+  behind faces, as OCL's `view.draw`: over everything they were unreadable), taken inside on
+  screen or near
+  their outline: pressed and dragged along the axis, to an end of the box to remove one; the
+  copy modifier held, the cutter to add follows the cursor and a click adds it; the other
+  modifier held (Command on macOS, Alt elsewhere), a click removes the one under the cursor;
+  none left, one in the middle again. A click on a grip starts the stretch, or press, drag and
+  release.
+- **Interior handles** (OCL's, built 2026-11-11): with two cutters or more on the active axis,
+  each section between two of them (not the end ones, which anchor) has a handle — its stretch
+  of the line between the grips, taken anywhere along it within 20 px (after the grips, before
+  the cutters), drawn when hovered only: bold, an arrow at each end, over everything. It is
+  grabbed where an inferred point that tells a place along the axis is, projected on it (a
+  diamond: `PreviewPoint::diamond`), else at its point nearest the cursor's ray (a round
+  point). Shift held over it keeps it: its start is then taken anywhere, projected on its
+  line, a dashed line from where it is taken. Moved by `d` along the axis, the sections take
+  OCL's `interior_t_coefs` (`interior_shares`): 0 at the first end, rising evenly to 1 at the
+  handle's, falling evenly to 0 at the other end — the overall length stays, so the measure is
+  always the offset (typed: the way the cursor takes it), « centred » does not apply, and the
+  compression limit holds both ways (`move_range`, unchanged). After it, the axis stays active
+  to chain. Nothing new below the tool: `Operation::Stretch` already takes a move per section.
+- **Stretching** (OCL's `STATE_STRETCH`): the part alone, drawn stretched (no box, no cutters),
+  the measure line dashed with its ends and its length — from the opposite face for the
+  overall dimension, from the grip for the offset. The cursor within 40 px of the start snaps
+  back to it; else an inferred point that tells a place along the axis — a point, an edge across
+  it, a face facing it, not the opposite face's plane, not the part itself — projected on it;
+  else the closest point of the axis to the cursor's ray. Shift holds the last measure (its
+  value; the way the cursor's), a double-click takes it again — kept per kind of measure; the
+  copy modifier tapped centres, the other one tapped switches the scope (OCL's "make unique").
+  A typed value out of range is said (the minimal length, the maximal compression). Then back
+  to the grips on the same part, to chain.
+- The sections move by OCL's profile: from 0 at the anchored end to the full move at the grip,
+  proportional to their rank; centred, from minus to plus the move. Compression stops 1 mm
+  before the matter wholly in two sections meets (`Stretch::section_spans`, OCL's section
+  bounds). After the stretch the cutters are set again as OCL does (`StretchDef#cutter_ratios`,
+  `kept_cutters`): one in the middle of each gap between the matter of two sections that hold
+  some, once moved — each stays between the same vertices, however hard the compression (put
+  back at the mean of its sections' moves, a cutter could end in a section's matter after a
+  strong compression). A run of empty sections is one gap, one cutter; matter overlapping
+  across a cutter leaves none there; none left, one in the middle.
+- **Options**: the measure — overall or offset — and centred (saved), and the scope like the
+  booleans' when no part is open (an open part has its own).
+- **Refused at the click on a grip**: the operation for a 1 mm pull is prepared; a refusal
+  (something curved across a cutter) is said, the stretch does not start.
+- **Deviation**: cutters are kept per part and axis for the session (OCL saves them on the
+  definition, in the model); keeping them in the file would be a format change. The store is
+  thread-local: the tools run on one thread, and each test on its own (a shared one let tests
+  see each other's cutters, part ids being alike).
+
+**Where the stretch applies: the recipe (§2.4), not the final B-rep.**
+- The **blank** is stretched (B-rep stretch below).
+- A **machining** whose tool lies in a single section is **translated** (its placement): exact,
+  nothing deformed.
+- A machining whose tool **crosses a cutter** has **its tool stretched** (a groove along the
+  rail grows with it), in the tool's own frame — the cutters and the axis brought in by the
+  inverse of its placement; the tool, shared with copied machinings, becomes this machining's
+  own. If it cannot be stretched, the stretch is refused and the machining shown.
+- The part is then computed again from its new recipe (the recipe task, asynchronous).
+- The scope (§2.5): all occurrences, or only this one (a separate part). With one target, no
+  divergence; the deformation signature of OCL (`ContainerDef#compute_md5`: section deltas and
+  the sign of the local axis, so a mirrored twin matches) comes with several targets.
+- With the parametric board blank of §2.10, if it comes, stretching the blank would be
+  changing L and anchored machinings would follow; the sections stay for free blanks and for
+  machinings.
+
+**B-rep stretch: rewriting the record**, a pure function on `solidcore_record::brep::Brep`
+(no kernel), a **piecewise translation** along the axis:
+- an element (vertex, edge, face) entirely in one section is **translated** with it: points,
+  curves and surfaces with their NURBS form; pcurves and domains unchanged;
+- an element crossing a cutter must be **invariant along the axis**, and is lengthened:
+  - an edge: a **line parallel to the axis** — its ends follow their vertices, its interval
+    and its pcurves' knots grow;
+  - a face: a **plane containing the axis direction** — the surface stays, each pcurve point
+    shifts by `(Δ·u, Δ·v)` of its section (planes are affine in mm), the domain is taken again
+    from the pcurves; or a **cylinder whose axis is parallel** — its NURBS net (SMLib's form,
+    v = the height in mm) has its rows past the cutter moved, its v knots, domain and pcurves
+    grown;
+  - the kernel writes a mirrored solid's lines as degree-1 splines over ±1234567 and its
+    cylinders as cones of half angle 0: both taken as what they are;
+  - built in `kernel::Stretch` (`crates/kernel/src/stretch.rs`): `apply`, `in_frame` (a tool
+    in its own frame), `extent` (along the axis: exact for lines and whole circles,
+    conservative for curved faces);
+  - anything else crossing a cutter (cone, sphere, torus, spline, intersection curve, a line or
+    plane not along the axis) makes the stretch **invalid**: refused, as OCL refuses a curve
+    crossing a cutter (`StretchSplitDef#sections_valid?`); moving the cutter usually solves it;
+- the kernel reading the record back (the recipe task does it) validates the result; a refusal
+  cancels the stretch.
+- **Probed on 2026-11-11** (a test, not kept): a box stretched and compressed, a cylinder
+  stretched and compressed along its axis (standing and lying), each read back by the kernel,
+  then used as a blank and as a tool in a subtraction: all correct. Seen there: the box's
+  planes carry no NURBS form and linear pcurves in mm; its lines run t ∈ [0, 1] from start to
+  end, a cylinder's seam is parametrised in mm; a compressed cylinder needs its domain shrunk
+  with its knots ("parameter interval outside the natural domain" otherwise).
+- Rejected: cutting at the cutters, translating the pieces and filling the gaps by extrusion
+  (`prism::section` + `extrude_region`) then union — slower, coplanar unions, and nothing for
+  compression.
+
+**Operation** (built 2026-11-11): `Operation::Stretch { target, axis, cuts, moves, scope }` —
+the axis in the part's frame, the cutters' positions along it (`axis · p`), each section's
+displacement (OCL's `edvs`). When prepared, the blank and each tool across a cutter are
+stretched on the spot (a refusal refuses the operation then, before any kernel call); the job
+then holds a `Task::Stretch` per solid — the same rewrite, read back by the kernel, which
+checks it and meshes it — and the recipe task from the new blank. A machining in one section
+(its tool's extent, `Stretch::extent` in its frame) only has its placement moved. Guides follow
+their section when they have one (a line square to the axis, a circle about it); a line along
+the axis stays, an oblique one too. The scope is that of every change to a part (§2.5).
+
+**Preview** (built 2026-11-11): no kernel while dragging. The tool describes the stretch
+(`Preview::stretch`: the occurrence, the scope, the axis, cuts and moves); the editor deforms
+the part's display mesh on the CPU (`scene::stretched_mesh`) and keeps it in the scene under a
+key of its own (`PREVIEW_KEY`, a new revision at each change: the app uploads it like any
+mesh). The map is continuous along the axis: each section's move where it holds matter wholly,
+a linear blend in between — the B-rep's vertices all lie in that matter, the mesh's other
+points on what crosses a cutter, which any increasing map keeps. The triangles are first cut
+where the map bends, so that it is affine on each piece: none turns over, however hard the
+compression (moving each vertex by its own section turned long triangles over, as did the
+continuous map on uncut ones — test `a_compressed_preview_turns_no_triangle_over`). For an
+assembly, the editor sketches the document the stretch would make without its geometry
+(`Document::stretch_sketch`: the same walk, parts left as they are): each part it stretches
+gets a preview mesh (`scene::preview_key(i)`, the first `PREVIEW_KEY`), and each occurrence it
+changes — stretched, moved, copied — is drawn from its mesh or at its new place
+(`Editor::stretch_swaps`, by path: ids are kept), its highlights moved with it. Those
+occurrences are not inferred on while stretching (`Cx::previewed`): they are no longer where
+they were.
+An open part showing its machinings is drawn as its shape, stretched, during the gesture.
+The grips and the measure's ends are drawn by the app over the view (`Preview::points`); the
+cutter planes and their outlines in the scene, depth tested (`Preview::fills`,
+`Preview::scene_lines` → the renderer's `Frame::fills`, blended without writing depth, and its
+depth-tested lines).
+Once applied, the stretch stays drawn as previewed while the kernel computes it
+(`Editor::held_stretch`, the tool's grips hidden meanwhile): else the part showed as it was for
+a frame or more before its new shape came. Test `a_stretch_stays_drawn_stretched_while_computed`.
+
 ## 7. Crates
 
 ```
@@ -1028,5 +1314,6 @@ are only regenerated for a new version (`write_reference_files`).
    unique, multiple instances. *(Done, on the former model; replaced by §2.)*
 2 bis. **Parts, assemblies, machinings** (§2): see the plan in `docs/REVIEW.md`.
 3. **Booleans**: union, difference, intersection, across contexts too (§4).
+3 bis. **Stretch** (§6 sexies): one part first, in its axes.
 4. **Push/pull**: picking a B-rep face, offset (the kernel's `offset_faces`, or extrusion +
    boolean). The riskiest on the kernel side: last.

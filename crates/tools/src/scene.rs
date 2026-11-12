@@ -121,6 +121,14 @@ impl Cached {
 /// document's counter).
 const RECIPE_KEY: u64 = 1 << 63;
 const TOOL_KEY: u64 = 1 << 62;
+/// The key of the first mesh a tool previews in a part's stead (a part stretched, ARCHITECTURE.md
+/// §6 sexies); the others follow it ([`preview_key`]).
+pub const PREVIEW_KEY: Id = Id(1 << 61);
+
+/// The key of the `i`-th mesh a tool previews.
+pub fn preview_key(i: usize) -> Id {
+    Id(PREVIEW_KEY.0 + i as u64)
+}
 
 /// What a piece of geometry of the scene is, for inferences: an occurrence's shape, or — an
 /// open part's recipe shown — its blank or the tool of one of its machinings.
@@ -177,6 +185,8 @@ pub struct DisplayScene {
     /// Level 1: by `Arc<Solid>` address.
     solids: HashMap<usize, Cached>,
     definitions: BTreeMap<Id, DefinitionMesh>,
+    /// The meshes a tool previews, under [`preview_key`]s.
+    preview: Vec<DefinitionMesh>,
     placements: BTreeMap<Id, Vec<Placement>>,
     /// Solids of the document without a mesh, not handed out yet.
     missing: Vec<Arc<Solid>>,
@@ -349,13 +359,21 @@ impl DisplayScene {
         self.recipe.as_ref()
     }
 
-    /// Parts, as the renderer uploads them.
+    /// Parts, as the renderer uploads them (with the meshes a tool previews).
     pub fn definition_meshes(&self) -> impl Iterator<Item = &DefinitionMesh> {
-        self.definitions.values()
+        self.definitions.values().chain(&self.preview)
     }
 
     pub fn definition_mesh(&self, def: Id) -> Option<&DefinitionMesh> {
+        if def.0 >= PREVIEW_KEY.0 && def.0 < TOOL_KEY {
+            return self.preview.iter().find(|m| m.definition == def);
+        }
         self.definitions.get(&def)
+    }
+
+    /// The meshes a tool previews in parts' stead, under [`preview_key`]s (none: dropped).
+    pub fn set_preview(&mut self, meshes: Vec<DefinitionMesh>) {
+        self.preview = meshes;
     }
 
     /// Every occurrence of every part.
@@ -649,4 +667,102 @@ fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64, clip: Option<(DVec3, DVec3
         best = Some((t, k, n));
     }
     best
+}
+
+/// `mesh` stretched (ARCHITECTURE.md §6 sexies), by a continuous map along the axis: where a
+/// section holds matter wholly (`spans`, as [`solidsketch_kernel::Stretch::section_spans`]
+/// gives them) the section's move, in between a linear blend. The B-rep's vertices all lie in
+/// that matter, so they go where the stretch puts them; the mesh's other points lie on what
+/// crosses a cutter — planes and cylinders along the axis, which any increasing map along it
+/// keeps. The map being affine only between its knots, the triangles are first cut at them:
+/// none then turns over, however hard the compression (moving each vertex by its section, or
+/// a long triangle by a map bent under it, did).
+pub fn stretched_mesh(mesh: &Mesh, stretch: &solidsketch_kernel::Stretch, spans: &[Option<(f64, f64)>]) -> Mesh {
+    let a = stretch.axis();
+    let knots: Vec<(f64, f64)> =
+        spans.iter().zip(stretch.moves()).filter_map(|(s, m)| s.map(|(lo, hi)| [(lo, *m), (hi, *m)])).flatten().collect();
+    let shift = |x: f64| -> f64 {
+        let (Some(first), Some(last)) = (knots.first(), knots.last()) else { return stretch.move_at(x) };
+        if x <= first.0 {
+            return first.1;
+        }
+        if x >= last.0 {
+            return last.1;
+        }
+        let i = knots.partition_point(|k| k.0 <= x);
+        let ((x0, m0), (x1, m1)) = (knots[i - 1], knots[i]);
+        if x1 - x0 <= 0.0 { m1 } else { m0 + (m1 - m0) * (x - x0) / (x1 - x0) }
+    };
+    // Where the map bends: the knots between which the move changes.
+    let mut bends: Vec<f64> = knots.windows(2).filter(|w| (w[0].1 - w[1].1).abs() > 1e-9).flat_map(|w| [w[0].0, w[1].0]).collect();
+    bends.dedup_by(|x, y| (*x - *y).abs() < 1e-9);
+    let cut = cut_at(mesh, a, &bends);
+    let moved = |p: &[f32; 3]| -> [f32; 3] {
+        let w = cut.origin + DVec3::from_array(p.map(f64::from));
+        (w + a * shift(a.dot(w)) - cut.origin).as_vec3().to_array()
+    };
+    Mesh {
+        positions: cut.positions.iter().map(moved).collect(),
+        edges: cut.edges.iter().map(|e| e.iter().map(moved).collect()).collect(),
+        ..cut
+    }
+}
+
+/// `mesh` with its triangles cut by the planes `a · p = x` for each `x` of `at` (the pieces
+/// fanned into triangles, keeping their face); its edges as they are.
+fn cut_at(mesh: &Mesh, a: DVec3, at: &[f64]) -> Mesh {
+    if at.is_empty() {
+        return mesh.clone();
+    }
+    let o = mesh.origin;
+    let point = |i: u32| DVec3::from_array(mesh.positions[i as usize].map(f64::from));
+    let normal = |i: u32| DVec3::from_array(mesh.normals.get(i as usize).copied().unwrap_or([0.0, 0.0, 1.0]).map(f64::from));
+    let (mut positions, mut normals, mut indices, mut tri_face) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (t, tri) in mesh.indices.chunks(3).enumerate() {
+        let face = mesh.tri_face.get(t).copied().unwrap_or(0);
+        let mut pieces: Vec<Vec<(DVec3, DVec3)>> = vec![tri.iter().map(|&i| (point(i), normal(i))).collect()];
+        for &x in at {
+            let level = |p: DVec3| a.dot(o + p) - x;
+            let mut next = Vec::with_capacity(pieces.len() + 1);
+            for poly in pieces {
+                let (lo, hi) = poly.iter().fold((f64::MAX, f64::MIN), |(l, h), (p, _)| (l.min(level(*p)), h.max(level(*p))));
+                if lo >= -1e-9 || hi <= 1e-9 {
+                    next.push(poly);
+                    continue;
+                }
+                // Both sides of the plane: each keeps its corners and the crossings.
+                let (mut below, mut above) = (Vec::new(), Vec::new());
+                for k in 0..poly.len() {
+                    let ((p, n), (q, m)) = (poly[k], poly[(k + 1) % poly.len()]);
+                    let (lp, lq) = (level(p), level(q));
+                    if lp <= 0.0 {
+                        below.push((p, n));
+                    }
+                    if lp >= 0.0 {
+                        above.push((p, n));
+                    }
+                    if (lp < 0.0 && lq > 0.0) || (lp > 0.0 && lq < 0.0) {
+                        let s = lp / (lp - lq);
+                        let c = (p.lerp(q, s), n.lerp(m, s).normalize_or_zero());
+                        below.push(c);
+                        above.push(c);
+                    }
+                }
+                next.extend([below, above].into_iter().filter(|p| p.len() >= 3));
+            }
+            pieces = next;
+        }
+        for poly in pieces {
+            let base = positions.len() as u32;
+            for (p, n) in &poly {
+                positions.push(p.as_vec3().to_array());
+                normals.push(n.as_vec3().to_array());
+            }
+            for k in 1..poly.len() as u32 - 1 {
+                indices.extend([base, base + k, base + k + 1]);
+                tri_face.push(face);
+            }
+        }
+    }
+    Mesh { positions, normals, indices, tri_face, ..mesh.clone() }
 }

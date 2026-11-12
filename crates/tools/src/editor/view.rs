@@ -8,7 +8,7 @@ use super::Editor;
 use crate::guides::Stroke;
 use crate::infer::InferKind;
 use crate::scene::{solids_under, transform_bounds};
-use crate::tools::{self, Marquee, PreviewLine};
+use crate::tools::{self, Marquee, PreviewFill, PreviewLine};
 
 /// How a highlighted solid is marked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +66,10 @@ pub struct View {
     pub batches: Vec<(Id, Vec<ViewPlacement>)>,
     pub highlights: Vec<ViewHighlight>,
     pub overlay: Vec<PreviewLine>,
+    /// A tool's lines drawn depth-tested.
+    pub scene_lines: Vec<PreviewLine>,
+    /// A tool's translucent polygons, drawn depth-tested.
+    pub fills: Vec<PreviewFill>,
     /// The inferred point to mark, with its kind (the app draws the marker and the tooltip).
     pub inference: Option<(DVec3, InferKind)>,
     /// The selection rectangle being dragged (the app draws it).
@@ -212,17 +216,28 @@ impl Editor {
         let hide_original = preview.ghost.is_some() && !self.tool_copying();
         let depth = self.context.len();
         let open = self.open_part_path();
-        // An open part showing its machinings is drawn as its recipe instead.
-        let recipe = self.scene.recipe().filter(|_| self.showing_machinings());
+        // What a tool previews stretched (§6 sexies): each occurrence it changes drawn from its
+        // preview mesh, or where it moves (`stretch_swaps`).
+        let swaps = if preview.stretch.is_some() { Some(&self.stretch_swaps) } else { None };
+        let swap = |p: &crate::scene::Placement| swaps.and_then(|s| s.get(&p.entity_path())).copied();
+        // An open part showing its machinings is drawn as its recipe instead — but stretched,
+        // as its shape.
+        let recipe = self
+            .scene
+            .recipe()
+            .filter(|_| self.showing_machinings())
+            .filter(|_| open.as_ref().is_none_or(|o| swaps.is_none_or(|s| !s.contains_key(o))));
         let hidden = |p: &&crate::scene::Placement| {
             (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| self.selection.contains(id)))
                 || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
         };
+        let mut swapped: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
+        // The highlights to move with them: from the part where it was to where it is drawn.
+        let mut moved: Vec<(Id, DAffine3, Id, DAffine3)> = Vec::new();
         for (def, places) in self.scene.placements() {
-            let ps = places
-                .iter()
-                .filter(|p| !hidden(p))
-                .map(|p| ViewPlacement {
+            let mut ps = Vec::with_capacity(places.len());
+            for p in places.iter().filter(|p| !hidden(p)) {
+                let vp = ViewPlacement {
                     transform: p.transform,
                     faded: match &open {
                         Some(o) => p.entity_path() != *o,
@@ -230,10 +245,22 @@ impl Editor {
                     },
                     material: p.material,
                     look: Look::Shape,
-                })
-                .collect();
+                };
+                match swap(p) {
+                    Some((key, t)) => {
+                        moved.push((def, p.transform, key, t));
+                        let vp = ViewPlacement { transform: t, ..vp };
+                        match swapped.iter_mut().find(|(k, _)| *k == key) {
+                            Some((_, ps)) => ps.push(vp),
+                            None => swapped.push((key, vec![vp])),
+                        }
+                    }
+                    None => ps.push(vp),
+                }
+            }
             v.batches.push((def, ps));
         }
+        v.batches.extend(swapped);
         if let (Some(r), Some(o)) = (recipe, &open)
             && let Ok((_, _, t)) = doc.resolve_part(o)
         {
@@ -355,7 +382,16 @@ impl Editor {
                 mark(&mut v.highlights, &self.context, *id, Mark::Ghost, g);
             }
         }
+        // What is drawn stretched or moved is marked so (the selection's mark would draw it as
+        // it was).
+        for h in v.highlights.iter_mut() {
+            if let Some((_, _, key, t)) = moved.iter().find(|(def, at, _, _)| *def == h.definition && at.abs_diff_eq(h.transform, 1e-9)) {
+                (h.definition, h.solid, h.transform) = (*key, *key, *t);
+            }
+        }
         v.overlay = preview.lines;
+        v.scene_lines = preview.scene_lines;
+        v.fills = preview.fills;
         v.overlay_guides = preview.guides;
         // The axes, across the view.
         let frame = self.axes_transform();

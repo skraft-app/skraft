@@ -1019,7 +1019,10 @@ fn copies_and_arrays_need_no_kernel_and_a_refused_array_gives_the_copy_back() {
     assert_eq!(e.document().root_assembly().occurrences.len(), 2);
 
     // `5x` typed after the copy: the copy is replaced by the array, at once, in one step.
-    e.run(Command::Replace { previous: copy.clone(), op: Operation::Array { context: root, entities: vec![s], step: t, count: 5 } });
+    e.run(Command::Replace {
+        previous: Box::new(copy.clone()),
+        op: Box::new(Operation::Array { context: root, entities: vec![s], step: t, count: 5 }),
+    });
     assert!(!e.busy());
     assert_eq!(e.document().root_assembly().occurrences.len(), 6);
     assert_eq!(k.queued(), 0, "nothing to mesh: one part");
@@ -1030,7 +1033,10 @@ fn copies_and_arrays_need_no_kernel_and_a_refused_array_gives_the_copy_back() {
     // A refused array leaves the copy as it was.
     e.undo();
     e.apply(copy.clone()).unwrap();
-    e.run(Command::Replace { previous: copy.clone(), op: Operation::Array { context: root, entities: vec![s], step: t, count: 0 } });
+    e.run(Command::Replace {
+        previous: Box::new(copy.clone()),
+        op: Box::new(Operation::Array { context: root, entities: vec![s], step: t, count: 0 }),
+    });
     assert_eq!(e.history().undo_op(), Some(&copy));
     assert_eq!(e.document().root_assembly().occurrences.len(), 2);
 }
@@ -2113,4 +2119,465 @@ fn copying_infers_on_the_original_left_in_place() {
     e.input(ToolInput::Click { px: px(&e, corner), mods: Modifiers::default() });
     let (min, max) = bounds_of(&e, &EntityPath::root(drawn(&e)));
     assert!(close(min, DVec3::new(400.0, 200.0, 0.0)) && close(max, DVec3::new(800.0, 400.0, 18.0)), "{min:?} {max:?}");
+}
+
+/// A board 600 × 300 × 18 at the origin, drilled through at each `x` (y = 150), selected in a
+/// top editor (0.5 px per mm) with the stretch tool.
+fn drilled_board_editor(xs: &[f64]) -> (Editor, Id) {
+    let doc = Document::new();
+    let root = doc.root();
+    let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0, 300.0, 18.0) };
+    let (mut d, out) =
+        doc.apply(&Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let a = out.created[0];
+    for &x in xs {
+        let drill = Primitive::Cylinder { origin: DVec3::new(x, 150.0, -10.0), radius: 5.0, height: 40.0 };
+        let (next, out) =
+            d.apply(&Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY }).unwrap();
+        let tool = EntityPath::root(out.created[0]);
+        d = next
+            .apply(&Operation::Boolean { target: EntityPath::root(a), tool, op: Boolean::Difference, scope: solidsketch_model::Scope::All })
+            .unwrap()
+            .0;
+    }
+    let mut e = top_editor(d);
+    e.select(vec![a]);
+    e.set_tool(ToolKind::Stretch);
+    (e, a)
+}
+
+/// The board's blank extent along X, and its holes' places.
+fn stretched(e: &Editor, a: Id) -> ((f64, f64), Vec<f64>) {
+    let (_, p, _) = e.document().resolve_part(&EntityPath::root(a)).unwrap();
+    let (lo, hi) = p.blank.vertex_bounds().unwrap();
+    let mut xs: Vec<f64> = p.machinings.iter().map(|m| (m.placement.translation.x * 1e6).round() / 1e6).collect();
+    xs.sort_by(f64::total_cmp);
+    ((lo.x, hi.x), xs)
+}
+
+#[test]
+fn stretch_tool_pulls_a_grip() {
+    let (mut e, a) = drilled_board_editor(&[100.0, 250.0, 500.0]);
+    // The grip at the centre of the end face, taken near it on screen: the overall length
+    // typed; the cutter in the middle: the far hole moves, the others stay.
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    assert!(e.status().contains("valider l'étirement"), "{}", e.status());
+    e.input(ToolInput::Vcb("800".into()));
+    assert_eq!(stretched(&e, a), ((0.0, 800.0), vec![100.0, 250.0, 700.0]), "{}", e.status());
+
+    // Back to the grips on the same part: the offset, −100.
+    e.set_tool_option("measure", OptionValue::Choice("offset".into()));
+    click(&mut e, DVec3::new(800.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("-100".into()));
+    assert_eq!(stretched(&e, a), ((0.0, 700.0), vec![100.0, 250.0, 600.0]));
+
+    // Centred, overall 900: both ends 100 out. Typed too short: said, nothing done.
+    e.set_tool_option("measure", OptionValue::Choice("overall".into()));
+    e.set_tool_option("centered", OptionValue::Toggle(true));
+    click(&mut e, DVec3::new(700.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("100".into()));
+    assert!(e.status().contains("longueur minimale"), "{}", e.status());
+    e.input(ToolInput::Vcb("900".into()));
+    assert_eq!(stretched(&e, a), ((-100.0, 800.0), vec![0.0, 150.0, 700.0]));
+
+    // A cutter added (copy modifier held) at 100: the hole at 150 then takes half the move.
+    e.set_tool_option("centered", OptionValue::Toggle(false));
+    e.set_copy(true);
+    click(&mut e, DVec3::new(100.0, 100.0, 18.0));
+    e.set_copy(false);
+    click(&mut e, DVec3::new(800.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("1000".into()));
+    assert_eq!(stretched(&e, a), ((-100.0, 900.0), vec![0.0, 200.0, 800.0]));
+    // One undo step each.
+    e.undo();
+    assert_eq!(stretched(&e, a), ((-100.0, 800.0), vec![0.0, 150.0, 700.0]));
+}
+
+#[test]
+fn stretch_tool_cutters_are_dragged_added_and_removed() {
+    let (mut e, _) = drilled_board_editor(&[]);
+    // The cutters' planes, by where they cross the board (seen from the top: a line each).
+    let cutters = |e: &Editor| {
+        let mut xs: Vec<i64> = e.view().fills.iter().map(|f| f.corners[0].x.round() as i64).collect();
+        xs.sort();
+        xs
+    };
+    let at = |e: &Editor, x: f64| px(e, DVec3::new(x, 50.0, 18.0));
+    // No axis yet: no cutters; a grip hovered makes its axis the active one.
+    e.input(ToolInput::Hover { px: at(&e, 150.0) });
+    assert_eq!(cutters(&e), Vec::<i64>::new());
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 150.0, 18.0)) });
+    e.input(ToolInput::Hover { px: at(&e, 150.0) });
+    assert_eq!(cutters(&e), vec![300]);
+    // Dragged from 300 to 450.
+    e.input(ToolInput::Hover { px: at(&e, 300.0) });
+    e.input(ToolInput::DragStart { px: at(&e, 300.0), mods: Modifiers::default() });
+    e.input(ToolInput::Drag { px: at(&e, 450.0) });
+    e.input(ToolInput::DragEnd { px: at(&e, 450.0), mods: Modifiers::default() });
+    assert_eq!(cutters(&e), vec![450]);
+    // One more at 200 (copy modifier held: shown where it would go, then added).
+    e.set_copy(true);
+    e.input(ToolInput::Hover { px: at(&e, 200.0) });
+    assert_eq!(cutters(&e), vec![200, 450]);
+    click(&mut e, DVec3::new(200.0, 50.0, 18.0));
+    e.set_copy(false);
+    assert_eq!(cutters(&e), vec![200, 450]);
+    // 200 dragged to the end of the board: removed.
+    e.input(ToolInput::DragStart { px: at(&e, 200.0), mods: Modifiers::default() });
+    e.input(ToolInput::Drag { px: at(&e, -100.0) });
+    e.input(ToolInput::DragEnd { px: at(&e, -100.0), mods: Modifiers::default() });
+    assert_eq!(cutters(&e), vec![450]);
+    // The other modifier held: a click removes; none left, one in the middle again.
+    e.set_alt(true);
+    click(&mut e, DVec3::new(450.0, 50.0, 18.0));
+    e.set_alt(false);
+    assert_eq!(cutters(&e), vec![300]);
+}
+
+#[test]
+fn stretch_tool_moves_an_interior_section() {
+    let (mut e, a) = drilled_board_editor(&[100.0, 250.0, 500.0]);
+    let on_axis = |x: f64| DVec3::new(x, 150.0, 18.0);
+    let cutters = |e: &Editor| {
+        let mut xs: Vec<i64> = e.view().fills.iter().map(|f| f.corners[0].x.round() as i64).collect();
+        xs.sort();
+        xs
+    };
+    // The red axis active, a second cutter at 200: the section 200–300 (the hole at 250) gets a
+    // handle, drawn when hovered (bold, with its arrows).
+    e.input(ToolInput::Hover { px: px(&e, on_axis(600.0)) });
+    e.set_copy(true);
+    click(&mut e, DVec3::new(200.0, 100.0, 18.0));
+    e.set_copy(false);
+    assert_eq!(cutters(&e), vec![200, 300]);
+    let bold = |e: &Editor| e.view().overlay.iter().filter(|l| l.bold).count();
+    e.input(ToolInput::Hover { px: px(&e, on_axis(400.0)) });
+    assert_eq!(bold(&e), 0);
+    e.input(ToolInput::Hover { px: px(&e, on_axis(230.0)) });
+    assert_eq!(bold(&e), 5, "the segment and its four arrow strokes");
+    assert!(e.status().contains("entre les deux plans de coupe"), "{}", e.status());
+
+    // Taken and moved 50 along the axis (typed): the hole moves, the length stays; the measure
+    // is the offset whatever the option; the cutters go back to the middle of the gaps between
+    // the matter (the holes at 100, 300 and 500).
+    click(&mut e, on_axis(230.0));
+    assert_eq!(e.vcb().unwrap().0, "Décalage");
+    assert!(e.status().contains("valider le déplacement"), "{}", e.status());
+    e.input(ToolInput::Vcb("50".into()));
+    assert_eq!(stretched(&e, a), ((0.0, 600.0), vec![100.0, 300.0, 500.0]), "{}", e.status());
+    e.input(ToolInput::Hover { px: px(&e, on_axis(420.0)) });
+    assert_eq!(cutters(&e), vec![200, 400]);
+
+    // Too far towards the start (away from the grip of the blue axis, at the centre): the gap to the matter before (105–295) keeps 1 mm.
+    click(&mut e, on_axis(260.0));
+    e.input(ToolInput::Vcb("-200".into()));
+    assert!(e.status().contains("compression maximale de 189"), "{}", e.status());
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+
+    // Shift held over the handle: its start taken anywhere, here the far hole's centre (a
+    // diamond: from the geometry), then moved 20.
+    e.input(ToolInput::Hover { px: px(&e, on_axis(260.0)) });
+    e.set_shift(true);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 150.0, 18.0)) });
+    let points = e.overlay_points();
+    let grab = points.iter().find(|p| p.diamond).expect("a diamond");
+    assert!((grab.at.x - 500.0).abs() < 1e-6, "{}", grab.at);
+    click(&mut e, DVec3::new(500.0, 150.0, 18.0));
+    e.set_shift(false);
+    e.input(ToolInput::Vcb("20".into()));
+    assert_eq!(stretched(&e, a), ((0.0, 600.0), vec![100.0, 320.0, 500.0]), "{}", e.status());
+}
+
+#[test]
+fn stretch_tool_refuses_what_cannot_stretch_and_takes_the_open_part() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let rod = Primitive::Cylinder { origin: DVec3::ZERO, radius: 50.0, height: 200.0 };
+    let rod =
+        e.apply(Operation::AddPrimitive { context: root, primitive: rod, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created
+            [0];
+    e.select(vec![rod]);
+    e.set_tool(ToolKind::Stretch);
+    // The red axis locked (→): across it, the cylinder cannot stretch.
+    e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
+    click(&mut e, DVec3::new(50.0, 0.0, 200.0));
+    assert!(e.status().contains("traverse une coupe"), "{}", e.status());
+    let before = e.document().resolve_part(&EntityPath::root(rod)).unwrap().1.blank.clone();
+
+    // Along its axis it stretches — the top grip, nearer the eye than the bottom one under it;
+    // in the open part, the part's own scope (no option of the tool's).
+    e.set_tool(ToolKind::Select);
+    e.enter(rod);
+    e.set_tool(ToolKind::Stretch);
+    assert!(e.tool_options().iter().all(|o| o.key != "scope"));
+    click(&mut e, DVec3::new(0.0, 0.0, 200.0));
+    e.input(ToolInput::Vcb("300".into()));
+    let after = e.document().resolve_part(&EntityPath::root(rod)).unwrap().1.blank.clone();
+    assert!(!std::sync::Arc::ptr_eq(&before, &after), "{}", e.status());
+    let (lo, hi) = after.bounds().unwrap();
+    assert!((lo.z - 0.0).abs() < 1e-6 && (hi.z - 300.0).abs() < 1e-6, "{lo} {hi}");
+}
+
+#[test]
+fn stretch_tool_draws_the_part_stretched_while_pulling() {
+    let (mut e, a) = drilled_board_editor(&[500.0]);
+    let root = e.document().root();
+    // A copy of the board, further up.
+    let b = e
+        .apply(Operation::Duplicate { context: root, entities: vec![a], transform: glam::DAffine3::from_translation(DVec3::Y * 400.0) })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    e.select(vec![a]);
+    let key = crate::scene::PREVIEW_KEY;
+    let stretched = |e: &Editor| e.view().batches.iter().find(|(k, _)| *k == key).map_or(0, |(_, ps)| ps.len());
+    let part = e.document().resolve_part(&EntityPath::root(a)).unwrap().0;
+    let drawn_plain = |e: &Editor| e.view().batches.iter().find(|(k, _)| *k == part).map_or(0, |(_, ps)| ps.len());
+
+    // Pulled 200 out: both boards drawn stretched (scope "all"), not as they are; nothing but
+    // the measure drawn over them (no box, no cutters).
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(800.0, 150.0, 18.0)) });
+    assert_eq!((stretched(&e), drawn_plain(&e)), (2, 0));
+    assert!(e.view().fills.is_empty());
+    let mesh = &e.scene().definition_mesh(key).unwrap().parts[0].mesh;
+    let max_x = mesh.positions.iter().map(|p| mesh.origin.x + p[0] as f64).fold(f64::MIN, f64::max);
+    assert!((max_x - 800.0).abs() < 1e-3, "{max_x}");
+    // Selected and marked as changing, on the stretched shape: the original is not drawn again.
+    assert!(e.view().highlights.iter().all(|h| h.definition != part));
+    assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Selected && h.definition == key));
+    assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Related && h.definition == key));
+
+    // Only this one: the other drawn as it is.
+    e.set_tool_option("scope", OptionValue::Choice("this".into()));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(790.0, 150.0, 18.0)) });
+    assert_eq!((stretched(&e), drawn_plain(&e)), (1, 1));
+
+    // Done: drawn from the document again.
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(790.0, 150.0, 18.0)), mods: Modifiers::default() });
+    assert_eq!(stretched(&e), 0);
+    assert_ne!(e.document().resolve_part(&EntityPath::root(a)).unwrap().0, e.document().resolve_part(&EntityPath::root(b)).unwrap().0);
+}
+
+#[test]
+fn a_compressed_preview_turns_no_triangle_over() {
+    // Holes near both ends: the top face's triangles span the cutter.
+    let (mut e, a) = drilled_board_editor(&[100.0, 500.0]);
+    let part = e.document().resolve_part(&EntityPath::root(a)).unwrap().0;
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    // As far as it goes (the holes 1 mm apart).
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 150.0, 18.0)) });
+    // Each triangle faces the way of its vertices' normals (the surface's, which a stretch along
+    // the axis keeps), as before.
+    let turned = |m: &solidsketch_model::kernel::Mesh| {
+        let p = |i: u32| DVec3::from_array(m.positions[i as usize].map(f64::from));
+        let n = |i: u32| DVec3::from_array(m.normals[i as usize].map(f64::from));
+        m.indices
+            .chunks(3)
+            .filter(|t| {
+                let g = (p(t[1]) - p(t[0])).cross(p(t[2]) - p(t[0]));
+                g.length() > 1e-6 && g.dot(n(t[0]) + n(t[1]) + n(t[2])) < 0.0
+            })
+            .count()
+    };
+    let before = &e.scene().definition_mesh(part).unwrap().parts[0].mesh;
+    assert_eq!(turned(before), 0);
+    let after = &e.scene().definition_mesh(crate::scene::PREVIEW_KEY).unwrap().parts[0].mesh;
+    assert_eq!(turned(after), 0);
+}
+
+#[test]
+fn a_stretch_stays_drawn_stretched_while_computed() {
+    let (mut e, k) = deferred_editor(Document::new());
+    let cube = add_cube(&mut e, &k);
+    e.select(vec![cube]);
+    e.set_tool(ToolKind::Stretch);
+    let key = crate::scene::PREVIEW_KEY;
+    let part = e.document().resolve_part(&EntityPath::root(cube)).unwrap().0;
+    let drawn = |e: &Editor, def: Id| e.view().batches.iter().find(|(k, _)| *k == def).map_or(0, |(_, ps)| ps.len());
+    // The grip on +X pulled 300 out, then the click that applies it.
+    click(&mut e, DVec3::new(100.0, 50.0, 50.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(400.0, 50.0, 50.0)) });
+    assert_eq!((drawn(&e, key), drawn(&e, part)), (1, 0));
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(400.0, 50.0, 50.0)), mods: Modifiers::default() });
+    // While the kernel works: still drawn stretched, without the tool's grips or cutters.
+    assert!(e.busy());
+    assert_eq!((drawn(&e, key), drawn(&e, part)), (1, 0));
+    assert!(e.view().fills.is_empty() && e.overlay_points().is_empty());
+    // Done: drawn from the document, stretched.
+    k.run_all();
+    assert!(e.poll());
+    assert!(!e.busy());
+    assert_eq!(drawn(&e, key), 0);
+    assert!(e.scene().definition_mesh(key).is_none());
+    let (_, hi) = bounds_of(&e, &EntityPath::root(cube));
+    assert!((hi.x - 400.0).abs() < 1e-3, "{hi}");
+}
+
+#[test]
+fn stretch_tool_stretches_an_assembly() {
+    // A frame made an assembly: two rails 0–600 along X (one part), two legs at the ends (one
+    // part), seen from the top.
+    let doc = Document::new();
+    let root = doc.root();
+    let add = |d: Document, p: Primitive| {
+        let (d, out) = d.apply(&Operation::AddPrimitive { context: root, primitive: p, placement: glam::DAffine3::IDENTITY }).unwrap();
+        (d, out.created[0])
+    };
+    let copy = |d: Document, id: Id, by: DVec3| {
+        let (d, out) =
+            d.apply(&Operation::Duplicate { context: root, entities: vec![id], transform: glam::DAffine3::from_translation(by) }).unwrap();
+        (d, out.created[0])
+    };
+    let (d, rail) = add(doc, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0, 20.0, 40.0) });
+    let (d, leg) = add(d, Primitive::Box { origin: DVec3::new(0.0, 0.0, -400.0), size: DVec3::new(50.0, 50.0, 400.0) });
+    let (d, rail2) = copy(d, rail, DVec3::Y * 300.0);
+    let (d, leg2) = copy(d, leg, DVec3::X * 550.0);
+    let (d, out) = d.apply(&Operation::MakeAssembly { context: root, entities: vec![rail, rail2, leg, leg2], name: None }).unwrap();
+    let a = out.created[0];
+    let mut e = top_editor(d);
+    e.set_tool(ToolKind::Stretch);
+    let part_of = |e: &Editor, o: Id| e.document().resolve(&EntityPath::new(vec![a], o)).unwrap().component;
+    let (rail_part, leg_part) = (part_of(&e, rail), part_of(&e, leg));
+
+    // A click on a rail takes the assembly, as the selection would; its box spans the frame.
+    click(&mut e, DVec3::new(100.0, 10.0, 40.0));
+    assert!(e.status().contains("Cliquer une poignée"), "{}", e.status());
+    // Its grip at the end of the frame pulled 200: the rails drawn stretched (one mesh, both
+    // occurrences), the far leg drawn moved, the near one as it is.
+    click(&mut e, DVec3::new(600.0, 160.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(800.0, 160.0, 18.0)) });
+    let key = crate::scene::PREVIEW_KEY;
+    let batch = |e: &Editor, def: Id| e.view().batches.iter().filter(|(k, _)| *k == def).flat_map(|(_, ps)| ps.clone()).collect::<Vec<_>>();
+    assert_eq!(batch(&e, key).len(), 2);
+    assert!(batch(&e, rail_part).is_empty());
+    let mut legs: Vec<i64> = batch(&e, leg_part).iter().map(|p| p.transform.translation.x.round() as i64).collect();
+    legs.sort();
+    assert_eq!(legs, vec![0, 750]);
+    // Not inferred where it was: the far leg, moved; the near one, in place, still.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(550.0, 0.0, 0.0)) });
+    assert!(e.inference().is_none(), "{:?}", e.inference());
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 50.0, 0.0)) });
+    assert!(e.inference().is_some());
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(800.0, 160.0, 18.0)) });
+
+    // Typed: 900 overall. The rails stretched, the far leg moved, the parts kept.
+    e.input(ToolInput::Vcb("900".into()));
+    let x = |e: &Editor, o: Id| bounds_of(e, &EntityPath::new(vec![a], o));
+    assert!((x(&e, rail).1.x - 900.0).abs() < 1e-6 && (x(&e, rail2).1.x - 900.0).abs() < 1e-6, "{}", e.status());
+    assert!((x(&e, leg2).0.x - 850.0).abs() < 1e-6 && (x(&e, leg).0.x).abs() < 1e-6);
+    assert_eq!((part_of(&e, rail), part_of(&e, rail2), part_of(&e, leg2)), (rail_part, rail_part, leg_part));
+    assert_eq!(batch(&e, key).len(), 0);
+}
+
+/// Three boards of one part at the root, 0–200 along X, 100 apart along Y (seen from the top).
+fn three_boards_editor() -> (Editor, [Id; 3]) {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) };
+    let b1 =
+        e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created
+            [0];
+    let mut copy = |by: f64| {
+        let t = glam::DAffine3::from_translation(DVec3::Y * by);
+        e.apply(Operation::Duplicate { context: root, entities: vec![b1], transform: t }).unwrap().unwrap().created[0]
+    };
+    let (b2, b3) = (copy(100.0), copy(300.0));
+    (e, [b1, b2, b3])
+}
+
+#[test]
+fn stretch_tool_takes_several_occurrences_by_a_rectangle() {
+    let (mut e, [b1, b2, b3]) = three_boards_editor();
+    e.set_tool(ToolKind::Stretch);
+    let part = e.document().resolve(&EntityPath::root(b1)).unwrap().component;
+    // A rectangle around the first two, left to right: they are selected and taken.
+    drag(&mut e, DVec3::new(-10.0, -10.0, 0.0), DVec3::new(210.0, 160.0, 0.0), Modifiers::default());
+    assert_eq!(e.selection(), [b1, b2]);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 500.0, 0.0)) });
+    assert!(e.status().contains("Cliquer une poignée"), "{}", e.status());
+    // The grip at the end of their common box, overall 300: both stretched, one part still.
+    click(&mut e, DVec3::new(200.0, 75.0, 18.0));
+    assert!(e.status().contains("valider l'étirement"), "{}", e.status());
+    // Drawn stretched while pulling: one preview mesh, both occurrences; the third shows it
+    // too (scope « all »).
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(400.0, 75.0, 18.0)) });
+    let previewed = e.view().batches.iter().filter(|(k, _)| *k == crate::scene::PREVIEW_KEY).map(|(_, ps)| ps.len()).sum::<usize>();
+    assert_eq!(previewed, 3);
+    e.input(ToolInput::Vcb("300".into()));
+    let x = |e: &Editor, o: Id| bounds_of(e, &EntityPath::root(o)).1.x;
+    assert_eq!((x(&e, b1).round(), x(&e, b2).round(), x(&e, b3).round()), (300.0, 300.0, 300.0), "{}", e.status());
+    assert_eq!(e.document().resolve(&EntityPath::root(b2)).unwrap().component, part);
+    // One undo step.
+    e.undo();
+    assert_eq!((x(&e, b1).round(), x(&e, b3).round()), (200.0, 200.0));
+}
+
+#[test]
+fn stretch_tool_gathers_occurrences_while_shift_is_held() {
+    let (mut e, [b1, b2, b3]) = three_boards_editor();
+    e.set_tool(ToolKind::Stretch);
+    e.set_tool_option("scope", OptionValue::Choice("this".into()));
+    let part = e.document().resolve(&EntityPath::root(b1)).unwrap().component;
+    let shift = Modifiers { toggle: true, copy: false };
+    // Shift held, the first and the third clicked: gathered, not taken yet.
+    e.set_shift(true);
+    for p in [DVec3::new(100.0, 25.0, 18.0), DVec3::new(100.0, 325.0, 18.0)] {
+        e.input(ToolInput::Hover { px: px(&e, p) });
+        e.input(ToolInput::Click { px: px(&e, p), mods: shift });
+    }
+    assert_eq!(e.selection(), [b1, b3]);
+    assert!(e.status().contains("Sélection multiple"), "{}", e.status());
+    // Shift released: taken, their box 0–375 along Y.
+    e.set_shift(false);
+    assert!(e.status().contains("Cliquer une poignée"), "{}", e.status());
+    click(&mut e, DVec3::new(200.0, 175.0, 18.0));
+    e.input(ToolInput::Vcb("250".into()));
+    // Only these: one new part for both, the second as it was.
+    let doc = e.document();
+    let of = |o: Id| doc.resolve(&EntityPath::root(o)).unwrap().component;
+    assert_eq!((of(b1) == of(b3), of(b1) != part, of(b2)), (true, true, part), "{}", e.status());
+    let x = |o: Id| bounds_of(&e, &EntityPath::root(o)).1.x.round();
+    assert_eq!((x(b1), x(b2), x(b3)), (250.0, 200.0, 250.0));
+}
+
+#[test]
+fn stretch_tool_stretches_along_the_axes_chosen() {
+    // A board turned square: its own X along the world's Y (−50–0 along X, 0–200 along Y).
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) };
+    let turn = glam::DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    let b = e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: turn }).unwrap().unwrap().created[0];
+    e.set_tool(ToolKind::Stretch);
+    click(&mut e, DVec3::new(-25.0, 100.0, 18.0));
+    // In its own axes (the default), its end grip, overall 300.
+    click(&mut e, DVec3::new(-25.0, 200.0, 18.0));
+    e.input(ToolInput::Vcb("300".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(b));
+    assert!(close(lo, DVec3::new(-50.0, 0.0, 0.0)) && close(hi, DVec3::new(0.0, 300.0, 18.0)), "{lo} {hi} {}", e.status());
+    // In the context's: the world's X, across its width, overall 80.
+    e.set_tool_option("axes", OptionValue::Choice("context".into()));
+    click(&mut e, DVec3::new(0.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("80".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(b));
+    assert!(close(lo, DVec3::new(-50.0, 0.0, 0.0)) && close(hi, DVec3::new(30.0, 300.0, 18.0)), "{lo} {hi} {}", e.status());
+}
+
+#[test]
+fn stretch_tool_in_the_context_axes_refuses_a_part_turned_across_a_cutter() {
+    // A board turned 45°: in the context's axes its box is its mesh's, and no face of it runs
+    // along the world's X — refused, named.
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) };
+    let turn = glam::DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_4);
+    e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: turn }).unwrap().unwrap();
+    e.set_tool(ToolKind::Stretch);
+    e.set_tool_option("axes", OptionValue::Choice("context".into()));
+    // Its corners: (0, 0), (141, 141), (106, 177), (−35, 35); the grip of its box's +X face.
+    click(&mut e, DVec3::new(70.0, 70.0, 18.0));
+    let s = std::f64::consts::FRAC_1_SQRT_2;
+    click(&mut e, DVec3::new(200.0 * s, 125.0 * s, 9.0));
+    assert!(e.status().contains("traverse une coupe"), "{}", e.status());
 }

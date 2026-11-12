@@ -7,7 +7,7 @@ use glam::DAffine3;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::{BooleanOp, Error, Mesh, Primitive, Snaps, Solid};
+use crate::{BooleanOp, Error, Mesh, Primitive, Snaps, Solid, Stretch};
 
 /// Names a job to its service; results come back with it.
 pub type JobId = u64;
@@ -41,6 +41,8 @@ pub enum Task {
     /// is skipped and reported (by its index in `tools`), the others still cut: the task
     /// itself never fails on a tool.
     Recipe { blank: u32, tools: Vec<(u32, DAffine3)> },
+    /// `inputs[solid]` stretched (docs/ARCHITECTURE.md §6 sexies), read back by the kernel.
+    Stretch { solid: u32, stretch: Stretch },
     /// The display mesh and snap features of `inputs[solid]`.
     Display { solid: u32 },
     /// Panics with `message`, on purpose: tests how a kernel crash is recovered from (the

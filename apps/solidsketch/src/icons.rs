@@ -27,6 +27,7 @@ icon!(ERASE, "erase");
 icon!(PAINT, "paint");
 icon!(SECTION, "section");
 icon!(MEASURE, "measure");
+icon!(STRETCH, "stretch");
 icon!(MENU, "menu");
 icon!(GRID, "grid");
 icon!(GUIDES, "guides");

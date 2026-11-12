@@ -42,7 +42,7 @@ impl SelectTool {
 }
 
 /// `selection` with each of `ids` removed if in it, else added.
-fn toggled(selection: &[Id], ids: &[Id]) -> Vec<Id> {
+pub(crate) fn toggled(selection: &[Id], ids: &[Id]) -> Vec<Id> {
     let mut sel = selection.to_vec();
     for id in ids {
         match sel.iter().position(|s| s == id) {

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
-use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Task};
+use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
 
 use crate::document::{
     Assembly, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Machining, MachiningSource, Material, Occurrence, Part,
@@ -154,6 +154,25 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
+    /// Stretches what the occurrences `occurrences` of the assembly `context` leads into place
+    /// — parts or assemblies — along `axis`, in the axes `frame` places in the context's (its
+    /// own, the context's or the model's, ARCHITECTURE.md §6 sexies): the cutters at `cuts`
+    /// (increasing positions along the axis, as `axis · p`) split them into sections, section
+    /// `i` moved by `moves[i]` along the axis. What lies in one section is moved; a part across
+    /// a cutter has its blank stretched, a machining in one section moved with it, one across a
+    /// cutter its tool stretched, its guides following their section, then is computed again
+    /// from its blank; an assembly across a cutter is walked, each component stretched in its
+    /// own axes (`stretch.rs`).
+    Stretch {
+        context: Vec<Id>,
+        occurrences: Vec<Id>,
+        frame: DAffine3,
+        axis: DVec3,
+        cuts: Vec<f64>,
+        moves: Vec<f64>,
+        #[serde(default)]
+        scope: Scope,
+    },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
     /// A new material (§7 quater).
@@ -200,6 +219,7 @@ impl Operation {
             Operation::DuplicateMachinings { .. } => t!("operation.duplicate"),
             Operation::ArrayMachinings { .. } => t!("operation.array"),
             Operation::AddGuide { .. } => t!("operation.add_guide"),
+            Operation::Stretch { .. } => t!("operation.stretch"),
         }
     }
 
@@ -228,6 +248,8 @@ pub struct Outcome {
     pub material: Option<Id>,
     /// The guide created, in the operation's component.
     pub guide: Option<Id>,
+    /// The parts a stretch changed, and how (§6 sexies).
+    pub stretched: Vec<crate::StretchedPart>,
 }
 
 /// An operation applied: the new document, what it created, and the displays the kernel made
@@ -242,8 +264,8 @@ pub struct Applied {
 /// The first step of applying an operation.
 #[derive(Clone, Debug)]
 pub enum Prepared {
-    /// The operation needs no kernel: here is the result.
-    Done(Applied),
+    /// The operation needs no kernel: here is the result (boxed: far larger than a job).
+    Done(Box<Applied>),
     /// Run this job, then [`Document::commit`] its outputs.
     Kernel(Job),
 }
@@ -256,7 +278,7 @@ impl Document {
         let outcome = doc.apply_in_place(op, &mut recorder)?;
         if recorder.job.tasks.is_empty() {
             doc.purge();
-            return Ok(Prepared::Done(Applied { document: doc, outcome, displays: Vec::new() }));
+            return Ok(Prepared::Done(Box::new(Applied { document: doc, outcome, displays: Vec::new() })));
         }
         Ok(Prepared::Kernel(recorder.job))
     }
@@ -279,7 +301,7 @@ impl Document {
     #[cfg(any(test, feature = "engine"))]
     pub fn apply(&self, op: &Operation) -> Result<(Document, Outcome)> {
         let applied = match self.prepare(op)? {
-            Prepared::Done(a) => a,
+            Prepared::Done(a) => *a,
             Prepared::Kernel(job) => self.commit(op, solidsketch_kernel::run(&job)?)?,
         };
         Ok((applied.document, applied.outcome))
@@ -607,7 +629,35 @@ impl Document {
                 created.extend(self.copy_guides(part, &guides, &steps)?);
                 Ok(Outcome { machinings: created, ..Outcome::default() })
             }
+            Operation::Stretch { context, occurrences, frame, axis, cuts, moves, scope } => {
+                let stretch = Stretch::new(*axis, cuts.clone(), moves.clone()).map_err(solidsketch_kernel::Error::from)?;
+                let stretched = self
+                    .stretch_tree(context, occurrences, frame, &stretch, *scope, &mut |doc, part, s| doc.stretch_part(part, s, solver))?;
+                Ok(Outcome { stretched, ..Outcome::default() })
+            }
         }
+    }
+
+    /// Stretches `part` (§6 sexies): its blank, its machinings — moved when in one section,
+    /// their tool stretched in its own frame across a cutter — and its guides; then computes it
+    /// again from the blank.
+    fn stretch_part(&mut self, part: Id, stretch: &Stretch, solver: &mut dyn Solver) -> Result<()> {
+        let p = self.part(part)?.clone();
+        let blank = solver.stretch(&p.blank, stretch)?;
+        let mut machinings = Vec::with_capacity(p.machinings.len());
+        for m in &p.machinings {
+            let local = stretch.in_frame(&m.placement);
+            let rigid = local.extent(&m.tool).map_or(Some(0.0), |(lo, hi)| local.rigid_move(lo, hi));
+            machinings.push(match rigid {
+                Some(d) => Machining { placement: DAffine3::from_translation(stretch.axis() * d) * m.placement, ..m.clone() },
+                None => Machining { tool: solver.stretch(&m.tool, &local)?, ..m.clone() },
+            });
+        }
+        self.stretch_guides(part, stretch)?;
+        let p = self.part_mut(part)?;
+        p.blank = blank;
+        p.machinings = machinings;
+        self.recompute(part, None, solver)
     }
 
     /// The part `target` places, `ids` (at least one) split into its guides and its
@@ -744,7 +794,7 @@ impl Document {
     /// component on the way shown by other occurrences too gets a copy of its own, the
     /// occurrence repointed to it. The copies keep their occurrences' ids (unique within an
     /// assembly, §2.6): `path` stays valid, and names the same thing.
-    fn separate(&mut self, path: &EntityPath) -> Result<()> {
+    pub(crate) fn separate(&mut self, path: &EntityPath) -> Result<()> {
         let mut at = self.root;
         for &i in path.instances.iter().chain(std::iter::once(&path.entity)) {
             let o = self.assembly(at)?.occurrence(i).ok_or(Error::NotFound(i))?.component;
@@ -811,6 +861,8 @@ trait Solver {
     fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>>;
     /// `blank` minus each placed tool in turn; the solid, and the tools (by index) that failed.
     fn recipe(&mut self, blank: &Arc<Solid>, tools: &[(Arc<Solid>, DAffine3)]) -> Result<(Arc<Solid>, Vec<usize>)>;
+    /// `solid` stretched.
+    fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>>;
 }
 
 /// Records the calls into a job and answers with stand-ins (the operation only stores them,
@@ -858,6 +910,14 @@ impl Solver for Recorder {
         let tools = tools.iter().map(|(t, p)| (self.input(t), *p)).collect();
         Ok((self.task(Task::Recipe { blank, tools })?, Vec::new()))
     }
+
+    /// Refused here already when the record cannot be stretched: the operation is refused when
+    /// prepared, not when the kernel answers.
+    fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>> {
+        stretch.apply(solid).map_err(solidsketch_kernel::Error::from)?;
+        let solid = self.input(solid);
+        self.task(Task::Stretch { solid, stretch: stretch.clone() })
+    }
 }
 
 /// Hands out the job's outputs, in the order the calls come (the order they were recorded).
@@ -897,5 +957,9 @@ impl Solver for Replayer {
             }
             _ => Err(Error::Invalid(Refusal::OutOfStep)),
         }
+    }
+
+    fn stretch(&mut self, _: &Arc<Solid>, _: &Stretch) -> Result<Arc<Solid>> {
+        self.next()
     }
 }

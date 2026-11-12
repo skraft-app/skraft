@@ -149,7 +149,7 @@ enum Hint {
 /// The tool bar: each button a command (its state and tip from the registry); `None` is a
 /// separator. Undo, redo and the view's toggles are in the title bar ([`crate::titlebar`]).
 pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
-    let buttons: [Option<(egui::ImageSource<'static>, &str, Hint)>; 19] = [
+    let buttons: [Option<(egui::ImageSource<'static>, &str, Hint)>; 20] = [
         Some((icons::SELECT, "tool.select", Hint::None)),
         Some((icons::BOX, "tool.box", Hint::None)),
         Some((icons::CYLINDER, "tool.cylinder", Hint::None)),
@@ -162,6 +162,7 @@ pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Actio
         Some((icons::UNION, "tool.union", Hint::Boolean)),
         Some((icons::SUBTRACT, "tool.difference", Hint::Boolean)),
         Some((icons::INTERSECT, "tool.intersection", Hint::Boolean)),
+        Some((icons::STRETCH, "tool.stretch", Hint::None)),
         None,
         Some((icons::COMPONENT, "edit.make_assembly", Hint::None)),
         Some((icons::EXPLODE, "edit.explode", Hint::None)),

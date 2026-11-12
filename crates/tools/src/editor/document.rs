@@ -54,7 +54,7 @@ impl Editor {
         }
         match self.document().prepare(&op) {
             Err(e) => Err(self.fail(&op, e.to_string(), restore)),
-            Ok(Prepared::Done(applied)) => Ok(Some(self.finish(op, applied, after))),
+            Ok(Prepared::Done(applied)) => Ok(Some(self.finish(op, *applied, after))),
             Ok(Prepared::Kernel(job)) => {
                 let id = self.job_id();
                 self.pending = Some(Pending { job: id, op, after, restore });
@@ -159,6 +159,9 @@ impl Editor {
                     Err(e) => Err(self.fail(&p.op, e.to_string(), p.restore)),
                 });
                 self.pump();
+                // A stretch held while computed is done: the part is drawn as it now is.
+                self.held_stretch = None;
+                self.update_preview_mesh();
             }
             // Anything else was abandoned: dropped.
         }
@@ -184,6 +187,8 @@ impl Editor {
     /// Esc while the kernel works: its result will be dropped, the queue too.
     pub(super) fn abandon(&mut self) {
         let Some(p) = self.pending.take() else { return };
+        self.held_stretch = None;
+        self.update_preview_mesh();
         self.queue.clear();
         self.collected.clear();
         if p.restore && self.history.redo() {

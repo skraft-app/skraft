@@ -10,6 +10,7 @@ mod rotate;
 mod section;
 mod select;
 mod shapes;
+mod stretch;
 
 pub use boolean::BooleanTool;
 pub use measure::MeasureTool;
@@ -19,6 +20,7 @@ pub use rotate::RotateTool;
 pub use section::SectionTool;
 pub use select::SelectTool;
 pub use shapes::{BoxTool, CylinderTool};
+pub use stretch::StretchTool;
 
 use std::collections::BTreeMap;
 
@@ -128,8 +130,8 @@ pub enum Command {
     /// Undoes the last step, which must be `previous`, and applies `op` instead (a copy
     /// turned into an array by a typed `5x`).
     Replace {
-        previous: Operation,
-        op: Operation,
+        previous: Box<Operation>,
+        op: Box<Operation>,
     },
 }
 
@@ -160,6 +162,8 @@ pub struct PreviewLabel {
 pub struct Preview {
     /// Lines drawn over the scene.
     pub lines: Vec<PreviewLine>,
+    /// Lines drawn in the scene: hidden behind faces (the outlines of the fills).
+    pub scene_lines: Vec<PreviewLine>,
     /// Guides previewed (drawn dashed over everything), with their colour.
     pub guides: Vec<(crate::guides::Stroke, [f32; 4])>,
     /// Lengths written over the scene.
@@ -184,6 +188,46 @@ pub struct Preview {
     pub propagate: Option<EntityPath>,
     /// A section being placed, drawn instead of the document's (§7 quater).
     pub section: Option<Section>,
+    /// A part drawn stretched (§6 sexies).
+    pub stretch: Option<StretchPreview>,
+    /// Round points drawn over everything (grips), after the fills.
+    pub points: Vec<PreviewPoint>,
+    /// Translucent polygons drawn in the scene: hidden behind faces (cutting planes).
+    pub fills: Vec<PreviewFill>,
+}
+
+/// A round point (or a diamond) a tool draws over everything (world; its radius in pixels),
+/// filled and / or ringed (linear RGBA).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreviewPoint {
+    pub at: DVec3,
+    pub radius: f32,
+    pub fill: Option<[f32; 4]>,
+    pub stroke: Option<[f32; 4]>,
+    /// Drawn as a diamond (a point taken from the geometry), else round.
+    pub diamond: bool,
+}
+
+/// A flat convex polygon a tool draws in the scene, hidden behind faces (world corners; linear
+/// RGBA, its alpha its opacity).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreviewFill {
+    pub corners: Vec<DVec3>,
+    pub color: [f32; 4],
+}
+
+/// What a tool previews stretched: the occurrences `occurrences` of the context `context`, and
+/// with them every occurrence of what they place when `all` (the scope); the stretch in the
+/// axes `frame` places in the context's, as `Operation::Stretch` takes it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StretchPreview {
+    pub context: Vec<Id>,
+    pub occurrences: Vec<Id>,
+    pub frame: DAffine3,
+    pub all: bool,
+    pub axis: DVec3,
+    pub cuts: Vec<f64>,
+    pub moves: Vec<f64>,
 }
 
 // ---- options (ARCHITECTURE.md §6 bis, the tool's option bar) ---------------------------------
@@ -255,6 +299,8 @@ pub enum ToolKind {
     Section,
     /// Measures, and draws guides (§6 quinquies).
     Measure,
+    /// Stretches a part along one of its axes (§6 sexies).
+    Stretch,
 }
 
 impl ToolKind {
@@ -272,6 +318,7 @@ impl ToolKind {
             ToolKind::Paint => "paint",
             ToolKind::Section => "section",
             ToolKind::Measure => "measure",
+            ToolKind::Stretch => "stretch",
         }
     }
 
@@ -289,6 +336,7 @@ impl ToolKind {
             ToolKind::Paint => t!("tool.paint.name"),
             ToolKind::Section => t!("tool.section.name"),
             ToolKind::Measure => t!("tool.measure.name"),
+            ToolKind::Stretch => t!("tool.stretch.name"),
         }
     }
 }
@@ -324,6 +372,8 @@ pub struct Cx<'a> {
     /// Shift held, and the copy modifier (Option on macOS, Ctrl elsewhere).
     pub shift_down: bool,
     pub copy_down: bool,
+    /// The other modifier held (Command on macOS, Alt elsewhere).
+    pub alt_down: bool,
     /// The height (whole) of the last shape drawn, if any.
     pub last_height: Option<f64>,
     /// The line Shift holds.
@@ -336,6 +386,9 @@ pub struct Cx<'a> {
     pub options: &'a OptionValues,
     /// The material the paint tool paints with (none: it removes paint).
     pub material: Option<Id>,
+    /// The occurrences the tool's preview draws otherwise — stretched or moved (§6 sexies) —
+    /// by path: not where they are drawn, so not to infer on.
+    pub previewed: &'a std::collections::HashMap<EntityPath, (Id, DAffine3)>,
 }
 
 impl Cx<'_> {
@@ -724,7 +777,7 @@ impl LastCopy {
         };
         let op = self.moved.array(self.entities.clone(), self.motion.part(fraction), count);
         let previous = std::mem::replace(&mut self.op, op.clone());
-        vec![Command::Replace { previous, op }]
+        vec![Command::Replace { previous: Box::new(previous), op: Box::new(op) }]
     }
 }
 
@@ -739,6 +792,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Paint => Box::new(PaintTool::default()),
         ToolKind::Section => Box::new(SectionTool::default()),
         ToolKind::Measure => Box::new(MeasureTool::default()),
+        ToolKind::Stretch => Box::new(StretchTool::default()),
     }
 }
 

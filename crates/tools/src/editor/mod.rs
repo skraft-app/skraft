@@ -61,6 +61,14 @@ pub struct Editor {
     part_scope: Scope,
     /// The machining hovered in the entity info's list (drawn hovered in the view).
     listed_hover: Option<Id>,
+    /// The stretch the scene's preview mesh was made for, and the revisions handed out.
+    stretch_meshed: Option<tools::StretchPreview>,
+    preview_revision: u64,
+    /// A stretch applied, drawn as previewed until the kernel's job gives the part its new
+    /// shape (else the part would show as it was for a frame or more).
+    held_stretch: Option<(JobId, tools::StretchPreview)>,
+    /// The occurrences a stretch previewed draws otherwise, by path: the mesh, the transform.
+    stretch_swaps: HashMap<EntityPath, (Id, DAffine3)>,
     selection: Vec<Id>,
     tool: Box<dyn Tool>,
     pivot: Option<DVec3>,
@@ -74,6 +82,8 @@ pub struct Editor {
     shift: bool,
     /// The copy modifier held (Option on macOS, Ctrl elsewhere).
     copy: bool,
+    /// The other modifier held (Command on macOS, Alt elsewhere).
+    alt: bool,
     shift_lock: Option<Lock>,
     /// The height (whole) of the last shape drawn: the next can take it again.
     last_height: Option<f64>,
@@ -124,6 +134,10 @@ impl Editor {
             machinings_shown: false,
             part_scope: Scope::All,
             listed_hover: None,
+            stretch_meshed: None,
+            preview_revision: 0,
+            held_stretch: None,
+            stretch_swaps: HashMap::new(),
             selection: Vec::new(),
             tool: tools::make(ToolKind::Select),
             pivot: None,
@@ -133,6 +147,7 @@ impl Editor {
             face_lock: None,
             shift: false,
             copy: false,
+            alt: false,
             shift_lock: None,
             last_height: None,
             tracked: Vec::new(),
@@ -347,12 +362,14 @@ impl Editor {
             face_lock: self.face_lock,
             shift_down: self.shift,
             copy_down: self.copy,
+            alt_down: self.alt,
             last_height: self.last_height,
             shift_lock: self.shift_lock,
             tracked: &self.tracked,
             reference: self.reference,
             options: self.tool_settings.get(kind.id()).unwrap_or(&NO_SETTINGS),
             material: self.paint_material(),
+            previewed: &self.stretch_swaps,
         }
     }
 
@@ -434,6 +451,15 @@ impl Editor {
     pub fn set_copy(&mut self, down: bool) {
         if down != self.copy {
             self.copy = down;
+            self.rehover();
+        }
+    }
+
+    /// The other modifier pressed or released (the app tells every frame): the tool follows
+    /// the cursor again with it.
+    pub fn set_alt(&mut self, down: bool) {
+        if down != self.alt {
+            self.alt = down;
             self.rehover();
         }
     }
@@ -600,12 +626,64 @@ impl Editor {
         for c in commands {
             self.run(c);
         }
+        self.update_preview_mesh();
+    }
+
+    /// What the tool previews stretched, in the scene (§6 sexies): the document as the stretch
+    /// would leave it, sketched without its geometry; each part it stretches meshed from its
+    /// display mesh, each vertex moved by its section; and, per occurrence it changes, what to
+    /// draw instead (`stretch_swaps`). Dropped when the tool shows none.
+    pub(super) fn update_preview_mesh(&mut self) {
+        let wanted = self.preview().stretch;
+        if wanted == self.stretch_meshed {
+            return;
+        }
+        let mut meshes = Vec::new();
+        let mut swaps = HashMap::new();
+        if let Some(s) = &wanted {
+            let doc = self.document().clone();
+            let scope = if s.all { Scope::All } else { Scope::This };
+            if let Ok((sketch, stretched)) = doc.stretch_sketch(&s.context, &s.occurrences, &s.frame, s.axis, &s.cuts, &s.moves, scope) {
+                let mut keys = HashMap::new();
+                for sp in &stretched {
+                    let (Ok(from), Some(dm)) = (doc.part(sp.from), self.scene.definition_mesh(sp.from)) else { continue };
+                    let key = crate::scene::preview_key(meshes.len());
+                    let spans = sp.stretch.section_spans(from.shape());
+                    let parts = dm
+                        .parts
+                        .iter()
+                        .map(|p| crate::scene::PartMesh {
+                            solid: key,
+                            mesh: Arc::new(crate::scene::stretched_mesh(&p.mesh, &sp.stretch, &spans)),
+                            snaps: Arc::default(),
+                            bounds: None,
+                        })
+                        .collect();
+                    self.preview_revision += 1;
+                    let faces = dm.faces.clone();
+                    meshes.push(crate::scene::DefinitionMesh { definition: key, revision: self.preview_revision, parts, faces });
+                    keys.insert(sp.part, key);
+                }
+                // Each occurrence drawn otherwise: stretched, moved, or both.
+                for placed in sketch.placed_parts() {
+                    let Ok((part, _, t)) = doc.resolve_part(&placed.path) else { continue };
+                    let key = keys.get(&placed.part).copied().unwrap_or(placed.part);
+                    if key != part || !t.abs_diff_eq(placed.transform, 1e-9) {
+                        swaps.insert(placed.path, (key, placed.transform));
+                    }
+                }
+            }
+        }
+        self.scene.set_preview(meshes);
+        self.stretch_swaps = swaps;
+        self.stretch_meshed = wanted;
     }
 
     pub(crate) fn run(&mut self, c: Command) {
         match c {
             Command::Apply(op) => {
                 self.clear_locks();
+                let held = matches!(op, Operation::Stretch { .. }).then(|| self.stretch_meshed.clone()).flatten();
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.
                 let after = match op {
@@ -613,6 +691,7 @@ impl Editor {
                     _ => After::Select,
                 };
                 let _ = self.start(op, after, false);
+                self.held_stretch = held.zip(self.pending.as_ref()).map(|(s, p)| (p.job, s));
             }
             Command::Select(ids) => self.selection = ids,
             Command::SetOption { key, value } => self.set_tool_option(key, value),
@@ -625,10 +704,10 @@ impl Editor {
             },
             Command::Say(s) => self.message = Some(s),
             Command::Replace { previous, op } => {
-                if self.history.undo_op() == Some(&previous) && self.history.undo() {
+                if self.history.undo_op() == Some(&*previous) && self.history.undo() {
                     self.after_change();
                     self.clear_locks();
-                    let _ = self.start(op, After::Select, true);
+                    let _ = self.start(*op, After::Select, true);
                 } else {
                     self.message = Some(t!("status.copy_not_last"));
                 }
@@ -636,7 +715,13 @@ impl Editor {
         }
     }
 
+    /// What the tool shows; while a stretch it applied is computed, that stretch alone.
     pub fn preview(&self) -> Preview {
+        if let Some((job, s)) = &self.held_stretch
+            && self.pending.as_ref().is_some_and(|p| p.job == *job)
+        {
+            return Preview { stretch: Some(s.clone()), ..Preview::default() };
+        }
         self.tool.preview(&self.cx())
     }
 
@@ -658,5 +743,10 @@ impl Editor {
     /// The points the tool marks with a cross (world), which the lengths keep clear of.
     pub fn marks(&self) -> Vec<DVec3> {
         self.preview().marks
+    }
+
+    /// The round points the tool draws over everything (the app draws them).
+    pub fn overlay_points(&self) -> Vec<tools::PreviewPoint> {
+        self.preview().points
     }
 }

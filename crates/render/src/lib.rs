@@ -120,6 +120,14 @@ pub struct Line {
     pub width: f32,
 }
 
+/// A flat convex polygon (world corners), translucent (linear RGBA, `a` its opacity), drawn in
+/// the scene: hidden behind faces, blended over what it does not hide (a tool's planes).
+#[derive(Clone, Debug)]
+pub struct Fill {
+    pub corners: Vec<DVec3>,
+    pub color: [f32; 4],
+}
+
 /// A line's dashes, on screen: a dash of `length` points, a gap as long, the pattern at
 /// `phase` points at the line's `a` (so that it can hold still on the line as the view moves).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -198,6 +206,8 @@ pub struct Frame<'a> {
     pub lines: &'a [Line],
     /// Lines drawn over everything (tool previews).
     pub overlay: &'a [Line],
+    /// Translucent polygons, depth tested (tool previews).
+    pub fills: &'a [Fill],
     pub grid: Option<Grid>,
     /// The axes are drawn (in `lines`): the grid leaves out its lines along them.
     pub axes: bool,
@@ -257,6 +267,14 @@ struct LineVertex {
     corner: [f32; 3],
     color: [f32; 4],
     dash: [f32; 2],
+}
+
+/// A corner of a fill's triangle, in camera coordinates.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FillVertex {
+    pos: [f32; 3],
+    color: [f32; 4],
 }
 
 /// The corners of a segment's quad, in drawing order.
@@ -393,6 +411,7 @@ pub struct Renderer {
     silhouettes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
+    fills: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
     bind_group: Option<wgpu::BindGroup>,
@@ -400,6 +419,7 @@ pub struct Renderer {
     meshes: std::collections::HashMap<u64, GpuMesh>,
     instances: Dynamic,
     line_vertices: Dynamic,
+    fill_vertices: Dynamic,
     target: Option<Target>,
     /// Bumped whenever what is uploaded changes (a mesh, the target): part of a frame's
     /// fingerprint.
@@ -629,6 +649,23 @@ impl Renderer {
             None,
             unclipped,
         );
+        let fill_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
+        let fill_layout = wgpu::VertexBufferLayout {
+            array_stride: size_of::<FillVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &fill_attrs,
+        };
+        // Hidden behind faces, without hiding what lies behind them (no depth written).
+        let fills = blended(
+            "fills",
+            "vs_fill",
+            "fs_fill",
+            &[Some(fill_layout)],
+            depth(false, nearer, Default::default()),
+            all,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
+        );
 
         Renderer {
             faces,
@@ -641,6 +678,7 @@ impl Renderer {
             silhouettes,
             lines,
             overlay,
+            fills,
             globals,
             layout: bgl,
             bind_group: None,
@@ -648,6 +686,7 @@ impl Renderer {
             meshes: Default::default(),
             instances: Dynamic::new("instances", wgpu::BufferUsages::VERTEX),
             line_vertices: Dynamic::new("lines", wgpu::BufferUsages::VERTEX),
+            fill_vertices: Dynamic::new("fills", wgpu::BufferUsages::VERTEX),
             target: None,
             generation: 0,
             target_generation: 0,
@@ -862,6 +901,15 @@ impl Renderer {
             push_line(&mut lv, &frame.view, l, ppp);
         }
         self.line_vertices.write(device, queue, bytemuck::cast_slice(&lv));
+        // Fills: each polygon as a fan of triangles.
+        let mut fv = Vec::new();
+        for f in frame.fills {
+            let at = |p: DVec3| FillVertex { pos: frame.view.transform_point3(p).as_vec3().to_array(), color: f.color };
+            for i in 1..f.corners.len().saturating_sub(1) {
+                fv.extend([at(f.corners[0]), at(f.corners[i]), at(f.corners[i + 1])]);
+            }
+        }
+        self.fill_vertices.write(device, queue, bytemuck::cast_slice(&fv));
 
         let (Some(target), Some(bind_group)) = (&self.target, &self.bind_group) else { return false };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -976,12 +1024,23 @@ impl Renderer {
             }
         }
         if let Some(lb) = &self.line_vertices.buffer {
-            let total = lv.len() as u32;
             pass.set_vertex_buffer(0, lb.slice(..));
             if tested > 0 {
                 pass.set_pipeline(&self.lines);
                 pass.draw(0..tested, 0..1);
             }
+        }
+        // Fills over the depth-tested lines (which they tint), under the overlay.
+        if let Some(fb) = &self.fill_vertices.buffer
+            && !fv.is_empty()
+        {
+            pass.set_pipeline(&self.fills);
+            pass.set_vertex_buffer(0, fb.slice(..));
+            pass.draw(0..fv.len() as u32, 0..1);
+        }
+        if let Some(lb) = &self.line_vertices.buffer {
+            let total = lv.len() as u32;
+            pass.set_vertex_buffer(0, lb.slice(..));
             if total > tested {
                 pass.set_pipeline(&self.overlay);
                 pass.draw(tested..total, 0..1);
@@ -1111,6 +1170,14 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
                 None => 0u8.hash(&mut h.0),
             }
         }
+    }
+    frame.fills.len().hash(&mut h.0);
+    for f in frame.fills {
+        f.corners.len().hash(&mut h.0);
+        for c in &f.corners {
+            h.v(*c);
+        }
+        h.fs(&f.color);
     }
     match frame.grid {
         Some(g) => {

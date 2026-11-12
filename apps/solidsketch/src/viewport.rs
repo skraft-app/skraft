@@ -82,6 +82,7 @@ impl Viewport {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
             ui.painter().image(id, rect, uv, egui::Color32::WHITE);
         }
+        paint_overlay_points(ui.painter(), rect, editor);
         paint_marks(ui.painter(), rect, editor);
         let mut clear = Vec::new();
         if let Some(cursor) = response.hover_pos() {
@@ -111,6 +112,7 @@ impl Viewport {
         // editor needs the time, every frame while it waits.
         editor.set_shift(mods.shift);
         editor.set_copy(modifiers(ctx, mods).copy);
+        editor.set_alt(if ctx.os() == egui::os::OperatingSystem::Mac { mods.mac_cmd } else { mods.alt });
         if editor.tick(time) {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
@@ -315,7 +317,9 @@ impl Viewport {
             .chain(view.faded_guides.iter().map(|s| dashed(s, faded(theme.guide, background, theme.fade))))
             .chain(view.hovered_guides.iter().map(|s| dashed(s, theme.hover.edge)))
             .chain(view.selected_guides.iter().map(|s| dashed(s, theme.selected.edge)))
+            .chain(view.scene_lines.iter().map(preview))
             .collect();
+        let fills: Vec<render::Fill> = view.fills.iter().map(|f| render::Fill { corners: f.corners.clone(), color: f.color }).collect();
 
         let aspect = size[0] as f64 / size[1] as f64;
         let cam = &editor.camera;
@@ -339,6 +343,7 @@ impl Viewport {
             highlights: &highlights,
             lines: &lines,
             overlay: &overlay,
+            fills: &fills,
             grid: display.grid.then(|| grid_for(cam.focus)),
             axes,
             axes_frame: DMat4::from(editor.axes_transform()),
@@ -384,6 +389,24 @@ fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &solidsketch_tool
         painter.extend(egui::Shape::dashed_line(&path, stroke, 5.0, 4.0));
     } else {
         painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Inside);
+    }
+}
+
+/// The round points a tool draws over everything (grips).
+fn paint_overlay_points(painter: &egui::Painter, rect: egui::Rect, editor: &Editor) {
+    let size = editor.viewport_size();
+    let screen = |p: DVec3| editor.camera.project(p, size).map(|at| rect.min + egui::vec2(at.x as f32, at.y as f32));
+    for p in editor.overlay_points() {
+        let Some(at) = screen(p.at) else { continue };
+        let fill = p.fill.map_or(egui::Color32::TRANSPARENT, color);
+        let stroke = p.stroke.map_or(egui::Stroke::NONE, |c| egui::Stroke::new(1.5, color(c)));
+        if p.diamond {
+            let r = p.radius;
+            let corners = vec![at + egui::vec2(0.0, -r), at + egui::vec2(r, 0.0), at + egui::vec2(0.0, r), at + egui::vec2(-r, 0.0)];
+            painter.add(egui::Shape::convex_polygon(corners, fill, stroke));
+        } else {
+            painter.circle(at, p.radius, fill, stroke);
+        }
     }
 }
 

@@ -24,6 +24,7 @@ use solidsketch_i18n::t;
 mod engine;
 mod job;
 mod snaps;
+mod stretch;
 
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]
 pub use engine::Threaded;
@@ -31,6 +32,7 @@ pub use engine::Threaded;
 pub use engine::{Inline, run};
 pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task, Waker, decode, encode};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
+pub use stretch::{Stretch, StretchError};
 
 /// Why a kernel call failed. SolidCore's own messages stay as it words them (English).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -47,6 +49,8 @@ pub enum Error {
     Panic { call: String, message: String },
     /// What runs the kernel stopped while running the job (the web worker crashed).
     Crashed(String),
+    /// A stretch that cannot be applied to this solid.
+    Stretch(StretchError),
 }
 
 impl std::fmt::Display for Error {
@@ -58,12 +62,19 @@ impl std::fmt::Display for Error {
             Error::Empty(call) => t!("error.kernel.empty", call = call),
             Error::Panic { call, message } => t!("error.kernel.panic", call = call, message = message),
             Error::Crashed(why) => t!("error.kernel.crashed", why = why),
+            Error::Stretch(e) => return std::fmt::Display::fmt(e, f),
         };
         f.write_str(&text)
     }
 }
 
 impl std::error::Error for Error {}
+
+impl From<StretchError> for Error {
+    fn from(e: StretchError) -> Self {
+        Error::Stretch(e)
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
 

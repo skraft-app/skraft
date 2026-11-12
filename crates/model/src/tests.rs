@@ -912,3 +912,425 @@ fn a_part_s_guides_go_with_its_machinings() {
     assert_eq!(h.document().component(part).unwrap().guides.len(), 1);
     assert_eq!(h.document().part(part).unwrap().machinings.len(), 2);
 }
+
+/// A stretch of the occurrence `target`, in its component's axes.
+fn stretch(doc: &Document, target: &EntityPath, axis: DVec3, cuts: Vec<f64>, moves: Vec<f64>, scope: Scope) -> Operation {
+    let frame = doc.resolve(target).unwrap().transform;
+    Operation::Stretch { context: target.instances.clone(), occurrences: vec![target.entity], frame, axis, cuts, moves, scope }
+}
+
+/// A stretch along the part's X: the cutter at `cut`, the far side moved by `d`.
+fn stretch_x(doc: &Document, target: &EntityPath, cut: f64, d: f64, scope: Scope) -> Operation {
+    stretch(doc, target, DVec3::X, vec![cut], vec![0.0, d], scope)
+}
+
+#[test]
+fn a_stretch_stretches_the_blank_and_moves_or_stretches_the_machinings() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    // A second hole past the cutter, and a groove along the whole board.
+    let far = h
+        .apply(Operation::DuplicateMachinings {
+            target: target.clone(),
+            machinings: vec![hole],
+            transform: DAffine3::from_translation(DVec3::X * 160.0),
+            scope: Scope::All,
+        })
+        .unwrap()
+        .machinings[0];
+    let groove = Primitive::Box { origin: DVec3::new(0.0, 20.0, 12.0), size: DVec3::new(200.0, 10.0, 10.0) };
+    let groove = h
+        .apply(Operation::AddMachining { target: target.clone(), primitive: groove, placement: DAffine3::IDENTITY, scope: Scope::All })
+        .unwrap()
+        .machinings[0];
+
+    // The blank and the groove's tool are stretched, the holes only moved; then the recipe.
+    let op = stretch_x(h.document(), &target, 100.0, 50.0, Scope::All);
+    let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
+    assert!(
+        matches!(&job.tasks[..], [kernel::Task::Stretch { .. }, kernel::Task::Stretch { .. }, kernel::Task::Recipe { tools, .. }] if tools.len() == 3),
+        "{:?}",
+        job.tasks
+    );
+    h.apply(op).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert!(close(p.blank.vertex_bounds().unwrap().1, DVec3::new(250.0, 50.0, 18.0)));
+    assert!(close(p.machining(hole).unwrap().placement.translation, DVec3::new(20.0, 25.0, -5.0)));
+    assert!(close(p.machining(far).unwrap().placement.translation, DVec3::new(230.0, 25.0, -5.0)));
+    assert!(close(p.machining(groove).unwrap().tool.vertex_bounds().unwrap().1, DVec3::new(250.0, 10.0, 10.0)));
+    assert!(p.failed.is_empty(), "{:?}", p.failed);
+    assert!(close(p.shape().bounds().unwrap().1, DVec3::new(250.0, 50.0, 18.0)));
+
+    // Compressed back, then undone.
+    h.apply(stretch_x(h.document(), &target, 100.0, -50.0, Scope::All)).unwrap();
+    assert!(close(h.document().part(part).unwrap().blank.vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
+    h.undo();
+    h.undo();
+    assert!(close(h.document().part(part).unwrap().blank.vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
+    assert!(close(h.document().part(part).unwrap().machining(far).unwrap().placement.translation, DVec3::new(180.0, 25.0, -5.0)));
+}
+
+#[test]
+fn a_bare_part_is_stretched_without_a_recipe() {
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let target = EntityPath::root(board);
+    let op = stretch(h.document(), &target, DVec3::Y, vec![25.0], vec![-10.0, 10.0], Scope::All);
+    let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
+    assert!(matches!(&job.tasks[..], [kernel::Task::Stretch { .. }]), "{:?}", job.tasks);
+    h.apply(op).unwrap();
+    let (_, p, _) = h.document().resolve_part(&target).unwrap();
+    assert!(p.shape.is_none());
+    assert_eq!(p.blank.vertex_bounds().unwrap(), (DVec3::new(0.0, -10.0, 0.0), DVec3::new(200.0, 60.0, 18.0)));
+}
+
+#[test]
+fn a_stretch_of_only_this_one_makes_it_a_separate_part() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let (target, part, _) = drilled_board(&mut h);
+    let other = h
+        .apply(Operation::Duplicate {
+            context: root,
+            entities: vec![target.entity],
+            transform: DAffine3::from_translation(DVec3::Y * 100.0),
+        })
+        .unwrap()
+        .created[0];
+    h.apply(stretch_x(h.document(), &target, 100.0, 50.0, Scope::This)).unwrap();
+    let doc = h.document();
+    let (mine, p, _) = doc.resolve_part(&target).unwrap();
+    assert_ne!(mine, part);
+    assert!(close(p.blank.vertex_bounds().unwrap().1, DVec3::new(250.0, 50.0, 18.0)));
+    let (theirs, q, _) = doc.resolve_part(&EntityPath::root(other)).unwrap();
+    assert_eq!(theirs, part);
+    assert!(close(q.blank.vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
+}
+
+#[test]
+fn guides_follow_their_section() {
+    let mut h = History::new(Document::new());
+    let (target, part, _) = drilled_board(&mut h);
+    let guide = |h: &mut History, shape| h.apply(Operation::AddGuide { component: part, shape }).unwrap().guide.unwrap();
+    let across = guide(&mut h, GuideShape::Line { origin: DVec3::new(150.0, 0.0, 0.0), dir: DVec3::Y });
+    let along = guide(&mut h, GuideShape::Line { origin: DVec3::new(0.0, 25.0, 0.0), dir: DVec3::X });
+    let ring = guide(&mut h, GuideShape::Circle { center: DVec3::new(150.0, 25.0, 9.0), normal: DVec3::X, radius: 5.0 });
+    let before = guide(&mut h, GuideShape::Line { origin: DVec3::new(50.0, 0.0, 0.0), dir: DVec3::Z });
+    h.apply(stretch_x(h.document(), &target, 100.0, 50.0, Scope::All)).unwrap();
+    let c = h.document().component(part).unwrap();
+    let shape = |id| c.guide(id).unwrap().shape;
+    assert_eq!(shape(across), GuideShape::Line { origin: DVec3::new(200.0, 0.0, 0.0), dir: DVec3::Y });
+    assert_eq!(shape(along), GuideShape::Line { origin: DVec3::new(0.0, 25.0, 0.0), dir: DVec3::X });
+    assert_eq!(shape(ring), GuideShape::Circle { center: DVec3::new(200.0, 25.0, 9.0), normal: DVec3::X, radius: 5.0 });
+    assert_eq!(shape(before), GuideShape::Line { origin: DVec3::new(50.0, 0.0, 0.0), dir: DVec3::Z });
+}
+
+#[test]
+fn a_stretch_that_cannot_apply_is_refused_when_prepared() {
+    let mut h = History::new(Document::new());
+    // A standing cylinder, cut across its axis: refused before any kernel call.
+    let rod = add(&mut h, Primitive::Cylinder { origin: DVec3::ZERO, radius: 10.0, height: 40.0 });
+    let target = EntityPath::root(rod);
+    let refused = |op: &Operation| {
+        let e = h.document().prepare(op).unwrap_err();
+        assert!(matches!(e, Error::Kernel(kernel::Error::Stretch(_))), "{e:?}");
+    };
+    refused(&stretch_x(h.document(), &target, 0.0, 10.0, Scope::All));
+    // Malformed: a move per section missing; compressed past nothing.
+    refused(&stretch(h.document(), &target, DVec3::Z, vec![20.0], vec![0.0], Scope::All));
+    refused(&stretch(h.document(), &target, DVec3::Z, vec![20.0], vec![0.0, -45.0], Scope::All));
+    assert!(h.apply(stretch_x(h.document(), &target, 0.0, 10.0, Scope::All)).is_err());
+    // Unchanged.
+    assert!((h.document().resolve_part(&target).unwrap().1.blank.bounds().unwrap().1.z - 40.0).abs() < 1e-9);
+    // Along its axis it stretches.
+    h.apply(stretch(h.document(), &target, DVec3::Z, vec![20.0], vec![0.0, 10.0], Scope::All)).unwrap();
+    let (_, p, _) = h.document().resolve_part(&target).unwrap();
+    assert!((p.blank.bounds().unwrap().1.z - 50.0).abs() < 1e-9);
+}
+
+/// A frame along X at the root, made an assembly: two rails 0–600 (one part, the second a copy
+/// of the first 300 further along Y) and two legs 0–50 and 550–600 (one part). Returns the
+/// history, the assembly's occurrence, then the rails' and the legs' occurrences in it.
+fn frame(rail_shift: f64) -> (History, Id, [Id; 2], [Id; 2]) {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let rail = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0, 20.0, 40.0) });
+    let leg = add(&mut h, Primitive::Box { origin: DVec3::new(0.0, 0.0, -400.0), size: DVec3::new(50.0, 50.0, 400.0) });
+    let copy = |h: &mut History, id: Id, by: DVec3| {
+        h.apply(Operation::Duplicate { context: root, entities: vec![id], transform: DAffine3::from_translation(by) }).unwrap().created[0]
+    };
+    let rail2 = copy(&mut h, rail, DVec3::new(rail_shift, 300.0, 0.0));
+    let leg2 = copy(&mut h, leg, DVec3::X * 550.0);
+    let a = h.apply(Operation::MakeAssembly { context: root, entities: vec![rail, rail2, leg, leg2], name: None }).unwrap().created[0];
+    (h, a, [rail, rail2], [leg, leg2])
+}
+
+/// The X extent of an occurrence of the assembly `a` (at the root), and its part.
+fn x_of(doc: &Document, a: Id, o: Id) -> ((f64, f64), Id) {
+    let path = EntityPath::new(vec![a], o);
+    let (lo, hi) = world_bounds(doc, &path);
+    ((lo.x, hi.x), doc.resolve(&path).unwrap().component)
+}
+
+#[test]
+fn parts_cut_at_different_places_between_the_same_pieces_keep_one_part() {
+    // A plain rail, its copy 100 further along X: cut at 300, one is cut 300 into its length,
+    // the other 200 — between the same pieces (its ends), the same stretch: one part.
+    let (mut h, a, rails, _) = frame(100.0);
+    let rail_part = x_of(h.document(), a, rails[0]).1;
+    h.apply(stretch_x(h.document(), &EntityPath::root(a), 300.0, 100.0, Scope::All)).unwrap();
+    let doc = h.document();
+    assert_eq!((x_of(doc, a, rails[0]), x_of(doc, a, rails[1])), (((0.0, 700.0), rail_part), ((100.0, 800.0), rail_part)));
+}
+
+#[test]
+fn an_assembly_stretched_moves_what_is_in_one_section_and_stretches_what_crosses() {
+    let (mut h, a, rails, legs) = frame(0.0);
+    let (rail_part, leg_part) = (x_of(h.document(), a, rails[0]).1, x_of(h.document(), a, legs[0]).1);
+    let target = EntityPath::root(a);
+    // The spans a compression keeps apart: the matter at each end.
+    let spans = h.document().stretch_spans(&[], &[a], &DAffine3::IDENTITY, DVec3::X, &[300.0]).unwrap();
+    assert_eq!(spans, vec![Some((0.0, 50.0)), Some((550.0, 600.0))]);
+    let (lo, hi) = h.document().stretch_bounds(&[], &[a], &DAffine3::IDENTITY).unwrap().unwrap();
+    assert!(close(lo, DVec3::new(0.0, 0.0, -400.0)) && close(hi, DVec3::new(600.0, 320.0, 40.0)), "{lo} {hi}");
+
+    let out = h.apply(stretch_x(h.document(), &target, 300.0, 100.0, Scope::All)).unwrap();
+    let doc = h.document();
+    // The rails, one part still, stretched once; the far leg moved, its part untouched.
+    assert_eq!(x_of(doc, a, rails[0]), ((0.0, 700.0), rail_part));
+    assert_eq!(x_of(doc, a, rails[1]), ((0.0, 700.0), rail_part));
+    assert_eq!(x_of(doc, a, legs[0]), ((0.0, 50.0), leg_part));
+    assert_eq!(x_of(doc, a, legs[1]), ((650.0, 700.0), leg_part));
+    assert_eq!(out.stretched.iter().map(|s| (s.part, s.from)).collect::<Vec<_>>(), vec![(rail_part, rail_part)]);
+    assert!((doc.part(leg_part).unwrap().blank.bounds().unwrap().1.x - 50.0).abs() < 1e-9);
+}
+
+#[test]
+fn occurrences_of_one_part_stretched_differently_become_separate_parts() {
+    // The second rail 100 further along X, the rail drilled 250 into its length: cut at 300,
+    // the first rail has its hole before the cutter, the second after it.
+    let (mut h, a, rails, _) = frame(100.0);
+    let rail_part = x_of(h.document(), a, rails[0]).1;
+    let hole = Primitive::Cylinder { origin: DVec3::new(250.0, 10.0, -10.0), radius: 5.0, height: 60.0 };
+    let target = EntityPath::new(vec![a], rails[0]);
+    h.apply(Operation::AddMachining { target, primitive: hole, placement: DAffine3::IDENTITY, scope: Scope::All }).unwrap();
+    h.apply(stretch_x(h.document(), &EntityPath::root(a), 300.0, 100.0, Scope::All)).unwrap();
+    let doc = h.document();
+    let ((r0, p0), (r1, p1)) = (x_of(doc, a, rails[0]), x_of(doc, a, rails[1]));
+    assert_eq!((r0, r1), ((0.0, 700.0), (100.0, 800.0)));
+    // The first met keeps the part; the other is a copy, its ids kept.
+    assert_eq!(p0, rail_part);
+    assert_ne!(p1, rail_part);
+    assert_eq!(doc.part(p1).unwrap().blank.bounds().unwrap().1.x, 700.0);
+}
+
+#[test]
+fn an_assembly_shown_twice_is_stretched_everywhere_or_only_there() {
+    for scope in [Scope::All, Scope::This] {
+        let (mut h, a, rails, legs) = frame(0.0);
+        let root = h.document().root();
+        let b = h
+            .apply(Operation::Duplicate { context: root, entities: vec![a], transform: DAffine3::from_translation(DVec3::Y * 1000.0) })
+            .unwrap()
+            .created[0];
+        // The rail's part shown outside the assembly too.
+        let rail_part = x_of(h.document(), a, rails[0]).1;
+        let alone =
+            h.apply(Operation::PlaceOccurrence { context: root, component: rail_part, transform: DAffine3::IDENTITY }).unwrap().created[0];
+        h.apply(stretch_x(h.document(), &EntityPath::root(a), 300.0, 100.0, scope)).unwrap();
+        let doc = h.document();
+        let alone_x = world_bounds(doc, &EntityPath::root(alone)).1.x;
+        let (b_rail, b_leg) = (x_of(doc, b, rails[0]).0, x_of(doc, b, legs[1]).0);
+        assert_eq!(x_of(doc, a, rails[1]).0, (0.0, 700.0), "{scope:?}");
+        assert_eq!(x_of(doc, a, legs[1]).0, (650.0, 700.0), "{scope:?}");
+        match scope {
+            // Everywhere: the other assembly, the rail alone.
+            Scope::All => assert_eq!((b_rail, b_leg, alone_x), ((0.0, 700.0), (650.0, 700.0), 700.0)),
+            // Only there: the assembly and its rail are its own; the rest as it was.
+            Scope::This => {
+                assert_eq!((b_rail, b_leg, alone_x), ((0.0, 600.0), (550.0, 600.0), 600.0));
+                assert_ne!(doc.resolve(&EntityPath::root(a)).unwrap().component, doc.resolve(&EntityPath::root(b)).unwrap().component);
+                assert_ne!(x_of(doc, a, rails[0]).1, rail_part);
+                assert_eq!(x_of(doc, a, rails[0]).1, x_of(doc, a, rails[1]).1);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_part_of_an_assembly_that_cannot_stretch_is_named() {
+    let (mut h, a, _, _) = frame(0.0);
+    // A rod in the assembly across the cutter, square to the axis: it cannot be stretched along X.
+    let asm = h.document().resolve(&EntityPath::root(a)).unwrap().component;
+    let cyl = Primitive::Cylinder { origin: DVec3::new(300.0, 150.0, 0.0), radius: 10.0, height: 40.0 };
+    h.apply(Operation::AddPrimitive { context: asm, primitive: cyl, placement: DAffine3::IDENTITY }).unwrap();
+    let e = h.document().prepare(&stretch_x(h.document(), &EntityPath::root(a), 300.0, 100.0, Scope::All)).unwrap_err();
+    assert!(matches!(&e, Error::InPart { error, .. } if matches!(**error, Error::Kernel(kernel::Error::Stretch(_)))), "{e:?}");
+}
+
+#[test]
+fn a_copy_turned_half_round_stretched_alike_keeps_its_part() {
+    for (turn, mirror) in
+        [(DAffine3::from_rotation_z(std::f64::consts::PI), false), (DAffine3::from_scale(DVec3::new(-1.0, 1.0, 1.0)), true)]
+    {
+        let mut h = History::new(Document::new());
+        let root = h.document().root();
+        let rail = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0, 20.0, 40.0) });
+        // The copy turned (or mirrored) about its far end: it spans 0–600 along X too, its own
+        // X running the other way.
+        let t = DAffine3::from_translation(DVec3::new(600.0, if mirror { 300.0 } else { 320.0 }, 0.0)) * turn;
+        let rail2 = h.apply(Operation::Duplicate { context: root, entities: vec![rail], transform: t }).unwrap().created[0];
+        let a = h.apply(Operation::MakeAssembly { context: root, entities: vec![rail, rail2], name: None }).unwrap().created[0];
+        let part = x_of(h.document(), a, rail).1;
+        assert_eq!(x_of(h.document(), a, rail2).0, (0.0, 600.0));
+        // Cut off-centre, its far end pulled 100: both stretched alike, one part still, the
+        // turned one moved along its own axis to show it.
+        h.apply(stretch_x(h.document(), &EntityPath::root(a), 200.0, 100.0, Scope::All)).unwrap();
+        let doc = h.document();
+        let ((r0, p0), (r1, p1)) = (x_of(doc, a, rail), x_of(doc, a, rail2));
+        assert_eq!((r0, r1), ((0.0, 700.0), (0.0, 700.0)), "mirror {mirror}");
+        assert_eq!((p0, p1), (part, part), "mirror {mirror}");
+    }
+}
+
+/// Three boards of one part at the root, 0–200 along X, 100 apart along Y.
+fn three_boards() -> (History, Id, [Id; 3]) {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let copy = |h: &mut History, by: f64| {
+        h.apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * by) })
+            .unwrap()
+            .created[0]
+    };
+    let (b2, b3) = (copy(&mut h, 100.0), copy(&mut h, 300.0));
+    let part = h.document().resolve(&EntityPath::root(board)).unwrap().component;
+    (h, part, [board, b2, b3])
+}
+
+fn near(a: (f64, f64), b: (f64, f64)) -> bool {
+    (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9
+}
+
+/// The world X extent of the root occurrence `o`, and its part.
+fn root_x(doc: &Document, o: Id) -> ((f64, f64), Id) {
+    let path = EntityPath::root(o);
+    let (lo, hi) = world_bounds(doc, &path);
+    ((lo.x, hi.x), doc.resolve(&path).unwrap().component)
+}
+
+#[test]
+fn several_occurrences_stretched_together_share_their_change() {
+    let (mut h, part, [b1, b2, b3]) = three_boards();
+    // Their common box, in the root's axes.
+    let (lo, hi) = h.document().stretch_bounds(&[], &[b1, b2], &DAffine3::IDENTITY).unwrap().unwrap();
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(200.0, 150.0, 18.0)), "{lo} {hi}");
+    let op = |scope| Operation::Stretch {
+        context: vec![],
+        occurrences: vec![b1, b2],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::X,
+        cuts: vec![100.0],
+        moves: vec![0.0, 50.0],
+        scope,
+    };
+
+    // Only these: one copy for both, the third as it was.
+    let out = h.apply(op(Scope::This)).unwrap();
+    let doc = h.document();
+    let ((x1, p1), (x2, p2), (x3, p3)) = (root_x(doc, b1), root_x(doc, b2), root_x(doc, b3));
+    assert_eq!((x1, x2, x3), ((0.0, 250.0), (0.0, 250.0), (0.0, 200.0)));
+    assert_eq!((p1 == p2, p1 != part, p3), (true, true, part));
+    assert_eq!(out.stretched.iter().map(|s| (s.part, s.from)).collect::<Vec<_>>(), vec![(p1, part)]);
+
+    // All: the part itself, the third showing it.
+    h.undo();
+    h.apply(op(Scope::All)).unwrap();
+    let doc = h.document();
+    assert_eq!((root_x(doc, b1), root_x(doc, b2), root_x(doc, b3)), (((0.0, 250.0), part), ((0.0, 250.0), part), ((0.0, 250.0), part)));
+}
+
+#[test]
+fn several_occurrences_in_the_context_axes_turned_ones_take_their_own_change() {
+    let (mut h, part, [b1, b2, _]) = three_boards();
+    let root = h.document().root();
+    // The second turned square, standing at 100–150 along X, 0–200 along Y.
+    let turn = DAffine3::from_translation(DVec3::new(250.0, 0.0, 0.0)) * DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    h.apply(Operation::Transform { context: root, entities: vec![b2], transform: turn }).unwrap();
+    let (lo, hi) = world_bounds(h.document(), &EntityPath::root(b2));
+    assert!(close(lo, DVec3::new(100.0, 0.0, 0.0)) && close(hi, DVec3::new(150.0, 200.0, 18.0)), "{lo} {hi}");
+    let op = |cut: f64| Operation::Stretch {
+        context: vec![],
+        occurrences: vec![b1, b2],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::X,
+        cuts: vec![cut],
+        moves: vec![0.0, 50.0],
+        scope: Scope::All,
+    };
+
+    // Cut at 50: the first board stretched along its length, the turned one only moved.
+    h.apply(op(50.0)).unwrap();
+    let doc = h.document();
+    let ((x1, p1), (x2, p2)) = (root_x(doc, b1), root_x(doc, b2));
+    assert!(near(x1, (0.0, 250.0)) && near(x2, (150.0, 200.0)), "{x1:?} {x2:?}");
+    assert_eq!((p1, p2), (part, part));
+    h.undo();
+
+    // Cut at 125: both cross it, the turned one across its width — a change of its own.
+    h.apply(op(125.0)).unwrap();
+    let doc = h.document();
+    let ((x1, p1), (x2, p2)) = (root_x(doc, b1), root_x(doc, b2));
+    assert!(near(x1, (0.0, 250.0)) && near(x2, (100.0, 200.0)), "{x1:?} {x2:?}");
+    assert_eq!(p1, part);
+    assert_ne!(p2, part);
+    let (lo, hi) = world_bounds(doc, &EntityPath::root(b2));
+    assert!(close(lo, DVec3::new(100.0, 0.0, 0.0)) && close(hi, DVec3::new(200.0, 200.0, 18.0)), "{lo} {hi}");
+}
+
+#[test]
+fn a_stretch_in_the_model_axes_reaches_into_a_turned_context() {
+    // A board in an assembly turned square and moved: stretched along the model's X, from
+    // inside the assembly, it grows across its width.
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let a = h.apply(Operation::MakeAssembly { context: root, entities: vec![board], name: None }).unwrap().created[0];
+    let turn = DAffine3::from_translation(DVec3::new(1000.0, 0.0, 0.0)) * DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    h.apply(Operation::Transform { context: root, entities: vec![a], transform: turn }).unwrap();
+    let path = EntityPath::new(vec![a], board);
+    let (lo, hi) = world_bounds(h.document(), &path);
+    assert!(close(lo, DVec3::new(950.0, 0.0, 0.0)) && close(hi, DVec3::new(1000.0, 200.0, 18.0)), "{lo} {hi}");
+
+    // The model's axes in the context's.
+    let frame = h.document().transform_of(&[a]).unwrap().inverse();
+    let (blo, bhi) = h.document().stretch_bounds(&[a], &[board], &frame).unwrap().unwrap();
+    assert!(close(blo, lo) && close(bhi, hi), "{blo} {bhi}");
+    let op = Operation::Stretch {
+        context: vec![a],
+        occurrences: vec![board],
+        frame,
+        axis: DVec3::X,
+        cuts: vec![975.0],
+        moves: vec![0.0, 30.0],
+        scope: Scope::All,
+    };
+    h.apply(op).unwrap();
+    let (lo, hi) = world_bounds(h.document(), &path);
+    assert!(close(lo, DVec3::new(950.0, 0.0, 0.0)) && close(hi, DVec3::new(1030.0, 200.0, 18.0)), "{lo} {hi}");
+}
+
+#[test]
+fn a_stretch_without_occurrences_is_refused() {
+    let (h, _, _) = three_boards();
+    let op = Operation::Stretch {
+        context: vec![],
+        occurrences: vec![],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::X,
+        cuts: vec![100.0],
+        moves: vec![0.0, 50.0],
+        scope: Scope::All,
+    };
+    assert!(matches!(h.document().prepare(&op), Err(Error::Invalid(Refusal::NothingStretched))));
+}

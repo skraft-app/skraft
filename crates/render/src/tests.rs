@@ -87,6 +87,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         highlights: if highlight { &hl } else { &[] },
         lines: &[],
         overlay: &[],
+        fills: &[],
         grid: decor.then_some(Grid { spacing: 10.0, count: 10 }),
         axes: decor,
         axes_frame: DMat4::IDENTITY,
@@ -160,6 +161,7 @@ fn concave_edges_are_not_buried() {
         highlights: &[],
         lines: &[],
         overlay: &[],
+        fills: &[],
         grid: None,
         axes: false,
         axes_frame: DMat4::IDENTITY,
@@ -212,6 +214,7 @@ fn a_mirrored_placement_shows_its_outside() {
             highlights: &[],
             lines: &[],
             overlay: &[],
+            fills: &[],
             grid: None,
             axes: false,
             axes_frame: DMat4::IDENTITY,
@@ -247,6 +250,7 @@ fn shot(
         highlights: &[],
         lines: &[],
         overlay: &[],
+        fills: &[],
         grid: None,
         axes: false,
         axes_frame: DMat4::IDENTITY,
@@ -287,6 +291,7 @@ fn a_still_frame_is_not_drawn_again() {
         highlights: &[],
         lines: &[],
         overlay: &[],
+        fills: &[],
         grid: None,
         axes: false,
         axes_frame: DMat4::IDENTITY,
@@ -447,6 +452,7 @@ fn a_ghost_shows_what_it_holds() {
             highlights: &[],
             lines: &[],
             overlay: &[],
+            fills: &[],
             grid: None,
             axes: false,
             axes_frame: DMat4::IDENTITY,
@@ -496,6 +502,7 @@ fn dashed_lines_are_dashed_on_screen() {
         highlights: &[],
         lines: &[line],
         overlay: &[],
+        fills: &[],
         grid: None,
         axes: false,
         axes_frame: DMat4::IDENTITY,
@@ -518,4 +525,48 @@ fn dashed_lines_are_dashed_on_screen() {
         }
     }
     assert!(dashes > 40 && gaps > 40, "{dashes} {gaps}");
+}
+
+/// A fill is drawn in the scene: hidden behind a part, blended over the background.
+#[test]
+fn fills_hide_behind_faces() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    // A large red plane under the cube.
+    let c = |x: f64, y: f64| DVec3::new(x, y, -20.0);
+    let plane =
+        [Fill { corners: vec![c(-500.0, -500.0), c(500.0, -500.0), c(500.0, 500.0), c(-500.0, 500.0)], color: [1.0, 0.0, 0.0, 0.5] }];
+    let shoot = |r: &mut Renderer, fills: &[Fill]| {
+        let frame = Frame {
+            view: front_view(),
+            proj,
+            background: [1.0, 1.0, 1.0],
+            style: Style::default(),
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            overlay: &[],
+            fills,
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 1.0,
+        };
+        draw(r, &device, &queue, SIZE, &frame)
+    };
+    let plain = shoot(&mut r, &[]);
+    let filled = shoot(&mut r, &plane);
+    save(&filled, SIZE, "fill");
+    let at = |px: &[u8], x, y| pixel(px, SIZE[0], x, y);
+    // The cube hides the plane; below it, the plane tints the background.
+    assert_eq!(at(&plain, 160, 100), at(&filled, 160, 100));
+    let [r0, g0, b0, _] = at(&filled, 160, SIZE[1] - 5);
+    assert!(r0 > 200 && g0 < 220 && b0 < 220 && r0 > g0 + 30, "{:?}", [r0, g0, b0]);
 }

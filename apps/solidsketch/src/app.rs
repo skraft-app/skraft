@@ -118,6 +118,7 @@ fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.paint" => ToolKind::Paint,
         "tool.section" => ToolKind::Section,
         "tool.measure" => ToolKind::Measure,
+        "tool.stretch" => ToolKind::Stretch,
         "tool.union" => ToolKind::Boolean(Boolean::Union),
         "tool.difference" => ToolKind::Boolean(Boolean::Difference),
         "tool.intersection" => ToolKind::Boolean(Boolean::Intersection),

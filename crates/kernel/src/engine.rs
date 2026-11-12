@@ -7,7 +7,7 @@ use solidcore::primitive::api_primitives as prim;
 use solidcore_record::brep::Brep as Record;
 
 use crate::job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task};
-use crate::{BooleanOp, Error, Mesh, Primitive, Result, Snaps, Solid};
+use crate::{BooleanOp, Error, Mesh, Primitive, Result, Snaps, Solid, Stretch};
 
 impl Primitive {
     pub fn build(&self) -> Result<Solid> {
@@ -45,6 +45,17 @@ impl Solid {
     /// A torus centred at `center`, around +Z.
     pub fn new_torus(center: DVec3, major_radius: f64, minor_radius: f64) -> Result<Self> {
         create("torus", |k| prim::create_torus(k, p3(center), major_radius, minor_radius))
+    }
+
+    /// This solid stretched (docs/ARCHITECTURE.md §6 sexies): its record rewritten, then read
+    /// back by the kernel, which checks it.
+    pub fn stretched(&self, stretch: &Stretch) -> Result<Self> {
+        let record = stretch.apply(self)?.record().clone();
+        guarded("stretch", || {
+            let mut k = kernel();
+            let mut body = to_kernel(&mut k, &record, "stretch")?;
+            to_record(&mut k, &mut body, "stretch")
+        })
     }
 
     /// This solid moved by the rigid (or uniformly scaled) transform `t`.
@@ -189,6 +200,7 @@ pub fn run(job: &Job) -> JobResult {
                 let display = shape.display().map_err(|e| e.to_string());
                 Output::Recipe { solid: shape, display, failed }
             }
+            Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
             Task::Display { solid: i } => Output::Display(input(*i)?.display().map_err(|e| e.to_string())),
             Task::Panic { message } => guarded("panic", || -> Result<Output> { panic!("{message}") })?,
         };

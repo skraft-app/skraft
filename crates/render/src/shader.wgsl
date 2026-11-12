@@ -382,3 +382,23 @@ fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
     }
     return vec4<f32>(mix(g.background.rgb, in.color.rgb, in.color.a), 1.0);
 }
+
+// ---- translucent fills (a tool's planes, in the scene: depth tested, blended) ------------------
+
+struct FillOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+@vertex
+fn vs_fill(@location(0) pos: vec3<f32>, @location(1) color: vec4<f32>) -> FillOut {
+    var out: FillOut;
+    out.clip = g.proj * vec4<f32>(pos, 1.0);
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs_fill(in: FillOut) -> @location(0) vec4<f32> {
+    return in.color;
+}

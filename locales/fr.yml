@@ -454,6 +454,46 @@ tool:
       no_side: "Pointer le côté où décaler le guide"
       no_line: "Points confondus : pas de guide"
       no_radius: "Le cercle n'aurait plus de rayon : pas de guide"
+  stretch:
+    name: "Étirer"
+    hint:
+      pick: "Cliquer la pièce ou l'assemblage à étirer · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
+      # Shift held after a Shift click (OpenCutList's multiple selection).
+      gather: "Sélection multiple : cliquer un exemplaire pour l'ajouter ou le retirer · relâcher Maj pour étirer la sélection"
+      grip: "Cliquer une poignée pour étirer · glisser un plan de coupe pour le déplacer · flèches : bloquer un axe · %{copy_key} maintenu : ajouter un plan de coupe · %{alt_key} maintenu : supprimer un plan de coupe · %{alt_key} : rendre unique"
+      add: "Cliquer pour ajouter le plan de coupe"
+      remove: "Cliquer un plan de coupe pour le supprimer"
+      cutter: "Glisser le plan de coupe pour le déplacer · jusqu'au bord de la pièce : le supprimer"
+      stretch: "Cliquer pour valider l'étirement, ou taper une distance · Maj : la dernière cote · double-clic : la dernière cote · %{copy_key} : centré · %{alt_key} : rendre unique"
+      # An interior handle hovered: it moves what lies between two cutters, the overall length kept.
+      interior: "Cliquer pour déplacer la matière entre les deux plans de coupe · Maj maintenu : prendre le point de départ ailleurs · %{copy_key} maintenu : ajouter un plan de coupe · %{alt_key} maintenu : supprimer un plan de coupe"
+      stretch_interior: "Cliquer pour valider le déplacement, ou taper une distance · Maj : la dernière cote · double-clic : la dernière cote · %{alt_key} : rendre unique"
+    vcb:
+      overall: "Cote hors-tout"
+      offset: "Décalage"
+    say:
+      invalid_length: "Longueur invalide : %{value}"
+      min_length: "%{value} est inférieure à la longueur minimale de %{min}"
+      max_compression: "%{value} dépasse la compression maximale de %{max}"
+    option:
+      centered: "Centré"
+      centered_tip: "Étirer de part et d'autre : les deux extrémités s'écartent d'autant (%{copy_key} pendant l'étirement : basculer)"
+      measure: "Cote"
+      measure_tip: "Ce que mesure la valeur tapée ou affichée"
+      overall: "Hors-tout"
+      overall_tip: "Mesurer d'un bord à l'autre : la longueur totale de la pièce le long de l'axe"
+      offset: "Décalage"
+      offset_tip: "Mesurer la différence : de combien la face tirée se déplace"
+      axes: "Axes"
+      axes_tip: "Les axes le long desquels étirer"
+      active: "Modèle"
+      active_tip: "Étirer le long des axes du modèle"
+      context: "Contexte"
+      context_tip: "Étirer le long des axes de l'assemblage contenant la sélection"
+      entity: "Exemplaire"
+      entity_tip: "Étirer le long des axes de la pièce ou de l'assemblage (ceux du contexte pour plusieurs exemplaires)"
+      scope_tip: "Ce que l'étirement modifie (%{alt_key} : basculer)"
+      this_tip: "Seulement les exemplaires étirés : ils deviennent une pièce à part (et leur assemblage, s'il est copié)"
   # The measurements box refusing what was typed.
   vcb:
     refused: "%{label} — « %{text} » : %{error}"
@@ -518,6 +558,7 @@ operation:
   edit_material: "Modifier la matière"
   delete_material: "Supprimer la matière"
   paint: "$t(common.paint)"
+  stretch: "Étirer"
 
 unit:
   millimeter: "Millimètres"
@@ -560,6 +601,8 @@ error:
     not_a_part: "%{id} n'est pas une pièce"
     not_an_assembly: "%{id} n'est pas un assemblage"
     cycle: "un assemblage se contiendrait lui-même"
+    # A part of an assembly being changed refuses it: its name, then why.
+    in_part: "« %{part} » : %{error}"
     out_of_step: "les résultats du noyau ne correspondent pas à l'opération"
     placement_not_rigid: "un placement est un déplacement et une rotation"
     not_rigid: "seuls les déplacements, rotations et symétries placent un exemplaire"
@@ -573,6 +616,7 @@ error:
     no_such_face: "pas de telle face"
     no_machinings: "aucun usinage désigné"
     bad_guide: "guide sans direction ou sans rayon"
+    nothing_stretched: "aucun exemplaire à étirer"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"
@@ -599,6 +643,13 @@ error:
     empty: "%{call} : résultat vide"
     panic: "%{call} : panique du noyau : %{message}"
     crashed: "le noyau s'est arrêté : %{why}"
+  # A stretch that cannot be applied (docs/ARCHITECTURE.md §6 sexies).
+  stretch:
+    invalid: "étirement mal défini"
+    edge_across: "une arête qui n'est pas droite dans le sens de l'étirement traverse une coupe"
+    face_across: "une face qui n'est ni plane ni cylindrique dans le sens de l'étirement traverse une coupe"
+    unsupported: "une face traversant une coupe a une forme que l'étirement ne sait pas modifier"
+    collapsed: "compression trop forte : la matière disparaîtrait"
   # The web worker the kernel runs in (browser).
   worker:
     send: "envoi : %{error}"

@@ -9,6 +9,7 @@ mod history;
 pub mod measure;
 mod ops;
 mod settings;
+mod stretch;
 
 #[cfg(test)]
 mod tests;
@@ -24,6 +25,7 @@ pub use settings::{Display, LengthUnit, Section, Settings, Units};
 use solidsketch_i18n::t;
 pub use solidsketch_kernel as kernel;
 pub use solidsketch_kernel::Primitive;
+pub use stretch::StretchedPart;
 
 /// Why an operation (or a file) was refused. Shown to the user: each kind has its text in
 /// the catalog (`error.model.*`, `error.file.*`).
@@ -37,6 +39,11 @@ pub enum Error {
     Invalid(Refusal),
     Kernel(kernel::Error),
     File(FileError),
+    /// Refused in this part (by its name), of an assembly being changed.
+    InPart {
+        part: String,
+        error: Box<Error>,
+    },
 }
 
 /// An operation that cannot be done as asked.
@@ -65,6 +72,8 @@ pub enum Refusal {
     NoMachinings,
     /// A guide with no length or direction, or not finite.
     BadGuide,
+    /// A stretch names no occurrence.
+    NothingStretched,
 }
 
 /// A file that cannot be opened.
@@ -109,6 +118,7 @@ impl std::fmt::Display for Error {
             Error::Invalid(r) => r.to_string(),
             Error::Kernel(e) => e.to_string(),
             Error::File(e) => e.to_string(),
+            Error::InPart { part, error } => t!("error.model.in_part", part = part, error = error),
         };
         f.write_str(&text)
     }
@@ -130,6 +140,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
             Refusal::NoMachinings => t!("error.model.no_machinings"),
             Refusal::BadGuide => t!("error.model.bad_guide"),
+            Refusal::NothingStretched => t!("error.model.nothing_stretched"),
         })
     }
 }
