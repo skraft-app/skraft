@@ -29,5 +29,5 @@ package() {
 
 package solidsketch apps/solidsketch solidsketch pkg
 package solidsketch-kernel-worker apps/kernel-worker solidsketch_kernel_worker worker
-cp web/index.html web/kernel-worker.js dist/web/
+cp web/index.html web/kernel-worker.js web/favicon.svg dist/web/
 echo "dist/web prêt : python3 -m http.server 8080 -d dist/web  →  http://localhost:8080"

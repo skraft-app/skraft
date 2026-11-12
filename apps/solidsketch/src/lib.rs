@@ -28,6 +28,11 @@ pub(crate) const INTEGRATED_TITLEBAR: bool = cfg!(all(target_os = "macos", not(t
 pub fn native_options() -> eframe::NativeOptions {
     let mut viewport =
         egui::ViewportBuilder::default().with_title("SolidSketch").with_inner_size([1280.0, 800.0]).with_min_inner_size([640.0, 400.0]);
+    // The app icon (window, taskbar, macOS Dock), rendered from assets/app-icon.svg.
+    match eframe::icon_data::from_png_bytes(include_bytes!("../assets/app-icon.png")) {
+        Ok(icon) => viewport = viewport.with_icon(std::sync::Arc::new(icon)),
+        Err(error) => log::warn!("app icon: {error}"),
+    }
     if INTEGRATED_TITLEBAR {
         viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
     }
