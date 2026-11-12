@@ -349,7 +349,7 @@ impl Document {
                     .values()
                     .filter(|c| match &c.kind {
                         ComponentKind::Part(p) => p.faces.values().any(|m| m == material),
-                        ComponentKind::Assembly(a) => a.occurrences.iter().any(|o| o.material == Some(*material)),
+                        ComponentKind::Assembly(a) => a.occurrences().iter().any(|o| o.material == Some(*material)),
                     })
                     .map(|c| c.id)
                     .collect();
@@ -357,7 +357,7 @@ impl Document {
                     match &mut self.component_mut(id)?.kind {
                         ComponentKind::Part(p) => p.faces.retain(|_, m| m != material),
                         ComponentKind::Assembly(a) => {
-                            for o in &mut a.occurrences {
+                            for o in a.occurrences_mut() {
                                 if o.material == Some(*material) {
                                     o.material = None;
                                 }
@@ -375,7 +375,7 @@ impl Document {
                 let (_, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
                 let entities = id_set(entities);
-                for o in &mut self.assembly_mut(*context)?.occurrences {
+                for o in self.assembly_mut(*context)?.occurrences_mut() {
                     if entities.contains(&o.id) {
                         o.material = *material;
                     }
@@ -414,12 +414,12 @@ impl Document {
                     }
                     _ => {
                         let name = fragment.component(fragment.root)?.name.clone();
-                        let assembly = self.insert_component(&name, true, ComponentKind::Assembly(Assembly { occurrences: top }));
+                        let assembly = self.insert_component(&name, true, ComponentKind::Assembly(Assembly::new(top)));
                         Occurrence { id: self.fresh_id(), name: String::new(), component: assembly, transform: *transform, material: None }
                     }
                 };
                 let id = placed.id;
-                self.assembly_mut(*context)?.occurrences.push(placed);
+                self.assembly_mut(*context)?.occurrences_mut().push(placed);
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::AddGuide { component, shape } => {
@@ -441,7 +441,7 @@ impl Document {
                 let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(Part::new(blank)));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
-                self.assembly_mut(*context)?.occurrences.push(Occurrence {
+                self.assembly_mut(*context)?.occurrences_mut().push(Occurrence {
                     id,
                     name: String::new(),
                     component: part,
@@ -457,7 +457,7 @@ impl Document {
                 let (guides, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
                 let entities = id_set(entities);
-                for o in &mut self.assembly_mut(*context)?.occurrences {
+                for o in self.assembly_mut(*context)?.occurrences_mut() {
                     if entities.contains(&o.id) {
                         o.transform = *transform * o.transform;
                     }
@@ -499,7 +499,7 @@ impl Document {
                 let (guides, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
                 let entities = id_set(entities);
-                self.assembly_mut(*context)?.occurrences.retain(|o| !entities.contains(&o.id));
+                self.assembly_mut(*context)?.occurrences_mut().retain(|o| !entities.contains(&o.id));
                 self.component_mut(*context)?.guides.retain(|g| !guides.contains(&g.id));
                 Ok(Outcome::default())
             }
@@ -531,13 +531,13 @@ impl Document {
                 }
                 let moved = self.occurrences_of(*context, entities)?;
                 let base = name.clone().unwrap_or_else(|| t!("default_name.assembly"));
-                let assembly = self.insert_component(&base, name.is_some(), ComponentKind::Assembly(Assembly { occurrences: moved }));
+                let assembly = self.insert_component(&base, name.is_some(), ComponentKind::Assembly(Assembly::new(moved)));
                 // Its axes have their origin at the low corner of its content's bounds: the
                 // content is moved by the opposite of that corner, the new occurrence by it, so
                 // nothing moves in the context.
                 let corner = self.component_bounds(assembly).map_or(DVec3::ZERO, |(lo, _)| lo);
                 let to_axes = DAffine3::from_translation(-corner);
-                for o in &mut self.assembly_mut(assembly)?.occurrences {
+                for o in self.assembly_mut(assembly)?.occurrences_mut() {
                     o.transform = to_axes * o.transform;
                 }
                 let taken: Vec<Guide> = self
@@ -553,10 +553,10 @@ impl Document {
                 let entities = id_set(entities);
                 let ctx = self.assembly_mut(*context)?;
                 // The new occurrence stands where the first moved one stood, in the tree.
-                let at = ctx.occurrences.iter().position(|o| entities.contains(&o.id)).unwrap_or(ctx.occurrences.len());
-                ctx.occurrences.retain(|o| !entities.contains(&o.id));
-                let at = at.min(ctx.occurrences.len());
-                ctx.occurrences.insert(
+                let at = ctx.occurrences().iter().position(|o| entities.contains(&o.id)).unwrap_or(ctx.occurrences().len());
+                ctx.occurrences_mut().retain(|o| !entities.contains(&o.id));
+                let at = at.min(ctx.occurrences().len());
+                ctx.occurrences_mut().insert(
                     at,
                     Occurrence {
                         id,
@@ -570,7 +570,7 @@ impl Document {
             }
             Operation::Explode { context, occurrence } => {
                 let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);
-                let contents = self.assembly(o.component).map_err(|_| Error::Invalid(Refusal::NotExploded))?.occurrences.clone();
+                let contents = self.assembly(o.component).map_err(|_| Error::Invalid(Refusal::NotExploded))?.occurrences().to_vec();
                 let mut copies = Vec::with_capacity(contents.len());
                 for c in contents {
                     let id = self.fresh_id();
@@ -584,7 +584,7 @@ impl Document {
                 self.component_mut(*context)?.guides.extend(guides);
                 let ctx = self.assembly_mut(*context)?;
                 let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
-                ctx.occurrences.splice(at..=at, copies);
+                ctx.occurrences_mut().splice(at..=at, copies);
                 Ok(Outcome { created, ..Outcome::default() })
             }
             Operation::MakeUnique { context, occurrence } => {
@@ -611,7 +611,7 @@ impl Document {
                     return Err(Error::Cycle);
                 }
                 let id = self.fresh_id();
-                self.assembly_mut(*context)?.occurrences.push(Occurrence {
+                self.assembly_mut(*context)?.occurrences_mut().push(Occurrence {
                     id,
                     name: String::new(),
                     component: *component,
@@ -872,7 +872,7 @@ impl Document {
             Boolean::Union | Boolean::Intersection => Part::new(result),
         };
         *self.part_mut(part)? = next;
-        self.assembly_mut(tool_ctx)?.occurrences.retain(|o| o.id != tool.entity);
+        self.assembly_mut(tool_ctx)?.occurrences_mut().retain(|o| o.id != tool.entity);
         Ok(Outcome { created: vec![target.entity], ..Outcome::default() })
     }
 
@@ -904,7 +904,7 @@ impl Document {
         let a = self.assembly(context)?;
         // Sets both ways: a selection can hold tens of thousands of occurrences.
         let wanted = id_set(ids);
-        let found: Vec<Occurrence> = a.occurrences.iter().filter(|o| wanted.contains(&o.id)).cloned().collect();
+        let found: Vec<Occurrence> = a.occurrences().iter().filter(|o| wanted.contains(&o.id)).cloned().collect();
         if found.len() < wanted.len() {
             let present: HashSet<Id> = found.iter().map(|o| o.id).collect();
             if let Some(&missing) = ids.iter().find(|id| !present.contains(id)) {
@@ -922,7 +922,7 @@ impl Document {
             copies.push(Occurrence { id, transform: *t * s.transform, ..s.clone() });
         }
         let created = copies.iter().map(|c| c.id).collect();
-        self.assembly_mut(context)?.occurrences.extend(copies);
+        self.assembly_mut(context)?.occurrences_mut().extend(copies);
         Ok(created)
     }
 }

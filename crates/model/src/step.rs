@@ -96,7 +96,7 @@ impl Document {
             let id = doc.insert_component(
                 &product_name.clone().unwrap_or_else(|| t!("default_name.assembly")),
                 product_name.is_some(),
-                ComponentKind::Assembly(Assembly { occurrences }),
+                ComponentKind::Assembly(Assembly::new(occurrences)),
             );
             report.assemblies += 1;
             component_of[k] = Some((id, None));
@@ -109,7 +109,7 @@ impl Document {
             }
         }
         if let Ok(a) = doc.assembly_mut(root) {
-            a.occurrences = top;
+            *a.occurrences_mut() = top;
         }
         doc.purge();
         (doc, report)

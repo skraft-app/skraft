@@ -250,7 +250,7 @@ impl Editor {
             }
         };
         let (fragment, report) = Document::from_step(&step, name);
-        if fragment.root_assembly().occurrences.is_empty() {
+        if fragment.root_assembly().occurrences().is_empty() {
             self.message = Some(solidsketch_i18n::tp!("status.import_empty", report.excluded, file = name));
             return;
         }
@@ -349,7 +349,7 @@ impl Editor {
             None => {
                 if let Ok(a) = doc.assembly(ctx) {
                     // A set: the selection and the assembly can hold tens of thousands.
-                    let present: std::collections::HashSet<_> = a.occurrences.iter().map(|o| o.id).collect();
+                    let present: std::collections::HashSet<_> = a.occurrences().iter().map(|o| o.id).collect();
                     self.selection.retain(|id| present.contains(id) || guide(id));
                 }
             }

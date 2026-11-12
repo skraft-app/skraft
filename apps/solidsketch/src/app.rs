@@ -11,7 +11,7 @@ use solidsketch_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
 
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
-use crate::file::{self, ImportInbox, Inbox};
+use crate::file::{self, Inbox};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView, InfoState};
@@ -34,8 +34,6 @@ pub struct SolidSketchApp {
     /// The history revision when last saved or opened (the document is modified if it differs).
     saved_at: u64,
     inbox: Inbox,
-    /// A file picked to import (STEP), waiting for the editor.
-    import_inbox: ImportInbox,
     message: Option<String>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
@@ -174,7 +172,6 @@ impl SolidSketchApp {
             path: None,
             saved_at: 0,
             inbox: Inbox::default(),
-            import_inbox: ImportInbox::default(),
             message: error,
             keymap: Keymap::new(&prefs.shortcuts),
             stored_prefs: prefs.clone(),
@@ -327,7 +324,7 @@ impl SolidSketchApp {
         match id {
             "file.new" => self.new_document(),
             "file.open" => file::open(&self.inbox, &self.ctx),
-            "file.import" => file::import(&self.import_inbox, &self.ctx),
+            "file.import" => file::import(&self.inbox, &self.ctx),
             "file.save" => self.save(false),
             "file.save_as" => self.save(true),
             "edit.undo" => e.undo(),
@@ -406,15 +403,8 @@ impl SolidSketchApp {
 
     fn save(&mut self, ask: bool) {
         let path = if ask { None } else { self.path.clone() };
-        match file::save(self.editor.document(), path.as_deref()) {
-            Ok(Some(p)) => {
-                self.path = Some(p);
-                self.saved_at = self.editor.history().revision();
-                self.message = Some(t!("status.saved"));
-            }
-            Ok(None) => {}
-            Err(e) => self.message = Some(t!("status.save_failed", error = e)),
-        }
+        let revision = self.editor.history().revision();
+        file::save(self.editor.document(), revision, path.as_deref(), &self.inbox, &self.ctx);
     }
 
     /// A modifier tapped alone goes to the tool: the copy modifier (Option on macOS, Ctrl
@@ -846,18 +836,25 @@ impl eframe::App for SolidSketchApp {
         self.apply_theme(&ctx);
         // What the kernel finished since the last frame (it wakes the UI when it does).
         self.editor.poll();
-        if let Some((name, text)) = self.inbox.take() {
-            match Document::from_json(&text) {
-                Ok(doc) => {
-                    self.editor.open(doc);
-                    self.path = Some(name);
-                    self.saved_at = 0;
+        // What the file dialogs ended with (they never block the event loop).
+        for outcome in self.inbox.take() {
+            match outcome {
+                file::Outcome::Opened { name, text } => match Document::from_json(&text) {
+                    Ok(doc) => {
+                        self.editor.open(doc);
+                        self.path = Some(name);
+                        self.saved_at = 0;
+                    }
+                    Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
+                },
+                file::Outcome::Saved { path, revision } => {
+                    self.path = Some(path);
+                    self.saved_at = revision;
+                    self.message = Some(t!("status.saved"));
                 }
-                Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
+                file::Outcome::SaveFailed(e) => self.message = Some(t!("status.save_failed", error = e)),
+                file::Outcome::Imported { name, bytes } => self.editor.import_step(name, bytes),
             }
-        }
-        if let Some((name, bytes)) = self.import_inbox.take() {
-            self.editor.import_step(name, bytes);
         }
         // Any input clears the last app message.
         if ctx.input(|i| !i.events.is_empty() && i.pointer.any_pressed()) {

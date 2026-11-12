@@ -33,12 +33,12 @@ fn a_step_file_becomes_parts_and_assemblies() {
     assert_eq!(frag.occurrence_count(board.id), 2);
     // The body's colour on both occurrences.
     let cabinet = frag.components().find(|c| c.name == "Caisson").unwrap().as_assembly().unwrap();
-    for o in &cabinet.occurrences {
+    for o in cabinet.occurrences() {
         let m = frag.material(o.material.unwrap()).unwrap();
         assert_eq!(m.color, [204, 153, 102]);
     }
     assert_eq!(frag.materials().count(), 1);
-    assert_eq!(frag.root_assembly().occurrences.len(), 1);
+    assert_eq!(frag.root_assembly().occurrences().len(), 1);
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn inserting_places_the_file_in_the_context_once() {
     let (doc, outcome) = apply(&doc, &op);
     assert_eq!(outcome.created.len(), 1);
     // The file's single top product is placed itself, not wrapped.
-    let placed = &doc.root_assembly().occurrences[0];
+    let placed = &doc.root_assembly().occurrences()[0];
     assert_eq!(doc.component(placed.component).unwrap().name, "Caisson");
     assert_eq!(placed.transform, at);
     assert_eq!(doc.placed_parts().len(), 2);

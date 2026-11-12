@@ -127,7 +127,7 @@ impl Document {
         match &self.component(component).ok()?.kind {
             ComponentKind::Part(p) => s.extent(p.shape()),
             ComponentKind::Assembly(a) => a
-                .occurrences
+                .occurrences()
                 .iter()
                 .filter_map(|o| self.placed_extent(o.component, s, &o.transform, depth + 1))
                 .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1))),
@@ -224,7 +224,7 @@ impl Document {
                 }
             }
             ComponentKind::Assembly(a) => {
-                self.collect_occurrence_spans(a.occurrences.iter().map(|o| (o.component, o.transform)), s, shift, spans, depth + 1);
+                self.collect_occurrence_spans(a.occurrences().iter().map(|o| (o.component, o.transform)), s, shift, spans, depth + 1);
             }
         }
     }
@@ -295,7 +295,7 @@ impl Document {
             walked: HashSet::new(),
             anchored: HashMap::new(),
         };
-        before.count_placed(before.root, &mut walk.placed, 0);
+        before.count_placed(before.root, &mut walk.placed);
         walk.count_occurrences(&occs, stretch, 0);
         self.make_occurrences(&mut walk, at, &occs, stretch, frame, stretch_part, 0)?;
         self.move_unreached(&walk)?;
@@ -312,7 +312,7 @@ impl Document {
                 .filter_map(|x| {
                     let a = x.as_assembly()?;
                     let ids: Vec<Id> =
-                        a.occurrences.iter().filter(|o| o.component == *c && !walk.walked.contains(&(x.id, o.id))).map(|o| o.id).collect();
+                        a.occurrences().iter().filter(|o| o.component == *c && !walk.walked.contains(&(x.id, o.id))).map(|o| o.id).collect();
                     (!ids.is_empty()).then_some((x.id, ids))
                 })
                 .collect();
@@ -386,7 +386,7 @@ impl Document {
                 }
             }
             ComponentKind::Assembly(a) => {
-                for o in &a.occurrences {
+                for o in a.occurrences() {
                     let local = s.in_frame(&o.transform);
                     let Some((lo, hi)) = self.extent_along(o.component, &local, depth + 1) else { continue };
                     match self.whole_move(o.component, &local, lo, hi) {
@@ -406,16 +406,55 @@ impl Document {
         }
     }
 
-    /// How many times the document places each component below `component` (every path).
-    fn count_placed(&self, component: Id, placed: &mut HashMap<Id, usize>, depth: usize) {
-        let Ok(a) = self.assembly(component) else { return };
-        if depth > MAX_DEPTH {
+    /// How many times the document places each component below `component` (every path):
+    /// worked out over the distinct assemblies (each one's contents counted once, in runs),
+    /// then carried down from `component` in topological order — not by visiting every
+    /// placement.
+    pub(crate) fn count_placed(&self, component: Id, placed: &mut HashMap<Id, usize>) {
+        // Each assembly reached: its components, with how many occurrences of each.
+        let mut direct: HashMap<Id, Vec<(Id, usize)>> = HashMap::new();
+        // Reverse post-order of the depth-first walk: holders before what they hold.
+        let mut order = Vec::new();
+        self.gather_contents(component, &mut direct, &mut order, 0);
+        let mut times: HashMap<Id, usize> = HashMap::from([(component, 1)]);
+        for a in order.iter().rev() {
+            let n = times.get(a).copied().unwrap_or(0);
+            for (c, k) in &direct[a] {
+                *times.entry(*c).or_default() += n * k;
+                *placed.entry(*c).or_default() += n * k;
+            }
+        }
+    }
+
+    fn gather_contents(&self, assembly: Id, direct: &mut HashMap<Id, Vec<(Id, usize)>>, order: &mut Vec<Id>, depth: usize) {
+        if depth > MAX_DEPTH || direct.contains_key(&assembly) {
             return;
         }
-        for o in &a.occurrences {
-            *placed.entry(o.component).or_default() += 1;
-            self.count_placed(o.component, placed, depth + 1);
+        let Ok(a) = self.assembly(assembly) else { return };
+        // Runs of the same component counted before one lookup each.
+        let mut at: HashMap<Id, usize> = HashMap::new();
+        let mut counts: Vec<(Id, usize)> = Vec::new();
+        let mut occs = a.occurrences().iter().peekable();
+        while let Some(o) = occs.next() {
+            let mut run = 1;
+            while occs.next_if(|n| n.component == o.component).is_some() {
+                run += 1;
+            }
+            match at.get(&o.component) {
+                Some(i) => counts[*i].1 += run,
+                None => {
+                    at.insert(o.component, counts.len());
+                    counts.push((o.component, run));
+                }
+            }
         }
+        direct.insert(assembly, counts.clone());
+        for (c, _) in &counts {
+            if matches!(self.component(*c).map(|x| &x.kind), Ok(ComponentKind::Assembly(_))) {
+                self.gather_contents(*c, direct, order, depth + 1);
+            }
+        }
+        order.push(assembly);
     }
 
     /// Makes the change of `c` by the stretch `s` (in its axes, relative to its anchor, which
@@ -459,7 +498,7 @@ impl Document {
                 walk.stretched.push(StretchedPart { part: id, from: c, stretch: s.clone() });
             }
             ComponentKind::Assembly(a) => {
-                let occs: Vec<_> = a.occurrences.iter().map(|o| (o.clone(), o.transform)).collect();
+                let occs: Vec<_> = a.occurrences().iter().map(|o| (o.clone(), o.transform)).collect();
                 self.make_occurrences(walk, id, &occs, s, &DAffine3::IDENTITY, stretch_part, depth + 1)?;
                 self.stretch_guides(id, s)?;
             }
@@ -544,7 +583,7 @@ impl Walk<'_> {
         if depth > MAX_DEPTH {
             return;
         }
-        let occs: Vec<_> = a.occurrences.iter().map(|o| (o.clone(), o.transform)).collect();
+        let occs: Vec<_> = a.occurrences().iter().map(|o| (o.clone(), o.transform)).collect();
         self.count_occurrences(&occs, s, depth + 1);
     }
 

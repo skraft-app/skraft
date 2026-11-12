@@ -1129,8 +1129,17 @@ Drawing                1 instanced draw per definition, with the N world matrice
   entity only when every part under it, counted by `parts_under`, lies inside); lookups by path
   (`inferable_at`, `part_at`, `inferable_of`) search the sorted run. Results keep the scene's
   order (ties, candidates), as the brute force gave them (test
-  `the_scene_index_picks_as_a_scan_does`). The stretch's preview compares the document it
-  sketches with the current one by `Document::placed_changes`, which skips what both share.
+  `the_scene_index_picks_as_a_scan_does`, `the_rectangle_takes_what_a_scan_takes`,
+  `the_meshes_near_the_ray_are_those_a_scan_finds`). The stretch's preview compares the
+  document it sketches with the current one by `Document::placed_changes`, which skips what
+  both share; it counts placements over the distinct assemblies (`count_placed`), not per
+  path; the stretch tool keeps its target while the scene's generation, the occurrences and
+  the axes stay.
+- **Occurrences by id** (decided on 2026-11-12, after the stretch tool took 300 ms per hover
+  with 10 000 occurrences selected): `Assembly::occurrences` is private; a search by id
+  (`occurrence`, `position`) goes through an index (id → position) built after a few searches
+  since the last change to the list (`occurrences_mut` drops it; a clone keeps it), so that a
+  search per occurrence stays linear in all. Below 16 occurrences, a scan.
 - **Coincident faces** (decided on 2026-11-11): picking takes the nearest hit, but hits within
   `tie_tolerance` along the ray (1 µm + 1 ppm of the distance) are a tie, broken in a fixed
   order: the solid the ray enters (outward normal against the ray, from the vertex normals)

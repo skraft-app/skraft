@@ -229,7 +229,7 @@ struct OutlinerRow<'d> {
 /// thousands of occurrences).
 pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, area: egui::ScrollArea) {
     let doc = editor.document();
-    if doc.root_assembly().occurrences.is_empty() {
+    if doc.root_assembly().occurrences().is_empty() {
         ui.weak(t!("panel.outliner.empty", shortcut = "R"));
         return;
     }
@@ -285,7 +285,7 @@ fn flatten<'d>(
     if depth > solidsketch_model::MAX_DEPTH {
         return;
     }
-    for o in &a.occurrences {
+    for o in a.occurrences() {
         if doc.assembly(o.component).is_err() {
             out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None });
             continue;

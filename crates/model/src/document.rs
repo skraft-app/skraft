@@ -5,7 +5,8 @@
 //! clone shares everything and an operation copies only what it changes (`Arc::make_mut`).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
@@ -249,22 +250,83 @@ pub enum MachiningSource {
 }
 
 /// An assembly: occurrences of other components.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+///
+/// Found by id through an index (id → position), dropped by any change to the list and built
+/// again only once searched a few times since (a copy made to change one occurrence is not
+/// indexed for a search or two; a clone keeps the index): a search per occurrence of a large
+/// assembly stays linear in all, not quadratic. An occurrence's id never changes.
+#[derive(Default, Serialize, Deserialize)]
 pub struct Assembly {
-    pub occurrences: Vec<Occurrence>,
+    occurrences: Vec<Occurrence>,
+    #[serde(skip)]
+    index: OnceLock<HashMap<Id, u32>>,
+    /// Searches by scanning since the index was dropped.
+    #[serde(skip)]
+    scans: AtomicU32,
 }
 
+/// Below this many occurrences, a search scans them (cheaper than hashing).
+const INDEXED_FROM: usize = 16;
+/// Searches by scanning before the index is built.
+const SCANS_BEFORE_INDEX: u32 = 4;
+
 impl Assembly {
+    pub fn new(occurrences: Vec<Occurrence>) -> Self {
+        Assembly { occurrences, index: OnceLock::new(), scans: AtomicU32::new(0) }
+    }
+
+    pub fn occurrences(&self) -> &[Occurrence] {
+        &self.occurrences
+    }
+
+    /// The list, to change: the index is dropped.
+    pub(crate) fn occurrences_mut(&mut self) -> &mut Vec<Occurrence> {
+        self.index = OnceLock::new();
+        self.scans = AtomicU32::new(0);
+        &mut self.occurrences
+    }
+
     pub fn occurrence(&self, id: Id) -> Option<&Occurrence> {
-        self.occurrences.iter().find(|o| o.id == id)
+        self.position(id).map(|i| &self.occurrences[i])
     }
 
     pub(crate) fn occurrence_mut(&mut self, id: Id) -> Option<&mut Occurrence> {
-        self.occurrences.iter_mut().find(|o| o.id == id)
+        let i = self.position(id)?;
+        Some(&mut self.occurrences[i])
     }
 
     pub(crate) fn position(&self, id: Id) -> Option<usize> {
-        self.occurrences.iter().position(|o| o.id == id)
+        let scan = || self.occurrences.iter().position(|o| o.id == id);
+        if self.occurrences.len() < INDEXED_FROM {
+            return scan();
+        }
+        if self.index.get().is_none() && self.scans.fetch_add(1, Ordering::Relaxed) < SCANS_BEFORE_INDEX {
+            return scan();
+        }
+        let index = self.index.get_or_init(|| self.occurrences.iter().enumerate().map(|(i, o)| (o.id, i as u32)).collect());
+        index.get(&id).map(|i| *i as usize).filter(|i| self.occurrences[*i].id == id)
+    }
+}
+
+impl Clone for Assembly {
+    fn clone(&self) -> Self {
+        Assembly {
+            occurrences: self.occurrences.clone(),
+            index: self.index.clone(),
+            scans: AtomicU32::new(self.scans.load(Ordering::Relaxed)),
+        }
+    }
+}
+
+impl PartialEq for Assembly {
+    fn eq(&self, other: &Self) -> bool {
+        self.occurrences == other.occurrences
+    }
+}
+
+impl std::fmt::Debug for Assembly {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Assembly").field("occurrences", &self.occurrences).finish()
     }
 }
 
@@ -528,6 +590,10 @@ impl Document {
         }
         // Occurrences keep their order: matched by place, else (some added or removed) by id.
         let mut by_id: Option<HashMap<Id, &Occurrence>> = None;
+        // Placed alike above: an occurrence left as it was is placed alike (no product to
+        // work out). Neighbours often share their component: the last one found unchanged.
+        let same_above = t == tb;
+        let mut unchanged: Option<Id> = None;
         for (i, o) in a.occurrences.iter().enumerate() {
             let ob = match b.occurrences.get(i) {
                 Some(ob) if ob.id == o.id => ob,
@@ -536,8 +602,21 @@ impl Document {
                     None => continue,
                 },
             };
+            let mut clean = |c: Id| {
+                if unchanged == Some(c) {
+                    return true;
+                }
+                let clean = !self.dirty(walk, c, depth + 1);
+                if clean {
+                    unchanged = Some(c);
+                }
+                clean
+            };
+            if o.component == ob.component && same_above && o.transform == ob.transform && clean(o.component) {
+                continue;
+            }
             let (t, tb) = (t * o.transform, tb * ob.transform);
-            if o.component == ob.component && t.abs_diff_eq(tb, 1e-9) && !self.dirty(walk, o.component, depth + 1) {
+            if o.component == ob.component && t.abs_diff_eq(tb, 1e-9) && clean(o.component) {
                 continue;
             }
             let (Ok(c), Ok(cb)) = (self.component(o.component), before.component(ob.component)) else { continue };
@@ -734,7 +813,7 @@ impl Document {
         for (old, c) in fragment.components.iter().filter(|(id, _)| **id != fragment.root) {
             let new = &components[old];
             let kind = match &c.kind {
-                ComponentKind::Assembly(a) => ComponentKind::Assembly(Assembly { occurrences: occurrences(self, &a.occurrences)? }),
+                ComponentKind::Assembly(a) => ComponentKind::Assembly(Assembly::new(occurrences(self, &a.occurrences)?)),
                 ComponentKind::Part(p) => {
                     let mut p = p.clone();
                     let mut machinings: HashMap<Id, Id> = HashMap::new();

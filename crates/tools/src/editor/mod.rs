@@ -340,7 +340,7 @@ impl Editor {
         }
     }
 
-    fn cx(&self) -> Cx<'_> {
+    pub(crate) fn cx(&self) -> Cx<'_> {
         self.cx_for(self.tool.kind())
     }
 

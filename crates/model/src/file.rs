@@ -110,7 +110,7 @@ impl Document {
                     }
                 }
                 ComponentKind::Assembly(a) => {
-                    for o in &a.occurrences {
+                    for o in a.occurrences() {
                         below(o.id)?;
                         material(&o.material)?;
                         if !here.insert(o.id) {
