@@ -71,6 +71,8 @@ pub struct Editor {
     held_stretch: Option<(JobId, tools::StretchPreview)>,
     /// The occurrences a stretch previewed draws otherwise, by path: the mesh, the transform.
     stretch_swaps: HashMap<EntityPath, (Id, DAffine3)>,
+    /// How the selection is drawn, worked out once for the frames that follow (§7 bis).
+    selection_drawing: std::cell::RefCell<Option<view::SelectionDrawing>>,
     selection: Vec<Id>,
     tool: Box<dyn Tool>,
     pivot: Option<DVec3>,
@@ -141,6 +143,7 @@ impl Editor {
             preview_revision: 0,
             held_stretch: None,
             stretch_swaps: HashMap::new(),
+            selection_drawing: std::cell::RefCell::new(None),
             selection: Vec::new(),
             tool: tools::make(ToolKind::Select),
             pivot: None,

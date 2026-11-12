@@ -99,6 +99,17 @@ pub struct View {
     pub axes: [[Option<(DVec3, DVec3)>; 2]; 3],
 }
 
+/// How the selection is drawn where it is — its solids marked, its occurrences' boxes —, and
+/// the set of its ids: the same from one frame to the next while the scene (its generation),
+/// the context, the selection and the recipe shown stay, worked out again only then. A move's
+/// ghost is the same, moved.
+pub(crate) struct SelectionDrawing {
+    key: (u64, Vec<Id>, Vec<Id>, bool),
+    marks: Vec<ViewHighlight>,
+    boxes: Vec<OrientedBox>,
+    set: std::collections::HashSet<Id>,
+}
+
 /// How far the box of the assembly being edited stands off its content, in pixels.
 const CONTEXT_BOX_OFFSET_PX: f64 = 8.0;
 
@@ -155,10 +166,15 @@ impl Editor {
     /// world) and its bounds in it (a part's recipe shown: its blank's).
     fn content_bounds(&self, ctx: &ContextIndex<'_>, id: Id, extra: DAffine3, offset_px: f64) -> Option<OrientedBox> {
         let o = ctx.occurrence(id)?;
-        let frame = extra * ctx.transform() * o.transform;
+        self.content_box(extra * ctx.transform() * o.transform, extra, &ctx.solids_under(id), offset_px)
+    }
+
+    /// [`Editor::content_bounds`] for the parts `under` the occurrence (placed by
+    /// [`ContextIndex::solids_under`]), its axes to world being `frame` (`extra` included).
+    fn content_box(&self, frame: DAffine3, extra: DAffine3, under: &[crate::scene::Under], offset_px: f64) -> Option<OrientedBox> {
         let to_local = frame.inverse();
         let mut bounds: Option<(DVec3, DVec3)> = None;
-        for u in ctx.solids_under(id) {
+        for u in under {
             // A part's recipe shown: its blank holds the tools' cuts.
             let key = self.scene.recipe().filter(|r| r.part == u.part).map_or(u.part, |r| r.blank);
             let Some(dm) = self.scene.definition_mesh(key) else { continue };
@@ -191,6 +207,57 @@ impl Editor {
         }
     }
 
+    /// The selection drawn where it is ([`SelectionDrawing`]), for `key`.
+    fn selection_drawing_of(&self, key: (u64, Vec<Id>, Vec<Id>, bool)) -> SelectionDrawing {
+        let doc = self.document();
+        let mut marks = Vec::new();
+        let mut boxes = Vec::new();
+        // The recipe as the view shows it (`key.3`).
+        let recipe = self.scene.recipe().filter(|_| key.3);
+        if let Some(r) = recipe {
+            // The open part's machinings: their tools, where the part is.
+            let at = self.open_part_path().and_then(|o| doc.resolve_part(&o).ok()).map(|(_, _, t)| t);
+            for id in &self.selection {
+                if let (Some(t), Some(tool)) = (at, r.tools.iter().find(|tool| tool.machining == *id)) {
+                    marks.push(ViewHighlight { definition: tool.key, solid: tool.key, transform: t * tool.placement, mark: Mark::Selected, material: None });
+                }
+            }
+        }
+        // Each occurrence's parts, found once for its marks and its box. The box, in the
+        // occurrence's axes, is its component's: worked out once per component.
+        let mut component_bounds: std::collections::HashMap<Id, Option<(DVec3, DVec3)>> = std::collections::HashMap::new();
+        if let Some(index) = (!self.selection.is_empty()).then(|| ContextIndex::new(doc, &self.context)).flatten() {
+            let mut under = Vec::new();
+            // Neighbours often share their component: the last one's bounds first.
+            let mut last: Option<(Id, Option<(DVec3, DVec3)>)> = None;
+            for id in &self.selection {
+                let Some(o) = index.occurrence(*id) else { continue };
+                under.clear();
+                index.solids_under_into(*id, &mut under);
+                let frame = index.transform() * o.transform;
+                let bounds = match last {
+                    Some((c, b)) if c == o.component => b,
+                    _ => *component_bounds
+                        .entry(o.component)
+                        .or_insert_with(|| self.content_box(frame, DAffine3::IDENTITY, &under, 0.0).map(|b| (b.lo, b.hi))),
+                };
+                last = Some((o.component, bounds));
+                boxes.extend(bounds.map(|(lo, hi)| OrientedBox { frame, lo, hi }));
+                if recipe.is_none() {
+                    marks.extend(under.iter().map(|u| ViewHighlight {
+                        definition: u.part,
+                        solid: u.part,
+                        transform: u.transform,
+                        mark: Mark::Selected,
+                        material: u.material,
+                    }));
+                }
+            }
+        }
+        let set = self.selection.iter().copied().collect();
+        SelectionDrawing { key, marks, boxes, set }
+    }
+
     /// What to draw now.
     pub fn view(&self) -> View {
         let mut v = View::default();
@@ -199,8 +266,6 @@ impl Editor {
         // Moved or turned without copying, the selection is only drawn where it goes: the
         // original stays in place only when a copy is left behind.
         let hide_original = preview.ghost.is_some() && !self.tool_copying();
-        // Looked up for every placement: a set (a selection can hold tens of thousands).
-        let selected: std::collections::HashSet<Id> = self.selection.iter().copied().collect();
         let depth = self.context.len();
         let open = self.open_part_path();
         // What a tool previews stretched (§6 sexies): each occurrence it changes drawn from its
@@ -214,6 +279,16 @@ impl Editor {
             .recipe()
             .filter(|_| self.showing_machinings())
             .filter(|_| open.as_ref().is_none_or(|o| swaps.is_none_or(|s| !s.contains_key(o))));
+        // The selection's marks, boxes and set (looked up for every placement: a selection can
+        // hold tens of thousands), kept from the last frame when nothing they hang on changed.
+        let key = (self.scene.generation(), self.context.clone(), self.selection.clone(), recipe.is_some());
+        if self.selection_drawing.borrow().as_ref().is_none_or(|d| d.key != key) {
+            let drawing = self.selection_drawing_of(key);
+            *self.selection_drawing.borrow_mut() = Some(drawing);
+        }
+        let drawing = self.selection_drawing.borrow();
+        let drawing = drawing.as_ref().expect("worked out above");
+        let selected = &drawing.set;
         let hidden = |p: &&crate::scene::Placement| {
             (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| selected.contains(id)))
                 || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
@@ -300,8 +375,8 @@ impl Editor {
                 });
             }
         };
-        for id in self.selection.iter().filter(|_| !hide_original && !preview.hide_selection) {
-            mark(&mut v.highlights, &self.context, *id, Mark::Selected, DAffine3::IDENTITY);
+        if !hide_original && !preview.hide_selection {
+            v.highlights.extend_from_slice(&drawing.marks);
         }
         // The selected occurrences' boxes (parts and assemblies), where the selection is drawn (moved with the ghost
         // when the original is hidden). None with the stretch tool: it takes the selection as
@@ -314,10 +389,10 @@ impl Editor {
         } else {
             Some(DAffine3::IDENTITY)
         };
-        for (id, extra) in self.selection.iter().filter_map(|id| box_at.map(|g| (*id, g))) {
-            if let Some(b) = index().and_then(|i| self.content_bounds(i, id, extra, 0.0)) {
-                v.selection_boxes.push(b);
-            }
+        match box_at {
+            Some(g) if g == DAffine3::IDENTITY => v.selection_boxes.extend_from_slice(&drawing.boxes),
+            Some(g) => v.selection_boxes.extend(drawing.boxes.iter().map(|b| OrientedBox { frame: g * b.frame, ..*b })),
+            None => {}
         }
         // The part open, else the assembly being edited: its content's box, a little larger.
         v.context_box.extend(self.context_bounds());
@@ -380,9 +455,7 @@ impl Editor {
             }
         }
         if let Some(g) = preview.ghost {
-            for id in &self.selection {
-                mark(&mut v.highlights, &self.context, *id, Mark::Ghost, g);
-            }
+            v.highlights.extend(drawing.marks.iter().map(|h| ViewHighlight { transform: g * h.transform, mark: Mark::Ghost, ..*h }));
         }
         // What is drawn stretched or moved is marked so (the selection's mark would draw it as
         // it was).

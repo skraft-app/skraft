@@ -670,6 +670,10 @@ impl Document {
     /// Every component's guides as the scene shows them: the root's, then each occurrence's
     /// down the tree, a part's in each of its occurrences.
     pub fn placed_guides(&self) -> Vec<PlacedGuide> {
+        // Most models have none: no walk of every occurrence for them.
+        if self.components.values().all(|c| c.guides.is_empty()) {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         self.walk_guides(self.root, &mut Vec::new(), DAffine3::IDENTITY, &mut out, 0);
         out

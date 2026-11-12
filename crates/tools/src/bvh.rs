@@ -75,6 +75,27 @@ impl Bvh {
         bounds
     }
 
+    /// The same hierarchy over the items' boxes as they now are (`bounds` of each item that
+    /// was given a box): each node's gathered again from its children's, the deepest first.
+    /// The tree stays as it was built, so it serves well only while the boxes change little.
+    pub(crate) fn refit(&mut self, bounds: impl Fn(u32) -> Aabb) {
+        // Children follow their parent in the array: backwards, they come first.
+        for n in (0..self.nodes.len()).rev() {
+            let node = self.nodes[n];
+            let b = if node.count > 0 {
+                let items = &self.items[node.index as usize..(node.index + node.count) as usize];
+                items.iter().skip(1).fold(bounds(items[0]), |(lo, hi), i| {
+                    let b = bounds(*i);
+                    (lo.min(b.0), hi.max(b.1))
+                })
+            } else {
+                let (a, b) = (self.nodes[n + 1].bounds, self.nodes[node.index as usize].bounds);
+                (a.0.min(b.0), a.1.max(b.1))
+            };
+            self.nodes[n].bounds = b;
+        }
+    }
+
     /// Calls `item` with each item whose box `accept`s, the nodes holding it accepted too:
     /// `accept` must hold of a box whenever it holds of a box inside it.
     pub(crate) fn visit(&self, mut accept: impl FnMut(&Aabb) -> bool, mut item: impl FnMut(u32)) {
@@ -229,6 +250,30 @@ mod tests {
             assert_eq!(best.map(|b| b.0), scan.map(|b| b.0), "{o} {d}");
             assert!(tested < bs.len() / 4, "{tested} tested");
         }
+    }
+
+    #[test]
+    fn a_refit_hierarchy_finds_what_a_scan_finds() {
+        let mut bs = boxes(500);
+        let mut bvh = Bvh::build(bs.iter().enumerate().map(|(i, b)| (i as u32, *b)));
+        // Every box moved and grown a little, some a lot.
+        for (i, b) in bs.iter_mut().enumerate() {
+            let shift = DVec3::new((i % 7) as f64, (i % 5) as f64 * 2.0, 0.0) * if i % 50 == 0 { 40.0 } else { 1.0 };
+            *b = (b.0 + shift, b.1 + shift + DVec3::splat(0.5));
+        }
+        bvh.refit(|i| bs[i as usize]);
+        let region = (DVec3::splat(150.0), DVec3::splat(300.0));
+        let meets = |(lo, hi): &Aabb| lo.cmple(region.1).all() && hi.cmpge(region.0).all();
+        let mut found = Vec::new();
+        bvh.visit(meets, |i| {
+            if meets(&bs[i as usize]) {
+                found.push(i)
+            }
+        });
+        found.sort();
+        let scan: Vec<u32> = (0..bs.len() as u32).filter(|i| meets(&bs[*i as usize])).collect();
+        assert!(!scan.is_empty());
+        assert_eq!(found, scan);
     }
 
     #[test]
