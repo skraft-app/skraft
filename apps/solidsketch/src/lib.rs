@@ -5,6 +5,7 @@ mod app;
 mod commands;
 #[cfg(not(target_arch = "wasm32"))]
 mod control;
+mod dock;
 mod file;
 mod icons;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]

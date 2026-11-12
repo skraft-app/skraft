@@ -76,7 +76,14 @@ impl Document {
                 report.parts += 1;
                 let material = material(&mut doc, body.color);
                 let id = doc.fresh_id();
-                occurrences.push(Occurrence { id, name: String::new(), component: part, transform: DAffine3::IDENTITY, material });
+                occurrences.push(Occurrence {
+                    id,
+                    name: String::new(),
+                    component: part,
+                    transform: DAffine3::IDENTITY,
+                    material,
+                    hidden: false,
+                });
             }
             for c in &p.children {
                 if let Some(Some((component, material))) = component_of.get(c.product) {
@@ -87,6 +94,7 @@ impl Document {
                         component: *component,
                         transform: c.transform,
                         material: *material,
+                        hidden: false,
                     });
                 }
             }
@@ -105,7 +113,14 @@ impl Document {
         for r in &step.roots {
             if let Some(Some((component, material))) = component_of.get(r.product) {
                 let id = doc.fresh_id();
-                top.push(Occurrence { id, name: r.name.clone(), component: *component, transform: r.transform, material: *material });
+                top.push(Occurrence {
+                    id,
+                    name: r.name.clone(),
+                    component: *component,
+                    transform: r.transform,
+                    material: *material,
+                    hidden: false,
+                });
             }
         }
         if let Ok(a) = doc.assembly_mut(root) {

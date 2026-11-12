@@ -59,6 +59,9 @@ pub struct Placement {
     pub transform: DAffine3,
     /// The material its faces take (its occurrence's, else an assembly's above it).
     pub material: Option<Id>,
+    /// Hidden by the user: it, or an occurrence above it, out of the active path (what is
+    /// being edited shows).
+    pub hidden: bool,
 }
 
 impl Placement {
@@ -194,10 +197,14 @@ pub struct DisplayScene {
     bounds: Option<(DVec3, DVec3)>,
     /// The active section: picking ignores what it cuts away.
     section: Option<Section>,
-    /// While the rest of the model is hidden, the chain (root first) of the part open or the
-    /// assembly being edited: only what lies under it is picked, inferred on and framed
-    /// (empty: everything).
+    /// The chain (root first) of the part open or the assembly being edited: the occurrences
+    /// hidden along it show.
+    active: Vec<Id>,
+    /// While the rest of the model is hidden, `active`: only what lies under it is picked,
+    /// inferred on and framed (empty: everything).
     shown_under: Vec<Id>,
+    /// The occurrences hidden are shown (picked, inferred on and framed).
+    show_hidden: bool,
     /// The open occurrence whose recipe is shown, its meshes, and their placements in the
     /// world (the blank's, then each tool's).
     recipe_path: Option<EntityPath>,
@@ -218,11 +225,44 @@ pub struct DisplayScene {
     arrived: Vec<usize>,
 }
 
-/// The world bounds of the `entries` placed under `shown_under` (all of them when it is
-/// empty): zoom extents frames the context alone while the rest of the model is hidden.
-fn shown_bounds(placements: &BTreeMap<Id, Vec<Placement>>, shown_under: &[Id], entries: &[Entry]) -> Option<(DVec3, DVec3)> {
-    let shown = |e: &&Entry| shown_under.is_empty() || placements[&e.def][e.place as usize].path.starts_with(shown_under);
+/// The world bounds of the `entries` shown ([`is_shown`]): zoom extents frames the context
+/// alone while the rest of the model is hidden, and never what the user hid.
+fn shown_bounds(
+    placements: &BTreeMap<Id, Vec<Placement>>,
+    shown_under: &[Id],
+    show_hidden: bool,
+    entries: &[Entry],
+) -> Option<(DVec3, DVec3)> {
+    let shown = |e: &&Entry| is_shown(&placements[&e.def][e.place as usize], shown_under, show_hidden);
     entries.iter().filter(shown).filter_map(|e| e.bounds).reduce(|a, b| union(Some(a), b))
+}
+
+/// Is `p` shown: under `shown_under` (the context, while the rest of the model is hidden),
+/// and not hidden by the user (unless `show_hidden`)?
+fn is_shown(p: &Placement, shown_under: &[Id], show_hidden: bool) -> bool {
+    (show_hidden || !p.hidden) && p.path.starts_with(shown_under)
+}
+
+/// Is a path (`path`, root first) whose deepest hidden occurrence is at `hidden_at` hidden,
+/// `active` being edited? The occurrences hidden along the active path show.
+fn hidden_off(path: &[Id], hidden_at: Option<u32>, active: &[Id]) -> bool {
+    let along = path.iter().zip(active).take_while(|(a, b)| a == b).count();
+    hidden_at.is_some_and(|d| d as usize >= along)
+}
+
+/// Is the occurrence `chain` names (root first, itself last) hidden by the user — it, or an
+/// occurrence above it, out of the `active` path ([`hidden_off`])?
+pub(crate) fn is_chain_hidden(doc: &Document, chain: &[Id], active: &[Id]) -> bool {
+    let mut at = doc.root();
+    let mut hidden_at = None;
+    for (k, &id) in chain.iter().enumerate() {
+        let Some(o) = doc.assembly(at).ok().and_then(|a| a.occurrence(id)) else { return false };
+        if o.hidden {
+            hidden_at = Some(k as u32);
+        }
+        at = o.component;
+    }
+    hidden_off(chain, hidden_at, active)
 }
 
 /// One part mesh at one placement ([`DisplayScene::parts`] yields them in this order).
@@ -310,14 +350,16 @@ impl DisplayScene {
         for p in doc.placed_parts() {
             let mut path = p.path.instances;
             path.push(p.path.entity);
-            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material: p.material });
+            let hidden = hidden_off(&path, p.hidden_at, &self.active);
+            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material: p.material, hidden });
         }
         self.section = doc.settings().display.active_section();
+        self.show_hidden = doc.settings().display.show_hidden;
         // Hidden, they are neither drawn, inferred on nor picked.
         self.guides = if doc.settings().display.guides {
             doc.placed_guides()
                 .into_iter()
-                .filter(|g| g.path.starts_with(&self.shown_under))
+                .filter(|g| g.path.starts_with(&self.shown_under) && (self.show_hidden || !hidden_off(&g.path, g.hidden_at, &self.active)))
                 .map(|g| SceneGuide { path: g.path, id: g.guide.id, shape: g.guide.shape.transformed(&g.transform) })
                 .collect()
         } else {
@@ -359,7 +401,7 @@ impl DisplayScene {
         }
         paths.sort_unstable();
         let by_path = paths.into_iter().map(|(_, i)| i).collect();
-        self.bounds = shown_bounds(&self.placements, &self.shown_under, &entries);
+        self.bounds = shown_bounds(&self.placements, &self.shown_under, self.show_hidden, &entries);
         let bvh = Bvh::build(entries.iter().enumerate().filter_map(|(i, e)| e.bounds.map(|b| (i as u32, b))));
         self.index = SceneIndex { entries, runs, by_path, bvh };
     }
@@ -415,7 +457,7 @@ impl DisplayScene {
         shapes.chain(recipe).collect()
     }
 
-    /// Every part drawn whose world box `accept`s, as [`DisplayScene::parts`] yields them,
+    /// Every part shown whose world box `accept`s, as [`DisplayScene::parts`] yields them,
     /// with its rank there: `accept` must hold of a box whenever it holds of one inside it.
     pub fn parts_where(&self, accept: impl Fn(&(DVec3, DVec3)) -> bool) -> Vec<(usize, &Placement, &PartMesh)> {
         let mut hits = Vec::new();
@@ -430,14 +472,21 @@ impl DisplayScene {
                 let (p, m) = self.entry(i);
                 (i as usize, p, m)
             })
+            .filter(|(_, p, _)| self.is_shown(p))
             .collect()
     }
 
-    /// How many parts are drawn at `chain` or below (an occurrence's path, root first), and
+    /// How many parts are shown at `chain` or below (an occurrence's path, root first), and
     /// the first one's rank in [`DisplayScene::parts`].
     pub fn parts_under(&self, chain: &[Id]) -> (usize, Option<usize>) {
-        let under = self.entries_under(chain);
-        (under.len(), under.iter().min().map(|i| *i as usize))
+        let (mut n, mut first) = (0, None);
+        for &i in self.entries_under(chain) {
+            if self.is_shown(self.entry(i).0) {
+                n += 1;
+                first = Some(first.map_or(i, |f: u32| f.min(i)));
+            }
+        }
+        (n, first.map(|i| i as usize))
     }
 
     /// The geometry inferences see on the occurrence `path` (its shape's meshes, or the
@@ -528,7 +577,7 @@ impl DisplayScene {
         } else {
             self.index.bvh.refit(|i| entries[i as usize].bounds.expect("only boxes are in the hierarchy"));
         }
-        self.bounds = shown_bounds(&self.placements, &self.shown_under, entries);
+        self.bounds = shown_bounds(&self.placements, &self.shown_under, self.show_hidden, entries);
     }
 
     /// Meshes the recipe of the part the occurrence `path` places (its blank and tools) from
@@ -539,16 +588,19 @@ impl DisplayScene {
         self.recipe_shown = shown;
     }
 
-    /// Hides the rest of the model, but what lies under `chain` (the part open or the
-    /// assembly being edited, root first), from picking, inferences and the bounds, from the
-    /// next [`DisplayScene::sync`]; empty: nothing hidden.
-    pub fn set_shown_under(&mut self, chain: Vec<Id>) {
-        self.shown_under = chain;
+    /// The part open or the assembly being edited (`chain`, root first; empty: the model),
+    /// from the next [`DisplayScene::sync`]: the occurrences hidden along it show, and with
+    /// `hide_rest_of_model`, the rest of the model is hidden from picking, inferences and the
+    /// bounds.
+    pub fn set_active(&mut self, chain: Vec<Id>, hide_rest_of_model: bool) {
+        self.shown_under = if hide_rest_of_model { chain.clone() } else { Vec::new() };
+        self.active = chain;
     }
 
-    /// Is `p` shown (not in the rest of the model, hidden)?
-    fn is_shown(&self, p: &Placement) -> bool {
-        p.path.starts_with(&self.shown_under)
+    /// Is `p` shown: neither in the rest of the model, hidden, nor hidden by the user (but
+    /// with the hidden shown)?
+    pub fn is_shown(&self, p: &Placement) -> bool {
+        is_shown(p, &self.shown_under, self.show_hidden)
     }
 
     /// Is the recipe drawn and inferred on?
@@ -828,6 +880,8 @@ pub struct ContextIndex<'d> {
     inherited: Option<Id>,
     /// Searched by id through its own index (`Assembly::occurrence`).
     assembly: &'d Assembly,
+    /// The occurrences hidden by the user are shown.
+    show_hidden: bool,
 }
 
 impl<'d> ContextIndex<'d> {
@@ -842,7 +896,7 @@ impl<'d> ContextIndex<'d> {
             at = occ.component;
         }
         let assembly = doc.assembly(ctx).ok()?;
-        Some(ContextIndex { doc, transform, inherited, assembly })
+        Some(ContextIndex { doc, transform, inherited, assembly, show_hidden: doc.settings().display.show_hidden })
     }
 
     /// Context to world.
@@ -855,7 +909,8 @@ impl<'d> ContextIndex<'d> {
     }
 
     /// Where the parts under the occurrence `entity` are drawn. For an assembly's
-    /// occurrence, every part below it, at any depth.
+    /// occurrence, every part below it, at any depth — but those the user hid below it
+    /// (unless the hidden are shown): `entity` itself is there, hidden or not.
     pub fn solids_under(&self, entity: Id) -> Vec<Under> {
         let mut out = Vec::new();
         self.solids_under_into(entity, &mut out);
@@ -864,22 +919,22 @@ impl<'d> ContextIndex<'d> {
 
     /// [`ContextIndex::solids_under`], added to `out` (one buffer for many occurrences).
     pub fn solids_under_into(&self, entity: Id, out: &mut Vec<Under>) {
-        fn walk(doc: &Document, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
+        fn walk(doc: &Document, show_hidden: bool, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
             if depth > MAX_DEPTH {
                 return;
             }
             match doc.component(component).map(|c| &c.kind) {
                 Ok(ComponentKind::Part(_)) => out.push(Under { part: component, transform: t, material }),
                 Ok(ComponentKind::Assembly(a)) => {
-                    for o in a.occurrences() {
-                        walk(doc, o.component, t * o.transform, o.material.or(material), out, depth + 1);
+                    for o in a.occurrences().iter().filter(|o| show_hidden || !o.hidden) {
+                        walk(doc, show_hidden, o.component, t * o.transform, o.material.or(material), out, depth + 1);
                     }
                 }
                 Err(_) => {}
             }
         }
         if let Some(o) = self.occurrence(entity) {
-            walk(self.doc, o.component, self.transform * o.transform, o.material.or(self.inherited), out, 0);
+            walk(self.doc, self.show_hidden, o.component, self.transform * o.transform, o.material.or(self.inherited), out, 0);
         }
     }
 }

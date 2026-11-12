@@ -304,8 +304,11 @@ impl Editor {
             Some(o) => p.entity_path() != *o,
             None => !p.path.starts_with(&self.context),
         };
+        // Hidden by the user: not drawn, or faded with the hidden shown.
+        let show_hidden = doc.settings().display.show_hidden;
         let hidden = |p: &&crate::scene::Placement| {
             (hide_rest_of_model && outside(p))
+                || (p.hidden && !show_hidden)
                 || (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| selected.contains(id)))
                 || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
         };
@@ -315,7 +318,7 @@ impl Editor {
         for (def, places) in self.scene.placements() {
             let mut ps = Vec::with_capacity(places.len());
             for p in places.iter().filter(|p| !hidden(p)) {
-                let vp = ViewPlacement { transform: p.transform, faded: outside(p), material: p.material, look: Look::Shape };
+                let vp = ViewPlacement { transform: p.transform, faded: outside(p) || p.hidden, material: p.material, look: Look::Shape };
                 match swap(p) {
                     Some((key, t)) => {
                         moved.push((def, p.transform, key, t));
@@ -441,9 +444,12 @@ impl Editor {
         if let Some(p) = &self.outliner_hover
             && open.as_ref() != Some(p)
             && !(p.instances == self.context && selected.contains(&p.entity))
+            && let hovered = p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>()
+            // Hidden (it or an assembly above it, out of the active path): not marked, unless
+            // the hidden are shown. What is hidden below it, `solids_under` leaves out.
+            && (show_hidden || !crate::scene::is_chain_hidden(doc, &hovered, &active))
             && let Some(index) = ContextIndex::new(doc, &p.instances)
         {
-            let hovered: Vec<Id> = p.instances.iter().copied().chain([p.entity]).collect();
             // An assembly holding the active path: only the solids under it are not faded.
             let inside = match active.split_last() {
                 Some((last, above)) if !hovered.starts_with(&active) && active.starts_with(&hovered) => {
@@ -480,8 +486,8 @@ impl Editor {
             && let Ok((part, _, _)) = doc.resolve_part(aimed)
             && let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part)
         {
-            // Those in the rest of the model, hidden, are not marked either.
-            for p in places.iter().filter(|p| p.entity_path() != *aimed && !(hide_rest_of_model && outside(p))) {
+            // Those not shown (the rest of the model hidden, or hidden by the user) are not marked either.
+            for p in places.iter().filter(|p| p.entity_path() != *aimed && self.scene.is_shown(p)) {
                 v.highlights.push(ViewHighlight {
                     definition: part,
                     solid: part,

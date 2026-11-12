@@ -344,6 +344,10 @@ pub struct Occurrence {
     /// The copy's material (its faces without one of their own take it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<Id>,
+    /// Hidden by the user (ARCHITECTURE.md §6): neither drawn, picked, inferred on nor framed, nor is
+    /// anything under it — but while it is being edited, or with the hidden shown.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 /// A material: a name and a colour (§7 quater). Wood species, panels… come later.
@@ -399,6 +403,9 @@ pub struct PlacedPart {
     /// The material its faces take: the occurrence's own, else the nearest assembly
     /// occurrence's above it that has one (an assembly painted paints its parts).
     pub material: Option<Id>,
+    /// The deepest hidden occurrence of its path, by its index in the path (the occurrence
+    /// itself last): none when nothing along it is hidden.
+    pub hidden_at: Option<u32>,
 }
 
 /// A guide placed in the scene, by [`Document::placed_guides`].
@@ -410,6 +417,9 @@ pub struct PlacedGuide {
     /// The component's axes to world.
     pub transform: DAffine3,
     pub guide: Guide,
+    /// The deepest hidden occurrence of `path`, by its index there: none when nothing along
+    /// it is hidden.
+    pub hidden_at: Option<u32>,
 }
 
 /// The whole model.
@@ -539,7 +549,7 @@ impl Document {
     /// three times.
     pub fn placed_parts(&self) -> Vec<PlacedPart> {
         let mut out = Vec::new();
-        self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
+        self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, (None, None), &mut out, 0);
         out
     }
 
@@ -552,7 +562,7 @@ impl Document {
     pub fn placed_changes(&self, before: &Document, touched: &[Id]) -> Vec<(PlacedPart, Id, DAffine3)> {
         let mut walk = ChangesWalk { before, touched, dirty: HashMap::new(), out: Vec::new() };
         let t = DAffine3::IDENTITY;
-        self.walk_changes(&mut walk, (self.root, before.root), &mut Vec::new(), (t, t), None, 0);
+        self.walk_changes(&mut walk, (self.root, before.root), &mut Vec::new(), (t, t), (None, None), 0);
         walk.out
     }
 
@@ -580,7 +590,7 @@ impl Document {
         (assembly, was): (Id, Id),
         path: &mut Vec<Id>,
         (t, tb): (DAffine3, DAffine3),
-        material: Option<Id>,
+        (material, hidden_at): (Option<Id>, Option<u32>),
         depth: usize,
     ) {
         let before = walk.before;
@@ -620,6 +630,7 @@ impl Document {
                 continue;
             }
             let (Ok(c), Ok(cb)) = (self.component(o.component), before.component(ob.component)) else { continue };
+            let hidden_at = if o.hidden { Some(depth as u32) } else { hidden_at };
             match (&c.kind, &cb.kind) {
                 (ComponentKind::Part(p), ComponentKind::Part(_)) => walk.out.push((
                     PlacedPart {
@@ -628,13 +639,14 @@ impl Document {
                         transform: t,
                         shape: p.shape().clone(),
                         material: o.material.or(material),
+                        hidden_at,
                     },
                     cb.id,
                     tb,
                 )),
                 (ComponentKind::Assembly(_), ComponentKind::Assembly(_)) => {
                     path.push(o.id);
-                    self.walk_changes(walk, (c.id, cb.id), path, (t, tb), o.material.or(material), depth + 1);
+                    self.walk_changes(walk, (c.id, cb.id), path, (t, tb), (o.material.or(material), hidden_at), depth + 1);
                     path.pop();
                 }
                 _ => {}
@@ -642,14 +654,26 @@ impl Document {
         }
     }
 
-    fn walk(&self, assembly: Id, path: &mut Vec<Id>, t: DAffine3, material: Option<Id>, out: &mut Vec<PlacedPart>, depth: usize) {
+    /// `above`: the material and the deepest hidden occurrence ([`PlacedPart::hidden_at`])
+    /// coming from the occurrences above.
+    fn walk(
+        &self,
+        assembly: Id,
+        path: &mut Vec<Id>,
+        t: DAffine3,
+        above: (Option<Id>, Option<u32>),
+        out: &mut Vec<PlacedPart>,
+        depth: usize,
+    ) {
         let Ok(a) = self.assembly(assembly) else { return };
         if depth > MAX_DEPTH {
             return;
         }
+        let (material, hidden_at) = above;
         for o in &a.occurrences {
             let Ok(c) = self.component(o.component) else { continue };
             let t = t * o.transform;
+            let hidden_at = if o.hidden { Some(depth as u32) } else { hidden_at };
             match &c.kind {
                 ComponentKind::Part(p) => out.push(PlacedPart {
                     path: EntityPath::new(path.clone(), o.id),
@@ -657,10 +681,11 @@ impl Document {
                     transform: t,
                     shape: p.shape().clone(),
                     material: o.material.or(material),
+                    hidden_at,
                 }),
                 ComponentKind::Assembly(_) => {
                     path.push(o.id);
-                    self.walk(c.id, path, t, o.material.or(material), out, depth + 1);
+                    self.walk(c.id, path, t, (o.material.or(material), hidden_at), out, depth + 1);
                     path.pop();
                 }
             }
@@ -675,22 +700,31 @@ impl Document {
             return Vec::new();
         }
         let mut out = Vec::new();
-        self.walk_guides(self.root, &mut Vec::new(), DAffine3::IDENTITY, &mut out, 0);
+        self.walk_guides(self.root, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
         out
     }
 
-    fn walk_guides(&self, component: Id, path: &mut Vec<Id>, t: DAffine3, out: &mut Vec<PlacedGuide>, depth: usize) {
+    fn walk_guides(
+        &self,
+        component: Id,
+        path: &mut Vec<Id>,
+        t: DAffine3,
+        hidden_at: Option<u32>,
+        out: &mut Vec<PlacedGuide>,
+        depth: usize,
+    ) {
         let Ok(c) = self.component(component) else { return };
         if depth > MAX_DEPTH {
             return;
         }
         for g in &c.guides {
-            out.push(PlacedGuide { path: path.clone(), component, transform: t, guide: g.clone() });
+            out.push(PlacedGuide { path: path.clone(), component, transform: t, guide: g.clone(), hidden_at });
         }
         if let ComponentKind::Assembly(a) = &c.kind {
             for o in &a.occurrences {
                 path.push(o.id);
-                self.walk_guides(o.component, path, t * o.transform, out, depth + 1);
+                let hidden_at = if o.hidden { Some(depth as u32) } else { hidden_at };
+                self.walk_guides(o.component, path, t * o.transform, hidden_at, out, depth + 1);
                 path.pop();
             }
         }
@@ -809,7 +843,14 @@ impl Document {
                 .map(|o| {
                     let component = *components.get(&o.component).ok_or(Error::NotFound(o.component))?;
                     let material = o.material.and_then(|m| materials.get(&m).copied());
-                    Ok(Occurrence { id: doc.fresh_id(), name: o.name.clone(), component, transform: o.transform, material })
+                    Ok(Occurrence {
+                        id: doc.fresh_id(),
+                        name: o.name.clone(),
+                        component,
+                        transform: o.transform,
+                        material,
+                        hidden: o.hidden,
+                    })
                 })
                 .collect()
         };

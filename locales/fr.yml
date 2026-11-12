@@ -37,6 +37,9 @@ common:
   guides: "Guides"
   silhouettes: "Silhouettes"
   hide_rest_of_model: "Masquer le reste du modèle"
+  hide: "Masquer"
+  show: "Afficher"
+  show_all: "Tout afficher"
   dimensions: "Dimensions"
   height: "Hauteur"
   speed: "Vitesse"
@@ -111,9 +114,14 @@ menu:
     guides: "$t(common.guides)"
     silhouettes: "$t(common.silhouettes)"
     hide_rest_of_model: "$t(common.hide_rest_of_model)"
+    # Draws what the user hid, faded (and lets it be picked).
+    show_hidden: "Voir les éléments masqués"
+    show_all: "$t(common.show_all)"
     section: "Afficher la coupe"
     section_clear: "Supprimer la coupe"
+    entity_info: "Panneau $t(panel.entity_info.title)"
     materials: "Panneau $t(common.materials)"
+    outliner: "Panneau $t(panel.outliner.title)"
     render_stats: "Statistiques de rendu"
     top: "Dessus"
     front: "Face"
@@ -298,6 +306,9 @@ panel:
   outliner:
     title: "Arborescence"
     empty: "Modèle vide : dessiner une boîte (%{shortcut})"
+    # The eye of a row.
+    hide: "$t(common.hide)"
+    show: "$t(common.show)"
 
 # The status bar: the measurements box, and the messages of the app and of the editor.
 status:
@@ -613,6 +624,9 @@ operation:
   paint: "$t(common.paint)"
   stretch: "Étirer"
   stretch_behavior: "Plans de coupe"
+  hide: "$t(common.hide)"
+  show: "$t(common.show)"
+  show_all: "$t(common.show_all)"
   # Placing the content of an imported file (STEP…) in the model.
   import: "Importer"
 

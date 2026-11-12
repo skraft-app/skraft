@@ -743,6 +743,76 @@ fn outliner_hover_marks_in_view() {
 }
 
 #[test]
+fn hidden_occurrences() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    e.select(vec![b]);
+    e.make_assembly();
+    let g = e.selection()[0];
+    let drawn = |e: &Editor| e.view().batches.iter().map(|(_, p)| p.len()).sum::<usize>();
+    let faded = |e: &Editor| e.view().batches.iter().flat_map(|(_, p)| p).filter(|p| p.faded).count();
+    let ray = |e: &Editor| e.camera.ray(px(e, DVec3::new(350.0, 50.0, 50.0)), e.viewport_size());
+    assert!(!e.has_hidden());
+
+    // The assembly hidden: neither drawn, picked, inferred on nor framed; out of the selection.
+    e.select(vec![a, g]);
+    e.set_hidden(&EntityPath::root(g), true);
+    assert!(e.has_hidden());
+    assert_eq!(e.selection(), [a]);
+    assert_eq!(drawn(&e), 1);
+    assert!(e.scene().pick(&ray(&e), |_| true).is_none());
+    assert!(e.scene().pick_inferable(&ray(&e), |_| true).is_none());
+    assert!(e.scene().bounds().unwrap().1.x < 200.0);
+    e.select_all();
+    assert_eq!(e.selection(), [a]);
+
+    // Hovered in the outliner, it or its part: not marked.
+    e.select(vec![]);
+    let hovered = |e: &Editor| e.view().highlights.into_iter().filter(|h| matches!(h.mark, Mark::Hover | Mark::HoverFaded)).count();
+    e.set_outliner_hover(Some(EntityPath::root(g)));
+    assert_eq!(hovered(&e), 0);
+    e.set_outliner_hover(Some(EntityPath::new(vec![g], b)));
+    assert_eq!(hovered(&e), 0);
+    e.set_outliner_hover(Some(EntityPath::root(a)));
+    assert_eq!(hovered(&e), 1);
+    e.set_outliner_hover(None);
+
+    // Edited, it shows (its part inside, not hidden itself); back out, hidden again.
+    e.enter(g);
+    assert_eq!((drawn(&e), faded(&e)), (2, 1));
+    assert!(e.scene().pick(&ray(&e), |_| true).is_some());
+    e.set_outliner_hover(Some(EntityPath::new(vec![g], b)));
+    assert_eq!(hovered(&e), 1);
+    e.set_outliner_hover(None);
+    e.exit();
+    assert_eq!(drawn(&e), 1);
+
+    // With the hidden shown: drawn faded, picked and framed.
+    let mut s = e.document().settings().clone();
+    s.display.show_hidden = true;
+    e.apply(Operation::SetSettings(s.clone())).unwrap();
+    assert_eq!((drawn(&e), faded(&e)), (2, 1));
+    assert!(e.scene().pick(&ray(&e), |_| true).is_some());
+    assert!(e.scene().bounds().unwrap().1.x > 300.0);
+    s.display.show_hidden = false;
+    e.apply(Operation::SetSettings(s)).unwrap();
+
+    // Undone (the settings changed in a row, one step; then the hiding), then all shown
+    // again.
+    e.undo();
+    e.undo();
+    assert!(e.document().root_assembly().occurrence(g).is_some());
+    assert!(!e.has_hidden());
+    assert_eq!((drawn(&e), faded(&e)), (2, 0));
+    e.set_hidden(&EntityPath::root(a), true);
+    assert_eq!(drawn(&e), 1);
+    e.show_all();
+    assert!(!e.has_hidden());
+    assert_eq!(drawn(&e), 2);
+}
+
+#[test]
 fn groups_enter_fade_exit() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");

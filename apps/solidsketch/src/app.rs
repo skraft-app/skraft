@@ -1,5 +1,6 @@
 //! The application window: title bar (top), tool bar with the tool option bar as its footer
-//! (centered at the top), entity info, materials and outliner (left), status bar with the
+//! (centered at the top), entity info, materials and outliner (cards docked left or right),
+//! status bar with the
 //! measurements box (bottom), viewport (centre). Every action goes through the command registry (docs/ARCHITECTURE.md §7 quater):
 //! menus (native on macOS, ☰ elsewhere), title bar, tool bar, keyboard (SketchUp's shortcuts,
 //! changeable), the command palette and the control channel.
@@ -11,6 +12,7 @@ use solidsketch_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
 
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
+use crate::dock::{self, Dock, PanelId};
 use crate::file::{self, Inbox};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::native_menu::NativeMenu;
@@ -19,8 +21,14 @@ use crate::prefs::{Navigation, Preferences};
 use crate::titlebar;
 use crate::viewport::{self, Viewport};
 
-/// Width of the floating side panel (outliner and entity info), in points.
-const SIDE_WIDTH: f32 = 270.0;
+/// A side panel dragged by its header to another place.
+#[derive(Clone, Copy)]
+struct PanelDrag {
+    id: PanelId,
+    /// The pointer from the card's top left corner.
+    offset: egui::Vec2,
+    size: egui::Vec2,
+}
 
 pub struct SolidSketchApp {
     ctx: egui::Context,
@@ -39,6 +47,8 @@ pub struct SolidSketchApp {
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
     prefs_window: Option<PrefsTab>,
+    /// The side panel being dragged to another place.
+    panel_drag: Option<PanelDrag>,
     /// The shortcuts in use (the defaults with the user's changes).
     keymap: Keymap,
     /// The command whose shortcut the Raccourcis tab waits for.
@@ -174,6 +184,7 @@ impl SolidSketchApp {
             inbox: Inbox::default(),
             message: error,
             keymap: Keymap::new(&prefs.shortcuts),
+            panel_drag: None,
             stored_prefs: prefs.clone(),
             prefs,
             prefs_window: None,
@@ -249,6 +260,7 @@ impl SolidSketchApp {
             "edit.redo" => e.history().can_redo(),
             "edit.erase" | "edit.make_assembly" | "edit.explode" | "edit.make_unique" => has_sel,
             "view.section" | "view.section_clear" => section,
+            "view.show_all" => e.has_hidden(),
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "debug.crash_kernel" => self.debug_menu,
             _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
@@ -266,8 +278,9 @@ impl SolidSketchApp {
             "view.guides" => Some(d.guides),
             "view.silhouettes" => Some(d.silhouettes),
             "view.hide_rest_of_model" => Some(d.hide_rest_of_model),
+            "view.show_hidden" => Some(d.show_hidden),
             "view.section" => Some(d.section_active),
-            "view.materials" => Some(self.prefs.show_materials),
+            id if let Some(p) = PanelId::from_command(id) => Some(self.prefs.panels.is_shown(p)),
             "view.render_stats" => Some(self.prefs.show_render_stats),
             _ => tool_of(id).map(|k| self.editor.tool_kind() == k),
         }
@@ -354,6 +367,7 @@ impl SolidSketchApp {
             | "view.guides"
             | "view.silhouettes"
             | "view.hide_rest_of_model"
+            | "view.show_hidden"
             | "view.section"
             | "view.section_clear" => {
                 let d = &mut s.display;
@@ -363,6 +377,7 @@ impl SolidSketchApp {
                     "view.axes" => d.axes = !d.axes,
                     "view.silhouettes" => d.silhouettes = !d.silhouettes,
                     "view.hide_rest_of_model" => d.hide_rest_of_model = !d.hide_rest_of_model,
+                    "view.show_hidden" => d.show_hidden = !d.show_hidden,
                     "view.section" => d.section_active = !d.section_active,
                     _ => {
                         d.section = None;
@@ -371,9 +386,10 @@ impl SolidSketchApp {
                 }
                 self.set_settings(s);
             }
-            "view.materials" => self.prefs.show_materials = !self.prefs.show_materials,
+            id if let Some(p) = PanelId::from_command(id) => self.prefs.panels.toggle(p),
             "view.render_stats" => self.prefs.show_render_stats = !self.prefs.show_render_stats,
             "view.zoom_extents" => e.zoom_extents(),
+            "view.show_all" => e.show_all(),
             "debug.crash_kernel" => e.crash_kernel(),
             _ => return Err(t!("status.command_unknown", id = id)),
         }
@@ -389,6 +405,7 @@ impl SolidSketchApp {
                 }
             }
             Action::SelectPath(p) => e.select_path(&p),
+            Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
             Action::Apply(op) => {
                 let _ = e.apply(op);
             }
@@ -781,6 +798,208 @@ impl SolidSketchApp {
         }
     }
 
+    /// The side panels, as cards in their columns ([`dock`]), the one dragged by its header
+    /// following the pointer. Gives the view's span left free between the columns (x).
+    fn side_panels(&mut self, ctx: &egui::Context, view: egui::Rect, margin: f32, actions: &mut Vec<Action>) -> egui::Rangef {
+        let style = ctx.global_style();
+        let frame = egui::Frame::window(&style).inner_margin(6.0).total_margin().sum();
+        let header = style.spacing.interact_size.y;
+        let metrics = dock::Metrics { header: header + frame.y, min_height: header + frame.y + 60.0, gap: margin };
+        let max_width = (view.width() * 0.4).max(dock::COLUMN_MIN_WIDTH);
+        let pointer = ctx.pointer_latest_pos();
+        let dragged = self.panel_drag.map(|d| d.id);
+        let room = view.height() - 2.0 * margin;
+        let mut event = None;
+        let mut outliner_shown = false;
+        let mut columns = Vec::new();
+        for side in [Dock::Left, Dock::Right] {
+            let width = self.prefs.panels.column(side).width.clamp(dock::COLUMN_MIN_WIDTH, max_width);
+            let x = match side {
+                Dock::Left => view.left() + margin,
+                Dock::Right => view.right() - margin - width,
+            };
+            let placed = dock::place(self.prefs.panels.column(side), view.top() + margin, room, metrics, dragged);
+            for p in &placed {
+                let rect = egui::Rect::from_min_size(egui::pos2(x, p.top), egui::vec2(width, p.height));
+                // Every card but the one filling the column has a bottom edge to drag.
+                let edges = Edges { side: Some(side), bottom: !p.fills, max_width, min_height: metrics.min_height };
+                if let Some(e) = self.panel_card(ctx, p.id, rect, header, edges, &mut outliner_shown, actions) {
+                    event = Some(e);
+                }
+            }
+            columns.push((side, x, width, placed));
+        }
+        if let (Some(d), Some(p)) = (self.panel_drag, pointer) {
+            let rect = egui::Rect::from_min_size(p - d.offset, d.size);
+            let edges = Edges { side: None, bottom: false, max_width, min_height: metrics.min_height };
+            if let Some(e) = self.panel_card(ctx, d.id, rect, header, edges, &mut outliner_shown, actions) {
+                event = Some(e);
+            }
+        }
+        if !outliner_shown {
+            actions.push(Action::HoverOutliner(None));
+        }
+        // Where a dragged card goes: the column of the nearer edge, above the first card whose
+        // middle is below the pointer.
+        let target = |p: egui::Pos2| {
+            let side = if p.x < view.center().x { Dock::Left } else { Dock::Right };
+            let (_, x, width, placed) = columns.iter().find(|c| c.0 == side).expect("both columns");
+            let before = placed.iter().find(|q| q.top + q.height / 2.0 > p.y);
+            (side, *x, *width, placed, before)
+        };
+        match event {
+            Some(CardEvent::Grabbed(drag)) => self.panel_drag = Some(drag),
+            Some(CardEvent::Dropped) => {
+                if let (Some(d), Some(p)) = (self.panel_drag.take(), pointer) {
+                    let (side, .., before) = target(p);
+                    self.prefs.panels.move_card(d.id, side, before.map(|q| q.id));
+                }
+            }
+            None => {
+                if let (Some(_), Some(p)) = (self.panel_drag, pointer) {
+                    // Shown under the dragged card: the whole column if empty, else a bar
+                    // where the card will be inserted.
+                    let (_, x, width, placed, before) = target(p);
+                    let accent = style.visuals.selection.bg_fill;
+                    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::unique("panel_drop")));
+                    let x_range = egui::Rangef::new(x, x + width);
+                    match (before, placed.last()) {
+                        (_, None) => {
+                            let r = egui::Rect::from_x_y_ranges(x_range, view.top() + margin..=view.bottom() - margin);
+                            painter.rect(r, 6.0, accent.gamma_multiply(0.25), egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
+                        }
+                        (b, Some(last)) => {
+                            let y = b.map_or(last.top + last.height + margin / 2.0, |q| q.top - margin / 2.0);
+                            let r = egui::Rect::from_x_y_ranges(x_range, y - 2.0..=y + 2.0);
+                            painter.rect_filled(r, 2.0, accent);
+                        }
+                    }
+                }
+            }
+        }
+        // A dragged card still holds its room in its column for the rest of the layout.
+        let left = if self.prefs.panels.occupied(Dock::Left, None) { columns[0].1 + columns[0].2 + margin } else { view.left() };
+        let right = if self.prefs.panels.occupied(Dock::Right, None) { columns[1].1 - margin } else { view.right() };
+        egui::Rangef::new(left, right)
+    }
+
+    /// One side panel in `rect`: its header (click: fold, drag: move it) and its content, and
+    /// the edges `edges` gives to drag (width of its column, its height).
+    #[allow(clippy::too_many_arguments)]
+    fn panel_card(
+        &mut self,
+        ctx: &egui::Context,
+        id: PanelId,
+        rect: egui::Rect,
+        header: f32,
+        edges: Edges,
+        outliner_shown: &mut bool,
+        actions: &mut Vec<Action>,
+    ) -> Option<CardEvent> {
+        let folded = self.prefs.panels.card(id).is_some_and(|c| c.folded);
+        let floating = edges.side.is_none();
+        let mut event = None;
+        egui::Area::new(egui::Id::unique(("panel", id)))
+            .fixed_pos(rect.min)
+            .order(if floating { egui::Order::Foreground } else { egui::Order::Middle })
+            .show(ctx, |ui| {
+                let frame = egui::Frame::window(ui.style()).inner_margin(6.0);
+                let inner = rect.size() - frame.total_margin().sum();
+                frame.show(ui, |ui| {
+                    ui.set_min_size(inner);
+                    ui.set_max_size(inner);
+                    let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
+                    let head = ui.interact(head_rect, egui::Id::unique(("panel_head", id)), egui::Sense::click_and_drag());
+                    let painter = ui.painter();
+                    let color = ui.visuals().strong_text_color();
+                    let c = egui::pos2(head_rect.left() + 6.0, head_rect.center().y);
+                    let arrow = if folded {
+                        vec![c + egui::vec2(-2.5, -4.0), c + egui::vec2(3.5, 0.0), c + egui::vec2(-2.5, 4.0)]
+                    } else {
+                        vec![c + egui::vec2(-4.0, -2.5), c + egui::vec2(4.0, -2.5), c + egui::vec2(0.0, 3.5)]
+                    };
+                    painter.add(egui::Shape::convex_polygon(arrow, color, egui::Stroke::NONE));
+                    let font = egui::TextStyle::Body.resolve(ui.style());
+                    painter.text(
+                        egui::pos2(head_rect.left() + 18.0, head_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        panel_title(id),
+                        font,
+                        color,
+                    );
+                    if head.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if head.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                    }
+                    if head.clicked()
+                        && let Some(c) = self.prefs.panels.card_mut(id)
+                    {
+                        c.folded = !c.folded;
+                    }
+                    if head.drag_started()
+                        && let Some(p) = head.interact_pointer_pos()
+                    {
+                        event = Some(CardEvent::Grabbed(PanelDrag { id, offset: p - rect.min, size: rect.size() }));
+                    }
+                    if head.drag_stopped() {
+                        event = Some(CardEvent::Dropped);
+                    }
+                    if folded {
+                        return;
+                    }
+                    let body = (inner.y - header - ui.spacing().item_spacing.y).max(0.0);
+                    let area = egui::ScrollArea::vertical().auto_shrink(false).max_height(body).min_scrolled_height(body);
+                    match id {
+                        PanelId::EntityInfo => {
+                            area.id_salt("entity_info").show(ui, |ui| panels::info(ui, &self.editor, &mut self.info, actions));
+                        }
+                        PanelId::Materials => {
+                            area.id_salt("materials").show(ui, |ui| panels::materials(ui, &self.editor, &mut self.info, actions));
+                        }
+                        PanelId::Outliner => {
+                            *outliner_shown = true;
+                            panels::outliner(ui, &self.editor, actions, area.id_salt("outliner"));
+                        }
+                    }
+                });
+                let Some(side) = edges.side else { return };
+                // The edge facing the view widens or narrows the column (double click: its
+                // default width).
+                let (x, sign) = match side {
+                    Dock::Left => (rect.right(), 1.0),
+                    Dock::Right => (rect.left(), -1.0),
+                };
+                let grip = egui::Rect::from_x_y_ranges(x - 3.0..=x + 3.0, rect.y_range());
+                let edge = ui.interact(grip, egui::Id::unique(("panel_width", id)), egui::Sense::click_and_drag());
+                if edge.hovered() || edge.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                }
+                let column = self.prefs.panels.column_mut(side);
+                if edge.dragged() {
+                    column.width = (rect.width() + sign * edge.drag_delta().x).clamp(dock::COLUMN_MIN_WIDTH, edges.max_width);
+                }
+                if edge.double_clicked() {
+                    column.width = dock::COLUMN_WIDTH;
+                }
+                // The bottom edge sets its height (the card filling the column takes the rest).
+                if !edges.bottom || folded {
+                    return;
+                }
+                let grip = egui::Rect::from_x_y_ranges(rect.x_range(), rect.bottom() - 3.0..=rect.bottom() + 3.0);
+                let edge = ui.interact(grip, egui::Id::unique(("panel_height", id)), egui::Sense::drag());
+                if edge.hovered() || edge.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                if edge.dragged()
+                    && let Some(c) = self.prefs.panels.card_mut(id)
+                {
+                    c.height = (rect.height() + edge.drag_delta().y).max(edges.min_height);
+                }
+            });
+        event
+    }
+
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let status = match &self.message {
@@ -913,8 +1132,7 @@ impl eframe::App for SolidSketchApp {
         #[cfg(not(target_arch = "wasm32"))]
         self.serve_control(frame);
 
-        let name =
-            self.path.as_deref().map(file_name).map(str::to_owned).unwrap_or_else(|| t!("window.untitled"));
+        let name = self.path.as_deref().map(file_name).map(str::to_owned).unwrap_or_else(|| t!("window.untitled"));
         let modified = self.modified();
         // Still the window's title where the OS shows it (Window menu, Mission Control).
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("SolidSketch — {name}{}", if modified { " •" } else { "" })));
@@ -947,51 +1165,9 @@ impl eframe::App for SolidSketchApp {
             .rect;
         let margin = 8.0;
         let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(6.0);
-        let show_materials = self.prefs.show_materials;
-        let side = egui::Area::new(egui::Id::unique("side"))
-            .fixed_pos(view.left_top() + egui::vec2(margin, margin))
-            .constrain_to(view)
-            .show(&ctx, |ui| {
-                card(ui.style()).show(ui, |ui| {
-                    ui.set_width(SIDE_WIDTH);
-                    // Fixed ids: the titles change with the language.
-                    let title = |key: String| egui::RichText::new(key).strong();
-                    egui::CollapsingHeader::new(title(t!("panel.entity_info.title"))).id_salt("entity_info").default_open(true).show(
-                        ui,
-                        |ui| {
-                            panels::info(ui, &self.editor, &mut self.info, &mut actions);
-                        },
-                    );
-                    if show_materials {
-                        ui.separator();
-                        egui::CollapsingHeader::new(title(t!("panel.materials.title"))).id_salt("materials").default_open(true).show(
-                            ui,
-                            |ui| {
-                                panels::materials(ui, &self.editor, &mut self.info, &mut actions);
-                            },
-                        );
-                    }
-                    ui.separator();
-                    let outliner = egui::CollapsingHeader::new(title(t!("panel.outliner.title")))
-                        .id_salt("outliner_header")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            // Grows with its content down to the bottom of the view, then scrolls.
-                            // An `Area` only offers last frame's size as available room, so the
-                            // height is forced (`min_scrolled_height`) and auto-shrink trims it.
-                            let room = (view.bottom() - margin - 12.0 - ui.cursor().top()).max(80.0);
-                            let area = egui::ScrollArea::vertical().id_salt("outliner").max_height(room).min_scrolled_height(room);
-                            panels::outliner(ui, &self.editor, &mut actions, area);
-                        });
-                    // Folded: nothing hovered in it any more.
-                    if outliner.body_returned.is_none() {
-                        actions.push(Action::HoverOutliner(None));
-                    }
-                });
-            })
-            .response
-            .rect;
-        // Centered over the view, but never over the side panel. Its width is known before
+        let free = self.side_panels(&ctx, view, margin, &mut actions);
+        let (free_left, free_right) = (free.min, free.max);
+        // Centered over the view, but never over the side panels. Its width is known before
         // drawing it: the wider of its rows (buttons, options), as last measured; a row whose
         // width changed (another tool, other options) discards the pass, so the card is never
         // shown misplaced while it settles.
@@ -1002,7 +1178,7 @@ impl eframe::App for SolidSketchApp {
         let row_width = |id: egui::Id| ctx.data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
         let content_width = row_width(buttons_id).max(if has_options { row_width(options_id) } else { 0.0 });
         let tools_width = content_width + card(&ctx.global_style()).total_margin().sum().x;
-        let tools_left = (view.center().x - tools_width / 2.0).max(side.right() + margin);
+        let tools_left = (view.center().x - tools_width / 2.0).min(free_right - tools_width).max(free_left);
         let tools = egui::Area::new(tools_id)
             .fixed_pos(egui::pos2(tools_left, view.top() + margin))
             .constrain_to(view)
@@ -1011,7 +1187,7 @@ impl eframe::App for SolidSketchApp {
                     // Exactly the rows' width: the separator spans it, the rows center in it.
                     ui.set_width(content_width);
                     // Scrolls only when the window is too narrow for all the buttons.
-                    let room = view.right() - margin - 12.0 - tools_left;
+                    let room = free_right - margin - 12.0 - tools_left;
                     centered_row(ui, buttons_id, |ui| {
                         egui::ScrollArea::horizontal().max_width(room).min_scrolled_width(room).show(ui, |ui| {
                             ui.horizontal(|ui| panels::toolbar(ui, &views, &mut actions));
@@ -1027,9 +1203,9 @@ impl eframe::App for SolidSketchApp {
             })
             .response
             .rect;
-        // What zoom extents frames: below the tool bar, right of the side panel, in viewport pixels.
-        let free_min = egui::vec2(side.right() + margin - view.left(), tools.bottom() + margin - view.top());
-        let free_max = egui::vec2(view.width(), view.height());
+        // What zoom extents frames: below the tool bar, beside the side panel, in viewport pixels.
+        let free_min = egui::vec2(free_left - view.left(), tools.bottom() + margin - view.top());
+        let free_max = egui::vec2(free_right - view.left(), view.height());
         self.editor
             .set_free_area(glam::DVec2::new(free_min.x as f64, free_min.y as f64), glam::DVec2::new(free_max.x as f64, free_max.y as f64));
 
@@ -1042,7 +1218,8 @@ impl eframe::App for SolidSketchApp {
         if self.prefs.tool_options != *self.editor.tool_settings() {
             self.prefs.tool_options = self.editor.tool_settings().clone();
         }
-        if self.prefs != self.stored_prefs {
+        // Not while dragging (a panel's edge…): written once released.
+        if self.prefs != self.stored_prefs && !ctx.input(|i| i.pointer.any_down()) {
             if self.prefs.shortcuts != self.stored_prefs.shortcuts {
                 self.keymap = Keymap::new(&self.prefs.shortcuts);
             }
@@ -1104,7 +1281,14 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
         });
         ui.end_row();
         ui.label(t!("prefs.interface.panels"));
-        ui.checkbox(&mut prefs.show_materials, t!("panel.materials.title"));
+        ui.vertical(|ui| {
+            for id in PanelId::ALL {
+                let mut shown = prefs.panels.is_shown(id);
+                if ui.checkbox(&mut shown, panel_title(id)).changed() {
+                    prefs.panels.toggle(id);
+                }
+            }
+        });
         ui.end_row();
     });
     ui.add_space(4.0);
@@ -1249,5 +1433,32 @@ mod tests {
         for id in ["view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"] {
             assert!(view_of(id).is_some(), "{id}");
         }
+    }
+}
+
+/// The edges of a side panel that can be dragged.
+#[derive(Clone, Copy)]
+struct Edges {
+    /// Its column (`None`: dragged, out of any column).
+    side: Option<Dock>,
+    /// Its bottom edge sets its height.
+    bottom: bool,
+    max_width: f32,
+    min_height: f32,
+}
+
+/// What a side panel's header did.
+enum CardEvent {
+    /// Its drag started.
+    Grabbed(PanelDrag),
+    /// Released.
+    Dropped,
+}
+
+fn panel_title(id: PanelId) -> String {
+    match id {
+        PanelId::EntityInfo => t!("panel.entity_info.title"),
+        PanelId::Materials => t!("panel.materials.title"),
+        PanelId::Outliner => t!("panel.outliner.title"),
     }
 }

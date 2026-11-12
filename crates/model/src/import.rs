@@ -364,7 +364,7 @@ impl Document {
                 for (component, transform, name, material) in occurrences {
                     let id = doc.fresh_id();
                     let material = material.and_then(|m| materials.get(m).copied());
-                    list.push(Occurrence { id, name, component, transform, material });
+                    list.push(Occurrence { id, name, component, transform, material, hidden: false });
                 }
                 let assembly = Assembly::new(list);
                 report.assemblies += 1;
@@ -377,13 +377,20 @@ impl Document {
         let root_node = &plan.nodes[root];
         let mut top = Vec::new();
         if let Some(p) = root_node.part.and_then(|p| part_ids[p]) {
-            top.push(Occurrence { id: Id(0), name: String::new(), component: p, transform: DAffine3::IDENTITY, material: None });
+            top.push(Occurrence {
+                id: Id(0),
+                name: String::new(),
+                component: p,
+                transform: DAffine3::IDENTITY,
+                material: None,
+                hidden: false,
+            });
         }
         for c in &root_node.children {
             match component_of[c.node] {
                 Some(component) => {
                     let material = c.material.and_then(|m| materials.get(m).copied());
-                    top.push(Occurrence { id: Id(0), name: c.name.clone(), component, transform: c.transform, material });
+                    top.push(Occurrence { id: Id(0), name: c.name.clone(), component, transform: c.transform, material, hidden: false });
                 }
                 None => report.dropped_instances += 1,
             }

@@ -24,7 +24,13 @@ impl Editor {
             return;
         }
         let ctx = self.context_definition();
-        self.selection = self.document().assembly(ctx).map(|a| a.occurrences().iter().map(|o| o.id).collect()).unwrap_or_default();
+        // Not those hidden, unless the hidden are shown.
+        let show_hidden = self.document().settings().display.show_hidden;
+        self.selection = self
+            .document()
+            .assembly(ctx)
+            .map(|a| a.occurrences().iter().filter(|o| show_hidden || !o.hidden).map(|o| o.id).collect())
+            .unwrap_or_default();
         self.selection.extend(guides);
     }
 
@@ -107,6 +113,46 @@ impl Editor {
             None => Operation::Delete { context: self.context_definition(), entities },
         };
         let _ = self.start(op, After::Nothing, false);
+    }
+
+    /// Hides the occurrence `path` names, or shows it again (the outliner's eye). Hidden, it
+    /// leaves the selection, unless the hidden are shown.
+    pub fn set_hidden(&mut self, path: &EntityPath, hidden: bool) {
+        if self.busy() {
+            return;
+        }
+        let Ok(context) = self.document().context_of(&path.instances) else { return };
+        let op = Operation::SetHidden { context, entities: vec![path.entity], hidden };
+        if self.start(op, After::Nothing, false).is_ok()
+            && hidden
+            && !self.document().settings().display.show_hidden
+            && self.context == path.instances
+        {
+            self.selection.retain(|id| *id != path.entity);
+        }
+    }
+
+    /// Shows every occurrence hidden (View › Show all).
+    pub fn show_all(&mut self) {
+        if self.busy() {
+            return;
+        }
+        let _ = self.start(Operation::ShowAll, After::Nothing, false);
+    }
+
+    /// Is anything hidden, anywhere in the model? Worked out once per revision.
+    pub fn has_hidden(&self) -> bool {
+        let revision = self.history.revision();
+        if let Some((r, any)) = self.has_hidden.get()
+            && r == revision
+        {
+            return any;
+        }
+        let doc = self.document();
+        let assemblies = doc.components().filter_map(|c| c.as_assembly()).chain([doc.root_assembly()]);
+        let any = assemblies.flat_map(|a| a.occurrences()).any(|o| o.hidden);
+        self.has_hidden.set(Some((revision, any)));
+        any
     }
 
     /// Erases every guide of the active context (Edit › Delete guides), shown or not.

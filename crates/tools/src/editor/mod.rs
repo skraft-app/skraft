@@ -75,6 +75,9 @@ pub struct Editor {
     stretch_swaps: HashMap<EntityPath, (Id, DAffine3)>,
     /// How the selection is drawn, worked out once for the frames that follow (§7 bis).
     selection_drawing: std::cell::RefCell<Option<view::SelectionDrawing>>,
+    /// Is anything hidden, at the history's revision ([`Editor::has_hidden`]: asked at every
+    /// frame, found by a pass over every assembly).
+    has_hidden: std::cell::Cell<Option<(u64, bool)>>,
     selection: Vec<Id>,
     tool: Box<dyn Tool>,
     pivot: Option<DVec3>,
@@ -147,6 +150,7 @@ impl Editor {
             held_stretch: None,
             stretch_swaps: HashMap::new(),
             selection_drawing: std::cell::RefCell::new(None),
+            has_hidden: std::cell::Cell::new(None),
             selection: Vec::new(),
             tool: tools::make(ToolKind::Select),
             pivot: None,
@@ -274,12 +278,8 @@ impl Editor {
     /// meshes it lacks.
     pub(super) fn sync_scene(&mut self) {
         self.scene.set_recipe(self.open_part_path(), self.machinings_shown);
-        let shown_under = if self.history.document().settings().display.hide_rest_of_model {
-            self.context.iter().copied().chain(self.open_part).collect()
-        } else {
-            Vec::new()
-        };
-        self.scene.set_shown_under(shown_under);
+        let active = self.context.iter().copied().chain(self.open_part).collect();
+        self.scene.set_active(active, self.history.document().settings().display.hide_rest_of_model);
         self.scene.sync(self.history.document());
         self.request_meshes();
     }

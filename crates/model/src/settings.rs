@@ -33,6 +33,9 @@ pub struct Display {
     /// While a part is open or an assembly edited, the rest of the model is hidden (neither
     /// drawn, picked nor inferred on) instead of faded.
     pub hide_rest_of_model: bool,
+    /// The occurrences hidden by the user are drawn faded, picked and inferred on, as if
+    /// shown (to find them, show them again).
+    pub show_hidden: bool,
 }
 
 impl Default for Display {
@@ -46,6 +49,7 @@ impl Default for Display {
             section_active: false,
             guides: true,
             hide_rest_of_model: false,
+            show_hidden: false,
         }
     }
 }

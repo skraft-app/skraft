@@ -10,6 +10,8 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+
+use crate::dock::Layout;
 use solidsketch_i18n::t;
 use solidsketch_model::Settings;
 use solidsketch_theme::{Choice, Palette};
@@ -37,8 +39,6 @@ pub struct Preferences {
     pub palette: Palette,
     /// Shortcuts changed by the user, by command id (`Cmd+Shift+Z`; empty: none).
     pub shortcuts: BTreeMap<String, String>,
-    /// The materials panel is shown.
-    pub show_materials: bool,
     /// An open part shows its machinings (ARCHITECTURE.md §2.9).
     pub show_machinings: bool,
     /// The render statistics overlay, in a corner of the view.
@@ -46,6 +46,8 @@ pub struct Preferences {
     /// The last files opened or saved, the latest first (desktop: the browser gives no path to
     /// open again).
     pub recent_files: Vec<String>,
+    /// The side panels: their columns, order, sizes, folded or closed.
+    pub panels: Layout,
 }
 
 impl Default for Preferences {
@@ -59,10 +61,10 @@ impl Default for Preferences {
             theme: Choice::System,
             palette: Palette::Neutral,
             shortcuts: BTreeMap::new(),
-            show_materials: true,
             show_machinings: false,
             show_render_stats: false,
             recent_files: Vec::new(),
+            panels: Layout::default(),
         }
     }
 }
@@ -106,7 +108,10 @@ impl Preferences {
         match store::read() {
             Ok(None) => (Preferences::default(), None),
             Ok(Some(text)) => match serde_json::from_str::<Preferences>(&text) {
-                Ok(p) if p.version <= VERSION => (Preferences { version: VERSION, ..p }, None),
+                Ok(mut p) if p.version <= VERSION => {
+                    p.panels.normalize();
+                    (Preferences { version: VERSION, ..p }, None)
+                }
                 Ok(p) => (Preferences::default(), Some(t!("error.preferences.newer", version = p.version))),
                 Err(e) => (Preferences::default(), Some(t!("error.preferences.unreadable", error = e))),
             },

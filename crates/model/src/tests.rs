@@ -537,6 +537,53 @@ fn materials_paint_occurrences_assemblies_and_faces() {
 }
 
 #[test]
+fn occurrences_hide_and_show() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
+    let c = add(&mut h, cube(DVec3::new(40.0, 0.0, 0.0), 10.0));
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
+    let hidden_at = |h: &History, o: Id| h.document().placed_parts().into_iter().find(|p| p.path.entity == o).unwrap().hidden_at;
+    assert_eq!(hidden_at(&h, a), None);
+
+    // A part hidden: its own level; an assembly hidden: its level, for every part under it.
+    h.apply(Operation::SetHidden { context: asm_def(&h, asm), entities: vec![b], hidden: true }).unwrap();
+    assert_eq!(h.undo_op().map(|o| o.label()), Some("Masquer".to_owned()));
+    assert_eq!((hidden_at(&h, a), hidden_at(&h, b), hidden_at(&h, c)), (None, Some(1), None));
+    h.apply(Operation::SetHidden { context: root, entities: vec![asm], hidden: true }).unwrap();
+    assert_eq!((hidden_at(&h, a), hidden_at(&h, b)), (Some(0), Some(1)), "the deepest one");
+
+    // Saved with the file; a file without the flag shows everything.
+    let json = h.document().to_json().unwrap();
+    assert_eq!(&Document::from_json(&json).unwrap(), h.document());
+    assert_eq!(json.matches("\"hidden\":true").count(), 2);
+
+    // Exploded, a hidden assembly leaves its content hidden.
+    let mut x = h.clone();
+    let out = x.apply(Operation::Explode { context: root, occurrence: asm }).unwrap();
+    assert!(out.created.iter().all(|id| x.document().root_assembly().occurrence(*id).unwrap().hidden));
+
+    // Shown again one by one, or all at once; undone in one step.
+    h.apply(Operation::SetHidden { context: root, entities: vec![asm], hidden: false }).unwrap();
+    assert_eq!(h.undo_op().map(|o| o.label()), Some("Afficher".to_owned()));
+    assert_eq!(hidden_at(&h, a), None);
+    h.apply(Operation::SetHidden { context: root, entities: vec![asm, c], hidden: true }).unwrap();
+    h.apply(Operation::ShowAll).unwrap();
+    assert!(h.document().placed_parts().iter().all(|p| p.hidden_at.is_none()));
+    assert!(h.undo());
+    assert_eq!((hidden_at(&h, b), hidden_at(&h, c)), (Some(1), Some(0)));
+
+    // An occurrence of another assembly is refused.
+    assert!(h.apply(Operation::SetHidden { context: root, entities: vec![a], hidden: true }).is_err());
+}
+
+/// The assembly the occurrence `o` of the root places.
+fn asm_def(h: &History, o: Id) -> Id {
+    h.document().root_assembly().occurrence(o).unwrap().component
+}
+
+#[test]
 fn a_file_with_an_unknown_material_is_refused() {
     let mut h = History::new(Document::new());
     let root = h.document().root();
@@ -1475,7 +1522,7 @@ fn placed_changes_skip_only_what_is_shared() {
 
 /// An occurrence of `component`, for the assembly's own tests.
 fn bare_occurrence(id: u64, component: Id) -> Occurrence {
-    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, material: None }
+    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, material: None, hidden: false }
 }
 
 #[test]

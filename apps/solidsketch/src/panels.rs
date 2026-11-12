@@ -30,6 +30,8 @@ pub enum Action {
     HoverMachining(Option<Id>),
     /// The occurrence hovered in the outliner, if any.
     HoverOutliner(Option<EntityPath>),
+    /// Hide the occurrence (true) or show it again: the outliner's eye.
+    SetHidden(EntityPath, bool),
 }
 
 /// A command as shown now: its label, whether it can run, its state, its shortcut.
@@ -225,6 +227,8 @@ struct OutlinerRow<'d> {
     occurrence: &'d Occurrence,
     /// Its folding state, for an assembly.
     fold: Option<egui::collapsing_header::CollapsingState>,
+    /// An assembly above it is hidden: it is not drawn either.
+    hidden_above: bool,
 }
 
 /// The outliner, in `area`: only the rows in view are laid out (a model can hold tens of
@@ -236,9 +240,10 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
         return;
     }
     let mut rows = Vec::new();
-    flatten(ui.ctx(), editor, doc, doc.root(), &mut Vec::new(), &mut rows, 0);
+    flatten(ui.ctx(), editor, doc, doc.root(), &mut Vec::new(), &mut rows, false, 0);
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
     let tint = ui.visuals().text_color();
+    let weak = ui.visuals().weak_text_color();
     let height = ui.spacing().interact_size.y;
     let mut over = None;
     area.show_rows(ui, height, rows.len(), |ui, range| {
@@ -246,6 +251,9 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
         for row in rows.drain(range) {
             let o = row.occurrence;
             let selected = editor.context() == row.path.as_slice() && (selection.contains(&o.id) || editor.open_part() == Some(o.id));
+            // Hidden, itself or by an assembly above: greyed.
+            let greyed = o.hidden || row.hidden_above;
+            let tint = if greyed { weak } else { tint };
             let width = ui.available_width();
             let layout = egui::Layout::left_to_right(egui::Align::Center);
             let row_ui = ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
@@ -263,14 +271,34 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
                 }
                 ui.spacing_mut().item_spacing.x = spacing;
                 ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-                ui.selectable_label(selected, occurrence_label(doc, o))
+                // The eye first, at the right end (open while shown, struck through once
+                // hidden), then the name in the room left, truncated with "…" so a long name
+                // never pushes the eye out.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let (icon, tip) =
+                        if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
+                    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(weak);
+                    let eye = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
+                    let label = ui
+                        .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            let label = egui::RichText::new(occurrence_label(doc, o));
+                            let label = if greyed { label.color(weak) } else { label };
+                            ui.add(egui::Button::selectable(selected, label).truncate())
+                        })
+                        .inner;
+                    (label, eye)
+                })
+                .inner
             });
             let path = EntityPath::new(row.path, o.id);
             // The whole row, its indent and toggle included.
             if ui.rect_contains_pointer(row_ui.response.rect) {
                 over = Some(path.clone());
             }
-            if row_ui.inner.clicked() {
+            let (label, eye) = row_ui.inner;
+            if eye {
+                actions.push(Action::SetHidden(path, !o.hidden));
+            } else if label.clicked() {
                 actions.push(Action::SelectPath(path));
             }
         }
@@ -278,7 +306,9 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
     actions.push(Action::HoverOutliner(over));
 }
 
-/// The rows of the tree under `assembly`, those of folded assemblies left out.
+/// The rows of the tree under `assembly`, those of folded assemblies left out (`hidden_above`:
+/// an occurrence above `assembly` is hidden).
+#[allow(clippy::too_many_arguments)]
 fn flatten<'d>(
     ctx: &egui::Context,
     editor: &Editor,
@@ -286,6 +316,7 @@ fn flatten<'d>(
     assembly: Id,
     path: &mut Vec<Id>,
     out: &mut Vec<OutlinerRow<'d>>,
+    hidden_above: bool,
     depth: usize,
 ) {
     let Ok(a) = doc.assembly(assembly) else { return };
@@ -294,7 +325,7 @@ fn flatten<'d>(
     }
     for o in a.occurrences() {
         if doc.assembly(o.component).is_err() {
-            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None });
+            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above });
             continue;
         }
         let id = egui::Id::unique(("outliner", path.as_slice(), o.id));
@@ -304,10 +335,10 @@ fn flatten<'d>(
             fold.set_open(true);
         }
         let open = fold.is_open();
-        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold) });
+        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above });
         if open {
             path.push(o.id);
-            flatten(ctx, editor, doc, o.component, path, out, depth + 1);
+            flatten(ctx, editor, doc, o.component, path, out, hidden_above || o.hidden, depth + 1);
             path.pop();
         }
     }
@@ -423,25 +454,50 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                     ui.label(t!("panel.entity_info.topology_counts", faces = f, edges = ed, vertices = v));
                     ui.end_row();
                 }
-                ui.label(t!("panel.entity_info.position"));
+                // At the top of its three fields, level with the first.
+                ui.vertical(|ui| {
+                    let size = egui::vec2(0.0, ui.spacing().interact_size.y);
+                    ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(t!("panel.entity_info.position")).extend());
+                    });
+                });
                 // Shown in the document's unit; the model stays in mm.
                 let unit = units.length.mm();
                 let mut t = o.transform.translation / unit;
                 let before = t;
-                ui.horizontal(|ui| {
-                    for v in [&mut t.x, &mut t.y, &mut t.z] {
-                        // Typed like in the measurements box: `@+19`, `600-2*19`, `2cm`.
-                        let current = *v * unit;
-                        ui.add(
-                            egui::DragValue::new(v)
-                                .speed(1.0)
-                                .suffix(units.suffix())
-                                .max_decimals(units.decimals as usize)
-                                .custom_formatter(|n, decimals| {
-                                    solidsketch_i18n::number(&egui::emath::format_with_decimals_in_range(n, decimals))
-                                })
-                                .custom_parser(move |s| measure::coordinate(s, units, current).ok().map(|mm| mm / unit)),
-                        );
+                ui.vertical(|ui| {
+                    let axes = [solidsketch_theme::AXIS_X, solidsketch_theme::AXIS_Y, solidsketch_theme::AXIS_Z];
+                    for (v, axis) in [&mut t.x, &mut t.y, &mut t.z].into_iter().zip(axes) {
+                        // Right-aligned: the button and its text edit align their text as the layout's cross
+                        // alignment (its main one is always centred).
+                        let size = egui::vec2(field, ui.spacing().interact_size.y);
+                        ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Max), |ui| {
+                            // Each tinted with its axis' colour, as a pastel over the field's ground.
+                            let axis = crate::viewport::color(axis);
+                            let vis = ui.visuals_mut();
+                            let ground = vis.extreme_bg_color;
+                            let tint = |k: f32| ground.lerp_to_gamma(axis, k);
+                            vis.extreme_bg_color = tint(0.18);
+                            for (w, k) in
+                                [(&mut vis.widgets.inactive, 0.25), (&mut vis.widgets.hovered, 0.35), (&mut vis.widgets.active, 0.4)]
+                            {
+                                w.bg_fill = tint(k);
+                                w.weak_bg_fill = tint(k);
+                            }
+                            // Typed like in the measurements box: `@+19`, `600-2*19`, `2cm`.
+                            let current = *v * unit;
+                            ui.add(
+                                egui::DragValue::new(v)
+                                    .min_size(size)
+                                    .speed(1.0)
+                                    .suffix(units.suffix())
+                                    .max_decimals(units.decimals as usize)
+                                    .custom_formatter(|n, decimals| {
+                                        solidsketch_i18n::number(&egui::emath::format_with_decimals_in_range(n, decimals))
+                                    })
+                                    .custom_parser(move |s| measure::coordinate(s, units, current).ok().map(|mm| mm / unit)),
+                            );
+                        });
                     }
                 });
                 if t != before {

@@ -64,7 +64,7 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
 ### 2.2 Occurrences and transformation
 
 - An occurrence carries **T = translation + rotation + optional mirror** (determinant ±1), its
-  **material** and its occurrence name. Moving or rotating only changes T: instant, no kernel,
+  **material**, its occurrence name and whether it is **hidden** (§6). Moving or rotating only changes T: instant, no kernel,
   no remeshing, no drift of the geometry.
 - **T is never baked into the B-rep.** Booleans and (later) push/pull work in the part's frame,
   the other operand brought in by the relative transformation; export applies T on the fly.
@@ -336,6 +336,24 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
   assembly is entered or a part open, what lies outside it (its parts, its guides, the open
   part's other occurrences and their `Related` marks) is neither drawn, picked nor inferred
   on, and zoom extents frames the context alone.
+- **Hiding** (decided on 2026-11-12, after SketchUp's `hidden`): an occurrence carries
+  `hidden` (saved, `Operation::SetHidden { context, entities, hidden }`, undoable; « Masquer »
+  / « Afficher »), toggled by the eye at the right end of each outliner row. One flag per
+  occurrence, not per component: a leg of four is hidden alone; an occurrence inside an
+  assembly is hidden in every occurrence of the assembly (its definition is shared). A hidden
+  occurrence, and everything under it, is neither drawn, picked (click or rectangle),
+  inferred on, framed by zoom extents nor taken by select all; its guides go with it; the
+  outliner greys its row and those below, and hovering them there marks nothing. Hiding it takes it out of the selection; the
+  outliner still selects it (its selection mark then shows where it is). **What is being
+  edited shows**: the occurrences hidden along the active path (the assemblies entered, the
+  part open) count as shown, what is hidden below them stays hidden
+  (`PlacedPart::hidden_at`, the deepest hidden occurrence of the path, compared with the
+  active path at each `DisplayScene::sync`). The document setting `display.show_hidden`
+  (command `view.show_hidden`, « Voir les éléments masqués », off) draws them faded and lets
+  them be picked, inferred on and framed; `view.show_all` (`Operation::ShowAll`, « Tout
+  afficher », enabled while something is hidden) shows every occurrence again. Exploding a
+  hidden assembly leaves its content hidden; copies keep the flag; imports (STEP, SketchUp)
+  come in shown.
 - **Booleans = a two-click tool** (target, then tool), which designates solids of any context:
   this is how the rule of §4 is expressed.
 - **Typed dimensions** (VCB; decided on 2026-11-10, taken from OpenCutList, `UserTextHelper` +
@@ -372,8 +390,14 @@ Decided on 2026-11-09.
 - **Layout**: title bar at the top (§7 quinquies), status bar at the bottom with the measurements box (VCB) on the
   right; in between, the **3D view takes the whole width** and the panels **float over it**
   (anchored cards): **horizontal tool bar centered at the top** (never over the side panel),
-  the tool option bar centered as its footer; on the left, **Entity info** above the **Outliner**,
-  collapsible (layout changed on 2026-11-10). Opening or resizing a panel therefore never resizes the view; zoom
+  the tool option bar centered as its footer; **Entity info**, **Materials** and **Outliner** are three
+  cards docked in two columns, one per edge of the view (`dock.rs`, 2026-11-12). A card's header folds
+  it (click) or moves it (drag: it follows the pointer and drops into the column of the nearer edge,
+  where a bar shows the insertion point); the View menu closes or shows each one. A card keeps the
+  height given by dragging its bottom edge, except the last unfolded list of its column (Materials or
+  Outliner; never Entity info, which would only grow empty), which fills the height left; the inner edge sets the column's width (double click: default).
+  Order, columns, sizes, folded and closed cards are kept in the preferences, written once the
+  pointer is released. Opening or resizing a panel therefore never resizes the view; zoom
   extents frames the area left free.
 - **Original SVG icons** (drawn for the project), white and tinted by the theme, loaded by
   `egui_extras` (`svg`): no build step, no binary asset.

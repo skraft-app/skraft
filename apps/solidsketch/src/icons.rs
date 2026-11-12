@@ -37,6 +37,8 @@ icon!(VIEWS, "views");
 icon!(SEARCH, "search");
 icon!(SETTINGS, "settings");
 icon!(MATERIALS, "materials");
+icon!(EYE, "eye");
+icon!(EYE_OFF, "eye_off");
 
 /// A tool option's icon (assets/icons/options), by the name the tool gives it
 /// ([`solidsketch_tools::OptionChoice::icon`]); none for an unknown name (its label is shown).

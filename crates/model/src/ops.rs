@@ -193,6 +193,11 @@ pub enum Operation {
     DeleteMaterial { material: Id },
     /// Paints occurrences of `context` (`None`: their material is removed).
     PaintOccurrences { context: Id, entities: Vec<Id>, material: Option<Id> },
+    /// Hides occurrences of `context`, or shows them again (ARCHITECTURE.md §6). An assembly's occurrence
+    /// is hidden in every occurrence of the assembly.
+    SetHidden { context: Id, entities: Vec<Id>, hidden: bool },
+    /// Shows every occurrence hidden, in every assembly.
+    ShowAll,
     /// Paints faces of a part's shape, by their index in its record (every occurrence of the
     /// part shows it; `None`: they take the occurrence's material again).
     PaintFaces { part: Id, faces: Vec<u32>, material: Option<Id> },
@@ -228,6 +233,9 @@ impl Operation {
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
             Operation::PaintOccurrences { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
+            Operation::SetHidden { hidden: true, .. } => t!("operation.hide"),
+            Operation::SetHidden { hidden: false, .. } => t!("operation.show"),
+            Operation::ShowAll => t!("operation.show_all"),
             Operation::AddMachining { .. } => t!("operation.add_machining"),
             Operation::DeleteMachinings { .. } => t!("operation.delete"),
             Operation::TransformMachinings { .. } => t!("operation.transform"),
@@ -382,6 +390,35 @@ impl Document {
                 }
                 Ok(Outcome::default())
             }
+            Operation::SetHidden { context, entities, hidden } => {
+                // Guides are not hidden one by one.
+                let (_, entities) = &self.split_guides(*context, entities)?;
+                self.occurrences_of(*context, entities)?;
+                let entities = id_set(entities);
+                // The assembly copied only when something changes.
+                if self.assembly(*context)?.occurrences().iter().any(|o| entities.contains(&o.id) && o.hidden != *hidden) {
+                    for o in self.assembly_mut(*context)?.occurrences_mut() {
+                        if entities.contains(&o.id) {
+                            o.hidden = *hidden;
+                        }
+                    }
+                }
+                Ok(Outcome::default())
+            }
+            Operation::ShowAll => {
+                let holding: Vec<Id> = self
+                    .components
+                    .values()
+                    .filter(|c| c.as_assembly().is_some_and(|a| a.occurrences().iter().any(|o| o.hidden)))
+                    .map(|c| c.id)
+                    .collect();
+                for id in holding {
+                    for o in self.assembly_mut(id)?.occurrences_mut() {
+                        o.hidden = false;
+                    }
+                }
+                Ok(Outcome::default())
+            }
             Operation::PaintFaces { part, faces, material } => {
                 if let Some(m) = material {
                     self.material(*m)?;
@@ -415,7 +452,14 @@ impl Document {
                     _ => {
                         let name = fragment.component(fragment.root)?.name.clone();
                         let assembly = self.insert_component(&name, true, ComponentKind::Assembly(Assembly::new(top)));
-                        Occurrence { id: self.fresh_id(), name: String::new(), component: assembly, transform: *transform, material: None }
+                        Occurrence {
+                            id: self.fresh_id(),
+                            name: String::new(),
+                            component: assembly,
+                            transform: *transform,
+                            material: None,
+                            hidden: false,
+                        }
                     }
                 };
                 let id = placed.id;
@@ -447,6 +491,7 @@ impl Document {
                     component: part,
                     transform,
                     material: None,
+                    hidden: false,
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
@@ -564,6 +609,7 @@ impl Document {
                         component: assembly,
                         transform: DAffine3::from_translation(corner),
                         material: None,
+                        hidden: false,
                     },
                 );
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
@@ -574,7 +620,8 @@ impl Document {
                 let mut copies = Vec::with_capacity(contents.len());
                 for c in contents {
                     let id = self.fresh_id();
-                    copies.push(Occurrence { id, transform: o.transform * c.transform, ..c });
+                    // An assembly hidden leaves its content hidden.
+                    copies.push(Occurrence { id, transform: o.transform * c.transform, hidden: c.hidden || o.hidden, ..c });
                 }
                 let created = copies.iter().map(|c| c.id).collect();
                 // Its guides stay where they were, in the context.
@@ -617,6 +664,7 @@ impl Document {
                     component: *component,
                     transform: *transform,
                     material: None,
+                    hidden: false,
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
