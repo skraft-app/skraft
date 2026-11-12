@@ -360,7 +360,7 @@ impl Document {
                 for (component, transform, name, material) in occurrences {
                     let id = doc.fresh_id();
                     let material = material.and_then(|m| materials.get(m).copied());
-                    assembly.occurrences.push(Occurrence { id, name, component, transform, material });
+                    assembly.occurrences_mut().push(Occurrence { id, name, component, transform, material });
                 }
                 report.assemblies += 1;
                 let id = doc.insert_component(&name_of(node.def), named_def(node.def), ComponentKind::Assembly(assembly));
@@ -387,10 +387,10 @@ impl Document {
             o.id = doc.fresh_id();
         }
         let root_id = doc.root;
-        doc.assembly_mut(root_id)?.occurrences = top;
+        *doc.assembly_mut(root_id)?.occurrences_mut() = top;
         // Parts nothing places any more (only under excluded assemblies) are dropped.
         let used: std::collections::HashSet<Id> =
-            doc.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| a.occurrences.iter().map(|o| o.component)).collect();
+            doc.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| a.occurrences().iter().map(|o| o.component)).collect();
         let unused: Vec<Id> = doc.components.keys().copied().filter(|id| *id != root_id && !used.contains(id)).collect();
         for id in unused {
             if let Some(c) = doc.components.remove(&id) {
@@ -401,7 +401,7 @@ impl Document {
                 }
             }
         }
-        report.occurrences = doc.components.values().filter_map(|c| c.as_assembly()).map(|a| a.occurrences.len()).sum();
+        report.occurrences = doc.components.values().filter_map(|c| c.as_assembly()).map(|a| a.occurrences().len()).sum();
         report.placed_parts = doc.placed_parts().len();
         report.assemble = t2.elapsed();
         Ok((doc, report))

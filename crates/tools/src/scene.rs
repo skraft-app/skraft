@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::{Display, Mesh, Snaps, Solid};
-use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Occurrence, Section};
+use solidsketch_model::{Assembly, ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Occurrence, Section};
 
 use crate::bvh::{Aabb, Bvh, ray_box_entry};
 use crate::camera::Ray;
@@ -204,8 +204,14 @@ pub struct DisplayScene {
     guides: Vec<SceneGuide>,
     /// The placed meshes, indexed for picking and regions.
     index: SceneIndex,
-    /// Counts the syncs: what was worked out from the scene holds while it stays.
+    /// Counts the syncs and the meshes taken in: what was worked out from the scene holds
+    /// while it stays.
     generation: u64,
+    /// By solid (its key in `solids`), the definitions drawing it: what a mesh coming in
+    /// changes ([`DisplayScene::refresh_meshes`]).
+    users: HashMap<usize, Vec<Id>>,
+    /// The solids whose display came since the last sync or refresh.
+    arrived: Vec<usize>,
 }
 
 /// One part mesh at one placement ([`DisplayScene::parts`] yields them in this order).
@@ -235,6 +241,8 @@ struct Best {
 #[derive(Default)]
 struct SceneIndex {
     entries: Vec<Entry>,
+    /// Each definition's run of `entries` (they are made definition by definition).
+    runs: HashMap<Id, std::ops::Range<u32>>,
     by_path: Vec<u32>,
     bvh: Bvh,
 }
@@ -250,11 +258,12 @@ impl DisplayScene {
         self.generation += 1;
         let mut seen = std::collections::HashSet::new();
         self.definitions.clear();
+        self.users.clear();
+        self.arrived.clear();
         self.missing.clear();
         for c in doc.components() {
             let ComponentKind::Part(p) = &c.kind else { continue };
-            let dm = self.mesh_of(p.shape(), c.id, &p.faces, &mut seen);
-            self.definitions.insert(c.id, dm);
+            self.define(p.shape(), c.id, &p.faces, &mut seen);
             // A machined part's blank too, for its exact size (its dimensions).
             if !p.machinings.is_empty() {
                 self.mesh_of(&p.blank, c.id, &BTreeMap::new(), &mut seen);
@@ -264,8 +273,7 @@ impl DisplayScene {
         let shown = self.recipe_path.as_ref().and_then(|path| doc.resolve_part(path).ok());
         if let Some((part, p, _)) = shown {
             let blank = Id(RECIPE_KEY | part.0);
-            let dm = self.mesh_of(&p.blank, blank, &BTreeMap::new(), &mut seen);
-            self.definitions.insert(blank, dm);
+            self.define(&p.blank, blank, &BTreeMap::new(), &mut seen);
             // One mesh per distinct tool solid, keyed by the first machining using it.
             let mut keys: HashMap<usize, Id> = HashMap::new();
             let mut tools = Vec::with_capacity(p.machinings.len());
@@ -275,8 +283,7 @@ impl DisplayScene {
                     Some(k) => *k,
                     None => {
                         let key = Id(RECIPE_KEY | TOOL_KEY | m.id.0);
-                        let dm = self.mesh_of(&m.tool, key, &BTreeMap::new(), &mut seen);
-                        self.definitions.insert(key, dm);
+                        self.define(&m.tool, key, &BTreeMap::new(), &mut seen);
                         keys.insert(at, key);
                         key
                     }
@@ -325,8 +332,10 @@ impl DisplayScene {
     fn reindex(&mut self) {
         let mut entries = Vec::with_capacity(self.index.entries.len());
         let mut paths: Vec<(&[Id], u32)> = Vec::with_capacity(self.index.entries.len());
+        let mut runs = HashMap::new();
         for (def, places) in &self.placements {
             let Some(dm) = self.definitions.get(def) else { continue };
+            let start = entries.len() as u32;
             for (place, p) in places.iter().enumerate() {
                 for (part, m) in dm.parts.iter().enumerate() {
                     let bounds = m.bounds.map(|b| transform_bounds(&p.transform, b));
@@ -334,12 +343,13 @@ impl DisplayScene {
                     entries.push(Entry { def: *def, place: place as u32, part: part as u32, bounds });
                 }
             }
+            runs.insert(*def, start..entries.len() as u32);
         }
         paths.sort_unstable();
         let by_path = paths.into_iter().map(|(_, i)| i).collect();
         self.bounds = entries.iter().filter_map(|e| e.bounds).reduce(|a, b| union(Some(a), b));
         let bvh = Bvh::build(entries.iter().enumerate().filter_map(|(i, e)| e.bounds.map(|b| (i as u32, b))));
-        self.index = SceneIndex { entries, by_path, bvh };
+        self.index = SceneIndex { entries, runs, by_path, bvh };
     }
 
     /// An entry's placement and mesh.
@@ -446,10 +456,59 @@ impl DisplayScene {
         }
         let mut part = entry.part.clone();
         part.solid = key;
-        // The mesh changes with the state (a stand-in, then the real one).
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        (at, entry.state == State::Ready, faces).hash(&mut h);
-        DefinitionMesh { definition: key, revision: h.finish(), parts: vec![part], faces: faces.clone() }
+        DefinitionMesh { definition: key, revision: revision(at, entry.state, faces), parts: vec![part], faces: faces.clone() }
+    }
+
+    /// The definition `key` drawn from `solid` ([`DisplayScene::mesh_of`]), recorded as one
+    /// of its users.
+    fn define(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut std::collections::HashSet<usize>) {
+        let dm = self.mesh_of(solid, key, faces, seen);
+        self.users.entry(Arc::as_ptr(solid) as usize).or_default().push(key);
+        self.definitions.insert(key, dm);
+    }
+
+    /// Takes in the displays come since the last sync, the document the same: only the
+    /// definitions drawing them change, and the boxes of their placements — the placements,
+    /// the guides and the recipe stay. Cheaper than a [`DisplayScene::sync`] by far for a
+    /// model of many parts, whose meshes come a few at a time.
+    pub fn refresh_meshes(&mut self) {
+        let arrived = std::mem::take(&mut self.arrived);
+        let mut changed = Vec::new();
+        for at in arrived {
+            let (Some(keys), Some(c)) = (self.users.get(&at), self.solids.get(&at)) else { continue };
+            for &key in keys {
+                let Some(old) = self.definitions.get_mut(&key) else { continue };
+                let mut part = c.part.clone();
+                part.solid = key;
+                old.revision = revision(at, c.state, &old.faces);
+                old.parts = vec![part];
+                changed.push(key);
+            }
+        }
+        if changed.is_empty() {
+            return;
+        }
+        self.generation += 1;
+        // The boxes of their placements; the hierarchy refit, or made again when a mesh
+        // gained or lost its box (it holds only those with one).
+        let mut rebuild = false;
+        for def in &changed {
+            let Some(run) = self.index.runs.get(def).cloned() else { continue };
+            for i in run {
+                let e = self.index.entries[i as usize];
+                let place = &self.placements[&e.def][e.place as usize];
+                let bounds = self.definitions[&e.def].parts.get(e.part as usize).and_then(|m| m.bounds).map(|b| transform_bounds(&place.transform, b));
+                rebuild |= bounds.is_some() != e.bounds.is_some();
+                self.index.entries[i as usize].bounds = bounds;
+            }
+        }
+        let entries = &self.index.entries;
+        if rebuild {
+            self.index.bvh = Bvh::build(entries.iter().enumerate().filter_map(|(i, e)| e.bounds.map(|b| (i as u32, b))));
+        } else {
+            self.index.bvh.refit(|i| entries[i as usize].bounds.expect("only boxes are in the hierarchy"));
+        }
+        self.bounds = entries.iter().filter_map(|e| e.bounds).reduce(|a, b| union(Some(a), b));
     }
 
     /// Meshes the recipe of the part the occurrence `path` places (its blank and tools) from
@@ -533,6 +592,7 @@ impl DisplayScene {
             Err(_) => Cached { state: State::Failed, ..Cached::pending(solid.clone()) },
         };
         self.solids.insert(key, cached);
+        self.arrived.push(key);
     }
 
     /// Is `solid`'s mesh still on its way?
@@ -730,7 +790,8 @@ pub struct ContextIndex<'d> {
     transform: DAffine3,
     /// The material the assemblies above the context give.
     inherited: Option<Id>,
-    occurrences: HashMap<Id, &'d Occurrence>,
+    /// Searched by id through its own index (`Assembly::occurrence`).
+    assembly: &'d Assembly,
 }
 
 impl<'d> ContextIndex<'d> {
@@ -744,8 +805,8 @@ impl<'d> ContextIndex<'d> {
             inherited = occ.material.or(inherited);
             at = occ.component;
         }
-        let occurrences = doc.assembly(ctx).ok()?.occurrences().iter().map(|o| (o.id, o)).collect();
-        Some(ContextIndex { doc, transform, inherited, occurrences })
+        let assembly = doc.assembly(ctx).ok()?;
+        Some(ContextIndex { doc, transform, inherited, assembly })
     }
 
     /// Context to world.
@@ -754,12 +815,19 @@ impl<'d> ContextIndex<'d> {
     }
 
     pub fn occurrence(&self, id: Id) -> Option<&'d Occurrence> {
-        self.occurrences.get(&id).copied()
+        self.assembly.occurrence(id)
     }
 
     /// Where the parts under the occurrence `entity` are drawn. For an assembly's
     /// occurrence, every part below it, at any depth.
     pub fn solids_under(&self, entity: Id) -> Vec<Under> {
+        let mut out = Vec::new();
+        self.solids_under_into(entity, &mut out);
+        out
+    }
+
+    /// [`ContextIndex::solids_under`], added to `out` (one buffer for many occurrences).
+    pub fn solids_under_into(&self, entity: Id, out: &mut Vec<Under>) {
         fn walk(doc: &Document, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
             if depth > MAX_DEPTH {
                 return;
@@ -774,12 +842,18 @@ impl<'d> ContextIndex<'d> {
                 Err(_) => {}
             }
         }
-        let mut out = Vec::new();
         if let Some(o) = self.occurrence(entity) {
-            walk(self.doc, o.component, self.transform * o.transform, o.material.or(self.inherited), &mut out, 0);
+            walk(self.doc, o.component, self.transform * o.transform, o.material.or(self.inherited), out, 0);
         }
-        out
     }
+}
+
+/// A definition's revision: changes with its solid, its state (a stand-in, then the real
+/// mesh) and its faces' materials.
+fn revision(at: usize, state: State, faces: &BTreeMap<u32, Id>) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (at, state == State::Ready, faces).hash(&mut h);
+    h.finish()
 }
 
 fn mesh_bounds(m: &Mesh) -> Option<(DVec3, DVec3)> {

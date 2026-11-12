@@ -2725,3 +2725,93 @@ fn a_window_takes_an_assembly_only_whole() {
     drag(&mut e, DVec3::new(-10.0, 150.0, 0.0), DVec3::new(710.0, -50.0, 0.0), none);
     assert_eq!(e.selection().len(), 2);
 }
+
+#[test]
+fn the_selection_drawn_follows_what_it_hangs_on() {
+    // Kept from frame to frame, the selection's marks and boxes are worked out again whenever
+    // the selection, the document, the context or the ghost changes.
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    let root = e.document().root();
+    let selected = |e: &Editor| e.view().highlights.iter().filter(|h| h.mark == Mark::Selected).map(|h| h.transform.translation).collect::<Vec<_>>();
+    let box_lo = |e: &Editor| e.view().selection_boxes.iter().map(|b| b.frame.transform_point3(b.lo)).collect::<Vec<_>>();
+
+    e.select(vec![a]);
+    assert_eq!(selected(&e).len(), 1);
+    assert!(box_lo(&e).iter().all(|p| p.abs_diff_eq(DVec3::ZERO, 1e-3)), "{:?}", box_lo(&e));
+    // The selection changes: the other box.
+    e.select(vec![b]);
+    assert!(box_lo(&e).iter().all(|p| p.abs_diff_eq(DVec3::new(300.0, 0.0, 0.0), 1e-3)), "{:?}", box_lo(&e));
+    // The document changes (the selection the same): drawn where it went, and back on undo.
+    e.apply(Operation::Transform { context: root, entities: vec![b], transform: glam::DAffine3::from_translation(DVec3::Y * 500.0) }).unwrap();
+    assert!(box_lo(&e).iter().all(|p| p.abs_diff_eq(DVec3::new(300.0, 500.0, 0.0), 1e-3)), "{:?}", box_lo(&e));
+    e.undo();
+    e.select(vec![b]);
+    assert!(box_lo(&e).iter().all(|p| p.abs_diff_eq(DVec3::new(300.0, 0.0, 0.0), 1e-3)), "{:?}", box_lo(&e));
+    // Both: two marks, two boxes.
+    e.select(vec![a, b]);
+    assert_eq!((selected(&e).len(), box_lo(&e).len()), (2, 2));
+    // A move's ghost: the marks and boxes moved with it, the original hidden.
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(0.0, 0.0, 50.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 200.0, 50.0)) });
+    let v = e.view();
+    let ghosts: Vec<DVec3> = v.highlights.iter().filter(|h| h.mark == Mark::Ghost).map(|h| h.transform.translation).collect();
+    assert_eq!(ghosts.len(), 2);
+    assert!(ghosts.iter().any(|t| (t.y - 200.0).abs() < 1e-3), "{ghosts:?}");
+    assert!(v.selection_boxes.iter().all(|b| (b.frame.transform_point3(b.lo).y - 200.0).abs() < 1e-3));
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    // Inside an assembly: its occurrences are the entities, marked where they are.
+    e.set_tool(ToolKind::Select);
+    let asm = e.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().unwrap().created[0];
+    e.enter(asm);
+    e.select_all();
+    assert_eq!((selected(&e).len(), box_lo(&e).len()), (2, 2));
+    e.select(vec![]);
+    assert_eq!((selected(&e).len(), box_lo(&e).len()), (0, 0));
+}
+
+#[test]
+fn meshes_taken_in_leave_the_scene_a_sync_would() {
+    // Distinct parts and copies, one in an assembly: drawn as stand-ins until their meshes
+    // come, then taken in without a sync — as a sync would have left the scene.
+    let mut doc = Document::new();
+    let root = doc.root();
+    let mut made = Vec::new();
+    for k in 0..6 {
+        let primitive = if k % 3 == 2 {
+            Primitive::Cylinder { origin: DVec3::new(k as f64 * 200.0, 0.0, 0.0), radius: 40.0, height: 60.0 }
+        } else {
+            Primitive::Box { origin: DVec3::new(k as f64 * 200.0, 0.0, 0.0), size: DVec3::new(100.0 + k as f64 * 10.0, 80.0, 30.0) }
+        };
+        let (d, out) = doc.apply(&Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap();
+        doc = d;
+        made.push(out.created[0]);
+    }
+    let copy = glam::DAffine3::from_translation(DVec3::Y * 300.0);
+    doc = doc.apply(&Operation::Duplicate { context: root, entities: made[..3].to_vec(), transform: copy }).unwrap().0;
+    doc = doc.apply(&Operation::MakeAssembly { context: root, entities: vec![made[4], made[5]], name: None }).unwrap().0;
+    let (mut e, k) = deferred_editor(doc);
+    let state = |e: &Editor| {
+        let s = e.scene();
+        let meshes: Vec<_> = s.definition_meshes().map(|d| (d.definition, d.revision, d.parts.first().and_then(|p| p.bounds))).collect();
+        // Rays through a grid over the parts (seen from above).
+        let picks: Vec<Option<(EntityPath, u32)>> = (0..54)
+            .flat_map(|x| (0..17).map(move |y| DVec3::new(x as f64 * 25.0 - 50.0, y as f64 * 25.0 - 20.0, 0.0)))
+            .map(|p| s.pick(&e.camera.ray(px(e, p), e.viewport_size()), |_| true).map(|h| (h.path, h.face)))
+            .collect();
+        (meshes, s.bounds(), picks)
+    };
+    // Stand-ins: outlines, nothing to pick.
+    assert!(k.queued() > 0);
+    assert!(state(&e).2.iter().all(Option::is_none));
+    k.run_all();
+    let generation = e.scene().generation();
+    e.poll();
+    assert!(e.scene().generation() > generation);
+    let taken_in = state(&e);
+    assert!(taken_in.2.iter().filter(|p| p.is_some()).count() > 20, "{:?}", taken_in.2);
+    e.sync_scene();
+    assert_eq!(taken_in, state(&e));
+}

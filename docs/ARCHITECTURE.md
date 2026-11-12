@@ -1135,6 +1135,20 @@ Drawing                1 instanced draw per definition, with the N world matrice
   both share; it counts placements over the distinct assemblies (`count_placed`), not per
   path; the stretch tool keeps its target while the scene's generation, the occurrences and
   the axes stay.
+- **Meshes coming in** (decided on 2026-11-12, after a model of 10 000 distinct parts spent
+  13 ms per frame while its meshes came): the document unchanged, a display coming from the
+  kernel is taken in by `DisplayScene::refresh_meshes`, not a sync — only the definitions
+  drawing that solid change (the scene keeps, by solid, the definitions using it), then the
+  boxes of their placements (each definition's run of index entries), the BVH refit (rebuilt
+  only when a mesh gains or loses its box) and the scene's bounds; the placements, guides and
+  recipe stay (test `meshes_taken_in_leave_the_scene_a_sync_would`). `placed_guides` returns
+  at once for a model without guides.
+- **The selection drawn** (decided on 2026-11-12, after 40 000 occurrences selected cost
+  12 ms per frame): its marks, its occurrences' boxes (in their own axes, one per component)
+  and the set of its ids are worked out once (`SelectionDrawing`) and kept while the scene's
+  generation, the context, the selection and the recipe shown stay; a move's ghost is the same
+  moved (test `the_selection_drawn_follows_what_it_hangs_on`). `ContextIndex` searches the
+  assembly's own index instead of building one.
 - **Occurrences by id** (decided on 2026-11-12, after the stretch tool took 300 ms per hover
   with 10 000 occurrences selected): `Assembly::occurrences` is private; a search by id
   (`occurrence`, `position`) goes through an index (id → position) built after a few searches

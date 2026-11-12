@@ -166,7 +166,8 @@ impl Editor {
             // Anything else was abandoned: dropped.
         }
         if meshed {
-            self.scene.sync(self.history.document());
+            // The document the same: only what draws the meshes changes.
+            self.scene.refresh_meshes();
             self.request_meshes();
         }
         true

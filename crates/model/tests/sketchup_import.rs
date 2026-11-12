@@ -90,7 +90,7 @@ fn definitions_become_shared_parts_and_assemblies() {
 
     // The mirror stays in T, the occurrence keeps its material.
     let cab = doc.components().find(|c| c.name == "Caisson").unwrap().as_assembly().unwrap();
-    let high = cab.occurrences.iter().find(|o| o.name == "Haut").unwrap();
+    let high = cab.occurrences().iter().find(|o| o.name == "Haut").unwrap();
     assert!(high.transform.matrix3.determinant() < 0.0);
     assert_eq!(doc.material(high.material.unwrap()).unwrap().name, "Chêne");
 
@@ -98,7 +98,7 @@ fn definitions_become_shared_parts_and_assemblies() {
     let long = doc.components().find(|c| c.name == "Planche#2").unwrap();
     let (lo, hi) = long.as_part().unwrap().shape().bounds().unwrap();
     assert!(((hi - lo) - DVec3::new(1200.0, 300.0, 18.0)).length() < 1e-6);
-    let top = doc.root_assembly().occurrences.iter().find(|o| o.name == "Longue").unwrap();
+    let top = doc.root_assembly().occurrences().iter().find(|o| o.name == "Longue").unwrap();
     assert_eq!(top.transform.matrix3, DMat3::IDENTITY);
 
     // It saves and reads back as any document.
@@ -125,9 +125,9 @@ fn faces_beside_instances_make_a_part_in_the_assembly() {
     let socle = doc.components().find(|c| c.name == "Socle").unwrap();
     assert!(!socle.is_part());
     assert!(doc.components().any(|c| c.name == "Socle (faces)" && c.is_part()));
-    assert_eq!(socle.as_assembly().unwrap().occurrences.len(), 2);
+    assert_eq!(socle.as_assembly().unwrap().occurrences().len(), 2);
     // The model's loose faces: one part straight in the root.
-    assert_eq!(doc.root_assembly().occurrences.len(), 2);
+    assert_eq!(doc.root_assembly().occurrences().len(), 2);
 }
 
 #[test]
