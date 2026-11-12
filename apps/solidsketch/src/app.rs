@@ -264,6 +264,7 @@ impl SolidSketchApp {
             "view.axes" => Some(d.axes),
             "view.guides" => Some(d.guides),
             "view.silhouettes" => Some(d.silhouettes),
+            "view.hide_rest_of_model" => Some(d.hide_rest_of_model),
             "view.section" => Some(d.section_active),
             "view.materials" => Some(self.prefs.show_materials),
             "view.render_stats" => Some(self.prefs.show_render_stats),
@@ -341,13 +342,20 @@ impl SolidSketchApp {
                 let p = !e.camera.is_parallel();
                 e.set_parallel(p);
             }
-            "view.grid" | "view.axes" | "view.guides" | "view.silhouettes" | "view.section" | "view.section_clear" => {
+            "view.grid"
+            | "view.axes"
+            | "view.guides"
+            | "view.silhouettes"
+            | "view.hide_rest_of_model"
+            | "view.section"
+            | "view.section_clear" => {
                 let d = &mut s.display;
                 match id {
                     "view.grid" => d.grid = !d.grid,
                     "view.guides" => d.guides = !d.guides,
                     "view.axes" => d.axes = !d.axes,
                     "view.silhouettes" => d.silhouettes = !d.silhouettes,
+                    "view.hide_rest_of_model" => d.hide_rest_of_model = !d.hide_rest_of_model,
                     "view.section" => d.section_active = !d.section_active,
                     _ => {
                         d.section = None;
@@ -615,6 +623,9 @@ impl SolidSketchApp {
             ui.end_row();
             ui.label(t!("prefs.model.silhouettes"));
             ui.checkbox(&mut s.display.silhouettes, "").on_hover_text(t!("prefs.model.silhouettes_tip"));
+            ui.end_row();
+            ui.label(t!("prefs.model.hide_rest_of_model"));
+            ui.checkbox(&mut s.display.hide_rest_of_model, "").on_hover_text(t!("prefs.model.hide_rest_of_model_tip"));
             ui.end_row();
             ui.label(t!("prefs.model.background"));
             ui.color_edit_button_srgb(&mut s.display.background);

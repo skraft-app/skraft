@@ -331,7 +331,11 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
   rectangle: left to right (solid line, "window"), it takes the entities it fully contains;
   right to left (dashed, "crossing"), those it touches; Shift adds/removes. The test is done on
   screen, on the projected vertices and triangles of the display meshes. Outside the active
-  context, the model is faded.
+  context, the model is faded — or hidden, with the document setting `display.hide_rest_of_model`
+  (command `view.hide_rest_of_model`, « Masquer le reste du modèle », off by default): while an
+  assembly is entered or a part open, what lies outside it (its parts, its guides, the open
+  part's other occurrences and their `Related` marks) is neither drawn, picked nor inferred
+  on, and zoom extents frames the context alone.
 - **Booleans = a two-click tool** (target, then tool), which designates solids of any context:
   this is how the rule of §4 is expressed.
 - **Typed dimensions** (VCB; decided on 2026-11-10, taken from OpenCutList, `UserTextHelper` +

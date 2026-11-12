@@ -671,6 +671,41 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
 }
 
 #[test]
+fn hide_rest_of_model() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    e.select(vec![a]);
+    e.make_assembly();
+    let g = e.selection()[0];
+    let mut s = e.document().settings().clone();
+    s.display.hide_rest_of_model = true;
+    e.apply(Operation::SetSettings(s)).unwrap();
+    let drawn = |e: &Editor| e.view().batches.iter().map(|(_, p)| p.len()).sum::<usize>();
+    let ray = |e: &Editor| e.camera.ray(px(e, DVec3::new(350.0, 50.0, 50.0)), e.viewport_size());
+    // At the model's level, nothing is hidden.
+    assert_eq!(drawn(&e), 2);
+    // Editing the group: the other box is neither drawn, picked, inferred on nor framed.
+    e.enter(g);
+    assert_eq!(drawn(&e), 1);
+    assert!(e.view().batches.iter().flat_map(|(_, p)| p).all(|p| !p.faded));
+    assert!(e.scene().pick(&ray(&e), |_| true).is_none());
+    assert!(e.scene().pick_inferable(&ray(&e), |_| true).is_none());
+    assert!(e.scene().bounds().unwrap().1.x < 200.0);
+    // Its part open: the same.
+    e.enter(a);
+    assert_eq!(e.open_part(), Some(a));
+    assert_eq!(drawn(&e), 1);
+    assert!(e.scene().pick(&ray(&e), |_| true).is_none());
+    // Back at the model's level, it is all there again.
+    e.exit();
+    e.exit();
+    assert_eq!(drawn(&e), 2);
+    assert!(e.scene().pick(&ray(&e), |_| true).is_some());
+    assert!(e.scene().bounds().unwrap().1.x > 300.0);
+}
+
+#[test]
 fn groups_enter_fade_exit() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");

@@ -194,6 +194,10 @@ pub struct DisplayScene {
     bounds: Option<(DVec3, DVec3)>,
     /// The active section: picking ignores what it cuts away.
     section: Option<Section>,
+    /// While the rest of the model is hidden, the chain (root first) of the part open or the
+    /// assembly being edited: only what lies under it is picked, inferred on and framed
+    /// (empty: everything).
+    shown_under: Vec<Id>,
     /// The open occurrence whose recipe is shown, its meshes, and their placements in the
     /// world (the blank's, then each tool's).
     recipe_path: Option<EntityPath>,
@@ -212,6 +216,13 @@ pub struct DisplayScene {
     users: HashMap<usize, Vec<Id>>,
     /// The solids whose display came since the last sync or refresh.
     arrived: Vec<usize>,
+}
+
+/// The world bounds of the `entries` placed under `shown_under` (all of them when it is
+/// empty): zoom extents frames the context alone while the rest of the model is hidden.
+fn shown_bounds(placements: &BTreeMap<Id, Vec<Placement>>, shown_under: &[Id], entries: &[Entry]) -> Option<(DVec3, DVec3)> {
+    let shown = |e: &&Entry| shown_under.is_empty() || placements[&e.def][e.place as usize].path.starts_with(shown_under);
+    entries.iter().filter(shown).filter_map(|e| e.bounds).reduce(|a, b| union(Some(a), b))
 }
 
 /// One part mesh at one placement ([`DisplayScene::parts`] yields them in this order).
@@ -306,6 +317,7 @@ impl DisplayScene {
         self.guides = if doc.settings().display.guides {
             doc.placed_guides()
                 .into_iter()
+                .filter(|g| g.path.starts_with(&self.shown_under))
                 .map(|g| SceneGuide { path: g.path, id: g.guide.id, shape: g.guide.shape.transformed(&g.transform) })
                 .collect()
         } else {
@@ -347,7 +359,7 @@ impl DisplayScene {
         }
         paths.sort_unstable();
         let by_path = paths.into_iter().map(|(_, i)| i).collect();
-        self.bounds = entries.iter().filter_map(|e| e.bounds).reduce(|a, b| union(Some(a), b));
+        self.bounds = shown_bounds(&self.placements, &self.shown_under, &entries);
         let bvh = Bvh::build(entries.iter().enumerate().filter_map(|(i, e)| e.bounds.map(|b| (i as u32, b))));
         self.index = SceneIndex { entries, runs, by_path, bvh };
     }
@@ -394,7 +406,11 @@ impl DisplayScene {
             }
         });
         hits.sort_unstable();
-        let shapes = hits.into_iter().map(|i| self.entry(i)).filter(|(p, _)| open != Some(p.path.as_slice())).map(|(p, m)| (p, m, Piece::Shape));
+        let shapes = hits
+            .into_iter()
+            .map(|i| self.entry(i))
+            .filter(|(p, _)| open != Some(p.path.as_slice()) && self.is_shown(p))
+            .map(|(p, m)| (p, m, Piece::Shape));
         let recipe = self.recipe_pieces().filter(|(p, m, _)| m.bounds.is_some_and(|b| accept(&transform_bounds(&p.transform, b))));
         shapes.chain(recipe).collect()
     }
@@ -508,7 +524,7 @@ impl DisplayScene {
         } else {
             self.index.bvh.refit(|i| entries[i as usize].bounds.expect("only boxes are in the hierarchy"));
         }
-        self.bounds = entries.iter().filter_map(|e| e.bounds).reduce(|a, b| union(Some(a), b));
+        self.bounds = shown_bounds(&self.placements, &self.shown_under, entries);
     }
 
     /// Meshes the recipe of the part the occurrence `path` places (its blank and tools) from
@@ -517,6 +533,18 @@ impl DisplayScene {
     pub fn set_recipe(&mut self, path: Option<EntityPath>, shown: bool) {
         self.recipe_path = path;
         self.recipe_shown = shown;
+    }
+
+    /// Hides the rest of the model, but what lies under `chain` (the part open or the
+    /// assembly being edited, root first), from picking, inferences and the bounds, from the
+    /// next [`DisplayScene::sync`]; empty: nothing hidden.
+    pub fn set_shown_under(&mut self, chain: Vec<Id>) {
+        self.shown_under = chain;
+    }
+
+    /// Is `p` shown (not in the rest of the model, hidden)?
+    fn is_shown(&self, p: &Placement) -> bool {
+        p.path.starts_with(&self.shown_under)
     }
 
     /// Is the recipe drawn and inferred on?
@@ -535,7 +563,8 @@ impl DisplayScene {
     /// while its recipe is shown — its blank and its tools instead.
     pub fn inferable(&self) -> impl Iterator<Item = (&Placement, &PartMesh, Piece)> {
         let open = self.recipe_open();
-        let shapes = self.parts().filter(move |(p, _)| open != Some(p.path.as_slice())).map(|(p, m)| (p, m, Piece::Shape));
+        let shapes =
+            self.parts().filter(move |(p, _)| open != Some(p.path.as_slice()) && self.is_shown(p)).map(|(p, m)| (p, m, Piece::Shape));
         shapes.chain(self.recipe_pieces())
     }
 
@@ -704,6 +733,9 @@ impl DisplayScene {
         best: &mut Option<Best>,
     ) {
         let Some(b) = part.bounds else { return };
+        if !self.is_shown(p) {
+            return;
+        }
         let inv = p.transform.inverse();
         let o = inv.transform_point3(ray.origin);
         let d = inv.transform_vector3(ray.dir);

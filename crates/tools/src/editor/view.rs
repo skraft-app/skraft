@@ -289,8 +289,15 @@ impl Editor {
         let drawing = self.selection_drawing.borrow();
         let drawing = drawing.as_ref().expect("worked out above");
         let selected = &drawing.set;
+        // Outside the context being edited: faded, or hidden with the rest of the model.
+        let hide_rest_of_model = doc.settings().display.hide_rest_of_model;
+        let outside = |p: &crate::scene::Placement| match &open {
+            Some(o) => p.entity_path() != *o,
+            None => !p.path.starts_with(&self.context),
+        };
         let hidden = |p: &&crate::scene::Placement| {
-            (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| selected.contains(id)))
+            (hide_rest_of_model && outside(p))
+                || (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| selected.contains(id)))
                 || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
         };
         let mut swapped: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
@@ -299,15 +306,7 @@ impl Editor {
         for (def, places) in self.scene.placements() {
             let mut ps = Vec::with_capacity(places.len());
             for p in places.iter().filter(|p| !hidden(p)) {
-                let vp = ViewPlacement {
-                    transform: p.transform,
-                    faded: match &open {
-                        Some(o) => p.entity_path() != *o,
-                        None => !p.path.starts_with(&self.context),
-                    },
-                    material: p.material,
-                    look: Look::Shape,
-                };
+                let vp = ViewPlacement { transform: p.transform, faded: outside(p), material: p.material, look: Look::Shape };
                 match swap(p) {
                     Some((key, t)) => {
                         moved.push((def, p.transform, key, t));
@@ -444,7 +443,8 @@ impl Editor {
             && let Ok((part, _, _)) = doc.resolve_part(aimed)
             && let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part)
         {
-            for p in places.iter().filter(|p| p.entity_path() != *aimed) {
+            // Those in the rest of the model, hidden, are not marked either.
+            for p in places.iter().filter(|p| p.entity_path() != *aimed && !(hide_rest_of_model && outside(p))) {
                 v.highlights.push(ViewHighlight {
                     definition: part,
                     solid: part,

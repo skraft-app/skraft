@@ -30,6 +30,9 @@ pub struct Display {
     pub section_active: bool,
     /// The construction guides (§6 quinquies): drawn, inferred on and picked only when shown.
     pub guides: bool,
+    /// While a part is open or an assembly edited, the rest of the model is hidden (neither
+    /// drawn, picked nor inferred on) instead of faded.
+    pub hide_rest_of_model: bool,
 }
 
 impl Default for Display {
@@ -42,6 +45,7 @@ impl Default for Display {
             section: None,
             section_active: false,
             guides: true,
+            hide_rest_of_model: false,
         }
     }
 }

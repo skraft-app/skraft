@@ -263,6 +263,12 @@ impl Editor {
     /// meshes it lacks.
     pub(super) fn sync_scene(&mut self) {
         self.scene.set_recipe(self.open_part_path(), self.machinings_shown);
+        let shown_under = if self.history.document().settings().display.hide_rest_of_model {
+            self.context.iter().copied().chain(self.open_part).collect()
+        } else {
+            Vec::new()
+        };
+        self.scene.set_shown_under(shown_under);
         self.scene.sync(self.history.document());
         self.request_meshes();
     }
