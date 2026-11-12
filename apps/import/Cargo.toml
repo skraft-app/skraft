@@ -10,5 +10,6 @@ name = "solidsketch-import"
 path = "src/main.rs"
 
 [dependencies]
+glam.workspace = true
 solidsketch-model.workspace = true
 solidsketch-kernel = { workspace = true, features = ["engine"] }

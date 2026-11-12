@@ -103,7 +103,8 @@ pub(crate) mod read {
         let file = step_import::part21::parse(text.as_bytes(), &limits).map_err(|e| err(e.to_string()))?;
         let model = crate::engine::guarded("step", || Ok(step_import::map::map_file(&file, &limits)))?;
         let mut out = StepImport::default();
-        out.diagnostics.extend(model.diagnostics.iter().map(|d| d.message.clone()));
+        // The reader says it leaves assembly instancing aside: applied here, not repeated.
+        out.diagnostics.extend(model.diagnostics.iter().filter(|d| !d.message.contains("assembly instance")).map(|d| d.message.clone()));
         let structure = Structure::read(&file, &model, &mut out.diagnostics);
         let colors = Colors::read(&file, &model);
 
@@ -165,7 +166,7 @@ pub(crate) mod read {
 
     fn param_str(r: &Record, i: usize) -> String {
         match r.params.get(i) {
-            Some(Param::Str(s)) => decode(s),
+            Some(Param::Str(s)) => decode(s).trim().to_owned(),
             _ => String::new(),
         }
     }
@@ -384,7 +385,8 @@ pub(crate) mod read {
                 if let Some(r) = inst.record("NEXT_ASSEMBLY_USAGE_OCCURRENCE")
                     && let (Some(parent), Some(child)) = (param_ref(r, 3), param_ref(r, 4))
                 {
-                    let name = Some(param_str(r, 1)).filter(|n| !n.is_empty()).unwrap_or_else(|| param_str(r, 0));
+                    // Its name only: its id ("NAUO1") means nothing to the user.
+                    let name = param_str(r, 1);
                     g.usages.entry(parent).or_default().push((child, name, placed_by.get(&id).copied()));
                     g.used.insert(child);
                 }
