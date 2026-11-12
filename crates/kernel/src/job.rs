@@ -45,6 +45,12 @@ pub enum Task {
     Stretch { solid: u32, stretch: Stretch },
     /// The display mesh and snap features of `inputs[solid]`.
     Display { solid: u32 },
+    /// Reads a STEP file (its bytes): bodies built, product structure, colours
+    /// (docs/ARCHITECTURE.md §8 ter). Produces no solid of the job's: an [`Output::Step`].
+    ImportStep {
+        #[serde(with = "serde_bytes_compat")]
+        bytes: Vec<u8>,
+    },
     /// Panics with `message`, on purpose: tests how a kernel crash is recovered from (the
     /// app's Débogage menu). Natively the panic is caught: an error. In the web
     /// worker it aborts the wasm: the worker is replaced.
@@ -77,6 +83,42 @@ pub enum Output {
         display: Result<Display, String>,
         failed: Vec<u32>,
     },
+    /// A STEP file read (boxed: far larger than the others).
+    Step(Box<crate::StepImport>),
+}
+
+/// A file's bytes crossing to the web worker as one MessagePack binary, not one number per
+/// byte.
+mod serde_bytes_compat {
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_bytes(bytes)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = Vec<u8>;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("bytes")
+            }
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Vec<u8>, E> {
+                Ok(v.to_vec())
+            }
+            fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Vec<u8>, E> {
+                Ok(v)
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<u8>, A::Error> {
+                let mut out = Vec::new();
+                while let Some(b) = seq.next_element()? {
+                    out.push(b);
+                }
+                Ok(out)
+            }
+        }
+        d.deserialize_byte_buf(V)
+    }
 }
 
 /// The outputs of a job's tasks, in order; or why a task producing a solid failed (the whole

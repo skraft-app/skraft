@@ -1419,6 +1419,42 @@ structure one to one, which a performance comparison needs.
   prints counts and timings; the file then opens in the app like any other. An import from the
   app's menu may come later.
 
+## 8 ter. STEP import
+
+Decided and built on 2026-11-12. **File › Import…** (Cmd+I) places a STEP file (AP203 /
+AP214 / AP242) **in the model**, in the active context, as one occurrence, selected, one step
+to undo.
+
+- **Read by the kernel**, as a job (`Task::ImportStep { bytes }` → `Output::Step`), so off the
+  UI thread natively and in the worker on the web; the file is parsed once
+  (`crates/kernel/src/step.rs`). SolidCore's `step-import` maps the B-rep bodies (units to
+  mm); the **product structure** it leaves aside is read here from the same parsed file:
+  `PRODUCT_DEFINITION`s and their shape representations (joined by plain
+  `SHAPE_REPRESENTATION_RELATIONSHIP`s: the same axes), `NEXT_ASSEMBLY_USAGE_OCCURRENCE`s
+  placed by their `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` (`ITEM_DEFINED_TRANSFORMATION`:
+  `frame₂ · frame₁⁻¹`, the two representations told apart when a writer swaps them), and
+  `MAPPED_ITEM`s (`target · origin⁻¹`). Bodies no product reaches are kept at the top.
+  Strings are decoded (`\X2\…\X0\`).
+- **Bodies**: built by `step-brep` (`build_body`, strict: topology first, else stitched), in
+  parallel natively (`parallel_map`, with the kernel's stack). **Only closed solids**: a
+  surface model, an open shell, a face left out or a body that does not close is excluded and
+  counted in the status bar.
+- **Colours**: a `STYLED_ITEM`'s surface colour (`COLOUR_RGB`, pre-defined colours), on the
+  body, its shell, or shared by all its faces, becomes a **material** (one per colour,
+  « Couleur #RRGGBB ») on the occurrences of its part. Face colours otherwise are not
+  carried yet (a face's index in the built B-rep would have to be matched).
+- **Model** (`Document::from_step`, `crates/model/src/step.rs`): a product with one body is a
+  part; with several bodies, or bodies and products, an assembly holding one part per body
+  (a woodworker's component of several boards is several parts); a product of products an
+  assembly. Names come from the products (then the bodies), all `named`.
+- **Insertion** (`Operation::Insert { context, fragment, transform }`): a whole document as
+  the operation's data; its components and materials copied with fresh ids (a material equal
+  to one already there is reused), names made unique. The fragment's single top occurrence
+  is placed itself; several are gathered in an assembly named after the file. Generic: the
+  SketchUp import, or inserting a `.solidsketch` file, may use it later.
+- **Not yet**: face colours, placing the import at the cursor (it lands at the context's
+  origin), cancelling a long read.
+
 ## 9. Toolchain and dependencies
 
 - Rust **1.97.1** pinned by `rust-toolchain.toml` (the SolidCore crates ask for ≥ 1.88), with

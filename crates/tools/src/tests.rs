@@ -2249,7 +2249,8 @@ fn stretch_tool_cutters_are_dragged_added_and_removed() {
     assert_eq!(cutters(&e), Vec::<i64>::new());
     assert!(saved(&e).no_stretch.locks(0));
     let end = DVec3::new(600.0, 150.0, 9.0);
-    let padlock = |e: &Editor| e.overlay_points().iter().any(|p| p.shape == crate::tools::PointShape::Padlock && (p.at - end).length() < 1e-6);
+    let padlock =
+        |e: &Editor| e.overlay_points().iter().any(|p| p.shape == crate::tools::PointShape::Padlock && (p.at - end).length() < 1e-6);
     assert!(padlock(&e));
     e.input(ToolInput::Hover { px: px(&e, end) });
     assert!(e.status().contains("débloquer"), "{}", e.status());
@@ -2662,7 +2663,11 @@ fn the_scene_index_picks_as_a_scan_does() {
             let at = DVec3::new(i as f64 * 70.0, j as f64 * 70.0, ((i * j) % 3) as f64 * 20.0);
             let size = DVec3::new(60.0 + (i % 3) as f64 * 15.0, 60.0, 40.0 + (j % 4) as f64 * 10.0);
             let (d, out) = doc
-                .apply(&Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: at, size }, placement: glam::DAffine3::IDENTITY })
+                .apply(&Operation::AddPrimitive {
+                    context: root,
+                    primitive: Primitive::Box { origin: at, size },
+                    placement: glam::DAffine3::IDENTITY,
+                })
                 .unwrap();
             doc = d;
             made.push(out.created[0]);
@@ -2671,12 +2676,21 @@ fn the_scene_index_picks_as_a_scan_does() {
     let stacked: Vec<Id> = made.iter().copied().step_by(5).collect();
     doc = doc.apply(&Operation::Duplicate { context: root, entities: stacked, transform: glam::DAffine3::IDENTITY }).unwrap().0;
     let (d, out) = doc.apply(&Operation::MakeAssembly { context: root, entities: made[..20].to_vec(), name: None }).unwrap();
-    doc = d.apply(&Operation::Duplicate { context: root, entities: out.created, transform: glam::DAffine3::from_translation(DVec3::new(0.0, 0.0, 100.0)) })
+    doc = d
+        .apply(&Operation::Duplicate {
+            context: root,
+            entities: out.created,
+            transform: glam::DAffine3::from_translation(DVec3::new(0.0, 0.0, 100.0)),
+        })
         .unwrap()
         .0;
     let mut e = top_editor(doc);
     e.set_parallel(false);
-    e.camera.set_standard_view(StandardView::Iso, Some((DVec3::ZERO, DVec3::new(900.0, 900.0, 200.0))), crate::camera::ViewArea::full(e.viewport_size()));
+    e.camera.set_standard_view(
+        StandardView::Iso,
+        Some((DVec3::ZERO, DVec3::new(900.0, 900.0, 200.0))),
+        crate::camera::ViewArea::full(e.viewport_size()),
+    );
     let (mut hits, mut rays) = (0, 0);
     for x in (0..1000).step_by(23) {
         for y in (0..1000).step_by(23) {
@@ -2698,7 +2712,11 @@ fn a_window_takes_an_assembly_only_whole() {
     let root = doc.root();
     let add = |doc: &mut Document, at: DVec3| {
         let (d, out) = doc
-            .apply(&Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: at, size: DVec3::splat(100.0) }, placement: glam::DAffine3::IDENTITY })
+            .apply(&Operation::AddPrimitive {
+                context: root,
+                primitive: Primitive::Box { origin: at, size: DVec3::splat(100.0) },
+                placement: glam::DAffine3::IDENTITY,
+            })
             .unwrap();
         *doc = d;
         out.created[0]
@@ -2724,4 +2742,19 @@ fn a_window_takes_an_assembly_only_whole() {
     // Left to right around everything: both.
     drag(&mut e, DVec3::new(-10.0, 150.0, 0.0), DVec3::new(710.0, -50.0, 0.0), none);
     assert_eq!(e.selection().len(), 2);
+}
+
+#[test]
+fn a_step_file_is_imported_into_the_context_in_one_step() {
+    let mut e = top_editor(Document::new());
+    e.import_step("assembly.step".into(), include_bytes!("../../kernel/tests/fixtures/assembly.step").to_vec());
+    assert!(!e.is_importing());
+    let doc = e.document();
+    assert_eq!(doc.root_assembly().occurrences.len(), 1);
+    assert_eq!(doc.placed_parts().len(), 2);
+    // What came in is selected; one undo takes it all out.
+    assert_eq!(e.selection(), &[doc.root_assembly().occurrences[0].id][..]);
+    assert!(e.status().contains("assembly.step"), "{}", e.status());
+    e.undo();
+    assert!(e.document().root_assembly().occurrences.is_empty());
 }

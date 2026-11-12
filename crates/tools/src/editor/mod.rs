@@ -42,6 +42,8 @@ pub struct Editor {
     collected: Vec<Id>,
     /// Meshes asked for, by job.
     meshing: HashMap<JobId, Arc<Solid>>,
+    /// Files being read by the kernel (STEP), by job: their names (ARCHITECTURE.md §8 ter).
+    importing: HashMap<JobId, String>,
     /// The jobs of [`Editor::crash_kernel`] still out, and what came back of them.
     probes: HashMap<JobId, Probe>,
     probe_report: Vec<String>,
@@ -123,6 +125,7 @@ impl Editor {
             queue: VecDeque::new(),
             collected: Vec::new(),
             meshing: HashMap::new(),
+            importing: HashMap::new(),
             probes: HashMap::new(),
             probe_report: Vec::new(),
             last: None,

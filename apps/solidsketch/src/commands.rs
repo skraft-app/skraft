@@ -66,6 +66,7 @@ use Menu as M;
 pub const COMMANDS: &[Command] = &[
     c("file.new", || t!("menu.file.new"), M::File, Some("Cmd+N")),
     c("file.open", || ellipsis(t!("menu.file.open")), M::File, Some("Cmd+O")),
+    c("file.import", || ellipsis(t!("menu.file.import")), M::File, Some("Cmd+I")),
     c("file.save", || t!("menu.file.save"), M::File, Some("Cmd+S")),
     c("file.save_as", || ellipsis(t!("menu.file.save_as")), M::File, Some("Cmd+Shift+S")),
     c("edit.undo", || t!("menu.edit.undo"), M::Edit, Some("Cmd+Z")),

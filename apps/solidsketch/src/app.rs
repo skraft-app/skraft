@@ -11,7 +11,7 @@ use solidsketch_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
 
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
-use crate::file::{self, Inbox};
+use crate::file::{self, ImportInbox, Inbox};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView, InfoState};
@@ -34,6 +34,8 @@ pub struct SolidSketchApp {
     /// The history revision when last saved or opened (the document is modified if it differs).
     saved_at: u64,
     inbox: Inbox,
+    /// A file picked to import (STEP), waiting for the editor.
+    import_inbox: ImportInbox,
     message: Option<String>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
@@ -172,6 +174,7 @@ impl SolidSketchApp {
             path: None,
             saved_at: 0,
             inbox: Inbox::default(),
+            import_inbox: ImportInbox::default(),
             message: error,
             keymap: Keymap::new(&prefs.shortcuts),
             stored_prefs: prefs.clone(),
@@ -324,6 +327,7 @@ impl SolidSketchApp {
         match id {
             "file.new" => self.new_document(),
             "file.open" => file::open(&self.inbox, &self.ctx),
+            "file.import" => file::import(&self.import_inbox, &self.ctx),
             "file.save" => self.save(false),
             "file.save_as" => self.save(true),
             "edit.undo" => e.undo(),
@@ -851,6 +855,9 @@ impl eframe::App for SolidSketchApp {
                 }
                 Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
             }
+        }
+        if let Some((name, bytes)) = self.import_inbox.take() {
+            self.editor.import_step(name, bytes);
         }
         // Any input clears the last app message.
         if ctx.input(|i| !i.events.is_empty() && i.pointer.any_pressed()) {

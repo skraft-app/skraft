@@ -10,6 +10,7 @@ mod import;
 pub mod measure;
 mod ops;
 mod settings;
+mod step;
 mod stretch;
 
 #[cfg(test)]
@@ -27,6 +28,7 @@ pub use settings::{Display, LengthUnit, Section, Settings, Units};
 use solidsketch_i18n::t;
 pub use solidsketch_kernel as kernel;
 pub use solidsketch_kernel::Primitive;
+pub use step::StepReport;
 pub use stretch::StretchedPart;
 
 /// Why an operation (or a file) was refused. Shown to the user: each kind has its text in

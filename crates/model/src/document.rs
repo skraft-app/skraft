@@ -700,6 +700,61 @@ impl Document {
             }
         }
     }
+
+    /// Copies the components and materials of `fragment` (another document) into this one,
+    /// every id drawn afresh, names made unique; a material equal to one already here (same
+    /// name and colour) is that one. Returns the fragment root's occurrences, renumbered too,
+    /// for the caller to place.
+    pub(crate) fn graft(&mut self, fragment: &Document) -> Result<Vec<Occurrence>> {
+        let mut materials: HashMap<Id, Id> = HashMap::new();
+        for (id, m) in &fragment.materials {
+            let same = self.materials.iter().find(|(_, here)| *here == m).map(|(k, _)| *k);
+            let to = match same {
+                Some(k) => k,
+                None => {
+                    let k = self.fresh_id();
+                    self.materials.insert(k, m.clone());
+                    k
+                }
+            };
+            materials.insert(*id, to);
+        }
+        let components: HashMap<Id, Id> =
+            fragment.components.keys().filter(|id| **id != fragment.root).map(|id| (*id, self.fresh_id())).collect();
+        let occurrences = |doc: &mut Document, list: &[Occurrence]| -> Result<Vec<Occurrence>> {
+            list.iter()
+                .map(|o| {
+                    let component = *components.get(&o.component).ok_or(Error::NotFound(o.component))?;
+                    let material = o.material.and_then(|m| materials.get(&m).copied());
+                    Ok(Occurrence { id: doc.fresh_id(), name: o.name.clone(), component, transform: o.transform, material })
+                })
+                .collect()
+        };
+        // In the fragment's order: ids and names come out the same each time.
+        for (old, c) in fragment.components.iter().filter(|(id, _)| **id != fragment.root) {
+            let new = &components[old];
+            let kind = match &c.kind {
+                ComponentKind::Assembly(a) => ComponentKind::Assembly(Assembly { occurrences: occurrences(self, &a.occurrences)? }),
+                ComponentKind::Part(p) => {
+                    let mut p = p.clone();
+                    let mut machinings: HashMap<Id, Id> = HashMap::new();
+                    for m in &mut p.machinings {
+                        let id = self.fresh_id();
+                        machinings.insert(m.id, id);
+                        m.id = id;
+                    }
+                    p.failed = p.failed.iter().filter_map(|id| machinings.get(id).copied()).collect();
+                    p.faces = p.faces.iter().filter_map(|(f, m)| materials.get(m).map(|m| (*f, *m))).collect();
+                    ComponentKind::Part(p)
+                }
+            };
+            let guides = c.guides.iter().map(|g| Guide { id: self.fresh_id(), shape: g.shape }).collect();
+            let name = self.unique_name(&c.name);
+            self.components
+                .insert(*new, Arc::new(Component { id: *new, name, named: c.named, kind, guides, behavior: c.behavior.clone() }));
+        }
+        occurrences(self, &fragment.root_assembly().occurrences)
+    }
 }
 
 /// The deepest nesting walked; deeper is treated as a cycle.

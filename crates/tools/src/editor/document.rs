@@ -127,7 +127,9 @@ impl Editor {
         }
         let mut meshed = false;
         for (id, result) in results {
-            if let Some(probe) = self.probes.remove(&id) {
+            if let Some(name) = self.importing.remove(&id) {
+                self.imported(&name, result);
+            } else if let Some(probe) = self.probes.remove(&id) {
                 self.probe_report.push(match (probe, &result) {
                     (Probe::Crash, Err(e)) => t!("status.debug.crashed", error = e),
                     (Probe::Crash, Ok(_)) => t!("status.debug.not_crashed"),
@@ -215,6 +217,57 @@ impl Editor {
         self.poll();
     }
 
+    /// Imports a STEP file (`name`, its `bytes`) into the active context (ARCHITECTURE.md §8
+    /// ter): the kernel reads it, then its content is inserted as one occurrence, selected —
+    /// one step to undo. The rest of the editor stays usable meanwhile.
+    pub fn import_step(&mut self, name: String, bytes: Vec<u8>) {
+        let id = self.job_id();
+        self.message = Some(solidsketch_i18n::ellipsis(t!("status.importing", file = name)));
+        self.importing.insert(id, name);
+        self.kernel.submit(id, Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] });
+        // A kernel run inline has answered already.
+        self.poll();
+    }
+
+    /// Is a file being read?
+    pub fn is_importing(&self) -> bool {
+        !self.importing.is_empty()
+    }
+
+    /// The kernel read the file `name`: its content inserted, or why not.
+    fn imported(&mut self, name: &str, result: solidsketch_model::kernel::JobResult) {
+        let step = match result {
+            Ok(mut outputs) => match outputs.pop() {
+                Some(Output::Step(s)) => s,
+                _ => {
+                    self.message = Some(t!("status.import_failed", file = name, error = t!("status.unexpected_reply")));
+                    return;
+                }
+            },
+            Err(e) => {
+                self.message = Some(t!("status.import_failed", file = name, error = e));
+                return;
+            }
+        };
+        let (fragment, report) = Document::from_step(&step, name);
+        if fragment.root_assembly().occurrences.is_empty() {
+            self.message = Some(solidsketch_i18n::tp!("status.import_empty", report.excluded, file = name));
+            return;
+        }
+        let context = self.document().context_of(&self.context).unwrap_or(self.document().root());
+        let op = Operation::Insert { context, fragment: std::sync::Arc::new(fragment), transform: DAffine3::IDENTITY };
+        self.queue.push_back((op, After::Select));
+        self.pump();
+        if !self.busy() {
+            self.zoom_extents();
+        }
+        let mut message = solidsketch_i18n::tp!("status.imported", report.parts, file = name);
+        if report.excluded > 0 {
+            message = format!("{message} — {}", solidsketch_i18n::tp!("status.import_excluded", report.excluded));
+        }
+        self.message = Some(message);
+    }
+
     /// Asks the kernel for the meshes the scene lacks, one job per solid.
     pub(super) fn request_meshes(&mut self) {
         let missing = self.scene.take_missing();
@@ -257,6 +310,7 @@ impl Editor {
         self.history = History::new(doc);
         // What the kernel was doing for the previous document is dropped when it comes.
         self.pending = None;
+        self.importing.clear();
         self.queue.clear();
         self.collected.clear();
         self.context.clear();

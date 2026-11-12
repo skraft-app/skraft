@@ -54,6 +54,60 @@ pub fn open(inbox: &Inbox, ctx: &egui::Context) {
     }
 }
 
+/// The extensions of the files the app imports (ARCHITECTURE.md §8 ter).
+pub const IMPORT_EXTENSIONS: &[&str] = &["step", "stp", "STEP", "STP"];
+
+/// A file to import, read in the background, collected by the app: its name and bytes.
+#[derive(Clone, Default)]
+pub struct ImportInbox(Arc<Mutex<Option<Picked>>>);
+
+/// A file picked: its name and bytes.
+type Picked = (String, Vec<u8>);
+
+impl ImportInbox {
+    pub fn take(&self) -> Option<(String, Vec<u8>)> {
+        self.0.lock().ok()?.take()
+    }
+
+    #[allow(dead_code)]
+    fn put(&self, name: String, bytes: Vec<u8>) {
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = Some((name, bytes));
+        }
+    }
+}
+
+/// Asks for a file to import; its name (without folders) and bytes arrive in `inbox`.
+pub fn import(inbox: &ImportInbox, ctx: &egui::Context) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = ctx;
+        let picked = rfd::FileDialog::new().add_filter("STEP", IMPORT_EXTENSIONS).pick_file();
+        if let Some(path) = picked {
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+                    inbox.put(name, bytes);
+                }
+                Err(e) => log::error!("{}: {e}", path.display()),
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let inbox = inbox.clone();
+        let ctx = ctx.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let picked = rfd::AsyncFileDialog::new().add_filter("STEP", IMPORT_EXTENSIONS).pick_file().await;
+            if let Some(f) = picked {
+                let bytes = f.read().await;
+                inbox.put(f.file_name(), bytes);
+                ctx.request_repaint();
+            }
+        });
+    }
+}
+
 /// Saves `doc`: to `path` if given (desktop), else asking where. Returns the path written.
 pub fn save(doc: &Document, path: Option<&str>) -> Result<Option<String>, String> {
     let text = doc.to_json().map_err(|e| e.to_string())?;

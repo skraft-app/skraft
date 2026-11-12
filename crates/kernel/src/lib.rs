@@ -25,15 +25,21 @@ mod engine;
 mod job;
 mod polyhedron;
 mod snaps;
+mod step;
 mod stretch;
 
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]
 pub use engine::Threaded;
 #[cfg(feature = "engine")]
-pub use engine::{Inline, run};
+pub use engine::{Inline, parallel_map, run};
+
+/// The stack every thread running SolidCore gets: it recurses legitimately, and a stack
+/// overflow aborts (it is no panic).
+pub const KERNEL_STACK: usize = 256 << 20;
 pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task, Waker, decode, encode};
 pub use polyhedron::{PolyFace, Polyhedron};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
+pub use step::{StepBody, StepExcluded, StepImport, StepInstance, StepProduct};
 pub use stretch::{Stretch, StretchError};
 
 /// Why a kernel call failed. SolidCore's own messages stay as it words them (English).

@@ -81,6 +81,8 @@ menu:
     title: "Fichier"
     new: "Nouveau"
     open: "Ouvrir"
+    # Places a STEP file's content in the model.
+    import: "Importer"
     save: "Enregistrer"
     save_as: "Enregistrer sous"
   edit:
@@ -296,6 +298,16 @@ status:
   saved: "Enregistré"
   save_failed: "Enregistrement impossible : %{error}"
   open_failed: "%{file} : %{error}"
+  # Importing a file (STEP): read by the kernel, then inserted in the model.
+  importing: "Lecture de %{file}"
+  imported: "%{file} importé : %{count} pièce"
+  imported_plural: "%{file} importé : %{count} pièces"
+  # Bodies of the file that are no closed solid (surfaces), left out.
+  import_excluded: "%{count} corps non fermé ignoré"
+  import_excluded_plural: "%{count} corps non fermés ignorés"
+  import_empty: "%{file} : aucun solide à importer (%{count} corps non fermé)"
+  import_empty_plural: "%{file} : aucun solide à importer (%{count} corps non fermés)"
+  import_failed: "Import de %{file} impossible : %{error}"
   prefs_not_saved: "Préférences non enregistrées : %{error}"
   control_failed: "Canal de pilotage : %{error}"
   command_unknown: "commande inconnue « %{id} »"
@@ -590,6 +602,8 @@ operation:
   paint: "$t(common.paint)"
   stretch: "Étirer"
   stretch_behavior: "Plans de coupe"
+  # Placing the content of an imported file (STEP…) in the model.
+  import: "Importer"
 
 unit:
   millimeter: "Millimètres"
@@ -610,6 +624,8 @@ default_name:
   # An imported SketchUp definition holding both faces and components: its faces make
   # this part, placed in the assembly that takes the definition's name.
   loose_faces: "%{name} (faces)"
+  # The material made for a colour of an imported STEP file (hex like #CC9966).
+  step_color: "Couleur %{hex}"
 
 error:
   # A typed value that cannot be read (the measurements box, the entity info).

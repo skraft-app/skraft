@@ -199,6 +199,11 @@ pub enum Operation {
     /// A construction guide added to `component` (a part or an assembly), in its axes
     /// (ARCHITECTURE.md §6 quinquies). Every occurrence shows it; no scope.
     AddGuide { component: Id, shape: GuideShape },
+    /// Places the content of another document in `context` (an imported file,
+    /// ARCHITECTURE.md §8 ter): its components and materials copied, ids drawn afresh. What
+    /// its root holds comes as one occurrence placed by the rigid `transform`: the root's
+    /// single occurrence itself, else a new assembly named as the root.
+    Insert { context: Id, fragment: Arc<Document>, transform: DAffine3 },
 }
 
 impl Operation {
@@ -229,6 +234,7 @@ impl Operation {
             Operation::DuplicateMachinings { .. } => t!("operation.duplicate"),
             Operation::ArrayMachinings { .. } => t!("operation.array"),
             Operation::AddGuide { .. } => t!("operation.add_guide"),
+            Operation::Insert { .. } => t!("operation.import"),
             Operation::Stretch { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
         }
@@ -392,6 +398,29 @@ impl Document {
                     };
                 }
                 Ok(Outcome::default())
+            }
+            Operation::Insert { context, fragment, transform } => {
+                self.assembly(*context)?;
+                if !is_rigid(transform) {
+                    return Err(Error::Invalid(Refusal::PlacementNotRigid));
+                }
+                let mut top = self.graft(fragment)?;
+                let placed = match top.len() {
+                    0 => return Err(Error::Invalid(Refusal::EmptyAssembly)),
+                    1 => {
+                        let mut o = top.remove(0);
+                        o.transform = *transform * o.transform;
+                        o
+                    }
+                    _ => {
+                        let name = fragment.component(fragment.root)?.name.clone();
+                        let assembly = self.insert_component(&name, true, ComponentKind::Assembly(Assembly { occurrences: top }));
+                        Occurrence { id: self.fresh_id(), name: String::new(), component: assembly, transform: *transform, material: None }
+                    }
+                };
+                let id = placed.id;
+                self.assembly_mut(*context)?.occurrences.push(placed);
+                Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::AddGuide { component, shape } => {
                 self.component(*component)?;

@@ -219,10 +219,11 @@ fn polyhedron(entities: &SkEntities, a: DMat3) -> Polyhedron {
     }
 }
 
-/// Builds every request with `build`, on all cores.
 /// A request built: the solid, or why not; its faces and the time it took.
 type Built = std::result::Result<(Solid, usize, Duration), (String, usize, Duration)>;
 
+/// Builds every request with `build`, on all cores (each thread with the stack SolidCore
+/// needs).
 fn build_all<F>(export: &Export, requests: &[PartRequest], build: &F) -> Vec<Built>
 where
     F: Fn(&Polyhedron) -> solidsketch_kernel::Result<Solid> + Sync,
@@ -232,23 +233,26 @@ where
     let mut out: Vec<Option<Built>> = (0..requests.len()).map(|_| None).collect();
     let done: Vec<Vec<(usize, Built)>> = std::thread::scope(|s| {
         let workers: Vec<_> = (0..threads)
-            .map(|_| {
-                s.spawn(|| {
-                    let mut mine = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(r) = requests.get(i) else { break };
-                        let entities = match r.def {
-                            Some(d) => &export.definitions[d].entities,
-                            None => &export.root,
-                        };
-                        let faces = entities.faces.len();
-                        let t = Instant::now();
-                        let solid = build(&polyhedron(entities, r.a)).map_err(|e| e.to_string());
-                        mine.push((i, solid.map(|s| (s, faces, t.elapsed())).map_err(|e| (e, faces, t.elapsed()))));
-                    }
-                    mine
-                })
+            .filter_map(|_| {
+                std::thread::Builder::new()
+                    .stack_size(solidsketch_kernel::KERNEL_STACK)
+                    .spawn_scoped(s, || {
+                        let mut mine = Vec::new();
+                        loop {
+                            let i = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(r) = requests.get(i) else { break };
+                            let entities = match r.def {
+                                Some(d) => &export.definitions[d].entities,
+                                None => &export.root,
+                            };
+                            let faces = entities.faces.len();
+                            let t = Instant::now();
+                            let solid = build(&polyhedron(entities, r.a)).map_err(|e| e.to_string());
+                            mine.push((i, solid.map(|s| (s, faces, t.elapsed())).map_err(|e| (e, faces, t.elapsed()))));
+                        }
+                        mine
+                    })
+                    .ok()
             })
             .collect();
         workers.into_iter().map(|w| w.join().unwrap_or_default()).collect()

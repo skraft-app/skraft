@@ -202,6 +202,7 @@ pub fn run(job: &Job) -> JobResult {
             }
             Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
             Task::Display { solid: i } => Output::Display(input(*i)?.display().map_err(|e| e.to_string())),
+            Task::ImportStep { bytes } => Output::Step(Box::new(crate::step::read::import(bytes)?)),
             Task::Panic { message } => guarded("panic", || -> Result<Output> { panic!("{message}") })?,
         };
         out.push(done);
@@ -226,6 +227,50 @@ impl KernelService for Inline {
     }
 }
 
+
+/// `f` over `items`, on every core where threads exist (each with [`crate::KERNEL_STACK`]), in
+/// order; one after the other in the browser.
+pub fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(items.len());
+        if threads > 1 {
+            let next = AtomicUsize::new(0);
+            let mut done: Vec<(usize, R)> = std::thread::scope(|s| {
+                let workers: Vec<_> = (0..threads)
+                    .filter_map(|_| {
+                        std::thread::Builder::new()
+                            .stack_size(crate::KERNEL_STACK)
+                            .spawn_scoped(s, || {
+                                let mut mine = Vec::new();
+                                loop {
+                                    let i = next.fetch_add(1, Ordering::Relaxed);
+                                    let Some(item) = items.get(i) else { break };
+                                    mine.push((i, f(item)));
+                                }
+                                mine
+                            })
+                            .ok()
+                    })
+                    .collect();
+                workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
+            });
+            // A worker that could not start or panicked left items: done here.
+            let mut have = vec![false; items.len()];
+            for (i, _) in &done {
+                have[*i] = true;
+            }
+            for (i, item) in items.iter().enumerate().filter(|(i, _)| !have[*i]) {
+                done.push((i, f(item)));
+            }
+            done.sort_unstable_by_key(|(i, _)| *i);
+            return done.into_iter().map(|(_, r)| r).collect();
+        }
+    }
+    items.iter().map(f).collect()
+}
+
 /// Runs jobs one after the other on a thread of its own (the desktop app).
 #[cfg(not(target_arch = "wasm32"))]
 pub struct Threaded {
@@ -237,7 +282,7 @@ pub struct Threaded {
 impl Threaded {
     /// SolidCore recurses legitimately: give its thread a generous stack (a stack overflow
     /// aborts, it is no panic).
-    const STACK: usize = 256 << 20;
+    const STACK: usize = crate::KERNEL_STACK;
 
     pub fn new(waker: Option<crate::Waker>) -> Self {
         let (jobs, job_rx) = std::sync::mpsc::channel::<(JobId, Job)>();
