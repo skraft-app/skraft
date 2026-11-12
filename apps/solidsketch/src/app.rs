@@ -266,6 +266,7 @@ impl SolidSketchApp {
             "view.silhouettes" => Some(d.silhouettes),
             "view.section" => Some(d.section_active),
             "view.materials" => Some(self.prefs.show_materials),
+            "view.render_stats" => Some(self.prefs.show_render_stats),
             _ => tool_of(id).map(|k| self.editor.tool_kind() == k),
         }
     }
@@ -355,6 +356,7 @@ impl SolidSketchApp {
                 self.set_settings(s);
             }
             "view.materials" => self.prefs.show_materials = !self.prefs.show_materials,
+            "view.render_stats" => self.prefs.show_render_stats = !self.prefs.show_render_stats,
             "view.zoom_extents" => e.zoom_extents(),
             "debug.crash_kernel" => e.crash_kernel(),
             _ => return Err(t!("status.command_unknown", id = id)),
@@ -887,7 +889,7 @@ impl eframe::App for SolidSketchApp {
         // opening or resizing them never resizes the view.
         let theme = self.theme;
         let view = egui::CentralPanel::no_frame()
-            .show(ui, |ui| self.viewport.ui(ui, frame, &mut self.editor, &self.prefs.navigation, &theme))
+            .show(ui, |ui| self.viewport.ui(ui, frame, &mut self.editor, &self.prefs.navigation, &theme, self.prefs.show_render_stats))
             .response
             .rect;
         let margin = 8.0;

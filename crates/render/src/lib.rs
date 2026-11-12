@@ -120,6 +120,55 @@ pub struct Line {
     pub width: f32,
 }
 
+/// What the last picture drawn cost (the render statistics overlay).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Stats {
+    pub draw_calls: u32,
+    /// Triangles submitted (lines are quads of two).
+    pub triangles: u64,
+    /// Placements and highlights.
+    pub instances: u32,
+    pub lines: u32,
+    pub boxes: u32,
+    /// Bytes written to the GPU for the picture (instances, lines, boxes, fills), meshes
+    /// apart.
+    pub upload_bytes: u64,
+}
+
+/// A render pass counting what it draws.
+struct Counted<'p> {
+    pass: wgpu::RenderPass<'p>,
+    calls: u32,
+    vertices: u64,
+}
+
+impl<'p> Counted<'p> {
+    fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
+        self.calls += 1;
+        self.vertices += vertices.len() as u64 * instances.len() as u64;
+        self.pass.draw(vertices, instances);
+    }
+
+    fn draw_indexed(&mut self, indices: Range<u32>, base: i32, instances: Range<u32>) {
+        self.calls += 1;
+        self.vertices += indices.len() as u64 * instances.len() as u64;
+        self.pass.draw_indexed(indices, base, instances);
+    }
+}
+
+impl<'p> std::ops::Deref for Counted<'p> {
+    type Target = wgpu::RenderPass<'p>;
+    fn deref(&self) -> &Self::Target {
+        &self.pass
+    }
+}
+
+impl std::ops::DerefMut for Counted<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.pass
+    }
+}
+
 /// A box's outline: the edges of the unit cube `[0, 1]³` placed by `transform` (which may
 /// scale it), `width` points wide, depth-tested; dashed (dashes `dash` points long, gaps as
 /// long) from every corner. Instanced: a selection of tens of thousands costs one draw.
@@ -456,6 +505,8 @@ pub struct Renderer {
     target_generation: u64,
     /// The fingerprint of the picture in the target.
     drawn: Option<u64>,
+    /// What the picture in the target cost.
+    stats: Stats,
 }
 
 impl Renderer {
@@ -739,6 +790,7 @@ impl Renderer {
             generation: 0,
             target_generation: 0,
             drawn: None,
+            stats: Stats::default(),
         }
     }
 
@@ -985,7 +1037,7 @@ impl Renderer {
         self.fill_vertices.write(device, queue, bytemuck::cast_slice(&fv));
 
         let (Some(target), Some(bind_group)) = (&self.target, &self.bind_group) else { return false };
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut pass = Counted { pass: encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("viewport"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &target.msaa,
@@ -1004,7 +1056,7 @@ impl Renderer {
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-        });
+        }), calls: 0, vertices: 0 };
         pass.set_bind_group(0, bind_group, &[]);
 
         if let Some(inst) = &self.instances.buffer {
@@ -1123,9 +1175,37 @@ impl Renderer {
                 pass.draw(tested..total, 0..1);
             }
         }
+        self.stats = Stats {
+            draw_calls: pass.calls,
+            triangles: pass.vertices / 3,
+            instances: raw.len() as u32,
+            lines: (lv.len() / QUAD.len()) as u32,
+            boxes: bx.len() as u32,
+            upload_bytes: (std::mem::size_of_val(raw.as_slice())
+                + std::mem::size_of_val(lv.as_slice())
+                + std::mem::size_of_val(bx.as_slice())
+                + std::mem::size_of_val(fv.as_slice())) as u64,
+        };
         drop(pass);
         self.drawn = Some(print);
         true
+    }
+
+    /// What the picture in the target cost.
+    pub fn stats(&self) -> Stats {
+        self.stats
+    }
+
+    /// The meshes uploaded, and the bytes they take on the GPU.
+    pub fn mesh_memory(&self) -> (usize, u64) {
+        let bytes = self
+            .meshes
+            .values()
+            .flat_map(|m| [&m.vertices, &m.indices, &m.edges, &m.silhouettes])
+            .flatten()
+            .map(|b| b.size())
+            .sum();
+        (self.meshes.len(), bytes)
     }
 
     fn ensure_target(&mut self, device: &wgpu::Device, size: [u32; 2]) {

@@ -29,6 +29,8 @@ wgpu.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# A clock on the web too (the render statistics overlay); already eframe's.
+web-time = "1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The kernel runs on a thread of the app; on the web, in its own worker (ARCHITECTURE.md §7 ter).

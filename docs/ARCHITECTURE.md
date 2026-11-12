@@ -1209,6 +1209,11 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   pixel density, section), the target size, and a generation counter bumped by every mesh
   upload and target change. Same fingerprint as the last picture: nothing is encoded, the
   target keeps it, `render` returns `false`. A still view costs no GPU work.
+- **Render statistics** (View › Statistiques de rendu, a preference): a card in the view's
+  bottom right corner — frames painted over the last second (egui repaints on demand: a still
+  view paints none), the interval between the last two, the CPU time of the editor's view and
+  of the picture's preparation, whether the picture was redrawn, and `Renderer::stats` (draw
+  calls, triangles, instances, lines, boxes, bytes uploaded) with the meshes' GPU memory.
 
 ### Theme
 

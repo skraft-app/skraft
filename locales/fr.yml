@@ -107,6 +107,7 @@ menu:
     section: "Afficher la coupe"
     section_clear: "Supprimer la coupe"
     materials: "Panneau $t(common.materials)"
+    render_stats: "Statistiques de rendu"
     top: "Dessus"
     front: "Face"
     right: "Droite"
@@ -145,7 +146,30 @@ palette:
   hint: "Commande"
   none: "Aucune commande"
 
-# The bar above the view: the active tool's name and options.
+# The render statistics overlay (menu Vue), in a corner of the view.
+render_stats:
+  fps: "Images/s"
+  interval: "Intervalle"
+  view_cpu: "Vue (CPU)"
+  render_cpu: "Rendu (CPU)"
+  picture: "Image"
+  redrawn: "redessinée"
+  kept: "inchangée"
+  draw_calls: "Appels de dessin"
+  triangles: "Triangles"
+  instances: "Instances"
+  lines: "Lignes"
+  boxes: "Boîtes"
+  upload: "Envoi / image"
+  meshes: "Maillages GPU"
+  occurrences: "Occurrences"
+  selection: "Sélection"
+  size: "Taille"
+  bytes: "%{n} o"
+  kibibytes: "%{n} ko"
+  mebibytes: "%{n} Mo"
+
+
 option_bar:
   # Before a choice's values.
   choice: "%{option} :"

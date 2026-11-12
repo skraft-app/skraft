@@ -33,6 +33,22 @@ pub struct Viewport {
     slots: HashMap<Id, u32>,
     /// The size of the last frame drawn (pixels).
     size: [u32; 2],
+    /// What the render statistics overlay shows.
+    timing: Timing,
+}
+
+/// Measured on every frame, for the render statistics overlay.
+#[derive(Default)]
+struct Timing {
+    /// When the last frames were painted (egui's clock, seconds), over the last second.
+    frames: std::collections::VecDeque<f64>,
+    /// Between the last two frames.
+    interval: f64,
+    /// Building the editor's view, then preparing and encoding the picture (milliseconds).
+    view_ms: f64,
+    render_ms: f64,
+    /// The picture was drawn again (else the target kept it).
+    redrawn: bool,
 }
 
 /// `c` mixed with the background by `fade` (what is outside the context being edited).
@@ -52,7 +68,7 @@ impl Viewport {
         Viewport::default()
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, editor: &mut Editor, nav: &Navigation, theme: &Theme) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, editor: &mut Editor, nav: &Navigation, theme: &Theme, stats: bool) {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         editor.set_viewport_size(DVec2::new(rect.width() as f64, rect.height() as f64));
@@ -77,7 +93,15 @@ impl Viewport {
             ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, t!("status.no_wgpu"), Default::default(), egui::Color32::RED);
             return;
         };
+        let start = web_time::Instant::now();
         self.render(state, size, ppp, editor, theme);
+        self.timing.render_ms = start.elapsed().as_secs_f64() * 1e3 - self.timing.view_ms;
+        let now = ui.input(|i| i.time);
+        self.timing.interval = self.timing.frames.back().map_or(0.0, |t| now - t);
+        self.timing.frames.push_back(now);
+        while self.timing.frames.front().is_some_and(|t| now - t > 1.0) {
+            self.timing.frames.pop_front();
+        }
         if let Some((id, _)) = self.texture {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
             ui.painter().image(id, rect, uv, egui::Color32::WHITE);
@@ -95,6 +119,49 @@ impl Viewport {
         // Last: the lengths stay above everything (markers, tooltip, marquee), placed clear of
         // the cursor, the markers, the tooltip and the crosses.
         paint_labels(ui.painter(), rect, editor, clear);
+        if stats {
+            self.paint_stats(ui, rect, editor);
+        }
+    }
+
+    /// The render statistics, in the view's bottom right corner.
+    fn paint_stats(&self, ui: &egui::Ui, rect: egui::Rect, editor: &Editor) {
+        let Some(renderer) = &self.renderer else { return };
+        let r = renderer.stats();
+        let (meshes, mesh_bytes) = renderer.mesh_memory();
+        let tm = &self.timing;
+        let occurrences: usize = editor.scene().placements().map(|(_, p)| p.len()).sum();
+        let rows = [
+            (t!("render_stats.fps"), format!("{}", tm.frames.len())),
+            (t!("render_stats.interval"), format!("{:.1} ms", tm.interval * 1e3)),
+            (t!("render_stats.view_cpu"), format!("{:.2} ms", tm.view_ms)),
+            (t!("render_stats.render_cpu"), format!("{:.2} ms", tm.render_ms)),
+            (t!("render_stats.picture"), if tm.redrawn { t!("render_stats.redrawn") } else { t!("render_stats.kept") }),
+            (t!("render_stats.draw_calls"), count(r.draw_calls as u64)),
+            (t!("render_stats.triangles"), count(r.triangles)),
+            (t!("render_stats.instances"), count(r.instances as u64)),
+            (t!("render_stats.lines"), count(r.lines as u64)),
+            (t!("render_stats.boxes"), count(r.boxes as u64)),
+            (t!("render_stats.upload"), bytes(r.upload_bytes)),
+            (t!("render_stats.meshes"), format!("{} · {}", count(meshes as u64), bytes(mesh_bytes))),
+            (t!("render_stats.occurrences"), count(occurrences as u64)),
+            (t!("render_stats.selection"), count(editor.selection().len() as u64)),
+            (t!("render_stats.size"), format!("{} × {}", self.size[0], self.size[1])),
+        ];
+        let label_width = rows.iter().map(|(l, _)| l.chars().count()).max().unwrap_or(0);
+        let value_width = rows.iter().map(|(_, v)| v.chars().count()).max().unwrap_or(0);
+        let text: Vec<String> = rows.iter().map(|(l, v)| format!("{l:<label_width$}  {v:>value_width$}")).collect();
+        let visuals = ui.visuals();
+        let font = egui::FontId::monospace(11.0);
+        let galley = ui.painter().layout_no_wrap(text.join("\n"), font, visuals.text_color());
+        let margin = 8.0;
+        let pad = egui::vec2(8.0, 6.0);
+        let size = galley.size() + 2.0 * pad;
+        let card = egui::Rect::from_min_size(rect.right_bottom() - size - egui::vec2(margin, margin), size);
+        let painter = ui.painter();
+        painter.rect_filled(card, 6.0, visuals.window_fill.gamma_multiply(0.88));
+        painter.rect_stroke(card, 6.0, visuals.window_stroke, egui::StrokeKind::Inside);
+        painter.galley(card.min + pad, galley, visuals.text_color());
     }
 
     fn input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: egui::Rect, editor: &mut Editor, nav: &Navigation) {
@@ -243,7 +310,9 @@ impl Viewport {
         let [r, g, b] = display.background;
         let bg = egui::Rgba::from(egui::Color32::from_rgb(r, g, b)); // linear
         let background = [bg.r(), bg.g(), bg.b()];
+        let start = web_time::Instant::now();
         let view = editor.view();
+        self.timing.view_ms = start.elapsed().as_secs_f64() * 1e3;
         let fade: render::Tint = [background[0], background[1], background[2], theme.fade];
         let slots = &self.slots;
         let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
@@ -361,7 +430,8 @@ impl Viewport {
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
         // A still view draws nothing: the target keeps its picture (§7 quater).
-        if renderer.render(device, &state.queue, &mut encoder, size, &frame) {
+        self.timing.redrawn = renderer.render(device, &state.queue, &mut encoder, size, &frame);
+        if self.timing.redrawn {
             state.queue.submit([encoder.finish()]);
         }
         self.size = size;
@@ -383,6 +453,28 @@ impl Viewport {
                 }
             }
         }
+    }
+}
+
+/// `n` with its thousands apart ("40 000").
+fn count(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push('\u{202F}');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// A size in bytes, in the largest unit that keeps it above 1.
+fn bytes(n: u64) -> String {
+    match n {
+        n if n >= 1 << 20 => t!("render_stats.mebibytes", n = format!("{:.1}", n as f64 / (1u64 << 20) as f64)),
+        n if n >= 1 << 10 => t!("render_stats.kibibytes", n = format!("{:.1}", n as f64 / (1u64 << 10) as f64)),
+        n => t!("render_stats.bytes", n = n),
     }
 }
 

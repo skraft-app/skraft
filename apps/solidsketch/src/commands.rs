@@ -86,6 +86,7 @@ pub const COMMANDS: &[Command] = &[
     g("view.section", || t!("menu.view.section"), M::View, None),
     c("view.section_clear", || t!("menu.view.section_clear"), M::View, None),
     g("view.materials", || t!("menu.view.materials"), M::View, None),
+    c("view.render_stats", || t!("menu.view.render_stats"), M::View, None),
     g("view.top", || t!("menu.view.top"), M::View, Some("Cmd+1")),
     c("view.front", || t!("menu.view.front"), M::View, Some("Cmd+2")),
     c("view.right", || t!("menu.view.right"), M::View, Some("Cmd+3")),

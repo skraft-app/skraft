@@ -39,6 +39,8 @@ pub struct Preferences {
     pub show_materials: bool,
     /// An open part shows its machinings (ARCHITECTURE.md §2.9).
     pub show_machinings: bool,
+    /// The render statistics overlay, in a corner of the view.
+    pub show_render_stats: bool,
 }
 
 impl Default for Preferences {
@@ -54,6 +56,7 @@ impl Default for Preferences {
             shortcuts: BTreeMap::new(),
             show_materials: true,
             show_machinings: false,
+            show_render_stats: false,
         }
     }
 }
