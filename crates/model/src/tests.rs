@@ -979,9 +979,46 @@ fn a_bare_part_is_stretched_without_a_recipe() {
     let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
     assert!(matches!(&job.tasks[..], [kernel::Task::Stretch { .. }]), "{:?}", job.tasks);
     h.apply(op).unwrap();
-    let (_, p, _) = h.document().resolve_part(&target).unwrap();
+    let (_, p, t) = h.document().resolve_part(&target).unwrap();
     assert!(p.shape.is_none());
-    assert_eq!(p.blank.vertex_bounds().unwrap(), (DVec3::new(0.0, -10.0, 0.0), DVec3::new(200.0, 60.0, 18.0)));
+    // The origin, in the section moving by -10, follows it (OCL's anchor).
+    assert_eq!(p.blank.vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(200.0, 70.0, 18.0)));
+    assert!(close(t.translation, DVec3::new(0.0, -10.0, 0.0)));
+}
+
+#[test]
+fn the_origin_follows_its_section_and_the_other_occurrences_show_the_same_change() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let target = EntityPath::root(board);
+    let other = h
+        .apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * 100.0) })
+        .unwrap()
+        .created[0];
+    let other = EntityPath::root(other);
+    // The origin's side pulled: the origin moves with it, the far end stays.
+    h.apply(stretch(h.document(), &target, DVec3::X, vec![100.0], vec![-30.0, 0.0], Scope::All)).unwrap();
+    let doc = h.document();
+    let (part, p, t) = doc.resolve_part(&target).unwrap();
+    assert_eq!(p.blank.vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(230.0, 50.0, 18.0)));
+    assert!(close(t.translation, DVec3::new(-30.0, 0.0, 0.0)));
+    assert!(close(world_bounds(doc, &target).0, DVec3::new(-30.0, 0.0, 0.0)));
+    // The other occurrence, not stretched, shows the same change in its own axes.
+    assert_eq!(doc.resolve_part(&other).unwrap().0, part);
+    let (lo, hi) = world_bounds(doc, &other);
+    assert!(close(lo, DVec3::new(-30.0, 100.0, 0.0)) && close(hi, DVec3::new(200.0, 150.0, 18.0)), "{lo} {hi}");
+}
+
+#[test]
+fn the_origin_stays_when_its_section_does_not_move() {
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let target = EntityPath::root(board);
+    h.apply(stretch_x(h.document(), &target, 100.0, 30.0, Scope::All)).unwrap();
+    let (_, p, t) = h.document().resolve_part(&target).unwrap();
+    assert_eq!(p.blank.vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(230.0, 50.0, 18.0)));
+    assert!(close(t.translation, DVec3::ZERO));
 }
 
 #[test]

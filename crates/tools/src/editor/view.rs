@@ -76,7 +76,7 @@ pub struct View {
     pub marquee: Option<Marquee>,
     /// The section to draw: a tool's preview, else the document's active one.
     pub section: Option<Section>,
-    /// The bounding boxes of the selected assemblies' content, dashed segments in the world
+    /// The bounding boxes of the selected occurrences (parts and assemblies), dashed segments in the world
     /// (the app draws them depth-tested, in the selection's colour).
     pub selection_boxes: Vec<(DVec3, DVec3)>,
     /// The same box for the part open or the assembly being edited, grown by a few pixels
@@ -144,14 +144,10 @@ impl Editor {
 
     /// The box bounding what the occurrence `id` of the context `ctx_path` holds, in its own
     /// axes, moved by `extra` and grown by `offset_px` pixels on every side: its frame (to
-    /// world) and its bounds in it. For a part's occurrence only when `parts` (the open
-    /// part's box): its blank's.
-    fn content_bounds(&self, ctx_path: &[Id], id: Id, extra: DAffine3, offset_px: f64, parts: bool) -> Option<OrientedBox> {
+    /// world) and its bounds in it (a part's recipe shown: its blank's).
+    fn content_bounds(&self, ctx_path: &[Id], id: Id, extra: DAffine3, offset_px: f64) -> Option<OrientedBox> {
         let doc = self.document();
         let ctx = doc.context_of(ctx_path).ok()?;
-        if !parts && !doc.is_assembly_occurrence(ctx, id) {
-            return None;
-        }
         let t = doc.transform_of(ctx_path).ok()?;
         let o = doc.assembly(ctx).ok().and_then(|a| a.occurrence(id))?;
         let frame = extra * t * o.transform;
@@ -200,8 +196,8 @@ impl Editor {
     /// model's level).
     pub(super) fn context_bounds(&self) -> Option<OrientedBox> {
         match (self.open_part, self.context.split_last()) {
-            (Some(id), _) => self.content_bounds(&self.context, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX, true),
-            (None, Some((&id, parent))) => self.content_bounds(parent, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX, false),
+            (Some(id), _) => self.content_bounds(&self.context, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX),
+            (None, Some((&id, parent))) => self.content_bounds(parent, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX),
             (None, None) => None,
         }
     }
@@ -308,11 +304,19 @@ impl Editor {
         for id in self.selection.iter().filter(|_| !hide_original) {
             mark(&mut v.highlights, &self.context, *id, Mark::Selected, DAffine3::IDENTITY);
         }
-        // The selected assemblies' boxes, where the selection is drawn (moved with the ghost
-        // when the original is hidden).
-        let box_at = if hide_original { preview.ghost } else { Some(DAffine3::IDENTITY) };
+        // The selected occurrences' boxes (parts and assemblies), where the selection is drawn (moved with the ghost
+        // when the original is hidden). None with the stretch tool: it takes the selection as
+        // what it stretches and draws its own box (grips, cutters), which this one would only
+        // clutter — and leave behind, unstretched, while it previews.
+        let box_at = if self.tool_kind() == tools::ToolKind::Stretch {
+            None
+        } else if hide_original {
+            preview.ghost
+        } else {
+            Some(DAffine3::IDENTITY)
+        };
         for (id, extra) in self.selection.iter().filter_map(|id| box_at.map(|g| (*id, g))) {
-            if let Some(b) = self.content_bounds(&self.context, id, extra, 0.0, false) {
+            if let Some(b) = self.content_bounds(&self.context, id, extra, 0.0) {
                 self.dashed_box(&mut v.selection_boxes, b);
             }
         }

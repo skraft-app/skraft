@@ -149,6 +149,8 @@ palette:
 option_bar:
   # Before a choice's values.
   choice: "%{option} :"
+  # The tip of a value drawn as an icon: its name, then what it does.
+  icon_tip: "%{label} — %{tip}"
   # The switch shown while a part is open: its blank as a ghost, its machinings' tools
   # (ARCHITECTURE.md §2.9).
   machinings: "$t(common.machinings)"

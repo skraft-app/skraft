@@ -532,8 +532,9 @@ const PULL_CENTERED: &str = "pull_centered";
 /// The first point is measured from a corner (the first step's mode, not saved).
 const FROM_CORNER: &str = "from_corner";
 
-fn toggle(key: &'static str, label: String, tip: String, on: bool, saved: bool) -> ToolOption {
-    ToolOption { key, label, tip, value: OptionValue::Toggle(on), choices: Vec::new(), saved }
+/// A toggle drawn as its icon (after OCL's Smart Draw, `get_action_option_btn_child`).
+fn toggle(key: &'static str, label: String, tip: String, on: bool, saved: bool, icon: &'static str) -> ToolOption {
+    ToolOption { key, label, tip, value: OptionValue::Toggle(on), choices: Vec::new(), saved, icon: Some(icon) }
 }
 
 /// The options both tools have: the height centred, the first point measured from a corner.
@@ -545,6 +546,7 @@ fn shared_options(cx: &Cx<'_>, first: &First) -> Vec<ToolOption> {
             t!("tool.shape.option.pull_centered_tip", copy_key = copy_key()),
             cx.toggle(PULL_CENTERED),
             true,
+            "centered",
         ),
         toggle(
             FROM_CORNER,
@@ -552,6 +554,7 @@ fn shared_options(cx: &Cx<'_>, first: &First) -> Vec<ToolOption> {
             t!("tool.shape.option.from_corner_tip", alt_key = alt_key()),
             first.from_corner,
             false,
+            "from_corner",
         ),
     ]
 }
@@ -845,6 +848,7 @@ impl Tool for BoxTool {
             t!("tool.box.option.centered_tip", copy_key = copy_key()),
             cx.toggle(CENTERED),
             true,
+            "rectangle_centered",
         );
         std::iter::once(centered).chain(shared_options(cx, &self.first)).collect()
     }
@@ -1137,10 +1141,11 @@ impl Tool for CylinderTool {
             tip: t!("tool.cylinder.option.measure_tip"),
             value: OptionValue::Choice(value.into()),
             choices: vec![
-                OptionChoice { value: RADIUS, label: t!("tool.cylinder.option.radius"), tip: t!("tool.cylinder.option.radius_tip") },
-                OptionChoice { value: DIAMETER, label: t!("tool.cylinder.option.diameter"), tip: t!("tool.cylinder.option.diameter_tip") },
+                OptionChoice { value: RADIUS, label: t!("tool.cylinder.option.radius"), tip: t!("tool.cylinder.option.radius_tip"), icon: Some("measure_radius") },
+                OptionChoice { value: DIAMETER, label: t!("tool.cylinder.option.diameter"), tip: t!("tool.cylinder.option.diameter_tip"), icon: Some("measure_diameter") },
             ],
             saved: true,
+            icon: None,
         }];
         options.extend(shared_options(cx, &self.first));
         options

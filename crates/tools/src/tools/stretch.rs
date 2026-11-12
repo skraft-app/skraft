@@ -92,6 +92,9 @@ const SAME_CUT: f64 = 1e-3;
 
 /// The grey of the inactive axes and of a cutter about to go.
 const GREY: [f32; 4] = [0.45, 0.45, 0.45, 1.0];
+/// The inactive axes' dashes: a dark grey half seen through, so they take the tone of what
+/// lies under them.
+const AXIS_GREY: [f32; 4] = [0.1, 0.1, 0.1, 0.45];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 thread_local! {
@@ -879,7 +882,7 @@ impl StretchTool {
             for k in target.axes().filter(|k| cx.axis_lock.is_none_or(|l| l == *k)) {
                 let (a, b) = (target.world(target.grip(k, -1.0)), target.world(target.grip(k, 1.0)));
                 let color = if active == Some(k) { axis_color(k) } else { GREY };
-                dashed(cx.camera, cx.size, &mut p.lines, a, b, color);
+                dashed(cx.camera, cx.size, &mut p.lines, a, b, if active == Some(k) { color } else { AXIS_GREY });
                 for (side, at) in [(-1.0, a), (1.0, b)] {
                     let fill = if self.over == (Over::Grip { k, side }) { color } else { WHITE };
                     let radius = if active == Some(k) { 5.0 } else { 4.0 };
@@ -1208,7 +1211,8 @@ impl Tool for StretchTool {
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
         let target = self.target(cx);
-        let choice = |value: &'static str, label: String, tip: String| OptionChoice { value, label, tip };
+        // Drawn as OCL draws them (`get_action_option_btn_child`), by name (the app's icons).
+        let choice = |value: &'static str, label: String, tip: String, icon: &'static str| OptionChoice { value, label, tip, icon: Some(icon) };
         let mut options = vec![
             ToolOption {
                 key: MEASURE,
@@ -1216,10 +1220,11 @@ impl Tool for StretchTool {
                 tip: t!("tool.stretch.option.measure_tip"),
                 value: OptionValue::Choice(if cx.choice(MEASURE) == Some(OFFSET) { OFFSET } else { OVERALL }.into()),
                 choices: vec![
-                    choice(OVERALL, t!("tool.stretch.option.overall"), t!("tool.stretch.option.overall_tip")),
-                    choice(OFFSET, t!("tool.stretch.option.offset"), t!("tool.stretch.option.offset_tip")),
+                    choice(OVERALL, t!("tool.stretch.option.overall"), t!("tool.stretch.option.overall_tip"), "measure_overall"),
+                    choice(OFFSET, t!("tool.stretch.option.offset"), t!("tool.stretch.option.offset_tip"), "measure_offset"),
                 ],
                 saved: true,
+                icon: None,
             },
             ToolOption {
                 key: AXES,
@@ -1234,11 +1239,12 @@ impl Tool for StretchTool {
                     .into(),
                 ),
                 choices: vec![
-                    choice(ACTIVE, t!("tool.stretch.option.active"), t!("tool.stretch.option.active_tip")),
-                    choice(CONTEXT, t!("tool.stretch.option.context"), t!("tool.stretch.option.context_tip")),
-                    choice(ENTITY, t!("tool.stretch.option.entity"), t!("tool.stretch.option.entity_tip")),
+                    choice(ACTIVE, t!("tool.stretch.option.active"), t!("tool.stretch.option.active_tip"), "axes_active"),
+                    choice(CONTEXT, t!("tool.stretch.option.context"), t!("tool.stretch.option.context_tip"), "axes_context"),
+                    choice(ENTITY, t!("tool.stretch.option.entity"), t!("tool.stretch.option.entity_tip"), "axes_entity"),
                 ],
                 saved: true,
+                icon: None,
             },
             ToolOption {
                 key: CENTERED,
@@ -1247,6 +1253,7 @@ impl Tool for StretchTool {
                 value: OptionValue::Toggle(cx.toggle(CENTERED)),
                 choices: Vec::new(),
                 saved: true,
+                icon: Some("centered"),
             },
         ];
         // The open part has its own scope, in the bar already.
@@ -1262,10 +1269,11 @@ impl Tool for StretchTool {
                 tip: t!("tool.stretch.option.scope_tip", alt_key = alt_key()),
                 value: OptionValue::Choice(if scope(cx) == Scope::This { THIS } else { ALL }.into()),
                 choices: vec![
-                    choice(ALL, all, t!("tool.boolean.option.all_tip")),
-                    choice(THIS, t!("tool.boolean.option.this"), t!("tool.stretch.option.this_tip")),
+                    choice(ALL, all, t!("tool.boolean.option.all_tip"), "scope_all"),
+                    choice(THIS, t!("tool.boolean.option.this"), t!("tool.stretch.option.this_tip"), "scope_this"),
                 ],
                 saved: true,
+                icon: None,
             });
         }
         options

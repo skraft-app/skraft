@@ -7,9 +7,11 @@
 //!   its component is not touched;
 //! - else **stretched**: a part has its recipe stretched (`stretch_part`), an assembly has its
 //!   occurrences walked in turn — each component in its own axes, the stretch brought there
-//!   ([`Stretch::in_frame`]), with the sections' own moves (no anchor: an occurrence stretched
-//!   keeps its placement, and every other occurrence of its component shows the same change in
-//!   its own axes — what OCL gets by moving them back).
+//!   ([`Stretch::in_frame`]). Its **origin follows its anchor**, the section holding the end of
+//!   its extent nearest the origin (OCL's `section_def` of a split container): the occurrence
+//!   moves as that section, the content by the rest; every occurrence of the component the walk
+//!   does not reach moves as much in its own axes (OCL's back translation of extern instances),
+//!   showing the same change.
 //!
 //! What a component becomes is set by what the stretch does to **each of its pieces** — the
 //! move of each vertex, edge and face of its parts, of each occurrence moved whole, of each
@@ -22,7 +24,7 @@
 //! elsewhere show it), the others go to copies; under "only this one" the path is made the
 //! target's own first, and a change goes to a copy whenever the component shows elsewhere too.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::Stretch;
@@ -57,6 +59,18 @@ fn within(s: &Stretch, lo: f64, hi: f64) -> Stretch {
     Stretch::new(s.axis(), s.cuts()[a..b].to_vec(), s.moves()[a..=b].to_vec()).unwrap_or_else(|_| s.clone())
 }
 
+/// The stretch `s` with every move less `m`: what it does relative to a section moving by `m`.
+fn relative(s: &Stretch, m: f64) -> Stretch {
+    Stretch::new(s.axis(), s.cuts().to_vec(), s.moves().iter().map(|x| x - m).collect()).unwrap_or_else(|_| s.clone())
+}
+
+/// The move of the anchor of something spanning `lo..=hi` along `s`'s axis, `0` its origin:
+/// the move of the section holding the end nearest the origin (OCL's `section_def` of a split
+/// container). The origin follows it.
+fn anchor_move(s: &Stretch, lo: f64, hi: f64) -> f64 {
+    s.move_at(if lo.abs() <= hi.abs() { lo } else { hi })
+}
+
 /// Widens `spans[i]` by `lo..=hi` moved by `shift`.
 fn add_span(spans: &mut [Option<(f64, f64)>], i: usize, (lo, hi): (f64, f64), shift: f64) {
     let (lo, hi) = (lo + shift, hi + shift);
@@ -79,6 +93,11 @@ struct Walk<'a> {
     /// Several occurrences stretched: a refusal in a part names it, even at the top.
     several: bool,
     stretched: Vec<StretchedPart>,
+    /// The occurrences the walk placed, by the assembly (as it is after) holding them.
+    walked: HashSet<(Id, Id)>,
+    /// Per component changed in place, how far its origin moved in its axes: its occurrences
+    /// the walk did not reach move as much (OCL's back translation of extern instances).
+    anchored: HashMap<Id, DVec3>,
 }
 
 impl Document {
@@ -240,11 +259,44 @@ impl Document {
             made: HashMap::new(),
             several: occs.len() > 1,
             stretched: Vec::new(),
+            walked: HashSet::new(),
+            anchored: HashMap::new(),
         };
         before.count_placed(before.root, &mut walk.placed, 0);
         walk.count_occurrences(&occs, stretch, 0);
         self.make_occurrences(&mut walk, at, &occs, stretch, frame, stretch_part, 0)?;
+        self.move_unreached(&walk)?;
         Ok(walk.stretched)
+    }
+
+    /// Moves the occurrences the walk did not reach of each component changed in place by how
+    /// far its origin moved: they show the same change in their own axes.
+    fn move_unreached(&mut self, walk: &Walk<'_>) -> Result<()> {
+        for (c, v) in &walk.anchored {
+            let holders: Vec<(Id, Vec<Id>)> = self
+                .components
+                .values()
+                .filter_map(|x| {
+                    let a = x.as_assembly()?;
+                    let ids: Vec<Id> = a
+                        .occurrences
+                        .iter()
+                        .filter(|o| o.component == *c && !walk.walked.contains(&(x.id, o.id)))
+                        .map(|o| o.id)
+                        .collect();
+                    (!ids.is_empty()).then_some((x.id, ids))
+                })
+                .collect();
+            for (holder, ids) in holders {
+                let a = self.assembly_mut(holder)?;
+                for id in ids {
+                    if let Some(o) = a.occurrence_mut(id) {
+                        o.transform *= DAffine3::from_translation(*v);
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The document as the stretch would leave it, without its geometry: occurrences moved,
@@ -337,20 +389,24 @@ impl Document {
         }
     }
 
-    /// Makes the change of `c` by the stretch `s` (in its axes): in place, or in a copy (module
-    /// doc). Returns the component that holds it, and how far along the axis an occurrence of
-    /// it must move to show `s` — when the change was made by a stretch alike up to a move.
+    /// Makes the change of `c` by the stretch `s` (in its axes, relative to its anchor, which
+    /// moves by `anchor`): in place, or in a copy (module doc). Returns the component that holds
+    /// it, and how far (in its axes) an occurrence of it must move to show `s` — its anchor's
+    /// move, and the rest when the change was made by a stretch alike up to a move.
+    #[allow(clippy::too_many_arguments)]
     fn make(
         &mut self,
         walk: &mut Walk<'_>,
         c: Id,
         s: &Stretch,
+        anchor: f64,
         stretch_part: &mut dyn FnMut(&mut Document, Id, &Stretch) -> Result<()>,
         depth: usize,
-    ) -> Result<(Id, f64)> {
-        let (key, _, first) = walk.before.signature(c, s, depth);
+    ) -> Result<(Id, DVec3)> {
+        let to_anchor = s.axis() * anchor;
+        let (key, axis, first) = walk.before.signature(c, s, depth);
         if let Some((id, made_first)) = walk.made.get(&key) {
-            return Ok((*id, first - made_first));
+            return Ok((*id, to_anchor + axis * (first - made_first)));
         }
         let changes = walk.changes.get(&c).cloned().unwrap_or_default();
         // The change most of the tree's occurrences take (the first met on a tie).
@@ -360,6 +416,9 @@ impl Document {
         let in_place = main.as_ref() == Some(&key) && (walk.scope == Scope::All || !elsewhere);
         let id = if in_place { c } else { self.copy_from(walk.before, c)? };
         walk.made.insert(key, (id, first));
+        if in_place && anchor.abs() > 1e-12 {
+            walk.anchored.insert(c, to_anchor);
+        }
         match &walk.before.component(c)?.kind {
             ComponentKind::Part(_) => {
                 // Below the target, the refusal names the part.
@@ -376,7 +435,7 @@ impl Document {
                 self.stretch_guides(id, s)?;
             }
         }
-        Ok((id, 0.0))
+        Ok((id, to_anchor))
     }
 
     /// Stretches the occurrences `occs` of the assembly `id` (each with its placement in the
@@ -399,13 +458,14 @@ impl Document {
             let (transform, component) = match local.rigid_move(lo, hi) {
                 Some(m) => (*frame * DAffine3::from_translation(s.axis() * m) * *t, o.component),
                 None => {
+                    // The origin follows its anchor; the content moves relative to it.
                     let local = within(&local, lo, hi);
-                    let (child, shift) = self.make(walk, o.component, &local, stretch_part, depth)?;
-                    // Made by a stretch alike up to a move: moved by the rest.
-                    let axis = walk.before.signature(o.component, &local, depth).1;
-                    (o.transform * DAffine3::from_translation(axis * shift), child)
+                    let anchor = anchor_move(&local, lo, hi);
+                    let (child, v) = self.make(walk, o.component, &relative(&local, anchor), anchor, stretch_part, depth)?;
+                    (o.transform * DAffine3::from_translation(v), child)
                 }
             };
+            walk.walked.insert((id, o.id));
             if let Some(occ) = self.assembly_mut(id)?.occurrence_mut(o.id) {
                 (occ.transform, occ.component) = (transform, component);
             }

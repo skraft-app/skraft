@@ -942,26 +942,19 @@ impl eframe::App for SolidSketchApp {
                 card(ui).show(ui, |ui| {
                     // Scrolls only when the window is too narrow for all the buttons.
                     let room = view.right() - margin - 12.0 - tools_left;
-                    egui::ScrollArea::horizontal().max_width(room).min_scrolled_width(room).show(ui, |ui| {
-                        ui.horizontal(|ui| panels::toolbar(ui, &views, &mut actions));
+                    // The buttons and the options, each row centered in the card (the
+                    // wider one sets its width).
+                    centered_row(ui, tools_id.with("buttons_width"), |ui| {
+                        egui::ScrollArea::horizontal().max_width(room).min_scrolled_width(room).show(ui, |ui| {
+                            ui.horizontal(|ui| panels::toolbar(ui, &views, &mut actions));
+                        });
                     });
                     // No option, no bar.
                     if !panels::has_tool_options(&self.editor) {
                         return;
                     }
                     ui.separator();
-                    // Centered under the buttons: egui lays a row out from the left, so the
-                    // row is shifted by half the room it left last frame.
-                    let width_id = tools_id.with("options_width");
-                    let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-                        let used = ui.scope(|ui| panels::tool_options(ui, &self.editor, &mut actions)).response.rect.width();
-                        if used != width {
-                            ui.data_mut(|d| d.insert_temp(width_id, used));
-                            ui.ctx().request_repaint();
-                        }
-                    });
+                    centered_row(ui, tools_id.with("options_width"), |ui| panels::tool_options(ui, &self.editor, &mut actions));
                 });
             })
             .response
@@ -1167,4 +1160,18 @@ mod tests {
             assert!(view_of(id).is_some(), "{id}");
         }
     }
+}
+
+/// A row centered in `ui`: egui lays a row out from the left, so it is shifted by half the room
+/// it left last frame (its width kept under `width_id`).
+fn centered_row(ui: &mut egui::Ui, width_id: egui::Id, add_contents: impl FnOnce(&mut egui::Ui)) {
+    let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
+    ui.horizontal(|ui| {
+        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+        let used = ui.scope(add_contents).response.rect.width();
+        if used != width {
+            ui.data_mut(|d| d.insert_temp(width_id, used));
+            ui.ctx().request_repaint();
+        }
+    });
 }

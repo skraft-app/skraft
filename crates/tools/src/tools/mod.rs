@@ -247,6 +247,8 @@ pub struct OptionChoice {
     pub value: &'static str,
     pub label: String,
     pub tip: String,
+    /// The name of its icon, which the app draws instead of the label (then in the tip).
+    pub icon: Option<&'static str>,
 }
 
 /// An option of the active tool, as the bar shows it.
@@ -262,6 +264,8 @@ pub struct ToolOption {
     /// A setting, kept per tool in the user's preferences (read back in [`Cx::options`]); else
     /// the gesture's own state (copying), which the tool keeps.
     pub saved: bool,
+    /// A toggle's icon, by name, which the app draws instead of the label (then in the tip).
+    pub icon: Option<&'static str>,
 }
 
 /// One tool's saved settings, by option key.

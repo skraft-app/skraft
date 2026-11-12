@@ -493,7 +493,7 @@ impl Tool for MeasureTool {
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
-        let choice = |value, label, tip| OptionChoice { value, label, tip };
+        let choice = |value, label, tip| OptionChoice { value, label, tip, icon: None };
         let shape = match shape_of(cx) {
             Shape::Auto => AUTO,
             Shape::Line => LINE,
@@ -507,6 +507,7 @@ impl Tool for MeasureTool {
                 value: OptionValue::Toggle(guides_on(cx)),
                 choices: Vec::new(),
                 saved: true,
+                icon: None,
             },
             ToolOption {
                 key: SHAPE,
@@ -519,6 +520,7 @@ impl Tool for MeasureTool {
                     choice(CIRCLE, t!("tool.measure.option.circle"), t!("tool.measure.option.circle_tip")),
                 ],
                 saved: true,
+                icon: None,
             },
         ]
     }

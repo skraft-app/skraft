@@ -37,3 +37,30 @@ icon!(VIEWS, "views");
 icon!(SEARCH, "search");
 icon!(SETTINGS, "settings");
 icon!(MATERIALS, "materials");
+
+/// A tool option's icon (assets/icons/options), by the name the tool gives it
+/// ([`solidsketch_tools::OptionChoice::icon`]); none for an unknown name (its label is shown).
+pub fn option(name: &str) -> Option<ImageSource<'static>> {
+    macro_rules! options {
+        ($($file:literal),* $(,)?) => {
+            match name {
+                $($file => Some(egui::include_image!(concat!("../assets/icons/options/", $file, ".svg"))),)*
+                _ => None,
+            }
+        };
+    }
+    options!(
+        "measure_overall",
+        "measure_offset",
+        "axes_active",
+        "axes_context",
+        "axes_entity",
+        "centered",
+        "scope_all",
+        "scope_this",
+        "rectangle_centered",
+        "measure_radius",
+        "measure_diameter",
+        "from_corner",
+    )
+}

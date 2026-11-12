@@ -421,6 +421,12 @@ Decided on 2026-11-09.
     `ToolOption` (key, label — which may depend on what is hovered, "×4" —, tooltip, value,
     choices), `Tool::set_option` receives a change. `tools` stays without an interface: a test
     changes an option like a click does.
+  - **Icons** (2026-11-12): a choice's value or a toggle may name an icon (`icon`, a name the
+    app maps to `assets/icons/options/<name>.svg`, `icons::option`); the bar then draws the
+    icon, its label going into the tip. Drawn after OCL's motifs
+    (`get_action_option_btn_child` of Smart Reshape and Smart Draw): Stretch, Box, Cylinder;
+    the radius and "from a corner" have none in OCL, drawn in the same style. The option's name stays as text
+    before a choice. Both rows of the card (buttons, options) are centered in it.
   - **Two kinds of options**: **settings** (the scope…), remembered per tool in the user
     preferences (`tool_options`), read by the tool from its `Cx`; and the **gesture's state**
     (copy, for Move and Rotate), which the tool holds itself and which is not remembered.
@@ -819,9 +825,15 @@ each occurrence is:
   is not touched — a leg at the end of a frame;
 - **stretched** otherwise: a part has its recipe stretched as above, an assembly has its
   occurrences walked in turn (its guides follow their sections). Each component is stretched
-  in its own axes with the sections' own moves — **no anchor**: an occurrence stretched keeps
-  its placement, and the other occurrences of its component show the same change in their own
-  axes, which OCL gets by moving its extern instances back.
+  in its own axes, **its origin following its anchor** (changed 2026-11-12, after OCL; it was
+  "no anchor" before): the anchor is the section holding the end of its extent nearest its
+  origin along the axis (OCL's `section_def` of a `SPLIT` container: the nearest end, not the
+  section holding the origin — they differ only for an origin within the matter, in a middle
+  section). The occurrence moves as its anchor, its content by the sections' moves less the
+  anchor's (`relative`, OCL's `edv -= container_edv`), and below, each component relative to
+  its own. A component changed in place moves its occurrences the walk does not reach as much,
+  in their own axes (`move_unreached`, OCL's back translation of extern instances): on screen
+  nothing differs from no anchor, only where the part's axes end up in its matter.
 - **What a component becomes** is what the stretch does to each of its pieces (OCL's md5 of
   section deltas): the move of each vertex, of each end of each edge's and face's extent
   (`Stretch::piece_moves`), of its machinings' tools, of each occurrence moved whole, of each
@@ -1040,9 +1052,10 @@ Drawing                1 instanced draw per definition, with the N world matrice
 - A definition's buffer only holds its **direct solids**; its subgroups have their own, drawn
   with the composed transformations.
 - **Highlight**: a selected solid is selected along a path (a single occurrence); it is drawn
-  again on top with its index range and that occurrence's matrix. A selected **assembly** also
-  shows the bounding box of its content, in its own axes, dashed in the selection's colour and
-  depth-tested (`View::selection_boxes`); it follows the move tool's ghost. The assembly being
+  again on top with its index range and that occurrence's matrix. A selected occurrence (**part
+  or assembly**) also shows the bounding box of its content, in its own axes, dashed in the
+  selection's colour and depth-tested (`View::selection_boxes`); it follows the move tool's
+  ghost, and is not drawn with the stretch tool (which draws its own box). The assembly being
   edited shows the same box in grey, grown by a few pixels (`View::context_box`).
 - **Coincident faces** (decided on 2026-11-11): picking takes the nearest hit, but hits within
   `tie_tolerance` along the ray (1 µm + 1 ppm of the distance) are a tie, broken in a fixed

@@ -108,19 +108,31 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                 OptionValue::Choice(current) => {
                     ui.label(t!("option_bar.choice", option = o.label)).on_hover_text(&o.tip);
                     for c in &o.choices {
-                        if ui.selectable_label(current == c.value, &c.label).on_hover_text(&c.tip).clicked() && current != c.value {
+                        if option_button(ui, current == c.value, &c.label, &c.tip, c.icon) && current != c.value {
                             actions.push(Action::ToolOption(o.key, OptionValue::Choice(c.value.to_owned())));
                         }
                     }
                 }
                 OptionValue::Toggle(on) => {
-                    if ui.selectable_label(*on, &o.label).on_hover_text(&o.tip).clicked() {
+                    if option_button(ui, *on, &o.label, &o.tip, o.icon) {
                         actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
                     }
                 }
             }
         }
     });
+}
+
+/// A value of a choice, or a toggle, in the option bar: its icon if it has one (its label then
+/// in the tip), else its label. True when clicked.
+fn option_button(ui: &mut egui::Ui, selected: bool, label: &str, tip: &str, icon: Option<&str>) -> bool {
+    let Some(icon) = icon.and_then(icons::option) else {
+        return ui.selectable_label(selected, label).on_hover_text(tip).clicked();
+    };
+    let tint = ui.visuals().text_color();
+    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(18.0, 18.0)).tint(tint);
+    let tip = t!("option_bar.icon_tip", label = label, tip = tip);
+    ui.add(egui::Button::image(img).selected(selected).min_size(egui::vec2(24.0, 24.0))).on_hover_text(tip).clicked()
 }
 
 pub fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, selected: bool, enabled: bool, tip: &str) -> bool {

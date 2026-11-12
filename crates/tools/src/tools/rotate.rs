@@ -271,6 +271,7 @@ impl Tool for RotateTool {
             value: OptionValue::Toggle(self.copy),
             choices: Vec::new(),
             saved: false,
+            icon: None,
         }]
     }
 

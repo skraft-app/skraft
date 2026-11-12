@@ -723,13 +723,15 @@ fn groups_enter_fade_exit() {
 }
 
 #[test]
-fn a_selected_assembly_shows_its_content_box() {
+fn a_selection_shows_its_content_box() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
     let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 200.0, 0.0), "80");
-    // A part alone: no box.
+    // A part alone: its box too.
     e.select(vec![a]);
-    assert!(e.view().selection_boxes.is_empty());
+    let segs = e.view().selection_boxes;
+    let (lo, hi) = segs.iter().flat_map(|(a, b)| [*a, *b]).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(100.0, 100.0, 50.0)), "{lo} {hi}");
     e.select(vec![a, b]);
     e.make_assembly();
     let segs = e.view().selection_boxes;
@@ -737,6 +739,11 @@ fn a_selected_assembly_shows_its_content_box() {
     // Dashed, the box spans the content's bounds exactly.
     let (lo, hi) = segs.iter().flat_map(|(a, b)| [*a, *b]).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(400.0, 200.0, 80.0)), "{lo} {hi}");
+    // The stretch tool draws its own box: the selection's is not drawn.
+    e.set_tool(ToolKind::Stretch);
+    assert!(e.view().selection_boxes.is_empty());
+    e.set_tool(ToolKind::Select);
+    assert!(!e.view().selection_boxes.is_empty());
     e.select(vec![]);
     assert!(e.view().selection_boxes.is_empty());
     assert!(e.view().context_box.is_empty());
@@ -2178,7 +2185,9 @@ fn stretch_tool_pulls_a_grip() {
     e.input(ToolInput::Vcb("100".into()));
     assert!(e.status().contains("longueur minimale"), "{}", e.status());
     e.input(ToolInput::Vcb("900".into()));
-    assert_eq!(stretched(&e, a), ((-100.0, 800.0), vec![0.0, 150.0, 700.0]));
+    // The origin's end moved by −100: the origin follows it (OCL's anchor), the part's axes
+    // with it — in the world, the board spans −100..800, its holes at 0, 150, 700.
+    assert_eq!(stretched(&e, a), ((0.0, 900.0), vec![100.0, 250.0, 800.0]));
 
     // A cutter added (copy modifier held) at 100: the hole at 150 then takes half the move.
     e.set_tool_option("centered", OptionValue::Toggle(false));
@@ -2187,10 +2196,10 @@ fn stretch_tool_pulls_a_grip() {
     e.set_copy(false);
     click(&mut e, DVec3::new(800.0, 150.0, 18.0));
     e.input(ToolInput::Vcb("1000".into()));
-    assert_eq!(stretched(&e, a), ((-100.0, 900.0), vec![0.0, 200.0, 800.0]));
+    assert_eq!(stretched(&e, a), ((0.0, 1000.0), vec![100.0, 300.0, 900.0]));
     // One undo step each.
     e.undo();
-    assert_eq!(stretched(&e, a), ((-100.0, 800.0), vec![0.0, 150.0, 700.0]));
+    assert_eq!(stretched(&e, a), ((0.0, 900.0), vec![100.0, 250.0, 800.0]));
 }
 
 #[test]

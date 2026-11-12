@@ -383,6 +383,15 @@ fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
     return vec4<f32>(mix(g.background.rgb, in.color.rgb, in.color.a), 1.0);
 }
 
+// The overlay's lines: blended over what is drawn under them (their alpha is a true opacity).
+@fragment
+fn fs_overlay(in: LineOut) -> @location(0) vec4<f32> {
+    if (in.period > 0.0 && fract(in.along / in.period) >= 0.5) {
+        discard;
+    }
+    return in.color;
+}
+
 // ---- translucent fills (a tool's planes, in the scene: depth tested, blended) ------------------
 
 struct FillOut {

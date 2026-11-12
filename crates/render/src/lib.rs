@@ -109,8 +109,8 @@ pub struct Highlight {
     pub material: u32,
 }
 
-/// A world-space segment, coloured (`rgb` linear, `a` mixed over the background), plain or
-/// dashed, `width` points wide.
+/// A world-space segment, coloured (`rgb` linear; `a` mixed over the background, or, in the
+/// overlay, its opacity over what is drawn under it), plain or dashed, `width` points wide.
 #[derive(Clone, Copy, Debug)]
 pub struct Line {
     pub a: DVec3,
@@ -204,7 +204,7 @@ pub struct Frame<'a> {
     pub highlights: &'a [Highlight],
     /// Depth-tested lines (inferences, guides).
     pub lines: &'a [Line],
-    /// Lines drawn over everything (tool previews).
+    /// Lines drawn over everything (tool previews), blended at their alpha.
     pub overlay: &'a [Line],
     /// Translucent polygons, depth tested (tool previews).
     pub fills: &'a [Fill],
@@ -642,11 +642,11 @@ impl Renderer {
         let overlay = blended(
             "overlay",
             "vs_line",
-            "fs_line",
+            "fs_overlay",
             &[Some(line_layout)],
             depth(false, wgpu::CompareFunction::Always, Default::default()),
             all,
-            None,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
             unclipped,
         );
         let fill_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
