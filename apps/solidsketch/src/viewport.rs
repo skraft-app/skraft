@@ -382,8 +382,7 @@ impl Viewport {
             width: if l.bold { render::BOLD_WIDTH } else { render::LINE_WIDTH },
             ..plain(l.a, l.b, l.color)
         };
-        let overlay: Vec<render::Line> =
-            (view.overlay.iter().map(preview)).chain(view.overlay_guides.iter().map(|(s, c)| dashed(s, *c))).collect();
+        let overlay: Vec<render::Line> = view.overlay.iter().map(preview).collect();
         // An open part always shows its axes (ARCHITECTURE.md §2.9).
         let axes = display.axes || editor.open_part().is_some();
         let axis_lines = view.axes.iter().zip([render::AXIS_X, render::AXIS_Y, render::AXIS_Z]).flat_map(|(halves, c)| {
@@ -396,6 +395,8 @@ impl Viewport {
             .chain(view.hovered_guides.iter().map(|s| dashed(s, theme.hover.edge)))
             .chain(view.selected_guides.iter().map(|s| dashed(s, theme.selected.edge)))
             .chain(view.scene_lines.iter().map(preview))
+            // The guides a tool previews: in the scene, as the document's.
+            .chain(view.preview_guides.iter().map(|(s, c)| dashed(s, *c)))
             .collect();
         let fills: Vec<render::Fill> = view.fills.iter().map(|f| render::Fill { corners: f.corners.clone(), color: f.color }).collect();
 

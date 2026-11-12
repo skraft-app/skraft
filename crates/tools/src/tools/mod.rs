@@ -164,7 +164,8 @@ pub struct Preview {
     pub lines: Vec<PreviewLine>,
     /// Lines drawn in the scene: hidden behind faces (the outlines of the fills).
     pub scene_lines: Vec<PreviewLine>,
-    /// Guides previewed (drawn dashed over everything), with their colour.
+    /// Guides previewed, with their colour: drawn dashed in the scene, hidden behind faces as
+    /// the document's guides.
     pub guides: Vec<(crate::guides::Stroke, [f32; 4])>,
     /// Lengths written over the scene.
     pub labels: Vec<PreviewLabel>,

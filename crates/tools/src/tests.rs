@@ -2089,8 +2089,8 @@ fn the_tape_draws_a_guide_from_an_axis() {
     // On the red axis, in the void: a guide along it, offset level.
     click(&mut e, DVec3::new(-300.0, 4.0, 0.0));
     hover(&mut e, DVec3::new(-300.0, 150.0, 0.0));
-    // The axis referred to, across the view.
-    let refs: Vec<_> = e.preview().lines.into_iter().filter(|l| l.color == crate::tools::MAGENTA).collect();
+    // The axis referred to, across the view: in the scene, in its colour.
+    let refs: Vec<_> = e.preview().scene_lines.into_iter().filter(|l| l.color == crate::tools::RED).collect();
     let [r] = refs[..] else { panic!("{refs:?}") };
     assert!(r.a.y.abs() < 1e-6 && r.b.y.abs() < 1e-6 && (r.b - r.a).cross(DVec3::X).length() < 1e-6 * (r.b - r.a).length(), "{r:?}");
     e.input(ToolInput::Vcb("100".into()));

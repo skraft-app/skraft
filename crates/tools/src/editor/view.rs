@@ -91,8 +91,9 @@ pub struct View {
     pub selected_guides: Vec<Stroke>,
     /// The guide under the cursor, or those the selection rectangle would take.
     pub hovered_guides: Vec<Stroke>,
-    /// The guides a tool previews, drawn over everything, with their colour.
-    pub overlay_guides: Vec<(Stroke, [f32; 4])>,
+    /// The guides a tool previews, with their colour (drawn dashed and depth-tested, as the
+    /// document's).
+    pub preview_guides: Vec<(Stroke, [f32; 4])>,
     /// The axes of the context (its frame's), as far as the view shows them: per axis, its
     /// positive half and its negative half (world segments, `None` out of view). The app draws
     /// them when they are shown.
@@ -467,7 +468,7 @@ impl Editor {
         v.overlay = preview.lines;
         v.scene_lines = preview.scene_lines;
         v.fills = preview.fills;
-        v.overlay_guides = preview.guides;
+        v.preview_guides = preview.guides;
         // The axes, across the view.
         let frame = self.axes_transform();
         for (k, halves) in v.axes.iter_mut().enumerate() {

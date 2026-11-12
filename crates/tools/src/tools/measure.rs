@@ -401,8 +401,8 @@ impl Tool for MeasureTool {
         let mut marks = Vec::new();
         let inference = self.hover.clone();
         let Some(p) = inference.as_ref().map(|i| i.point) else { return Preview::default() };
-        // The curve the guide refers to, in magenta: the one picked; before the first click, at
-        // a point where several cross, the one it would take.
+        // The curve the guide refers to, in magenta (an axis in its colour): the one picked;
+        // before the first click, at a point where several cross, the one it would take.
         // As drawn: an edge (bolder), a guide (its dashes where they are), an axis.
         let reference = match (&self.first, &inference) {
             (Some(_), _) if self.state != State::Idle => self.starts.get(self.pick).and_then(|s| s.0.clone()),
@@ -412,6 +412,7 @@ impl Tool for MeasureTool {
             }
             _ => None,
         };
+        let mut scene_lines = Vec::new();
         match reference.map(|(_, c)| c) {
             Some(Curve::Segment(a, b)) => lines.push(PreviewLine { a, b, color: MAGENTA, bold: true }),
             Some(Curve::Arc(points)) => {
@@ -420,10 +421,11 @@ impl Tool for MeasureTool {
             Some(Curve::Guide(shape)) => {
                 guide_strokes.extend(guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, MAGENTA)));
             }
+            // An axis: bolder, in its own colour, in the scene (hidden behind faces as drawn).
             Some(Curve::Axis { origin, dir }) => {
                 let range = (f64::NEG_INFINITY, f64::INFINITY);
                 if let Some((a, b)) = guides::visible_line(cx.camera, cx.size, origin, dir, range) {
-                    lines.push(PreviewLine { a, b, color: MAGENTA, bold: false });
+                    scene_lines.push(PreviewLine { a, b, color: axis_color(cx, dir), bold: true });
                 }
             }
             None => {}
@@ -453,7 +455,7 @@ impl Tool for MeasureTool {
                 marks.push(at);
             }
         }
-        Preview { lines, guides: guide_strokes, labels, marks, inference, ..Default::default() }
+        Preview { lines, scene_lines, guides: guide_strokes, labels, marks, inference, ..Default::default() }
     }
 
     fn status(&self) -> String {
