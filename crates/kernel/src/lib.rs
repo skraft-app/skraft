@@ -23,6 +23,7 @@ use solidsketch_i18n::t;
 #[cfg(feature = "engine")]
 mod engine;
 mod job;
+mod polyhedron;
 mod snaps;
 mod stretch;
 
@@ -31,6 +32,7 @@ pub use engine::Threaded;
 #[cfg(feature = "engine")]
 pub use engine::{Inline, run};
 pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task, Waker, decode, encode};
+pub use polyhedron::{PolyFace, Polyhedron};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
 pub use stretch::{Stretch, StretchError};
 

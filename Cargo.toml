@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/i18n", "crates/theme", "crates/kernel", "crates/model", "crates/render", "crates/tools", "apps/solidsketch", "apps/kernel-worker"]
+members = ["crates/i18n", "crates/theme", "crates/kernel", "crates/model", "crates/render", "crates/tools", "apps/solidsketch", "apps/kernel-worker", "apps/import"]
 
 [workspace.package]
 version = "0.1.0"
@@ -25,6 +25,10 @@ solidcore = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d
 solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
 solidcore-convert = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
 solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
+# SolidCore's STEP reader and B-rep builder, from the same revision: its neutral body model
+# builds the planar-faced solids of an import (crates/kernel, `Solid::from_polyhedron`).
+step-import = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
+step-brep = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
 
 glam = { version = "0.30", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }

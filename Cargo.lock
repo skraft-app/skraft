@@ -2781,6 +2781,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "solidsketch-import"
+version = "0.1.0"
+dependencies = [
+ "solidsketch-kernel",
+ "solidsketch-model",
+]
+
+[[package]]
 name = "solidsketch-kernel"
 version = "0.1.0"
 dependencies = [
@@ -2793,6 +2801,8 @@ dependencies = [
  "solidcore-record",
  "solidcore-tess",
  "solidsketch-i18n",
+ "step-brep",
+ "step-import",
 ]
 
 [[package]]
@@ -2879,6 +2889,20 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "step-brep"
+version = "0.1.0"
+source = "git+https://github.com/tangency-labs/solidcore?rev=e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6#e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6"
+dependencies = [
+ "solidcore",
+ "step-import",
+]
+
+[[package]]
+name = "step-import"
+version = "0.1.0"
+source = "git+https://github.com/tangency-labs/solidcore?rev=e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6#e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6"
 
 [[package]]
 name = "strict-num"
