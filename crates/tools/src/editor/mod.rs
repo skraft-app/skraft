@@ -664,9 +664,11 @@ impl Editor {
                     meshes.push(crate::scene::DefinitionMesh { definition: key, revision: self.preview_revision, parts, faces });
                     keys.insert(sp.part, key);
                 }
-                // Each occurrence drawn otherwise: stretched, moved, or both.
-                for placed in sketch.placed_parts() {
-                    let Ok((part, _, t)) = doc.resolve_part(&placed.path) else { continue };
+                // Each occurrence drawn otherwise: stretched, moved, or both — only those the
+                // sketch changed are visited (a large model mostly shared, untouched).
+                // The parts stretched are not in the sketch (meshed here): named as changed.
+                let touched: Vec<Id> = stretched.iter().map(|sp| sp.part).collect();
+                for (placed, part, t) in sketch.placed_changes(&doc, &touched) {
                     let key = keys.get(&placed.part).copied().unwrap_or(placed.part);
                     if key != part || !t.abs_diff_eq(placed.transform, 1e-9) {
                         swaps.insert(placed.path, (key, placed.transform));

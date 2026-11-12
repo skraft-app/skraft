@@ -25,6 +25,7 @@ use glam::{DAffine3, DVec3};
 use solidsketch_kernel::{Display, Mesh, Snaps, Solid};
 use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Occurrence, Section};
 
+use crate::bvh::{Aabb, Bvh, ray_box_entry};
 use crate::camera::Ray;
 
 /// One part's display mesh with its bounds (in the part's axes).
@@ -201,6 +202,39 @@ pub struct DisplayScene {
     recipe: Option<RecipeMeshes>,
     recipe_places: Vec<(Placement, Id, Piece)>,
     guides: Vec<SceneGuide>,
+    /// The placed meshes, indexed for picking and regions.
+    index: SceneIndex,
+}
+
+/// One part mesh at one placement ([`DisplayScene::parts`] yields them in this order).
+#[derive(Clone, Copy, Debug)]
+struct Entry {
+    def: Id,
+    /// Its placement, in `placements[def]`.
+    place: u32,
+    /// Its mesh, in `definitions[def].parts`.
+    part: u32,
+    /// World (none for an empty mesh).
+    bounds: Option<Aabb>,
+}
+
+/// The best hit so far, with what breaks a tie with it: does the ray enter the solid there,
+/// the volume of the solid's box, its place in the scene's order.
+struct Best {
+    hit: Hit,
+    entering: bool,
+    volume: f64,
+    rank: usize,
+}
+
+/// What a ray or a region meets without testing every placement (rebuilt by each
+/// [`DisplayScene::sync`]): the entries in the scene's order, the same sorted by path (an
+/// occurrence's parts, at any depth, form a run), and a hierarchy of their world boxes.
+#[derive(Default)]
+struct SceneIndex {
+    entries: Vec<Entry>,
+    by_path: Vec<u32>,
+    bvh: Bvh,
 }
 
 impl DisplayScene {
@@ -281,16 +315,115 @@ impl DisplayScene {
             }
         }
 
-        self.bounds = None;
+        self.reindex();
+    }
+
+    /// The index of what `placements` places (and the scene's bounds, from the same boxes).
+    fn reindex(&mut self) {
+        let mut entries = Vec::with_capacity(self.index.entries.len());
+        let mut paths: Vec<(&[Id], u32)> = Vec::with_capacity(self.index.entries.len());
         for (def, places) in &self.placements {
             let Some(dm) = self.definitions.get(def) else { continue };
-            for part in &dm.parts {
-                let Some(b) = part.bounds else { continue };
-                for p in places {
-                    self.bounds = Some(union(self.bounds, transform_bounds(&p.transform, b)));
+            for (place, p) in places.iter().enumerate() {
+                for (part, m) in dm.parts.iter().enumerate() {
+                    let bounds = m.bounds.map(|b| transform_bounds(&p.transform, b));
+                    paths.push((&p.path, entries.len() as u32));
+                    entries.push(Entry { def: *def, place: place as u32, part: part as u32, bounds });
                 }
             }
         }
+        paths.sort_unstable();
+        let by_path = paths.into_iter().map(|(_, i)| i).collect();
+        self.bounds = entries.iter().filter_map(|e| e.bounds).reduce(|a, b| union(Some(a), b));
+        let bvh = Bvh::build(entries.iter().enumerate().filter_map(|(i, e)| e.bounds.map(|b| (i as u32, b))));
+        self.index = SceneIndex { entries, by_path, bvh };
+    }
+
+    /// An entry's placement and mesh.
+    fn entry(&self, i: u32) -> (&Placement, &PartMesh) {
+        let e = &self.index.entries[i as usize];
+        (&self.placements[&e.def][e.place as usize], &self.definitions[&e.def].parts[e.part as usize])
+    }
+
+    /// The entries placed at `chain` or below it (an occurrence's path, root first), in the
+    /// scene's order.
+    fn entries_under(&self, chain: &[Id]) -> &[u32] {
+        let path = |i: &u32| {
+            let e = &self.index.entries[*i as usize];
+            self.placements[&e.def][e.place as usize].path.as_slice()
+        };
+        let by = &self.index.by_path;
+        let start = by.partition_point(|i| path(i) < chain);
+        let len = by[start..].partition_point(|i| path(i).starts_with(chain));
+        &by[start..start + len]
+    }
+
+    /// The open occurrence whose shape the recipe stands in for, inferences-wise.
+    fn recipe_open(&self) -> Option<&[Id]> {
+        self.recipe_places.first().map(|(p, _, _)| p.path.as_slice())
+    }
+
+    /// The recipe's pieces placed, with their meshes.
+    fn recipe_pieces(&self) -> impl Iterator<Item = (&Placement, &PartMesh, Piece)> {
+        self.recipe_places
+            .iter()
+            .filter_map(|(p, key, piece)| self.definitions.get(key).and_then(|d| d.parts.first()).map(|m| (p, m, *piece)))
+    }
+
+    /// The geometry inferences see ([`DisplayScene::inferable`]) whose world box `accept`s, in
+    /// the same order: `accept` must hold of a box whenever it holds of one inside it.
+    pub fn inferable_where(&self, accept: impl Fn(&(DVec3, DVec3)) -> bool) -> Vec<(&Placement, &PartMesh, Piece)> {
+        let open = self.recipe_open();
+        let mut hits = Vec::new();
+        self.index.bvh.visit(&accept, |i| {
+            if self.index.entries[i as usize].bounds.as_ref().is_some_and(&accept) {
+                hits.push(i);
+            }
+        });
+        hits.sort_unstable();
+        let shapes = hits.into_iter().map(|i| self.entry(i)).filter(|(p, _)| open != Some(p.path.as_slice())).map(|(p, m)| (p, m, Piece::Shape));
+        let recipe = self.recipe_pieces().filter(|(p, m, _)| m.bounds.is_some_and(|b| accept(&transform_bounds(&p.transform, b))));
+        shapes.chain(recipe).collect()
+    }
+
+    /// Every part drawn whose world box `accept`s, as [`DisplayScene::parts`] yields them,
+    /// with its rank there: `accept` must hold of a box whenever it holds of one inside it.
+    pub fn parts_where(&self, accept: impl Fn(&(DVec3, DVec3)) -> bool) -> Vec<(usize, &Placement, &PartMesh)> {
+        let mut hits = Vec::new();
+        self.index.bvh.visit(&accept, |i| {
+            if self.index.entries[i as usize].bounds.as_ref().is_some_and(&accept) {
+                hits.push(i);
+            }
+        });
+        hits.sort_unstable();
+        hits.into_iter()
+            .map(|i| {
+                let (p, m) = self.entry(i);
+                (i as usize, p, m)
+            })
+            .collect()
+    }
+
+    /// How many parts are drawn at `chain` or below (an occurrence's path, root first), and
+    /// the first one's rank in [`DisplayScene::parts`].
+    pub fn parts_under(&self, chain: &[Id]) -> (usize, Option<usize>) {
+        let under = self.entries_under(chain);
+        (under.len(), under.iter().min().map(|i| *i as usize))
+    }
+
+    /// The geometry inferences see on the occurrence `path` (its shape's meshes, or the
+    /// recipe's while it is the open one).
+    pub fn inferable_of(&self, path: &EntityPath) -> Vec<(&Placement, &PartMesh, Piece)> {
+        let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
+        if self.recipe_open() == Some(chain.as_slice()) {
+            return self.recipe_pieces().collect();
+        }
+        self.entries_under(&chain)
+            .iter()
+            .map(|i| self.entry(*i))
+            .filter(|(p, _)| p.path == chain)
+            .map(|(p, m)| (p, m, Piece::Shape))
+            .collect()
     }
 
     /// The mesh of `solid` under the key `key` (a part, or a recipe's solid): cached, or a
@@ -339,19 +472,14 @@ impl DisplayScene {
     /// The geometry inferences see, once per occurrence: every shape, but the open part's
     /// while its recipe is shown — its blank and its tools instead.
     pub fn inferable(&self) -> impl Iterator<Item = (&Placement, &PartMesh, Piece)> {
-        let open = self.recipe_places.first().map(|(p, _, _)| p.path.clone());
-        let shapes = self.parts().filter(move |(p, _)| open.as_ref() != Some(&p.path)).map(|(p, m)| (p, m, Piece::Shape));
-        let recipe = self
-            .recipe_places
-            .iter()
-            .filter_map(|(p, key, piece)| self.definitions.get(key).and_then(|d| d.parts.first()).map(|m| (p, m, *piece)));
-        shapes.chain(recipe)
+        let open = self.recipe_open();
+        let shapes = self.parts().filter(move |(p, _)| open != Some(p.path.as_slice())).map(|(p, m)| (p, m, Piece::Shape));
+        shapes.chain(self.recipe_pieces())
     }
 
     /// The mesh a hit of [`DisplayScene::pick_inferable`] is on, and its placement.
     pub fn inferable_at(&self, hit: &Hit) -> Option<(DAffine3, &PartMesh)> {
-        let chain: Vec<Id> = hit.path.instances.iter().copied().chain([hit.path.entity]).collect();
-        self.inferable().find(|(p, _, piece)| p.path == chain && *piece == hit.piece).map(|(p, m, _)| (p.transform, m))
+        self.inferable_of(&hit.path).into_iter().find(|(_, _, piece)| *piece == hit.piece).map(|(p, m, _)| (p.transform, m))
     }
 
     /// The recipe shown, as meshed.
@@ -434,73 +562,118 @@ impl DisplayScene {
 
     /// The occurrence `path` names: its part-to-world transform and its mesh.
     pub fn part_at(&self, path: &EntityPath) -> Option<(DAffine3, &PartMesh)> {
-        self.parts()
-            .find(|(p, _)| p.path.split_last().is_some_and(|(last, rest)| *last == path.entity && rest == path.instances))
-            .map(|(p, part)| (p.transform, part))
+        let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
+        self.entries_under(&chain).iter().map(|i| self.entry(*i)).find(|(p, _)| p.path == chain).map(|(p, part)| (p.transform, part))
     }
 
     /// The nearest shape along `ray`, among those `keep` accepts.
     pub fn pick(&self, ray: &Ray, keep: impl Fn(&EntityPath) -> bool) -> Option<Hit> {
-        self.pick_among(ray, self.parts().map(|(p, m)| (p, m, Piece::Shape)), |o| keep(o.path))
+        self.pick_among(ray, false, |o| keep(o.path))
     }
 
     /// The nearest geometry inferences see along `ray` ([`DisplayScene::inferable`]), among
     /// what `keep` accepts.
     pub fn pick_inferable(&self, ray: &Ray, keep: impl Fn(&Owner<'_>) -> bool) -> Option<Hit> {
-        self.pick_among(ray, self.inferable(), keep)
+        self.pick_among(ray, true, keep)
     }
 
-    fn pick_among<'s>(
-        &'s self,
-        ray: &Ray,
-        items: impl Iterator<Item = (&'s Placement, &'s PartMesh, Piece)>,
-        keep: impl Fn(&Owner<'_>) -> bool,
-    ) -> Option<Hit> {
-        // The best hit, with what breaks a tie with it: does the ray enter the solid there,
-        // and the volume of the solid's box.
-        let mut best: Option<(Hit, bool, f64)> = None;
-        for (p, part, piece) in items {
-            let Some(b) = part.bounds else { continue };
-            let inv = p.transform.inverse();
-            let o = inv.transform_point3(ray.origin);
-            let d = inv.transform_vector3(ray.dir);
-            if !ray_box(o, d, b, ray.t_min) {
-                continue;
+    /// The nearest of the shapes (`inferable`: what inferences see instead) along `ray`: the
+    /// index's boxes nearest first, those beyond the best hit left out.
+    fn pick_among(&self, ray: &Ray, inferable: bool, keep: impl Fn(&Owner<'_>) -> bool) -> Option<Hit> {
+        let mut best: Option<Best> = None;
+        // The recipe's pieces come after every shape in the scene's order.
+        if inferable {
+            let after = self.index.entries.len();
+            for (k, (p, part, piece)) in self.recipe_pieces().enumerate() {
+                self.try_hit(ray, p, part, piece, after + k, &keep, &mut best);
             }
-            let path = p.entity_path();
-            if !keep(&Owner { path: &path, piece }) {
-                continue;
-            }
-            // The section, in the part's axes (placements are rigid).
-            let clip = self.section.map(|s| (inv.transform_point3(s.origin), inv.transform_vector3(s.normal)));
-            let Some((t, tri, n_local)) = ray_mesh(o, d, &part.mesh, ray.t_min, clip) else { continue };
-            // t is in units of the local direction: re-measure it in the world.
-            let point = p.transform.transform_point3(o + d * t);
-            let world_t = (point - ray.origin).dot(ray.dir);
-            let entering = n_local.dot(d) < 0.0;
-            let volume = (b.1 - b.0).max(DVec3::ZERO).element_product();
-            if best.as_ref().is_some_and(|(b, b_entering, b_volume)| {
-                if (world_t - b.t).abs() > tie_tolerance(b.t) {
-                    return b.t < world_t;
-                }
-                // Coincident faces: the solid the ray enters, rather than one it leaves (seen
-                // through a section, from inside), then the smaller one, then the scene order.
-                match (entering, *b_entering) {
-                    (true, false) => false,
-                    (false, true) => true,
-                    _ => *b_volume <= volume,
-                }
-            }) {
-                continue;
-            }
-            let mut normal = p.transform.matrix3.inverse().transpose().mul_vec3(n_local).normalize_or_zero();
-            if normal.dot(ray.dir) > 0.0 {
-                normal = -normal;
-            }
-            let face = part.mesh.tri_face.get(tri).copied().unwrap_or(0);
-            best = Some((Hit { path, piece, face, point, normal, t: world_t }, entering, volume));
         }
-        best.map(|(hit, _, _)| hit)
+        let open = if inferable { self.recipe_open() } else { None };
+        self.index.bvh.along_ray(ray.origin, ray.dir, ray.t_min, |i| {
+            let (p, part) = self.entry(i);
+            if open != Some(p.path.as_slice()) {
+                self.try_hit(ray, p, part, Piece::Shape, i as usize, &keep, &mut best);
+            }
+            // A hit further than the best one by more than a tie never wins.
+            best.as_ref().map_or(f64::INFINITY, |b| b.hit.t + tie_tolerance(b.hit.t))
+        });
+        best.map(|b| b.hit)
+    }
+
+    /// [`DisplayScene::pick`] (`inferable`: [`DisplayScene::pick_inferable`]) testing every
+    /// placed mesh, as the index must find.
+    #[cfg(test)]
+    pub(crate) fn pick_by_scan(&self, ray: &Ray, inferable: bool) -> Option<Hit> {
+        let mut best: Option<Best> = None;
+        let open = if inferable { self.recipe_open() } else { None };
+        let keep = |_: &Owner<'_>| true;
+        for i in 0..self.index.entries.len() as u32 {
+            let (p, part) = self.entry(i);
+            if open != Some(p.path.as_slice()) {
+                self.try_hit(ray, p, part, Piece::Shape, i as usize, &keep, &mut best);
+            }
+        }
+        if inferable {
+            let after = self.index.entries.len();
+            for (k, (p, part, piece)) in self.recipe_pieces().enumerate() {
+                self.try_hit(ray, p, part, piece, after + k, &keep, &mut best);
+            }
+        }
+        best.map(|b| b.hit)
+    }
+
+    /// `ray` against one placed mesh (`rank`: its place in the scene's order): kept in `best`
+    /// when it hits nearer, or as near and better.
+    #[allow(clippy::too_many_arguments)]
+    fn try_hit(
+        &self,
+        ray: &Ray,
+        p: &Placement,
+        part: &PartMesh,
+        piece: Piece,
+        rank: usize,
+        keep: &impl Fn(&Owner<'_>) -> bool,
+        best: &mut Option<Best>,
+    ) {
+        let Some(b) = part.bounds else { return };
+        let inv = p.transform.inverse();
+        let o = inv.transform_point3(ray.origin);
+        let d = inv.transform_vector3(ray.dir);
+        if !ray_box(o, d, b, ray.t_min) {
+            return;
+        }
+        let path = p.entity_path();
+        if !keep(&Owner { path: &path, piece }) {
+            return;
+        }
+        // The section, in the part's axes (placements are rigid).
+        let clip = self.section.map(|s| (inv.transform_point3(s.origin), inv.transform_vector3(s.normal)));
+        let Some((t, tri, n_local)) = ray_mesh(o, d, &part.mesh, ray.t_min, clip) else { return };
+        // t is in units of the local direction: re-measure it in the world.
+        let point = p.transform.transform_point3(o + d * t);
+        let world_t = (point - ray.origin).dot(ray.dir);
+        let entering = n_local.dot(d) < 0.0;
+        let volume = (b.1 - b.0).max(DVec3::ZERO).element_product();
+        if best.as_ref().is_some_and(|b| {
+            if (world_t - b.hit.t).abs() > tie_tolerance(b.hit.t) {
+                return b.hit.t < world_t;
+            }
+            // Coincident faces: the solid the ray enters, rather than one it leaves (seen
+            // through a section, from inside), then the smaller one, then the scene order.
+            match (entering, b.entering) {
+                (true, false) => false,
+                (false, true) => true,
+                _ => (b.volume, b.rank) <= (volume, rank),
+            }
+        }) {
+            return;
+        }
+        let mut normal = p.transform.matrix3.inverse().transpose().mul_vec3(n_local).normalize_or_zero();
+        if normal.dot(ray.dir) > 0.0 {
+            normal = -normal;
+        }
+        let face = part.mesh.tri_face.get(tri).copied().unwrap_or(0);
+        *best = Some(Best { hit: Hit { path, piece, face, point, normal, t: world_t }, entering, volume, rank });
     }
 }
 
@@ -626,25 +799,8 @@ pub(crate) fn transform_bounds(t: &DAffine3, (lo, hi): (DVec3, DVec3)) -> (DVec3
 }
 
 /// Does the ray `o + t·d` (t ≥ t_min) cross the box (slab test, slightly padded)?
-pub(crate) fn ray_box(o: DVec3, d: DVec3, (lo, hi): (DVec3, DVec3), t_min: f64) -> bool {
-    let pad = ((hi - lo).length() * 1e-6).max(1e-9);
-    let (lo, hi) = (lo - pad, hi + pad);
-    let (mut t0, mut t1) = (t_min, f64::INFINITY);
-    for k in 0..3 {
-        if d[k].abs() < 1e-300 {
-            if o[k] < lo[k] || o[k] > hi[k] {
-                return false;
-            }
-            continue;
-        }
-        let (a, b) = ((lo[k] - o[k]) / d[k], (hi[k] - o[k]) / d[k]);
-        t0 = t0.max(a.min(b));
-        t1 = t1.min(a.max(b));
-        if t0 > t1 {
-            return false;
-        }
-    }
-    true
+pub(crate) fn ray_box(o: DVec3, d: DVec3, b: (DVec3, DVec3), t_min: f64) -> bool {
+    ray_box_entry(o, d, &b, t_min).is_some()
 }
 
 /// How far apart (mm, along the ray) two hits at about `t` may be and still be on coincident

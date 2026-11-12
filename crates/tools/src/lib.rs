@@ -3,6 +3,7 @@
 //! [`Editor`]. No UI and no GPU here: the app forwards input and draws the [`View`].
 //! See docs/ARCHITECTURE.md §6, §7, §7 bis.
 
+mod bvh;
 pub mod camera;
 mod editor;
 pub mod guides;

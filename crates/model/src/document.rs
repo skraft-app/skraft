@@ -4,7 +4,7 @@
 //! The document is immutable piece by piece: components and solids sit behind `Arc`, so a
 //! clone shares everything and an operation copies only what it changes (`Arc::make_mut`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
@@ -317,6 +317,15 @@ impl EntityPath {
     }
 }
 
+/// [`Document::placed_changes`]'s walk: what it compares with, and what it found.
+struct ChangesWalk<'a> {
+    before: &'a Document,
+    touched: &'a [Id],
+    /// By component: does it differ from `before`'s, itself or below?
+    dirty: HashMap<Id, bool>,
+    out: Vec<(PlacedPart, Id, DAffine3)>,
+}
+
 /// A part placed in the scene, by [`Document::placed_parts`].
 #[derive(Clone, Debug)]
 pub struct PlacedPart {
@@ -372,7 +381,8 @@ impl Document {
     pub fn with_settings(settings: Settings) -> Self {
         let root = Id(1);
         let kind = ComponentKind::Assembly(Assembly::default());
-        let c = Component { id: root, name: t!("default_name.model"), named: true, kind, guides: Vec::new(), behavior: Behavior::default() };
+        let c =
+            Component { id: root, name: t!("default_name.model"), named: true, kind, guides: Vec::new(), behavior: Behavior::default() };
         Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings, materials: BTreeMap::new() }
     }
 
@@ -469,6 +479,88 @@ impl Document {
         let mut out = Vec::new();
         self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
         out
+    }
+
+    /// The parts `self` places otherwise than `before` does at the same path — another part,
+    /// the same one changed (its component not `before`'s, or one of `touched`), or elsewhere —
+    /// as `self` places them, each with what `before` placed there (part and part-to-world).
+    /// Paths `before` lacks are left out. What both share (the same components, unchanged down
+    /// the tree, placed alike) is skipped whole: a change to a few occurrences of a large model
+    /// costs a pass over the assemblies holding them, not a walk of every placement.
+    pub fn placed_changes(&self, before: &Document, touched: &[Id]) -> Vec<(PlacedPart, Id, DAffine3)> {
+        let mut walk = ChangesWalk { before, touched, dirty: HashMap::new(), out: Vec::new() };
+        let t = DAffine3::IDENTITY;
+        self.walk_changes(&mut walk, (self.root, before.root), &mut Vec::new(), (t, t), None, 0);
+        walk.out
+    }
+
+    /// Does `id` differ from `before`'s, or hold (at any depth) a component that does?
+    fn dirty(&self, walk: &mut ChangesWalk<'_>, id: Id, depth: usize) -> bool {
+        if let Some(d) = walk.dirty.get(&id) {
+            return *d;
+        }
+        let d = depth > MAX_DEPTH
+            || walk.touched.contains(&id)
+            || match (self.components.get(&id), walk.before.components.get(&id)) {
+                (Some(c), Some(cb)) if Arc::ptr_eq(c, cb) => match &c.kind {
+                    ComponentKind::Part(_) => false,
+                    ComponentKind::Assembly(a) => a.occurrences.iter().any(|o| self.dirty(walk, o.component, depth + 1)),
+                },
+                _ => true,
+            };
+        walk.dirty.insert(id, d);
+        d
+    }
+
+    fn walk_changes(
+        &self,
+        walk: &mut ChangesWalk<'_>,
+        (assembly, was): (Id, Id),
+        path: &mut Vec<Id>,
+        (t, tb): (DAffine3, DAffine3),
+        material: Option<Id>,
+        depth: usize,
+    ) {
+        let before = walk.before;
+        let (Ok(a), Ok(b)) = (self.assembly(assembly), before.assembly(was)) else { return };
+        if depth > MAX_DEPTH {
+            return;
+        }
+        // Occurrences keep their order: matched by place, else (some added or removed) by id.
+        let mut by_id: Option<HashMap<Id, &Occurrence>> = None;
+        for (i, o) in a.occurrences.iter().enumerate() {
+            let ob = match b.occurrences.get(i) {
+                Some(ob) if ob.id == o.id => ob,
+                _ => match by_id.get_or_insert_with(|| b.occurrences.iter().map(|o| (o.id, o)).collect()).get(&o.id) {
+                    Some(ob) => *ob,
+                    None => continue,
+                },
+            };
+            let (t, tb) = (t * o.transform, tb * ob.transform);
+            if o.component == ob.component && t.abs_diff_eq(tb, 1e-9) && !self.dirty(walk, o.component, depth + 1) {
+                continue;
+            }
+            let (Ok(c), Ok(cb)) = (self.component(o.component), before.component(ob.component)) else { continue };
+            match (&c.kind, &cb.kind) {
+                (ComponentKind::Part(p), ComponentKind::Part(_)) => walk.out.push((
+                    PlacedPart {
+                        path: EntityPath::new(path.clone(), o.id),
+                        part: c.id,
+                        transform: t,
+                        shape: p.shape().clone(),
+                        material: o.material.or(material),
+                    },
+                    cb.id,
+                    tb,
+                )),
+                (ComponentKind::Assembly(_), ComponentKind::Assembly(_)) => {
+                    path.push(o.id);
+                    self.walk_changes(walk, (c.id, cb.id), path, (t, tb), o.material.or(material), depth + 1);
+                    path.pop();
+                }
+                _ => {}
+            }
+        }
     }
 
     fn walk(&self, assembly: Id, path: &mut Vec<Id>, t: DAffine3, material: Option<Id>, out: &mut Vec<PlacedPart>, depth: usize) {

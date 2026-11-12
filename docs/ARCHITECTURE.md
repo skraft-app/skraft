@@ -511,8 +511,8 @@ Decided on 2026-11-09.
   `Operation::AddPrimitive` takes a rigid frame for that (`placement: DAffine3`, identity by
   default in serde to read existing files back); the primitive is built axis-aligned then
   transformed.
-- **Performance**: brute force with culling by bounding boxes against the picking cone; a BVH
-  only if measurements call for it.
+- **Performance**: culling by bounding boxes against the picking cone, through the scene's
+  BVH (§7 bis, *Spatial index*).
 - **Steps**: (1) points — endpoint, midpoint, centre, on edge, on face, ground — with markers,
   tooltip and wiring into Box, Cylinder, Move, Rotate; (2) linear — axes from `from`, parallel /
   perpendicular, Shift lock, arrows shared. **Delivered together.** Later: (3) point tracking
@@ -726,7 +726,10 @@ model, the file, the display and the tool; (2) inferences on guides; (3) managin
     selectable, its machinings shown or not; the part's guides are not, from outside it.
   - **Operations**: no new ones. `Delete`, `Transform`, `Duplicate`, `Array` and
     `MakeAssembly` take guide ids of their context among their entities (the guides go into
-    the new assembly; guides alone make none; `PaintOccurrences` leaves them out); the
+    the new assembly; guides alone make none; `PaintOccurrences` leaves them out). The new
+    assembly's axes have their origin at the low corner of its content's bounds (in the
+    context's axes): the content and its guides are brought into them, the new occurrence
+    placed there, so nothing moves in the context. The
     operations on machinings take the part's guides — with guides alone, no kernel and no
     separate part, whatever the scope. In an open part, Move, Rotate and Delete always aim at
     the part (`Cx::moved`), its machinings shown or not.
@@ -1115,6 +1118,19 @@ Drawing                1 instanced draw per definition, with the N world matrice
   only lays out the rows in view. Lookups over a selection or an assembly go through sets or an
   index (`ContextIndex`), never a search per occurrence. The renderer keeps every buffer within
   the device's limit (what does not fit is dropped, the device is not lost).
+- **Spatial index** (decided on 2026-11-12, after a stretch among 10 000 cubes fell to 30 FPS):
+  no query per mouse move tests every placement. Each `DisplayScene::sync` rebuilds an index
+  of the placed meshes (`scene.rs`, `SceneIndex`): their world boxes in a linear BVH
+  (`bvh.rs`: Morton order, halved down to 4 items per leaf, built in O(n log n) by one integer
+  sort), and the same entries sorted by occurrence path (an occurrence's parts, at any depth,
+  form a run). Picking walks the BVH nearest box first and skips boxes beyond the best hit
+  (plus its tie tolerance); inferences take the meshes near the ray (`inferable_where`), the
+  rectangle selection those whose box seen meets the rectangle (`parts_where`; a window takes an
+  entity only when every part under it, counted by `parts_under`, lies inside); lookups by path
+  (`inferable_at`, `part_at`, `inferable_of`) search the sorted run. Results keep the scene's
+  order (ties, candidates), as the brute force gave them (test
+  `the_scene_index_picks_as_a_scan_does`). The stretch's preview compares the document it
+  sketches with the current one by `Document::placed_changes`, which skips what both share.
 - **Coincident faces** (decided on 2026-11-11): picking takes the nearest hit, but hits within
   `tie_tolerance` along the ray (1 µm + 1 ppm of the distance) are a tie, broken in a fixed
   order: the solid the ray enters (outward normal against the ray, from the vertex normals)
@@ -1210,7 +1226,7 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   upload and target change. Same fingerprint as the last picture: nothing is encoded, the
   target keeps it, `render` returns `false`. A still view costs no GPU work.
 - **Render statistics** (View › Statistiques de rendu, a preference): a card in the view's
-  bottom right corner — frames painted over the last second (egui repaints on demand: a still
+  top right corner — frames painted over the last second (egui repaints on demand: a still
   view paints none), the interval between the last two, the CPU time of the editor's view and
   of the picture's preparation, whether the picture was redrawn, and `Renderer::stats` (draw
   calls, triangles, instances, lines, boxes, bytes uploaded) with the meshes' GPU memory.

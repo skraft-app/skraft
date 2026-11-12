@@ -290,6 +290,8 @@ fn guides_belong_to_their_component() {
 
     // An exploded assembly hands its guides to the context, where they stood.
     let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a], name: None }).unwrap().created[0];
+    // Its axes have their origin at the low corner of its content.
+    assert!(close(occ(h.document(), &EntityPath::root(asm)).transform.translation, DVec3::new(100.0, 0.0, 0.0)));
     let asm_def = occ(h.document(), &EntityPath::root(asm)).component;
     h.apply(Operation::AddGuide { component: asm_def, shape: line }).unwrap();
     let shift = DAffine3::from_translation(DVec3::new(0.0, 0.0, 50.0));
@@ -297,7 +299,7 @@ fn guides_belong_to_their_component() {
     h.apply(Operation::Explode { context: root, occurrence: asm }).unwrap();
     let guides = &h.document().component(root).unwrap().guides;
     assert_eq!(guides.len(), 1);
-    assert_eq!(guides[0].shape, GuideShape::Line { origin: DVec3::new(0.0, 5.0, 50.0), dir: DVec3::X });
+    assert_eq!(guides[0].shape, GuideShape::Line { origin: DVec3::new(100.0, 5.0, 50.0), dir: DVec3::X });
 }
 
 #[test]
@@ -771,11 +773,13 @@ fn guides_are_erased_moved_copied_and_grouped_like_occurrences() {
     // Erased.
     h.apply(Operation::Delete { context: root, entities: vec![out.created[0]] }).unwrap();
     assert_eq!(guides(&h).len(), 2);
-    // Grouped: the guide goes into the assembly, where it stood.
+    // Grouped: the guide goes into the assembly, where it stood — in its axes, whose origin is
+    // the low corner of its content.
     let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, g], name: None }).unwrap().created[0];
     assert_eq!(guides(&h).len(), 1);
+    assert!(close(occ(h.document(), &EntityPath::root(asm)).transform.translation, DVec3::new(0.0, 0.0, 20.0)));
     let def = occ(h.document(), &EntityPath::root(asm)).component;
-    let moved = GuideShape::Line { origin: DVec3::new(0.0, 5.0, 20.0), dir: DVec3::X };
+    let moved = GuideShape::Line { origin: DVec3::new(0.0, 5.0, 0.0), dir: DVec3::X };
     assert_eq!(h.document().component(def).unwrap().guide(g).unwrap().shape, moved);
     // Only guides: no assembly.
     let rest = guides(&h)[0].id;
@@ -818,7 +822,16 @@ fn a_part_s_guides_go_with_its_machinings() {
 /// A stretch of the occurrence `target`, in its component's axes.
 fn stretch(doc: &Document, target: &EntityPath, axis: DVec3, cuts: Vec<f64>, moves: Vec<f64>, scope: Scope) -> Operation {
     let frame = doc.resolve(target).unwrap().transform;
-    Operation::Stretch { context: target.instances.clone(), occurrences: vec![target.entity], frame, axis, cuts, moves, scope, cutters: None }
+    Operation::Stretch {
+        context: target.instances.clone(),
+        occurrences: vec![target.entity],
+        frame,
+        axis,
+        cuts,
+        moves,
+        scope,
+        cutters: None,
+    }
 }
 
 /// A stretch along the part's X: the cutter at `cut`, the far side moved by `d`.
@@ -1386,4 +1399,76 @@ fn a_locked_part_is_a_block_moved_with_its_origin() {
     h.apply(Operation::SetBehavior { component: hinge_part, behavior: y }).unwrap();
     let out = h.apply(op()).unwrap();
     assert!(out.stretched.iter().any(|s| s.from == hinge_part));
+}
+
+/// What `placed_changes` should find, the long way: every placement compared by path.
+fn placed_changes_by_path(after: &Document, before: &Document, touched: &[Id]) -> Vec<(EntityPath, Id, Id)> {
+    let was: std::collections::HashMap<EntityPath, PlacedPart> = before.placed_parts().into_iter().map(|p| (p.path.clone(), p)).collect();
+    let mut out: Vec<(EntityPath, Id, Id)> = after
+        .placed_parts()
+        .into_iter()
+        .filter_map(|p| {
+            let b = was.get(&p.path)?;
+            let changed = p.part != b.part
+                || !Arc::ptr_eq(&p.shape, &b.shape)
+                || !p.transform.abs_diff_eq(b.transform, 1e-9)
+                || touched.contains(&p.part);
+            changed.then_some((p.path, p.part, b.part))
+        })
+        .collect();
+    out.sort_by_key(|(p, _, _)| format!("{p:?}"));
+    out
+}
+
+fn placed_changes_found(after: &Document, before: &Document, touched: &[Id]) -> Vec<(EntityPath, Id, Id)> {
+    let mut out: Vec<(EntityPath, Id, Id)> =
+        after.placed_changes(before, touched).into_iter().map(|(p, was, _)| (p.path, p.part, was)).collect();
+    out.sort_by_key(|(p, _, _)| format!("{p:?}"));
+    out
+}
+
+#[test]
+fn placed_changes_skip_only_what_is_shared() {
+    let mut h = History::new(Document::new());
+    let a = add(&mut h, cube(DVec3::ZERO, 100.0));
+    let b = add(&mut h, cube(DVec3::X * 300.0, 100.0));
+    let root = h.document().root();
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a], name: None }).unwrap().created[0];
+    h.apply(Operation::Duplicate { context: root, entities: vec![asm], transform: DAffine3::from_translation(DVec3::Y * 300.0) }).unwrap();
+    let before = h.document().clone();
+    let component = before.resolve(&EntityPath::root(asm)).unwrap().component;
+    let inner = before.assembly(component).unwrap().occurrences[0].id;
+    let part_b = before.resolve(&EntityPath::root(b)).unwrap().component;
+
+    // Nothing changed: nothing found; a part named touched: each of its placements.
+    assert!(before.placed_changes(&before, &[]).is_empty());
+    assert_eq!(placed_changes_found(&before, &before, &[part_b]), placed_changes_by_path(&before, &before, &[part_b]));
+    assert_eq!(placed_changes_found(&before, &before, &[part_b]).len(), 1);
+
+    // The part inside the assembly stretched for all: both copies of the assembly — the
+    // assembly itself the same, holding a changed part.
+    let stretch = |scope| Operation::Stretch {
+        context: vec![asm],
+        occurrences: vec![inner],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::Z,
+        cuts: vec![50.0],
+        moves: vec![0.0, 40.0],
+        scope,
+        cutters: None,
+    };
+    for scope in [Scope::All, Scope::This] {
+        h.apply(stretch(scope)).unwrap();
+        let after = h.document();
+        let found = placed_changes_found(after, &before, &[]);
+        assert_eq!(found, placed_changes_by_path(after, &before, &[]), "{scope:?}");
+        assert_eq!(found.len(), if scope == Scope::All { 2 } else { 1 }, "{scope:?}");
+        h.undo();
+    }
+
+    // B moved: only it.
+    h.apply(Operation::Transform { context: root, entities: vec![b], transform: DAffine3::from_translation(DVec3::Z) }).unwrap();
+    let found = placed_changes_found(h.document(), &before, &[]);
+    assert_eq!(found, placed_changes_by_path(h.document(), &before, &[]));
+    assert_eq!(found.len(), 1);
 }

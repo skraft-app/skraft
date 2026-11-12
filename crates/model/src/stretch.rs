@@ -30,9 +30,9 @@ use std::collections::{HashMap, HashSet};
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::Stretch;
 
-use crate::document::{ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Occurrence};
 #[cfg(doc)]
 use crate::document::StretchMask;
+use crate::document::{ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Occurrence};
 use crate::{Error, Result, Scope};
 
 /// A part stretched by an operation: the part as it is after it (the same, or a copy), the part
@@ -157,6 +157,18 @@ impl Document {
                 Ok((o.clone(), to_frame * o.transform))
             })
             .collect()
+    }
+
+    /// The bounds of what `component` holds, in its axes (exact for what is flat or round about
+    /// an axis, conservative otherwise); `None` when it holds nothing.
+    pub(crate) fn component_bounds(&self, component: Id) -> Option<(DVec3, DVec3)> {
+        let mut lo = DVec3::ZERO;
+        let mut hi = DVec3::ZERO;
+        for k in 0..3 {
+            let s = Stretch::new(DVec3::AXES[k], Vec::new(), vec![0.0]).ok()?;
+            (lo[k], hi[k]) = self.extent_along(component, &s, 0)?;
+        }
+        Some((lo, hi))
     }
 
     /// The bounds of what the occurrences `occurrences` of the context `context` place, in the
@@ -299,12 +311,8 @@ impl Document {
                 .values()
                 .filter_map(|x| {
                     let a = x.as_assembly()?;
-                    let ids: Vec<Id> = a
-                        .occurrences
-                        .iter()
-                        .filter(|o| o.component == *c && !walk.walked.contains(&(x.id, o.id)))
-                        .map(|o| o.id)
-                        .collect();
+                    let ids: Vec<Id> =
+                        a.occurrences.iter().filter(|o| o.component == *c && !walk.walked.contains(&(x.id, o.id))).map(|o| o.id).collect();
                     (!ids.is_empty()).then_some((x.id, ids))
                 })
                 .collect();

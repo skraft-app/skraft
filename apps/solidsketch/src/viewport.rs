@@ -124,7 +124,7 @@ impl Viewport {
         }
     }
 
-    /// The render statistics, in the view's bottom right corner.
+    /// The render statistics, in the view's top right corner.
     fn paint_stats(&self, ui: &egui::Ui, rect: egui::Rect, editor: &Editor) {
         let Some(renderer) = &self.renderer else { return };
         let r = renderer.stats();
@@ -157,7 +157,7 @@ impl Viewport {
         let margin = 8.0;
         let pad = egui::vec2(8.0, 6.0);
         let size = galley.size() + 2.0 * pad;
-        let card = egui::Rect::from_min_size(rect.right_bottom() - size - egui::vec2(margin, margin), size);
+        let card = egui::Rect::from_min_size(rect.right_top() + egui::vec2(-size.x - margin, margin), size);
         let painter = ui.painter();
         painter.rect_filled(card, 6.0, visuals.window_fill.gamma_multiply(0.88));
         painter.rect_stroke(card, 6.0, visuals.window_stroke, egui::StrokeKind::Inside);

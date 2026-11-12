@@ -445,13 +445,24 @@ fn scope(cx: &Cx<'_>) -> Scope {
 }
 
 /// Does the inferred point tell a place along `dir` (OCL's `_stretch_ip_stable_along?`): a
-/// point, an edge across it, a face facing it? Elsewhere it slides along the axis.
+/// point (of the geometry, or where two curves cross: guides, axes, edges), an edge, a guide or
+/// a line across it, a face facing it? Elsewhere it slides along the axis.
 fn stable_along(i: &Inference, dir: DVec3) -> bool {
-    if i.kind.is_point() {
-        return true;
-    }
+    let across = |v: DVec3| v.dot(dir).abs() < 1e-6;
     match i.kind {
-        InferKind::OnEdge => matches!(i.edge, Some(EdgeRef::Straight(e)) if e.dot(dir).abs() < 1e-6),
+        k if k.is_point() => true,
+        InferKind::OnEdgeAndLine(_)
+        | InferKind::OnTwoLines(..)
+        | InferKind::OnGuideAndLine(_)
+        | InferKind::OnGuideAndEdge
+        | InferKind::OnTwoGuides => true,
+        InferKind::OnLine(_) => i.line.is_some_and(|(_, l)| across(l)),
+        InferKind::OnEdge | InferKind::OnGuide => match i.edge {
+            Some(EdgeRef::Straight(e)) => across(e),
+            // An arc (or a guide circle) in a plane across the axis.
+            Some(EdgeRef::Arc { tangent, radial, .. }) => across(tangent) && across(radial),
+            None => false,
+        },
         InferKind::OnFace => i.hit.as_ref().is_some_and(|h| h.normal.cross(dir).length() < 1e-6),
         _ => false,
     }
@@ -1008,7 +1019,13 @@ impl StretchTool {
                     dashed(cx.camera, cx.size, &mut p.lines, a, b, AXIS_GREY);
                     let hovered = self.over == Over::Padlock(k);
                     let fill = if hovered { axis_color(k) } else { GREY };
-                    p.points.push(PreviewPoint { at: b, radius: PADLOCK_RADIUS, fill: Some(fill), stroke: Some(WHITE), shape: PointShape::Padlock });
+                    p.points.push(PreviewPoint {
+                        at: b,
+                        radius: PADLOCK_RADIUS,
+                        fill: Some(fill),
+                        stroke: Some(WHITE),
+                        shape: PointShape::Padlock,
+                    });
                     continue;
                 }
                 let color = if active == Some(k) { axis_color(k) } else { GREY };
@@ -1278,6 +1295,9 @@ impl Tool for StretchTool {
             p.marquee = self.marquee.clone();
             return p;
         };
+        // A target taken: its grips, cutters and preview show it, the selection's highlight
+        // would only blur them (the Z cutters share its blue).
+        p.hide_selection = true;
         match &self.state {
             // Taken before any input (the tool started on a selection, or the document changed
             // since): drawn with the cutters and locks kept for it.
@@ -1313,7 +1333,13 @@ impl Tool for StretchTool {
                 for at in [a, b] {
                     p.points.push(PreviewPoint { at, radius: 4.0, fill: Some(WHITE), stroke: Some(color), shape: PointShape::Round });
                 }
-                p.points.push(PreviewPoint { at: target.world(grip), radius: 4.0, fill: Some(color), stroke: None, shape: PointShape::Round });
+                p.points.push(PreviewPoint {
+                    at: target.world(grip),
+                    radius: 4.0,
+                    fill: Some(color),
+                    stroke: None,
+                    shape: PointShape::Round,
+                });
                 if (b - a).length() > MIN {
                     p.labels.push(PreviewLabel { a, b, text: self.format(cx, self.measure(&target, k, d).abs()), color });
                 }
@@ -1367,7 +1393,8 @@ impl Tool for StretchTool {
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
         let target = self.target(cx);
         // Drawn as OCL draws them (`get_action_option_btn_child`), by name (the app's icons).
-        let choice = |value: &'static str, label: String, tip: String, icon: &'static str| OptionChoice { value, label, tip, icon: Some(icon) };
+        let choice =
+            |value: &'static str, label: String, tip: String, icon: &'static str| OptionChoice { value, label, tip, icon: Some(icon) };
         let mut options = vec![
             ToolOption {
                 key: MEASURE,
@@ -1476,6 +1503,34 @@ impl Tool for StretchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::infer::LineKind;
+
+    #[test]
+    fn guides_tell_a_place_along_the_axis() {
+        let at = |kind, line: Option<DVec3>, edge| Inference {
+            point: DVec3::ZERO,
+            kind,
+            path: None,
+            hit: None,
+            line: line.map(|d| (DVec3::ZERO, d)),
+            line2: None,
+            edge,
+            curve: None,
+            crossed: Vec::new(),
+        };
+        let x = DVec3::X;
+        // Where guides cross: a point.
+        assert!(stable_along(&at(InferKind::OnTwoLines(LineKind::Guide, LineKind::Guide), Some(DVec3::Y), None), x));
+        assert!(stable_along(&at(InferKind::OnEdgeAndLine(LineKind::Guide), Some(x), None), x));
+        assert!(stable_along(&at(InferKind::OnGuideAndEdge, None, None), x));
+        // A guide line across the axis, not along it.
+        assert!(stable_along(&at(InferKind::OnLine(LineKind::Guide), Some(DVec3::Y), Some(EdgeRef::Straight(DVec3::Y))), x));
+        assert!(!stable_along(&at(InferKind::OnLine(LineKind::Guide), Some(x), Some(EdgeRef::Straight(x))), x));
+        // A guide circle in a plane across the axis, not tilted.
+        let circle = |tangent, radial| Some(EdgeRef::Arc { tangent, radial, center: DVec3::ZERO, radius: 1.0 });
+        assert!(stable_along(&at(InferKind::OnGuide, None, circle(DVec3::Y, DVec3::Z)), x));
+        assert!(!stable_along(&at(InferKind::OnGuide, None, circle(DVec3::Y, x)), x));
+    }
 
     #[test]
     fn shares_follow_the_grip() {

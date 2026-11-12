@@ -181,7 +181,9 @@ impl Editor {
     /// model's level).
     pub(super) fn context_bounds(&self) -> Option<OrientedBox> {
         match (self.open_part, self.context.split_last()) {
-            (Some(id), _) => self.content_bounds(&ContextIndex::new(self.document(), &self.context)?, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX),
+            (Some(id), _) => {
+                self.content_bounds(&ContextIndex::new(self.document(), &self.context)?, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX)
+            }
             (None, Some((&id, parent))) => {
                 self.content_bounds(&ContextIndex::new(self.document(), parent)?, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX)
             }
@@ -298,7 +300,7 @@ impl Editor {
                 });
             }
         };
-        for id in self.selection.iter().filter(|_| !hide_original) {
+        for id in self.selection.iter().filter(|_| !hide_original && !preview.hide_selection) {
             mark(&mut v.highlights, &self.context, *id, Mark::Selected, DAffine3::IDENTITY);
         }
         // The selected occurrences' boxes (parts and assemblies), where the selection is drawn (moved with the ghost

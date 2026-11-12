@@ -10,7 +10,7 @@ use super::curves::{PlacedArc, curve_ref, drawn, guide_arc, guide_arcs, kept_gui
 use super::lines::Line;
 use super::{APERTURE_PX, CROSSING_PX, Curve, EdgeRef, InferKind, Inference, Query, near_ray, visible};
 use crate::camera::{Camera, Projector};
-use crate::scene::{DisplayScene, Hit, Owner, transform_bounds};
+use crate::scene::{DisplayScene, Hit, Owner};
 
 /// A line crossing an edge near the cursor.
 pub(super) struct Crossing {
@@ -49,10 +49,9 @@ pub(super) fn crossing(
 ) -> Option<Crossing> {
     let ray = camera.ray(px, size);
     let mut found: Vec<(f64, Crossing)> = Vec::new();
-    for (place, part, piece) in scene.inferable() {
-        let Some(b) = part.bounds else { continue };
+    for (place, part, piece) in scene.inferable_where(|b| near_ray(camera, size, &ray, *b)) {
         let path = place.entity_path();
-        if !(q.keep)(&Owner { path: &path, piece }) || !near_ray(camera, size, &ray, transform_bounds(&place.transform, b)) {
+        if !(q.keep)(&Owner { path: &path, piece }) {
             continue;
         }
         let t = &place.transform;

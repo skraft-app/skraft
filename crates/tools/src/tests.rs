@@ -2405,9 +2405,10 @@ fn stretch_tool_draws_the_part_stretched_while_pulling() {
     let mesh = &e.scene().definition_mesh(key).unwrap().parts[0].mesh;
     let max_x = mesh.positions.iter().map(|p| mesh.origin.x + p[0] as f64).fold(f64::MIN, f64::max);
     assert!((max_x - 800.0).abs() < 1e-3, "{max_x}");
-    // Selected and marked as changing, on the stretched shape: the original is not drawn again.
+    // Marked as changing, on the stretched shape: the original is not drawn again. Not marked
+    // selected: the tool shows what it took its own way.
     assert!(e.view().highlights.iter().all(|h| h.definition != part));
-    assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Selected && h.definition == key));
+    assert!(e.view().highlights.iter().all(|h| h.mark != Mark::Selected));
     assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Related && h.definition == key));
 
     // Only this one: the other drawn as it is.
@@ -2590,9 +2591,14 @@ fn stretch_tool_gathers_occurrences_while_shift_is_held() {
     }
     assert_eq!(e.selection(), [b1, b3]);
     assert!(e.status().contains("Sélection multiple"), "{}", e.status());
-    // Shift released: taken, their box 0–375 along Y.
+    let marked = |e: &Editor| e.view().highlights.iter().any(|h| h.mark == Mark::Selected);
+    assert!(marked(&e));
+    // Shift released: taken, their box 0–375 along Y; the selection kept but no longer drawn
+    // (the grips and cutters show what is taken).
     e.set_shift(false);
     assert!(e.status().contains("Cliquer une poignée"), "{}", e.status());
+    assert_eq!(e.selection(), [b1, b3]);
+    assert!(!marked(&e));
     click(&mut e, DVec3::new(200.0, 175.0, 18.0));
     e.input(ToolInput::Vcb("250".into()));
     // Only these: one new part for both, the second as it was.
@@ -2642,4 +2648,80 @@ fn stretch_tool_in_the_context_axes_refuses_a_part_turned_across_a_cutter() {
     let s = std::f64::consts::FRAC_1_SQRT_2;
     click(&mut e, DVec3::new(200.0 * s, 125.0 * s, 9.0));
     assert!(e.status().contains("traverse une coupe"), "{}", e.status());
+}
+
+#[test]
+fn the_scene_index_picks_as_a_scan_does() {
+    // Boxes in a grid, some stacked exactly (coincident faces: the scene's order breaks the
+    // tie), some overlapping, a few gathered in an assembly copied, seen in perspective.
+    let mut doc = Document::new();
+    let root = doc.root();
+    let mut made = Vec::new();
+    for i in 0..12 {
+        for j in 0..12 {
+            let at = DVec3::new(i as f64 * 70.0, j as f64 * 70.0, ((i * j) % 3) as f64 * 20.0);
+            let size = DVec3::new(60.0 + (i % 3) as f64 * 15.0, 60.0, 40.0 + (j % 4) as f64 * 10.0);
+            let (d, out) = doc
+                .apply(&Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: at, size }, placement: glam::DAffine3::IDENTITY })
+                .unwrap();
+            doc = d;
+            made.push(out.created[0]);
+        }
+    }
+    let stacked: Vec<Id> = made.iter().copied().step_by(5).collect();
+    doc = doc.apply(&Operation::Duplicate { context: root, entities: stacked, transform: glam::DAffine3::IDENTITY }).unwrap().0;
+    let (d, out) = doc.apply(&Operation::MakeAssembly { context: root, entities: made[..20].to_vec(), name: None }).unwrap();
+    doc = d.apply(&Operation::Duplicate { context: root, entities: out.created, transform: glam::DAffine3::from_translation(DVec3::new(0.0, 0.0, 100.0)) })
+        .unwrap()
+        .0;
+    let mut e = top_editor(doc);
+    e.set_parallel(false);
+    e.camera.set_standard_view(StandardView::Iso, Some((DVec3::ZERO, DVec3::new(900.0, 900.0, 200.0))), crate::camera::ViewArea::full(e.viewport_size()));
+    let (mut hits, mut rays) = (0, 0);
+    for x in (0..1000).step_by(23) {
+        for y in (0..1000).step_by(23) {
+            let ray = e.camera.ray(DVec2::new(x as f64, y as f64), e.viewport_size());
+            for inferable in [false, true] {
+                let found = if inferable { e.scene().pick_inferable(&ray, |_| true) } else { e.scene().pick(&ray, |_| true) };
+                assert_eq!(found, e.scene().pick_by_scan(&ray, inferable), "{x} {y}");
+                hits += usize::from(found.is_some());
+                rays += 1;
+            }
+        }
+    }
+    assert!(hits > rays / 4 && hits < rays, "{hits} / {rays}");
+}
+
+#[test]
+fn a_window_takes_an_assembly_only_whole() {
+    let mut doc = Document::new();
+    let root = doc.root();
+    let add = |doc: &mut Document, at: DVec3| {
+        let (d, out) = doc
+            .apply(&Operation::AddPrimitive { context: root, primitive: Primitive::Box { origin: at, size: DVec3::splat(100.0) }, placement: glam::DAffine3::IDENTITY })
+            .unwrap();
+        *doc = d;
+        out.created[0]
+    };
+    let a = add(&mut doc, DVec3::ZERO);
+    let far = add(&mut doc, DVec3::new(600.0, 0.0, 0.0));
+    let b = add(&mut doc, DVec3::new(200.0, 0.0, 0.0));
+    let (d, out) = doc.apply(&Operation::MakeAssembly { context: root, entities: vec![b, far], name: None }).unwrap();
+    doc = d;
+    let asm = out.created[0];
+    let mut e = top_editor(doc);
+    let none = Modifiers::default();
+    // Left to right around the first box and the assembly's near one: the box alone (the
+    // assembly's far box is out); right to left, both.
+    drag(&mut e, DVec3::new(-10.0, 150.0, 0.0), DVec3::new(310.0, -50.0, 0.0), none);
+    assert_eq!(e.selection(), &[a]);
+    drag(&mut e, DVec3::new(310.0, -50.0, 0.0), DVec3::new(-10.0, 150.0, 0.0), none);
+    let mut taken = e.selection().to_vec();
+    taken.sort();
+    let mut both = vec![a, asm];
+    both.sort();
+    assert_eq!(taken, both);
+    // Left to right around everything: both.
+    drag(&mut e, DVec3::new(-10.0, 150.0, 0.0), DVec3::new(710.0, -50.0, 0.0), none);
+    assert_eq!(e.selection().len(), 2);
 }

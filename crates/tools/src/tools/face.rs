@@ -144,7 +144,7 @@ pub(super) fn segment_at(scene: &DisplayScene, inf: &Inference) -> Option<(DVec3
         let k = ((p - a).dot(d) / d.length_squared()).clamp(0.0, 1.0);
         (p.distance(a + d * k) < SAME).then_some((a, b))
     };
-    scene.inferable().filter(|(place, _, _)| place.entity_path() == *path).find_map(|(place, part, _)| {
+    scene.inferable_of(path).into_iter().find_map(|(place, part, _)| {
         part.snaps.edges.iter().find_map(|e| match e.curve {
             SnapCurve::Segment { a, b } => on(&place.transform, a, b),
             _ => None,

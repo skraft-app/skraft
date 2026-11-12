@@ -194,6 +194,9 @@ pub struct Preview {
     pub points: Vec<PreviewPoint>,
     /// Translucent polygons drawn in the scene: hidden behind faces (cutting planes).
     pub fills: Vec<PreviewFill>,
+    /// The selected occurrences drawn as any others: the tool shows what it took its own way
+    /// (the stretch tool's grips and cutters, whose colours the selection's would blur).
+    pub hide_selection: bool,
 }
 
 /// A point a tool draws over everything (world; its radius in pixels), filled and / or ringed

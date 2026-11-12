@@ -8,7 +8,7 @@ use super::crossings::circle_meets_curve;
 use super::curves::{curve_ref, drawn, guide_arc, guide_arcs, guide_circle, kept_guides, on_curve};
 use super::{APERTURE_PX, CROSSING_PX, Curve, EdgeRef, InferKind, Inference, Query, RANKS, near_ray, visible};
 use crate::camera::{Camera, Projector, Ray};
-use crate::scene::{DisplayScene, Owner, transform_bounds};
+use crate::scene::{DisplayScene, Owner};
 
 pub(super) struct Candidate {
     point: DVec3,
@@ -52,10 +52,9 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
         })
         .collect();
     let tol = |p: DVec3| camera.world_per_pixel(size, p) * CROSSING_PX;
-    for (place, part, piece) in scene.inferable() {
-        let Some(b) = part.bounds else { continue };
+    for (place, part, piece) in scene.inferable_where(|b| near_ray(camera, size, &ray, *b)) {
         let path = place.entity_path();
-        if !(q.keep)(&Owner { path: &path, piece }) || !near_ray(camera, size, &ray, transform_bounds(&place.transform, b)) {
+        if !(q.keep)(&Owner { path: &path, piece }) {
             continue;
         }
         let t = &place.transform;

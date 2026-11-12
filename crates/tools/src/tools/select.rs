@@ -131,17 +131,20 @@ impl Tool for SelectTool {
 pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> {
     let rect = (a.min(b), a.max(b));
     let proj = cx.camera.projector(cx.size);
-    // Per entity: are all its parts inside, does any touch?
-    let mut order = Vec::new();
-    let mut state: HashMap<Id, (bool, bool)> = HashMap::new();
-    for (placement, part) in cx.scene.parts() {
+    // Only a part whose box, seen, meets the rectangle can touch it or lie in it.
+    let meets = |b: &(DVec3, DVec3)| screen_box(&proj, b).is_none_or(|(lo, hi)| lo.cmple(rect.1).all() && hi.cmpge(rect.0).all());
+    // Per entity: are all its parts met inside, does any touch, how many are met?
+    let mut met = Vec::new();
+    let mut state: HashMap<Id, (bool, bool, usize)> = HashMap::new();
+    for (_, placement, part) in cx.scene.parts_where(meets) {
         let Some(id) = cx.selectable(&placement.entity_path()) else { continue };
         let m = &part.mesh;
         let world = |p: &[f32; 3]| placement.transform.transform_point3(m.origin + DVec3::new(p[0] as f64, p[1] as f64, p[2] as f64));
         let s = state.entry(id).or_insert_with(|| {
-            order.push(id);
-            (true, false)
+            met.push(id);
+            (true, false, 0)
         });
+        s.2 += 1;
         if crossing {
             if !s.1 && part_touches(&proj, m, &world, rect) {
                 s.1 = true;
@@ -150,13 +153,40 @@ pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> 
             s.0 = !m.positions.is_empty() && m.positions.iter().all(|p| proj.project(world(p)).is_some_and(|q| inside(q, rect)));
         }
     }
+    // Inside the rectangle: every part of the entity, those not met included. In the scene's
+    // order (of each entity's first part).
+    let mut taken: Vec<(usize, Id)> = met
+        .into_iter()
+        .filter_map(|id| {
+            let (all, any, n) = state[&id];
+            let chain: Vec<Id> = cx.context.iter().copied().chain([id]).collect();
+            let (total, first) = cx.scene.parts_under(&chain);
+            let ok = if crossing { any } else { all && n == total };
+            ok.then_some((first.unwrap_or(usize::MAX), id))
+        })
+        .collect();
+    taken.sort_by_key(|(rank, _)| *rank);
+    let mut out: Vec<Id> = taken.into_iter().map(|(_, id)| id).collect();
     // The guides of the active context (§6 quinquies).
     let path = cx.guide_path();
     for g in cx.scene.guides().iter().filter(|g| g.path == path) {
-        order.push(g.id);
-        state.insert(g.id, crate::guides::in_rect(cx.camera, cx.size, &g.shape, rect));
+        let (all, any) = crate::guides::in_rect(cx.camera, cx.size, &g.shape, rect);
+        if if crossing { any } else { all } {
+            out.push(g.id);
+        }
     }
-    order.into_iter().filter(|id| state.get(id).is_some_and(|&(all, any)| if crossing { any } else { all })).collect()
+    out
+}
+
+/// The screen rectangle the box `b` (world) covers; none when a corner is behind the eye.
+fn screen_box(proj: &Projector, (lo, hi): &(DVec3, DVec3)) -> Option<(DVec2, DVec2)> {
+    let mut out: Option<(DVec2, DVec2)> = None;
+    for i in 0..8 {
+        let c = DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z });
+        let s = proj.project(c)?;
+        out = Some(out.map_or((s, s), |(a, b)| (a.min(s), b.max(s))));
+    }
+    out
 }
 
 fn part_touches(proj: &Projector, m: &solidsketch_kernel::Mesh, world: &dyn Fn(&[f32; 3]) -> DVec3, rect: (DVec2, DVec2)) -> bool {

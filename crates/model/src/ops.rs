@@ -495,7 +495,7 @@ impl Document {
                 Ok(Outcome::default())
             }
             Operation::MakeAssembly { context, entities, name } => {
-                // The guides go along, where they stand (the new occurrence is not moved).
+                // The guides go along, where they stand.
                 let (guides, entities) = &self.split_guides(*context, entities)?;
                 if entities.is_empty() {
                     return Err(Error::Invalid(Refusal::EmptyAssembly));
@@ -503,7 +503,21 @@ impl Document {
                 let moved = self.occurrences_of(*context, entities)?;
                 let base = name.clone().unwrap_or_else(|| t!("default_name.assembly"));
                 let assembly = self.insert_component(&base, name.is_some(), ComponentKind::Assembly(Assembly { occurrences: moved }));
-                let taken: Vec<Guide> = self.component(*context)?.guides.iter().filter(|g| guides.contains(&g.id)).cloned().collect();
+                // Its axes have their origin at the low corner of its content's bounds: the
+                // content is moved by the opposite of that corner, the new occurrence by it, so
+                // nothing moves in the context.
+                let corner = self.component_bounds(assembly).map_or(DVec3::ZERO, |(lo, _)| lo);
+                let to_axes = DAffine3::from_translation(-corner);
+                for o in &mut self.assembly_mut(assembly)?.occurrences {
+                    o.transform = to_axes * o.transform;
+                }
+                let taken: Vec<Guide> = self
+                    .component(*context)?
+                    .guides
+                    .iter()
+                    .filter(|g| guides.contains(&g.id))
+                    .map(|g| Guide { id: g.id, shape: g.shape.transformed(&to_axes) })
+                    .collect();
                 self.component_mut(*context)?.guides.retain(|g| !guides.contains(&g.id));
                 self.component_mut(assembly)?.guides = taken;
                 let id = self.fresh_id();
@@ -513,8 +527,16 @@ impl Document {
                 let at = ctx.occurrences.iter().position(|o| entities.contains(&o.id)).unwrap_or(ctx.occurrences.len());
                 ctx.occurrences.retain(|o| !entities.contains(&o.id));
                 let at = at.min(ctx.occurrences.len());
-                ctx.occurrences
-                    .insert(at, Occurrence { id, name: String::new(), component: assembly, transform: DAffine3::IDENTITY, material: None });
+                ctx.occurrences.insert(
+                    at,
+                    Occurrence {
+                        id,
+                        name: String::new(),
+                        component: assembly,
+                        transform: DAffine3::from_translation(corner),
+                        material: None,
+                    },
+                );
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::Explode { context, occurrence } => {
