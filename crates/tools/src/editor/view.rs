@@ -7,7 +7,7 @@ use solidsketch_model::{Id, Section};
 use super::Editor;
 use crate::guides::Stroke;
 use crate::infer::InferKind;
-use crate::scene::{solids_under, transform_bounds};
+use crate::scene::{ContextIndex, transform_bounds};
 use crate::tools::{self, Marquee, PreviewFill, PreviewLine};
 
 /// How a highlighted solid is marked.
@@ -76,12 +76,12 @@ pub struct View {
     pub marquee: Option<Marquee>,
     /// The section to draw: a tool's preview, else the document's active one.
     pub section: Option<Section>,
-    /// The bounding boxes of the selected occurrences (parts and assemblies), dashed segments in the world
-    /// (the app draws them depth-tested, in the selection's colour).
-    pub selection_boxes: Vec<(DVec3, DVec3)>,
+    /// The bounding boxes of the selected occurrences (parts and assemblies), in their own
+    /// axes (the app draws their edges dashed, depth-tested, in the selection's colour).
+    pub selection_boxes: Vec<OrientedBox>,
     /// The same box for the part open or the assembly being edited, grown by a few pixels
-    /// (drawn in grey).
-    pub context_box: Vec<(DVec3, DVec3)>,
+    /// (drawn dashed, in grey); none at the model's level.
+    pub context_box: Vec<OrientedBox>,
     /// The guides of the active context (ARCHITECTURE.md §6 quinquies), as strokes the app
     /// draws dashed and depth-tested.
     pub guides: Vec<Stroke>,
@@ -103,14 +103,22 @@ pub struct View {
 const CONTEXT_BOX_OFFSET_PX: f64 = 8.0;
 
 /// A box in its own axes: `frame` (rigid) maps them to the world.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct OrientedBox {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OrientedBox {
     pub frame: DAffine3,
     pub lo: DVec3,
     pub hi: DVec3,
 }
 
 impl OrientedBox {
+    /// Its corners in the world, corner `i` taking `hi` along the axes of the bits of `i`.
+    pub fn corners(&self) -> [DVec3; 8] {
+        std::array::from_fn(|i| {
+            let pick = |bit: usize, k: usize| if i & bit == 0 { self.lo[k] } else { self.hi[k] };
+            self.frame.transform_point3(DVec3::new(pick(1, 0), pick(2, 1), pick(4, 2)))
+        })
+    }
+
     /// Does `ray` pass through the box (slab test in its axes)?
     pub fn hit_by(&self, ray: &crate::camera::Ray) -> bool {
         let inv = self.frame.inverse();
@@ -145,15 +153,12 @@ impl Editor {
     /// The box bounding what the occurrence `id` of the context `ctx_path` holds, in its own
     /// axes, moved by `extra` and grown by `offset_px` pixels on every side: its frame (to
     /// world) and its bounds in it (a part's recipe shown: its blank's).
-    fn content_bounds(&self, ctx_path: &[Id], id: Id, extra: DAffine3, offset_px: f64) -> Option<OrientedBox> {
-        let doc = self.document();
-        let ctx = doc.context_of(ctx_path).ok()?;
-        let t = doc.transform_of(ctx_path).ok()?;
-        let o = doc.assembly(ctx).ok().and_then(|a| a.occurrence(id))?;
-        let frame = extra * t * o.transform;
+    fn content_bounds(&self, ctx: &ContextIndex<'_>, id: Id, extra: DAffine3, offset_px: f64) -> Option<OrientedBox> {
+        let o = ctx.occurrence(id)?;
+        let frame = extra * ctx.transform() * o.transform;
         let to_local = frame.inverse();
         let mut bounds: Option<(DVec3, DVec3)> = None;
-        for u in solids_under(doc, ctx_path, id) {
+        for u in ctx.solids_under(id) {
             // A part's recipe shown: its blank holds the tools' cuts.
             let key = self.scene.recipe().filter(|r| r.part == u.part).map_or(u.part, |r| r.blank);
             let Some(dm) = self.scene.definition_mesh(key) else { continue };
@@ -172,32 +177,14 @@ impl Editor {
         Some(OrientedBox { frame, lo, hi })
     }
 
-    /// A box's edges, as dashed segments.
-    fn dashed_box(&self, out: &mut Vec<(DVec3, DVec3)>, OrientedBox { frame, lo, hi }: OrientedBox) {
-        let corner = |i: usize| {
-            frame.transform_point3(DVec3::new(
-                if i & 1 == 0 { lo.x } else { hi.x },
-                if i & 2 == 0 { lo.y } else { hi.y },
-                if i & 4 == 0 { lo.z } else { hi.z },
-            ))
-        };
-        let mut lines = Vec::new();
-        for i in 0..8 {
-            for bit in [1, 2, 4] {
-                if i & bit == 0 {
-                    self.dashed(&mut lines, corner(i), corner(i | bit), [0.0; 4]);
-                }
-            }
-        }
-        out.extend(lines.into_iter().map(|l| (l.a, l.b)));
-    }
-
     /// The grey box drawn around the part open, else the assembly being edited (`None` at the
     /// model's level).
     pub(super) fn context_bounds(&self) -> Option<OrientedBox> {
         match (self.open_part, self.context.split_last()) {
-            (Some(id), _) => self.content_bounds(&self.context, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX),
-            (None, Some((&id, parent))) => self.content_bounds(parent, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX),
+            (Some(id), _) => self.content_bounds(&ContextIndex::new(self.document(), &self.context)?, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX),
+            (None, Some((&id, parent))) => {
+                self.content_bounds(&ContextIndex::new(self.document(), parent)?, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX)
+            }
             (None, None) => None,
         }
     }
@@ -210,6 +197,8 @@ impl Editor {
         // Moved or turned without copying, the selection is only drawn where it goes: the
         // original stays in place only when a copy is left behind.
         let hide_original = preview.ghost.is_some() && !self.tool_copying();
+        // Looked up for every placement: a set (a selection can hold tens of thousands).
+        let selected: std::collections::HashSet<Id> = self.selection.iter().copied().collect();
         let depth = self.context.len();
         let open = self.open_part_path();
         // What a tool previews stretched (§6 sexies): each occurrence it changes drawn from its
@@ -224,7 +213,7 @@ impl Editor {
             .filter(|_| self.showing_machinings())
             .filter(|_| open.as_ref().is_none_or(|o| swaps.is_none_or(|s| !s.contains_key(o))));
         let hidden = |p: &&crate::scene::Placement| {
-            (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| self.selection.contains(id)))
+            (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| selected.contains(id)))
                 || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
         };
         let mut swapped: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
@@ -268,7 +257,7 @@ impl Editor {
             v.batches.push((r.blank, vec![ViewPlacement { transform: t, faded: false, material, look: Look::Blank }]));
             let mut tools: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
             // A tool moved without a copy is drawn only where it goes.
-            for tool in r.tools.iter().filter(|tool| !(hide_original && self.selection.contains(&tool.machining))) {
+            for tool in r.tools.iter().filter(|tool| !(hide_original && selected.contains(&tool.machining))) {
                 let look = if tool.failed { Look::FailedTool } else { Look::Tool };
                 let p = ViewPlacement { transform: t * tool.placement, faded: false, material: None, look };
                 match tools.iter_mut().find(|(k, _)| *k == tool.key) {
@@ -284,6 +273,9 @@ impl Editor {
             let t = doc.resolve_part(open.as_ref()?).ok()?.2;
             r.tools.iter().find(|tool| tool.machining == id).map(|tool| (tool.key, t * tool.placement))
         };
+        // The occurrences of the context, indexed once, when something is marked.
+        let index_cell = std::cell::OnceCell::new();
+        let index = || index_cell.get_or_init(|| ContextIndex::new(doc, &self.context)).as_ref();
         let mark = |out: &mut Vec<ViewHighlight>, ctx: &[Id], id: Id, m: Mark, extra: DAffine3| {
             if recipe.is_some() {
                 if let Some((key, t)) = tool_at(id) {
@@ -291,7 +283,12 @@ impl Editor {
                 }
                 return;
             }
-            for u in solids_under(doc, ctx, id) {
+            let under = if ctx == self.context.as_slice() {
+                index().map(|i| i.solids_under(id))
+            } else {
+                ContextIndex::new(doc, ctx).map(|i| i.solids_under(id))
+            };
+            for u in under.into_iter().flatten() {
                 out.push(ViewHighlight {
                     definition: u.part,
                     solid: u.part,
@@ -316,33 +313,32 @@ impl Editor {
             Some(DAffine3::IDENTITY)
         };
         for (id, extra) in self.selection.iter().filter_map(|id| box_at.map(|g| (*id, g))) {
-            if let Some(b) = self.content_bounds(&self.context, id, extra, 0.0) {
-                self.dashed_box(&mut v.selection_boxes, b);
+            if let Some(b) = index().and_then(|i| self.content_bounds(i, id, extra, 0.0)) {
+                v.selection_boxes.push(b);
             }
         }
         // The part open, else the assembly being edited: its content's box, a little larger.
-        if let Some(b) = self.context_bounds() {
-            self.dashed_box(&mut v.context_box, b);
-        }
+        v.context_box.extend(self.context_bounds());
         // The guides: the active context's (the open part's occurrence, else the context) —
         // selected, hovered or not —, and the others faded.
         let active: Vec<Id> = self.context.iter().copied().chain(self.open_part).collect();
-        let hovered = |id: Id| preview.hover == Some(id) || preview.marquee.as_ref().is_some_and(|m| m.hits.contains(&id));
+        let marquee_hits: std::collections::HashSet<Id> = preview.marquee.iter().flat_map(|m| m.hits.iter().copied()).collect();
+        let hovered = |id: Id| preview.hover == Some(id) || marquee_hits.contains(&id);
         for g in self.scene.guides() {
             let dashes = |shape: &solidsketch_model::GuideShape| crate::guides::strokes(&self.camera, self.size, shape);
             if g.path != active {
                 v.faded_guides.extend(dashes(&g.shape));
                 continue;
             }
-            let selected = self.selection.contains(&g.id);
-            if selected && let Some(t) = preview.ghost {
+            let is_selected = selected.contains(&g.id);
+            if is_selected && let Some(t) = preview.ghost {
                 v.selected_guides.extend(dashes(&g.shape.transformed(&t)));
                 if !hide_original {
                     v.guides.extend(dashes(&g.shape));
                 }
                 continue;
             }
-            let out = if selected {
+            let out = if is_selected {
                 &mut v.selected_guides
             } else if hovered(g.id) {
                 &mut v.hovered_guides
@@ -352,11 +348,11 @@ impl Editor {
             out.extend(dashes(&g.shape));
         }
         let listed = self.listed_hover.filter(|_| recipe.is_some());
-        if let Some(h) = listed.or(preview.hover).filter(|h| !self.selection.contains(h)) {
+        if let Some(h) = listed.or(preview.hover).filter(|h| !selected.contains(h)) {
             mark(&mut v.highlights, &self.context, h, Mark::Hover, DAffine3::IDENTITY);
         }
         // What the selection rectangle would take, as if hovered.
-        for h in preview.marquee.iter().flat_map(|m| &m.hits).filter(|h| !self.selection.contains(h)) {
+        for h in preview.marquee.iter().flat_map(|m| &m.hits).filter(|h| !selected.contains(h)) {
             mark(&mut v.highlights, &self.context, *h, Mark::Hover, DAffine3::IDENTITY);
         }
         for (path, m) in [(&preview.hover_solid, Mark::Hover), (&preview.picked_solid, Mark::Picked)] {

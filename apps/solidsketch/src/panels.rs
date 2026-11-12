@@ -210,65 +210,98 @@ fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static>
     if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
 }
 
-/// "Pied", "Gauche <Pied>", with "×4" when the part has several copies (the propagation made
-/// visible, ARCHITECTURE.md §2.5).
+/// "Pied", "Gauche <Pied>".
 pub fn occurrence_label(doc: &Document, o: &Occurrence) -> String {
     let name = doc.component(o.component).map(|c| c.name.as_str()).unwrap_or("?");
-    let mut label = if o.name.is_empty() { name.to_owned() } else { format!("{} <{name}>", o.name) };
-    let n = doc.occurrence_count(o.component);
-    if n > 1 {
-        label.push_str(&format!("  ×{n}"));
-    }
-    label
+    if o.name.is_empty() { name.to_owned() } else { format!("{} <{name}>", o.name) }
 }
 
-pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
+/// One line of the outliner: an occurrence at some depth of the tree.
+struct OutlinerRow<'d> {
+    /// The occurrences above it.
+    path: Vec<Id>,
+    occurrence: &'d Occurrence,
+    /// Its folding state, for an assembly.
+    fold: Option<egui::collapsing_header::CollapsingState>,
+}
+
+/// The outliner, in `area`: only the rows in view are laid out (a model can hold tens of
+/// thousands of occurrences).
+pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, area: egui::ScrollArea) {
     let doc = editor.document();
     if doc.root_assembly().occurrences.is_empty() {
         ui.weak(t!("panel.outliner.empty", shortcut = "R"));
         return;
     }
-    tree(ui, editor, doc, doc.root(), &mut Vec::new(), actions, 0);
+    let mut rows = Vec::new();
+    flatten(ui.ctx(), editor, doc, doc.root(), &mut Vec::new(), &mut rows, 0);
+    let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
+    let tint = ui.visuals().text_color();
+    let height = ui.spacing().interact_size.y;
+    area.show_rows(ui, height, rows.len(), |ui, range| {
+        ui.set_min_width(ui.available_width());
+        for row in rows.drain(range) {
+            let o = row.occurrence;
+            let selected = editor.context() == row.path.as_slice() && (selection.contains(&o.id) || editor.open_part() == Some(o.id));
+            let width = ui.available_width();
+            let layout = egui::Layout::left_to_right(egui::Align::Center);
+            let label = ui
+                .allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
+                    // The toggle button (or, for a part, its room) one indent per level, so all
+                    // the icons of a level line up.
+                    let spacing = ui.spacing().item_spacing.x;
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.add_space(ui.spacing().indent * row.path.len() as f32);
+                    match row.fold {
+                        Some(mut fold) => {
+                            fold.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                            fold.store(ui.ctx());
+                        }
+                        None => ui.add_space(ui.spacing().indent),
+                    }
+                    ui.spacing_mut().item_spacing.x = spacing;
+                    ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
+                    ui.selectable_label(selected, occurrence_label(doc, o))
+                })
+                .inner;
+            if label.clicked() {
+                actions.push(Action::SelectPath(EntityPath::new(row.path, o.id)));
+            }
+        }
+    });
 }
 
-fn tree(ui: &mut egui::Ui, editor: &Editor, doc: &Document, assembly: Id, path: &mut Vec<Id>, actions: &mut Vec<Action>, depth: usize) {
+/// The rows of the tree under `assembly`, those of folded assemblies left out.
+fn flatten<'d>(
+    ctx: &egui::Context,
+    editor: &Editor,
+    doc: &'d Document,
+    assembly: Id,
+    path: &mut Vec<Id>,
+    out: &mut Vec<OutlinerRow<'d>>,
+    depth: usize,
+) {
     let Ok(a) = doc.assembly(assembly) else { return };
     if depth > solidsketch_model::MAX_DEPTH {
         return;
     }
-    let tint = ui.visuals().text_color();
     for o in &a.occurrences {
-        let selected = editor.context() == path.as_slice() && (editor.selection().contains(&o.id) || editor.open_part() == Some(o.id));
-        // A leaf reserves the toggle button's width (egui gives it the full indent) so all the
-        // icons of a level line up, one indent to the right of their parent's icon.
-        let row = |ui: &mut egui::Ui, lead: f32| {
-            ui.horizontal(|ui| {
-                ui.add_space(lead);
-                ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-                ui.selectable_label(selected, occurrence_label(doc, o))
-            })
-            .inner
-        };
         if doc.assembly(o.component).is_err() {
-            if row(ui, ui.spacing().indent).clicked() {
-                actions.push(Action::SelectPath(EntityPath::new(path.clone(), o.id)));
-            }
+            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None });
             continue;
         }
-        let id = ui.make_persistent_id(("outliner", path.clone(), o.id));
+        let id = egui::Id::unique(("outliner", path.as_slice(), o.id));
+        let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
         // Open along the context being edited.
-        let in_context = editor.context().starts_with(&[path.as_slice(), &[o.id]].concat());
-        let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
-        if in_context {
-            state.set_open(true);
+        if editor.context().starts_with(&[path.as_slice(), &[o.id]].concat()) {
+            fold.set_open(true);
         }
-        let (_, header, _) = state.show_header(ui, |ui| row(ui, 0.0)).body(|ui| {
+        let open = fold.is_open();
+        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold) });
+        if open {
             path.push(o.id);
-            tree(ui, editor, doc, o.component, path, actions, depth + 1);
+            flatten(ctx, editor, doc, o.component, path, out, depth + 1);
             path.pop();
-        });
-        if header.inner.clicked() {
-            actions.push(Action::SelectPath(EntityPath::new(path.clone(), o.id)));
         }
     }
 }

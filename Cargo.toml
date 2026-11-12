@@ -49,6 +49,9 @@ pollster = "0.4"
 [profile.dev]
 # Line numbers only (panic backtraces): full debug info made the build tree tens of GB.
 debug = "line-tables-only"
+# Unoptimised, the loops run every frame over every occurrence (tens of thousands) are many
+# times slower: a light pass keeps a big model usable while developing.
+opt-level = 1
 
 [profile.dev.package."*"]
 # The kernel is far too slow unoptimised.

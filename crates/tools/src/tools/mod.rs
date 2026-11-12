@@ -196,16 +196,25 @@ pub struct Preview {
     pub fills: Vec<PreviewFill>,
 }
 
-/// A round point (or a diamond) a tool draws over everything (world; its radius in pixels),
-/// filled and / or ringed (linear RGBA).
+/// A point a tool draws over everything (world; its radius in pixels), filled and / or ringed
+/// (linear RGBA).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreviewPoint {
     pub at: DVec3,
     pub radius: f32,
     pub fill: Option<[f32; 4]>,
     pub stroke: Option<[f32; 4]>,
-    /// Drawn as a diamond (a point taken from the geometry), else round.
-    pub diamond: bool,
+    pub shape: PointShape,
+}
+
+/// How a [`PreviewPoint`] is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointShape {
+    Round,
+    /// A point taken from the geometry.
+    Diamond,
+    /// A closed padlock: something locked, a click unlocks it (the stretch's locked axes).
+    Padlock,
 }
 
 /// A flat convex polygon a tool draws in the scene, hidden behind faces (world corners; linear

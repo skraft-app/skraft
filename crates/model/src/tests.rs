@@ -245,52 +245,11 @@ fn file_round_trip() {
         .unwrap();
     h.apply(Operation::MakeAssembly { context: root, entities: vec![a], name: Some("Tiroir".into()) }).unwrap();
     let json = h.document().to_json().unwrap();
-    assert!(json.contains("\"version\":3"));
+    assert!(json.contains("\"version\":1"));
     let back = Document::from_json(&json).unwrap();
     assert_eq!(back, *h.document());
     assert!(Document::from_json(r#"{"format":"other","version":1}"#).is_err());
-    assert!(Document::from_json(&json.replacen("\"version\":3", "\"version\":99", 1)).is_err());
-}
-
-/// Reference files of each version, read back as they were written (docs/ARCHITECTURE.md §8):
-/// a format change that breaks old files fails here.
-#[test]
-fn reference_files_still_open() {
-    // v1: a free box at the root, a group holding a free cylinder, a component with two
-    // instances (one named).
-    let v1 = Document::from_json(include_str!("../tests/files/v1.solidsketch")).unwrap();
-    let placed = v1.placed_parts();
-    assert_eq!(placed.len(), 4, "{placed:?}");
-    assert_eq!(v1.components().filter(|c| c.is_part()).count(), 3);
-    let root = v1.root_assembly();
-    assert_eq!(root.occurrences.len(), 4);
-    let names: Vec<&str> = v1.components().map(|c| c.name.as_str()).collect();
-    assert!(
-        names.contains(&"Boîte") && names.contains(&"Cylindre") && names.contains(&"Groupe") && names.contains(&"Composant"),
-        "{names:?}"
-    );
-    assert!(v1.components().find(|c| c.name == "Composant").unwrap().named);
-    assert!(!v1.components().find(|c| c.name == "Groupe").unwrap().named);
-    assert!(root.occurrences.iter().any(|o| o.name == "Gauche"));
-    // Nothing moved: free solids keep their coordinates, placed at identity.
-    let boite = placed.iter().find(|p| v1.component(p.part).unwrap().name == "Boîte").unwrap();
-    assert!(boite.transform.abs_diff_eq(DAffine3::IDENTITY, 0.0));
-    assert!(close(boite.shape.vertex_bounds().unwrap().0, DVec3::new(10.0, 0.0, 0.0)));
-
-    // v2: a board with a drill hole, in a named assembly.
-    let v2 = Document::from_json(include_str!("../tests/files/v2.solidsketch")).unwrap();
-    let parts: Vec<&Part> = v2.components().filter_map(|c| c.as_part()).collect();
-    assert_eq!(parts.len(), 1);
-    assert_eq!(parts[0].machinings.len(), 1);
-    assert!(v2.components().any(|c| c.name == "Tiroir" && c.named));
-    assert!(v2.placed_guides().is_empty(), "no guides before version 3");
-
-    // v3: the same, with a guide line in the model and a guide circle in the board's part.
-    let v3 = Document::from_json(include_str!("../tests/files/v3.solidsketch")).unwrap();
-    let guides = v3.placed_guides();
-    assert_eq!(guides.len(), 2, "{guides:?}");
-    assert!(guides.iter().any(|g| g.path.is_empty() && matches!(g.guide.shape, GuideShape::Line { .. })));
-    assert!(guides.iter().any(|g| g.path.len() == 2 && matches!(g.guide.shape, GuideShape::Circle { radius: 10.0, .. })));
+    assert!(Document::from_json(&json.replacen("\"version\":1", "\"version\":99", 1)).is_err());
 }
 
 #[test]
@@ -351,65 +310,6 @@ fn a_file_with_a_bad_guide_is_refused() {
     let past = json.replace("\"guides\":[{\"id\":2", "\"guides\":[{\"id\":99");
     assert_ne!(past, json);
     assert!(matches!(Document::from_json(&past), Err(Error::File(FileError::BadGuide(Id(99))))));
-    // A version 2 file reads with no guides.
-    let v2 = json.replace("\"version\":3", "\"version\":2");
-    assert!(Document::from_json(&v2).is_ok());
-}
-
-/// Writes the reference files again: `SOLIDSKETCH_WRITE_FILES=1 cargo test -p solidsketch-model
-/// write_reference_files`. Only for a new version: the old ones must stay as they are (the
-/// version 2 file was written by this scenario without its guides).
-#[test]
-fn write_reference_files() {
-    if std::env::var_os("SOLIDSKETCH_WRITE_FILES").is_none() {
-        return;
-    }
-    let mut h = History::new(Document::new());
-    let root = h.document().root();
-    let a = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(100.0, 50.0, 18.0) });
-    let b = add(&mut h, Primitive::Cylinder { origin: DVec3::new(50.0, 25.0, 10.0), radius: 4.0, height: 20.0 });
-    h.apply(Operation::Boolean { target: EntityPath::root(a), tool: EntityPath::root(b), op: Boolean::Difference, scope: Scope::All })
-        .unwrap();
-    h.apply(Operation::MakeAssembly { context: root, entities: vec![a], name: Some("Tiroir".into()) }).unwrap();
-    // Version 3: guides, one in the model, one in the board's part.
-    h.apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin: DVec3::new(0.0, 80.0, 0.0), dir: DVec3::X } })
-        .unwrap();
-    let part = h.document().components().find(|c| c.is_part()).unwrap().id;
-    let circle = GuideShape::Circle { center: DVec3::new(50.0, 25.0, 18.0), normal: DVec3::Z, radius: 10.0 };
-    h.apply(Operation::AddGuide { component: part, shape: circle }).unwrap();
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/files");
-    std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(format!("{dir}/v3.solidsketch"), h.document().to_json().unwrap()).unwrap();
-
-    // Version 1 as its serde wrote it (definitions holding solids and instances; the layout
-    // checked against a file saved by that version).
-    use serde_json::json;
-    let solid = |p: Primitive| serde_json::to_value(p.build().unwrap()).unwrap();
-    let t = |x: f64| serde_json::to_value(DAffine3::from_translation(DVec3::new(x, 0.0, 0.0))).unwrap();
-    let v1 = json!({
-        "format": "solidsketch",
-        "version": 1,
-        "document": {
-            "definitions": {
-                "1": { "id": 1, "name": "Modèle", "kind": "Root", "entities": [
-                    { "Solid": { "id": 2, "name": "Boîte", "solid": solid(cube(DVec3::new(10.0, 0.0, 0.0), 20.0)) } },
-                    { "Instance": { "id": 4, "name": "", "definition": 3, "transform": t(100.0) } },
-                    { "Instance": { "id": 7, "name": "", "definition": 6, "transform": t(200.0) } },
-                    { "Instance": { "id": 8, "name": "Gauche", "definition": 6, "transform": t(300.0) } }
-                ] },
-                "3": { "id": 3, "name": "Groupe", "kind": "Group", "entities": [
-                    { "Solid": { "id": 5, "name": "Cylindre", "solid": solid(Primitive::Cylinder { origin: DVec3::ZERO, radius: 5.0, height: 10.0 }) } }
-                ] },
-                "6": { "id": 6, "name": "Composant", "kind": "Component", "entities": [
-                    { "Solid": { "id": 9, "name": "Boîte", "solid": solid(cube(DVec3::ZERO, 5.0)) } }
-                ] }
-            },
-            "root": 1,
-            "next_id": 10,
-            "settings": serde_json::to_value(Settings::default()).unwrap()
-        }
-    });
-    std::fs::write(format!("{dir}/v1.solidsketch"), v1.to_string()).unwrap();
 }
 
 #[test]
@@ -918,7 +818,7 @@ fn a_part_s_guides_go_with_its_machinings() {
 /// A stretch of the occurrence `target`, in its component's axes.
 fn stretch(doc: &Document, target: &EntityPath, axis: DVec3, cuts: Vec<f64>, moves: Vec<f64>, scope: Scope) -> Operation {
     let frame = doc.resolve(target).unwrap().transform;
-    Operation::Stretch { context: target.instances.clone(), occurrences: vec![target.entity], frame, axis, cuts, moves, scope }
+    Operation::Stretch { context: target.instances.clone(), occurrences: vec![target.entity], frame, axis, cuts, moves, scope, cutters: None }
 }
 
 /// A stretch along the part's X: the cutter at `cut`, the far side moved by `d`.
@@ -1272,6 +1172,7 @@ fn several_occurrences_stretched_together_share_their_change() {
         cuts: vec![100.0],
         moves: vec![0.0, 50.0],
         scope,
+        cutters: None,
     };
 
     // Only these: one copy for both, the third as it was.
@@ -1306,6 +1207,7 @@ fn several_occurrences_in_the_context_axes_turned_ones_take_their_own_change() {
         cuts: vec![cut],
         moves: vec![0.0, 50.0],
         scope: Scope::All,
+        cutters: None,
     };
 
     // Cut at 50: the first board stretched along its length, the turned one only moved.
@@ -1353,6 +1255,7 @@ fn a_stretch_in_the_model_axes_reaches_into_a_turned_context() {
         cuts: vec![975.0],
         moves: vec![0.0, 30.0],
         scope: Scope::All,
+        cutters: None,
     };
     h.apply(op).unwrap();
     let (lo, hi) = world_bounds(h.document(), &path);
@@ -1370,6 +1273,117 @@ fn a_stretch_without_occurrences_is_refused() {
         cuts: vec![100.0],
         moves: vec![0.0, 50.0],
         scope: Scope::All,
+        cutters: None,
     };
     assert!(matches!(h.document().prepare(&op), Err(Error::Invalid(Refusal::NothingStretched))));
+}
+
+#[test]
+fn a_behavior_is_set_merged_saved_copied_and_checked() {
+    let (mut h, part, [b1, ..]) = three_boards();
+    let root = h.document().root();
+    let behavior = |mask: u8, x: Vec<f64>, y: Vec<f64>| Behavior { no_stretch: StretchMask(mask), cutters: Some([x, y, vec![0.5]]) };
+    let set = |b: Behavior| Operation::SetBehavior { component: part, behavior: b };
+    // Two changes in a row to one component: one undo step.
+    h.apply(set(behavior(0, vec![0.5], vec![0.5]))).unwrap();
+    // Y locked: its cutters dropped, the mask the one truth.
+    h.apply(set(behavior(2, vec![0.25, 0.75], vec![0.3]))).unwrap();
+    let saved = &h.document().component(part).unwrap().behavior;
+    assert_eq!(*saved, behavior(2, vec![0.25, 0.75], vec![]));
+    assert!(saved.no_stretch.locks(1) && !saved.no_stretch.locks(0));
+    assert!(saved.no_stretch.locks_along(DVec3::new(0.6, 0.8, 0.0)) && !saved.no_stretch.locks_along(DVec3::X));
+    assert!(h.undo());
+    assert!(h.document().component(part).unwrap().behavior.is_default());
+    assert!(h.redo());
+
+    // Saved and read back.
+    let json = h.document().to_json().unwrap();
+    assert_eq!(Document::from_json(&json).unwrap(), *h.document());
+    // A file with cutters out of ]0, 1[ is refused.
+    let bad = json.replacen("[0.25,0.75]", "[0.25,1.75]", 1);
+    assert_ne!(bad, json);
+    assert!(matches!(Document::from_json(&bad), Err(Error::File(FileError::BadBehavior(id))) if id == part));
+    // So is such an operation.
+    assert!(matches!(h.document().prepare(&set(behavior(0, vec![0.6, 0.4], vec![0.5]))), Err(Error::Invalid(Refusal::BadBehavior))));
+    assert!(matches!(h.document().prepare(&set(behavior(128, vec![0.5], vec![0.5]))), Err(Error::Invalid(Refusal::BadBehavior))));
+
+    // A separate part keeps it.
+    h.apply(Operation::MakeUnique { context: root, occurrence: b1 }).unwrap();
+    let copy = occ(h.document(), &EntityPath::root(b1)).component;
+    assert_ne!(copy, part);
+    assert_eq!(h.document().component(copy).unwrap().behavior, behavior(2, vec![0.25, 0.75], vec![]));
+}
+
+#[test]
+fn a_stretch_sets_its_targets_cutters() {
+    let (mut h, part, [b1, ..]) = three_boards();
+    h.apply(Operation::SetBehavior { component: part, behavior: Behavior { no_stretch: StretchMask(4), cutters: None } }).unwrap();
+    let cutters = [vec![0.4], vec![0.5], vec![0.5]];
+    let op = match stretch_x(h.document(), &EntityPath::root(b1), 100.0, 50.0, Scope::This) {
+        Operation::Stretch { context, occurrences, frame, axis, cuts, moves, scope, .. } => {
+            Operation::Stretch { context, occurrences, frame, axis, cuts, moves, scope, cutters: Some(Box::new(cutters.clone())) }
+        }
+        _ => unreachable!(),
+    };
+    h.apply(op).unwrap();
+    // On the copy the stretch made, its lock kept (and its cutters dropped); the others' part
+    // as it was.
+    let copy = occ(h.document(), &EntityPath::root(b1)).component;
+    assert_ne!(copy, part);
+    let b = &h.document().component(copy).unwrap().behavior;
+    assert_eq!(*b, Behavior { no_stretch: StretchMask(4), cutters: Some([vec![0.4], vec![0.5], vec![]]) });
+    assert_eq!(h.document().component(part).unwrap().behavior.cutters, None);
+}
+
+#[test]
+fn a_locked_part_is_a_block_moved_with_its_origin() {
+    // A board 0–200 along X and a hinge across the cutter at 100, in an assembly.
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let hinge = add(&mut h, cube(DVec3::new(90.0, 0.0, 18.0), 20.0));
+    let a = h.apply(Operation::MakeAssembly { context: root, entities: vec![board, hinge], name: None }).unwrap().created[0];
+    let path = EntityPath::new(vec![a], hinge);
+    let hinge_part = occ(h.document(), &path).component;
+    let origin = occ(h.document(), &path).transform.translation.x;
+    assert!(origin < 100.0, "the hinge's origin at {origin}");
+    let frame = h.document().resolve(&EntityPath::root(a)).unwrap().transform;
+    let op = || Operation::Stretch {
+        context: vec![],
+        occurrences: vec![a],
+        frame,
+        axis: DVec3::X,
+        cuts: vec![100.0],
+        moves: vec![0.0, 50.0],
+        scope: Scope::All,
+        cutters: None,
+    };
+    // Free, the hinge is stretched.
+    let out = h.apply(op()).unwrap();
+    assert!(out.stretched.iter().any(|s| s.from == hinge_part));
+    let (lo, hi) = world_bounds(h.document(), &path);
+    assert!((lo.x - 90.0).abs() < 1e-9 && (hi.x - 160.0).abs() < 1e-9, "{lo} {hi}");
+    h.undo();
+
+    // Locked along X (all axes, as OCL's hardware): moved with its origin's section — here
+    // not at all — and not stretched; the board is.
+    let all = Behavior { no_stretch: StretchMask(StretchMask::ALL), cutters: None };
+    h.apply(Operation::SetBehavior { component: hinge_part, behavior: all }).unwrap();
+    // The compression limit counts it whole in its origin's section.
+    let spans = h.document().stretch_spans(&[], &[a], &frame, DVec3::X, &[100.0]).unwrap();
+    assert!(spans[0].is_some_and(|(_, hi)| (hi - 110.0).abs() < 1e-9), "{spans:?}");
+    let out = h.apply(op()).unwrap();
+    assert!(!out.stretched.iter().any(|s| s.from == hinge_part));
+    assert_eq!(occ(h.document(), &path).component, hinge_part);
+    let (lo, hi) = world_bounds(h.document(), &path);
+    assert!((lo.x - 90.0).abs() < 1e-9 && (hi.x - 110.0).abs() < 1e-9, "{lo} {hi}");
+    let (lo, hi) = world_bounds(h.document(), &EntityPath::new(vec![a], board));
+    assert!((lo.x).abs() < 1e-9 && (hi.x - 250.0).abs() < 1e-9, "{lo} {hi}");
+    h.undo();
+
+    // Locked along Y only: stretched along X as before.
+    let y = Behavior { no_stretch: StretchMask(2), cutters: None };
+    h.apply(Operation::SetBehavior { component: hinge_part, behavior: y }).unwrap();
+    let out = h.apply(op()).unwrap();
+    assert!(out.stretched.iter().any(|s| s.from == hinge_part));
 }

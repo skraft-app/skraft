@@ -1,11 +1,7 @@
 //! The file format: versioned JSON of the document (docs/ARCHITECTURE.md §8).
 //!
-//! Version 2 is the parts / assemblies model (§2); version 3 adds the components' guides
-//! (§6 quinquies), which version 2 files read without. Version 1 files (free solids, groups
-//! and components) are converted when opened ([`v1`]).
-
-use std::collections::BTreeMap;
-use std::sync::Arc;
+//! Version 1: the app is not published yet, the format changes without a new version and
+//! without reading older files.
 
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +11,7 @@ use crate::{Error, FileError, Result};
 /// The `format` field of every SolidSketch file.
 pub const FORMAT: &str = "solidsketch";
 /// The version this build writes, and the newest it reads.
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 1;
 
 #[derive(Serialize)]
 struct FileOut<'a> {
@@ -52,10 +48,7 @@ impl Document {
         if h.version > VERSION {
             return Err(Error::File(FileError::TooNew(h.version)));
         }
-        let doc = match h.version {
-            1 => serde_json::from_str::<FileIn<v1::Document>>(text).map_err(file_err)?.document.convert()?,
-            _ => serde_json::from_str::<FileIn<Document>>(text).map_err(file_err)?.document,
-        };
+        let doc = serde_json::from_str::<FileIn<Document>>(text).map_err(file_err)?.document;
         doc.check()?;
         Ok(doc)
     }
@@ -89,6 +82,9 @@ impl Document {
                 return Err(Error::File(FileError::Misfiled { id: c.id, key: *key }));
             }
             fresh(c.id, FileError::BadComponentId)?;
+            if !c.behavior.is_valid() {
+                return Err(Error::File(FileError::BadBehavior(c.id)));
+            }
             // A component's guides, apart from its occurrences or machinings.
             let mut here = std::collections::HashSet::new();
             for g in &c.guides {
@@ -129,92 +125,5 @@ impl Document {
             }
         }
         Ok(())
-    }
-}
-
-/// Version 1: definitions (root, groups, components) holding free solids — in their
-/// definition's coordinates — and instances.
-mod v1 {
-    use glam::DAffine3;
-    use solidsketch_kernel::Solid;
-
-    use super::*;
-    use crate::document::{Assembly, Component, Occurrence, Part};
-    use crate::settings::Settings;
-
-    #[derive(Deserialize)]
-    pub struct Document {
-        definitions: BTreeMap<Id, Definition>,
-        root: Id,
-        next_id: u64,
-        #[serde(default)]
-        settings: Settings,
-    }
-
-    #[derive(Deserialize, PartialEq)]
-    enum Kind {
-        Root,
-        Group,
-        Component,
-    }
-
-    #[derive(Deserialize)]
-    struct Definition {
-        id: Id,
-        name: String,
-        kind: Kind,
-        entities: Vec<Entity>,
-    }
-
-    #[derive(Deserialize)]
-    enum Entity {
-        Solid { id: Id, name: String, solid: Arc<Solid> },
-        Instance { id: Id, name: String, definition: Id, transform: DAffine3 },
-    }
-
-    impl Document {
-        /// Definitions become assemblies (a component's name is the user's: kept while unused;
-        /// a group's is not), instances their occurrences. A free solid becomes a part — its
-        /// axes those of its definition, so nothing moves and no kernel is needed — and the
-        /// part's one occurrence, under the solid's id so selections and names carry over.
-        pub fn convert(self) -> Result<super::Document> {
-            if self.definitions.get(&self.root).is_none_or(|d| d.kind != Kind::Root) {
-                return Err(Error::File(FileError::RootNotModel));
-            }
-            let mut next_id = self.next_id;
-            let mut components = BTreeMap::new();
-            let mut names = std::collections::HashSet::new();
-            let mut unique = |base: &str| {
-                let name = (1..).map(|i| if i == 1 { base.to_owned() } else { format!("{base}#{i}") }).find(|n| !names.contains(n));
-                let name = name.unwrap_or_default();
-                names.insert(name.clone());
-                name
-            };
-            for d in self.definitions.values() {
-                unique(&d.name);
-            }
-            for d in self.definitions.into_values() {
-                let mut occurrences = Vec::with_capacity(d.entities.len());
-                for e in d.entities {
-                    occurrences.push(match e {
-                        Entity::Instance { id, name, definition, transform } => {
-                            Occurrence { id, name, component: definition, transform, material: None }
-                        }
-                        Entity::Solid { id, name, solid } => {
-                            let part = Id(next_id);
-                            next_id += 1;
-                            let kind = ComponentKind::Part(Part::new(solid));
-                            let name = unique(&name);
-                            components.insert(part, Arc::new(Component { id: part, name, named: false, kind, guides: Vec::new() }));
-                            Occurrence { id, name: String::new(), component: part, transform: DAffine3::IDENTITY, material: None }
-                        }
-                    });
-                }
-                let named = d.kind != Kind::Group;
-                let kind = ComponentKind::Assembly(Assembly { occurrences });
-                components.insert(d.id, Arc::new(Component { id: d.id, name: d.name, named, kind, guides: Vec::new() }));
-            }
-            Ok(super::Document { components, root: self.root, next_id, settings: self.settings, materials: Default::default() })
-        }
     }
 }

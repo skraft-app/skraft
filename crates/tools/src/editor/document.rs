@@ -294,7 +294,9 @@ impl Editor {
             }
             None => {
                 if let Ok(a) = doc.assembly(ctx) {
-                    self.selection.retain(|id| a.occurrence(*id).is_some() || guide(id));
+                    // A set: the selection and the assembly can hold tens of thousands.
+                    let present: std::collections::HashSet<_> = a.occurrences.iter().map(|o| o.id).collect();
+                    self.selection.retain(|id| present.contains(id) || guide(id));
                 }
             }
         }

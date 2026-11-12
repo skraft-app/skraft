@@ -12,7 +12,7 @@
 //! Moving, copying, arraying and grouping never need the kernel: they only change occurrences
 //! (§2.2, §2.5). Building a part and cutting it do.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
@@ -21,7 +21,7 @@ use solidsketch_i18n::t;
 use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
 
 use crate::document::{
-    Assembly, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Machining, MachiningSource, Material, Occurrence, Part,
+    Assembly, Behavior, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Machining, MachiningSource, Material, Occurrence, Part,
 };
 use crate::settings::Settings;
 use crate::{Error, Refusal, Result};
@@ -163,6 +163,10 @@ pub enum Operation {
     /// cutter its tool stretched, its guides following their section, then is computed again
     /// from its blank; an assembly across a cutter is walked, each component stretched in its
     /// own axes (`stretch.rs`).
+    ///
+    /// `cutters`, with one occurrence: the cutters its component (as it is after the stretch)
+    /// takes, in its own axes ([`Behavior::cutters`]) — the tool's, set again after the
+    /// stretch; its locks are kept.
     Stretch {
         context: Vec<Id>,
         occurrences: Vec<Id>,
@@ -172,7 +176,13 @@ pub enum Operation {
         moves: Vec<f64>,
         #[serde(default)]
         scope: Scope,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cutters: Option<Box<[Vec<f64>; 3]>>,
     },
+    /// Sets how `component` is stretched: its locked axes and its cutters (ARCHITECTURE.md
+    /// §6 sexies). Every occurrence shows it; no scope. Changes in a row to one component undo
+    /// in one go.
+    SetBehavior { component: Id, behavior: Behavior },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
     /// A new material (§7 quater).
@@ -220,6 +230,7 @@ impl Operation {
             Operation::ArrayMachinings { .. } => t!("operation.array"),
             Operation::AddGuide { .. } => t!("operation.add_guide"),
             Operation::Stretch { .. } => t!("operation.stretch"),
+            Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
         }
     }
 
@@ -229,6 +240,7 @@ impl Operation {
         match (self, prev) {
             (Operation::SetSettings(_), Operation::SetSettings(_)) => true,
             (Operation::EditMaterial { material: a, .. }, Operation::EditMaterial { material: b, .. }) => a == b,
+            (Operation::SetBehavior { component: a, .. }, Operation::SetBehavior { component: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -356,6 +368,7 @@ impl Document {
                 // Guides take no paint.
                 let (_, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
+                let entities = id_set(entities);
                 for o in &mut self.assembly_mut(*context)?.occurrences {
                     if entities.contains(&o.id) {
                         o.material = *material;
@@ -414,6 +427,7 @@ impl Document {
                 }
                 let (guides, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
+                let entities = id_set(entities);
                 for o in &mut self.assembly_mut(*context)?.occurrences {
                     if entities.contains(&o.id) {
                         o.transform = *transform * o.transform;
@@ -455,6 +469,7 @@ impl Document {
             Operation::Delete { context, entities } => {
                 let (guides, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
+                let entities = id_set(entities);
                 self.assembly_mut(*context)?.occurrences.retain(|o| !entities.contains(&o.id));
                 self.component_mut(*context)?.guides.retain(|g| !guides.contains(&g.id));
                 Ok(Outcome::default())
@@ -492,6 +507,7 @@ impl Document {
                 self.component_mut(*context)?.guides.retain(|g| !guides.contains(&g.id));
                 self.component_mut(assembly)?.guides = taken;
                 let id = self.fresh_id();
+                let entities = id_set(entities);
                 let ctx = self.assembly_mut(*context)?;
                 // The new occurrence stands where the first moved one stood, in the tree.
                 let at = ctx.occurrences.iter().position(|o| entities.contains(&o.id)).unwrap_or(ctx.occurrences.len());
@@ -629,11 +645,30 @@ impl Document {
                 created.extend(self.copy_guides(part, &guides, &steps)?);
                 Ok(Outcome { machinings: created, ..Outcome::default() })
             }
-            Operation::Stretch { context, occurrences, frame, axis, cuts, moves, scope } => {
+            Operation::Stretch { context, occurrences, frame, axis, cuts, moves, scope, cutters } => {
                 let stretch = Stretch::new(*axis, cuts.clone(), moves.clone()).map_err(solidsketch_kernel::Error::from)?;
                 let stretched = self
                     .stretch_tree(context, occurrences, frame, &stretch, *scope, &mut |doc, part, s| doc.stretch_part(part, s, solver))?;
+                if let (Some(cutters), [o]) = (cutters, &occurrences[..]) {
+                    let component = self.assembly(self.context_of(context)?)?.occurrence(*o).ok_or(Error::NotFound(*o))?.component;
+                    let mut behavior = self.component(component)?.behavior.clone();
+                    behavior.cutters = Some((**cutters).clone());
+                    let behavior = behavior.normalized();
+                    if !behavior.is_valid() {
+                        return Err(Error::Invalid(Refusal::BadBehavior));
+                    }
+                    self.component_mut(component)?.behavior = behavior;
+                }
                 Ok(Outcome { stretched, ..Outcome::default() })
+            }
+            Operation::SetBehavior { component, behavior } => {
+                let behavior = behavior.clone().normalized();
+                if !behavior.is_valid() {
+                    return Err(Error::Invalid(Refusal::BadBehavior));
+                }
+                self.component(*component)?;
+                self.component_mut(*component)?.behavior = behavior;
+                Ok(Outcome::default())
             }
         }
     }
@@ -816,10 +851,16 @@ impl Document {
     /// there.
     fn occurrences_of(&self, context: Id, ids: &[Id]) -> Result<Vec<Occurrence>> {
         let a = self.assembly(context)?;
-        if let Some(&missing) = ids.iter().find(|id| a.occurrence(**id).is_none()) {
-            return Err(Error::NotFound(missing));
+        // Sets both ways: a selection can hold tens of thousands of occurrences.
+        let wanted = id_set(ids);
+        let found: Vec<Occurrence> = a.occurrences.iter().filter(|o| wanted.contains(&o.id)).cloned().collect();
+        if found.len() < wanted.len() {
+            let present: HashSet<Id> = found.iter().map(|o| o.id).collect();
+            if let Some(&missing) = ids.iter().find(|id| !present.contains(id)) {
+                return Err(Error::NotFound(missing));
+            }
         }
-        Ok(a.occurrences.iter().filter(|o| ids.contains(&o.id)).cloned().collect())
+        Ok(found)
     }
 
     /// Adds copies of `sources` (fresh ids, same components) to `context`, moved by `t`.
@@ -833,6 +874,11 @@ impl Document {
         self.assembly_mut(context)?.occurrences.extend(copies);
         Ok(created)
     }
+}
+
+/// `ids` as a set, for lookups over a whole assembly.
+fn id_set(ids: &[Id]) -> HashSet<Id> {
+    ids.iter().copied().collect()
 }
 
 fn is_identity(t: &DAffine3) -> bool {

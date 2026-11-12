@@ -42,6 +42,79 @@ pub struct Component {
     /// Construction guides, in the component's axes (ARCHITECTURE.md §6 quinquies).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guides: Vec<Guide>,
+    /// How it is stretched: its cutters and locked axes (ARCHITECTURE.md §6 sexies).
+    #[serde(default, skip_serializing_if = "Behavior::is_default")]
+    pub behavior: Behavior,
+}
+
+/// How a component behaves when stretched (ARCHITECTURE.md §6 sexies, after SketchUp's
+/// `Behavior`): the axes it never stretches along, and where its cutters stand. Both follow
+/// the component: its copies keep them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Behavior {
+    /// The axes (its own) it never stretches along.
+    #[serde(default, skip_serializing_if = "StretchMask::is_empty")]
+    pub no_stretch: StretchMask,
+    /// The cutters along each of its axes, as increasing ratios of its box in ]0, 1[; none:
+    /// one in the middle. A locked axis has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cutters: Option<[Vec<f64>; 3]>,
+}
+
+impl Behavior {
+    pub fn is_default(&self) -> bool {
+        *self == Behavior::default()
+    }
+
+    /// A known mask, and cutters finite, inside ]0, 1[ and increasing.
+    pub fn is_valid(&self) -> bool {
+        let increasing = |r: &Vec<f64>| r.iter().all(|x| x.is_finite() && *x > 0.0 && *x < 1.0) && r.windows(2).all(|w| w[0] < w[1]);
+        self.no_stretch.0 <= StretchMask::ALL && self.cutters.as_ref().is_none_or(|c| c.iter().all(increasing))
+    }
+
+    /// The same, the cutters of its locked axes dropped (the mask is the one truth).
+    pub fn normalized(mut self) -> Behavior {
+        if let Some(c) = &mut self.cutters {
+            for (k, r) in c.iter_mut().enumerate() {
+                if self.no_stretch.locks(k) {
+                    r.clear();
+                }
+            }
+        }
+        self
+    }
+}
+
+/// The axes a component never stretches along, in its own axes: SketchUp's `no_scale_mask`
+/// bits — X 1, Y 2, Z 4; the planes' and the uniform scale's (8 to 64) kept, unused (there is
+/// no scaling: stretching is ours).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct StretchMask(pub u8);
+
+impl StretchMask {
+    /// Every bit SketchUp knows.
+    pub const ALL: u8 = 0b111_1111;
+
+    pub fn is_empty(&self) -> bool {
+        self.0 & 0b111 == 0
+    }
+
+    /// Is the axis `k` (0 X, 1 Y, 2 Z) locked?
+    pub fn locks(self, k: usize) -> bool {
+        k < 3 && self.0 & (1 << k) != 0
+    }
+
+    /// The same, the axis `k` locked or not.
+    pub fn with(self, k: usize, locked: bool) -> StretchMask {
+        if locked { StretchMask(self.0 | (1 << k)) } else { StretchMask(self.0 & !(1 << k)) }
+    }
+
+    /// Does it lock a stretch along `axis` (unit, in the component's axes)? As soon as the
+    /// axis has a component along a locked one.
+    pub fn locks_along(self, axis: DVec3) -> bool {
+        (0..3).any(|k| self.locks(k) && axis[k].abs() > 1e-9)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -299,7 +372,7 @@ impl Document {
     pub fn with_settings(settings: Settings) -> Self {
         let root = Id(1);
         let kind = ComponentKind::Assembly(Assembly::default());
-        let c = Component { id: root, name: t!("default_name.model"), named: true, kind, guides: Vec::new() };
+        let c = Component { id: root, name: t!("default_name.model"), named: true, kind, guides: Vec::new(), behavior: Behavior::default() };
         Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings, materials: BTreeMap::new() }
     }
 
@@ -492,16 +565,17 @@ impl Document {
     pub(crate) fn insert_component(&mut self, base: &str, named: bool, kind: ComponentKind) -> Id {
         let id = self.fresh_id();
         let name = self.unique_name(base);
-        self.components.insert(id, Arc::new(Component { id, name, named, kind, guides: Vec::new() }));
+        self.components.insert(id, Arc::new(Component { id, name, named, kind, guides: Vec::new(), behavior: Behavior::default() }));
         id
     }
 
-    /// Adds a copy of the component `src` (its recipe or its occurrences, and its guides, ids
-    /// kept), under a name of its own.
+    /// Adds a copy of the component `src` (its recipe or its occurrences, its guides — ids
+    /// kept — and its behavior), under a name of its own.
     pub(crate) fn copy_component(&mut self, src: Id) -> Result<Id> {
         let src = self.component(src)?.clone();
         let copy = self.insert_component(&src.name, src.named, src.kind);
-        self.component_mut(copy)?.guides = src.guides;
+        let c = self.component_mut(copy)?;
+        (c.guides, c.behavior) = (src.guides, src.behavior);
         Ok(copy)
     }
 

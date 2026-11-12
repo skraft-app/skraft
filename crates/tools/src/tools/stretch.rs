@@ -17,6 +17,9 @@
 //!   along the axis, out of the box to remove one; with the copy modifier held a click adds one
 //!   where the cursor is, with the other modifier held a click removes the one under it. A click on a grip starts the stretch (or press, drag
 //!   and release); a click on nothing lets the part go.
+//! - **Locks**: removing the last cutter of an axis locks it (its component's `Behavior`): no
+//!   grips nor cutters, a closed padlock at its end; a click on it unlocks the axis, one cutter
+//!   in the middle.
 //! - **Interior handles** (OCL's `_get_interior_handle_defs`): with two cutters or more on the
 //!   active axis, each section between two of them has one — its stretch of the line between the
 //!   grips, taken anywhere along it (20 px), drawn bold with arrows when hovered. It is grabbed
@@ -31,8 +34,11 @@
 //!   modifier tapped centres, the other one tapped makes it a separate part; a double-click takes
 //!   the last measure again; a typed one ends it. Then back to the grips, on the same part.
 //!
-//! Cutters are kept per part and axis, as ratios of the box, for the session (OCL keeps them on
-//! the definition, saved in the model); several occurrences share one set, the last used.
+//! Cutters are kept on the component, as ratios of its box along its own axes (its `Behavior`,
+//! saved with the model, as OCL keeps them on the definition): every change to them is an
+//! operation, those in a row one undo step; a stretch sets them again in its own. Several
+//! occurrences share one set, the last used, for the session — as one occurrence whose axes
+//! the stretch's are not square to (its cutters then have no place on its own axes).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -41,12 +47,12 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::kernel::Solid;
-use solidsketch_model::{EntityPath, Id, Operation, Scope};
+use solidsketch_model::{Behavior, EntityPath, Id, Operation, Scope};
 
 use super::select::{marquee_hits, toggled};
 use super::{
-    BLUE, Command, Cx, GREEN, Key, Marquee, OptionChoice, OptionValue, Preview, PreviewFill, PreviewLabel, PreviewLine, PreviewPoint, RED,
-    StretchPreview, Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
+    BLUE, Command, Cx, GREEN, Key, Marquee, OptionChoice, OptionValue, PointShape, Preview, PreviewFill, PreviewLabel, PreviewLine,
+    PreviewPoint, RED, StretchPreview, Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
 };
 use crate::camera::Ray;
 use crate::infer::{EdgeRef, InferKind, Inference};
@@ -73,6 +79,9 @@ const GRIP_PX: f64 = 30.0;
 const OTHER_GRIP_PX: f64 = 10.0;
 /// How near a cutter's outline the cursor takes it (pixels).
 const CUTTER_PX: f64 = 20.0;
+/// How near a padlock the cursor takes it (pixels), and its size (its radius).
+const PADLOCK_PX: f64 = 12.0;
+const PADLOCK_RADIUS: f32 = 8.0;
 /// How near an interior handle the cursor takes it (pixels).
 const HANDLE_PX: f64 = 20.0;
 /// An interior handle's arrowheads (pixels).
@@ -98,9 +107,9 @@ const AXIS_GREY: [f32; 4] = [0.1, 0.1, 0.1, 0.45];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 thread_local! {
-    /// The cutters of each part, per axis, for the session; under `None`, those several
-    /// occurrences share (OCL's `@@last_cutters_data`). The tools run on one thread; each test
-    /// on its own.
+    /// The cutters kept for the session, per axis: under `None`, those several occurrences share
+    /// (OCL's `@@last_cutters_data`); under a component, those of one occurrence whose axes the
+    /// stretch's are not square to. The tools run on one thread; each test on its own.
     static CUTTERS: RefCell<HashMap<Option<Id>, [Vec<f64>; 3]>> = RefCell::default();
 }
 
@@ -137,12 +146,28 @@ fn square(m: &glam::DMat3) -> bool {
     m.to_cols_array().iter().all(|x| x.abs() < 1e-9 || (x.abs() - 1.0).abs() < 1e-9)
 }
 
-/// Ratios sorted, inside ]0, 1[ and apart; none left, one in the middle (OCL's `_load_cutters`).
-fn sanitized(mut ratios: Vec<f64>) -> Vec<f64> {
+/// Ratios sorted, inside ]0, 1[ and apart (OCL's `_load_cutters`); none left, the axis locked
+/// when it can be (`lockable`: kept on a component), else one in the middle.
+fn sanitized(mut ratios: Vec<f64>, lockable: bool) -> Vec<f64> {
     ratios.retain(|r| (SAME_CUT..=1.0 - SAME_CUT).contains(r));
     ratios.sort_by(f64::total_cmp);
     ratios.dedup_by(|a, b| (*a - *b).abs() < SAME_CUT);
-    if ratios.is_empty() { vec![0.5] } else { ratios }
+    if ratios.is_empty() && !lockable { vec![0.5] } else { ratios }
+}
+
+/// Ratios read the other way along their axis.
+fn reversed(ratios: &[f64]) -> Vec<f64> {
+    ratios.iter().rev().map(|r| 1.0 - r).collect()
+}
+
+/// Where a target's cutters are kept.
+#[derive(Clone, Debug, PartialEq)]
+enum Keep {
+    /// On the one occurrence's component (its `Behavior`): the stretch's axis `k` is its own
+    /// axis `map[k].0`, the other way when `map[k].1`. Its axes can be locked.
+    Component { id: Id, map: [(usize, bool); 3] },
+    /// For the session, under this key ([`CUTTERS`]).
+    Session(Option<Id>),
 }
 
 /// What is stretched — occurrences of parts or assemblies of one context: the context's path,
@@ -152,8 +177,8 @@ fn sanitized(mut ratios: Vec<f64>) -> Vec<f64> {
 struct Target {
     context: Vec<Id>,
     occurrences: Vec<Id>,
-    /// The one occurrence's component (its cutters are its own); none for several.
-    component: Option<Id>,
+    /// Where its cutters are kept.
+    keep: Keep,
     /// The stretch's axes in the context's (the operation's frame), and to world.
     in_context: DAffine3,
     frame: DAffine3,
@@ -172,9 +197,20 @@ impl Target {
             (Axes::Active, _) => to_world.inverse(),
             _ => DAffine3::IDENTITY,
         };
-        let component = match &occs[..] {
-            [o] => Some(o.component),
-            _ => None,
+        let keep = match &occs[..] {
+            // The stretch's axes in the component's: each one of its own, maybe turned over.
+            [o] => {
+                let m = o.transform.matrix3.inverse() * in_context.matrix3;
+                let own = |k: usize| {
+                    let c = m.col(k);
+                    (0..3).find(|j| (c[*j].abs() - 1.0).abs() < 1e-9).map(|j| (j, c[j] < 0.0))
+                };
+                match (square(&m), own(0), own(1), own(2)) {
+                    (true, Some(x), Some(y), Some(z)) => Keep::Component { id: o.component, map: [x, y, z] },
+                    _ => Keep::Session(Some(o.component)),
+                }
+            }
+            _ => Keep::Session(None),
         };
         let frame = to_world * in_context;
         let exact = |shape: &Arc<Solid>| cx.scene.bounds_of(shape).or_else(|| shape.vertex_bounds());
@@ -214,7 +250,7 @@ impl Target {
             }
         }
         let (lo, hi) = (b.0.x <= b.1.x).then_some(b)?;
-        Some(Target { context, occurrences, component, in_context, frame, lo, hi })
+        Some(Target { context, occurrences, keep, in_context, frame, lo, hi })
     }
 
     /// The paths of the occurrences stretched.
@@ -277,6 +313,38 @@ impl Target {
     /// The box's stretchable axes: those it has a length along.
     fn axes(&self) -> impl Iterator<Item = usize> + '_ {
         (0..3).filter(|k| self.length(*k) > MIN)
+    }
+
+    /// The cutters kept for it, per axis of the stretch (empty: the axis locked).
+    fn load_cutters(&self, cx: &Cx<'_>) -> [Vec<f64>; 3] {
+        let Keep::Component { id, map } = &self.keep else {
+            let Keep::Session(key) = &self.keep else { unreachable!() };
+            return load_cutters(*key);
+        };
+        let behavior = cx.doc.component(*id).map(|c| c.behavior.clone()).unwrap_or_default();
+        std::array::from_fn(|k| {
+            let (j, flip) = map[k];
+            if behavior.no_stretch.locks(j) {
+                return Vec::new();
+            }
+            let own = behavior.cutters.as_ref().map(|c| c[j].clone()).filter(|c| !c.is_empty()).unwrap_or_else(|| vec![0.5]);
+            sanitized(if flip { reversed(&own) } else { own }, false)
+        })
+    }
+
+    /// The behavior of its component with the cutters `cutters` (per axis of the stretch; empty:
+    /// the axis locked) — if they are kept on it.
+    fn behavior(&self, cx: &Cx<'_>, cutters: &[Vec<f64>; 3]) -> Option<(Id, Behavior)> {
+        let Keep::Component { id, map } = &self.keep else { return None };
+        let mut b = cx.doc.component(*id).ok()?.behavior.clone();
+        let mut own: [Vec<f64>; 3] = b.cutters.take().unwrap_or_else(|| [vec![0.5], vec![0.5], vec![0.5]]);
+        for (k, ratios) in cutters.iter().enumerate() {
+            let (j, flip) = map[k];
+            b.no_stretch = b.no_stretch.with(j, ratios.is_empty());
+            own[j] = if flip { reversed(ratios) } else { ratios.clone() };
+        }
+        b.cutters = Some(own);
+        Some((*id, b.normalized()))
     }
 }
 
@@ -402,6 +470,8 @@ enum Over {
     Handle(Handle),
     /// The cutter of this index, on the active axis.
     Cutter(usize),
+    /// The padlock of the locked axis `k`.
+    Padlock(usize),
 }
 
 /// An interior handle taken (OCL's `_get_interior_handle_defs`): the section `index` (in
@@ -448,6 +518,7 @@ enum State {
     },
 }
 
+#[derive(Clone)]
 pub struct StretchTool {
     state: State,
     /// The occurrence clicked, when nothing is open nor selected.
@@ -461,10 +532,12 @@ pub struct StretchTool {
     marquee: Option<Marquee>,
     /// The active axis (0 red, 1 green, 2 blue): the last grip hovered's.
     axis: Option<usize>,
-    /// The cutters of `cutters_of` (a component, or none: several occurrences'), per axis, as
-    /// increasing ratios of its box in ]0, 1[.
+    /// The target's cutters, per axis of the stretch, as increasing ratios of its box in
+    /// ]0, 1[; none: the axis locked.
     cutters: [Vec<f64>; 3],
-    cutters_of: Option<Option<Id>>,
+    /// Where they were last read from or written to, and what was there then: read again when
+    /// it changes (another target, an undo).
+    synced: Option<(Keep, [Vec<f64>; 3])>,
     over: Over,
     mode: Mode,
     /// The ratio a click would add a cutter at ([`Mode::Add`]).
@@ -494,7 +567,7 @@ impl Default for StretchTool {
             marquee: None,
             axis: None,
             cutters: [vec![0.5], vec![0.5], vec![0.5]],
-            cutters_of: None,
+            synced: None,
             over: Over::Nothing,
             mode: Mode::Normal,
             adding: None,
@@ -542,24 +615,57 @@ impl StretchTool {
         ids.into_iter().filter(|id| cx.doc.resolve(&EntityPath::new(cx.context.to_vec(), *id)).is_ok()).collect()
     }
 
-    /// The cutters of `target`'s component (or several occurrences'), loaded when it changes.
-    fn sync_cutters(&mut self, target: &Target) {
-        if self.cutters_of != Some(target.component) {
-            self.cutters = load_cutters(target.component);
-            self.cutters_of = Some(target.component);
+    /// The cutters kept for `target`, read again when they changed there (another target, an
+    /// undo). Returns whether they were.
+    fn sync_cutters(&mut self, cx: &Cx<'_>, target: &Target) -> bool {
+        let kept = target.load_cutters(cx);
+        let stale = self.synced.as_ref().is_none_or(|(keep, seen)| *keep != target.keep || *seen != kept);
+        if stale {
+            self.cutters = kept.clone();
+            self.synced = Some((target.keep.clone(), kept));
+        }
+        stale
+    }
+
+    /// The cutters of axis `k` set to `ratios` (none: the axis locked, when it can be), and
+    /// kept: an operation on the component, or for the session.
+    fn set_cutters(&mut self, cx: &Cx<'_>, target: &Target, k: usize, ratios: Vec<f64>) -> Vec<Command> {
+        self.cutters[k] = sanitized(ratios, matches!(target.keep, Keep::Component { .. }));
+        self.synced = Some((target.keep.clone(), self.cutters.clone()));
+        if target.load_cutters(cx) == self.cutters {
+            return vec![];
+        }
+        match (&target.keep, target.behavior(cx, &self.cutters)) {
+            (_, Some((component, behavior))) => vec![Command::Apply(Operation::SetBehavior { component, behavior })],
+            (Keep::Session(key), None) => {
+                store_cutters(*key, &self.cutters);
+                vec![]
+            }
+            _ => vec![],
         }
     }
 
-    fn set_cutters(&mut self, k: usize, ratios: Vec<f64>) {
-        self.cutters[k] = sanitized(ratios);
-        if let Some(key) = self.cutters_of {
-            store_cutters(key, &self.cutters);
-        }
+    /// Is the axis `k` locked (no cutters)?
+    fn locked(&self, k: usize) -> bool {
+        self.cutters[k].is_empty()
     }
 
     /// The active axis: the arrow keys', else the last grip hovered's, if stretchable.
     fn active(&self, cx: &Cx<'_>, target: &Target) -> Option<usize> {
-        cx.axis_lock.or(self.axis).filter(|k| target.length(*k) > MIN)
+        cx.axis_lock.or(self.axis).filter(|k| target.length(*k) > MIN && !self.locked(*k))
+    }
+
+    /// Where the padlock of axis `k` stands: at its end (world).
+    fn padlock(target: &Target, k: usize) -> DVec3 {
+        target.world(target.grip(k, 1.0))
+    }
+
+    /// The padlock under the cursor, of a locked axis.
+    fn padlock_at(&self, cx: &Cx<'_>, target: &Target, px: DVec2) -> Option<usize> {
+        target
+            .axes()
+            .filter(|k| self.locked(*k))
+            .find(|k| cx.camera.project(Self::padlock(target, *k), cx.size).is_some_and(|at| at.distance(px) <= PADLOCK_PX))
     }
 
     /// The grip under the cursor: the nearest on screen within its reach, the nearer the eye
@@ -569,7 +675,7 @@ impl StretchTool {
         let depth = |p: DVec3| (p - cx.camera.eye).dot(cx.camera.forward());
         target
             .axes()
-            .filter(|k| cx.axis_lock.is_none_or(|l| l == *k))
+            .filter(|k| cx.axis_lock.is_none_or(|l| l == *k) && !self.locked(*k))
             .flat_map(|k| [(k, -1.0), (k, 1.0)])
             .filter_map(|(k, side)| {
                 let p = target.world(target.grip(k, side));
@@ -673,6 +779,12 @@ impl StretchTool {
             return;
         }
         self.over = Over::Nothing;
+        if self.mode == Mode::Normal
+            && let Some(k) = self.padlock_at(cx, target, px)
+        {
+            self.over = Over::Padlock(k);
+            return;
+        }
         if self.mode != Mode::Remove
             && let Some((k, side)) = self.grip_at(cx, target, px)
         {
@@ -737,6 +849,7 @@ impl StretchTool {
             cuts,
             moves,
             scope: scope(cx),
+            cutters: None,
         }
     }
 
@@ -761,10 +874,18 @@ impl StretchTool {
         if d.abs() < MIN {
             return vec![];
         }
-        let op = self.operation(cx, &target, k, side, handle, d);
-        let Operation::Stretch { moves, .. } = &op else { unreachable!() };
+        let mut op = self.operation(cx, &target, k, side, handle, d);
+        let Operation::Stretch { moves, cutters, .. } = &mut op else { unreachable!() };
         let (lo, hi) = (target.lo[k] + moves[0], target.hi[k] + moves[moves.len() - 1]);
-        self.set_cutters(k, kept_cutters(&spans, moves, lo, hi));
+        // None left between the matter: one in the middle (not a lock).
+        self.cutters[k] = sanitized(kept_cutters(&spans, moves, lo, hi), false);
+        self.synced = Some((target.keep.clone(), self.cutters.clone()));
+        // Kept on the component by the stretch itself, else for the session.
+        match (&target.keep, target.behavior(cx, &self.cutters)) {
+            (_, Some((_, behavior))) => *cutters = behavior.cutters.map(Box::new),
+            (Keep::Session(key), None) => store_cutters(*key, &self.cutters),
+            _ => {}
+        }
         self.axis = Some(k);
         if overall {
             self.last_overall = Some(measure);
@@ -865,7 +986,8 @@ impl StretchTool {
         }
         let at = target.world(h.at);
         let radius = if h.magnetized { 6.0 } else { 5.0 };
-        p.points.push(PreviewPoint { at, radius, fill: Some(color), stroke: Some(WHITE), diamond: h.magnetized });
+        let shape = if h.magnetized { PointShape::Diamond } else { PointShape::Round };
+        p.points.push(PreviewPoint { at, radius, fill: Some(color), stroke: Some(WHITE), shape });
         if let Some(from) = h.from.map(|f| target.world(f)).filter(|f| (*f - at).length() > MIN) {
             dashed(cx.camera, cx.size, &mut p.lines, from, at, color);
         }
@@ -881,12 +1003,20 @@ impl StretchTool {
         if moving.is_none() {
             for k in target.axes().filter(|k| cx.axis_lock.is_none_or(|l| l == *k)) {
                 let (a, b) = (target.world(target.grip(k, -1.0)), target.world(target.grip(k, 1.0)));
+                // Locked: grey, no grips, its padlock (in its colour when hovered).
+                if self.locked(k) {
+                    dashed(cx.camera, cx.size, &mut p.lines, a, b, AXIS_GREY);
+                    let hovered = self.over == Over::Padlock(k);
+                    let fill = if hovered { axis_color(k) } else { GREY };
+                    p.points.push(PreviewPoint { at: b, radius: PADLOCK_RADIUS, fill: Some(fill), stroke: Some(WHITE), shape: PointShape::Padlock });
+                    continue;
+                }
                 let color = if active == Some(k) { axis_color(k) } else { GREY };
                 dashed(cx.camera, cx.size, &mut p.lines, a, b, if active == Some(k) { color } else { AXIS_GREY });
                 for (side, at) in [(-1.0, a), (1.0, b)] {
                     let fill = if self.over == (Over::Grip { k, side }) { color } else { WHITE };
                     let radius = if active == Some(k) { 5.0 } else { 4.0 };
-                    p.points.push(PreviewPoint { at, radius, fill: Some(fill), stroke: Some(color), diamond: false });
+                    p.points.push(PreviewPoint { at, radius, fill: Some(fill), stroke: Some(color), shape: PointShape::Round });
                 }
             }
         }
@@ -915,7 +1045,7 @@ impl StretchTool {
                     p.scene_lines.push(PreviewLine { a: c[j], b: c[(j + 1) % 4], color: ink, bold: picked });
                 }
             }
-            p.points.push(PreviewPoint { at: (c[0] + c[2]) / 2.0, radius: 3.0, fill: Some(ink), stroke: None, diamond: false });
+            p.points.push(PreviewPoint { at: (c[0] + c[2]) / 2.0, radius: 3.0, fill: Some(ink), stroke: None, shape: PointShape::Round });
         }
     }
 
@@ -925,7 +1055,7 @@ impl StretchTool {
             return self.input_pick(input, cx);
         };
         self.hovered = None;
-        self.sync_cutters(&target);
+        self.sync_cutters(cx, &target);
         match input {
             ToolInput::Hover { px } => self.hover_grips(cx, &target, *px),
             ToolInput::Click { px, .. } => {
@@ -936,13 +1066,19 @@ impl StretchTool {
                         if let Some(r) = self.adding {
                             let mut ratios = self.cutters[k].clone();
                             ratios.push(r);
-                            self.set_cutters(k, ratios);
+                            return self.set_cutters(cx, &target, k, ratios);
                         }
                     }
+                    // The last one removed locks the axis.
                     (Mode::Remove, Over::Cutter(i), Some(k)) => {
                         let mut ratios = self.cutters[k].clone();
                         ratios.remove(i);
-                        self.set_cutters(k, ratios);
+                        return self.set_cutters(cx, &target, k, ratios);
+                    }
+                    // A padlock clicked: the axis unlocked, one cutter in the middle.
+                    (Mode::Normal, Over::Padlock(k), _) => {
+                        self.over = Over::Nothing;
+                        return self.set_cutters(cx, &target, k, vec![0.5]);
                     }
                     (Mode::Normal, Over::Grip { k, side }, _) => return self.start(cx, target, k, side, None, false),
                     (Mode::Normal, Over::Handle(h), Some(k)) => return self.start(cx, target, k, 1.0, Some(h), false),
@@ -1057,11 +1193,14 @@ impl StretchTool {
                     }
                 }
             }
+            // Dropped out of the box, the last one locks the axis.
             (State::Cutter { k, .. }, ToolInput::DragEnd { .. }) => {
                 let k = *k;
                 self.state = State::Grips;
                 let ratios = self.cutters[k].clone();
-                self.set_cutters(k, ratios);
+                if let Some(target) = self.target(cx) {
+                    return self.set_cutters(cx, &target, k, ratios);
+                }
             }
 
             // ---- the stretch
@@ -1123,7 +1262,12 @@ impl Tool for StretchTool {
             Mode::Normal
         };
         let commands = self.input_state(input, cx);
-        self.aimed = self.target(cx).is_some();
+        let target = self.target(cx);
+        self.aimed = target.is_some();
+        // A target just taken (a click) shows its cutters and locks at once.
+        if let (State::Grips, Some(target)) = (&self.state, &target) {
+            self.sync_cutters(cx, target);
+        }
         commands
     }
 
@@ -1135,7 +1279,17 @@ impl Tool for StretchTool {
             return p;
         };
         match &self.state {
-            State::Grips => self.preview_grips(cx, &target, &mut p, None),
+            // Taken before any input (the tool started on a selection, or the document changed
+            // since): drawn with the cutters and locks kept for it.
+            State::Grips => {
+                let mut fresh = None;
+                if self.synced.as_ref().is_none_or(|(keep, seen)| *keep != target.keep || *seen != target.load_cutters(cx)) {
+                    let mut t = self.clone();
+                    t.sync_cutters(cx, &target);
+                    fresh = Some(t);
+                }
+                fresh.as_ref().unwrap_or(self).preview_grips(cx, &target, &mut p, None)
+            }
             State::Cutter { k, index, .. } => self.preview_grips(cx, &target, &mut p, Some((*k, *index))),
             State::Stretch { k, side, handle, d, .. } => {
                 let (k, side, handle, d) = (*k, *side, *handle, *d);
@@ -1157,9 +1311,9 @@ impl Tool for StretchTool {
                 let (a, b) = (target.world(start), target.world(end));
                 dashed(cx.camera, cx.size, &mut p.lines, a, b, color);
                 for at in [a, b] {
-                    p.points.push(PreviewPoint { at, radius: 4.0, fill: Some(WHITE), stroke: Some(color), diamond: false });
+                    p.points.push(PreviewPoint { at, radius: 4.0, fill: Some(WHITE), stroke: Some(color), shape: PointShape::Round });
                 }
-                p.points.push(PreviewPoint { at: target.world(grip), radius: 4.0, fill: Some(color), stroke: None, diamond: false });
+                p.points.push(PreviewPoint { at: target.world(grip), radius: 4.0, fill: Some(color), stroke: None, shape: PointShape::Round });
                 if (b - a).length() > MIN {
                     p.labels.push(PreviewLabel { a, b, text: self.format(cx, self.measure(&target, k, d).abs()), color });
                 }
@@ -1189,6 +1343,7 @@ impl Tool for StretchTool {
             },
             (State::Grips, true, Mode::Add) => t!("tool.stretch.hint.add"),
             (State::Grips, true, Mode::Remove) => t!("tool.stretch.hint.remove"),
+            (State::Grips, true, Mode::Normal) if matches!(self.over, Over::Padlock(_)) => t!("tool.stretch.hint.unlock"),
             (State::Grips, true, Mode::Normal) if matches!(self.over, Over::Handle(_)) => {
                 t!("tool.stretch.hint.interior", copy_key = copy_key(), alt_key = alt_key())
             }
@@ -1365,7 +1520,10 @@ mod tests {
 
     #[test]
     fn cutters_are_sanitized() {
-        assert_eq!(sanitized(vec![0.7, 0.2, 0.2000001, 1.0, 0.0]), vec![0.2, 0.7]);
-        assert_eq!(sanitized(vec![1.0]), vec![0.5]);
+        assert_eq!(sanitized(vec![0.7, 0.2, 0.2000001, 1.0, 0.0], false), vec![0.2, 0.7]);
+        assert_eq!(sanitized(vec![1.0], false), vec![0.5]);
+        // Kept on a component: none left locks the axis.
+        assert!(sanitized(vec![1.0], true).is_empty());
+        assert_eq!(reversed(&[0.25, 0.5]), vec![0.5, 0.75]);
     }
 }

@@ -30,7 +30,7 @@ mod selection;
 mod view;
 
 use document::{After, Pending, Probe};
-pub use view::{Look, Mark, View, ViewHighlight, ViewPlacement};
+pub use view::{Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
 
 pub struct Editor {
     history: History,
@@ -682,7 +682,10 @@ impl Editor {
     pub(crate) fn run(&mut self, c: Command) {
         match c {
             Command::Apply(op) => {
-                self.clear_locks();
+                // A tool's setting kept on a component (the stretch's cutters) is no new gesture.
+                if !matches!(op, Operation::SetBehavior { .. }) {
+                    self.clear_locks();
+                }
                 let held = matches!(op, Operation::Stretch { .. }).then(|| self.stretch_meshed.clone()).flatten();
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.

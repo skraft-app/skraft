@@ -15,8 +15,8 @@ mod stretch;
 mod tests;
 
 pub use document::{
-    Assembly, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH, Machining, MachiningSource, Material,
-    Occurrence, Part, PlacedGuide, PlacedPart,
+    Assembly, Behavior, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH, Machining, MachiningSource,
+    Material, Occurrence, Part, PlacedGuide, PlacedPart, StretchMask,
 };
 pub use file::{FORMAT, VERSION};
 pub use history::History;
@@ -74,6 +74,8 @@ pub enum Refusal {
     BadGuide,
     /// A stretch names no occurrence.
     NothingStretched,
+    /// A behavior with an unknown mask, or cutters not increasing inside ]0, 1[.
+    BadBehavior,
 }
 
 /// A file that cannot be opened.
@@ -85,8 +87,6 @@ pub enum FileError {
     NotSolidSketch(String),
     TooNew(u32),
     RootNotAssembly,
-    /// A version 1 file whose root is not the model.
-    RootNotModel,
     BadComponentId(Id),
     BadMachiningId(Id),
     BadOccurrenceId(Id),
@@ -106,6 +106,8 @@ pub enum FileError {
     BadMaterialId(Id),
     /// Something painted with a material the document does not have.
     UnknownMaterial(Id),
+    /// A component's behavior not well formed.
+    BadBehavior(Id),
 }
 
 impl std::fmt::Display for Error {
@@ -141,6 +143,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NoMachinings => t!("error.model.no_machinings"),
             Refusal::BadGuide => t!("error.model.bad_guide"),
             Refusal::NothingStretched => t!("error.model.nothing_stretched"),
+            Refusal::BadBehavior => t!("error.model.bad_behavior"),
         })
     }
 }
@@ -152,7 +155,6 @@ impl std::fmt::Display for FileError {
             FileError::NotSolidSketch(format) => t!("error.file.not_solidsketch", format = format),
             FileError::TooNew(version) => t!("error.file.too_new", version = version, supported = file::VERSION),
             FileError::RootNotAssembly => t!("error.file.root_not_assembly"),
-            FileError::RootNotModel => t!("error.file.root_not_model"),
             FileError::BadComponentId(id) => t!("error.file.bad_component_id", id = id),
             FileError::BadMachiningId(id) => t!("error.file.bad_machining_id", id = id),
             FileError::BadOccurrenceId(id) => t!("error.file.bad_occurrence_id", id = id),
@@ -161,6 +163,7 @@ impl std::fmt::Display for FileError {
             FileError::ShapeOutOfStep(id) => t!("error.file.shape_out_of_step", id = id),
             FileError::BadMaterialId(id) => t!("error.file.bad_material_id", id = id),
             FileError::UnknownMaterial(id) => t!("error.file.unknown_material", id = id),
+            FileError::BadBehavior(id) => t!("error.file.bad_behavior", id = id),
             FileError::DuplicateOccurrence { occurrence, assembly } => {
                 t!("error.file.duplicate_occurrence", occurrence = occurrence, assembly = assembly)
             }

@@ -86,6 +86,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         batches: &batches,
         highlights: if highlight { &hl } else { &[] },
         lines: &[],
+        boxes: &[],
         overlay: &[],
         fills: &[],
         grid: decor.then_some(Grid { spacing: 10.0, count: 10 }),
@@ -160,6 +161,7 @@ fn concave_edges_are_not_buried() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        boxes: &[],
         overlay: &[],
         fills: &[],
         grid: None,
@@ -213,6 +215,7 @@ fn a_mirrored_placement_shows_its_outside() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            boxes: &[],
             overlay: &[],
             fills: &[],
             grid: None,
@@ -249,6 +252,7 @@ fn shot(
         batches: &batches,
         highlights: &[],
         lines: &[],
+        boxes: &[],
         overlay: &[],
         fills: &[],
         grid: None,
@@ -290,6 +294,7 @@ fn a_still_frame_is_not_drawn_again() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        boxes: &[],
         overlay: &[],
         fills: &[],
         grid: None,
@@ -451,6 +456,7 @@ fn a_ghost_shows_what_it_holds() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            boxes: &[],
             overlay: &[],
             fills: &[],
             grid: None,
@@ -501,6 +507,7 @@ fn dashed_lines_are_dashed_on_screen() {
         batches: &[],
         highlights: &[],
         lines: &[line],
+        boxes: &[],
         overlay: &[],
         fills: &[],
         grid: None,
@@ -525,6 +532,55 @@ fn dashed_lines_are_dashed_on_screen() {
         }
     }
     assert!(dashes > 40 && gaps > 40, "{dashes} {gaps}");
+}
+
+/// A box outline: its edges dashed from every corner (the corners inked), its inside left
+/// alone. One instance per box.
+#[test]
+fn box_outlines_are_dashed_from_their_corners() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    // Looking down -Z, a pixel a unit; the box 160 × 30 px, centred, flat at z = 0..1.
+    let size = [200, 40];
+    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let outline = BoxOutline {
+        transform: DMat4::from_translation(DVec3::new(-80.0, -15.0, 0.0)) * DMat4::from_scale(DVec3::new(160.0, 30.0, 1.0)),
+        color: [0.0, 0.0, 0.0, 1.0],
+        width: LINE_WIDTH,
+        dash: Some(5.0),
+    };
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &[],
+        highlights: &[],
+        lines: &[],
+        boxes: &[outline],
+        overlay: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "box_outline");
+    // Picture rows run down: the box spans x 20..180, y 5..35.
+    let ink = |x: u32, y: u32| pixel(&px, size[0], x, y)[0];
+    for (x, y) in [(21u32, 5u32), (178, 5), (21, 34), (178, 34)] {
+        let near = (x.saturating_sub(1)..=x + 1).flat_map(|x| (y.saturating_sub(1)..=y + 1).map(move |y| ink(x, y))).min().unwrap();
+        assert!(near < 150, "corner ({x}, {y}) not inked: {near}");
+    }
+    assert!(ink(100, 20) > 240, "inside inked: {}", ink(100, 20));
+    // Along the top edge, dashes and gaps.
+    let row: Vec<u8> = (25..95).map(|x| (4..=6).map(|y| ink(x, y)).min().unwrap()).collect();
+    assert!(row.iter().any(|v| *v < 150) && row.iter().any(|v| *v > 230), "{row:?}");
 }
 
 /// A fill is drawn in the scene: hidden behind a part, blended over the background.
@@ -552,6 +608,7 @@ fn fills_hide_behind_faces() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            boxes: &[],
             overlay: &[],
             fills,
             grid: None,

@@ -120,6 +120,17 @@ pub struct Line {
     pub width: f32,
 }
 
+/// A box's outline: the edges of the unit cube `[0, 1]³` placed by `transform` (which may
+/// scale it), `width` points wide, depth-tested; dashed (dashes `dash` points long, gaps as
+/// long) from every corner. Instanced: a selection of tens of thousands costs one draw.
+#[derive(Clone, Copy, Debug)]
+pub struct BoxOutline {
+    pub transform: DMat4,
+    pub color: [f32; 4],
+    pub width: f32,
+    pub dash: Option<f32>,
+}
+
 /// A flat convex polygon (world corners), translucent (linear RGBA, `a` its opacity), drawn in
 /// the scene: hidden behind faces, blended over what it does not hide (a tool's planes).
 #[derive(Clone, Debug)]
@@ -204,6 +215,8 @@ pub struct Frame<'a> {
     pub highlights: &'a [Highlight],
     /// Depth-tested lines (inferences, guides).
     pub lines: &'a [Line],
+    /// Depth-tested box outlines (the selection's boxes).
+    pub boxes: &'a [BoxOutline],
     /// Lines drawn over everything (tool previews), blended at their alpha.
     pub overlay: &'a [Line],
     /// Translucent polygons, depth tested (tool previews).
@@ -269,6 +282,16 @@ struct LineVertex {
     dash: [f32; 2],
 }
 
+/// A [`BoxOutline`] as the GPU takes it: the unit cube to camera space, its colour, half its
+/// width and its dash period (pixels, 0 when plain).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct BoxRaw {
+    model: [[f32; 4]; 4],
+    color: [f32; 4],
+    params: [f32; 2],
+}
+
 /// A corner of a fill's triangle, in camera coordinates.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -276,6 +299,9 @@ struct FillVertex {
     pos: [f32; 3],
     color: [f32; 4],
 }
+
+/// The corners a box outline is drawn with: 24 half edges of 6 (`vs_box`).
+const BOX_VERTICES: u32 = 24 * 6;
 
 /// The corners of a segment's quad, in drawing order.
 const QUAD: [[f32; 2]; 6] = [[0.0, -1.0], [0.0, 1.0], [1.0, -1.0], [1.0, -1.0], [0.0, 1.0], [1.0, 1.0]];
@@ -378,7 +404,8 @@ impl Dynamic {
         let len = bytes.len() as u64;
         let mut created = false;
         if self.buffer.is_none() || self.capacity < len {
-            let capacity = len.next_power_of_two().max(4096);
+            // Doubled, short of the device's limit (the caller keeps `bytes` within it).
+            let capacity = len.next_power_of_two().max(4096).min(device.limits().max_buffer_size).max(len);
             self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(self.label),
                 size: capacity,
@@ -410,6 +437,7 @@ pub struct Renderer {
     edges: wgpu::RenderPipeline,
     silhouettes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
+    boxes: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
@@ -419,6 +447,7 @@ pub struct Renderer {
     meshes: std::collections::HashMap<u64, GpuMesh>,
     instances: Dynamic,
     line_vertices: Dynamic,
+    box_instances: Dynamic,
     fill_vertices: Dynamic,
     target: Option<Target>,
     /// Bumped whenever what is uploaded changes (a mesh, the target): part of a frame's
@@ -505,6 +534,13 @@ impl Renderer {
             array_stride: size_of::<LineVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &line_attrs,
+        };
+
+        let box_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2];
+        let box_layout = wgpu::VertexBufferLayout {
+            array_stride: size_of::<BoxRaw>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &box_attrs,
         };
 
         let blended = |label: &str,
@@ -639,6 +675,16 @@ impl Renderer {
             None,
             unclipped,
         );
+        let boxes = blended(
+            "boxes",
+            "vs_box",
+            "fs_line",
+            &[Some(box_layout)],
+            depth(true, nearer, Default::default()),
+            all,
+            None,
+            unclipped,
+        );
         let overlay = blended(
             "overlay",
             "vs_line",
@@ -677,6 +723,7 @@ impl Renderer {
             edges,
             silhouettes,
             lines,
+            boxes,
             overlay,
             fills,
             globals,
@@ -686,6 +733,7 @@ impl Renderer {
             meshes: Default::default(),
             instances: Dynamic::new("instances", wgpu::BufferUsages::VERTEX),
             line_vertices: Dynamic::new("lines", wgpu::BufferUsages::VERTEX),
+            box_instances: Dynamic::new("boxes", wgpu::BufferUsages::VERTEX),
             fill_vertices: Dynamic::new("fills", wgpu::BufferUsages::VERTEX),
             target: None,
             generation: 0,
@@ -884,11 +932,17 @@ impl Renderer {
             raw.extend(b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material)));
             batch_ranges.push(start..raw.len() as u32);
         }
-        let highlight_start = raw.len() as u32;
-        for h in frame.highlights {
-            let mv = model_view(&h.transform, h.key);
-            raw.push(InstanceRaw::new(&mv, h.face_tint, h.material));
-            raw.push(InstanceRaw::new(&mv, h.edge_tint, h.material));
+        // Highlights by runs of the same part, each run drawn in one call (a selection can
+        // hold tens of thousands): its face instances, then its edge instances. Runs keep the
+        // highlights' order.
+        let mut runs: Vec<HighlightRun> = Vec::new();
+        for chunk in frame.highlights.chunk_by(|a, b| a.key == b.key && a.part == b.part) {
+            let mvs: Vec<DMat4> = chunk.iter().map(|h| model_view(&h.transform, h.key)).collect();
+            let faces = raw.len() as u32;
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, h.material)));
+            let edges = raw.len() as u32;
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material)));
+            runs.push(HighlightRun { key: chunk[0].key, part: chunk[0].part, faces: faces..edges, edges: edges..raw.len() as u32 });
         }
         self.instances.write(device, queue, bytemuck::cast_slice(&raw));
 
@@ -900,7 +954,24 @@ impl Renderer {
         for l in frame.overlay {
             push_line(&mut lv, &frame.view, l, ppp);
         }
+        // Past the device's buffer limit, the last lines are dropped (whole quads) rather than
+        // the device lost.
+        let max_lines = device.limits().max_buffer_size as usize / std::mem::size_of::<LineVertex>() / QUAD.len();
+        lv.truncate(max_lines * QUAD.len());
+        let tested = tested.min(lv.len() as u32);
         self.line_vertices.write(device, queue, bytemuck::cast_slice(&lv));
+        // Box outlines: one instance each.
+        let mut bx: Vec<BoxRaw> = frame
+            .boxes
+            .iter()
+            .map(|b| BoxRaw {
+                model: (frame.view * b.transform).as_mat4().to_cols_array_2d(),
+                color: b.color,
+                params: [b.width * ppp / 2.0, b.dash.map_or(0.0, |d| 2.0 * d * ppp)],
+            })
+            .collect();
+        bx.truncate(device.limits().max_buffer_size as usize / std::mem::size_of::<BoxRaw>());
+        self.box_instances.write(device, queue, bytemuck::cast_slice(&bx));
         // Fills: each polygon as a fan of triangles.
         let mut fv = Vec::new();
         for f in frame.fills {
@@ -909,6 +980,8 @@ impl Renderer {
                 fv.extend([at(f.corners[0]), at(f.corners[i]), at(f.corners[i + 1])]);
             }
         }
+        let max_triangles = device.limits().max_buffer_size as usize / std::mem::size_of::<FillVertex>() / 3;
+        fv.truncate(max_triangles * 3);
         self.fill_vertices.write(device, queue, bytemuck::cast_slice(&fv));
 
         let (Some(target), Some(bind_group)) = (&self.target, &self.bind_group) else { return false };
@@ -946,13 +1019,12 @@ impl Renderer {
                     pass.draw_indexed(0..m.index_count, 0, r.clone());
                 }
             }
-            for (k, h) in frame.highlights.iter().enumerate() {
-                let Some((m, part)) = part_of(&self.meshes, h) else { continue };
+            for run in &runs {
+                let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                 if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
-                    let at = highlight_start + 2 * k as u32;
                     pass.set_vertex_buffer(0, v.slice(..));
                     pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(part.indices.clone(), 0, at..at + 1);
+                    pass.draw_indexed(part.indices.clone(), 0, run.faces.clone());
                 }
             }
             if section_on > 0.0 {
@@ -981,12 +1053,11 @@ impl Renderer {
                     pass.draw(0..m.edge_vertex_count, r.clone());
                 }
             }
-            for (k, h) in frame.highlights.iter().enumerate() {
-                let Some((m, part)) = part_of(&self.meshes, h) else { continue };
+            for run in &runs {
+                let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                 if let Some(e) = &m.edges {
-                    let at = highlight_start + 2 * k as u32 + 1;
                     pass.set_vertex_buffer(0, e.slice(..));
-                    pass.draw(part.edges.clone(), at..at + 1);
+                    pass.draw(part.edges.clone(), run.edges.clone());
                 }
             }
             if style.silhouettes {
@@ -998,12 +1069,11 @@ impl Renderer {
                         pass.draw(0..m.silhouette_vertex_count, r.clone());
                     }
                 }
-                for (k, h) in frame.highlights.iter().enumerate() {
-                    let Some((m, part)) = part_of(&self.meshes, h) else { continue };
+                for run in &runs {
+                    let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                     if let Some(s) = &m.silhouettes {
-                        let at = highlight_start + 2 * k as u32 + 1;
                         pass.set_vertex_buffer(0, s.slice(..));
-                        pass.draw(part.silhouettes.clone(), at..at + 1);
+                        pass.draw(part.silhouettes.clone(), run.edges.clone());
                     }
                 }
             }
@@ -1029,6 +1099,13 @@ impl Renderer {
                 pass.set_pipeline(&self.lines);
                 pass.draw(0..tested, 0..1);
             }
+        }
+        if let Some(bb) = &self.box_instances.buffer
+            && !bx.is_empty()
+        {
+            pass.set_pipeline(&self.boxes);
+            pass.set_vertex_buffer(0, bb.slice(..));
+            pass.draw(0..BOX_VERTICES, 0..bx.len() as u32);
         }
         // Fills over the depth-tested lines (which they tint), under the overlay.
         if let Some(fb) = &self.fill_vertices.buffer
@@ -1091,9 +1168,18 @@ impl Renderer {
     }
 }
 
-fn part_of<'m>(meshes: &'m std::collections::HashMap<u64, GpuMesh>, h: &Highlight) -> Option<(&'m GpuMesh, &'m PartRange)> {
-    let m = meshes.get(&h.key)?;
-    Some((m, m.parts.iter().find(|p| p.id == h.part)?))
+fn part_of(meshes: &std::collections::HashMap<u64, GpuMesh>, key: u64, part: u64) -> Option<(&GpuMesh, &PartRange)> {
+    let m = meshes.get(&key)?;
+    Some((m, m.parts.iter().find(|p| p.id == part)?))
+}
+
+/// Consecutive highlights of the same part of the same mesh, and their instances.
+struct HighlightRun {
+    key: u64,
+    part: u64,
+    /// Tinted by their faces' tint, then by their edges'.
+    faces: Range<u32>,
+    edges: Range<u32>,
 }
 
 /// Everything that makes the picture of `frame` (§7 quater): equal fingerprints, equal
@@ -1170,6 +1256,12 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
                 None => 0u8.hash(&mut h.0),
             }
         }
+    }
+    frame.boxes.len().hash(&mut h.0);
+    for b in frame.boxes {
+        h.m(&b.transform);
+        h.fs(&b.color);
+        h.fs(&[b.width, b.dash.unwrap_or(0.0)]);
     }
     frame.fills.len().hash(&mut h.0);
     for f in frame.fills {

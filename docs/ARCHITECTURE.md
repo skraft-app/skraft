@@ -21,8 +21,7 @@ Decisions made on 2026-11-09, and on 2026-11-10 for the parts / assemblies model
 
 ## 2. Data model: parts, assemblies, machinings
 
-Decided on 2026-11-10, in place since the same day (except §2.8); the former model is summed
-up in §2.7.
+Decided on 2026-11-10, in place since the same day (except §2.8).
 
 ```
 Document
@@ -125,8 +124,8 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
 
 ### 2.5 Copies and propagation
 
-- **Copying an occurrence creates an occurrence of the same part**: "Leg ×4", counted without
-  guessing anything, without thinking of "making a component" before copying.
+- **Copying an occurrence creates an occurrence of the same part**: "Leg ×4" (the count is in
+  the entity info, not in the outliner), counted without guessing anything, without thinking of "making a component" before copying.
 - A **change to the part** (geometry, machinings, properties) affects **all its occurrences**
   or **only this one**: the **scope**, an option of the tool (option bar, §6 bis), "all
   occurrences" by default, remembered per tool. Decided on 2026-11-10, after the solid
@@ -163,20 +162,10 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
   the root; its world transformation is the product of the T along the path.
 - **Active context**: the assembly being edited, and the path leading to it.
 
-### 2.7 Former model (version 1 files)
+### 2.7 Former model
 
-```
-Definition { id, name, kind: Root | Group | Component, entities: Vec<Entity> }
-Entity      = Solid    { id, name, brep: Arc<Brep> }             — in its definition's coordinates
-            | Instance { id, name, definition: Id, transform }
-```
-
-Loose solids in any definition, with no transformation of their own (moving them rewrote their
-B-rep); groups = definitions with a single instance. When a v1 file is opened (`file.rs`,
-module `v1`): each definition becomes an assembly (named for a component, not for a group),
-each instance an occurrence, and each loose solid a part — its axes those of its definition,
-so nothing moves and the kernel is not called — with its occurrence, which keeps the solid's
-id.
+Dropped on 2026-11-12 with its file converter: the app is not published, the format stays at
+version 1 until it is (§8).
 
 ### 2.8 Not in place yet
 
@@ -796,7 +785,7 @@ built the same day):
   swell it). Its axes with no thickness are not offered. The preview (`StretchPreview`) and
   `Document::stretch_bounds` / `stretch_spans` take the same context, occurrences and frame.
 - **The operation** is `Operation::Stretch { context, occurrences, frame, axis, cuts,
-  moves, scope }` (none named: `Refusal::NothingStretched`; `frame` rigid): the stretch in the axes `frame` places in the context's (the chosen axes),
+  moves, scope, cutters }` (`cutters`: « Behavior » below) (none named: `Refusal::NothingStretched`; `frame` rigid): the stretch in the axes `frame` places in the context's (the chosen axes),
   the occurrences of the context's component it applies to. One occurrence in its own axes is
   the case built first (`frame` its transform). A part refusing names itself
   (`Error::InPart`) when several are stretched. (The operation grew: `Command::Replace` boxes
@@ -809,8 +798,9 @@ built the same day):
   (`separate`); then the occurrences that take one change share one copy (OCL's
   `make_unique_d`: one new definition per deformation, not per instance), a component placed
   elsewhere too is left as it is. « All » is unchanged.
-- **Cutters**: one occurrence keeps them per component, as before; several share one set, the
-  last used, for the session (OCL's `@@last_cutters_data`; the store's `None` key).
+- **Cutters**: one occurrence takes its component's (its `Behavior`, below); several share one
+  set, the last used, for the session (OCL's `@@last_cutters_data`; the store's `None` key):
+  it belongs to no component, and is never saved.
 - Changing the axes option goes back to the grips (OCL's `onToolActionOptionStored`).
 - **Limit** (the kernel's, not OCL's): in the context's or the model's axes, a part turned in
   them that crosses a cutter has no face along the axis — the stretch is refused, the part
@@ -848,12 +838,72 @@ each occurrence is:
   copies; under « only this one », the path is made the target's own (`separate`), then a
   change goes to a copy whenever its component is placed elsewhere too (counted over every
   path of the document). Copies keep their ids (§2.6), so paths stay valid.
-- A part below the target that cannot be stretched refuses the whole stretch, named
-  (`Error::InPart`); `Operation::Stretch` takes any occurrence, one undo step, one job for
+- A component below the target that is locked along the axis is a block (see « Behavior »
+  below), never stretched. A part below the target that cannot be stretched refuses the whole
+  stretch, named (`Error::InPart`); `Operation::Stretch` takes any occurrence, one undo step, one job for
   every part. `Outcome::stretched` lists the parts changed (the part after, the part before,
   its stretch). `Document::stretch_spans` gives the tool its limits (the matter wholly in each
   section, whole occurrences and parts' edges), `Document::stretch_bounds` an assembly's box
   from the extents.
+
+**Behavior: cutters and locks** (decided and built on 2026-11-12; after SketchUp's
+`Sketchup::Behavior` and OCL's `stretch_cutters` attribute). The cutters are not the tool's
+state but how a component is cut when stretched: they follow its definition, as OCL keeps
+them on it. With them, the axes it never stretches along. A typed `Behavior` on the
+`Component` (a part or an assembly) holds both — not a generic attribute dictionary (weighed
+the same day): typed, validated when read, and the rule of each field on copy written where
+it means something; a dictionary may come later only to carry foreign attributes through a
+SketchUp import / export.
+```rust
+pub struct Behavior {
+    /// Axes (own) along which the component never stretches.
+    pub no_stretch: StretchMask,
+    /// The cutters along each own axis, as ratios of the box; none: one in the middle.
+    pub cutters: Option<[Vec<f64>; 3]>,
+}
+```
+- **`StretchMask(u8)`**: SketchUp's `no_scale_mask` bit layout — X = 1, Y = 2, Z = 4; bits 3–6
+  (XY, XZ, YZ, uniform) reserved, unused while there is no scale tool (occurrences are never
+  scaled: stretching is our scaling). Saved as an integer, mapping one-to-one on a SketchUp
+  import / export. OCL's stretch reads only the full mask (127, its imported hardware); here
+  each axis counts.
+- **The mask is the one truth**: a locked axis has no cutters (those saved for it are ignored
+  and dropped). `sanitized` no longer puts one back in the middle on a locked axis.
+- **Copies**: `MakeUnique`, `separate` and the walk's copies keep the behavior as it is
+  (`copy_component`, `copy_from`). The target of a stretch takes the tool's cutters, set again
+  after it (`kept_cutters`), through `Operation::Stretch::cutters` (one occurrence; written on
+  its component as it is after the stretch, a copy maybe, its locks kept); the components
+  below it keep theirs as they were — ratios of a box that changed, still valid.
+- **Cutters are saved** by any gesture on them, not only by a stretch: `Operation::SetBehavior
+  { component, behavior }`, pure model (no kernel). Consecutive ones on one component merge
+  into one undo step (`merges_into`, as `SetSettings` and `EditMaterial`): a run of
+  adjustments is one step, « Cutters », the stretch after it another. Not one step per gesture
+  (too many), not outside the history (undoing the previous operation would bring back a
+  snapshot without them, silently). A stretch writes the new cutters in its own operation.
+- **Locking, in the tool**: removing the last cutter of an axis (dragged out of the box, or
+  the remove modifier) locks it — it was « one in the middle again ». The locked axis is drawn
+  grey, without grips or cutters, with a **closed padlock** at its end (the grip of its
+  positive side: at the box's centre, two locked axes would meet); a click on it unlocks the
+  axis, one cutter in the middle. No open padlock on free axes (too much on screen): removing
+  the last cutter is the only way to lock. Both are `SetBehavior`, merged as above; they do
+  not drop the arrow keys' axis lock as other operations do. A stretch leaving no gap between
+  matter puts one cutter in the middle: not a lock.
+- **Where the tool keeps them** (`Keep`): on the component when the stretch's axes map onto
+  its own, each axis one of its own maybe turned over (ratios then reversed) — one
+  occurrence, the axes option *entity*, or *context* / *active* with the component square to
+  them; else for the session (several occurrences under one key, one occurrence turned
+  obliquely under its component), never locked. The tool reads them again whenever the
+  document's differ from what it last read or wrote (another target, an undo). The padlock
+  is `PointShape::Padlock`, drawn by the app over the view as the grips.
+- **A locked component is a block in a walk** (after OCL, which does it for the full mask, a
+  locked instance, a glued or camera-facing one): below the target, an occurrence whose
+  component is locked along the stretch axis — the axis brought into its own axes; for one
+  turned, as soon as that axis has a component on one of its locked axes — is never stretched:
+  it is **moved with the section holding its origin**, even across a cutter, and its bounds
+  are added to that section's for the compression limit (OCL's `section_def.bounds.add`). Not
+  a refusal. The preview follows the same rule.
+- An occurrence lock (OCL's `locked?`, on the instance) is another thing, left for later.
+- **File**: a `behavior` field on the component, absent when default; no version change (§8).
 
 **The tool** (`crates/tools/src/tools/stretch.rs`; in the Solids group of the tool bar, after
 the booleans; shortcut S). Rebuilt on 2026-11-11 on OCL's own interaction
@@ -871,7 +921,8 @@ the booleans; shortcut S). Rebuilt on 2026-11-11 on OCL's own interaction
   their outline: pressed and dragged along the axis, to an end of the box to remove one; the
   copy modifier held, the cutter to add follows the cursor and a click adds it; the other
   modifier held (Command on macOS, Alt elsewhere), a click removes the one under the cursor;
-  none left, one in the middle again. A click on a grip starts the stretch, or press, drag and
+  none left, the axis is locked (« Behavior » above; one in the middle again where cutters are
+  kept for the session). A click on a grip starts the stretch, or press, drag and
   release.
 - **Interior handles** (OCL's, built 2026-11-11): with two cutters or more on the active axis,
   each section between two of them (not the end ones, which anchor) has a handle — its stretch
@@ -909,10 +960,10 @@ the booleans; shortcut S). Rebuilt on 2026-11-11 on OCL's own interaction
   booleans' when no part is open (an open part has its own).
 - **Refused at the click on a grip**: the operation for a 1 mm pull is prepared; a refusal
   (something curved across a cutter) is said, the stretch does not start.
-- **Deviation**: cutters are kept per part and axis for the session (OCL saves them on the
-  definition, in the model); keeping them in the file would be a format change. The store is
-  thread-local: the tools run on one thread, and each test on its own (a shared one let tests
-  see each other's cutters, part ids being alike).
+- **Cutters** are saved with the component (« Behavior » above), as OCL saves them on the
+  definition. The session store left for several occurrences is thread-local: the tools run
+  on one thread, and each test on its own (a shared one let tests see each other's cutters,
+  part ids being alike).
 
 **Where the stretch applies: the recipe (§2.4), not the final B-rep.**
 - The **blank** is stretched (B-rep stretch below).
@@ -1057,6 +1108,13 @@ Drawing                1 instanced draw per definition, with the N world matrice
   selection's colour and depth-tested (`View::selection_boxes`); it follows the move tool's
   ghost, and is not drawn with the stretch tool (which draws its own box). The assembly being
   edited shows the same box in grey, grown by a few pixels (`View::context_box`).
+- **Scale** (decided on 2026-11-12, after a 200 × 200 array froze the app): what is drawn or
+  listed per occurrence costs one GPU instance, never draw calls or CPU-built geometry. Runs of
+  highlights of the same part are drawn in one instanced call; a box outline is one instance of
+  the unit cube (`Frame::boxes`), its edges dashed by the shader from every corner; the outliner
+  only lays out the rows in view. Lookups over a selection or an assembly go through sets or an
+  index (`ContextIndex`), never a search per occurrence. The renderer keeps every buffer within
+  the device's limit (what does not fit is dropped, the device is not lost).
 - **Coincident faces** (decided on 2026-11-11): picking takes the nearest hit, but hits within
   `tie_tolerance` along the ray (1 µm + 1 ppm of the distance) are a tie, broken in a fixed
   order: the solid the ray enters (outward normal against the ray, from the vertex normals)
@@ -1293,16 +1351,14 @@ Versioned JSON (`{"format": "solidsketch", "version": 1, …}`): serde serialisa
 document, B-reps included (SolidCore's record format), and its settings (`settings`, missing
 from the first files: default values). In the browser: download and file upload.
 
-**Version 2** (written since 2026-11-10): components, occurrences, the parts' recipes (blank +
-machinings, with their `source`). The final B-rep is not the source: it is saved as a cache
-(`shape`), present exactly when the part has machinings, to open without recomputing. Version
-1 files are converted when opened (§2.7). **Reference files**:
-`crates/model/tests/files/v1.solidsketch` and `v2.solidsketch`, read back by the test
-`reference_files_still_open` — a format change that would break old files fails there. They
-are only regenerated for a new version (`write_reference_files`).
+Components, occurrences, the parts' recipes (blank + machinings, with their `source`), the
+components' guides (§6 quinquies). The final B-rep is not the source: it is saved as a cache
+(`shape`), present exactly when the part has machinings, to open without recomputing.
 
-**Version 3** (written since 2026-11-11): the components' guides (§6 quinquies). Reference file
-`v3.solidsketch`.
+**Version 1 until the app is published** (decided 2026-11-12): the format changes without a
+new version and older files are not read — no converter, no reference files. Versioning and
+backward compatibility start with the first release. (Files written before by versions 2 and
+3, and the first model's converter, were dropped then.)
 
 ## 9. Toolchain and dependencies
 

@@ -466,8 +466,10 @@ tool:
       gather: "Sélection multiple : cliquer un exemplaire pour l'ajouter ou le retirer · relâcher Maj pour étirer la sélection"
       grip: "Cliquer une poignée pour étirer · glisser un plan de coupe pour le déplacer · flèches : bloquer un axe · %{copy_key} maintenu : ajouter un plan de coupe · %{alt_key} maintenu : supprimer un plan de coupe · %{alt_key} : rendre unique"
       add: "Cliquer pour ajouter le plan de coupe"
-      remove: "Cliquer un plan de coupe pour le supprimer"
-      cutter: "Glisser le plan de coupe pour le déplacer · jusqu'au bord de la pièce : le supprimer"
+      remove: "Cliquer un plan de coupe pour le supprimer (le dernier : bloquer l'axe)"
+      cutter: "Glisser le plan de coupe pour le déplacer · jusqu'au bord de la pièce : le supprimer (le dernier : bloquer l'axe)"
+      # A locked axis's padlock hovered.
+      unlock: "Cliquer pour débloquer l'étirement le long de cet axe"
       stretch: "Cliquer pour valider l'étirement, ou taper une distance · Maj : la dernière cote · double-clic : la dernière cote · %{copy_key} : centré · %{alt_key} : rendre unique"
       # An interior handle hovered: it moves what lies between two cutters, the overall length kept.
       interior: "Cliquer pour déplacer la matière entre les deux plans de coupe · Maj maintenu : prendre le point de départ ailleurs · %{copy_key} maintenu : ajouter un plan de coupe · %{alt_key} maintenu : supprimer un plan de coupe"
@@ -563,6 +565,7 @@ operation:
   delete_material: "Supprimer la matière"
   paint: "$t(common.paint)"
   stretch: "Étirer"
+  stretch_behavior: "Plans de coupe"
 
 unit:
   millimeter: "Millimètres"
@@ -621,17 +624,18 @@ error:
     no_machinings: "aucun usinage désigné"
     bad_guide: "guide sans direction ou sans rayon"
     nothing_stretched: "aucun exemplaire à étirer"
+    bad_behavior: "plans de coupe ou axes bloqués invalides"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"
     not_solidsketch: "pas un fichier SolidSketch (%{format})"
     too_new: "fichier en version %{version}, plus récente que celle de cette application (%{supported})"
     root_not_assembly: "la racine n'est pas un assemblage"
-    root_not_model: "la racine n'est pas le modèle"
     bad_component_id: "identifiant de composant %{id} invalide"
     bad_machining_id: "identifiant d'usinage %{id} invalide"
     bad_occurrence_id: "identifiant d'exemplaire %{id} invalide"
     bad_guide: "guide %{id} invalide"
+    bad_behavior: "composant %{id} : plans de coupe ou axes bloqués invalides"
     misfiled: "composant %{id} rangé sous %{key}"
     shape_out_of_step: "pièce %{id} : forme sans rapport avec ses usinages"
     duplicate_occurrence: "exemplaire %{occurrence} en double dans %{assembly}"

@@ -13,11 +13,14 @@ pub mod vcb;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod bench;
 
 pub use camera::{Camera, Projection, Ray, StandardView, ViewArea};
-pub use editor::{Editor, Look, Mark, View, ViewHighlight, ViewPlacement};
+pub use editor::{Editor, Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
 pub use infer::{Curve, EdgeRef, InferKind, Inference, LineKind};
 pub use scene::{DefinitionMesh, DisplayScene, Hit, Owner, PartMesh, Piece, Placement, RecipeMeshes, RecipeTool, SceneGuide};
 pub use tools::{
-    Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PreviewLabel, PreviewLine, ToolInput, ToolKind, ToolOption,
+    Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PointShape, PreviewLabel, PreviewLine, ToolInput, ToolKind,
+    ToolOption,
 };

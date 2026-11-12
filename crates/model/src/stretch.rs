@@ -4,7 +4,8 @@
 //! The stretch is given in the axes of the component the target occurrence places. Walking
 //! down from it, each occurrence is
 //! - **moved** when its content lies in sections that move alike: only its placement changes,
-//!   its component is not touched;
+//!   its component is not touched; a component locked along the axis (its `Behavior`) is a
+//!   block, always moved — with the section holding its origin, even across a cutter;
 //! - else **stretched**: a part has its recipe stretched (`stretch_part`), an assembly has its
 //!   occurrences walked in turn — each component in its own axes, the stretch brought there
 //!   ([`Stretch::in_frame`]). Its **origin follows its anchor**, the section holding the end of
@@ -30,6 +31,8 @@ use glam::{DAffine3, DVec3};
 use solidsketch_kernel::Stretch;
 
 use crate::document::{ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Occurrence};
+#[cfg(doc)]
+use crate::document::StretchMask;
 use crate::{Error, Result, Scope};
 
 /// A part stretched by an operation: the part as it is after it (the same, or a copy), the part
@@ -101,6 +104,20 @@ struct Walk<'a> {
 }
 
 impl Document {
+    /// Is `component` locked along the axis of `s` (in its axes, [`StretchMask::locks_along`])?
+    /// Then it is a block: never stretched, moved with the section holding its origin
+    /// (ARCHITECTURE.md §6 sexies).
+    fn blocked(&self, component: Id, s: &Stretch) -> bool {
+        self.component(component).is_ok_and(|c| c.behavior.no_stretch.locks_along(s.axis()))
+    }
+
+    /// The move of `component` as a whole by `s` (in its axes), spanning `lo..=hi` along its
+    /// axis: a block's, as its origin's section (OCL checks a lock before the bounds); else
+    /// when every section it reaches moves alike. `None`: it is stretched.
+    fn whole_move(&self, component: Id, s: &Stretch, lo: f64, hi: f64) -> Option<f64> {
+        if self.blocked(component, s) { Some(s.move_at(0.0)) } else { s.rigid_move(lo, hi) }
+    }
+
     /// The extent of `component` along `s`'s axis, in its axes (conservative for curved faces);
     /// `None` when it holds nothing.
     fn extent_along(&self, component: Id, s: &Stretch, depth: usize) -> Option<(f64, f64)> {
@@ -215,7 +232,11 @@ impl Document {
             let at = s.axis().dot(t.translation);
             let Some((lo, hi)) = self.extent_along(component, &local, depth) else { continue };
             let (i, j) = (local.section(lo), local.section(hi));
-            if i == j {
+            if self.blocked(component, &local) {
+                // A block: in the section of its origin, all of it (OCL adds a locked
+                // container's bounds to that section's).
+                add_span(spans, local.section(0.0), (lo, hi), shift + at);
+            } else if i == j {
                 add_span(spans, i, (lo, hi), shift + at);
             } else {
                 self.collect_spans(component, &local, shift + at, spans, depth);
@@ -360,7 +381,7 @@ impl Document {
                 for o in &a.occurrences {
                     let local = s.in_frame(&o.transform);
                     let Some((lo, hi)) = self.extent_along(o.component, &local, depth + 1) else { continue };
-                    match local.rigid_move(lo, hi) {
+                    match self.whole_move(o.component, &local, lo, hi) {
                         Some(m) => out.push(m),
                         None => self.piece_moves(o.component, &within(&local, lo, hi), out, depth + 1),
                     }
@@ -455,7 +476,7 @@ impl Document {
         for (o, t) in occs {
             let local = s.in_frame(t);
             let Some((lo, hi)) = walk.before.extent_along(o.component, &local, depth) else { continue };
-            let (transform, component) = match local.rigid_move(lo, hi) {
+            let (transform, component) = match walk.before.whole_move(o.component, &local, lo, hi) {
                 Some(m) => (*frame * DAffine3::from_translation(s.axis() * m) * *t, o.component),
                 None => {
                     // The origin follows its anchor; the content moves relative to it.
@@ -474,11 +495,12 @@ impl Document {
     }
 
     /// A copy of the component `c` as it is in `before` (ids of its occurrences, machinings and
-    /// guides kept, §2.6), under a name of its own.
+    /// guides kept, §2.6, and its behavior), under a name of its own.
     fn copy_from(&mut self, before: &Document, c: Id) -> Result<Id> {
         let src = before.component(c)?.clone();
         let copy = self.insert_component(&src.name, src.named, src.kind);
-        self.component_mut(copy)?.guides = src.guides;
+        let c = self.component_mut(copy)?;
+        (c.guides, c.behavior) = (src.guides, src.behavior);
         Ok(copy)
     }
 
@@ -524,7 +546,7 @@ impl Walk<'_> {
         for (o, t) in occs {
             let local = s.in_frame(t);
             let Some((lo, hi)) = self.before.extent_along(o.component, &local, depth) else { continue };
-            if local.rigid_move(lo, hi).is_none() {
+            if self.before.whole_move(o.component, &local, lo, hi).is_none() {
                 self.count(o.component, &within(&local, lo, hi), depth);
             }
         }

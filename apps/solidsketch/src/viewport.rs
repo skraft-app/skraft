@@ -8,7 +8,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::Id;
 use solidsketch_render as render;
 use solidsketch_theme::{Rgba, Theme};
-use solidsketch_tools::{Editor, InferKind, Look, Mark, Modifiers, ToolInput, ToolKind};
+use solidsketch_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput, ToolKind};
 
 use crate::prefs::Navigation;
 
@@ -298,6 +298,17 @@ impl Viewport {
             dash: Some(render::Dash { length: solidsketch_tools::guides::DASH_PX as f32, phase: s.phase as f32 }),
             width: render::LINE_WIDTH,
         };
+        // A box's outline, dashed by the renderer from its corners: the unit cube scaled to its
+        // bounds, then placed by its frame.
+        let outline = |b: &solidsketch_tools::OrientedBox, color| render::BoxOutline {
+            transform: DMat4::from(b.frame) * DMat4::from_translation(b.lo) * DMat4::from_scale(b.hi - b.lo),
+            color,
+            width: render::LINE_WIDTH,
+            dash: Some(solidsketch_tools::guides::DASH_PX as f32),
+        };
+        let boxes: Vec<render::BoxOutline> = (view.selection_boxes.iter().map(|b| outline(b, theme.selected.edge)))
+            .chain(view.context_box.iter().map(|b| outline(b, theme.context_box)))
+            .collect();
         let preview = |l: &solidsketch_tools::tools::PreviewLine| render::Line {
             width: if l.bold { render::BOLD_WIDTH } else { render::LINE_WIDTH },
             ..plain(l.a, l.b, l.color)
@@ -310,9 +321,7 @@ impl Viewport {
             let negative = [c[0], c[1], c[2], render::AXIS_NEGATIVE_ALPHA];
             halves.iter().zip([c, negative]).filter_map(|(h, c)| h.map(|(a, b)| plain(a, b, c)))
         });
-        let lines: Vec<render::Line> = (view.selection_boxes.iter().map(|&(a, b)| plain(a, b, theme.selected.edge)))
-            .chain(axis_lines.filter(|_| axes))
-            .chain(view.context_box.iter().map(|&(a, b)| plain(a, b, theme.context_box)))
+        let lines: Vec<render::Line> = (axis_lines.filter(|_| axes))
             .chain(view.guides.iter().map(|s| dashed(s, theme.guide)))
             .chain(view.faded_guides.iter().map(|s| dashed(s, faded(theme.guide, background, theme.fade))))
             .chain(view.hovered_guides.iter().map(|s| dashed(s, theme.hover.edge)))
@@ -342,6 +351,7 @@ impl Viewport {
             batches: &batches,
             highlights: &highlights,
             lines: &lines,
+            boxes: &boxes,
             overlay: &overlay,
             fills: &fills,
             grid: display.grid.then(|| grid_for(cam.focus)),
@@ -400,14 +410,40 @@ fn paint_overlay_points(painter: &egui::Painter, rect: egui::Rect, editor: &Edit
         let Some(at) = screen(p.at) else { continue };
         let fill = p.fill.map_or(egui::Color32::TRANSPARENT, color);
         let stroke = p.stroke.map_or(egui::Stroke::NONE, |c| egui::Stroke::new(1.5, color(c)));
-        if p.diamond {
-            let r = p.radius;
-            let corners = vec![at + egui::vec2(0.0, -r), at + egui::vec2(r, 0.0), at + egui::vec2(0.0, r), at + egui::vec2(-r, 0.0)];
-            painter.add(egui::Shape::convex_polygon(corners, fill, stroke));
-        } else {
-            painter.circle(at, p.radius, fill, stroke);
+        let r = p.radius;
+        match p.shape {
+            PointShape::Diamond => {
+                let corners = vec![at + egui::vec2(0.0, -r), at + egui::vec2(r, 0.0), at + egui::vec2(0.0, r), at + egui::vec2(-r, 0.0)];
+                painter.add(egui::Shape::convex_polygon(corners, fill, stroke));
+            }
+            PointShape::Round => {
+                painter.circle(at, r, fill, stroke);
+            }
+            PointShape::Padlock => paint_padlock(painter, at, r, fill, stroke),
         }
     }
+}
+
+/// A closed padlock centred on `at`, `r` its half height: its body and its shackle alike,
+/// filled and ringed (the shackle a band of the fill outlined by the ring).
+fn paint_padlock(painter: &egui::Painter, at: egui::Pos2, r: f32, fill: egui::Color32, stroke: egui::Stroke) {
+    let body = egui::Rect::from_center_size(at + egui::vec2(0.0, r * 0.35), egui::vec2(r * 1.6, r * 1.2));
+    // The shackle: an arch over the body, its legs into it — narrow enough that, outline
+    // included, it stands on the body's straight top, clear of its rounded corners.
+    let (radius, top) = (r * 0.28, body.top());
+    let centre = egui::pos2(at.x, top - r * 0.35);
+    let mut arch = vec![egui::pos2(at.x - radius, top)];
+    arch.extend((0..=12).map(|i| {
+        let a = std::f32::consts::PI * (1.0 + i as f32 / 12.0);
+        centre + egui::vec2(a.cos(), a.sin()) * radius
+    }));
+    arch.push(egui::pos2(at.x + radius, top));
+    let ink = if stroke.color == egui::Color32::TRANSPARENT { fill } else { stroke.color };
+    painter.add(egui::Shape::line(arch.clone(), egui::Stroke::new(r * 0.24 + 2.0 * stroke.width, ink)));
+    painter.add(egui::Shape::line(arch, egui::Stroke::new(r * 0.24, fill)));
+    painter.rect(body, r * 0.2, fill, stroke, egui::StrokeKind::Middle);
+    // The keyhole.
+    painter.circle_filled(body.center() - egui::vec2(0.0, r * 0.1), r * 0.15, ink);
 }
 
 /// Half the arm of a cross marking a point (points).

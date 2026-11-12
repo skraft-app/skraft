@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::{Display, Mesh, Snaps, Solid};
-use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Section};
+use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Occurrence, Section};
 
 use crate::camera::Ray;
 
@@ -540,36 +540,65 @@ pub struct Under {
     pub material: Option<Id>,
 }
 
-/// Where the parts under `entity` (an occurrence of the assembly `context_path` leads into)
-/// are drawn. For an assembly's occurrence, every part below it, at any depth.
-pub fn solids_under(doc: &Document, context_path: &[Id], entity: Id) -> Vec<Under> {
-    let mut out = Vec::new();
-    let (Ok(ctx), Ok(t)) = (doc.context_of(context_path), doc.transform_of(context_path)) else { return out };
-    let Some(o) = doc.assembly(ctx).ok().and_then(|a| a.occurrence(entity)) else { return out };
-    // The material the assemblies above the context give.
-    let mut inherited = None;
-    let mut at = doc.root();
-    for &i in context_path {
-        let Some(occ) = doc.assembly(at).ok().and_then(|a| a.occurrence(i)) else { break };
-        inherited = occ.material.or(inherited);
-        at = occ.component;
-    }
-    fn walk(doc: &Document, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
-        if depth > MAX_DEPTH {
-            return;
+/// The occurrences of the assembly a context path leads into, indexed by id, with what
+/// they inherit from above: built once, it answers many occurrences (a selection of tens of
+/// thousands) without searching the assembly for each.
+pub struct ContextIndex<'d> {
+    doc: &'d Document,
+    /// Context to world.
+    transform: DAffine3,
+    /// The material the assemblies above the context give.
+    inherited: Option<Id>,
+    occurrences: HashMap<Id, &'d Occurrence>,
+}
+
+impl<'d> ContextIndex<'d> {
+    pub fn new(doc: &'d Document, context_path: &[Id]) -> Option<Self> {
+        let ctx = doc.context_of(context_path).ok()?;
+        let transform = doc.transform_of(context_path).ok()?;
+        let mut inherited = None;
+        let mut at = doc.root();
+        for &i in context_path {
+            let Some(occ) = doc.assembly(at).ok().and_then(|a| a.occurrence(i)) else { break };
+            inherited = occ.material.or(inherited);
+            at = occ.component;
         }
-        match doc.component(component).map(|c| &c.kind) {
-            Ok(ComponentKind::Part(_)) => out.push(Under { part: component, transform: t, material }),
-            Ok(ComponentKind::Assembly(a)) => {
-                for o in &a.occurrences {
-                    walk(doc, o.component, t * o.transform, o.material.or(material), out, depth + 1);
-                }
+        let occurrences = doc.assembly(ctx).ok()?.occurrences.iter().map(|o| (o.id, o)).collect();
+        Some(ContextIndex { doc, transform, inherited, occurrences })
+    }
+
+    /// Context to world.
+    pub fn transform(&self) -> DAffine3 {
+        self.transform
+    }
+
+    pub fn occurrence(&self, id: Id) -> Option<&'d Occurrence> {
+        self.occurrences.get(&id).copied()
+    }
+
+    /// Where the parts under the occurrence `entity` are drawn. For an assembly's
+    /// occurrence, every part below it, at any depth.
+    pub fn solids_under(&self, entity: Id) -> Vec<Under> {
+        fn walk(doc: &Document, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
+            if depth > MAX_DEPTH {
+                return;
             }
-            Err(_) => {}
+            match doc.component(component).map(|c| &c.kind) {
+                Ok(ComponentKind::Part(_)) => out.push(Under { part: component, transform: t, material }),
+                Ok(ComponentKind::Assembly(a)) => {
+                    for o in &a.occurrences {
+                        walk(doc, o.component, t * o.transform, o.material.or(material), out, depth + 1);
+                    }
+                }
+                Err(_) => {}
+            }
         }
+        let mut out = Vec::new();
+        if let Some(o) = self.occurrence(entity) {
+            walk(self.doc, o.component, self.transform * o.transform, o.material.or(self.inherited), &mut out, 0);
+        }
+        out
     }
-    walk(doc, o.component, t * o.transform, o.material.or(inherited), &mut out, 0);
-    out
 }
 
 fn mesh_bounds(m: &Mesh) -> Option<(DVec3, DVec3)> {

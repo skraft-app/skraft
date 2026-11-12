@@ -924,10 +924,8 @@ impl eframe::App for SolidSketchApp {
                             // An `Area` only offers last frame's size as available room, so the
                             // height is forced (`min_scrolled_height`) and auto-shrink trims it.
                             let room = (view.bottom() - margin - 12.0 - ui.cursor().top()).max(80.0);
-                            egui::ScrollArea::vertical().id_salt("outliner").max_height(room).min_scrolled_height(room).show(ui, |ui| {
-                                ui.set_min_width(ui.available_width());
-                                panels::outliner(ui, &self.editor, &mut actions);
-                            });
+                            let area = egui::ScrollArea::vertical().id_salt("outliner").max_height(room).min_scrolled_height(room);
+                            panels::outliner(ui, &self.editor, &mut actions, area);
                         },
                     );
                 });

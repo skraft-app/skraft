@@ -364,6 +364,50 @@ fn vs_line(
     @location(3) color: vec4<f32>,
     @location(4) dash: vec2<f32>,
 ) -> LineOut {
+    return line_out(a, b, corner, color, dash);
+}
+
+// A box's outline (instanced): the edges of the unit cube placed by `m0..m3` (to camera
+// space), `params`: half its width and its dash period, in pixels. 24 quads of 6 corners:
+// each edge as two halves run from its ends to its middle, so a dash starts at every corner.
+@vertex
+fn vs_box(
+    @builtin(vertex_index) vi: u32,
+    @location(0) m0: vec4<f32>,
+    @location(1) m1: vec4<f32>,
+    @location(2) m2: vec4<f32>,
+    @location(3) m3: vec4<f32>,
+    @location(4) color: vec4<f32>,
+    @location(5) params: vec2<f32>,
+) -> LineOut {
+    // The cube's edges by their corners: corner i is at the bits of i (x: 1, y: 2, z: 4).
+    var edges = array<vec2<u32>, 12>(
+        vec2<u32>(0u, 1u), vec2<u32>(0u, 2u), vec2<u32>(0u, 4u), vec2<u32>(1u, 3u),
+        vec2<u32>(1u, 5u), vec2<u32>(2u, 3u), vec2<u32>(2u, 6u), vec2<u32>(3u, 7u),
+        vec2<u32>(4u, 5u), vec2<u32>(4u, 6u), vec2<u32>(5u, 7u), vec2<u32>(6u, 7u),
+    );
+    var quad = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, -1.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, -1.0),
+        vec2<f32>(1.0, -1.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0),
+    );
+    let half_edge = vi / 6u;
+    let e = edges[half_edge / 2u];
+    let ia = select(e.x, e.y, (half_edge & 1u) == 1u);
+    let ib = select(e.y, e.x, (half_edge & 1u) == 1u);
+    let pa = cube_corner(ia);
+    let pb = (pa + cube_corner(ib)) * 0.5;
+    let model = mat4x4<f32>(m0, m1, m2, m3);
+    let a = (model * vec4<f32>(pa, 1.0)).xyz;
+    let b = (model * vec4<f32>(pb, 1.0)).xyz;
+    return line_out(a, b, vec3<f32>(quad[vi % 6u], params.x), color, vec2<f32>(params.y, 0.0));
+}
+
+fn cube_corner(i: u32) -> vec3<f32> {
+    return vec3<f32>(f32(i & 1u), f32((i >> 1u) & 1u), f32((i >> 2u) & 1u));
+}
+
+// A corner of a coloured segment's quad, `a` and `b` in camera space.
+fn line_out(a: vec3<f32>, b: vec3<f32>, corner: vec3<f32>, color: vec4<f32>, dash: vec2<f32>) -> LineOut {
     var out: LineOut;
     let ca = g.proj * pulled(vec4<f32>(a, 1.0), corner.z);
     let cb = g.proj * pulled(vec4<f32>(b, 1.0), corner.z);

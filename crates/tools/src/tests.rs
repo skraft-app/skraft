@@ -730,14 +730,14 @@ fn a_selection_shows_its_content_box() {
     // A part alone: its box too.
     e.select(vec![a]);
     let segs = e.view().selection_boxes;
-    let (lo, hi) = segs.iter().flat_map(|(a, b)| [*a, *b]).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+    let (lo, hi) = segs.iter().flat_map(|b| b.corners()).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(100.0, 100.0, 50.0)), "{lo} {hi}");
     e.select(vec![a, b]);
     e.make_assembly();
     let segs = e.view().selection_boxes;
     assert!(!segs.is_empty());
     // Dashed, the box spans the content's bounds exactly.
-    let (lo, hi) = segs.iter().flat_map(|(a, b)| [*a, *b]).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+    let (lo, hi) = segs.iter().flat_map(|b| b.corners()).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(400.0, 200.0, 80.0)), "{lo} {hi}");
     // The stretch tool draws its own box: the selection's is not drawn.
     e.set_tool(ToolKind::Stretch);
@@ -755,7 +755,7 @@ fn a_selection_shows_its_content_box() {
     e.enter(g);
     let v = e.view();
     assert!(v.selection_boxes.is_empty());
-    let (lo, hi) = v.context_box.iter().flat_map(|(a, b)| [*a, *b]).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+    let (lo, hi) = v.context_box.iter().flat_map(|b| b.corners()).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
     let d = lo - DVec3::ZERO;
     assert!(d.x < 0.0 && (d.x - d.y).abs() < 1e-3 && (d.x - d.z).abs() < 1e-3, "{lo}");
     assert!(close(hi - DVec3::new(400.0, 200.0, 80.0), -d), "{lo} {hi}");
@@ -1300,7 +1300,7 @@ fn a_part_opens_with_its_axes_the_rest_faded() {
     assert_eq!(related.len(), 1);
     // A dashed box around it, a few pixels off its faces (its top is at z = 50).
     assert!(!v.context_box.is_empty());
-    let top = v.context_box.iter().flat_map(|(a, b)| [a.z, b.z]).fold(f64::MIN, f64::max);
+    let top = v.context_box.iter().flat_map(|b| b.corners().map(|c| c.z)).fold(f64::MIN, f64::max);
     assert!(top > 50.0 && top < 80.0, "{top}");
     assert!(related[0].transform.abs_diff_eq(e.document().resolve(&EntityPath::root(a)).unwrap().transform, 1e-9));
     // A click on something else, off its box, closes it, the occurrence left selected.
@@ -2204,7 +2204,7 @@ fn stretch_tool_pulls_a_grip() {
 
 #[test]
 fn stretch_tool_cutters_are_dragged_added_and_removed() {
-    let (mut e, _) = drilled_board_editor(&[]);
+    let (mut e, a) = drilled_board_editor(&[]);
     // The cutters' planes, by where they cross the board (seen from the top: a line each).
     let cutters = |e: &Editor| {
         let mut xs: Vec<i64> = e.view().fills.iter().map(|f| f.corners[0].x.round() as i64).collect();
@@ -2236,11 +2236,54 @@ fn stretch_tool_cutters_are_dragged_added_and_removed() {
     e.input(ToolInput::Drag { px: at(&e, -100.0) });
     e.input(ToolInput::DragEnd { px: at(&e, -100.0), mods: Modifiers::default() });
     assert_eq!(cutters(&e), vec![450]);
-    // The other modifier held: a click removes; none left, one in the middle again.
+    // Kept on the part: one undo step for the whole run of changes.
+    let part = e.document().resolve(&EntityPath::root(a)).unwrap().component;
+    let saved = |e: &Editor| e.document().component(part).unwrap().behavior.clone();
+    assert_eq!(saved(&e).cutters.map(|c| c[0].iter().map(|r| (r * 600.0).round() as i64).collect::<Vec<_>>()), Some(vec![450]));
+
+    // The other modifier held: a click removes; the last one locks the axis — no cutters, no
+    // red grips, a padlock at its end.
     e.set_alt(true);
     click(&mut e, DVec3::new(450.0, 50.0, 18.0));
     e.set_alt(false);
+    assert_eq!(cutters(&e), Vec::<i64>::new());
+    assert!(saved(&e).no_stretch.locks(0));
+    let end = DVec3::new(600.0, 150.0, 9.0);
+    let padlock = |e: &Editor| e.overlay_points().iter().any(|p| p.shape == crate::tools::PointShape::Padlock && (p.at - end).length() < 1e-6);
+    assert!(padlock(&e));
+    e.input(ToolInput::Hover { px: px(&e, end) });
+    assert!(e.status().contains("débloquer"), "{}", e.status());
+    // The padlock clicked: unlocked, one cutter in the middle.
+    click(&mut e, end);
+    assert!(!padlock(&e) && !saved(&e).no_stretch.locks(0));
+    e.input(ToolInput::Hover { px: at(&e, 150.0) });
     assert_eq!(cutters(&e), vec![300]);
+    // Undone in one step: as it was, read again by the tool.
+    e.undo();
+    assert!(saved(&e).is_default());
+    e.input(ToolInput::Hover { px: at(&e, 150.0) });
+    assert_eq!(cutters(&e), vec![300]);
+}
+
+#[test]
+fn stretch_tool_shows_the_locks_at_once() {
+    // The board's length locked: its padlock drawn as soon as the tool takes the board.
+    let (mut e, a) = drilled_board_editor(&[]);
+    let part = e.document().resolve(&EntityPath::root(a)).unwrap().component;
+    let behavior = solidsketch_model::Behavior { no_stretch: solidsketch_model::StretchMask(1), cutters: None };
+    e.apply(Operation::SetBehavior { component: part, behavior }).unwrap();
+    let padlock = |e: &Editor| e.overlay_points().iter().any(|p| p.shape == crate::tools::PointShape::Padlock);
+    // Started on the selection: before any input.
+    e.set_tool(ToolKind::Select);
+    e.set_tool(ToolKind::Stretch);
+    assert!(padlock(&e));
+    // Picked by a click: right after it.
+    e.select(Vec::new());
+    e.set_tool(ToolKind::Select);
+    e.set_tool(ToolKind::Stretch);
+    assert!(!padlock(&e));
+    click(&mut e, DVec3::new(300.0, 150.0, 18.0));
+    assert!(padlock(&e));
 }
 
 #[test]
@@ -2276,6 +2319,16 @@ fn stretch_tool_moves_an_interior_section() {
     assert_eq!(stretched(&e, a), ((0.0, 600.0), vec![100.0, 300.0, 500.0]), "{}", e.status());
     e.input(ToolInput::Hover { px: px(&e, on_axis(420.0)) });
     assert_eq!(cutters(&e), vec![200, 400]);
+    // Saved on the part by the stretch itself: undone with it.
+    let part = e.document().resolve(&EntityPath::root(a)).unwrap().component;
+    let saved = |e: &Editor| {
+        let c = e.document().component(part).unwrap().behavior.cutters.clone();
+        c.map(|c| c[0].iter().map(|r| (r * 600.0).round() as i64).collect::<Vec<_>>())
+    };
+    assert_eq!(saved(&e), Some(vec![200, 400]));
+    e.undo();
+    assert_eq!(saved(&e), Some(vec![200, 300]));
+    e.redo();
 
     // Too far towards the start (away from the grip of the blue axis, at the centre): the gap to the matter before (105–295) keeps 1 mm.
     click(&mut e, on_axis(260.0));
@@ -2289,7 +2342,7 @@ fn stretch_tool_moves_an_interior_section() {
     e.set_shift(true);
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 150.0, 18.0)) });
     let points = e.overlay_points();
-    let grab = points.iter().find(|p| p.diamond).expect("a diamond");
+    let grab = points.iter().find(|p| p.shape == crate::tools::PointShape::Diamond).expect("a diamond");
     assert!((grab.at.x - 500.0).abs() < 1e-6, "{}", grab.at);
     click(&mut e, DVec3::new(500.0, 150.0, 18.0));
     e.set_shift(false);
