@@ -497,6 +497,10 @@ tool:
       line_tip: "Parallèle à une arête, tangente à un arc, ou passant par deux points"
       circle: "Cercle"
       circle_tip: "Concentrique à un arc, ou centré sur le point cliqué"
+    # The edge hovered, under the inference's tooltip.
+    tip:
+      length: "Longueur : %{value}"
+      radius: "Rayon : %{value}"
     say:
       no_side: "Pointer le côté où décaler le guide"
       no_line: "Points confondus : pas de guide"

@@ -182,6 +182,8 @@ pub struct Preview {
     pub ghost: Option<DAffine3>,
     /// The point the tool infers under the cursor (marker and tooltip).
     pub inference: Option<Inference>,
+    /// More lines for the inference's tooltip (the tape: the length of the edge hovered).
+    pub tip: Option<String>,
     /// The selection rectangle being dragged.
     pub marquee: Option<Marquee>,
     /// The occurrence a change is aimed at, when it reaches every occurrence of its part: the

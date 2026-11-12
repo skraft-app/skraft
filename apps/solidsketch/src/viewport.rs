@@ -676,7 +676,11 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
         }
         InferKind::OnPlane => {}
     }
-    let label = kind.label();
+    let label = match (kind.label(), editor.inference_tip()) {
+        (label, None) => label,
+        (label, Some(tip)) if label.is_empty() => tip,
+        (label, Some(tip)) => format!("{label}\n{tip}"),
+    };
     if label.is_empty() {
         return drawn;
     }

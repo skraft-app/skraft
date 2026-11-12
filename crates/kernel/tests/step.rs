@@ -39,6 +39,24 @@ fn an_assembly_keeps_its_structure() {
 }
 
 #[test]
+fn raw_8_bit_characters_are_read_as_windows_1252() {
+    // Writers that skip the Part 21 escapes put the code page's bytes as they are.
+    let text = include_str!("fixtures/assembly.step").replace("'Caisson'", "'Caisson \u{1}'").replace("\\X2\\00E9\\X0\\", "\u{2}");
+    let bytes: Vec<u8> = text
+        .bytes()
+        .map(|b| match b {
+            1 => 0x80, // €
+            2 => 0xE9, // é
+            b => b,
+        })
+        .collect();
+    assert!(std::str::from_utf8(&bytes).is_err());
+    let s = import(&bytes);
+    assert!(s.products.iter().any(|p| p.name == "Planche é"), "{:?}", s.products.iter().map(|p| &p.name).collect::<Vec<_>>());
+    assert!(s.products.iter().any(|p| p.name == "Caisson €"));
+}
+
+#[test]
 fn garbage_is_an_error() {
     let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes: b"\x00\xff not a step file".to_vec() }] };
     assert!(run(&job).is_err());

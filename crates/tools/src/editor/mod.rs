@@ -758,6 +758,11 @@ impl Editor {
         self.preview().inference.map(|i| (i.point, i.kind))
     }
 
+    /// More lines the active tool adds to the inference's tooltip, if any.
+    pub fn inference_tip(&self) -> Option<String> {
+        self.preview().tip
+    }
+
     /// The selection rectangle being dragged, if any (the app draws it).
     pub fn marquee(&self) -> Option<tools::Marquee> {
         self.preview().marquee

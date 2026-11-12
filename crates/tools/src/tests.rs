@@ -1672,6 +1672,32 @@ fn exact_sizes_of_tools_and_blanks() {
 }
 
 #[test]
+fn the_tape_tells_the_edge_hovered() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
+    let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 100.0, height: 50.0 };
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
+    e.set_tool(ToolKind::Measure);
+
+    // A straight edge: its length.
+    hover(&mut e, DVec3::new(300.0, 50.0, 100.0));
+    assert_eq!(e.inference_tip(), Some("Longueur : 200 mm".into()));
+    // A circle: its length and its radius.
+    let a = 45f64.to_radians();
+    hover(&mut e, DVec3::new(600.0 + 100.0 * a.cos(), 600.0 + 100.0 * a.sin(), 50.0));
+    assert_eq!(e.inference_tip(), Some("Longueur : 628,32 mm\nRayon : 100 mm".into()));
+    // A face: nothing.
+    hover(&mut e, DVec3::new(150.0, 100.0, 100.0));
+    assert_eq!(e.inference_tip(), None);
+    // While measuring too.
+    click(&mut e, DVec3::new(0.0, 0.0, 100.0));
+    hover(&mut e, DVec3::new(300.0, 50.0, 100.0));
+    assert_eq!(e.inference_tip(), Some("Longueur : 200 mm".into()));
+}
+
+#[test]
 fn the_tape_measures_and_draws_guides() {
     use solidsketch_model::GuideShape;
     let mut e = top_editor(Document::new());

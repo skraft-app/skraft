@@ -93,7 +93,7 @@ pub(crate) mod read {
 
     /// Reads a whole STEP file: see the module.
     pub(crate) fn import(bytes: &[u8]) -> Result<StepImport> {
-        let mut text = String::from_utf8_lossy(bytes).into_owned();
+        let mut text = text_of(bytes);
         for (short, long) in ALIASES {
             if text.contains(&format!("={short}(")) {
                 text = text.replace(&format!("={short}("), &format!("={long}("));
@@ -140,6 +140,30 @@ pub(crate) mod read {
         }
         out.roots = structure.roots;
         Ok(out)
+    }
+
+    /// The file's bytes as text. Part 21 wants plain ASCII (other characters escaped as
+    /// `\X\hh` / `\X2\…\X0\`), but many writers put them raw: as UTF-8, or in the system's
+    /// 8-bit code page (Open CASCADE 7.1, older CAD on Windows). UTF-8 is kept wherever
+    /// it is valid; any other byte is read as Windows-1252 (a superset of ISO 8859-1).
+    pub(crate) fn text_of(bytes: &[u8]) -> String {
+        if let Ok(s) = std::str::from_utf8(bytes) {
+            return s.to_owned();
+        }
+        // 0x80–0x9F in Windows-1252; the five holes are kept as their C1 control.
+        const HIGH: [char; 32] = [
+            '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž', '\u{8F}', //
+            '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}', 'ž', 'Ÿ',
+        ];
+        let mut out = String::with_capacity(bytes.len() + bytes.len() / 8);
+        for chunk in bytes.utf8_chunks() {
+            out.push_str(chunk.valid());
+            out.extend(chunk.invalid().iter().map(|&b| match b {
+                0x80..=0x9F => HIGH[(b - 0x80) as usize],
+                _ => b as char,
+            }));
+        }
+        out
     }
 
     // ---- reading the file ---------------------------------------------------------------

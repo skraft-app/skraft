@@ -320,6 +320,39 @@ fn axis_color(cx: &Cx<'_>, v: DVec3) -> [f32; 4] {
     }
 }
 
+/// The tooltip's lines for the edge the point `inf` lies on (on it, or at its middle): its
+/// length, and its radius when it is an arc of a circle.
+fn edge_tip(cx: &Cx<'_>, inf: &Inference) -> Option<String> {
+    if !matches!(inf.kind, InferKind::OnEdge | InferKind::Midpoint) {
+        return None;
+    }
+    let format = |v: f64| vcb::format(v, cx.units());
+    match (inf.curve.as_ref()?, inf.edge) {
+        (Curve::Segment(a, b), _) => Some(t!("tool.measure.tip.length", value = format((*b - *a).length()))),
+        (Curve::Arc(points), edge) => {
+            // A circle's (its samples all at its radius): the angle each chord spans, exactly;
+            // else (an ellipse, a polyline) the polyline's.
+            let circle = match edge {
+                Some(EdgeRef::Arc { center, radius, .. }) if radius > MIN => {
+                    points.iter().all(|p| ((*p - center).length() - radius).abs() < radius * 1e-6).then_some(radius)
+                }
+                _ => None,
+            };
+            let chords = points.windows(2).map(|w| (w[1] - w[0]).length());
+            let length = match circle {
+                Some(r) => chords.map(|c| 2.0 * r * (c / (2.0 * r)).min(1.0).asin()).sum(),
+                None => chords.sum::<f64>(),
+            };
+            let length = t!("tool.measure.tip.length", value = format(length));
+            Some(match circle {
+                Some(r) => format!("{length}\n{}", t!("tool.measure.tip.radius", value = format(r))),
+                None => length,
+            })
+        }
+        _ => None,
+    }
+}
+
 /// The length of `a`–`b` written along it, when long enough on screen.
 fn label(cx: &Cx<'_>, out: &mut Vec<PreviewLabel>, a: DVec3, b: DVec3, color: [f32; 4]) {
     let len = (b - a).length();
@@ -455,7 +488,8 @@ impl Tool for MeasureTool {
                 marks.push(at);
             }
         }
-        Preview { lines, scene_lines, guides: guide_strokes, labels, marks, inference, ..Default::default() }
+        let tip = inference.as_ref().and_then(|i| edge_tip(cx, i));
+        Preview { lines, scene_lines, guides: guide_strokes, labels, marks, inference, tip, ..Default::default() }
     }
 
     fn status(&self) -> String {
