@@ -16,7 +16,7 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::kernel::{JobId, KernelService, Quality, Solid};
-use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope};
+use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope, measure};
 
 use crate::camera::{Camera, ViewArea};
 use crate::infer::{EdgeRef, InferKind, Lock};
@@ -345,6 +345,12 @@ impl Editor {
         })
     }
 
+    /// Does the measurements box take a typed value now: what the tool takes at this step, or
+    /// a length option's `<length>x`?
+    pub fn takes_typing(&self) -> bool {
+        self.tool.vcb().is_some() || self.tool_options().iter().any(|o| matches!(o.value, OptionValue::Length(_)))
+    }
+
     pub fn set_viewport_size(&mut self, size: DVec2) {
         self.size = size.max(DVec2::ONE);
     }
@@ -437,6 +443,29 @@ impl Editor {
         }
         self.tool.set_option(key, &value);
         self.rehover();
+    }
+
+    /// Reads `text` for the active tool's length option `key` (typed in its field of the bar,
+    /// or `<length>x` in the measurements box), `@` its current value: the option is set, or
+    /// the status bar says why not.
+    pub fn type_tool_length(&mut self, key: &str, text: &str) {
+        let Some(option) = self.tool_options().into_iter().find(|o| o.key == key) else { return };
+        let OptionValue::Length(current) = option.value else { return };
+        match measure::coordinate(text, &self.document().settings().units, current) {
+            Ok(v) => self.set_tool_option(option.key, OptionValue::Length(v)),
+            Err(e) => self.message = Some(t!("tool.vcb.refused", label = option.label, text = text.trim(), error = e)),
+        }
+    }
+
+    /// The active tool's first length option, if `text` is meant for it: a text ending in `x`
+    /// (OpenCutList's offset), unless the measurements box takes a count of copies now.
+    fn length_typed<'t>(&self, text: &'t str) -> Option<(&'static str, &'t str)> {
+        if matches!(self.tool.vcb(), Some(vcb::Vcb { kind: vcb::VcbKind::Count, .. })) {
+            return None;
+        }
+        let len = text.trim().strip_suffix(['x', 'X'])?;
+        let option = self.tool_options().into_iter().find(|o| matches!(o.value, OptionValue::Length(_)))?;
+        Some((option.key, len))
     }
 
     /// Turns the active tool's first choice over to its next value (Tab).
@@ -581,6 +610,11 @@ impl Editor {
         // A typed value is read for what the tool takes now (vcb.rs).
         let input = match input {
             ToolInput::Vcb(text) => {
+                if let Some((key, len)) = self.length_typed(&text) {
+                    let len = len.to_owned();
+                    self.type_tool_length(key, &len);
+                    return;
+                }
                 let Some(spec) = self.tool.vcb() else { return };
                 match vcb::read(&spec, &text, &self.document().settings().units, &self.axes_transform()) {
                     Ok(v) => ToolInput::Value(v),

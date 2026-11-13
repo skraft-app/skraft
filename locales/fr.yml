@@ -452,6 +452,8 @@ tool:
       sweep: "Relâcher pour effacer ce qui est survolé · Maj maintenu : le masquer · Échap : annuler"
   # What the box and the cylinder share.
   shape:
+    say:
+      offset_empty: "Le décalage ne laisse rien de la forme"
     hint:
       height: "Cliquer la hauteur, ou la taper · Maj : la dernière hauteur · double-clic : la dernière hauteur · %{copy_key} maintenu : jusqu'à la face, appui bref : hauteur centrée"
     vcb:
@@ -461,6 +463,8 @@ tool:
       pull_centered_tip: "La hauteur s'étend autant de part et d'autre du plan (%{copy_key} pendant la hauteur : basculer)"
       from_corner: "Depuis un coin"
       from_corner_tip: "Le premier point se mesure depuis le coin le plus proche : taper les distances (%{alt_key} : basculer)"
+      offset: "Décalage"
+      offset_tip: "Décale le contour de la forme tracée, pas sa hauteur (négatif : vers l'intérieur) · cliquer pour le taper, ou taper longueur suivie de x (3x)"
   box:
     name: "Boîte"
     hint:
