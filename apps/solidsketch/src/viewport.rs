@@ -369,9 +369,9 @@ impl Viewport {
         renderer.retain_meshes(|k| scene.definition_mesh(solidsketch_model::Id(k)).is_some());
 
         let display = &doc.settings().display;
-        let [r, g, b] = display.background;
-        let bg = egui::Rgba::from(egui::Color32::from_rgb(r, g, b)); // linear
-        let background = [bg.r(), bg.g(), bg.b()];
+        // The palette's, not the document's (docs/ARCHITECTURE.md §7 quater).
+        let [r, g, b, _] = theme.ui.view;
+        let background = [r, g, b];
         let start = web_time::Instant::now();
         let view = editor.view();
         self.timing.view_ms = start.elapsed().as_secs_f64() * 1e3;
@@ -395,7 +395,8 @@ impl Viewport {
                         },
                     })
                     .collect(),
-                ghost: places.iter().any(|p| p.look == Look::Blank),
+                ghost: places.iter().any(|p| p.ghost),
+                faint_edges: places.iter().any(|p| p.faint_edges),
             })
             .collect();
         let highlights: Vec<render::Highlight> = view
@@ -477,6 +478,7 @@ impl Viewport {
             section: view.section.map(|s| render::Section { origin: s.origin, normal: s.normal }),
             cap_shade: theme.cap_shade,
             ghost_opacity: theme.ghost_opacity,
+            ghost_edge_opacity: theme.ghost_edge_opacity,
         };
         let frame = render::Frame {
             view: cam.view(),

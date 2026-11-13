@@ -353,6 +353,20 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
   afficher », enabled while something is hidden) shows every occurrence again. Exploding a
   hidden assembly leaves its content hidden; copies keep the flag; imports (STEP, SketchUp)
   come in shown.
+- **Eraser** (« Gomme », E, after SketchUp's; decided on 2026-11-13): it takes what a click of
+  Select takes — a guide near the cursor, else a machining of the open part while they are
+  shown, else the active context's occurrence under it — and nothing outside the context. A
+  click erases at once; a drag gathers everything it passes over (sampled every 4 px between
+  two cursor positions, so a quick stroke misses nothing) and erases it on release, in one
+  operation (one undo step); Esc drops the drag. With Shift held on release, the occurrences
+  taken are hidden instead (`SetHidden`), guides and machinings left. The selection is left
+  alone (activating the tool does not erase it, unlike SketchUp). What would go is drawn as a
+  ghost (`Preview::erasing`): translucent faces as an open part's blank, and translucent edges
+  and silhouettes too (`ViewPlacement::faint_edges`, drawn by `render` after the ghosts' faces,
+  at the theme's `ghost_edge_opacity`; the blank keeps its edges opaque), in batches of its
+  own, its selection marks dropped; erased guides are
+  drawn faded. The command `edit.erase` (Delete, the Edit menu) erases the selection as before;
+  both build the same operation (`Cx::erase`).
 - **Booleans = a two-click tool** (target, then tool), which designates solids of any context:
   this is how the rule of §4 is expressed.
 - **Typed dimensions** (VCB; decided on 2026-11-10, taken from OpenCutList, `UserTextHelper` +
@@ -401,7 +415,7 @@ Decided on 2026-11-09.
   extents frames the area left free.
 - **Original SVG icons** (drawn for the project), white and tinted by the theme, loaded by
   `egui_extras` (`svg`): no build step, no binary asset.
-- **SketchUp shortcuts**: Space = Select, M = Move, Q = Rotate, G = Make assembly, Delete =
+- **SketchUp shortcuts**: Space = Select, E = Eraser, M = Move, Q = Rotate, G = Make assembly, Delete =
   Erase, Cmd/Ctrl+Z / Shift+Cmd+Z = Undo / Redo, Shift+Z = Zoom extents; ours: R = Box,
   C = Cylinder, B = Paint, S = Stretch, Cmd/Ctrl+K = command palette, Cmd/Ctrl+1…6 = standard views,
   Cmd/Ctrl+, = Preferences. They all come from the command registry (§7 quater) and can be
@@ -413,10 +427,11 @@ Decided on 2026-11-09.
 - Wheel ("line" units) = zoom; trackpad scroll ("point" units) = orbit, Shift = pan; pinch =
   zoom. Copy modifier: Option on macOS, Ctrl elsewhere (short tap = toggle, §6).
 - **Two levels of settings** (decided on 2026-11-09, after SketchUp's styles):
-  - **document settings** (`model::Settings`): display (grid — hidden by default —, axes,
-    background colour) and units (length unit, decimals). Saved in the file; changing them is
-    an operation (`Operation::SetSettings`), hence undoable, and successive changes (dragging a
-    colour) merge into a single step. Lengths stay stored in mm: the unit only serves for input
+  - **document settings** (`model::Settings`): display (grid — hidden by default —, axes…)
+    and units (length unit, decimals). Saved in the file; changing them is
+    an operation (`Operation::SetSettings`), hence undoable, and successive changes merge into
+    a single step. Not the view's background: a token of the palette (§7 quater, decided on
+    2026-11-13 — a file never sets how the app looks). Lengths stay stored in mm: the unit only serves for input
     (a bare number is in the document's unit) and display;
   - **user preferences** (`apps/solidsketch/src/prefs.rs`): language (§6 quater), navigation
     (orbit speed and direction, mouse and trackpad separately; zoom speed, direction and
@@ -1090,8 +1105,10 @@ another product.
 
 - **Layout**: two floating cards across the top of the view, under the title bar: the
   **workspace card** at the left (the workspace's icon and name, ▾ opens the list of
-  workspaces) and the **ribbon card** filling the rest of the width (a row of tabs over a row
-  of groups). The view is never resized (§6 bis); the dock's columns start under the ribbon;
+  workspaces) and the **ribbon card** (a row of tabs over a row of groups; the tabs drawn as the title bar's
+  file tabs: centered on a band in the headers' fill, the shown one opening onto the groups), as wide as its
+  content and centered on the view; it never covers the workspace card nor passes the right
+  margin, so a narrow window narrows it (then *Fitting* below decides what gives way). The view is never resized (§6 bis); the dock's columns start under the ribbon;
   the **tool option bar** becomes a small card of its own, centered under the ribbon; zoom
   extents frames what is left below it.
 - **Workspaces**: *Modelling* only for now. *Cut list* (the OCL-like parts list) and *Drawing*
@@ -1104,7 +1121,7 @@ another product.
   - **Assemble**: Components (Make assembly, Explode, Make unique), Modify (Move, Rotate);
   - **Inspect**: Measure (Tape measure, Delete guides), Section (Section plane, Clear
     section), View (Zoom extents, the standard views).
-  - A fixed **Selection** group (Select, Erase) stays at the left of every tab, before the
+  - A fixed **Selection** group (Select, Eraser) stays at the left of every tab, before the
     tabs' own groups.
   - The tab shown is remembered per workspace (preference). A shortcut runs its command
     whatever the tab: the ribbon does not switch tabs; a running tool whose button is not shown
@@ -1182,9 +1199,13 @@ The pattern is a web browser's; the drawing is ours.
   it moved the window from any drag in the top 30 pt or so, a tab's included, before the app
   could tell; `StartDrag` (`performWindowDragWithEvent:`) still works on such a window. Web, Windows, Linux: the same tabs, no window moves.
   The window title is the active document's name.
+- **The shown tab** opens onto the view: it runs down to the bar's bottom edge, filled with the
+  view's background (`UiTokens::view`), rounded at the top and curving out into the edge at the
+  bottom (`tabs::Ground`); its text is `UiTokens::view_text`. The bar draws its own bottom line (egui's panel line would
+  cross the tab), under the tab.
 - **Interactions**: click selects, × or a middle click closes, `+` opens a new document, drag
   reorders (the tab follows the pointer, lifted — shadow, panel fill, accent outline, unlike the
-  shown tab's soft accent — while the others slide aside to open its place: `tabs::places`), right click: Close, Close others, Close all, Show in Finder / Explorer (desktop).
+  shown tab — while the others slide aside to open its place: `tabs::places`), right click: Close, Close others, Close all, Show in Finder / Explorer (desktop).
   Shortcuts: ⌘W / Ctrl+W close tab (`file.close`), ⌘Q (`app.quit`, the app menu's Quit on
   macOS: AppKit's own would end the app without asking), and, fixed whatever the shortcuts,
   Ctrl+Tab / Ctrl+Shift+Tab next / previous tab (`view.next_tab`, `view.previous_tab`, in
@@ -1431,8 +1452,15 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   and back faces, edge ink, highlights (selected, hover, picked, ghost, other occurrences),
   fading outside the context, section cap shade, axes, selection rectangle, inference markers,
   tooltip. Two themes, **light** and **dark**; the app sets egui's theme from the user's
-  `theme` preference (system by default, light, dark). The background colour stays a
-  **document setting** (its style, as in SketchUp).
+  `theme` preference (system by default, light, dark).
+- **The view's background** (decided on 2026-11-13, unlike SketchUp, whose style is saved
+  in the model): a token of each palette and mode (`UiTokens::view`, with `view_text` for the
+  shown tab's text), not a setting of the document, and not changeable. It stays light in the
+  dark mode, only dimmed: the faces, the edges, the guides, the tools' inks (`GUIDE_INK`) and
+  the axes are colours drawn for a light ground; a test holds their contrast with it (the
+  y axis's green and the picked orange are deep ones, the markers' outline dark in both modes:
+  a bright green or orange had the dimmed view's luminance and faded into it). A truly
+  dark view would first need those inks as tokens of the mode.
 - **Interface tokens** (`UiTokens`, decided on 2026-11-10): panel, header, field, border,
   text, dim text, hover, accent and soft accent, corner radii, spacing.
 - **Palettes** (decided on 2026-11-10): a `Palette` (user preference `palette`) gives the

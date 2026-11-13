@@ -296,7 +296,6 @@ prefs:
     silhouettes_tip: "Le contour apparent des faces courbes"
     hide_rest_of_model: "$t(common.hide_rest_of_model)"
     hide_rest_of_model_tip: "En éditant une pièce ou un assemblage, le reste du modèle est masqué plutôt qu'estompé"
-    background: "Fond"
     units: "Unités"
     lengths: "Longueurs"
     decimals: "Décimales"
@@ -336,7 +335,6 @@ prefs:
       graphite: "Graphite"
     panels: "Panneaux"
     ribbon_labels: "Libellés du ruban"
-    background_note: "La couleur de fond de la vue est un réglage du modèle (onglet Modèle)."
   shortcuts:
     intro: "Cliquer « Modifier », puis taper le raccourci (Échap : annuler, ⌫ : aucun)."
     edit: "Modifier"
@@ -446,6 +444,11 @@ tool:
       idle: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché) · Maj : ajouter/retirer · Double-clic : entrer dans un assemblage ou ouvrir une pièce, ou en sortir"
       crossing: "Capture : sélectionne ce que le rectangle touche · Maj : ajouter/retirer"
       window: "Fenêtre : sélectionne ce que le rectangle contient entièrement · Maj : ajouter/retirer"
+  erase:
+    name: "Gomme"
+    hint:
+      idle: "Cliquer pour effacer · Glisser pour effacer tout ce qui est survolé · Maj maintenu : masquer au lieu d'effacer"
+      sweep: "Relâcher pour effacer ce qui est survolé · Maj maintenu : le masquer · Échap : annuler"
   # What the box and the cylinder share.
   shape:
     hint:

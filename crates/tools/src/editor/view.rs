@@ -31,7 +31,7 @@ pub enum Look {
     /// A part's shape.
     #[default]
     Shape,
-    /// An open part's blank, its machinings shown: a ghost (ARCHITECTURE.md §2.9).
+    /// An open part's blank, its machinings shown (ARCHITECTURE.md §2.9).
     Blank,
     /// One of its machinings' tools.
     Tool,
@@ -48,6 +48,11 @@ pub struct ViewPlacement {
     /// The material its faces take.
     pub material: Option<Id>,
     pub look: Look,
+    /// Drawn as a ghost — translucent faces, edges as they are —: an open part's blank, or
+    /// what the eraser would take.
+    pub ghost: bool,
+    /// Its edges see-through too: what the eraser would take (the blank keeps its edges).
+    pub faint_edges: bool,
 }
 
 /// One solid of one occurrence drawn again, marked.
@@ -312,21 +317,38 @@ impl Editor {
                 || (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| selected.contains(id)))
                 || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
         };
+        // What the eraser would take: the context's occurrences (and the solids under them)
+        // or the open part's machinings, drawn as ghosts, in batches of their own.
+        let erasing: solidsketch_model::FastSet<Id> = preview.erasing.iter().copied().collect();
+        let erased = |p: &crate::scene::Placement| {
+            !erasing.is_empty()
+                && open.is_none()
+                && p.path.starts_with(&self.context)
+                && p.path.get(depth).is_some_and(|id| erasing.contains(id))
+        };
+        let mut ghosts: Batches = Vec::new();
         let mut swapped: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
         // The highlights to move with them: from the part where it was to where it is drawn.
         let mut moved: Vec<(Id, DAffine3, Id, DAffine3)> = Vec::new();
         for (def, places) in self.scene.placements() {
             let mut ps = Vec::with_capacity(places.len());
             for p in places.iter().filter(|p| !hidden(p)) {
-                let vp = ViewPlacement { transform: p.transform, faded: outside(p) || p.hidden, material: p.material, look: Look::Shape };
+                let vp = ViewPlacement {
+                    transform: p.transform,
+                    faded: outside(p) || p.hidden,
+                    material: p.material,
+                    look: Look::Shape,
+                    ghost: false,
+                    faint_edges: false,
+                };
+                if erased(p) {
+                    push_to(&mut ghosts, def, ViewPlacement { ghost: true, faint_edges: true, ..vp });
+                    continue;
+                }
                 match swap(p) {
                     Some((key, t)) => {
                         moved.push((def, p.transform, key, t));
-                        let vp = ViewPlacement { transform: t, ..vp };
-                        match swapped.iter_mut().find(|(k, _)| *k == key) {
-                            Some((_, ps)) => ps.push(vp),
-                            None => swapped.push((key, vec![vp])),
-                        }
+                        push_to(&mut swapped, key, ViewPlacement { transform: t, ..vp });
                     }
                     None => ps.push(vp),
                 }
@@ -334,6 +356,7 @@ impl Editor {
             v.batches.push((def, ps));
         }
         v.batches.extend(swapped);
+        v.batches.extend(ghosts);
         if let (Some(r), Some(o)) = (recipe, &open)
             && let Ok((_, _, t)) = doc.resolve_part(o)
         {
@@ -342,18 +365,17 @@ impl Editor {
                 .placements()
                 .find(|(p, _)| *p == r.part)
                 .and_then(|(_, places)| places.iter().find(|p| p.entity_path() == *o).and_then(|p| p.material));
-            v.batches.push((r.blank, vec![ViewPlacement { transform: t, faded: false, material, look: Look::Blank }]));
-            let mut tools: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
+            v.batches.push((r.blank, vec![ViewPlacement { transform: t, faded: false, material, look: Look::Blank, ghost: true, faint_edges: false }]));
+            let (mut tools, mut tool_ghosts): (Batches, Batches) = (Vec::new(), Vec::new());
             // A tool moved without a copy is drawn only where it goes.
             for tool in r.tools.iter().filter(|tool| !(hide_original && selected.contains(&tool.machining))) {
                 let look = if tool.failed { Look::FailedTool } else { Look::Tool };
-                let p = ViewPlacement { transform: t * tool.placement, faded: false, material: None, look };
-                match tools.iter_mut().find(|(k, _)| *k == tool.key) {
-                    Some((_, ps)) => ps.push(p),
-                    None => tools.push((tool.key, vec![p])),
-                }
+                let ghost = erasing.contains(&tool.machining);
+                let p = ViewPlacement { transform: t * tool.placement, faded: false, material: None, look, ghost, faint_edges: ghost };
+                push_to(if ghost { &mut tool_ghosts } else { &mut tools }, tool.key, p);
             }
             v.batches.extend(tools);
+            v.batches.extend(tool_ghosts);
         }
         // While an open part's machinings show, the selection and hover are its machinings.
         let tool_at = |id: Id| {
@@ -426,7 +448,9 @@ impl Editor {
                 }
                 continue;
             }
-            let out = if is_selected {
+            let out = if erasing.contains(&g.id) {
+                &mut v.faded_guides
+            } else if is_selected {
                 &mut v.selected_guides
             } else if hovered(g.id) {
                 &mut v.hovered_guides
@@ -500,6 +524,14 @@ impl Editor {
         if let Some(g) = preview.ghost {
             v.highlights.extend(drawing.marks.iter().map(|h| ViewHighlight { transform: g * h.transform, mark: Mark::Ghost, ..*h }));
         }
+        // What the eraser would take is not marked (selected): a mark draws it opaque.
+        if !erasing.is_empty() {
+            let mut gone = Vec::new();
+            for id in &erasing {
+                mark(&mut gone, &self.context, *id, Mark::Hover, DAffine3::IDENTITY);
+            }
+            v.highlights.retain(|h| !gone.iter().any(|g| g.definition == h.definition && g.transform.abs_diff_eq(h.transform, 1e-9)));
+        }
         // What is drawn stretched or moved is marked so (the selection's mark would draw it as
         // it was).
         for h in v.highlights.iter_mut() {
@@ -532,5 +564,16 @@ impl Editor {
         v.marquee = preview.marquee;
         v.section = preview.section.or_else(|| doc.settings().display.active_section());
         v
+    }
+}
+
+/// Placements by the mesh they draw.
+type Batches = Vec<(Id, Vec<ViewPlacement>)>;
+
+/// Adds `p` to the batch of `key` in `batches`, or to a new one.
+fn push_to(batches: &mut Batches, key: Id, p: ViewPlacement) {
+    match batches.iter_mut().find(|(k, _)| *k == key) {
+        Some((_, ps)) => ps.push(p),
+        None => batches.push((key, vec![p])),
     }
 }

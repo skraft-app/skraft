@@ -50,6 +50,7 @@ icon!(ADD, "add");
 pub fn command(id: &str) -> Option<ImageSource<'static>> {
     Some(match id {
         "tool.select" => SELECT,
+        "tool.erase" => ERASE,
         "tool.box" => BOX,
         "tool.cylinder" => CYLINDER,
         "tool.move" => MOVE,

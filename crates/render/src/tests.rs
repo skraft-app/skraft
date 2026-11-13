@@ -477,6 +477,47 @@ fn a_ghost_shows_what_it_holds() {
     assert!(gr > gg + 60 && gr > gb + 60, "{:?}", centre(&ghost));
 }
 
+#[test]
+fn faint_edges_are_see_through() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let mesh = Solid::new_box(DVec3::splat(-8.0), DVec3::splat(16.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &mesh, face_paint: &[] }]);
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let shoot = |r: &mut Renderer, faint_edges: bool| {
+        let batches = [Batch { ghost: true, faint_edges, ..Batch::new(1, vec![Placement::new(DMat4::IDENTITY)]) }];
+        let frame = Frame {
+            view: front_view(),
+            proj,
+            background: [1.0, 1.0, 1.0],
+            style: Style::default(),
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            boxes: &[],
+            overlay: &[],
+            fills: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 1.0,
+        };
+        draw(r, &device, &queue, SIZE, &frame)
+    };
+    // The darkest pixel: an edge's.
+    let darkest = |px: &[u8]| px.chunks(4).map(|p| p[..3].iter().copied().max().unwrap()).min().unwrap();
+    let solid = darkest(&shoot(&mut r, false));
+    let faint = shoot(&mut r, true);
+    save(&faint, SIZE, "faint_edges");
+    let faint = darkest(&faint);
+    // Black edges, opaque; at a third of their opacity over white, much lighter (still drawn).
+    assert!(solid < 80, "{solid}");
+    assert!(faint > solid + 70 && faint < 235, "{solid} → {faint}");
+}
+
 /// A dashed line: dashes and gaps as long as asked, the pattern where it is said to be at the
 /// line's start. Where the device clamps depth, past the parallel projection's depth range too.
 #[test]

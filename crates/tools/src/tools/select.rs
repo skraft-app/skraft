@@ -59,13 +59,9 @@ impl Tool for SelectTool {
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        let target = |px: DVec2| {
-            cx.pick_guide(px)
-                .or_else(|| if cx.machinings_shown() { cx.pick_machining(px) } else { cx.pick(px).and_then(|h| cx.selectable(&h.path)) })
-        };
         match input {
             ToolInput::Hover { px } => {
-                self.hover = if self.marquee.is_some() { None } else { target(*px) };
+                self.hover = if self.marquee.is_some() { None } else { cx.entity_at(*px) };
                 vec![]
             }
             ToolInput::Click { px, mods } => self.click(*px, *mods, cx),

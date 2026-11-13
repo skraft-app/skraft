@@ -3136,3 +3136,91 @@ fn meshes_taken_in_leave_the_scene_a_sync_would() {
     e.sync_scene();
     assert_eq!(taken_in, state(&e));
 }
+
+#[test]
+fn erase_tool_erases_what_it_is_clicked_or_dragged_over() {
+    use solidsketch_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    let c = draw_box(&mut e, DVec3::new(600.0, 0.0, 0.0), DVec3::new(700.0, 100.0, 0.0), "50");
+    let line = GuideShape::Line { origin: DVec3::new(0.0, -300.0, 0.0), dir: DVec3::X };
+    let g = e.apply(Operation::AddGuide { component: root, shape: line }).unwrap().unwrap().guide.unwrap();
+    let none = Modifiers::default();
+    let shift = Modifiers { toggle: true, copy: false };
+    let there = |e: &Editor, id: Id| e.document().assembly(root).unwrap().occurrence(id).is_some();
+    let ghosts = |e: &Editor| e.view().batches.iter().flat_map(|(_, p)| p).filter(|p| p.ghost).count();
+    // The selection is left alone.
+    e.select(vec![a]);
+    e.set_tool(ToolKind::Erase);
+    assert_eq!(e.selection(), &[a]);
+
+    // Hovered: drawn as a ghost.
+    hover(&mut e, DVec3::new(350.0, 50.0, 50.0));
+    assert_eq!(ghosts(&e), 1);
+
+    // Dragged from `a` to `b` in one move: both taken (the gap is swept), drawn as ghosts, the
+    // selected one unmarked; erased at once when released, in one step.
+    e.input(ToolInput::DragStart { px: px(&e, DVec3::new(50.0, 50.0, 50.0)), mods: none });
+    e.input(ToolInput::Drag { px: px(&e, DVec3::new(350.0, 50.0, 50.0)) });
+    assert_eq!(ghosts(&e), 2);
+    assert!(!e.view().highlights.iter().any(|h| h.mark == Mark::Selected), "a ghost is not marked");
+    assert!(there(&e, a) && there(&e, b), "nothing erased before the release");
+    e.input(ToolInput::DragEnd { px: px(&e, DVec3::new(350.0, 50.0, 50.0)), mods: none });
+    assert!(!there(&e, a) && !there(&e, b) && there(&e, c));
+    assert!(e.selection().is_empty());
+    assert_eq!(ghosts(&e), 0);
+    e.undo();
+    assert!(there(&e, a) && there(&e, b), "one undo brings both back");
+
+    // Esc drops the drag.
+    e.input(ToolInput::DragStart { px: px(&e, DVec3::new(650.0, 50.0, 50.0)), mods: none });
+    e.input(ToolInput::Drag { px: px(&e, DVec3::new(660.0, 50.0, 50.0)) });
+    e.input(ToolInput::Key { key: Key::Escape, mods: none });
+    e.input(ToolInput::DragEnd { px: px(&e, DVec3::new(660.0, 50.0, 50.0)), mods: none });
+    assert!(there(&e, c));
+    assert_eq!(e.tool_kind(), ToolKind::Erase);
+
+    // A click near the guide erases it.
+    click(&mut e, DVec3::new(100.0, -303.0, 0.0));
+    assert!(e.document().component(root).unwrap().guides.iter().all(|x| x.id != g));
+    e.undo();
+
+    // With Shift, the occurrences swept are hidden, the guide is left.
+    drag(&mut e, DVec3::new(650.0, 50.0, 50.0), DVec3::new(650.0, -320.0, 0.0), shift);
+    let assembly = e.document().assembly(root).unwrap();
+    assert!(assembly.occurrence(c).unwrap().hidden);
+    assert!(!assembly.occurrence(a).unwrap().hidden);
+    assert_eq!(e.document().component(root).unwrap().guides.len(), 1);
+}
+
+#[test]
+fn erase_tool_erases_the_open_part_s_machinings() {
+    use glam::DAffine3;
+    use solidsketch_model::Scope;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    let drill = e
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: DAffine3::IDENTITY,
+        })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    e.apply(Operation::Boolean { target: EntityPath::root(board), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+        .unwrap();
+    let machinings = |e: &Editor| e.document().resolve_part(&EntityPath::root(board)).unwrap().1.machinings.len();
+    assert_eq!(machinings(&e), 1);
+    e.set_machinings_switch(true);
+    e.enter(board);
+    e.set_tool(ToolKind::Erase);
+    hover(&mut e, DVec3::new(50.0, 100.0, 25.0));
+    assert!(e.view().batches.iter().flat_map(|(_, p)| p).any(|p| p.ghost && p.look == Look::Tool), "the tool drawn as a ghost");
+    click(&mut e, DVec3::new(50.0, 100.0, 25.0));
+    assert_eq!(machinings(&e), 0, "{}", e.status());
+    assert_eq!(e.open_part(), Some(board));
+}

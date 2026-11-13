@@ -112,9 +112,30 @@ struct Drag {
     grab: f32,
 }
 
-/// Draws `tabs` in `rect` (`shown`: the lit one, none on the start page). `window_moves`: the
-/// tabs are in the window's title bar (macOS desktop).
-pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usize>, window_moves: bool, reveal: bool) -> Vec<TabAction> {
+/// What the shown tab opens onto: it runs down to the bar's `bottom` edge in the 3D view's
+/// background (`fill`), its text in `ink`, so that it reads as the view's tab.
+#[derive(Clone, Copy)]
+pub struct Ground {
+    pub bottom: f32,
+    pub fill: egui::Color32,
+    pub ink: egui::Color32,
+}
+
+/// The shown tab's top corners, and the radius of the curves joining it to the bar's edge.
+pub const TAB_RADIUS: f32 = 6.0;
+
+/// Draws `tabs` in `rect` (`shown`: the lit one, none on the start page; `ground`: what it
+/// opens onto, else it is only lit). `window_moves`: the tabs are in the window's title bar
+/// (macOS desktop).
+pub fn show(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    tabs: &[Tab],
+    shown: Option<usize>,
+    ground: Option<Ground>,
+    window_moves: bool,
+    reveal: bool,
+) -> Vec<TabAction> {
     let mut out = Vec::new();
     let id = egui::Id::unique("file_tabs");
     let n = tabs.len();
@@ -139,9 +160,11 @@ pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usi
         Some((from, _, to)) => places(first, count, from, to),
         None => (0..count).collect(),
     };
-    // The dragged tab is drawn last, over the others.
-    let mut order: Vec<usize> = (first..first + count).filter(|&i| held.is_none_or(|(from, ..)| from != i)).collect();
-    order.extend(held.map(|(from, ..)| from));
+    // The dragged tab is drawn last, over the others; else the shown one, its curves over its
+    // neighbours.
+    let top = held.map(|(from, ..)| from).or(shown.filter(|s| (first..first + count).contains(s)));
+    let mut order: Vec<usize> = (first..first + count).filter(|&i| top != Some(i)).collect();
+    order.extend(top);
     let dt = ui.input(|i| i.stable_dt).min(0.1);
 
     for i in order {
@@ -165,9 +188,13 @@ pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usi
         let resp = ui.interact(r, id.with(("tab", i)), egui::Sense::click_and_drag());
         let active = shown == Some(i);
         let hovered = resp.hovered();
+        let ink = match ground {
+            Some(g) if active && !dragged => g.ink,
+            _ => visuals.text_color(),
+        };
         if dragged {
             // Lifted: a shadow, the panels' fill and the accent's outline, unlike any tab at rest
-            // (the shown one is filled with the soft accent).
+            // (the shown one opens onto the view).
             let shadow = egui::epaint::Shadow { offset: [0, 3], blur: 12, spread: 0, color: egui::Color32::from_black_alpha(90) };
             ui.painter().add(shadow.as_shape(r, 6.0));
             ui.painter().rect(
@@ -177,6 +204,8 @@ pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usi
                 egui::Stroke::new(1.5, visuals.selection.stroke.color),
                 egui::StrokeKind::Inside,
             );
+        } else if let Some(g) = ground.filter(|_| active) {
+            open_tab(ui.painter(), egui::Rect::from_x_y_ranges(r.x_range(), r.top()..=g.bottom), g.fill);
         } else {
             let fill = if active {
                 visuals.widgets.active.weak_bg_fill
@@ -193,8 +222,15 @@ pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usi
         let show_close = active || hovered || ui.rect_contains_pointer(close);
         let text_right = if show_close { close.left() - 4.0 } else { r.right() - 8.0 };
         let label = format!("{}{}", tab.name, if tab.modified { " •" } else { "" });
-        let color = if active || dragged { visuals.strong_text_color() } else { visuals.text_color() };
-        let galley = egui::WidgetText::from(label).into_galley(
+        let color = if active && ground.is_some() && !dragged {
+            ink
+        } else if active || dragged {
+            visuals.strong_text_color()
+        } else {
+            visuals.text_color()
+        };
+        // Its colour given to the text: the bar's style overrides the text's colour.
+        let galley = egui::WidgetText::from(egui::RichText::new(label).color(color)).into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
             (text_right - r.left() - 10.0).max(0.0),
@@ -203,7 +239,7 @@ pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usi
         let cut = galley.elided;
         ui.painter().galley(egui::pos2(r.left() + 10.0, r.center().y - galley.size().y / 2.0), galley, color);
         if show_close && held.is_none() {
-            let x = small_button(ui, close, id.with(("close", i)), Glyph::Icon(icons::CLOSE), 12.0);
+            let x = small_button(ui, close, id.with(("close", i)), Glyph::Icon(icons::CLOSE), 12.0, ink);
             if x.on_hover_text(t!("tabs.close_tip")).clicked() {
                 out.push(TabAction::Close(i));
             }
@@ -216,7 +252,7 @@ pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usi
         if resp.middle_clicked() {
             out.push(TabAction::Close(i));
         }
-        egui::Popup::context_menu(&resp).show(|ui| {
+        egui::Popup::context_menu(&resp).style(crate::style::menu).show(|ui| {
             let mut row = |ui: &mut egui::Ui, row: MenuRow, label: String, enabled: bool| {
                 if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
                     out.push(TabAction::Menu(i, row));
@@ -276,8 +312,8 @@ pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usi
     if count < n {
         let r = button(x);
         let mut chosen = None;
-        let more = small_button(ui, r, id.with("more"), Glyph::Text("»"), 16.0).on_hover_text(t!("tabs.more_tip"));
-        egui::Popup::menu(&more).show(|ui| {
+        let more = small_button(ui, r, id.with("more"), Glyph::Text("»"), 16.0, visuals.text_color()).on_hover_text(t!("tabs.more_tip"));
+        egui::Popup::menu(&more).style(crate::style::menu).show(|ui| {
             for (i, tab) in tabs.iter().enumerate() {
                 let label = format!("{}{}", tab.name, if tab.modified { " •" } else { "" });
                 if ui.selectable_label(shown == Some(i), label).clicked() {
@@ -290,7 +326,10 @@ pub fn show(ui: &mut egui::Ui, rect: egui::Rect, tabs: &[Tab], shown: Option<usi
         }
         x += BUTTON;
     }
-    if small_button(ui, button(x).shrink(1.0), id.with("new"), Glyph::Icon(icons::ADD), 16.0).on_hover_text(t!("tabs.new_tip")).clicked() {
+    if small_button(ui, button(x).shrink(1.0), id.with("new"), Glyph::Icon(icons::ADD), 16.0, visuals.text_color())
+        .on_hover_text(t!("tabs.new_tip"))
+        .clicked()
+    {
         out.push(TabAction::New);
     }
     out
@@ -308,6 +347,11 @@ pub const VEIL_RADIUS: f32 = 5.0;
 /// A frameless button's background: a veil of the text's colour when hovered, darker when
 /// pressed — seen on any ground, in either theme. None at rest.
 pub fn veil(ui: &egui::Ui, resp: &egui::Response) -> Option<egui::Color32> {
+    veil_of(ui.visuals().text_color(), resp)
+}
+
+/// A [`veil`] of `ink`.
+fn veil_of(ink: egui::Color32, resp: &egui::Response) -> Option<egui::Color32> {
     let alpha = if resp.is_pointer_button_down_on() {
         0.22
     } else if resp.hovered() {
@@ -315,14 +359,71 @@ pub fn veil(ui: &egui::Ui, resp: &egui::Response) -> Option<egui::Color32> {
     } else {
         return None;
     };
-    Some(ui.visuals().text_color().gamma_multiply(alpha))
+    Some(ink.gamma_multiply(alpha))
 }
 
-/// A frameless button of the strip (×, +, »): its [`veil`]. `size`: its glyph's.
-fn small_button(ui: &mut egui::Ui, rect: egui::Rect, id: egui::Id, glyph: Glyph, size: f32) -> egui::Response {
+/// The shown tab, `rect` down to the bar's edge, filled with `fill`: rounded at the top, and
+/// at the bottom curving out into the edge, as a tab of the view under it.
+pub fn open_tab(p: &egui::Painter, rect: egui::Rect, fill: egui::Color32) {
+    let r = TAB_RADIUS;
+    let round = r as u8;
+    p.rect_filled(rect, egui::CornerRadius { nw: round, ne: round, sw: 0, se: 0 }, fill);
+    for (corner, out) in [(rect.left_bottom(), -1.0), (rect.right_bottom(), 1.0)] {
+        // The room between the tab's side, the bar's edge and a quarter circle centred `r`
+        // out and `r` up: a fan from the corner, its arc stroked for a smooth edge.
+        let centre = corner + egui::vec2(out * r, -r);
+        let arc: Vec<egui::Pos2> = (0..=8)
+            .map(|k| {
+                let a = k as f32 / 8.0 * std::f32::consts::FRAC_PI_2;
+                centre + egui::vec2(-out * r * a.cos(), r * a.sin())
+            })
+            .collect();
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(corner, fill);
+        for &q in &arc {
+            mesh.colored_vertex(q, fill);
+        }
+        for k in 1..arc.len() as u32 {
+            mesh.add_triangle(0, k, k + 1);
+        }
+        p.add(mesh);
+        p.add(egui::Shape::line(arc, egui::Stroke::new(1.0, fill)));
+    }
+}
+
+/// The edge under a band from `left` to `right`, going round the shown tab `rect` (as
+/// [`open_tab`] draws it, down to the edge at its bottom): along the edge, up the curve, over
+/// the tab's rounded top and back down. Stroked, it outlines the tab as part of the ground under
+/// the band. `inset`: the stroke's half width, which keeps it inside the tab.
+pub fn open_tab_outline(rect: egui::Rect, left: f32, right: f32, inset: f32) -> Vec<egui::Pos2> {
+    let r = TAB_RADIUS;
+    let y = rect.bottom() - inset;
+    let quarter = |centre: egui::Pos2, from: f32, radius: f32| -> Vec<egui::Pos2> {
+        (0..=8)
+            .map(|k| {
+                let a = from + k as f32 / 8.0 * std::f32::consts::FRAC_PI_2;
+                centre + radius * egui::vec2(a.cos(), a.sin())
+            })
+            .collect()
+    };
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let (l, t, rr) = (rect.left() + inset, rect.top() + inset, rect.right() - inset);
+    // Up the left curve (centred out and up of the tab's corner), the top's corners, down the
+    // right curve.
+    let mut out = vec![egui::pos2(left, y)];
+    out.extend(quarter(egui::pos2(l - r, y - r), 0.0, r).into_iter().rev());
+    out.extend(quarter(egui::pos2(l + r, t + r), PI, r));
+    out.extend(quarter(egui::pos2(rr - r, t + r), PI + FRAC_PI_2, r));
+    out.extend(quarter(egui::pos2(rr + r, y - r), FRAC_PI_2, r).into_iter().rev());
+    out.push(egui::pos2(right, y));
+    out
+}
+
+/// A frameless button of the strip (×, +, »), drawn in `ink`: its [`veil`]. `size`: its
+/// glyph's.
+fn small_button(ui: &mut egui::Ui, rect: egui::Rect, id: egui::Id, glyph: Glyph, size: f32, ink: egui::Color32) -> egui::Response {
     let resp = ui.interact(rect, id, egui::Sense::click());
-    let ink = ui.visuals().text_color();
-    if let Some(fill) = veil(ui, &resp) {
+    if let Some(fill) = veil_of(ink, &resp) {
         ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
     }
     match glyph {

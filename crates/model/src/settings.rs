@@ -20,8 +20,6 @@ pub struct Settings {
 pub struct Display {
     pub grid: bool,
     pub axes: bool,
-    /// Background colour, sRGB.
-    pub background: [u8; 3],
     /// The outline of curved faces (§7 quater).
     pub silhouettes: bool,
     /// The section plane, if one was placed; shown while `section_active`.
@@ -43,7 +41,6 @@ impl Default for Display {
         Display {
             grid: false,
             axes: true,
-            background: [246, 247, 249],
             silhouettes: true,
             section: None,
             section_active: false,

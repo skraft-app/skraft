@@ -108,10 +108,7 @@ impl Editor {
     /// Erases entities of the active context: occurrences and guides, or, in an open part,
     /// its machinings and guides.
     fn erase(&mut self, entities: Vec<Id>) {
-        let op = match self.open_part_path() {
-            Some(target) => Operation::DeleteMachinings { target, machinings: entities, scope: self.part_scope },
-            None => Operation::Delete { context: self.context_definition(), entities },
-        };
+        let op = self.cx().erase(entities);
         let _ = self.start(op, After::Nothing, false);
     }
 

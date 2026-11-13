@@ -21,8 +21,8 @@ use crate::tabs::{self, Tab};
 
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;
-/// Room for the macOS traffic lights at the bar's left end.
-const TRAFFIC_LIGHTS: f32 = 76.0;
+/// Room for the macOS traffic lights at the bar's left end, with a gap before the mark.
+const TRAFFIC_LIGHTS: f32 = 84.0;
 /// The command search's widest.
 const SEARCH_WIDTH: f32 = 240.0;
 /// Below this width, the search is only its icon.
@@ -38,6 +38,9 @@ pub struct Bar<'a> {
     /// The bar is the window's title bar (macOS desktop): room for the traffic lights, and
     /// its empty space moves the window.
     pub integrated: bool,
+    /// The 3D view's background under the bar and the text drawn on it (none: the start
+    /// page): the shown tab opens onto it.
+    pub ground: Option<(egui::Color32, egui::Color32)>,
 }
 
 /// The bar's panel, at the top of the window.
@@ -45,12 +48,19 @@ pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
     let mut style = ui.style().as_ref().clone();
     crate::style::title_bar(ui.ctx(), &mut style);
     let frame = egui::Frame::side_top_panel(&style).inner_margin(egui::Margin::symmetric(8, 0));
-    egui::Panel::top("title_bar").exact_size(HEIGHT).resizable(false).frame(frame).show(ui, |ui| {
+    // The line along the bar's bottom edge is drawn by the bar, under the shown tab, which
+    // opens through it onto the view.
+    let panel = egui::Panel::top("title_bar").exact_size(HEIGHT).resizable(false).show_separator_line(false).frame(frame);
+    panel.show(ui, |ui| {
         ui.set_style(style);
         if bar.integrated {
             move_window(ui);
         }
-        ui.horizontal_centered(|ui| contents(ui, bar, views, actions));
+        let rect = ui.max_rect().expand2(egui::vec2(8.0, 0.0));
+        let line = ui.visuals().widgets.noninteractive.bg_stroke;
+        ui.painter().hline(rect.x_range(), rect.bottom() - line.width / 2.0, line);
+        let ground = bar.ground.map(|(fill, ink)| tabs::Ground { bottom: rect.bottom(), fill, ink });
+        ui.horizontal_centered(|ui| contents(ui, bar, ground, views, actions));
     });
 }
 
@@ -71,7 +81,7 @@ const TOGGLES: [&str; 7] = ["view.parallel", "view.grid", "view.axes", "view.gui
 /// Room kept for the tabs before the search field narrows.
 const TABS_MIN: f32 = 160.0;
 
-fn contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) {
+fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &[CommandView], actions: &mut Vec<Action>) {
     let find = |id: &str| views.iter().find(|v| v.id == id);
     // In full screen the traffic lights are gone.
     if bar.integrated && !ui.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
@@ -124,7 +134,7 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
         .inner;
     let room = egui::Rect::from_x_y_ranges(row.left()..=(right.left() - 4.0).max(row.left()), row.y_range());
     let window_moves = bar.integrated;
-    for a in tabs::show(ui, room, bar.tabs, bar.shown, window_moves, bar.reveal) {
+    for a in tabs::show(ui, room, bar.tabs, bar.shown, ground, window_moves, bar.reveal) {
         actions.push(Action::Tab(a));
     }
 }
@@ -164,7 +174,11 @@ fn icon_image(ui: &egui::Ui, icon: egui::ImageSource<'static>) -> egui::Image<'s
 /// Draws a frameless button with `add`, and behind it the tabs' + button's background: none
 /// at rest, the [`tabs::veil`] when hovered or pressed, the selection's when `lit` (asked once
 /// the button is drawn: a menu's button is lit while its menu is open).
-fn backed(ui: &mut egui::Ui, lit: impl FnOnce(&egui::Response) -> bool, add: impl FnOnce(&mut egui::Ui) -> egui::Response) -> egui::Response {
+fn backed(
+    ui: &mut egui::Ui,
+    lit: impl FnOnce(&egui::Response) -> bool,
+    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
     let behind = ui.painter().add(egui::Shape::Noop);
     let r = add(ui);
     let fill = if lit(&r) { Some(ui.visuals().selection.bg_fill) } else { tabs::veil(ui, &r) };
@@ -176,7 +190,12 @@ fn backed(ui: &mut egui::Ui, lit: impl FnOnce(&egui::Response) -> bool, add: imp
 
 /// A menu's button: lit while its menu is open.
 fn menu_button(ui: &mut egui::Ui, button: egui::Button, tip: Option<String>, content: impl FnOnce(&mut egui::Ui)) {
-    let r = backed(ui, menu_open, |ui| egui::containers::menu::MenuButton::from_button(unframed(button)).ui(ui, |ui| content(ui)).0);
+    let r = backed(ui, menu_open, |ui| {
+        egui::containers::menu::MenuButton::from_button(unframed(button))
+            .config(egui::containers::menu::MenuConfig::new().style(crate::style::menu))
+            .ui(ui, |ui| content(ui))
+            .0
+    });
     if let Some(tip) = tip {
         r.on_hover_text(tip);
     }
@@ -204,13 +223,23 @@ fn brand(ui: &mut egui::Ui) {
     // The headings' semibold, at the text's size.
     let mut font = egui::TextStyle::Heading.resolve(ui.style());
     font.size = egui::TextStyle::Body.resolve(ui.style()).size;
-    ui.add(egui::Label::new(egui::RichText::new(APP_NAME).font(font).color(ui.visuals().strong_text_color())).selectable(false).sense(egui::Sense::hover()));
+    ui.add(
+        egui::Label::new(egui::RichText::new(APP_NAME).font(font).color(ui.visuals().strong_text_color()))
+            .selectable(false)
+            .sense(egui::Sense::hover()),
+    );
 }
 
 /// The File menu: a text button opening the registry's File commands.
 fn file_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
+    /// The button's side margins, wider than the buttons' padding.
+    const PADDING_X: f32 = 10.0;
     let button = egui::Button::new(Menu::File.label()).min_size(egui::vec2(0.0, 26.0));
-    menu_button(ui, button, None, |ui| menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions));
+    ui.scope(|ui| {
+        ui.spacing_mut().button_padding.x = PADDING_X;
+        // The menu opens in the window's style: its items keep their padding.
+        menu_button(ui, button, None, |ui| menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions));
+    });
 }
 
 /// A menu's items, a separator before each group.

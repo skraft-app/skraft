@@ -56,7 +56,7 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
     id: "modelling",
     label: || t!("ribbon.workspace.modelling"),
     icon: icons::MODELLING,
-    fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "edit.erase"], &["tool.select", "edit.erase"]),
+    fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "tool.erase"], &["tool.select", "tool.erase"]),
     tabs: &[
         Tab {
             id: "build",
@@ -378,7 +378,7 @@ pub fn workspace_card(ui: &mut egui::Ui, v: &View, height: f32, actions: &mut Ve
     ui.painter().galley(at, label.clone(), ink);
     chevron(ui.painter(), pos2(at.x + label.size().x + 6.0, at.y + label.size().y / 2.0), ink);
     let response = response.on_hover_text(t!("ribbon.workspace.tip"));
-    Popup::menu(&response).show(|ui| {
+    Popup::menu(&response).style(crate::style::menu).show(|ui| {
         for w in WORKSPACES {
             if ui.selectable_label(w.id == current.id, (w.label)()).clicked() && w.id != current.id {
                 actions.push(Action::Ribbon(Change::Workspace(w.id)));
@@ -387,35 +387,64 @@ pub fn workspace_card(ui: &mut egui::Ui, v: &View, height: f32, actions: &mut Ve
     });
 }
 
-/// The tab row: compact, painted — the tab shown in the accent, underlined.
-const TAB_ROW_HEIGHT: f32 = 18.0;
-const TAB_GAP: f32 = 14.0;
+/// The tab row, as the file tabs of the title bar (§7 quinquies): a band across the card's top
+/// in the headers' fill, the tabs centered on it, the shown one in the card's fill opening onto
+/// the groups under it.
+/// The row's height; the tabs rise above it into the card's margin, by [`TAB_RISE`].
+const TAB_ROW_HEIGHT: f32 = 20.0;
+const TAB_RISE: f32 = 3.0;
+/// A tab's room around its label, and between two tabs.
+const TAB_PAD: f32 = 12.0;
+const TAB_GAP: f32 = 2.0;
 
-fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, actions: &mut Vec<Action>) {
+fn tab_font() -> FontId {
+    FontId::proportional(12.0)
+}
+
+/// `inset`: the card's inner margin, which the band spans to reach the card's edges.
+fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
     let (row, _) = ui.allocate_exact_size(vec2(width, TAB_ROW_HEIGHT), Sense::hover());
-    let font = FontId::proportional(12.0);
-    let mut x = row.left() + 4.0;
+    let visuals = ui.visuals().clone();
+    let band = Rect::from_min_max(pos2(row.left() - inset.leftf(), row.top() - inset.topf()), pos2(row.right() + inset.rightf(), row.bottom()));
+    let r = visuals.window_corner_radius;
+    ui.painter().rect_filled(band, egui::CornerRadius { nw: r.nw, ne: r.ne, sw: 0, se: 0 }, visuals.faint_bg_color);
+
+    // Centered on the card; from its left edge when narrower than the tabs.
+    let mut x = (row.center().x - tab_labels_width(ui.painter(), w) / 2.0).max(row.left() + crate::tabs::TAB_RADIUS);
+    let font = tab_font();
+    // The shown tab drawn last: its curves over its neighbours' hover.
+    let mut shown = None;
     for t in w.tabs {
         let active = t.id == tab.id;
         let galley = ui.painter().layout_no_wrap((t.label)(), font.clone(), Color32::WHITE);
-        let rect = Rect::from_min_size(pos2(x, row.top()), vec2(galley.size().x, TAB_ROW_HEIGHT));
-        let response = ui.interact(rect.expand2(vec2(TAB_GAP / 2.0, 0.0)), egui::Id::unique(("ribbon_tab", t.id)), Sense::click());
-        let accent = ui.visuals().selection.stroke.color;
-        let ink = if active {
-            accent
-        } else if response.hovered() {
-            ui.visuals().text_color()
-        } else {
-            ui.visuals().weak_text_color()
-        };
-        ui.painter().text(pos2(rect.left(), rect.center().y - 1.0), Align2::LEFT_CENTER, (t.label)(), font.clone(), ink);
+        let rect = Rect::from_min_size(pos2(x, row.top() - TAB_RISE), vec2(galley.size().x + 2.0 * TAB_PAD, TAB_ROW_HEIGHT + TAB_RISE));
+        x = rect.right() + TAB_GAP;
         if active {
-            ui.painter().hline(rect.x_range(), rect.bottom() - 1.0, Stroke::new(2.0, accent));
+            shown = Some((t, rect));
+            continue;
         }
-        if response.clicked() && !active {
+        let response = ui.interact(rect, egui::Id::unique(("ribbon_tab", t.id)), Sense::click());
+        if let Some(fill) = crate::tabs::veil(ui, &response) {
+            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::tabs::VEIL_RADIUS, fill);
+        }
+        let ink = if response.hovered() { visuals.text_color() } else { visuals.weak_text_color() };
+        ui.painter().text(rect.center(), Align2::CENTER_CENTER, (t.label)(), font.clone(), ink);
+        if response.clicked() {
             actions.push(Action::Ribbon(Change::Tab(t.id)));
         }
-        x = rect.right() + TAB_GAP;
+    }
+    // The band's edge, going round the shown tab.
+    let line = visuals.widgets.noninteractive.bg_stroke;
+    match shown {
+        Some((t, rect)) => {
+            crate::tabs::open_tab(ui.painter(), rect, visuals.window_fill);
+            let outline = crate::tabs::open_tab_outline(rect, band.left(), band.right(), line.width / 2.0);
+            ui.painter().add(egui::Shape::line(outline, line));
+            ui.painter().text(rect.center(), Align2::CENTER_CENTER, (t.label)(), font.clone(), visuals.strong_text_color());
+        }
+        None => {
+            ui.painter().hline(band.x_range(), band.bottom() - line.width / 2.0, line);
+        }
     }
 }
 
@@ -427,25 +456,28 @@ struct Laid {
     plan: Plan,
 }
 
-/// The ribbon card's content, `width` wide: the tab row over the groups.
-pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, actions: &mut Vec<Action>) {
+/// The tabs' width, with the gaps between them.
+fn tab_labels_width(painter: &egui::Painter, w: &Workspace) -> f32 {
+    let labels: f32 = w.tabs.iter().map(|t| painter.layout_no_wrap((t.label)(), tab_font(), Color32::WHITE).size().x + 2.0 * TAB_PAD).sum();
+    labels + w.tabs.len().saturating_sub(1) as f32 * TAB_GAP
+}
+
+/// The tab row's width: its tabs, and the shown one's curves on both sides.
+fn tab_row_width(painter: &egui::Painter, w: &Workspace) -> f32 {
+    tab_labels_width(painter, w) + 2.0 * crate::tabs::TAB_RADIUS
+}
+
+/// The groups shown (the fixed one first) and their sizes, as [`fit`] sees them.
+fn measure(painter: &egui::Painter, v: &View) -> (Vec<Laid>, Vec<GroupSize>) {
     let w = v.prefs.workspace();
     let tab = v.prefs.tab();
-    ui.set_width(width);
-    if w.tabs.len() > 1 {
-        tab_row(ui, w, tab, width, actions);
-        ui.add_space(4.0);
-    }
-
     let labels = v.prefs.labels;
-    let (button_h, collapsed) = if labels { (BUTTON_HEIGHT, BUTTON_MIN_WIDTH) } else { (COMPACT_HEIGHT, COMPACT_WIDTH) };
     let mut laid: Vec<Laid> = Vec::new();
     for (tab_of, g) in std::iter::once((None, &w.fixed)).chain(tab.groups.iter().map(|g| (Some(tab), g))) {
         let key = key(w, tab_of, g);
         let pinned = v.prefs.pinned(&key, g);
         laid.push(Laid { key, group: g, pinned, plan: Plan { fit: Fit::More, shown: 0, widths: Vec::new() } });
     }
-    let painter = ui.painter().clone();
     let measure = |text: &str, font: FontId| painter.layout_no_wrap(text.to_owned(), font, Color32::WHITE).size().x;
     let sizes: Vec<GroupSize> = laid
         .iter()
@@ -467,6 +499,36 @@ pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, actions: &mut Vec<Action>
             label: measure(&(l.group.label)(), label_font()) + 14.0,
         })
         .collect();
+    (laid, sizes)
+}
+
+/// The ribbon card's content width with nothing given up: every pinned button at its preferred
+/// width, and the tab row. The card is never wider (it is narrower when the window is).
+pub fn natural_width(ctx: &egui::Context, v: &View) -> f32 {
+    let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
+    let (_, sizes) = measure(&painter, v);
+    let collapsed = if v.prefs.labels { BUTTON_MIN_WIDTH } else { COMPACT_WIDTH };
+    let plans: Vec<Plan> = sizes.iter().map(Plan::full).collect();
+    let groups = used(&plans, &sizes, collapsed);
+    let w = v.prefs.workspace();
+    let tabs = if w.tabs.len() > 1 { tab_row_width(&painter, w) } else { 0.0 };
+    groups.max(tabs).ceil()
+}
+
+/// The ribbon card's content, `width` wide: the tab row over the groups.
+/// `inset`: the card's inner margin.
+pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
+    let w = v.prefs.workspace();
+    let tab = v.prefs.tab();
+    ui.set_width(width);
+    if w.tabs.len() > 1 {
+        tab_row(ui, w, tab, width, inset, actions);
+        ui.add_space(4.0);
+    }
+
+    let labels = v.prefs.labels;
+    let (button_h, collapsed) = if labels { (BUTTON_HEIGHT, BUTTON_MIN_WIDTH) } else { (COMPACT_HEIGHT, COMPACT_WIDTH) };
+    let (mut laid, sizes) = measure(ui.painter(), v);
     let plans = fit(&sizes, width, collapsed);
     for (l, p) in laid.iter_mut().zip(plans) {
         l.plan = p;
@@ -518,6 +580,7 @@ pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, actions: &mut Vec<Action>
             None => label,
         };
         Popup::menu(&response)
+            .style(crate::style::menu)
             .id(egui::Id::unique(("ribbon_menu", &l.key)))
             .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| group_menu(ui, v, &l.key, l.group, actions));
@@ -534,7 +597,7 @@ pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, actions: &mut Vec<Action>
         }
         ui.painter().text(rect.center(), Align2::CENTER_CENTER, "»", FontId::proportional(18.0), visuals.text_color());
         let response = response.on_hover_text(t!("ribbon.more"));
-        Popup::menu(&response).show(|ui| {
+        Popup::menu(&response).style(crate::style::menu).show(|ui| {
             for l in laid.iter().filter(|l| l.plan.fit == Fit::More) {
                 ui.menu_button((l.group.label)(), |ui| group_menu(ui, v, &l.key, l.group, actions));
             }
@@ -600,7 +663,7 @@ fn command_button(
     if response.clicked() {
         actions.push(Action::Command(id));
     }
-    Popup::context_menu(&response).show(|ui| {
+    Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
         if ui.button(t!("ribbon.unpin")).clicked() {
             actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
         }

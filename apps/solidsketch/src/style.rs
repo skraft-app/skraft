@@ -60,6 +60,23 @@ pub fn title_bar(ctx: &egui::Context, style: &mut egui::Style) {
     for state in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active] {
         state.fg_stroke.color = text;
     }
+    // The bar's buttons are frameless (their background is painted behind them). egui keeps a
+    // button's size by taking its state's stroke and expansion out of its margins: with a
+    // stroke or an expansion on hover, a frameless button would narrow when hovered.
+    for state in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+        state.bg_stroke = egui::Stroke::NONE;
+        state.expansion = 0.0;
+    }
+}
+
+/// The side margins of a menu's items: egui's menus keep only 2 pt.
+const MENU_PADDING_X: f32 = 8.0;
+
+/// The style of every menu (drop-down, context menu, and the submenus they open): egui's
+/// menus', their items wider.
+pub fn menu(style: &mut egui::Style) {
+    egui::containers::menu::menu_style(style);
+    style.spacing.button_padding.x = MENU_PADDING_X;
 }
 
 /// A palette's card in the preferences: a small window drawn in its colours (`mode`'s
@@ -165,6 +182,13 @@ fn apply(s: &mut egui::Style, t: &UiTokens) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_view_draws_the_themes_axes() {
+        use solidsketch_render as render;
+        use solidsketch_theme as theme;
+        assert_eq!([render::AXIS_X, render::AXIS_Y, render::AXIS_Z], [theme::AXIS_X, theme::AXIS_Y, theme::AXIS_Z]);
+    }
 
     #[test]
     fn both_styles_follow_the_palette() {

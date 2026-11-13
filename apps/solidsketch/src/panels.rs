@@ -62,7 +62,8 @@ impl CommandView {
     }
 }
 
-/// A menu item: a check box for a toggle, else a button with its shortcut. True when clicked.
+/// A menu item: a check box for a toggle, else a button with its shortcut; no hover text.
+/// True when clicked.
 pub fn command_item(ui: &mut egui::Ui, v: &CommandView) -> bool {
     let toggle = v.checked.is_some() && v.id.starts_with("view.");
     let mut button = if toggle {
@@ -74,7 +75,7 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView) -> bool {
     if let Some(s) = &v.shortcut {
         button = button.shortcut_text(s);
     }
-    ui.add_enabled(v.enabled, button).on_hover_text(v.id).clicked()
+    ui.add_enabled(v.enabled, button).clicked()
 }
 
 /// Whether the option bar has anything to show: the active tool's options, or an open part's

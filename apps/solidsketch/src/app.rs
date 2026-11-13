@@ -156,6 +156,7 @@ fn kernel_service(ctx: &egui::Context) -> Box<dyn KernelService> {
 fn tool_of(id: &str) -> Option<ToolKind> {
     Some(match id {
         "tool.select" => ToolKind::Select,
+        "tool.erase" => ToolKind::Erase,
         "tool.box" => ToolKind::Box,
         "tool.cylinder" => ToolKind::Cylinder,
         "tool.move" => ToolKind::Move,
@@ -238,9 +239,8 @@ impl SolidSketchApp {
         #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
         {
             let views = app.command_views();
-            app.native_menu = NativeMenu::new(&cc.egui_ctx, &views, &app.keymap)
-                .inspect_err(|e| log::warn!("no native menu bar: {e}"))
-                .ok();
+            app.native_menu =
+                NativeMenu::new(&cc.egui_ctx, &views, &app.keymap).inspect_err(|e| log::warn!("no native menu bar: {e}")).ok();
         }
         #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
         crate::app_drags_window(cc);
@@ -444,6 +444,7 @@ impl SolidSketchApp {
         let mut chosen = None;
         let modal = egui::Modal::new(egui::Id::unique("save_prompt")).frame(modal_frame(ctx)).show(ctx, |ui| {
             ui.set_width(360.0);
+            ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
             ui.heading(t!("save_prompt.title"));
             ui.add_space(6.0);
             ui.label(t!("save_prompt.question", name = name));
@@ -506,6 +507,7 @@ impl SolidSketchApp {
         let mut cancel = false;
         let modal = egui::Modal::new(egui::Id::unique("loading")).frame(modal_frame(ctx)).show(ctx, |ui| {
             ui.set_width(380.0);
+            ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
             ui.heading(title);
             ui.add_space(8.0);
             egui::Grid::new("loading_stages").num_columns(2).spacing([12.0, 8.0]).min_col_width(90.0).show(ui, |ui| {
@@ -1151,9 +1153,6 @@ impl SolidSketchApp {
             ui.label(t!("prefs.model.hide_rest_of_model"));
             ui.checkbox(&mut s.display.hide_rest_of_model, "").on_hover_text(t!("prefs.model.hide_rest_of_model_tip"));
             ui.end_row();
-            ui.label(t!("prefs.model.background"));
-            ui.color_edit_button_srgb(&mut s.display.background);
-            ui.end_row();
             ui.strong(t!("prefs.model.units"));
             ui.end_row();
             ui.label(t!("prefs.model.lengths"));
@@ -1731,6 +1730,7 @@ impl eframe::App for SolidSketchApp {
             shown: self.docs.active_index(),
             reveal: !cfg!(target_arch = "wasm32"),
             integrated: crate::INTEGRATED_TITLEBAR,
+            ground: self.docs.active().map(|_| (viewport::color(self.theme.ui.view), viewport::color(self.theme.ui.view_text))),
         };
         titlebar::show(ui, &bar, &views, &mut actions);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
@@ -1820,14 +1820,25 @@ impl SolidSketchApp {
         // The workspace card and the ribbon across the top (ARCHITECTURE.md §6 septies); the
         // docked cards below them.
         let ribbon_view = ribbon::View { prefs: &self.prefs.ribbon, views };
-        let ribbon_left = view.left() + margin + ribbon::WORKSPACE_WIDTH + card(&ctx.global_style()).total_margin().sum().x + margin;
-        let ribbon_width = (view.right() - margin - ribbon_left - card(&ctx.global_style()).total_margin().sum().x).max(0.0);
+        // As wide as its content, centered on the view; never over the workspace card nor past
+        // the right margin: a narrower window narrows it ([`ribbon::fit`] then gives way).
+        let frame_x = card(&ctx.global_style()).total_margin().sum().x;
+        let min_left = view.left() + margin + ribbon::WORKSPACE_WIDTH + frame_x + margin;
+        let max_right = view.right() - margin;
+        let ribbon_width = ribbon::natural_width(ctx, &ribbon_view).min((max_right - min_left - frame_x).max(0.0));
+        let ribbon_left = (view.center().x - (ribbon_width + frame_x) / 2.0).min(max_right - ribbon_width - frame_x).max(min_left);
         let ribbon_area = egui::Area::new(egui::Id::unique("ribbon"))
             .fixed_pos(egui::pos2(ribbon_left, view.top() + margin))
             .constrain_to(view)
             .sense(egui::Sense::click())
-            .show(ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::ribbon(ui, &ribbon_view, ribbon_width, actions)));
-        egui::Popup::context_menu(&ribbon_area.response).show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, actions));
+            .show(ctx, |ui| {
+                let card = card(ui.style());
+                let inset = card.inner_margin;
+                card.show(ui, |ui| ribbon::ribbon(ui, &ribbon_view, ribbon_width, inset, actions))
+            });
+        egui::Popup::context_menu(&ribbon_area.response)
+            .style(crate::style::menu)
+            .show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, actions));
         let ribbon_rect = ribbon_area.response.rect;
         let inner_height = ribbon_rect.height() - card(&ctx.global_style()).total_margin().sum().y;
         egui::Area::new(egui::Id::unique("workspace"))
@@ -1939,8 +1950,6 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
         });
         ui.end_row();
     });
-    ui.add_space(4.0);
-    ui.weak(t!("prefs.interface.background_note"));
 }
 
 fn navigation_settings(ui: &mut egui::Ui, nav: &mut Navigation) {
@@ -2021,7 +2030,6 @@ fn interrupts_tap(e: &egui::Event) -> bool {
     }
 }
 
-/// Was `key` pressed this frame?
 /// The frame of the app's modal boxes: egui's popup frame, with room around the content.
 fn modal_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(MODAL_MARGIN))
@@ -2030,6 +2038,10 @@ fn modal_frame(ctx: &egui::Context) -> egui::Frame {
 /// The room between a modal box's border and its content (points).
 const MODAL_MARGIN: i8 = 20;
 
+/// The padding of a modal box's buttons (points): roomier than the app's compact buttons.
+const MODAL_BUTTON_PADDING: egui::Vec2 = egui::vec2(14.0, 5.0);
+
+/// Was `key` pressed this frame?
 fn ui_key(ctx: &egui::Context, key: egui::Key) -> bool {
     ctx.input(|i| i.key_pressed(key))
 }

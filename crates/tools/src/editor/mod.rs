@@ -734,7 +734,17 @@ impl Editor {
                     Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddMachining { .. } => After::Nothing,
                     _ => After::Select,
                 };
-                let _ = self.start(op, after, false);
+                // Hidden (the eraser with Shift), they leave the selection, unless the hidden
+                // are shown.
+                let hidden = match &op {
+                    Operation::SetHidden { entities, hidden: true, .. } if !self.document().settings().display.show_hidden => {
+                        entities.clone()
+                    }
+                    _ => Vec::new(),
+                };
+                if self.start(op, after, false).is_ok() {
+                    self.selection.retain(|id| !hidden.contains(id));
+                }
                 self.held_stretch = held.zip(self.pending.as_ref()).map(|(s, p)| (p.job, s));
             }
             Command::Select(ids) => self.selection = ids,

@@ -3,7 +3,8 @@
 //! frame, `tools` uses the axis colours, the app turns the rest — the interface's tokens
 //! ([`UiTokens`]) among them — into egui's visuals.
 //!
-//! The viewport's background is not a token: it is a setting of the document (its style).
+//! The 3D view's background is a token of the palette ([`UiTokens::view`]), not a setting of
+//! the document: a file never sets how the app looks.
 
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +80,11 @@ pub struct UiTokens {
     pub button_padding: [f32; 2],
     /// The title bar: dark in both modes (as SolidCraft's application bar), its text light.
     pub title_bar: TitleBarTokens,
+    /// The 3D view's background, and the text drawn on it (the shown file tab, which opens onto
+    /// the view). Light in both modes, dimmed in the dark one: the model's colours, the
+    /// tools' inks and the axes are drawn for a light ground.
+    pub view: Rgba,
+    pub view_text: Rgba,
 }
 
 /// The title bar's colours: a dark band whatever the mode.
@@ -130,6 +136,8 @@ impl UiTokens {
                 border: srgb(84, 90, 102),
                 lit: srgb(68, 76, 92),
             },
+            view: srgb(246, 247, 249),
+            view_text: srgb(38, 42, 50),
         }
     }
 
@@ -151,6 +159,7 @@ impl UiTokens {
                 lit: srgb(54, 61, 74),
                 ..Self::light().title_bar
             },
+            view: srgb(198, 203, 211),
             ..Self::light()
         }
     }
@@ -173,6 +182,8 @@ impl UiTokens {
                 border: srgb(92, 83, 73),
                 lit: srgb(82, 73, 63),
             },
+            view: srgb(245, 243, 238),
+            view_text: srgb(47, 42, 36),
             ..Self::light()
         }
     }
@@ -194,6 +205,8 @@ impl UiTokens {
                 lit: srgb(66, 59, 52),
                 ..Self::warm_light().title_bar
             },
+            view: srgb(206, 200, 190),
+            view_text: Self::warm_light().view_text,
             ..Self::light()
         }
     }
@@ -216,6 +229,8 @@ impl UiTokens {
                 border: srgb(70, 77, 83),
                 lit: srgb(62, 71, 78),
             },
+            view: srgb(238, 240, 242),
+            view_text: srgb(31, 36, 40),
             ..Self::light()
         }
     }
@@ -237,6 +252,8 @@ impl UiTokens {
                 lit: srgb(47, 54, 59),
                 ..Self::graphite_light().title_bar
             },
+            view: srgb(196, 202, 207),
+            view_text: Self::graphite_light().view_text,
             ..Self::light()
         }
     }
@@ -260,6 +277,8 @@ pub struct Theme {
     pub cap_shade: f32,
     /// How opaque an open part's blank is while its machinings show (§2.9).
     pub ghost_opacity: f32,
+    /// How opaque the edges of what the eraser would take are (its faces: `ghost_opacity`).
+    pub ghost_edge_opacity: f32,
     /// The tools of an open part's machinings, and those that failed to cut.
     pub machining: Rgba,
     pub machining_failed: Rgba,
@@ -294,14 +313,15 @@ pub struct Theme {
 
 /// The axes' colours, the same in every theme (red, green, blue: x, y, z).
 pub const AXIS_X: Rgba = [0.85, 0.05, 0.05, 1.0];
-pub const AXIS_Y: Rgba = [0.05, 0.6, 0.05, 1.0];
+/// A deep green: a bright one has the dimmed view's luminance and fades into it.
+pub const AXIS_Y: Rgba = [0.007, 0.262, 0.007, 1.0];
 pub const AXIS_Z: Rgba = [0.05, 0.1, 0.85, 1.0];
 /// A line along no axis (parallel, perpendicular, tangent…).
 pub const FREE_LINE: Rgba = [0.8, 0.05, 0.75, 1.0];
 /// Tools' preview lines.
 pub const GUIDE_INK: Rgba = [0.05, 0.05, 0.08, 1.0];
-/// What a tool picked (orange).
-pub const PICK: Rgba = [0.85, 0.35, 0.0, 1.0];
+/// What a tool picked (a deep orange, for the same reason as [`AXIS_Y`]).
+pub const PICK: Rgba = [0.68, 0.127, 0.0, 1.0];
 
 impl Theme {
     /// The theme of `mode`, its interface in `palette`.
@@ -323,6 +343,7 @@ impl Theme {
             fade: 0.7,
             cap_shade: 0.25,
             ghost_opacity: 0.15,
+            ghost_edge_opacity: 0.35,
             machining: srgb(70, 135, 205),
             machining_failed: srgb(225, 45, 45),
             selected: MarkColors { face: [0.05, 0.2, 1.0, 0.5], edge: [0.005, 0.035, 1.0, 1.0] },
@@ -348,8 +369,8 @@ impl Theme {
         }
     }
 
-    /// The dark theme: the interface and what is drawn over the model. The model keeps the
-    /// document's style (its background) and its faces' colours.
+    /// The dark theme: the interface and what is drawn over the model. The model keeps its
+    /// faces' colours, the view a light ground ([`UiTokens::view`], dimmed).
     pub fn dark() -> Self {
         Theme {
             mode: Mode::Dark,
@@ -357,7 +378,6 @@ impl Theme {
             selected: MarkColors { face: [0.1, 0.3, 1.0, 0.55], edge: [0.05, 0.21, 1.0, 1.0] },
             marquee_fill: srgba(90, 140, 255, 35),
             marquee_stroke: srgb(120, 160, 255),
-            marker_outline: srgb(235, 235, 235),
             tooltip_fill: srgb(45, 46, 52),
             tooltip_text: srgb(235, 235, 235),
             tooltip_border: srgb(110, 110, 120),
@@ -432,6 +452,28 @@ mod tests {
                 let dark = luminance(t.panel) < 0.2;
                 assert_eq!(dark, mode == Mode::Dark, "{palette:?} {mode:?} is the mode it says");
             }
+        }
+    }
+
+    #[test]
+    fn the_view_keeps_the_inks_drawn_on_it_readable() {
+        for palette in Palette::ALL {
+            for mode in [Mode::Light, Mode::Dark] {
+                let (th, t) = (Theme::of(palette, mode), UiTokens::of(palette, mode));
+                for (ink, what) in [(GUIDE_INK, "tools' ink"), (th.edge, "edges"), (th.guide, "guides"), (th.marker_outline, "markers' outline")] {
+                    assert!(contrast(ink, t.view) >= 4.0, "{palette:?} {mode:?} {what}");
+                }
+                assert!(contrast(t.view_text, t.view) >= 4.5, "{palette:?} {mode:?} the shown tab's text");
+                // The axes and the tools' coloured lines: saturated, thin, told apart by their hue
+                // too, but never of the view's luminance.
+                for (ink, what) in [(AXIS_X, "x axis"), (AXIS_Y, "y axis"), (AXIS_Z, "z axis"), (FREE_LINE, "free line"), (PICK, "pick")] {
+                    assert!(contrast(ink, t.view) >= 2.0, "{palette:?} {mode:?} {what}: {:.2}", contrast(ink, t.view));
+                }
+                // The view is not the panels: the cards floating over it stand out.
+                assert!(contrast(t.view, t.panel) >= 1.02, "{palette:?} {mode:?} view against the panels");
+            }
+            let (light, dark) = (UiTokens::of(palette, Mode::Light), UiTokens::of(palette, Mode::Dark));
+            assert!(luminance(dark.view) < luminance(light.view), "{palette:?}: dimmed in the dark mode");
         }
     }
 

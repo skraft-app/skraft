@@ -12,7 +12,7 @@ struct Globals {
     face_back: vec4<f32>,  // the back of every face
     edge: vec4<f32>,       // edges and silhouettes
     clip: vec4<f32>,       // the section plane: dot(xyz, p) + w > 0 is cut away
-    section: vec4<f32>,    // x: section on; y: how much darker caps are; z: ghosts' opacity
+    section: vec4<f32>,    // x: section on; y: how much darker caps are; z: ghosts' opacity; w: faint edges' opacity
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -343,6 +343,15 @@ fn fs_edge(in: EdgeOut) -> @location(0) vec4<f32> {
         discard;
     }
     return vec4<f32>(mix(g.edge.rgb, in.tint.rgb, in.tint.a), 1.0);
+}
+
+// The same, see-through (what the eraser would take).
+@fragment
+fn fs_edge_faint(in: EdgeOut) -> @location(0) vec4<f32> {
+    if (cut(in.world)) {
+        discard;
+    }
+    return vec4<f32>(mix(g.edge.rgb, in.tint.rgb, in.tint.a), g.section.w);
 }
 
 // ---- world-space coloured lines (grid, axes, tool previews) -----------------------------------

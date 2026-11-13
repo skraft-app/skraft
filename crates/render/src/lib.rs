@@ -22,7 +22,9 @@
 //!
 //! A **ghost** batch (an open part's blank, ARCHITECTURE.md §2.9) has its edges drawn like any
 //! other, but its faces only after everything opaque: their fronts, blended at
-//! [`Style::ghost_opacity`], depth tested without writing depth.
+//! [`Style::ghost_opacity`], depth tested without writing depth. With
+//! [`Batch::faint_edges`], its edges and silhouettes are drawn so too, at
+//! [`Style::ghost_edge_opacity`] (what the eraser would take).
 
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -73,11 +75,13 @@ pub struct Batch {
     pub placements: Vec<Placement>,
     /// Faces see-through (see the module doc); no section cap.
     pub ghost: bool,
+    /// Edges and silhouettes see-through too, drawn with the ghosts' faces.
+    pub faint_edges: bool,
 }
 
 impl Batch {
     pub fn new(key: u64, placements: Vec<Placement>) -> Self {
-        Batch { key, placements, ghost: false }
+        Batch { key, placements, ghost: false, faint_edges: false }
     }
 }
 
@@ -234,6 +238,8 @@ pub struct Style<'a> {
     pub cap_shade: f32,
     /// How opaque a ghost batch's faces are (0–1).
     pub ghost_opacity: f32,
+    /// How opaque the edges of a batch with [`Batch::faint_edges`] are (0–1).
+    pub ghost_edge_opacity: f32,
 }
 
 impl Default for Style<'_> {
@@ -247,6 +253,7 @@ impl Default for Style<'_> {
             section: None,
             cap_shade: 0.25,
             ghost_opacity: 0.15,
+            ghost_edge_opacity: 0.35,
         }
     }
 }
@@ -485,6 +492,9 @@ pub struct Renderer {
     depth_format: wgpu::TextureFormat,
     edges: wgpu::RenderPipeline,
     silhouettes: wgpu::RenderPipeline,
+    /// The same for [`Batch::faint_edges`]: blended, no depth written.
+    edges_faint: wgpu::RenderPipeline,
+    silhouettes_faint: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     boxes: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
@@ -707,7 +717,7 @@ impl Renderer {
             "edges",
             "vs_edge",
             "fs_edge",
-            &[Some(edge_layout), Some(instance_layout.clone())],
+            &[Some(edge_layout.clone()), Some(instance_layout.clone())],
             depth(true, nearer, Default::default()),
             all,
         );
@@ -715,10 +725,24 @@ impl Renderer {
             "silhouettes",
             "vs_silhouette",
             "fs_edge",
-            &[Some(sil_layout), Some(instance_layout)],
+            &[Some(sil_layout.clone()), Some(instance_layout.clone())],
             depth(true, nearer, Default::default()),
             all,
         );
+        let faint = |label: &str, vs: &str, layout: &wgpu::VertexBufferLayout<'_>| {
+            blended(
+                label,
+                vs,
+                "fs_edge_faint",
+                &[Some(layout.clone()), Some(instance_layout.clone())],
+                depth(false, nearer, Default::default()),
+                all,
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+                false,
+            )
+        };
+        let edges_faint = faint("edges (faint)", "vs_edge", &edge_layout);
+        let silhouettes_faint = faint("silhouettes (faint)", "vs_silhouette", &sil_layout);
         // Infinite lines (here and in the overlay) reach past the parallel projection's depth
         // range: clamped to it, where the device can.
         let unclipped = device.features().contains(wgpu::Features::DEPTH_CLIP_CONTROL);
@@ -771,6 +795,8 @@ impl Renderer {
             depth_format,
             edges,
             silhouettes,
+            edges_faint,
+            silhouettes_faint,
             lines,
             boxes,
             overlay,
@@ -982,7 +1008,7 @@ impl Renderer {
                 face_back: rgb(style.face_back),
                 edge: rgb(style.edge),
                 clip,
-                section: [section_on, style.cap_shade, style.ghost_opacity, 0.0],
+                section: [section_on, style.cap_shade, style.ghost_opacity, style.ghost_edge_opacity],
             }),
         );
         // The palette: never empty (a binding needs a buffer).
@@ -1128,7 +1154,7 @@ impl Renderer {
             }
             // Edges, then silhouettes (same ink, same instances).
             pass.set_pipeline(&self.edges);
-            for (b, r) in frame.batches.iter().zip(&batch_ranges) {
+            for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.faint_edges) {
                 let Some(m) = self.meshes.get(&b.key) else { continue };
                 if let Some(e) = &m.edges {
                     pass.set_vertex_buffer(0, e.slice(..));
@@ -1144,7 +1170,7 @@ impl Renderer {
             }
             if style.silhouettes {
                 pass.set_pipeline(&self.silhouettes);
-                for (b, r) in frame.batches.iter().zip(&batch_ranges) {
+                for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.faint_edges) {
                     let Some(m) = self.meshes.get(&b.key) else { continue };
                     if let Some(s) = &m.silhouettes {
                         pass.set_vertex_buffer(0, s.slice(..));
@@ -1172,6 +1198,30 @@ impl Renderer {
                     pass.set_vertex_buffer(0, v.slice(..));
                     pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..m.index_count, 0, r.clone());
+                }
+            }
+        }
+        // Faint edges and silhouettes, over the ghosts' faces.
+        if let Some(inst) = &self.instances.buffer
+            && frame.batches.iter().any(|b| b.faint_edges)
+        {
+            pass.set_vertex_buffer(1, inst.slice(..));
+            pass.set_pipeline(&self.edges_faint);
+            for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| b.faint_edges) {
+                let Some(m) = self.meshes.get(&b.key) else { continue };
+                if let Some(e) = &m.edges {
+                    pass.set_vertex_buffer(0, e.slice(..));
+                    pass.draw(0..m.edge_vertex_count, r.clone());
+                }
+            }
+            if style.silhouettes {
+                pass.set_pipeline(&self.silhouettes_faint);
+                for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| b.faint_edges) {
+                    let Some(m) = self.meshes.get(&b.key) else { continue };
+                    if let Some(s) = &m.silhouettes {
+                        pass.set_vertex_buffer(0, s.slice(..));
+                        pass.draw(0..m.silhouette_vertex_count, r.clone());
+                    }
                 }
             }
         }
@@ -1320,7 +1370,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     h.fs(&s.face_front);
     h.fs(&s.face_back);
     h.fs(&s.edge);
-    h.fs(&[s.cap_shade, s.ghost_opacity]);
+    h.fs(&[s.cap_shade, s.ghost_opacity, s.ghost_edge_opacity]);
     s.palette.len().hash(&mut h.0);
     for c in s.palette {
         h.fs(c);
@@ -1336,7 +1386,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     }
     frame.batches.len().hash(&mut h.0);
     for b in frame.batches {
-        (b.key, b.placements.len(), b.ghost).hash(&mut h.0);
+        (b.key, b.placements.len(), b.ghost, b.faint_edges).hash(&mut h.0);
         for p in &b.placements {
             h.m(&p.transform);
             h.fs(&p.tint);
@@ -1472,10 +1522,11 @@ fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, ppp: f32) {
     out.extend(QUAD.map(|[end, side]| LineVertex { a, b, corner: [end, side, half], color: l.color, dash }));
 }
 
-/// SketchUp's axis colours (linear), the positive halves'; the negative ones are drawn at
-/// [`AXIS_NEGATIVE_ALPHA`].
+/// The axis colours (linear), after SketchUp's, the green deepened (as
+/// `solidsketch_theme::AXIS_Y`, which these must match), the positive halves'; the negative ones
+/// are drawn at [`AXIS_NEGATIVE_ALPHA`].
 pub const AXIS_X: [f32; 4] = [0.85, 0.05, 0.05, 1.0];
-pub const AXIS_Y: [f32; 4] = [0.05, 0.6, 0.05, 1.0];
+pub const AXIS_Y: [f32; 4] = [0.007, 0.262, 0.007, 1.0];
 pub const AXIS_Z: [f32; 4] = [0.05, 0.1, 0.85, 1.0];
 pub const AXIS_NEGATIVE_ALPHA: f32 = 0.35;
 

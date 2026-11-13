@@ -112,6 +112,7 @@ pub const COMMANDS: &[Command] = &[
     g("view.next_tab", || t!("menu.view.next_tab"), M::View, None),
     c("view.previous_tab", || t!("menu.view.previous_tab"), M::View, None),
     c("tool.select", || t!("tool.select.name"), M::Tools, Some("Space")),
+    c("tool.erase", || t!("tool.erase.name"), M::Tools, Some("E")),
     c("tool.box", || t!("tool.box.name"), M::Tools, Some("R")),
     c("tool.cylinder", || t!("tool.cylinder.name"), M::Tools, Some("C")),
     c("tool.move", || t!("tool.move.name"), M::Tools, Some("M")),

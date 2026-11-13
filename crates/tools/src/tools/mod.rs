@@ -2,6 +2,7 @@
 //! input; it previews without touching the document and, when done, emits an `Operation`.
 
 mod boolean;
+mod erase;
 mod face;
 mod measure;
 mod mover;
@@ -13,6 +14,7 @@ mod shapes;
 mod stretch;
 
 pub use boolean::BooleanTool;
+pub use erase::EraseTool;
 pub use measure::MeasureTool;
 pub use mover::MoveTool;
 pub use paint::PaintTool;
@@ -200,6 +202,8 @@ pub struct Preview {
     /// The selected occurrences drawn as any others: the tool shows what it took its own way
     /// (the stretch tool's grips and cutters, whose colours the selection's would blur).
     pub hide_selection: bool,
+    /// Entities of the active context drawn as ghosts: what the eraser would take.
+    pub erasing: Vec<Id>,
 }
 
 /// A point a tool draws over everything (world; its radius in pixels), filled and / or ringed
@@ -312,6 +316,8 @@ pub enum ToolKind {
     Move,
     Rotate,
     Boolean(Boolean),
+    /// Erases (or hides) what it is clicked or dragged over.
+    Erase,
     /// Paints occurrences or faces (§7 quater).
     Paint,
     /// Places the section plane (§7 quater).
@@ -334,6 +340,7 @@ impl ToolKind {
             ToolKind::Boolean(Boolean::Union) => "union",
             ToolKind::Boolean(Boolean::Difference) => "difference",
             ToolKind::Boolean(Boolean::Intersection) => "intersection",
+            ToolKind::Erase => "erase",
             ToolKind::Paint => "paint",
             ToolKind::Section => "section",
             ToolKind::Measure => "measure",
@@ -352,6 +359,7 @@ impl ToolKind {
             ToolKind::Boolean(Boolean::Union) => t!("tool.boolean.union.name"),
             ToolKind::Boolean(Boolean::Difference) => t!("tool.boolean.difference.name"),
             ToolKind::Boolean(Boolean::Intersection) => t!("tool.boolean.intersection.name"),
+            ToolKind::Erase => t!("tool.erase.name"),
             ToolKind::Paint => t!("tool.paint.name"),
             ToolKind::Section => t!("tool.section.name"),
             ToolKind::Measure => t!("tool.measure.name"),
@@ -471,6 +479,29 @@ impl Cx<'_> {
             best = Some((dist, g.id));
         }
         best.map(|b| b.1)
+    }
+
+    /// The entity of the active context a click of Select takes at `px`: a guide near it,
+    /// else the machining under it while they are shown, else the context's occurrence that
+    /// leads to the solid under it.
+    pub fn entity_at(&self, px: DVec2) -> Option<Id> {
+        self.pick_guide(px).or_else(|| {
+            if self.machinings_shown() { self.pick_machining(px) } else { self.pick(px).and_then(|h| self.selectable(&h.path)) }
+        })
+    }
+
+    /// Is `id` an occurrence of the context (not a guide, nor a machining)?
+    pub fn is_occurrence(&self, id: Id) -> bool {
+        self.open_part.is_none() && self.doc.assembly(self.context_def).is_ok_and(|a| a.occurrence(id).is_some())
+    }
+
+    /// The operation erasing entities of the active context: in an open part, its machinings
+    /// and guides; else the context's occurrences and guides.
+    pub fn erase(&self, entities: Vec<Id>) -> Operation {
+        match self.open_part_path() {
+            Some(target) => Operation::DeleteMachinings { target, machinings: entities, scope: self.part_scope },
+            None => Operation::Delete { context: self.context_def, entities },
+        }
     }
 
     /// What a click at `px` takes when nothing is selected (move, rotate): a guide of the
@@ -808,6 +839,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Move => Box::new(MoveTool::default()),
         ToolKind::Rotate => Box::new(RotateTool::default()),
         ToolKind::Boolean(op) => Box::new(BooleanTool::new(op)),
+        ToolKind::Erase => Box::new(EraseTool::default()),
         ToolKind::Paint => Box::new(PaintTool::default()),
         ToolKind::Section => Box::new(SectionTool::default()),
         ToolKind::Measure => Box::new(MeasureTool::default()),
