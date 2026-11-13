@@ -147,6 +147,32 @@ toolbar:
   boolean_hint: "cible, puis outil"
   perspective: "Perspective / parallèle"
 
+# The workspace card and the ribbon (docs/ARCHITECTURE.md §6 septies).
+ribbon:
+  workspace:
+    tip: "Espace de travail"
+    modelling: "Modélisation"
+  tab:
+    build: "Construire"
+    assemble: "Assembler"
+    inspect: "Inspecter"
+  group:
+    selection: "Sélection"
+    create: "Créer"
+    modify: "Modifier"
+    combine: "Combiner"
+    appearance: "Apparence"
+    components: "Composants"
+    measure: "Mesurer"
+    section: "Section"
+    view: "Vue"
+  pin: "Épingler au ruban"
+  unpin: "Retirer du ruban"
+  menu_note: "La punaise montre la commande dans le ruban, ou l'en retire."
+  reset_tab: "Réinitialiser l'onglet"
+  labels: "Libellés des boutons"
+  more: "Autres groupes"
+
 # The title bar: the document, the view's toggles, the command search.
 titlebar:
   modified: "Modifié depuis le dernier enregistrement"
@@ -256,6 +282,7 @@ prefs:
       warm: "Chaud"
       graphite: "Graphite"
     panels: "Panneaux"
+    ribbon_labels: "Libellés du ruban"
     background_note: "La couleur de fond de la vue est un réglage du modèle (onglet Modèle)."
   shortcuts:
     intro: "Cliquer « Modifier », puis taper le raccourci (Échap : annuler, ⌫ : aucun)."

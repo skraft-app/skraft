@@ -48,6 +48,8 @@ pub struct Preferences {
     pub recent_files: Vec<String>,
     /// The side panels: their columns, order, sizes, folded or closed.
     pub panels: Layout,
+    /// The workspace and tab shown, the ribbon's pins and labels (ARCHITECTURE.md §6 septies).
+    pub ribbon: crate::ribbon::Prefs,
 }
 
 impl Default for Preferences {
@@ -65,6 +67,7 @@ impl Default for Preferences {
             show_render_stats: false,
             recent_files: Vec::new(),
             panels: Layout::default(),
+            ribbon: crate::ribbon::Prefs::default(),
         }
     }
 }

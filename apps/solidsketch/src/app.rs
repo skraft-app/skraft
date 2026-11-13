@@ -1,7 +1,7 @@
-//! The application window: title bar (top), tool bar with the tool option bar as its footer
-//! (centered at the top), entity info, materials and outliner (cards docked left or right),
-//! status bar with the
-//! measurements box (bottom), viewport (centre). Every action goes through the command registry (docs/ARCHITECTURE.md §7 quater):
+//! The application window: title bar (top), workspace card and ribbon across the top of the
+//! view (§6 septies), the tool option bar centered under them, entity info, materials and
+//! outliner (cards docked left or right, under the ribbon), status bar with the measurements
+//! box (bottom), viewport (centre). Every action goes through the command registry (docs/ARCHITECTURE.md §7 quater):
 //! menus (native on macOS, ☰ elsewhere), title bar, tool bar, keyboard (SketchUp's shortcuts,
 //! changeable), the command palette and the control channel.
 
@@ -18,6 +18,7 @@ use crate::file::{self, Inbox};
 use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView, InfoState};
 use crate::prefs::{Navigation, Preferences};
+use crate::ribbon;
 use crate::titlebar;
 use crate::viewport::{self, Viewport};
 
@@ -406,6 +407,7 @@ impl SolidSketchApp {
             }
             Action::SelectPath(p) => e.select_path(&p),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
+            Action::Ribbon(change) => self.prefs.ribbon.apply(change),
             Action::Apply(op) => {
                 let _ = e.apply(op);
             }
@@ -800,7 +802,8 @@ impl SolidSketchApp {
 
     /// The side panels, as cards in their columns ([`dock`]), the one dragged by its header
     /// following the pointer. Gives the view's span left free between the columns (x).
-    fn side_panels(&mut self, ctx: &egui::Context, view: egui::Rect, margin: f32, actions: &mut Vec<Action>) -> egui::Rangef {
+    /// The docked cards, in columns from `top` (under the ribbon) to the bottom of the view.
+    fn side_panels(&mut self, ctx: &egui::Context, view: egui::Rect, top: f32, margin: f32, actions: &mut Vec<Action>) -> egui::Rangef {
         let style = ctx.global_style();
         let frame = egui::Frame::window(&style).inner_margin(6.0).total_margin().sum();
         let header = style.spacing.interact_size.y;
@@ -808,7 +811,7 @@ impl SolidSketchApp {
         let max_width = (view.width() * 0.4).max(dock::COLUMN_MIN_WIDTH);
         let pointer = ctx.pointer_latest_pos();
         let dragged = self.panel_drag.map(|d| d.id);
-        let room = view.height() - 2.0 * margin;
+        let room = view.bottom() - margin - top;
         let mut event = None;
         let mut outliner_shown = false;
         let mut columns = Vec::new();
@@ -818,7 +821,7 @@ impl SolidSketchApp {
                 Dock::Left => view.left() + margin,
                 Dock::Right => view.right() - margin - width,
             };
-            let placed = dock::place(self.prefs.panels.column(side), view.top() + margin, room, metrics, dragged);
+            let placed = dock::place(self.prefs.panels.column(side), top, room, metrics, dragged);
             for p in &placed {
                 let rect = egui::Rect::from_min_size(egui::pos2(x, p.top), egui::vec2(width, p.height));
                 // Every card but the one filling the column has a bottom edge to drag.
@@ -865,7 +868,7 @@ impl SolidSketchApp {
                     let x_range = egui::Rangef::new(x, x + width);
                     match (before, placed.last()) {
                         (_, None) => {
-                            let r = egui::Rect::from_x_y_ranges(x_range, view.top() + margin..=view.bottom() - margin);
+                            let r = egui::Rect::from_x_y_ranges(x_range, top..=view.bottom() - margin);
                             painter.rect(r, 6.0, accent.gamma_multiply(0.25), egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
                         }
                         (b, Some(last)) => {
@@ -1165,46 +1168,53 @@ impl eframe::App for SolidSketchApp {
             .rect;
         let margin = 8.0;
         let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(6.0);
-        let free = self.side_panels(&ctx, view, margin, &mut actions);
-        let (free_left, free_right) = (free.min, free.max);
-        // Centered over the view, but never over the side panels. Its width is known before
-        // drawing it: the wider of its rows (buttons, options), as last measured; a row whose
-        // width changed (another tool, other options) discards the pass, so the card is never
-        // shown misplaced while it settles.
-        let tools_id = egui::Id::unique("tools");
-        let buttons_id = tools_id.with("buttons_width");
-        let options_id = tools_id.with("options_width");
-        let has_options = panels::has_tool_options(&self.editor);
-        let row_width = |id: egui::Id| ctx.data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
-        let content_width = row_width(buttons_id).max(if has_options { row_width(options_id) } else { 0.0 });
-        let tools_width = content_width + card(&ctx.global_style()).total_margin().sum().x;
-        let tools_left = (view.center().x - tools_width / 2.0).min(free_right - tools_width).max(free_left);
-        let tools = egui::Area::new(tools_id)
-            .fixed_pos(egui::pos2(tools_left, view.top() + margin))
+        // The workspace card and the ribbon across the top (ARCHITECTURE.md §6 septies); the
+        // docked cards below them.
+        let ribbon_view = ribbon::View { prefs: &self.prefs.ribbon, views: &views };
+        let ribbon_left = view.left() + margin + ribbon::WORKSPACE_WIDTH + card(&ctx.global_style()).total_margin().sum().x + margin;
+        let ribbon_width = (view.right() - margin - ribbon_left - card(&ctx.global_style()).total_margin().sum().x).max(0.0);
+        let ribbon_area = egui::Area::new(egui::Id::unique("ribbon"))
+            .fixed_pos(egui::pos2(ribbon_left, view.top() + margin))
             .constrain_to(view)
-            .show(&ctx, |ui| {
-                card(ui.style()).show(ui, |ui| {
-                    // Exactly the rows' width: the separator spans it, the rows center in it.
-                    ui.set_width(content_width);
-                    // Scrolls only when the window is too narrow for all the buttons.
-                    let room = free_right - margin - 12.0 - tools_left;
-                    centered_row(ui, buttons_id, |ui| {
-                        egui::ScrollArea::horizontal().max_width(room).min_scrolled_width(room).show(ui, |ui| {
-                            ui.horizontal(|ui| panels::toolbar(ui, &views, &mut actions));
-                        });
+            .sense(egui::Sense::click())
+            .show(&ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::ribbon(ui, &ribbon_view, ribbon_width, &mut actions)));
+        egui::Popup::context_menu(&ribbon_area.response).show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, &mut actions));
+        let ribbon_rect = ribbon_area.response.rect;
+        let inner_height = ribbon_rect.height() - card(&ctx.global_style()).total_margin().sum().y;
+        egui::Area::new(egui::Id::unique("workspace"))
+            .fixed_pos(egui::pos2(view.left() + margin, view.top() + margin))
+            .constrain_to(view)
+            .show(&ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::workspace_card(ui, &ribbon_view, inner_height, &mut actions)));
+        let below_ribbon = ribbon_rect.bottom() + margin;
+
+        let free = self.side_panels(&ctx, view, below_ribbon, margin, &mut actions);
+        let (free_left, free_right) = (free.min, free.max);
+        // The active tool's options: a card centered under the ribbon, between the columns, its
+        // width known before drawing it (as last measured: a pass whose width changed is
+        // discarded, so the card is never shown misplaced while it settles). No option, no card.
+        let options_id = egui::Id::unique("tool_options");
+        let width_id = options_id.with("width");
+        let mut free_top = below_ribbon;
+        if panels::has_tool_options(&self.editor) {
+            let content_width = ctx.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
+            let options_width = content_width + card(&ctx.global_style()).total_margin().sum().x;
+            let options_left = (view.center().x - options_width / 2.0).min(free_right - options_width).max(free_left);
+            let options = egui::Area::new(options_id)
+                .fixed_pos(egui::pos2(options_left, below_ribbon))
+                .constrain_to(view)
+                .show(&ctx, |ui| {
+                    card(ui.style()).show(ui, |ui| {
+                        ui.set_width(content_width);
+                        centered_row(ui, width_id, |ui| panels::tool_options(ui, &self.editor, &mut actions));
                     });
-                    // No option, no bar.
-                    if !has_options {
-                        return;
-                    }
-                    ui.separator();
-                    centered_row(ui, options_id, |ui| panels::tool_options(ui, &self.editor, &mut actions));
-                });
-            })
-            .response
-            .rect;
-        // What zoom extents frames: below the tool bar, beside the side panel, in viewport pixels.
-        let free_min = egui::vec2(free_left - view.left(), tools.bottom() + margin - view.top());
+                })
+                .response
+                .rect;
+            free_top = options.bottom() + margin;
+        }
+        // What zoom extents frames: below the ribbon (and the options), beside the side panels,
+        // in viewport pixels.
+        let free_min = egui::vec2(free_left - view.left(), free_top - view.top());
         let free_max = egui::vec2(free_right - view.left(), view.height());
         self.editor
             .set_free_area(glam::DVec2::new(free_min.x as f64, free_min.y as f64), glam::DVec2::new(free_max.x as f64, free_max.y as f64));
@@ -1279,6 +1289,9 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
                 }
             }
         });
+        ui.end_row();
+        ui.label(t!("prefs.interface.ribbon_labels"));
+        ui.checkbox(&mut prefs.ribbon.labels, "");
         ui.end_row();
         ui.label(t!("prefs.interface.panels"));
         ui.vertical(|ui| {

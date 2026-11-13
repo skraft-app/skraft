@@ -389,8 +389,9 @@ Decided on 2026-11-09.
 
 - **Layout**: title bar at the top (§7 quinquies), status bar at the bottom with the measurements box (VCB) on the
   right; in between, the **3D view takes the whole width** and the panels **float over it**
-  (anchored cards): **horizontal tool bar centered at the top** (never over the side panel),
-  the tool option bar centered as its footer; **Entity info**, **Materials** and **Outliner** are three
+  (anchored cards): **the workspace switcher and the ribbon across the top** (§6 septies,
+  2026-11-13; formerly a tool bar centered at the top), the tool option bar centered under the
+  ribbon; **Entity info**, **Materials** and **Outliner** are three
   cards docked in two columns, one per edge of the view (`dock.rs`, 2026-11-12). A card's header folds
   it (click) or moves it (drag: it follows the pointer and drops into the column of the nearer edge,
   where a bar shows the insertion point); the View menu closes or shows each one. A card keeps the
@@ -1079,6 +1080,67 @@ depth-tested lines).
 Once applied, the stretch stays drawn as previewed while the kernel computes it
 (`Editor::held_stretch`, the tool's grips hidden meanwhile): else the part showed as it was for
 a frame or more before its new shape came. Test `a_stretch_stays_drawn_stretched_while_computed`.
+
+## 6 septies. Workspaces and ribbon
+
+Decided on 2026-11-13 (questions / answers), after SolidCraft's ribbon (`ui-kit/src/ribbon.rs`,
+`ui-egui/src/toolbar_custom.rs`), itself after the workspace / tabbed-toolbar pattern of CAD
+tools (CATIA and FreeCAD workbenches, SolidWorks' CommandManager, Fusion). The pattern is free
+to use; the drawing is ours: our icons, palette, names and proportions — nothing traced from
+another product.
+
+- **Layout**: two floating cards across the top of the view, under the title bar: the
+  **workspace card** at the left (the workspace's icon and name, ▾ opens the list of
+  workspaces) and the **ribbon card** filling the rest of the width (a row of tabs over a row
+  of groups). The view is never resized (§6 bis); the dock's columns start under the ribbon;
+  the **tool option bar** becomes a small card of its own, centered under the ribbon; zoom
+  extents frames what is left below it.
+- **Workspaces**: *Modelling* only for now. *Cut list* (the OCL-like parts list) and *Drawing*
+  are planned: the data model has room for them, but they are not listed until they exist. The workspace shown is a user preference, not a
+  document setting.
+- **Tabs of Modelling**, each a list of groups, each group a list of commands of the registry
+  (§7 quater) — a command may be in several groups:
+  - **Build**: Create (Box, Cylinder), Modify (Move, Rotate, Stretch), Combine (Union,
+    Difference, Intersection), Appearance (Paint);
+  - **Assemble**: Components (Make assembly, Explode, Make unique), Modify (Move, Rotate);
+  - **Inspect**: Measure (Tape measure, Delete guides), Section (Section plane, Clear
+    section), View (Zoom extents, the standard views).
+  - A fixed **Selection** group (Select, Erase) stays at the left of every tab, before the
+    tabs' own groups.
+  - The tab shown is remembered per workspace (preference). A shortcut runs its command
+    whatever the tab: the ribbon does not switch tabs; a running tool whose button is not shown
+    lights its group's label instead.
+- **The ribbon is data**: a `const` description in the app (`ribbon.rs`: workspaces → tabs →
+  groups → command ids, with each group's default pins), checked by a test against the
+  registry (every id exists, no group is empty). The ribbon draws it; state, labels, tips and
+  enabled/checked come from the registry's `CommandView`s, as for the menus.
+- **Pins**: a group shows its **pinned** commands as buttons; its label (with ▾) opens its
+  menu, which lists **every** command of the group, each row with a pin to pin or unpin it.
+  Right click on a button: Unpin; right click on the ribbon: Reset this tab (its groups and the
+  fixed group, keyed `"<workspace>/<group>"`), and the labels' switch. Order is the
+  group's order (no drag and drop in this first version). A group with no pin is drawn as a
+  single button opening its menu. Preference `ribbon_pins`: `"<workspace>/<tab>/<group>"` →
+  the pinned ids, only for groups the user changed (absent = the defaults; unknown ids ignored).
+- **Labels**: a button shows its icon over a short label (two lines at most, ≈ 86 pt groups);
+  the preference *Ribbon labels* turns them off for a compact ribbon (≈ 62 pt), the name then
+  in the tip. A group's label is under its buttons in both cases.
+- **Narrow window**: a pure function `fit(groups, room) → plans`, tested without display, after
+  SolidCraft's: (1) buttons narrow, labels wrapping then truncating; (2) groups hand their last
+  buttons to their menu one at a time, down to one collapsed button; (3) the last groups go
+  into a » menu at the end. It depends on the width only (no state from earlier frames): no
+  flicker. Nothing is ever unreachable.
+  A button is never narrower than its label's longest word: labels wrap between words only.
+- **Icons**: drawn for it — Modelling (workspace), pin, Clear section, Delete guides
+  (`icons::command` maps a command to its icon, a test checks every command of the ribbon has
+  one); the standard views share the views icon; the chevron and » are painted.
+- The render statistics card sits in the top right corner of the area the cards leave free
+  (`Editor::free_area`), under the ribbon.
+- **Code**: `apps/solidsketch/src/ribbon.rs` (description, `Prefs`, `fit`, drawing, tests);
+  the old tool bar (`panels::toolbar`) is gone.
+- **Texts**: `ribbon.*` keys of the catalog (workspaces, tabs, groups, menus' notes), without
+  ellipsis (§6 quater).
+- **File tabs** in the title bar (several documents open, as SolidCraft) are a **separate
+  piece of work, next**: the app holds one `Editor` today. The title bar keeps room for them.
 
 ## 7. Crates
 

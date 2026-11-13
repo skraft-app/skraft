@@ -348,6 +348,11 @@ impl Editor {
         self.free = Some((min, max));
     }
 
+    /// The area set by [`Self::set_free_area`], if any.
+    pub fn free_area(&self) -> Option<(DVec2, DVec2)> {
+        self.free
+    }
+
     fn view_area(&self) -> ViewArea {
         let full = ViewArea::full(self.size);
         match self.free {

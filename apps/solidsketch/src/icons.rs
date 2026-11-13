@@ -39,6 +39,38 @@ icon!(SETTINGS, "settings");
 icon!(MATERIALS, "materials");
 icon!(EYE, "eye");
 icon!(EYE_OFF, "eye_off");
+icon!(MODELLING, "modelling");
+icon!(PIN, "pin");
+icon!(SECTION_CLEAR, "section_clear");
+icon!(GUIDES_DELETE, "guides_delete");
+
+/// A command's icon on the ribbon (docs/ARCHITECTURE.md §6 septies); none for a command the
+/// ribbon does not show.
+pub fn command(id: &str) -> Option<ImageSource<'static>> {
+    Some(match id {
+        "tool.select" => SELECT,
+        "tool.box" => BOX,
+        "tool.cylinder" => CYLINDER,
+        "tool.move" => MOVE,
+        "tool.rotate" => ROTATE,
+        "tool.stretch" => STRETCH,
+        "tool.paint" => PAINT,
+        "tool.section" => SECTION,
+        "tool.measure" => MEASURE,
+        "tool.union" => UNION,
+        "tool.difference" => SUBTRACT,
+        "tool.intersection" => INTERSECT,
+        "edit.erase" => ERASE,
+        "edit.make_assembly" => COMPONENT,
+        "edit.explode" => EXPLODE,
+        "edit.make_unique" => UNIQUE,
+        "edit.delete_guides" => GUIDES_DELETE,
+        "view.section_clear" => SECTION_CLEAR,
+        "view.zoom_extents" => EXTENTS,
+        "view.top" | "view.front" | "view.right" | "view.back" | "view.left" | "view.iso" => VIEWS,
+        _ => return None,
+    })
+}
 
 /// A tool option's icon (assets/icons/options), by the name the tool gives it
 /// ([`solidsketch_tools::OptionChoice::icon`]); none for an unknown name (its label is shown).

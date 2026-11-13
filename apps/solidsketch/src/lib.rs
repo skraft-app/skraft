@@ -12,6 +12,7 @@ mod icons;
 mod native_menu;
 mod panels;
 mod prefs;
+mod ribbon;
 mod style;
 mod titlebar;
 mod viewport;

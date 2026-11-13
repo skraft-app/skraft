@@ -135,7 +135,7 @@ impl Viewport {
         }
     }
 
-    /// The render statistics, in the view's top right corner.
+    /// The render statistics, in the top right corner of what the floating cards leave free.
     fn paint_stats(&self, ui: &egui::Ui, rect: egui::Rect, editor: &Editor) {
         let Some(renderer) = &self.renderer else { return };
         let r = renderer.stats();
@@ -168,7 +168,12 @@ impl Viewport {
         let margin = 8.0;
         let pad = egui::vec2(8.0, 6.0);
         let size = galley.size() + 2.0 * pad;
-        let card = egui::Rect::from_min_size(rect.right_top() + egui::vec2(-size.x - margin, margin), size);
+        // Under the ribbon, beside the docked cards (as the last frame left them).
+        let corner = match editor.free_area() {
+            Some((min, max)) => rect.min + egui::vec2(max.x as f32, min.y as f32) + egui::vec2(0.0, -margin),
+            None => rect.right_top(),
+        };
+        let card = egui::Rect::from_min_size(corner + egui::vec2(-size.x - margin, margin), size);
         let painter = ui.painter();
         painter.rect_filled(card, 6.0, visuals.window_fill.gamma_multiply(0.88));
         painter.rect_stroke(card, 6.0, visuals.window_stroke, egui::StrokeKind::Inside);

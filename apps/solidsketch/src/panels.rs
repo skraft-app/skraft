@@ -1,5 +1,5 @@
-//! Side panels: the tool bar (left), the entity info, the materials and the outliner (right),
-//! and the menu items, all drawn from the command registry's state (docs/ARCHITECTURE.md
+//! Side panels: the entity info, the materials and the outliner, the tool option bar and the
+//! menu items, all drawn from the command registry's state (docs/ARCHITECTURE.md
 //! §7 quater).
 
 use glam::{DAffine3, DVec3};
@@ -32,6 +32,8 @@ pub enum Action {
     HoverOutliner(Option<EntityPath>),
     /// Hide the occurrence (true) or show it again: the outliner's eye.
     SetHidden(EntityPath, bool),
+    /// The ribbon's own state: tab, workspace, pins, labels (docs/ARCHITECTURE.md §6 septies).
+    Ribbon(crate::ribbon::Change),
 }
 
 /// A command as shown now: its label, whether it can run, its state, its shortcut.
@@ -139,73 +141,9 @@ fn option_button(ui: &mut egui::Ui, selected: bool, label: &str, tip: &str, icon
     ui.add(egui::Button::image(img).selected(selected).min_size(egui::vec2(24.0, 24.0))).on_hover_text(tip).clicked()
 }
 
-pub fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, selected: bool, enabled: bool, tip: &str) -> bool {
-    let tint = ui.visuals().text_color();
-    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(24.0, 24.0)).tint(tint);
-    ui.add_enabled(enabled, egui::Button::image(img).selected(selected).min_size(egui::vec2(34.0, 34.0))).on_hover_text(tip).clicked()
-}
-
 /// The delete key's name (Backspace works too).
-fn delete_key() -> String {
+pub fn delete_key() -> String {
     if solidsketch_i18n::mac() { "⌫".to_owned() } else { t!("key.delete") }
-}
-
-/// What a tool bar button adds to its command's tip.
-#[derive(Clone, Copy)]
-enum Hint {
-    None,
-    /// The copy modifier and the axis keys (move, rotate).
-    Copy,
-    /// Target, then tool (booleans).
-    Boolean,
-    /// The delete key (erase is not a command shortcut: the tool reads it).
-    Delete,
-}
-
-/// The tool bar: each button a command (its state and tip from the registry); `None` is a
-/// separator. Undo, redo and the view's toggles are in the title bar ([`crate::titlebar`]).
-pub fn toolbar(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
-    let buttons: [Option<(egui::ImageSource<'static>, &str, Hint)>; 20] = [
-        Some((icons::SELECT, "tool.select", Hint::None)),
-        Some((icons::BOX, "tool.box", Hint::None)),
-        Some((icons::CYLINDER, "tool.cylinder", Hint::None)),
-        Some((icons::MOVE, "tool.move", Hint::Copy)),
-        Some((icons::ROTATE, "tool.rotate", Hint::Copy)),
-        Some((icons::PAINT, "tool.paint", Hint::None)),
-        Some((icons::SECTION, "tool.section", Hint::None)),
-        Some((icons::MEASURE, "tool.measure", Hint::None)),
-        None,
-        Some((icons::UNION, "tool.union", Hint::Boolean)),
-        Some((icons::SUBTRACT, "tool.difference", Hint::Boolean)),
-        Some((icons::INTERSECT, "tool.intersection", Hint::Boolean)),
-        Some((icons::STRETCH, "tool.stretch", Hint::None)),
-        None,
-        Some((icons::COMPONENT, "edit.make_assembly", Hint::None)),
-        Some((icons::EXPLODE, "edit.explode", Hint::None)),
-        Some((icons::UNIQUE, "edit.make_unique", Hint::None)),
-        Some((icons::ERASE, "edit.erase", Hint::Delete)),
-        None,
-        Some((icons::EXTENTS, "view.zoom_extents", Hint::None)),
-    ];
-    for b in buttons {
-        let Some((icon, id, hint)) = b else {
-            ui.separator();
-            continue;
-        };
-        let Some(v) = views.iter().find(|v| v.id == id) else { continue };
-        let selected = v.checked == Some(true);
-        let tip = match hint {
-            Hint::None => v.tip(),
-            Hint::Copy => {
-                t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.copy_hint", copy_key = solidsketch_tools::tools::copy_key()))
-            }
-            Hint::Boolean => t!("toolbar.with_hint", tip = v.tip(), hint = t!("toolbar.boolean_hint")),
-            Hint::Delete => t!("toolbar.with_shortcut", label = v.label, shortcut = delete_key()),
-        };
-        if icon_button(ui, icon, selected, v.enabled, &tip) {
-            actions.push(Action::Command(v.id));
-        }
-    }
 }
 
 // ---- outliner ----------------------------------------------------------------------------------
