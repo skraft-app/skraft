@@ -86,9 +86,8 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
   (`Solid::bounds`): the record's vertices miss curved faces (a cylinder has one vertex per
   circle, a torus none). The worker gives it with each display (`Display::bounds`), the scene
   keeps it per solid (`DisplayScene::bounds_of`), for the shapes, the blanks of machined parts
-  and the open part's tools. SolidCore's tight box is taken within its loose one: the tight
-  box of a mirrored cylinder read back from a record is wrong along its axis (1234567,
-  `solidcore_quirks.rs`).
+  and the open part's tools. It is SolidCore's tight box (its loose one should the tight one
+  fail).
 - Tools working on a part use its axes; elsewhere, the context's.
 - Changing a part's axes = re-expressing its B-rep in another frame and compensating the T of
   each of its occurrences.
@@ -1520,16 +1519,17 @@ structure one to one, which a performance comparison needs.
   occurrence and a scale (or shear) **baked into the geometry**, the child definition taken at
   that scale: one component per (definition, scale), §2.2. `no_scale_mask` becomes the
   behavior's `no_stretch` (same bits, §6 sexies); groups' definitions are not `named`.
-- **Solids** (`Solid::from_polyhedron`, `crates/kernel/src/polyhedron.rs`): the faces become a
-  STEP neutral body (a plane per face, a line per edge shared by its two faces, one shell per
-  set of joined faces) built by SolidCore's `step-brep` **from its topology only**
-  (`build_from_topology`). Loops are turned to agree with the normals, then the faces of each
+- **Solids** (`Solid::from_polyhedron`, `crates/kernel/src/polyhedron.rs`): the faces become
+  the STEP entities of a B-rep, in memory (a plane per face, a line per edge shared by its two
+  faces, one closed shell per set of joined faces: a `MANIFOLD_SOLID_BREP`, or a
+  `SHELL_BASED_SURFACE_MODEL` for several lumps), read by SolidCore's STEP topology reader
+  (`solidcore_step::topology::read_solid`) **from their topology only**. Loops are turned to agree with the normals, then the faces of each
   lump turned alike across their edges (SketchUp keeps reversed faces in solids), the lump
   turned inside out if its volume is negative. **Only closed solids are kept**, checked
   before the kernel by counting (each edge between exactly two faces): a definition open,
-  non-manifold or with a face the builder leaves out is excluded and reported (its instances
-  dropped). Measured on 2026-11-12 (a 1373-definition apartment, 52 k faces): letting
-  `build_body` fall back to stitching by geometry on the open ones took 100 s (up to 60 s for
+  non-manifold or that the reader refuses is excluded and reported (its instances
+  dropped). Measured on 2026-11-12 (a 1373-definition apartment, 52 k faces), with SolidCore's
+  former `step-brep`: letting `build_body` fall back to stitching by geometry on the open ones took 100 s (up to 60 s for
   one definition of 2668 faces); the count rejects them at once, 1 s for the whole. Built in
   parallel, one request per (definition, scale).
 - **Curves stay facets**: a hole of 24 segments is 24 planar faces, as SketchUp draws it (a
@@ -1548,18 +1548,25 @@ to undo.
 
 - **Read by the kernel**, as a job (`Task::ImportStep { bytes }` → `Output::Step`), so off the
   UI thread natively and in the worker on the web; the file is parsed once
-  (`crates/kernel/src/step.rs`). SolidCore's `step-import` maps the B-rep bodies (units to
-  mm); the **product structure** it leaves aside is read here from the same parsed file:
-  `PRODUCT_DEFINITION`s and their shape representations (joined by plain
-  `SHAPE_REPRESENTATION_RELATIONSHIP`s: the same axes), `NEXT_ASSEMBLY_USAGE_OCCURRENCE`s
-  placed by their `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` (`ITEM_DEFINED_TRANSFORMATION`:
+  (`crates/kernel/src/step.rs`) by SolidCore's Part 21 parser (`solidcore_record::step::p21`:
+  short entity names, strings decoded). SolidCore reads the **product structure** as data
+  (`step::product::read`: products, representations, occurrences, maps, styles); it is walked
+  here into products and placed instances: `PRODUCT_DEFINITION`s and their shape
+  representations (joined by relationships without a transformation: the same axes),
+  assembly occurrences placed by their relationship (`ITEM_DEFINED_TRANSFORMATION`:
   `frame₂ · frame₁⁻¹`, the two representations told apart when a writer swaps them), and
-  `MAPPED_ITEM`s (`target · origin⁻¹`). Bodies no product reaches are kept at the top.
-  Strings are decoded (`\X2\…\X0\`).
-- **Bodies**: built by `step-brep` (`build_body`, strict: topology first, else stitched), in
-  parallel natively (`parallel_map`, with the kernel's stack). **Only closed solids**: a
-  surface model, an open shell, a face left out or a body that does not close is excluded and
-  counted in the status bar.
+  `MAPPED_ITEM`s (`target · origin⁻¹`), each frame's matrix the kernel's
+  (`solidcore::geom::step_matrix`). Not `solidcore_ops::step_assembly::placed_bodies`: it
+  flattens the tree into world placements, and the model keeps the products shared. Bodies no
+  product reaches, and topology outside any representation (`topology::roots`), are kept at
+  the top.
+- **Bodies**: read from their topology straight into records
+  (`solidcore_step::topology::read_solid_with`, in their representation's units), in parallel
+  natively (`parallel_map`, with the kernel's stack), then made the kernel's (a round trip).
+  The pcurves the reader has no closed form for (a spline edge on a spline face…) are the
+  kernel's own trims (`KernelTrims`: the face alone sent with those uses bare,
+  `to_kernel_with_bare_uses`). **Only closed solids**: a surface model, an open shell or a body
+  the reader refuses is excluded and counted in the status bar.
 - **Colours**: a `STYLED_ITEM`'s surface colour (`COLOUR_RGB`, pre-defined colours), on the
   body, its shell, or shared by all its faces, becomes a **material** (one per colour,
   « Couleur #RRGGBB ») on the occurrences of its part. Face colours otherwise are not

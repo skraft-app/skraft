@@ -2,10 +2,11 @@
 //! product structure — products, the products they contain, where — and the colour of each
 //! body, as plain data the model turns into components (docs/ARCHITECTURE.md §8 ter).
 //!
-//! The kernel does the whole reading ([`Task::ImportStep`](crate::Task::ImportStep)): the file
-//! is parsed once, off the UI thread, by SolidCore's STEP reader (`step-import`), which maps
-//! the B-rep bodies; the structure and the colours are read here from the same parsed file;
-//! the bodies are built by `step-brep`, in parallel where threads exist.
+//! The kernel does the whole reading ([`Task::ImportStep`](crate::Task::ImportStep)), off the UI
+//! thread, with SolidCore's STEP readers: the file is parsed once (`solidcore_record`'s Part 21
+//! parser), its product structure and styles read as data (`step::product`) and walked here into
+//! products and placed instances; each body is read from its topology straight into a record
+//! (`solidcore_step::topology`), in parallel where threads exist.
 
 use glam::DAffine3;
 use serde::{Deserialize, Serialize};
@@ -66,8 +67,12 @@ pub(crate) mod read {
     use std::collections::{HashMap, HashSet};
 
     use glam::{DAffine3, DMat3, DVec3};
-    use step_import::model as sm;
-    use step_import::part21::{Instance, Limits, Param, Record, StepFile};
+    use solidcore::geom::step_matrix::{self, Matrix4};
+    use solidcore_ops::pcurve::{TrimFace, Trims};
+    use solidcore_record::brep::Curve2;
+    use solidcore_record::step::p21::{self, Exchange, Param};
+    use solidcore_record::step::product::{self, Colour, Frame, ItemKind, OccurrenceKind, ProductStructure, Transformation};
+    use solidcore_step::{topology, units};
 
     use super::{StepBody, StepExcluded, StepImport, StepInstance, StepProduct};
     use crate::{Error, Result, Solid};
@@ -76,63 +81,36 @@ pub(crate) mod read {
         Error::Kernel { call: "step".into(), message: message.into() }
     }
 
-    /// Short entity names some AP203 writers use (as `step_import::import` normalises them).
-    const ALIASES: [(&str, &str); 11] = [
-        ("FCSRF", "FACE_SURFACE"),
-        ("FCOTBN", "FACE_OUTER_BOUND"),
-        ("PLYLP", "POLY_LOOP"),
-        ("CRTPNT", "CARTESIAN_POINT"),
-        ("DRCTN", "DIRECTION"),
-        ("A2PL3D", "AXIS2_PLACEMENT_3D"),
-        ("CLSSHL", "CLOSED_SHELL"),
-        ("BSSWK", "B_SPLINE_SURFACE_WITH_KNOTS"),
-        ("BSCWK", "B_SPLINE_CURVE_WITH_KNOTS"),
-        ("TRMCRV", "TRIMMED_CURVE"),
-        ("CMCRSG", "COMPOSITE_CURVE"),
-    ];
-
     /// Reads a whole STEP file: see the module.
     pub(crate) fn import(bytes: &[u8]) -> Result<StepImport> {
-        let mut text = text_of(bytes);
-        for (short, long) in ALIASES {
-            if text.contains(&format!("={short}(")) {
-                text = text.replace(&format!("={short}("), &format!("={long}("));
-            }
-        }
-        let limits = Limits::default();
-        let file = step_import::part21::parse(text.as_bytes(), &limits).map_err(|e| err(e.to_string()))?;
-        let model = crate::engine::guarded("step", || Ok(step_import::map::map_file(&file, &limits)))?;
+        let text = text_of(bytes);
+        let ex = crate::engine::guarded("step", || p21::parse(&text).map_err(|e| err(e.to_string())))?;
         let mut out = StepImport::default();
-        // The reader says it leaves assembly instancing aside: applied here, not repeated.
-        out.diagnostics.extend(model.diagnostics.iter().filter(|d| !d.message.contains("assembly instance")).map(|d| d.message.clone()));
-        let structure = Structure::read(&file, &model, &mut out.diagnostics);
-        let colors = Colors::read(&file, &model);
-
-        // Every body a product uses, built once, on all cores.
-        let bodies: HashMap<u64, &sm::Body> = model.bodies.iter().map(|b| (b.step_id, b)).collect();
-        let mut wanted: Vec<u64> = structure.nodes.iter().flat_map(|n| n.bodies.iter().copied()).collect();
-        wanted.sort_unstable();
-        wanted.dedup();
-        let built: HashMap<u64, Result<Solid>> = crate::engine::parallel_map(&wanted, |id| {
-            let body = bodies[id];
-            if body.kind == sm::BodyKind::ShellModel || body.shells.iter().any(|s| !s.closed) {
-                return (*id, Err(err("open: surfaces only")));
+        let structure = match product::read(&ex) {
+            Ok(ps) => Some(ps),
+            Err(e) => {
+                out.diagnostics.push(format!("product structure not read ({e}): bodies only"));
+                None
             }
-            (*id, Solid::from_step_body(body))
-        })
-        .into_iter()
-        .collect();
-        for (id, why) in &structure.skipped {
-            out.excluded.push(StepExcluded { product: String::new(), body: format!("#{id}"), reason: why.clone() });
-        }
+        };
+        let structure = Structure::read(&ex, structure.as_ref(), &mut out.diagnostics);
+        let colors = Colors::read(&ex, structure.styles.as_slice());
+
+        // Every body a product uses, read once, on all cores.
+        let mut wanted: Vec<(u64, Option<u64>)> = structure.nodes.iter().flat_map(|n| n.bodies.iter().map(|b| (b.entity, b.context))).collect();
+        wanted.sort_unstable();
+        wanted.dedup_by_key(|(id, _)| *id);
+        let built: HashMap<u64, Result<(Solid, Vec<u64>)>> =
+            crate::engine::parallel_map(&wanted, |&(id, context)| (id, read_body(&ex, id, context))).into_iter().collect();
 
         for node in &structure.nodes {
             let mut product = StepProduct { name: node.name.clone(), ..Default::default() };
-            for id in &node.bodies {
-                let name = bodies[id].name.clone().unwrap_or_default();
-                match &built[id] {
-                    Ok(solid) => product.bodies.push(StepBody { name, solid: solid.clone(), color: colors.of(bodies[id]) }),
-                    Err(e) => out.excluded.push(StepExcluded { product: node.name.clone(), body: name, reason: e.to_string() }),
+            for b in &node.bodies {
+                match &built[&b.entity] {
+                    Ok((solid, faces)) => {
+                        product.bodies.push(StepBody { name: b.name.clone(), solid: solid.clone(), color: colors.of(&ex, b.entity, faces) })
+                    }
+                    Err(e) => out.excluded.push(StepExcluded { product: node.name.clone(), body: b.name.clone(), reason: e.to_string() }),
                 }
             }
             product.children = node.children.clone();
@@ -140,6 +118,131 @@ pub(crate) mod read {
         }
         out.roots = structure.roots;
         Ok(out)
+    }
+
+    /// One body: its record from the file's topology, made the kernel's (refused unless closed),
+    /// and the file's face of each of its faces (for the colours).
+    fn read_body(ex: &Exchange, item: u64, context: Option<u64>) -> Result<(Solid, Vec<u64>)> {
+        crate::engine::guarded("step body", || {
+            let context = context.map(|c| units::context(ex, c)).unwrap_or_default();
+            let read = topology::read_solid_with(ex, item, context, &KernelTrims).map_err(err)?;
+            if read.sheet {
+                return Err(err("open: surfaces only"));
+            }
+            let mut k = crate::engine::kernel();
+            let mut b = crate::engine::to_kernel(&mut k, &read.brep, "step body")?;
+            Ok((crate::engine::to_record(&mut k, &mut b, "step body")?, read.face_origin))
+        })
+    }
+
+    /// The pcurves the reader has no closed form for, made by the kernel as it makes its own
+    /// trims (SMLib's): the face alone, a sheet whose uses without a pcurve go to the kernel bare
+    /// (`to_kernel_with_bare_uses`), comes back with the kernel's.
+    struct KernelTrims;
+
+    impl Trims for KernelTrims {
+        fn trims(&self, face: &TrimFace<'_>) -> std::result::Result<Vec<Vec<Curve2>>, String> {
+            use solidcore_record::brep as rb;
+            // The record's canonical order: edges as the loops first use them, vertices as those
+            // edges first use them.
+            let mut edge_at: Vec<Option<u32>> = vec![None; face.edges.len()];
+            let mut edges_in_order: Vec<usize> = Vec::new();
+            let mut uses: Vec<Vec<rb::EdgeUseRef>> = Vec::new();
+            let mut bare = Vec::new();
+            let mut loops = Vec::with_capacity(face.loops.len());
+            for (li, l) in face.loops.iter().enumerate() {
+                let mut oriented = Vec::with_capacity(l.len());
+                for (p, u) in l.iter().enumerate() {
+                    let old = u.edge as usize;
+                    let e = face.edges.get(old).ok_or("edge out of range")?;
+                    let new = match edge_at[old] {
+                        Some(n) => n,
+                        None => {
+                            edges_in_order.push(old);
+                            uses.push(Vec::new());
+                            let n = (edges_in_order.len() - 1) as u32;
+                            edge_at[old] = Some(n);
+                            n
+                        }
+                    };
+                    uses[new as usize].push(rb::EdgeUseRef { face: 0, r#loop: li as u32, position: p as u32, upper: !u.forward });
+                    let pcurve = match &u.pcurve {
+                        Some(c) => c.clone(),
+                        None => {
+                            bare.push((0, li as u32, p as u32));
+                            // A placeholder on the edge's interval: the kernel makes the trim.
+                            let [a, b] = e.interval;
+                            Curve2::Spline { knots: vec![a, a, b, b], points: vec![[0.0; 2]; 2] }
+                        }
+                    };
+                    oriented.push(rb::OrientedEdge { edge: new, forward: u.forward, pcurve });
+                }
+                loops.push(rb::Loop::Edges { edges: oriented });
+            }
+            if face.edges.iter().any(|e| e.vertices.iter().any(|&v| v as usize >= face.vertices.len())) {
+                return Err("vertex out of range".into());
+            }
+            let mut vertex_at: Vec<Option<u32>> = vec![None; face.vertices.len()];
+            let mut vertices = Vec::new();
+            let mut edges = Vec::with_capacity(edges_in_order.len());
+            for (new, &old) in edges_in_order.iter().enumerate() {
+                let e = &face.edges[old];
+                let ends = e.vertices.map(|v| {
+                    let v = v as usize;
+                    *vertex_at[v].get_or_insert_with(|| {
+                        vertices.push(rb::Vertex { point: face.vertices[v], tolerance: face.tolerance.max(e.tolerance) });
+                        (vertices.len() - 1) as u32
+                    })
+                });
+                edges.push(rb::Edge {
+                    curve: e.curve.clone(),
+                    nurbs: e.nurbs.cloned(),
+                    interval: e.interval,
+                    vertices: ends,
+                    tolerance: e.tolerance,
+                    uses: std::mem::take(&mut uses[new]),
+                });
+            }
+            let sheet = rb::Brep {
+                version: rb::VERSION,
+                tolerance: face.tolerance,
+                regions: vec![rb::Region { shells: vec![0], void: false }],
+                shells: vec![rb::Shell::Faces { faces: vec![rb::OrientedFace { face: 0, forward: true }], wires: Vec::new() }],
+                faces: vec![rb::Face { surface: face.surface.clone(), nurbs: face.nurbs.cloned(), domain: face.domain, loops }],
+                edges,
+                vertices,
+            };
+            bare.sort_unstable();
+            let mut k = crate::engine::kernel();
+            let (mut b, sent) = solidcore_convert::brep::to_kernel_with_bare_uses(&mut k, &sheet, true, &bare).map_err(|e| e.to_string())?;
+            let (back, came) = solidcore_convert::brep::to_record(&mut k, &mut b).map_err(|e| e.to_string())?;
+            let [back_face] = back.faces.as_slice() else { return Err("the kernel made several faces of one".into()) };
+            // Each use found again by its edge (through the kernel's) and its direction.
+            let mut out = Vec::with_capacity(face.loops.len());
+            for l in &face.loops {
+                let mut pcs = Vec::with_capacity(l.len());
+                for u in l {
+                    let new = edge_at[u.edge as usize].ok_or("edge order")? as usize;
+                    let id = sent.edges.get(new).ok_or("edge order")?;
+                    let j = came.edges.iter().position(|e| e == id).ok_or("the kernel dropped an edge")?;
+                    let (want, got) = (face.edges[u.edge as usize].interval, back.edges[j].interval);
+                    if (want[0] - got[0]).abs().max((want[1] - got[1]).abs()) > 1e-9 * (want[1] - want[0]).abs().max(1.0) {
+                        return Err("the kernel moved an edge's interval".into());
+                    }
+                    let pc = back_face
+                        .loops
+                        .iter()
+                        .find_map(|bl| match bl {
+                            rb::Loop::Edges { edges } => edges.iter().find(|o| o.edge as usize == j && o.forward == u.forward),
+                            rb::Loop::Vertex { .. } => None,
+                        })
+                        .ok_or("the kernel dropped an edge use")?;
+                    pcs.push(pc.pcurve.clone());
+                }
+                out.push(pcs);
+            }
+            Ok(out)
+        }
     }
 
     /// The file's bytes as text. Part 21 wants plain ASCII (other characters escaped as
@@ -166,267 +269,106 @@ pub(crate) mod read {
         out
     }
 
-    // ---- reading the file ---------------------------------------------------------------
+    // ---- placements -------------------------------------------------------------------------
 
-    /// The record of `id` named `name` (simple, or that part of a complex instance).
-    fn record<'a>(file: &'a StepFile, id: u64, name: &str) -> Option<&'a Record> {
-        file.entities.get(&id)?.record(name)
+    /// SolidCore's row-vector matrix (rows 0..3 the images of X, Y, Z, row 3 the translation) as
+    /// a column-vector affine.
+    fn affine(m: &Matrix4) -> DAffine3 {
+        let row = |i: usize| DVec3::new(m[i][0], m[i][1], m[i][2]);
+        DAffine3 { matrix3: DMat3::from_cols(row(0), row(1), row(2)), translation: row(3) }
     }
 
-    fn simple(file: &StepFile, id: u64) -> Option<&Record> {
-        match file.entities.get(&id)? {
-            Instance::Simple(r) => Some(r),
-            Instance::Complex(_) => None,
-        }
-    }
-
-    fn param_ref(r: &Record, i: usize) -> Option<u64> {
-        r.params.get(i)?.as_ref_id()
-    }
-
-    fn param_refs(r: &Record, i: usize) -> Vec<u64> {
-        r.params.get(i).and_then(Param::as_list).map(|l| l.iter().filter_map(Param::as_ref_id).collect()).unwrap_or_default()
-    }
-
-    fn param_str(r: &Record, i: usize) -> String {
-        match r.params.get(i) {
-            Some(Param::Str(s)) => decode(s).trim().to_owned(),
-            _ => String::new(),
-        }
-    }
-
-    /// A Part 21 string with its control directives decoded: `\X2\…\X0\` (UTF-16),
-    /// `\X\hh` (ISO 8859-1), `\S\c` (the upper half of ISO 8859-1), `\\`.
-    pub(crate) fn decode(s: &str) -> String {
-        let b = s.as_bytes();
-        let mut out = String::with_capacity(s.len());
-        let mut i = 0;
-        let hex = |h: &[u8]| std::str::from_utf8(h).ok().and_then(|h| u32::from_str_radix(h, 16).ok());
-        while i < b.len() {
-            if b[i] == b'\\' {
-                if b[i..].starts_with(b"\\X2\\") || b[i..].starts_with(b"\\X4\\") {
-                    let width = if b[i + 2] == b'2' { 4 } else { 8 };
-                    let start = i + 4;
-                    let Some(end) = s[start..].find("\\X0\\").map(|e| start + e) else { break };
-                    let units: Vec<u32> = b[start..end].chunks(width).filter_map(hex).collect();
-                    if width == 4 {
-                        let units: Vec<u16> = units.iter().map(|u| *u as u16).collect();
-                        out.push_str(&String::from_utf16_lossy(&units));
-                    } else {
-                        out.extend(units.iter().filter_map(|u| char::from_u32(*u)));
-                    }
-                    i = end + 4;
-                    continue;
-                }
-                if b[i..].starts_with(b"\\X\\") && i + 5 <= b.len() {
-                    if let Some(c) = hex(&b[i + 3..i + 5]).and_then(char::from_u32) {
-                        out.push(c);
-                    }
-                    i += 5;
-                    continue;
-                }
-                if b[i..].starts_with(b"\\S\\") && i + 4 <= b.len() {
-                    if let Some(c) = char::from_u32(b[i + 3] as u32 + 128) {
-                        out.push(c);
-                    }
-                    i += 4;
-                    continue;
-                }
-                if b[i..].starts_with(b"\\\\") {
-                    out.push('\\');
-                    i += 2;
-                    continue;
-                }
-            }
-            // A plain character (the text is UTF-8: copy the whole char).
-            let c = s[i..].chars().next().unwrap_or('?');
-            out.push(c);
-            i += c.len_utf8();
-        }
-        out
-    }
-
-    /// The length unit of a unit entity, in mm.
-    fn unit_mm(file: &StepFile, id: u64, depth: usize) -> Option<f64> {
-        if depth > 8 {
-            return None;
-        }
-        let inst = file.entities.get(&id)?;
-        if let Some(si) = inst.record("SI_UNIT") {
-            let factor = match si.params.first().and_then(Param::as_enum) {
-                None => 1.0,
-                Some("MILLI") => 1e-3,
-                Some("CENTI") => 1e-2,
-                Some("DECI") => 1e-1,
-                Some("MICRO") => 1e-6,
-                Some("KILO") => 1e3,
-                Some(_) => return None,
-            };
-            return Some(factor * 1000.0);
-        }
-        if let Some(cb) = inst.record("CONVERSION_BASED_UNIT") {
-            let m = file.entities.get(&param_ref(cb, 1)?)?;
-            let m = m.record("LENGTH_MEASURE_WITH_UNIT").or_else(|| m.record("MEASURE_WITH_UNIT"))?;
-            return Some(m.params.first()?.as_f64()? * unit_mm(file, param_ref(m, 1)?, depth + 1)?);
-        }
-        None
-    }
-
-    /// The length unit of a representation context, in mm (1 when it says none).
-    fn context_mm(file: &StepFile, ctx: u64) -> f64 {
-        let Some(g) = record(file, ctx, "GLOBAL_UNIT_ASSIGNED_CONTEXT") else { return 1.0 };
-        param_refs(g, 0)
-            .into_iter()
-            .find(|u| file.entities.get(u).is_some_and(|i| i.record("LENGTH_UNIT").is_some()))
-            .and_then(|u| unit_mm(file, u, 0))
-            .unwrap_or(1.0)
-    }
-
-    /// A representation: (items, context).
-    fn representation(file: &StepFile, id: u64) -> Option<(Vec<u64>, u64)> {
-        let reps: Vec<&Record> = match file.entities.get(&id)? {
-            Instance::Simple(r) => vec![r],
-            Instance::Complex(rs) => rs.iter().collect(),
+    /// A placement or an operator as the frame it places (from its axes to its representation's),
+    /// made by the kernel (`step_matrix`).
+    fn frame(f: &Frame) -> Option<DAffine3> {
+        let m = match f {
+            Frame::Placement(p) => step_matrix::frame_matrix(p.origin, p.axis, p.ref_direction)?,
+            Frame::Operator(o) => step_matrix::operator_matrix(o.axis1, o.axis2, o.axis3, o.origin, o.scale, o.scale2, o.scale3)?,
         };
-        reps.into_iter()
-            .filter(|r| r.name.ends_with("REPRESENTATION") && r.params.len() == 3)
-            .find_map(|r| Some((param_refs(r, 1), param_ref(r, 2)?)))
+        Some(affine(&m))
     }
 
-    fn direction(file: &StepFile, id: Option<u64>) -> Option<DVec3> {
-        let r = simple(file, id?)?;
-        if r.name != "DIRECTION" {
-            return None;
-        }
-        let l = r.params.get(1)?.as_list()?;
-        let c: Vec<f64> = l.iter().filter_map(Param::as_f64).collect();
-        (c.len() == 3).then(|| DVec3::new(c[0], c[1], c[2]).normalize_or_zero()).filter(|d| *d != DVec3::ZERO)
-    }
+    // ---- the product structure ----------------------------------------------------------------
 
-    /// An `AXIS2_PLACEMENT_3D` as the frame it places (from its axes to its representation's),
-    /// its origin scaled by `mm`.
-    fn placement(file: &StepFile, id: u64, mm: f64) -> Option<DAffine3> {
-        let r = simple(file, id)?;
-        if r.name != "AXIS2_PLACEMENT_3D" {
-            return None;
-        }
-        let p = simple(file, param_ref(r, 1)?)?;
-        let c: Vec<f64> = p.params.get(1)?.as_list()?.iter().filter_map(Param::as_f64).collect();
-        let origin = DVec3::new(*c.first()?, *c.get(1)?, c.get(2).copied().unwrap_or(0.0)) * mm;
-        let z = direction(file, param_ref(r, 2)).unwrap_or(DVec3::Z);
-        let x = direction(file, param_ref(r, 3)).unwrap_or(DVec3::X);
-        // X made square to Z (ISO 10303-42), then Y = Z × X.
-        let mut x = (x - z * x.dot(z)).normalize_or_zero();
-        if x == DVec3::ZERO {
-            x = z.any_orthonormal_vector();
-        }
-        Some(DAffine3 { matrix3: DMat3::from_cols(x, z.cross(x), z), translation: origin })
+    /// A body a node lists: its entity, its name, and the representation context it is read in.
+    struct NodeBody {
+        entity: u64,
+        name: String,
+        context: Option<u64>,
     }
-
-    // ---- the product structure ------------------------------------------------------------
 
     /// A product, or a shape no product owns but a `MAPPED_ITEM` places.
     struct Node {
         name: String,
-        bodies: Vec<u64>,
+        bodies: Vec<NodeBody>,
         children: Vec<StepInstance>,
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     enum Key {
-        /// A `PRODUCT_DEFINITION`.
-        Product(u64),
-        /// A representation of no product.
-        Shape(u64),
+        /// A definition (index into [`ProductStructure::definitions`]).
+        Product(usize),
+        /// A representation of no product (index into [`ProductStructure::representations`]).
+        Shape(usize),
     }
 
     #[derive(Default)]
     struct Structure {
         nodes: Vec<Node>,
         roots: Vec<StepInstance>,
-        /// Bodies the reader skipped (unsupported entities).
-        skipped: Vec<(u64, String)>,
+        styles: Vec<product::StyledItem>,
     }
 
-    /// The links between entities, read once.
+    /// What the walk needs from the structure, worked out once.
     struct Graph<'a> {
-        file: &'a StepFile,
-        bodies: HashSet<u64>,
-        /// A product definition's shape representations.
-        reps_of: HashMap<u64, Vec<u64>>,
-        /// The product definition a representation belongs to.
-        owner: HashMap<u64, u64>,
-        /// Representations joined without a transformation (`SHAPE_REPRESENTATION_RELATIONSHIP`):
-        /// the same axes.
-        joined: HashMap<u64, Vec<u64>>,
-        /// Per parent definition: (child definition, instance name, the relationship placing it).
-        usages: HashMap<u64, Vec<(u64, String, Option<u64>)>>,
-        /// Definitions placed in another.
-        used: HashSet<u64>,
+        ps: &'a ProductStructure,
+        /// Per definition: the representations of its shape and those joined to them without a
+        /// transformation (the same axes).
+        closure: Vec<Vec<usize>>,
+        /// Per definition: its child occurrences, in file order.
+        children: Vec<Vec<usize>>,
+        /// The definition a representation belongs to.
+        owner: HashMap<usize, usize>,
     }
 
     impl<'a> Graph<'a> {
-        fn read(file: &'a StepFile, model: &sm::Model) -> Graph<'a> {
-            let mut g = Graph {
-                file,
-                bodies: model.bodies.iter().map(|b| b.step_id).collect(),
-                reps_of: HashMap::new(),
-                owner: HashMap::new(),
-                joined: HashMap::new(),
-                usages: HashMap::new(),
-                used: HashSet::new(),
-            };
-            // The NAUO each product-definition shape stands for, and the relationship placing it.
-            let mut placed_by: HashMap<u64, u64> = HashMap::new();
-            for inst in file.entities.values() {
-                if let Some(r) = inst.record("CONTEXT_DEPENDENT_SHAPE_REPRESENTATION")
-                    && let (Some(rr), Some(pds)) = (param_ref(r, 0), param_ref(r, 1))
-                    && let Some(pds) = record(file, pds, "PRODUCT_DEFINITION_SHAPE")
-                    && let Some(usage) = param_ref(pds, 2)
+        fn new(ps: &'a ProductStructure) -> Graph<'a> {
+            let mut children = vec![Vec::new(); ps.definitions.len()];
+            for (i, o) in ps.occurrences.iter().enumerate() {
+                // A higher usage overrides a placement deeper down; it places nothing itself.
+                if o.kind != OccurrenceKind::SpecifiedHigherUsage
+                    && let Some(c) = children.get_mut(o.parent)
                 {
-                    placed_by.insert(usage, rr);
+                    c.push(i);
                 }
             }
-            for (&id, inst) in &file.entities {
-                if let Some(r) = inst.record("SHAPE_DEFINITION_REPRESENTATION")
-                    && let (Some(pds), Some(rep)) = (param_ref(r, 0), param_ref(r, 1))
-                    && let Some(pds) = record(file, pds, "PRODUCT_DEFINITION_SHAPE")
-                    && let Some(def) = param_ref(pds, 2)
-                    && record(file, def, "PRODUCT_DEFINITION").is_some()
-                {
-                    g.reps_of.entry(def).or_default().push(rep);
-                    g.owner.entry(rep).or_insert(def);
-                }
-                // A plain relationship joins two representations; one with a transformation
-                // (a complex instance) places a child, read through its usage.
-                if let Instance::Simple(r) = inst
-                    && r.name == "SHAPE_REPRESENTATION_RELATIONSHIP"
-                    && let (Some(a), Some(b)) = (param_ref(r, 2), param_ref(r, 3))
-                {
-                    g.joined.entry(a).or_default().push(b);
-                    g.joined.entry(b).or_default().push(a);
-                }
-                if let Some(r) = inst.record("NEXT_ASSEMBLY_USAGE_OCCURRENCE")
-                    && let (Some(parent), Some(child)) = (param_ref(r, 3), param_ref(r, 4))
-                {
-                    // Its name only: its id ("NAUO1") means nothing to the user.
-                    let name = param_str(r, 1);
-                    g.usages.entry(parent).or_default().push((child, name, placed_by.get(&id).copied()));
-                    g.used.insert(child);
+            let mut owner = HashMap::new();
+            for (d, def) in ps.definitions.iter().enumerate() {
+                for &r in &def.shapes {
+                    owner.entry(r).or_insert(d);
                 }
             }
-            g
+            let closure = ps.definitions.iter().map(|d| Graph::joined(ps, &d.shapes)).collect();
+            Graph { ps, closure, children, owner }
         }
 
-        /// The representations sharing axes with `reps` (themselves included).
-        fn closure(&self, reps: &[u64]) -> Vec<u64> {
-            let mut seen: HashSet<u64> = reps.iter().copied().collect();
-            let mut out: Vec<u64> = reps.to_vec();
+        /// `reps` and the representations joined to them without a transformation.
+        fn joined(ps: &ProductStructure, reps: &[usize]) -> Vec<usize> {
+            let mut seen: HashSet<usize> = reps.iter().copied().collect();
+            let mut out = reps.to_vec();
             let mut k = 0;
             while k < out.len() {
-                for &n in self.joined.get(&out[k]).map(Vec::as_slice).unwrap_or(&[]) {
-                    if seen.insert(n) {
-                        out.push(n);
+                let r = out[k];
+                for l in ps.links.iter().filter(|l| l.transformation.is_none()) {
+                    let other = if l.rep_1 == r {
+                        l.rep_2
+                    } else if l.rep_2 == r {
+                        l.rep_1
+                    } else {
+                        continue;
+                    };
+                    if seen.insert(other) {
+                        out.push(other);
                     }
                 }
                 k += 1;
@@ -434,63 +376,70 @@ pub(crate) mod read {
             out
         }
 
-        fn name_of(&self, def: u64) -> String {
-            let product = record(self.file, def, "PRODUCT_DEFINITION")
-                .and_then(|pd| param_ref(pd, 2))
-                .and_then(|f| self.file.entities.get(&f))
-                .and_then(|f| match f {
-                    Instance::Simple(r) => Some(r),
-                    Instance::Complex(rs) => rs.iter().find(|r| r.name.starts_with("PRODUCT_DEFINITION_FORMATION")),
-                })
-                .and_then(|f| param_ref(f, 2))
-                .and_then(|p| record(self.file, p, "PRODUCT"));
-            match product {
-                Some(p) => Some(param_str(p, 1)).filter(|n| !n.is_empty()).unwrap_or_else(|| param_str(p, 0)),
-                None => String::new(),
-            }
+        fn name_of(&self, def: usize) -> String {
+            let Some(p) = self.ps.definitions.get(def).and_then(|d| self.ps.products.get(d.product)) else { return String::new() };
+            Some(p.name.trim().to_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| p.id.trim().to_owned())
         }
 
-        /// From `child`'s axes to `parent`'s, by a `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION`
-        /// whose `ITEM_DEFINED_TRANSFORMATION` gives a frame in each.
-        fn relationship(&self, rr: u64, child_reps: &[u64]) -> Option<DAffine3> {
-            let rel = record(self.file, rr, "REPRESENTATION_RELATIONSHIP")?;
-            let (rep1, rep2) = (param_ref(rel, 2)?, param_ref(rel, 3)?);
-            let wt = record(self.file, rr, "REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION")?;
-            let idt = record(self.file, param_ref(wt, 0)?, "ITEM_DEFINED_TRANSFORMATION")?;
-            let mm = |rep: u64| representation(self.file, rep).map_or(1.0, |(_, ctx)| context_mm(self.file, ctx));
-            let f1 = placement(self.file, param_ref(idt, 2)?, mm(rep1))?;
-            let f2 = placement(self.file, param_ref(idt, 3)?, mm(rep2))?;
-            // rep_1 is the child's (the recommended practice); some writers swap them.
-            Some(if child_reps.contains(&rep2) && !child_reps.contains(&rep1) { f1 * f2.inverse() } else { f2 * f1.inverse() })
+        /// From the child's axes to its parent's, by the occurrence's first placing relationship
+        /// (the identity when it has none).
+        fn occurrence(&self, occurrence: usize) -> Option<DAffine3> {
+            let o = &self.ps.occurrences[occurrence];
+            let Some(&l) = o.placements.first() else { return Some(DAffine3::IDENTITY) };
+            let link = self.ps.links.get(l)?;
+            match link.transformation.as_ref() {
+                None => Some(DAffine3::IDENTITY),
+                Some(Transformation::Frame(f)) => frame(f),
+                Some(Transformation::Items { item_1, item_2, .. }) => {
+                    let (f1, f2) = (frame(item_1)?, frame(item_2)?);
+                    // rep_1 is the child's (the recommended practice); some writers swap them.
+                    let child = self.closure.get(o.child).map(Vec::as_slice).unwrap_or(&[]);
+                    Some(if child.contains(&link.rep_2) && !child.contains(&link.rep_1) { f1 * f2.inverse() } else { f2 * f1.inverse() })
+                }
+            }
         }
     }
 
     impl Structure {
-        fn read(file: &StepFile, model: &sm::Model, diagnostics: &mut Vec<String>) -> Structure {
-            let g = Graph::read(file, model);
-            let mut s = Structure {
-                skipped: model.skipped.iter().map(|k| (k.step_id, format!("{}: {}", k.kind, k.reason))).collect(),
-                ..Default::default()
-            };
-            let mut memo: HashMap<Key, Option<usize>> = HashMap::new();
+        fn read(ex: &Exchange, ps: Option<&ProductStructure>, diagnostics: &mut Vec<String>) -> Structure {
+            let mut s = Structure::default();
             let mut reached: HashSet<u64> = HashSet::new();
-            // Top: the definitions no other places, in file order.
-            let mut tops: Vec<u64> = g.reps_of.keys().chain(g.usages.keys()).copied().filter(|d| !g.used.contains(d)).collect();
-            tops.sort_unstable();
-            tops.dedup();
-            for def in tops {
-                if let Some(n) = s.node(&g, Key::Product(def), 0, &mut memo, &mut reached, diagnostics) {
-                    s.roots.push(StepInstance { product: n, name: String::new(), transform: DAffine3::IDENTITY });
+            if let Some(ps) = ps {
+                s.styles = ps.styles.clone();
+                let g = Graph::new(ps);
+                let mut memo: HashMap<Key, Option<usize>> = HashMap::new();
+                for &def in &ps.roots {
+                    if let Some(n) = s.node(&g, Key::Product(def), 0, &mut memo, &mut reached, diagnostics) {
+                        s.roots.push(StepInstance { product: n, name: String::new(), transform: DAffine3::IDENTITY });
+                    }
                 }
+                // Representations of bodies no product reaches: their bodies are loose.
+                let mut loose = Vec::new();
+                for rep in &ps.representations {
+                    for item in &rep.items {
+                        if matches!(item.kind, ItemKind::Body(_)) && reached.insert(item.entity) {
+                            loose.push(NodeBody { entity: item.entity, name: item.name.trim().to_owned(), context: rep.context });
+                        }
+                    }
+                }
+                s.push_loose(loose);
             }
-            // Bodies no product reaches (a file without products, or loose shapes): one more
-            // node at the top.
-            let loose: Vec<u64> = model.bodies.iter().map(|b| b.step_id).filter(|id| !reached.contains(id)).collect();
-            if !loose.is_empty() {
-                s.nodes.push(Node { name: String::new(), bodies: loose, children: Vec::new() });
-                s.roots.push(StepInstance { product: s.nodes.len() - 1, name: String::new(), transform: DAffine3::IDENTITY });
-            }
+            // Topology outside any representation (a file of bare geometry).
+            let bare: Vec<NodeBody> = topology::roots(ex)
+                .into_iter()
+                .filter(|id| !reached.contains(id))
+                .map(|id| NodeBody { entity: id, name: entity_name(ex, id), context: None })
+                .collect();
+            s.push_loose(bare);
             s
+        }
+
+        /// One more node at the top for bodies no product holds.
+        fn push_loose(&mut self, bodies: Vec<NodeBody>) {
+            if !bodies.is_empty() {
+                self.nodes.push(Node { name: String::new(), bodies, children: Vec::new() });
+                self.roots.push(StepInstance { product: self.nodes.len() - 1, name: String::new(), transform: DAffine3::IDENTITY });
+            }
         }
 
         /// The node of `key`, children first; `None` when it holds nothing.
@@ -506,65 +455,61 @@ pub(crate) mod read {
             if let Some(n) = memo.get(&key) {
                 return *n;
             }
-            if depth > 64 {
-                diagnostics.push("product structure deeper than 64 levels: cut".into());
+            if depth > product::MAX_ASSEMBLY_DEPTH {
+                diagnostics.push(format!("product structure deeper than {} levels: cut", product::MAX_ASSEMBLY_DEPTH));
                 return None;
             }
             // Guards a cycle: a node is "nothing" while it is being read.
             memo.insert(key, None);
-            let (name, own) = match key {
-                Key::Product(def) => (g.name_of(def), g.reps_of.get(&def).cloned().unwrap_or_default()),
-                Key::Shape(rep) => (String::new(), vec![rep]),
+            let (name, reps) = match key {
+                Key::Product(def) => (g.name_of(def), g.closure.get(def).cloned().unwrap_or_default()),
+                Key::Shape(rep) => (String::new(), Graph::joined(g.ps, &[rep])),
             };
-            let reps = g.closure(&own);
             let mut bodies = Vec::new();
             let mut children = Vec::new();
             // Children by assembly usage.
-            let mut child_defs: HashSet<u64> = HashSet::new();
+            let mut child_defs: HashSet<usize> = HashSet::new();
             if let Key::Product(def) = key {
-                for (child, inst_name, rr) in g.usages.get(&def).cloned().unwrap_or_default() {
-                    child_defs.insert(child);
-                    let child_reps = g.closure(g.reps_of.get(&child).map(Vec::as_slice).unwrap_or(&[]));
-                    let transform = match rr.map(|rr| g.relationship(rr, &child_reps)) {
-                        Some(Some(t)) => t,
-                        Some(None) => {
-                            diagnostics.push(format!("#{child}: placement not understood; placed at the origin"));
-                            DAffine3::IDENTITY
-                        }
-                        None => DAffine3::IDENTITY,
-                    };
-                    if let Some(n) = self.node(g, Key::Product(child), depth + 1, memo, reached, diagnostics) {
-                        children.push(StepInstance { product: n, name: inst_name, transform });
+                for &o in g.children.get(def).map(Vec::as_slice).unwrap_or(&[]) {
+                    let occ = &g.ps.occurrences[o];
+                    child_defs.insert(occ.child);
+                    let transform = g.occurrence(o).unwrap_or_else(|| {
+                        diagnostics.push(format!("#{}: placement not understood; placed at the origin", occ.entity));
+                        DAffine3::IDENTITY
+                    });
+                    if let Some(n) = self.node(g, Key::Product(occ.child), depth + 1, memo, reached, diagnostics) {
+                        // Its name only: its id ("NAUO1") means nothing to the user.
+                        children.push(StepInstance { product: n, name: occ.name.trim().to_owned(), transform });
                     }
                 }
             }
-            for rep in &reps {
-                let Some((items, ctx)) = representation(g.file, *rep) else { continue };
-                for item in items {
-                    if g.bodies.contains(&item) {
-                        bodies.push(item);
-                        reached.insert(item);
-                    } else if let Some(mi) = record(g.file, item, "MAPPED_ITEM") {
-                        // A shape placed: `target · origin⁻¹` from the mapped representation's
-                        // axes to this one's.
-                        let Some(map) = param_ref(mi, 1).and_then(|m| record(g.file, m, "REPRESENTATION_MAP")) else { continue };
-                        let (Some(origin), Some(mapped)) = (param_ref(map, 0), param_ref(map, 1)) else { continue };
-                        let mapped_mm = representation(g.file, mapped).map_or(1.0, |(_, c)| context_mm(g.file, c));
-                        let target = param_ref(mi, 2).and_then(|t| placement(g.file, t, context_mm(g.file, ctx)));
-                        let origin = placement(g.file, origin, mapped_mm);
-                        let (Some(target), Some(origin)) = (target, origin) else {
-                            diagnostics.push(format!("#{item}: mapped item placement not understood; skipped"));
-                            continue;
-                        };
-                        let child = match g.owner.get(&mapped) {
-                            // Already placed by an assembly usage: not twice.
-                            Some(def) if child_defs.contains(def) => continue,
-                            Some(def) => Key::Product(*def),
-                            None => Key::Shape(mapped),
-                        };
-                        if let Some(n) = self.node(g, child, depth + 1, memo, reached, diagnostics) {
-                            children.push(StepInstance { product: n, name: String::new(), transform: target * origin.inverse() });
+            for &r in &reps {
+                let Some(rep) = g.ps.representations.get(r) else { continue };
+                for item in &rep.items {
+                    match &item.kind {
+                        ItemKind::Body(_) => {
+                            reached.insert(item.entity);
+                            bodies.push(NodeBody { entity: item.entity, name: item.name.trim().to_owned(), context: rep.context });
                         }
+                        ItemKind::Mapped { map, target } => {
+                            // A shape placed: `target · origin⁻¹` from the mapped representation's
+                            // axes to this one's.
+                            let Some(map) = g.ps.maps.get(*map) else { continue };
+                            let (Some(target), Some(origin)) = (frame(target), frame(&map.origin)) else {
+                                diagnostics.push(format!("#{}: mapped item placement not understood; skipped", item.entity));
+                                continue;
+                            };
+                            let child = match g.owner.get(&map.representation) {
+                                // Already placed by an assembly usage: not twice.
+                                Some(def) if child_defs.contains(def) => continue,
+                                Some(def) => Key::Product(*def),
+                                None => Key::Shape(map.representation),
+                            };
+                            if let Some(n) = self.node(g, child, depth + 1, memo, reached, diagnostics) {
+                                children.push(StepInstance { product: n, name: String::new(), transform: target * origin.inverse() });
+                            }
+                        }
+                        ItemKind::Other(_) => {}
                     }
                 }
             }
@@ -577,93 +522,61 @@ pub(crate) mod read {
         }
     }
 
-    // ---- colours --------------------------------------------------------------------------
+    /// An entity's `name` (its first parameter, when a string).
+    fn entity_name(ex: &Exchange, id: u64) -> String {
+        match ex.get(id).and_then(|e| e.params().first()) {
+            Some(Param::Str(s)) => s.trim().to_owned(),
+            _ => String::new(),
+        }
+    }
 
-    /// The colour styles of the file, by the item they style.
+    // ---- colours ------------------------------------------------------------------------------
+
+    /// The surface colours of the file's styles, by the item they style.
     struct Colors {
         of_item: HashMap<u64, [u8; 3]>,
     }
 
     impl Colors {
-        fn read(file: &StepFile, _model: &sm::Model) -> Colors {
+        fn read(_ex: &Exchange, styles: &[product::StyledItem]) -> Colors {
+            let byte = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let rgb = |c: &Colour| match c {
+                Colour::Rgb { rgb, .. } => Some(*rgb),
+                Colour::PreDefined { rgb, .. } => *rgb,
+            };
             let mut of_item = HashMap::new();
-            for inst in file.entities.values() {
-                let Some(r) = inst.record("STYLED_ITEM").or_else(|| inst.record("OVER_RIDING_STYLED_ITEM")) else { continue };
-                let Some(item) = param_ref(r, 2) else { continue };
-                if let Some(c) = param_refs(r, 1).into_iter().find_map(|s| colour(file, s, 0)) {
-                    of_item.insert(item, c);
+            // In file order: an overriding style, later, wins.
+            for s in styles {
+                // Lines' colours are not the faces'.
+                if let Some(c) = s.surface.iter().find_map(|st| st.fill.as_ref().or(st.rendering.as_ref()).and_then(rgb)) {
+                    of_item.insert(s.item, c.map(byte));
                 }
             }
             Colors { of_item }
         }
 
-        /// A body's colour: its own, its shell's, or the one all its styled faces share.
-        fn of(&self, body: &sm::Body) -> Option<[u8; 3]> {
-            if let Some(c) = self.of_item.get(&body.step_id).or_else(|| body.shells.iter().find_map(|s| self.of_item.get(&s.step_id))) {
+        /// A body's colour: its own, its shells', or the one all its styled faces share.
+        fn of(&self, ex: &Exchange, body: u64, faces: &[u64]) -> Option<[u8; 3]> {
+            if let Some(c) = self.of_item.get(&body) {
                 return Some(*c);
             }
-            let mut faces = body.faces.iter().filter_map(|f| self.of_item.get(&f.step_id));
-            let first = *faces.next()?;
-            faces.all(|c| *c == first).then_some(first)
-        }
-    }
-
-    /// The first surface colour reached from a presentation style.
-    fn colour(file: &StepFile, id: u64, depth: usize) -> Option<[u8; 3]> {
-        if depth > 10 {
-            return None;
-        }
-        let inst = file.entities.get(&id)?;
-        if let Some(c) = inst.record("COLOUR_RGB") {
-            let v: Vec<f64> = c.params.iter().skip(1).filter_map(Param::as_f64).collect();
-            let byte = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
-            return (v.len() == 3).then(|| [byte(v[0]), byte(v[1]), byte(v[2])]);
-        }
-        if let Some(c) = inst.record("DRAUGHTING_PRE_DEFINED_COLOUR") {
-            return match param_str(c, 0).as_str() {
-                "red" => Some([255, 0, 0]),
-                "green" => Some([0, 255, 0]),
-                "blue" => Some([0, 0, 255]),
-                "yellow" => Some([255, 255, 0]),
-                "magenta" => Some([255, 0, 255]),
-                "cyan" => Some([0, 255, 255]),
-                "black" => Some([0, 0, 0]),
-                "white" => Some([255, 255, 255]),
-                _ => None,
-            };
-        }
-        let records: Vec<&Record> = match inst {
-            Instance::Simple(r) => vec![r],
-            Instance::Complex(rs) => rs.iter().collect(),
-        };
-        // Lines' colours are not the faces'.
-        if records.iter().any(|r| r.name == "CURVE_STYLE" || r.name == "POINT_STYLE") {
-            return None;
-        }
-        let refs = records.iter().flat_map(|r| r.params.iter()).flat_map(|p| match p {
-            Param::Ref(id) => vec![*id],
-            Param::List(l) => l.iter().filter_map(Param::as_ref_id).collect(),
-            _ => Vec::new(),
-        });
-        refs.into_iter().find_map(|r| colour(file, r, depth + 1))
-    }
-
-    impl Solid {
-        /// A STEP body as an exact solid, built by `step-brep` (from its topology, else
-        /// stitched); refused unless closed with every face.
-        pub(crate) fn from_step_body(body: &sm::Body) -> Result<Solid> {
-            crate::engine::guarded("step body", || {
-                let options = step_brep::BuildOptions { mode: step_brep::BuildMode::Strict, ..Default::default() };
-                let mut built = step_brep::build_body(body, options).map_err(|e| err(e.message))?;
-                if let Some(f) = built.face_failures.first() {
-                    return Err(err(format!("{} faces left out (face #{}: {})", built.face_failures.len(), f.face, f.reason)));
+            // The shells a solid or a surface model lists.
+            let mut shells = Vec::new();
+            if let Some(e) = ex.get(body) {
+                for p in e.records.iter().flat_map(|r| r.params.iter()) {
+                    match p {
+                        Param::Ref(id) => shells.push(*id),
+                        Param::List(l) => shells.extend(l.iter().filter_map(Param::as_ref_id)),
+                        _ => {}
+                    }
                 }
-                if built.path == step_brep::BuildPath::Stitch && !step_brep::is_closed_solid(&built.brep) {
-                    return Err(err("not a closed solid"));
-                }
-                let mut k = crate::engine::kernel();
-                crate::engine::to_record(&mut k, &mut built.brep, "step body")
-            })
+            }
+            if let Some(c) = shells.iter().find_map(|s| self.of_item.get(s)) {
+                return Some(*c);
+            }
+            let mut colours = faces.iter().filter_map(|f| self.of_item.get(f));
+            let first = *colours.next()?;
+            colours.all(|c| *c == first).then_some(first)
         }
     }
 }

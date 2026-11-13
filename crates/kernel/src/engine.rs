@@ -97,10 +97,8 @@ impl Solid {
     }
 
     /// The solid's exact bounding box, in its own coordinates (the extremes of its faces, not
-    /// only of its vertices — a cylinder has a vertex per circle). SolidCore's tight box,
-    /// within its loose one: the loose box always holds the solid (larger once turned), and the
-    /// tight one of a mirrored cylinder is wrong along its axis (1234567, a placeholder:
-    /// `tests/solidcore_quirks.rs`), which the loose one bounds.
+    /// only of its vertices — a cylinder has a vertex per circle): SolidCore's tight box, its
+    /// loose one (which always holds the solid, larger once turned) should the tight one fail.
     pub fn bounds(&self) -> Result<(DVec3, DVec3)> {
         guarded("bounds", || {
             use solidcore::query::api_queries::brep_bounding_box;
@@ -113,10 +111,7 @@ impl Solid {
             if !loose.is_defined() {
                 return Err(Error::Empty("bounds".into()));
             }
-            let (llo, lhi) = corners(loose);
-            let Ok(tight) = brep_bounding_box(&k, &b, true).map(corners) else { return Ok((llo, lhi)) };
-            let (lo, hi) = (tight.0.max(llo), tight.1.min(lhi));
-            Ok(if lo.cmple(hi).all() { (lo, hi) } else { (llo, lhi) })
+            Ok(brep_bounding_box(&k, &b, true).ok().filter(|t| t.is_defined()).map_or_else(|| corners(loose), corners))
         })
     }
 
@@ -406,7 +401,7 @@ fn kernel_err(call: &str, e: solidcore::SolidError) -> Error {
     Error::Kernel { call: call.into(), message: e.to_string() }
 }
 
-fn to_kernel(k: &mut Kernel, r: &Record, call: &str) -> Result<solidcore::Brep> {
+pub(crate) fn to_kernel(k: &mut Kernel, r: &Record, call: &str) -> Result<solidcore::Brep> {
     solidcore_convert::brep::to_kernel_body(k, r, true).map_err(|e| Error::Convert { call: call.into(), message: e.to_string() })
 }
 
@@ -657,12 +652,10 @@ mod tests {
         assert!(close(torus.bounds().unwrap(), (DVec3::new(-12.0, -12.0, -2.0), DVec3::new(12.0, 12.0, 2.0))), "{:?}", torus.bounds());
         let cone = Solid::new_cone(DVec3::ZERO, 6.0, 2.0, 10.0).unwrap();
         assert!(close(cone.bounds().unwrap(), (DVec3::new(-6.0, -6.0, 0.0), DVec3::new(6.0, 6.0, 10.0))), "{:?}", cone.bounds());
-        // Mirrored (SolidCore's tight box of a mirrored cylinder is wrong along its axis) and
-        // turned (its loose box grows).
+        // Mirrored (SolidCore's tight box of a mirrored cylinder was wrong along its axis until
+        // `7c4c2f4`) and turned (its loose box grows).
         let mirrored = cyl.transformed(&DAffine3::from_scale(DVec3::new(-1.0, 1.0, 1.0))).unwrap();
-        // There, the loose box: grown by SolidCore's tolerance (2e-5 mm).
-        let (lo, hi) = mirrored.bounds().unwrap();
-        assert!((lo - DVec3::new(-4.0, -4.0, 0.0)).length() < 1e-4 && (hi - DVec3::new(4.0, 4.0, 30.0)).length() < 1e-4, "{lo} {hi}");
+        assert!(close(mirrored.bounds().unwrap(), (DVec3::new(-4.0, -4.0, 0.0), DVec3::new(4.0, 4.0, 30.0))), "{:?}", mirrored.bounds());
         let turned = cyl.transformed(&DAffine3::from_rotation_z(0.5)).unwrap();
         assert!(close(turned.bounds().unwrap(), (DVec3::new(-4.0, -4.0, 0.0), DVec3::new(4.0, 4.0, 30.0))), "{:?}", turned.bounds());
         // Cut: a box with a half cylinder off one side keeps the box's extents.

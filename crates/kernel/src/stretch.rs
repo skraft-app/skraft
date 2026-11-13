@@ -23,6 +23,7 @@
 
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
+use solidcore_record::brep::blend::{BlendDefinition, BlendDefinitionRecord, NurbsCurveRecord, NurbsSurfaceRecord, SupportRecord};
 use solidcore_record::brep::{Brep as Record, Curve, Curve2, Edge, Face, Frame, Loop, Surface};
 use solidsketch_i18n::t;
 
@@ -535,6 +536,53 @@ fn translate_surface(s: &mut Surface, d: DVec3) {
                 matrix[3][i] += d[i] * matrix[3][3];
             }
         }
+        // The face's `nurbs` is the net, translated with it; the definition the kernel rebuilds
+        // and certifies the net against must move as well.
+        Surface::Blend { definition } => match definition.as_mut() {
+            BlendDefinition::Procedural(r) => translate_blend(r, d),
+            BlendDefinition::ExactRound(r) => {
+                r.supports.iter_mut().for_each(|s| translate_support(s, d));
+                if let Some(l) = &mut r.leader {
+                    translate_nurbs_curve(l, d);
+                }
+                translate(&mut r.inputs.centre, d);
+            }
+        },
+    }
+}
+
+/// A procedural blend's definition translated: its supports and its leader. The seeds are (u, v)
+/// on the supports and the radius law a function of the leader's parameter: neither moves.
+fn translate_blend(r: &mut BlendDefinitionRecord, d: DVec3) {
+    r.supports.iter_mut().for_each(|s| translate_support(s, d));
+    translate_nurbs_curve(&mut r.leader, d);
+}
+
+fn translate_support(s: &mut SupportRecord, d: DVec3) {
+    match s {
+        SupportRecord::Nurbs { form, .. } => translate_nurbs_surface(form, d),
+        SupportRecord::Blend(b) => {
+            translate_blend(&mut b.definition, d);
+            translate_nurbs_surface(&mut b.net, d);
+        }
+    }
+}
+
+/// Control points stored as `(w x, w y, w z)` when rational: each moves by its weight times `d`.
+fn translate_weighted(points: &mut [[f64; 3]], weights: Option<&[f64]>, d: DVec3) {
+    for (i, p) in points.iter_mut().enumerate() {
+        translate(p, d * weights.map_or(1.0, |w| w[i]));
+    }
+}
+
+fn translate_nurbs_surface(n: &mut NurbsSurfaceRecord, d: DVec3) {
+    translate_weighted(&mut n.points, n.weights.as_deref(), d);
+}
+
+fn translate_nurbs_curve(n: &mut NurbsCurveRecord, d: DVec3) {
+    // Only a curve in space moves (a leader); a plane curve is in parameters.
+    if n.dim == 3 && n.points_3d {
+        translate_weighted(&mut n.points, n.weights.as_deref(), d);
     }
 }
 

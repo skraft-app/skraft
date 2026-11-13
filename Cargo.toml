@@ -20,15 +20,18 @@ solidsketch-theme = { path = "crates/theme" }
 
 # SolidCore (tangency-labs/solidcore, Apache-2.0): the B-rep kernel, its record (geometry as
 # data) and its mesher. Only `solidcore` is on crates.io; the others come from the mirror,
-# pinned to one revision so the four crates always agree.
-solidcore = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
-solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
-solidcore-convert = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
-solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
-# SolidCore's STEP reader and B-rep builder, from the same revision: its neutral body model
-# builds the planar-faced solids of an import (crates/kernel, `Solid::from_polyhedron`).
-step-import = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
-step-brep = { git = "https://github.com/tangency-labs/solidcore", rev = "e4f040d3fb9c9442af4d94b0fdfcad01e4c577d6" }
+# pinned to one revision so the crates always agree.
+solidcore = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
+solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
+solidcore-convert = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
+solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
+# SolidCore's operations layer (solidcore-step builds on it): the kernel's pcurves for the faces
+# the STEP reader has no closed form for.
+solidcore-ops = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
+# SolidCore's STEP crate, from the same revision: its topology reader builds the bodies of a
+# STEP import and the planar-faced solids of a SketchUp import (crates/kernel, `step.rs`,
+# `Solid::from_polyhedron`).
+solidcore-step = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
 
 glam = { version = "0.30", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }

@@ -1,7 +1,8 @@
 //! A solid bounded by planar polygons, as a mesh modeller holds it (a SketchUp definition):
 //! shared vertices, faces of one outer loop and maybe holes. [`Solid::from_polyhedron`] turns
-//! it into an exact B-rep through SolidCore's STEP body builder (`step-brep`), the way a
-//! STEP `FACETED_BREP` is read: its topology as given, its planes through its polygons.
+//! it into an exact B-rep through SolidCore's STEP topology reader (`solidcore_step::topology`),
+//! the faces handed to it as the STEP entities of a B-rep (in memory, never as text): its
+//! topology as given, a plane through each polygon, a line along each edge.
 
 use glam::DVec3;
 
@@ -163,7 +164,8 @@ mod build {
     use std::collections::HashMap;
 
     use glam::DVec3;
-    use step_import::model as sm;
+    use solidcore_record::step::p21::{Entity, Exchange, Param, Record};
+    use solidcore_step::topology;
 
     use super::{Polyhedron, newell};
     use crate::{Error, Result, Solid};
@@ -172,22 +174,64 @@ mod build {
         Error::Kernel { call: "polyhedron".into(), message: message.into() }
     }
 
+    /// The STEP entities of a B-rep, numbered as they are added.
+    #[derive(Default)]
+    struct Entities(Exchange);
+
+    impl Entities {
+        fn add(&mut self, name: &str, params: Vec<Param>) -> u64 {
+            let id = self.0.entities.len() as u64 + 1;
+            self.0.entities.insert(id, Entity { records: vec![Record { name: name.into(), params }] });
+            id
+        }
+        fn point(&mut self, p: DVec3) -> u64 {
+            self.add("CARTESIAN_POINT", vec![label(), reals(p)])
+        }
+        fn direction(&mut self, d: DVec3) -> u64 {
+            self.add("DIRECTION", vec![label(), reals(d)])
+        }
+    }
+
+    fn label() -> Param {
+        Param::Str(String::new())
+    }
+
+    fn reals(v: DVec3) -> Param {
+        Param::List(v.to_array().into_iter().map(Param::Real).collect())
+    }
+
+    fn refs(ids: impl IntoIterator<Item = u64>) -> Param {
+        Param::List(ids.into_iter().map(Param::Ref).collect())
+    }
+
+    fn flag(b: bool) -> Param {
+        Param::Enum(if b { "T" } else { "F" }.into())
+    }
+
     impl Polyhedron {
-        /// The neutral STEP body of these faces (already [`Polyhedron::oriented`]): one closed
-        /// shell, a plane per face, a line per edge shared by its two faces.
-        fn body(&self) -> Result<sm::Body> {
-            let a = |v: DVec3| v.to_array();
-            let vertices: Vec<sm::Vertex> =
-                self.vertices.iter().enumerate().map(|(i, p)| sm::Vertex { step_id: i as u64 + 1, point: a(*p) }).collect();
-            let mut edges: Vec<sm::Edge> = Vec::new();
-            let mut by_ends: HashMap<(u32, u32), usize> = HashMap::new();
-            let mut faces = Vec::with_capacity(self.faces.len());
+        /// These faces (already [`Polyhedron::oriented`]) as a STEP B-rep: a plane per face, a
+        /// line per edge shared by its two faces, a closed shell per set of faces joined by
+        /// edges. The B-rep's entity, and the entities.
+        fn exchange(&self) -> Result<(u64, Exchange)> {
+            let mut x = Entities::default();
+            let vertices: Vec<u64> = self
+                .vertices
+                .iter()
+                .map(|p| {
+                    let pt = x.point(*p);
+                    x.add("VERTEX_POINT", vec![label(), Param::Ref(pt)])
+                })
+                .collect();
+            let mut edges: HashMap<(u32, u32), u64> = HashMap::new();
+            // Per face: the edges (by ends) it uses, to join faces into shells.
+            let mut face_ids = Vec::with_capacity(self.faces.len());
+            let mut face_edges: Vec<Vec<(u32, u32)>> = Vec::with_capacity(self.faces.len());
             for (fi, f) in self.faces.iter().enumerate() {
                 let outer = &f.loops[0];
                 let o = self.vertices[outer[0] as usize];
                 let z = newell(&self.vertices, outer).normalize_or_zero();
                 // X along the first edge not along Z, made square to it.
-                let x = outer
+                let dx = outer
                     .iter()
                     .skip(1)
                     .map(|&i| {
@@ -196,46 +240,48 @@ mod build {
                     })
                     .find(|x| *x != DVec3::ZERO)
                     .unwrap_or(DVec3::ZERO);
-                if z == DVec3::ZERO || x == DVec3::ZERO {
+                if z == DVec3::ZERO || dx == DVec3::ZERO {
                     return Err(err(format!("face {fi}: degenerate polygon")));
                 }
-                let frame = sm::Frame { origin: a(o), x: a(x), y: a(z.cross(x)), z: a(z) };
-                let mut loops = Vec::with_capacity(f.loops.len());
+                let (po, pz, px) = (x.point(o), x.direction(z), x.direction(dx));
+                let axes = x.add("AXIS2_PLACEMENT_3D", vec![label(), Param::Ref(po), Param::Ref(pz), Param::Ref(px)]);
+                let plane = x.add("PLANE", vec![label(), Param::Ref(axes)]);
+                let mut bounds = Vec::with_capacity(f.loops.len());
+                let mut used = Vec::new();
                 for (k, l) in f.loops.iter().enumerate() {
                     let mut oriented = Vec::with_capacity(l.len());
                     for (j, &s) in l.iter().enumerate() {
                         let e = l[(j + 1) % l.len()];
                         let key = (s.min(e), s.max(e));
-                        let edge = match by_ends.get(&key) {
-                            Some(&i) => i,
+                        let edge = match edges.get(&key) {
+                            Some(&id) => id,
                             None => {
                                 let (p, q) = (self.vertices[key.0 as usize], self.vertices[key.1 as usize]);
                                 let len = (q - p).length();
                                 if len < 1e-9 {
                                     return Err(err(format!("face {fi}: zero-length edge")));
                                 }
-                                edges.push(sm::Edge {
-                                    step_id: 0,
-                                    start: key.0 as usize,
-                                    end: key.1 as usize,
-                                    curve: sm::Curve::Line { origin: a(p), dir: a((q - p) / len), magnitude: len },
-                                    same_sense: true,
-                                    t_start: 0.0,
-                                    t_end: 1.0,
-                                });
-                                by_ends.insert(key, edges.len() - 1);
-                                edges.len() - 1
+                                let (start, dir) = (x.point(p), x.direction((q - p) / len));
+                                let vector = x.add("VECTOR", vec![label(), Param::Ref(dir), Param::Real(len)]);
+                                let line = x.add("LINE", vec![label(), Param::Ref(start), Param::Ref(vector)]);
+                                let [a, b] = [key.0, key.1].map(|v| Param::Ref(vertices[v as usize]));
+                                let id = x.add("EDGE_CURVE", vec![label(), a, b, Param::Ref(line), flag(true)]);
+                                edges.insert(key, id);
+                                id
                             }
                         };
-                        oriented.push(sm::OrientedEdge { edge, forward: s == key.0 });
+                        used.push(key);
+                        oriented.push(x.add("ORIENTED_EDGE", vec![label(), Param::Derived, Param::Derived, Param::Ref(edge), flag(s == key.0)]));
                     }
-                    loops.push(sm::Loop { outer: k == 0, orientation: true, bound: sm::Bound::Edges(oriented) });
+                    let lp = x.add("EDGE_LOOP", vec![label(), refs(oriented)]);
+                    bounds.push(x.add(if k == 0 { "FACE_OUTER_BOUND" } else { "FACE_BOUND" }, vec![label(), Param::Ref(lp), flag(true)]));
                 }
-                faces.push(sm::Face { step_id: fi as u64 + 1, surface: sm::Surface::Plane { frame }, same_sense: true, loops });
+                face_ids.push(x.add("ADVANCED_FACE", vec![label(), refs(bounds), Param::Ref(plane), flag(true)]));
+                face_edges.push(used);
             }
             // One shell per set of faces joined by edges (a SketchUp definition may hold two
             // separate boxes): each its own lump.
-            let mut parent: Vec<usize> = (0..faces.len()).collect();
+            let mut parent: Vec<usize> = (0..face_ids.len()).collect();
             fn find(parent: &mut [usize], mut i: usize) -> usize {
                 while parent[i] != i {
                     parent[i] = parent[parent[i]];
@@ -243,61 +289,55 @@ mod build {
                 }
                 i
             }
-            let mut first_face: Vec<Option<usize>> = vec![None; edges.len()];
-            for (fi, f) in faces.iter().enumerate() {
-                for l in &f.loops {
-                    let sm::Bound::Edges(es) = &l.bound else { continue };
-                    for oe in es {
-                        match first_face[oe.edge] {
-                            None => first_face[oe.edge] = Some(fi),
-                            Some(other) => {
-                                let (a, b) = (find(&mut parent, fi), find(&mut parent, other));
-                                parent[a] = b;
-                            }
+            let mut first_face: HashMap<(u32, u32), usize> = HashMap::new();
+            for (fi, used) in face_edges.iter().enumerate() {
+                for key in used {
+                    match first_face.get(key) {
+                        None => {
+                            first_face.insert(*key, fi);
+                        }
+                        Some(&other) => {
+                            let (a, b) = (find(&mut parent, fi), find(&mut parent, other));
+                            parent[a] = b;
                         }
                     }
                 }
             }
             let mut shell_of: HashMap<usize, usize> = HashMap::new();
-            let mut shells: Vec<sm::Shell> = Vec::new();
-            for fi in 0..faces.len() {
+            let mut shells: Vec<Vec<u64>> = Vec::new();
+            for (fi, &face) in face_ids.iter().enumerate() {
                 let root = find(&mut parent, fi);
                 let s = *shell_of.entry(root).or_insert_with(|| {
-                    shells.push(sm::Shell { step_id: 0, closed: true, orientation: true, faces: Vec::new() });
+                    shells.push(Vec::new());
                     shells.len() - 1
                 });
-                shells[s].faces.push(fi);
+                shells[s].push(face);
             }
-            Ok(sm::Body {
-                step_id: 0,
-                name: None,
-                kind: sm::BodyKind::ManifoldSolid,
-                unit_mm: 1.0,
-                uncertainty_mm: None,
-                shells,
-                faces,
-                edges,
-                vertices,
-            })
+            let shells: Vec<u64> = shells.into_iter().map(|faces| x.add("CLOSED_SHELL", vec![label(), refs(faces)])).collect();
+            // One shell: a solid; several: a model of closed shells, read as one body of lumps.
+            let body = match shells.as_slice() {
+                [one] => x.add("MANIFOLD_SOLID_BREP", vec![label(), Param::Ref(*one)]),
+                _ => x.add("SHELL_BASED_SURFACE_MODEL", vec![label(), refs(shells)]),
+            };
+            Ok((body, x.0))
         }
     }
 
     impl Solid {
-        /// The exact solid bounded by these planar faces: built from their topology by
-        /// SolidCore's STEP body builder, refused unless it makes a closed solid with every
-        /// face (a face the builder leaves out, an open or non-manifold shell: an error).
+        /// The exact solid bounded by these planar faces: read from their topology by
+        /// SolidCore's STEP reader, refused unless it makes a closed solid with every face.
         pub fn from_polyhedron(poly: &Polyhedron) -> Result<Solid> {
             let (poly, _volume) = poly.oriented().map_err(err)?;
-            let body = poly.body()?;
+            let (body, ex) = poly.exchange()?;
             crate::engine::guarded("polyhedron", || {
-                // The topology alone: `oriented` checked it closes, and planar faces need no
-                // seam. No stitched fallback (slow), no volume check (the integration costs).
-                let mut built = step_brep::build_from_topology(&body, step_brep::BuildOptions::default()).map_err(|e| err(e.message))?;
-                if let Some(f) = built.face_failures.first() {
-                    return Err(err(format!("{} faces left out (face {}: {})", built.face_failures.len(), f.face, f.reason)));
+                // Lines on planes: every pcurve has its closed form, no kernel trims needed.
+                let read = topology::read_solid(&ex, body, Default::default()).map_err(err)?;
+                if read.sheet {
+                    return Err(err("not a closed solid"));
                 }
                 let mut k = crate::engine::kernel();
-                crate::engine::to_record(&mut k, &mut built.brep, "polyhedron")
+                let mut b = crate::engine::to_kernel(&mut k, &read.brep, "polyhedron")?;
+                crate::engine::to_record(&mut k, &mut b, "polyhedron")
             })
         }
     }

@@ -1535,9 +1535,9 @@ fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
     let tools: Vec<_> = l.iter().filter(|(_, look)| *look == Look::Tool).collect();
     assert_eq!(tools.len(), 2);
     assert_eq!(tools[0].0, tools[1].0, "a copied machining shares its tool's mesh");
-    // Meshed like shapes (the kernel is inline here).
+    // Meshed like shapes (the kernel is inline here): the blank, a box, takes its 12 triangles.
     for (k, _) in blank.iter().chain(&tools) {
-        assert!(e.scene().definition_mesh(*k).is_some_and(|m| m.parts[0].mesh.indices.len() > 36));
+        assert!(e.scene().definition_mesh(*k).is_some_and(|m| m.parts[0].mesh.indices.len() >= 36));
     }
     // A tool placed in the world through the occurrence.
     let r = e.scene().recipe().unwrap();
