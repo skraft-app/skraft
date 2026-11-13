@@ -7,6 +7,7 @@ mod face;
 mod measure;
 mod mover;
 mod paint;
+mod profile;
 mod rotate;
 mod section;
 mod select;
@@ -18,10 +19,11 @@ pub use erase::EraseTool;
 pub use measure::MeasureTool;
 pub use mover::MoveTool;
 pub use paint::PaintTool;
+pub use profile::ProfileTool;
 pub use rotate::RotateTool;
 pub use section::SectionTool;
 pub use select::SelectTool;
-pub use shapes::{BoxTool, CylinderTool};
+pub use shapes::{BoxTool, CylinderTool, PrismTool};
 pub use stretch::StretchTool;
 
 use std::collections::BTreeMap;
@@ -129,6 +131,9 @@ pub enum Command {
         key: &'static str,
         value: OptionValue,
     },
+    /// Drops the arrow keys' and Shift's locks (a step of the gesture done: the prism tool's
+    /// corner placed); the points tracked stay. The tool is then given the cursor again.
+    ClearLocks,
     /// Undoes the last step, which must be `previous`, and applies `op` instead (a copy
     /// turned into an array by a typed `5x`).
     Replace {
@@ -316,6 +321,8 @@ pub enum ToolKind {
     Select,
     Box,
     Cylinder,
+    /// Draws an outline, then pulls it into a prism (§6 nonies).
+    Prism,
     Move,
     Rotate,
     Boolean(Boolean),
@@ -329,6 +336,8 @@ pub enum ToolKind {
     Measure,
     /// Stretches a part along one of its axes (§6 sexies).
     Stretch,
+    /// Edits the open part's blank profile (§6 nonies, step 3).
+    Profile,
 }
 
 impl ToolKind {
@@ -338,6 +347,7 @@ impl ToolKind {
             ToolKind::Select => "select",
             ToolKind::Box => "box",
             ToolKind::Cylinder => "cylinder",
+            ToolKind::Prism => "prism",
             ToolKind::Move => "move",
             ToolKind::Rotate => "rotate",
             ToolKind::Boolean(Boolean::Union) => "union",
@@ -348,6 +358,7 @@ impl ToolKind {
             ToolKind::Section => "section",
             ToolKind::Measure => "measure",
             ToolKind::Stretch => "stretch",
+            ToolKind::Profile => "profile",
         }
     }
 
@@ -357,6 +368,7 @@ impl ToolKind {
             ToolKind::Select => t!("tool.select.name"),
             ToolKind::Box => t!("tool.box.name"),
             ToolKind::Cylinder => t!("tool.cylinder.name"),
+            ToolKind::Prism => t!("tool.prism.name"),
             ToolKind::Move => t!("tool.move.name"),
             ToolKind::Rotate => t!("tool.rotate.name"),
             ToolKind::Boolean(Boolean::Union) => t!("tool.boolean.union.name"),
@@ -367,12 +379,15 @@ impl ToolKind {
             ToolKind::Section => t!("tool.section.name"),
             ToolKind::Measure => t!("tool.measure.name"),
             ToolKind::Stretch => t!("tool.stretch.name"),
+            ToolKind::Profile => t!("tool.profile.name"),
         }
     }
 }
 
 /// What a tool sees of the editor.
 pub struct Cx<'a> {
+    /// The time now (seconds, the app's clock).
+    pub now: f64,
     pub doc: &'a Document,
     pub scene: &'a DisplayScene,
     pub camera: &'a Camera,
@@ -732,6 +747,21 @@ pub trait Tool {
     }
     /// The cursor left the view (off it, or over a panel): what follows it is hidden.
     fn leave(&mut self) {}
+    /// Is the tool waiting on the time, the cursor resting (the prism tool's switch to tangent
+    /// arcs)? The editor then gives it the cursor again as time goes by.
+    fn waiting(&self) -> bool {
+        false
+    }
+    /// Does Delete go to the tool now rather than erase the selection (the profile's corner
+    /// under the cursor)?
+    fn takes_delete(&self) -> bool {
+        false
+    }
+    /// The length option a value typed with this suffix sets (the prism tool's `r`, its fillet);
+    /// `x` is the first length option's otherwise (the offset).
+    fn length_suffix(&self, _suffix: char) -> Option<&'static str> {
+        None
+    }
     /// One step back (Esc while busy); by default, back to the first.
     fn back(&mut self) {
         self.reset();
@@ -847,6 +877,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Select => Box::new(SelectTool::default()),
         ToolKind::Box => Box::new(BoxTool::default()),
         ToolKind::Cylinder => Box::new(CylinderTool::default()),
+        ToolKind::Prism => Box::new(PrismTool::default()),
         ToolKind::Move => Box::new(MoveTool::default()),
         ToolKind::Rotate => Box::new(RotateTool::default()),
         ToolKind::Boolean(op) => Box::new(BooleanTool::new(op)),
@@ -855,6 +886,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Section => Box::new(SectionTool::default()),
         ToolKind::Measure => Box::new(MeasureTool::default()),
         ToolKind::Stretch => Box::new(StretchTool::default()),
+        ToolKind::Profile => Box::new(ProfileTool::default()),
     }
 }
 

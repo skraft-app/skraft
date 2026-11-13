@@ -270,6 +270,9 @@ option_bar:
   # (ARCHITECTURE.md §2.9).
   machinings: "$t(common.machinings)"
   machinings_tip: "Montrer le brut en transparence et les outils de ses usinages"
+  # The open part's profile edited with grips (ARCHITECTURE.md §6 nonies).
+  profile: "Profil"
+  profile_tip: "Modifier le contour et l'épaisseur du débit de la pièce avec des poignées"
   # The open part's scope, before its choices (those of the booleans' scope).
   part_scope_tip: "Ce que les modifications de la pièce ouverte changent (revient à tous les exemplaires à chaque ouverture)"
 
@@ -500,6 +503,39 @@ tool:
       radius_tip: "Du centre au bord"
       diameter: "Diamètre"
       diameter_tip: "D'un bord à l'autre, par le centre"
+  prism:
+    name: "Prisme"
+    hint:
+      first: "Cliquer le premier point · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
+      corners: "Cliquer le point suivant, ou taper une longueur · clic sur un point posé, double-clic ou Entrée : fermer · flèches : bloquer un axe · Tab : tracé · Maj : guide · %{copy_key} : inverser · Échap : retirer le dernier point"
+      tangent: "Arc tangent : cliquer son extrémité, ou taper le rayon · revenir se poser sur le dernier point : lignes · Tab : tracé · %{copy_key} : inverser · Échap : retirer le dernier point"
+      arc_end: "Arc 2 points : cliquer son extrémité, ou taper la longueur de la corde · Tab : tracé · %{copy_key} : inverser · Échap : retirer le dernier point"
+      bulge: "Cliquer le bombé de l'arc, ou taper sa flèche · Échap : abandonner l'arc"
+    vcb:
+      length: "Longueur"
+      radius: "Rayon"
+      bulge: "Flèche"
+      height: "$t(common.height)"
+    say:
+      behind: "Un arc tangent ne peut pas repartir en arrière"
+      too_few: "Il faut au moins trois points pour fermer le contour"
+      crossed: "Le contour se croise : impossible de le fermer"
+      empty: "Prisme vide : hauteur nulle"
+      curved_face: "Cette face a des bords ni droits ni en arc (ellipse, courbe libre) : pas prise en charge"
+      offset_crossed: "Le décalage ferait se croiser le contour"
+    option:
+      reversed: "Inversé"
+      reversed_tip: "Les nouveaux points s'ajoutent avant le premier au lieu d'après le dernier (%{copy_key} : basculer)"
+      fillet: "Congé"
+      fillet_tip: "Arrondit d'un rayon les coins entre deux côtés droits de la pièce faite, après le décalage · cliquer pour le taper, ou taper rayon suivi de r (5r)"
+      trace: "Tracé"
+      trace_tip: "Ce que trace le côté suivant (Tab pour changer)"
+      line: "Ligne"
+      line_tip: "Un côté droit"
+      tangent: "Arc tangent"
+      tangent_tip: "Un arc tangent au côté précédent, jusqu'au point cliqué (ou revenir se poser sur le dernier point)"
+      arc: "Arc 2 points"
+      arc_tip: "Un arc libre : cliquer son extrémité, puis son bombé"
   move:
     name: "$t(common.move)"
     hint:
@@ -607,6 +643,19 @@ tool:
       no_side: "Pointer le côté où décaler le guide"
       no_line: "Points confondus : pas de guide"
       no_radius: "Le cercle n'aurait plus de rayon : pas de guide"
+  profile:
+    name: "Profil"
+    hint:
+      idle: "Cliquer une poignée : un coin à déplacer, le milieu d'un côté pour ajouter un coin, d'un arc pour son bombé, le centre pour l'épaisseur · Suppr sur un coin : le retirer"
+      corner: "Cliquer la nouvelle place, ou taper une distance ou un point · flèches : bloquer un axe · Échap : annuler"
+      bulge: "Cliquer le bombé de l'arc, ou taper sa flèche · près de la corde : droit · Échap : annuler"
+      thickness: "Cliquer l'épaisseur, ou la taper · Échap : annuler"
+    vcb:
+      distance: "Distance"
+      bulge: "Flèche"
+      thickness: "Épaisseur"
+    say:
+      crossed: "Le contour se croiserait, ou n'aurait plus d'aire : non appliqué"
   stretch:
     name: "Étirer"
     hint:
@@ -715,6 +764,7 @@ operation:
   paint: "$t(common.paint)"
   stretch: "Étirer"
   stretch_behavior: "Plans de coupe"
+  set_profile: "Modifier le profil"
   hide: "$t(common.hide)"
   show: "$t(common.show)"
   show_all: "$t(common.show_all)"
@@ -784,6 +834,7 @@ error:
     bad_guide: "guide sans direction ou sans rayon"
     nothing_stretched: "aucun exemplaire à étirer"
     bad_behavior: "plans de coupe ou axes bloqués invalides"
+    bad_profile: "profil qui se croise, sans épaisseur, ou pièce sans profil"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"

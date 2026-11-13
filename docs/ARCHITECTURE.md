@@ -273,8 +273,10 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
     re-expressed.
 - Possible order: machining types → parametric board blank and anchors → shared tool
   definitions and hardware-linked machinings. Not: recursive machinings on tools.
+- **A non-rectangular blank** (decided on 2026-11-13, §6 nonies): a profile × a thickness,
+  the profile kept in the blank's recipe — the board is the case of a rectangular profile.
 - Open questions: is anchoring on the blank only acceptable (a hole in a chamfered face is
-  then expressed against the box)? Can a non-rectangular blank be parametric? Should the axes
+  then expressed against the box)? Should the axes
   tool snap to the 24 orientations on a parametric part, or stay free and offer the conversion
   only on an oblique angle?
 
@@ -1258,6 +1260,148 @@ The pattern is a web browser's; the drawing is ours.
   path, modified, active), `docs.switch`, `docs.new`, `docs.close` (`force` skips the
   question) are added.
 - **Texts**: `tabs.*` and `start.*` keys of the catalog, without ellipsis (§6 quater).
+
+## 6 nonies. Prism tool and profiled blanks
+
+Discussed on 2026-11-13, after OpenCutList's `SmartDrawPolygonActionHandler`
+(`tool/smart_draw_tool.rb`). Branch `feature/shape-polygon`.
+
+**The sketch lives in the part** (decided): no free-standing sketch entity in the model, no
+live link between a sketch and the parts made from it (that would be a parametric history,
+§1). A profiled blank is `Profile × thickness`, the profile stored in the blank's recipe; to
+change the outline later, the part is opened and its profile with it (as its machinings,
+§2.9). The cut list reads the thickness along the part's Z and the length and width from the
+profile's box, and gets the exact outline for DXF / SVG exports and nesting, without reading
+it back from the B-rep. (A prism drawn in an open part is a machining already, §2.9.)
+
+**Steps**: 1. the `Prism` primitive (straight sides) and the Prism tool (first named Polygon),
+faithful to OCL (this section); 2. arcs in the profile and the tool (below); 3. the profile
+edited in an open part, the part kept parametric (below) — all three built on 2026-11-13.
+Not planned: a profile drawn on a face as a dedicated machining step (dropped on 2026-11-13);
+a geometric constraint solver (inferences and typed values play that part, SketchUp's way).
+
+**Primitive**: `Primitive::Prism { origin, profile, height }` — `profile`, the outer loop's
+corners in the XY plane through `origin` (relative to it, at least three, a simple outline,
+either way round: the kernel turns it), extruded along +Z by `height`. Its `at_origin` puts
+the part's origin at the lowest corner of the profile's box (arcs included), as a box's.
+Built by SolidCore's `prism::extrude::extrude_region` (a `Region2` of `Seg2::Line`s and
+`Seg2::Arc`s on the frame, swept from 0 to `height`). Holes later. The tool refuses a profile
+that crosses itself before the kernel does.
+
+**Arcs** (step 2, decided on 2026-11-13): each corner is `{ p, bulge }`, as DXF's LWPOLYLINE
+(OCL's DXF export): `bulge` = tan(sweep / 4) curves the side from that corner to the next one,
+0 straight, positive turning counter-clockwise. The ends are shared, so the outline cannot
+open. `kernel::profile` works on these outlines: area, clean-up, simplicity (lines and arcs
+crossing), the box, the offset (an arc offset is the concentric arc, as SolidCraft's; an arc
+the offset turns over or shrinks to nothing is taken out as a line would be), the fillets,
+and points along it for the previews.
+
+**Tool** « Prisme » (`tool.prism`, P, ribbon group Create after the cylinder; renamed from « Polygone » on 2026-11-13: what it makes is a prism, the polygon only its outline). Its
+states are OCL's: the first point, the points, the height.
+
+- **First point**: the box's first step (§6, §6 ter: the plane of the face aimed at, an edge,
+  the ground; the arrows lock the plane, ↓ the face's; the copy modifier held takes a face's
+  centroid, Shift tapped then its whole outer loop as the profile, and the height follows; the other modifier measures from a corner). The plane
+  locked then stays for the whole profile (OCL's `@locked_normal`), and the arrow locks are
+  dropped once the point is placed: from there they lock an axis.
+- **Points**: each click adds a corner; the cursor's point is inferred with the lines through
+  the last corner (red, green, blue, parallels), the arrows lock the axis through it (→ red,
+  ← green, ↑ blue, ↓ frees it; a beep — a word in the status bar — when the axis leaves a
+  plane already set), Shift held keeps the line inferred. Each corner placed drops the locks.
+  The plane, as OCL: with one corner, the box's second-corner rules (an axis plane through
+  the first corner the point lies in, an edge or a guide and the first corner, a face the
+  first corner lies on, else the upright plane through both); with two, the plane through
+  them and the cursor's point; from three on it is set, and the cursor's point is brought
+  onto it. A plane locked at the first point overrides all of this. From three corners, the
+  cursor within 10 px of a placed corner snaps to it (on the locked axis, its foot there);
+  from two, off any feature, it snaps to the foot of a placed corner on the line from the last
+  one, drawn dotted magenta from that corner (OCL's alignment).
+- **Closing**: a click on a placed corner (three at least), a double-click (the corner added,
+  then closed), or Enter with the measurements box empty (a deviation from OCL). The profile
+  then goes to the height.
+- **Reversed** (OCL's `measure_reversed`, saved toggle, the copy modifier tapped): new corners
+  go before the first one instead of after the last, so the outline can grow at either end;
+  the lines, the locks and the typed lengths then start from the first corner.
+- **Guides**: Shift tapped adds a guide from the last corner (the first, reversed) towards the
+  cursor: a real guide of the context (§6 quinquies, its own undo step), where OCL draws a
+  construction line it erases when leaving the step.
+- **Esc** takes away the last corner placed (in the order placed, OCL's stack); with none
+  left, back to the first point. From the height, back to the points, all kept.
+- **Typed**: a length along the cursor's direction from the last corner (first, reversed), or
+  a point (`[x;y;z]`, `<dx;dy;dz>`), brought onto the plane once it is set.
+- **Height**: the box's (§6): Shift held or a double-click take the last height, the copy
+  modifier held runs it to the first face along the normal from the profile's middle, tapped
+  it centres it (« Hauteur centrée », shared with Box and Cylinder).
+- **Made**: in the frame of the profile's plane through the first corner (the frame of
+  §6's shapes, its `u` horizontal, or red on a horizontal plane): built as is on an axis
+  plane, else in that frame and placed. In an open part, a machining (§2.9).
+- **Offset** (decided on 2026-11-13): the « Décalage » option of Box and Cylinder (§6 bis,
+  saved for the tool, `3x` at any step) moves the outline made, never the height; the outline
+  drawn is dashed then, the one made solid, from three corners (the cursor's included), and
+  the lengths written and typed stay the drawn ones'. Computed as SolidCraft's sketch offset
+  (`crates/sketch/src/offset.rs`), in `kernel::profile::offset`: each side moved along its
+  normal, the corners sharp where neighbouring sides meet — exact, no polygon library, ready
+  for arcs (an arc offset is a concentric arc). As Clipper's miter offset (OCL's), a side the
+  offset turns over is taken out and its neighbours meet instead (a trapezoid can become a
+  triangle). Refused, said in the status bar, the height step kept: nothing left (inward past
+  the middle), or an outline that would cross itself (an outward offset closing a notch, an
+  inward one pinching a neck: one outline cannot be two pieces).
+- **Sides** (step 2): the choice « Tracé » in the bar — Ligne, Arc tangent, Arc 2 points —
+  turned by Tab, not saved (each outline starts with lines, as SolidCraft's chains); the
+  cursor carries a word for an arc mode (the inference's tip). SolidCraft's gesture
+  (`ui-egui/src/sketch_line_arc.rs`) switches Ligne ↔ Arc tangent: leave the last corner
+  (20 px), come back onto it (8 px) and rest there 0.35 s (drifting 2 px at most); then it
+  must be left again before switching back. The side closing the outline follows the mode.
+  - *Arc tangent*: from the last corner (the first, reversed), tangent to the side ending
+    there, to the cursor's point; with no side yet, a line. Its end straight behind is
+    refused. Typed: the radius, the cursor keeping the side the arc turns to.
+  - *Arc 2 points* (SketchUp's): a click sets the end, a second one the bulge (the arc
+    through the cursor's point); the bulge snaps to the half circle within 10 px. Typed: the
+    end as a line's, then the bulge's height (sagitta). Esc drops the arc under way.
+- **Fillet** (step 2): the « Congé » length option (saved for the tool, `5r` at any step, as
+  the offset's `5x`) rounds every corner between two straight sides at creation, after the
+  offset — the radius is the made part's. A corner whose sides are too short for it (the
+  fillets at both ends of a side counted) stays sharp. Previewed with the offset's outline.
+- **Whole face** (step 2): Shift with the copy modifier held takes a face's outer outline with
+  its arcs too.
+
+**Profile in the part** (step 3, decided on 2026-11-13):
+
+- **The recipe keeps it**: `Part::profile: Option<BlankProfile { profile, z0, height }>` — the
+  outline in the part's XY plane, extruded from `z0` by `height` along its Z; the blank solid is
+  built from it (`Primitive::Prism`) and stays a cache of it, as the shape is of the machinings
+  (§2.4). Box, Cylinder and Prism all record theirs (a rectangle; a disc as two half circles;
+  the outline made, offset and fillets included). Imports and booleans make free parts (none).
+- **Stretching keeps it when it can** (§6 sexies, in the part's axes): along Z, `z0` and
+  `height` follow their sections; along any axis in its plane, each corner moves with its
+  section, an arc whole in one section rigidly; an arc across a cutter (it would not stay an
+  arc), or an axis neither in its plane nor along Z, drops it — the part becomes free. (The
+  kernel refuses these stretches anyway, an edge across a cutter having to run along the axis:
+  a safeguard.)
+- **The machinings stay where they are** in the part's axes, and so does the origin when the
+  outline grows or shrinks (anchoring them on the blank, §2.10, is for later).
+- **`Operation::SetProfile { target, profile, z0, height, scope }`**: the blank built again
+  from the outline, then the shape from the blank (§2.4); the scope of the open part (§2.9),
+  "only this one" making it a separate part. Refused for an outline that is not simple or no
+  height.
+- **Editing** (`ToolKind::Profile`, « Profil »): a button beside « Usinages » in the option
+  bar's Options while a part with a profile is open, on while the tool is the active one (any
+  other tool turns it off). The outline is drawn on the cap facing the eye (both caps' when
+  seen edge on, the top's), with grips: its corners (round), its arcs' middles (diamonds), its
+  straight sides' middles (small, to insert a corner) and the cap's middle (the thickness). A
+  grip is taken by a click and dropped by another (SketchUp's Move; a drag works too), Esc
+  dropping the gesture; each gesture is one operation (one undo step):
+  - a corner follows the cursor, inferred with the lines through where it was and brought onto
+    the cap's plane; its sides follow, an arc keeping its bulge. Typed: a distance along the
+    move, or a point;
+  - a side's middle inserts a corner there, which then moves as a corner;
+  - an arc's middle sets its bulge (the arc through the cursor), snapping to the half circle
+    and to straight (the chord) within 10 px. Typed: its height (sagitta);
+  - the thickness grip moves that cap along the part's Z (the box's height step). Typed: the
+    thickness;
+  - Delete over a corner takes it away (the outline must stay simple, at least three corners
+    or an arc).
+  An outline that would cross itself is refused, said in the status bar.
 
 ## 7. Crates
 

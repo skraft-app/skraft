@@ -159,6 +159,7 @@ fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.erase" => ToolKind::Erase,
         "tool.box" => ToolKind::Box,
         "tool.cylinder" => ToolKind::Cylinder,
+        "tool.prism" => ToolKind::Prism,
         "tool.move" => ToolKind::Move,
         "tool.rotate" => ToolKind::Rotate,
         "tool.paint" => ToolKind::Paint,
@@ -856,6 +857,7 @@ impl SolidSketchApp {
                 let _ = e.apply(op);
             }
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
+            Action::ToggleProfile => e.set_tool(if e.tool_kind() == ToolKind::Profile { ToolKind::Select } else { ToolKind::Profile }),
             Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),
             Action::SelectMachinings(ids) => e.select(ids),
@@ -1009,6 +1011,8 @@ impl SolidSketchApp {
             K::ArrowUp => e.input(tool_key(Key::Up)),
             K::ArrowDown => e.input(tool_key(Key::Down)),
             K::Tab => e.input(tool_key(Key::Tab)),
+            // Enter with nothing typed: the tool's (the prism tool closes its outline).
+            K::Enter => e.input(tool_key(Key::Enter)),
             _ => return self.keymap.command_for(key, modifiers),
         }
         None

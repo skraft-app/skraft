@@ -62,6 +62,9 @@ use crate::camera::Ray;
 use crate::infer::{EdgeRef, InferKind, Inference, LineKind};
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 
+mod prism;
+pub use prism::PrismTool;
+
 /// The smallest dimension built (mm).
 const MIN: f64 = 1e-3;
 /// How far off a plane a point still lies in it (mm).
@@ -394,9 +397,17 @@ fn base_at(cx: &Cx<'_>, px: DVec2, f: &Frame, dir: Option<DVec3>) -> Option<(Fra
         let dir = snap.as_ref().and_then(|i| guide_dir(cx, i)).or(dir);
         return Some((Frame::new(o, n, dir), p2, snap));
     }
-    let ray = cx.axes_ray(px).dir;
     // Nothing under the cursor: the ground through the first corner.
     let inf = cx.infer(px, |_| true, Some((cx.to_world(o), dir_to_world(cx, DVec3::Z))))?;
+    Some(second_plane(cx, px, f, dir, inf))
+}
+
+/// The plane a second point inferred as `inf` sets through the first one, `f.o` (§ module doc:
+/// the box's second corner, the prism's second corner), and the point on it: `f` is the plane
+/// so far, `dir` the direction the first click gave.
+fn second_plane(cx: &Cx<'_>, px: DVec2, f: &Frame, dir: Option<DVec3>, inf: Inference) -> (Frame, DVec3, Option<Inference>) {
+    let o = f.o;
+    let ray = cx.axes_ray(px).dir;
     let q = cx.to_axes(inf.point);
     let on = |a: DVec3| (q - o).dot(a).abs() < ON;
     // An axis plane through the first corner, its normal the way the plane so far has it.
@@ -427,7 +438,7 @@ fn base_at(cx: &Cx<'_>, px: DVec2, f: &Frame, dir: Option<DVec3>) -> Option<(Fra
         None => upright(o, q, ray, dir).unwrap_or(*f),
     };
     let snap = Some(inf).filter(|i| i.kind != InferKind::OnPlane);
-    Some((g, g.flatten(q), snap))
+    (g, g.flatten(q), snap)
 }
 
 /// The height the cursor gives above the plane at `p` (the axes' coordinates): that of a feature

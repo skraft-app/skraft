@@ -1588,3 +1588,64 @@ fn placements_are_counted_over_the_distinct_assemblies() {
     assert_eq!(fast.into_iter().collect::<std::collections::HashMap<_, _>>(), slow);
     assert!(slow.values().any(|n| *n >= 6), "{slow:?}");
 }
+
+// ---- Blank profiles (ARCHITECTURE.md §6 nonies, step 3) --------------------------------------
+
+fn profile_of(doc: &Document, path: &EntityPath) -> Option<BlankProfile> {
+    doc.resolve_part(path).unwrap().1.profile.clone()
+}
+
+#[test]
+fn a_profile_is_kept_set_and_stretched() {
+    use solidsketch_kernel::profile::{Corner, polygon};
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let board = add(&mut h, Primitive::Box { origin: DVec3::new(100.0, 0.0, 0.0), size: DVec3::new(600.0, 300.0, 18.0) });
+    let path = EntityPath::root(board);
+    // The box's rectangle, at the part's origin (its lowest corner).
+    let b = profile_of(h.document(), &path).unwrap();
+    assert_eq!(solidsketch_kernel::profile::bounds(&b.profile), Some((glam::DVec2::ZERO, glam::DVec2::new(600.0, 300.0))));
+    assert_eq!((b.z0, b.height), (0.0, 18.0));
+
+    // A copy of it, then the profile set for all: an L, thicker.
+    h.apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * 500.0) }).unwrap();
+    let copy = h.document().assembly(root).unwrap().occurrences().last().unwrap().id;
+    let l = polygon(&[(0.0, 0.0), (600.0, 0.0), (600.0, 100.0), (100.0, 100.0), (100.0, 300.0), (0.0, 300.0)].map(|(x, y)| glam::DVec2::new(x, y)));
+    let set = |profile: Vec<Corner>, height: f64, scope| Operation::SetProfile {
+        target: path.clone(),
+        profile: BlankProfile { profile, z0: 0.0, height },
+        scope,
+    };
+    h.apply(set(l.clone(), 19.0, Scope::All)).unwrap();
+    let (_, part, _) = h.document().resolve_part(&path).unwrap();
+    assert_eq!(part.shape().topology_counts(), (8, 18, 12));
+    assert!(close(world_bounds(h.document(), &EntityPath::root(copy)).1, DVec3::new(700.0, 800.0, 19.0)), "the copy follows");
+
+    // Only this one: a separate part; the copy keeps the L.
+    let square = polygon(&[(0.0, 0.0), (50.0, 0.0), (50.0, 50.0), (0.0, 50.0)].map(|(x, y)| glam::DVec2::new(x, y)));
+    h.apply(set(square, 10.0, Scope::This)).unwrap();
+    assert_ne!(occ(h.document(), &path).component, occ(h.document(), &EntityPath::root(copy)).component);
+    assert_eq!(profile_of(h.document(), &EntityPath::root(copy)).unwrap().profile.len(), 6);
+    assert!(close(world_bounds(h.document(), &path).1, DVec3::new(150.0, 50.0, 10.0)));
+
+    // Refused: crossing itself.
+    let bow = polygon(&[(0.0, 0.0), (10.0, 10.0), (10.0, 0.0), (0.0, 10.0)].map(|(x, y)| glam::DVec2::new(x, y)));
+    assert!(h.apply(set(bow, 10.0, Scope::All)).is_err());
+
+    // Stretched along X across the L: the corners beyond move, the profile kept.
+    let copy_path = EntityPath::root(copy);
+    h.apply(stretch(h.document(), &copy_path, DVec3::X, vec![300.0], vec![0.0, 100.0], Scope::All)).unwrap();
+    let b = profile_of(h.document(), &copy_path).unwrap();
+    assert_eq!(solidsketch_kernel::profile::bounds(&b.profile).unwrap().1, glam::DVec2::new(700.0, 300.0));
+
+    // A free part (a boolean's result) has no profile to set.
+    let a = add(&mut h, cube(DVec3::new(-500.0, 0.0, 0.0), 20.0));
+    let b = add(&mut h, cube(DVec3::new(-490.0, 0.0, 0.0), 20.0));
+    let out = h
+        .apply(Operation::Boolean { target: EntityPath::root(a), tool: EntityPath::root(b), op: Boolean::Union, scope: Scope::All })
+        .unwrap();
+    let union = EntityPath::root(*out.created.first().unwrap_or(&a));
+    assert!(profile_of(h.document(), &union).is_none());
+    let any = profile_of(h.document(), &copy_path).unwrap();
+    assert!(h.apply(Operation::SetProfile { target: union, profile: any, scope: Scope::All }).is_err());
+}

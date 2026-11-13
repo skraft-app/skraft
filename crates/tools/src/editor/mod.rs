@@ -221,6 +221,11 @@ impl Editor {
         self.open_part
     }
 
+    /// Has the open part a profile to edit (§6 nonies, step 3)?
+    pub fn open_part_profile(&self) -> bool {
+        self.open_part_path().and_then(|p| self.document().resolve_part(&p).ok()).is_some_and(|(_, part, _)| part.profile.is_some())
+    }
+
     /// The path of the open part's occurrence.
     pub fn open_part_path(&self) -> Option<EntityPath> {
         self.open_part.map(|id| EntityPath::new(self.context.clone(), id))
@@ -391,6 +396,7 @@ impl Editor {
     fn cx_for(&self, kind: ToolKind) -> Cx<'_> {
         let doc = self.history.document();
         Cx {
+            now: self.now,
             doc,
             scene: &self.scene,
             camera: &self.camera,
@@ -463,7 +469,14 @@ impl Editor {
         if matches!(self.tool.vcb(), Some(vcb::Vcb { kind: vcb::VcbKind::Count, .. })) {
             return None;
         }
-        let len = text.trim().strip_suffix(['x', 'X'])?;
+        // A suffix the tool gives one of its length options (the prism tool's `5r`, its fillet).
+        let text = text.trim();
+        if let Some(last) = text.chars().last()
+            && let Some(key) = self.tool.length_suffix(last.to_ascii_lowercase())
+        {
+            return Some((key, &text[..text.len() - last.len_utf8()]));
+        }
+        let len = text.strip_suffix(['x', 'X'])?;
         let option = self.tool_options().into_iter().find(|o| matches!(o.value, OptionValue::Length(_)))?;
         Some((option.key, len))
     }
@@ -551,6 +564,14 @@ impl Editor {
     /// even without input).
     pub fn tick(&mut self, now: f64) -> bool {
         self.now = now;
+        // A tool waiting on the time (the prism tool's rest on its last corner) follows the cursor
+        // again, which hasn't moved.
+        if self.tool.waiting() {
+            self.rehover();
+            if self.tool.waiting() {
+                return true;
+            }
+        }
         let Some((p, since)) = self.dwell else { return false };
         if self.tracked.contains(&p) {
             return false;
@@ -669,7 +690,7 @@ impl Editor {
                 }
                 return;
             }
-            ToolInput::Key { key: Key::Delete, .. } if !self.tool.busy() => {
+            ToolInput::Key { key: Key::Delete, .. } if !self.tool.busy() && !self.tool.takes_delete() => {
                 self.delete_selection();
                 return;
             }
@@ -765,7 +786,7 @@ impl Editor {
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.
                 let after = match op {
-                    Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddMachining { .. } => After::Nothing,
+                    Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddMachining { .. } | Operation::SetProfile { .. } => After::Nothing,
                     _ => After::Select,
                 };
                 // Hidden (the eraser with Shift), they leave the selection, unless the hidden
@@ -791,6 +812,13 @@ impl Editor {
                 _ => self.selection.clear(),
             },
             Command::Say(s) => self.message = Some(s),
+            Command::ClearLocks => {
+                self.axis_lock = None;
+                self.face_lock = None;
+                self.shift_lock = None;
+                // The tool's next step follows the cursor at once, not at its next move.
+                self.rehover();
+            }
             Command::Replace { previous, op } => {
                 if self.history.undo_op() == Some(&*previous) && self.history.undo() {
                     self.after_change();

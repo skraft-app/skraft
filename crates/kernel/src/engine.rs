@@ -1,7 +1,7 @@
 //! The kernel itself (feature `engine`): SolidCore calls on records, [`run`] for a whole
 //! [`Job`], and the services that run jobs inline or on a thread.
 
-use glam::{DAffine3, DVec3};
+use glam::{DAffine3, DVec2, DVec3};
 use solidcore::kernel::{Kernel, KernelOptions};
 use solidcore::primitive::api_primitives as prim;
 use solidcore_record::brep::Brep as Record;
@@ -15,6 +15,7 @@ use crate::{BooleanOp, Error, Mesh, Primitive, Result, Snaps, Solid, Stretch};
 impl Primitive {
     pub fn build(&self) -> Result<Solid> {
         match *self {
+            Primitive::Prism { origin, ref profile, height } => Solid::new_prism(origin, profile, height),
             Primitive::Box { origin, size } => Solid::new_box(origin, size),
             Primitive::Cylinder { origin, radius, height } => Solid::new_cylinder(origin, radius, height),
             Primitive::Sphere { center, radius } => Solid::new_sphere(center, radius),
@@ -43,6 +44,32 @@ impl Solid {
     /// A cone (or truncated cone) standing on the XY plane at `origin`, along +Z.
     pub fn new_cone(origin: DVec3, base_radius: f64, top_radius: f64, height: f64) -> Result<Self> {
         create("cone", |k| prim::create_cone(k, p3(origin), base_radius, top_radius, height))
+    }
+
+    /// The outline `profile` (corners in the XY plane through `origin`, relative to it, each
+    /// with the bulge of its side) extruded along +Z by `height`: SolidCore's planar region of
+    /// lines and arcs swept between two levels. Sides of no length and straight corners are
+    /// dropped; an outline that is not simple is refused.
+    pub fn new_prism(origin: DVec3, profile: &[crate::profile::Corner], height: f64) -> Result<Self> {
+        use crate::profile::{self as pr, Side};
+        use solidcore::prism::profile::{Loop2, Region2, Seg2};
+        let p = pr::cleaned(profile);
+        if !pr::is_simple(&p) || !(height.is_finite() && height > 0.0) {
+            return Err(Error::Kernel { call: "prism".into(), message: "profile not a simple outline, or no height".into() });
+        }
+        // The outer loop counter-clockwise.
+        let p = pr::counter_clockwise(&p);
+        let pt = |v: DVec2| solidcore::Point2::new(v.x, v.y);
+        let segs = pr::sides(&p)
+            .into_iter()
+            .map(|s| match s {
+                Side::Line { a, b } => Seg2::Line { a: pt(a), b: pt(b) },
+                Side::Arc { c, r, start, sweep, .. } => Seg2::Arc { center: pt(c), radius: r, start, sweep },
+            })
+            .collect();
+        let region = Region2 { outer: Loop2 { segs }, holes: Vec::new() };
+        let frame = solidcore::eval::Frame { origin: origin.to_array(), x_axis: [1.0, 0.0, 0.0], y_axis: [0.0, 1.0, 0.0] };
+        create("prism", |k| solidcore::prism::extrude::extrude_region(k, &frame, &region, 0.0, height))
     }
 
     /// A torus centred at `center`, around +Z.

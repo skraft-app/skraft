@@ -26,6 +26,8 @@ pub(super) struct Face {
     pub corners: Vec<DVec3>,
     /// Its straight sides: edges of the solid between two of its corners.
     pub sides: Vec<(DVec3, DVec3)>,
+    /// Its sides on arcs between two of its corners: their ends and their middle.
+    pub arcs: Vec<(DVec3, DVec3, DVec3)>,
     /// When it is a disc (bounded by arcs of one circle only): its centre and radius.
     pub disc: Option<(DVec3, f64)>,
 }
@@ -54,6 +56,7 @@ impl Face {
         let corners: Vec<DVec3> = part.snaps.vertices.iter().map(|v| t.transform_point3(*v)).filter(|v| on_face(*v)).collect();
         let is_corner = |p: DVec3| corners.iter().any(|c| c.distance(p) < SAME);
         let mut sides = Vec::new();
+        let mut arcs = Vec::new();
         let mut disc: Option<(DVec3, f64)> = None;
         for e in &part.snaps.edges {
             match e.curve {
@@ -65,9 +68,17 @@ impl Face {
                 }
                 // An arc of the face's plane (a circle may be cut into several), the face all
                 // within it and reaching it: a disc, if no straight side bounds it too.
-                SnapCurve::Arc { center, x, y, radius, .. } => {
+                SnapCurve::Arc { center, x, y, radius, sweep } => {
                     let c = t.transform_point3(center);
                     let axis = t.transform_vector3(x.cross(y)).normalize();
+                    // An open arc between two corners, in the face's plane: a side.
+                    if sweep < std::f64::consts::TAU - 1e-9 && (c - point).dot(normal).abs() < SAME && axis.dot(normal).abs() > 1.0 - 1e-9 {
+                        let at = |a: f64| t.transform_point3(SnapCurve::arc_point(center, x, y, radius, a));
+                        let (a, b) = (at(0.0), at(sweep));
+                        if is_corner(a) && is_corner(b) {
+                            arcs.push((a, b, at(sweep / 2.0)));
+                        }
+                    }
                     let far = tris.iter().flatten().map(|p| p.distance(c)).fold(0.0, f64::max);
                     if (c - point).dot(normal).abs() < SAME && axis.dot(normal).abs() > 1.0 - 1e-9 && (far - radius).abs() < SAME {
                         disc = Some((c, radius));
@@ -77,7 +88,7 @@ impl Face {
             }
         }
         let disc = disc.filter(|_| sides.is_empty());
-        Some(Face { point, normal, tris, corners, sides, disc })
+        Some(Face { point, normal, tris, corners, sides, arcs, disc })
     }
 
     /// Its centroid (the centre of its area).

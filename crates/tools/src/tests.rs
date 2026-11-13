@@ -3283,3 +3283,456 @@ fn erase_tool_erases_the_open_part_s_machinings() {
     assert_eq!(machinings(&e), 0, "{}", e.status());
     assert_eq!(e.open_part(), Some(board));
 }
+
+// ---- Prism tool (docs/ARCHITECTURE.md §6 nonies) ---------------------------------------------------
+
+fn key(e: &mut Editor, key: Key) {
+    e.input(ToolInput::Key { key, mods: Modifiers::default() });
+}
+
+/// The corners clicked one after the other with the prism tool (the first one included).
+fn corners(e: &mut Editor, ps: &[(f64, f64)]) {
+    for &(x, y) in ps {
+        click(e, DVec3::new(x, y, 0.0));
+    }
+}
+
+#[test]
+fn prism_by_clicks_closed_on_the_first_corner() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    // An L, closed by a click back on its first corner, then a typed height.
+    corners(&mut e, &[(0.0, 0.0), (400.0, 0.0), (400.0, 100.0), (100.0, 100.0), (100.0, 300.0), (0.0, 300.0), (0.0, 0.0)]);
+    assert!(e.status().contains("hauteur"), "{}", e.status());
+    e.input(ToolInput::Vcb("18".into()));
+    let id = drawn(&e);
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(400.0, 300.0, 18.0)), "{lo} {hi}");
+    // An L prism: 8 faces, 18 edges, 12 vertices.
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    assert_eq!(part.shape().topology_counts(), (8, 18, 12));
+}
+
+#[test]
+fn prism_follows_the_cursor_right_after_a_click() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    corners(&mut e, &[(0.0, 0.0), (300.0, 0.0)]);
+    // No move since the click: the line from the new corner and the closing one are drawn.
+    let lines = e.preview().lines;
+    let at = |p: DVec3| lines.iter().any(|l| close(l.a, p) || close(l.b, p));
+    assert!(at(DVec3::ZERO) && at(DVec3::new(300.0, 0.0, 0.0)), "{lines:?}");
+    assert!(lines.len() > 2, "the side, the line to the cursor and the closing one (dashed): {}", lines.len());
+
+    // From three corners, the cursor is on the corner just placed: the closing side is dashed
+    // from it to the first one.
+    click(&mut e, DVec3::new(300.0, 200.0, 0.0));
+    let lines = e.preview().lines;
+    let (a, b) = (DVec3::new(300.0, 200.0, 0.0), DVec3::ZERO);
+    let on = |p: DVec3| (p - a).cross(b - a).length() < 1e-3 * (b - a).length() && (p - a).dot(b - a) >= -1e-6 && (p - b).dot(a - b) >= -1e-6;
+    let dashes = lines.iter().filter(|l| on(l.a) && on(l.b)).count();
+    assert!(dashes > 2, "the closing side dashed: {dashes} pieces");
+}
+
+#[test]
+fn prism_esc_enter_reversed_and_typed() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    // A wrong corner taken away with Esc.
+    corners(&mut e, &[(0.0, 0.0), (200.0, 0.0), (500.0, 500.0)]);
+    key(&mut e, Key::Escape);
+    // A length typed along the cursor's direction: up 100.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(200.0, 50.0, 0.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    // Reversed: the next corner goes before the first one, the lines start from it.
+    key(&mut e, Key::Copy);
+    click(&mut e, DVec3::new(0.0, 100.0, 0.0));
+    key(&mut e, Key::Copy);
+    // Enter closes: a rectangle 200 × 100 (the corner (0,100) went before (0,0)).
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(200.0, 100.0, 10.0)), "{lo} {hi}");
+}
+
+#[test]
+fn prism_refuses_a_crossed_outline_and_too_few_corners() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    corners(&mut e, &[(0.0, 0.0), (200.0, 0.0)]);
+    key(&mut e, Key::Enter);
+    assert!(e.status().contains("trois points"), "{}", e.status());
+    // A bow tie.
+    corners(&mut e, &[(0.0, 200.0), (200.0, 200.0)]);
+    key(&mut e, Key::Enter);
+    assert!(e.status().contains("se croise"), "{}", e.status());
+    // Esc takes the last corner away: a triangle closes.
+    key(&mut e, Key::Escape);
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("5".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(200.0, 200.0, 5.0)), "{lo} {hi}");
+}
+
+#[test]
+fn prism_double_click_closes_without_pulling() {
+    let mut e = top_editor(Document::new());
+    // A height to take again, so a double-click that pulled would be seen.
+    draw_box(&mut e, DVec3::new(-900.0, -900.0, 0.0), DVec3::new(-800.0, -800.0, 0.0), "77");
+    let count = |e: &Editor| e.document().assembly(e.document().root()).unwrap().occurrences().len();
+    let before = count(&e);
+    e.set_tool(ToolKind::Prism);
+    corners(&mut e, &[(0.0, 0.0), (300.0, 0.0)]);
+    let at = px(&e, DVec3::new(300.0, 300.0, 0.0));
+    e.input(ToolInput::Hover { px: at });
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    e.input(ToolInput::DoubleClick { px: at, mods: Modifiers::default() });
+    assert_eq!(count(&e), before, "closed, not pulled");
+    assert!(e.status().contains("hauteur"), "{}", e.status());
+    // A double-click now (on the height) takes the last height again.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 50.0, 0.0)) });
+    e.input(ToolInput::DoubleClick { px: at, mods: Modifiers::default() });
+    let (_, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!((hi.z - 77.0).abs() < 1e-6, "{hi}");
+}
+
+#[test]
+fn prism_takes_a_whole_face_arcs_included() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 50.0, height: 30.0 };
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
+    e.set_tool(ToolKind::Prism);
+    // The disc: two half circles, the height next.
+    e.set_copy(true);
+    hover(&mut e, DVec3::new(610.0, 590.0, 30.0));
+    key(&mut e, Key::Shift);
+    e.set_copy(false);
+    assert!(e.status().contains("hauteur"), "{}", e.status());
+    hover(&mut e, DVec3::new(650.0, 600.0, 30.0));
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = mesh_bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(near(lo, DVec3::new(550.0, 550.0, 30.0)) && near(hi, DVec3::new(650.0, 650.0, 40.0)), "{lo} {hi}");
+    assert_eq!(part_topology(&e).0, 4, "two half cylinders and two caps");
+    // The box's top: its outline is the profile, the height next.
+    e.set_copy(true);
+    hover(&mut e, DVec3::new(100.0, 50.0, 150.0));
+    key(&mut e, Key::Shift);
+    e.set_copy(false);
+    hover(&mut e, DVec3::new(300.0, 200.0, 150.0));
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(0.0, 0.0, 150.0)) && close(hi, DVec3::new(300.0, 200.0, 160.0)), "{lo} {hi}");
+}
+
+#[test]
+fn prism_on_an_upright_face() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    e.set_viewport_size(DVec2::new(1000.0, 1000.0));
+    e.camera.set_standard_view(
+        StandardView::Front,
+        Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
+        crate::camera::ViewArea::full(e.viewport_size()),
+    );
+    e.set_tool(ToolKind::Prism);
+    // A triangle on the front face (y = 0), pulled out towards the eye by 20.
+    // (Away from the box's edges: 0.5 px per mm here.)
+    for p in [DVec3::new(60.0, 0.0, 50.0), DVec3::new(240.0, 0.0, 50.0), DVec3::new(150.0, 0.0, 100.0)] {
+        click(&mut e, p);
+    }
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("20".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(60.0, -20.0, 50.0)) && close(hi, DVec3::new(240.0, 0.0, 100.0)), "{lo} {hi}");
+}
+
+#[test]
+fn prism_offset_moves_the_outline_made() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    // `5x` sets the offset, at any step: the outline made grows by 5 on every side.
+    e.input(ToolInput::Vcb("5x".into()));
+    corners(&mut e, &[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]);
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(-5.0, -5.0, 0.0)) && close(hi, DVec3::new(105.0, 105.0, 10.0)), "{lo} {hi}");
+
+    // A U whose notch (40 wide) an outward offset of 25 closes: refused, the height step stays.
+    e.set_tool_option("offset", OptionValue::Length(25.0));
+    let u = [(300.0, 0.0), (420.0, 0.0), (420.0, 100.0), (380.0, 100.0), (380.0, 50.0), (340.0, 50.0), (340.0, 100.0), (300.0, 100.0)];
+    corners(&mut e, &u);
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("10".into()));
+    assert!(e.status().contains("croiser"), "{}", e.status());
+    // Inward past its middle: nothing left.
+    e.input(ToolInput::Vcb("-80x".into()));
+    e.input(ToolInput::Vcb("10".into()));
+    assert!(e.status().contains("ne laisse rien"), "{}", e.status());
+    // Inward by 5: made.
+    e.input(ToolInput::Vcb("-5x".into()));
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(305.0, 5.0, 0.0)) && close(hi, DVec3::new(415.0, 95.0, 10.0)), "{lo} {hi}");
+}
+
+/// World bounds of the display mesh of the part an occurrence path names: arcs included (the
+/// part's vertices are only its corners).
+fn mesh_bounds_of(e: &Editor, path: &EntityPath) -> (DVec3, DVec3) {
+    let (_, _, t) = e.document().resolve_part(path).unwrap();
+    let def = e.document().resolve(path).unwrap().component;
+    let mut lo = DVec3::INFINITY;
+    let mut hi = DVec3::NEG_INFINITY;
+    for part in &e.scene().definition_mesh(def).unwrap().parts {
+        let m = &part.mesh;
+        for p in &m.positions {
+            let w = t.transform_point3(m.origin + DVec3::new(p[0] as f64, p[1] as f64, p[2] as f64));
+            lo = lo.min(w);
+            hi = hi.max(w);
+        }
+    }
+    (lo, hi)
+}
+
+/// Is there a point of the last part drawn's display mesh near `p` (world)?
+fn mesh_has(e: &Editor, p: DVec3) -> bool {
+    let path = EntityPath::root(drawn(e));
+    let (_, _, t) = e.document().resolve_part(&path).unwrap();
+    let def = e.document().resolve(&path).unwrap().component;
+    e.scene().definition_mesh(def).unwrap().parts.iter().any(|part| {
+        let m = &part.mesh;
+        m.positions.iter().any(|q| t.transform_point3(m.origin + DVec3::new(q[0] as f64, q[1] as f64, q[2] as f64)).distance(p) < 0.5)
+    })
+}
+
+/// Near enough for a display mesh (`f32`, arcs as chords).
+fn near(a: DVec3, b: DVec3) -> bool {
+    (a - b).length() < 0.05
+}
+
+fn part_topology(e: &Editor) -> (usize, usize, usize) {
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(drawn(e))).unwrap();
+    part.shape().topology_counts()
+}
+
+fn trace(e: &Editor) -> Option<OptionValue> {
+    e.tool_options().into_iter().find(|o| o.key == "trace").map(|o| o.value)
+}
+
+#[test]
+fn prism_tangent_arc_and_back_to_lines() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    corners(&mut e, &[(0.0, 0.0), (200.0, 0.0)]);
+    // A quarter circle tangent to the bottom side, to (300, 100).
+    e.set_tool_option("trace", OptionValue::Choice("tangent".into()));
+    click(&mut e, DVec3::new(300.0, 100.0, 0.0));
+    assert_eq!(trace(&e), Some(OptionValue::Choice("tangent".into())), "the mode stays");
+    e.set_tool_option("trace", OptionValue::Choice("line".into()));
+    corners(&mut e, &[(300.0, 300.0), (0.0, 300.0), (0.0, 0.0)]);
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(300.0, 300.0, 10.0)), "{lo} {hi}");
+    // Five sides (one an arc) and two caps.
+    assert_eq!(part_topology(&e), (7, 15, 10));
+    // The quarter circle about (200, 100), tangent to the bottom: through its middle
+    // (200 + 100·sin 45°, 100 − 100·cos 45°), not bulging inwards.
+    let h = 100.0 * std::f64::consts::FRAC_1_SQRT_2;
+    assert!(mesh_has(&e, DVec3::new(200.0 + h, 100.0 - h, 0.0)));
+    assert!(!mesh_has(&e, DVec3::new(300.0 - h, h, 0.0)));
+    // Each new outline starts with lines.
+    corners(&mut e, &[(500.0, 0.0)]);
+    assert_eq!(trace(&e), Some(OptionValue::Choice("line".into())));
+}
+
+#[test]
+fn prism_rest_on_the_last_corner_switches_to_tangent_arcs() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    e.tick(10.0);
+    corners(&mut e, &[(0.0, 0.0), (200.0, 0.0)]);
+    let on = px(&e, DVec3::new(200.0, 0.0, 0.0));
+    // Resting right after the click switches nothing: the cursor must leave first.
+    e.input(ToolInput::Hover { px: on });
+    e.tick(11.0);
+    assert_eq!(trace(&e), Some(OptionValue::Choice("line".into())));
+    // Away (40 px), back onto it, still for 0.35 s.
+    e.input(ToolInput::Hover { px: on + DVec2::new(40.0, 0.0) });
+    e.tick(12.0);
+    e.input(ToolInput::Hover { px: on + DVec2::new(1.0, 0.0) });
+    assert!(e.tick(12.1), "waiting: called again");
+    assert_eq!(trace(&e), Some(OptionValue::Choice("line".into())));
+    e.tick(12.5);
+    assert_eq!(trace(&e), Some(OptionValue::Choice("tangent".into())));
+    // And back the same way.
+    e.input(ToolInput::Hover { px: on + DVec2::new(0.0, 40.0) });
+    e.tick(13.0);
+    e.input(ToolInput::Hover { px: on });
+    e.tick(13.1);
+    e.tick(13.5);
+    assert_eq!(trace(&e), Some(OptionValue::Choice("line".into())));
+}
+
+#[test]
+fn prism_arc_by_two_points_its_end_then_its_bulge() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    corners(&mut e, &[(0.0, 0.0), (200.0, 0.0)]);
+    e.set_tool_option("trace", OptionValue::Choice("arc".into()));
+    // The end (200, 200), then the bulge out to the right: a half circle (snapped).
+    click(&mut e, DVec3::new(200.0, 200.0, 0.0));
+    assert!(e.status().contains("bombé"), "{}", e.status());
+    // Esc drops the arc under way, not the corners.
+    key(&mut e, Key::Escape);
+    click(&mut e, DVec3::new(200.0, 200.0, 0.0));
+    click(&mut e, DVec3::new(302.0, 100.0, 0.0));
+    e.set_tool_option("trace", OptionValue::Choice("line".into()));
+    click(&mut e, DVec3::new(0.0, 200.0, 0.0));
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("10".into()));
+    // The half circle bulges out to x = 300 (the part's corners stop at 200).
+    let (lo, hi) = mesh_bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(near(lo, DVec3::ZERO) && near(hi, DVec3::new(300.0, 200.0, 10.0)), "{lo} {hi}");
+
+    // Closing with an arc: Enter sets the end (the first corner), the bulge typed.
+    e.set_tool(ToolKind::Prism);
+    corners(&mut e, &[(500.0, 0.0), (700.0, 0.0)]);
+    e.set_tool_option("trace", OptionValue::Choice("arc".into()));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, -50.0, 0.0)) });
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 50.0, 0.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    e.input(ToolInput::Vcb("10".into()));
+    // A half disc above the bottom side.
+    let (lo, hi) = mesh_bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(near(lo, DVec3::new(500.0, 0.0, 0.0)) && near(hi, DVec3::new(700.0, 100.0, 10.0)), "{lo} {hi}");
+}
+
+#[test]
+fn prism_fillet_rounds_the_corners_made() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    // `10r` sets the fillet, `5x` the offset: the board made is 110 × 60, its corners R10.
+    e.input(ToolInput::Vcb("10r".into()));
+    e.input(ToolInput::Vcb("5x".into()));
+    let length = |e: &Editor, k: &str| e.tool_options().into_iter().find(|o| o.key == k).map(|o| o.value);
+    assert_eq!(length(&e, "fillet"), Some(OptionValue::Length(10.0)));
+    corners(&mut e, &[(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)]);
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("18".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(-5.0, -5.0, 0.0)) && close(hi, DVec3::new(105.0, 55.0, 18.0)), "{lo} {hi}");
+    assert_eq!(part_topology(&e), (10, 24, 16));
+}
+
+// ---- Profile (ARCHITECTURE.md §6 nonies, step 3) ------------------------------------------------
+
+/// A board 600 × 300 × 18 drawn at the origin, its part open, the profile tool out.
+fn board_profile_editor() -> (Editor, Id) {
+    let mut e = top_editor(Document::new());
+    let id = draw_box(&mut e, DVec3::ZERO, DVec3::new(600.0, 300.0, 0.0), "18");
+    e.enter(id);
+    assert!(e.open_part_profile());
+    e.set_tool(ToolKind::Profile);
+    (e, id)
+}
+
+fn blank_profile(e: &Editor, id: Id) -> solidsketch_model::BlankProfile {
+    e.document().resolve_part(&EntityPath::root(id)).unwrap().1.profile.clone().unwrap()
+}
+
+#[test]
+fn profile_corner_moved_side_split_thickness_set() {
+    let (mut e, id) = board_profile_editor();
+    // The far corner taken and dropped 100 further along red.
+    click(&mut e, DVec3::new(600.0, 300.0, 18.0));
+    assert!(e.vcb().is_some_and(|(l, _)| l == "Distance"), "{:?}", e.vcb());
+    click(&mut e, DVec3::new(700.0, 300.0, 18.0));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(700.0, 300.0, 18.0)), "{lo} {hi}");
+    assert_eq!(blank_profile(&e, id).profile.len(), 4);
+
+    // The bottom side's middle (300, 0): a corner inserted, pulled down 100 (typed).
+    click(&mut e, DVec3::new(300.0, 0.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, -50.0, 18.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    assert_eq!(blank_profile(&e, id).profile.len(), 5);
+    let (lo, _) = bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::new(0.0, -100.0, 0.0)), "{lo}");
+
+    // The thickness: 30, typed.
+    let b = blank_profile(&e, id);
+    let (a, c) = solidsketch_model::kernel::profile::bounds(&b.profile).unwrap();
+    click(&mut e, ((a + c) / 2.0).extend(18.0));
+    e.input(ToolInput::Vcb("30".into()));
+    assert_eq!(blank_profile(&e, id).height, 30.0);
+
+    // Esc drops a gesture: nothing changes.
+    let before = blank_profile(&e, id);
+    click(&mut e, DVec3::new(0.0, 300.0, 30.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-200.0, 300.0, 30.0)) });
+    key(&mut e, Key::Escape);
+    assert_eq!(blank_profile(&e, id), before);
+    // One undo per gesture.
+    e.undo();
+    assert_eq!(blank_profile(&e, id).height, 18.0);
+}
+
+#[test]
+fn profile_corner_deleted_arc_straightened_crossing_refused() {
+    let (mut e, id) = board_profile_editor();
+    // A corner dragged across the bottom side: refused, said; nothing changes.
+    let before = blank_profile(&e, id);
+    let from = px(&e, DVec3::new(600.0, 300.0, 18.0));
+    e.input(ToolInput::Hover { px: from });
+    e.input(ToolInput::DragStart { px: from, mods: Modifiers::default() });
+    let to = px(&e, DVec3::new(300.0, -100.0, 18.0));
+    e.input(ToolInput::Drag { px: to });
+    e.input(ToolInput::DragEnd { px: to, mods: Modifiers::default() });
+    assert!(e.status().contains("croiserait"), "{}", e.status());
+    assert_eq!(blank_profile(&e, id), before);
+    key(&mut e, Key::Escape);
+    // Delete over a corner: a triangle.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 300.0, 18.0)) });
+    key(&mut e, Key::Delete);
+    assert_eq!(blank_profile(&e, id).profile.len(), 3);
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    assert_eq!(part.shape().topology_counts(), (5, 9, 6));
+
+    // A cylinder's disc: one half straightened (its middle dropped on the chord).
+    e.exit();
+    assert_eq!(e.tool_kind(), ToolKind::Select, "the profile's tool goes with the part");
+    e.set_tool(ToolKind::Cylinder);
+    click(&mut e, DVec3::new(-500.0, -500.0, 0.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-400.0, -500.0, 0.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    e.input(ToolInput::Vcb("10".into()));
+    let rod = drawn(&e);
+    e.set_tool(ToolKind::Select);
+    e.enter(rod);
+    e.set_tool(ToolKind::Profile);
+    let b = blank_profile(&e, rod);
+    let side = solidsketch_model::kernel::profile::sides(&b.profile)[0];
+    // The part's axes are at the disc's centre: the arc's middle, in the world.
+    let (_, _, t) = e.document().resolve_part(&EntityPath::root(rod)).unwrap();
+    let mid = t.transform_point3(side.at(0.5).extend(10.0));
+    let chord = t.transform_point3(((side.a() + side.b()) / 2.0).extend(10.0));
+    click(&mut e, mid);
+    click(&mut e, chord);
+    let b = blank_profile(&e, rod);
+    assert_eq!(b.profile.iter().filter(|c| c.bulge == 0.0).count(), 1, "{b:?}");
+    let (lo, hi) = mesh_bounds_of(&e, &EntityPath::root(rod));
+    assert!((hi - lo).y < 101.0 && (hi - lo).x > 199.0 || (hi - lo).x < 101.0 && (hi - lo).y > 199.0, "a half disc: {lo} {hi}");
+}
+
+#[test]
+fn profile_shows_on_the_cap_facing_the_eye_at_once() {
+    let (e, _) = board_profile_editor();
+    // No cursor yet: seen from above, the top (z = 18).
+    let lines = e.preview().lines;
+    assert!(!lines.is_empty() && lines.iter().all(|l| (l.a.z - 18.0).abs() < 1e-9), "{:?}", lines.first());
+}

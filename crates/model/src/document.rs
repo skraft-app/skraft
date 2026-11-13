@@ -193,6 +193,10 @@ impl GuideShape {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Part {
     pub blank: Arc<Solid>,
+    /// The profile the blank is built from (§6 nonies, step 3), when it has one: the blank is
+    /// then its cache. None for a free part (imported, a boolean's result, stretched askew).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<crate::BlankProfile>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub machinings: Vec<Machining>,
     /// The blank minus the machinings, as last computed; absent without machinings (the
@@ -212,7 +216,7 @@ pub struct Part {
 
 impl Part {
     pub fn new(blank: Arc<Solid>) -> Self {
-        Part { blank, machinings: Vec::new(), shape: None, failed: BTreeSet::new(), faces: BTreeMap::new() }
+        Part { blank, profile: None, machinings: Vec::new(), shape: None, failed: BTreeSet::new(), faces: BTreeMap::new() }
     }
 
     /// The part as it is drawn and used: the blank with its machinings cut.

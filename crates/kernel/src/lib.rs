@@ -15,7 +15,7 @@
 //!
 //! Units are millimetres, Z up, right-handed.
 
-use glam::DVec3;
+use glam::{DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 use solidcore_record::brep::Brep as Record;
 use solidsketch_i18n::t;
@@ -24,6 +24,7 @@ use solidsketch_i18n::t;
 mod engine;
 mod job;
 mod polyhedron;
+pub mod profile;
 mod shared;
 mod snaps;
 mod step;
@@ -139,15 +140,29 @@ pub enum Primitive {
         major_radius: f64,
         minor_radius: f64,
     },
+    /// The outline `profile` (its corners in the XY plane through `origin`, relative to it, with
+    /// the bulge of the side leaving each: [`profile`], a simple outline either way round)
+    /// extruded along +Z by `height` (docs/ARCHITECTURE.md §6 nonies).
+    Prism {
+        origin: DVec3,
+        profile: Vec<profile::Corner>,
+        height: f64,
+    },
 }
 
 impl Primitive {
     /// The same primitive at the origin of its own axes, and where that origin was: a part's
     /// blank is built in the part's axes and placed by its occurrence (docs/ARCHITECTURE.md
     /// §2.2). A box's origin is its lowest corner (its extents made positive), a cylinder's or
-    /// a cone's the centre of its base, a sphere's or a torus's its centre.
+    /// a cone's the centre of its base, a sphere's or a torus's its centre, a prism's the lowest
+    /// corner of its profile's box, on its base.
     pub fn at_origin(&self) -> (Primitive, DVec3) {
         match *self {
+            Primitive::Prism { origin, ref profile, height } => {
+                let lo = profile::bounds(profile).map_or(DVec2::ZERO, |b| b.0);
+                let profile = profile.iter().map(|c| profile::Corner { p: c.p - lo, ..*c }).collect();
+                (Primitive::Prism { origin: DVec3::ZERO, profile, height }, origin + lo.extend(0.0))
+            }
             Primitive::Box { origin, size } => {
                 let lo = origin.min(origin + size);
                 (Primitive::Box { origin: DVec3::ZERO, size: size.abs() }, lo)
