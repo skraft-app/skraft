@@ -231,7 +231,7 @@ impl SolidSketchApp {
         #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
         {
             let views = app.command_views();
-            app.native_menu = NativeMenu::new(&cc.egui_ctx, &views, &app.keymap, app.debug_menu)
+            app.native_menu = NativeMenu::new(&cc.egui_ctx, &views, &app.keymap)
                 .inspect_err(|e| log::warn!("no native menu bar: {e}"))
                 .ok();
         }
@@ -514,13 +514,11 @@ impl SolidSketchApp {
     }
 
     /// A command chosen in the native menu bar. AppKit takes its ⌘ shortcut before egui sees
-    /// the key, so it goes back to egui as that key when it is egui's: while a shortcut is
-    /// being captured, and for undo, redo and select all in a text field.
+    /// the key, so it goes back to egui as that key while a shortcut is being captured.
     #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(dead_code))]
     fn native_command(&mut self, id: &'static str, actions: &mut Vec<Action>) {
-        let text = self.ctx.egui_wants_keyboard_input() && matches!(id, "edit.undo" | "edit.redo" | "edit.select_all");
         if let Some(s) = self.keymap.get(id)
-            && (self.capturing.is_some() || text)
+            && self.capturing.is_some()
         {
             let modifiers = egui::Modifiers { alt: s.alt, shift: s.shift, mac_cmd: s.command, command: s.command, ctrl: false };
             for pressed in [true, false] {
@@ -1639,7 +1637,7 @@ impl eframe::App for SolidSketchApp {
         let mut actions = Vec::new();
         #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
         if let Some(menu) = &mut self.native_menu {
-            for id in menu.update(&views, &self.keymap, self.debug_menu) {
+            for id in menu.update(&views, &self.keymap) {
                 self.native_command(id, &mut actions);
             }
         }
@@ -1649,8 +1647,6 @@ impl eframe::App for SolidSketchApp {
             shown: self.docs.active_index(),
             reveal: !cfg!(target_arch = "wasm32"),
             integrated: crate::INTEGRATED_TITLEBAR,
-            native_menus: self.native_menus(),
-            debug_menu: self.debug_menu,
         };
         titlebar::show(ui, &bar, &views, &mut actions);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));

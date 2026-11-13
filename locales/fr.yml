@@ -183,8 +183,6 @@ ribbon:
 # The title bar: the document, the view's toggles, the command search.
 titlebar:
   modified: "Modifié depuis le dernier enregistrement"
-  # The ☰ button (web, Windows, Linux: macOS has its menu bar).
-  menu: "Menus"
   views: "Vues standard"
   search: "Rechercher une commande"
 

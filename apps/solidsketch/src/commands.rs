@@ -11,7 +11,8 @@ use std::collections::BTreeMap;
 
 use solidsketch_i18n::{ellipsis, t};
 
-/// Where a command shows in the menu bar.
+/// A command's menu: File is shown (the title bar's and the macOS menu bar's); the others
+/// group the commands (shortcut preferences, debug).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Menu {
     File,
@@ -24,8 +25,6 @@ pub enum Menu {
 }
 
 impl Menu {
-    pub const BAR: [Menu; 6] = [Menu::File, Menu::Edit, Menu::View, Menu::Tools, Menu::Solids, Menu::Debug];
-
     pub fn label(self) -> String {
         match self {
             Menu::File => t!("menu.file.title"),

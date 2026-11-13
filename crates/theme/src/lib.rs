@@ -57,7 +57,7 @@ pub struct MarkColors {
 pub struct UiTokens {
     /// Panels and windows.
     pub panel: Rgba,
-    /// Buttons at rest, headers, a window's title bar.
+    /// Buttons at rest, headers, a floating window's title bar.
     pub panel_header: Rgba,
     /// Text fields and other sunken areas.
     pub field: Rgba,
@@ -77,6 +77,20 @@ pub struct UiTokens {
     /// Space between widgets (x, y), and inside a button, in points.
     pub item_spacing: [f32; 2],
     pub button_padding: [f32; 2],
+    /// The title bar: dark in both modes (as SolidCraft's application bar), its text light.
+    pub title_bar: TitleBarTokens,
+}
+
+/// The title bar's colours: a dark band whatever the mode.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TitleBarTokens {
+    pub ground: Rgba,
+    pub text: Rgba,
+    pub text_dim: Rgba,
+    /// Its separators.
+    pub border: Rgba,
+    /// A lit button or the shown tab: a surface lifted from the bar.
+    pub lit: Rgba,
 }
 
 impl UiTokens {
@@ -108,6 +122,14 @@ impl UiTokens {
             radius_md: 6,
             item_spacing: [6.0, 4.0],
             button_padding: [6.0, 3.0],
+            // SolidCraft's application bar (`app_bar`, `app_bar_text`).
+            title_bar: TitleBarTokens {
+                ground: srgb(52, 56, 64),
+                text: srgb(230, 234, 242),
+                text_dim: srgb(160, 168, 182),
+                border: srgb(84, 90, 102),
+                lit: srgb(68, 76, 92),
+            },
         }
     }
 
@@ -123,6 +145,12 @@ impl UiTokens {
             hover: srgb(54, 61, 74),
             accent: srgb(58, 136, 238),
             accent_soft: srgb(42, 70, 110),
+            title_bar: TitleBarTokens {
+                ground: srgb(28, 31, 38),
+                border: srgb(56, 62, 74),
+                lit: srgb(54, 61, 74),
+                ..Self::light().title_bar
+            },
             ..Self::light()
         }
     }
@@ -138,6 +166,13 @@ impl UiTokens {
             hover: srgb(243, 232, 214),
             accent: srgb(184, 106, 30),
             accent_soft: srgb(246, 227, 203),
+            title_bar: TitleBarTokens {
+                ground: srgb(58, 52, 46),
+                text: srgb(240, 233, 222),
+                text_dim: srgb(176, 164, 148),
+                border: srgb(92, 83, 73),
+                lit: srgb(82, 73, 63),
+            },
             ..Self::light()
         }
     }
@@ -153,6 +188,12 @@ impl UiTokens {
             hover: srgb(66, 59, 52),
             accent: srgb(224, 149, 74),
             accent_soft: srgb(90, 65, 40),
+            title_bar: TitleBarTokens {
+                ground: srgb(32, 29, 26),
+                border: srgb(62, 56, 49),
+                lit: srgb(66, 59, 52),
+                ..Self::warm_light().title_bar
+            },
             ..Self::light()
         }
     }
@@ -168,6 +209,13 @@ impl UiTokens {
             hover: srgb(220, 237, 236),
             accent: srgb(15, 138, 138),
             accent_soft: srgb(205, 235, 234),
+            title_bar: TitleBarTokens {
+                ground: srgb(40, 45, 49),
+                text: srgb(228, 232, 235),
+                text_dim: srgb(152, 162, 170),
+                border: srgb(70, 77, 83),
+                lit: srgb(62, 71, 78),
+            },
             ..Self::light()
         }
     }
@@ -183,6 +231,12 @@ impl UiTokens {
             hover: srgb(47, 54, 59),
             accent: srgb(43, 179, 177),
             accent_soft: srgb(29, 74, 74),
+            title_bar: TitleBarTokens {
+                ground: srgb(20, 22, 24),
+                border: srgb(46, 51, 56),
+                lit: srgb(47, 54, 59),
+                ..Self::graphite_light().title_bar
+            },
             ..Self::light()
         }
     }
@@ -369,6 +423,12 @@ mod tests {
                     assert!(contrast(t.text, ground) >= 7.0, "{palette:?} {mode:?} text");
                     assert!(contrast(t.text_dim, ground) >= 3.0, "{palette:?} {mode:?} dim text");
                 }
+                let bar = t.title_bar;
+                for ground in [bar.ground, bar.lit] {
+                    assert!(contrast(bar.text, ground) >= 7.0, "{palette:?} {mode:?} title bar text");
+                    assert!(contrast(bar.text_dim, ground) >= 3.0, "{palette:?} {mode:?} title bar dim text");
+                }
+                assert!(luminance(bar.ground) < 0.1, "{palette:?} {mode:?} title bar is dark");
                 let dark = luminance(t.panel) < 0.2;
                 assert_eq!(dark, mode == Mode::Dark, "{palette:?} {mode:?} is the mode it says");
             }

@@ -1,14 +1,18 @@
 //! The title bar (docs/ARCHITECTURE.md §7 quinquies): one band at the top of the window with
-//! undo and redo, the file tabs (§6 octies, [`crate::tabs`]), the view's toggles, the command search and the preferences,
-//! every button a command of the registry.
+//! the app's mark and name, the File menu, undo and redo, the file tabs (§6 octies,
+//! [`crate::tabs`]), the view's toggles, the command search and the preferences, every button a
+//! command of the registry. The other menus are not in the bar: their commands are in the
+//! ribbon, the command search and the shortcuts (as SolidCraft's bar).
 //!
 //! On the macOS desktop it is the window's title bar: the OS bar is hidden, the content runs
 //! under it ([`native_options`](crate::native_options)), room is left for the traffic lights,
-//! and its empty space moves the window (a double-click zooms it); the menus are the native
-//! ones ([`crate::native_menu`]). Elsewhere (web, Windows, Linux) the OS frame is kept and the
-//! menus are behind the ☰ button.
+//! and its empty space moves the window (a double-click zooms it); the native menu bar
+//! ([`crate::native_menu`]) has every menu. Elsewhere (web, Windows, Linux) the OS frame is kept.
 
 use solidsketch_i18n::{ellipsis, t};
+
+/// The app's name, as the bar shows it next to its mark. Not translated.
+const APP_NAME: &str = "SolidSketch";
 
 use crate::commands::Menu;
 use crate::icons;
@@ -34,16 +38,15 @@ pub struct Bar<'a> {
     /// The bar is the window's title bar (macOS desktop): room for the traffic lights, and
     /// its empty space moves the window.
     pub integrated: bool,
-    /// The menus are the native ones: no ☰ button.
-    pub native_menus: bool,
-    /// The Débogage menu is shown.
-    pub debug_menu: bool,
 }
 
 /// The bar's panel, at the top of the window.
 pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) {
-    let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(8, 0));
+    let mut style = ui.style().as_ref().clone();
+    crate::style::title_bar(ui.ctx(), &mut style);
+    let frame = egui::Frame::side_top_panel(&style).inner_margin(egui::Margin::symmetric(8, 0));
     egui::Panel::top("title_bar").exact_size(HEIGHT).resizable(false).frame(frame).show(ui, |ui| {
+        ui.set_style(style);
         if bar.integrated {
             move_window(ui);
         }
@@ -74,10 +77,9 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
     if bar.integrated && !ui.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
         ui.add_space(TRAFFIC_LIGHTS - 8.0);
     }
-    if !bar.native_menus {
-        menus(ui, bar, views, actions);
-        ui.add_space(4.0);
-    }
+    brand(ui);
+    ui.separator();
+    file_menu(ui, views, actions);
     for id in ["edit.undo", "edit.redo"] {
         if let Some(v) = find(id) {
             command_button(ui, id_icon(id), v, v.checked == Some(true), &v.tip(), actions);
@@ -144,9 +146,45 @@ fn id_icon(id: &str) -> egui::ImageSource<'static> {
 
 /// A bar button: smaller than the tool bar's.
 fn bar_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, lit: bool, enabled: bool, tip: &str) -> egui::Response {
-    let tint = ui.visuals().text_color();
-    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(18.0, 18.0)).tint(tint);
-    ui.add_enabled(enabled, egui::Button::image(img).selected(lit).min_size(egui::vec2(26.0, 26.0))).on_hover_text(tip)
+    let img = icon_image(ui, icon);
+    let button = unframed(egui::Button::image(img).min_size(egui::vec2(26.0, 26.0)));
+    backed(ui, |_| lit, |ui| ui.add_enabled(enabled, button)).on_hover_text(tip)
+}
+
+/// A button whose frame is not drawn ([`backed`] draws its background) but keeps its margins.
+fn unframed(button: egui::Button) -> egui::Button {
+    button.fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE)
+}
+
+/// A bar button's icon, in the text's colour.
+fn icon_image(ui: &egui::Ui, icon: egui::ImageSource<'static>) -> egui::Image<'static> {
+    egui::Image::new(icon).fit_to_exact_size(egui::vec2(18.0, 18.0)).tint(ui.visuals().text_color())
+}
+
+/// Draws a frameless button with `add`, and behind it the tabs' + button's background: none
+/// at rest, the [`tabs::veil`] when hovered or pressed, the selection's when `lit` (asked once
+/// the button is drawn: a menu's button is lit while its menu is open).
+fn backed(ui: &mut egui::Ui, lit: impl FnOnce(&egui::Response) -> bool, add: impl FnOnce(&mut egui::Ui) -> egui::Response) -> egui::Response {
+    let behind = ui.painter().add(egui::Shape::Noop);
+    let r = add(ui);
+    let fill = if lit(&r) { Some(ui.visuals().selection.bg_fill) } else { tabs::veil(ui, &r) };
+    if let Some(fill) = fill {
+        ui.painter().set(behind, egui::Shape::rect_filled(r.rect, tabs::VEIL_RADIUS, fill));
+    }
+    r
+}
+
+/// A menu's button: lit while its menu is open.
+fn menu_button(ui: &mut egui::Ui, button: egui::Button, tip: Option<String>, content: impl FnOnce(&mut egui::Ui)) {
+    let r = backed(ui, menu_open, |ui| egui::containers::menu::MenuButton::from_button(unframed(button)).ui(ui, |ui| content(ui)).0);
+    if let Some(tip) = tip {
+        r.on_hover_text(tip);
+    }
+}
+
+/// The menu of the button `r` is open.
+fn menu_open(r: &egui::Response) -> bool {
+    egui::Popup::is_id_open(&r.ctx, egui::Popup::default_response_id(r))
 }
 
 fn command_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, v: &CommandView, lit: bool, tip: &str, actions: &mut Vec<Action>) {
@@ -155,19 +193,24 @@ fn command_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, v: &Comma
     }
 }
 
-/// The ☰ button: every menu of the registry, as submenus.
-fn menus(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) {
-    let img = egui::Image::new(icons::MENU).fit_to_exact_size(egui::vec2(18.0, 18.0)).tint(ui.visuals().text_color());
-    let button = egui::Button::image(img).min_size(egui::vec2(26.0, 26.0));
-    let (r, _) = egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
-        for menu in Menu::BAR {
-            if menu == Menu::Debug && !bar.debug_menu {
-                continue;
-            }
-            ui.menu_button(menu.label(), |ui| menu_items(ui, views.iter().filter(|v| v.menu == menu), actions));
-        }
-    });
-    r.on_hover_text(t!("titlebar.menu"));
+/// The app's mark and name. Not a control: its place moves the window like the bar's empty
+/// space.
+fn brand(ui: &mut egui::Ui) {
+    // The icon's tile fills 824 of its 1024 units: drawn larger so the tile is MARK wide.
+    const MARK: f32 = 18.0;
+    const TILE: f32 = 824.0 / 1024.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(MARK, MARK), egui::Sense::hover());
+    egui::Image::new(icons::APP).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
+    // The headings' semibold, at the text's size.
+    let mut font = egui::TextStyle::Heading.resolve(ui.style());
+    font.size = egui::TextStyle::Body.resolve(ui.style()).size;
+    ui.add(egui::Label::new(egui::RichText::new(APP_NAME).font(font).color(ui.visuals().strong_text_color())).selectable(false).sense(egui::Sense::hover()));
+}
+
+/// The File menu: a text button opening the registry's File commands.
+fn file_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
+    let button = egui::Button::new(Menu::File.label()).min_size(egui::vec2(0.0, 26.0));
+    menu_button(ui, button, None, |ui| menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions));
 }
 
 /// A menu's items, a separator before each group.
@@ -187,23 +230,21 @@ fn menu_items<'a>(ui: &mut egui::Ui, items: impl Iterator<Item = &'a CommandView
 /// The standard views, in a menu.
 fn views_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
     const IDS: [&str; 6] = ["view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
-    let img = egui::Image::new(icons::VIEWS).fit_to_exact_size(egui::vec2(18.0, 18.0)).tint(ui.visuals().text_color());
-    let button = egui::Button::image(img).min_size(egui::vec2(26.0, 26.0));
-    let (r, _) = egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
-        // Not a group: no separator before the first.
-        menu_items(ui, views.iter().filter(|v| IDS.contains(&v.id)), actions);
-    });
-    r.on_hover_text(t!("titlebar.views"));
+    let button = egui::Button::image(icon_image(ui, icons::VIEWS)).min_size(egui::vec2(26.0, 26.0));
+    // Not a group: no separator before the first.
+    menu_button(ui, button, Some(t!("titlebar.views")), |ui| menu_items(ui, views.iter().filter(|v| IDS.contains(&v.id)), actions));
 }
 
-/// The command search: looks like a search field, opens the command palette. True when
+/// The command search: its icon, a hint and its shortcut, opens the command palette. Drawn as
+/// the bar's buttons: no background at rest, the [`tabs::veil`] when hovered. True when
 /// clicked.
 fn search(ui: &mut egui::Ui, v: &CommandView, width: f32) -> bool {
-    let (rect, r) = ui.allocate_exact_size(egui::vec2(width, 24.0), egui::Sense::click());
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(width, 26.0), egui::Sense::click());
+    if let Some(fill) = tabs::veil(ui, &r) {
+        ui.painter().rect_filled(rect, tabs::VEIL_RADIUS, fill);
+    }
     let visuals = ui.visuals();
-    let stroke = if r.hovered() { visuals.widgets.hovered.bg_stroke } else { visuals.widgets.inactive.bg_stroke };
     let p = ui.painter();
-    p.rect(rect, 6.0, visuals.extreme_bg_color, stroke, egui::StrokeKind::Inside);
     let weak = visuals.weak_text_color();
     let icon = egui::Rect::from_center_size(rect.left_center() + egui::vec2(14.0, 0.0), egui::vec2(14.0, 14.0));
     egui::Image::new(icons::SEARCH).tint(weak).paint_at(ui, icon);

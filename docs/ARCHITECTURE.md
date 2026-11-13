@@ -1534,11 +1534,19 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
 Decided on 2026-11-10, after SolidCraft (`ui-kit/src/window_chrome.rs`, `app_bar.rs`). The
 menu strip is gone: its room goes to one bar holding the document and the commands used most.
 
-- **Title bar** (`apps/solidsketch/src/titlebar.rs`, 34 pt): the document's name (its path as a
-  tooltip, a dot when modified), Undo / Redo, the standard views (a menu), the view's toggles
+- **Title bar** (`apps/solidsketch/src/titlebar.rs`, 34 pt): the app's mark (`assets/app-icon.svg`)
+  and name, the **File** menu (a text button: the registry's File commands), Undo / Redo, the
+  file tabs (§6 octies), the standard views (a menu), the view's toggles
   (perspective, grid, axes, silhouettes, section, Materials panel), and at the right the
   command search (opens the palette, shows its shortcut; only its icon when the window is
   narrow) and the preferences. Every button is a registry command, its state and tip from it.
+  The bar is **dark in both modes** (as SolidCraft's application bar), its text light: each
+  palette's `title_bar` tokens (ground, text, dim text, separators, lit surface; a test holds
+  its text to ≥ 7:1 on the ground and the lit surface), applied to the bar's panel only
+  (`style::title_bar`); the menus and tips it opens keep the window's style.
+  Its buttons, the command search too, are drawn as the tabs' + button: no background at rest, a veil of the text's
+  colour when hovered (darker when pressed), the selection's colour when lit or when their
+  menu is open (`tabs::veil`, `titlebar::backed`).
   The tool bar keeps the tools, the booleans, the assembly commands and zoom extents.
 - **macOS desktop**: the bar *is* the window's title bar — the OS one is hidden and the content
   runs under it (`with_fullsize_content_view`, `titlebar_shown(false)`, `title_shown(false)`,
@@ -1546,18 +1554,21 @@ menu strip is gone: its room goes to one bar holding the document and the comman
   the bar's empty space moves the window (`ViewportCommand::StartDrag`) and a double-click
   zooms it. The window title is still set (Window menu, Mission Control).
 - **Native menus on macOS** (`native_menu.rs`, `muda`): the app menu (About, Preferences,
-  Services, Hide, Quit), the registry's menus, the system's Window menu. The items follow the
+  Services, Hide, Quit), the registry's **File** menu only (decided on 2026-11-13, as the title
+  bar: the other commands are in the ribbon, the command search and the shortcuts, ⌘ ones
+  included, through the app's keymap), the system's Window menu. The items follow the
   app every frame (enabled, checked, « Annuler Déplacer »); the bar is rebuilt when the
   language or the shortcuts change. A chosen item is its command's id, run as everywhere else.
   - Only **⌘ shortcuts** become key equivalents: AppKit takes them before the window sees the
     key, so single letters (R, M, Space…) would be lost to the VCB and the text fields — they
     stay with the app's keymap, and the menu does not show them.
-  - For the same reason, a ⌘ command chosen while egui owns the key goes back to egui as that
-    key (`raw_input_hook`): while a shortcut is captured in the preferences, and for Undo,
-    Redo and Select all in a text field.
+  - For the same reason, a ⌘ command chosen while a shortcut is captured in the preferences
+    goes back to egui as that key (`raw_input_hook`).
 - **Web, Windows, Linux**: the OS frame is kept (no caption buttons of our own: resizing,
-  snapping and the move loop are the OS's), and the menus are behind a **☰** button at the
-  bar's start, the registry's menus as submenus.
+  snapping and the move loop are the OS's). No menu bar (decided on 2026-11-13, as SolidCraft's
+  bar, which has only File): the other menus' commands are reached through the ribbon, the
+  command search (every enabled command, the debug ones with the debug menu) and the
+  shortcuts; the ☰ button that held every menu is gone.
 
 ## 8. File
 

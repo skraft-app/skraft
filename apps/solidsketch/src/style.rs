@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use egui::{CornerRadius, FontData, FontDefinitions, FontFamily, Shadow, Stroke, TextStyle};
-use solidsketch_theme::{Mode, Palette, UiTokens};
+use solidsketch_theme::{Mode, Palette, TitleBarTokens, UiTokens};
 
 use crate::viewport::color;
 
@@ -29,7 +29,36 @@ pub fn install_fonts(ctx: &egui::Context) {
 /// Installs the light and the dark style of `palette`.
 pub fn install_palette(ctx: &egui::Context, palette: Palette) {
     for (theme, mode) in [(egui::Theme::Light, Mode::Light), (egui::Theme::Dark, Mode::Dark)] {
-        ctx.style_mut_of(theme, |s| apply(s, &UiTokens::of(palette, mode)));
+        let t = UiTokens::of(palette, mode);
+        ctx.style_mut_of(theme, |s| apply(s, &t));
+        ctx.data_mut(|d| d.insert_temp(title_bar_id(theme), t.title_bar));
+    }
+}
+
+fn title_bar_id(theme: egui::Theme) -> egui::Id {
+    egui::Id::unique(("title_bar_tokens", theme == egui::Theme::Dark))
+}
+
+/// Turns `style` into the title bar's: its dark ground, light text, separators and lit fill
+/// (docs/ARCHITECTURE.md §7 quinquies). The popups it opens (menus, tips) keep the window's
+/// style.
+pub fn title_bar(ctx: &egui::Context, style: &mut egui::Style) {
+    let Some(t) = ctx.data(|d| d.get_temp::<TitleBarTokens>(title_bar_id(ctx.theme()))) else { return };
+    let v = &mut style.visuals;
+    let text = color(t.text);
+    v.panel_fill = color(t.ground);
+    v.override_text_color = Some(text);
+    v.weak_text_color = Some(color(t.text_dim));
+    // The lit buttons (and the open menus' buttons), the shown tab, a tab being dragged.
+    v.selection.bg_fill = color(t.lit);
+    v.selection.stroke.color = text;
+    v.window_fill = color(t.lit);
+    let w = &mut v.widgets;
+    w.noninteractive.bg_stroke.color = color(t.border);
+    w.active.weak_bg_fill = color(t.lit);
+    w.hovered.weak_bg_fill = text.gamma_multiply(0.12);
+    for state in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active] {
+        state.fg_stroke.color = text;
     }
 }
 

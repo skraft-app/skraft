@@ -302,20 +302,28 @@ enum Glyph {
     Text(&'static str),
 }
 
-/// A frameless button of the strip (×, +, »): a veil of the text's colour when hovered, darker
-/// when pressed — seen on any tab, lit or not, in either theme. `size`: its glyph's.
-fn small_button(ui: &mut egui::Ui, rect: egui::Rect, id: egui::Id, glyph: Glyph, size: f32) -> egui::Response {
-    let resp = ui.interact(rect, id, egui::Sense::click());
-    let ink = ui.visuals().text_color();
-    let veil = if resp.is_pointer_button_down_on() {
+/// A frameless button's corner radius.
+pub const VEIL_RADIUS: f32 = 5.0;
+
+/// A frameless button's background: a veil of the text's colour when hovered, darker when
+/// pressed — seen on any ground, in either theme. None at rest.
+pub fn veil(ui: &egui::Ui, resp: &egui::Response) -> Option<egui::Color32> {
+    let alpha = if resp.is_pointer_button_down_on() {
         0.22
     } else if resp.hovered() {
         0.12
     } else {
-        0.0
+        return None;
     };
-    if veil > 0.0 {
-        ui.painter().rect_filled(rect, 5.0, ink.gamma_multiply(veil));
+    Some(ui.visuals().text_color().gamma_multiply(alpha))
+}
+
+/// A frameless button of the strip (×, +, »): its [`veil`]. `size`: its glyph's.
+fn small_button(ui: &mut egui::Ui, rect: egui::Rect, id: egui::Id, glyph: Glyph, size: f32) -> egui::Response {
+    let resp = ui.interact(rect, id, egui::Sense::click());
+    let ink = ui.visuals().text_color();
+    if let Some(fill) = veil(ui, &resp) {
+        ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
     }
     match glyph {
         Glyph::Icon(icon) => {

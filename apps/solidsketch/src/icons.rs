@@ -28,7 +28,6 @@ icon!(PAINT, "paint");
 icon!(SECTION, "section");
 icon!(MEASURE, "measure");
 icon!(STRETCH, "stretch");
-icon!(MENU, "menu");
 icon!(GRID, "grid");
 icon!(GUIDES, "guides");
 icon!(AXES, "axes");
@@ -100,3 +99,6 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
         "from_corner",
     )
 }
+
+/// The app's icon, in its colours (not tinted): the title bar's mark.
+pub const APP: ImageSource<'static> = egui::include_image!("../assets/app-icon.svg");

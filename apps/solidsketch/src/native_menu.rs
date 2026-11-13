@@ -1,12 +1,14 @@
 //! The macOS menu bar (docs/ARCHITECTURE.md §7 quinquies), built with `muda` from the command
-//! registry: the app menu (About, Preferences, Services, Hide, Quit), the registry's menus, then
-//! the system's Window menu. A chosen item is the id of its command, run as the ☰ menu's are.
+//! registry: the app menu (About, Preferences, Services, Hide, Quit), the File menu, then the
+//! system's Window menu — as the title bar, which has only File: the other commands are in the
+//! ribbon, the command search and the shortcuts (the app's keymap, ⌘ ones included). A chosen
+//! item is the id of its command, run as the title bar's are.
 //!
 //! Only the shortcuts with ⌘ become the items' key equivalents: AppKit takes a key equivalent
 //! before the window sees the key, so a single letter (R, M, Espace…) would be lost to the
 //! measurements box and the text fields. Those stay with the app's keymap. For the same reason
-//! a ⌘ shortcut chosen while a text field has the keyboard goes back to egui as its key
-//! ([`crate::app`]): ⌘Z undoes the typing, not the model.
+//! a ⌘ shortcut chosen while a shortcut is being captured goes back to egui as its key
+//! ([`crate::app`]).
 //!
 //! The items follow the app every frame (enabled, checked, « Annuler Déplacer »); the bar is
 //! built again when the language or the shortcuts change.
@@ -32,13 +34,13 @@ pub struct NativeMenu {
     _bar: Bar,
     items: Vec<(&'static str, Item)>,
     events: Receiver<MenuEvent>,
-    /// What the bar was built for: the language, the shortcuts, the debug menu, the recent files.
+    /// What the bar was built for: the language, the shortcuts, the recent files.
     built_for: String,
 }
 
 /// What a bar is built for: it is built again when this changes.
-fn signature(views: &[CommandView], keymap: &Keymap, debug: bool) -> String {
-    let mut s = format!("{}|{debug}", solidsketch_i18n::locale());
+fn signature(views: &[CommandView], keymap: &Keymap) -> String {
+    let mut s = solidsketch_i18n::locale().to_string();
     // The recent files come and go with their slots.
     for v in views.iter().filter(|v| commands::recent_slot(v.id).is_some()) {
         s.push_str(&format!("|{}={}", v.id, v.label));
@@ -122,23 +124,23 @@ fn accelerator(s: Option<Shortcut>) -> Option<Accelerator> {
 impl NativeMenu {
     /// Builds the bar and installs it. A chosen item repaints `ctx`. On the main thread only, as
     /// every AppKit menu.
-    pub fn new(ctx: &egui::Context, views: &[CommandView], keymap: &Keymap, debug: bool) -> Result<Self, String> {
+    pub fn new(ctx: &egui::Context, views: &[CommandView], keymap: &Keymap) -> Result<Self, String> {
         let (sender, events) = sync_channel(64);
         let ctx = ctx.clone();
         MenuEvent::set_event_handler(Some(move |e| {
             let _ = sender.try_send(e);
             ctx.request_repaint();
         }));
-        let (bar, items) = build(views, keymap, debug).map_err(|e| e.to_string())?;
-        Ok(NativeMenu { _bar: bar, items, events, built_for: signature(views, keymap, debug) })
+        let (bar, items) = build(views, keymap).map_err(|e| e.to_string())?;
+        Ok(NativeMenu { _bar: bar, items, events, built_for: signature(views, keymap) })
     }
 
     /// The commands chosen since the last call; the bar follows `views` (and is built again
     /// for new texts or shortcuts).
-    pub fn update(&mut self, views: &[CommandView], keymap: &Keymap, debug: bool) -> Vec<&'static str> {
-        let sig = signature(views, keymap, debug);
+    pub fn update(&mut self, views: &[CommandView], keymap: &Keymap) -> Vec<&'static str> {
+        let sig = signature(views, keymap);
         if sig != self.built_for {
-            match build(views, keymap, debug) {
+            match build(views, keymap) {
                 // The new bar is installed before the old one goes.
                 Ok((bar, items)) => {
                     self._bar = bar;
@@ -175,7 +177,7 @@ impl NativeMenu {
     }
 }
 
-fn build(views: &[CommandView], keymap: &Keymap, debug: bool) -> muda::Result<(Bar, Vec<(&'static str, Item)>)> {
+fn build(views: &[CommandView], keymap: &Keymap) -> muda::Result<(Bar, Vec<(&'static str, Item)>)> {
     let bar = Bar::new();
     let mut items = Vec::new();
     let mut item = |v: &CommandView| -> Item {
@@ -221,22 +223,17 @@ fn build(views: &[CommandView], keymap: &Keymap, debug: bool) -> muda::Result<(B
     }
     bar.append(&app)?;
 
-    for menu in Menu::BAR {
-        if menu == Menu::Debug && !debug {
-            continue;
+    let file = Submenu::new(Menu::File.label(), true);
+    let mut first = true;
+    // Quit is in the app menu.
+    for v in views.iter().filter(|v| v.menu == Menu::File && v.id != "app.quit") {
+        if v.group && !first {
+            file.append(&sep())?;
         }
-        let sub = Submenu::new(menu.label(), true);
-        let mut first = true;
-        // The preferences and Quit are in the app menu.
-        for v in views.iter().filter(|v| v.menu == menu && !matches!(v.id, "app.preferences" | "app.quit")) {
-            if v.group && !first {
-                sub.append(&sep())?;
-            }
-            first = false;
-            append(&sub, &item(v))?;
-        }
-        bar.append(&sub)?;
+        first = false;
+        append(&file, &item(v))?;
     }
+    bar.append(&file)?;
 
     let window = Submenu::new(t!("menu.window.title"), true);
     window.append(&PredefinedMenuItem::minimize(Some(&t!("menu.window.minimize"))))?;
