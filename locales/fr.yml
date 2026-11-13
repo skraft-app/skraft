@@ -201,6 +201,16 @@ tabs:
   reveal: "Afficher dans le dossier"
 
 # Asked before a modified document's tab closes, or before quitting with one (%{name}).
+# The window over a file being opened or imported (docs/ARCHITECTURE.md §7 quinquies).
+loading:
+  open: "Ouverture de « %{name} »"
+  import: "Import de « %{name} »"
+  reading: "Lecture du fichier"
+  bodies: "Lecture des corps"
+  previews: "Aperçu"
+  finals: "Maillage"
+  cancel: "Annuler"
+
 save_prompt:
   title: "Enregistrer les modifications ?"
   question: "Enregistrer les modifications apportées à « %{name} » ?"
@@ -398,6 +408,7 @@ status:
   import_empty: "%{file} : aucun solide à importer (%{count} corps non fermé)"
   import_empty_plural: "%{file} : aucun solide à importer (%{count} corps non fermés)"
   import_failed: "Import de %{file} impossible : %{error}"
+  import_cancelled: "Import de %{file} annulé"
   prefs_not_saved: "Préférences non enregistrées : %{error}"
   control_failed: "Canal de pilotage : %{error}"
   command_unknown: "commande inconnue « %{id} »"
@@ -791,6 +802,7 @@ error:
     empty: "%{call} : résultat vide"
     panic: "%{call} : panique du noyau : %{message}"
     crashed: "le noyau s'est arrêté : %{why}"
+    cancelled: "annulé"
   # A stretch that cannot be applied (docs/ARCHITECTURE.md §6 sexies).
   stretch:
     invalid: "étirement mal défini"

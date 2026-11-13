@@ -6,10 +6,10 @@
 //! changeable), the command palette and the control channel.
 
 use solidsketch_i18n::{ellipsis, t};
-use solidsketch_model::kernel::{KernelService, SharedKernel};
+use solidsketch_model::kernel::{KernelService, Progress, SharedKernel};
 use solidsketch_model::{Boolean, Document, LengthUnit, Operation, Settings};
 use solidsketch_theme::{Choice, Mode, Palette as UiPalette, Theme};
-use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
+use solidsketch_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, ToolKind};
 
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
 use crate::dock::{self, Dock, PanelId};
@@ -76,7 +76,13 @@ pub struct SolidSketchApp {
     native_menu: Option<NativeMenu>,
     /// Keys given back to egui on the next frame ([`Self::native_command`]).
     pending_keys: Vec<egui::Event>,
+    /// The documents loading, and since when (egui's time): the window comes after
+    /// [`LOAD_WINDOW_AFTER`].
+    loads_seen: std::collections::HashMap<DocId, f64>,
 }
+
+/// How long a load lasts before its window shows (seconds).
+const LOAD_WINDOW_AFTER: f64 = 0.3;
 
 /// Closing documents one after the other (docs/ARCHITECTURE.md §6 octies): each modified one
 /// is shown and asked about (Save, Don't save, Cancel) before it closes. Quitting asks the same
@@ -137,7 +143,7 @@ fn kernel_service(ctx: &egui::Context) -> Box<dyn KernelService> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let ctx = ctx.clone();
-        Box::new(solidsketch_model::kernel::Threaded::new(Some(std::sync::Arc::new(move || ctx.request_repaint()))))
+        Box::new(solidsketch_model::kernel::Pool::new(Some(std::sync::Arc::new(move || ctx.request_repaint()))))
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -227,6 +233,7 @@ impl SolidSketchApp {
             #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
             native_menu: None,
             pending_keys: Vec::new(),
+            loads_seen: std::collections::HashMap::new(),
         };
         #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
         {
@@ -435,7 +442,7 @@ impl SolidSketchApp {
             return;
         };
         let mut chosen = None;
-        let modal = egui::Modal::new(egui::Id::unique("save_prompt")).show(ctx, |ui| {
+        let modal = egui::Modal::new(egui::Id::unique("save_prompt")).frame(modal_frame(ctx)).show(ctx, |ui| {
             ui.set_width(360.0);
             ui.heading(t!("save_prompt.title"));
             ui.add_space(6.0);
@@ -465,6 +472,71 @@ impl SolidSketchApp {
         }
         if let Some(a) = chosen {
             self.answer(a);
+        }
+    }
+
+    /// The window over a document being loaded (docs/ARCHITECTURE.md §7 sexies): the file
+    /// read, its preview meshes, its final meshes, each with how far it is, until the last final
+    /// mesh; « Annuler » (or Esc) stops it all. Shown once a load has lasted [`LOAD_WINDOW_AFTER`]
+    /// (a small file would only flash it).
+    fn loading_window(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        let loading: Vec<DocId> = self.docs.iter_mut().filter(|d| d.editor.loading().is_some()).map(|d| d.id).collect();
+        self.loads_seen.retain(|id, _| loading.contains(id));
+        for &id in &loading {
+            self.loads_seen.entry(id).or_insert(now);
+        }
+        let Some(d) = self.docs.active() else { return };
+        let (Some(load), Some(&since)) = (d.editor.loading().cloned(), self.loads_seen.get(&d.id)) else { return };
+        if now - since < LOAD_WINDOW_AFTER {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(LOAD_WINDOW_AFTER - (now - since)));
+            return;
+        }
+        let title = match &load.kind {
+            LoadKind::Open => t!("loading.open", name = d.name()),
+            LoadKind::Import { name } => t!("loading.import", name = name),
+        };
+        let row = |ui: &mut egui::Ui, label: String, done: usize, total: usize, current: bool| {
+            ui.label(label);
+            let fraction = if total == 0 { 0.0 } else { done as f32 / total as f32 };
+            let bar = egui::ProgressBar::new(fraction).text(format!("{done} / {total}")).animate(current && done < total);
+            ui.add(bar);
+            ui.end_row();
+        };
+        let mut cancel = false;
+        let modal = egui::Modal::new(egui::Id::unique("loading")).frame(modal_frame(ctx)).show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.heading(title);
+            ui.add_space(8.0);
+            egui::Grid::new("loading_stages").num_columns(2).spacing([12.0, 8.0]).min_col_width(90.0).show(ui, |ui| {
+                match load.reading {
+                    Some(Progress::Bodies { done, total }) => row(ui, t!("loading.bodies"), done as usize, total as usize, true),
+                    Some(Progress::Reading) => {
+                        ui.label(t!("loading.reading"));
+                        ui.add(egui::Spinner::new());
+                        ui.end_row();
+                    }
+                    None => {}
+                }
+                let (pd, pt) = load.previews;
+                let (fd, ft) = load.finals;
+                if load.reading.is_none() || pt > 0 {
+                    row(ui, t!("loading.previews"), pd, pt, pd < pt);
+                    row(ui, t!("loading.finals"), fd, ft, pd >= pt);
+                }
+            });
+            ui.add_space(10.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(t!("loading.cancel")).clicked() {
+                    cancel = true;
+                }
+            });
+        });
+        if modal.should_close() || ui_key(ctx, egui::Key::Escape) {
+            cancel = true;
+        }
+        if cancel && let Some(d) = self.docs.active_mut() {
+            d.editor.cancel_loading();
         }
     }
 
@@ -1576,6 +1648,18 @@ impl eframe::App for SolidSketchApp {
         for d in self.docs.iter_mut() {
             d.editor.poll();
         }
+        // A file whose opening was cancelled is closed (an import cancelled is undone already).
+        let cancelled: Vec<DocId> = self
+            .docs
+            .iter_mut()
+            .filter_map(|d| matches!(d.editor.take_load_end(), Some(LoadEnd::Cancelled(LoadKind::Open))).then_some(d.id))
+            .collect();
+        for id in cancelled {
+            self.loads_seen.remove(&id);
+            if let Some(i) = self.docs.index_of(id) {
+                self.close_now(i);
+            }
+        }
         // Closing the window (its button, the OS) asks about the modified documents first.
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit_ok && self.docs.any_modified() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1658,6 +1742,7 @@ impl eframe::App for SolidSketchApp {
         self.preferences_window(&ctx);
         self.palette_window(&ctx, &views, &mut actions);
         self.save_prompt(&ctx);
+        self.loading_window(&ctx);
         for a in actions {
             self.act(a);
         }
@@ -1937,6 +2022,14 @@ fn interrupts_tap(e: &egui::Event) -> bool {
 }
 
 /// Was `key` pressed this frame?
+/// The frame of the app's modal boxes: egui's popup frame, with room around the content.
+fn modal_frame(ctx: &egui::Context) -> egui::Frame {
+    egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(MODAL_MARGIN))
+}
+
+/// The room between a modal box's border and its content (points).
+const MODAL_MARGIN: i8 = 20;
+
 fn ui_key(ctx: &egui::Context, key: egui::Key) -> bool {
     ctx.input(|i| i.key_pressed(key))
 }

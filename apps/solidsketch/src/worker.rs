@@ -7,13 +7,17 @@
 //! A kernel panic aborts the worker's wasm: its `{ panic }` message, then `{ id, crashed }`,
 //! come back. That job fails, the worker is replaced and the jobs it still had are sent to the
 //! new one. If the kernel cannot load at all (`{ fatal }`), every job fails from then on.
+//!
+//! A job reports its progress as `{ id, progress }`. A job cancelled fails at once
+//! ([`Error::Cancelled`]); the worker, which cannot be interrupted, is replaced at the next
+//! poll and given the jobs left.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::{Rc, Weak};
 
 use solidsketch_i18n::t;
-use solidsketch_model::kernel::{Error, Job, JobId, JobResult, KernelService, decode, encode};
+use solidsketch_model::kernel::{Error, Job, JobId, JobResult, KernelService, Progress, decode, encode};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
@@ -37,6 +41,10 @@ struct Inner {
     /// Jobs sent and not answered, as sent (to send again to a new worker).
     in_flight: BTreeMap<JobId, Vec<u8>>,
     ready: Vec<(JobId, JobResult)>,
+    /// The latest progress of the jobs in flight.
+    progress: HashMap<JobId, Progress>,
+    /// A job was cancelled: the worker is replaced at the next poll.
+    restart: bool,
     /// What the last panic said (it comes just before the crash it explains).
     panic: Option<String>,
     /// Why the kernel is unavailable for good.
@@ -54,6 +62,8 @@ impl WebKernel {
             retired: Vec::new(),
             in_flight: BTreeMap::new(),
             ready: Vec::new(),
+            progress: HashMap::new(),
+            restart: false,
             panic: None,
             dead: None,
             wake,
@@ -81,7 +91,24 @@ impl KernelService for WebKernel {
     }
 
     fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+        let restart = std::mem::take(&mut self.inner.borrow_mut().restart);
+        if restart {
+            respawn(&self.inner);
+        }
         std::mem::take(&mut self.inner.borrow_mut().ready)
+    }
+
+    fn progress(&mut self) -> Vec<(JobId, Progress)> {
+        self.inner.borrow_mut().progress.drain().collect()
+    }
+
+    fn cancel(&mut self, id: JobId) {
+        let mut inner = self.inner.borrow_mut();
+        if inner.in_flight.remove(&id).is_some() {
+            inner.progress.remove(&id);
+            inner.ready.push((id, Err(Error::Cancelled)));
+            inner.restart = true;
+        }
     }
 }
 
@@ -170,9 +197,21 @@ fn on_message(weak: &Weak<RefCell<Inner>>, data: JsValue) {
             i.fail_all(&why);
             i.dead = Some(why);
         } else if let Some(id) = get("id").and_then(|v| v.as_f64()).map(|v| v as JobId) {
+            if let Some(p) = get("progress") {
+                if i.in_flight.contains_key(&id)
+                    && let Ok(p) = decode::<Progress>(&js_sys::Uint8Array::new(&p).to_vec())
+                {
+                    i.progress.insert(id, p);
+                    let wake = i.wake.clone();
+                    drop(i);
+                    wake();
+                }
+                return;
+            }
             if i.in_flight.remove(&id).is_none() {
                 return;
             }
+            i.progress.remove(&id);
             let result = if let Some(bytes) = get("bytes") {
                 let bytes = js_sys::Uint8Array::new(&bytes).to_vec();
                 decode::<JobResult>(&bytes).unwrap_or_else(|e| Err(Error::Crashed(t!("error.worker.unreadable_reply", error = e))))
@@ -190,15 +229,20 @@ fn on_message(weak: &Weak<RefCell<Inner>>, data: JsValue) {
     }
     if respawn {
         // The trapped wasm may be in any state: a new worker takes over what was left.
-        if let Some(w) = inner.borrow_mut().worker.take() {
-            w.terminate();
-        }
-        spawn(&inner);
-        let i = inner.borrow();
-        for (id, bytes) in &i.in_flight {
-            i.post(*id, bytes);
-        }
+        self::respawn(&inner);
     }
     let wake = inner.borrow().wake.clone();
     wake();
+}
+
+/// A new worker in place of the one running, given the jobs in flight again.
+fn respawn(inner: &Rc<RefCell<Inner>>) {
+    if let Some(w) = inner.borrow_mut().worker.take() {
+        w.terminate();
+    }
+    spawn(inner);
+    let i = inner.borrow();
+    for (id, bytes) in &i.in_flight {
+        i.post(*id, bytes);
+    }
 }

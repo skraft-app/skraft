@@ -255,3 +255,66 @@ fn mesh_budget_preview() {
     }
     eprintln!("preview meshes: {time:.2} s on one thread (slowest {:.0} ms), {:.2} M triangles", slowest * 1e3, tris as f64 / 1e6);
 }
+
+/// What of a real model is not drawn: the bodies left out at reading (by product, with why), and
+/// those read whose display the mesher refuses or leaves empty (preview and final), the largest
+/// first. A big part missing in the app is in one list or the other.
+#[test]
+#[ignore]
+fn mesh_budget_missing() {
+    let Ok(path) = std::env::var("BENCH_STEP") else { return };
+    let step = read(&path);
+    eprintln!("left out at reading: {}", step.excluded.len());
+    for x in &step.excluded {
+        let reason: String = x.reason.chars().take(400).collect();
+        eprintln!("  {:?} / {:?}: {reason}", x.product, x.body);
+    }
+    let bodies: Vec<(&str, &str, &Solid)> =
+        step.products.iter().flat_map(|p| p.bodies.iter().map(move |b| (p.name.as_str(), b.name.as_str(), &b.solid))).collect();
+    let mut missing: Vec<(f64, String)> = Vec::new();
+    let mut biggest: Vec<(f64, String)> = Vec::new();
+    for (product, body, s) in bodies {
+        let sz = size(s);
+        let faces = s.record().faces.len();
+        biggest.push((sz, format!("{product:?} / {body:?}: {faces} faces")));
+        for q in [solidsketch_kernel::Quality::Preview, solidsketch_kernel::Quality::Final] {
+            match s.display_at(q) {
+                Ok(d) if d.mesh.indices.is_empty() => missing.push((sz, format!("{q:?} empty: {product:?} / {body:?} ({faces} faces)"))),
+                Ok(_) => {}
+                Err(e) => {
+                    let e: String = e.to_string().chars().take(160).collect();
+                    missing.push((sz, format!("{q:?} refused: {product:?} / {body:?} ({faces} faces): {e}")))
+                }
+            }
+        }
+    }
+    missing.sort_by(|a, b| b.0.total_cmp(&a.0));
+    eprintln!("\nread but not drawn: {}", missing.len());
+    for (sz, m) in &missing {
+        eprintln!("  {sz:8.2} mm  {m}");
+    }
+    biggest.sort_by(|a, b| b.0.total_cmp(&a.0));
+    eprintln!("\nthe largest bodies read:");
+    for (sz, m) in biggest.iter().take(12) {
+        eprintln!("  {sz:8.2} mm  {m}");
+    }
+}
+
+/// The bodies a real model leaves out at reading, and the largest read (no meshing: quick).
+#[test]
+#[ignore]
+fn mesh_budget_excluded() {
+    let Ok(path) = std::env::var("BENCH_STEP") else { return };
+    let step = read(&path);
+    eprintln!("left out at reading: {}", step.excluded.len());
+    for x in &step.excluded {
+        let reason: String = x.reason.chars().take(200).collect();
+        eprintln!("  {:?}: {reason}", x.product);
+    }
+    let mut sizes: Vec<(f64, String, usize)> =
+        step.products.iter().flat_map(|p| p.bodies.iter().map(move |b| (size(&b.solid), p.name.clone(), b.solid.record().faces.len()))).collect();
+    sizes.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (sz, name, faces) in sizes.iter().take(5) {
+        eprintln!("  {sz:8.2} mm  {name:?}: {faces} faces");
+    }
+}

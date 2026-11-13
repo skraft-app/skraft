@@ -6,7 +6,10 @@ use solidcore::kernel::{Kernel, KernelOptions};
 use solidcore::primitive::api_primitives as prim;
 use solidcore_record::brep::Brep as Record;
 
-use crate::job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task};
+use solidcore::kernel::CancelToken;
+use solidcore_ops::cancel;
+
+use crate::job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Progress, Quality, Task};
 use crate::{BooleanOp, Error, Mesh, Primitive, Result, Snaps, Solid, Stretch};
 
 impl Primitive {
@@ -123,10 +126,19 @@ impl Solid {
     /// The display mesh and the snap features (what tools infer on), in the solid's own
     /// coordinates: one tessellation for both.
     pub fn display(&self) -> Result<Display> {
+        self.display_at(Quality::Final)
+    }
+
+    /// [`Solid::display`] at `quality`: a preview is meshed at a hundredth of the body
+    /// (`solidcore_tess::preview`), in a fraction of the time.
+    pub fn display_at(&self, quality: Quality) -> Result<Display> {
         let bounds = self.bounds().ok();
         let size = bounds.or_else(|| self.vertex_bounds()).map(|(lo, hi)| (hi - lo).length()).filter(|s| *s > 1e-6).unwrap_or(100.0);
         guarded("mesh", || {
-            let tol = solidcore_tess::MeshTolerance::display_of(size);
+            let tol = match quality {
+                Quality::Preview => solidcore_tess::preview::tolerance(size, 1),
+                Quality::Final => solidcore_tess::MeshTolerance::display_of(size),
+            };
             let (mut plan, stats) = solidcore_tess::plan(&self.record, &tol, size).map_err(|e| Error::Mesh(e.to_string()))?;
             // Faces the planner refined to its bound without reaching the tolerance (SolidCore
             // on some splines, docs/REVIEW.md "Work: SolidCore"): tens of thousands of
@@ -138,7 +150,8 @@ impl Solid {
                 .filter(|o| o.caps.iter().any(|c| matches!(c, solidcore_tess::Cap::Refine)))
                 .map(|o| o.sag)
                 .fold(0.0, f64::max);
-            if reached > tol.chord
+            if quality == Quality::Final
+                && reached > tol.chord
                 && let Ok((again, _)) = solidcore_tess::plan(&self.record, &solidcore_tess::MeshTolerance::display(reached * 1.25), size)
             {
                 plan = again;
@@ -166,14 +179,49 @@ fn input<'a>(job: &'a Job, out: &'a [Output], i: u32) -> Result<&'a Solid> {
     found.ok_or_else(|| Error::Convert { call: "job".into(), message: format!("no input {i:#x}") })
 }
 
+/// What a job runs with: where its progress goes, and the token that stops it.
+pub struct Context<'a> {
+    pub report: &'a (dyn Fn(Progress) + Sync),
+    pub cancel: Option<CancelToken>,
+}
+
+impl Context<'_> {
+    /// Nothing reported, nothing to stop.
+    pub fn none() -> Context<'static> {
+        Context { report: &|_| {}, cancel: None }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(CancelToken::is_cancelled)
+    }
+}
+
 /// Runs every task of `job` in order. A task producing a solid that fails fails the job.
 pub fn run(job: &Job) -> JobResult {
+    run_with(job, &Context::none())
+}
+
+/// [`run`], reporting its progress to `cx` and stopped by its token: every SolidCore call the
+/// job makes, on this thread and on those it starts ([`parallel_map`]), polls it; a job
+/// cancelled at any point fails with [`Error::Cancelled`].
+pub fn run_with(job: &Job, cx: &Context) -> JobResult {
+    let out = match &cx.cancel {
+        Some(token) => cancel::within(token, || run_tasks(job, cx)),
+        None => run_tasks(job, cx),
+    };
+    if cx.cancelled() { Err(Error::Cancelled) } else { out }
+}
+
+fn run_tasks(job: &Job, cx: &Context) -> JobResult {
     let solid = |s: Solid| {
         let display = s.display().map_err(|e| e.to_string());
         Output::Solid { solid: s, display }
     };
     let mut out = Vec::with_capacity(job.tasks.len());
     for task in &job.tasks {
+        if cx.cancelled() {
+            return Err(Error::Cancelled);
+        }
         let input = |i: u32| input(job, &out, i);
         let done = match task {
             Task::Primitive { primitive, placement } => {
@@ -211,8 +259,8 @@ pub fn run(job: &Job) -> JobResult {
                 Output::Recipe { solid: shape, display, failed }
             }
             Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
-            Task::Display { solid: i } => Output::Display(input(*i)?.display().map_err(|e| e.to_string())),
-            Task::ImportStep { bytes } => Output::Step(Box::new(crate::step::read::import(bytes)?)),
+            Task::Display { solid: i, quality } => Output::Display(input(*i)?.display_at(*quality).map_err(|e| e.to_string())),
+            Task::ImportStep { bytes } => Output::Step(Box::new(crate::step::read::import(bytes, cx.report)?)),
             Task::Panic { message } => guarded("panic", || -> Result<Output> { panic!("{message}") })?,
         };
         out.push(done);
@@ -245,6 +293,8 @@ pub fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -
         use std::sync::atomic::{AtomicUsize, Ordering};
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(items.len());
         if threads > 1 {
+            // The job's cancel token, over the calls of every thread.
+            let token = cancel::current();
             let next = AtomicUsize::new(0);
             let mut done: Vec<(usize, R)> = std::thread::scope(|s| {
                 let workers: Vec<_> = (0..threads)
@@ -252,13 +302,19 @@ pub fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -
                         std::thread::Builder::new()
                             .stack_size(crate::KERNEL_STACK)
                             .spawn_scoped(s, || {
-                                let mut mine = Vec::new();
-                                loop {
-                                    let i = next.fetch_add(1, Ordering::Relaxed);
-                                    let Some(item) = items.get(i) else { break };
-                                    mine.push((i, f(item)));
+                                let work = || {
+                                    let mut mine = Vec::new();
+                                    loop {
+                                        let i = next.fetch_add(1, Ordering::Relaxed);
+                                        let Some(item) = items.get(i) else { break };
+                                        mine.push((i, f(item)));
+                                    }
+                                    mine
+                                };
+                                match &token {
+                                    Some(t) => cancel::within(t, work),
+                                    None => work(),
                                 }
-                                mine
                             })
                             .ok()
                     })
@@ -280,50 +336,168 @@ pub fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -
     items.iter().map(f).collect()
 }
 
-/// Runs jobs one after the other on a thread of its own (the desktop app).
+/// Runs jobs on a pool of threads, one per core (the desktop app): an operation's job before
+/// the meshes asked in the background (a job of `Display` tasks only), each kind in the order
+/// submitted. Results come back as each job ends.
 #[cfg(not(target_arch = "wasm32"))]
-pub struct Threaded {
-    jobs: std::sync::mpsc::Sender<(JobId, Job)>,
+pub struct Pool {
+    shared: std::sync::Arc<PoolShared>,
     results: std::sync::mpsc::Receiver<(JobId, JobResult)>,
+    /// To answer a job cancelled before it started.
+    sender: std::sync::mpsc::Sender<(JobId, JobResult)>,
+    waker: Option<crate::Waker>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl Threaded {
-    /// SolidCore recurses legitimately: give its thread a generous stack (a stack overflow
-    /// aborts, it is no panic).
-    const STACK: usize = crate::KERNEL_STACK;
+#[derive(Default)]
+struct PoolQueues {
+    urgent: std::collections::VecDeque<(JobId, Job)>,
+    background: std::collections::VecDeque<(JobId, Job)>,
+    /// The jobs running, with their cancel tokens.
+    running: std::collections::HashMap<JobId, CancelToken>,
+    /// The latest progress of each job, since the service last took it.
+    progress: std::collections::HashMap<JobId, Progress>,
+    closed: bool,
+}
 
-    pub fn new(waker: Option<crate::Waker>) -> Self {
-        let (jobs, job_rx) = std::sync::mpsc::channel::<(JobId, Job)>();
-        let (result_tx, results) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
-            .name("kernel".into())
-            .stack_size(Self::STACK)
-            .spawn(move || {
-                // Ends when the service is dropped (its sender with it).
-                for (id, job) in job_rx {
-                    if result_tx.send((id, run(&job))).is_err() {
-                        return;
-                    }
-                    if let Some(w) = &waker {
-                        w();
-                    }
-                }
-            })
-            .expect("the kernel thread starts");
-        Threaded { jobs, results }
+#[cfg(not(target_arch = "wasm32"))]
+impl PoolQueues {
+    /// The next job to run (an urgent one first), now running.
+    fn next(&mut self) -> Option<(JobId, Job, CancelToken)> {
+        let (id, job) = self.urgent.pop_front().or_else(|| self.background.pop_front())?;
+        let token = CancelToken::new();
+        self.running.insert(id, token.clone());
+        Some((id, job, token))
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl KernelService for Threaded {
+#[derive(Default)]
+struct PoolShared {
+    queues: std::sync::Mutex<PoolQueues>,
+    work: std::sync::Condvar,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl PoolShared {
+    fn lock(&self) -> std::sync::MutexGuard<'_, PoolQueues> {
+        // A thread panicking while it holds the lock leaves plain data: still usable.
+        self.queues.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Pool {
+    /// A thread per core.
+    pub fn new(waker: Option<crate::Waker>) -> Self {
+        Pool::with_threads(std::thread::available_parallelism().map_or(1, |n| n.get()), waker)
+    }
+
+    /// `threads` threads, each with SolidCore's stack ([`crate::KERNEL_STACK`]: it recurses
+    /// legitimately, and a stack overflow aborts, it is no panic). None: nothing runs (tests).
+    pub fn with_threads(threads: usize, waker: Option<crate::Waker>) -> Self {
+        let shared = std::sync::Arc::new(PoolShared::default());
+        let (sender, results) = std::sync::mpsc::channel();
+        for n in 0..threads {
+            let (shared, sender, waker) = (shared.clone(), sender.clone(), waker.clone());
+            std::thread::Builder::new()
+                .name(format!("kernel {n}"))
+                .stack_size(crate::KERNEL_STACK)
+                .spawn(move || pool_thread(&shared, &sender, waker.as_ref()))
+                .expect("a kernel thread starts");
+        }
+        Pool { shared, results, sender, waker }
+    }
+
+    fn wake(&self) {
+        if let Some(w) = &self.waker {
+            w();
+        }
+    }
+}
+
+/// A pool thread: takes the next job (an urgent one first) until the pool is dropped.
+#[cfg(not(target_arch = "wasm32"))]
+fn pool_thread(shared: &PoolShared, sender: &std::sync::mpsc::Sender<(JobId, JobResult)>, waker: Option<&crate::Waker>) {
+    let wake = || {
+        if let Some(w) = waker {
+            w();
+        }
+    };
+    loop {
+        let (id, job, token) = {
+            let mut q = shared.lock();
+            loop {
+                if q.closed {
+                    return;
+                }
+                if let Some((id, job, token)) = q.next() {
+                    break (id, job, token);
+                }
+                q = shared.work.wait(q).unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+        };
+        let report = |p: Progress| {
+            shared.lock().progress.insert(id, p);
+            wake();
+        };
+        let result = run_with(&job, &Context { report: &report, cancel: Some(token) });
+        {
+            let mut q = shared.lock();
+            q.running.remove(&id);
+            q.progress.remove(&id);
+        }
+        if sender.send((id, result)).is_err() {
+            return;
+        }
+        wake();
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl KernelService for Pool {
     fn submit(&mut self, id: JobId, job: Job) {
-        // The thread only stops with the service: a send cannot fail before.
-        let _ = self.jobs.send((id, job));
+        let background = !job.tasks.is_empty() && job.tasks.iter().all(|t| matches!(t, Task::Display { .. }));
+        let mut q = self.shared.lock();
+        if background { q.background.push_back((id, job)) } else { q.urgent.push_back((id, job)) }
+        drop(q);
+        self.shared.work.notify_one();
     }
 
     fn poll(&mut self) -> Vec<(JobId, JobResult)> {
         self.results.try_iter().collect()
+    }
+
+    fn progress(&mut self) -> Vec<(JobId, Progress)> {
+        self.shared.lock().progress.drain().collect()
+    }
+
+    fn cancel(&mut self, id: JobId) {
+        let mut q = self.shared.lock();
+        let queued = |d: &mut std::collections::VecDeque<(JobId, Job)>| d.iter().position(|(j, _)| *j == id).and_then(|i| d.remove(i));
+        if queued(&mut q.urgent).or_else(|| queued(&mut q.background)).is_some() {
+            drop(q);
+            let _ = self.sender.send((id, Err(Error::Cancelled)));
+            self.wake();
+        } else if let Some(token) = q.running.get(&id) {
+            token.cancel();
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for Pool {
+    fn drop(&mut self) {
+        // Every job left is stopped; the threads end with the job they run.
+        let mut q = self.shared.lock();
+        q.closed = true;
+        q.urgent.clear();
+        q.background.clear();
+        for token in q.running.values() {
+            token.cancel();
+        }
+        drop(q);
+        self.shared.work.notify_all();
     }
 }
 
@@ -383,8 +557,13 @@ impl Mesh {
     }
 }
 
+/// A fresh SolidCore kernel, stopped by the cancel token of the job running on this thread.
 pub(crate) fn kernel() -> Kernel {
-    Kernel::new(&KernelOptions::default())
+    let mut k = Kernel::new(&KernelOptions::default());
+    if let Some(token) = cancel::current() {
+        k.set_cancel_token(token);
+    }
+    k
 }
 
 fn p3(v: DVec3) -> solidcore::Point3 {
@@ -398,6 +577,9 @@ fn row_major(t: &DAffine3) -> [[f64; 4]; 4] {
 }
 
 fn kernel_err(call: &str, e: solidcore::SolidError) -> Error {
+    if e.is_cancelled() {
+        return Error::Cancelled;
+    }
     Error::Kernel { call: call.into(), message: e.to_string() }
 }
 
@@ -617,7 +799,7 @@ mod tests {
             tasks: vec![
                 Task::Boolean { target: 0, tool: 1, tool_transform: Some(DAffine3::from_translation(DVec3::X)), op: BooleanOp::Difference },
                 Task::Primitive { primitive: Primitive::Sphere { center: DVec3::ZERO, radius: 2.0 }, placement: DAffine3::IDENTITY },
-                Task::Display { solid: 0 },
+                Task::Display { solid: 0, quality: Quality::Final },
             ],
         };
         let back: Job = decode(&encode(&job).unwrap()).unwrap();
@@ -720,35 +902,78 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    fn box_job() -> Job {
+        Job {
+            inputs: vec![],
+            tasks: vec![Task::Primitive { primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE }, placement: DAffine3::IDENTITY }],
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait(p: &mut Pool, n: usize) -> Vec<(JobId, JobResult)> {
+        let mut got = Vec::new();
+        let start = std::time::Instant::now();
+        while got.len() < n && start.elapsed().as_secs() < 30 {
+            got.extend(p.poll());
+            std::thread::yield_now();
+        }
+        got.sort_by_key(|(id, _)| *id);
+        got
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn threaded_runs_and_wakes() {
+    fn pool_runs_and_wakes() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let woken = Arc::new(AtomicUsize::new(0));
         let w = woken.clone();
-        let mut t = Threaded::new(Some(Arc::new(move || {
+        let mut p = Pool::with_threads(2, Some(Arc::new(move || {
             w.fetch_add(1, Ordering::SeqCst);
         })));
-        let job = Job {
-            inputs: vec![],
-            tasks: vec![Task::Primitive {
-                primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE },
-                placement: DAffine3::IDENTITY,
-            }],
-        };
-        t.submit(1, job.clone());
-        t.submit(2, job);
-        let mut got = Vec::new();
-        let start = std::time::Instant::now();
-        while got.len() < 2 && start.elapsed().as_secs() < 30 {
-            got.extend(t.poll());
-            std::thread::yield_now();
-        }
+        p.submit(1, box_job());
+        p.submit(2, box_job());
+        let got = wait(&mut p, 2);
         assert_eq!(got.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![1, 2]);
         assert!(got.iter().all(|(_, r)| r.is_ok()));
-        // The thread wakes right after sending.
+        let start = std::time::Instant::now();
         while woken.load(Ordering::SeqCst) < 2 && start.elapsed().as_secs() < 30 {
             std::thread::yield_now();
         }
-        assert_eq!(woken.load(Ordering::SeqCst), 2);
+        assert!(woken.load(Ordering::SeqCst) >= 2);
     }
+
+    /// An operation goes before the meshes waiting; a job cancelled before it starts comes back
+    /// cancelled at once; one running is stopped through its token.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn pool_puts_operations_first_and_cancels() {
+        let solid = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::ONE).unwrap());
+        let mesh = Job { inputs: vec![solid], tasks: vec![Task::Display { solid: 0, quality: Quality::Final }] };
+        // No thread: the queues as they stand.
+        let mut p = Pool::with_threads(0, None);
+        p.submit(1, mesh.clone());
+        p.submit(2, mesh.clone());
+        p.submit(3, mesh.clone());
+        p.submit(9, box_job());
+        p.cancel(2);
+        let got = p.poll();
+        assert_eq!(got.len(), 1);
+        assert!(matches!(got[0], (2, Err(Error::Cancelled))));
+        let (first, _, _) = p.shared.lock().next().unwrap();
+        let (second, _, token) = p.shared.lock().next().unwrap();
+        assert_eq!((first, second), (9, 1), "the operation first, then the meshes in order");
+        p.cancel(1);
+        assert!(token.is_cancelled(), "a running job's token is cancelled");
+    }
+
+    /// A job cancelled while it runs stops: a STEP read between its bodies.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_running_job_is_cancelled() {
+        let token = CancelToken::new();
+        token.cancel();
+        let job = box_job();
+        assert!(matches!(run_with(&job, &Context { report: &|_| {}, cancel: Some(token) }), Err(Error::Cancelled)));
+    }
+
 }

@@ -43,8 +43,12 @@ pub enum Task {
     Recipe { blank: u32, tools: Vec<(u32, DAffine3)> },
     /// `inputs[solid]` stretched (docs/ARCHITECTURE.md §6 sexies), read back by the kernel.
     Stretch { solid: u32, stretch: Stretch },
-    /// The display mesh and snap features of `inputs[solid]`.
-    Display { solid: u32 },
+    /// The display mesh and snap features of `inputs[solid]`, at `quality`.
+    Display {
+        solid: u32,
+        #[serde(default)]
+        quality: Quality,
+    },
     /// Reads a STEP file (its bytes): bodies built, product structure, colours
     /// (docs/ARCHITECTURE.md §8 ter). Produces no solid of the job's: an [`Output::Step`].
     ImportStep {
@@ -55,6 +59,24 @@ pub enum Task {
     /// app's Débogage menu). Natively the panic is caught: an error. In the web
     /// worker it aborts the wasm: the worker is replaced.
     Panic { message: String },
+}
+
+/// How fine a display mesh is: a coarse one first, to show a model being opened at once (a
+/// hundredth of the body, `solidcore_tess::preview`), then the one to work with.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Quality {
+    Preview,
+    #[default]
+    Final,
+}
+
+/// How far a long task is (docs/ARCHITECTURE.md §7 sexies), reported while it runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Progress {
+    /// A STEP file being parsed and its structure read.
+    Reading,
+    /// A STEP file's bodies: `done` of `total` read.
+    Bodies { done: u32, total: u32 },
 }
 
 /// What the viewport draws of a solid and what the tools infer on, from one tessellation;
@@ -134,6 +156,14 @@ pub trait KernelService {
     fn submit(&mut self, id: JobId, job: Job);
     /// The results ready now.
     fn poll(&mut self) -> Vec<(JobId, JobResult)>;
+    /// The progress jobs reported since the last call, the latest per job.
+    fn progress(&mut self) -> Vec<(JobId, Progress)> {
+        Vec::new()
+    }
+    /// Stops a job: it is dropped if not started, else stopped at the kernel's next check; its
+    /// result comes back as [`Error::Cancelled`] (or as it ended, when it had already). A
+    /// service that runs jobs as they are submitted has nothing to stop.
+    fn cancel(&mut self, _id: JobId) {}
 }
 
 /// The bytes sent between the UI and the web worker: MessagePack with named fields (the
