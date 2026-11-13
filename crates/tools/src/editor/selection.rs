@@ -5,6 +5,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::{EntityPath, Id, Operation};
 
 use super::{After, Editor};
+use crate::ToolKind;
 
 impl Editor {
     pub fn select(&mut self, ids: Vec<Id>) {
@@ -91,6 +92,10 @@ impl Editor {
     pub fn exit(&mut self) {
         if let Some(id) = self.open_part.take().or_else(|| self.context.pop()) {
             self.tool.reset();
+            // The profile's editing goes with the part (§6 nonies, step 3).
+            if self.tool.kind() == ToolKind::Profile {
+                self.set_tool(ToolKind::Select);
+            }
             self.selection = vec![id];
             self.listed_hover = None;
             self.sync_scene();

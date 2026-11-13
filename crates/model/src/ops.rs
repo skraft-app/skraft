@@ -179,6 +179,15 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cutters: Option<Box<[Vec<f64>; 3]>>,
     },
+    /// Gives the part `target` places a new blank profile (§6 nonies, step 3): the blank is
+    /// built again from it, then the shape from the blank; under the scope, "only this one"
+    /// making it a separate part. The part must have a profile already.
+    SetProfile {
+        target: EntityPath,
+        profile: crate::BlankProfile,
+        #[serde(default)]
+        scope: Scope,
+    },
     /// Sets how `component` is stretched: its locked axes and its cutters (ARCHITECTURE.md
     /// §6 sexies). Every occurrence shows it; no scope. Changes in a row to one component undo
     /// in one go.
@@ -245,6 +254,7 @@ impl Operation {
             Operation::Insert { .. } => t!("operation.import"),
             Operation::Stretch { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
+            Operation::SetProfile { .. } => t!("operation.set_profile"),
         }
     }
 
@@ -482,7 +492,9 @@ impl Document {
                 }
                 let (local, at) = primitive.at_origin();
                 let blank = solver.primitive(&local)?;
-                let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(Part::new(blank)));
+                // The shapes drawn keep their profile (§6 nonies, step 3).
+                let part = Part { profile: crate::BlankProfile::of(&local), ..Part::new(blank) };
+                let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(part));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
                 self.assembly_mut(*context)?.occurrences_mut().push(Occurrence {
@@ -760,6 +772,22 @@ impl Document {
                 }
                 Ok(Outcome { stretched, ..Outcome::default() })
             }
+            Operation::SetProfile { target, profile, scope } => {
+                let (_, p, _) = self.resolve_part(target)?;
+                if p.profile.is_none() || !profile.is_valid() {
+                    return Err(Error::Invalid(Refusal::BadProfile));
+                }
+                if *scope == Scope::This {
+                    self.separate(target)?;
+                }
+                let (part, _, _) = self.resolve_part(target)?;
+                let blank = solver.primitive(&profile.primitive())?;
+                let p = self.part_mut(part)?;
+                p.blank = blank;
+                p.profile = Some(profile.clone());
+                self.recompute(part, None, solver)?;
+                Ok(Outcome::default())
+            }
             Operation::SetBehavior { component, behavior } => {
                 let behavior = behavior.clone().normalized();
                 if !behavior.is_valid() {
@@ -790,6 +818,8 @@ impl Document {
         self.stretch_guides(part, stretch)?;
         let p = self.part_mut(part)?;
         p.blank = blank;
+        // The profile follows when it stays one (§6 nonies, step 3); else the part is free.
+        p.profile = p.profile.as_ref().and_then(|b| b.stretched(stretch));
         p.machinings = machinings;
         self.recompute(part, None, solver)
     }

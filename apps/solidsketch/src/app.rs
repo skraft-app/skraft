@@ -857,6 +857,7 @@ impl SolidSketchApp {
                 let _ = e.apply(op);
             }
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
+            Action::ToggleProfile => e.set_tool(if e.tool_kind() == ToolKind::Profile { ToolKind::Select } else { ToolKind::Profile }),
             Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),
             Action::SelectMachinings(ids) => e.select(ids),

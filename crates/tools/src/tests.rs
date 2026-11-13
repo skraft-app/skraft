@@ -3628,3 +3628,111 @@ fn prism_fillet_rounds_the_corners_made() {
     assert!(close(lo, DVec3::new(-5.0, -5.0, 0.0)) && close(hi, DVec3::new(105.0, 55.0, 18.0)), "{lo} {hi}");
     assert_eq!(part_topology(&e), (10, 24, 16));
 }
+
+// ---- Profile (ARCHITECTURE.md §6 nonies, step 3) ------------------------------------------------
+
+/// A board 600 × 300 × 18 drawn at the origin, its part open, the profile tool out.
+fn board_profile_editor() -> (Editor, Id) {
+    let mut e = top_editor(Document::new());
+    let id = draw_box(&mut e, DVec3::ZERO, DVec3::new(600.0, 300.0, 0.0), "18");
+    e.enter(id);
+    assert!(e.open_part_profile());
+    e.set_tool(ToolKind::Profile);
+    (e, id)
+}
+
+fn blank_profile(e: &Editor, id: Id) -> solidsketch_model::BlankProfile {
+    e.document().resolve_part(&EntityPath::root(id)).unwrap().1.profile.clone().unwrap()
+}
+
+#[test]
+fn profile_corner_moved_side_split_thickness_set() {
+    let (mut e, id) = board_profile_editor();
+    // The far corner taken and dropped 100 further along red.
+    click(&mut e, DVec3::new(600.0, 300.0, 18.0));
+    assert!(e.vcb().is_some_and(|(l, _)| l == "Distance"), "{:?}", e.vcb());
+    click(&mut e, DVec3::new(700.0, 300.0, 18.0));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(700.0, 300.0, 18.0)), "{lo} {hi}");
+    assert_eq!(blank_profile(&e, id).profile.len(), 4);
+
+    // The bottom side's middle (300, 0): a corner inserted, pulled down 100 (typed).
+    click(&mut e, DVec3::new(300.0, 0.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, -50.0, 18.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    assert_eq!(blank_profile(&e, id).profile.len(), 5);
+    let (lo, _) = bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::new(0.0, -100.0, 0.0)), "{lo}");
+
+    // The thickness: 30, typed.
+    let b = blank_profile(&e, id);
+    let (a, c) = solidsketch_model::kernel::profile::bounds(&b.profile).unwrap();
+    click(&mut e, ((a + c) / 2.0).extend(18.0));
+    e.input(ToolInput::Vcb("30".into()));
+    assert_eq!(blank_profile(&e, id).height, 30.0);
+
+    // Esc drops a gesture: nothing changes.
+    let before = blank_profile(&e, id);
+    click(&mut e, DVec3::new(0.0, 300.0, 30.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-200.0, 300.0, 30.0)) });
+    key(&mut e, Key::Escape);
+    assert_eq!(blank_profile(&e, id), before);
+    // One undo per gesture.
+    e.undo();
+    assert_eq!(blank_profile(&e, id).height, 18.0);
+}
+
+#[test]
+fn profile_corner_deleted_arc_straightened_crossing_refused() {
+    let (mut e, id) = board_profile_editor();
+    // A corner dragged across the bottom side: refused, said; nothing changes.
+    let before = blank_profile(&e, id);
+    let from = px(&e, DVec3::new(600.0, 300.0, 18.0));
+    e.input(ToolInput::Hover { px: from });
+    e.input(ToolInput::DragStart { px: from, mods: Modifiers::default() });
+    let to = px(&e, DVec3::new(300.0, -100.0, 18.0));
+    e.input(ToolInput::Drag { px: to });
+    e.input(ToolInput::DragEnd { px: to, mods: Modifiers::default() });
+    assert!(e.status().contains("croiserait"), "{}", e.status());
+    assert_eq!(blank_profile(&e, id), before);
+    key(&mut e, Key::Escape);
+    // Delete over a corner: a triangle.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 300.0, 18.0)) });
+    key(&mut e, Key::Delete);
+    assert_eq!(blank_profile(&e, id).profile.len(), 3);
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    assert_eq!(part.shape().topology_counts(), (5, 9, 6));
+
+    // A cylinder's disc: one half straightened (its middle dropped on the chord).
+    e.exit();
+    assert_eq!(e.tool_kind(), ToolKind::Select, "the profile's tool goes with the part");
+    e.set_tool(ToolKind::Cylinder);
+    click(&mut e, DVec3::new(-500.0, -500.0, 0.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-400.0, -500.0, 0.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    e.input(ToolInput::Vcb("10".into()));
+    let rod = drawn(&e);
+    e.set_tool(ToolKind::Select);
+    e.enter(rod);
+    e.set_tool(ToolKind::Profile);
+    let b = blank_profile(&e, rod);
+    let side = solidsketch_model::kernel::profile::sides(&b.profile)[0];
+    // The part's axes are at the disc's centre: the arc's middle, in the world.
+    let (_, _, t) = e.document().resolve_part(&EntityPath::root(rod)).unwrap();
+    let mid = t.transform_point3(side.at(0.5).extend(10.0));
+    let chord = t.transform_point3(((side.a() + side.b()) / 2.0).extend(10.0));
+    click(&mut e, mid);
+    click(&mut e, chord);
+    let b = blank_profile(&e, rod);
+    assert_eq!(b.profile.iter().filter(|c| c.bulge == 0.0).count(), 1, "{b:?}");
+    let (lo, hi) = mesh_bounds_of(&e, &EntityPath::root(rod));
+    assert!((hi - lo).y < 101.0 && (hi - lo).x > 199.0 || (hi - lo).x < 101.0 && (hi - lo).y > 199.0, "a half disc: {lo} {hi}");
+}
+
+#[test]
+fn profile_shows_on_the_cap_facing_the_eye_at_once() {
+    let (e, _) = board_profile_editor();
+    // No cursor yet: seen from above, the top (z = 18).
+    let lines = e.preview().lines;
+    assert!(!lines.is_empty() && lines.iter().all(|l| (l.a.z - 18.0).abs() < 1e-9), "{:?}", lines.first());
+}

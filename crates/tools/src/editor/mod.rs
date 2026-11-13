@@ -221,6 +221,11 @@ impl Editor {
         self.open_part
     }
 
+    /// Has the open part a profile to edit (§6 nonies, step 3)?
+    pub fn open_part_profile(&self) -> bool {
+        self.open_part_path().and_then(|p| self.document().resolve_part(&p).ok()).is_some_and(|(_, part, _)| part.profile.is_some())
+    }
+
     /// The path of the open part's occurrence.
     pub fn open_part_path(&self) -> Option<EntityPath> {
         self.open_part.map(|id| EntityPath::new(self.context.clone(), id))
@@ -685,7 +690,7 @@ impl Editor {
                 }
                 return;
             }
-            ToolInput::Key { key: Key::Delete, .. } if !self.tool.busy() => {
+            ToolInput::Key { key: Key::Delete, .. } if !self.tool.busy() && !self.tool.takes_delete() => {
                 self.delete_selection();
                 return;
             }
@@ -781,7 +786,7 @@ impl Editor {
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.
                 let after = match op {
-                    Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddMachining { .. } => After::Nothing,
+                    Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddMachining { .. } | Operation::SetProfile { .. } => After::Nothing,
                     _ => After::Select,
                 };
                 // Hidden (the eraser with Shift), they leave the selection, unless the hidden

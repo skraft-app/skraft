@@ -1276,7 +1276,8 @@ it back from the B-rep. A profile drawn on a face of a part and pulled in is a m
 (pocket, cut-out) whose tool is a prism: §2.4 as it is.
 
 **Steps**: 1. the `Prism` primitive (straight sides) and the Prism tool (first named Polygon), faithful to OCL
-(this section; built 2026-11-13); 2. arcs in the profile and the tool (below); 3. the profile edited in an open part,
+(this section; built 2026-11-13); 2. arcs in the profile and the tool (below; built
+2026-11-13); 3. the profile edited in an open part,
 the part kept parametric; 4. a profile on a face as a machining. Not planned: a geometric
 constraint solver (inferences and typed values play that part, SketchUp's way).
 
@@ -1364,6 +1365,44 @@ states are OCL's: the first point, the points, the height.
   fillets at both ends of a side counted) stays sharp. Previewed with the offset's outline.
 - **Whole face** (step 2): Shift with the copy modifier held takes a face's outer outline with
   its arcs too.
+
+**Profile in the part** (step 3, decided on 2026-11-13):
+
+- **The recipe keeps it**: `Part::profile: Option<BlankProfile { profile, z0, height }>` — the
+  outline in the part's XY plane, extruded from `z0` by `height` along its Z; the blank solid is
+  built from it (`Primitive::Prism`) and stays a cache of it, as the shape is of the machinings
+  (§2.4). Box, Cylinder and Prism all record theirs (a rectangle; a disc as two half circles;
+  the outline made, offset and fillets included). Imports and booleans make free parts (none).
+- **Stretching keeps it when it can** (§6 sexies, in the part's axes): along Z, `z0` and
+  `height` follow their sections; along any axis in its plane, each corner moves with its
+  section, an arc whole in one section rigidly; an arc across a cutter (it would not stay an
+  arc), or an axis neither in its plane nor along Z, drops it — the part becomes free. (The
+  kernel refuses these stretches anyway, an edge across a cutter having to run along the axis:
+  a safeguard.)
+- **The machinings stay where they are** in the part's axes, and so does the origin when the
+  outline grows or shrinks (anchoring them on the blank, §2.10, is for later).
+- **`Operation::SetProfile { target, profile, z0, height, scope }`**: the blank built again
+  from the outline, then the shape from the blank (§2.4); the scope of the open part (§2.9),
+  "only this one" making it a separate part. Refused for an outline that is not simple or no
+  height.
+- **Editing** (`ToolKind::Profile`, « Profil »): a button beside « Usinages » in the option
+  bar's Options while a part with a profile is open, on while the tool is the active one (any
+  other tool turns it off). The outline is drawn on the cap facing the eye (both caps' when
+  seen edge on, the top's), with grips: its corners (round), its arcs' middles (diamonds), its
+  straight sides' middles (small, to insert a corner) and the cap's middle (the thickness). A
+  grip is taken by a click and dropped by another (SketchUp's Move; a drag works too), Esc
+  dropping the gesture; each gesture is one operation (one undo step):
+  - a corner follows the cursor, inferred with the lines through where it was and brought onto
+    the cap's plane; its sides follow, an arc keeping its bulge. Typed: a distance along the
+    move, or a point;
+  - a side's middle inserts a corner there, which then moves as a corner;
+  - an arc's middle sets its bulge (the arc through the cursor), snapping to the half circle
+    and to straight (the chord) within 10 px. Typed: its height (sagitta);
+  - the thickness grip moves that cap along the part's Z (the box's height step). Typed: the
+    thickness;
+  - Delete over a corner takes it away (the outline must stay simple, at least three corners
+    or an arc).
+  An outline that would cross itself is refused, said in the status bar.
 
 ## 7. Crates
 

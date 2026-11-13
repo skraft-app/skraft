@@ -7,6 +7,7 @@ mod face;
 mod measure;
 mod mover;
 mod paint;
+mod profile;
 mod rotate;
 mod section;
 mod select;
@@ -18,6 +19,7 @@ pub use erase::EraseTool;
 pub use measure::MeasureTool;
 pub use mover::MoveTool;
 pub use paint::PaintTool;
+pub use profile::ProfileTool;
 pub use rotate::RotateTool;
 pub use section::SectionTool;
 pub use select::SelectTool;
@@ -334,6 +336,8 @@ pub enum ToolKind {
     Measure,
     /// Stretches a part along one of its axes (§6 sexies).
     Stretch,
+    /// Edits the open part's blank profile (§6 nonies, step 3).
+    Profile,
 }
 
 impl ToolKind {
@@ -354,6 +358,7 @@ impl ToolKind {
             ToolKind::Section => "section",
             ToolKind::Measure => "measure",
             ToolKind::Stretch => "stretch",
+            ToolKind::Profile => "profile",
         }
     }
 
@@ -374,6 +379,7 @@ impl ToolKind {
             ToolKind::Section => t!("tool.section.name"),
             ToolKind::Measure => t!("tool.measure.name"),
             ToolKind::Stretch => t!("tool.stretch.name"),
+            ToolKind::Profile => t!("tool.profile.name"),
         }
     }
 }
@@ -746,6 +752,11 @@ pub trait Tool {
     fn waiting(&self) -> bool {
         false
     }
+    /// Does Delete go to the tool now rather than erase the selection (the profile's corner
+    /// under the cursor)?
+    fn takes_delete(&self) -> bool {
+        false
+    }
     /// The length option a value typed with this suffix sets (the prism tool's `r`, its fillet);
     /// `x` is the first length option's otherwise (the offset).
     fn length_suffix(&self, _suffix: char) -> Option<&'static str> {
@@ -875,6 +886,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Section => Box::new(SectionTool::default()),
         ToolKind::Measure => Box::new(MeasureTool::default()),
         ToolKind::Stretch => Box::new(StretchTool::default()),
+        ToolKind::Profile => Box::new(ProfileTool::default()),
     }
 }
 

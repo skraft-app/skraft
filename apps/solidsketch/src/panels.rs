@@ -5,7 +5,7 @@
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::{t, tp};
 use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, Occurrence, Operation, Scope, Units, measure};
-use solidsketch_tools::{Editor, OptionValue};
+use solidsketch_tools::{Editor, OptionValue, ToolKind};
 
 use crate::commands::Menu;
 use crate::icons;
@@ -24,6 +24,8 @@ pub enum Action {
     PaintWith(Option<Id>),
     /// The "Machinings" switch of an open part (ARCHITECTURE.md §2.9), kept in the preferences.
     ToggleMachinings,
+    /// The open part's profile edited, or not (the tool « Profil », §6 nonies, step 3).
+    ToggleProfile,
     /// What changes to the open part reach (§2.5).
     PartScope(Scope),
     /// Machinings of the open part chosen in its list: shown, then selected.
@@ -149,6 +151,12 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             let on = editor.machinings_switch();
             if option_button(ui, on, &t!("option_bar.machinings"), &t!("option_bar.machinings_tip"), None) {
                 actions.push(Action::ToggleMachinings);
+            }
+            if editor.open_part_profile() {
+                let on = editor.tool_kind() == ToolKind::Profile;
+                if option_button(ui, on, &t!("option_bar.profile"), &t!("option_bar.profile_tip"), None) {
+                    actions.push(Action::ToggleProfile);
+                }
             }
         }
         for (o, on) in toggles {
