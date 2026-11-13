@@ -18,6 +18,8 @@ pub enum Action {
     Apply(Operation),
     /// An option of the active tool changed in its bar.
     ToolOption(&'static str, OptionValue),
+    /// A length option of the active tool typed in its field of the bar.
+    ToolLength(&'static str, String),
     /// Paint with this material (none: remove paint): the paint tool starts.
     PaintWith(Option<Id>),
     /// The "Machinings" switch of an open part (ARCHITECTURE.md §2.9), kept in the preferences.
@@ -127,9 +129,47 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                         actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
                     }
                 }
+                OptionValue::Length(v) => {
+                    if let Some(text) = length_option(ui, o.key, &o.label, &o.tip, *v, &editor.document().settings().units) {
+                        actions.push(Action::ToolLength(o.key, text));
+                    }
+                }
             }
         }
     });
+}
+
+/// A length option in the bar: its name and value on a button, which a click turns into a text
+/// field in place (Enter applies, Esc or a click away cancels). The text typed, when applied.
+fn length_option(ui: &mut egui::Ui, key: &str, label: &str, tip: &str, value: f64, units: &Units) -> Option<String> {
+    let id = egui::Id::unique(("length_option", key));
+    let shown = units.format(value);
+    let editing: Option<String> = ui.data(|d| d.get_temp(id));
+    let Some(mut text) = editing else {
+        let on = value != 0.0;
+        if ui.selectable_label(on, t!("option_bar.length", option = label, value = shown)).on_hover_text(tip).clicked() {
+            ui.data_mut(|d| d.insert_temp(id, shown));
+        }
+        return None;
+    };
+    ui.label(t!("option_bar.choice", option = label)).on_hover_text(tip);
+    let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(80.0).id(id.with("field")));
+    // Opened by the click: focused, all of it selected, to be typed over.
+    if !r.has_focus() && !r.lost_focus() {
+        r.request_focus();
+        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id) {
+            let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
+            state.cursor.set_char_range(Some(all));
+            state.store(ui.ctx(), r.id);
+        }
+    }
+    if r.lost_focus() {
+        ui.data_mut(|d| d.remove::<String>(id));
+        let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        return (entered && !text.trim().is_empty() && text.trim() != shown).then(|| text.trim().to_owned());
+    }
+    ui.data_mut(|d| d.insert_temp(id, text));
+    None
 }
 
 /// A value of a choice, or a toggle, in the option bar: its icon if it has one (its label then

@@ -164,6 +164,60 @@ fn cylinder_tool() {
     assert!((lo.x - 325.0).abs() < 1e-3, "diameter 50: {lo} {hi}");
 }
 
+#[test]
+fn shape_offset_moves_the_outline() {
+    let mut e = top_editor(Document::new());
+    // `5x` at the first step sets the box's offset (saved, its own): the base drawn from
+    // (0,0) to (300,200) is made 5 larger on every side; the height is untouched.
+    e.set_tool(ToolKind::Box);
+    assert!(e.takes_typing());
+    e.input(ToolInput::Vcb("5x".into()));
+    let offset = |e: &Editor| e.tool_options().into_iter().find(|o| o.key == "offset").map(|o| o.value);
+    assert_eq!(offset(&e), Some(OptionValue::Length(5.0)));
+    let (lo, hi) = box_bounds(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    assert!(close(lo, DVec3::new(-5.0, -5.0, 0.0)) && close(hi, DVec3::new(305.0, 205.0, 150.0)), "{lo} {hi}");
+
+    // Typed in the bar, `@` the current value; at the height step `-@x` shrinks the base
+    // drawn the other way (corners clicked right to left).
+    e.type_tool_length("offset", "@*2");
+    assert_eq!(offset(&e), Some(OptionValue::Length(10.0)));
+    click(&mut e, DVec3::new(600.0, 200.0, 0.0));
+    click(&mut e, DVec3::new(400.0, 0.0, 0.0));
+    e.input(ToolInput::Vcb("-@x".into()));
+    e.input(ToolInput::Vcb("50".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(410.0, 10.0, 0.0)) && close(hi, DVec3::new(590.0, 190.0, 50.0)), "{lo} {hi}");
+
+    // An offset leaving nothing says so and makes nothing; a bad one says why.
+    e.input(ToolInput::Vcb("-100x".into()));
+    let before = drawn(&e);
+    click(&mut e, DVec3::new(-500.0, -500.0, 0.0));
+    e.input(ToolInput::Vcb("100;100;10".into()));
+    assert_eq!(drawn(&e), before);
+    assert_eq!(e.status(), "Le décalage ne laisse rien de la forme");
+    e.input(ToolInput::Vcb("2°x".into()));
+    assert!(e.status().starts_with("Décalage — « 2° »"), "{}", e.status());
+    assert_eq!(offset(&e), Some(OptionValue::Length(-100.0)));
+
+    // The cylinder keeps its own (none yet); its radius grows by it, in Diameter mode too.
+    e.set_tool(ToolKind::Cylinder);
+    assert_eq!(offset(&e), Some(OptionValue::Length(0.0)));
+    e.input(ToolInput::Vcb("3x".into()));
+    click(&mut e, DVec3::new(-400.0, 600.0, 0.0));
+    e.input(ToolInput::Vcb("50;10".into()));
+    let (lo, _) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!((lo.x + 347.0).abs() < 1e-3, "radius 53: {lo}");
+    e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
+    click(&mut e, DVec3::new(-200.0, 600.0, 0.0));
+    e.input(ToolInput::Vcb("50;10".into()));
+    let (lo, _) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!((lo.x + 172.0).abs() < 1e-3, "diameter 50, radius 28: {lo}");
+
+    // Move keeps `5x` for its copies.
+    e.set_tool(ToolKind::Move);
+    assert!(e.tool_options().iter().all(|o| o.key != "offset"));
+}
+
 /// Two boxes on the ground: `a` 300 × 200 × 150 at the origin, `b` 200 × 200 × 50 beside it.
 fn two_boxes(e: &mut Editor) {
     draw_box(e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
@@ -3211,8 +3265,13 @@ fn erase_tool_erases_the_open_part_s_machinings() {
         .unwrap()
         .unwrap()
         .created[0];
-    e.apply(Operation::Boolean { target: EntityPath::root(board), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
-        .unwrap();
+    e.apply(Operation::Boolean {
+        target: EntityPath::root(board),
+        tool: EntityPath::root(drill),
+        op: Boolean::Difference,
+        scope: Scope::All,
+    })
+    .unwrap();
     let machinings = |e: &Editor| e.document().resolve_part(&EntityPath::root(board)).unwrap().1.machinings.len();
     assert_eq!(machinings(&e), 1);
     e.set_machinings_switch(true);

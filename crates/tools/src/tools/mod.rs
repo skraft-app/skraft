@@ -252,12 +252,15 @@ pub struct StretchPreview {
 // ---- options (ARCHITECTURE.md §6 bis, the tool's option bar) ---------------------------------
 
 /// The value of a tool option.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OptionValue {
     /// One of a choice's values.
     Choice(String),
     Toggle(bool),
+    /// A length (mm), shown in the document's units and typed in place (or `<length>x` in the
+    /// measurements box, ARCHITECTURE.md §6 bis).
+    Length(f64),
 }
 
 /// One of a choice's values, as the bar shows it.
@@ -659,6 +662,14 @@ impl Cx<'_> {
         match self.options.get(key) {
             Some(OptionValue::Choice(v)) => Some(v),
             _ => None,
+        }
+    }
+
+    /// The saved value of the length `key` (mm; zero when never set).
+    pub fn length(&self, key: &str) -> f64 {
+        match self.options.get(key) {
+            Some(OptionValue::Length(v)) => *v,
+            _ => 0.0,
         }
     }
 

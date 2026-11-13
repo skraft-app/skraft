@@ -856,6 +856,7 @@ impl SolidSketchApp {
                 let _ = e.apply(op);
             }
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
+            Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),
             Action::SelectMachinings(ids) => e.select(ids),
             Action::HoverMachining(m) => e.set_listed_hover(m),
@@ -969,7 +970,7 @@ impl SolidSketchApp {
                 let starts_value = t.starts_with(|c: char| {
                     c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | ',' | '*' | '/' | '@' | '(' | '[' | '<' | ';')
                 });
-                if d.editor.vcb().is_some() && (!d.vcb.is_empty() || starts_value) {
+                if d.editor.takes_typing() && (!d.vcb.is_empty() || starts_value) {
                     d.vcb.push_str(&t);
                 }
             }
@@ -1490,7 +1491,7 @@ impl SolidSketchApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (label, value) = d.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
                 let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
-                let r = ui.add_enabled(d.editor.vcb().is_some(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
+                let r = ui.add_enabled(d.editor.takes_typing(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
                 if r.changed() {
                     d.vcb = text.clone();
                 }

@@ -4,6 +4,11 @@
 //! come with the base (`600;400;19`, `600==` a cube; `r;h` for a cylinder): the shape is done.
 //! Esc goes back one step.
 //!
+//! The "Offset" option (after OpenCutList's shape offset; typed in the bar, or `3x` at any
+//! step) moves the outline drawn, never the height: the box's base grows by it on every side,
+//! the cylinder's radius by it; negative, they shrink. The lengths written and typed stay the
+//! drawn shape's, dashed then, and the shape made is drawn solid.
+//!
 //! The box's opposite corner snaps to the square's near it (not on a feature, nor on a plane
 //! seen edge on). The cylinder's radius snaps likewise to the red, green or blue axis through
 //! the centre, and is dashed in that axis's colour along it; its "Measure" option (Tab) takes
@@ -531,6 +536,32 @@ fn snapped(snap: &Option<Inference>) -> bool {
 const PULL_CENTERED: &str = "pull_centered";
 /// The first point is measured from a corner (the first step's mode, not saved).
 const FROM_CORNER: &str = "from_corner";
+/// The outline is moved by this length, out (positive) or in (saved for each tool).
+const OFFSET: &str = "offset";
+
+/// The offset option, first in the bar (as OCL's).
+fn offset_option(cx: &Cx<'_>) -> ToolOption {
+    ToolOption {
+        key: OFFSET,
+        label: t!("tool.shape.option.offset"),
+        tip: t!("tool.shape.option.offset_tip"),
+        value: OptionValue::Length(cx.length(OFFSET)),
+        choices: Vec::new(),
+        saved: true,
+        icon: None,
+    }
+}
+
+/// The lines from `a` to `b`, dashed (the drawn shape, an offset making another one) or not.
+fn segments(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, pairs: impl IntoIterator<Item = (DVec3, DVec3)>, color: [f32; 4], dash: bool) {
+    for (a, b) in pairs {
+        if dash {
+            dashed(cx.camera, cx.size, out, cx.to_world(a), cx.to_world(b), color);
+        } else {
+            out.push(line(cx, a, b, color));
+        }
+    }
+}
 
 /// A toggle drawn as its icon (after OCL's Smart Draw, `get_action_option_btn_child`).
 fn toggle(key: &'static str, label: String, tip: String, on: bool, saved: bool, icon: &'static str) -> ToolOption {
@@ -641,13 +672,18 @@ impl BoxTool {
         if d.x.abs() < MIN || d.y.abs() < MIN || z1 - z0 < MIN {
             return vec![Command::Say(t!("tool.box.say.empty"))];
         }
-        let size = DVec3::new(d.x.abs(), d.y.abs(), z1 - z0);
+        // The base grown by the offset on every side.
+        let off = cx.length(OFFSET);
+        let size = DVec3::new(d.x.abs() + 2.0 * off, d.y.abs() + 2.0 * off, z1 - z0);
+        if size.x < MIN || size.y < MIN {
+            return vec![Command::Say(t!("tool.shape.say.offset_empty"))];
+        }
         let (primitive, placement) = if f.aligned() {
             // In the axes: corners as clicked, no rounding through a frame.
             let lo = f.o.min(p2);
-            (Primitive::Box { origin: DVec3::new(lo.x, lo.y, f.o.z + z0), size }, DAffine3::IDENTITY)
+            (Primitive::Box { origin: DVec3::new(lo.x - off, lo.y - off, f.o.z + z0), size }, DAffine3::IDENTITY)
         } else {
-            let lo = DVec3::new(d.x.min(0.0), d.y.min(0.0), z0);
+            let lo = DVec3::new(d.x.min(0.0) - off, d.y.min(0.0) - off, z0);
             (Primitive::Box { origin: lo, size }, f.placement())
         };
         vec![Command::Apply(cx.add_primitive(primitive, placement)), Command::RememberHeight(z1 - z0)]
@@ -760,8 +796,16 @@ impl Tool for BoxTool {
         let mut marks = Vec::new();
         // The corners of the base from `f.o` to the local `(x, y)`, at height `z`.
         let corners = |f: &Frame, x: f64, y: f64, z: f64| [(0.0, 0.0), (x, 0.0), (x, y), (0.0, y)].map(|(x, y)| f.at(DVec3::new(x, y, z)));
-        let rect = |lines: &mut Vec<PreviewLine>, c: [DVec3; 4], color| {
-            lines.extend((0..4).map(|i| line(cx, c[i], c[(i + 1) % 4], color)));
+        let rect = |lines: &mut Vec<PreviewLine>, c: [DVec3; 4], color, dash| {
+            segments(cx, lines, (0..4).map(|i| (c[i], c[(i + 1) % 4])), color, dash);
+        };
+        // The base from `f.o` to the local `(x, y)`, grown by the offset: its frame and sides,
+        // if anything is left of it.
+        let off = cx.length(OFFSET);
+        let grown = |f: &Frame, x: f64, y: f64| {
+            let (sx, sy) = (if x < 0.0 { -1.0 } else { 1.0 }, if y < 0.0 { -1.0 } else { 1.0 });
+            let (gx, gy) = (x + 2.0 * off * sx, y + 2.0 * off * sy);
+            (gx * sx >= MIN && gy * sy >= MIN).then(|| (Frame { o: f.at(DVec3::new(-off * sx, -off * sy, 0.0)), ..*f }, gx, gy))
         };
         let mut inference = self.snap.clone();
         match self.state {
@@ -772,7 +816,7 @@ impl Tool for BoxTool {
                     let f = s.f;
                     let w = pixels(cx, f.o, GAUGE_PX);
                     let o = if self.centered { f.at(DVec3::new(-w / 2.0, -w / 4.0, 0.0)) } else { f.o };
-                    rect(&mut lines, corners(&Frame { o, ..f }, w, w / 2.0, 0.0), plane_color(cx, &f));
+                    rect(&mut lines, corners(&Frame { o, ..f }, w, w / 2.0, 0.0), plane_color(cx, &f), false);
                     if snapped(&inference) {
                         mark(cx, &mut marks, f.o);
                     }
@@ -784,7 +828,12 @@ impl Tool for BoxTool {
                 let (g, p2) = base(f, p2, self.centered);
                 let d = g.local(p2);
                 let c = corners(&g, d.x, d.y, 0.0);
-                rect(&mut lines, c, color);
+                rect(&mut lines, c, color, off != 0.0);
+                if off != 0.0
+                    && let Some((o, x, y)) = grown(&g, d.x, d.y)
+                {
+                    rect(&mut lines, corners(&o, x, y, 0.0), color, false);
+                }
                 label(cx, &mut labels, c[0], c[1], RED);
                 label(cx, &mut labels, c[0], c[3], GREEN);
                 // A square base: its diagonal; centred: the centre, and on to the cursor.
@@ -802,10 +851,19 @@ impl Tool for BoxTool {
                 let (f, p2) = base(f, p2, centered);
                 let d = f.local(p2);
                 let (z0, z1) = span(h, self.pull_centered);
+                let solid = |lines: &mut Vec<PreviewLine>, f: &Frame, x: f64, y: f64, dash: bool| {
+                    let (bottom, top) = (corners(f, x, y, z0), corners(f, x, y, z1));
+                    rect(lines, bottom, color, dash);
+                    rect(lines, top, color, dash);
+                    segments(cx, lines, bottom.into_iter().zip(top), color, dash);
+                };
+                solid(&mut lines, &f, d.x, d.y, off != 0.0);
+                if off != 0.0
+                    && let Some((o, x, y)) = grown(&f, d.x, d.y)
+                {
+                    solid(&mut lines, &o, x, y, false);
+                }
                 let (bottom, top) = (corners(&f, d.x, d.y, z0), corners(&f, d.x, d.y, z1));
-                rect(&mut lines, bottom, color);
-                rect(&mut lines, top, color);
-                lines.extend(bottom.iter().zip(&top).map(|(a, b)| line(cx, *a, *b, color)));
                 label(cx, &mut labels, bottom[0], top[0], BLUE);
                 // Centred: the diagonal through the cursor (at the opposite corner, height `h`).
                 if self.pull_centered {
@@ -850,7 +908,7 @@ impl Tool for BoxTool {
             true,
             "rectangle_centered",
         );
-        std::iter::once(centered).chain(shared_options(cx, &self.first)).collect()
+        [offset_option(cx), centered].into_iter().chain(shared_options(cx, &self.first)).collect()
     }
 
     fn set_option(&mut self, key: &str, value: &OptionValue) {
@@ -957,6 +1015,11 @@ impl CylinderTool {
         if r < MIN || z1 - z0 < MIN {
             return vec![Command::Say(t!("tool.cylinder.say.empty"))];
         }
+        // The radius moved by the offset (in Diameter mode too: the outline moves).
+        let r = r + cx.length(OFFSET);
+        if r < MIN {
+            return vec![Command::Say(t!("tool.shape.say.offset_empty"))];
+        }
         let (origin, placement) = if f.aligned() {
             (DVec3::new(f.o.x, f.o.y, f.o.z + z0), DAffine3::IDENTITY)
         } else {
@@ -1061,6 +1124,11 @@ impl Tool for CylinderTool {
             };
             (0..N).map(move |i| (p(i), p(i + 1)))
         };
+        // Dashed: every other segment.
+        let ring = |lines: &mut Vec<PreviewLine>, f: Frame, r: f64, z: f64, color, dash: bool| {
+            lines.extend(circle(f, r, z).enumerate().filter(|(i, _)| !dash || i % 2 == 0).map(|(_, (a, b))| line(cx, a, b, color)));
+        };
+        let off = cx.length(OFFSET);
         let mut lines = Vec::new();
         let mut labels = Vec::new();
         let mut marks = Vec::new();
@@ -1080,7 +1148,10 @@ impl Tool for CylinderTool {
             }
             CylState::Radius { f, rim } => {
                 let color = plane_color(cx, &f);
-                lines.extend(circle(f, rim.length(), 0.0).map(|(a, b)| line(cx, a, b, color)));
+                ring(&mut lines, f, rim.length(), 0.0, color, off != 0.0);
+                if off != 0.0 && rim.length() + off >= MIN {
+                    ring(&mut lines, f, rim.length() + off, 0.0, color, false);
+                }
                 mark(cx, &mut marks, f.o);
                 // Measured across: the whole diameter, through the centre.
                 let (o, p) = (if self.diameter { f.at(-rim) } else { f.o }, f.at(rim));
@@ -1091,11 +1162,15 @@ impl Tool for CylinderTool {
             CylState::Height { f, rim, h } => {
                 let (r, color) = (rim.length(), plane_color(cx, &f));
                 let (z0, z1) = span(h, self.pull_centered);
-                lines.extend(circle(f, r, z0).map(|(a, b)| line(cx, a, b, color)));
-                lines.extend(circle(f, r, z1).map(|(a, b)| line(cx, a, b, color)));
-                for (x, y) in [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)] {
-                    let a = f.at(DVec3::new(x * r, y * r, z0));
-                    lines.push(line(cx, a, a + f.n * (z1 - z0), color));
+                let solid = |lines: &mut Vec<PreviewLine>, r: f64, dash: bool| {
+                    ring(lines, f, r, z0, color, dash);
+                    ring(lines, f, r, z1, color, dash);
+                    let sides = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)].map(|(x, y)| f.at(DVec3::new(x * r, y * r, z0)));
+                    segments(cx, lines, sides.map(|a| (a, a + f.n * (z1 - z0))), color, dash);
+                };
+                solid(&mut lines, r, off != 0.0);
+                if off != 0.0 && r + off >= MIN {
+                    solid(&mut lines, r + off, false);
                 }
                 label(cx, &mut labels, f.at(rim + DVec3::Z * z0), f.at(rim + DVec3::Z * z1), BLUE);
             }
@@ -1135,28 +1210,31 @@ impl Tool for CylinderTool {
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
         let value = if cx.choice(MEASURE) == Some(DIAMETER) { DIAMETER } else { RADIUS };
-        let mut options = vec![ToolOption {
-            key: MEASURE,
-            label: t!("tool.cylinder.option.measure"),
-            tip: t!("tool.cylinder.option.measure_tip"),
-            value: OptionValue::Choice(value.into()),
-            choices: vec![
-                OptionChoice {
-                    value: RADIUS,
-                    label: t!("tool.cylinder.option.radius"),
-                    tip: t!("tool.cylinder.option.radius_tip"),
-                    icon: Some("measure_radius"),
-                },
-                OptionChoice {
-                    value: DIAMETER,
-                    label: t!("tool.cylinder.option.diameter"),
-                    tip: t!("tool.cylinder.option.diameter_tip"),
-                    icon: Some("measure_diameter"),
-                },
-            ],
-            saved: true,
-            icon: None,
-        }];
+        let mut options = vec![
+            offset_option(cx),
+            ToolOption {
+                key: MEASURE,
+                label: t!("tool.cylinder.option.measure"),
+                tip: t!("tool.cylinder.option.measure_tip"),
+                value: OptionValue::Choice(value.into()),
+                choices: vec![
+                    OptionChoice {
+                        value: RADIUS,
+                        label: t!("tool.cylinder.option.radius"),
+                        tip: t!("tool.cylinder.option.radius_tip"),
+                        icon: Some("measure_radius"),
+                    },
+                    OptionChoice {
+                        value: DIAMETER,
+                        label: t!("tool.cylinder.option.diameter"),
+                        tip: t!("tool.cylinder.option.diameter_tip"),
+                        icon: Some("measure_diameter"),
+                    },
+                ],
+                saved: true,
+                icon: None,
+            },
+        ];
         options.extend(shared_options(cx, &self.first));
         options
     }
