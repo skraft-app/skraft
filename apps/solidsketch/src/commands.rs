@@ -69,11 +69,15 @@ pub const COMMANDS: &[Command] = &[
     c("file.import", || ellipsis(t!("menu.file.import")), M::File, Some("Cmd+I")),
     c("file.save", || t!("menu.file.save"), M::File, Some("Cmd+S")),
     c("file.save_as", || ellipsis(t!("menu.file.save_as")), M::File, Some("Cmd+Shift+S")),
+    // The shown document's tab (docs/ARCHITECTURE.md §6 octies).
+    c("file.close", || t!("menu.file.close"), M::File, Some("Cmd+W")),
     // The last files opened or saved ([`recent_slot`]): hidden while their slot is empty.
     g("file.recent.1", || t!("menu.file.recent", n = 1), M::File, None),
     c("file.recent.2", || t!("menu.file.recent", n = 2), M::File, None),
     c("file.recent.3", || t!("menu.file.recent", n = 3), M::File, None),
     c("file.recent.4", || t!("menu.file.recent", n = 4), M::File, None),
+    // In the app menu on macOS; not on the web (the page is closed instead).
+    g("app.quit", || t!("menu.file.quit"), M::File, Some("Cmd+Q")),
     c("edit.undo", || t!("menu.edit.undo"), M::Edit, Some("Cmd+Z")),
     c("edit.redo", || t!("menu.edit.redo"), M::Edit, Some("Cmd+Shift+Z")),
     g("edit.select_all", || t!("menu.edit.select_all"), M::Edit, Some("Cmd+A")),
@@ -105,6 +109,9 @@ pub const COMMANDS: &[Command] = &[
     c("view.left", || t!("menu.view.left"), M::View, Some("Cmd+5")),
     c("view.iso", || t!("menu.view.iso"), M::View, Some("Cmd+6")),
     g("view.zoom_extents", || t!("menu.view.zoom_extents"), M::View, Some("Shift+Z")),
+    // Ctrl+Tab and Ctrl+Shift+Tab too, whatever these are given ([`crate::app`]).
+    g("view.next_tab", || t!("menu.view.next_tab"), M::View, None),
+    c("view.previous_tab", || t!("menu.view.previous_tab"), M::View, None),
     c("tool.select", || t!("tool.select.name"), M::Tools, Some("Space")),
     c("tool.box", || t!("tool.box.name"), M::Tools, Some("R")),
     c("tool.cylinder", || t!("tool.cylinder.name"), M::Tools, Some("C")),

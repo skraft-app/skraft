@@ -46,6 +46,12 @@ pub struct Preferences {
     /// The last files opened or saved, the latest first (desktop: the browser gives no path to
     /// open again).
     pub recent_files: Vec<String>,
+    /// Open again at launch the saved documents open when the app quit (desktop, docs/
+    /// ARCHITECTURE.md §6 octies)…
+    pub reopen_documents: bool,
+    /// …which are these, in tab order, and the one shown among them.
+    pub open_files: Vec<String>,
+    pub shown_file: Option<usize>,
     /// The side panels: their columns, order, sizes, folded or closed.
     pub panels: Layout,
     /// The workspace and tab shown, the ribbon's pins and labels (ARCHITECTURE.md §6 septies).
@@ -66,6 +72,9 @@ impl Default for Preferences {
             show_machinings: false,
             show_render_stats: false,
             recent_files: Vec::new(),
+            reopen_documents: true,
+            open_files: Vec::new(),
+            shown_file: None,
             panels: Layout::default(),
             ribbon: crate::ribbon::Prefs::default(),
         }

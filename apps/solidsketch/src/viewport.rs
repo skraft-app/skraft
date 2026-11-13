@@ -30,7 +30,12 @@ pub struct Viewport {
     last_trackpad: f64,
     /// Each material's palette entry, for the session: an entry is never given to another
     /// material, so meshes with painted faces stay valid when materials come and go.
+    /// They are the shown document's: ids are a document's own.
     slots: HashMap<Id, u32>,
+    /// The document shown ([`crate::docs::DocId`]), and the others' palette entries, kept
+    /// while they are not shown.
+    document: u64,
+    parked_slots: HashMap<u64, HashMap<Id, u32>>,
     /// The size of the last frame drawn (pixels).
     size: [u32; 2],
     /// What the render statistics overlay shows.
@@ -79,7 +84,46 @@ impl Viewport {
         Viewport::default()
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, editor: &mut Editor, nav: &Navigation, theme: &Theme, stats: bool) {
+    /// Shows document `doc` (docs/ARCHITECTURE.md §6 octies): its palette entries and its
+    /// meshes, the other documents' kept for when they are shown again.
+    fn show_document(&mut self, doc: u64) {
+        if doc != self.document {
+            let shown = std::mem::replace(&mut self.slots, self.parked_slots.remove(&doc).unwrap_or_default());
+            if !shown.is_empty() {
+                self.parked_slots.insert(self.document, shown);
+            }
+            self.document = doc;
+        }
+        if let Some(r) = &mut self.renderer {
+            r.set_document(doc);
+        }
+    }
+
+    /// Forgets document `doc` (closed): its palette entries and its meshes.
+    pub fn drop_document(&mut self, doc: u64) {
+        if doc == self.document {
+            self.slots.clear();
+        } else {
+            self.parked_slots.remove(&doc);
+        }
+        if let Some(r) = &mut self.renderer {
+            r.drop_document(doc);
+        }
+    }
+
+    /// Draws document `doc`, edited by `editor`, and feeds it the view's input.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        frame: &eframe::Frame,
+        doc: u64,
+        editor: &mut Editor,
+        nav: &Navigation,
+        theme: &Theme,
+        stats: bool,
+    ) {
+        self.show_document(doc);
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         editor.set_viewport_size(DVec2::new(rect.width() as f64, rect.height() as f64));
@@ -314,7 +358,9 @@ impl Viewport {
             }
             uploads.push((dm, paint));
         }
+        let document = self.document;
         let renderer = self.renderer.get_or_insert_with(|| render::Renderer::new(device));
+        renderer.set_document(document);
         for (dm, paint) in &uploads {
             let parts: Vec<render::Part<'_>> =
                 dm.parts.iter().map(|p| render::Part { id: p.solid.0, mesh: &p.mesh, face_paint: paint }).collect();

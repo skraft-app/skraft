@@ -6,6 +6,7 @@ mod commands;
 #[cfg(not(target_arch = "wasm32"))]
 mod control;
 mod dock;
+mod docs;
 mod file;
 mod icons;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
@@ -14,6 +15,7 @@ mod panels;
 mod prefs;
 mod ribbon;
 mod style;
+mod tabs;
 mod titlebar;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
@@ -23,6 +25,24 @@ pub use app::SolidSketchApp;
 
 /// The bar is the window's title bar: on the macOS desktop (docs/ARCHITECTURE.md §7 quinquies).
 pub(crate) const INTEGRATED_TITLEBAR: bool = cfg!(all(target_os = "macos", not(target_arch = "wasm32")));
+
+/// Only the app moves the window (macOS desktop): AppKit would move it from any drag in the top
+/// of the window, where its hidden title bar still is — over the file tabs, which are dragged
+/// along the bar to reorder them (docs/ARCHITECTURE.md §6 octies). The bar's empty space, and a
+/// tab dragged up or down, still move it: `ViewportCommand::StartDrag` (AppKit's
+/// `performWindowDragWithEvent:`) works on a window that is not movable by the user.
+#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+pub(crate) fn app_drags_window(cc: &eframe::CreationContext<'_>) {
+    use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+    let Ok(handle) = cc.window_handle() else { return };
+    let RawWindowHandle::AppKit(h) = handle.as_raw() else { return };
+    // SAFETY: the handle's `ns_view` is the window's live content view, used on the main thread
+    // (the app is being created there) while the handle is borrowed.
+    let view: &objc2_app_kit::NSView = unsafe { h.ns_view.cast().as_ref() };
+    if let Some(window) = view.window() {
+        window.setMovable(false);
+    }
+}
 
 /// The desktop window. On macOS the OS title bar is hidden and the content runs under it, the
 /// traffic lights kept: the app's bar ([`titlebar`]) takes its place.

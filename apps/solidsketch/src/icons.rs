@@ -43,6 +43,8 @@ icon!(MODELLING, "modelling");
 icon!(PIN, "pin");
 icon!(SECTION_CLEAR, "section_clear");
 icon!(GUIDES_DELETE, "guides_delete");
+icon!(CLOSE, "close");
+icon!(ADD, "add");
 
 /// A command's icon on the ribbon (docs/ARCHITECTURE.md §6 septies); none for a command the
 /// ribbon does not show.

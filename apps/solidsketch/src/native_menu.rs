@@ -214,7 +214,11 @@ fn build(views: &[CommandView], keymap: &Keymap, debug: bool) -> muda::Result<(B
     app.append(&PredefinedMenuItem::hide_others(Some(&t!("menu.app.hide_others"))))?;
     app.append(&PredefinedMenuItem::show_all(Some(&t!("menu.app.show_all"))))?;
     app.append(&sep())?;
-    app.append(&PredefinedMenuItem::quit(Some(&t!("menu.app.quit", app = APP))))?;
+    // Not AppKit's Quit, which ends the app at once: the app's, which asks about the modified
+    // documents first (docs/ARCHITECTURE.md §6 octies).
+    if let Some(v) = views.iter().find(|v| v.id == "app.quit") {
+        append(&app, &item(v))?;
+    }
     bar.append(&app)?;
 
     for menu in Menu::BAR {
@@ -223,8 +227,8 @@ fn build(views: &[CommandView], keymap: &Keymap, debug: bool) -> muda::Result<(B
         }
         let sub = Submenu::new(menu.label(), true);
         let mut first = true;
-        // The preferences are in the app menu.
-        for v in views.iter().filter(|v| v.menu == menu && v.id != "app.preferences") {
+        // The preferences and Quit are in the app menu.
+        for v in views.iter().filter(|v| v.menu == menu && !matches!(v.id, "app.preferences" | "app.quit")) {
             if v.group && !first {
                 sub.append(&sep())?;
             }
