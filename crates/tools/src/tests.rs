@@ -3283,3 +3283,194 @@ fn erase_tool_erases_the_open_part_s_machinings() {
     assert_eq!(machinings(&e), 0, "{}", e.status());
     assert_eq!(e.open_part(), Some(board));
 }
+
+// ---- Polygon (docs/ARCHITECTURE.md §6 nonies) ---------------------------------------------------
+
+fn key(e: &mut Editor, key: Key) {
+    e.input(ToolInput::Key { key, mods: Modifiers::default() });
+}
+
+/// The corners clicked one after the other with the polygon tool (the first one included).
+fn corners(e: &mut Editor, ps: &[(f64, f64)]) {
+    for &(x, y) in ps {
+        click(e, DVec3::new(x, y, 0.0));
+    }
+}
+
+#[test]
+fn polygon_by_clicks_closed_on_the_first_corner() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Polygon);
+    // An L, closed by a click back on its first corner, then a typed height.
+    corners(&mut e, &[(0.0, 0.0), (400.0, 0.0), (400.0, 100.0), (100.0, 100.0), (100.0, 300.0), (0.0, 300.0), (0.0, 0.0)]);
+    assert!(e.status().contains("hauteur"), "{}", e.status());
+    e.input(ToolInput::Vcb("18".into()));
+    let id = drawn(&e);
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(400.0, 300.0, 18.0)), "{lo} {hi}");
+    // An L prism: 8 faces, 18 edges, 12 vertices.
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    assert_eq!(part.shape().topology_counts(), (8, 18, 12));
+}
+
+#[test]
+fn polygon_follows_the_cursor_right_after_a_click() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Polygon);
+    corners(&mut e, &[(0.0, 0.0), (300.0, 0.0)]);
+    // No move since the click: the line from the new corner and the closing one are drawn.
+    let lines = e.preview().lines;
+    let at = |p: DVec3| lines.iter().any(|l| close(l.a, p) || close(l.b, p));
+    assert!(at(DVec3::ZERO) && at(DVec3::new(300.0, 0.0, 0.0)), "{lines:?}");
+    assert!(lines.len() > 2, "the side, the line to the cursor and the closing one (dashed): {}", lines.len());
+
+    // From three corners, the cursor is on the corner just placed: the closing side is dashed
+    // from it to the first one.
+    click(&mut e, DVec3::new(300.0, 200.0, 0.0));
+    let lines = e.preview().lines;
+    let (a, b) = (DVec3::new(300.0, 200.0, 0.0), DVec3::ZERO);
+    let on = |p: DVec3| (p - a).cross(b - a).length() < 1e-3 * (b - a).length() && (p - a).dot(b - a) >= -1e-6 && (p - b).dot(a - b) >= -1e-6;
+    let dashes = lines.iter().filter(|l| on(l.a) && on(l.b)).count();
+    assert!(dashes > 2, "the closing side dashed: {dashes} pieces");
+}
+
+#[test]
+fn polygon_esc_enter_reversed_and_typed() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Polygon);
+    // A wrong corner taken away with Esc.
+    corners(&mut e, &[(0.0, 0.0), (200.0, 0.0), (500.0, 500.0)]);
+    key(&mut e, Key::Escape);
+    // A length typed along the cursor's direction: up 100.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(200.0, 50.0, 0.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    // Reversed: the next corner goes before the first one, the lines start from it.
+    key(&mut e, Key::Copy);
+    click(&mut e, DVec3::new(0.0, 100.0, 0.0));
+    key(&mut e, Key::Copy);
+    // Enter closes: a rectangle 200 × 100 (the corner (0,100) went before (0,0)).
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(200.0, 100.0, 10.0)), "{lo} {hi}");
+}
+
+#[test]
+fn polygon_refuses_a_crossed_outline_and_too_few_corners() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Polygon);
+    corners(&mut e, &[(0.0, 0.0), (200.0, 0.0)]);
+    key(&mut e, Key::Enter);
+    assert!(e.status().contains("trois points"), "{}", e.status());
+    // A bow tie.
+    corners(&mut e, &[(0.0, 200.0), (200.0, 200.0)]);
+    key(&mut e, Key::Enter);
+    assert!(e.status().contains("se croise"), "{}", e.status());
+    // Esc takes the last corner away: a triangle closes.
+    key(&mut e, Key::Escape);
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("5".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(200.0, 200.0, 5.0)), "{lo} {hi}");
+}
+
+#[test]
+fn polygon_double_click_closes_without_pulling() {
+    let mut e = top_editor(Document::new());
+    // A height to take again, so a double-click that pulled would be seen.
+    draw_box(&mut e, DVec3::new(-900.0, -900.0, 0.0), DVec3::new(-800.0, -800.0, 0.0), "77");
+    let count = |e: &Editor| e.document().assembly(e.document().root()).unwrap().occurrences().len();
+    let before = count(&e);
+    e.set_tool(ToolKind::Polygon);
+    corners(&mut e, &[(0.0, 0.0), (300.0, 0.0)]);
+    let at = px(&e, DVec3::new(300.0, 300.0, 0.0));
+    e.input(ToolInput::Hover { px: at });
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    e.input(ToolInput::DoubleClick { px: at, mods: Modifiers::default() });
+    assert_eq!(count(&e), before, "closed, not pulled");
+    assert!(e.status().contains("hauteur"), "{}", e.status());
+    // A double-click now (on the height) takes the last height again.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 50.0, 0.0)) });
+    e.input(ToolInput::DoubleClick { px: at, mods: Modifiers::default() });
+    let (_, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!((hi.z - 77.0).abs() < 1e-6, "{hi}");
+}
+
+#[test]
+fn polygon_takes_a_whole_face_but_not_a_curved_one() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 50.0, height: 30.0 };
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
+    e.set_tool(ToolKind::Polygon);
+    // The disc: refused, said.
+    e.set_copy(true);
+    hover(&mut e, DVec3::new(610.0, 590.0, 30.0));
+    key(&mut e, Key::Shift);
+    e.set_copy(false);
+    assert!(e.status().contains("courbes"), "{}", e.status());
+    // The box's top: its outline is the profile, the height next.
+    e.set_copy(true);
+    hover(&mut e, DVec3::new(100.0, 50.0, 150.0));
+    key(&mut e, Key::Shift);
+    e.set_copy(false);
+    hover(&mut e, DVec3::new(300.0, 200.0, 150.0));
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(0.0, 0.0, 150.0)) && close(hi, DVec3::new(300.0, 200.0, 160.0)), "{lo} {hi}");
+}
+
+#[test]
+fn polygon_on_an_upright_face() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    e.set_viewport_size(DVec2::new(1000.0, 1000.0));
+    e.camera.set_standard_view(
+        StandardView::Front,
+        Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
+        crate::camera::ViewArea::full(e.viewport_size()),
+    );
+    e.set_tool(ToolKind::Polygon);
+    // A triangle on the front face (y = 0), pulled out towards the eye by 20.
+    // (Away from the box's edges: 0.5 px per mm here.)
+    for p in [DVec3::new(60.0, 0.0, 50.0), DVec3::new(240.0, 0.0, 50.0), DVec3::new(150.0, 0.0, 100.0)] {
+        click(&mut e, p);
+    }
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("20".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(60.0, -20.0, 50.0)) && close(hi, DVec3::new(240.0, 0.0, 100.0)), "{lo} {hi}");
+}
+
+#[test]
+fn polygon_offset_moves_the_outline_made() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Polygon);
+    // `5x` sets the offset, at any step: the outline made grows by 5 on every side.
+    e.input(ToolInput::Vcb("5x".into()));
+    corners(&mut e, &[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]);
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(-5.0, -5.0, 0.0)) && close(hi, DVec3::new(105.0, 105.0, 10.0)), "{lo} {hi}");
+
+    // A U whose notch (40 wide) an outward offset of 25 closes: refused, the height step stays.
+    e.set_tool_option("offset", OptionValue::Length(25.0));
+    let u = [(300.0, 0.0), (420.0, 0.0), (420.0, 100.0), (380.0, 100.0), (380.0, 50.0), (340.0, 50.0), (340.0, 100.0), (300.0, 100.0)];
+    corners(&mut e, &u);
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("10".into()));
+    assert!(e.status().contains("croiser"), "{}", e.status());
+    // Inward past its middle: nothing left.
+    e.input(ToolInput::Vcb("-80x".into()));
+    e.input(ToolInput::Vcb("10".into()));
+    assert!(e.status().contains("ne laisse rien"), "{}", e.status());
+    // Inward by 5: made.
+    e.input(ToolInput::Vcb("-5x".into()));
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(305.0, 5.0, 0.0)) && close(hi, DVec3::new(415.0, 95.0, 10.0)), "{lo} {hi}");
+}

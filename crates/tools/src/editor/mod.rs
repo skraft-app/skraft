@@ -791,6 +791,13 @@ impl Editor {
                 _ => self.selection.clear(),
             },
             Command::Say(s) => self.message = Some(s),
+            Command::ClearLocks => {
+                self.axis_lock = None;
+                self.face_lock = None;
+                self.shift_lock = None;
+                // The tool's next step follows the cursor at once, not at its next move.
+                self.rehover();
+            }
             Command::Replace { previous, op } => {
                 if self.history.undo_op() == Some(&*previous) && self.history.undo() {
                     self.after_change();

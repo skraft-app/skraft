@@ -159,6 +159,7 @@ fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.erase" => ToolKind::Erase,
         "tool.box" => ToolKind::Box,
         "tool.cylinder" => ToolKind::Cylinder,
+        "tool.polygon" => ToolKind::Polygon,
         "tool.move" => ToolKind::Move,
         "tool.rotate" => ToolKind::Rotate,
         "tool.paint" => ToolKind::Paint,
@@ -1009,6 +1010,8 @@ impl SolidSketchApp {
             K::ArrowUp => e.input(tool_key(Key::Up)),
             K::ArrowDown => e.input(tool_key(Key::Down)),
             K::Tab => e.input(tool_key(Key::Tab)),
+            // Enter with nothing typed: the tool's (the polygon closes its outline).
+            K::Enter => e.input(tool_key(Key::Enter)),
             _ => return self.keymap.command_for(key, modifiers),
         }
         None

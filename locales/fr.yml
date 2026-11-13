@@ -500,6 +500,23 @@ tool:
       radius_tip: "Du centre au bord"
       diameter: "Diamètre"
       diameter_tip: "D'un bord à l'autre, par le centre"
+  polygon:
+    name: "Polygone"
+    hint:
+      first: "Cliquer le premier point · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
+      corners: "Cliquer le point suivant, ou taper une longueur · clic sur un point posé, double-clic ou Entrée : fermer · flèches : bloquer un axe · Maj : guide · %{copy_key} : inverser · Échap : retirer le dernier point"
+    vcb:
+      length: "Longueur"
+      height: "$t(common.height)"
+    say:
+      too_few: "Il faut au moins trois points pour fermer le contour"
+      crossed: "Le contour se croise : impossible de le fermer"
+      empty: "Polygone vide : hauteur nulle"
+      curved_face: "Cette face a des bords courbes : pas encore prise en charge"
+      offset_crossed: "Le décalage ferait se croiser le contour"
+    option:
+      reversed: "Inversé"
+      reversed_tip: "Les nouveaux points s'ajoutent avant le premier au lieu d'après le dernier (%{copy_key} : basculer)"
   move:
     name: "$t(common.move)"
     hint:

@@ -21,7 +21,7 @@ pub use paint::PaintTool;
 pub use rotate::RotateTool;
 pub use section::SectionTool;
 pub use select::SelectTool;
-pub use shapes::{BoxTool, CylinderTool};
+pub use shapes::{BoxTool, CylinderTool, PolygonTool};
 pub use stretch::StretchTool;
 
 use std::collections::BTreeMap;
@@ -129,6 +129,9 @@ pub enum Command {
         key: &'static str,
         value: OptionValue,
     },
+    /// Drops the arrow keys' and Shift's locks (a step of the gesture done: the polygon's corner
+    /// placed); the points tracked stay. The tool is then given the cursor again.
+    ClearLocks,
     /// Undoes the last step, which must be `previous`, and applies `op` instead (a copy
     /// turned into an array by a typed `5x`).
     Replace {
@@ -316,6 +319,8 @@ pub enum ToolKind {
     Select,
     Box,
     Cylinder,
+    /// Draws an outline, then pulls it into a prism (§6 nonies).
+    Polygon,
     Move,
     Rotate,
     Boolean(Boolean),
@@ -338,6 +343,7 @@ impl ToolKind {
             ToolKind::Select => "select",
             ToolKind::Box => "box",
             ToolKind::Cylinder => "cylinder",
+            ToolKind::Polygon => "polygon",
             ToolKind::Move => "move",
             ToolKind::Rotate => "rotate",
             ToolKind::Boolean(Boolean::Union) => "union",
@@ -357,6 +363,7 @@ impl ToolKind {
             ToolKind::Select => t!("tool.select.name"),
             ToolKind::Box => t!("tool.box.name"),
             ToolKind::Cylinder => t!("tool.cylinder.name"),
+            ToolKind::Polygon => t!("tool.polygon.name"),
             ToolKind::Move => t!("tool.move.name"),
             ToolKind::Rotate => t!("tool.rotate.name"),
             ToolKind::Boolean(Boolean::Union) => t!("tool.boolean.union.name"),
@@ -847,6 +854,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Select => Box::new(SelectTool::default()),
         ToolKind::Box => Box::new(BoxTool::default()),
         ToolKind::Cylinder => Box::new(CylinderTool::default()),
+        ToolKind::Polygon => Box::new(PolygonTool::default()),
         ToolKind::Move => Box::new(MoveTool::default()),
         ToolKind::Rotate => Box::new(RotateTool::default()),
         ToolKind::Boolean(op) => Box::new(BooleanTool::new(op)),
