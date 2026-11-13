@@ -505,3 +505,77 @@ fn bench_step_model() {
     time("move one occurrence", || e.apply(op).unwrap());
     time("undo", || e.undo());
 }
+
+/// A real model loaded as the desktop app loads it (`BENCH_STEP`: a STEP file's path): imported
+/// through the editor, the kernel a [`solidsketch_kernel::Pool`] on every core — when the file
+/// is read, when every preview is drawn, when the last final mesh is (§7 sexies). Then the
+/// same load cancelled once the previews are drawn: how long until an operation gets through.
+#[test]
+#[ignore]
+fn bench_step_loading() {
+    use std::time::Duration;
+
+    use glam::DAffine3;
+    use solidsketch_model::{Operation, Primitive};
+
+    let Ok(path) = std::env::var("BENCH_STEP") else {
+        eprintln!("BENCH_STEP unset: nothing to do");
+        return;
+    };
+    let bytes = std::fs::read(&path).unwrap();
+    let load = |e: &mut Editor, stop_after_previews: bool| -> (Duration, Duration, Duration) {
+        let t = Instant::now();
+        e.import_step("model".into(), bytes.clone());
+        let (mut read, mut previewed) = (None, None);
+        while e.loading().is_some() && t.elapsed() < Duration::from_secs(600) {
+            e.poll();
+            let Some(l) = e.loading() else { break };
+            if read.is_none() && l.reading.is_none() {
+                read = Some(t.elapsed());
+            }
+            if previewed.is_none() && l.previews.1 > 0 && l.previews.0 == l.previews.1 {
+                previewed = Some(t.elapsed());
+                if stop_after_previews {
+                    e.cancel_loading();
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        (read.unwrap_or_default(), previewed.unwrap_or_default(), t.elapsed())
+    };
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Pool::new(None)));
+    let (read, previewed, done) = load(&mut e, false);
+    let l = e.document().placed_parts().len();
+    eprintln!(
+        "{threads} threads: read {:.2} s, previews drawn {:.2} s, final meshes {:.2} s ({l} placements)",
+        read.as_secs_f64(),
+        previewed.as_secs_f64(),
+        done.as_secs_f64()
+    );
+
+    // Cancelled once the previews are drawn: an operation right after it gets the kernel when
+    // the jobs running stop.
+    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Pool::new(None)));
+    let (_, previewed, cancelled) = load(&mut e, true);
+    let root = e.document().root();
+    let t = Instant::now();
+    let op = Operation::AddPrimitive {
+        context: root,
+        primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE },
+        placement: DAffine3::IDENTITY,
+    };
+    let _ = e.apply(op);
+    while e.busy() && t.elapsed() < Duration::from_secs(600) {
+        e.poll();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    eprintln!(
+        "cancelled at {:.2} s (previews drawn at {:.2} s): an operation done {:.0} ms later; the import undone: {}",
+        cancelled.as_secs_f64(),
+        previewed.as_secs_f64(),
+        t.elapsed().as_secs_f64() * 1e3,
+        e.document().root_assembly().occurrences().len() == 1
+    );
+}

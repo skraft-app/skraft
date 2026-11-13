@@ -1053,6 +1053,16 @@ mod deferred {
             self.results.borrow_mut().extend(jobs.into_iter().map(|(id, job)| (id, solidsketch_kernel::run(&job))));
         }
 
+        /// Runs the first `n` jobs queued (in the order they were submitted).
+        pub fn run_first(&self, n: usize) {
+            let jobs: Vec<_> = {
+                let mut q = self.jobs.borrow_mut();
+                let n = n.min(q.len());
+                q.drain(..n).collect()
+            };
+            self.results.borrow_mut().extend(jobs.into_iter().map(|(id, job)| (id, solidsketch_kernel::run(&job))));
+        }
+
         pub fn crash_all(&self) {
             let jobs = std::mem::take(&mut *self.jobs.borrow_mut());
             self.results.borrow_mut().extend(jobs.into_iter().map(|(id, _)| (id, Err(Error::Crashed("boom".into())))));
@@ -1066,6 +1076,14 @@ mod deferred {
 
         fn poll(&mut self) -> Vec<(JobId, JobResult)> {
             std::mem::take(&mut *self.results.borrow_mut())
+        }
+
+        fn cancel(&mut self, id: JobId) {
+            let mut jobs = self.jobs.borrow_mut();
+            if let Some(i) = jobs.iter().position(|(j, _)| *j == id) {
+                jobs.remove(i);
+                self.results.borrow_mut().push((id, Err(Error::Cancelled)));
+            }
         }
     }
 }
@@ -1202,14 +1220,15 @@ fn opened_solids_are_outlined_until_meshed_and_undo_does_not_remesh() {
         })
         .unwrap();
     let (mut e, k) = deferred_editor(doc);
-    // Outlined: twelve edges, no faces; its mesh asked for once.
+    // Outlined: twelve edges, no faces; its meshes asked for once (opened: a preview, then
+    // the final one).
     let part = &e.scene().definition_meshes().next().unwrap().parts[0];
     assert!(part.mesh.indices.is_empty());
     assert_eq!(part.mesh.edges.len(), 12);
-    assert_eq!(k.queued(), 1);
+    assert_eq!(k.queued(), 2);
     e.zoom_extents(); // the outline has bounds: framing works
     e.input(ToolInput::Hover { px: DVec2::new(500.0, 500.0) });
-    assert_eq!(k.queued(), 1, "asked once");
+    assert_eq!(k.queued(), 2, "asked once");
     k.run_all();
     assert!(e.poll());
     assert!(!e.scene().definition_meshes().next().unwrap().parts[0].mesh.indices.is_empty());
@@ -1224,6 +1243,96 @@ fn opened_solids_are_outlined_until_meshed_and_undo_does_not_remesh() {
     e.undo();
     assert_eq!(k.queued(), 0, "meshes kept for the history");
     assert!(!e.scene().definition_meshes().next().unwrap().parts[0].mesh.indices.is_empty());
+}
+
+/// An opened file is a load (ARCHITECTURE.md §7 sexies): every solid's preview asked before
+/// any final mesh, drawn as it comes, the load counting both until the last final mesh; or
+/// cancelled, its jobs stopped.
+#[test]
+fn an_opened_file_loads_previews_then_final_meshes() {
+    let doc = Document::new();
+    let root = doc.root();
+    let add = |doc: Document, x: f64| {
+        doc.apply(&Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Box { origin: DVec3::new(x, 0.0, 0.0), size: DVec3::splat(100.0) },
+            placement: glam::DAffine3::IDENTITY,
+        })
+        .unwrap()
+        .0
+    };
+    let doc = add(add(doc, 0.0), 300.0);
+    let (mut e, k) = deferred_editor(doc.clone());
+    let loading = e.loading().cloned().unwrap();
+    assert_eq!(loading.kind, LoadKind::Open);
+    assert_eq!((loading.previews, loading.finals), ((0, 2), (0, 2)));
+    assert_eq!(k.queued(), 4);
+    // The previews first: drawn, the load going on.
+    k.run_first(2);
+    assert!(e.poll());
+    assert_eq!(e.loading().unwrap().previews, (2, 2));
+    assert!(e.scene().definition_meshes().all(|m| !m.parts[0].mesh.indices.is_empty()));
+    assert_eq!(e.take_load_end(), None);
+    // Then the final meshes: the load is over.
+    k.run_all();
+    assert!(e.poll());
+    assert!(e.loading().is_none());
+    assert_eq!(e.take_load_end(), Some(LoadEnd::Done));
+    assert_eq!(e.take_load_end(), None, "taken once");
+
+    // Cancelled: its jobs stopped, the app told.
+    let (mut e, k) = deferred_editor(doc);
+    e.cancel_loading();
+    assert_eq!(k.queued(), 0);
+    assert!(e.loading().is_none());
+    assert_eq!(e.take_load_end(), Some(LoadEnd::Cancelled(LoadKind::Open)));
+    e.poll(); // the cancelled jobs' answers: dropped
+    assert!(e.loading().is_none());
+}
+
+/// A STEP file imported is a load: read, inserted, its meshes; cancelled while read, nothing
+/// comes in; cancelled once inserted, the insertion is undone.
+#[test]
+fn a_step_import_is_a_load_that_can_be_cancelled() {
+    let bytes = include_bytes!("../../kernel/tests/fixtures/assembly.step").to_vec();
+    let (mut e, k) = deferred_editor(Document::new());
+    e.import_step("assembly.step".into(), bytes.clone());
+    let loading = e.loading().cloned().unwrap();
+    assert_eq!(loading.kind, LoadKind::Import { name: "assembly.step".into() });
+    assert_eq!(loading.reading, Some(solidsketch_kernel::Progress::Reading));
+    // Read and inserted: its meshes asked as part of the load.
+    k.run_all();
+    assert!(e.poll());
+    assert_eq!(e.document().root_assembly().occurrences().len(), 1);
+    let loading = e.loading().cloned().unwrap();
+    assert_eq!(loading.reading, None);
+    // One solid (the board, twice placed): its preview and its final mesh.
+    assert_eq!((loading.previews, loading.finals), ((0, 1), (0, 1)));
+    k.run_all();
+    e.poll();
+    assert!(e.loading().is_none());
+    assert_eq!(e.take_load_end(), Some(LoadEnd::Done));
+
+    // Cancelled while read: nothing comes in.
+    let (mut e, k) = deferred_editor(Document::new());
+    e.import_step("assembly.step".into(), bytes.clone());
+    e.cancel_loading();
+    assert_eq!(k.queued(), 0);
+    e.poll();
+    assert!(e.document().root_assembly().occurrences().is_empty());
+    assert!(!e.is_importing());
+    assert_eq!(e.take_load_end(), Some(LoadEnd::Cancelled(LoadKind::Import { name: "assembly.step".into() })));
+    assert!(e.status().contains("annulé"), "{}", e.status());
+
+    // Cancelled once inserted: undone.
+    let (mut e, k) = deferred_editor(Document::new());
+    e.import_step("assembly.step".into(), bytes);
+    k.run_all();
+    e.poll();
+    assert_eq!(e.document().root_assembly().occurrences().len(), 1);
+    e.cancel_loading();
+    assert!(e.document().root_assembly().occurrences().is_empty());
+    assert_eq!(k.queued(), 0);
 }
 
 #[test]

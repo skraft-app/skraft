@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::job::{Job, JobId, JobResult, KernelService};
+use crate::job::{Job, JobId, JobResult, KernelService, Progress};
 
 /// The shared service; [`SharedKernel::handle`] gives each document its own.
 #[derive(Clone)]
@@ -35,12 +35,21 @@ struct Mux {
     routes: HashMap<JobId, (u64, JobId)>,
     /// The results waiting for each live handle.
     mailboxes: HashMap<u64, Vec<(JobId, JobResult)>>,
+    /// The progress waiting for each live handle, the latest per job.
+    progress: HashMap<u64, HashMap<JobId, Progress>>,
 }
 
 impl SharedKernel {
     pub fn new(service: Box<dyn KernelService>) -> Self {
         SharedKernel {
-            mux: Rc::new(RefCell::new(Mux { service, next_id: 1, next_channel: 0, routes: HashMap::new(), mailboxes: HashMap::new() })),
+            mux: Rc::new(RefCell::new(Mux {
+                service,
+                next_id: 1,
+                next_channel: 0,
+                routes: HashMap::new(),
+                mailboxes: HashMap::new(),
+                progress: HashMap::new(),
+            })),
         }
     }
 
@@ -50,6 +59,7 @@ impl SharedKernel {
         let channel = mux.next_channel;
         mux.next_channel += 1;
         mux.mailboxes.insert(channel, Vec::new());
+        mux.progress.insert(channel, HashMap::new());
         KernelHandle { mux: self.mux.clone(), channel }
     }
 
@@ -62,8 +72,18 @@ impl SharedKernel {
 impl Mux {
     /// Takes the service's results to their handles' mailboxes.
     fn pump(&mut self) {
+        for (id, p) in self.service.progress() {
+            if let Some((channel, theirs)) = self.routes.get(&id)
+                && let Some(waiting) = self.progress.get_mut(channel)
+            {
+                waiting.insert(*theirs, p);
+            }
+        }
         for (id, result) in self.service.poll() {
             let Some((channel, theirs)) = self.routes.remove(&id) else { continue };
+            if let Some(waiting) = self.progress.get_mut(&channel) {
+                waiting.remove(&theirs);
+            }
             if let Some(mailbox) = self.mailboxes.get_mut(&channel) {
                 mailbox.push((theirs, result));
             }
@@ -85,6 +105,20 @@ impl KernelService for KernelHandle {
         mux.pump();
         mux.mailboxes.get_mut(&self.channel).map(std::mem::take).unwrap_or_default()
     }
+
+    fn progress(&mut self) -> Vec<(JobId, Progress)> {
+        let mut mux = self.mux.borrow_mut();
+        mux.pump();
+        mux.progress.get_mut(&self.channel).map(|p| p.drain().collect()).unwrap_or_default()
+    }
+
+    fn cancel(&mut self, id: JobId) {
+        let mut mux = self.mux.borrow_mut();
+        let channel = self.channel;
+        if let Some(ours) = mux.routes.iter().find(|(_, (c, theirs))| *c == channel && *theirs == id).map(|(ours, _)| *ours) {
+            mux.service.cancel(ours);
+        }
+    }
 }
 
 impl Drop for KernelHandle {
@@ -93,6 +127,12 @@ impl Drop for KernelHandle {
         let mut mux = self.mux.borrow_mut();
         let channel = self.channel;
         mux.mailboxes.remove(&channel);
+        mux.progress.remove(&channel);
+        // Its jobs in flight are stopped and forgotten.
+        let theirs: Vec<JobId> = mux.routes.iter().filter(|(_, (c, _))| *c == channel).map(|(ours, _)| *ours).collect();
+        for ours in theirs {
+            mux.service.cancel(ours);
+        }
         mux.routes.retain(|_, (c, _)| *c != channel);
     }
 }
@@ -149,5 +189,48 @@ mod tests {
         assert_eq!(shared.in_flight(), 1);
         assert_eq!(ids(b.poll()), [1]);
         assert_eq!(shared.in_flight(), 0);
+    }
+
+    /// Records the jobs cancelled, and reports progress for every job in flight.
+    #[derive(Default)]
+    struct Watch {
+        live: Vec<JobId>,
+        cancelled: std::rc::Rc<RefCell<Vec<JobId>>>,
+    }
+
+    impl KernelService for Watch {
+        fn submit(&mut self, id: JobId, _job: Job) {
+            self.live.push(id);
+        }
+
+        fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+            Vec::new()
+        }
+
+        fn progress(&mut self) -> Vec<(JobId, Progress)> {
+            self.live.iter().map(|&id| (id, Progress::Bodies { done: id as u32, total: 10 })).collect()
+        }
+
+        fn cancel(&mut self, id: JobId) {
+            self.cancelled.borrow_mut().push(id);
+        }
+    }
+
+    #[test]
+    fn progress_and_cancel_go_through_each_handle_s_ids() {
+        let watch = Watch::default();
+        let cancelled = watch.cancelled.clone();
+        let shared = SharedKernel::new(Box::new(watch));
+        let (mut a, mut b) = (shared.handle(), shared.handle());
+        a.submit(7, Job::default()); // the service's 1
+        b.submit(7, Job::default()); // its 2
+        // Each handle sees its own job's progress, under its own id.
+        assert_eq!(a.progress(), [(7, Progress::Bodies { done: 1, total: 10 })]);
+        assert_eq!(b.progress(), [(7, Progress::Bodies { done: 2, total: 10 })]);
+        b.cancel(7);
+        assert_eq!(*cancelled.borrow(), [2]);
+        // A handle dropped stops its jobs.
+        drop(a);
+        assert_eq!(*cancelled.borrow(), [2, 1]);
     }
 }

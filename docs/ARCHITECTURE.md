@@ -1384,9 +1384,10 @@ wasm) only kills the worker.
      order; `History::push` records it.
 
   The document, the history and the scene stay on the UI thread; the service is stateless.
-- **One service, three executions** (`kernel::KernelService`: `submit(id, job)`, `poll()`):
-  `Inline` (synchronous, tests), `Threaded` (a thread, desktop), Web Worker (browser, in the
-  app). Each result wakes the UI (`request_repaint`).
+- **One service, three executions** (`kernel::KernelService`: `submit(id, job)`, `poll()`,
+  and `progress()`, `cancel(id)`, §7 sexies): `Inline` (synchronous, tests), `Pool` (a
+  thread per core, desktop; it was one thread, `Threaded`, until 2026-11-13), Web Worker
+  (browser, in the app). Each result wakes the UI (`request_repaint`).
 - **During a computation**: one operation at a time; navigation and hovering stay active, tool
   clicks, editing shortcuts, undo / redo are ignored; the status bar says it is computing and
   the cursor waits. Esc abandons: the result will be dropped. Compound actions (exploding
@@ -1558,6 +1559,46 @@ menu strip is gone: its room goes to one bar holding the document and the comman
 - **Web, Windows, Linux**: the OS frame is kept (no caption buttons of our own: resizing,
   snapping and the move loop are the OS's), and the menus are behind a **☰** button at the
   bar's start, the registry's menus as submenus.
+
+
+## 7 sexies. Loading a model
+
+Decided on 2026-11-13 (questions / answers), built the same day. A big file (`Cruise_Assembly
+.step`: 583 bodies, ~20 s of meshing on one thread) is shown at once, then refined, under a
+window that says how far it is and can stop it.
+
+- **A pool of kernel threads** (`kernel::Pool`, desktop): one per core, each with SolidCore's
+  stack. Two queues: an operation's job (anything but meshes) before the meshes asked in the
+  background (a job of `Display` tasks only); each in the order submitted. The web keeps **one
+  worker** (several would each load SolidCore's wasm).
+- **Preview, then final** (`Task::Display { quality }`, `kernel::Quality`): during a load, the
+  editor asks every missing solid's **preview** (meshed at a hundredth of the body,
+  `solidcore_tess::preview`) before any final mesh: the pool takes them in that order. The scene
+  draws a preview (`State::Preview`) until the final mesh replaces it; a preview coming after
+  the final is dropped; a final mesh refused leaves the preview drawn. Outside a load (the meshes
+  an operation's job brings), final meshes only.
+- **Progress** (`kernel::Progress`): a job reports it as it runs (`run_with` and its
+  `Context`); the services keep the latest per job (`KernelService::progress`); the web worker
+  posts `{ id, progress }` while it runs. The STEP read reports `Reading`, then
+  `Bodies { done, total }`. Meshes are counted by the editor as their jobs end.
+- **A load** (`Editor::loading`): a file opened (from `Editor::new`) or a STEP file imported,
+  until its last final mesh: the file read (an import), previews done / asked, finals done /
+  asked. `LoadEnd` (taken once by the app) says how it ended.
+- **The window** (`apps/solidsketch`, `loading_window`): a modal over the active document once
+  its load has lasted 0.3 s (a small file would only flash it): its title (« Ouverture de… »,
+  « Import de… »), a row per stage with its bar, « Annuler » (or Esc). It stays **until the last
+  final mesh**. A document loading behind another tab shows it when brought forward.
+- **Cancel is a real stop** (`KernelService::cancel`): a job not started is dropped and answered
+  `Error::Cancelled` at once; a running one is stopped through its SolidCore `CancelToken`
+  (`Kernel::set_cancel_token` on every kernel the job makes, handed to the threads of
+  `parallel_map`; a STEP read also stops between bodies). On the web the worker cannot be
+  interrupted: the job is answered cancelled, the worker replaced at the next poll and given
+  the jobs left. A cancelled import is undone (it is one history step); a cancelled opening
+  closes its tab. Esc on an operation computing cancels its job too. A document closed stops its
+  jobs (`KernelHandle`'s drop).
+- **Measured** (`bench_step_loading`, `BENCH_STEP`, 8 threads, dev profile, Cruise): read 1.75 s,
+  every preview drawn at 2.9 s, the last final mesh at 14.7 s; cancelled after the previews, an
+  operation done 50 ms later.
 
 ## 8. File
 

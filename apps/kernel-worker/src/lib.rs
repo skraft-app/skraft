@@ -25,10 +25,23 @@ mod web {
         }));
     }
 
-    /// Runs one job: MessagePack `Job` in, MessagePack `JobResult` out.
+    /// Runs job `id`: MessagePack `Job` in, MessagePack `JobResult` out. Its progress goes to
+    /// the UI as it comes, `{ id, progress }` (a MessagePack `Progress`): the worker's messages
+    /// leave while the job runs.
     #[wasm_bindgen]
-    pub fn run(bytes: &[u8]) -> Result<Vec<u8>, JsError> {
+    pub fn run(id: f64, bytes: &[u8]) -> Result<Vec<u8>, JsError> {
         let job: Job = decode(bytes).map_err(|e| JsError::new(&format!("job: {e}")))?;
-        encode(&solidsketch_kernel::run(&job)).map_err(|e| JsError::new(&format!("result: {e}")))
+        // Only the id is held (JS values are not `Sync`): the worker's scope is looked up at
+        // each report.
+        let report = move |p: solidsketch_kernel::Progress| {
+            let Ok(scope) = js_sys::global().dyn_into::<web_sys::DedicatedWorkerGlobalScope>() else { return };
+            let Ok(bytes) = encode(&p) else { return };
+            let o = js_sys::Object::new();
+            let _ = js_sys::Reflect::set(&o, &"id".into(), &id.into());
+            let _ = js_sys::Reflect::set(&o, &"progress".into(), &js_sys::Uint8Array::from(bytes.as_slice()));
+            let _ = scope.post_message(&o);
+        };
+        let cx = solidsketch_kernel::Context { report: &report, cancel: None };
+        encode(&solidsketch_kernel::run_with(&job, &cx)).map_err(|e| JsError::new(&format!("result: {e}")))
     }
 }

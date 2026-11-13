@@ -65,6 +65,7 @@ pub struct StepExcluded {
 #[cfg(feature = "engine")]
 pub(crate) mod read {
     use std::collections::{HashMap, HashSet};
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     use glam::{DAffine3, DMat3, DVec3};
     use solidcore::geom::step_matrix::{self, Matrix4};
@@ -75,14 +76,16 @@ pub(crate) mod read {
     use solidcore_step::{topology, units};
 
     use super::{StepBody, StepExcluded, StepImport, StepInstance, StepProduct};
-    use crate::{Error, Result, Solid};
+    use crate::{Error, Progress, Result, Solid};
 
     fn err(message: impl Into<String>) -> Error {
         Error::Kernel { call: "step".into(), message: message.into() }
     }
 
-    /// Reads a whole STEP file: see the module.
-    pub(crate) fn import(bytes: &[u8]) -> Result<StepImport> {
+    /// Reads a whole STEP file: see the module. Reports [`Progress::Reading`], then the bodies
+    /// read as they are.
+    pub(crate) fn import(bytes: &[u8], report: &(dyn Fn(Progress) + Sync)) -> Result<StepImport> {
+        report(Progress::Reading);
         let text = text_of(bytes);
         let ex = crate::engine::guarded("step", || p21::parse(&text).map_err(|e| err(e.to_string())))?;
         let mut out = StepImport::default();
@@ -100,8 +103,20 @@ pub(crate) mod read {
         let mut wanted: Vec<(u64, Option<u64>)> = structure.nodes.iter().flat_map(|n| n.bodies.iter().map(|b| (b.entity, b.context))).collect();
         wanted.sort_unstable();
         wanted.dedup_by_key(|(id, _)| *id);
-        let built: HashMap<u64, Result<(Solid, Vec<u64>)>> =
-            crate::engine::parallel_map(&wanted, |&(id, context)| (id, read_body(&ex, id, context))).into_iter().collect();
+        let total = wanted.len() as u32;
+        report(Progress::Bodies { done: 0, total });
+        let done = AtomicU32::new(0);
+        let built: HashMap<u64, Result<(Solid, Vec<u64>)>> = crate::engine::parallel_map(&wanted, |&(id, context)| {
+            let body = read_body(&ex, id, context);
+            report(Progress::Bodies { done: done.fetch_add(1, Ordering::Relaxed) + 1, total });
+            (id, body)
+        })
+        .into_iter()
+        .collect();
+        // Cancelled: the bodies left were refused at once; the job fails.
+        if solidcore_ops::cancel::is_cancelled() {
+            return Err(Error::Cancelled);
+        }
 
         for node in &structure.nodes {
             let mut product = StepProduct { name: node.name.clone(), ..Default::default() };
@@ -124,6 +139,9 @@ pub(crate) mod read {
     /// and the file's face of each of its faces (for the colours).
     fn read_body(ex: &Exchange, item: u64, context: Option<u64>) -> Result<(Solid, Vec<u64>)> {
         crate::engine::guarded("step body", || {
+            if solidcore_ops::cancel::is_cancelled() {
+                return Err(Error::Cancelled);
+            }
             let context = context.map(|c| units::context(ex, c)).unwrap_or_default();
             let read = topology::read_solid_with(ex, item, context, &KernelTrims).map_err(err)?;
             if read.sheet {
@@ -139,6 +157,10 @@ pub(crate) mod read {
     /// trims (SMLib's): the face alone, a sheet whose uses without a pcurve go to the kernel bare
     /// (`to_kernel_with_bare_uses`), comes back with the kernel's.
     struct KernelTrims;
+
+    /// How far, as a fraction of its interval, the kernel may move an edge's ends (setting them
+    /// on its vertices again) for its pcurve to be put back on the file's interval.
+    const MOVED_INTERVAL: f64 = 1e-3;
 
     impl Trims for KernelTrims {
         fn trims(&self, face: &TrimFace<'_>) -> std::result::Result<Vec<Vec<Curve2>>, String> {
@@ -226,8 +248,21 @@ pub(crate) mod read {
                     let id = sent.edges.get(new).ok_or("edge order")?;
                     let j = came.edges.iter().position(|e| e == id).ok_or("the kernel dropped an edge")?;
                     let (want, got) = (face.edges[u.edge as usize].interval, back.edges[j].interval);
-                    if (want[0] - got[0]).abs().max((want[1] - got[1]).abs()) > 1e-9 * (want[1] - want[0]).abs().max(1.0) {
-                        return Err("the kernel moved an edge's interval".into());
+                    let moved = (want[0] - got[0]).abs().max((want[1] - got[1]).abs());
+                    let span = (want[1] - want[0]).abs();
+                    // The kernel may set an edge's ends on its vertices again, a hair inside: its
+                    // pcurve, on that interval, is put back on ours by a linear change of parameter
+                    // (its ends stay at the vertices; the reader checks it lifts onto the edge).
+                    if moved > MOVED_INTERVAL * span.max(1e-12) {
+                        let e = &face.edges[u.edge as usize];
+                        let kind = |c: &solidcore_record::brep::Curve| format!("{c:?}").chars().take_while(|c| c.is_alphanumeric()).collect::<String>();
+                        return Err(format!(
+                            "the kernel moved an edge's interval: {want:?} → {got:?} ({}{}; back: {}{})",
+                            kind(e.curve),
+                            e.nurbs.map_or(String::new(), |n| format!(" as {}", kind(n))),
+                            kind(&back.edges[j].curve),
+                            back.edges[j].nurbs.as_ref().map_or(String::new(), |n| format!(" as {}", kind(n)))
+                        ));
                     }
                     let pc = back_face
                         .loops
@@ -237,7 +272,16 @@ pub(crate) mod read {
                             rb::Loop::Vertex { .. } => None,
                         })
                         .ok_or("the kernel dropped an edge use")?;
-                    pcs.push(pc.pcurve.clone());
+                    let mut pcurve = pc.pcurve.clone();
+                    if moved > 0.0 && got[1] > got[0] {
+                        let knots = match &mut pcurve {
+                            Curve2::Spline { knots, .. } | Curve2::RationalSpline { knots, .. } => knots,
+                        };
+                        for k in knots.iter_mut() {
+                            *k = want[0] + (*k - got[0]) * (want[1] - want[0]) / (got[1] - got[0]);
+                        }
+                    }
+                    pcs.push(pcurve);
                 }
                 out.push(pcs);
             }

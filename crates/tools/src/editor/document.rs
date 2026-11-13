@@ -3,7 +3,7 @@
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::kernel::{Job, JobId, Output, Task};
+use solidsketch_model::kernel::{Error as KernelError, Job, JobId, Output, Quality, Task};
 use solidsketch_model::{Applied, Document, EntityPath, History, Operation, Outcome, Prepared, Primitive};
 
 use super::Editor;
@@ -121,9 +121,19 @@ impl Editor {
     /// Takes in what the kernel finished: the pending operation, meshes. Call every frame;
     /// returns whether anything came.
     pub fn poll(&mut self) -> bool {
+        // How far the file being read is (the load's window shows it).
+        let mut moved = false;
+        for (id, p) in self.kernel.progress() {
+            if let Some(load) = &mut self.load
+                && load.reading == Some(id)
+            {
+                load.view.reading = Some(p);
+                moved = true;
+            }
+        }
         let results = self.kernel.poll();
         if results.is_empty() {
-            return false;
+            return moved;
         }
         let mut meshed = false;
         for (id, result) in results {
@@ -140,7 +150,18 @@ impl Editor {
                 if self.probes.is_empty() {
                     self.probe_report.clear();
                 }
-            } else if let Some(solid) = self.meshing.remove(&id) {
+            } else if let Some((solid, quality)) = self.meshing.remove(&id) {
+                if let Some(load) = &mut self.load
+                    && load.meshes.remove(&id)
+                {
+                    match quality {
+                        Quality::Preview => load.view.previews.0 += 1,
+                        Quality::Final => load.view.finals.0 += 1,
+                    }
+                }
+                if matches!(result, Err(KernelError::Cancelled)) {
+                    continue;
+                }
                 let display = match result {
                     Ok(mut outputs) => match outputs.pop() {
                         Some(Output::Display(d)) => d,
@@ -148,10 +169,12 @@ impl Editor {
                     },
                     Err(e) => Err(e.to_string()),
                 };
-                if let Err(e) = &display {
+                if quality == Quality::Final
+                    && let Err(e) = &display
+                {
                     self.message = Some(t!("status.display_failed", error = e));
                 }
-                self.scene.insert(&solid, display);
+                self.scene.insert_at(&solid, display, quality);
                 meshed = true;
             } else if self.pending.as_ref().is_some_and(|p| p.job == id) {
                 let Some(p) = self.pending.take() else { continue };
@@ -172,6 +195,7 @@ impl Editor {
             self.scene.refresh_meshes();
             self.request_meshes();
         }
+        self.settle_load();
         true
     }
 
@@ -190,6 +214,8 @@ impl Editor {
     /// Esc while the kernel works: its result will be dropped, the queue too.
     pub(super) fn abandon(&mut self) {
         let Some(p) = self.pending.take() else { return };
+        // Stopped: no need to compute what nobody waits for.
+        self.kernel.cancel(p.job);
         self.held_stretch = None;
         self.update_preview_mesh();
         self.queue.clear();
@@ -224,6 +250,14 @@ impl Editor {
     pub fn import_step(&mut self, name: String, bytes: Vec<u8>) {
         let id = self.job_id();
         self.message = Some(solidsketch_i18n::ellipsis(t!("status.importing", file = name)));
+        // A load of its own (none under way: the app's window keeps another from starting).
+        if self.load.is_none() {
+            self.begin_load(super::LoadKind::Import { name: name.clone() });
+        }
+        if let Some(load) = &mut self.load {
+            load.reading = Some(id);
+            load.view.reading = Some(solidsketch_model::kernel::Progress::Reading);
+        }
         self.importing.insert(id, name);
         self.kernel.submit(id, Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] });
         // A kernel run inline has answered already.
@@ -237,6 +271,10 @@ impl Editor {
 
     /// The kernel read the file `name`: its content inserted, or why not.
     fn imported(&mut self, name: &str, result: solidsketch_model::kernel::JobResult) {
+        if let Some(load) = &mut self.load {
+            load.reading = None;
+            load.view.reading = None;
+        }
         let step = match result {
             Ok(mut outputs) => match outputs.pop() {
                 Some(Output::Step(s)) => s,
@@ -258,7 +296,14 @@ impl Editor {
         let context = self.document().context_of(&self.context).unwrap_or(self.document().root());
         let op = Operation::Insert { context, fragment: std::sync::Arc::new(fragment), transform: DAffine3::IDENTITY };
         self.queue.push_back((op, After::Select));
+        let before = self.history.revision();
         self.pump();
+        // Done at once (no kernel call): a cancelled load undoes it.
+        if let Some(load) = &mut self.load
+            && self.history.revision() != before
+        {
+            load.inserted = true;
+        }
         if !self.busy() {
             self.zoom_extents();
         }
@@ -269,16 +314,28 @@ impl Editor {
         self.message = Some(message);
     }
 
-    /// Asks the kernel for the meshes the scene lacks, one job per solid.
+    /// Asks the kernel for the meshes the scene lacks, one job per solid. During a load, a
+    /// preview of each first (all the previews asked before the final meshes: the kernel takes
+    /// them in that order), counted in the load.
     pub(super) fn request_meshes(&mut self) {
         let missing = self.scene.take_missing();
         if missing.is_empty() {
             return;
         }
-        for solid in missing {
-            let id = self.job_id();
-            self.meshing.insert(id, solid.clone());
-            self.kernel.submit(id, Job { inputs: vec![solid], tasks: vec![Task::Display { solid: 0 }] });
+        let qualities: &[Quality] = if self.load.is_some() { &[Quality::Preview, Quality::Final] } else { &[Quality::Final] };
+        for &quality in qualities {
+            for solid in &missing {
+                let id = self.job_id();
+                self.meshing.insert(id, (solid.clone(), quality));
+                if let Some(load) = &mut self.load {
+                    load.meshes.insert(id);
+                    match quality {
+                        Quality::Preview => load.view.previews.1 += 1,
+                        Quality::Final => load.view.finals.1 += 1,
+                    }
+                }
+                self.kernel.submit(id, Job { inputs: vec![solid.clone()], tasks: vec![Task::Display { solid: 0, quality }] });
+            }
         }
         // A kernel run inline has answered already.
         self.poll();

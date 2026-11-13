@@ -30,14 +30,14 @@ mod step;
 mod stretch;
 
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]
-pub use engine::Threaded;
+pub use engine::Pool;
 #[cfg(feature = "engine")]
-pub use engine::{Inline, parallel_map, run};
+pub use engine::{Context, Inline, parallel_map, run, run_with};
 
 /// The stack every thread running SolidCore gets: it recurses legitimately, and a stack
 /// overflow aborts (it is no panic).
 pub const KERNEL_STACK: usize = 256 << 20;
-pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Task, Waker, decode, encode};
+pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Progress, Quality, Task, Waker, decode, encode};
 pub use polyhedron::{PolyFace, Polyhedron};
 pub use shared::{KernelHandle, SharedKernel};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
@@ -61,6 +61,8 @@ pub enum Error {
     Crashed(String),
     /// A stretch that cannot be applied to this solid.
     Stretch(StretchError),
+    /// The job was cancelled ([`KernelService::cancel`]).
+    Cancelled,
 }
 
 impl std::fmt::Display for Error {
@@ -73,6 +75,7 @@ impl std::fmt::Display for Error {
             Error::Panic { call, message } => t!("error.kernel.panic", call = call, message = message),
             Error::Crashed(why) => t!("error.kernel.crashed", why = why),
             Error::Stretch(e) => return std::fmt::Display::fmt(e, f),
+            Error::Cancelled => t!("error.kernel.cancelled"),
         };
         f.write_str(&text)
     }

@@ -22,7 +22,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
-use solidsketch_kernel::{Display, Mesh, Snaps, Solid};
+use solidsketch_kernel::{Display, Mesh, Quality, Snaps, Solid};
 use solidsketch_model::{Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section};
 
 use crate::bvh::{Aabb, Bvh, ray_box_entry};
@@ -88,12 +88,14 @@ pub struct Hit {
 }
 
 /// A solid's display, as far as it is known.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum State {
     /// Not meshed yet: drawn as its bounding box; `asked` once handed to the editor.
     Pending {
         asked: bool,
     },
+    /// Drawn by its coarse preview mesh, the final one on its way.
+    Preview,
     Ready,
     /// The mesher refused it: its bounding box stays.
     Failed,
@@ -607,7 +609,7 @@ impl DisplayScene {
     /// display (the scene's solids, the open part's recipe, machined parts' blanks).
     pub fn bounds_of(&self, solid: &Arc<Solid>) -> Option<(DVec3, DVec3)> {
         let c = self.solids.get(&(Arc::as_ptr(solid) as usize))?;
-        (c.state == State::Ready).then_some(c.part.bounds).flatten()
+        matches!(c.state, State::Ready | State::Preview).then_some(c.part.bounds).flatten()
     }
 
     /// The geometry inferences see, once per occurrence: every shape, but the open part's
@@ -666,9 +668,31 @@ impl DisplayScene {
     /// The kernel's display of `solid` (from an operation, or asked for): in the cache, for
     /// the next [`DisplayScene::sync`]. A refused one keeps the stand-in.
     pub fn insert(&mut self, solid: &Arc<Solid>, display: Result<Display, String>) {
+        self.insert_at(solid, display, Quality::Final);
+    }
+
+    /// [`DisplayScene::insert`] of a mesh at `quality`: a preview drawn until the final one
+    /// comes (one coming after the final is dropped); a refused preview changes nothing.
+    pub fn insert_at(&mut self, solid: &Arc<Solid>, display: Result<Display, String>, quality: Quality) {
         let key = Arc::as_ptr(solid) as usize;
+        let now = self.solids.get(&key).map(|c| c.state);
+        if quality == Quality::Preview && (display.is_err() || matches!(now, Some(State::Ready | State::Failed))) {
+            return;
+        }
+        // The final mesh refused: the preview stays drawn.
+        if display.is_err()
+            && now == Some(State::Preview)
+            && let Some(c) = self.solids.get_mut(&key)
+        {
+            c.state = State::Failed;
+            self.arrived.push(key);
+            return;
+        }
         let cached = match display {
-            Ok(d) => Cached::new(solid.clone(), d.mesh, d.snaps, d.bounds, State::Ready),
+            Ok(d) => {
+                let state = if quality == Quality::Preview { State::Preview } else { State::Ready };
+                Cached::new(solid.clone(), d.mesh, d.snaps, d.bounds, state)
+            }
             Err(_) => Cached { state: State::Failed, ..Cached::pending(solid.clone()) },
         };
         self.solids.insert(key, cached);
@@ -938,7 +962,7 @@ impl<'d> ContextIndex<'d> {
 /// mesh) and its faces' materials.
 fn revision(at: usize, state: State, faces: &BTreeMap<u32, Id>) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (at, state == State::Ready, faces).hash(&mut h);
+    (at, matches!(state, State::Pending { .. } | State::Failed), state == State::Ready, faces).hash(&mut h);
     h.finish()
 }
 

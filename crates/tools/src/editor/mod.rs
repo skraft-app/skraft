@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::kernel::{JobId, KernelService, Solid};
+use solidsketch_model::kernel::{JobId, KernelService, Quality, Solid};
 use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope};
 
 use crate::camera::{Camera, ViewArea};
@@ -25,11 +25,13 @@ use crate::tools::{self, Command, Cx, Key, OptionValue, OptionValues, Preview, T
 use crate::vcb;
 
 mod document;
+mod loading;
 mod navigation;
 mod selection;
 mod view;
 
 use document::{After, Pending, Probe};
+pub use loading::{LoadEnd, LoadKind, Loading};
 pub use view::{Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
 
 pub struct Editor {
@@ -40,8 +42,12 @@ pub struct Editor {
     /// Operations of one action (explode several assemblies), applied one after the other.
     queue: VecDeque<(Operation, After)>,
     collected: Vec<Id>,
-    /// Meshes asked for, by job.
-    meshing: HashMap<JobId, Arc<Solid>>,
+    /// Meshes asked for, by job: the solid, and how fine.
+    meshing: HashMap<JobId, (Arc<Solid>, Quality)>,
+    /// The load under way (§7 sexies): a file opened or imported, until its last mesh.
+    load: Option<loading::Load>,
+    /// How the last load ended, until the app takes it.
+    load_end: Option<LoadEnd>,
     /// Files being read by the kernel (STEP), by job: their names (ARCHITECTURE.md §8 ter).
     importing: HashMap<JobId, String>,
     /// The jobs of [`Editor::crash_kernel`] still out, and what came back of them.
@@ -132,6 +138,8 @@ impl Editor {
             queue: VecDeque::new(),
             collected: Vec::new(),
             meshing: HashMap::new(),
+            load: Some(loading::Load::new(LoadKind::Open)),
+            load_end: None,
             importing: HashMap::new(),
             probes: HashMap::new(),
             probe_report: Vec::new(),
@@ -171,7 +179,10 @@ impl Editor {
             tool_settings: BTreeMap::new(),
             paint: None,
         };
+        // Opened: its meshes asked as a load (none for an empty document: ended at once).
         e.after_change();
+        e.settle_load();
+        e.load_end = None;
         e.zoom_extents();
         e
     }
