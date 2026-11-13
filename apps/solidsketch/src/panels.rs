@@ -34,6 +34,8 @@ pub enum Action {
     SetHidden(EntityPath, bool),
     /// The ribbon's own state: tab, workspace, pins, labels (docs/ARCHITECTURE.md §6 septies).
     Ribbon(crate::ribbon::Change),
+    /// On the file tabs (docs/ARCHITECTURE.md §6 octies).
+    Tab(crate::tabs::TabAction),
 }
 
 /// A command as shown now: its label, whether it can run, its state, its shortcut.

@@ -1138,8 +1138,81 @@ another product.
   the old tool bar (`panels::toolbar`) is gone.
 - **Texts**: `ribbon.*` keys of the catalog (workspaces, tabs, groups, menus' notes), without
   ellipsis (§6 quater).
-- **File tabs** in the title bar (several documents open, as SolidCraft) are a **separate
-  piece of work, next**: the app holds one `Editor` today. The title bar keeps room for them.
+- **File tabs** in the title bar (several documents open, as SolidCraft): §6 octies.
+
+## 6 octies. Several documents: file tabs
+
+Decided on 2026-11-13 (questions / answers), after SolidCraft's document tabs
+(`crates/ui-kit/src/app_bar.rs`: `TabStrip`, `DocTab`, `tab_layout`; `crates/ui-egui/src/documents.rs`).
+The pattern is a web browser's; the drawing is ours.
+
+- **Documents**: the app holds `docs: Vec<Doc>` and `active: Option<usize>` (`None`: the start
+  page). A `Doc` is everything that belongs to one document: its `Editor` (history, scene,
+  camera, selection, tool and its steps, open part, section), its `path`, `saved_at`, the
+  measurements box's text, the Entity info field being edited, and a `DocId` (a counter, never
+  reused while the app runs). Every document is handled alike, shown or not: no swapping in
+  and out of the app as SolidCraft does (there the active design's state is spread over the
+  app, so each new per-design field must be added to the swap by hand; here the type holds
+  it). At most **32** documents.
+- **Global, not per document** (preferences, as today): the dock's layout, the workspace and
+  ribbon tab, the tools' settings, theme, navigation. The model's settings stay in the
+  document.
+- **Code**: `apps/solidsketch/src/docs.rs` (`Doc`, `Docs`: open, close, move, cycle — tested
+  without display), `tabs.rs` (the strip, `layout` and `drop_place` tested), the closing and
+  quitting in `app.rs` (`Closing`, `advance_closing`, `save_prompt`); `kernel::SharedKernel` /
+  `KernelHandle` (`crates/kernel/src/shared.rs`); `Renderer::set_document` / `drop_document`.
+- **Kernel: one service, shared** (§7 ter): one thread on the desktop, one Web Worker in the
+  browser (one SolidCore wasm loaded, not one per tab). A multiplexer hands each `Editor` a
+  `KernelHandle` implementing `KernelService`: it tags its jobs with its document and polls
+  only its own results. `Editor` is unchanged. One queue for all: a document in the
+  background keeps computing. A worker crash fails the work in flight of every document that
+  had some, as today.
+- **Rendering: one `Renderer`, caches per document.** Definition ids restart at 2 in every
+  document, so meshes are keyed by document and id, and the material palette slots
+  (`Viewport::slots`) are per document; closing a document frees them. Switching tabs uploads
+  nothing.
+- **Tabs in the title bar** (§7 quinquies), **in place of the document's name**: between
+  Undo / Redo and the view's toggles, `+` at the end. A tab shows the file's name (« Sans
+  titre » unsaved), a bullet when modified, its path as a tooltip; × on the active and the
+  hovered tab. Tabs shrink to 90 pt, then a window of tabs around the active one is shown and
+  the others are in a **»** list — a pure function of the width (`tab_layout`), tested. On the
+  macOS desktop the empty space around them still moves the window; dragging the only tab, or
+  a tab mostly up or down, moves it too (told once, as the drag starts). AppKit's own drag in
+  its hidden title bar is turned off (`NSWindow.movable = NO`, `app_drags_window` in `lib.rs`):
+  it moved the window from any drag in the top 30 pt or so, a tab's included, before the app
+  could tell; `StartDrag` (`performWindowDragWithEvent:`) still works on such a window. Web, Windows, Linux: the same tabs, no window moves.
+  The window title is the active document's name.
+- **Interactions**: click selects, × or a middle click closes, `+` opens a new document, drag
+  reorders (the tab follows the pointer, lifted — shadow, panel fill, accent outline, unlike the
+  shown tab's soft accent — while the others slide aside to open its place: `tabs::places`), right click: Close, Close others, Close all, Show in Finder / Explorer (desktop).
+  Shortcuts: ⌘W / Ctrl+W close tab (`file.close`), ⌘Q (`app.quit`, the app menu's Quit on
+  macOS: AppKit's own would end the app without asking), and, fixed whatever the shortcuts,
+  Ctrl+Tab / Ctrl+Shift+Tab next / previous tab (`view.next_tab`, `view.previous_tab`, in
+  the View menu) and ⌘T / Ctrl+T beside ⌘N (New, in a new tab). No renaming in place: a tab is
+  named after its file.
+- **Opening**: a file opens in a new tab, except when the active one is blank (never modified,
+  no path): it is replaced. A file already open selects its tab. New (`+`, ⌘N, ⌘T) always
+  adds a tab. A STEP import goes into the shown document, as before (§8 ter); from the start
+  page, into a new one. Recent files stay a global preference (desktop).
+- **Reopening** (desktop): the saved documents open when the app quits are opened again at
+  launch, the last active one selected — preference *Reopen documents at launch*, on by
+  default (`open_files` in the preferences, kept up to date as tabs open and close). Unsaved
+  documents are not kept.
+- **Closing a modified document**: « Enregistrer les modifications de « X » ? » — Save / Don't
+  save / Cancel. Save goes through the save dialog when it has no path, and the tab closes only
+  when that document's save is done: file dialogs' outcomes (`file::Outcome`) carry the
+  `DocId` they belong to (the user may switch tabs while a dialog is open). Close others / all
+  and **quitting** (⌘Q, the window's close button: `close_requested` + `CancelClose`) ask for
+  each modified document in turn, its tab selected; Cancel stops the whole batch. Web: the
+  page asks before it is left (`beforeunload`) while a document is modified.
+- **Start page** (`active == None`): when the last tab closes, and at launch when there is
+  nothing to reopen. Buttons New, Open, Import STEP, and the recent files (desktop). No tab is
+  selected; the ribbon, the dock, the option bar and the status bar's measurements are hidden;
+  the commands that need a document are disabled (menus, palette, shortcuts).
+- **Control channel** (§7 quater): the commands act on the active document; `docs.list` (name,
+  path, modified, active), `docs.switch`, `docs.new`, `docs.close` (`force` skips the
+  question) are added.
+- **Texts**: `tabs.*` and `start.*` keys of the catalog, without ellipsis (§6 quater).
 
 ## 7. Crates
 

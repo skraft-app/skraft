@@ -92,6 +92,10 @@ menu:
     # One of the last files opened or saved (%{n}: 1 to 4), as the command palette and the
     # shortcut preferences name it; the menu shows the file's name.
     recent: "Fichier récent %{n}"
+    # Closes the shown document's tab.
+    close: "Fermer l'onglet"
+    # Off macOS (there it is the app menu's « Quitter SolidSketch »).
+    quit: "Quitter"
   edit:
     title: "Édition"
     undo: "$t(common.undo)"
@@ -130,6 +134,9 @@ menu:
     left: "Gauche"
     iso: "Iso"
     zoom_extents: "Zoom étendu"
+    # The file tabs, round the ends.
+    next_tab: "Onglet suivant"
+    previous_tab: "Onglet précédent"
   tools:
     title: "Outils"
   solids:
@@ -180,6 +187,40 @@ titlebar:
   menu: "Menus"
   views: "Vues standard"
   search: "Rechercher une commande"
+
+# The file tabs in the title bar, one per open document.
+tabs:
+  close_tip: "Fermer l'onglet"
+  new_tip: "Nouveau document"
+  more_tip: "Tous les onglets"
+  # The hover text of a document never saved, where a saved one shows its path.
+  unsaved: "Jamais enregistré"
+  # A tab's menu (right click).
+  close: "Fermer"
+  close_others: "Fermer les autres onglets"
+  close_all: "Fermer tous les onglets"
+  reveal_finder: "Afficher dans le Finder"
+  reveal: "Afficher dans le dossier"
+
+# Asked before a modified document's tab closes, or before quitting with one (%{name}).
+save_prompt:
+  title: "Enregistrer les modifications ?"
+  question: "Enregistrer les modifications apportées à « %{name} » ?"
+  note: "Sinon, elles seront perdues."
+  save: "Enregistrer"
+  dont_save: "Ne pas enregistrer"
+  cancel: "Annuler"
+
+# Shown with no document open: at launch with nothing to open again, and when the last tab
+# closes.
+start:
+  title: "SolidSketch"
+  new: "Nouveau document"
+  open: "Ouvrir un fichier"
+  import: "Importer un fichier STEP"
+  recent: "Fichiers récents"
+  # Desktop: the browser keeps no paths.
+  no_recent: "Aucun fichier récent"
 
 # The command palette (Cmd/Ctrl+K).
 palette:
@@ -233,8 +274,12 @@ prefs:
     shortcuts: "Raccourcis"
   general:
     language: "Langue"
+    # Desktop: the saved documents open when the app quits are opened again at launch.
+    reopen: "Rouvrir les documents au lancement"
   model:
     intro: "Réglages de ce modèle, enregistrés avec lui."
+    # The Model tab with no document open (the start page).
+    no_document: "Aucun document ouvert."
     display: "Affichage"
     grid: "$t(common.grid)"
     axes: "$t(common.axes)"
@@ -343,6 +388,8 @@ status:
   saved: "Enregistré"
   save_failed: "Enregistrement impossible : %{error}"
   open_failed: "%{file} : %{error}"
+  # MAX_OPEN documents are open (%{max}).
+  too_many_documents: "Pas plus de %{max} documents ouverts : fermez-en un d'abord"
   # Importing a file (STEP): read by the kernel, then inserted in the model.
   importing: "Lecture de %{file}"
   imported: "%{file} importé : %{count} pièce"

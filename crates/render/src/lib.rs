@@ -493,7 +493,12 @@ pub struct Renderer {
     layout: wgpu::BindGroupLayout,
     bind_group: Option<wgpu::BindGroup>,
     palette: Dynamic,
+    /// The shown document's meshes, by key.
     meshes: std::collections::HashMap<u64, GpuMesh>,
+    /// The documents not shown: their meshes wait here, so switching back uploads nothing
+    /// (keys are a document's own: they may be the same in two documents).
+    document: u64,
+    parked: std::collections::HashMap<u64, std::collections::HashMap<u64, GpuMesh>>,
     instances: Dynamic,
     line_vertices: Dynamic,
     box_instances: Dynamic,
@@ -775,6 +780,8 @@ impl Renderer {
             bind_group: None,
             palette: Dynamic::new("palette", wgpu::BufferUsages::STORAGE),
             meshes: Default::default(),
+            document: 0,
+            parked: Default::default(),
             instances: Dynamic::new("instances", wgpu::BufferUsages::VERTEX),
             line_vertices: Dynamic::new("lines", wgpu::BufferUsages::VERTEX),
             box_instances: Dynamic::new("boxes", wgpu::BufferUsages::VERTEX),
@@ -784,6 +791,32 @@ impl Renderer {
             target_generation: 0,
             drawn: None,
             stats: Stats::default(),
+        }
+    }
+
+    /// Shows document `doc`: the meshes are then its own (none for a new one), the others'
+    /// kept aside until it is shown again or dropped ([`Self::drop_document`]).
+    pub fn set_document(&mut self, doc: u64) {
+        if doc == self.document {
+            return;
+        }
+        let shown = std::mem::replace(&mut self.meshes, self.parked.remove(&doc).unwrap_or_default());
+        if !shown.is_empty() {
+            self.parked.insert(self.document, shown);
+        }
+        self.document = doc;
+        self.generation += 1;
+    }
+
+    /// Frees document `doc`'s meshes (it was closed).
+    pub fn drop_document(&mut self, doc: u64) {
+        if doc == self.document {
+            if !self.meshes.is_empty() {
+                self.meshes.clear();
+                self.generation += 1;
+            }
+        } else {
+            self.parked.remove(&doc);
         }
     }
 
@@ -1193,11 +1226,11 @@ impl Renderer {
         self.stats
     }
 
-    /// The meshes uploaded, and the bytes they take on the GPU.
+    /// The meshes uploaded, every document's, and the bytes they take on the GPU.
     pub fn mesh_memory(&self) -> (usize, u64) {
-        let bytes =
-            self.meshes.values().flat_map(|m| [&m.vertices, &m.indices, &m.edges, &m.silhouettes]).flatten().map(|b| b.size()).sum();
-        (self.meshes.len(), bytes)
+        let all = || std::iter::once(&self.meshes).chain(self.parked.values()).flat_map(|m| m.values());
+        let bytes = all().flat_map(|m| [&m.vertices, &m.indices, &m.edges, &m.silhouettes]).flatten().map(|b| b.size()).sum();
+        (all().count(), bytes)
     }
 
     fn ensure_target(&mut self, device: &wgpu::Device, size: [u32; 2]) {

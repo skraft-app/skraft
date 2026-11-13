@@ -12,6 +12,11 @@
 //! - `POST /run` with a command id as body → runs it
 //! - `GET /state` → tool, selection, status, history revision, modified
 //! - `GET /screenshot` → the viewport, as a PNG
+//! - `GET /docs` → the open documents (name, path, modified), and the shown one
+//! - `POST /docs/switch` with a tab's index as body → shows it
+//! - `POST /docs/new` → a new document, shown
+//! - `POST /docs/close` with a tab's index as body, `force` after it to skip the save
+//!   question → closes it (else asks, as the tab's ×)
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -28,6 +33,10 @@ pub enum Request {
     Run(String),
     State,
     Screenshot,
+    Docs,
+    DocsSwitch(usize),
+    DocsNew,
+    DocsClose { index: usize, force: bool },
 }
 
 /// The UI's answer: a status, a content type and a body.
@@ -168,8 +177,20 @@ fn parse(method: &str, path: &str, body: &str) -> Result<Parsed, (u16, String)> 
         ("POST", "/run") => Parsed::Request(Request::Run(body.trim().to_owned())),
         ("GET", "/state") => Parsed::Request(Request::State),
         ("GET", "/screenshot") => Parsed::Request(Request::Screenshot),
+        ("GET", "/docs") => Parsed::Request(Request::Docs),
+        ("POST", "/docs/new") => Parsed::Request(Request::DocsNew),
+        ("POST", "/docs/switch") => Parsed::Request(Request::DocsSwitch(index(body)?)),
+        ("POST", "/docs/close") => {
+            let force = body.split_whitespace().nth(1) == Some("force");
+            Parsed::Request(Request::DocsClose { index: index(body)?, force })
+        }
         _ => return Err((404, format!("no {method} {path}"))),
     })
+}
+
+/// The tab index a body starts with.
+fn index(body: &str) -> Result<usize, (u16, String)> {
+    body.split_whitespace().next().and_then(|t| t.parse().ok()).ok_or((400, format!("not a tab index: {body:?}")))
 }
 
 /// RGBA rows to a PNG.

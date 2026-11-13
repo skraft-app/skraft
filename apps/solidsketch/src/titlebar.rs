@@ -1,5 +1,5 @@
 //! The title bar (docs/ARCHITECTURE.md §7 quinquies): one band at the top of the window with
-//! the document, undo and redo, the view's toggles, the command search and the preferences,
+//! undo and redo, the file tabs (§6 octies, [`crate::tabs`]), the view's toggles, the command search and the preferences,
 //! every button a command of the registry.
 //!
 //! On the macOS desktop it is the window's title bar: the OS bar is hidden, the content runs
@@ -13,6 +13,7 @@ use solidsketch_i18n::{ellipsis, t};
 use crate::commands::Menu;
 use crate::icons;
 use crate::panels::{self, Action, CommandView};
+use crate::tabs::{self, Tab};
 
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;
@@ -25,11 +26,11 @@ const SEARCH_MIN: f32 = 120.0;
 
 /// What the bar shows besides the commands.
 pub struct Bar<'a> {
-    /// The document's name (its file's, or « Sans titre »).
-    pub name: &'a str,
-    /// Its path, as a tooltip.
-    pub path: Option<&'a str>,
-    pub modified: bool,
+    /// The file tabs, and the one shown (none: the start page).
+    pub tabs: &'a [Tab],
+    pub shown: Option<usize>,
+    /// A tab's menu offers to show its file (desktop).
+    pub reveal: bool,
     /// The bar is the window's title bar (macOS desktop): room for the traffic lights, and
     /// its empty space moves the window.
     pub integrated: bool,
@@ -62,6 +63,11 @@ fn move_window(ui: &egui::Ui) {
     }
 }
 
+/// The view's toggles, after the standard views' menu.
+const TOGGLES: [&str; 7] = ["view.parallel", "view.grid", "view.axes", "view.guides", "view.silhouettes", "view.section", "view.materials"];
+/// Room kept for the tabs before the search field narrows.
+const TABS_MIN: f32 = 160.0;
+
 fn contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) {
     let find = |id: &str| views.iter().find(|v| v.id == id);
     // In full screen the traffic lights are gone.
@@ -72,37 +78,53 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
         menus(ui, bar, views, actions);
         ui.add_space(4.0);
     }
-    document(ui, bar);
-    ui.separator();
     for id in ["edit.undo", "edit.redo"] {
         if let Some(v) = find(id) {
             command_button(ui, id_icon(id), v, v.checked == Some(true), &v.tip(), actions);
         }
     }
     ui.separator();
-    views_menu(ui, views, actions);
-    for id in ["view.parallel", "view.grid", "view.axes", "view.guides", "view.silhouettes", "view.section", "view.materials"] {
-        let Some(v) = find(id) else { continue };
-        // The perspective button is lit in perspective (the command toggles parallel).
-        let (lit, tip) =
-            if id == "view.parallel" { (v.checked == Some(false), t!("toolbar.perspective")) } else { (v.checked == Some(true), v.tip()) };
-        command_button(ui, id_icon(id), v, lit, &tip, actions);
-    }
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if let Some(v) = find("app.preferences") {
-            command_button(ui, icons::SETTINGS, v, false, &v.tip(), actions);
-        }
-        if let Some(v) = find("app.command_palette") {
-            let room = ui.available_width() - 8.0;
-            if room >= SEARCH_MIN {
-                if search(ui, v, room.min(SEARCH_WIDTH)) {
-                    actions.push(Action::Command(v.id));
-                }
-            } else if room >= 30.0 {
-                command_button(ui, icons::SEARCH, v, false, &v.tip(), actions);
+    // The right end first (right to left): the preferences, the search, the view's toggles;
+    // the tabs take what is left between.
+    let row = ui.available_rect_before_wrap();
+    let right = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+            if let Some(v) = find("app.preferences") {
+                command_button(ui, icons::SETTINGS, v, false, &v.tip(), actions);
             }
-        }
-    });
+            // The toggles' width, as egui spaces the buttons.
+            let toggles = (TOGGLES.len() + 1) as f32 * (26.0 + ui.spacing().item_spacing.x) + 12.0;
+            if let Some(v) = find("app.command_palette") {
+                let room = ui.available_width() - toggles - TABS_MIN;
+                if room >= SEARCH_MIN {
+                    if search(ui, v, room.min(SEARCH_WIDTH)) {
+                        actions.push(Action::Command(v.id));
+                    }
+                } else {
+                    command_button(ui, icons::SEARCH, v, false, &v.tip(), actions);
+                }
+            }
+            ui.separator();
+            for id in TOGGLES.iter().rev() {
+                let Some(v) = find(id) else { continue };
+                // The perspective button is lit in perspective (the command toggles parallel).
+                let (lit, tip) = if *id == "view.parallel" {
+                    (v.checked == Some(false), t!("toolbar.perspective"))
+                } else {
+                    (v.checked == Some(true), v.tip())
+                };
+                command_button(ui, id_icon(id), v, lit, &tip, actions);
+            }
+            views_menu(ui, views, actions);
+            ui.separator();
+            ui.min_rect()
+        })
+        .inner;
+    let room = egui::Rect::from_x_y_ranges(row.left()..=(right.left() - 4.0).max(row.left()), row.y_range());
+    let window_moves = bar.integrated;
+    for a in tabs::show(ui, room, bar.tabs, bar.shown, window_moves, bar.reveal) {
+        actions.push(Action::Tab(a));
+    }
 }
 
 /// The icon of a bar button.
@@ -130,20 +152,6 @@ fn bar_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, lit: bool, en
 fn command_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, v: &CommandView, lit: bool, tip: &str, actions: &mut Vec<Action>) {
     if bar_button(ui, icon, lit, v.enabled, tip).clicked() {
         actions.push(Action::Command(v.id));
-    }
-}
-
-/// The document's name, and a dot when it is modified.
-fn document(ui: &mut egui::Ui, bar: &Bar) {
-    ui.scope(|ui| {
-        ui.set_max_width(220.0);
-        let r = ui.add(egui::Label::new(egui::RichText::new(bar.name).strong()).truncate().sense(egui::Sense::hover()));
-        if let Some(p) = bar.path {
-            r.on_hover_text(p);
-        }
-    });
-    if bar.modified {
-        ui.weak("•").on_hover_text(t!("titlebar.modified"));
     }
 }
 

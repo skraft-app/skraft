@@ -6,19 +6,21 @@
 //! changeable), the command palette and the control channel.
 
 use solidsketch_i18n::{ellipsis, t};
-use solidsketch_model::kernel::KernelService;
+use solidsketch_model::kernel::{KernelService, SharedKernel};
 use solidsketch_model::{Boolean, Document, LengthUnit, Operation, Settings};
 use solidsketch_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use solidsketch_tools::{Editor, Key, StandardView, ToolInput, ToolKind};
 
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
 use crate::dock::{self, Dock, PanelId};
+use crate::docs::{DocId, Docs, file_name};
 use crate::file::{self, Inbox};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::native_menu::NativeMenu;
-use crate::panels::{self, Action, CommandView, InfoState};
+use crate::panels::{self, Action, CommandView};
 use crate::prefs::{Navigation, Preferences};
 use crate::ribbon;
+use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
 use crate::viewport::{self, Viewport};
 
@@ -33,15 +35,19 @@ struct PanelDrag {
 
 pub struct SolidSketchApp {
     ctx: egui::Context,
-    editor: Editor,
+    /// The documents open, one per file tab (docs/ARCHITECTURE.md §6 octies); none shown: the
+    /// start page.
+    docs: Docs,
+    /// The document shown at the last frame: the tools' settings go to a newly shown one.
+    last_shown: Option<DocId>,
+    /// Tabs being closed (or the app quitting), asking about the modified documents.
+    closing: Option<Closing>,
+    /// Every modified document was asked about: the window may close now.
+    quit_ok: bool,
+    /// A document is modified: the page asks before it is left (web).
+    #[cfg(target_arch = "wasm32")]
+    unsaved: std::rc::Rc<std::cell::Cell<bool>>,
     viewport: Viewport,
-    info: InfoState,
-    /// What is being typed into the measurements box.
-    vcb: String,
-    /// Where the document was opened from or saved to.
-    path: Option<String>,
-    /// The history revision when last saved or opened (the document is modified if it differs).
-    saved_at: u64,
     inbox: Inbox,
     message: Option<String>,
     prefs: Preferences,
@@ -70,6 +76,28 @@ pub struct SolidSketchApp {
     native_menu: Option<NativeMenu>,
     /// Keys given back to egui on the next frame ([`Self::native_command`]).
     pending_keys: Vec<egui::Event>,
+}
+
+/// Closing documents one after the other (docs/ARCHITECTURE.md §6 octies): each modified one
+/// is shown and asked about (Save, Don't save, Cancel) before it closes. Quitting asks the same
+/// about every modified document, but closes none: Cancel leaves them all open.
+struct Closing {
+    /// The documents still to go through, in order.
+    queue: Vec<DocId>,
+    /// The app quits once they are gone through.
+    quit: bool,
+    /// The one asked about now (the question shown)…
+    asking: Option<DocId>,
+    /// …or being saved: it closes once saved.
+    saving: Option<DocId>,
+}
+
+/// An answer to « Enregistrer les modifications ? ».
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    Save,
+    DontSave,
+    Cancel,
 }
 
 /// The command palette (Cmd/Ctrl+K): what is typed, and the line picked.
@@ -157,9 +185,7 @@ impl SolidSketchApp {
         // The texts name keys as the platform does (in the browser too).
         solidsketch_i18n::set_mac(cc.egui_ctx.os() == egui::os::OperatingSystem::Mac);
         solidsketch_i18n::set_locale(&prefs.locale);
-        let mut editor = Editor::new(Document::with_settings(prefs.new_model.clone()), kernel_service(&cc.egui_ctx));
-        editor.set_tool_settings(prefs.tool_options.clone());
-        editor.set_machinings_switch(prefs.show_machinings);
+        let docs = Docs::new(SharedKernel::new(kernel_service(&cc.egui_ctx)));
         #[cfg(not(target_arch = "wasm32"))]
         let (control, error) = {
             let ctx = cc.egui_ctx.clone();
@@ -176,12 +202,13 @@ impl SolidSketchApp {
         #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(unused_mut))]
         let mut app = SolidSketchApp {
             ctx: cc.egui_ctx.clone(),
-            editor,
+            docs,
+            last_shown: None,
+            closing: None,
+            quit_ok: false,
+            #[cfg(target_arch = "wasm32")]
+            unsaved: Default::default(),
             viewport: Viewport::new(),
-            info: InfoState::default(),
-            vcb: String::new(),
-            path: None,
-            saved_at: 0,
             inbox: Inbox::default(),
             message: error,
             keymap: Keymap::new(&prefs.shortcuts),
@@ -208,7 +235,274 @@ impl SolidSketchApp {
                 .inspect_err(|e| log::warn!("no native menu bar: {e}"))
                 .ok();
         }
+        #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+        crate::app_drags_window(cc);
+        #[cfg(not(target_arch = "wasm32"))]
+        app.reopen_documents();
+        #[cfg(target_arch = "wasm32")]
+        app.ask_before_leaving();
         app
+    }
+
+    /// Opens again the documents open when the app last quit (desktop, if the preference
+    /// says so); none left: the start page.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reopen_documents(&mut self) {
+        if !self.prefs.reopen_documents {
+            return;
+        }
+        let (files, shown) = (self.prefs.open_files.clone(), self.prefs.shown_file);
+        let mut failed = Vec::new();
+        let mut tabs = Vec::new();
+        for path in &files {
+            match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| Document::from_json(&t).map_err(|e| e.to_string()))
+            {
+                Ok(doc) => {
+                    self.open_document(doc, Some(path.clone()));
+                    tabs.push(self.docs.active_index());
+                }
+                Err(e) => {
+                    tabs.push(None);
+                    failed.push(t!("status.open_failed", file = file_name(path), error = e));
+                }
+            }
+        }
+        if let Some(i) = shown.and_then(|k| tabs.get(k).copied().flatten()) {
+            self.docs.select(i);
+        }
+        if let Some(m) = failed.into_iter().next() {
+            self.message = Some(m);
+        }
+    }
+
+    /// The page asks before it is left while a document is modified (web).
+    #[cfg(target_arch = "wasm32")]
+    fn ask_before_leaving(&self) {
+        use wasm_bindgen::JsCast;
+        let unsaved = self.unsaved.clone();
+        let handler = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::BeforeUnloadEvent)>::new(move |e: web_sys::BeforeUnloadEvent| {
+            if unsaved.get() {
+                e.prevent_default();
+                e.set_return_value("");
+            }
+        });
+        if let Some(w) = web_sys::window() {
+            w.set_onbeforeunload(Some(handler.as_ref().unchecked_ref()));
+        }
+        // For as long as the page lives.
+        handler.forget();
+    }
+
+    /// Readies a document's editor: the tools' settings and the machinings' switch, the
+    /// user's.
+    fn setup(prefs: &Preferences) -> impl FnOnce(&mut Editor) + use<> {
+        let (tools, machinings) = (prefs.tool_options.clone(), prefs.show_machinings);
+        move |e: &mut Editor| {
+            e.set_tool_settings(tools);
+            e.set_machinings_switch(machinings);
+        }
+    }
+
+    /// Opens `doc` (read from `path`) and shows it: its tab if that file is open already, the
+    /// blank document's place, or a new tab.
+    fn open_document(&mut self, doc: Document, path: Option<String>) {
+        if let Some(i) = path.as_deref().and_then(|p| self.docs.find_path(p)) {
+            self.docs.select(i);
+            return;
+        }
+        match self.docs.open(doc, path, Self::setup(&self.prefs)) {
+            Ok((_, Some(replaced))) => self.viewport.drop_document(replaced),
+            Ok(_) => {}
+            Err(_) => self.message = Some(t!("status.too_many_documents", max = crate::docs::MAX_OPEN)),
+        }
+    }
+
+    /// Closes tab `i` now, without asking.
+    fn close_now(&mut self, i: usize) {
+        if let Some(doc) = self.docs.close(i) {
+            self.viewport.drop_document(doc.id);
+        }
+    }
+
+    /// Closes the documents `ids`, asking about the modified ones (docs/ARCHITECTURE.md §6
+    /// octies). Nothing while tabs are being closed already.
+    fn close_documents(&mut self, ids: Vec<DocId>) {
+        if self.closing.is_none() {
+            self.closing = Some(Closing { queue: ids, quit: false, asking: None, saving: None });
+            self.advance_closing();
+        }
+    }
+
+    /// Quits: asks about each modified document first (none closes meanwhile: Cancel leaves
+    /// them as they were). The documents open are kept to be opened again at launch.
+    fn request_quit(&mut self) {
+        if self.closing.as_ref().is_some_and(|c| c.quit) {
+            return;
+        }
+        let queue = self.docs.iter().filter(|d| d.modified()).map(|d| d.id).collect();
+        self.closing = Some(Closing { queue, quit: true, asking: None, saving: None });
+        self.advance_closing();
+    }
+
+    /// Goes on with the documents being closed: an unmodified one closes, a modified one is
+    /// shown and asked about; when none is left, the app quits if it was quitting.
+    fn advance_closing(&mut self) {
+        loop {
+            let Some(c) = &mut self.closing else { return };
+            if c.asking.is_some() || c.saving.is_some() {
+                return;
+            }
+            let Some(&id) = c.queue.first() else {
+                let quit = c.quit;
+                self.closing = None;
+                if quit {
+                    self.quit_ok = true;
+                    self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                return;
+            };
+            let quit = c.quit;
+            match self.docs.index_of(id) {
+                Some(i) if self.docs.get(i).is_some_and(|d| d.modified()) => {
+                    c.asking = Some(id);
+                    self.docs.select(i);
+                    return;
+                }
+                found => {
+                    c.queue.remove(0);
+                    if let (Some(i), false) = (found, quit) {
+                        self.close_now(i);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The answer to the question about the document being closed.
+    fn answer(&mut self, answer: Answer) {
+        let Some(c) = &mut self.closing else { return };
+        let Some(id) = c.asking.take() else { return };
+        match answer {
+            Answer::Cancel => self.closing = None,
+            Answer::Save => {
+                c.saving = Some(id);
+                let ask = self.docs.index_of(id).and_then(|i| self.docs.get(i)).is_some_and(|d| d.path.is_none());
+                self.save_document(id, ask);
+            }
+            Answer::DontSave => {
+                c.queue.retain(|q| *q != id);
+                if !c.quit
+                    && let Some(i) = self.docs.index_of(id)
+                {
+                    self.close_now(i);
+                }
+            }
+        }
+        self.advance_closing();
+    }
+
+    /// Document `doc` was saved (`ok`) or not: one being closed then closes, if it is not
+    /// modified again; else the closing stops.
+    fn closing_saved(&mut self, doc: DocId, ok: bool) {
+        let Some(c) = &mut self.closing else { return };
+        if c.saving != Some(doc) {
+            return;
+        }
+        c.saving = None;
+        if !ok {
+            self.closing = None;
+            return;
+        }
+        // Modified since the save started: asked about again.
+        if self.docs.index_of(doc).and_then(|i| self.docs.get(i)).is_some_and(|d| d.modified()) {
+            self.advance_closing();
+            return;
+        }
+        c.queue.retain(|q| *q != doc);
+        if !c.quit
+            && let Some(i) = self.docs.index_of(doc)
+        {
+            self.close_now(i);
+        }
+        self.advance_closing();
+    }
+
+    /// « Enregistrer les modifications de « X » ? », while a modified document is closing.
+    fn save_prompt(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.closing.as_ref().and_then(|c| c.asking) else { return };
+        let Some(name) = self.docs.index_of(id).and_then(|i| self.docs.get(i)).map(|d| d.name()) else {
+            self.closing = None;
+            return;
+        };
+        let mut chosen = None;
+        let modal = egui::Modal::new(egui::Id::unique("save_prompt")).show(ctx, |ui| {
+            ui.set_width(360.0);
+            ui.heading(t!("save_prompt.title"));
+            ui.add_space(6.0);
+            ui.label(t!("save_prompt.question", name = name));
+            ui.weak(t!("save_prompt.note"));
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button(t!("save_prompt.dont_save")).clicked() {
+                    chosen = Some(Answer::DontSave);
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let save = ui.add(egui::Button::new(t!("save_prompt.save")).fill(ui.visuals().selection.bg_fill));
+                    if save.clicked() {
+                        chosen = Some(Answer::Save);
+                    }
+                    if ui.button(t!("save_prompt.cancel")).clicked() {
+                        chosen = Some(Answer::Cancel);
+                    }
+                });
+            });
+        });
+        if ui_key(ctx, egui::Key::Enter) {
+            chosen = chosen.or(Some(Answer::Save));
+        }
+        if modal.should_close() {
+            chosen = chosen.or(Some(Answer::Cancel));
+        }
+        if let Some(a) = chosen {
+            self.answer(a);
+        }
+    }
+
+    /// The tabs' actions (docs/ARCHITECTURE.md §6 octies).
+    fn tab_action(&mut self, a: TabAction) {
+        let id = |docs: &Docs, i: usize| docs.get(i).map(|d| d.id);
+        match a {
+            TabAction::Select(i) => self.docs.select(i),
+            TabAction::New => self.new_document(),
+            TabAction::Reorder { from, to } => self.docs.move_tab(from, to),
+            TabAction::Close(i) | TabAction::Menu(i, MenuRow::Close) => {
+                if let Some(d) = id(&self.docs, i) {
+                    self.close_documents(vec![d]);
+                }
+            }
+            TabAction::Menu(i, MenuRow::CloseOthers) => {
+                let keep = id(&self.docs, i);
+                let others = self.docs.iter().map(|d| d.id).filter(|d| Some(*d) != keep).collect();
+                self.close_documents(others);
+            }
+            TabAction::Menu(_, MenuRow::CloseAll) => {
+                let all = self.docs.iter().map(|d| d.id).collect();
+                self.close_documents(all);
+            }
+            TabAction::Menu(i, MenuRow::Reveal) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(p) = self.docs.get(i).and_then(|d| d.path.clone()) {
+                    reveal(&p);
+                }
+                #[cfg(target_arch = "wasm32")]
+                let _ = i;
+            }
+        }
+    }
+
+    /// The tabs as the title bar draws them.
+    fn tabs(&self) -> Vec<Tab> {
+        self.docs.iter().map(|d| Tab { id: d.id, name: d.name(), path: d.path.clone(), modified: d.modified() }).collect()
     }
 
     /// The menus are the native ones (macOS desktop).
@@ -238,22 +532,29 @@ impl SolidSketchApp {
         }
     }
 
-    /// Changes the document's settings (an undoable step).
+    /// Changes the shown document's settings (an undoable step).
     fn set_settings(&mut self, settings: Settings) {
-        if &settings != self.editor.document().settings() {
-            let _ = self.editor.apply(Operation::SetSettings(settings));
+        if let Some(d) = self.docs.active_mut()
+            && &settings != d.editor.document().settings()
+        {
+            let _ = d.editor.apply(Operation::SetSettings(settings));
         }
-    }
-
-    fn modified(&self) -> bool {
-        self.editor.history().revision() != self.saved_at
     }
 
     // ---- commands ------------------------------------------------------------------------------
 
     /// Can `id` run now?
     fn enabled(&self, id: &str) -> bool {
-        let e = &self.editor;
+        // Without a document (the start page): only what opens one, and the app's own.
+        let Some(d) = self.docs.active() else {
+            return match id {
+                "file.new" | "file.open" | "file.import" | "app.command_palette" | "app.preferences" | "view.render_stats" => true,
+                "app.quit" => !cfg!(target_arch = "wasm32"),
+                _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
+                _ => PanelId::from_command(id).is_some(),
+            };
+        };
+        let e = &d.editor;
         let has_sel = !e.selection().is_empty();
         let section = e.document().settings().display.section.is_some();
         match id {
@@ -264,6 +565,8 @@ impl SolidSketchApp {
             "view.show_all" => e.has_hidden(),
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "debug.crash_kernel" => self.debug_menu,
+            "view.next_tab" | "view.previous_tab" => self.docs.len() > 1,
+            "app.quit" => !cfg!(target_arch = "wasm32"),
             _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
             _ => commands::find(id).is_some(),
         }
@@ -271,9 +574,15 @@ impl SolidSketchApp {
 
     /// A toggle's state, or which tool is on.
     fn checked(&self, id: &str) -> Option<bool> {
-        let d = &self.editor.document().settings().display;
         match id {
-            "view.parallel" => Some(self.editor.camera.is_parallel()),
+            id if let Some(p) = PanelId::from_command(id) => return Some(self.prefs.panels.is_shown(p)),
+            "view.render_stats" => return Some(self.prefs.show_render_stats),
+            _ => {}
+        }
+        let editor = &self.docs.active()?.editor;
+        let d = &editor.document().settings().display;
+        match id {
+            "view.parallel" => Some(editor.camera.is_parallel()),
             "view.grid" => Some(d.grid),
             "view.axes" => Some(d.axes),
             "view.guides" => Some(d.guides),
@@ -281,19 +590,20 @@ impl SolidSketchApp {
             "view.hide_rest_of_model" => Some(d.hide_rest_of_model),
             "view.show_hidden" => Some(d.show_hidden),
             "view.section" => Some(d.section_active),
-            id if let Some(p) = PanelId::from_command(id) => Some(self.prefs.panels.is_shown(p)),
-            "view.render_stats" => Some(self.prefs.show_render_stats),
-            _ => tool_of(id).map(|k| self.editor.tool_kind() == k),
+            _ => tool_of(id).map(|k| editor.tool_kind() == k),
         }
     }
 
     /// Its label now (« Annuler Déplacer »).
     fn label(&self, c: &commands::Command) -> String {
-        let h = self.editor.history();
+        let h = self.docs.active().map(|d| d.editor.history());
+        let h = h.as_ref();
         match c.id {
-            "edit.undo" => h.undo_op().map_or_else(|| (c.label)(), |o| t!("menu.edit.undo_op", op = o.label())),
-            "edit.redo" => h.redo_op().map_or_else(|| (c.label)(), |o| t!("menu.edit.redo_op", op = o.label())),
+            "edit.undo" => h.and_then(|h| h.undo_op()).map_or_else(|| (c.label)(), |o| t!("menu.edit.undo_op", op = o.label())),
+            "edit.redo" => h.and_then(|h| h.redo_op()).map_or_else(|| (c.label)(), |o| t!("menu.edit.redo_op", op = o.label())),
             id if let Some(f) = commands::recent_slot(id).and_then(|k| self.prefs.recent_files.get(k)) => file_name(f).to_owned(),
+            // In the macOS app menu: « Quitter SolidSketch ».
+            "app.quit" if self.native_menus() => t!("menu.app.quit", app = "SolidSketch"),
             _ => (c.label)(),
         }
     }
@@ -307,8 +617,9 @@ impl SolidSketchApp {
         let mac = self.mac();
         COMMANDS
             .iter()
-            // An empty recent file slot is not shown.
+            // An empty recent file slot is not shown; nor Quit on the web (the page is closed).
             .filter(|c| commands::recent_slot(c.id).is_none_or(|k| k < self.prefs.recent_files.len()))
+            .filter(|c| c.id != "app.quit" || !cfg!(target_arch = "wasm32"))
             .map(|c| CommandView {
                 id: c.id,
                 label: self.label(c),
@@ -329,26 +640,77 @@ impl SolidSketchApp {
         if !self.enabled(id) {
             return Err(t!("status.command_unavailable", id = id));
         }
-        if let Some(k) = tool_of(id) {
-            self.vcb.clear();
-            self.editor.set_tool(k);
-            return Ok(());
-        }
-        if let Some(v) = view_of(id) {
-            self.editor.standard_view(v);
-            return Ok(());
-        }
         if let Some(k) = commands::recent_slot(id) {
             return self.open_recent(k);
         }
-        let mut s = self.editor.document().settings().clone();
-        let e = &mut self.editor;
+        // What needs no document.
+        let done = match id {
+            "file.new" => {
+                self.new_document();
+                true
+            }
+            "file.open" => {
+                file::open(&self.inbox, &self.ctx);
+                true
+            }
+            "file.import" => {
+                file::import(&self.inbox, &self.ctx);
+                true
+            }
+            "file.save" | "file.save_as" => {
+                self.save(id == "file.save_as");
+                true
+            }
+            "file.close" => {
+                let shown = self.docs.active().map(|d| d.id);
+                self.close_documents(shown.into_iter().collect());
+                true
+            }
+            "app.quit" => {
+                self.request_quit();
+                true
+            }
+            "view.next_tab" | "view.previous_tab" => {
+                self.docs.cycle(id == "view.next_tab");
+                true
+            }
+            "app.command_palette" => {
+                self.palette = Some(Palette::default());
+                true
+            }
+            "app.preferences" => {
+                let first = if self.docs.active().is_some() { PrefsTab::Model } else { PrefsTab::General };
+                self.prefs_window = Some(self.prefs_window.unwrap_or(first));
+                true
+            }
+            id if let Some(p) = PanelId::from_command(id) => {
+                self.prefs.panels.toggle(p);
+                true
+            }
+            "view.render_stats" => {
+                self.prefs.show_render_stats = !self.prefs.show_render_stats;
+                true
+            }
+            _ => false,
+        };
+        if done {
+            return Ok(());
+        }
+        let Some(doc) = self.docs.active_mut() else {
+            return Err(t!("status.command_unavailable", id = id));
+        };
+        if let Some(k) = tool_of(id) {
+            doc.vcb.clear();
+            doc.editor.set_tool(k);
+            return Ok(());
+        }
+        if let Some(v) = view_of(id) {
+            doc.editor.standard_view(v);
+            return Ok(());
+        }
+        let mut s = doc.editor.document().settings().clone();
+        let e = &mut doc.editor;
         match id {
-            "file.new" => self.new_document(),
-            "file.open" => file::open(&self.inbox, &self.ctx),
-            "file.import" => file::import(&self.inbox, &self.ctx),
-            "file.save" => self.save(false),
-            "file.save_as" => self.save(true),
             "edit.undo" => e.undo(),
             "edit.redo" => e.redo(),
             "edit.select_all" => e.select_all(),
@@ -357,8 +719,6 @@ impl SolidSketchApp {
             "edit.explode" => e.explode(),
             "edit.make_unique" => e.make_unique(),
             "edit.delete_guides" => e.delete_guides(),
-            "app.command_palette" => self.palette = Some(Palette::default()),
-            "app.preferences" => self.prefs_window = Some(self.prefs_window.unwrap_or(PrefsTab::Model)),
             "view.parallel" => {
                 let p = !e.camera.is_parallel();
                 e.set_parallel(p);
@@ -387,8 +747,6 @@ impl SolidSketchApp {
                 }
                 self.set_settings(s);
             }
-            id if let Some(p) = PanelId::from_command(id) => self.prefs.panels.toggle(p),
-            "view.render_stats" => self.prefs.show_render_stats = !self.prefs.show_render_stats,
             "view.zoom_extents" => e.zoom_extents(),
             "view.show_all" => e.show_all(),
             "debug.crash_kernel" => e.crash_kernel(),
@@ -398,16 +756,30 @@ impl SolidSketchApp {
     }
 
     fn act(&mut self, a: Action) {
-        let e = &mut self.editor;
         match a {
             Action::Command(id) => {
                 if let Err(m) = self.run(id) {
                     self.message = Some(m);
                 }
+                return;
             }
+            Action::Tab(t) => return self.tab_action(t),
+            Action::Ribbon(change) => return self.prefs.ribbon.apply(change),
+            Action::ToggleMachinings => {
+                self.prefs.show_machinings = !self.prefs.show_machinings;
+                for d in self.docs.iter_mut() {
+                    d.editor.set_machinings_switch(self.prefs.show_machinings);
+                }
+                return;
+            }
+            _ => {}
+        }
+        let Some(doc) = self.docs.active_mut() else { return };
+        let e = &mut doc.editor;
+        match a {
+            Action::Command(_) | Action::Tab(_) | Action::Ribbon(_) | Action::ToggleMachinings => {}
             Action::SelectPath(p) => e.select_path(&p),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
-            Action::Ribbon(change) => self.prefs.ribbon.apply(change),
             Action::Apply(op) => {
                 let _ = e.apply(op);
             }
@@ -421,24 +793,19 @@ impl SolidSketchApp {
                     self.ctx.request_repaint();
                 }
             }
-            Action::ToggleMachinings => {
-                self.prefs.show_machinings = !self.prefs.show_machinings;
-                e.set_machinings_switch(self.prefs.show_machinings);
-            }
             Action::PaintWith(m) => {
                 e.set_paint_material(m);
                 if e.tool_kind() != ToolKind::Paint {
-                    self.vcb.clear();
+                    doc.vcb.clear();
                     e.set_tool(ToolKind::Paint);
                 }
             }
         }
     }
 
+    /// A new document, in a tab of its own (or the blank one's place).
     fn new_document(&mut self) {
-        self.editor.open(Document::with_settings(self.prefs.new_model.clone()));
-        self.path = None;
-        self.saved_at = 0;
+        self.open_document(Document::with_settings(self.prefs.new_model.clone()), None);
     }
 
     /// Opens the recent file `k`; one that cannot be read leaves the list.
@@ -464,10 +831,21 @@ impl SolidSketchApp {
         let _ = path;
     }
 
+    /// Saves the shown document (`ask`: where, whatever its file).
     fn save(&mut self, ask: bool) {
-        let path = if ask { None } else { self.path.clone() };
-        let revision = self.editor.history().revision();
-        file::save(self.editor.document(), revision, path.as_deref(), &self.inbox, &self.ctx);
+        if let Some(id) = self.docs.active().map(|d| d.id) {
+            self.save_document(id, ask);
+        }
+    }
+
+    /// Saves document `id`: to its file, else (or if `ask`) where the user says.
+    fn save_document(&mut self, id: DocId, ask: bool) {
+        let Some(d) = self.docs.iter().find(|d| d.id == id) else { return };
+        let path = if ask { None } else { d.path.clone() };
+        // The name offered: its file's, else the default one.
+        let name = d.path.as_deref().map(file_name).map(|n| n.trim_end_matches(&format!(".{}", file::EXTENSION)).to_owned());
+        let name = name.unwrap_or_else(|| t!("default_name.file"));
+        file::save(id, d.editor.document(), d.editor.history().revision(), path.as_deref(), &name, &self.inbox, &self.ctx);
     }
 
     /// A modifier tapped alone goes to the tool: the copy modifier (Option on macOS, Ctrl
@@ -483,8 +861,11 @@ impl SolidSketchApp {
         let pressed: Vec<bool> = down.iter().zip(&self.taps).map(|(d, t)| *d && !t.down).collect();
         for (k, key) in [Key::Copy, Key::Shift, Key::Alt].into_iter().enumerate() {
             let other = events || pressed.iter().enumerate().any(|(j, p)| j != k && *p);
-            if self.taps[k].feed(down[k], other) && !ctx.egui_wants_keyboard_input() {
-                self.editor.input(ToolInput::Key { key, mods: Default::default() });
+            if self.taps[k].feed(down[k], other)
+                && !ctx.egui_wants_keyboard_input()
+                && let Some(d) = self.docs.active_mut()
+            {
+                d.editor.input(ToolInput::Key { key, mods: Default::default() });
             }
         }
     }
@@ -497,52 +878,67 @@ impl SolidSketchApp {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
-        let vcb_open = self.editor.vcb().is_some();
         for ev in events {
-            match ev {
-                egui::Event::Text(t) => {
-                    // `*5` and `/5` (arrays), `@` (the current value), `(`, and points `[x;y;z]`,
-                    // `<dx;dy;dz>` start a value too.
-                    let starts_value = t.starts_with(|c: char| {
-                        c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | ',' | '*' | '/' | '@' | '(' | '[' | '<' | ';')
-                    });
-                    if vcb_open && (!self.vcb.is_empty() || starts_value) {
-                        self.vcb.push_str(&t);
-                    }
-                }
-                egui::Event::Key { key, pressed: true, modifiers, .. } => {
-                    let typing = !self.vcb.is_empty();
-                    let m = viewport::modifiers(ctx, modifiers);
-                    let tool_key = |k: Key| ToolInput::Key { key: k, mods: m };
-                    use egui::Key as K;
-                    let plain = !(modifiers.command || modifiers.alt || modifiers.ctrl);
-                    match key {
-                        K::Enter if typing => {
-                            let text = std::mem::take(&mut self.vcb);
-                            self.editor.input(ToolInput::Vcb(text));
-                        }
-                        K::Backspace if typing => {
-                            self.vcb.pop();
-                        }
-                        K::Escape if typing => self.vcb.clear(),
-                        _ if typing => {}
-                        K::Escape => self.editor.input(tool_key(Key::Escape)),
-                        K::Delete | K::Backspace if plain => self.editor.input(tool_key(Key::Delete)),
-                        K::ArrowLeft => self.editor.input(tool_key(Key::Left)),
-                        K::ArrowRight => self.editor.input(tool_key(Key::Right)),
-                        K::ArrowUp => self.editor.input(tool_key(Key::Up)),
-                        K::ArrowDown => self.editor.input(tool_key(Key::Down)),
-                        K::Tab => self.editor.input(tool_key(Key::Tab)),
-                        _ => {
-                            if let Some(id) = self.keymap.command_for(key, modifiers) {
-                                self.act(Action::Command(id));
-                            }
-                        }
-                    }
-                }
-                _ => {}
+            if let Some(id) = self.key_event(ctx, ev) {
+                self.act(Action::Command(id));
             }
         }
+    }
+
+    /// One keyboard event: to the shown document's tool or measurements box, or the command its
+    /// shortcut runs (given back).
+    fn key_event(&mut self, ctx: &egui::Context, ev: egui::Event) -> Option<&'static str> {
+        let egui::Event::Key { key, pressed: true, modifiers, .. } = ev else {
+            if let egui::Event::Text(t) = ev
+                && let Some(d) = self.docs.active_mut()
+            {
+                // `*5` and `/5` (arrays), `@` (the current value), `(`, and points `[x;y;z]`,
+                // `<dx;dy;dz>` start a value too.
+                let starts_value = t.starts_with(|c: char| {
+                    c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | ',' | '*' | '/' | '@' | '(' | '[' | '<' | ';')
+                });
+                if d.editor.vcb().is_some() && (!d.vcb.is_empty() || starts_value) {
+                    d.vcb.push_str(&t);
+                }
+            }
+            return None;
+        };
+        use egui::Key as K;
+        // The tabs' fixed keys, whatever the shortcuts (docs/ARCHITECTURE.md §6 octies): Ctrl+Tab
+        // (Ctrl on macOS too) and ⌘T / Ctrl+T beside ⌘N.
+        if key == K::Tab && modifiers.ctrl {
+            return Some(if modifiers.shift { "view.previous_tab" } else { "view.next_tab" });
+        }
+        if key == K::T && modifiers.command && !modifiers.shift && !modifiers.alt {
+            return Some("file.new");
+        }
+        let command = || self.keymap.command_for(key, modifiers);
+        let Some(d) = self.docs.active_mut() else { return command() };
+        let typing = !d.vcb.is_empty();
+        let m = viewport::modifiers(ctx, modifiers);
+        let tool_key = |k: Key| ToolInput::Key { key: k, mods: m };
+        let plain = !(modifiers.command || modifiers.alt || modifiers.ctrl);
+        let e = &mut d.editor;
+        match key {
+            K::Enter if typing => {
+                let text = std::mem::take(&mut d.vcb);
+                e.input(ToolInput::Vcb(text));
+            }
+            K::Backspace if typing => {
+                d.vcb.pop();
+            }
+            K::Escape if typing => d.vcb.clear(),
+            _ if typing => {}
+            K::Escape => e.input(tool_key(Key::Escape)),
+            K::Delete | K::Backspace if plain => e.input(tool_key(Key::Delete)),
+            K::ArrowLeft => e.input(tool_key(Key::Left)),
+            K::ArrowRight => e.input(tool_key(Key::Right)),
+            K::ArrowUp => e.input(tool_key(Key::Up)),
+            K::ArrowDown => e.input(tool_key(Key::Down)),
+            K::Tab => e.input(tool_key(Key::Tab)),
+            _ => return self.keymap.command_for(key, modifiers),
+        }
+        None
     }
 
     /// The command palette (Cmd/Ctrl+K): type to filter, ↑↓ to pick, Entrée to run.
@@ -660,7 +1056,10 @@ impl SolidSketchApp {
     }
 
     fn model_settings(&mut self, ui: &mut egui::Ui) {
-        let current = self.editor.document().settings().clone();
+        let Some(current) = self.docs.active().map(|d| d.editor.document().settings().clone()) else {
+            ui.weak(t!("prefs.model.no_document"));
+            return;
+        };
         let mut s = current.clone();
         ui.weak(t!("prefs.model.intro"));
         ui.add_space(4.0);
@@ -902,6 +1301,9 @@ impl SolidSketchApp {
         let folded = self.prefs.panels.card(id).is_some_and(|c| c.folded);
         let floating = edges.side.is_none();
         let mut event = None;
+        // Drawn only with a document shown.
+        let i = self.docs.active_index()?;
+        let docs = &mut self.docs;
         egui::Area::new(egui::Id::unique(("panel", id)))
             .fixed_pos(rect.min)
             .order(if floating { egui::Order::Foreground } else { egui::Order::Middle })
@@ -951,18 +1353,19 @@ impl SolidSketchApp {
                     if folded {
                         return;
                     }
+                    let Some(doc) = docs.iter_mut().nth(i) else { return };
                     let body = (inner.y - header - ui.spacing().item_spacing.y).max(0.0);
                     let area = egui::ScrollArea::vertical().auto_shrink(false).max_height(body).min_scrolled_height(body);
                     match id {
                         PanelId::EntityInfo => {
-                            area.id_salt("entity_info").show(ui, |ui| panels::info(ui, &self.editor, &mut self.info, actions));
+                            area.id_salt("entity_info").show(ui, |ui| panels::info(ui, &doc.editor, &mut doc.info, actions));
                         }
                         PanelId::Materials => {
-                            area.id_salt("materials").show(ui, |ui| panels::materials(ui, &self.editor, &mut self.info, actions));
+                            area.id_salt("materials").show(ui, |ui| panels::materials(ui, &doc.editor, &mut doc.info, actions));
                         }
                         PanelId::Outliner => {
                             *outliner_shown = true;
-                            panels::outliner(ui, &self.editor, actions, area.id_salt("outliner"));
+                            panels::outliner(ui, &doc.editor, actions, area.id_salt("outliner"));
                         }
                     }
                 });
@@ -1005,24 +1408,60 @@ impl SolidSketchApp {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
+            let Some(d) = self.docs.active_mut() else {
+                // The start page: the app's message only.
+                ui.label(self.message.clone().unwrap_or_default());
+                return;
+            };
             let status = match &self.message {
-                Some(m) if !self.editor.busy() => m.clone(),
-                _ => self.editor.status(),
+                Some(m) if !d.editor.busy() => m.clone(),
+                _ => d.editor.status(),
             };
             ui.label(status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (label, value) = self.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
-                let mut text = if self.vcb.is_empty() { value } else { self.vcb.clone() };
-                let r = ui.add_enabled(self.editor.vcb().is_some(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
+                let (label, value) = d.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
+                let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
+                let r = ui.add_enabled(d.editor.vcb().is_some(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
                 if r.changed() {
-                    self.vcb = text.clone();
+                    d.vcb = text.clone();
                 }
-                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.vcb.is_empty() {
-                    let t = std::mem::take(&mut self.vcb);
-                    self.editor.input(ToolInput::Vcb(t));
+                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !d.vcb.is_empty() {
+                    let t = std::mem::take(&mut d.vcb);
+                    d.editor.input(ToolInput::Vcb(t));
                 }
                 ui.label(label);
             });
+        });
+    }
+
+    /// The start page (docs/ARCHITECTURE.md §6 octies): no document open.
+    fn start_page(&self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+        ui.vertical_centered(|ui| {
+            ui.add_space((ui.available_height() * 0.22).max(24.0));
+            ui.heading(egui::RichText::new(t!("start.title")).size(28.0).strong());
+            ui.add_space(20.0);
+            let width = 260.0;
+            for (id, label) in [("file.new", t!("start.new")), ("file.open", t!("start.open")), ("file.import", t!("start.import"))] {
+                if ui.add_sized([width, 32.0], egui::Button::new(label)).clicked() {
+                    actions.push(Action::Command(id));
+                }
+            }
+            if cfg!(target_arch = "wasm32") {
+                return;
+            }
+            ui.add_space(24.0);
+            ui.strong(t!("start.recent"));
+            ui.add_space(4.0);
+            if self.prefs.recent_files.is_empty() {
+                ui.weak(t!("start.no_recent"));
+            }
+            for (k, path) in self.prefs.recent_files.iter().enumerate().take(commands::RECENT_FILES) {
+                let id = commands::COMMANDS.iter().find(|c| commands::recent_slot(c.id) == Some(k)).map(|c| c.id);
+                let r = ui.add_sized([width, 24.0], egui::Button::new(file_name(path)).frame(false)).on_hover_text(path);
+                if let (true, Some(id)) = (r.clicked(), id) {
+                    actions.push(Action::Command(id));
+                }
+            }
         });
     }
 
@@ -1047,8 +1486,8 @@ impl SolidSketchApp {
     fn serve_control(&mut self, frame: &eframe::Frame) {
         use crate::control::{Reply, Request};
         use serde_json::json;
-        let Some(control) = &self.control else { return };
-        for p in control.take() {
+        let Some(pending) = self.control.as_ref().map(|c| c.take()) else { return };
+        for p in pending {
             let reply = match &p.request {
                 Request::Commands => {
                     let list: Vec<_> = self
@@ -1061,11 +1500,41 @@ impl SolidSketchApp {
                     Reply::json(200, json!(list))
                 }
                 Request::Run(id) => match self.run(id) {
-                    Ok(()) => Reply::json(200, json!({ "ok": true, "status": self.editor.status() })),
+                    Ok(()) => Reply::json(200, json!({ "ok": true, "status": self.docs.active().map(|d| d.editor.status()) })),
                     Err(e) => Reply::json(400, json!({ "ok": false, "error": e })),
                 },
+                Request::Docs => {
+                    let list: Vec<_> = self
+                        .docs
+                        .iter()
+                        .map(|d| json!({ "id": d.id, "name": d.name(), "path": d.path, "modified": d.modified() }))
+                        .collect();
+                    let asking = self.closing.as_ref().and_then(|c| c.asking);
+                    Reply::json(200, json!({ "docs": list, "shown": self.docs.active_index(), "asking": asking }))
+                }
+                Request::DocsSwitch(i) if *i < self.docs.len() => {
+                    self.docs.select(*i);
+                    Reply::json(200, json!({ "ok": true }))
+                }
+                Request::DocsClose { index, force } if *index < self.docs.len() => {
+                    if *force {
+                        self.close_now(*index);
+                    } else {
+                        self.tab_action(TabAction::Close(*index));
+                    }
+                    Reply::json(200, json!({ "ok": true, "asking": self.closing.as_ref().and_then(|c| c.asking) }))
+                }
+                Request::DocsSwitch(_) | Request::DocsClose { .. } => Reply::json(400, json!({ "ok": false, "error": "no such tab" })),
+                Request::DocsNew => {
+                    self.new_document();
+                    Reply::json(200, json!({ "ok": true, "shown": self.docs.active_index() }))
+                }
                 Request::State => {
-                    let e = &self.editor;
+                    let Some(d) = self.docs.active() else {
+                        p.answer(Reply::json(200, json!({ "document": null })));
+                        continue;
+                    };
+                    let e = &d.editor;
                     Reply::json(
                         200,
                         json!({
@@ -1076,8 +1545,9 @@ impl SolidSketchApp {
                             "status": e.status(),
                             "busy": e.busy(),
                             "revision": e.history().revision(),
-                            "modified": self.modified(),
-                            "path": self.path,
+                            "modified": d.modified(),
+                            "path": d.path,
+                            "document": d.id,
                         }),
                     )
                 }
@@ -1103,42 +1573,67 @@ impl eframe::App for SolidSketchApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.apply_theme(&ctx);
-        // What the kernel finished since the last frame (it wakes the UI when it does).
-        self.editor.poll();
+        // What the kernel finished since the last frame (it wakes the UI when it does), for
+        // every document: one in the background goes on computing.
+        for d in self.docs.iter_mut() {
+            d.editor.poll();
+        }
+        // Closing the window (its button, the OS) asks about the modified documents first.
+        if ctx.input(|i| i.viewport().close_requested()) && !self.quit_ok && self.docs.any_modified() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.request_quit();
+        }
         // What the file dialogs ended with (they never block the event loop).
         for outcome in self.inbox.take() {
             match outcome {
                 file::Outcome::Opened { name, text } => match Document::from_json(&text) {
                     Ok(doc) => {
-                        self.editor.open(doc);
                         self.add_recent_file(&name);
-                        self.path = Some(name);
-                        self.saved_at = 0;
+                        self.open_document(doc, Some(name));
                     }
                     Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
                 },
-                file::Outcome::Saved { path, revision } => {
+                file::Outcome::Saved { doc, path, revision } => {
                     self.add_recent_file(&path);
-                    self.path = Some(path);
-                    self.saved_at = revision;
-                    self.message = Some(t!("status.saved"));
+                    if let Some(d) = self.docs.by_id_mut(doc) {
+                        d.path = Some(path);
+                        d.saved_at = revision;
+                        self.message = Some(t!("status.saved"));
+                    }
+                    self.closing_saved(doc, true);
                 }
-                file::Outcome::SaveFailed(e) => self.message = Some(t!("status.save_failed", error = e)),
-                file::Outcome::Imported { name, bytes } => self.editor.import_step(name, bytes),
+                file::Outcome::SaveFailed { doc, error } => {
+                    self.message = Some(t!("status.save_failed", error = error));
+                    self.closing_saved(doc, false);
+                }
+                file::Outcome::SaveCancelled { doc } => self.closing_saved(doc, false),
+                file::Outcome::Imported { name, bytes } => {
+                    // Into the shown document; from the start page, a new one.
+                    if self.docs.active().is_none() {
+                        self.new_document();
+                    }
+                    if let Some(d) = self.docs.active_mut() {
+                        d.editor.import_step(name, bytes);
+                    }
+                }
             }
         }
         // Any input clears the last app message.
         if ctx.input(|i| !i.events.is_empty() && i.pointer.any_pressed()) {
             self.message = None;
         }
-        self.keyboard(&ctx);
+        if self.closing.as_ref().is_none_or(|c| c.asking.is_none()) {
+            self.keyboard(&ctx);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         self.serve_control(frame);
 
-        let name = self.path.as_deref().map(file_name).map(str::to_owned).unwrap_or_else(|| t!("window.untitled"));
-        let modified = self.modified();
         // Still the window's title where the OS shows it (Window menu, Mission Control).
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("SolidSketch — {name}{}", if modified { " •" } else { "" })));
+        let title = match self.docs.active() {
+            Some(d) => format!("SolidSketch — {}{}", d.name(), if d.modified() { " •" } else { "" }),
+            None => "SolidSketch".to_owned(),
+        };
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
 
         let views = self.command_views();
         let mut actions = Vec::new();
@@ -1148,86 +1643,29 @@ impl eframe::App for SolidSketchApp {
                 self.native_command(id, &mut actions);
             }
         }
+        let tabs = self.tabs();
         let bar = titlebar::Bar {
-            name: &name,
-            path: self.path.as_deref(),
-            modified,
+            tabs: &tabs,
+            shown: self.docs.active_index(),
+            reveal: !cfg!(target_arch = "wasm32"),
             integrated: crate::INTEGRATED_TITLEBAR,
             native_menus: self.native_menus(),
             debug_menu: self.debug_menu,
         };
         titlebar::show(ui, &bar, &views, &mut actions);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        // The 3D view fills everything between the title bar and the status bar; the tools (with
-        // the active tool's option bar as their footer) and the side panel float over it, so
-        // opening or resizing them never resizes the view.
-        let theme = self.theme;
-        let view = egui::CentralPanel::no_frame()
-            .show(ui, |ui| self.viewport.ui(ui, frame, &mut self.editor, &self.prefs.navigation, &theme, self.prefs.show_render_stats))
-            .response
-            .rect;
-        let margin = 8.0;
-        let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(6.0);
-        // The workspace card and the ribbon across the top (ARCHITECTURE.md §6 septies); the
-        // docked cards below them.
-        let ribbon_view = ribbon::View { prefs: &self.prefs.ribbon, views: &views };
-        let ribbon_left = view.left() + margin + ribbon::WORKSPACE_WIDTH + card(&ctx.global_style()).total_margin().sum().x + margin;
-        let ribbon_width = (view.right() - margin - ribbon_left - card(&ctx.global_style()).total_margin().sum().x).max(0.0);
-        let ribbon_area = egui::Area::new(egui::Id::unique("ribbon"))
-            .fixed_pos(egui::pos2(ribbon_left, view.top() + margin))
-            .constrain_to(view)
-            .sense(egui::Sense::click())
-            .show(&ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::ribbon(ui, &ribbon_view, ribbon_width, &mut actions)));
-        egui::Popup::context_menu(&ribbon_area.response).show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, &mut actions));
-        let ribbon_rect = ribbon_area.response.rect;
-        let inner_height = ribbon_rect.height() - card(&ctx.global_style()).total_margin().sum().y;
-        egui::Area::new(egui::Id::unique("workspace"))
-            .fixed_pos(egui::pos2(view.left() + margin, view.top() + margin))
-            .constrain_to(view)
-            .show(&ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::workspace_card(ui, &ribbon_view, inner_height, &mut actions)));
-        let below_ribbon = ribbon_rect.bottom() + margin;
-
-        let free = self.side_panels(&ctx, view, below_ribbon, margin, &mut actions);
-        let (free_left, free_right) = (free.min, free.max);
-        // The active tool's options: a card centered under the ribbon, between the columns, its
-        // width known before drawing it (as last measured: a pass whose width changed is
-        // discarded, so the card is never shown misplaced while it settles). No option, no card.
-        let options_id = egui::Id::unique("tool_options");
-        let width_id = options_id.with("width");
-        let mut free_top = below_ribbon;
-        if panels::has_tool_options(&self.editor) {
-            let content_width = ctx.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
-            let options_width = content_width + card(&ctx.global_style()).total_margin().sum().x;
-            let options_left = (view.center().x - options_width / 2.0).min(free_right - options_width).max(free_left);
-            let options = egui::Area::new(options_id)
-                .fixed_pos(egui::pos2(options_left, below_ribbon))
-                .constrain_to(view)
-                .show(&ctx, |ui| {
-                    card(ui.style()).show(ui, |ui| {
-                        ui.set_width(content_width);
-                        centered_row(ui, width_id, |ui| panels::tool_options(ui, &self.editor, &mut actions));
-                    });
-                })
-                .response
-                .rect;
-            free_top = options.bottom() + margin;
+        if self.docs.active().is_some() {
+            self.document_ui(ui, &ctx, frame, &views, &mut actions);
+        } else {
+            egui::CentralPanel::default().show(ui, |ui| self.start_page(ui, &mut actions));
         }
-        // What zoom extents frames: below the ribbon (and the options), beside the side panels,
-        // in viewport pixels.
-        let free_min = egui::vec2(free_left - view.left(), free_top - view.top());
-        let free_max = egui::vec2(free_right - view.left(), view.height());
-        self.editor
-            .set_free_area(glam::DVec2::new(free_min.x as f64, free_min.y as f64), glam::DVec2::new(free_max.x as f64, free_max.y as f64));
-
         self.preferences_window(&ctx);
         self.palette_window(&ctx, &views, &mut actions);
+        self.save_prompt(&ctx);
         for a in actions {
             self.act(a);
         }
-        // A tool's option changed (in the bar, or by Tab): kept with the preferences.
-        if self.prefs.tool_options != *self.editor.tool_settings() {
-            self.prefs.tool_options = self.editor.tool_settings().clone();
-        }
+        self.follow_documents();
         // Not while dragging (a panel's edge…): written once released.
         if self.prefs != self.stored_prefs && !ctx.input(|i| i.pointer.any_down()) {
             if self.prefs.shortcuts != self.stored_prefs.shortcuts {
@@ -1238,6 +1676,117 @@ impl eframe::App for SolidSketchApp {
             }
             self.stored_prefs = self.prefs.clone();
         }
+    }
+}
+
+impl SolidSketchApp {
+    /// After the frame's actions: the tools' settings between the documents and the
+    /// preferences, the documents to open again at launch, the page's question (web).
+    fn follow_documents(&mut self) {
+        let shown = self.docs.active().map(|d| d.id);
+        if shown != self.last_shown {
+            // A newly shown document takes the tools' settings as they are now.
+            if let Some(d) = self.docs.active_mut() {
+                d.editor.set_tool_settings(self.prefs.tool_options.clone());
+            }
+            self.last_shown = shown;
+        } else if let Some(d) = self.docs.active()
+            && self.prefs.tool_options != *d.editor.tool_settings()
+        {
+            // A tool's option changed (in the bar, or by Tab): kept with the preferences.
+            self.prefs.tool_options = d.editor.tool_settings().clone();
+        }
+        // While quitting the documents stay as they were open.
+        #[cfg(not(target_arch = "wasm32"))]
+        if !self.closing.as_ref().is_some_and(|c| c.quit) && !self.quit_ok {
+            let saved: Vec<(usize, &String)> = self.docs.iter().enumerate().filter_map(|(i, d)| Some((i, d.path.as_ref()?))).collect();
+            let files: Vec<String> = saved.iter().map(|(_, p)| (*p).clone()).collect();
+            let shown_file = self.docs.active_index().and_then(|a| saved.iter().position(|(i, _)| *i == a));
+            if files != self.prefs.open_files || shown_file != self.prefs.shown_file {
+                self.prefs.open_files = files;
+                self.prefs.shown_file = shown_file;
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        self.unsaved.set(self.docs.any_modified());
+    }
+
+    /// The shown document: the view, the ribbon, the docked cards and the tool's options.
+    fn document_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        frame: &eframe::Frame,
+        views: &[CommandView],
+        actions: &mut Vec<Action>,
+    ) {
+        // The 3D view fills everything between the title bar and the status bar; the tools (with
+        // the active tool's option bar as their footer) and the side panel float over it, so
+        // opening or resizing them never resizes the view.
+        let theme = self.theme;
+        let Some(i) = self.docs.active_index() else { return };
+        let (viewport, docs, prefs) = (&mut self.viewport, &mut self.docs, &self.prefs);
+        let view = egui::CentralPanel::no_frame()
+            .show(ui, |ui| {
+                if let Some(d) = docs.iter_mut().nth(i) {
+                    viewport.ui(ui, frame, d.id, &mut d.editor, &prefs.navigation, &theme, prefs.show_render_stats);
+                }
+            })
+            .response
+            .rect;
+        let margin = 8.0;
+        let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(6.0);
+        // The workspace card and the ribbon across the top (ARCHITECTURE.md §6 septies); the
+        // docked cards below them.
+        let ribbon_view = ribbon::View { prefs: &self.prefs.ribbon, views };
+        let ribbon_left = view.left() + margin + ribbon::WORKSPACE_WIDTH + card(&ctx.global_style()).total_margin().sum().x + margin;
+        let ribbon_width = (view.right() - margin - ribbon_left - card(&ctx.global_style()).total_margin().sum().x).max(0.0);
+        let ribbon_area = egui::Area::new(egui::Id::unique("ribbon"))
+            .fixed_pos(egui::pos2(ribbon_left, view.top() + margin))
+            .constrain_to(view)
+            .sense(egui::Sense::click())
+            .show(ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::ribbon(ui, &ribbon_view, ribbon_width, actions)));
+        egui::Popup::context_menu(&ribbon_area.response).show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, actions));
+        let ribbon_rect = ribbon_area.response.rect;
+        let inner_height = ribbon_rect.height() - card(&ctx.global_style()).total_margin().sum().y;
+        egui::Area::new(egui::Id::unique("workspace"))
+            .fixed_pos(egui::pos2(view.left() + margin, view.top() + margin))
+            .constrain_to(view)
+            .show(ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::workspace_card(ui, &ribbon_view, inner_height, actions)));
+        let below_ribbon = ribbon_rect.bottom() + margin;
+
+        let free = self.side_panels(ctx, view, below_ribbon, margin, actions);
+        let (free_left, free_right) = (free.min, free.max);
+        // The active tool's options: a card centered under the ribbon, between the columns, its
+        // width known before drawing it (as last measured: a pass whose width changed is
+        // discarded, so the card is never shown misplaced while it settles). No option, no card.
+        let options_id = egui::Id::unique("tool_options");
+        let width_id = options_id.with("width");
+        let mut free_top = below_ribbon;
+        let Some(doc) = self.docs.active_mut() else { return };
+        if panels::has_tool_options(&doc.editor) {
+            let content_width = ctx.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
+            let options_width = content_width + card(&ctx.global_style()).total_margin().sum().x;
+            let options_left = (view.center().x - options_width / 2.0).min(free_right - options_width).max(free_left);
+            let options = egui::Area::new(options_id)
+                .fixed_pos(egui::pos2(options_left, below_ribbon))
+                .constrain_to(view)
+                .show(ctx, |ui| {
+                    card(ui.style()).show(ui, |ui| {
+                        ui.set_width(content_width);
+                        centered_row(ui, width_id, |ui| panels::tool_options(ui, &doc.editor, actions));
+                    });
+                })
+                .response
+                .rect;
+            free_top = options.bottom() + margin;
+        }
+        // What zoom extents frames: below the ribbon (and the options), beside the side panels,
+        // in viewport pixels.
+        let free_min = egui::vec2(free_left - view.left(), free_top - view.top());
+        let free_max = egui::vec2(free_right - view.left(), view.height());
+        doc.editor
+            .set_free_area(glam::DVec2::new(free_min.x as f64, free_min.y as f64), glam::DVec2::new(free_max.x as f64, free_max.y as f64));
     }
 }
 
@@ -1256,6 +1805,11 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
             solidsketch_i18n::set_locale(&prefs.locale);
         }
         ui.end_row();
+        if !cfg!(target_arch = "wasm32") {
+            ui.label(t!("prefs.general.reopen"));
+            ui.checkbox(&mut prefs.reopen_documents, "");
+            ui.end_row();
+        }
     });
 }
 
@@ -1386,9 +1940,25 @@ fn interrupts_tap(e: &egui::Event) -> bool {
     }
 }
 
-/// The name of the file at `path`, without its folders.
-fn file_name(path: &str) -> &str {
-    path.rsplit(['/', '\\']).next().unwrap_or(path)
+/// Was `key` pressed this frame?
+fn ui_key(ctx: &egui::Context, key: egui::Key) -> bool {
+    ctx.input(|i| i.key_pressed(key))
+}
+
+/// Shows the file at `path` in the Finder, the Explorer or the file manager.
+#[cfg(not(target_arch = "wasm32"))]
+fn reveal(path: &str) {
+    let result = if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg("-R").arg(path).spawn()
+    } else if cfg!(windows) {
+        std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn()
+    } else {
+        let folder = std::path::Path::new(path).parent().map_or_else(|| ".".into(), |p| p.to_path_buf());
+        std::process::Command::new("xdg-open").arg(folder).spawn()
+    };
+    if let Err(e) = result {
+        log::warn!("cannot show {path}: {e}");
+    }
 }
 
 /// A row centered in `ui`: egui lays a row out from the left, so it is shifted by half the room
