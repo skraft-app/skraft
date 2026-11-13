@@ -1272,14 +1272,13 @@ live link between a sketch and the parts made from it (that would be a parametri
 change the outline later, the part is opened and its profile with it (as its machinings,
 §2.9). The cut list reads the thickness along the part's Z and the length and width from the
 profile's box, and gets the exact outline for DXF / SVG exports and nesting, without reading
-it back from the B-rep. A profile drawn on a face of a part and pulled in is a machining
-(pocket, cut-out) whose tool is a prism: §2.4 as it is.
+it back from the B-rep. (A prism drawn in an open part is a machining already, §2.9.)
 
-**Steps**: 1. the `Prism` primitive (straight sides) and the Prism tool (first named Polygon), faithful to OCL
-(this section; built 2026-11-13); 2. arcs in the profile and the tool (below; built
-2026-11-13); 3. the profile edited in an open part,
-the part kept parametric; 4. a profile on a face as a machining. Not planned: a geometric
-constraint solver (inferences and typed values play that part, SketchUp's way).
+**Steps**: 1. the `Prism` primitive (straight sides) and the Prism tool (first named Polygon),
+faithful to OCL (this section); 2. arcs in the profile and the tool (below); 3. the profile
+edited in an open part, the part kept parametric (below) — all three built on 2026-11-13.
+Not planned: a profile drawn on a face as a dedicated machining step (dropped on 2026-11-13);
+a geometric constraint solver (inferences and typed values play that part, SketchUp's way).
 
 **Primitive**: `Primitive::Prism { origin, profile, height }` — `profile`, the outer loop's
 corners in the XY plane through `origin` (relative to it, at least three, a simple outline,
