@@ -198,8 +198,8 @@ Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
   (`Cx::axes`, `Cx::axes_in_context` = the occurrence's T). **Drawing in an open part adds a
   machining** to it (`Operation::AddMachining`): the shape drawn, in the part's axes, is a
   tool, cut at once; the part stays open.
-- **Shown by default: the shape**, as anywhere else. A **"Machinings" switch** — a button at
-  the head of the option bar while a part is open, remembered in the preferences; neither a
+- **Shown by default: the shape**, as anywhere else. A **"Machinings" switch** — a button in
+  the option bar's "Options" group while a part is open, remembered in the preferences; neither a
   menu command nor a shortcut — shows instead **the blank as a ghost** (very light faces, sharp edges and
   silhouettes, drawn after the opaque pass, depth tested without writing) and **each
   machining's tool as a solid**, in a colour of the theme, another for those that failed.
@@ -224,7 +224,7 @@ Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
   and Rotate say what they change through `Cx::moved` (`Moved`: occurrences of the context, or
   machinings of the open part, each in its frame), copies and arrays through `LastCopy`.
 - **The scope** of every change to the open part (drawing, editing machinings) is a choice of
-  the option bar while it is open, next to the switch: "All occurrences ×N" / "Only this
+  the option bar while it is open, its first choice: "All occurrences ×N" / "Only this
   one", **back to "all" at each opening** (a change to one occurrence only makes it a
   separate part: better chosen each time). The `Related` marks follow it.
 - **The entity info of an open part lists its machinings** ("Machining 3 · 8 × 8 × 30 mm",
@@ -459,6 +459,14 @@ Decided on 2026-11-09.
     (`get_action_option_btn_child` of Smart Reshape and Smart Draw): Stretch, Box, Cylinder;
     the radius and "from a corner" have none in OCL, drawn in the same style. The option's name stays as text
     before a choice. Both rows of the card (buttons, options) are centered in it.
+  - **Look** (2026-11-13): the bar's buttons are drawn like the ribbon's (no frame until
+    hovered, the selection's fill and outline when on), an icon's button square. A choice is
+    a **segmented control**: its values side by side, drawn like the ribbon's buttons (no
+    track, no outline around the group), the chosen one's mark — a selected ribbon button's
+    fill and outline — sliding to the value chosen, easing out in 0.18 s (`panels::segmented`).
+    Each choice comes after its name (no colon, grey like a caption), the groups apart by
+    separators; the lone
+    toggles come last, together in an **"Options"** group, without separators between them.
   - **Two kinds of options**: **settings** (the scope…), remembered per tool in the user
     preferences (`tool_options`), read by the tool from its `Cx`; and the **gesture's state**
     (copy, for Move and Rotate), which the tool holds itself and which is not remembered.

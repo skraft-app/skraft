@@ -84,64 +84,231 @@ pub fn has_tool_options(editor: &Editor) -> bool {
     editor.open_part().is_some() || !editor.tool_options().is_empty()
 }
 
-/// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its options — a choice as a
-/// row of buttons, a toggle as one. An open part puts its "Machinings" switch first (§2.9).
+/// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its choices, each a segmented
+/// control after its name, then its lone toggles together in an "Options" group, all drawn like
+/// the ribbon's buttons. An open part puts its scope first and its "Machinings" switch among
+/// the toggles (§2.9).
 pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
+    let options = editor.tool_options();
     ui.horizontal(|ui| {
-        if editor.open_part().is_some() {
-            let on = editor.machinings_switch();
-            if ui.selectable_label(on, t!("option_bar.machinings")).on_hover_text(t!("option_bar.machinings_tip")).clicked() {
-                actions.push(Action::ToggleMachinings);
+        // The row as high as its buttons from the start: the first label is centered on them.
+        ui.set_min_height(OPTION_HEIGHT);
+        let mut first = true;
+        let mut group = |ui: &mut egui::Ui, label: &str, tip: &str| {
+            if !std::mem::take(&mut first) {
+                ui.separator();
             }
-            ui.separator();
-            ui.label(t!("option_bar.choice", option = t!("tool.boolean.option.scope"))).on_hover_text(t!("option_bar.part_scope_tip"));
+            // A group's name grey, a caption: its buttons are what the eye looks for.
+            ui.label(egui::RichText::new(label).color(ui.visuals().weak_text_color())).on_hover_text(tip);
+        };
+        if editor.open_part().is_some() {
+            group(ui, &t!("tool.boolean.option.scope"), &t!("option_bar.part_scope_tip"));
             let all = match editor.open_part_copies() {
                 n if n > 1 => t!("tool.boolean.option.all_count", count = n),
                 _ => t!("tool.boolean.option.all_one"),
             };
             let scope = editor.part_scope();
-            for (s, label, tip) in [
-                (Scope::All, all, t!("tool.boolean.option.all_tip")),
-                (Scope::This, t!("tool.boolean.option.this"), t!("tool.boolean.option.this_tip")),
-            ] {
-                if ui.selectable_label(scope == s, label).on_hover_text(tip).clicked() && scope != s {
-                    actions.push(Action::PartScope(s));
-                }
+            let scopes = [
+                (Scope::All, Segment::new(&all, &t!("tool.boolean.option.all_tip"), None, scope == Scope::All)),
+                (
+                    Scope::This,
+                    Segment::new(&t!("tool.boolean.option.this"), &t!("tool.boolean.option.this_tip"), None, scope == Scope::This),
+                ),
+            ];
+            let (values, segments): (Vec<_>, Vec<_>) = scopes.into_iter().unzip();
+            if let Some(i) = segmented(ui, egui::Id::unique("option_bar_part_scope"), &segments) {
+                actions.push(Action::PartScope(values[i]));
             }
         }
-        for (i, o) in editor.tool_options().into_iter().enumerate() {
-            if i > 0 || editor.open_part().is_some() {
-                ui.separator();
+        for o in &options {
+            let OptionValue::Choice(current) = &o.value else { continue };
+            group(ui, &o.label, &o.tip);
+            let segments: Vec<_> = o.choices.iter().map(|c| Segment::new(&c.label, &c.tip, c.icon, current == c.value)).collect();
+            if let Some(c) = segmented(ui, egui::Id::unique(("option_bar", o.key)), &segments) {
+                actions.push(Action::ToolOption(o.key, OptionValue::Choice(o.choices[c].value.to_owned())));
             }
-            match &o.value {
-                OptionValue::Choice(current) => {
-                    ui.label(t!("option_bar.choice", option = o.label)).on_hover_text(&o.tip);
-                    for c in &o.choices {
-                        if option_button(ui, current == c.value, &c.label, &c.tip, c.icon) && current != c.value {
-                            actions.push(Action::ToolOption(o.key, OptionValue::Choice(c.value.to_owned())));
-                        }
-                    }
-                }
-                OptionValue::Toggle(on) => {
-                    if option_button(ui, *on, &o.label, &o.tip, o.icon) {
-                        actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
-                    }
-                }
+        }
+        let toggles: Vec<_> = options.iter().filter_map(|o| if let OptionValue::Toggle(on) = o.value { Some((o, on)) } else { None }).collect();
+        if toggles.is_empty() && editor.open_part().is_none() {
+            return;
+        }
+        group(ui, &t!("option_bar.options"), &t!("option_bar.options_tip"));
+        // Side by side like the ribbon's buttons.
+        ui.spacing_mut().item_spacing.x = crate::ribbon::BUTTON_GAP;
+        if editor.open_part().is_some() {
+            let on = editor.machinings_switch();
+            if option_button(ui, on, &t!("option_bar.machinings"), &t!("option_bar.machinings_tip"), None) {
+                actions.push(Action::ToggleMachinings);
+            }
+        }
+        for (o, on) in toggles {
+            if option_button(ui, on, &o.label, &o.tip, o.icon) {
+                actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
             }
         }
     });
 }
 
-/// A value of a choice, or a toggle, in the option bar: its icon if it has one (its label then
-/// in the tip), else its label. True when clicked.
+/// The height of the option bar's buttons; an icon's button is a square of it.
+const OPTION_HEIGHT: f32 = 26.0;
+const OPTION_ICON: f32 = 18.0;
+/// The side margins of a text button.
+const OPTION_PAD: f32 = 8.0;
+/// How long a segmented control's mark takes to slide to the value chosen, in seconds.
+const SLIDE_TIME: f64 = 0.18;
+
+/// What a button of the option bar shows: its icon (its label then in the tip), else its label.
+enum Face {
+    Icon(egui::ImageSource<'static>),
+    Text(std::sync::Arc<egui::Galley>),
+}
+
+impl Face {
+    fn new(ui: &egui::Ui, label: &str, icon: Option<&str>) -> Self {
+        match icon.and_then(icons::option) {
+            Some(icon) => Face::Icon(icon),
+            None => Face::Text(ui.painter().layout_no_wrap(
+                label.to_owned(),
+                egui::TextStyle::Button.resolve(ui.style()),
+                egui::Color32::PLACEHOLDER,
+            )),
+        }
+    }
+
+    /// Its button's width at `height`: a square for an icon.
+    fn width(&self, height: f32) -> f32 {
+        match self {
+            Face::Icon(_) => height,
+            Face::Text(g) => g.size().x + 2.0 * OPTION_PAD,
+        }
+    }
+
+    fn paint(&self, ui: &egui::Ui, rect: egui::Rect, ink: egui::Color32) {
+        match self {
+            Face::Icon(icon) => egui::Image::new(icon.clone())
+                .tint(ink)
+                .paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(OPTION_ICON))),
+            Face::Text(g) => ui.painter().galley(rect.center() - g.size() / 2.0, g.clone(), ink),
+        }
+    }
+}
+
+/// The tip of a button: an icon's adds its label.
+fn face_tip(face: &Face, label: &str, tip: &str) -> String {
+    match face {
+        Face::Icon(_) => t!("option_bar.icon_tip", label = label, tip = tip),
+        Face::Text(_) => tip.to_owned(),
+    }
+}
+
+/// A toggle of the option bar, drawn like a ribbon button: no frame until hovered, the
+/// selection's fill and outline when on. True when clicked.
 fn option_button(ui: &mut egui::Ui, selected: bool, label: &str, tip: &str, icon: Option<&str>) -> bool {
-    let Some(icon) = icon.and_then(icons::option) else {
-        return ui.selectable_label(selected, label).on_hover_text(tip).clicked();
+    let face = Face::new(ui, label, icon);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(face.width(OPTION_HEIGHT), OPTION_HEIGHT), egui::Sense::click());
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
+    let visuals = ui.style().interact_selectable(&response, selected);
+    if selected || response.hovered() {
+        ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, egui::StrokeKind::Inside);
+    }
+    let ink = if selected { visuals.text_color() } else { ui.visuals().text_color() };
+    face.paint(ui, rect, ink);
+    response.on_hover_text(face_tip(&face, label, tip)).clicked()
+}
+
+/// A value of a choice in its segmented control.
+struct Segment {
+    label: String,
+    tip: String,
+    icon: Option<&'static str>,
+    selected: bool,
+}
+
+impl Segment {
+    fn new(label: &str, tip: &str, icon: Option<&'static str>, selected: bool) -> Self {
+        Segment { label: label.to_owned(), tip: tip.to_owned(), icon, selected }
+    }
+}
+
+/// A choice as a segmented control: its values side by side, drawn like ribbon buttons, the
+/// chosen one's mark (a selected ribbon button's fill and outline) sliding to the value chosen.
+/// The index of a value clicked other than the chosen one.
+fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment]) -> Option<usize> {
+    let faces: Vec<Face> = segments.iter().map(|s| Face::new(ui, &s.label, s.icon)).collect();
+    let widths: Vec<f32> = faces.iter().map(|f| f.width(OPTION_HEIGHT)).collect();
+    let (row, _) = ui.allocate_exact_size(egui::vec2(widths.iter().sum(), OPTION_HEIGHT), egui::Sense::hover());
+    let radius = ui.visuals().widgets.inactive.corner_radius;
+
+    // The segments' places along the row, from its left.
+    let lefts: Vec<f32> = widths.iter().scan(0.0, |x, w| Some(std::mem::replace(x, *x + w))).collect();
+    let place = |i: usize| egui::Rect::from_min_size(row.min + egui::vec2(lefts[i], 0.0), egui::vec2(widths[i], OPTION_HEIGHT));
+
+    let responses: Vec<egui::Response> = segments
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let response = ui.interact(place(i), id.with(i), egui::Sense::click());
+            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, s.selected, &s.label));
+            if response.hovered() && !s.selected {
+                let visuals = ui.style().interact(&response);
+                ui.painter().rect_filled(place(i), radius, visuals.weak_bg_fill);
+            }
+            response
+        })
+        .collect();
+
+    if let Some(c) = segments.iter().position(|s| s.selected) {
+        let (left, right) = slide(ui, id.with("slide"), (lefts[c], lefts[c] + widths[c]));
+        let mark = egui::Rect::from_x_y_ranges(row.left() + left..=row.left() + right, row.y_range());
+        let selected = ui.style().interact_selectable(&responses[c], true);
+        ui.painter().rect(mark, radius, selected.weak_bg_fill, selected.bg_stroke, egui::StrokeKind::Inside);
+    }
+
+    let mut clicked = None;
+    for (i, (s, response)) in segments.iter().zip(responses).enumerate() {
+        let ink = if s.selected { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
+        faces[i].paint(ui, place(i), ink);
+        if response.on_hover_text(face_tip(&faces[i], &s.label, &s.tip)).clicked() && !s.selected {
+            clicked = Some(i);
+        }
+    }
+    clicked
+}
+
+/// A segmented control's mark on its way to `to` (its left and right, from the row's left: a
+/// moving bar does not slide it), easing out over [`SLIDE_TIME`] from wherever it was.
+fn slide(ui: &egui::Ui, id: egui::Id, to: (f32, f32)) -> (f32, f32) {
+    #[derive(Clone, Copy)]
+    struct Slide {
+        from: (f32, f32),
+        to: (f32, f32),
+        start: f64,
+    }
+    impl Slide {
+        fn at(&self, now: f64) -> (f32, f32) {
+            let t = ((now - self.start) / SLIDE_TIME).clamp(0.0, 1.0) as f32;
+            let e = 1.0 - (1.0 - t).powi(3);
+            (egui::lerp(self.from.0..=self.to.0, e), egui::lerp(self.from.1..=self.to.1, e))
+        }
+    }
+    let now = ui.input(|i| i.time);
+    let kept = ui.data(|d| d.get_temp::<Slide>(id));
+    let s = match kept {
+        Some(s) if s.to == to => s,
+        // Shown at once the first time, else from where it is now.
+        _ => {
+            let s = match kept {
+                Some(k) => Slide { from: k.at(now), to, start: now },
+                None => Slide { from: to, to, start: now - SLIDE_TIME },
+            };
+            ui.data_mut(|d| d.insert_temp(id, s));
+            s
+        }
     };
-    let tint = ui.visuals().text_color();
-    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(18.0, 18.0)).tint(tint);
-    let tip = t!("option_bar.icon_tip", label = label, tip = tip);
-    ui.add(egui::Button::image(img).selected(selected).min_size(egui::vec2(24.0, 24.0))).on_hover_text(tip).clicked()
+    if now - s.start < SLIDE_TIME {
+        ui.ctx().request_repaint();
+    }
+    s.at(now)
 }
 
 /// The delete key's name (Backspace works too).
@@ -590,5 +757,31 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, acti
         let taken = |n: &str| doc.materials().any(|(_, m)| m.name == n);
         let name = (count + 1..).map(|k| t!("default_name.material", number = k)).find(|n| !taken(n)).unwrap_or_default();
         actions.push(Action::Apply(Operation::AddMaterial { name, color: NEW_COLORS[count % NEW_COLORS.len()] }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The mark's place at `time` (seconds), heading to `to`.
+    fn slide_at(ctx: &egui::Context, time: f64, to: (f32, f32)) -> (f32, f32) {
+        let mut at = (f32::NAN, f32::NAN);
+        let input = egui::RawInput { time: Some(time), ..Default::default() };
+        ctx.run_ui(input, |ui| at = slide(ui, egui::Id::unique("test_slide"), to)).textures_delta.clear();
+        at
+    }
+
+    #[test]
+    fn the_mark_is_shown_at_once_then_slides_to_the_value_chosen() {
+        let ctx = egui::Context::default();
+        let (a, b) = ((0.0, 26.0), (52.0, 78.0));
+        assert_eq!(slide_at(&ctx, 1.0, a), a, "no slide the first time");
+        assert_eq!(slide_at(&ctx, 1.1, a), a);
+        let start = slide_at(&ctx, 1.1 + SLIDE_TIME / 2.0, b);
+        assert_eq!(start, a, "starts where it was");
+        let half = slide_at(&ctx, 1.1 + SLIDE_TIME, b);
+        assert!(a.0 < half.0 && half.0 < b.0 && half.1 - half.0 == 26.0, "on its way: {half:?}");
+        assert_eq!(slide_at(&ctx, 1.1 + 2.0 * SLIDE_TIME, b), b);
     }
 }

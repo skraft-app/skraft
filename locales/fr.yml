@@ -261,8 +261,9 @@ render_stats:
 
 
 option_bar:
-  # Before a choice's values.
-  choice: "%{option} :"
+  # The group of the lone options (toggles), at the end of the bar.
+  options: "Options"
+  options_tip: "Les options à activer ou désactiver"
   # The tip of a value drawn as an icon: its name, then what it does.
   icon_tip: "%{label} — %{tip}"
   # The switch shown while a part is open: its blank as a ghost, its machinings' tools
@@ -628,7 +629,7 @@ tool:
     option:
       centered: "Centré"
       centered_tip: "Étirer de part et d'autre : les deux extrémités s'écartent d'autant (%{copy_key} pendant l'étirement : basculer)"
-      measure: "Cote"
+      measure: "Mesure"
       measure_tip: "Ce que mesure la valeur tapée ou affichée"
       overall: "Hors-tout"
       overall_tip: "Mesurer d'un bord à l'autre : la longueur totale de la pièce le long de l'axe"
