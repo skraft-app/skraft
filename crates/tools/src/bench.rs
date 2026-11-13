@@ -426,7 +426,13 @@ fn bench_step_model() {
     });
     let (doc, report) = time("model: Document::from_step", || Document::from_step(&step, "model"));
     drop(step);
-    eprintln!("parts {}, assemblies {}, excluded {}, placements {}", report.parts, report.assemblies, report.excluded, doc.placed_parts().len());
+    eprintln!(
+        "parts {}, assemblies {}, excluded {}, placements {}",
+        report.parts,
+        report.assemblies,
+        report.excluded,
+        doc.placed_parts().len()
+    );
     let kernel = Hold::default();
     let mut e = time("open (stand-ins)", || Editor::new(doc, Box::new(kernel.clone())));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
@@ -449,7 +455,8 @@ fn bench_step_model() {
         each.last().map_or(0.0, |d| d.as_secs_f64() * 1e3),
         each.get(each.len() / 2).map_or(0.0, |d| d.as_secs_f64() * 1e3)
     );
-    let results = time("meshing on every core", || solidsketch_kernel::parallel_map(&jobs, |(id, job)| (*id, solidsketch_kernel::run(job))));
+    let results =
+        time("meshing on every core", || solidsketch_kernel::parallel_map(&jobs, |(id, job)| (*id, solidsketch_kernel::run(job))));
     kernel.ready.borrow_mut().extend(results);
     time("meshes taken in (poll)", || e.poll());
     let (mut unique, mut drawn) = (0usize, 0usize);
