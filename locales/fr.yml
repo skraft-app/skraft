@@ -500,23 +500,39 @@ tool:
       radius_tip: "Du centre au bord"
       diameter: "Diamètre"
       diameter_tip: "D'un bord à l'autre, par le centre"
-  polygon:
-    name: "Polygone"
+  prism:
+    name: "Prisme"
     hint:
       first: "Cliquer le premier point · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
-      corners: "Cliquer le point suivant, ou taper une longueur · clic sur un point posé, double-clic ou Entrée : fermer · flèches : bloquer un axe · Maj : guide · %{copy_key} : inverser · Échap : retirer le dernier point"
+      corners: "Cliquer le point suivant, ou taper une longueur · clic sur un point posé, double-clic ou Entrée : fermer · flèches : bloquer un axe · Tab : tracé · Maj : guide · %{copy_key} : inverser · Échap : retirer le dernier point"
+      tangent: "Arc tangent : cliquer son extrémité, ou taper le rayon · revenir se poser sur le dernier point : lignes · Tab : tracé · %{copy_key} : inverser · Échap : retirer le dernier point"
+      arc_end: "Arc 2 points : cliquer son extrémité, ou taper la longueur de la corde · Tab : tracé · %{copy_key} : inverser · Échap : retirer le dernier point"
+      bulge: "Cliquer le bombé de l'arc, ou taper sa flèche · Échap : abandonner l'arc"
     vcb:
       length: "Longueur"
+      radius: "Rayon"
+      bulge: "Flèche"
       height: "$t(common.height)"
     say:
+      behind: "Un arc tangent ne peut pas repartir en arrière"
       too_few: "Il faut au moins trois points pour fermer le contour"
       crossed: "Le contour se croise : impossible de le fermer"
-      empty: "Polygone vide : hauteur nulle"
-      curved_face: "Cette face a des bords courbes : pas encore prise en charge"
+      empty: "Prisme vide : hauteur nulle"
+      curved_face: "Cette face a des bords ni droits ni en arc (ellipse, courbe libre) : pas prise en charge"
       offset_crossed: "Le décalage ferait se croiser le contour"
     option:
       reversed: "Inversé"
       reversed_tip: "Les nouveaux points s'ajoutent avant le premier au lieu d'après le dernier (%{copy_key} : basculer)"
+      fillet: "Congé"
+      fillet_tip: "Arrondit d'un rayon les coins entre deux côtés droits de la pièce faite, après le décalage · cliquer pour le taper, ou taper rayon suivi de r (5r)"
+      trace: "Tracé"
+      trace_tip: "Ce que trace le côté suivant (Tab pour changer)"
+      line: "Ligne"
+      line_tip: "Un côté droit"
+      tangent: "Arc tangent"
+      tangent_tip: "Un arc tangent au côté précédent, jusqu'au point cliqué (ou revenir se poser sur le dernier point)"
+      arc: "Arc 2 points"
+      arc_tip: "Un arc libre : cliquer son extrémité, puis son bombé"
   move:
     name: "$t(common.move)"
     hint:

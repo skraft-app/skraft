@@ -133,7 +133,7 @@ impl Viewport {
             _ if editor.busy() => egui::CursorIcon::Progress,     // the kernel is at work
             _ if editor.tool_copying() => egui::CursorIcon::Copy, // SketchUp's « + »
             // Primitives keep the arrow: the crosshair hides the snap point.
-            ToolKind::Select | ToolKind::Box | ToolKind::Cylinder | ToolKind::Polygon => egui::CursorIcon::Default,
+            ToolKind::Select | ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism => egui::CursorIcon::Default,
             ToolKind::Move => egui::CursorIcon::Move,
             ToolKind::Paint => egui::CursorIcon::PointingHand,
             _ => egui::CursorIcon::Crosshair,

@@ -62,8 +62,8 @@ use crate::camera::Ray;
 use crate::infer::{EdgeRef, InferKind, Inference, LineKind};
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 
-mod polygon;
-pub use polygon::PolygonTool;
+mod prism;
+pub use prism::PrismTool;
 
 /// The smallest dimension built (mm).
 const MIN: f64 = 1e-3;
@@ -403,7 +403,7 @@ fn base_at(cx: &Cx<'_>, px: DVec2, f: &Frame, dir: Option<DVec3>) -> Option<(Fra
 }
 
 /// The plane a second point inferred as `inf` sets through the first one, `f.o` (§ module doc:
-/// the box's second corner, the polygon's second corner), and the point on it: `f` is the plane
+/// the box's second corner, the prism's second corner), and the point on it: `f` is the plane
 /// so far, `dir` the direction the first click gave.
 fn second_plane(cx: &Cx<'_>, px: DVec2, f: &Frame, dir: Option<DVec3>, inf: Inference) -> (Frame, DVec3, Option<Inference>) {
     let o = f.o;

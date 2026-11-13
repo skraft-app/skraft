@@ -11,7 +11,7 @@ macro_rules! icon {
 icon!(SELECT, "select");
 icon!(BOX, "box");
 icon!(CYLINDER, "cylinder");
-icon!(POLYGON, "polygon");
+icon!(PRISM, "prism");
 icon!(MOVE, "move");
 icon!(ROTATE, "rotate");
 icon!(UNION, "union");
@@ -54,7 +54,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "tool.erase" => ERASE,
         "tool.box" => BOX,
         "tool.cylinder" => CYLINDER,
-        "tool.polygon" => POLYGON,
+        "tool.prism" => PRISM,
         "tool.move" => MOVE,
         "tool.rotate" => ROTATE,
         "tool.stretch" => STRETCH,
@@ -101,6 +101,9 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
         "measure_diameter",
         "from_corner",
         "measure_reversed",
+        "trace_line",
+        "trace_tangent",
+        "trace_arc",
     )
 }
 

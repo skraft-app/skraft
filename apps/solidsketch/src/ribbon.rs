@@ -65,8 +65,8 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
                 group(
                     "create",
                     || t!("ribbon.group.create"),
-                    &["tool.box", "tool.cylinder", "tool.polygon"],
-                    &["tool.box", "tool.cylinder", "tool.polygon"],
+                    &["tool.box", "tool.cylinder", "tool.prism"],
+                    &["tool.box", "tool.cylinder", "tool.prism"],
                 ),
                 group(
                     "modify",
@@ -804,11 +804,11 @@ mod tests {
         let tab = p.tab();
         let create = &tab.groups[0];
         let k = key(w, Some(tab), create);
-        assert_eq!(p.pinned(&k, create), ["tool.box", "tool.cylinder", "tool.polygon"]);
+        assert_eq!(p.pinned(&k, create), ["tool.box", "tool.cylinder", "tool.prism"]);
         p.apply(Change::TogglePin { key: k.clone(), group: create, id: "tool.box" });
-        assert_eq!(p.pinned(&k, create), ["tool.cylinder", "tool.polygon"]);
+        assert_eq!(p.pinned(&k, create), ["tool.cylinder", "tool.prism"]);
         p.apply(Change::TogglePin { key: k.clone(), group: create, id: "tool.box" });
-        assert_eq!(p.pinned(&k, create), ["tool.box", "tool.cylinder", "tool.polygon"]);
+        assert_eq!(p.pinned(&k, create), ["tool.box", "tool.cylinder", "tool.prism"]);
         assert!(p.pins.is_empty(), "back to the defaults, nothing is kept");
         let view = &w.tabs[2].groups[2];
         let kv = key(w, Some(&w.tabs[2]), view);

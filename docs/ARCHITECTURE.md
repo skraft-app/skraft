@@ -1261,7 +1261,7 @@ The pattern is a web browser's; the drawing is ours.
   question) are added.
 - **Texts**: `tabs.*` and `start.*` keys of the catalog, without ellipsis (§6 quater).
 
-## 6 nonies. Polygon and profiled blanks
+## 6 nonies. Prism tool and profiled blanks
 
 Discussed on 2026-11-13, after OpenCutList's `SmartDrawPolygonActionHandler`
 (`tool/smart_draw_tool.rb`). Branch `feature/shape-polygon`.
@@ -1275,27 +1275,33 @@ profile's box, and gets the exact outline for DXF / SVG exports and nesting, wit
 it back from the B-rep. A profile drawn on a face of a part and pulled in is a machining
 (pocket, cut-out) whose tool is a prism: §2.4 as it is.
 
-**Steps**: 1. the `Prism` primitive (straight sides) and the Polygon tool, faithful to OCL
-(this section); 2. arcs in the profile and the tool; 3. the profile edited in an open part,
+**Steps**: 1. the `Prism` primitive (straight sides) and the Prism tool (first named Polygon), faithful to OCL
+(this section; built 2026-11-13); 2. arcs in the profile and the tool (below); 3. the profile edited in an open part,
 the part kept parametric; 4. a profile on a face as a machining. Not planned: a geometric
 constraint solver (inferences and typed values play that part, SketchUp's way).
 
-**Primitive** (step 1): `Primitive::Prism { origin, profile, height }` — `profile`, the outer
-loop's corners in the XY plane through `origin` (relative to it, at least three, a simple
-polygon, either way round: the kernel turns it), extruded along +Z by `height`. Its
-`at_origin` puts the part's origin at the lowest corner of the profile's box, as a box's.
-Built by SolidCore's `prism::extrude::extrude_region` (a `Region2` of `Seg2::Line`s on the
-frame, swept from 0 to `height`). Step 2 turns the corners into segments (a bulge per corner,
-as DXF's LWPOLYLINE, or `Seg2::Arc`), holes later. The tool refuses a profile that crosses
-itself before the kernel does.
+**Primitive**: `Primitive::Prism { origin, profile, height }` — `profile`, the outer loop's
+corners in the XY plane through `origin` (relative to it, at least three, a simple outline,
+either way round: the kernel turns it), extruded along +Z by `height`. Its `at_origin` puts
+the part's origin at the lowest corner of the profile's box (arcs included), as a box's.
+Built by SolidCore's `prism::extrude::extrude_region` (a `Region2` of `Seg2::Line`s and
+`Seg2::Arc`s on the frame, swept from 0 to `height`). Holes later. The tool refuses a profile
+that crosses itself before the kernel does.
 
-**Tool** « Polygone » (`tool.polygon`, P, ribbon group Create after the cylinder). Its
+**Arcs** (step 2, decided on 2026-11-13): each corner is `{ p, bulge }`, as DXF's LWPOLYLINE
+(OCL's DXF export): `bulge` = tan(sweep / 4) curves the side from that corner to the next one,
+0 straight, positive turning counter-clockwise. The ends are shared, so the outline cannot
+open. `kernel::profile` works on these outlines: area, clean-up, simplicity (lines and arcs
+crossing), the box, the offset (an arc offset is the concentric arc, as SolidCraft's; an arc
+the offset turns over or shrinks to nothing is taken out as a line would be), the fillets,
+and points along it for the previews.
+
+**Tool** « Prisme » (`tool.prism`, P, ribbon group Create after the cylinder; renamed from « Polygone » on 2026-11-13: what it makes is a prism, the polygon only its outline). Its
 states are OCL's: the first point, the points, the height.
 
 - **First point**: the box's first step (§6, §6 ter: the plane of the face aimed at, an edge,
   the ground; the arrows lock the plane, ↓ the face's; the copy modifier held takes a face's
-  centroid, Shift tapped then its whole outer loop as the profile — straight sides only until
-  step 2 — and the height follows; the other modifier measures from a corner). The plane
+  centroid, Shift tapped then its whole outer loop as the profile, and the height follows; the other modifier measures from a corner). The plane
   locked then stays for the whole profile (OCL's `@locked_normal`), and the arrow locks are
   dropped once the point is placed: from there they lock an axis.
 - **Points**: each click adds a corner; the cursor's point is inferred with the lines through
@@ -1340,6 +1346,24 @@ states are OCL's: the first point, the points, the height.
   triangle). Refused, said in the status bar, the height step kept: nothing left (inward past
   the middle), or an outline that would cross itself (an outward offset closing a notch, an
   inward one pinching a neck: one outline cannot be two pieces).
+- **Sides** (step 2): the choice « Tracé » in the bar — Ligne, Arc tangent, Arc 2 points —
+  turned by Tab, not saved (each outline starts with lines, as SolidCraft's chains); the
+  cursor carries a word for an arc mode (the inference's tip). SolidCraft's gesture
+  (`ui-egui/src/sketch_line_arc.rs`) switches Ligne ↔ Arc tangent: leave the last corner
+  (20 px), come back onto it (8 px) and rest there 0.35 s (drifting 2 px at most); then it
+  must be left again before switching back. The side closing the outline follows the mode.
+  - *Arc tangent*: from the last corner (the first, reversed), tangent to the side ending
+    there, to the cursor's point; with no side yet, a line. Its end straight behind is
+    refused. Typed: the radius, the cursor keeping the side the arc turns to.
+  - *Arc 2 points* (SketchUp's): a click sets the end, a second one the bulge (the arc
+    through the cursor's point); the bulge snaps to the half circle within 10 px. Typed: the
+    end as a line's, then the bulge's height (sagitta). Esc drops the arc under way.
+- **Fillet** (step 2): the « Congé » length option (saved for the tool, `5r` at any step, as
+  the offset's `5x`) rounds every corner between two straight sides at creation, after the
+  offset — the radius is the made part's. A corner whose sides are too short for it (the
+  fillets at both ends of a side counted) stays sharp. Previewed with the offset's outline.
+- **Whole face** (step 2): Shift with the copy modifier held takes a face's outer outline with
+  its arcs too.
 
 ## 7. Crates
 

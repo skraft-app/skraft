@@ -46,21 +46,27 @@ impl Solid {
         create("cone", |k| prim::create_cone(k, p3(origin), base_radius, top_radius, height))
     }
 
-    /// The polygon `profile` (corners in the XY plane through `origin`, relative to it) extruded
-    /// along +Z by `height`: SolidCore's planar region swept between two levels. Repeated and
-    /// straight corners are dropped; a polygon that is not simple is refused.
-    pub fn new_prism(origin: DVec3, profile: &[DVec2], height: f64) -> Result<Self> {
+    /// The outline `profile` (corners in the XY plane through `origin`, relative to it, each
+    /// with the bulge of its side) extruded along +Z by `height`: SolidCore's planar region of
+    /// lines and arcs swept between two levels. Sides of no length and straight corners are
+    /// dropped; an outline that is not simple is refused.
+    pub fn new_prism(origin: DVec3, profile: &[crate::profile::Corner], height: f64) -> Result<Self> {
+        use crate::profile::{self as pr, Side};
         use solidcore::prism::profile::{Loop2, Region2, Seg2};
-        let mut p = crate::profile::cleaned(profile);
-        if !crate::profile::is_simple(&p) || !(height.is_finite() && height > 0.0) {
-            return Err(Error::Kernel { call: "prism".into(), message: "profile not a simple polygon, or no height".into() });
+        let p = pr::cleaned(profile);
+        if !pr::is_simple(&p) || !(height.is_finite() && height > 0.0) {
+            return Err(Error::Kernel { call: "prism".into(), message: "profile not a simple outline, or no height".into() });
         }
         // The outer loop counter-clockwise.
-        if crate::profile::signed_area2(&p) < 0.0 {
-            p.reverse();
-        }
+        let p = pr::counter_clockwise(&p);
         let pt = |v: DVec2| solidcore::Point2::new(v.x, v.y);
-        let segs = (0..p.len()).map(|i| Seg2::Line { a: pt(p[i]), b: pt(p[(i + 1) % p.len()]) }).collect();
+        let segs = pr::sides(&p)
+            .into_iter()
+            .map(|s| match s {
+                Side::Line { a, b } => Seg2::Line { a: pt(a), b: pt(b) },
+                Side::Arc { c, r, start, sweep, .. } => Seg2::Arc { center: pt(c), radius: r, start, sweep },
+            })
+            .collect();
         let region = Region2 { outer: Loop2 { segs }, holes: Vec::new() };
         let frame = solidcore::eval::Frame { origin: origin.to_array(), x_axis: [1.0, 0.0, 0.0], y_axis: [0.0, 1.0, 0.0] };
         create("prism", |k| solidcore::prism::extrude::extrude_region(k, &frame, &region, 0.0, height))

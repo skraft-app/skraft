@@ -391,6 +391,7 @@ impl Editor {
     fn cx_for(&self, kind: ToolKind) -> Cx<'_> {
         let doc = self.history.document();
         Cx {
+            now: self.now,
             doc,
             scene: &self.scene,
             camera: &self.camera,
@@ -463,7 +464,14 @@ impl Editor {
         if matches!(self.tool.vcb(), Some(vcb::Vcb { kind: vcb::VcbKind::Count, .. })) {
             return None;
         }
-        let len = text.trim().strip_suffix(['x', 'X'])?;
+        // A suffix the tool gives one of its length options (the prism tool's `5r`, its fillet).
+        let text = text.trim();
+        if let Some(last) = text.chars().last()
+            && let Some(key) = self.tool.length_suffix(last.to_ascii_lowercase())
+        {
+            return Some((key, &text[..text.len() - last.len_utf8()]));
+        }
+        let len = text.strip_suffix(['x', 'X'])?;
         let option = self.tool_options().into_iter().find(|o| matches!(o.value, OptionValue::Length(_)))?;
         Some((option.key, len))
     }
@@ -551,6 +559,14 @@ impl Editor {
     /// even without input).
     pub fn tick(&mut self, now: f64) -> bool {
         self.now = now;
+        // A tool waiting on the time (the prism tool's rest on its last corner) follows the cursor
+        // again, which hasn't moved.
+        if self.tool.waiting() {
+            self.rehover();
+            if self.tool.waiting() {
+                return true;
+            }
+        }
         let Some((p, since)) = self.dwell else { return false };
         if self.tracked.contains(&p) {
             return false;
