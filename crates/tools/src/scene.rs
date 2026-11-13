@@ -442,11 +442,7 @@ impl DisplayScene {
     pub fn inferable_where(&self, accept: impl Fn(&(DVec3, DVec3)) -> bool) -> Vec<(&Placement, &PartMesh, Piece)> {
         let open = self.recipe_open();
         let mut hits = Vec::new();
-        self.index.bvh.visit(&accept, |i| {
-            if self.index.entries[i as usize].bounds.as_ref().is_some_and(&accept) {
-                hits.push(i);
-            }
-        });
+        self.index.bvh.visit(&accept, |i| hits.push(i));
         hits.sort_unstable();
         let shapes = hits
             .into_iter()
@@ -461,11 +457,7 @@ impl DisplayScene {
     /// with its rank there: `accept` must hold of a box whenever it holds of one inside it.
     pub fn parts_where(&self, accept: impl Fn(&(DVec3, DVec3)) -> bool) -> Vec<(usize, &Placement, &PartMesh)> {
         let mut hits = Vec::new();
-        self.index.bvh.visit(&accept, |i| {
-            if self.index.entries[i as usize].bounds.as_ref().is_some_and(&accept) {
-                hits.push(i);
-            }
-        });
+        self.index.bvh.visit(&accept, |i| hits.push(i));
         hits.sort_unstable();
         hits.into_iter()
             .map(|i| {

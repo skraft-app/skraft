@@ -2,15 +2,21 @@
 //! answer a ray or a region without testing every placement.
 //!
 //! Built whole from its items' boxes (a linear BVH): the boxes ordered along a Morton curve
-//! through their centres, then that order halved down to a few items per leaf, each node's
-//! bounds gathered from its children's; nodes are laid out depth first in one array (an
-//! inner node's left child follows it). Items are only indices: what they stand for, and
-//! the exact tests, stay with the caller.
+//! through their centres, one scale on the three axes so that the curve follows space, then
+//! that order cut where the highest bit that differs among its codes turns on (each node is
+//! a cell of an octree, its items near one another) down to a few items per leaf, each
+//! node's bounds gathered from its children's; nodes are laid out depth first in one array
+//! (an inner node's left child follows it). Leaves hold their items' boxes, tested before
+//! an item is handed out. Items are only indices: what they stand for, and the exact tests,
+//! stay with the caller.
 
 use glam::DVec3;
 
 /// Items per leaf, at most.
 const LEAF: usize = 4;
+
+/// The largest coordinate along one axis of the Morton curve (21 bits).
+const MORTON_MAX: f64 = ((1u64 << 21) - 1) as f64;
 
 pub(crate) type Aabb = (DVec3, DVec3);
 
@@ -26,51 +32,62 @@ struct Node {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Bvh {
     nodes: Vec<Node>,
-    items: Vec<u32>,
+    /// The items (index, world box), leaf by leaf.
+    items: Vec<(u32, Aabb)>,
 }
 
 impl Bvh {
     /// The hierarchy of `items` (index, world box).
     pub(crate) fn build(items: impl IntoIterator<Item = (u32, Aabb)>) -> Bvh {
         let items: Vec<(u32, Aabb)> = items.into_iter().collect();
-        let mut bvh = Bvh { nodes: Vec::with_capacity(2 * items.len() / LEAF + 1), items: Vec::with_capacity(items.len()) };
+        let mut bvh = Bvh { nodes: Vec::with_capacity(items.len()), items: Vec::with_capacity(items.len()) };
         if items.is_empty() {
             return bvh;
         }
-        // Ordered along a Morton curve through the boxes' centres: halving that order halves
-        // space, without sorting again at each level.
+        // Ordered along a Morton curve through the boxes' centres, the same scale on every
+        // axis: a cell of the curve is a cube, however long and flat the scene.
         let centre = |b: &Aabb| (b.0 + b.1) * 0.5;
         let (lo, hi) = items.iter().fold((DVec3::INFINITY, DVec3::NEG_INFINITY), |(lo, hi), (_, b)| (lo.min(centre(b)), hi.max(centre(b))));
-        let scale = (hi - lo).max(DVec3::splat(1e-12)).recip() * ((1u64 << 21) - 1) as f64;
+        let scale = MORTON_MAX / (hi - lo).max_element().max(1e-12);
         let mut order: Vec<(u64, u32)> = items
             .iter()
             .enumerate()
             .map(|(k, (_, b))| {
-                let q = ((centre(b) - lo) * scale).max(DVec3::ZERO);
+                let q = ((centre(b) - lo) * scale).clamp(DVec3::ZERO, DVec3::splat(MORTON_MAX));
                 (morton(q.x as u64) | morton(q.y as u64) << 1 | morton(q.z as u64) << 2, k as u32)
             })
             .collect();
         order.sort_unstable();
+        let codes: Vec<u64> = order.iter().map(|(c, _)| *c).collect();
         let sorted: Vec<(u32, Aabb)> = order.into_iter().map(|(_, k)| items[k as usize]).collect();
-        bvh.split(&sorted);
+        bvh.split(&codes, &sorted);
         bvh
     }
 
-    /// The node of `items` (in Morton order) and those below it; returns its bounds.
-    fn split(&mut self, items: &[(u32, Aabb)]) -> Aabb {
+    /// The node of `items` (in Morton order, with their `codes`) and those below it; returns
+    /// its bounds.
+    fn split(&mut self, codes: &[u64], items: &[(u32, Aabb)]) -> Aabb {
         let at = self.nodes.len();
         if items.len() <= LEAF {
-            let bounds = items.iter().skip(1).fold(items[0].1, |(lo, hi), (_, b)| (lo.min(b.0), hi.max(b.1)));
+            let bounds = enclose(items);
             self.nodes.push(Node { bounds, index: self.items.len() as u32, count: items.len() as u32 });
-            self.items.extend(items.iter().map(|(i, _)| *i));
+            self.items.extend_from_slice(items);
             return bounds;
         }
+        // Cut where the highest bit that differs among the codes turns on: both sides are
+        // cells of the octree. The codes all equal (centres in one cell): halved.
+        let (first, last) = (codes[0], codes[codes.len() - 1]);
+        let mid = if first == last {
+            items.len() / 2
+        } else {
+            let bit = 63 - (first ^ last).leading_zeros();
+            codes.partition_point(|c| c >> bit & 1 == 0)
+        };
         self.nodes.push(Node { bounds: items[0].1, index: 0, count: 0 });
-        let (left, right) = items.split_at(items.len() / 2);
-        let a = self.split(left);
+        let a = self.split(&codes[..mid], &items[..mid]);
         self.nodes[at].index = self.nodes.len() as u32;
-        let b = self.split(right);
-        let bounds = (a.0.min(b.0), a.1.max(b.1));
+        let b = self.split(&codes[mid..], &items[mid..]);
+        let bounds = union(a, b);
         self.nodes[at].bounds = bounds;
         bounds
     }
@@ -83,17 +100,21 @@ impl Bvh {
         for n in (0..self.nodes.len()).rev() {
             let node = self.nodes[n];
             let b = if node.count > 0 {
-                let items = &self.items[node.index as usize..(node.index + node.count) as usize];
-                items.iter().skip(1).fold(bounds(items[0]), |(lo, hi), i| {
-                    let b = bounds(*i);
-                    (lo.min(b.0), hi.max(b.1))
-                })
+                let items = &mut self.items[node.index as usize..(node.index + node.count) as usize];
+                for (i, b) in items.iter_mut() {
+                    *b = bounds(*i);
+                }
+                enclose(items)
             } else {
-                let (a, b) = (self.nodes[n + 1].bounds, self.nodes[node.index as usize].bounds);
-                (a.0.min(b.0), a.1.max(b.1))
+                union(self.nodes[n + 1].bounds, self.nodes[node.index as usize].bounds)
             };
             self.nodes[n].bounds = b;
         }
+    }
+
+    /// A leaf's items.
+    fn leaf(&self, node: &Node) -> &[(u32, Aabb)] {
+        &self.items[node.index as usize..(node.index + node.count) as usize]
     }
 
     /// Calls `item` with each item whose box `accept`s, the nodes holding it accepted too:
@@ -109,8 +130,15 @@ impl Bvh {
                 continue;
             }
             if node.count > 0 {
-                for &i in &self.items[node.index as usize..(node.index + node.count) as usize] {
-                    item(i);
+                // A leaf of one: its box is the node's, accepted already.
+                if node.count == 1 {
+                    item(self.items[node.index as usize].0);
+                    continue;
+                }
+                for (i, b) in self.leaf(node) {
+                    if accept(b) {
+                        item(*i);
+                    }
                 }
             } else {
                 stack.push(node.index);
@@ -132,7 +160,23 @@ impl Bvh {
             }
             let node = &self.nodes[n as usize];
             if node.count > 0 {
-                for &i in &self.items[node.index as usize..(node.index + node.count) as usize] {
+                // The leaf's boxes the ray meets before `far`, nearest first.
+                let mut near = [(0.0, 0u32); LEAF];
+                let mut k = 0;
+                for (i, b) in self.leaf(node) {
+                    if let Some(t) = ray_box_entry(o, d, b, t_min)
+                        && t <= far
+                    {
+                        near[k] = (t, *i);
+                        k += 1;
+                    }
+                }
+                let near = &mut near[..k];
+                near.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+                for &(t, i) in near.iter() {
+                    if t > far {
+                        break;
+                    }
                     far = far.min(item(i));
                 }
                 continue;
@@ -150,6 +194,16 @@ impl Bvh {
             }
         }
     }
+}
+
+/// The box around two.
+fn union(a: Aabb, b: Aabb) -> Aabb {
+    (a.0.min(b.0), a.1.max(b.1))
+}
+
+/// The box around some items' (at least one).
+fn enclose(items: &[(u32, Aabb)]) -> Aabb {
+    items[1..].iter().fold(items[0].1, |a, (_, b)| union(a, *b))
 }
 
 /// `x`'s 21 low bits spread to every third bit (a Morton code's share of one axis).
@@ -211,12 +265,9 @@ mod tests {
         let bvh = Bvh::build(bs.iter().enumerate().map(|(i, b)| (i as u32, *b)));
         let region = (DVec3::splat(100.0), DVec3::splat(250.0));
         let meets = |(lo, hi): &Aabb| lo.cmple(region.1).all() && hi.cmpge(region.0).all();
+        // Only the items whose own box is accepted.
         let mut found = Vec::new();
-        bvh.visit(meets, |i| {
-            if meets(&bs[i as usize]) {
-                found.push(i)
-            }
-        });
+        bvh.visit(meets, |i| found.push(i));
         found.sort();
         let scan: Vec<u32> = (0..bs.len() as u32).filter(|i| meets(&bs[*i as usize])).collect();
         assert!(!scan.is_empty());
@@ -237,9 +288,10 @@ mod tests {
             let mut tested = 0;
             bvh.along_ray(o, d, 0.0, |i| {
                 tested += 1;
-                if let Some(t) = ray_box_entry(o, d, &bs[i as usize], 0.0)
-                    && best.is_none_or(|(b, _)| t < b)
-                {
+                // Only boxes the ray meets, before the nearest hit so far.
+                let t = ray_box_entry(o, d, &bs[i as usize], 0.0).expect("a box the ray meets");
+                assert!(best.is_none_or(|(b, _)| t <= b));
+                if best.is_none_or(|(b, _)| t < b) {
                     best = Some((t, i));
                 }
                 best.map_or(f64::INFINITY, |(b, _)| b)
@@ -248,7 +300,7 @@ mod tests {
                 .filter_map(|i| ray_box_entry(o, d, &bs[i as usize], 0.0).map(|t| (t, i)))
                 .min_by(|a, b| a.0.total_cmp(&b.0));
             assert_eq!(best.map(|b| b.0), scan.map(|b| b.0), "{o} {d}");
-            assert!(tested < bs.len() / 4, "{tested} tested");
+            assert!(tested < 10, "{tested} tested");
         }
     }
 
@@ -256,7 +308,7 @@ mod tests {
     fn a_refit_hierarchy_finds_what_a_scan_finds() {
         let mut bs = boxes(500);
         let mut bvh = Bvh::build(bs.iter().enumerate().map(|(i, b)| (i as u32, *b)));
-        // Every box moved and grown a little, some a lot.
+        // Every box moved and grown a little, some a lot (the items' own boxes too).
         for (i, b) in bs.iter_mut().enumerate() {
             let shift = DVec3::new((i % 7) as f64, (i % 5) as f64 * 2.0, 0.0) * if i % 50 == 0 { 40.0 } else { 1.0 };
             *b = (b.0 + shift, b.1 + shift + DVec3::splat(0.5));
@@ -265,15 +317,121 @@ mod tests {
         let region = (DVec3::splat(150.0), DVec3::splat(300.0));
         let meets = |(lo, hi): &Aabb| lo.cmple(region.1).all() && hi.cmpge(region.0).all();
         let mut found = Vec::new();
-        bvh.visit(meets, |i| {
-            if meets(&bs[i as usize]) {
-                found.push(i)
-            }
-        });
+        bvh.visit(meets, |i| found.push(i));
         found.sort();
         let scan: Vec<u32> = (0..bs.len() as u32).filter(|i| meets(&bs[*i as usize])).collect();
         assert!(!scan.is_empty());
         assert_eq!(found, scan);
+    }
+
+    /// Build and queries over a few scenes where the index is tested: per ray and per region,
+    /// how many items reach the caller and how long it takes (ignored; run with
+    /// `cargo test -p solidsketch-tools --release bench_bvh -- --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn bench_bvh() {
+        use std::time::Instant;
+        let mut seed = 777u64;
+        let mut rnd = move || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let cube = |lo: DVec3, s: f64| (lo, lo + DVec3::splat(s));
+        // 40 000 cubes of 20 on a 200 × 200 grid, every 100.
+        let grid: Vec<Aabb> = (0..40_000).map(|i| cube(DVec3::new((i % 200) as f64, (i / 200) as f64, 0.0) * 100.0, 20.0)).collect();
+        // 10 000 cubes under 20 plates as wide as the grid (bench_mixed_sizes).
+        let mut mixed: Vec<Aabb> = (0..10_000).map(|i| cube(DVec3::new((i % 100) as f64, (i / 100) as f64, 0.0) * 100.0, 20.0)).collect();
+        mixed.extend((0..20).map(|k| {
+            let lo = DVec3::new(-50.0, -50.0, 40.0 + k as f64 * 30.0);
+            (lo, lo + DVec3::new(10_000.0, 10_000.0, 5.0))
+        }));
+        // 20 000 boards (18 thick, 200 to 2 000 long) in a long, low and shallow room.
+        let room = DVec3::new(20_000.0, 1_500.0, 2_400.0);
+        let boards: Vec<Aabb> = (0..20_000)
+            .map(|_| {
+                let mut size = DVec3::new(200.0 + 1_800.0 * rnd(), 100.0 + 500.0 * rnd(), 18.0);
+                size = match (rnd() * 3.0) as u32 {
+                    0 => size,
+                    1 => DVec3::new(size.z, size.y, size.x),
+                    _ => DVec3::new(size.x, size.z, size.y),
+                };
+                let lo = DVec3::new(rnd(), rnd(), rnd()) * (room - size).max(DVec3::ZERO);
+                (lo, lo + size)
+            })
+            .collect();
+        for (name, bs) in [("grid 40k", &grid), ("mixed 10k + plates", &mixed), ("boards 20k", &boards)] {
+            let t = Instant::now();
+            let bvh = Bvh::build(bs.iter().enumerate().map(|(i, b)| (i as u32, *b)));
+            let build = t.elapsed().as_secs_f64() * 1e3;
+            let (lo, hi) = bs.iter().fold((DVec3::INFINITY, DVec3::NEG_INFINITY), |(lo, hi), b| (lo.min(b.0), hi.max(b.1)));
+            let span = hi - lo;
+            // Rays from above and aside towards random points of the scene, the nearest box kept.
+            let rays: Vec<(DVec3, DVec3)> = (0..20_000)
+                .map(|k| {
+                    let target = lo + DVec3::new(rnd(), rnd(), rnd()) * span;
+                    let eye = if k % 2 == 0 {
+                        lo + DVec3::new(rnd() * span.x, -span.y - 1_000.0, span.z * 2.0 + 1_000.0)
+                    } else {
+                        hi + DVec3::new(1_000.0, 1_000.0, 1_000.0) + span * 0.5
+                    };
+                    (eye, (target - eye).normalize())
+                })
+                .collect();
+            let (mut called, mut hits) = (0usize, 0usize);
+            let t = Instant::now();
+            for &(o, d) in &rays {
+                let mut best = f64::INFINITY;
+                bvh.along_ray(o, d, 0.0, |i| {
+                    called += 1;
+                    if let Some(t) = ray_box_entry(o, d, &bs[i as usize], 0.0) {
+                        best = best.min(t);
+                    }
+                    best
+                });
+                hits += best.is_finite() as usize;
+            }
+            let ray_us = t.elapsed().as_secs_f64() * 1e6 / rays.len() as f64;
+            // Regions of a twentieth of the scene across.
+            let (mut region_called, mut found) = (0usize, 0usize);
+            let t = Instant::now();
+            for _ in 0..2_000 {
+                let a = lo + DVec3::new(rnd(), rnd(), rnd()) * span;
+                let region = (a, a + span * 0.05);
+                let meets = |(lo, hi): &Aabb| lo.cmple(region.1).all() && hi.cmpge(region.0).all();
+                bvh.visit(meets, |i| {
+                    region_called += 1;
+                    found += meets(&bs[i as usize]) as usize;
+                });
+            }
+            let region_us = t.elapsed().as_secs_f64() * 1e6 / 2_000.0;
+            eprintln!(
+                "{name:<20} build {build:>6.2} ms | ray {ray_us:>6.2} µs, {:>6.1} items called ({:.0} % hit) | region {region_us:>6.2} µs, {:>6.1} items called for {:>6.1} found",
+                called as f64 / rays.len() as f64,
+                hits as f64 * 100.0 / rays.len() as f64,
+                region_called as f64 / 2_000.0,
+                found as f64 / 2_000.0,
+            );
+        }
+    }
+
+    /// Boxes all centred alike (one Morton code), or along one thin axis: halved, and found.
+    #[test]
+    fn same_centres_and_a_flat_scene() {
+        let nested: Vec<Aabb> = (1..=50).map(|k| (DVec3::splat(-(k as f64)), DVec3::splat(k as f64))).collect();
+        let row: Vec<Aabb> =
+            (0..500).map(|k| (DVec3::new(k as f64 * 10.0, 0.0, 0.0), DVec3::new(k as f64 * 10.0 + 5.0, 1.0, 1.0))).collect();
+        for bs in [nested, row] {
+            let bvh = Bvh::build(bs.iter().enumerate().map(|(i, b)| (i as u32, *b)));
+            assert!(bvh.nodes.iter().all(|n| n.count as usize <= LEAF));
+            let region = (DVec3::new(20.0, -2.0, -2.0), DVec3::new(42.0, 2.0, 2.0));
+            let meets = |(lo, hi): &Aabb| lo.cmple(region.1).all() && hi.cmpge(region.0).all();
+            let mut found = Vec::new();
+            bvh.visit(meets, |i| found.push(i));
+            found.sort();
+            let scan: Vec<u32> = (0..bs.len() as u32).filter(|i| meets(&bs[*i as usize])).collect();
+            assert!(!scan.is_empty());
+            assert_eq!(found, scan);
+        }
     }
 
     #[test]

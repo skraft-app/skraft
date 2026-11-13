@@ -1149,8 +1149,10 @@ Drawing                1 instanced draw per definition, with the N world matrice
 - **Spatial index** (decided on 2026-11-12, after a stretch among 10 000 cubes fell to 30 FPS):
   no query per mouse move tests every placement. Each `DisplayScene::sync` rebuilds an index
   of the placed meshes (`scene.rs`, `SceneIndex`): their world boxes in a linear BVH
-  (`bvh.rs`: Morton order, halved down to 4 items per leaf, built in O(n log n) by one integer
-  sort), and the same entries sorted by occurrence path (an occurrence's parts, at any depth,
+  (`bvh.rs`: Morton order of the centres, one scale on the three axes, cut where the highest
+  differing bit of the codes turns on, down to 4 items per leaf, built in O(n log n) by one
+  integer sort; the leaves keep their items' boxes and hand out only those that pass the test),
+  and the same entries sorted by occurrence path (an occurrence's parts, at any depth,
   form a run). Picking walks the BVH nearest box first and skips boxes beyond the best hit
   (plus its tie tolerance); inferences take the meshes near the ray (`inferable_where`), the
   rectangle selection those whose box seen meets the rectangle (`parts_where`; a window takes an
