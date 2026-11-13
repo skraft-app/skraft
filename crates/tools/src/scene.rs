@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::{Display, Mesh, Snaps, Solid};
-use solidsketch_model::{Assembly, ComponentKind, Document, EntityPath, GuideShape, Id, MAX_DEPTH, Occurrence, Section};
+use solidsketch_model::{Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section};
 
 use crate::bvh::{Aabb, Bvh, ray_box_entry};
 use crate::camera::Ray;
@@ -187,7 +187,7 @@ pub struct SceneGuide {
 #[derive(Default)]
 pub struct DisplayScene {
     /// Level 1: by `Arc<Solid>` address.
-    solids: HashMap<usize, Cached>,
+    solids: FastMap<usize, Cached>,
     definitions: BTreeMap<Id, DefinitionMesh>,
     /// The meshes a tool previews, under [`preview_key`]s.
     preview: Vec<DefinitionMesh>,
@@ -220,7 +220,7 @@ pub struct DisplayScene {
     generation: u64,
     /// By solid (its key in `solids`), the definitions drawing it: what a mesh coming in
     /// changes ([`DisplayScene::refresh_meshes`]).
-    users: HashMap<usize, Vec<Id>>,
+    users: FastMap<usize, Vec<Id>>,
     /// The solids whose display came since the last sync or refresh.
     arrived: Vec<usize>,
 }
@@ -293,7 +293,7 @@ struct Best {
 struct SceneIndex {
     entries: Vec<Entry>,
     /// Each definition's run of `entries` (they are made definition by definition).
-    runs: HashMap<Id, std::ops::Range<u32>>,
+    runs: FastMap<Id, std::ops::Range<u32>>,
     by_path: Vec<u32>,
     bvh: Bvh,
 }
@@ -307,7 +307,7 @@ impl DisplayScene {
     /// their mesh comes ([`DisplayScene::take_missing`], [`DisplayScene::insert`]).
     pub fn sync(&mut self, doc: &Document) {
         self.generation += 1;
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = FastSet::default();
         self.definitions.clear();
         self.users.clear();
         self.arrived.clear();
@@ -386,7 +386,7 @@ impl DisplayScene {
     fn reindex(&mut self) {
         let mut entries = Vec::with_capacity(self.index.entries.len());
         let mut paths: Vec<(&[Id], u32)> = Vec::with_capacity(self.index.entries.len());
-        let mut runs = HashMap::new();
+        let mut runs = FastMap::default();
         for (def, places) in &self.placements {
             let Some(dm) = self.definitions.get(def) else { continue };
             let start = entries.len() as u32;
@@ -402,7 +402,18 @@ impl DisplayScene {
         paths.sort_unstable();
         let by_path = paths.into_iter().map(|(_, i)| i).collect();
         self.bounds = shown_bounds(&self.placements, &self.shown_under, self.show_hidden, &entries);
-        let bvh = Bvh::build(entries.iter().enumerate().filter_map(|(i, e)| e.bounds.map(|b| (i as u32, b))));
+        // The same entries as before but for their boxes (occurrences moved, materials or
+        // visibility changed): the hierarchy refit, unless it grew loose.
+        let old = &self.index.entries;
+        let same = entries.len() == old.len()
+            && entries
+                .iter()
+                .zip(old)
+                .all(|(a, b)| (a.def, a.place, a.part, a.bounds.is_some()) == (b.def, b.place, b.part, b.bounds.is_some()));
+        let mut bvh = std::mem::take(&mut self.index.bvh);
+        if !same || !bvh.refit(|i| entries[i as usize].bounds.expect("only boxes are in the hierarchy")) {
+            bvh = Bvh::build(entries.iter().enumerate().filter_map(|(i, e)| e.bounds.map(|b| (i as u32, b))));
+        }
         self.index = SceneIndex { entries, runs, by_path, bvh };
     }
 
@@ -498,13 +509,7 @@ impl DisplayScene {
 
     /// The mesh of `solid` under the key `key` (a part, or a recipe's solid): cached, or a
     /// stand-in asked for once.
-    fn mesh_of(
-        &mut self,
-        solid: &Arc<Solid>,
-        key: Id,
-        faces: &BTreeMap<u32, Id>,
-        seen: &mut std::collections::HashSet<usize>,
-    ) -> DefinitionMesh {
+    fn mesh_of(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut FastSet<usize>) -> DefinitionMesh {
         let at = Arc::as_ptr(solid) as usize;
         let entry = self.solids.entry(at).or_insert_with(|| Cached::pending(solid.clone()));
         // A part made unique shares its shape until it changes: ask for it once.
@@ -518,7 +523,7 @@ impl DisplayScene {
 
     /// The definition `key` drawn from `solid` ([`DisplayScene::mesh_of`]), recorded as one
     /// of its users.
-    fn define(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut std::collections::HashSet<usize>) {
+    fn define(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut FastSet<usize>) {
         let dm = self.mesh_of(solid, key, faces, seen);
         self.users.entry(Arc::as_ptr(solid) as usize).or_default().push(key);
         self.definitions.insert(key, dm);
@@ -564,10 +569,8 @@ impl DisplayScene {
             }
         }
         let entries = &self.index.entries;
-        if rebuild {
+        if rebuild || !self.index.bvh.refit(|i| entries[i as usize].bounds.expect("only boxes are in the hierarchy")) {
             self.index.bvh = Bvh::build(entries.iter().enumerate().filter_map(|(i, e)| e.bounds.map(|b| (i as u32, b))));
-        } else {
-            self.index.bvh.refit(|i| entries[i as usize].bounds.expect("only boxes are in the hierarchy"));
         }
         self.bounds = shown_bounds(&self.placements, &self.shown_under, self.show_hidden, entries);
     }

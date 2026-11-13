@@ -12,7 +12,7 @@
 //! Moving, copying, arraying and grouping never need the kernel: they only change occurrences
 //! (§2.2, §2.5). Building a part and cutting it do.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
@@ -24,7 +24,7 @@ use crate::document::{
     Assembly, Behavior, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Machining, MachiningSource, Material, Occurrence, Part,
 };
 use crate::settings::Settings;
-use crate::{Error, Refusal, Result};
+use crate::{Error, FastSet, Refusal, Result};
 
 /// What a change to a part touches (ARCHITECTURE.md §2.5).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -500,12 +500,12 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let (guides, entities) = &self.split_guides(*context, entities)?;
-                self.occurrences_of(*context, entities)?;
-                let entities = id_set(entities);
-                for o in self.assembly_mut(*context)?.occurrences_mut() {
-                    if entities.contains(&o.id) {
-                        o.transform = *transform * o.transform;
-                    }
+                // Changed in place, by position: the assembly's index stays.
+                let at = self.positions_of(*context, entities)?;
+                let a = self.assembly_mut(*context)?;
+                for i in at {
+                    let o = a.occurrence_at_mut(i);
+                    o.transform = *transform * o.transform;
                 }
                 self.move_guides(*context, guides, transform)?;
                 Ok(Outcome::default())
@@ -946,20 +946,36 @@ impl Document {
         Ok(())
     }
 
+    /// Where the occurrences `ids` stand in `context`, in the context's order, each once;
+    /// every id must be there.
+    fn positions_of(&self, context: Id, ids: &[Id]) -> Result<Vec<usize>> {
+        let a = self.assembly(context)?;
+        let mut at = if ids.len() * 8 <= a.occurrences().len() {
+            // A few among many: looked up one by one, by the assembly's index.
+            ids.iter().map(|id| a.position(*id).ok_or(Error::NotFound(*id))).collect::<Result<Vec<usize>>>()?
+        } else {
+            // Sets both ways: a selection can hold tens of thousands of occurrences.
+            let wanted = id_set(ids);
+            let at: Vec<usize> = a.occurrences().iter().enumerate().filter(|(_, o)| wanted.contains(&o.id)).map(|(i, _)| i).collect();
+            if at.len() < wanted.len() {
+                let present: FastSet<Id> = at.iter().map(|i| a.occurrences()[*i].id).collect();
+                if let Some(&missing) = ids.iter().find(|id| !present.contains(id)) {
+                    return Err(Error::NotFound(missing));
+                }
+            }
+            at
+        };
+        at.sort_unstable();
+        at.dedup();
+        Ok(at)
+    }
+
     /// Clones of the occurrences `ids` of `context`, in the context's order; every id must be
     /// there.
     fn occurrences_of(&self, context: Id, ids: &[Id]) -> Result<Vec<Occurrence>> {
-        let a = self.assembly(context)?;
-        // Sets both ways: a selection can hold tens of thousands of occurrences.
-        let wanted = id_set(ids);
-        let found: Vec<Occurrence> = a.occurrences().iter().filter(|o| wanted.contains(&o.id)).cloned().collect();
-        if found.len() < wanted.len() {
-            let present: HashSet<Id> = found.iter().map(|o| o.id).collect();
-            if let Some(&missing) = ids.iter().find(|id| !present.contains(id)) {
-                return Err(Error::NotFound(missing));
-            }
-        }
-        Ok(found)
+        let at = self.positions_of(context, ids)?;
+        let occurrences = self.assembly(context)?.occurrences();
+        Ok(at.into_iter().map(|i| occurrences[i].clone()).collect())
     }
 
     /// Adds copies of `sources` (fresh ids, same components) to `context`, moved by `t`.
@@ -976,7 +992,7 @@ impl Document {
 }
 
 /// `ids` as a set, for lookups over a whole assembly.
-fn id_set(ids: &[Id]) -> HashSet<Id> {
+fn id_set(ids: &[Id]) -> FastSet<Id> {
     ids.iter().copied().collect()
 }
 

@@ -110,7 +110,7 @@ pub(crate) struct SelectionDrawing {
     key: (u64, Vec<Id>, Vec<Id>, bool),
     marks: Vec<ViewHighlight>,
     boxes: Vec<OrientedBox>,
-    set: std::collections::HashSet<Id>,
+    set: solidsketch_model::FastSet<Id>,
 }
 
 /// How far the box of the assembly being edited stands off its content, in pixels.
@@ -234,7 +234,7 @@ impl Editor {
         }
         // Each occurrence's parts, found once for its marks and its box. The box, in the
         // occurrence's axes, is its component's: worked out once per component.
-        let mut component_bounds: std::collections::HashMap<Id, Option<(DVec3, DVec3)>> = std::collections::HashMap::new();
+        let mut component_bounds: solidsketch_model::FastMap<Id, Option<(DVec3, DVec3)>> = Default::default();
         if let Some(index) = (!self.selection.is_empty()).then(|| ContextIndex::new(doc, &self.context)).flatten() {
             let mut under = Vec::new();
             // Neighbours often share their component: the last one's bounds first.
@@ -410,7 +410,7 @@ impl Editor {
         // The guides: the active context's (the open part's occurrence, else the context) —
         // selected, hovered or not —, and the others faded.
         let active: Vec<Id> = self.context.iter().copied().chain(self.open_part).collect();
-        let marquee_hits: std::collections::HashSet<Id> = preview.marquee.iter().flat_map(|m| m.hits.iter().copied()).collect();
+        let marquee_hits: solidsketch_model::FastSet<Id> = preview.marquee.iter().flat_map(|m| m.hits.iter().copied()).collect();
         let hovered = |id: Id| preview.hover == Some(id) || marquee_hits.contains(&id);
         for g in self.scene.guides() {
             let dashes = |shape: &solidsketch_model::GuideShape| crate::guides::strokes(&self.camera, self.size, shape);

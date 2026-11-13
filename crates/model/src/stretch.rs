@@ -25,7 +25,7 @@
 //! elsewhere show it), the others go to copies; under "only this one" the path is made the
 //! target's own first, and a change goes to a copy whenever the component shows elsewhere too.
 
-use std::collections::{HashMap, HashSet};
+use crate::{FastMap, FastSet};
 
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::Stretch;
@@ -87,20 +87,20 @@ struct Walk<'a> {
     before: &'a Document,
     /// Per change, how many times the tree reaches it (through every occurrence above);
     /// per component, its changes in the order met.
-    counts: HashMap<Key, usize>,
-    changes: HashMap<Id, Vec<Key>>,
+    counts: FastMap<Key, usize>,
+    changes: FastMap<Id, Vec<Key>>,
     /// Per component, how many times the whole document places it.
-    placed: HashMap<Id, usize>,
+    placed: FastMap<Id, usize>,
     /// The component each change went to, and the first move (canonical) of the stretch it took.
-    made: HashMap<Key, (Id, f64)>,
+    made: FastMap<Key, (Id, f64)>,
     /// Several occurrences stretched: a refusal in a part names it, even at the top.
     several: bool,
     stretched: Vec<StretchedPart>,
     /// The occurrences the walk placed, by the assembly (as it is after) holding them.
-    walked: HashSet<(Id, Id)>,
+    walked: FastSet<(Id, Id)>,
     /// Per component changed in place, how far its origin moved in its axes: its occurrences
     /// the walk did not reach move as much (OCL's back translation of extern instances).
-    anchored: HashMap<Id, DVec3>,
+    anchored: FastMap<Id, DVec3>,
 }
 
 impl Document {
@@ -286,14 +286,14 @@ impl Document {
         let mut walk = Walk {
             scope,
             before: &before,
-            counts: HashMap::new(),
-            changes: HashMap::new(),
-            placed: HashMap::new(),
-            made: HashMap::new(),
+            counts: FastMap::default(),
+            changes: FastMap::default(),
+            placed: FastMap::default(),
+            made: FastMap::default(),
             several: occs.len() > 1,
             stretched: Vec::new(),
-            walked: HashSet::new(),
-            anchored: HashMap::new(),
+            walked: FastSet::default(),
+            anchored: FastMap::default(),
         };
         before.count_placed(before.root, &mut walk.placed);
         walk.count_occurrences(&occs, stretch, 0);
@@ -414,13 +414,13 @@ impl Document {
     /// worked out over the distinct assemblies (each one's contents counted once, in runs),
     /// then carried down from `component` in topological order — not by visiting every
     /// placement.
-    pub(crate) fn count_placed(&self, component: Id, placed: &mut HashMap<Id, usize>) {
+    pub(crate) fn count_placed(&self, component: Id, placed: &mut FastMap<Id, usize>) {
         // Each assembly reached: its components, with how many occurrences of each.
-        let mut direct: HashMap<Id, Vec<(Id, usize)>> = HashMap::new();
+        let mut direct: FastMap<Id, Vec<(Id, usize)>> = FastMap::default();
         // Reverse post-order of the depth-first walk: holders before what they hold.
         let mut order = Vec::new();
         self.gather_contents(component, &mut direct, &mut order, 0);
-        let mut times: HashMap<Id, usize> = HashMap::from([(component, 1)]);
+        let mut times: FastMap<Id, usize> = FastMap::from_iter([(component, 1)]);
         for a in order.iter().rev() {
             let n = times.get(a).copied().unwrap_or(0);
             for (c, k) in &direct[a] {
@@ -430,13 +430,13 @@ impl Document {
         }
     }
 
-    fn gather_contents(&self, assembly: Id, direct: &mut HashMap<Id, Vec<(Id, usize)>>, order: &mut Vec<Id>, depth: usize) {
+    fn gather_contents(&self, assembly: Id, direct: &mut FastMap<Id, Vec<(Id, usize)>>, order: &mut Vec<Id>, depth: usize) {
         if depth > MAX_DEPTH || direct.contains_key(&assembly) {
             return;
         }
         let Ok(a) = self.assembly(assembly) else { return };
         // Runs of the same component counted before one lookup each.
-        let mut at: HashMap<Id, usize> = HashMap::new();
+        let mut at: FastMap<Id, usize> = FastMap::default();
         let mut counts: Vec<(Id, usize)> = Vec::new();
         let mut occs = a.occurrences().iter().peekable();
         while let Some(o) = occs.next() {

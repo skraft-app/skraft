@@ -15,7 +15,7 @@ use solidsketch_i18n::t;
 use crate::settings::Settings;
 use solidsketch_kernel::Solid;
 
-use crate::{Error, Result};
+use crate::{Error, FastMap, Result};
 
 /// A stable identifier, from one counter: unique across a document for components, within
 /// their assembly for occurrences and within their part for machinings (a copy of a component
@@ -259,7 +259,7 @@ pub enum MachiningSource {
 pub struct Assembly {
     occurrences: Vec<Occurrence>,
     #[serde(skip)]
-    index: OnceLock<HashMap<Id, u32>>,
+    index: OnceLock<FastMap<Id, u32>>,
     /// Searches by scanning since the index was dropped.
     #[serde(skip)]
     scans: AtomicU32,
@@ -288,6 +288,12 @@ impl Assembly {
 
     pub fn occurrence(&self, id: Id) -> Option<&Occurrence> {
         self.position(id).map(|i| &self.occurrences[i])
+    }
+
+    /// The occurrence at `i` (its [`Assembly::position`]), to change but for its id: the
+    /// index stays.
+    pub(crate) fn occurrence_at_mut(&mut self, i: usize) -> &mut Occurrence {
+        &mut self.occurrences[i]
     }
 
     pub(crate) fn occurrence_mut(&mut self, id: Id) -> Option<&mut Occurrence> {
@@ -388,7 +394,7 @@ struct ChangesWalk<'a> {
     before: &'a Document,
     touched: &'a [Id],
     /// By component: does it differ from `before`'s, itself or below?
-    dirty: HashMap<Id, bool>,
+    dirty: FastMap<Id, bool>,
     out: Vec<(PlacedPart, Id, DAffine3)>,
 }
 
@@ -560,7 +566,7 @@ impl Document {
     /// the tree, placed alike) is skipped whole: a change to a few occurrences of a large model
     /// costs a pass over the assemblies holding them, not a walk of every placement.
     pub fn placed_changes(&self, before: &Document, touched: &[Id]) -> Vec<(PlacedPart, Id, DAffine3)> {
-        let mut walk = ChangesWalk { before, touched, dirty: HashMap::new(), out: Vec::new() };
+        let mut walk = ChangesWalk { before, touched, dirty: FastMap::default(), out: Vec::new() };
         let t = DAffine3::IDENTITY;
         self.walk_changes(&mut walk, (self.root, before.root), &mut Vec::new(), (t, t), (None, None), 0);
         walk.out
@@ -599,7 +605,7 @@ impl Document {
             return;
         }
         // Occurrences keep their order: matched by place, else (some added or removed) by id.
-        let mut by_id: Option<HashMap<Id, &Occurrence>> = None;
+        let mut by_id: Option<FastMap<Id, &Occurrence>> = None;
         // Placed alike above: an occurrence left as it was is placed alike (no product to
         // work out). Neighbours often share their component: the last one found unchanged.
         let same_above = t == tb;
@@ -801,7 +807,7 @@ impl Document {
     /// down: an unnamed assembly dropped may leave its parts unused.
     pub(crate) fn purge(&mut self) {
         loop {
-            let mut used = std::collections::HashSet::new();
+            let mut used = crate::FastSet::default();
             for c in self.components.values() {
                 if let ComponentKind::Assembly(a) = &c.kind {
                     used.extend(a.occurrences.iter().map(|o| o.component));

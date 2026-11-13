@@ -304,3 +304,197 @@ fn bench_meshes_coming_in() {
         total.as_secs_f64() * 1e3
     );
 }
+
+/// One small edit (one occurrence moved) in a model of 40 000 placements, either of one
+/// cube (`BENCH_DISTINCT` unset) or of 10 000 distinct parts placed 4 times: the document's
+/// share, and the editor's in all (the scene synced). `BENCH_LOOP` set: moves it for a few
+/// seconds, to profile (`sample <pid>`).
+#[test]
+#[ignore]
+fn bench_small_edit() {
+    use glam::DAffine3;
+    use solidsketch_model::kernel::Solid;
+    use solidsketch_model::{Operation, Primitive};
+    let distinct = std::env::var("BENCH_DISTINCT").is_ok();
+    let mut e = if distinct {
+        let faces = r#"[{"normal":[0,0,-1],"loops":[[0,2,3,1]]},{"normal":[0,0,1],"loops":[[4,5,7,6]]},{"normal":[0,-1,0],"loops":[[0,1,5,4]]},{"normal":[0,1,0],"loops":[[2,6,7,3]]},{"normal":[-1,0,0],"loops":[[0,4,6,2]]},{"normal":[1,0,0],"loops":[[1,3,7,5]]}]"#;
+        let (mut definitions, mut instances) = (Vec::new(), Vec::new());
+        for k in 0..10_000 {
+            let (x, y, z) = (100.0 + k as f64 * 0.01, 50.0, 20.0);
+            let v: Vec<String> = (0..8)
+                .map(|i| {
+                    format!(
+                        "[{},{},{}]",
+                        if i & 1 == 0 { 0.0 } else { x },
+                        if i & 2 == 0 { 0.0 } else { y },
+                        if i & 4 == 0 { 0.0 } else { z }
+                    )
+                })
+                .collect();
+            definitions.push(format!(r#"{{"name":"P{k}","vertices":[{}],"faces":{faces}}}"#, v.join(",")));
+            for c in 0..4 {
+                let (tx, ty) = ((k % 100) as f64 * 300.0, ((k / 100) * 4 + c) as f64 * 80.0);
+                instances.push(format!(r#"{{"definition":{k},"transform":[1,0,0,0,0,1,0,0,0,0,1,0,{tx},{ty},0,1]}}"#));
+            }
+        }
+        let text = format!(
+            r#"{{"format":"{}","version":1,"definitions":[{}],"root":{{"instances":[{}]}}}}"#,
+            solidsketch_model::SKETCHUP_FORMAT,
+            definitions.join(","),
+            instances.join(",")
+        );
+        let (doc, _) = Document::from_sketchup(&text, &Solid::from_polyhedron).unwrap();
+        Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()))
+    } else {
+        let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+        let root = e.document().root();
+        let cube = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(20.0) };
+        let a =
+            e.apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY }).unwrap().unwrap().created[0];
+        let step = DAffine3::from_translation(DVec3::X * 100.0);
+        let row = e.apply(Operation::Array { context: root, entities: vec![a], step, count: 199 }).unwrap().unwrap().created;
+        let row: Vec<_> = std::iter::once(a).chain(row).collect();
+        let step = DAffine3::from_translation(DVec3::Y * 100.0);
+        e.apply(Operation::Array { context: root, entities: row, step, count: 199 }).unwrap();
+        e
+    };
+    e.set_viewport_size(DVec2::new(1000.0, 1000.0));
+    e.poll();
+    let root = e.document().root();
+    let id = e.document().root_assembly().occurrences()[123].id;
+    eprintln!("placements: {}", e.document().placed_parts().len());
+    let op = |k: usize| Operation::Transform {
+        context: root,
+        entities: vec![id],
+        transform: DAffine3::from_translation(DVec3::Z * if k.is_multiple_of(2) { 10.0 } else { -10.0 }),
+    };
+    for k in 0..4 {
+        let doc = e.document().clone();
+        time(&format!("move one: document only {k}"), || doc.apply(&op(k)).unwrap());
+        time(&format!("move one: editor (scene synced) {k}"), || e.apply(op(k)).unwrap());
+    }
+    if std::env::var("BENCH_LOOP").is_ok() {
+        let t = Instant::now();
+        let mut k = 0;
+        while t.elapsed().as_secs() < 8 {
+            e.apply(op(k)).unwrap();
+            k += 1;
+        }
+        eprintln!("loops: {k}");
+    }
+}
+
+/// The life of a real model (`BENCH_STEP`: a STEP file's path): read, made a document, opened
+/// with stand-ins, meshed (each solid timed; all of them on every core, as the worker does),
+/// the meshes taken in, then drawn, hovered, all selected, one occurrence moved and undone.
+#[test]
+#[ignore]
+fn bench_step_model() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::time::Duration;
+
+    use glam::DAffine3;
+    use solidsketch_model::Operation;
+    use solidsketch_model::kernel::{Job, JobId, JobResult, KernelService, Output, Task};
+
+    /// Holds the jobs until the bench runs them.
+    #[derive(Clone, Default)]
+    struct Hold {
+        jobs: Rc<RefCell<Vec<(JobId, Job)>>>,
+        ready: Rc<RefCell<Vec<(JobId, JobResult)>>>,
+    }
+    impl KernelService for Hold {
+        fn submit(&mut self, id: JobId, job: Job) {
+            self.jobs.borrow_mut().push((id, job));
+        }
+        fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+            std::mem::take(&mut *self.ready.borrow_mut())
+        }
+    }
+
+    let Ok(path) = std::env::var("BENCH_STEP") else {
+        eprintln!("BENCH_STEP unset: nothing to do");
+        return;
+    };
+    let bytes = time("read the file", || std::fs::read(&path).unwrap());
+    eprintln!("{:.1} MB", bytes.len() as f64 / 1e6);
+    let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] };
+    let step = time("kernel: STEP read (B-reps)", || match solidsketch_kernel::run(&job).unwrap().pop() {
+        Some(Output::Step(s)) => *s,
+        _ => panic!("no STEP output"),
+    });
+    let (doc, report) = time("model: Document::from_step", || Document::from_step(&step, "model"));
+    drop(step);
+    eprintln!("parts {}, assemblies {}, excluded {}, placements {}", report.parts, report.assemblies, report.excluded, doc.placed_parts().len());
+    let kernel = Hold::default();
+    let mut e = time("open (stand-ins)", || Editor::new(doc, Box::new(kernel.clone())));
+    e.set_viewport_size(DVec2::new(1000.0, 1000.0));
+    // Each job alone (a CPU's share), then all at once on every core.
+    let jobs: Vec<(JobId, Job)> = std::mem::take(&mut *kernel.jobs.borrow_mut());
+    let mut each: Vec<Duration> = jobs
+        .iter()
+        .map(|(_, job)| {
+            let t = Instant::now();
+            std::hint::black_box(solidsketch_kernel::run(job).ok());
+            t.elapsed()
+        })
+        .collect();
+    let cpu: Duration = each.iter().sum();
+    each.sort_unstable();
+    eprintln!(
+        "meshing: {} jobs, {:.0} ms of CPU, slowest {:.0} ms, median {:.1} ms",
+        jobs.len(),
+        cpu.as_secs_f64() * 1e3,
+        each.last().map_or(0.0, |d| d.as_secs_f64() * 1e3),
+        each.get(each.len() / 2).map_or(0.0, |d| d.as_secs_f64() * 1e3)
+    );
+    let results = time("meshing on every core", || solidsketch_kernel::parallel_map(&jobs, |(id, job)| (*id, solidsketch_kernel::run(job))));
+    kernel.ready.borrow_mut().extend(results);
+    time("meshes taken in (poll)", || e.poll());
+    let (mut unique, mut drawn) = (0usize, 0usize);
+    for (def, places) in e.scene().placements() {
+        let tris: usize = e.scene().definition_mesh(def).map_or(0, |d| d.parts.iter().map(|p| p.mesh.indices.len() / 3).sum());
+        unique += tris;
+        drawn += tris * places.len();
+    }
+    eprintln!("triangles: {:.2} M meshed, {:.2} M drawn", unique as f64 / 1e6, drawn as f64 / 1e6);
+    // The heaviest meshes: a few parts, or all of them?
+    let mut heavy: Vec<(usize, usize, f64, String)> = e
+        .scene()
+        .definition_meshes()
+        .filter_map(|d| {
+            let part = d.parts.first()?;
+            let size = part.bounds.map_or(0.0, |(lo, hi)| (hi - lo).length());
+            let faces = part.mesh.tri_face.iter().max().map_or(0, |f| *f as usize + 1);
+            let name = e.document().component(d.definition).map(|c| c.name.clone()).unwrap_or_default();
+            Some((d.parts.iter().map(|p| p.mesh.indices.len() / 3).sum::<usize>(), faces, size, name))
+        })
+        .collect();
+    heavy.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    let total: usize = heavy.iter().map(|h| h.0).sum();
+    for (k, (tris, faces, size, name)) in heavy.iter().take(8).enumerate() {
+        eprintln!("  #{k} {tris:>9} triangles, {faces:>5} faces, {size:>8.1} mm across: {name}");
+    }
+    let top10: usize = heavy.iter().take(heavy.len() / 10).map(|h| h.0).sum();
+    eprintln!("  the heaviest tenth of the parts holds {:.0} % of the triangles", top10 as f64 * 100.0 / total.max(1) as f64);
+    let bounds = e.scene().bounds().unwrap();
+    eprintln!("model size: {:.1} mm", bounds.1 - bounds.0);
+    e.camera.set_standard_view(StandardView::Iso, Some(bounds), crate::camera::ViewArea::full(e.viewport_size()));
+    for k in 0..2 {
+        time(&format!("view {k}"), || std::hint::black_box(e.view()));
+    }
+    e.set_tool(ToolKind::Move);
+    for k in 0..3 {
+        time(&format!("hover {k} (move tool)"), || e.input(ToolInput::Hover { px: DVec2::new(500.0 + 3.0 * k as f64, 500.0) }));
+    }
+    e.set_tool(ToolKind::Select);
+    time("select_all", || e.select_all());
+    time("view (all selected)", || std::hint::black_box(e.view()));
+    e.select(vec![]);
+    let root = e.document().root();
+    let id = e.document().root_assembly().occurrences()[0].id;
+    let op = Operation::Transform { context: root, entities: vec![id], transform: DAffine3::from_translation(DVec3::Z * 10.0) };
+    time("move one occurrence", || e.apply(op).unwrap());
+    time("undo", || e.undo());
+}

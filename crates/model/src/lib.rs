@@ -4,6 +4,7 @@
 
 mod document;
 pub mod expr;
+mod fast_hash;
 mod file;
 mod history;
 mod import;
@@ -20,6 +21,7 @@ pub use document::{
     Assembly, Behavior, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH, Machining, MachiningSource,
     Material, Occurrence, Part, PlacedGuide, PlacedPart, StretchMask,
 };
+pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{FORMAT, VERSION};
 pub use history::History;
 pub use import::{ImportReport, SKETCHUP_FORMAT, SKETCHUP_VERSION};

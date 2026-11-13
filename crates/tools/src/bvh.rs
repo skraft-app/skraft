@@ -15,6 +15,10 @@ use glam::DVec3;
 /// Items per leaf, at most.
 const LEAF: usize = 4;
 
+/// How much a refit may loosen the hierarchy (the sum of its boxes' areas, against what it
+/// was at build) before it is better built again.
+const LOOSE: f64 = 1.5;
+
 /// The largest coordinate along one axis of the Morton curve (21 bits).
 const MORTON_MAX: f64 = ((1u64 << 21) - 1) as f64;
 
@@ -34,13 +38,15 @@ pub(crate) struct Bvh {
     nodes: Vec<Node>,
     /// The items (index, world box), leaf by leaf.
     items: Vec<(u32, Aabb)>,
+    /// The sum of the nodes' areas when built: what a refit compares with.
+    built_area: f64,
 }
 
 impl Bvh {
     /// The hierarchy of `items` (index, world box).
     pub(crate) fn build(items: impl IntoIterator<Item = (u32, Aabb)>) -> Bvh {
         let items: Vec<(u32, Aabb)> = items.into_iter().collect();
-        let mut bvh = Bvh { nodes: Vec::with_capacity(items.len()), items: Vec::with_capacity(items.len()) };
+        let mut bvh = Bvh { nodes: Vec::with_capacity(items.len()), items: Vec::with_capacity(items.len()), built_area: 0.0 };
         if items.is_empty() {
             return bvh;
         }
@@ -61,7 +67,20 @@ impl Bvh {
         let codes: Vec<u64> = order.iter().map(|(c, _)| *c).collect();
         let sorted: Vec<(u32, Aabb)> = order.into_iter().map(|(_, k)| items[k as usize]).collect();
         bvh.split(&codes, &sorted);
+        bvh.built_area = bvh.area();
         bvh
+    }
+
+    /// The sum of the nodes' areas (half of each box's surface): how many nodes a ray or a
+    /// region meets, roughly.
+    fn area(&self) -> f64 {
+        self.nodes
+            .iter()
+            .map(|n| {
+                let s = n.bounds.1 - n.bounds.0;
+                s.x * s.y + s.y * s.z + s.z * s.x
+            })
+            .sum()
     }
 
     /// The node of `items` (in Morton order, with their `codes`) and those below it; returns
@@ -94,8 +113,11 @@ impl Bvh {
 
     /// The same hierarchy over the items' boxes as they now are (`bounds` of each item that
     /// was given a box): each node's gathered again from its children's, the deepest first.
-    /// The tree stays as it was built, so it serves well only while the boxes change little.
-    pub(crate) fn refit(&mut self, bounds: impl Fn(u32) -> Aabb) {
+    /// The tree stays as it was built, so it serves well only while the boxes change little:
+    /// false when it has grown loose (its nodes' areas half again what they were at build),
+    /// to be built again.
+    #[must_use]
+    pub(crate) fn refit(&mut self, bounds: impl Fn(u32) -> Aabb) -> bool {
         // Children follow their parent in the array: backwards, they come first.
         for n in (0..self.nodes.len()).rev() {
             let node = self.nodes[n];
@@ -110,6 +132,7 @@ impl Bvh {
             };
             self.nodes[n].bounds = b;
         }
+        self.area() <= self.built_area * LOOSE
     }
 
     /// A leaf's items.
@@ -313,7 +336,8 @@ mod tests {
             let shift = DVec3::new((i % 7) as f64, (i % 5) as f64 * 2.0, 0.0) * if i % 50 == 0 { 40.0 } else { 1.0 };
             *b = (b.0 + shift, b.1 + shift + DVec3::splat(0.5));
         }
-        bvh.refit(|i| bs[i as usize]);
+        // Most moved a little: the tree still holds.
+        assert!(bvh.refit(|i| bs[i as usize]));
         let region = (DVec3::splat(150.0), DVec3::splat(300.0));
         let meets = |(lo, hi): &Aabb| lo.cmple(region.1).all() && hi.cmpge(region.0).all();
         let mut found = Vec::new();
@@ -412,6 +436,15 @@ mod tests {
                 found as f64 / 2_000.0,
             );
         }
+    }
+
+    /// Boxes shuffled (each takes another's place): the refit tree is loose, and says so.
+    #[test]
+    fn a_refit_after_a_shuffle_asks_for_a_build() {
+        let bs = boxes(500);
+        let mut bvh = Bvh::build(bs.iter().enumerate().map(|(i, b)| (i as u32, *b)));
+        assert!(bvh.refit(|i| bs[i as usize]));
+        assert!(!bvh.refit(|i| bs[(i as usize * 7919) % bs.len()]));
     }
 
     /// Boxes all centred alike (one Morton code), or along one thin axis: halved, and found.

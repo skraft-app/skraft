@@ -2859,19 +2859,28 @@ fn the_scene_index_picks_as_a_scan_does() {
         Some((DVec3::ZERO, DVec3::new(900.0, 900.0, 200.0))),
         crate::camera::ViewArea::full(e.viewport_size()),
     );
-    let (mut hits, mut rays) = (0, 0);
-    for x in (0..1000).step_by(23) {
-        for y in (0..1000).step_by(23) {
-            let ray = e.camera.ray(DVec2::new(x as f64, y as f64), e.viewport_size());
-            for inferable in [false, true] {
-                let found = if inferable { e.scene().pick_inferable(&ray, |_| true) } else { e.scene().pick(&ray, |_| true) };
-                assert_eq!(found, e.scene().pick_by_scan(&ray, inferable), "{x} {y}");
-                hits += usize::from(found.is_some());
-                rays += 1;
+    let picks_as_a_scan = |e: &Editor| {
+        let (mut hits, mut rays) = (0, 0);
+        for x in (0..1000).step_by(23) {
+            for y in (0..1000).step_by(23) {
+                let ray = e.camera.ray(DVec2::new(x as f64, y as f64), e.viewport_size());
+                for inferable in [false, true] {
+                    let found = if inferable { e.scene().pick_inferable(&ray, |_| true) } else { e.scene().pick(&ray, |_| true) };
+                    assert_eq!(found, e.scene().pick_by_scan(&ray, inferable), "{x} {y}");
+                    hits += usize::from(found.is_some());
+                    rays += 1;
+                }
             }
         }
+        assert!(hits > rays / 4 && hits < rays, "{hits} / {rays}");
+    };
+    picks_as_a_scan(&e);
+    // Some moved a little, then others far: the index refit, then built again once loose.
+    for (k, by) in [DVec3::new(5.0, -3.0, 2.0), DVec3::new(-300.0, 450.0, 60.0)].into_iter().enumerate() {
+        let some: Vec<Id> = made[20..].iter().copied().skip(k).step_by(3).collect();
+        e.apply(Operation::Transform { context: root, entities: some, transform: glam::DAffine3::from_translation(by) }).unwrap();
+        picks_as_a_scan(&e);
     }
-    assert!(hits > rays / 4 && hits < rays, "{hits} / {rays}");
 }
 
 #[test]

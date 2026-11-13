@@ -4,11 +4,9 @@
 //! left to right it takes the entities it encloses entirely (window), right to left those it
 //! touches (crossing); Shift toggles them instead of replacing the selection.
 
-use std::collections::HashMap;
-
 use glam::{DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::Id;
+use solidsketch_model::{FastMap, Id};
 
 use super::{Command, Cx, Marquee, Modifiers, Preview, Tool, ToolInput, ToolKind};
 use crate::camera::Projector;
@@ -135,7 +133,7 @@ pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> 
     let meets = |b: &(DVec3, DVec3)| screen_box(&proj, b).is_none_or(|(lo, hi)| lo.cmple(rect.1).all() && hi.cmpge(rect.0).all());
     // Per entity: are all its parts met inside, does any touch, how many are met?
     let mut met = Vec::new();
-    let mut state: HashMap<Id, (bool, bool, usize)> = HashMap::new();
+    let mut state: FastMap<Id, (bool, bool, usize)> = Default::default();
     for (_, placement, part) in cx.scene.parts_where(meets) {
         let Some(id) = cx.selectable(&placement.entity_path()) else { continue };
         let m = &part.mesh;
@@ -258,7 +256,7 @@ mod tests {
         let rect = (a.min(b), a.max(b));
         let proj = cx.camera.projector(cx.size);
         let mut order = Vec::new();
-        let mut state: HashMap<Id, (bool, bool)> = HashMap::new();
+        let mut state: FastMap<Id, (bool, bool)> = Default::default();
         for (placement, part) in cx.scene.parts() {
             let Some(id) = cx.selectable(&placement.entity_path()) else { continue };
             let m = &part.mesh;

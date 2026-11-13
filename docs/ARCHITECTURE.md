@@ -1151,7 +1151,9 @@ Drawing                1 instanced draw per definition, with the N world matrice
   of the placed meshes (`scene.rs`, `SceneIndex`): their world boxes in a linear BVH
   (`bvh.rs`: Morton order of the centres, one scale on the three axes, cut where the highest
   differing bit of the codes turns on, down to 4 items per leaf, built in O(n log n) by one
-  integer sort; the leaves keep their items' boxes and hand out only those that pass the test),
+  integer sort; the leaves keep their items' boxes and hand out only those that pass the test;
+  when only boxes changed — occurrences moved, meshes come in — it is refit instead, and built
+  again once its nodes' areas grow half again what they were at build),
   and the same entries sorted by occurrence path (an occurrence's parts, at any depth,
   form a run). Picking walks the BVH nearest box first and skips boxes beyond the best hit
   (plus its tie tolerance); inferences take the meshes near the ray (`inferable_where`), the
@@ -1164,7 +1166,11 @@ Drawing                1 instanced draw per definition, with the N world matrice
   document it sketches with the current one by `Document::placed_changes`, which skips what
   both share; it counts placements over the distinct assemblies (`count_placed`), not per
   path; the stretch tool keeps its target while the scene's generation, the occurrences and
-  the axes stay.
+  the axes stay. The maps and sets keyed by ids or addresses on these paths (an assembly's
+  index, the selection, the scene's) hash with `FastMap` / `FastSet` (model, `fast_hash.rs`):
+  a multiplicative hash, several times cheaper than SipHash, whose resistance to chosen keys
+  a desktop modeller does not need. An operation on a few occurrences among many finds them by
+  the assembly's index (`positions_of`), and a move changes them in place, keeping it.
 - **Meshes coming in** (decided on 2026-11-12, after a model of 10 000 distinct parts spent
   13 ms per frame while its meshes came): the document unchanged, a display coming from the
   kernel is taken in by `DisplayScene::refresh_meshes`, not a sync — only the definitions

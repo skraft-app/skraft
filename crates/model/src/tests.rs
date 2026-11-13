@@ -1582,9 +1582,9 @@ fn placements_are_counted_over_the_distinct_assemblies() {
     h.apply(Operation::Array { context: root, entities: vec![outer], step: DAffine3::from_translation(DVec3::Z * 50.0), count: 2 })
         .unwrap();
     let doc = h.document();
-    let (mut fast, mut slow) = (std::collections::HashMap::new(), std::collections::HashMap::new());
+    let (mut fast, mut slow) = (crate::FastMap::default(), std::collections::HashMap::new());
     doc.count_placed(doc.root(), &mut fast);
     by_path(doc, doc.root(), &mut slow);
-    assert_eq!(fast, slow);
+    assert_eq!(fast.into_iter().collect::<std::collections::HashMap<_, _>>(), slow);
     assert!(slow.values().any(|n| *n >= 6), "{slow:?}");
 }

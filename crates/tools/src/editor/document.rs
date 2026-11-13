@@ -349,10 +349,12 @@ impl Editor {
                 self.selection.retain(|id| (shown && p.machining(*id).is_some()) || guide(id));
             }
             None => {
-                if let Ok(a) = doc.assembly(ctx) {
-                    // A set: the selection and the assembly can hold tens of thousands.
-                    let present: std::collections::HashSet<_> = a.occurrences().iter().map(|o| o.id).collect();
-                    self.selection.retain(|id| present.contains(id) || guide(id));
+                if let Ok(a) = doc.assembly(ctx)
+                    && !self.selection.is_empty()
+                {
+                    // By the assembly's index: the selection and the assembly can hold tens
+                    // of thousands.
+                    self.selection.retain(|id| a.occurrence(*id).is_some() || guide(id));
                 }
             }
         }
