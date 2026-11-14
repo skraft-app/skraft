@@ -1082,6 +1082,37 @@ fn rotate_tool_by_clicks_and_typed_angle() {
     assert!(close(before.0, after.0) && close(before.1, after.1), "{before:?} {after:?}");
 }
 
+#[test]
+fn rotate_snaps_to_the_graduations_inside_the_protractor_only() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::new(-600.0, -600.0, 0.0), DVec3::new(-500.0, -500.0, 0.0), "20");
+    e.set_tool(ToolKind::Rotate);
+    let r = e.camera.world_per_pixel(e.viewport_size(), DVec3::ZERO) * 70.0;
+    let at = |deg: f64, d: f64| DVec3::new(deg.to_radians().cos(), deg.to_radians().sin(), 0.0) * d;
+    let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
+    // The radius to the cursor: its last dash.
+    let radius_end = |e: &Editor| e.preview().lines.last().unwrap().b;
+    click(&mut e, DVec3::ZERO);
+
+    // The reference, inside: on the graduation nearest (the context's X), up to it.
+    hover(&mut e, at(5.0, r * 0.5));
+    assert!(close(radius_end(&e), DVec3::new(r, 0.0, 0.0)), "{}", radius_end(&e));
+    click(&mut e, at(5.0, r * 0.5));
+
+    // The angle, inside: in steps of 15° from the reference.
+    hover(&mut e, at(50.0, r * 0.6));
+    assert_eq!(e.vcb().map(|v| v.1), Some("45°".into()));
+    assert!(close(radius_end(&e), at(45.0, r)), "{}", radius_end(&e));
+    // Past it: no steps, the radius to the cursor.
+    hover(&mut e, at(50.0, r * 3.0));
+    assert_eq!(e.vcb().map(|v| v.1), Some("50°".into()));
+    assert!(close(radius_end(&e), at(50.0, r * 3.0)), "{}", radius_end(&e));
+    // ... but the axes still snap it (the radius to the cursor projected on the axis).
+    hover(&mut e, at(89.5, r * 3.0));
+    assert_eq!(e.vcb().map(|v| v.1), Some("90°".into()));
+    assert!(close(radius_end(&e), DVec3::new(0.0, r * 3.0 * 0.5f64.to_radians().cos(), 0.0)), "{}", radius_end(&e));
+}
+
 // ---- the kernel off the UI thread (ARCHITECTURE.md §7 ter) ----------------------------------
 
 mod deferred {
@@ -4077,13 +4108,16 @@ fn move_rotate_and_the_tape_write_their_measure_on_lines_seen_through_faces() {
     assert!(p.labels[0].text.starts_with("250"), "{}", p.labels[0].text);
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
 
-    // Rotate: both radii x-rayed, the angle between them.
+    // Rotate: both radii dashed over everything, the angle between them.
     e.set_tool(ToolKind::Rotate);
     click(&mut e, DVec3::new(0.0, 0.0, 0.0));
-    click(&mut e, DVec3::new(200.0, 0.0, 0.0));
-    e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 200.0, 0.0)) });
+    click(&mut e, DVec3::new(400.0, 0.0, 0.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 400.0, 0.0)) });
     let p = e.preview();
-    assert_eq!(p.xray.len(), 2);
+    assert!(p.xray.is_empty());
+    for end in [DVec3::new(400.0, 0.0, 0.0), DVec3::new(0.0, 400.0, 0.0)] {
+        assert!(p.lines.iter().any(|l| close(l.b, end)), "{end}");
+    }
     assert_eq!(p.labels.len(), 1);
     assert_eq!(p.labels[0].text, "90°");
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
