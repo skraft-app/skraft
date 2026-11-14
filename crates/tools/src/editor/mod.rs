@@ -24,12 +24,14 @@ use crate::scene::DisplayScene;
 use crate::tools::{self, Command, Cx, Key, OptionValue, OptionValues, Preview, Tool, ToolInput, ToolKind, ToolOption};
 use crate::vcb;
 
+mod clipboard;
 mod document;
 mod loading;
 mod navigation;
 mod selection;
 mod view;
 
+pub use clipboard::{Clip, Content};
 use document::{After, Pending, Probe};
 pub use loading::{LoadEnd, LoadKind, Loading};
 pub use view::{Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
@@ -117,6 +119,8 @@ pub struct Editor {
     tool_settings: BTreeMap<String, OptionValues>,
     /// The material the paint tool paints with (§7 quater).
     paint: Option<Id>,
+    /// A paste carried at the cursor (§6 decies).
+    carry: Option<clipboard::Carry>,
 }
 
 /// The settings of a tool that has none saved.
@@ -178,6 +182,7 @@ impl Editor {
             last_hover: None,
             tool_settings: BTreeMap::new(),
             paint: None,
+            carry: None,
         };
         // Opened: its meshes asked as a load (none for an empty document: ended at once).
         e.after_change();
@@ -607,6 +612,8 @@ impl Editor {
     // ---- tools ---------------------------------------------------------------------------------
 
     pub fn set_tool(&mut self, kind: ToolKind) {
+        // Another tool gives up a paste carried.
+        self.settle_carry(true);
         self.tool = tools::make(kind);
         self.message = None;
         self.clear_locks();
@@ -617,6 +624,12 @@ impl Editor {
     /// nothing more, but with Select, where it clears the selection (or closes the open part).
     /// Delete erases the selection.
     pub fn input(&mut self, input: ToolInput) {
+        self.input_tool(input);
+        // A paste carried put down or given up (Esc): back to the tool before.
+        self.settle_carry(false);
+    }
+
+    fn input_tool(&mut self, input: ToolInput) {
         if self.busy() {
             match input {
                 ToolInput::Key { key: Key::Escape, .. } => self.abandon(),

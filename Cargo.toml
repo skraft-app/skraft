@@ -44,7 +44,9 @@ rust-i18n = "4"
 log = "0.4"
 
 egui = "0.37"
-eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "persistence"] }
+# `clipboard`: the system clipboard on the desktop (arboard), for text fields and the
+# token of copy and paste (docs/ARCHITECTURE.md §6 decies).
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "persistence", "clipboard"] }
 egui-wgpu = "0.37"
 egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 rfd = "0.17"

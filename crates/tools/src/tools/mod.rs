@@ -171,6 +171,9 @@ pub struct Preview {
     pub lines: Vec<PreviewLine>,
     /// Lines drawn in the scene: hidden behind faces (the outlines of the fills).
     pub scene_lines: Vec<PreviewLine>,
+    /// Lines seen through the faces: plain where seen, dashed where faces hide them (a move's
+    /// line).
+    pub xray: Vec<PreviewLine>,
     /// Guides previewed, with their colour: drawn dashed in the scene, hidden behind faces as
     /// the document's guides.
     pub guides: Vec<(crate::guides::Stroke, [f32; 4])>,
@@ -821,6 +824,21 @@ impl Moved {
         }
     }
 
+    /// A paste (§6 decies) placed `world` further: its transformation, from what was copied
+    /// to the frame, moved by `world` in the frame. Any other operation is kept as it is.
+    pub fn paste(&self, op: &Operation, world: DAffine3) -> Operation {
+        let local = self.local(world);
+        match op.clone() {
+            Operation::Paste { context, fragment, transform, reuse } => {
+                Operation::Paste { context, fragment, transform: local * transform, reuse }
+            }
+            Operation::PasteMachinings { target, fragment, transform, scope } => {
+                Operation::PasteMachinings { target, fragment, transform: local * transform, scope }
+            }
+            other => other,
+        }
+    }
+
     pub fn duplicate(&self, entities: Vec<Id>, world: DAffine3) -> Operation {
         let transform = self.local(world);
         match self {
@@ -918,6 +936,27 @@ pub const BLUE: [f32; 4] = solidsketch_theme::AXIS_Z;
 pub const MAGENTA: [f32; 4] = solidsketch_theme::FREE_LINE;
 /// The highlight colour of picked things.
 pub const PICK: [f32; 4] = solidsketch_theme::PICK;
+
+/// How long an arrow's head is on screen (pixels).
+pub const ARROW_PX: f64 = 10.0;
+
+/// The head of an arrow from `a` to `b` (world), at `b`: two strokes [`ARROW_PX`] long on
+/// screen, in the plane facing the eye through `b`. None when the arrow is too short on screen
+/// for one (seen end on).
+pub fn arrow_head(camera: &Camera, size: DVec2, a: DVec3, b: DVec3, color: [f32; 4]) -> Vec<PreviewLine> {
+    let (Some(pa), Some(pb)) = (camera.project(a, size), camera.project(b, size)) else { return Vec::new() };
+    let d = pb - pa;
+    if d.length() < 2.0 * ARROW_PX {
+        return Vec::new();
+    }
+    let u = d.normalize();
+    let n = DVec2::new(-u.y, u.x);
+    [n, -n]
+        .into_iter()
+        .filter_map(|side| camera.ray(pb - u * ARROW_PX + side * ARROW_PX * 0.45, size).hit_plane(b, camera.forward()))
+        .map(|p| PreviewLine { a: p, b, color, bold: false })
+        .collect()
+}
 
 /// A dashed line from `a` to `b` (world; dashes about as long as the guides', at the depth of
 /// its middle), dashes at both ends.

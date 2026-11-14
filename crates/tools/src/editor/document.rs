@@ -9,13 +9,16 @@ use solidsketch_model::{Applied, Document, EntityPath, History, Operation, Outco
 use super::Editor;
 
 /// What follows an operation applied.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum After {
     Nothing,
     /// Select what it created, if anything.
     Select,
     /// Gather what it created; the whole gathered is selected once the queue is empty.
     Collect,
+    /// A paste done in place: select what it made, then carry it from this point (world) at
+    /// the cursor (§6 decies).
+    Carry(DVec3),
 }
 
 /// A job of [`Editor::crash_kernel`].
@@ -78,6 +81,7 @@ impl Editor {
     /// Records `applied` (`op` done) in the history and follows up.
     pub(super) fn finish(&mut self, op: Operation, applied: Applied, after: After) -> Outcome {
         let Applied { document, outcome, displays } = applied;
+        let carried = matches!(after, After::Carry(_)).then(|| op.clone());
         self.history.push(document, op);
         for (solid, display) in displays {
             if let Err(e) = &display {
@@ -86,15 +90,18 @@ impl Editor {
             self.scene.insert(&solid, display);
         }
         match after {
-            After::Select if !outcome.created.is_empty() => self.selection = outcome.created.clone(),
+            After::Select | After::Carry(_) if !outcome.created.is_empty() => self.selection = outcome.created.clone(),
             // Machinings made in an open part: selected while they are shown.
-            After::Select if !outcome.machinings.is_empty() => {
+            After::Select | After::Carry(_) if !outcome.machinings.is_empty() => {
                 self.selection = if self.showing_machinings() { outcome.machinings.clone() } else { Vec::new() };
             }
             After::Collect => self.collected.extend(outcome.created.iter().copied()),
             _ => {}
         }
         self.after_change();
+        if let (After::Carry(from), Some(op)) = (after, carried) {
+            self.carry(from, op);
+        }
         self.follow_cursor();
         outcome
     }
@@ -345,6 +352,11 @@ impl Editor {
         if self.busy() {
             return;
         }
+        // A paste carried: undoing gives it up.
+        if self.carrying() {
+            self.settle_carry(true);
+            return;
+        }
         self.tool.reset();
         self.clear_locks();
         if self.history.undo() {
@@ -354,6 +366,10 @@ impl Editor {
 
     pub fn redo(&mut self) {
         if self.busy() {
+            return;
+        }
+        if self.carrying() {
+            self.settle_carry(true);
             return;
         }
         self.tool.reset();

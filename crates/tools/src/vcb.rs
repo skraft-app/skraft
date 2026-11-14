@@ -96,11 +96,7 @@ pub fn display(vcb: &Vcb, units: &Units) -> String {
             let shown = &v[..v.len().saturating_sub(vcb.optional)];
             shown.iter().map(|&x| format(x.abs(), units)).collect::<Vec<_>>().join("; ")
         }
-        VcbKind::Angle(a) => {
-            let d = (a.to_degrees() * 10.0).round() / 10.0;
-            let d = if d == 0.0 { 0.0 } else { d };
-            solidsketch_i18n::number(&format!("{d}°"))
-        }
+        VcbKind::Angle(a) => format_angle(*a),
         VcbKind::Count => String::new(),
     }
 }
@@ -126,6 +122,13 @@ pub fn repeat(s: &str) -> Option<Repeat> {
 /// A length (mm) for display in `units`, without needless decimals.
 pub fn format(v: f64, units: &Units) -> String {
     units.format(v)
+}
+
+/// An angle (radians), in degrees to a tenth: `-22,5°`.
+pub fn format_angle(a: f64) -> String {
+    let d = (a.to_degrees() * 10.0).round() / 10.0;
+    let d = if d == 0.0 { 0.0 } else { d };
+    solidsketch_i18n::number(&format!("{d}°"))
 }
 
 #[cfg(test)]

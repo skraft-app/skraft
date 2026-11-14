@@ -446,6 +446,8 @@ impl Tool for MeasureTool {
             _ => None,
         };
         let mut scene_lines = Vec::new();
+        // The measure (or the offset): seen through what lies between — dashed behind faces.
+        let mut xray = Vec::new();
         match reference.map(|(_, c)| c) {
             Some(Curve::Segment(a, b)) => lines.push(PreviewLine { a, b, color: MAGENTA, bold: true }),
             Some(Curve::Arc(points)) => {
@@ -470,7 +472,8 @@ impl Tool for MeasureTool {
                     guide_strokes.extend(guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, INK)));
                 }
                 let color = inference.as_ref().map_or(INK, |i| super::guide_color(i.kind));
-                super::dashed(cx.camera, cx.size, &mut lines, from, p, color);
+                xray.push(PreviewLine { a: from, b: p, color, bold: false });
+                lines.extend(super::arrow_head(cx.camera, cx.size, from, p, color));
                 label(cx, &mut labels, from, p, color);
                 marks.push(from);
             }
@@ -482,14 +485,16 @@ impl Tool for MeasureTool {
                     }
                     // The offset in the colour of the axis it runs along, else ink.
                     let color = axis_color(cx, b - a);
-                    super::dashed(cx.camera, cx.size, &mut lines, a, b, color);
+                    xray.push(PreviewLine { a, b, color, bold: false });
+                    // `b` is the guide's end, towards the cursor.
+                    lines.extend(super::arrow_head(cx.camera, cx.size, a, b, color));
                     label(cx, &mut labels, a, b, color);
                 }
                 marks.push(at);
             }
         }
         let tip = inference.as_ref().and_then(|i| edge_tip(cx, i));
-        Preview { lines, scene_lines, guides: guide_strokes, labels, marks, inference, tip, ..Default::default() }
+        Preview { lines, scene_lines, xray, guides: guide_strokes, labels, marks, inference, tip, ..Default::default() }
     }
 
     fn status(&self) -> String {

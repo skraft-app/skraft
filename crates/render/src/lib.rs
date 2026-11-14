@@ -275,6 +275,9 @@ pub struct Frame<'a> {
     pub boxes: &'a [BoxOutline],
     /// Lines drawn over everything (tool previews), blended at their alpha.
     pub overlay: &'a [Line],
+    /// Lines seen through the faces (a move's line): plain where they are seen, dashed (their
+    /// `dash`) where faces hide them.
+    pub xray: &'a [Line],
     /// Translucent polygons, depth tested (tool previews).
     pub fills: &'a [Fill],
     pub grid: Option<Grid>,
@@ -498,6 +501,8 @@ pub struct Renderer {
     lines: wgpu::RenderPipeline,
     boxes: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
+    /// The hidden parts of the x-ray lines: where faces are nearer, blended, no depth written.
+    hidden: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
@@ -758,6 +763,17 @@ impl Renderer {
         );
         let boxes =
             blended("boxes", "vs_box", "fs_line", &[Some(box_layout)], depth(true, nearer, Default::default()), all, None, unclipped);
+        // Reversed depth: what something nearer hides is less.
+        let hidden = blended(
+            "hidden lines",
+            "vs_line",
+            "fs_overlay",
+            &[Some(line_layout.clone())],
+            depth(false, wgpu::CompareFunction::Less, Default::default()),
+            all,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            unclipped,
+        );
         let overlay = blended(
             "overlay",
             "vs_line",
@@ -800,6 +816,7 @@ impl Renderer {
             lines,
             boxes,
             overlay,
+            hidden,
             fills,
             globals,
             layout: bgl,
@@ -1050,11 +1067,19 @@ impl Renderer {
         }
         self.instances.write(device, queue, bytemuck::cast_slice(&raw));
 
-        // Lines: grid and axes, depth-tested lines, then the overlay.
+        // Lines: grid and axes, depth-tested lines and the x-ray lines plain, the x-ray lines
+        // dashed (their hidden parts), then the overlay.
         let mut lv = Vec::new();
         let ppp = frame.pixels_per_point;
         push_scene_lines(&mut lv, frame);
+        for l in frame.xray {
+            push_line(&mut lv, &frame.view, &Line { dash: None, ..*l }, ppp);
+        }
         let tested = lv.len() as u32;
+        for l in frame.xray {
+            push_line(&mut lv, &frame.view, l, ppp);
+        }
+        let hidden = lv.len() as u32;
         for l in frame.overlay {
             push_line(&mut lv, &frame.view, l, ppp);
         }
@@ -1063,6 +1088,7 @@ impl Renderer {
         let max_lines = device.limits().max_buffer_size as usize / std::mem::size_of::<LineVertex>() / QUAD.len();
         lv.truncate(max_lines * QUAD.len());
         let tested = tested.min(lv.len() as u32);
+        let hidden = hidden.min(lv.len() as u32);
         self.line_vertices.write(device, queue, bytemuck::cast_slice(&lv));
         // Box outlines: one instance each.
         let mut bx: Vec<BoxRaw> = frame
@@ -1250,9 +1276,13 @@ impl Renderer {
         if let Some(lb) = &self.line_vertices.buffer {
             let total = lv.len() as u32;
             pass.set_vertex_buffer(0, lb.slice(..));
-            if total > tested {
+            if hidden > tested {
+                pass.set_pipeline(&self.hidden);
+                pass.draw(tested..hidden, 0..1);
+            }
+            if total > hidden {
                 pass.set_pipeline(&self.overlay);
-                pass.draw(tested..total, 0..1);
+                pass.draw(hidden..total, 0..1);
             }
         }
         self.stats = Stats {
@@ -1400,7 +1430,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
         h.fs(&hl.face_tint);
         h.fs(&hl.edge_tint);
     }
-    for lines in [frame.lines, frame.overlay] {
+    for lines in [frame.lines, frame.overlay, frame.xray] {
         lines.len().hash(&mut h.0);
         for l in lines {
             h.v(l.a);

@@ -88,6 +88,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         lines: &[],
         boxes: &[],
         overlay: &[],
+        xray: &[],
         fills: &[],
         grid: decor.then_some(Grid { spacing: 10.0, count: 10 }),
         axes: decor,
@@ -163,6 +164,7 @@ fn concave_edges_are_not_buried() {
         lines: &[],
         boxes: &[],
         overlay: &[],
+        xray: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -217,6 +219,7 @@ fn a_mirrored_placement_shows_its_outside() {
             lines: &[],
             boxes: &[],
             overlay: &[],
+            xray: &[],
             fills: &[],
             grid: None,
             axes: false,
@@ -254,6 +257,7 @@ fn shot(
         lines: &[],
         boxes: &[],
         overlay: &[],
+        xray: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -296,6 +300,7 @@ fn a_still_frame_is_not_drawn_again() {
         lines: &[],
         boxes: &[],
         overlay: &[],
+        xray: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -458,6 +463,7 @@ fn a_ghost_shows_what_it_holds() {
             lines: &[],
             boxes: &[],
             overlay: &[],
+            xray: &[],
             fills: &[],
             grid: None,
             axes: false,
@@ -499,6 +505,7 @@ fn faint_edges_are_see_through() {
             lines: &[],
             boxes: &[],
             overlay: &[],
+            xray: &[],
             fills: &[],
             grid: None,
             axes: false,
@@ -550,6 +557,7 @@ fn dashed_lines_are_dashed_on_screen() {
         lines: &[line],
         boxes: &[],
         overlay: &[],
+        xray: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -604,6 +612,7 @@ fn box_outlines_are_dashed_from_their_corners() {
         lines: &[],
         boxes: &[outline],
         overlay: &[],
+        xray: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -651,6 +660,7 @@ fn fills_hide_behind_faces() {
             lines: &[],
             boxes: &[],
             overlay: &[],
+            xray: &[],
             fills,
             grid: None,
             axes: false,
@@ -667,4 +677,58 @@ fn fills_hide_behind_faces() {
     assert_eq!(at(&plain, 160, 100), at(&filled, 160, 100));
     let [r0, g0, b0, _] = at(&filled, 160, SIZE[1] - 5);
     assert!(r0 > 200 && g0 < 220 && b0 < 220 && r0 > g0 + 30, "{:?}", [r0, g0, b0]);
+}
+
+/// An x-ray line (a move's): plain where it is seen, dashed where a face hides it.
+#[test]
+fn x_ray_lines_are_dashed_behind_faces() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    // Looking down -Z, a pixel a unit; a slab 40 px wide over the middle of a red line.
+    let size = [200, 40];
+    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let slab = Solid::new_box(DVec3::new(-20.0, -15.0, -2.0), DVec3::new(40.0, 30.0, 4.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &slab, face_paint: &[] }]);
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
+    let line = Line {
+        a: DVec3::new(-90.0, 0.0, -4.0),
+        b: DVec3::new(90.0, 0.0, -4.0),
+        color: [1.0, 0.0, 0.0, 1.0],
+        dash: Some(Dash { length: 4.0, phase: 0.0 }),
+        width: BOLD_WIDTH,
+    };
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        boxes: &[],
+        overlay: &[],
+        xray: &[line],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "x_ray");
+    let red = |x: u32| {
+        (19..=20).any(|y| {
+            let [r, g, b, _] = pixel(&px, size[0], x, y);
+            r > 180 && g < 90 && b < 90
+        })
+    };
+    // Seen: plain, every pixel.
+    assert!((15..75).chain(125..185).all(red), "a gap where the line is seen");
+    // Behind the slab: dashes and gaps.
+    let hidden: Vec<bool> = (84..116).map(red).collect();
+    assert!(hidden.iter().any(|r| *r) && hidden.iter().any(|r| !*r), "{hidden:?}");
 }

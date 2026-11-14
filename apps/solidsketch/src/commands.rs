@@ -79,6 +79,11 @@ pub const COMMANDS: &[Command] = &[
     g("app.quit", || t!("menu.file.quit"), M::File, Some("Cmd+Q")),
     c("edit.undo", || t!("menu.edit.undo"), M::Edit, Some("Cmd+Z")),
     c("edit.redo", || t!("menu.edit.redo"), M::Edit, Some("Cmd+Shift+Z")),
+    // ⌘X, ⌘C and ⌘V come as egui's clipboard events, whatever the shortcuts ([`crate::app`]).
+    g("edit.cut", || t!("menu.edit.cut"), M::Edit, Some("Cmd+X")),
+    c("edit.copy", || t!("menu.edit.copy"), M::Edit, Some("Cmd+C")),
+    c("edit.paste", || t!("menu.edit.paste"), M::Edit, Some("Cmd+V")),
+    c("edit.paste_in_place", || t!("menu.edit.paste_in_place"), M::Edit, Some("Cmd+Shift+V")),
     g("edit.select_all", || t!("menu.edit.select_all"), M::Edit, Some("Cmd+A")),
     c("edit.erase", || t!("menu.edit.erase"), M::Edit, None),
     g("edit.make_assembly", || t!("menu.edit.make_assembly"), M::Edit, Some("G")),

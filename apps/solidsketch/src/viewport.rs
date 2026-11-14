@@ -449,6 +449,15 @@ impl Viewport {
             ..plain(l.a, l.b, l.color)
         };
         let overlay: Vec<render::Line> = view.overlay.iter().map(preview).collect();
+        // Plain where seen; the renderer dashes them where faces hide them.
+        let xray: Vec<render::Line> = view
+            .xray
+            .iter()
+            .map(|l| render::Line {
+                dash: Some(render::Dash { length: solidsketch_tools::guides::DASH_PX as f32, phase: 0.0 }),
+                ..preview(l)
+            })
+            .collect();
         // An open part always shows its axes (ARCHITECTURE.md §2.9).
         let axes = display.axes || editor.open_part().is_some();
         let axis_lines = view.axes.iter().zip([render::AXIS_X, render::AXIS_Y, render::AXIS_Z]).flat_map(|(halves, c)| {
@@ -490,6 +499,7 @@ impl Viewport {
             lines: &lines,
             boxes: &boxes,
             overlay: &overlay,
+            xray: &xray,
             fills: &fills,
             grid: display.grid.then(|| grid_for(cam.focus)),
             axes,

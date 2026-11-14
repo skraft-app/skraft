@@ -11,6 +11,7 @@ use solidsketch_model::{Boolean, Document, LengthUnit, Operation, Settings};
 use solidsketch_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use solidsketch_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, ToolKind};
 
+use crate::clipboard::Clipboard;
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
 use crate::dock::{self, Dock, PanelId};
 use crate::docs::{DocId, Docs, file_name};
@@ -79,6 +80,10 @@ pub struct SolidSketchApp {
     /// The documents loading, and since when (egui's time): the window comes after
     /// [`LOAD_WINDOW_AFTER`].
     loads_seen: std::collections::HashMap<DocId, f64>,
+    /// What was copied, for every document (docs/ARCHITECTURE.md §6 decies), and how many
+    /// copies were made (each names its token).
+    clipboard: Option<Clipboard>,
+    copies: u64,
 }
 
 /// How long a load lasts before its window shows (seconds).
@@ -236,6 +241,8 @@ impl SolidSketchApp {
             native_menu: None,
             pending_keys: Vec::new(),
             loads_seen: std::collections::HashMap::new(),
+            clipboard: None,
+            copies: 0,
         };
         #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
         {
@@ -634,6 +641,8 @@ impl SolidSketchApp {
             "edit.undo" => e.history().can_undo(),
             "edit.redo" => e.history().can_redo(),
             "edit.erase" | "edit.make_assembly" | "edit.explode" | "edit.make_unique" => has_sel,
+            "edit.cut" | "edit.copy" => e.can_copy(),
+            "edit.paste" | "edit.paste_in_place" => self.clipboard.as_ref().is_some_and(|c| e.can_paste(&c.clip)),
             "view.section" | "view.section_clear" => section,
             "view.show_all" => e.has_hidden(),
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
@@ -764,6 +773,14 @@ impl SolidSketchApp {
                 self.prefs.show_render_stats = !self.prefs.show_render_stats;
                 true
             }
+            "edit.cut" | "edit.copy" => {
+                self.copy(id == "edit.cut");
+                true
+            }
+            "edit.paste" | "edit.paste_in_place" => {
+                self.paste(id == "edit.paste_in_place");
+                true
+            }
             _ => false,
         };
         if done {
@@ -826,6 +843,32 @@ impl SolidSketchApp {
             _ => return Err(t!("status.command_unknown", id = id)),
         }
         Ok(())
+    }
+
+    /// Copies the shown document's selection (and erases it, for `cut`) into the app's
+    /// clipboard; the system clipboard gets its token.
+    fn copy(&mut self, cut: bool) {
+        let Some(d) = self.docs.active_mut() else { return };
+        // The state copied from: the one before the erase, for a cut.
+        let revision = d.editor.history().revision();
+        let Some(clip) = (if cut { d.editor.cut() } else { d.editor.copy() }) else { return };
+        self.copies += 1;
+        let c = Clipboard::new(clip, d.id, revision, self.copies);
+        self.ctx.copy_text(c.token.clone());
+        self.clipboard = Some(c);
+    }
+
+    /// Pastes the app's clipboard into the shown document: at the cursor, or `in_place`
+    /// (where it was copied from).
+    fn paste(&mut self, in_place: bool) {
+        let (Some(c), Some(d)) = (&self.clipboard, self.docs.active_mut()) else { return };
+        let reuse = c.reuse(d.id, |r| d.editor.history().holds(r));
+        d.vcb.clear();
+        if in_place {
+            d.editor.paste_in_place(&c.clip, reuse);
+        } else {
+            d.editor.paste(&c.clip, reuse);
+        }
     }
 
     fn act(&mut self, a: Action) {
@@ -963,6 +1006,18 @@ impl SolidSketchApp {
     /// One keyboard event: to the shown document's tool or measurements box, or the command its
     /// shortcut runs (given back).
     fn key_event(&mut self, ctx: &egui::Context, ev: egui::Event) -> Option<&'static str> {
+        // The clipboard's keys come as these (desktop and web alike), not as shortcuts; done
+        // only when they can be, without a word otherwise. ⌘V pastes only while the system
+        // clipboard still holds the app's token (§6 decies).
+        let clipboard = match &ev {
+            egui::Event::Cut => Some("edit.cut"),
+            egui::Event::Copy => Some("edit.copy"),
+            egui::Event::Paste(text) if self.clipboard.as_ref().is_some_and(|c| c.is_on_system_clipboard(text)) => Some("edit.paste"),
+            _ => None,
+        };
+        if let Some(id) = clipboard {
+            return self.enabled(id).then_some(id);
+        }
         let egui::Event::Key { key, pressed: true, modifiers, .. } = ev else {
             if let egui::Event::Text(t) = ev
                 && let Some(d) = self.docs.active_mut()
@@ -986,6 +1041,10 @@ impl SolidSketchApp {
         }
         if key == K::T && modifiers.command && !modifiers.shift && !modifiers.alt {
             return Some("file.new");
+        }
+        // The web sends these as keys too, before its clipboard events: done by those.
+        if modifiers.command_only() && matches!(key, K::X | K::C | K::V) {
+            return None;
         }
         let command = || self.keymap.command_for(key, modifiers);
         let Some(d) = self.docs.active_mut() else { return command() };
