@@ -577,7 +577,7 @@ tool:
       array: "Taper 6x pour un réseau de 6 copies, ou /6 pour 6 copies sur l'angle"
       center: "Cliquer le centre de rotation · flèches : axe rouge, vert, bleu · %{copy_key} : copier"
       reference: "Cliquer l'origine de l'angle"
-      angle: "Cliquer l'angle (pas de 15°), ou le taper en degrés"
+      angle: "Cliquer l'angle (pas de 15° dans le rapporteur), ou le taper en degrés"
     vcb:
       copies: "$t(common.copies)"
       angle: "Angle"
