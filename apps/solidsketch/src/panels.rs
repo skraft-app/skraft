@@ -221,39 +221,61 @@ fn face_tip(face: &Face, label: &str, tip: &str) -> String {
     }
 }
 
-/// A length option's value, after its group's name: a button like the ribbon's (lit when not
-/// zero), which a click turns into a text field in place (Enter applies, Esc or a click away
-/// cancels). The text typed, when applied.
+/// A length option's value, after its group's name: a text field, always framed (the field's
+/// ground, an outline). Its outline tells its state: the border's colour at rest, the hovered
+/// ink's when hovered, the selection's when the value is not zero, twice as thick when focused.
+/// Focused, all of it is selected to be typed over; Enter applies, Esc or a click away puts the
+/// value back. The text typed, when applied.
 fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Units) -> Option<String> {
     let id = egui::Id::unique(("length_option", key));
+    let field_id = id.with("field");
     let shown = units.format(value);
-    let editing: Option<String> = ui.data(|d| d.get_temp(id));
-    let Some(mut text) = editing else {
-        if option_button(ui, value != 0.0, &shown, tip, None) {
-            ui.data_mut(|d| d.insert_temp(id, shown));
-        }
-        return None;
+    // While focused, the text typed (kept across frames); else the value.
+    let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| shown.clone());
+
+    // The outline from the state of the last frame (the field's is only known once drawn).
+    let focused = ui.memory(|m| m.has_focus(field_id));
+    let hovered = ui.ctx().read_response(field_id).is_some_and(|r| r.hovered());
+    let visuals = ui.visuals();
+    let stroke = if focused {
+        egui::Stroke::new(2.0, visuals.selection.stroke.color)
+    } else if value != 0.0 {
+        egui::Stroke::new(1.0, visuals.selection.stroke.color)
+    } else if hovered {
+        egui::Stroke::new(1.0, visuals.widgets.hovered.fg_stroke.color)
+    } else {
+        visuals.widgets.noninteractive.bg_stroke
     };
+    // The margin keeps room for the thicker outline: focusing does not move the text.
+    let frame = egui::Frame::new()
+        .fill(visuals.extreme_bg_color)
+        .stroke(stroke)
+        .corner_radius(visuals.widgets.inactive.corner_radius)
+        .inner_margin(egui::Margin::symmetric(6, 2) - egui::Margin::from(stroke.width));
     let field = egui::TextEdit::singleline(&mut text)
+        .id(field_id)
+        .frame(frame)
         .desired_width(80.0)
         .min_size(egui::vec2(80.0, OPTION_HEIGHT))
-        .align(egui::Align2::LEFT_CENTER);
-    let r = ui.add(field.id(id.with("field")));
-    // Opened by the click: focused, all of it selected, to be typed over.
-    if !r.has_focus() && !r.lost_focus() {
-        r.request_focus();
-        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id) {
-            let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
-            state.cursor.set_char_range(Some(all));
-            state.store(ui.ctx(), r.id);
-        }
+        .align(egui::Align2::RIGHT_CENTER);
+    let r = ui.add(field).on_hover_text(tip);
+
+    // Just focused (clicked, tabbed into): all of it selected, to be typed over.
+    if r.gained_focus()
+        && let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id)
+    {
+        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
+        state.cursor.set_char_range(Some(all));
+        state.store(ui.ctx(), r.id);
     }
     if r.lost_focus() {
         ui.data_mut(|d| d.remove::<String>(id));
         let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
         return (entered && !text.trim().is_empty() && text.trim() != shown).then(|| text.trim().to_owned());
     }
-    ui.data_mut(|d| d.insert_temp(id, text));
+    if r.has_focus() {
+        ui.data_mut(|d| d.insert_temp(id, text));
+    }
     None
 }
 

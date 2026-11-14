@@ -477,8 +477,11 @@ Decided on 2026-11-09.
     push/pull and of machinings.
   - **Length options** (2026-11-13, for the shapes' offset): `OptionValue::Length` (mm), a group
     of the bar (its name as the caption), before the choices, its value in the document's units
-    on a button like the toggles' (lit when not zero); a click turns it into a text field in
-    place (Enter applies, Esc or a click away cancels), read like the measurements box
+    in a text field always framed, its text right-aligned (the field's ground and an outline; since 2026-11-14, before
+    a button turning into a field on a click): the outline alone tells the state — the border's
+    colour at rest, the hovered ink's, the selection's when not zero, twice as thick when
+    focused. Focused, all of it selected; Enter applies, Esc or a click away puts the value
+    back. Read like the measurements box
     (`measure::coordinate`, `@` the current value). No modal dialog, unlike OCL. The
     measurements box sets it too, at any step: a text ending in `x` (`3x`, `-2mmx`) goes to the
     active tool's first length option (OCL's `_read_offset`), unless the box takes a count of
@@ -587,6 +590,12 @@ Decided on 2026-11-09.
   left without width says so and is not made. The lengths written and typed stay those of the
   shape drawn (clicked on a face's edges, typed); while it is not zero the drawn shape is
   dashed and the one made is drawn solid, at every step.
+  The box's fillet (added 2026-11-14, the Prism's « Congé », §6 nonies): a saved length option
+  of its own, after the offset, set in the bar or by typing `<radius>r`. It rounds the four
+  corners of the base made (offset included): the box is then made a `Primitive::Prism`, its
+  profile the rectangle with the radius on each corner (recorded as radii, as the Prism's).
+  At most half the shorter side made (a stadium; within 1 µm, the clicks' rounding); over
+  it, refused and said, the height step kept to change it. Previewed as the offset is.
   What a shape tool makes is not selected (decided on 2026-11-11), nor what a boolean makes:
   the selection stays as it was and the next shape follows at once.
   `Operation::AddPrimitive` takes a rigid frame for that (`placement: DAffine3`, identity by
