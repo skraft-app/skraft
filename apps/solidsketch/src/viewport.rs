@@ -56,12 +56,6 @@ struct Timing {
     redrawn: bool,
 }
 
-/// `c` mixed with the background by `fade` (what is outside the context being edited).
-fn faded(c: Rgba, background: [f32; 3], fade: f32) -> Rgba {
-    let mix = |k: usize| c[k] + (background[k] - c[k]) * fade;
-    [mix(0), mix(1), mix(2), c[3]]
-}
-
 /// One tint `a` then another `b`, as one: mixing `rgb` by `a` (what a tint does) twice is one
 /// mix, by `1 - (1 - a.a)(1 - b.a)` towards their weighted `rgb`.
 fn then_fade(a: render::Tint, b: render::Tint) -> render::Tint {
@@ -468,13 +462,16 @@ impl Viewport {
         });
         let lines: Vec<render::Line> = (axis_lines.filter(|_| axes))
             .chain(view.guides.iter().map(|s| dashed(s, theme.guide)))
-            .chain(view.faded_guides.iter().map(|s| dashed(s, faded(theme.guide, background, theme.fade))))
             .chain(view.hovered_guides.iter().map(|s| dashed(s, theme.hover.edge)))
             .chain(view.selected_guides.iter().map(|s| dashed(s, theme.selected.edge)))
             .chain(view.scene_lines.iter().map(preview))
             // The guides a tool previews: in the scene, as the document's.
             .chain(view.preview_guides.iter().map(|(s, c)| dashed(s, *c)))
             .collect();
+        // Faded as the parts are, but blended over what they cross rather than mixed with the
+        // background: on a part, they take its colour.
+        let faint = [theme.guide[0], theme.guide[1], theme.guide[2], theme.guide[3] * (1.0 - theme.fade)];
+        let faint_lines: Vec<render::Line> = view.faded_guides.iter().map(|s| dashed(s, faint)).collect();
         let fills: Vec<render::Fill> = view.fills.iter().map(|f| render::Fill { corners: f.corners.clone(), color: f.color }).collect();
 
         let aspect = size[0] as f64 / size[1] as f64;
@@ -499,6 +496,7 @@ impl Viewport {
             batches: &batches,
             highlights: &highlights,
             lines: &lines,
+            faint_lines: &faint_lines,
             boxes: &boxes,
             overlay: &overlay,
             xray: &xray,
