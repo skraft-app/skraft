@@ -1267,15 +1267,14 @@ impl StretchTool {
             (State::Stretch { handle: None, .. }, ToolInput::Key { key: Key::Copy, .. }) => {
                 return vec![Command::SetOption { key: CENTERED, value: OptionValue::Toggle(!self.centered) }];
             }
-            (State::Stretch { target, k, handle, d, .. }, ToolInput::Value(VcbValue::Lengths(v))) => {
+            (State::Stretch { target, k, .. }, ToolInput::Value(VcbValue::Lengths(v))) => {
                 let (target, k) = ((**target).clone(), *k);
                 if self.overall() && v[0] < 0.0 {
                     return vec![Command::Say(t!("tool.stretch.say.invalid_length", value = self.format(cx, v[0])))];
                 }
-                // An interior handle goes the way the cursor takes it (along the axis without a
-                // move yet).
-                let way = if handle.is_some() && *d < 0.0 { -1.0 } else { 1.0 };
-                let d = if self.overall() { (v[0] - target.length(k)) / if self.centered { 2.0 } else { 1.0 } } else { v[0] * way };
+                // The offset typed already goes the way the cursor takes it: the measurements box
+                // gives it the sign of the move shown (vcb.rs), along the axis without a move yet.
+                let d = if self.overall() { (v[0] - target.length(k)) / if self.centered { 2.0 } else { 1.0 } } else { v[0] };
                 return self.finish_checked(cx, d);
             }
             _ => {}

@@ -2744,6 +2744,15 @@ fn stretch_tool_moves_an_interior_section() {
     e.set_shift(false);
     e.input(ToolInput::Vcb("20".into()));
     assert_eq!(stretched(&e, a), ((0.0, 600.0), vec![100.0, 320.0, 500.0]), "{}", e.status());
+
+    // Taken, the cursor towards the start, 30 typed: moved 30 that way (the typed offset takes
+    // the cursor's way, once).
+    e.input(ToolInput::Hover { px: px(&e, on_axis(370.0)) });
+    click(&mut e, on_axis(370.0));
+    assert!(e.status().contains("valider le déplacement"), "{}", e.status());
+    e.input(ToolInput::Hover { px: px(&e, on_axis(220.0)) });
+    e.input(ToolInput::Vcb("30".into()));
+    assert_eq!(stretched(&e, a), ((0.0, 600.0), vec![100.0, 290.0, 500.0]), "{}", e.status());
 }
 
 #[test]
