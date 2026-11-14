@@ -3,6 +3,7 @@
 //! format. See docs/ARCHITECTURE.md §2–§5 and §8.
 
 mod blank;
+mod clipboard;
 mod document;
 pub mod expr;
 mod fast_hash;
@@ -18,6 +19,8 @@ mod stretch;
 #[cfg(test)]
 mod tests;
 
+pub use blank::BlankProfile;
+pub use clipboard::MachiningFragment;
 pub use document::{
     Assembly, Behavior, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH, Machining, MachiningSource,
     Material, Occurrence, Part, PlacedGuide, PlacedPart, StretchMask,
@@ -30,7 +33,6 @@ pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope};
 pub use settings::{Display, LengthUnit, Section, Settings, Units};
 use solidsketch_i18n::t;
 pub use solidsketch_kernel as kernel;
-pub use blank::BlankProfile;
 pub use solidsketch_kernel::Primitive;
 pub use step::StepReport;
 pub use stretch::StretchedPart;
@@ -86,6 +88,8 @@ pub enum Refusal {
     BadBehavior,
     /// A blank's profile that crosses itself or has no height, or a part without one.
     BadProfile,
+    /// A paste with nothing in it.
+    NothingPasted,
 }
 
 /// A file that cannot be opened.
@@ -155,6 +159,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NothingStretched => t!("error.model.nothing_stretched"),
             Refusal::BadBehavior => t!("error.model.bad_behavior"),
             Refusal::BadProfile => t!("error.model.bad_profile"),
+            Refusal::NothingPasted => t!("error.model.nothing_pasted"),
         })
     }
 }

@@ -93,6 +93,13 @@ impl History {
         true
     }
 
+    /// Is the state of `revision` still in this history (before, current or undone)? Ids only
+    /// grow from a state to the next: while it is here, an id it had still names the same
+    /// thing (§6 decies).
+    pub fn holds(&self, revision: u64) -> bool {
+        self.revision == revision || self.past.iter().chain(&self.future).any(|(_, r, _)| *r == revision)
+    }
+
     /// The operations that led to the current document, oldest first.
     pub fn journal(&self) -> impl Iterator<Item = &Operation> {
         self.past.iter().map(|(_, _, op)| op)

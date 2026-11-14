@@ -102,6 +102,10 @@ menu:
     undo_op: "$t(common.undo) %{op}"
     redo: "$t(common.redo)"
     redo_op: "$t(common.redo) %{op}"
+    cut: "Couper"
+    copy: "$t(common.copy)"
+    paste: "Coller"
+    paste_in_place: "Coller sur place"
     erase: "$t(common.erase)"
     make_assembly: "$t(common.make_assembly)"
     explode: "$t(common.explode)"
@@ -542,6 +546,8 @@ tool:
       array: "Taper 5x pour un réseau de 5 copies, ou /5 pour 5 copies sur la distance"
       start: "Cliquer le point de départ · flèches : bloquer un axe · %{copy_key} : copier"
       destination: "Cliquer la destination, ou taper une distance · Maj : bloquer l'inférence"
+      # Pasting at the cursor: what was pasted follows it until placed.
+      paste: "Cliquer où poser ce qui est collé, ou taper une distance · Échap : abandonner"
     vcb:
       distance: "Distance"
       copies: "$t(common.copies)"
@@ -770,6 +776,8 @@ operation:
   show_all: "$t(common.show_all)"
   # Placing the content of an imported file (STEP…) in the model.
   import: "Importer"
+  # Placing what was copied (occurrences, guides, machinings).
+  paste: "Coller"
 
 unit:
   millimeter: "Millimètres"
@@ -835,6 +843,7 @@ error:
     nothing_stretched: "aucun exemplaire à étirer"
     bad_behavior: "plans de coupe ou axes bloqués invalides"
     bad_profile: "profil qui se croise, sans épaisseur, ou pièce sans profil"
+    nothing_pasted: "rien à coller"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"

@@ -1608,9 +1608,12 @@ fn a_profile_is_kept_set_and_stretched() {
     assert_eq!((b.z0, b.height), (0.0, 18.0));
 
     // A copy of it, then the profile set for all: an L, thicker.
-    h.apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * 500.0) }).unwrap();
+    h.apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * 500.0) })
+        .unwrap();
     let copy = h.document().assembly(root).unwrap().occurrences().last().unwrap().id;
-    let l = polygon(&[(0.0, 0.0), (600.0, 0.0), (600.0, 100.0), (100.0, 100.0), (100.0, 300.0), (0.0, 300.0)].map(|(x, y)| glam::DVec2::new(x, y)));
+    let l = polygon(
+        &[(0.0, 0.0), (600.0, 0.0), (600.0, 100.0), (100.0, 100.0), (100.0, 300.0), (0.0, 300.0)].map(|(x, y)| glam::DVec2::new(x, y)),
+    );
     let set = |profile: Vec<Corner>, height: f64, scope| Operation::SetProfile {
         target: path.clone(),
         profile: BlankProfile { profile, z0: 0.0, height },
@@ -1648,4 +1651,202 @@ fn a_profile_is_kept_set_and_stretched() {
     assert!(profile_of(h.document(), &union).is_none());
     let any = profile_of(h.document(), &copy_path).unwrap();
     assert!(h.apply(Operation::SetProfile { target: union, profile: any, scope: Scope::All }).is_err());
+}
+
+// ---- copy and paste (§6 decies) ---------------------------------------------------------
+
+/// A paste needing no kernel, applied.
+fn paste(h: &mut History, context: Id, fragment: &Arc<Document>, transform: DAffine3, reuse: bool) -> Outcome {
+    let op = Operation::Paste { context, fragment: fragment.clone(), transform, reuse };
+    assert!(matches!(h.document().prepare(&op).unwrap(), Prepared::Done(_)), "a paste needs no kernel");
+    h.apply(op).unwrap()
+}
+
+#[test]
+fn pasting_in_the_same_document_gives_occurrences_of_the_same_parts() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
+    let line = GuideShape::Line { origin: DVec3::new(0.0, 5.0, 0.0), dir: DVec3::X };
+    let g = h.apply(Operation::AddGuide { component: root, shape: line }).unwrap().guide.unwrap();
+    let components = h.document().components().count();
+
+    let fragment = Arc::new(h.document().entities_fragment(&[], &[asm, g]).unwrap());
+    // Only what the copied occurrences use: the assembly and its two parts.
+    assert_eq!(fragment.components().count(), 3);
+    let up = DAffine3::from_translation(DVec3::Z * 50.0);
+    let out = paste(&mut h, root, &fragment, up, true);
+    assert_eq!(out.created.len(), 2, "the occurrence and the guide");
+    let doc = h.document();
+    assert_eq!(doc.components().count(), components, "no new part nor assembly");
+    let def = occ(doc, &EntityPath::root(asm)).component;
+    assert_eq!(doc.occurrence_count(def), 2);
+    let pasted = occ(doc, &EntityPath::root(out.created[0]));
+    assert_eq!(pasted.component, def);
+    assert!(close(pasted.transform.translation, occ(doc, &EntityPath::root(asm)).transform.translation + DVec3::Z * 50.0));
+    let guide = doc.component(root).unwrap().guide(out.created[1]).unwrap();
+    assert_eq!(guide.shape, GuideShape::Line { origin: DVec3::new(0.0, 5.0, 50.0), dir: DVec3::X });
+
+    // Pasted into the assembly it copied: it would contain itself.
+    assert!(matches!(
+        h.apply(Operation::Paste { context: def, fragment: fragment.clone(), transform: DAffine3::IDENTITY, reuse: true }),
+        Err(Error::Cycle)
+    ));
+    // Not rigid, nothing in it: refused.
+    let scale = DAffine3::from_scale(DVec3::splat(2.0));
+    assert!(h.apply(Operation::Paste { context: root, fragment: fragment.clone(), transform: scale, reuse: true }).is_err());
+    let empty = Arc::new(h.document().entities_fragment(&[], &[]).unwrap());
+    assert!(matches!(
+        h.apply(Operation::Paste { context: root, fragment: empty, transform: DAffine3::IDENTITY, reuse: true }),
+        Err(Error::Invalid(Refusal::NothingPasted))
+    ));
+}
+
+#[test]
+fn the_fragment_is_in_world_axes_and_pastes_in_place_in_any_context() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::new(10.0, 0.0, 0.0), 10.0));
+    let b = add(&mut h, cube(DVec3::new(40.0, 0.0, 0.0), 10.0));
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
+    h.apply(Operation::Transform { context: root, entities: vec![asm], transform: DAffine3::from_translation(DVec3::Y * 100.0) }).unwrap();
+    let before = world_bounds(h.document(), &EntityPath::new(vec![asm], a));
+
+    // Copied inside the assembly, pasted in place at the root: where it was in the world.
+    let fragment = Arc::new(h.document().entities_fragment(&[asm], &[a]).unwrap());
+    let out = paste(&mut h, root, &fragment, DAffine3::IDENTITY, true);
+    let after = world_bounds(h.document(), &EntityPath::root(out.created[0]));
+    assert!(close(before.0, after.0) && close(before.1, after.1), "{before:?} {after:?}");
+
+    // And back in the assembly, brought into its axes.
+    let def = h.document().context_of(&[asm]).unwrap();
+    let to_axes = h.document().transform_of(&[asm]).unwrap().inverse();
+    let out = paste(&mut h, def, &fragment, to_axes, true);
+    let again = world_bounds(h.document(), &EntityPath::new(vec![asm], out.created[0]));
+    assert!(close(before.0, again.0), "{before:?} {again:?}");
+}
+
+#[test]
+fn pasting_in_another_document_grafts_and_keeps_occurrences_loose() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
+    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap();
+    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
+    // Two occurrences of one part: still one part once pasted.
+    h.apply(Operation::Duplicate { context: root, entities: vec![b], transform: DAffine3::from_translation(DVec3::X * 20.0) }).unwrap();
+    let all: Vec<Id> = h.document().root_assembly().occurrences().iter().map(|o| o.id).collect();
+    let fragment = Arc::new(h.document().entities_fragment(&[], &all).unwrap());
+    assert_eq!(fragment.materials().count(), 1, "only the material used");
+
+    let mut other = History::new(Document::new());
+    let oak2 = other.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    let c = add(&mut other, cube(DVec3::new(0.0, 50.0, 0.0), 5.0));
+    let parts = other.document().components().count();
+    let other_root = other.document().root();
+    let out = paste(&mut other, other_root, &fragment, DAffine3::IDENTITY, false);
+    let doc = other.document();
+    assert_eq!(out.created.len(), 3);
+    assert_eq!(doc.root_assembly().occurrences().len(), 4, "loose, not gathered in an assembly");
+    assert_eq!(doc.components().count(), parts + 2);
+    assert_eq!(doc.materials().count(), 1, "the same oak");
+    assert_eq!(occ(doc, &EntityPath::root(out.created[0])).material, Some(oak2));
+    let (p1, p2) = (occ(doc, &EntityPath::root(out.created[1])).component, occ(doc, &EntityPath::root(out.created[2])).component);
+    assert_eq!(p1, p2);
+    assert_ne!(occ(doc, &EntityPath::root(out.created[0])).component, occ(doc, &EntityPath::root(c)).component);
+}
+
+#[test]
+fn a_part_gone_since_the_copy_is_grafted_back() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let part = occ(h.document(), &EntityPath::root(a)).component;
+    let fragment = Arc::new(h.document().entities_fragment(&[], &[a]).unwrap());
+
+    // Cut: the unnamed part goes with its last occurrence.
+    h.apply(Operation::Delete { context: root, entities: vec![a] }).unwrap();
+    assert!(h.document().component(part).is_err());
+    let out = paste(&mut h, root, &fragment, DAffine3::IDENTITY, true);
+    let back = occ(h.document(), &EntityPath::root(out.created[0])).component;
+    assert!(h.document().part(back).is_ok());
+    assert_eq!(h.document().components().count(), 1);
+
+    // Copied, then undone: the ids came back and another part took them; the caller passes
+    // `reuse: false` there, and the copy is a part of its own.
+    let mut h = History::new(Document::new());
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let fragment = Arc::new(h.document().entities_fragment(&[], &[a]).unwrap());
+    h.undo();
+    let c = add(&mut h, Primitive::Cylinder { origin: DVec3::ZERO, radius: 5.0, height: 10.0 });
+    let taken = occ(h.document(), &EntityPath::root(c)).component;
+    let out = paste(&mut h, root, &fragment, DAffine3::IDENTITY, false);
+    assert_ne!(occ(h.document(), &EntityPath::root(out.created[0])).component, taken);
+    assert_eq!(h.document().components().count(), 2);
+}
+
+#[test]
+fn machinings_paste_into_another_part() {
+    let mut h = History::new(Document::new());
+    let (source, part, hole) = drilled_board(&mut h);
+    let line = GuideShape::Line { origin: DVec3::new(0.0, 25.0, 18.0), dir: DVec3::X };
+    let g = h.apply(Operation::AddGuide { component: part, shape: line }).unwrap().guide.unwrap();
+    let fragment = Arc::new(h.document().machinings_fragment(&source, &[hole, g]).unwrap());
+    assert_eq!((fragment.machinings.len(), fragment.guides.len()), (1, 1));
+
+    // Its twin, elsewhere and turned: in place, the hole lands at the same spot in its axes.
+    let twin = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let root = h.document().root();
+    h.apply(Operation::Transform {
+        context: root,
+        entities: vec![twin],
+        transform: DAffine3::from_rotation_z(1.0) * DAffine3::from_translation(DVec3::Y * 300.0),
+    })
+    .unwrap();
+    let target = EntityPath::root(twin);
+    let before = faces(h.document(), occ(h.document(), &target).component);
+    let op =
+        Operation::PasteMachinings { target: target.clone(), fragment: fragment.clone(), transform: DAffine3::IDENTITY, scope: Scope::All };
+    let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
+    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { tools, .. }] if tools.len() == 1));
+    let out = h.apply(op).unwrap();
+    assert_eq!(out.machinings.len(), 2, "the machining and the guide");
+    let twin_part = occ(h.document(), &target).component;
+    let p = h.document().part(twin_part).unwrap();
+    assert_eq!(p.machinings.len(), 1);
+    assert!(close(p.machinings[0].placement.translation, h.document().part(part).unwrap().machining(hole).unwrap().placement.translation));
+    assert!(faces(h.document(), twin_part) > before);
+    assert_eq!(h.document().component(twin_part).unwrap().guide(out.machinings[1]).unwrap().shape, line);
+
+    // Into a part with no occurrence path: refused; nothing to paste: refused.
+    assert!(
+        h.apply(Operation::PasteMachinings {
+            target: EntityPath::root(Id(999)),
+            fragment: fragment.clone(),
+            transform: DAffine3::IDENTITY,
+            scope: Scope::All
+        })
+        .is_err()
+    );
+    let empty = Arc::new(MachiningFragment::default());
+    assert!(h.apply(Operation::PasteMachinings { target, fragment: empty, transform: DAffine3::IDENTITY, scope: Scope::All }).is_err());
+}
+
+#[test]
+fn the_history_tells_which_states_it_holds() {
+    let mut h = History::new(Document::new());
+    add(&mut h, cube(DVec3::ZERO, 10.0));
+    let copied = h.revision();
+    add(&mut h, cube(DVec3::X * 20.0, 10.0));
+    assert!(h.holds(copied) && h.holds(0));
+    h.undo();
+    h.undo();
+    assert!(h.holds(copied), "undone, still there to redo");
+    // Another way taken: the state copied is gone.
+    add(&mut h, cube(DVec3::Y * 20.0, 10.0));
+    assert!(!h.holds(copied));
 }

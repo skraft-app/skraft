@@ -531,6 +531,18 @@ Decided on 2026-11-09.
 - **Visual feedback**: guide lines (axis colour) through the existing overlay; markers coloured
   by kind and a tooltip ("Endpoint", "Midpoint", "On red axis"…: §6 quater) painted by egui over
   the viewport (`camera.project`): `render` does not change.
+- **The move's line** (start point → cursor), **the rotation's radii and the tape's measure**
+  (or its offset, 2026-11-14): seen
+  through what lies between — plain where they are seen, dashed where faces hide them
+  (`Preview::xray` → `Frame::xray`); the protractor stays over everything. Move writes its
+  distance at the middle of its line, Rotate its angle on the bisector of its radii, just past
+  the protractor (`PreviewLabel`, as Stretch). Move's line and the tape's are arrows,
+  their head at the cursor (the destination, the point measured to, the guide's side): heads `ARROW_PX` long on screen,
+  in the plane facing the eye (`tools::arrow_head`), drawn over everything. The
+  renderer draws such a line plain with the depth-tested lines (depth written), then dashed
+  with the depth test reversed (`CompareFunction::Less`, the depth being reversed: what
+  something nearer hides), blended, no depth written; where it was drawn plain, its own depth
+  keeps the dashes off.
 - **Drawing plane** (revised on 2026-11-11, after OpenCutList's `SmartDrawShapeActionHandler`;
   the rules in `tools/shapes.rs`): the first click takes the plane of the face hovered (on an
   edge, the face it bounds, else the ground or the upright plane through the edge), otherwise
@@ -1402,6 +1414,95 @@ states are OCL's: the first point, the points, the height.
   - Delete over a corner takes it away (the outline must stay simple, at least three corners
     or an arc).
   An outline that would cross itself is refused, said in the status bar.
+
+## 6 decies. Copy, cut and paste
+
+Decided on 2026-11-14 (questions / answers). Built in steps: 1. the model; 2. commands,
+clipboard and Paste in place; 3. Paste at the cursor — all done (2026-11-14), machinings and
+guides of an open part included.
+
+- **What is copied: whatever can be selected.** Out of an open part: the context's
+  occurrences (parts and assemblies, their materials, their components' guides) and the
+  context's guides. In an open part: its machinings and its guides. **Cut** = copy, then the
+  existing erase (one undo step for the erase).
+- **The fragment is a `Document`**, as `Operation::Insert`'s (§8 ter): the closure of the
+  components the copied occurrences use (shared by `Arc`: copying costs nearly nothing,
+  whatever the model's size) and the materials they are painted with. Its root holds the
+  copied occurrences with their **world** transformation (the source context's world
+  transformation applied), its guides the copied guides, in world axes too. Machinings copied
+  from an open part go into a fragment of their own kind: the tools and their placements **in
+  the part's axes**, and the part's guides in those axes.
+- **Clipboard: in the app, plus a token.** The fragment stays in memory (`Arc`), one
+  clipboard for the whole app: copying in one tab and pasting in another is the "from one
+  document to another" case (§6 octies). The system clipboard receives only a small **token**
+  (a text naming this clipboard and its serial number): if the user copies something else
+  anywhere, the clipboard no longer matches the token and ⌘V does nothing. Not
+  carried from one instance of the app to another, nor between browser tabs. Since the
+  fragment is a document, carrying its serialised text could come later.
+- **Pasting in the same document gives the same parts**: new occurrences of the same parts
+  and assemblies ("Leg ×5"), as a copy made by Move (§2.5). The source document is known by
+  its `DocId`; a component of the fragment that is no longer in the document (erased, purged
+  after a cut) is grafted from the fragment, as one from another document. **In another
+  document**, everything is grafted (`Document::graft`: fresh ids, names made unique,
+  identical materials reused). Unlike `Insert`, several top occurrences stay loose (not
+  gathered in an assembly).
+- **Where it lands.** **Paste** (⌘V) hangs the pasted content on the cursor, with the Move
+  tool's inferences and typed distance; a click places it, Esc gives it up (the history keeps one step, or
+  none). It is held by **the min corner of its bounding box**, in the context's
+  axes (low, left, front), so it lands on the ground or on a face as in SketchUp. **Paste in
+  place** (⇧⌘V) puts it where it was in world space, brought into the active context. The
+  pasted content is selected; one undo step.
+- **Machinings paste only into an open part** (of any part, of any document), in its axes:
+  "in place" keeps their placement in the part's axes (the holes of one part carried onto its
+  twin), at the cursor as the rest. Occurrences do not paste into an open part, nor
+  machinings out of one: Paste is disabled. Guides follow the content they were copied with.
+- **Commands**: `edit.cut` (⌘X), `edit.copy` (⌘C), `edit.paste` (⌘V), `edit.paste_in_place`
+  (⇧⌘V), in the Edit group (palette, shortcuts, control channel); enabled when the selection
+  can be copied (`Editor::can_copy`: something selected, nothing computing, the tool at its
+  first step), or when the clipboard fits the target (`Editor::can_paste`).
+- **Keys** (step 2, `apps/solidsketch/src/clipboard.rs`, `app.rs`): ⌘X, ⌘C and ⌘V reach the
+  app as egui's `Event::Cut` / `Event::Copy` / `Event::Paste(text)` — egui-winit sends no key
+  for them; the web sends the key *and* the clipboard event, so the keys are ignored — and
+  are fixed whatever the shortcuts, done only when enabled, silently otherwise. A text field
+  being edited keeps them (egui wants the keyboard). `Event::Paste` pastes only when its text
+  is the token; from the menu or the palette, the app's clipboard is trusted (the system
+  clipboard is not read). The token is `solidsketch-clipboard:<run nonce>:<copy count>`.
+  eframe's `clipboard` feature is on (arboard on the desktop): before, the desktop used only
+  egui's in-process clipboard, text fields included.
+- **The app's clipboard** (`Clipboard`): the `Clip` (`Clip::Entities(Arc<Document>)` or
+  `Clip::Machinings(Arc<MachiningFragment>)`, `Editor::copy` / `cut`), the `DocId` and the
+  history revision it was copied at (before the erase, for a cut), and its token.
+  `Editor::paste_in_place(clip, reuse)` pastes it; `reuse` is decided by the app (below).
+- **Model** (step 1, `crates/model/src/clipboard.rs`): `Document::entities_fragment(instances,
+  ids)` and `Document::machinings_fragment(target, ids)` (a `MachiningFragment`: machinings
+  and guide shapes) build the fragments; the fragment keeps the source's ids. Two operations,
+  one undo step each, Paste in place being an identity or the inverse of the target
+  context's world transformation:
+  - `Operation::Paste { context, fragment, transform, reuse }`: no kernel. `Document::graft`
+    takes a `reuse` flag: with it, the components and materials whose ids are still in the
+    document are used as they are, the others grafted with fresh ids (which ids are kept is
+    decided before any is drawn: a fresh id may be one of the fragment's). Refused: a cycle
+    (an assembly pasted into itself), a transformation not rigid, an empty fragment
+    (`Refusal::NothingPasted`);
+  - `Operation::PasteMachinings { target, fragment, transform, scope }`: the copies cut from
+    the part as it is (one recipe task), the guides added to the part.
+- **Same document or not**: `reuse` is true only when the copy's document is the target tab
+  and the revision copied is still in its history (`History::holds`: undo stack, current
+  state or redo stack): ids only grow from that state, so
+  they still name the same things. Undone past the copy and changed since, an id may name
+  another component: then everything is grafted.
+- **Paste at the cursor** (step 3, `Editor::paste`): the paste is done **in place** first
+  (`After::Carry`), then carried by the **Move tool** in a mode of its own
+  (`MoveTool::carrying`): already moving, from the low corner of the content's box in the axes
+  (the box from the `Clip`'s hull: the corners of its solids' boxes, taken at the copy, where
+  they are meshed, and a point of each guide; in world axes for occurrences, the part's for
+  machinings), with Move's inferences, locks and typed distance or point; no copy toggle. The
+  click **replaces** the paste in place by the same paste moved (`Command::Replace`,
+  `Moved::paste`: the transformation composed with the motion in the frame): one step in the
+  history. Esc, Undo, Redo or another tool give it up: the paste in place, still the last
+  step, is undone (`Editor::settle_carry`). Put down or given up, the tool before comes back.
+  So what is carried is in the document meanwhile (drawn by Move's ghost, out of the
+  inferences); a paste of machinings computes the part twice (in place, then moved).
 
 ## 7. Crates
 

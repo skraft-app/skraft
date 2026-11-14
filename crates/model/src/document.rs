@@ -832,10 +832,20 @@ impl Document {
     /// every id drawn afresh, names made unique; a material equal to one already here (same
     /// name and colour) is that one. Returns the fragment root's occurrences, renumbered too,
     /// for the caller to place.
-    pub(crate) fn graft(&mut self, fragment: &Document) -> Result<Vec<Occurrence>> {
+    ///
+    /// With `reuse` (the fragment was copied from this document, whose ids still name the same
+    /// things, §6 decies), the components and materials still here are used as they are; only
+    /// the others are copied.
+    pub(crate) fn graft(&mut self, fragment: &Document, reuse: bool) -> Result<Vec<Occurrence>> {
+        // Decided before anything is added: a fresh id may be one of the fragment's.
+        let here: crate::FastSet<Id> = if reuse {
+            fragment.materials.keys().filter(|id| self.materials.contains_key(id)).copied().collect()
+        } else {
+            crate::FastSet::default()
+        };
         let mut materials: HashMap<Id, Id> = HashMap::new();
         for (id, m) in &fragment.materials {
-            let same = self.materials.iter().find(|(_, here)| *here == m).map(|(k, _)| *k);
+            let same = if here.contains(id) { Some(*id) } else { self.materials.iter().find(|(_, here)| *here == m).map(|(k, _)| *k) };
             let to = match same {
                 Some(k) => k,
                 None => {
@@ -846,8 +856,23 @@ impl Document {
             };
             materials.insert(*id, to);
         }
-        let components: HashMap<Id, Id> =
-            fragment.components.keys().filter(|id| **id != fragment.root).map(|id| (*id, self.fresh_id())).collect();
+        // Decided before anything is added: a fresh id may be one of the fragment's.
+        let kept: crate::FastSet<Id> = if reuse {
+            fragment
+                .components
+                .keys()
+                .filter(|id| **id != fragment.root && **id != self.root && self.components.contains_key(id))
+                .copied()
+                .collect()
+        } else {
+            crate::FastSet::default()
+        };
+        let components: HashMap<Id, Id> = fragment
+            .components
+            .keys()
+            .filter(|id| **id != fragment.root)
+            .map(|id| (*id, if kept.contains(id) { *id } else { self.fresh_id() }))
+            .collect();
         let occurrences = |doc: &mut Document, list: &[Occurrence]| -> Result<Vec<Occurrence>> {
             list.iter()
                 .map(|o| {
@@ -865,7 +890,7 @@ impl Document {
                 .collect()
         };
         // In the fragment's order: ids and names come out the same each time.
-        for (old, c) in fragment.components.iter().filter(|(id, _)| **id != fragment.root) {
+        for (old, c) in fragment.components.iter().filter(|(id, _)| **id != fragment.root && !kept.contains(*id)) {
             let new = &components[old];
             let kind = match &c.kind {
                 ComponentKind::Assembly(a) => ComponentKind::Assembly(Assembly::new(occurrences(self, &a.occurrences)?)),

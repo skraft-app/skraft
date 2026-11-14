@@ -3736,3 +3736,229 @@ fn profile_shows_on_the_cap_facing_the_eye_at_once() {
     let lines = e.preview().lines;
     assert!(!lines.is_empty() && lines.iter().all(|l| (l.a.z - 18.0).abs() < 1e-9), "{:?}", lines.first());
 }
+
+// ---- copy and paste (§6 decies) ---------------------------------------------------------
+
+#[test]
+fn copy_and_paste_in_place_within_and_across_documents() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 50.0, 0.0), "20");
+    assert!(e.can_copy());
+    let clip = e.copy().unwrap();
+    let parts = e.document().components().count();
+
+    // The same document: one more occurrence of the same part, where it was, selected.
+    assert!(e.can_paste(&clip));
+    e.paste_in_place(&clip, true);
+    let pasted = e.selection().to_vec();
+    assert_eq!(pasted.len(), 1);
+    assert_ne!(pasted[0], a);
+    assert_eq!(e.document().components().count(), parts);
+    assert!(close(bounds_of(&e, &EntityPath::root(pasted[0])).0, bounds_of(&e, &EntityPath::root(a)).0));
+
+    // Another document: a part of its own, at the same place.
+    let mut other = top_editor(Document::new());
+    other.paste_in_place(&clip, false);
+    assert_eq!(other.selection().len(), 1);
+    assert_eq!(other.document().components().count(), 1);
+    assert!(close(bounds_of(&other, &EntityPath::root(other.selection()[0])).1, DVec3::new(100.0, 50.0, 20.0)));
+
+    // Cut: copied and erased, one step; pasted back, it is there again.
+    e.select(vec![a]);
+    let cut = e.cut().unwrap();
+    assert!(e.document().resolve(&EntityPath::root(a)).is_err());
+    assert!(e.selection().is_empty());
+    e.paste_in_place(&cut, true);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 2);
+    // Nothing selected: nothing to copy.
+    e.select(vec![]);
+    assert!(!e.can_copy() && e.copy().is_none());
+}
+
+#[test]
+fn copied_in_an_assembly_pasted_in_place_at_the_root() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::new(200.0, 0.0, 0.0), DVec3::new(300.0, 50.0, 0.0), "20");
+    e.make_assembly();
+    let g = e.selection()[0];
+    e.enter(g);
+    e.select(vec![a]);
+    let clip = e.copy().unwrap();
+    let world = bounds_of(&e, &EntityPath::new(vec![g], a));
+    e.exit();
+    e.paste_in_place(&clip, true);
+    let pasted = e.selection()[0];
+    let at = bounds_of(&e, &EntityPath::root(pasted));
+    assert!(close(at.0, world.0) && close(at.1, world.1), "{at:?} {world:?}");
+}
+
+#[test]
+fn machinings_paste_only_into_an_open_part() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
+    let b = draw_box(&mut e, DVec3::new(0.0, 100.0, 0.0), DVec3::new(200.0, 150.0, 0.0), "18");
+    // A hole in the first board, as a boolean would make it.
+    let root = e.document().root();
+    let drill = Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, -5.0), radius: 4.0, height: 30.0 };
+    let hole = e.apply(Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap();
+    let tool = hole.created[0];
+    e.apply(Operation::Boolean {
+        target: EntityPath::root(a),
+        tool: EntityPath::root(tool),
+        op: Boolean::Difference,
+        scope: Default::default(),
+    })
+    .unwrap();
+
+    // Copied in the open part, its machinings shown.
+    e.set_machinings_switch(true);
+    e.enter(a);
+    e.select_all();
+    let clip = e.copy().unwrap();
+    assert!(matches!(clip.content, Content::Machinings(_)));
+    e.exit();
+    // Not out of an open part; occurrences not into one.
+    assert!(!e.can_paste(&clip));
+    let occurrences = e.copy().unwrap();
+    e.enter(b);
+    assert!(!e.can_paste(&occurrences));
+    assert!(e.can_paste(&clip));
+    e.paste_in_place(&clip, true);
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    assert_eq!(part.machinings.len(), 1);
+    assert!(close(part.machinings[0].placement.translation, DVec3::new(20.0, 25.0, -5.0)));
+    assert_eq!(e.selection(), &[part.machinings[0].id]);
+
+    // At the cursor: carried in the part's axes, put down 50 further along red.
+    e.paste(&clip, true);
+    assert!(e.carrying());
+    e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(120.0, 125.0, 0.0)) });
+    e.input(ToolInput::Vcb("50".into()));
+    assert!(!e.carrying());
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    assert_eq!(part.machinings.len(), 2);
+    assert!(close(part.machinings[1].placement.translation, DVec3::new(70.0, 25.0, -5.0)), "{:?}", part.machinings[1].placement);
+}
+
+#[test]
+fn paste_at_the_cursor_is_carried_from_the_low_corner_then_put_down_in_one_step() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::new(-400.0, -300.0, 0.0), DVec3::new(-300.0, -250.0, 0.0), "20");
+    let clip = e.copy().unwrap();
+    let before = e.history().revision();
+
+    // Carried by Move, already pasted (selected), until the click.
+    e.paste(&clip, true);
+    assert!(e.carrying());
+    assert_eq!(e.tool_kind(), ToolKind::Move);
+    let pasted = e.selection()[0];
+    assert_ne!(pasted, a);
+    assert!(e.status().contains("collé"), "{}", e.status());
+    // Copying and other commands wait for it to be put down.
+    assert!(!e.can_copy());
+    click(&mut e, DVec3::new(300.0, 300.0, 0.0));
+    assert!(!e.carrying());
+    assert_eq!(e.tool_kind(), ToolKind::Select, "back to the tool before");
+    let at = e.selection()[0];
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(at));
+    assert!(close(lo, DVec3::new(300.0, 300.0, 0.0)) && close(hi, DVec3::new(400.0, 350.0, 20.0)), "{lo:?} {hi:?}");
+    assert_eq!(e.document().components().count(), 1, "the same part");
+    // One step: undone, the document is as before the paste.
+    e.undo();
+    assert_eq!(e.history().revision(), before);
+    assert_eq!(e.document().root_assembly().occurrences().len(), 1);
+}
+
+#[test]
+fn a_paste_carried_is_given_up_by_escape_undo_or_another_tool() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 50.0, 0.0), "20");
+    let clip = e.copy().unwrap();
+    let before = e.history().revision();
+    let count = |e: &Editor| e.document().root_assembly().occurrences().len();
+
+    e.paste(&clip, true);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, 0.0, 0.0)) });
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert!(!e.carrying() && count(&e) == 1 && e.history().revision() == before);
+    assert_eq!(e.tool_kind(), ToolKind::Select);
+    assert!(e.selection().is_empty());
+
+    e.paste(&clip, true);
+    e.undo();
+    assert!(!e.carrying() && count(&e) == 1);
+    // Undo gave up the paste only: the box is still there to undo.
+    assert!(e.history().can_undo());
+
+    e.set_tool(ToolKind::Erase);
+    e.paste(&clip, true);
+    e.set_tool(ToolKind::Rotate);
+    assert!(!e.carrying() && count(&e) == 1);
+    assert_eq!(e.tool_kind(), ToolKind::Rotate);
+    // Put down with the Erase tool on before: back to it.
+    e.set_tool(ToolKind::Erase);
+    e.paste(&clip, true);
+    click(&mut e, DVec3::new(0.0, 300.0, 0.0));
+    assert_eq!(e.tool_kind(), ToolKind::Erase);
+    assert_eq!(count(&e), 2);
+}
+
+#[test]
+fn a_typed_distance_puts_the_paste_down() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 50.0, 0.0), "20");
+    let clip = e.copy().unwrap();
+    e.paste(&clip, true);
+    e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(150.0, 0.0, 0.0)) });
+    e.input(ToolInput::Vcb("500".into()));
+    assert!(!e.carrying());
+    let (lo, _) = bounds_of(&e, &EntityPath::root(e.selection()[0]));
+    assert!(close(lo, DVec3::new(500.0, 0.0, 0.0)), "{lo:?}");
+}
+
+#[test]
+fn move_rotate_and_the_tape_write_their_measure_on_lines_seen_through_faces() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::new(-400.0, -300.0, 0.0), DVec3::new(-300.0, -250.0, 0.0), "20");
+
+    // Move: the line from the start, x-rayed, its length at its middle.
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(-400.0, -300.0, 0.0));
+    e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-150.0, -300.0, 0.0)) });
+    let p = e.preview();
+    assert_eq!(p.xray.len(), 1);
+    // An arrow: its head at the destination.
+    assert_eq!(p.lines.len(), 2);
+    // (The start is on the box's top: the line runs at z = 20.)
+    assert!(p.lines.iter().all(|l| close(l.b.with_z(0.0), DVec3::new(-150.0, -300.0, 0.0)) && l.a.x < -150.0), "{:?}", p.lines);
+    assert_eq!(p.labels.len(), 1);
+    assert!(p.labels[0].text.starts_with("250"), "{}", p.labels[0].text);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+
+    // Rotate: both radii x-rayed, the angle between them.
+    e.set_tool(ToolKind::Rotate);
+    click(&mut e, DVec3::new(0.0, 0.0, 0.0));
+    click(&mut e, DVec3::new(200.0, 0.0, 0.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 200.0, 0.0)) });
+    let p = e.preview();
+    assert_eq!(p.xray.len(), 2);
+    assert_eq!(p.labels.len(), 1);
+    assert_eq!(p.labels[0].text, "90°");
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+
+    // The tape: its measure x-rayed too, its length on it.
+    e.set_tool(ToolKind::Measure);
+    click(&mut e, DVec3::new(-600.0, 400.0, 0.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-200.0, 400.0, 0.0)) });
+    let p = e.preview();
+    assert_eq!(p.xray.len(), 1);
+    // An arrow towards the cursor.
+    let heads: Vec<_> = p.lines.iter().filter(|l| close(l.b, DVec3::new(-200.0, 400.0, 0.0))).collect();
+    assert_eq!(heads.len(), 2);
+    assert!(!p.lines.iter().any(|l| close(l.b, DVec3::new(-600.0, 400.0, 0.0))));
+    assert!(p.labels.iter().any(|l| l.text.starts_with("400")), "{:?}", p.labels);
+}

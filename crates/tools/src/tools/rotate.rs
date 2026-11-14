@@ -8,14 +8,14 @@
 
 use crate::infer::Inference;
 use crate::scene::Owner;
-use crate::vcb::{Vcb, VcbKind, VcbValue};
+use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 use glam::{DAffine3, DQuat, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Id;
 
 use super::{
-    BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, RED, Tool, ToolInput, ToolKind, ToolOption,
-    guide_color,
+    BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLabel, PreviewLine, RED, Tool, ToolInput, ToolKind,
+    ToolOption, guide_color,
 };
 
 /// Snapping step and how close the angle must be to snap (radians).
@@ -215,23 +215,33 @@ impl Tool for RotateTool {
                 inference: self.snap.clone(),
                 ..Default::default()
             },
+            // The radii from the centre are seen through what lies between: dashed behind
+            // faces. The protractor stays over everything.
             State::Reference { center, axis, dir } => {
-                let mut lines = protractor(center, axis, self.color(cx, axis));
-                if let Some(d) = dir {
-                    let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                    lines.push(PreviewLine { a: center, b: center + d * radius(center), color, bold: false });
-                }
-                Preview { lines, inference: self.snap.clone(), ..Default::default() }
+                let lines = protractor(center, axis, self.color(cx, axis));
+                let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
+                let xray = dir.map(|d| PreviewLine { a: center, b: center + d * radius(center), color, bold: false }).into_iter().collect();
+                Preview { lines, xray, inference: self.snap.clone(), ..Default::default() }
             }
             State::Angle { center, axis, reference, angle } => {
-                let mut lines = protractor(center, axis, self.color(cx, axis));
+                let lines = protractor(center, axis, self.color(cx, axis));
                 let r = radius(center);
                 let now = DQuat::from_axis_angle(axis, angle) * reference;
-                lines.push(PreviewLine { a: center, b: center + reference * r, color: INK, bold: false });
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                lines.push(PreviewLine { a: center, b: center + now * r, color, bold: false });
+                let xray = vec![
+                    PreviewLine { a: center, b: center + reference * r, color: INK, bold: false },
+                    PreviewLine { a: center, b: center + now * r, color, bold: false },
+                ];
+                // The angle, between the two radii, just past the protractor.
+                let mid = DQuat::from_axis_angle(axis, angle / 2.0) * reference;
+                let labels = (angle.abs() > 1e-9)
+                    .then(|| PreviewLabel { a: center + mid * r * 0.6, b: center + mid * r * 1.1, text: vcb::format_angle(angle), color })
+                    .into_iter()
+                    .collect();
                 Preview {
                     lines,
+                    xray,
+                    labels,
                     marks: vec![center],
                     ghost: Some(rotation_about(center, axis, angle)),
                     inference: self.snap.clone(),

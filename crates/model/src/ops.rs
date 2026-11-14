@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
 
+use crate::clipboard::MachiningFragment;
 use crate::document::{
     Assembly, Behavior, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Machining, MachiningSource, Material, Occurrence, Part,
 };
@@ -218,6 +219,24 @@ pub enum Operation {
     /// its root holds comes as one occurrence placed by the rigid `transform`: the root's
     /// single occurrence itself, else a new assembly named as the root.
     Insert { context: Id, fragment: Arc<Document>, transform: DAffine3 },
+    /// Places what was copied ([`Document::entities_fragment`], §6 decies) in `context`, moved
+    /// by the rigid `transform` from the fragment's world axes into the context's: its
+    /// occurrences each on their own, its guides in the context. With `reuse` (pasting into
+    /// the document it was copied from, whose ids still name the same things), the components
+    /// still here are used as they are — the copies are occurrences of the same parts (§2.5);
+    /// the others are grafted as from another document ([`Operation::Insert`]).
+    Paste { context: Id, fragment: Arc<Document>, transform: DAffine3, reuse: bool },
+    /// Adds to the part `target` places the machinings and guides copied from an open part
+    /// ([`Document::machinings_fragment`]), moved by the rigid `transform` in the part's axes;
+    /// the copies are cut from the part as it is.
+    PasteMachinings {
+        target: EntityPath,
+        fragment: Arc<MachiningFragment>,
+        #[serde(default = "identity", skip_serializing_if = "is_identity")]
+        transform: DAffine3,
+        #[serde(default)]
+        scope: Scope,
+    },
 }
 
 impl Operation {
@@ -252,6 +271,7 @@ impl Operation {
             Operation::ArrayMachinings { .. } => t!("operation.array"),
             Operation::AddGuide { .. } => t!("operation.add_guide"),
             Operation::Insert { .. } => t!("operation.import"),
+            Operation::Paste { .. } | Operation::PasteMachinings { .. } => t!("operation.paste"),
             Operation::Stretch { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
             Operation::SetProfile { .. } => t!("operation.set_profile"),
@@ -451,7 +471,7 @@ impl Document {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::PlacementNotRigid));
                 }
-                let mut top = self.graft(fragment)?;
+                let mut top = self.graft(fragment, false)?;
                 let placed = match top.len() {
                     0 => return Err(Error::Invalid(Refusal::EmptyAssembly)),
                     1 => {
@@ -475,6 +495,56 @@ impl Document {
                 let id = placed.id;
                 self.assembly_mut(*context)?.occurrences_mut().push(placed);
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
+            }
+            Operation::Paste { context, fragment, transform, reuse } => {
+                self.assembly(*context)?;
+                if !is_rigid(transform) {
+                    return Err(Error::Invalid(Refusal::NotRigid));
+                }
+                let shapes: Vec<GuideShape> = fragment.component(fragment.root)?.guides.iter().map(|g| g.shape).collect();
+                let top = self.graft(fragment, *reuse)?;
+                if top.is_empty() && shapes.is_empty() {
+                    return Err(Error::Invalid(Refusal::NothingPasted));
+                }
+                // Reused, an assembly may be the context or hold it.
+                if top.iter().any(|o| self.contains_component(o.component, *context)) {
+                    return Err(Error::Cycle);
+                }
+                let mut created: Vec<Id> = top.iter().map(|o| o.id).collect();
+                let placed = top.into_iter().map(|o| Occurrence { transform: *transform * o.transform, ..o });
+                self.assembly_mut(*context)?.occurrences_mut().extend(placed);
+                let guides: Vec<Guide> = shapes.iter().map(|s| Guide { id: self.fresh_id(), shape: s.transformed(transform) }).collect();
+                created.extend(guides.iter().map(|g| g.id));
+                self.component_mut(*context)?.guides.extend(guides);
+                Ok(Outcome { created, ..Outcome::default() })
+            }
+            Operation::PasteMachinings { target, fragment, transform, scope } => {
+                if !is_rigid(transform) {
+                    return Err(Error::Invalid(Refusal::NotRigid));
+                }
+                if fragment.is_empty() {
+                    return Err(Error::Invalid(Refusal::NothingPasted));
+                }
+                self.resolve_part(target)?;
+                if *scope == Scope::This && !fragment.machinings.is_empty() {
+                    self.separate(target)?;
+                }
+                let (part, _, _) = self.resolve_part(target)?;
+                let copies: Vec<Machining> = fragment
+                    .machinings
+                    .iter()
+                    .map(|m| Machining { id: self.fresh_id(), placement: *transform * m.placement, ..m.clone() })
+                    .collect();
+                let mut created: Vec<Id> = copies.iter().map(|m| m.id).collect();
+                if !copies.is_empty() {
+                    self.part_mut(part)?.machinings.extend(copies);
+                    self.recompute(part, Some(&created), solver)?;
+                }
+                let guides: Vec<Guide> =
+                    fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: s.transformed(transform) }).collect();
+                created.extend(guides.iter().map(|g| g.id));
+                self.component_mut(part)?.guides.extend(guides);
+                Ok(Outcome { machinings: created, ..Outcome::default() })
             }
             Operation::AddGuide { component, shape } => {
                 self.component(*component)?;
@@ -846,7 +916,7 @@ impl Document {
     }
 
     /// `ids` split into the guides of `component` and the rest, each in the order given.
-    fn split_guides(&self, component: Id, ids: &[Id]) -> Result<(Vec<Id>, Vec<Id>)> {
+    pub(crate) fn split_guides(&self, component: Id, ids: &[Id]) -> Result<(Vec<Id>, Vec<Id>)> {
         let c = self.component(component)?;
         Ok(ids.iter().partition(|id| c.guide(**id).is_some()))
     }
@@ -1002,7 +1072,7 @@ impl Document {
 
     /// Clones of the occurrences `ids` of `context`, in the context's order; every id must be
     /// there.
-    fn occurrences_of(&self, context: Id, ids: &[Id]) -> Result<Vec<Occurrence>> {
+    pub(crate) fn occurrences_of(&self, context: Id, ids: &[Id]) -> Result<Vec<Occurrence>> {
         let at = self.positions_of(context, ids)?;
         let occurrences = self.assembly(context)?.occurrences();
         Ok(at.into_iter().map(|i| occurrences[i].clone()).collect())

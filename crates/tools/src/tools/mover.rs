@@ -7,17 +7,22 @@
 //! direction (`@/2`: half the way so far), a typed point at it (`[x;y;z]` in the context's
 //! axes, `<dx;dy;dz>` from the start). With nothing selected, the first click takes the entity under the cursor
 //! (SketchUp).
+//!
+//! Paste at the cursor (§6 decies) carries what was just pasted in place with this tool, held
+//! by a corner ([`MoveTool::carrying`]): the click puts the paste, moved, in the paste's
+//! place in the history (one step), without copying.
 
 use crate::scene::Owner;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::Id;
+use solidsketch_model::{Id, Operation};
 
 use super::{
-    Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLine, Tool, ToolInput, ToolKind, ToolOption, guide_color,
+    Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLabel, PreviewLine, Tool, ToolInput, ToolKind, ToolOption,
+    guide_color,
 };
 use crate::infer::Inference;
-use crate::vcb::{PointRef, Vcb, VcbKind, VcbValue};
+use crate::vcb::{self, PointRef, Vcb, VcbKind, VcbValue};
 
 #[derive(Default)]
 pub struct MoveTool {
@@ -29,6 +34,8 @@ pub struct MoveTool {
     snap: Option<Inference>,
     /// The copy just made, which a typed count turns into an array.
     last: Option<LastCopy>,
+    /// The paste carried: the click replaces it by itself moved.
+    pasted: Option<Box<Operation>>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -47,6 +54,11 @@ fn axis(cx: &Cx<'_>, k: usize) -> DVec3 {
 }
 
 impl MoveTool {
+    /// Carries `entities`, just pasted by `pasted`, from `from`: already moving.
+    pub fn carrying(entities: Vec<Id>, from: DVec3, pasted: Operation) -> Self {
+        MoveTool { state: State::Moving { from, to: from }, moving: entities, pasted: Some(Box::new(pasted)), ..Default::default() }
+    }
+
     /// The destination under `px`: inferred on the scene (ignoring what moves, unless copying:
     /// then the original stays in place) and on the lines through `from`, held on the locked
     /// line if any, else on the horizontal plane through `from`.
@@ -61,6 +73,11 @@ impl MoveTool {
     fn finish(&mut self, cx: &Cx<'_>, from: DVec3, to: DVec3) -> Vec<Command> {
         self.state = State::Start;
         let entities = std::mem::take(&mut self.moving);
+        self.snap = None;
+        if let Some(pasted) = self.pasted.take() {
+            let op = cx.moved().paste(&pasted, DAffine3::from_translation(to - from));
+            return vec![Command::Replace { previous: pasted, op: Box::new(op) }];
+        }
         let op = if self.copy {
             let last = LastCopy::new(cx.moved(), entities, Motion::Translate(to - from));
             let op = last.op.clone();
@@ -91,7 +108,8 @@ impl Tool for MoveTool {
                 self.state = State::Moving { from, to };
                 self.snap = snap;
             }
-            (ToolInput::Key { key: Key::Copy, .. }, _) => self.copy = !self.copy,
+            // A paste carried is placed, not copied.
+            (ToolInput::Key { key: Key::Copy, .. }, _) if self.pasted.is_none() => self.copy = !self.copy,
             (ToolInput::Click { px, .. }, State::Start) => {
                 self.last = None;
                 let inf = cx.infer(*px, |_| true, None);
@@ -132,14 +150,22 @@ impl Tool for MoveTool {
         vec![]
     }
 
-    fn preview(&self, _cx: &Cx<'_>) -> Preview {
+    fn preview(&self, cx: &Cx<'_>) -> Preview {
         match self.state {
             State::Start => Preview { marks: self.cursor.into_iter().collect(), inference: self.snap.clone(), ..Default::default() },
             State::Moving { from, to } => {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                let lines = vec![PreviewLine { a: from, b: to, color, bold: false }];
+                // Seen through what lies between: dashed behind faces; its length at its middle.
+                let xray = vec![PreviewLine { a: from, b: to, color, bold: false }];
+                let labels = ((to - from).length() > 1e-9)
+                    .then(|| PreviewLabel { a: from, b: to, text: vcb::format((to - from).length(), cx.units()), color })
+                    .into_iter()
+                    .collect();
                 Preview {
-                    lines,
+                    // The head over everything: it stays readable at the cursor.
+                    lines: super::arrow_head(cx.camera, cx.size, from, to, color),
+                    xray,
+                    labels,
                     marks: vec![from],
                     ghost: Some(DAffine3::from_translation(to - from)),
                     inference: self.snap.clone(),
@@ -153,6 +179,7 @@ impl Tool for MoveTool {
         let hint = match self.state {
             State::Start if self.last.is_some() => return t!("tool.move.hint.array"),
             State::Start => t!("tool.move.hint.start", copy_key = super::copy_key()),
+            State::Moving { .. } if self.pasted.is_some() => return t!("tool.move.hint.paste"),
             State::Moving { .. } => t!("tool.move.hint.destination"),
         };
         super::with_copying(hint, self.copy)
@@ -185,7 +212,9 @@ impl Tool for MoveTool {
     }
 
     fn set_option(&mut self, key: &str, value: &OptionValue) {
-        if let ("copy", OptionValue::Toggle(on)) = (key, value) {
+        if let ("copy", OptionValue::Toggle(on)) = (key, value)
+            && self.pasted.is_none()
+        {
             self.copy = *on;
         }
     }
@@ -200,5 +229,6 @@ impl Tool for MoveTool {
         self.last = None;
         self.moving.clear();
         self.snap = None;
+        self.pasted = None;
     }
 }

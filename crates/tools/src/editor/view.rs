@@ -75,6 +75,8 @@ pub struct View {
     pub overlay: Vec<PreviewLine>,
     /// A tool's lines drawn depth-tested.
     pub scene_lines: Vec<PreviewLine>,
+    /// A tool's lines plain where seen, dashed where faces hide them.
+    pub xray: Vec<PreviewLine>,
     /// A tool's translucent polygons, drawn depth-tested.
     pub fills: Vec<PreviewFill>,
     /// The inferred point to mark, with its kind (the app draws the marker and the tooltip).
@@ -172,7 +174,7 @@ impl Editor {
     /// The box bounding what the occurrence `id` of the context `ctx_path` holds, in its own
     /// axes, moved by `extra` and grown by `offset_px` pixels on every side: its frame (to
     /// world) and its bounds in it (a part's recipe shown: its blank's).
-    fn content_bounds(&self, ctx: &ContextIndex<'_>, id: Id, extra: DAffine3, offset_px: f64) -> Option<OrientedBox> {
+    pub(super) fn content_bounds(&self, ctx: &ContextIndex<'_>, id: Id, extra: DAffine3, offset_px: f64) -> Option<OrientedBox> {
         let o = ctx.occurrence(id)?;
         self.content_box(extra * ctx.transform() * o.transform, extra, &ctx.solids_under(id), offset_px)
     }
@@ -541,6 +543,7 @@ impl Editor {
         }
         v.overlay = preview.lines;
         v.scene_lines = preview.scene_lines;
+        v.xray = preview.xray;
         v.fills = preview.fills;
         v.preview_guides = preview.guides;
         // The axes, across the view.
