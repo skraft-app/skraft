@@ -41,7 +41,27 @@ pub struct Bar<'a> {
     /// The 3D view's background under the bar and the text drawn on it (none: the start
     /// page): the shown tab opens onto it.
     pub ground: Option<(egui::Color32, egui::Color32)>,
+    /// The control channel, while it is on (desktop).
+    pub remote: Option<RemoteMark>,
 }
+
+/// The control channel's mark (docs/ARCHITECTURE.md §7 quater): green while it runs,
+/// flashing at each request; in red when it could not start. Its menu: the address, copy a
+/// test command, stop (or try again).
+pub struct RemoteMark {
+    pub port: u16,
+    /// The requests served since it started.
+    pub served: u64,
+    /// 1 just after a request, down to 0.
+    pub flash: f32,
+    /// Why it is not running, though asked for.
+    pub error: Option<String>,
+}
+
+/// The running channel's mark: a green readable on the bar's dark ground, whatever the palette.
+const ACTIVE: egui::Color32 = egui::Color32::from_rgb(88, 204, 112);
+/// The failed channel's mark: a red readable on the bar's dark ground.
+const ALERT: egui::Color32 = egui::Color32::from_rgb(240, 96, 88);
 
 /// The bar's panel, at the top of the window.
 pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) {
@@ -103,6 +123,9 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
         .scope_builder(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
             if let Some(v) = find("app.preferences") {
                 command_button(ui, icons::SETTINGS, v, false, &v.tip(), actions);
+            }
+            if let Some(mark) = &bar.remote {
+                remote_mark(ui, mark, actions);
             }
             // The toggles' width, as egui spaces the buttons.
             let toggles = (TOGGLES.len() + 1) as f32 * (26.0 + ui.spacing().item_spacing.x) + 12.0;
@@ -294,4 +317,44 @@ fn search(ui: &mut egui::Ui, v: &CommandView, width: f32) -> bool {
     );
     ui.painter().galley(egui::pos2(left, rect.center().y - hint.size().y / 2.0), hint, weak);
     r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
+/// The control channel's mark and its menu.
+fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) {
+    let ink = if mark.error.is_some() { ALERT } else { ACTIVE };
+    let img = egui::Image::new(icons::REMOTE).fit_to_exact_size(egui::vec2(18.0, 18.0)).tint(ink);
+    let address = format!("127.0.0.1:{}", mark.port);
+    let tip = match &mark.error {
+        Some(e) => t!("titlebar.remote.failed", error = e),
+        None => t!("titlebar.remote.on", address = address, n = mark.served),
+    };
+    // The flash: its green behind the mark, fading.
+    let behind = ui.painter().add(egui::Shape::Noop);
+    let button = egui::Button::image(img).min_size(egui::vec2(26.0, 26.0));
+    let r = backed(ui, menu_open, |ui| {
+        egui::containers::menu::MenuButton::from_button(unframed(button))
+            .config(egui::containers::menu::MenuConfig::new().style(crate::style::menu))
+            .ui(ui, |ui| {
+                ui.weak(&tip);
+                ui.separator();
+                if mark.error.is_some() {
+                    if ui.button(t!("titlebar.remote.retry")).clicked() {
+                        actions.push(Action::RemoteRetry);
+                    }
+                } else if ui.button(t!("titlebar.remote.copy_ping")).clicked() {
+                    ui.ctx().copy_text(format!("curl -s -H 'X-SolidSketch: 1' http://{address}/ping"));
+                }
+                if ui.button(t!("titlebar.remote.stop")).clicked() {
+                    actions.push(Action::Command("app.remote_control"));
+                }
+            })
+            .0
+    });
+    if mark.flash > 0.0 {
+        let fill = ACTIVE.gamma_multiply(0.45 * mark.flash);
+        ui.painter().set(behind, egui::Shape::rect_filled(r.rect, tabs::VEIL_RADIUS, fill));
+    }
+    if !menu_open(&r) {
+        r.on_hover_text(tip);
+    }
 }

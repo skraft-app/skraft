@@ -36,6 +36,7 @@ icon!(SILHOUETTES, "silhouettes");
 icon!(VIEWS, "views");
 icon!(SEARCH, "search");
 icon!(SETTINGS, "settings");
+icon!(REMOTE, "remote");
 icon!(MATERIALS, "materials");
 icon!(EYE, "eye");
 icon!(EYE_OFF, "eye_off");

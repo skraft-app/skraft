@@ -1877,8 +1877,17 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   = none), *Shortcuts* tab of the preferences (conflicts flagged). **Command palette**:
   Cmd/Ctrl+K, searches labels and ids (accents ignored), Enter runs.
 - **External driving** (desktop): an HTTP server on the **loopback** interface
-  (127.0.0.1:7858, `SOLIDSKETCH_CONTROL_PORT`), **off by default**, started by
-  `SOLIDSKETCH_CONTROL=1`. The header `X-SolidSketch: 1` is required (CSRF guard, as the
+  (127.0.0.1, port: preference `remote_port`, default 7858; `SOLIDSKETCH_CONTROL_PORT` for
+  one launch), **off by default**. A new port (typed, or dragged and released, in the
+  preferences) restarts it only if it is on and the port changed. Switched on and off
+  while the app runs — command `app.remote_control` (checked while on), the *Débogage* (debug) tab of
+  the preferences — and remembered (preference `remote_control`); `SOLIDSKETCH_CONTROL=1`
+  starts it for one launch without changing the preference. Stopping it frees the port (the
+  listener's thread ends; requests on their way get a 503); a script may stop it with
+  `POST /run app.remote_control` (its answer still comes). While on, the **title bar** shows
+  its mark (left of the preferences): green, flashing at each request; in red when it
+  could not start (port taken), still counted as on. Its menu: the address and requests
+  served, copy a `curl …/ping`, stop (or try again). The header `X-SolidSketch: 1` is required (CSRF guard, as the
   Claude Bridge). `GET /ping`, `GET /commands` (ids, labels, enabled, checked, shortcut),
   `POST /run` (body: an id), `GET /state` (tool, context, selection, status, revision,
   modified), `GET /screenshot` (the view, as a PNG). Each request is handed to the UI thread,

@@ -19,6 +19,9 @@ use solidsketch_tools::OptionValues;
 
 use crate::commands::RECENT_FILES;
 
+/// The control channel's port by default.
+pub const DEFAULT_REMOTE_PORT: u16 = 7858;
+
 /// The version this build writes.
 pub const VERSION: u32 = 1;
 
@@ -56,6 +59,10 @@ pub struct Preferences {
     pub panels: Layout,
     /// The workspace and tab shown, the ribbon's pins and labels (ARCHITECTURE.md §6 septies).
     pub ribbon: crate::ribbon::Prefs,
+    /// The control channel (docs/ARCHITECTURE.md §7 quater) is on at launch (desktop).
+    pub remote_control: bool,
+    /// Its port, on 127.0.0.1.
+    pub remote_port: u16,
 }
 
 impl Default for Preferences {
@@ -77,6 +84,8 @@ impl Default for Preferences {
             shown_file: None,
             panels: Layout::default(),
             ribbon: crate::ribbon::Prefs::default(),
+            remote_control: false,
+            remote_port: DEFAULT_REMOTE_PORT,
         }
     }
 }

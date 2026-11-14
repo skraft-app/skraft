@@ -92,6 +92,8 @@ pub const COMMANDS: &[Command] = &[
     c("edit.delete_guides", || t!("menu.edit.delete_guides"), M::Edit, None),
     g("app.command_palette", || ellipsis(t!("menu.edit.command_palette")), M::Edit, Some("Cmd+K")),
     c("app.preferences", || ellipsis(t!("menu.edit.preferences")), M::Edit, Some("Cmd+Comma")),
+    // The control channel, on or off (desktop).
+    c("app.remote_control", || t!("menu.edit.remote_control"), M::Edit, None),
     c("view.parallel", || t!("menu.view.parallel"), M::View, None),
     c("view.grid", || t!("menu.view.grid"), M::View, None),
     c("view.axes", || t!("menu.view.axes"), M::View, None),
