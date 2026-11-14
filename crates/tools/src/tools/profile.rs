@@ -244,7 +244,8 @@ impl ProfileTool {
     /// the way a corner or a side went (dashed), an arc's bulge, a fillet's or a circle's
     /// radius, the thickness. `b` is the profile now.
     fn labels(&self, cx: &Cx<'_>, b: &BlankProfile, top: bool, inset: f64, lines: &mut Vec<PreviewLine>) -> Vec<PreviewLabel> {
-        let State::Moving { grip, from, .. } = &self.state else { return Vec::new() };
+        let State::Moving { grip, from, px, .. } = &self.state else { return Vec::new() };
+        let px = *px;
         let label = |a: DVec3, c: DVec3, color| {
             let len = a.distance(c);
             let text = vcb::format(len, cx.units());
@@ -269,9 +270,15 @@ impl ProfileTool {
                 let u = profile::fillet_bisector(p, i).unwrap_or_default();
                 label(m.extend(z), (m + u * r).extend(z), MAGENTA)
             }
+            // From the centre towards the cursor, the radius long, dashed.
             Grip::Radius => {
-                let c = profile::circle(p).map_or(p[0].p, |(c, _)| c);
-                label(c.extend(z), grip_at(b, top, Grip::Radius, inset), INK)
+                let Some((c, r)) = profile::circle(p) else { return Vec::new() };
+                let toward = px
+                    .and_then(|px| cx.axes_ray(px).hit_plane(DVec3::new(0.0, 0.0, z), DVec3::Z))
+                    .and_then(|q| (q.truncate() - c).try_normalize());
+                let to = toward.map_or(grip_at(b, top, Grip::Radius, inset), |u| (c + u * r).extend(z));
+                dashed(cx.camera, cx.size, lines, cx.to_world(c.extend(z)), cx.to_world(to), INK);
+                label(c.extend(z), to, INK)
             }
             Grip::Thickness => {
                 let g = grip_at(b, top, Grip::Thickness, inset).truncate();
