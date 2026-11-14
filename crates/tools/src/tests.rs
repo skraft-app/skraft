@@ -1916,18 +1916,18 @@ fn the_tape_tells_the_edge_hovered() {
 
     // A straight edge: its length.
     hover(&mut e, DVec3::new(300.0, 50.0, 100.0));
-    assert_eq!(e.inference_tip(), Some("Longueur : 200 mm".into()));
+    assert_eq!(e.inference_tip(), Some("Longueur : 200".into()));
     // A circle: its length and its radius.
     let a = 45f64.to_radians();
     hover(&mut e, DVec3::new(600.0 + 100.0 * a.cos(), 600.0 + 100.0 * a.sin(), 50.0));
-    assert_eq!(e.inference_tip(), Some("Longueur : 628,32 mm\nRayon : 100 mm".into()));
+    assert_eq!(e.inference_tip(), Some("Longueur : 628\nRayon : 100".into()));
     // A face: nothing.
     hover(&mut e, DVec3::new(150.0, 100.0, 100.0));
     assert_eq!(e.inference_tip(), None);
     // While measuring too.
     click(&mut e, DVec3::new(0.0, 0.0, 100.0));
     hover(&mut e, DVec3::new(300.0, 50.0, 100.0));
-    assert_eq!(e.inference_tip(), Some("Longueur : 200 mm".into()));
+    assert_eq!(e.inference_tip(), Some("Longueur : 200".into()));
 }
 
 #[test]
@@ -1946,7 +1946,7 @@ fn the_tape_measures_and_draws_guides() {
     // From a corner to the opposite one: the length, and nothing added.
     click(&mut e, DVec3::new(0.0, 0.0, 100.0));
     hover(&mut e, DVec3::new(300.0, 200.0, 100.0));
-    assert_eq!(e.vcb(), Some(("Longueur".into(), "360,56 mm".into())));
+    assert_eq!(e.vcb(), Some(("Longueur".into(), "361".into())));
     assert_eq!(e.labels().len(), 1, "the length written on the segment");
     click(&mut e, DVec3::new(300.0, 200.0, 100.0));
     assert!(e.vcb().is_none(), "the second click ends the measure");
@@ -1955,7 +1955,7 @@ fn the_tape_measures_and_draws_guides() {
     // From an edge: a parallel guide through the point clicked next, the offset shown.
     click(&mut e, DVec3::new(300.0, 50.0, 100.0));
     hover(&mut e, DVec3::new(420.0, 120.0, 100.0));
-    assert_eq!(e.vcb(), Some(("Décalage".into(), "120 mm".into())));
+    assert_eq!(e.vcb(), Some(("Décalage".into(), "120".into())));
     // The edge referred to, end to end, bolder.
     let refs: Vec<_> = e.preview().lines.into_iter().filter(|l| l.color == crate::tools::MAGENTA).collect();
     let (a, b) = (DVec3::new(300.0, 0.0, 100.0), DVec3::new(300.0, 200.0, 100.0));
@@ -1989,7 +1989,7 @@ fn the_tape_measures_and_draws_guides() {
     assert_eq!(l.color, crate::tools::GREEN, "along green");
     assert!(close(l.a, c + DVec3::new(0.0, 100.0, 0.0)) && close(l.b, c + DVec3::new(0.0, 250.0, 0.0)), "{} {}", l.a, l.b);
     hover(&mut e, c + radial * 160.0);
-    assert_eq!(e.vcb(), Some(("Décalage".into(), "60 mm".into())));
+    assert_eq!(e.vcb(), Some(("Décalage".into(), "60".into())));
     hover(&mut e, c + radial * 300.0);
     assert_eq!(e.labels()[0].color, crate::tools::INK, "askew: ink");
     e.input(ToolInput::Vcb("20".into()));
@@ -2066,7 +2066,7 @@ fn the_tape_draws_the_kind_of_guide_chosen() {
     click(&mut e, DVec3::new(300.0, 200.0, 100.0));
     assert_eq!(e.vcb().map(|v| v.0), Some("Rayon".into()));
     hover(&mut e, DVec3::new(380.0, 200.0, 100.0));
-    assert_eq!(e.vcb().map(|v| v.1), Some("80 mm".into()));
+    assert_eq!(e.vcb().map(|v| v.1), Some("80".into()));
     e.input(ToolInput::Vcb("25".into()));
     let GuideShape::Circle { center, normal, radius } = guides(&e)[5] else { panic!("{:?}", guides(&e)) };
     assert!(close(center, DVec3::new(300.0, 200.0, 100.0)) && normal.cross(DVec3::Z).length() < 1e-9 && (radius - 25.0).abs() < 1e-9);

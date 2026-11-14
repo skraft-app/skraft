@@ -180,12 +180,12 @@ mod tests {
 
     #[test]
     fn displays() {
-        let mm = Units::default();
+        let mm = Units { decimals: 2, symbol: true, ..Default::default() };
         let lengths = |v: Vec<f64>| Vcb::new("", VcbKind::Lengths(v));
         assert_eq!(display(&lengths(vec![12.5, -300.0]), &mm), "12,5 mm; 300 mm");
         assert_eq!(display(&lengths(vec![12.5, -300.0, 0.0]).optional(1), &mm), "12,5 mm; 300 mm");
         assert_eq!(display(&Vcb::new("", VcbKind::Angle(-22.5f64.to_radians())), &mm), "-22,5°");
-        let cm = Units { length: LengthUnit::Centimeter, ..Default::default() };
+        let cm = Units { length: LengthUnit::Centimeter, ..mm };
         assert_eq!(display(&lengths(vec![250.0]), &cm), "25 cm");
     }
 

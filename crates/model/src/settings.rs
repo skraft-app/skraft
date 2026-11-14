@@ -88,7 +88,7 @@ pub struct Units {
 
 impl Default for Units {
     fn default() -> Self {
-        Units { length: LengthUnit::Millimeter, decimals: 2, symbol: true }
+        Units { length: LengthUnit::Millimeter, decimals: 0, symbol: false }
     }
 }
 

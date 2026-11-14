@@ -332,7 +332,7 @@ fn settings_are_saved_undone_and_merged() {
 
 #[test]
 fn units_format() {
-    let mut u = Units::default();
+    let mut u = Units { decimals: 2, symbol: true, ..Default::default() };
     assert_eq!(u.format(12.5), "12,5 mm");
     assert_eq!(u.format(300.0), "300 mm");
     u.length = LengthUnit::Centimeter;
