@@ -101,6 +101,66 @@ pub fn display(vcb: &Vcb, units: &Units) -> String {
     }
 }
 
+/// What the length written by a value (its bubble in the preview) shows of a text typed in
+/// the box: the item typed for it, and what it reads as when that says more (`2m*3`, then
+/// `= 6 000 mm` greyed; not for `600`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Typed {
+    /// The item typed (empty for a value repeated by `=`).
+    pub text: String,
+    /// What it reads as, when that says more (shown after it as `= <result>`).
+    pub result: Option<String>,
+    /// The value being typed (the last item): the caret is there.
+    pub active: bool,
+}
+
+/// What `text`, typed in the box, gives each of `vcb`'s values to show (by index, `None`
+/// where it keeps its current value): the item typed for it (a `;` moves on to the next), with
+/// what it reads as; a value repeated by `=` shows `= <result>`. An item that does not read
+/// (yet) shows as typed. A point or a count typed is for the box only: nothing.
+pub fn typed(vcb: &Vcb, text: &str, units: &Units) -> Vec<Option<Typed>> {
+    let t = text.trim();
+    let point = t.starts_with('[') || t.starts_with('<');
+    match &vcb.kind {
+        VcbKind::Lengths(current) if !point => {
+            let mut out = vec![None; current.len()];
+            let items = measure::items(text);
+            let last = items.len() - 1;
+            let mut slot = 0;
+            for (j, item) in items.iter().enumerate() {
+                if slot >= current.len() {
+                    break;
+                }
+                let (value, repeats) = measure::repeated(item);
+                let read = |s: usize| (!value.is_empty()).then(|| measure::length(value, units, current[s]).ok()).flatten();
+                if !value.is_empty() || j == last {
+                    let result = read(slot).map(|v| format(v.abs(), units)).filter(|r| says_more(value, r));
+                    out[slot] = Some(Typed { text: value.to_owned(), result, active: j == last });
+                }
+                for s in (slot + 1..=slot + repeats).take_while(|&s| s < current.len()) {
+                    out[s] = read(s).map(|v| Typed { text: String::new(), result: Some(format(v.abs(), units)), active: false });
+                }
+                slot += 1 + repeats;
+            }
+            out
+        }
+        VcbKind::Angle(current) if !point => {
+            let result = measure::angle(t, current.to_degrees()).ok().map(|a| format_angle(a.to_radians()));
+            let result = result.filter(|r| says_more(t.trim_end_matches('°').trim_end(), r));
+            vec![Some(Typed { text: t.to_owned(), result, active: true })]
+        }
+        VcbKind::Lengths(current) => vec![None; current.len()],
+        _ => Vec::new(),
+    }
+}
+
+/// Does the result `shown` say more than the item `typed`: not when that is a bare number, or
+/// the result itself (spaces aside).
+fn says_more(typed: &str, shown: &str) -> bool {
+    let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    typed.replace(',', ".").parse::<f64>().is_err() && bare(typed) != bare(shown)
+}
+
 /// A count typed after a copy (SketchUp): `5x`, `x5`, `*5`, `5*` repeat it 5 times; `/5`
 /// or `5/` spread 5 copies over its way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,6 +247,39 @@ mod tests {
         assert_eq!(display(&Vcb::new("", VcbKind::Angle(-22.5f64.to_radians())), &mm), "-22,5°");
         let cm = Units { length: LengthUnit::Centimeter, ..mm };
         assert_eq!(display(&lengths(vec![250.0]), &cm), "25 cm");
+    }
+
+    #[test]
+    fn typed_for_the_bubbles() {
+        let mm = Units { decimals: 2, symbol: true, ..Default::default() };
+        let base = Vcb::new("", VcbKind::Lengths(vec![100.0, -50.0, 0.0])).optional(1);
+        // Written as the bubble shows it, the result after `|`.
+        let shown = |text: &str| -> Vec<Option<(String, bool)>> {
+            let written = |t: Typed| t.result.map_or(t.text.clone(), |r| format!("{}|= {r}", t.text));
+            typed(&base, text, &mm).into_iter().map(|t| t.map(|t| (t.active, written(t))).map(|(active, w)| (w, active))).collect()
+        };
+        let some = |s: &str, active: bool| Some((s.to_owned(), active));
+        // A bare number: as typed; `;` moves on to the next bubble, empty, with the caret.
+        assert_eq!(shown("600"), vec![some("600", true), None, None]);
+        assert_eq!(shown("600;"), vec![some("600", false), some("", true), None]);
+        assert_eq!(shown("600; 2*@"), vec![some("600", false), some("2*@|= 100 mm", true), None]);
+        // An empty item keeps its value; another unit says more.
+        assert_eq!(shown(";40cm"), vec![None, some("40cm|= 400 mm", true), None]);
+        assert_eq!(shown("600mm"), vec![some("600mm", true), None, None]);
+        // What does not read (yet): as typed.
+        assert_eq!(shown("2m*"), vec![some("2m*", true), None, None]);
+        // `=` repeats: the next ones show the result.
+        assert_eq!(shown("600="), vec![some("600", true), some("|= 600 mm", false), None]);
+        assert_eq!(shown("@/2=="), vec![some("@/2|= 50 mm", true), some("|= 25 mm", false), some("|= 0 mm", false)]);
+        // A point: for the box only.
+        assert_eq!(shown("[0;0;0]"), vec![None, None, None]);
+        let angle = Vcb::new("", VcbKind::Angle(90f64.to_radians()));
+        let one = |text: &str| typed(&angle, text, &mm).into_iter().map(|t| t.map(|t| (t.text, t.result))).collect::<Vec<_>>();
+        let r = |t: &str, r: Option<&str>| vec![Some((t.to_owned(), r.map(str::to_owned)))];
+        assert_eq!(one("45"), r("45", None));
+        assert_eq!(one("45°"), r("45°", None));
+        assert_eq!(one("@/2"), r("@/2", Some("45°")));
+        assert!(typed(&Vcb::new("", VcbKind::Count), "5x", &mm).is_empty());
     }
 
     #[test]

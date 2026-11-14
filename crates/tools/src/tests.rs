@@ -65,6 +65,37 @@ fn draw_box(e: &mut Editor, a: DVec3, b: DVec3, h: &str) -> Id {
 }
 
 #[test]
+fn typed_values_show_in_the_bubbles() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::ZERO);
+    hover(&mut e, DVec3::new(300.0, 200.0, 0.0));
+    // The text typed, then the result after `|`.
+    let written = |l: &PreviewLabel| l.result.as_ref().map_or(l.text.clone(), |r| format!("{}|= {r}", l.text));
+    let shown = |e: &Editor, typed: &str| e.labels(typed).iter().map(|l| (written(l), l.active)).collect::<Vec<_>>();
+    let s = |t: &str, active: bool| (t.to_owned(), active);
+    assert_eq!(shown(&e, ""), [s("300", false), s("200", false)]);
+    // The red side first; `;` moves on to the green one.
+    assert_eq!(shown(&e, "600"), [s("600", true), s("200", false)]);
+    assert_eq!(shown(&e, "600;"), [s("600", false), s("", true)]);
+    assert_eq!(shown(&e, "600;@/2"), [s("600", false), s("@/2|= 100", true)]);
+    // The height typed with the base has no bubble yet: the box only.
+    assert_eq!(shown(&e, "600;400;19"), [s("600", false), s("400", false)]);
+    // For the offset option (`<length>x`): the bubbles keep the cursor's measures.
+    assert_eq!(shown(&e, "5x"), [s("300", false), s("200", false)]);
+
+    // Not moved yet, the move's length shows only while typed.
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(150.0, 100.0, 100.0));
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(300.0, 200.0, 100.0));
+    assert!(shown(&e, "").is_empty());
+    assert_eq!(shown(&e, "50"), [s("50", true)]);
+}
+
+#[test]
 fn box_tool_by_clicks_and_values() {
     let mut e = top_editor(Document::new());
     let id = draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
@@ -1978,7 +2009,9 @@ fn the_tape_measures_and_draws_guides() {
     click(&mut e, DVec3::new(0.0, 0.0, 100.0));
     hover(&mut e, DVec3::new(300.0, 200.0, 100.0));
     assert_eq!(e.vcb(), Some(("Longueur".into(), "361".into())));
-    assert_eq!(e.labels().len(), 1, "the length written on the segment");
+    assert_eq!(e.labels("").len(), 1, "the length written on the segment");
+    let l = &e.labels("2*@")[0];
+    assert_eq!((l.text.as_str(), l.result.as_deref(), l.active), ("2*@", Some("721"), true), "typed: shown in it");
     click(&mut e, DVec3::new(300.0, 200.0, 100.0));
     assert!(e.vcb().is_none(), "the second click ends the measure");
     assert!(guides(&e).is_empty());
@@ -1993,7 +2026,7 @@ fn the_tape_measures_and_draws_guides() {
     let [r] = refs[..] else { panic!("{refs:?}") };
     assert!(r.bold && ((close(r.a, a) && close(r.b, b)) || (close(r.a, b) && close(r.b, a))), "{r:?}");
     // The offset runs from the point clicked, square to the edge, to the guide.
-    let l = &e.labels()[0];
+    let l = &e.labels("")[0];
     assert!(close(l.a, DVec3::new(300.0, 50.0, 100.0)) && close(l.b, DVec3::new(420.0, 50.0, 100.0)), "{} {}", l.a, l.b);
     // Along the red axis, whatever the cursor snaps to: red.
     assert_eq!(l.color, crate::tools::RED);
@@ -2016,13 +2049,13 @@ fn the_tape_measures_and_draws_guides() {
     click(&mut e, c + radial * 100.0);
     // The offset runs along the radius through the cursor.
     hover(&mut e, c + DVec3::new(0.0, 250.0, 0.0));
-    let l = &e.labels()[0];
+    let l = &e.labels("")[0];
     assert_eq!(l.color, crate::tools::GREEN, "along green");
     assert!(close(l.a, c + DVec3::new(0.0, 100.0, 0.0)) && close(l.b, c + DVec3::new(0.0, 250.0, 0.0)), "{} {}", l.a, l.b);
     hover(&mut e, c + radial * 160.0);
     assert_eq!(e.vcb(), Some(("Décalage".into(), "60".into())));
     hover(&mut e, c + radial * 300.0);
-    assert_eq!(e.labels()[0].color, crate::tools::INK, "askew: ink");
+    assert_eq!(e.labels("")[0].color, crate::tools::INK, "askew: ink");
     e.input(ToolInput::Vcb("20".into()));
     let GuideShape::Circle { center, normal, radius } = guides(&e)[2] else { panic!("{:?}", guides(&e)) };
     assert!(close(center, c) && normal.cross(DVec3::Z).length() < 1e-9 && (radius - 120.0).abs() < 1e-3, "{center} {normal} {radius}");

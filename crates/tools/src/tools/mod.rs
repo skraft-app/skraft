@@ -155,13 +155,25 @@ pub struct PreviewLine {
 /// A length a tool writes by what it measures (a side being drawn): the side `a`–`b` (world),
 /// written at its middle, or slid along it or off it to keep clear of what matters (the app
 /// places it).
-#[derive(Clone, Debug, PartialEq)]
+///
+/// A length that measures one of the values the measurements box takes ([`Tool::vcb`]) says
+/// which: while a value is typed, it shows what is typed for it instead (vcb.rs, [`crate::vcb::typed`]).
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PreviewLabel {
     pub a: DVec3,
     pub b: DVec3,
     pub text: String,
     /// Its text and frame (linear RGBA): the axis it runs along.
     pub color: [f32; 4],
+    /// While its value is typed (the editor sets it), `text` is what is typed, and this what it
+    /// reads as when that says more: written after it, greyed, as `= <result>`.
+    pub result: Option<String>,
+    /// The index of the value of the measurements box it measures, if any.
+    pub slot: Option<usize>,
+    /// Shown only while its value is typed (too short to write otherwise).
+    pub hidden: bool,
+    /// Its value is being typed (the editor sets it): framed bolder, with a caret.
+    pub active: bool,
 }
 
 /// What a tool shows while it works.

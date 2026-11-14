@@ -869,9 +869,26 @@ impl Editor {
         self.preview().marquee
     }
 
-    /// The lengths the tool writes over the scene (the app draws them).
-    pub fn labels(&self) -> Vec<tools::PreviewLabel> {
-        self.preview().labels
+    /// The lengths the tool writes over the scene (the app draws them), those measuring a value
+    /// of the measurements box showing what `typed` in it gives that value (vcb.rs).
+    pub fn labels(&self, typed: &str) -> Vec<tools::PreviewLabel> {
+        let mut labels = self.preview().labels;
+        let values = match self.tool.vcb() {
+            Some(v) if !typed.trim().is_empty() && self.length_typed(typed).is_none() => {
+                vcb::typed(&v, typed, &self.document().settings().units)
+            }
+            _ => Vec::new(),
+        };
+        labels.retain_mut(|l| match l.slot.and_then(|s| values.get(s).cloned().flatten()) {
+            Some(t) => {
+                l.text = t.text;
+                l.result = t.result;
+                l.active = t.active;
+                true
+            }
+            None => !l.hidden,
+        });
+        labels
     }
 
     /// The points the tool marks with a cross (world), which the lengths keep clear of.

@@ -1365,9 +1365,9 @@ impl Tool for StretchTool {
                     stroke: None,
                     shape: PointShape::Round,
                 });
-                if (b - a).length() > MIN {
-                    p.labels.push(PreviewLabel { a, b, text: self.format(cx, self.measure(&target, k, d).abs()), color });
-                }
+                // Too short: only while the length is typed.
+                let text = self.format(cx, self.measure(&target, k, d).abs());
+                p.labels.push(PreviewLabel { a, b, text, color, slot: Some(0), hidden: (b - a).length() <= MIN, ..Default::default() });
                 p.stretch = Some(StretchPreview {
                     context: target.context.clone(),
                     occurrences: target.occurrences.clone(),

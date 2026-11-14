@@ -353,12 +353,12 @@ fn edge_tip(cx: &Cx<'_>, inf: &Inference) -> Option<String> {
     }
 }
 
-/// The length of `a`–`b` written along it, when long enough on screen.
+/// The length of `a`–`b` written along it, the value the measurements box takes; too short on
+/// screen, only while that value is typed.
 fn label(cx: &Cx<'_>, out: &mut Vec<PreviewLabel>, a: DVec3, b: DVec3, color: [f32; 4]) {
     let len = (b - a).length();
-    if len >= MIN && len > cx.camera.world_per_pixel(cx.size, (a + b) * 0.5) * LABEL_PX {
-        out.push(PreviewLabel { a, b, text: vcb::format(len, cx.units()), color });
-    }
+    let hidden = len < MIN || len <= cx.camera.world_per_pixel(cx.size, (a + b) * 0.5) * LABEL_PX;
+    out.push(PreviewLabel { a, b, text: vcb::format(len, cx.units()), color, slot: Some(0), hidden, ..Default::default() });
 }
 
 impl Tool for MeasureTool {
