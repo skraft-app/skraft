@@ -202,7 +202,12 @@ mod tests {
         let size = DVec2::new(1000.0, 1000.0);
         let mut c = Camera::default();
         c.set_parallel(true);
-        c.set_standard_view(StandardView::Top, Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))), ViewArea::full(size));
+        c.set_standard_view(
+            StandardView::Top,
+            glam::DMat3::IDENTITY,
+            Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
+            ViewArea::full(size),
+        );
         (c, size)
     }
 

@@ -12,6 +12,7 @@ fn top_editor(doc: Document) -> Editor {
     e.set_parallel(true);
     e.camera.set_standard_view(
         StandardView::Top,
+        glam::DMat3::IDENTITY,
         Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
         crate::camera::ViewArea::full(e.viewport_size()),
     );
@@ -1214,6 +1215,7 @@ fn deferred_editor(doc: Document) -> (Editor, Deferred) {
     e.set_parallel(true);
     e.camera.set_standard_view(
         StandardView::Top,
+        glam::DMat3::IDENTITY,
         Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
         crate::camera::ViewArea::full(e.viewport_size()),
     );
@@ -2430,7 +2432,7 @@ fn a_guide_from_a_level_edge_is_offset_level_in_the_void() {
     e.select(vec![]);
     // Seen askew: the top front edge is clicked where its front face is.
     let area = crate::camera::ViewArea::full(e.viewport_size());
-    e.camera.set_standard_view(StandardView::Iso, Some((DVec3::splat(-500.0), DVec3::splat(500.0))), area);
+    e.camera.set_standard_view(StandardView::Iso, glam::DMat3::IDENTITY, Some((DVec3::splat(-500.0), DVec3::splat(500.0))), area);
     e.set_tool(ToolKind::Measure);
     let on_edge = e.camera.project(DVec3::new(90.0, 0.0, 100.0), e.viewport_size()).unwrap() + DVec2::new(0.0, 1.0);
     e.input(ToolInput::Hover { px: on_edge });
@@ -3121,6 +3123,7 @@ fn the_scene_index_picks_as_a_scan_does() {
     e.set_parallel(false);
     e.camera.set_standard_view(
         StandardView::Iso,
+        glam::DMat3::IDENTITY,
         Some((DVec3::ZERO, DVec3::new(900.0, 900.0, 200.0))),
         crate::camera::ViewArea::full(e.viewport_size()),
     );
@@ -3538,6 +3541,7 @@ fn prism_on_an_upright_face() {
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.camera.set_standard_view(
         StandardView::Front,
+        glam::DMat3::IDENTITY,
         Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
         crate::camera::ViewArea::full(e.viewport_size()),
     );
@@ -4225,4 +4229,33 @@ fn move_rotate_and_the_tape_write_their_measure_on_lines_seen_through_faces() {
         assert_eq!(p.lines.iter().filter(|l| close(l.b, end)).count(), 2, "{end}");
     }
     assert!(p.labels.iter().any(|l| l.text.starts_with("400")), "{:?}", p.labels);
+}
+
+#[test]
+fn standard_views_are_in_the_active_frame() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let tilt = glam::DAffine3::from_rotation_x(30f64.to_radians()) * glam::DAffine3::from_rotation_z(20f64.to_radians());
+    let context = e.document().context_of(e.context()).unwrap();
+    e.apply(Operation::Transform { context, entities: vec![a], transform: tilt }).unwrap();
+    // At the model's level: the world's axes.
+    e.standard_view(StandardView::Front);
+    assert!(close(e.camera.forward(), DVec3::Y) && close(e.camera.up(), DVec3::Z));
+    // Its part open: its axes, tilted.
+    e.enter(a);
+    assert_eq!(e.open_part(), Some(a));
+    e.standard_view(StandardView::Front);
+    assert!(close(e.camera.forward(), tilt.matrix3.y_axis) && close(e.camera.up(), tilt.matrix3.z_axis));
+    e.standard_view(StandardView::Top);
+    assert!(e.camera.forward().dot(-tilt.matrix3.z_axis) > 0.999 && e.camera.up().dot(tilt.matrix3.y_axis) > 0.999);
+    // The orbit keeps its Z up, the part closed as well, until the next standard view.
+    e.nav_begin(DVec2::splat(500.0));
+    e.orbit(DVec2::new(10.0, 0.0));
+    assert!(e.camera.right().dot(tilt.matrix3.z_axis).abs() < 1e-12);
+    e.exit();
+    e.orbit(DVec2::new(10.0, 0.0));
+    assert!(e.camera.right().dot(tilt.matrix3.z_axis).abs() < 1e-12);
+    // Back to the world's axes.
+    e.standard_view(StandardView::Top);
+    assert!(e.camera.frame == glam::DMat3::IDENTITY && e.camera.up().y > 0.99);
 }

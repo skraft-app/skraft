@@ -25,6 +25,7 @@ fn bench_array() {
     let span = 100.0 * n as f64;
     e.camera.set_standard_view(
         StandardView::Top,
+        glam::DMat3::IDENTITY,
         Some((DVec3::splat(-100.0), DVec3::splat(span))),
         crate::camera::ViewArea::full(e.viewport_size()),
     );
@@ -127,6 +128,7 @@ fn bench_stretch_one_among_many() {
     // Looking at the first cube from the front, close.
     e.camera.set_standard_view(
         StandardView::Front,
+        glam::DMat3::IDENTITY,
         Some((DVec3::splat(-50.0), DVec3::splat(150.0))),
         crate::camera::ViewArea::full(e.viewport_size()),
     );
@@ -161,6 +163,7 @@ fn bench_stretch_one_among_many() {
     let span = 200.0 * n as f64;
     e.camera.set_standard_view(
         StandardView::Top,
+        glam::DMat3::IDENTITY,
         Some((DVec3::ZERO, DVec3::new(span, span, 100.0))),
         crate::camera::ViewArea::full(e.viewport_size()),
     );
@@ -213,6 +216,7 @@ fn bench_mixed_sizes() {
         e.set_parallel(parallel);
         e.camera.set_standard_view(
             view,
+            glam::DMat3::IDENTITY,
             Some((DVec3::ZERO, DVec3::new(10_000.0, 10_000.0, 700.0))),
             crate::camera::ViewArea::full(e.viewport_size()),
         );
@@ -487,7 +491,7 @@ fn bench_step_model() {
     eprintln!("  the heaviest tenth of the parts holds {:.0} % of the triangles", top10 as f64 * 100.0 / total.max(1) as f64);
     let bounds = e.scene().bounds().unwrap();
     eprintln!("model size: {:.1} mm", bounds.1 - bounds.0);
-    e.camera.set_standard_view(StandardView::Iso, Some(bounds), crate::camera::ViewArea::full(e.viewport_size()));
+    e.camera.set_standard_view(StandardView::Iso, glam::DMat3::IDENTITY, Some(bounds), crate::camera::ViewArea::full(e.viewport_size()));
     for k in 0..2 {
         time(&format!("view {k}"), || std::hint::black_box(e.view()));
     }

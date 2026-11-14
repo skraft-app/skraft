@@ -1,9 +1,10 @@
-//! The camera: SketchUp navigation (Z always up), perspective or parallel, in `f64`.
+//! The camera: SketchUp navigation (the frame of the last standard view keeps its Z up),
+//! perspective or parallel, in `f64`.
 //!
 //! It gives the renderer a `f64` view and a **reversed-depth** projection (ARCHITECTURE.md
 //! §7 bis), and the tools a picking [`Ray`] per pixel.
 
-use glam::{DMat4, DVec2, DVec3, Mat4};
+use glam::{DMat3, DMat4, DVec2, DVec3, Mat4};
 
 /// How close to its vanishing point an infinite line is drawn, in pixels.
 pub const VANISHING_PX: f64 = 0.25;
@@ -77,13 +78,17 @@ const DEFAULT_FOV: f64 = 35.0 * std::f64::consts::PI / 180.0;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Camera {
     pub eye: DVec3,
-    /// Heading of the forward direction around +Z (0 = +X), radians.
+    /// Heading of the forward direction around the frame's +Z (0 = its +X), radians.
     pub yaw: f64,
-    /// Elevation of the forward direction (positive looks up), radians.
+    /// Elevation of the forward direction above the frame's XY plane (positive looks up),
+    /// radians.
     pub pitch: f64,
     pub projection: Projection,
     /// Distance to what the camera looks at (orbit pivot, zoom target): sets the near plane.
     pub focus: f64,
+    /// The frame `yaw` and `pitch` are measured in, to world (orthonormal, maybe mirrored): the
+    /// frame of the last standard view. Its Z stays up on screen, as the orbit turns about it.
+    pub frame: DMat3,
 }
 
 /// The viewport, and the part of it that panels leave visible (pixels, origin top left).
@@ -103,10 +108,17 @@ impl ViewArea {
 
 impl Default for Camera {
     fn default() -> Self {
-        let mut c =
-            Camera { eye: DVec3::ZERO, yaw: 0.0, pitch: 0.0, projection: Projection::Perspective { fov_y: DEFAULT_FOV }, focus: 1.0 };
+        let mut c = Camera {
+            eye: DVec3::ZERO,
+            yaw: 0.0,
+            pitch: 0.0,
+            projection: Projection::Perspective { fov_y: DEFAULT_FOV },
+            focus: 1.0,
+            frame: DMat3::IDENTITY,
+        };
         c.set_standard_view(
             StandardView::Iso,
+            DMat3::IDENTITY,
             Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
             ViewArea::full(DVec2::new(1200.0, 800.0)),
         );
@@ -114,20 +126,40 @@ impl Default for Camera {
     }
 }
 
+/// The forward direction of a heading `yaw` around +Z (0 = +X) and an elevation `pitch`.
+fn level_forward(yaw: f64, pitch: f64) -> DVec3 {
+    let (sy, cy) = yaw.sin_cos();
+    let (sp, cp) = pitch.sin_cos();
+    DVec3::new(cp * cy, cp * sy, sp)
+}
+
+/// The right direction of a heading `yaw`: horizontal.
+fn level_right(yaw: f64) -> DVec3 {
+    let (sy, cy) = yaw.sin_cos();
+    DVec3::new(sy, -cy, 0.0)
+}
+
+/// A frame's rotation part made orthonormal, keeping its Z, then its X, and its handedness (a
+/// mirrored frame stays left-handed). `None` when degenerate.
+pub fn orthonormal_frame(m: DMat3) -> Option<DMat3> {
+    let z = m.z_axis.try_normalize()?;
+    let x = (m.x_axis - z * m.x_axis.dot(z)).try_normalize()?;
+    let y = z.cross(x) * if m.determinant() < 0.0 { -1.0 } else { 1.0 };
+    Some(DMat3::from_cols(x, y, z))
+}
+
 impl Camera {
     pub fn forward(&self) -> DVec3 {
-        let (sy, cy) = self.yaw.sin_cos();
-        let (sp, cp) = self.pitch.sin_cos();
-        DVec3::new(cp * cy, cp * sy, sp)
+        self.frame * level_forward(self.yaw, self.pitch)
     }
 
     pub fn right(&self) -> DVec3 {
-        let (sy, cy) = self.yaw.sin_cos();
-        DVec3::new(sy, -cy, 0.0)
+        self.forward().cross(self.up())
     }
 
     pub fn up(&self) -> DVec3 {
-        self.right().cross(self.forward())
+        let f = level_forward(self.yaw, self.pitch);
+        self.frame * level_right(self.yaw).cross(f)
     }
 
     pub fn is_parallel(&self) -> bool {
@@ -190,7 +222,7 @@ impl Camera {
     }
 
     /// Orbits by a pointer drag of `delta` pixels around `pivot` (SketchUp: the point under
-    /// the cursor when the orbit began), keeping Z up. As in SketchUp, dragging right turns
+    /// the cursor when the orbit began), keeping the frame's Z up. As in SketchUp, dragging right turns
     /// the model to the right and dragging down tilts it towards the viewer (the camera rises).
     /// Pitch is clamped short of the zenith, at the top (dragging down) as at the bottom.
     pub fn orbit(&mut self, delta: DVec2, pivot: DVec3) {
@@ -198,7 +230,8 @@ impl Camera {
         // The eye relative to the pivot, in the camera's frame…
         let rel = self.eye - pivot;
         let (r, u, f) = (rel.dot(self.right()), rel.dot(self.up()), rel.dot(self.forward()));
-        self.yaw -= delta.x * SPEED;
+        // In a mirrored frame, turning its way shows as turning the other way.
+        self.yaw -= delta.x * SPEED * self.frame.determinant().signum();
         self.pitch = (self.pitch - delta.y * SPEED).clamp(-MAX_PITCH, MAX_PITCH);
         // …kept in the new frame: the pivot stays where it was on screen.
         self.eye = pivot + self.right() * r + self.up() * u + self.forward() * f;
@@ -281,8 +314,11 @@ impl Camera {
         }
     }
 
-    /// Looks along a standard direction, framing `bounds` when given.
-    pub fn set_standard_view(&mut self, view: StandardView, bounds: Option<(DVec3, DVec3)>, area: ViewArea) {
+    /// Looks along a standard direction of `frame` (the active frame's axes, to world: see
+    /// [`orthonormal_frame`]), framing `bounds` when given. Its Z is up on screen: the camera
+    /// orbits about that Z until the next standard view. A mirrored frame is seen as it
+    /// is drawn (the top view of a left-handed frame has its X to the left).
+    pub fn set_standard_view(&mut self, view: StandardView, frame: DMat3, bounds: Option<(DVec3, DVec3)>, area: ViewArea) {
         use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
         let (yaw, pitch) = match view {
             StandardView::Top => (FRAC_PI_2, -MAX_PITCH),
@@ -293,6 +329,7 @@ impl Camera {
             StandardView::Iso => (3.0 * FRAC_PI_4, -(1.0f64 / 2.0f64.sqrt()).atan()),
         };
         let target = self.eye + self.forward() * self.focus;
+        self.frame = orthonormal_frame(frame).unwrap_or(DMat3::IDENTITY);
         self.yaw = yaw;
         self.pitch = pitch;
         match bounds {
@@ -492,8 +529,95 @@ mod tests {
     #[test]
     fn top_view_has_y_up_on_screen() {
         let mut c = Camera::default();
-        c.set_standard_view(StandardView::Top, Some((DVec3::ZERO, DVec3::splat(100.0))), ViewArea::full(DVec2::splat(600.0)));
+        c.set_standard_view(
+            StandardView::Top,
+            glam::DMat3::IDENTITY,
+            Some((DVec3::ZERO, DVec3::splat(100.0))),
+            ViewArea::full(DVec2::splat(600.0)),
+        );
         assert!(c.up().y > 0.99 && c.forward().z < -0.99);
+    }
+
+    const AREA: ViewArea = ViewArea { size: SIZE, free_min: DVec2::ZERO, free_max: SIZE };
+    const BOX: (DVec3, DVec3) = (DVec3::ZERO, DVec3::splat(100.0));
+
+    #[test]
+    fn views_of_a_frame_are_the_world_s_turned() {
+        let tilted = DMat3::from_rotation_x(30f64.to_radians()) * DMat3::from_rotation_z(20f64.to_radians());
+        for frame in [DMat3::from_rotation_z(30f64.to_radians()), tilted] {
+            for view in [StandardView::Top, StandardView::Front, StandardView::Right, StandardView::Iso] {
+                let (mut world, mut c) = (Camera::default(), Camera::default());
+                world.set_standard_view(view, DMat3::IDENTITY, Some(BOX), AREA);
+                c.set_standard_view(view, frame, Some(BOX), AREA);
+                assert!((c.forward() - frame * world.forward()).length() < 1e-9, "{view:?}");
+                assert!((c.up() - frame * world.up()).length() < 1e-9, "{view:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn views_of_a_tilted_frame_have_its_z_up() {
+        let frame = DMat3::from_rotation_x(30f64.to_radians()) * DMat3::from_rotation_z(20f64.to_radians());
+        let mut c = Camera::default();
+        c.set_standard_view(StandardView::Front, frame, Some(BOX), AREA);
+        assert!((c.forward() - frame.y_axis).length() < 1e-9 && (c.up() - frame.z_axis).length() < 1e-9);
+        assert!((c.right() - frame.x_axis).length() < 1e-9);
+        c.set_standard_view(StandardView::Top, frame, Some(BOX), AREA);
+        assert!(c.forward().dot(-frame.z_axis) > 0.999 && c.up().dot(frame.y_axis) > 0.999);
+        // The framing and the ray still agree with the projection.
+        let p = DVec3::new(30.0, 60.0, 10.0);
+        let px = c.project(p, SIZE).unwrap();
+        let r = c.ray(px, SIZE);
+        let d = (p - r.origin).cross(r.dir).length();
+        assert!(d < 1e-6 * c.focus, "{d}");
+    }
+
+    #[test]
+    fn a_mirrored_frame_is_seen_as_drawn() {
+        // Left-handed: X mirrored. Its top view looks down its Z, Y up: its X runs left.
+        let frame = DMat3::from_cols(-DVec3::X, DVec3::Y, DVec3::Z);
+        let mut c = Camera::default();
+        c.set_standard_view(StandardView::Top, frame, Some(BOX), AREA);
+        assert!(c.forward().z < -0.99 && c.up().y > 0.99 && c.right().x > 0.99);
+        assert!(c.right().dot(frame.x_axis) < -0.99);
+        // Tilted as well.
+        let frame = DMat3::from_rotation_x(40f64.to_radians()) * frame;
+        c.set_standard_view(StandardView::Top, frame, Some(BOX), AREA);
+        assert!(c.forward().dot(-frame.z_axis) > 0.999 && c.right().dot(frame.x_axis) < -0.99);
+    }
+
+    #[test]
+    fn orbiting_keeps_the_frame_s_z_up_without_a_jump() {
+        let tilted = DMat3::from_rotation_y(25f64.to_radians());
+        let mirrored = tilted * DMat3::from_cols(-DVec3::X, DVec3::Y, DVec3::Z);
+        let mut way = None;
+        for frame in [DMat3::IDENTITY, tilted, mirrored] {
+            let mut c = Camera::default();
+            c.set_standard_view(StandardView::Iso, frame, Some(BOX), AREA);
+            let pivot = c.eye + c.forward() * c.focus;
+            let (forward, up) = (c.forward(), c.up());
+            // A point between the eye and the pivot, in the middle of the view.
+            let near = pivot - forward * c.focus * 0.5;
+            let before = c.project(near, SIZE).unwrap();
+            c.orbit(DVec2::new(1.0, 0.0), pivot);
+            // A tiny drag, a tiny turn: no jump.
+            assert!(c.forward().dot(forward) > 0.9999 && c.up().dot(up) > 0.9999);
+            // The frame's Z stays up: the right direction stays in its XY plane.
+            assert!(c.right().dot(frame.z_axis).abs() < 1e-12 && c.up().dot(frame.z_axis) > 0.0);
+            // The pivot stays put, and the model turns the same way on screen in every frame.
+            assert!((c.project(pivot, SIZE).unwrap() - SIZE / 2.0).length() < 1e-3);
+            let moved = (c.project(near, SIZE).unwrap().x - before.x).signum();
+            assert_eq!(*way.get_or_insert(moved), moved, "{frame}");
+        }
+    }
+
+    #[test]
+    fn orthonormal_frame_drops_scale_and_shear() {
+        let m = DMat3::from_cols(DVec3::new(2.0, 0.1, 0.0), DVec3::new(0.0, 3.0, 0.0), DVec3::new(0.0, 0.0, -0.5));
+        let f = orthonormal_frame(m).unwrap();
+        assert!((f.determinant() - m.determinant().signum()).abs() < 1e-12);
+        assert!((f.z_axis + DVec3::Z).length() < 1e-12 && f.x_axis.dot(DVec3::X) > 0.99);
+        assert!(orthonormal_frame(DMat3::ZERO).is_none());
     }
 
     #[test]

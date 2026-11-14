@@ -319,9 +319,20 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
   the interaction it exposes a **preview** (ghost geometry) without touching the document.
 - **SketchUp navigation** (decided on 2026-11-09): middle button = orbit around the point
   aimed at, Shift+middle = pan, wheel = zoom towards the cursor, middle double-click = recentre;
-  trackpad: two fingers = orbit, Shift+two fingers = pan, pinch = zoom. Z stays vertical.
+  trackpad: two fingers = orbit, Shift+two fingers = pan, pinch = zoom. Z stays vertical (the
+  Z of the last standard view's frame, below).
   Perspective projection by default, switch to parallel, standard views (top, front, right,
   back, left, iso) and zoom extents.
+- **Standard views are in the active frame** (decided on 2026-11-14): the open part's axes,
+  else the entered context's, as the axes drawn (§2.3; `Editor::axes_transform`, made
+  orthonormal, its scale dropped). The frame's Z is up on screen; a mirrored frame is seen as it
+  is drawn (the top view of a left-handed part has its red axis to the left). The camera keeps
+  **the frame of its last standard view** (`Camera::frame`; yaw and pitch are measured in it):
+  **the orbit keeps that frame's Z up**, the part closed as well, until the next standard view
+  (Cmd+1…6 at the model's level brings world Z back). Levelling on world Z at the first orbit
+  was tried first and dropped: the view rolled at once, however small the drag. In a mirrored
+  frame the orbit turns its yaw the other way, so the model turns the same way on screen. The
+  framing is unchanged (the scene's bounds).
 - **SketchUp selection**: a click selects the top-level entity of the active context,
   Shift+click adds/removes, double-click on a group/component enters it, a click off the grey box
   of the one being edited (void or another entity) leaves it, one level per click; inside the
