@@ -106,6 +106,36 @@ fn a_cylinder_stretches_along_its_axis() {
 }
 
 #[test]
+fn a_prism_with_arcs_stretches_along_its_height() {
+    use solidsketch_kernel::profile::{polygon, with_fillets};
+    // A board with rounded corners: SolidCore writes its fillets' sides as NURBS nets extruded
+    // along Z, not as cylinders.
+    let corners = polygon(&[glam::DVec2::ZERO, glam::DVec2::new(600.0, 0.0), glam::DVec2::new(600.0, 300.0), glam::DVec2::new(0.0, 300.0)]);
+    let rounded = Solid::new_prism(DVec3::ZERO, &with_fillets(&corners, 20.0), 18.0).unwrap();
+    let area = 600.0 * 300.0 - (4.0 - PI) * 400.0;
+    let mirror = DAffine3::from_mat3(DMat3::from_diagonal(DVec3::new(-1.0, 1.0, 1.0)));
+    for solid in [rounded.clone(), rounded.transformed(&mirror).unwrap()] {
+        for (d, height) in [(32.0, 50.0), (-8.0, 10.0)] {
+            let stretch = Stretch::new(DVec3::Z, vec![9.0], vec![0.0, d]).unwrap();
+            let s = read_back(&stretch.apply(&solid).unwrap());
+            let (lo, hi) = bounds(&s);
+            assert_close(hi.z - lo.z, height, 1e-9);
+            assert_close(mesh_volume(&s), area * height, 1e-3);
+            // Still a working solid: a hole through it, near a fillet.
+            let x = if lo.x < 0.0 { -560.0 } else { 40.0 };
+            let hole = Solid::new_cylinder(DVec3::new(x, 40.0, -5.0), 10.0, height + 10.0).unwrap();
+            s.boolean(&hole, BooleanOp::Difference).unwrap();
+        }
+    }
+    // Lying along X, stretched along X: the same.
+    let lying = rounded.transformed(&DAffine3::from_rotation_y(FRAC_PI_2)).unwrap();
+    let s = read_back(&x_stretch(&[9.0], &[0.0, 32.0]).apply(&lying).unwrap());
+    assert_close(mesh_volume(&s), area * 50.0, 1e-3);
+    // Across its height, through the fillets: refused.
+    assert!(matches!(x_stretch(&[590.0], &[0.0, 10.0]).apply(&rounded), Err(StretchError::EdgeAcross(_) | StretchError::FaceAcross(_))));
+}
+
+#[test]
 fn a_tool_is_stretched_in_its_own_frame() {
     // A tool along its own Z, placed along the part's X from x = 100 to 150.
     let tool = Solid::new_cylinder(DVec3::ZERO, 8.0, 50.0).unwrap();

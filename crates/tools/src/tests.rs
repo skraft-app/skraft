@@ -2942,6 +2942,30 @@ fn stretch_tool_gathers_occurrences_while_shift_is_held() {
 }
 
 #[test]
+fn stretch_tool_stretches_a_prism_with_fillets_along_its_height() {
+    use solidsketch_kernel::profile;
+    // A triangle with rounded corners, 50 high, seen from above: its top grip, overall 80.
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let triangle = profile::polygon(&[DVec2::ZERO, DVec2::new(400.0, 0.0), DVec2::new(200.0, 300.0)]);
+    let prism = Primitive::Prism { origin: DVec3::ZERO, profile: profile::with_fillets(&triangle, 20.0), height: 50.0 };
+    let p =
+        e.apply(Operation::AddPrimitive { context: root, primitive: prism, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created
+            [0];
+    e.set_tool(ToolKind::Stretch);
+    click(&mut e, DVec3::new(200.0, 100.0, 50.0));
+    click(&mut e, DVec3::new(200.0, 150.0, 50.0));
+    e.input(ToolInput::Vcb("80".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(p));
+    assert!((lo.z, hi.z) == (0.0, 80.0), "{lo} {hi} {}", e.status());
+    // Its fillets kept as radii: the profile follows.
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(p)).unwrap();
+    let blank = part.profile.as_ref().expect("a profile");
+    assert_eq!(blank.height, 80.0);
+    assert!(blank.profile.iter().all(|c| c.fillet == 20.0), "{:?}", blank.profile);
+}
+
+#[test]
 fn stretch_tool_stretches_along_the_axes_chosen() {
     // A board turned square: its own X along the world's Y (−50–0 along X, 0–200 along Y).
     let mut e = top_editor(Document::new());
@@ -3329,7 +3353,8 @@ fn prism_follows_the_cursor_right_after_a_click() {
     click(&mut e, DVec3::new(300.0, 200.0, 0.0));
     let lines = e.preview().lines;
     let (a, b) = (DVec3::new(300.0, 200.0, 0.0), DVec3::ZERO);
-    let on = |p: DVec3| (p - a).cross(b - a).length() < 1e-3 * (b - a).length() && (p - a).dot(b - a) >= -1e-6 && (p - b).dot(a - b) >= -1e-6;
+    let on =
+        |p: DVec3| (p - a).cross(b - a).length() < 1e-3 * (b - a).length() && (p - a).dot(b - a) >= -1e-6 && (p - b).dot(a - b) >= -1e-6;
     let dashes = lines.iter().filter(|l| on(l.a) && on(l.b)).count();
     assert!(dashes > 2, "the closing side dashed: {dashes} pieces");
 }
