@@ -16,7 +16,7 @@ fn view_editor(view: StandardView, at: DVec3) -> Editor {
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.set_parallel(true);
     let b = (at - DVec3::splat(1000.0), at + DVec3::splat(1000.0));
-    e.camera.set_standard_view(view, Some(b), ViewArea::full(e.viewport_size()));
+    e.camera.set_standard_view(view, glam::DMat3::IDENTITY, Some(b), ViewArea::full(e.viewport_size()));
     e
 }
 
@@ -556,7 +556,7 @@ fn infer_timing() {
     let iso = |e: &mut Editor| {
         e.set_parallel(false);
         let b = e.scene().bounds();
-        e.camera.set_standard_view(StandardView::Iso, b, ViewArea::full(e.viewport_size()));
+        e.camera.set_standard_view(StandardView::Iso, glam::DMat3::IDENTITY, b, ViewArea::full(e.viewport_size()));
     };
     let array = |e: &mut Editor, ids: Vec<Id>, step: DVec3, count: u32| -> Vec<Id> {
         let root = e.document().root();

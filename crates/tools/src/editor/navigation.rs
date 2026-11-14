@@ -55,7 +55,8 @@ impl Editor {
 
     pub fn standard_view(&mut self, v: StandardView) {
         let b = self.scene.bounds().or(Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))));
-        self.camera.set_standard_view(v, b, self.view_area());
+        // In the active frame (§2.3): the open part's axes, else the context's.
+        self.camera.set_standard_view(v, self.axes_transform().matrix3, b, self.view_area());
     }
 
     pub fn set_parallel(&mut self, parallel: bool) {

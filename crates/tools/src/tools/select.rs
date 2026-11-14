@@ -318,7 +318,7 @@ mod tests {
                 assert_eq!(e.context(), &[outer]);
             }
             e.set_parallel(parallel);
-            e.camera.set_standard_view(view, Some(scene), ViewArea::full(e.viewport_size()));
+            e.camera.set_standard_view(view, glam::DMat3::IDENTITY, Some(scene), ViewArea::full(e.viewport_size()));
             let cx = e.cx();
             for _ in 0..60 {
                 let a = DVec2::new(next() * 800.0, next() * 600.0);
