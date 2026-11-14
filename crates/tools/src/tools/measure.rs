@@ -210,7 +210,8 @@ impl MeasureTool {
 
     /// The guide through `p` (world), its offset from the edge (signed: a circle shrunk is
     /// negative), and the segment that offset runs along: for a line, from the point clicked,
-    /// square to the edge, to the guide; for a circle, along the radius through the cursor.
+    /// square to the edge, to the guide; for a circle, from the point clicked along its radius
+    /// (centred on the point clicked, along the radius through the cursor).
     fn guide_through(&self, p: DVec3) -> Option<(GuideShape, f64, (DVec3, DVec3))> {
         match self.state {
             State::Parallel { at, dir, .. } => {
@@ -220,9 +221,12 @@ impl MeasureTool {
             State::Concentric { at, center, normal, radius } => {
                 let q = p - normal * (p - center).dot(normal);
                 let r = (q - center).length();
-                // Along the radius through the cursor; at the centre, the point clicked's.
-                let out = (q - center).try_normalize().or_else(|| (at - center).try_normalize()).unwrap_or(DVec3::ZERO);
-                Some((GuideShape::Circle { center, normal, radius: r }, r - radius, (center + out * radius, q)))
+                // From the point clicked along its radius, wherever the cursor is around; centred
+                // on the point clicked, along the radius through the cursor.
+                let a = at - normal * (at - center).dot(normal);
+                let out =
+                    (a - center).try_normalize().filter(|_| radius > MIN).or_else(|| (q - center).try_normalize()).unwrap_or(DVec3::ZERO);
+                Some((GuideShape::Circle { center, normal, radius: r }, r - radius, (center + out * radius, center + out * r)))
             }
             State::Through { from } => {
                 let dir = (p - from).try_normalize()?;
@@ -473,7 +477,9 @@ impl Tool for MeasureTool {
                 }
                 let color = inference.as_ref().map_or(INK, |i| super::guide_color(i.kind));
                 xray.push(PreviewLine { a: from, b: p, color, bold: false });
+                // A double arrow: a head at each end.
                 lines.extend(super::arrow_head(cx.camera, cx.size, from, p, color));
+                lines.extend(super::arrow_head(cx.camera, cx.size, p, from, color));
                 label(cx, &mut labels, from, p, color);
                 marks.push(from);
             }
@@ -486,8 +492,9 @@ impl Tool for MeasureTool {
                     // The offset in the colour of the axis it runs along, else ink.
                     let color = axis_color(cx, b - a);
                     xray.push(PreviewLine { a, b, color, bold: false });
-                    // `b` is the guide's end, towards the cursor.
+                    // A double arrow: a head at each end (`b` is the guide's, towards the cursor).
                     lines.extend(super::arrow_head(cx.camera, cx.size, a, b, color));
+                    lines.extend(super::arrow_head(cx.camera, cx.size, b, a, color));
                     label(cx, &mut labels, a, b, color);
                 }
                 marks.push(at);

@@ -788,7 +788,7 @@ model, the file, the display and the tool; (2) inferences on guides; (3) managin
 
     The offset is drawn dashed — in the colour of the axis it runs along, else ink — from
     the point clicked to the guide,
-    square to the edge (for an arc, along the radius through the cursor). Pointing at nothing,
+    square to the edge (for an arc, along the point clicked's radius, wherever the cursor is around; for a circle centred on the point clicked, along the radius through the cursor). Pointing at nothing,
     the cursor gives a point of the horizontal plane (the axes') through the point clicked —
     for an upright edge, of the face clicked, else of the upright plane through it facing the
     eye; the perpendicular is inferred in that plane. The second click, or a typed length (the offset, towards the

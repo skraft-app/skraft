@@ -2047,11 +2047,10 @@ fn the_tape_measures_and_draws_guides() {
     let radial = DVec3::new(a.cos(), a.sin(), 0.0);
     let c = DVec3::new(600.0, 600.0, 50.0);
     click(&mut e, c + radial * 100.0);
-    // The offset runs along the radius through the cursor.
+    // The offset runs from the point clicked along its radius, wherever the cursor is around.
     hover(&mut e, c + DVec3::new(0.0, 250.0, 0.0));
     let l = &e.labels("")[0];
-    assert_eq!(l.color, crate::tools::GREEN, "along green");
-    assert!(close(l.a, c + DVec3::new(0.0, 100.0, 0.0)) && close(l.b, c + DVec3::new(0.0, 250.0, 0.0)), "{} {}", l.a, l.b);
+    assert!(close(l.a, c + radial * 100.0) && close(l.b, c + radial * 250.0), "{} {}", l.a, l.b);
     hover(&mut e, c + radial * 160.0);
     assert_eq!(e.vcb(), Some(("Décalage".into(), "60".into())));
     hover(&mut e, c + radial * 300.0);
@@ -2123,6 +2122,12 @@ fn the_tape_draws_the_kind_of_guide_chosen() {
     // Circle: concentric to the arc, a zero offset: the arc's whole circle.
     tab(&mut e);
     click(&mut e, c - DVec3::Y * 100.0);
+    // The offset: from the point clicked along its radius, wherever the cursor is around.
+    hover(&mut e, c + DVec3::X * 150.0);
+    let p = e.preview();
+    assert_eq!(p.xray.len(), 1);
+    let (a, b) = (p.xray[0].a, p.xray[0].b);
+    assert!(close(a, c - DVec3::Y * 100.0) && (b.x - c.x).abs() < 1e-3 && b.y < a.y - 1.0, "{:?}", p.xray);
     e.input(ToolInput::Vcb("0".into()));
     let GuideShape::Circle { center, radius, .. } = guides(&e)[4] else { panic!("{} {:?}", e.status(), guides(&e)) };
     assert!(close(center, c) && (radius - 100.0).abs() < 1e-6, "{radius}");
@@ -4215,9 +4220,9 @@ fn move_rotate_and_the_tape_write_their_measure_on_lines_seen_through_faces() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(-200.0, 400.0, 0.0)) });
     let p = e.preview();
     assert_eq!(p.xray.len(), 1);
-    // An arrow towards the cursor.
-    let heads: Vec<_> = p.lines.iter().filter(|l| close(l.b, DVec3::new(-200.0, 400.0, 0.0))).collect();
-    assert_eq!(heads.len(), 2);
-    assert!(!p.lines.iter().any(|l| close(l.b, DVec3::new(-600.0, 400.0, 0.0))));
+    // A double arrow: a head at the cursor and one at the start.
+    for end in [DVec3::new(-200.0, 400.0, 0.0), DVec3::new(-600.0, 400.0, 0.0)] {
+        assert_eq!(p.lines.iter().filter(|l| close(l.b, end)).count(), 2, "{end}");
+    }
     assert!(p.labels.iter().any(|l| l.text.starts_with("400")), "{:?}", p.labels);
 }
