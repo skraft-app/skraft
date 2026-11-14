@@ -86,6 +86,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         batches: &batches,
         highlights: if highlight { &hl } else { &[] },
         lines: &[],
+        faint_lines: &[],
         boxes: &[],
         overlay: &[],
         xray: &[],
@@ -162,6 +163,7 @@ fn concave_edges_are_not_buried() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        faint_lines: &[],
         boxes: &[],
         overlay: &[],
         xray: &[],
@@ -217,6 +219,7 @@ fn a_mirrored_placement_shows_its_outside() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            faint_lines: &[],
             boxes: &[],
             overlay: &[],
             xray: &[],
@@ -255,6 +258,7 @@ fn shot(
         batches: &batches,
         highlights: &[],
         lines: &[],
+        faint_lines: &[],
         boxes: &[],
         overlay: &[],
         xray: &[],
@@ -298,6 +302,7 @@ fn a_still_frame_is_not_drawn_again() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        faint_lines: &[],
         boxes: &[],
         overlay: &[],
         xray: &[],
@@ -461,6 +466,7 @@ fn a_ghost_shows_what_it_holds() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            faint_lines: &[],
             boxes: &[],
             overlay: &[],
             xray: &[],
@@ -503,6 +509,7 @@ fn faint_edges_are_see_through() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            faint_lines: &[],
             boxes: &[],
             overlay: &[],
             xray: &[],
@@ -555,6 +562,7 @@ fn dashed_lines_are_dashed_on_screen() {
         batches: &[],
         highlights: &[],
         lines: &[line],
+        faint_lines: &[],
         boxes: &[],
         overlay: &[],
         xray: &[],
@@ -610,6 +618,7 @@ fn box_outlines_are_dashed_from_their_corners() {
         batches: &[],
         highlights: &[],
         lines: &[],
+        faint_lines: &[],
         boxes: &[outline],
         overlay: &[],
         xray: &[],
@@ -658,6 +667,7 @@ fn fills_hide_behind_faces() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            faint_lines: &[],
             boxes: &[],
             overlay: &[],
             xray: &[],
@@ -709,6 +719,7 @@ fn x_ray_lines_are_dashed_behind_faces() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        faint_lines: &[],
         boxes: &[],
         overlay: &[],
         xray: &[line],
@@ -731,4 +742,64 @@ fn x_ray_lines_are_dashed_behind_faces() {
     // Behind the slab: dashes and gaps.
     let hidden: Vec<bool> = (84..116).map(red).collect();
     assert!(hidden.iter().any(|r| *r) && hidden.iter().any(|r| !*r), "{hidden:?}");
+}
+
+/// A faint line (a guide outside the context): blended over the face it lies on, so it takes
+/// its colour, rather than mixed with the background; hidden behind faces.
+#[test]
+fn faint_lines_blend_over_faces() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    // Looking down -Z, a pixel a unit, on a black background; a slab 40 px wide.
+    let size = [200, 40];
+    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let slab = Solid::new_box(DVec3::new(-20.0, -15.0, -2.0), DVec3::new(40.0, 30.0, 4.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &slab, face_paint: &[] }]);
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
+    let line = |y: f64, z: f64| Line {
+        a: DVec3::new(-90.0, y, z),
+        b: DVec3::new(90.0, y, z),
+        color: [1.0, 0.0, 0.0, 0.5],
+        dash: None,
+        width: BOLD_WIDTH,
+    };
+    // On the slab's top face, and under the slab.
+    let faint = [line(0.0, 2.0), line(8.0, -4.0)];
+    let shoot = |r: &mut Renderer, faint_lines: &[Line]| {
+        let frame = Frame {
+            view,
+            proj,
+            background: [0.0, 0.0, 0.0],
+            style: Style::default(),
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            faint_lines,
+            boxes: &[],
+            overlay: &[],
+            xray: &[],
+            fills: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 1.0,
+        };
+        draw(r, &device, &queue, size, &frame)
+    };
+    let plain = shoot(&mut r, &[]);
+    let px = shoot(&mut r, &faint);
+    save(&px, size, "faint_lines");
+    let at = |px: &[u8], x, y| pixel(px, size[0], x, y);
+    // Over the background: half red on black.
+    let [r0, g0, b0, _] = at(&px, 40, 20);
+    assert!(r0 > 120 && g0 < 30 && b0 < 30, "{:?}", [r0, g0, b0]);
+    // On the face: half red on the face's light colour.
+    let [r1, g1, b1, _] = at(&px, 100, 20);
+    assert!(r1 > g1 + 30 && g1 > 120 && b1 > 120, "{:?}", [r1, g1, b1]);
+    // Under the slab: hidden.
+    assert_eq!(at(&plain, 100, 12), at(&px, 100, 12));
 }

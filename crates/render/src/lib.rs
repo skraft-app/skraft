@@ -271,6 +271,9 @@ pub struct Frame<'a> {
     pub highlights: &'a [Highlight],
     /// Depth-tested lines (inferences, guides).
     pub lines: &'a [Line],
+    /// Depth-tested lines blended over what they do not hide, at their alpha, no depth
+    /// written (the guides outside the context being edited: the faces under them show through).
+    pub faint_lines: &'a [Line],
     /// Depth-tested box outlines (the selection's boxes).
     pub boxes: &'a [BoxOutline],
     /// Lines drawn over everything (tool previews), blended at their alpha.
@@ -502,6 +505,8 @@ pub struct Renderer {
     boxes: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
     /// The hidden parts of the x-ray lines: where faces are nearer, blended, no depth written.
+    /// The faint lines: depth tested, blended, no depth written.
+    faint_lines: wgpu::RenderPipeline,
     hidden: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
@@ -763,6 +768,17 @@ impl Renderer {
         );
         let boxes =
             blended("boxes", "vs_box", "fs_line", &[Some(box_layout)], depth(true, nearer, Default::default()), all, None, unclipped);
+        // Hidden behind faces, blended over what they do not hide (no depth written).
+        let faint_lines = blended(
+            "faint lines",
+            "vs_line",
+            "fs_overlay",
+            &[Some(line_layout.clone())],
+            depth(false, nearer, Default::default()),
+            all,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            unclipped,
+        );
         // Reversed depth: what something nearer hides is less.
         let hidden = blended(
             "hidden lines",
@@ -816,6 +832,7 @@ impl Renderer {
             lines,
             boxes,
             overlay,
+            faint_lines,
             hidden,
             fills,
             globals,
@@ -1067,8 +1084,8 @@ impl Renderer {
         }
         self.instances.write(device, queue, bytemuck::cast_slice(&raw));
 
-        // Lines: grid and axes, depth-tested lines and the x-ray lines plain, the x-ray lines
-        // dashed (their hidden parts), then the overlay.
+        // Lines: grid and axes, depth-tested lines and the x-ray lines plain, the faint lines,
+        // the x-ray lines dashed (their hidden parts), then the overlay.
         let mut lv = Vec::new();
         let ppp = frame.pixels_per_point;
         push_scene_lines(&mut lv, frame);
@@ -1076,6 +1093,10 @@ impl Renderer {
             push_line(&mut lv, &frame.view, &Line { dash: None, ..*l }, ppp);
         }
         let tested = lv.len() as u32;
+        for l in frame.faint_lines {
+            push_line(&mut lv, &frame.view, l, ppp);
+        }
+        let faint = lv.len() as u32;
         for l in frame.xray {
             push_line(&mut lv, &frame.view, l, ppp);
         }
@@ -1088,6 +1109,7 @@ impl Renderer {
         let max_lines = device.limits().max_buffer_size as usize / std::mem::size_of::<LineVertex>() / QUAD.len();
         lv.truncate(max_lines * QUAD.len());
         let tested = tested.min(lv.len() as u32);
+        let faint = faint.min(lv.len() as u32);
         let hidden = hidden.min(lv.len() as u32);
         self.line_vertices.write(device, queue, bytemuck::cast_slice(&lv));
         // Box outlines: one instance each.
@@ -1265,6 +1287,14 @@ impl Renderer {
             pass.set_vertex_buffer(0, bb.slice(..));
             pass.draw(0..BOX_VERTICES, 0..bx.len() as u32);
         }
+        // Faint lines over what is drawn (opaque), blended.
+        if let Some(lb) = &self.line_vertices.buffer
+            && faint > tested
+        {
+            pass.set_pipeline(&self.faint_lines);
+            pass.set_vertex_buffer(0, lb.slice(..));
+            pass.draw(tested..faint, 0..1);
+        }
         // Fills over the depth-tested lines (which they tint), under the overlay.
         if let Some(fb) = &self.fill_vertices.buffer
             && !fv.is_empty()
@@ -1276,9 +1306,9 @@ impl Renderer {
         if let Some(lb) = &self.line_vertices.buffer {
             let total = lv.len() as u32;
             pass.set_vertex_buffer(0, lb.slice(..));
-            if hidden > tested {
+            if hidden > faint {
                 pass.set_pipeline(&self.hidden);
-                pass.draw(tested..hidden, 0..1);
+                pass.draw(faint..hidden, 0..1);
             }
             if total > hidden {
                 pass.set_pipeline(&self.overlay);
@@ -1430,7 +1460,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
         h.fs(&hl.face_tint);
         h.fs(&hl.edge_tint);
     }
-    for lines in [frame.lines, frame.overlay, frame.xray] {
+    for lines in [frame.lines, frame.faint_lines, frame.overlay, frame.xray] {
         lines.len().hash(&mut h.0);
         for l in lines {
             h.v(l.a);
