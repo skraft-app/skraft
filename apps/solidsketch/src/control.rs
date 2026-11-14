@@ -2,7 +2,10 @@
 //! the loopback interface that drives the running app through the command registry — to
 //! test the real interface from a script, like the Claude Bridge does SketchUp.
 //!
-//! Off unless `SOLIDSKETCH_CONTROL=1` (port `SOLIDSKETCH_CONTROL_PORT`, default 7858). Every
+//! Off by default: switched on and off while the app runs ([`Remote`], the command
+//! `app.remote_control`, its preference), or at launch by `SOLIDSKETCH_CONTROL=1`. Its port:
+//! a preference (default 7858), `SOLIDSKETCH_CONTROL_PORT` for one launch. The title bar
+//! shows it while it is on. Every
 //! request needs the header `X-SolidSketch: 1` (a page in a browser cannot send it without a
 //! preflight the server never answers). Requests are handed to the UI thread, which answers
 //! at its next frame:
@@ -20,10 +23,10 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::mpsc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
-pub const DEFAULT_PORT: u16 = 7858;
 const HEADER: &str = "x-solidsketch";
 
 /// What a client asked for.
@@ -64,48 +67,171 @@ impl Pending {
     }
 }
 
-/// The server's end on the UI side.
+/// The server's end on the UI side. Dropping it stops the server and frees its port.
 pub struct Control {
     inbox: mpsc::Receiver<Pending>,
     pub port: u16,
+    stop: Arc<AtomicBool>,
+    /// The requests answered or handed to the UI so far (the guard's refusals not counted).
+    served: Arc<AtomicU64>,
+}
+
+/// The environment asks for the channel at launch (`SOLIDSKETCH_CONTROL=1`).
+pub fn env_wanted() -> bool {
+    std::env::var("SOLIDSKETCH_CONTROL").ok().as_deref() == Some("1")
+}
+
+/// The port the environment asks for at launch (`SOLIDSKETCH_CONTROL_PORT`).
+pub fn env_port() -> Option<u16> {
+    std::env::var("SOLIDSKETCH_CONTROL_PORT").ok().and_then(|p| p.parse().ok())
 }
 
 impl Control {
-    /// Starts the server when the environment asks for it; `wake` makes the UI draw a frame.
-    pub fn from_env(wake: impl Fn() + Send + Sync + 'static) -> Option<Result<Control, String>> {
-        if std::env::var("SOLIDSKETCH_CONTROL").ok().as_deref() != Some("1") {
-            return None;
-        }
-        let port = std::env::var("SOLIDSKETCH_CONTROL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT);
-        Some(Control::start(port, wake))
-    }
-
     pub fn start(port: u16, wake: impl Fn() + Send + Sync + 'static) -> Result<Control, String> {
         let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("127.0.0.1:{port} : {e}"))?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let (tx, inbox) = mpsc::channel();
-        let wake = std::sync::Arc::new(wake);
+        let wake = Arc::new(wake);
+        let stop = Arc::new(AtomicBool::new(false));
+        let served = Arc::new(AtomicU64::new(0));
+        let (stopped, count) = (stop.clone(), served.clone());
         std::thread::Builder::new()
             .name("control".into())
             .spawn(move || {
+                // Ends at the first connection after the stop ([`Control::drop`] makes one): the
+                // listener goes with the thread.
                 for stream in listener.incoming().flatten() {
-                    let (tx, wake) = (tx.clone(), wake.clone());
-                    std::thread::spawn(move || serve(stream, &tx, &*wake));
+                    if stopped.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let (tx, wake, count) = (tx.clone(), wake.clone(), count.clone());
+                    std::thread::spawn(move || serve(stream, &tx, &*wake, &count));
                 }
             })
             .map_err(|e| e.to_string())?;
-        Ok(Control { inbox, port })
+        Ok(Control { inbox, port, stop, served })
     }
 
     /// The requests that came since the last frame.
     pub fn take(&self) -> Vec<Pending> {
         self.inbox.try_iter().collect()
     }
+
+    pub fn served(&self) -> u64 {
+        self.served.load(Ordering::Relaxed)
+    }
 }
 
-fn serve(mut stream: TcpStream, tx: &mpsc::Sender<Pending>, wake: &dyn Fn()) {
+impl Drop for Control {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        // Wakes the listener blocked in `accept`. The requests on their way get a 503: the
+        // inbox is gone.
+        let _ = TcpStream::connect_timeout(&(std::net::Ipv4Addr::LOCALHOST, self.port).into(), Duration::from_millis(200));
+    }
+}
+
+/// How long the title bar's mark flashes after a request.
+pub const FLASH: Duration = Duration::from_millis(600);
+
+/// The channel as the app holds it: on (running, or failed to start: the user asked for it
+/// and the title bar says why it is not running) or off.
+pub struct Remote {
+    control: Option<Control>,
+    error: Option<String>,
+    port: u16,
+    wake: Arc<dyn Fn() + Send + Sync>,
+    /// The served count last seen, and when it last grew.
+    seen: u64,
+    last: Option<Instant>,
+}
+
+/// What the title bar shows of it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Status {
+    Off,
+    On {
+        port: u16,
+        served: u64,
+        /// 1 just after a request, down to 0 after [`FLASH`].
+        flash: f32,
+    },
+    Failed {
+        port: u16,
+        error: String,
+    },
+}
+
+impl Remote {
+    pub fn new(port: u16, wake: impl Fn() + Send + Sync + 'static) -> Self {
+        Remote { control: None, error: None, port, wake: Arc::new(wake), seen: 0, last: None }
+    }
+
+    /// Asked for: running, or failed to start.
+    pub fn is_on(&self) -> bool {
+        self.control.is_some() || self.error.is_some()
+    }
+
+    /// Switches it on (again: a failed start is tried again) or off. The error, if it fails.
+    pub fn set(&mut self, on: bool) -> Result<(), String> {
+        self.control = None;
+        self.error = None;
+        if !on {
+            return Ok(());
+        }
+        let wake = self.wake.clone();
+        match Control::start(self.port, move || wake()) {
+            Ok(c) => {
+                log::info!("control channel on 127.0.0.1:{}", c.port);
+                self.seen = c.served();
+                self.control = Some(c);
+                Ok(())
+            }
+            Err(e) => {
+                self.error = Some(e.clone());
+                Err(e)
+            }
+        }
+    }
+
+    /// Moves it to `port`: started again there only if it is on and the port changes.
+    pub fn set_port(&mut self, port: u16) -> Result<(), String> {
+        if port == self.port {
+            return Ok(());
+        }
+        self.port = port;
+        if self.is_on() { self.set(true) } else { Ok(()) }
+    }
+
+    pub fn control(&self) -> Option<&Control> {
+        self.control.as_ref()
+    }
+
+    /// Its state now; notes the requests served since the last call.
+    pub fn status(&mut self) -> Status {
+        if let Some(e) = &self.error {
+            return Status::Failed { port: self.port, error: e.clone() };
+        }
+        let Some(c) = &self.control else { return Status::Off };
+        let served = c.served();
+        if served != self.seen {
+            self.seen = served;
+            self.last = Some(Instant::now());
+        }
+        let flash = self.last.map_or(0.0, |t| 1.0 - (t.elapsed().as_secs_f32() / FLASH.as_secs_f32()).min(1.0));
+        Status::On { port: c.port, served, flash }
+    }
+}
+
+fn serve(mut stream: TcpStream, tx: &mpsc::Sender<Pending>, wake: &dyn Fn(), served: &AtomicU64) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let reply = match read_request(&stream) {
+    let request = read_request(&stream);
+    if request.is_ok() {
+        served.fetch_add(1, Ordering::Relaxed);
+        // The title bar flashes.
+        wake();
+    }
+    let reply = match request {
         Ok(r) => match r {
             Parsed::Ping => Reply::json(200, serde_json::json!({ "ok": true })),
             Parsed::Request(request) => {
@@ -240,6 +366,62 @@ mod tests {
         let run = send(port, "POST /run HTTP/1.1\r\nx-solidsketch: 1\r\nContent-Length: 9\r\n\r\ntool.move");
         assert!(run.contains("\"ran\":\"tool.move\""), "{run}");
         ui.join().unwrap();
+    }
+
+    #[test]
+    fn stopping_frees_the_port_and_starting_again_works() {
+        let mut remote = Remote::new(0, || {});
+        remote.set(true).unwrap();
+        let port = remote.control().unwrap().port;
+        let ping = send(port, "GET /ping HTTP/1.1\r\nX-SolidSketch: 1\r\n\r\n");
+        assert!(ping.contains("{\"ok\":true}"), "{ping}");
+        assert!(matches!(remote.status(), Status::On { served: 1, .. }));
+        remote.set(false).unwrap();
+        assert_eq!(remote.status(), Status::Off);
+        // The listener is gone: the port can be taken again.
+        let mut again = None;
+        for _ in 0..50 {
+            if let Ok(c) = Control::start(port, || {}) {
+                again = Some(c);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(again.map(|c| c.port), Some(port));
+    }
+
+    #[test]
+    fn a_port_taken_leaves_it_failed_but_on() {
+        let first = Control::start(0, || {}).unwrap();
+        let mut remote = Remote::new(first.port, || {});
+        assert!(remote.set(true).is_err());
+        assert!(remote.is_on());
+        assert!(matches!(remote.status(), Status::Failed { .. }));
+        drop(first);
+        remote.set(false).unwrap();
+        assert!(!remote.is_on());
+    }
+
+    #[test]
+    fn a_new_port_restarts_it_only_when_on_and_changed() {
+        let mut remote = Remote::new(0, || {});
+        remote.set(true).unwrap();
+        let first = remote.control().unwrap().port;
+        // Port 0 again: the same, nothing restarted.
+        remote.set_port(0).unwrap();
+        assert_eq!(remote.control().unwrap().port, first);
+        // Off: the port is only noted.
+        remote.set(false).unwrap();
+        let taken = Control::start(0, || {}).unwrap();
+        remote.set_port(taken.port).unwrap();
+        assert!(!remote.is_on());
+        // On, to a port taken: failed, still on; back to a free one: running.
+        remote.set_port(0).unwrap();
+        remote.set(true).unwrap();
+        assert!(remote.set_port(taken.port).is_err());
+        assert!(matches!(remote.status(), Status::Failed { .. }));
+        remote.set_port(0).unwrap();
+        assert!(matches!(remote.status(), Status::On { .. }));
     }
 
     #[test]

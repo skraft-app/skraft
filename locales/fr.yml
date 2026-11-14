@@ -114,6 +114,8 @@ menu:
     select_all: "Tout sélectionner"
     command_palette: "$t(common.command_palette)"
     preferences: "$t(common.preferences)"
+    # Checked while the control channel (the HTTP server that drives the app from a script) is on.
+    remote_control: "Pilotage distant"
   view:
     title: "Vue"
     parallel: "Projection parallèle"
@@ -189,6 +191,13 @@ titlebar:
   modified: "Modifié depuis le dernier enregistrement"
   views: "Vues standard"
   search: "Rechercher une commande"
+  # The control channel's mark, shown while it is on.
+  remote:
+    on: "Pilotage distant actif sur %{address} — %{n} requête(s)"
+    failed: "Pilotage distant impossible : %{error}"
+    copy_ping: "Copier une commande de test"
+    retry: "Réessayer"
+    stop: "Arrêter le pilotage distant"
 
 # The file tabs in the title bar, one per open document.
 tabs:
@@ -288,10 +297,16 @@ prefs:
     navigation: "Navigation"
     interface: "Interface"
     shortcuts: "Raccourcis"
+    debug: "$t(menu.debug.title)"
   general:
     language: "Langue"
     # Desktop: the saved documents open when the app quits are opened again at launch.
     reopen: "Rouvrir les documents au lancement"
+  # Desktop: the control channel, an HTTP server on 127.0.0.1 driving the app from a script.
+  debug:
+    remote_control: "Pilotage distant"
+    remote_port: "Port du pilotage distant"
+    remote_control_tip: "Un serveur local (127.0.0.1) permet à un script de piloter l'application : commandes, état, captures. Indiqué dans la barre de titre tant qu'il est actif."
   model:
     intro: "Réglages de ce modèle, enregistrés avec lui."
     # The Model tab with no document open (the start page).

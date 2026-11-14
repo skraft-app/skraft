@@ -14,6 +14,8 @@ use crate::icons;
 pub enum Action {
     /// A command of the registry, by id.
     Command(&'static str),
+    /// The control channel failed to start: try again (the title bar's mark).
+    RemoteRetry,
     SelectPath(EntityPath),
     Apply(Operation),
     /// An option of the active tool changed in its bar.

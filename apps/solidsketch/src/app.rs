@@ -73,8 +73,9 @@ pub struct SolidSketchApp {
     taps: [Tap; 3],
     /// Shows the Débogage menu ([`debug_menu_wanted`]).
     debug_menu: bool,
+    /// The control channel, switched on and off while the app runs (desktop).
     #[cfg(not(target_arch = "wasm32"))]
-    control: Option<crate::control::Control>,
+    remote: crate::control::Remote,
     /// The macOS menu bar (`None` if it could not be built: the ☰ menu then).
     #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
     native_menu: Option<NativeMenu>,
@@ -146,6 +147,8 @@ enum PrefsTab {
     Navigation,
     Interface,
     Shortcuts,
+    /// The control channel (desktop).
+    Debug,
 }
 
 /// Where the kernel runs (docs/ARCHITECTURE.md §7 ter): its own thread on the desktop, a web
@@ -206,16 +209,15 @@ impl SolidSketchApp {
         solidsketch_i18n::set_locale(&prefs.locale);
         let docs = Docs::new(SharedKernel::new(kernel_service(&cc.egui_ctx)));
         #[cfg(not(target_arch = "wasm32"))]
-        let (control, error) = {
+        let (remote, error) = {
             let ctx = cc.egui_ctx.clone();
-            match crate::control::Control::from_env(move || ctx.request_repaint()) {
-                Some(Ok(c)) => {
-                    log::info!("control channel on 127.0.0.1:{}", c.port);
-                    (Some(c), error)
-                }
-                Some(Err(e)) => (None, Some(t!("status.control_failed", error = e))),
-                None => (None, error),
-            }
+            let mut remote = crate::control::Remote::new(crate::control::env_port().unwrap_or(prefs.remote_port), move || ctx.request_repaint());
+            // The preference, or the environment for this launch only.
+            let error = match prefs.remote_control || crate::control::env_wanted() {
+                true => remote.set(true).err().map(|e| t!("status.control_failed", error = e)).or(error),
+                false => error,
+            };
+            (remote, error)
         };
         // Its native menu is added below, on macOS.
         #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(unused_mut))]
@@ -243,7 +245,7 @@ impl SolidSketchApp {
             taps: Default::default(),
             debug_menu: debug_menu_wanted(),
             #[cfg(not(target_arch = "wasm32"))]
-            control,
+            remote,
             #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
             native_menu: None,
             pending_keys: Vec::new(),
@@ -636,7 +638,7 @@ impl SolidSketchApp {
         let Some(d) = self.docs.active() else {
             return match id {
                 "file.new" | "file.open" | "file.import" | "app.command_palette" | "app.preferences" | "view.render_stats" => true,
-                "app.quit" => !cfg!(target_arch = "wasm32"),
+                "app.quit" | "app.remote_control" => !cfg!(target_arch = "wasm32"),
                 _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
                 _ => PanelId::from_command(id).is_some(),
             };
@@ -655,7 +657,7 @@ impl SolidSketchApp {
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "debug.crash_kernel" => self.debug_menu,
             "view.next_tab" | "view.previous_tab" => self.docs.len() > 1,
-            "app.quit" => !cfg!(target_arch = "wasm32"),
+            "app.quit" | "app.remote_control" => !cfg!(target_arch = "wasm32"),
             _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
             _ => commands::find(id).is_some(),
         }
@@ -666,6 +668,8 @@ impl SolidSketchApp {
         match id {
             id if let Some(p) = PanelId::from_command(id) => return Some(self.prefs.panels.is_shown(p)),
             "view.render_stats" => return Some(self.prefs.show_render_stats),
+            #[cfg(not(target_arch = "wasm32"))]
+            "app.remote_control" => return Some(self.remote.is_on()),
             _ => {}
         }
         let editor = &self.docs.active()?.editor;
@@ -780,6 +784,11 @@ impl SolidSketchApp {
                 self.prefs.show_render_stats = !self.prefs.show_render_stats;
                 true
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            "app.remote_control" => {
+                self.set_remote(!self.remote.is_on());
+                true
+            }
             "edit.cut" | "edit.copy" => {
                 self.copy(id == "edit.cut");
                 true
@@ -887,6 +896,10 @@ impl SolidSketchApp {
                 return;
             }
             Action::Tab(t) => return self.tab_action(t),
+            #[cfg(not(target_arch = "wasm32"))]
+            Action::RemoteRetry => return self.set_remote(true),
+            #[cfg(target_arch = "wasm32")]
+            Action::RemoteRetry => return,
             Action::Ribbon(change) => return self.prefs.ribbon.apply(change),
             Action::ToggleMachinings => {
                 self.prefs.show_machinings = !self.prefs.show_machinings;
@@ -900,7 +913,7 @@ impl SolidSketchApp {
         let Some(doc) = self.docs.active_mut() else { return };
         let e = &mut doc.editor;
         match a {
-            Action::Command(_) | Action::Tab(_) | Action::Ribbon(_) | Action::ToggleMachinings => {}
+            Action::Command(_) | Action::Tab(_) | Action::Ribbon(_) | Action::ToggleMachinings | Action::RemoteRetry => {}
             Action::SelectPath(p) => e.select_path(&p),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
             Action::Apply(op) => {
@@ -1208,10 +1221,17 @@ impl SolidSketchApp {
                     ui.selectable_value(&mut tab, PrefsTab::Navigation, t!("prefs.tab.navigation"));
                     ui.selectable_value(&mut tab, PrefsTab::Interface, t!("prefs.tab.interface"));
                     ui.selectable_value(&mut tab, PrefsTab::Shortcuts, t!("prefs.tab.shortcuts"));
+                    if !cfg!(target_arch = "wasm32") {
+                        ui.selectable_value(&mut tab, PrefsTab::Debug, t!("prefs.tab.debug"));
+                    }
                 });
                 ui.separator();
                 match tab {
                     PrefsTab::General => general_settings(ui, &mut self.prefs),
+                    #[cfg(not(target_arch = "wasm32"))]
+                    PrefsTab::Debug => self.debug_settings(ui),
+                    #[cfg(target_arch = "wasm32")]
+                    PrefsTab::Debug => {}
                     PrefsTab::Model => self.model_settings(ui),
                     PrefsTab::Navigation => navigation_settings(ui, &mut self.prefs.navigation),
                     PrefsTab::Interface => interface_settings(ui, &mut self.prefs),
@@ -1222,6 +1242,29 @@ impl SolidSketchApp {
             self.capturing = None;
         }
         self.prefs_window = open.then_some(tab);
+    }
+
+    /// The control channel: its switch, showing it on whatever started it, and its port, set
+    /// once typed or dragged to its value (not at each step).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn debug_settings(&mut self, ui: &mut egui::Ui) {
+        let mut on = self.remote.is_on();
+        let mut port_set = false;
+        egui::Grid::new("debug").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+            ui.label(t!("prefs.debug.remote_control")).on_hover_text(t!("prefs.debug.remote_control_tip"));
+            ui.checkbox(&mut on, "");
+            ui.end_row();
+            ui.label(t!("prefs.debug.remote_port"));
+            let r = ui.add(egui::DragValue::new(&mut self.prefs.remote_port).range(1024..=65535).speed(1.0));
+            port_set = r.drag_stopped() || r.lost_focus();
+            ui.end_row();
+        });
+        if on != self.remote.is_on() {
+            self.set_remote(on);
+        }
+        if port_set && let Err(e) = self.remote.set_port(self.prefs.remote_port) {
+            self.message = Some(t!("status.control_failed", error = e));
+        }
     }
 
     fn model_settings(&mut self, ui: &mut egui::Ui) {
@@ -1654,12 +1697,22 @@ impl SolidSketchApp {
         self.theme = Theme::of(self.prefs.palette, mode);
     }
 
-    /// Answers the control channel's requests (desktop, `SOLIDSKETCH_CONTROL=1`).
+    /// Switches the control channel on or off, and remembers it (the preference): from the
+    /// command, the preferences, the title bar's mark.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn set_remote(&mut self, on: bool) {
+        self.prefs.remote_control = on;
+        if let Err(e) = self.remote.set(on) {
+            self.message = Some(t!("status.control_failed", error = e));
+        }
+    }
+
+    /// Answers the control channel's requests (desktop, when it is on).
     #[cfg(not(target_arch = "wasm32"))]
     fn serve_control(&mut self, frame: &eframe::Frame) {
         use crate::control::{Reply, Request};
         use serde_json::json;
-        let Some(pending) = self.control.as_ref().map(|c| c.take()) else { return };
+        let Some(pending) = self.remote.control().map(|c| c.take()) else { return };
         for p in pending {
             let reply = match &p.request {
                 Request::Commands => {
@@ -1734,6 +1787,32 @@ impl SolidSketchApp {
                 }
             };
             p.answer(reply);
+        }
+    }
+}
+
+impl SolidSketchApp {
+    /// The title bar's mark of the control channel, while it is on; frames follow while it
+    /// flashes.
+    fn remote_mark(&mut self, ctx: &egui::Context) -> Option<titlebar::RemoteMark> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = ctx;
+            None
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use crate::control::Status;
+            match self.remote.status() {
+                Status::Off => None,
+                Status::On { port, served, flash } => {
+                    if flash > 0.0 {
+                        ctx.request_repaint();
+                    }
+                    Some(titlebar::RemoteMark { port, served, flash, error: None })
+                }
+                Status::Failed { port, error } => Some(titlebar::RemoteMark { port, served: 0, flash: 0.0, error: Some(error) }),
+            }
         }
     }
 }
@@ -1835,6 +1914,7 @@ impl eframe::App for SolidSketchApp {
             reveal: !cfg!(target_arch = "wasm32"),
             integrated: crate::INTEGRATED_TITLEBAR,
             ground: self.docs.active().map(|_| (viewport::color(self.theme.ui.view), viewport::color(self.theme.ui.view_text))),
+            remote: self.remote_mark(&ctx),
         };
         titlebar::show(ui, &bar, &views, &mut actions);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
