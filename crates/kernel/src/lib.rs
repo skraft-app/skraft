@@ -141,7 +141,8 @@ pub enum Primitive {
         minor_radius: f64,
     },
     /// The outline `profile` (its corners in the XY plane through `origin`, relative to it, with
-    /// the bulge of the side leaving each: [`profile`], a simple outline either way round)
+    /// the bulge of the side leaving each and their fillets: [`profile`], a simple outline either
+    /// way round)
     /// extruded along +Z by `height` (docs/ARCHITECTURE.md §6 nonies).
     Prism {
         origin: DVec3,
@@ -159,7 +160,7 @@ impl Primitive {
     pub fn at_origin(&self) -> (Primitive, DVec3) {
         match *self {
             Primitive::Prism { origin, ref profile, height } => {
-                let lo = profile::bounds(profile).map_or(DVec2::ZERO, |b| b.0);
+                let lo = profile::bounds(&profile::rounded(profile)).map_or(DVec2::ZERO, |b| b.0);
                 let profile = profile.iter().map(|c| profile::Corner { p: c.p - lo, ..*c }).collect();
                 (Primitive::Prism { origin: DVec3::ZERO, profile, height }, origin + lo.extend(0.0))
             }

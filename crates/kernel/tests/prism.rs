@@ -3,7 +3,7 @@
 
 use glam::{DVec2, DVec3};
 use solidsketch_kernel::Solid;
-use solidsketch_kernel::profile::{Corner, fillet, polygon};
+use solidsketch_kernel::profile::{Corner, polygon, with_fillets};
 
 #[test]
 fn a_prism_with_arcs_is_built() {
@@ -17,8 +17,8 @@ fn a_prism_with_arcs_is_built() {
     let back = solidsketch_kernel::profile::reversed(&tomb);
     assert_eq!(Solid::new_prism(DVec3::ZERO, &back, 10.0).unwrap().topology_counts(), (6, 12, 8));
 
-    // A board with rounded corners.
-    let board = fillet(&polygon(&[v(0.0, 0.0), v(600.0, 0.0), v(600.0, 300.0), v(0.0, 300.0)]), 20.0);
+    // A board with rounded corners, its fillets as radii on the sharp corners.
+    let board = with_fillets(&polygon(&[v(0.0, 0.0), v(600.0, 0.0), v(600.0, 300.0), v(0.0, 300.0)]), 20.0);
     let s = Solid::new_prism(DVec3::new(0.0, 0.0, 5.0), &board, 18.0).unwrap();
     assert_eq!(s.topology_counts(), (10, 24, 16));
     let (lo, hi) = s.vertex_bounds().unwrap();

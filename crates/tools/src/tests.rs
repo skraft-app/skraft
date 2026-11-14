@@ -3627,6 +3627,45 @@ fn prism_fillet_rounds_the_corners_made() {
     let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
     assert!(close(lo, DVec3::new(-5.0, -5.0, 0.0)) && close(hi, DVec3::new(105.0, 55.0, 18.0)), "{lo} {hi}");
     assert_eq!(part_topology(&e), (10, 24, 16));
+    // The fillets are radii on the sharp corners of the part's profile.
+    let b = blank_profile(&e, drawn(&e));
+    assert_eq!(b.profile.len(), 4);
+    assert!(b.profile.iter().all(|c| c.fillet == 10.0), "{b:?}");
+}
+
+#[test]
+fn profile_fillets_follow_a_moved_corner() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Prism);
+    e.input(ToolInput::Vcb("10r".into()));
+    corners(&mut e, &[(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)]);
+    key(&mut e, Key::Enter);
+    e.input(ToolInput::Vcb("18".into()));
+    let id = drawn(&e);
+    e.set_tool(ToolKind::Select);
+    e.enter(id);
+    e.set_tool(ToolKind::Profile);
+    // The rounded corner's grip is the sharp corner, off the outline, its sides dashed to it.
+    // Moved, the board stays a rectangle with its four fillets: 200 × 50.
+    click(&mut e, DVec3::new(100.0, 50.0, 18.0));
+    click(&mut e, DVec3::new(200.0, 50.0, 18.0));
+    let b = blank_profile(&e, id);
+    assert!(b.profile.iter().all(|c| c.fillet == 10.0), "{b:?}");
+    assert!(b.profile.iter().any(|c| c.p.distance(glam::DVec2::new(200.0, 50.0)) < 1e-3), "{b:?}");
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    assert_eq!(part.shape().topology_counts(), (10, 24, 16));
+    let (_, hi) = mesh_bounds_of(&e, &EntityPath::root(id));
+    assert!((hi.x - 200.0).abs() < 1e-3, "{hi}");
+    // The bottom right corner moved alone (free) back to (100, 0): the top right corner turns
+    // acute, its fillet, still tangent and R10, sitting back from it — its centre r / sin(13.3°)
+    // away, the outline reaching x ≈ 167.6.
+    key(&mut e, Key::Copy);
+    click(&mut e, DVec3::new(200.0, 0.0, 18.0));
+    click(&mut e, DVec3::new(100.0, 0.0, 18.0));
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    assert_eq!(part.shape().topology_counts(), (10, 24, 16));
+    let (_, hi) = mesh_bounds_of(&e, &EntityPath::root(id));
+    assert!(hi.x > 165.0 && hi.x < 170.0, "{hi}");
 }
 
 // ---- Profile (ARCHITECTURE.md §6 nonies, step 3) ------------------------------------------------
@@ -3656,13 +3695,25 @@ fn profile_corner_moved_side_split_thickness_set() {
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(700.0, 300.0, 18.0)), "{lo} {hi}");
     assert_eq!(blank_profile(&e, id).profile.len(), 4);
 
-    // The bottom side's middle (300, 0): a corner inserted, pulled down 100 (typed).
-    click(&mut e, DVec3::new(300.0, 0.0, 18.0));
-    e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, -50.0, 18.0)) });
+    // The bottom side's middle (350, 0): the side moved down 100 (typed), still a rectangle.
+    click(&mut e, DVec3::new(350.0, 0.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(350.0, -50.0, 18.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    assert_eq!(blank_profile(&e, id).profile.len(), 4);
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::new(0.0, -100.0, 0.0)) && close(hi, DVec3::new(700.0, 300.0, 18.0)), "{lo} {hi}");
+
+    // Free (the copy modifier tapped): the bottom side's middle (350, -100) inserts a corner,
+    // pulled down 100 more; free drops once done.
+    key(&mut e, Key::Copy);
+    assert!(e.status().contains("(libre)"), "{}", e.status());
+    click(&mut e, DVec3::new(350.0, -100.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(350.0, -150.0, 18.0)) });
     e.input(ToolInput::Vcb("100".into()));
     assert_eq!(blank_profile(&e, id).profile.len(), 5);
     let (lo, _) = bounds_of(&e, &EntityPath::root(id));
-    assert!(close(lo, DVec3::new(0.0, -100.0, 0.0)), "{lo}");
+    assert!(close(lo, DVec3::new(0.0, -200.0, 0.0)), "{lo}");
+    assert!(!e.status().contains("(libre)"), "{}", e.status());
 
     // The thickness: 30, typed.
     let b = blank_profile(&e, id);
@@ -3683,10 +3734,31 @@ fn profile_corner_moved_side_split_thickness_set() {
 }
 
 #[test]
-fn profile_corner_deleted_arc_straightened_crossing_refused() {
+fn profile_corner_keeps_the_sides_directions_unless_free() {
     let (mut e, id) = board_profile_editor();
-    // A corner dragged across the bottom side: refused, said; nothing changes.
+    // The far corner dragged down and right: its sides translated, still a rectangle.
+    click(&mut e, DVec3::new(600.0, 300.0, 18.0));
+    click(&mut e, DVec3::new(650.0, 200.0, 18.0));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(650.0, 200.0, 18.0)), "{lo} {hi}");
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    assert_eq!(part.shape().topology_counts(), (6, 12, 8));
+    // The copy modifier tapped while moving: the corner alone, its neighbours left in place.
+    click(&mut e, DVec3::new(650.0, 200.0, 18.0));
+    key(&mut e, Key::Copy);
+    click(&mut e, DVec3::new(700.0, 250.0, 18.0));
+    let b = blank_profile(&e, id);
+    assert!(b.profile.iter().any(|c| c.p.distance(glam::DVec2::new(650.0, 0.0)) < 1e-3), "{b:?}");
+    assert!(b.profile.iter().any(|c| c.p.distance(glam::DVec2::new(0.0, 200.0)) < 1e-3), "{b:?}");
+    assert!(b.profile.iter().any(|c| c.p.distance(glam::DVec2::new(700.0, 250.0)) < 1e-3), "{b:?}");
+}
+
+#[test]
+fn profile_corner_deleted_crossing_refused_disc_radius() {
+    let (mut e, id) = board_profile_editor();
+    // A corner dragged alone (free) across the bottom side: refused, said; nothing changes.
     let before = blank_profile(&e, id);
+    key(&mut e, Key::Copy);
     let from = px(&e, DVec3::new(600.0, 300.0, 18.0));
     e.input(ToolInput::Hover { px: from });
     e.input(ToolInput::DragStart { px: from, mods: Modifiers::default() });
@@ -3703,7 +3775,7 @@ fn profile_corner_deleted_arc_straightened_crossing_refused() {
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
     assert_eq!(part.shape().topology_counts(), (5, 9, 6));
 
-    // A cylinder's disc: one half straightened (its middle dropped on the chord).
+    // A cylinder's disc: a single grip, its radius — dragged, then typed, it stays a disc.
     e.exit();
     assert_eq!(e.tool_kind(), ToolKind::Select, "the profile's tool goes with the part");
     e.set_tool(ToolKind::Cylinder);
@@ -3716,17 +3788,59 @@ fn profile_corner_deleted_arc_straightened_crossing_refused() {
     e.enter(rod);
     e.set_tool(ToolKind::Profile);
     let b = blank_profile(&e, rod);
-    let side = solidsketch_model::kernel::profile::sides(&b.profile)[0];
-    // The part's axes are at the disc's centre: the arc's middle, in the world.
     let (_, _, t) = e.document().resolve_part(&EntityPath::root(rod)).unwrap();
-    let mid = t.transform_point3(side.at(0.5).extend(10.0));
-    let chord = t.transform_point3(((side.a() + side.b()) / 2.0).extend(10.0));
-    click(&mut e, mid);
-    click(&mut e, chord);
-    let b = blank_profile(&e, rod);
-    assert_eq!(b.profile.iter().filter(|c| c.bulge == 0.0).count(), 1, "{b:?}");
+    let grip = t.transform_point3(b.profile[0].p.extend(10.0));
+    let centre = t.transform_point3(DVec3::new(0.0, 0.0, 10.0));
+    click(&mut e, grip);
+    assert!(e.vcb().is_some_and(|(l, _)| l == "Rayon"), "{:?}", e.vcb());
+    click(&mut e, centre + (grip - centre) * 1.5);
+    let (_, r) = solidsketch_model::kernel::profile::circle(&blank_profile(&e, rod).profile).expect("a disc still");
+    assert!((r - 150.0).abs() < 0.5, "{r}");
+    click(&mut e, centre + (grip - centre) * 1.5);
+    e.input(ToolInput::Vcb("80".into()));
+    let (_, r) = solidsketch_model::kernel::profile::circle(&blank_profile(&e, rod).profile).expect("a disc still");
+    assert!((r - 80.0).abs() < 1e-9, "{r}");
     let (lo, hi) = mesh_bounds_of(&e, &EntityPath::root(rod));
-    assert!((hi - lo).y < 101.0 && (hi - lo).x > 199.0 || (hi - lo).x < 101.0 && (hi - lo).y > 199.0, "a half disc: {lo} {hi}");
+    assert!(((hi - lo).x - 160.0).abs() < 1.0 && ((hi - lo).y - 160.0).abs() < 1.0, "{lo} {hi}");
+}
+
+#[test]
+fn profile_fillet_grip_rounds_a_corner_and_makes_it_sharp_again() {
+    use solidsketch_model::kernel::profile;
+    let (mut e, id) = board_profile_editor();
+    let fillet_grips = |e: &Editor| e.preview().points.into_iter().filter(|p| p.radius == 4.0 && p.shape == PointShape::Round).count();
+    assert_eq!(fillet_grips(&e), 0, "no fillet grip before a corner is hovered");
+    // Hovering the far corner shows its fillet grip, just inside on the bisector.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 300.0, 18.0)) });
+    let grip = e.preview().points.into_iter().find(|p| p.radius == 4.0 && p.shape == PointShape::Round).expect("a fillet grip").at;
+    assert!(grip.x < 600.0 && grip.y < 300.0 && ((600.0 - grip.x) - (300.0 - grip.y)).abs() < 1e-3, "{grip}");
+    // Taken (the corner's hover kept), the radius typed: 20.
+    click(&mut e, grip);
+    assert!(e.vcb().is_some_and(|(l, _)| l == "Congé"), "{:?}", e.vcb());
+    e.input(ToolInput::Vcb("20".into()));
+    assert_eq!(blank_profile(&e, id).profile[2].fillet, 20.0);
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    assert_eq!(part.shape().topology_counts(), (7, 15, 10));
+    // Too big for the sides: refused, said.
+    let m = profile::fillet_middle(&blank_profile(&e, id).profile, 2, 20.0).unwrap().extend(18.0);
+    assert_eq!(fillet_grips(&e), 1, "a rounded corner's grip always shows");
+    click(&mut e, m);
+    e.input(ToolInput::Vcb("400".into()));
+    assert!(e.status().contains("trop grand"), "{}", e.status());
+    // Brought back onto the corner: sharp again.
+    click(&mut e, DVec3::new(600.0, 300.0, 18.0));
+    assert_eq!(blank_profile(&e, id).profile[2].fillet, 0.0);
+    // Dragged out along the bisector: the radius of the arc through the cursor.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 300.0, 18.0)) });
+    click(&mut e, grip);
+    let d = 100.0 * (2f64.sqrt() - 1.0);
+    click(&mut e, DVec3::new(600.0, 300.0, 18.0) - DVec3::new(1.0, 1.0, 0.0).normalize() * d);
+    assert!((blank_profile(&e, id).profile[2].fillet - 100.0).abs() < 0.1, "{:?}", blank_profile(&e, id));
+    // Delete over it: sharp.
+    let m = profile::fillet_middle(&blank_profile(&e, id).profile, 2, blank_profile(&e, id).profile[2].fillet).unwrap().extend(18.0);
+    e.input(ToolInput::Hover { px: px(&e, m) });
+    key(&mut e, Key::Delete);
+    assert_eq!(blank_profile(&e, id).profile[2].fillet, 0.0);
 }
 
 #[test]
