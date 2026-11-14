@@ -487,6 +487,8 @@ tool:
       from_corner_tip: "Le premier point se mesure depuis le coin le plus proche : taper les distances (%{alt_key} : basculer)"
       offset: "Décalage"
       offset_tip: "Décale le contour de la forme tracée, pas sa hauteur (négatif : vers l'intérieur) · cliquer pour le taper, ou taper longueur suivie de x (3x)"
+      fillet: "Congé"
+      fillet_tip: "Arrondit d'un rayon les coins entre deux côtés droits de la pièce faite, après le décalage · cliquer pour le taper, ou taper rayon suivi de r (5r)"
   box:
     name: "Boîte"
     hint:
@@ -499,6 +501,7 @@ tool:
       empty: "Boîte vide : une dimension est nulle"
       empty_base: "Base vide : choisir un coin opposé"
       base_lengths: "Base vide : deux longueurs sont nécessaires"
+      fillet_too_big: "Congé trop grand : au plus la moitié du petit côté de la base faite"
     option:
       centered: "Centré"
       centered_tip: "Le premier clic est le centre de la base (%{copy_key} : basculer)"
@@ -545,8 +548,6 @@ tool:
     option:
       reversed: "Inversé"
       reversed_tip: "Les nouveaux points s'ajoutent avant le premier au lieu d'après le dernier (%{copy_key} : basculer)"
-      fillet: "Congé"
-      fillet_tip: "Arrondit d'un rayon les coins entre deux côtés droits de la pièce faite, après le décalage · cliquer pour le taper, ou taper rayon suivi de r (5r)"
       trace: "Tracé"
       trace_tip: "Ce que trace le côté suivant (Tab pour changer)"
       line: "Ligne"

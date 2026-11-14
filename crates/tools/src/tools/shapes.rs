@@ -7,7 +7,10 @@
 //! The "Offset" option (after OpenCutList's shape offset; typed in the bar, or `3x` at any
 //! step) moves the outline drawn, never the height: the box's base grows by it on every side,
 //! the cylinder's radius by it; negative, they shrink. The lengths written and typed stay the
-//! drawn shape's, dashed then, and the shape made is drawn solid.
+//! drawn shape's, dashed then, and the shape made is drawn solid. The box's "Fillet" option
+//! (`5r` at any step, as the prism's) then rounds the four corners of the base made: the box
+//! is made a prism then, its profile the rectangle with a radius on each corner; a radius over
+//! half the shorter side is refused.
 //!
 //! The box's opposite corner snaps to the square's near it (not on a feature, nor on a plane
 //! seen edge on). The cylinder's radius snaps likewise to the red, green or blue axis through
@@ -52,6 +55,7 @@
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Primitive;
+use solidsketch_model::kernel::profile::{self, Corner};
 
 use super::face::{self, Face};
 use super::{
@@ -550,6 +554,32 @@ const FROM_CORNER: &str = "from_corner";
 /// The outline is moved by this length, out (positive) or in (saved for each tool).
 const OFFSET: &str = "offset";
 
+/// The corners between straight sides rounded by this radius (saved for each tool: the box's,
+/// the prism's).
+const FILLET: &str = "fillet";
+/// How far an arc turns between two points of its preview (radians).
+const STEP: f64 = 0.06;
+
+/// The fillet option, after the offset.
+fn fillet_option(cx: &Cx<'_>) -> ToolOption {
+    ToolOption {
+        key: FILLET,
+        label: t!("tool.shape.option.fillet"),
+        tip: t!("tool.shape.option.fillet_tip"),
+        value: OptionValue::Length(cx.length(FILLET)),
+        choices: Vec::new(),
+        saved: true,
+        icon: None,
+    }
+}
+
+/// The lines along the closed outline `p` (in the plane of `f`, at the height `z`).
+fn ring(f: &Frame, p: &[Corner], z: f64) -> Vec<(DVec3, DVec3)> {
+    let pts = profile::sample(p, STEP);
+    let n = pts.len();
+    (0..n).map(|i| (f.at(pts[i].extend(z)), f.at(pts[(i + 1) % n].extend(z)))).collect()
+}
+
 /// The offset option, first in the bar (as OCL's).
 fn offset_option(cx: &Cx<'_>) -> ToolOption {
     ToolOption {
@@ -662,6 +692,24 @@ fn square(cx: &Cx<'_>, px: DVec2, f: &Frame, p2: DVec3) -> Option<DVec3> {
     (d.x.abs() >= MIN && at.distance(px) <= SQUARE_PX).then_some(sq)
 }
 
+/// The rectangle `w` × `l` from its first corner, counter-clockwise.
+fn rectangle(w: f64, l: f64) -> Vec<Corner> {
+    profile::polygon(&[DVec2::ZERO, DVec2::new(w, 0.0), DVec2::new(w, l), DVec2::new(0.0, l)])
+}
+
+/// The base made, `w` × `l` from its first corner, with the box's fillet on its corners (at
+/// most half the shorter side: the clicks' rounding off a stadium's); `None` when it is sharp.
+fn filleted(w: f64, l: f64, r: f64) -> Option<Vec<Corner>> {
+    let r = r.min(w.min(l) / 2.0);
+    (r > 0.0).then(|| profile::with_fillets(&rectangle(w, l), r))
+}
+
+/// Does the box's fillet fit a base made `w` × `l` (at most half its shorter side, within
+/// [`MIN`])?
+fn fillet_fits(w: f64, l: f64, r: f64) -> bool {
+    2.0 * r <= w.abs().min(l.abs()) + MIN
+}
+
 /// The base of the face `face` (the world): the rectangle around it, its sides along its
 /// longest straight side; as a frame on a corner, the opposite corner and the direction.
 fn face_base(cx: &Cx<'_>, face: &Face) -> Option<(Frame, DVec3, Option<DVec3>)> {
@@ -677,25 +725,34 @@ fn face_base(cx: &Cx<'_>, face: &Face) -> Option<(Frame, DVec3, Option<DVec3>)> 
 impl BoxTool {
     /// The box on the base `f.o`–`p2` (its first corner and the opposite one), pulled to `h`.
     fn finish(&mut self, cx: &Cx<'_>, f: Frame, p2: DVec3, h: f64) -> Vec<Command> {
-        self.state = BoxState::First;
         let d = f.local(p2);
         let (z0, z1) = span(h, self.pull_centered);
-        if d.x.abs() < MIN || d.y.abs() < MIN || z1 - z0 < MIN {
-            return vec![Command::Say(t!("tool.box.say.empty"))];
-        }
         // The base grown by the offset on every side.
         let off = cx.length(OFFSET);
         let size = DVec3::new(d.x.abs() + 2.0 * off, d.y.abs() + 2.0 * off, z1 - z0);
+        // A fillet too big for the base made: the step stays, to change it.
+        let r = cx.length(FILLET);
+        if size.x >= MIN && size.y >= MIN && !fillet_fits(size.x, size.y, r) {
+            return vec![Command::Say(t!("tool.box.say.fillet_too_big"))];
+        }
+        self.state = BoxState::First;
+        if d.x.abs() < MIN || d.y.abs() < MIN || z1 - z0 < MIN {
+            return vec![Command::Say(t!("tool.box.say.empty"))];
+        }
         if size.x < MIN || size.y < MIN {
             return vec![Command::Say(t!("tool.shape.say.offset_empty"))];
         }
-        let (primitive, placement) = if f.aligned() {
+        let (origin, placement) = if f.aligned() {
             // In the axes: corners as clicked, no rounding through a frame.
             let lo = f.o.min(p2);
-            (Primitive::Box { origin: DVec3::new(lo.x - off, lo.y - off, f.o.z + z0), size }, DAffine3::IDENTITY)
+            (DVec3::new(lo.x - off, lo.y - off, f.o.z + z0), DAffine3::IDENTITY)
         } else {
-            let lo = DVec3::new(d.x.min(0.0) - off, d.y.min(0.0) - off, z0);
-            (Primitive::Box { origin: lo, size }, f.placement())
+            (DVec3::new(d.x.min(0.0) - off, d.y.min(0.0) - off, z0), f.placement())
+        };
+        // Filleted, a prism: the rectangle with a radius on each corner (§6 nonies).
+        let primitive = match filleted(size.x, size.y, r) {
+            Some(profile) => Primitive::Prism { origin, profile, height: size.z },
+            None => Primitive::Box { origin, size },
         };
         vec![Command::Apply(cx.add_primitive(primitive, placement)), Command::RememberHeight(z1 - z0)]
     }
@@ -813,10 +870,24 @@ impl Tool for BoxTool {
         // The base from `f.o` to the local `(x, y)`, grown by the offset: its frame and sides,
         // if anything is left of it.
         let off = cx.length(OFFSET);
+        let r = cx.length(FILLET);
+        // The shape made differs from the one drawn (dashed then).
+        let changed = off != 0.0 || r > 0.0;
         let grown = |f: &Frame, x: f64, y: f64| {
             let (sx, sy) = (if x < 0.0 { -1.0 } else { 1.0 }, if y < 0.0 { -1.0 } else { 1.0 });
             let (gx, gy) = (x + 2.0 * off * sx, y + 2.0 * off * sy);
             (gx * sx >= MIN && gy * sy >= MIN).then(|| (Frame { o: f.at(DVec3::new(-off * sx, -off * sy, 0.0)), ..*f }, gx, gy))
+        };
+        // The outline made on the base from `f.o` to the local `(x, y)`: grown, rounded by the
+        // fillet if it fits (in the frame of its lowest corner); else nothing.
+        let made = |f: &Frame, x: f64, y: f64| {
+            let (o, x, y) = grown(f, x, y)?;
+            if !fillet_fits(x, y, r) {
+                return None;
+            }
+            let lo = Frame { o: o.at(DVec3::new(x.min(0.0), y.min(0.0), 0.0)), ..o };
+            let (w, l) = (x.abs(), y.abs());
+            Some((lo, profile::rounded(&filleted(w, l, r).unwrap_or_else(|| rectangle(w, l)))))
         };
         let mut inference = self.snap.clone();
         match self.state {
@@ -839,11 +910,9 @@ impl Tool for BoxTool {
                 let (g, p2) = base(f, p2, self.centered);
                 let d = g.local(p2);
                 let c = corners(&g, d.x, d.y, 0.0);
-                rect(&mut lines, c, color, off != 0.0);
-                if off != 0.0
-                    && let Some((o, x, y)) = grown(&g, d.x, d.y)
-                {
-                    rect(&mut lines, corners(&o, x, y, 0.0), color, false);
+                rect(&mut lines, c, color, changed);
+                if changed && let Some((o, outline)) = made(&g, d.x, d.y) {
+                    segments(cx, &mut lines, ring(&o, &outline, 0.0), color, false);
                 }
                 label(cx, &mut labels, c[0], c[1], RED);
                 label(cx, &mut labels, c[0], c[3], GREEN);
@@ -868,11 +937,11 @@ impl Tool for BoxTool {
                     rect(lines, top, color, dash);
                     segments(cx, lines, bottom.into_iter().zip(top), color, dash);
                 };
-                solid(&mut lines, &f, d.x, d.y, off != 0.0);
-                if off != 0.0
-                    && let Some((o, x, y)) = grown(&f, d.x, d.y)
-                {
-                    solid(&mut lines, &o, x, y, false);
+                solid(&mut lines, &f, d.x, d.y, changed);
+                if changed && let Some((o, outline)) = made(&f, d.x, d.y) {
+                    segments(cx, &mut lines, ring(&o, &outline, z0), color, false);
+                    segments(cx, &mut lines, ring(&o, &outline, z1), color, false);
+                    segments(cx, &mut lines, outline.iter().map(|c| (o.at(c.p.extend(z0)), o.at(c.p.extend(z1)))), color, false);
                 }
                 let (bottom, top) = (corners(&f, d.x, d.y, z0), corners(&f, d.x, d.y, z1));
                 label(cx, &mut labels, bottom[0], top[0], BLUE);
@@ -919,7 +988,7 @@ impl Tool for BoxTool {
             true,
             "rectangle_centered",
         );
-        [offset_option(cx), centered].into_iter().chain(shared_options(cx, &self.first)).collect()
+        [offset_option(cx), fillet_option(cx), centered].into_iter().chain(shared_options(cx, &self.first)).collect()
     }
 
     fn set_option(&mut self, key: &str, value: &OptionValue) {
@@ -933,6 +1002,14 @@ impl Tool for BoxTool {
 
     fn down_locks_face(&self) -> bool {
         !matches!(self.state, BoxState::Height { .. })
+    }
+
+    fn length_suffix(&self, suffix: char) -> Option<&'static str> {
+        match suffix {
+            'x' => Some(OFFSET),
+            'r' => Some(FILLET),
+            _ => None,
+        }
     }
 
     fn leave(&mut self) {

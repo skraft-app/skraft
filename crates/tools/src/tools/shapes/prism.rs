@@ -31,13 +31,10 @@ use std::f64::consts::PI;
 use super::*;
 use crate::tools::{PointShape, PreviewPoint};
 use crate::vcb::PointRef;
-use solidsketch_model::kernel::profile::{self, Corner};
 use solidsketch_model::{GuideShape, Operation};
 
 /// The option: new corners go before the first one (OCL's `measure_reversed`, saved).
 const REVERSED: &str = "reversed";
-/// The option: the corners between straight sides rounded by this radius (saved).
-const FILLET: &str = "fillet";
 /// The choice: what the next side is (not saved: each outline starts with lines).
 const TRACE: &str = "trace";
 const LINE: &str = "line";
@@ -54,8 +51,6 @@ const AWAY_PX: f64 = 20.0;
 const ON_PX: f64 = 8.0;
 const STILL_PX: f64 = 2.0;
 const REST_S: f64 = 0.35;
-/// How far an arc turns between two points of its preview (radians).
-const STEP: f64 = 0.06;
 
 /// What the next side is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -364,13 +359,6 @@ fn changed(cx: &Cx<'_>) -> bool {
 /// The middle of a profile's box (in its plane).
 fn middle(p: &[Corner]) -> DVec2 {
     profile::bounds(p).map_or(DVec2::ZERO, |(lo, hi)| (lo + hi) / 2.0)
-}
-
-/// The lines along the closed outline `p` (in the plane of `f`, at the height `z`).
-fn ring(f: &Frame, p: &[Corner], z: f64) -> Vec<(DVec3, DVec3)> {
-    let pts = profile::sample(p, STEP);
-    let n = pts.len();
-    (0..n).map(|i| (f.at(pts[i].extend(z)), f.at(pts[(i + 1) % n].extend(z)))).collect()
 }
 
 impl PrismTool {
@@ -1091,15 +1079,6 @@ impl Tool for PrismTool {
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
-        let fillet = ToolOption {
-            key: FILLET,
-            label: t!("tool.prism.option.fillet"),
-            tip: t!("tool.prism.option.fillet_tip"),
-            value: OptionValue::Length(cx.length(FILLET)),
-            choices: Vec::new(),
-            saved: true,
-            icon: None,
-        };
         let choice = |value: &'static str, label: String, tip: String, icon: &'static str| OptionChoice { value, label, tip, icon: Some(icon) };
         let trace = ToolOption {
             key: TRACE,
@@ -1122,7 +1101,7 @@ impl Tool for PrismTool {
             true,
             "measure_reversed",
         );
-        [offset_option(cx), fillet, trace, reversed].into_iter().chain(shared_options(cx, &self.first)).collect()
+        [offset_option(cx), fillet_option(cx), trace, reversed].into_iter().chain(shared_options(cx, &self.first)).collect()
     }
 
     fn set_option(&mut self, key: &str, value: &OptionValue) {

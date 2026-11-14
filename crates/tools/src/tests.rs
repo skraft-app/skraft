@@ -3690,6 +3690,50 @@ fn prism_fillet_rounds_the_corners_made() {
 }
 
 #[test]
+fn box_fillet_rounds_the_corners_made() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Box);
+    // `10r` sets the box's fillet (its own: the prism's stays none), `5x` the offset: the board
+    // made is 110 × 60, a prism with its four corners R10.
+    e.input(ToolInput::Vcb("10r".into()));
+    e.input(ToolInput::Vcb("5x".into()));
+    let length = |e: &Editor, k: &str| e.tool_options().into_iter().find(|o| o.key == k).map(|o| o.value);
+    assert_eq!(length(&e, "fillet"), Some(OptionValue::Length(10.0)));
+    let (lo, hi) = box_bounds(&mut e, DVec3::ZERO, DVec3::new(100.0, 50.0, 0.0), "18");
+    assert!(close(lo, DVec3::new(-5.0, -5.0, 0.0)) && close(hi, DVec3::new(105.0, 55.0, 18.0)), "{lo} {hi}");
+    assert_eq!(part_topology(&e), (10, 24, 16));
+    let b = blank_profile(&e, drawn(&e));
+    assert_eq!(b.profile.len(), 4);
+    assert!(b.profile.iter().all(|c| c.fillet == 10.0), "{b:?}");
+
+    // Half the shorter side: a stadium. Over it: refused, said, the height step kept.
+    e.input(ToolInput::Vcb("0x".into()));
+    e.input(ToolInput::Vcb("25r".into()));
+    box_bounds(&mut e, DVec3::new(200.0, 0.0, 0.0), DVec3::new(300.0, 50.0, 0.0), "18");
+    let b = blank_profile(&e, drawn(&e));
+    assert!(b.profile.iter().all(|c| (c.fillet - 25.0).abs() < 1e-3), "{b:?}");
+    e.input(ToolInput::Vcb("26r".into()));
+    let before = drawn(&e);
+    click(&mut e, DVec3::new(400.0, 0.0, 0.0));
+    e.input(ToolInput::Vcb("100;50;18".into()));
+    assert_eq!(drawn(&e), before);
+    assert_eq!(e.status(), "Congé trop grand : au plus la moitié du petit côté de la base faite");
+    assert_eq!(e.vcb().map(|(l, _)| l), Some("Hauteur".into()), "the height step stays");
+    e.input(ToolInput::Vcb("5r".into()));
+    e.input(ToolInput::Vcb("18".into()));
+    assert_ne!(drawn(&e), before);
+    let (lo, hi) = mesh_bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(near(lo, DVec3::new(400.0, 0.0, 0.0)) && near(hi, DVec3::new(500.0, 50.0, 18.0)), "{lo} {hi}");
+
+    // No fillet: a plain box again.
+    e.input(ToolInput::Vcb("0r".into()));
+    box_bounds(&mut e, DVec3::new(600.0, 0.0, 0.0), DVec3::new(700.0, 50.0, 0.0), "18");
+    assert_eq!(part_topology(&e), (6, 12, 8));
+    e.set_tool(ToolKind::Prism);
+    assert_eq!(length(&e, "fillet"), Some(OptionValue::Length(0.0)));
+}
+
+#[test]
 fn profile_fillets_follow_a_moved_corner() {
     let mut e = top_editor(Document::new());
     e.set_tool(ToolKind::Prism);
