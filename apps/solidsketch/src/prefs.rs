@@ -67,7 +67,7 @@ impl Default for Preferences {
             tool_options: BTreeMap::new(),
             locale: solidsketch_i18n::DEFAULT_LOCALE.to_owned(),
             theme: Choice::System,
-            palette: Palette::Neutral,
+            palette: Palette::Warm,
             shortcuts: BTreeMap::new(),
             show_machinings: false,
             show_render_stats: false,

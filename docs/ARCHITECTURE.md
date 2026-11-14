@@ -1634,10 +1634,10 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
 - **Palettes** (decided on 2026-11-10): a `Palette` (user preference `palette`) gives the
   interface's colours, **each in a light and a dark variant**; the `theme` preference
   (system, light, dark) picks the variant, so the two settings are independent. Built in
-  code, no theme files: *Neutral* (SolidCraft's: neutral greys, blue accent, the default),
-  *Warm* (warm greys, amber), *Graphite* (cool, deeper greys, teal). A palette changes the
-  interface only: the model's and the overlays' tokens stay the theme's. A test holds every
-  variant to text ≥ 7:1 and dim text ≥ 3:1 on its grounds.
+  code, no theme files: *Neutral* (SolidCraft's: neutral greys, blue accent),
+  *Warm* (warm greys, amber, the default), *Graphite* (cool, deeper greys, teal). A palette
+  changes the interface only: the model's and the overlays' tokens stay the theme's. A test
+  holds every variant to text ≥ 7:1 and dim text ≥ 3:1 on its grounds.
 - `apps/solidsketch/src/style.rs` turns a palette's tokens into egui's visuals and spacing for
   **both** egui styles (light and dark) when it is chosen (at start-up, then on a change);
   egui switches with its theme, nothing is restyled per frame. *Preferences › Interface*

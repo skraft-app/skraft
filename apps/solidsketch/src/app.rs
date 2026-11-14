@@ -61,6 +61,9 @@ pub struct SolidSketchApp {
     /// The command whose shortcut the Raccourcis tab waits for.
     capturing: Option<&'static str>,
     palette: Option<Palette>,
+    /// The ribbon's bottom this frame (`None`: no document shown): the command palette opens
+    /// below it.
+    ribbon_bottom: Option<f32>,
     theme: Theme,
     /// The palette egui's styles were installed for (`None`: not yet).
     styled: Option<UiPalette>,
@@ -111,6 +114,9 @@ enum Answer {
 struct Palette {
     query: String,
     picked: usize,
+    /// The list was brought back to its top for this query. egui keeps a scroll offset across
+    /// launches: without it, the list would open where it was last left.
+    at_top: bool,
 }
 
 /// The Débogage menu is asked for at launch, in any build (no dev build needed): `?debug` in
@@ -226,6 +232,7 @@ impl SolidSketchApp {
             prefs_window: None,
             capturing: None,
             palette: None,
+            ribbon_bottom: None,
             theme: Theme::light(),
             styled: None,
             taps: Default::default(),
@@ -1026,10 +1033,11 @@ impl SolidSketchApp {
             .filter(|v| v.enabled && (v.menu != Menu::Debug || self.debug_menu))
             .filter(|v| commands::find(v.id).is_some_and(|c| commands::matches(&p.query, c)))
             .collect();
-        let (up, down, enter, escape) = ctx.input(|i| {
+        // ↑↓ taken before the query field sees them: they pick a row, never move its cursor.
+        let (up, down, enter, escape) = ctx.input_mut(|i| {
             (
-                i.key_pressed(egui::Key::ArrowUp),
-                i.key_pressed(egui::Key::ArrowDown),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
                 i.key_pressed(egui::Key::Enter),
                 i.key_pressed(egui::Key::Escape),
             )
@@ -1043,31 +1051,56 @@ impl SolidSketchApp {
         p.picked = p.picked.min(found.len().saturating_sub(1));
         let mut run = None;
         let mut open = !escape;
+        let top = self.ribbon_bottom.map_or(80.0, |b| (b - ctx.content_rect().top() + 8.0).max(80.0));
         // A fixed id: the title changes with the language.
         egui::Window::new(t!("palette.title"))
             .id(egui::Id::unique("command_palette"))
             .collapsible(false)
             .resizable(false)
             .title_bar(false)
-            .fixed_size([420.0, 0.0])
-            .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
+            .fixed_size([600.0, 0.0])
+            // Below the ribbon when a document is shown, never over it.
+            .anchor(egui::Align2::CENTER_TOP, [0.0, top])
             .show(ctx, |ui| {
-                let r =
-                    ui.add(egui::TextEdit::singleline(&mut p.query).hint_text(ellipsis(t!("palette.hint"))).desired_width(f32::INFINITY));
-                r.request_focus();
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut p.query)
+                        .hint_text(ellipsis(t!("palette.hint")))
+                        .margin(egui::vec2(8.0, 6.0))
+                        .desired_width(f32::INFINITY),
+                );
+                // Only when lost: asked every frame, it would reset the field's key filter (the
+                // arrows would then move the focus to a row for a frame) and break dead keys.
+                if !r.has_focus() {
+                    r.request_focus();
+                }
                 if r.changed() {
                     p.picked = 0;
+                    p.at_top = false;
                 }
                 ui.separator();
-                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                let mut list = egui::ScrollArea::vertical().max_height(480.0).min_scrolled_height(480.0);
+                if !std::mem::replace(&mut p.at_top, true) {
+                    list = list.vertical_scroll_offset(0.0);
+                }
+                list.show(ui, |ui| {
+                    // In menu order, each menu's commands under its name.
+                    let mut header = None;
                     for (k, v) in found.iter().enumerate() {
-                        let text = match &v.shortcut {
-                            Some(s) => format!("{}    {s}", v.label),
-                            None => v.label.clone(),
-                        };
-                        let row = ui.selectable_label(k == p.picked, text).on_hover_text(v.id);
+                        if k == 0 || found[k - 1].menu != v.menu {
+                            if k > 0 {
+                                ui.add_space(6.0);
+                            }
+                            header = Some(palette_header(ui, v.menu));
+                        }
+                        let row = palette_row(ui, v, k == p.picked).on_hover_text(v.id);
                         if k == p.picked && (up || down) {
-                            row.scroll_to_me(None);
+                            // A section's first row brings its name along.
+                            let first = k == 0 || found[k - 1].menu != v.menu;
+                            let rect = match header {
+                                Some(h) if first => h.union(row.rect),
+                                _ => row.rect,
+                            };
+                            ui.scroll_to_rect(rect, None);
                         }
                         if row.clicked() {
                             run = Some(v.id);
@@ -1512,6 +1545,13 @@ impl SolidSketchApp {
     fn start_page(&self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         ui.vertical_centered(|ui| {
             ui.add_space((ui.available_height() * 0.22).max(24.0));
+            // The app's mark. Its tile fills 824 of the icon's 1024 units: drawn larger so the
+            // tile is MARK wide (as in the title bar).
+            const MARK: f32 = 72.0;
+            const TILE: f32 = 824.0 / 1024.0;
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(MARK, MARK), egui::Sense::hover());
+            egui::Image::new(crate::icons::APP).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
+            ui.add_space(16.0);
             ui.heading(egui::RichText::new(t!("start.title")).size(28.0).strong());
             ui.add_space(20.0);
             let width = 260.0;
@@ -1739,6 +1779,7 @@ impl eframe::App for SolidSketchApp {
         };
         titlebar::show(ui, &bar, &views, &mut actions);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        self.ribbon_bottom = None;
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);
         } else {
@@ -1851,6 +1892,7 @@ impl SolidSketchApp {
             .constrain_to(view)
             .show(ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::workspace_card(ui, &ribbon_view, inner_height, actions)));
         let below_ribbon = ribbon_rect.bottom() + margin;
+        self.ribbon_bottom = Some(ribbon_rect.bottom());
 
         let free = self.side_panels(ctx, view, below_ribbon, margin, actions);
         let (free_left, free_right) = (free.min, free.max);
@@ -1908,6 +1950,56 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
             ui.end_row();
         }
     });
+}
+
+/// A section's name in the command palette: its menu's, small and dimmed. Its rect.
+fn palette_header(ui: &mut egui::Ui, menu: Menu) -> egui::Rect {
+    const PAD: f32 = 8.0;
+    let mut font = egui::TextStyle::Small.resolve(ui.style());
+    font.size = font.size.max(11.0);
+    let weak = ui.visuals().weak_text_color();
+    let g = ui.painter().layout_no_wrap(menu.label().to_uppercase(), font, weak);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), g.size().y + 8.0), egui::Sense::hover());
+    ui.painter().galley(egui::pos2(rect.left() + PAD, rect.bottom() - g.size().y - 2.0), g, weak);
+    rect
+}
+
+/// A command palette's row: the whole width, the command's label on the left and its shortcut
+/// (dimmed) on the right; filled when picked or hovered.
+fn palette_row(ui: &mut egui::Ui, v: &CommandView, picked: bool) -> egui::Response {
+    const HEIGHT: f32 = 30.0;
+    const PAD: f32 = 8.0;
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), HEIGHT), egui::Sense::click());
+    let visuals = ui.visuals();
+    let fill = if picked {
+        Some(visuals.selection.bg_fill)
+    } else if r.hovered() {
+        Some(visuals.widgets.hovered.weak_bg_fill)
+    } else {
+        None
+    };
+    if let Some(fill) = fill {
+        ui.painter().rect_filled(rect, visuals.widgets.hovered.corner_radius, fill);
+    }
+    let text = if picked { visuals.selection.stroke.color } else { visuals.text_color() };
+    let weak = if picked { text } else { visuals.weak_text_color() };
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let mut right = rect.right() - PAD;
+    if let Some(s) = &v.shortcut {
+        let g = ui.painter().layout_no_wrap(s.clone(), font.clone(), weak);
+        right -= g.size().x;
+        ui.painter().galley(egui::pos2(right, rect.center().y - g.size().y / 2.0), g, weak);
+        right -= 2.0 * PAD;
+    }
+    let left = rect.left() + PAD;
+    let label = egui::WidgetText::from(v.label.as_str()).color(text).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        (right - left).max(0.0),
+        font,
+    );
+    ui.painter().galley(egui::pos2(left, rect.center().y - label.size().y / 2.0), label, text);
+    r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A palette's name in the preferences.

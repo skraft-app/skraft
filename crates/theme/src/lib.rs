@@ -25,9 +25,9 @@ pub enum Choice {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Palette {
     /// Neutral greys, a blue accent (SolidCraft's).
-    #[default]
     Neutral,
     /// Warm greys, an amber accent.
+    #[default]
     Warm,
     /// Cool, deeper greys, a teal accent.
     Graphite,
