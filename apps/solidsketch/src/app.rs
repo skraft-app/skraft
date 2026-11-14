@@ -1995,7 +1995,7 @@ impl SolidSketchApp {
         let view = egui::CentralPanel::no_frame()
             .show(ui, |ui| {
                 if let Some(d) = docs.iter_mut().nth(i) {
-                    viewport.ui(ui, frame, d.id, &mut d.editor, &prefs.navigation, &theme, prefs.show_render_stats);
+                    viewport.ui(ui, frame, d.id, &mut d.editor, &d.vcb, &prefs.navigation, &theme, prefs.show_render_stats);
                 }
             })
             .response

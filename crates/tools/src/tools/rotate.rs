@@ -263,10 +263,10 @@ impl Tool for RotateTool {
                 dashed(cx.camera, cx.size, &mut lines, center, center + now * reach, color);
                 // The angle, between the two radii, just past the protractor.
                 let mid = DQuat::from_axis_angle(axis, angle / 2.0) * reference;
-                let labels = (angle.abs() > 1e-9)
-                    .then(|| PreviewLabel { a: center + mid * r * 0.6, b: center + mid * r * 1.1, text: vcb::format_angle(angle), color })
-                    .into_iter()
-                    .collect();
+                // Not turned yet: only while the angle is typed.
+                let (a, b) = (center + mid * r * 0.6, center + mid * r * 1.1);
+                let text = vcb::format_angle(angle);
+                let labels = vec![PreviewLabel { a, b, text, color, slot: Some(0), hidden: angle.abs() <= 1e-9, ..Default::default() }];
                 Preview {
                     lines,
                     labels,

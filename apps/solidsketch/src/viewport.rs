@@ -111,7 +111,8 @@ impl Viewport {
         }
     }
 
-    /// Draws document `doc`, edited by `editor`, and feeds it the view's input.
+    /// Draws document `doc`, edited by `editor`, and feeds it the view's input; `typed` is the
+    /// text typed in the measurements box (shown in the lengths it is for).
     #[allow(clippy::too_many_arguments)]
     pub fn ui(
         &mut self,
@@ -119,6 +120,7 @@ impl Viewport {
         frame: &eframe::Frame,
         doc: u64,
         editor: &mut Editor,
+        typed: &str,
         nav: &Navigation,
         theme: &Theme,
         stats: bool,
@@ -173,7 +175,7 @@ impl Viewport {
         }
         // Last: the lengths stay above everything (markers, tooltip, marquee), placed clear of
         // the cursor, the markers, the tooltip and the crosses.
-        paint_labels(ui.painter(), rect, editor, clear);
+        paint_labels(ui.painter(), rect, editor, typed, clear);
         if stats {
             self.paint_stats(ui, rect, editor);
         }
@@ -634,24 +636,49 @@ fn paint_marks(painter: &egui::Painter, rect: egui::Rect, editor: &Editor) {
 const CURSOR_CLEAR: f32 = 24.0;
 /// The square around a cross or a marker (points) the lengths keep clear of.
 const MARK_CLEAR: f32 = 16.0;
+/// The room (points) a length being typed into leaves for its caret after the text.
+const CARET_ROOM: f32 = 4.0;
+/// What a text typed in a length reads as, written after it.
+const RESULT_INK: egui::Color32 = egui::Color32::from_gray(140);
 /// The gap (points) between a length moved off its side and the side.
 const LABEL_GAP: f32 = 4.0;
 
 /// The lengths a tool writes by what it draws, framed in their axis's colour, on white with
 /// square corners: at the middle of their side, else slid along it or off it to keep clear of
 /// `clear` (the cursor, the markers, the tooltip), the crosses and the lengths placed before.
-fn paint_labels(painter: &egui::Painter, rect: egui::Rect, editor: &Editor, mut clear: Vec<egui::Rect>) {
+/// A length whose value is being typed (in `typed`) shows it, framed bolder, with a caret.
+fn paint_labels(painter: &egui::Painter, rect: egui::Rect, editor: &Editor, typed: &str, mut clear: Vec<egui::Rect>) {
     use egui::{Stroke, vec2};
     let size = editor.viewport_size();
     let screen = |p: DVec3| editor.camera.project(p, size).map(|at| rect.min + vec2(at.x as f32, at.y as f32));
     clear.extend(editor.marks().into_iter().filter_map(screen).map(|at| egui::Rect::from_center_size(at, vec2(MARK_CLEAR, MARK_CLEAR))));
-    for l in editor.labels() {
+    for l in editor.labels(typed) {
         // A side half behind the eye: its middle only.
         let Some((a, b)) = screen(l.a).zip(screen(l.b)).or_else(|| screen((l.a + l.b) / 2.0).map(|m| (m, m))) else { continue };
-        let galley = painter.layout_no_wrap(l.text, egui::FontId::proportional(12.0), color(l.color));
-        let bg = place(galley.size() + vec2(10.0, 4.0), a, b, &clear);
-        painter.rect(bg, 0.0, egui::Color32::WHITE, Stroke::new(1.0, color(l.color)), egui::StrokeKind::Inside);
-        painter.galley(bg.center() - galley.size() / 2.0, galley, color(l.color));
+        let ink = color(l.color);
+        let font = egui::FontId::proportional(12.0);
+        let typed = painter.layout_no_wrap(l.text, font.clone(), ink);
+        // What the text typed reads as, greyed after it (and after the caret).
+        let result = l.result.map(|r| {
+            let lead = if typed.size().x > 0.0 { " " } else { "" };
+            painter.layout_no_wrap(format!("{lead}= {r}"), font, RESULT_INK)
+        });
+        let caret = if l.active { CARET_ROOM } else { 0.0 };
+        let height = typed.size().y;
+        let size = vec2(typed.size().x + caret + result.as_ref().map_or(0.0, |r| r.size().x), height);
+        let bg = place(size + vec2(10.0, 4.0), a, b, &clear);
+        let width = if l.active { 2.0 } else { 1.0 };
+        painter.rect(bg, 0.0, egui::Color32::WHITE, Stroke::new(width, ink), egui::StrokeKind::Inside);
+        let at = bg.center() - size / 2.0;
+        let end = at.x + typed.size().x;
+        painter.galley(at, typed, ink);
+        if l.active {
+            let x = end + CARET_ROOM / 2.0;
+            painter.line_segment([egui::pos2(x, at.y + 1.0), egui::pos2(x, at.y + height - 1.0)], Stroke::new(1.0, ink));
+        }
+        if let Some(r) = result {
+            painter.galley(egui::pos2(end + caret, at.y), r, RESULT_INK);
+        }
         clear.push(bg);
     }
 }

@@ -99,6 +99,18 @@ pub fn point(text: &str, units: &Units, target: DVec3, relative_to: DVec3) -> Op
 /// The values of a `;`-separated list, split outside parentheses, trimmed; `=` after one
 /// repeats it (`50=;-12` → `50`, `50`, `-12`).
 pub fn split(text: &str) -> Vec<String> {
+    items(text)
+        .into_iter()
+        .flat_map(|item| {
+            let (value, repeats) = repeated(&item);
+            if repeats > 0 { vec![value.to_owned(); repeats + 1] } else { vec![item] }
+        })
+        .collect()
+}
+
+/// The items of a `;`-separated list as typed: split outside parentheses, trimmed, their `=`
+/// kept (`50=;-12` → `50=`, `-12`).
+pub fn items(text: &str) -> Vec<String> {
     let mut items = Vec::new();
     let mut depth = 0i32;
     let mut item = String::new();
@@ -115,15 +127,15 @@ pub fn split(text: &str) -> Vec<String> {
         item.push(c);
     }
     items.push(item);
-    items
-        .into_iter()
-        .flat_map(|item| {
-            let item = item.trim();
-            let value = item.trim_end_matches('=').trim_end();
-            let repeats = item.len() - item.trim_end_matches('=').len();
-            if repeats > 0 && !value.is_empty() { vec![value.to_owned(); repeats + 1] } else { vec![item.to_owned()] }
-        })
-        .collect()
+    items.into_iter().map(|item| item.trim().to_owned()).collect()
+}
+
+/// An item of a list (as [`items`] gives it) without the `=` that repeat it, and how many
+/// more times it is repeated; an item of `=` alone is no repeat.
+pub fn repeated(item: &str) -> (&str, usize) {
+    let value = item.trim_end_matches('=').trim_end();
+    let repeats = item.len() - item.trim_end_matches('=').len();
+    if repeats > 0 && !value.is_empty() { (value, repeats) } else { (item, 0) }
 }
 
 fn variable(name: &str, current: f64) -> Result<Value> {

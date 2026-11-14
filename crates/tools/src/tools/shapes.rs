@@ -367,13 +367,13 @@ impl First {
         match m.sides.as_slice() {
             [(_, foot)] => {
                 dashed(cx.camera, cx.size, lines, cx.to_world(m.v), cx.to_world(*foot), RED);
-                label(cx, labels, m.v, *foot, RED);
+                label(cx, labels, m.v, *foot, RED, Some(0));
             }
             sides => {
-                for ((_, foot), color) in sides.iter().zip([RED, GREEN]) {
+                for (slot, ((_, foot), color)) in sides.iter().zip([RED, GREEN]).enumerate() {
                     dashed(cx.camera, cx.size, lines, cx.to_world(m.v), cx.to_world(*foot), INK);
                     dashed(cx.camera, cx.size, lines, cx.to_world(*foot), cx.to_world(m.p), color);
-                    label(cx, labels, *foot, m.p, color);
+                    label(cx, labels, *foot, m.p, color, Some(slot));
                 }
             }
         }
@@ -522,11 +522,14 @@ fn pixels(cx: &Cx<'_>, p: DVec3, px: f64) -> f64 {
     cx.camera.world_per_pixel(cx.size, cx.to_world(p)) * px
 }
 
-/// The length of the side `a`–`b` written at its middle, when it is long enough on screen.
-fn label(cx: &Cx<'_>, out: &mut Vec<PreviewLabel>, a: DVec3, b: DVec3, color: [f32; 4]) {
+/// The length of the side `a`–`b` written at its middle, measuring the value `slot` of the
+/// measurements box if any; too short on screen, only while that value is typed.
+fn label(cx: &Cx<'_>, out: &mut Vec<PreviewLabel>, a: DVec3, b: DVec3, color: [f32; 4], slot: Option<usize>) {
     let len = (b - a).length();
-    if len >= MIN && len > pixels(cx, a, LABEL_PX) {
-        out.push(PreviewLabel { a: cx.to_world(a), b: cx.to_world(b), text: vcb::format(len, cx.units()), color });
+    let hidden = len < MIN || len <= pixels(cx, a, LABEL_PX);
+    if !hidden || slot.is_some() {
+        let text = vcb::format(len, cx.units());
+        out.push(PreviewLabel { a: cx.to_world(a), b: cx.to_world(b), text, color, slot, hidden, ..Default::default() });
     }
 }
 
@@ -914,8 +917,8 @@ impl Tool for BoxTool {
                 if changed && let Some((o, outline)) = made(&g, d.x, d.y) {
                     segments(cx, &mut lines, ring(&o, &outline, 0.0), color, false);
                 }
-                label(cx, &mut labels, c[0], c[1], RED);
-                label(cx, &mut labels, c[0], c[3], GREEN);
+                label(cx, &mut labels, c[0], c[1], RED, Some(0));
+                label(cx, &mut labels, c[0], c[3], GREEN, Some(1));
                 // A square base: its diagonal; centred: the centre, and on to the cursor.
                 if (d.x.abs() - d.y.abs()).abs() <= 1e-9 * d.x.abs().max(1.0) && d.x.abs() >= MIN {
                     dashed(cx.camera, cx.size, &mut lines, cx.to_world(c[0]), cx.to_world(c[2]), color);
@@ -944,7 +947,7 @@ impl Tool for BoxTool {
                     segments(cx, &mut lines, outline.iter().map(|c| (o.at(c.p.extend(z0)), o.at(c.p.extend(z1)))), color, false);
                 }
                 let (bottom, top) = (corners(&f, d.x, d.y, z0), corners(&f, d.x, d.y, z1));
-                label(cx, &mut labels, bottom[0], top[0], BLUE);
+                label(cx, &mut labels, bottom[0], top[0], BLUE, Some(0));
                 // Centred: the diagonal through the cursor (at the opposite corner, height `h`).
                 if self.pull_centered {
                     let (a, b) = (f.at(DVec3::new(0.0, 0.0, -h)), f.at(DVec3::new(d.x, d.y, h)));
@@ -1245,7 +1248,7 @@ impl Tool for CylinderTool {
                 let (o, p) = (if self.diameter { f.at(-rim) } else { f.o }, f.at(rim));
                 let color = axis_color(p - o).unwrap_or(INK);
                 dashed(cx.camera, cx.size, &mut lines, cx.to_world(o), cx.to_world(p), color);
-                label(cx, &mut labels, o, p, color);
+                label(cx, &mut labels, o, p, color, Some(0));
             }
             CylState::Height { f, rim, h } => {
                 let (r, color) = (rim.length(), plane_color(cx, &f));
@@ -1260,7 +1263,7 @@ impl Tool for CylinderTool {
                 if off != 0.0 && r + off >= MIN {
                     solid(&mut lines, r + off, false);
                 }
-                label(cx, &mut labels, f.at(rim + DVec3::Z * z0), f.at(rim + DVec3::Z * z1), BLUE);
+                label(cx, &mut labels, f.at(rim + DVec3::Z * z0), f.at(rim + DVec3::Z * z1), BLUE, Some(0));
             }
         }
         Preview { lines, labels, marks, inference, ..Default::default() }

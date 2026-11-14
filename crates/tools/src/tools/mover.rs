@@ -157,10 +157,10 @@ impl Tool for MoveTool {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
                 // Seen through what lies between: dashed behind faces; its length at its middle.
                 let xray = vec![PreviewLine { a: from, b: to, color, bold: false }];
-                let labels = ((to - from).length() > 1e-9)
-                    .then(|| PreviewLabel { a: from, b: to, text: vcb::format((to - from).length(), cx.units()), color })
-                    .into_iter()
-                    .collect();
+                // Not moved yet: only while the distance is typed.
+                let len = (to - from).length();
+                let text = vcb::format(len, cx.units());
+                let labels = vec![PreviewLabel { a: from, b: to, text, color, slot: Some(0), hidden: len <= 1e-9, ..Default::default() }];
                 Preview {
                     // The head over everything: it stays readable at the cursor.
                     lines: super::arrow_head(cx.camera, cx.size, from, to, color),

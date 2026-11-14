@@ -33,11 +33,11 @@ use solidsketch_model::kernel::profile::{self, Corner, Side};
 use solidsketch_model::{BlankProfile, EntityPath, Operation};
 
 use super::{
-    BLUE, Command, Cx, INK, Key, MAGENTA, OptionValue, PICK, PointShape, Preview, PreviewLine, PreviewPoint, Tool, ToolInput, ToolKind,
-    ToolOption, copy_key, dashed,
+    BLUE, Command, Cx, INK, Key, MAGENTA, OptionValue, PICK, PointShape, Preview, PreviewLabel, PreviewLine, PreviewPoint, Tool, ToolInput,
+    ToolKind, ToolOption, copy_key, dashed,
 };
 use crate::infer::Inference;
-use crate::vcb::{PointRef, Vcb, VcbKind, VcbValue};
+use crate::vcb::{self, PointRef, Vcb, VcbKind, VcbValue};
 
 /// How near a grip (pixels) the cursor takes it.
 const GRIP_PX: f64 = 10.0;
@@ -240,6 +240,47 @@ impl ProfileTool {
     }
 
     /// Where the grip moved is in `now` (axes): a corner, or a side's middle.
+    /// The length the grip taken changes, as the measurements box takes it ([`Tool::vcb`]):
+    /// the way a corner or a side went (dashed), an arc's bulge, a fillet's or a circle's
+    /// radius, the thickness. `b` is the profile now.
+    fn labels(&self, cx: &Cx<'_>, b: &BlankProfile, top: bool, inset: f64, lines: &mut Vec<PreviewLine>) -> Vec<PreviewLabel> {
+        let State::Moving { grip, from, .. } = &self.state else { return Vec::new() };
+        let label = |a: DVec3, c: DVec3, color| {
+            let len = a.distance(c);
+            let text = vcb::format(len, cx.units());
+            PreviewLabel { a: cx.to_world(a), b: cx.to_world(c), text, color, slot: Some(0), hidden: len < MIN, ..Default::default() }
+        };
+        let (p, z) = (&b.profile, cap_z(b, top));
+        let n = p.len();
+        let label = match *grip {
+            Grip::Corner(_) | Grip::Side(_) => {
+                let to = self.grip_now(*grip, b, from.z);
+                dashed(cx.camera, cx.size, lines, cx.to_world(*from), cx.to_world(to), INK);
+                label(*from, to, INK)
+            }
+            Grip::Bulge(i) => {
+                let s = Side::new(p[i].p, p[(i + 1) % n].p, p[i].bulge);
+                label(((s.a() + s.b()) / 2.0).extend(z), s.at(0.5).extend(z), MAGENTA)
+            }
+            // From the fillet's middle to its centre, on the bisector.
+            Grip::Fillet(i) => {
+                let r = p[i].fillet;
+                let m = profile::fillet_middle(p, i, r).unwrap_or(p[i].p);
+                let u = profile::fillet_bisector(p, i).unwrap_or_default();
+                label(m.extend(z), (m + u * r).extend(z), MAGENTA)
+            }
+            Grip::Radius => {
+                let c = profile::circle(p).map_or(p[0].p, |(c, _)| c);
+                label(c.extend(z), grip_at(b, top, Grip::Radius, inset), INK)
+            }
+            Grip::Thickness => {
+                let g = grip_at(b, top, Grip::Thickness, inset).truncate();
+                label(g.extend(b.z0), g.extend(b.z0 + b.height), BLUE)
+            }
+        };
+        vec![label]
+    }
+
     fn grip_now(&self, grip: Grip, now: &BlankProfile, z: f64) -> DVec3 {
         match (grip, self.lone(grip)) {
             (_, Some(i)) => now.profile[i].p.extend(z),
@@ -539,8 +580,9 @@ impl Tool for ProfileTool {
                 shape,
             });
         }
+        let labels = self.labels(cx, &b, top, inset, &mut lines);
         let tip = self.free.then(|| t!("tool.profile.free"));
-        Preview { lines, points, inference: self.snap.clone(), tip, hide_selection: true, ..Default::default() }
+        Preview { lines, points, labels, inference: self.snap.clone(), tip, hide_selection: true, ..Default::default() }
     }
 
     fn status(&self) -> String {

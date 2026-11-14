@@ -389,6 +389,21 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
   parts' dimensions. Each tool declares what it takes (`Tool::vcb`: lengths, angle, number of
   copies, whether a point is accepted) with its current values; the editor reads the input and
   passes it a `ToolInput::Value`, or shows the error.
+
+  **Typed into the preview's lengths** (decided on 2026-11-14): while a value is typed, the
+  length bubbles show it, not only the box. A `PreviewLabel` says which value of `Tool::vcb`
+  it measures (`slot`); `vcb::typed` gives each value the item typed for it — a `;` moves on
+  to the next bubble (the rectangle's red, then green side) — with what it reads as when that
+  says more (`2*@ = 100 mm`, but `600`, not `600 = 600 mm`), greyed after the text typed so
+  the two are told apart. An item that does not read yet shows as typed. A value repeated
+  by `=` shows `= <result>`, greyed. The bubble being typed into is framed 2 px with a fixed
+  caret, right after the text typed (before the result). Already typed bubbles keep their text and the others keep
+  the cursor's measure. The preview's geometry still follows the cursor: Enter applies the
+  text. A value with no bubble on screen (the height typed with the base, a count `5x`, a
+  point `[x;y;z]`) shows only in the box. A bubble too short to write (a move not started) shows
+  only while it is typed (`hidden`). Every drawing tool ties its bubbles: shapes (with
+  the prism's bulge and tangent radius), Move, Rotate, Stretch, the tape, and the Profile tool, whose
+  grips got bubbles for this (way moved, bulge, fillet, radius, thickness).
 - **SketchUp copies and arrays** (Move, Rotate; decided on 2026-11-09): a short tap of the copy
   modifier (Option on macOS, Ctrl elsewhere), alone, toggles copying, before or during the
   gesture; the cursor carries a "+" and copying drops once done. Right after a copy, typing

@@ -332,7 +332,10 @@ fn outer_loop(face: &Face) -> Option<Outline3> {
     }
     // Every corner of the face on a side (none on another curve).
     let (_, lp) = best?;
-    let on = |c: &DVec3| face.sides.iter().any(|(a, b)| a.distance(*c) < SAME || b.distance(*c) < SAME) || face.arcs.iter().any(|(a, b, _)| a.distance(*c) < SAME || b.distance(*c) < SAME);
+    let on = |c: &DVec3| {
+        face.sides.iter().any(|(a, b)| a.distance(*c) < SAME || b.distance(*c) < SAME)
+            || face.arcs.iter().any(|(a, b, _)| a.distance(*c) < SAME || b.distance(*c) < SAME)
+    };
     face.corners.iter().all(on).then_some(lp)
 }
 
@@ -932,6 +935,8 @@ impl Tool for PrismTool {
                     let a = c.anchor(self.reversed);
                     let to = c.other_end(self.reversed);
                     let along = axis_color(cur.p - a);
+                    // The measurements box takes the tangent arc's radius, not the side's length.
+                    let length = (!(self.mode == Mode::Tangent && c.incoming(self.reversed).is_some())).then_some(0);
                     match c.pending {
                         // An arc by two points: its chord, and the arc through the cursor's bulge.
                         Some(pend) => {
@@ -939,18 +944,28 @@ impl Tool for PrismTool {
                             segments(cx, &mut lines, pairs(side_points(&f, a, cur.mid, pend.end)), color, dash);
                             if let Some(m) = cur.mid {
                                 mark(cx, &mut marks, m);
+                                label(cx, &mut labels, (a + pend.end) / 2.0, m, MAGENTA, Some(0));
                             }
                         }
                         None if self.mode == Mode::Arc => {
                             dashed(cx.camera, cx.size, &mut lines, cx.to_world(a), cx.to_world(cur.p), along.unwrap_or(color));
-                            label(cx, &mut labels, a, cur.p, along.unwrap_or(INK));
+                            label(cx, &mut labels, a, cur.p, along.unwrap_or(INK), length);
                         }
                         None if cur.mid.is_some() && cur.on_corner.is_none() => {
                             segments(cx, &mut lines, pairs(side_points(&f, a, cur.mid, cur.p)), color, dash);
+                            // The tangent arc's radius, from its centre to the cursor.
+                            if length.is_none()
+                                && let Some((r, phi, t)) = self.tangent_radius(c, &cur)
+                                && let Some(left) = cur.n.cross(t).try_normalize()
+                            {
+                                let centre = a + left * r * phi.signum();
+                                dashed(cx.camera, cx.size, &mut lines, cx.to_world(centre), cx.to_world(cur.p), INK);
+                                label(cx, &mut labels, centre, cur.p, MAGENTA, Some(0));
+                            }
                         }
                         None => {
                             segments(cx, &mut lines, [(a, cur.p)], along.unwrap_or(color), dash);
-                            label(cx, &mut labels, a, cur.p, along.unwrap_or(INK));
+                            label(cx, &mut labels, a, cur.p, along.unwrap_or(INK), length);
                         }
                     }
                     // Where the outline would close: from the cursor, or, on a placed corner (a
@@ -1032,7 +1047,7 @@ impl Tool for PrismTool {
                     prism(&mut lines, &profile::rounded(&o), false);
                 }
                 let e = local2(f, *end);
-                label(cx, &mut labels, f.at(e.extend(z0)), f.at(e.extend(z1)), BLUE);
+                label(cx, &mut labels, f.at(e.extend(z0)), f.at(e.extend(z1)), BLUE, Some(0));
             }
         }
         Preview { lines, labels, marks, points, inference, tip, ..Default::default() }
@@ -1079,7 +1094,8 @@ impl Tool for PrismTool {
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
-        let choice = |value: &'static str, label: String, tip: String, icon: &'static str| OptionChoice { value, label, tip, icon: Some(icon) };
+        let choice =
+            |value: &'static str, label: String, tip: String, icon: &'static str| OptionChoice { value, label, tip, icon: Some(icon) };
         let trace = ToolOption {
             key: TRACE,
             label: t!("tool.prism.option.trace"),
