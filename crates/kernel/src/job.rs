@@ -36,11 +36,21 @@ pub enum Task {
     /// `inputs[target] op inputs[tool]`, the tool first moved by `tool_transform` into the
     /// target's coordinates.
     Boolean { target: u32, tool: u32, tool_transform: Option<DAffine3>, op: BooleanOp },
-    /// A part's recipe (docs/ARCHITECTURE.md §2.4): `inputs[blank]` minus each tool
-    /// `inputs[tool]` placed by its transform, one after the other. A subtraction that fails
-    /// is skipped and reported (by its index in `tools`), the others still cut: the task
-    /// itself never fails on a tool.
-    Recipe { blank: u32, tools: Vec<(u32, DAffine3)> },
+    /// A part's recipe (docs/ARCHITECTURE.md §2.4, §2.11): the union of the `positives`, minus
+    /// each of the `negatives` — every one `inputs[k]` placed by its transform —, then joined
+    /// to `inputs[base]` when given (a positive body added to a part as it is). A boolean that
+    /// fails is skipped and reported (by its index in `positives` then `negatives`, one list),
+    /// the others still done: the task itself fails only when no positive is left.
+    Recipe {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base: Option<u32>,
+        positives: Vec<(u32, DAffine3)>,
+        negatives: Vec<(u32, DAffine3)>,
+    },
+    /// The volume of the union of the `solids` (each `inputs[k]` placed by its transform): an
+    /// [`Output::Volume`], none when it cannot be computed. Produces no solid: a check (a
+    /// union whose tool's machinings cut the target, docs/ARCHITECTURE.md §2.11).
+    UnionVolume { solids: Vec<(u32, DAffine3)> },
     /// `inputs[solid]` stretched (docs/ARCHITECTURE.md §6 sexies), read back by the kernel.
     Stretch { solid: u32, stretch: Stretch },
     /// The display mesh and snap features of `inputs[solid]`, at `quality`.
@@ -99,12 +109,14 @@ pub enum Output {
         display: Result<Display, String>,
     },
     Display(Result<Display, String>),
-    /// A recipe's final solid, and the tools (by index in the task's list) that failed to cut.
+    /// A recipe's final solid, and the bodies (by index in the task's lists) that failed.
     Recipe {
         solid: Solid,
         display: Result<Display, String>,
         failed: Vec<u32>,
     },
+    /// A volume, mm³ ([`Task::UnionVolume`]).
+    Volume(Option<f64>),
     /// A STEP file read (boxed: far larger than the others).
     Step(Box<crate::StepImport>),
 }

@@ -4,6 +4,7 @@ use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_model::{Document, EntityPath, Id, Operation, Primitive};
 
 use super::*;
+use crate::tests::PartExt;
 use crate::{Editor, Modifiers, StandardView, ToolInput, ToolKind, ViewArea};
 
 /// An editor looking straight down (parallel) at ±1 m around `at`.
@@ -141,6 +142,49 @@ fn hidden_features_are_not_inferred() {
     let i = at(&e, DVec3::new(100.0, 100.0, 120.0));
     assert_eq!(i.kind, InferKind::OnFace, "{i:?}");
     assert_eq!(i.point.z, 120.0);
+}
+
+#[test]
+fn an_open_part_s_bodies_hide_nothing() {
+    use solidsketch_model::{Scope, Sign};
+    let mut e = top_editor(DVec3::ZERO);
+    // A part: a slab, and under it a small block, two positive bodies.
+    let part = add_box(&mut e, DVec3::new(0.0, 0.0, 100.0), DVec3::new(400.0, 400.0, 20.0));
+    let target = EntityPath::root(part);
+    e.apply(Operation::AddBody {
+        target: target.clone(),
+        // In the part's axes, at the slab's corner: 100 under it in the world.
+        primitive: Primitive::Box { origin: DVec3::new(100.0, 100.0, -100.0), size: DVec3::new(100.0, 100.0, 50.0) },
+        placement: DAffine3::IDENTITY,
+        sign: Sign::Positive,
+        scope: Scope::All,
+    })
+    .unwrap();
+    // Closed, the slab hides the block's corner.
+    let i = at(&e, DVec3::new(100.0, 100.0, 120.0));
+    assert_eq!(i.kind, InferKind::OnFace, "{} {:?}", i.point, i.path);
+    // Open, its bodies shown as ghosts: the corner is seen through the slab.
+    e.set_machinings_switch(true);
+    e.enter(part);
+    let i = at(&e, DVec3::new(100.0, 100.0, 120.0));
+    assert_eq!(i.kind, InferKind::Endpoint, "{i:?}");
+    assert!(near(i.point, DVec3::new(100.0, 100.0, 50.0)), "{}", i.point);
+}
+
+#[test]
+fn in_x_ray_nothing_hides() {
+    let mut e = top_editor(DVec3::ZERO);
+    // A small box under a slab: its top corner, hidden, is seen in X-ray.
+    add_box(&mut e, DVec3::new(100.0, 100.0, 0.0), DVec3::new(100.0, 100.0, 50.0));
+    add_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 20.0) + DVec3::new(0.0, 0.0, 100.0));
+    e.set_xray(true);
+    let i = at(&e, DVec3::new(100.0, 100.0, 120.0));
+    assert_eq!(i.kind, InferKind::Endpoint, "{i:?}");
+    assert!(near(i.point, DVec3::new(100.0, 100.0, 50.0)), "{}", i.point);
+    // The view draws every part see-through.
+    assert!(e.view().batches.iter().all(|(_, ps)| ps.iter().all(|p| p.ghost)));
+    e.set_xray(false);
+    assert_eq!(at(&e, DVec3::new(100.0, 100.0, 120.0)).kind, InferKind::OnFace);
 }
 
 #[test]
@@ -586,11 +630,11 @@ fn infer_timing() {
             .unwrap();
         let _ = root;
         for i in 0..k {
-            let holes = e.document().resolve_part(&target).unwrap().1.machinings.iter().map(|m| m.id).collect();
+            let holes = e.document().resolve_part(&target).unwrap().1.machinings().iter().map(|m| m.id).collect();
             let step = if i < 4 { DVec3::X * (100.0 * (1 << i) as f64) } else { DVec3::Y * (100.0 * (1 << (i - 4)) as f64) };
-            e.apply(Operation::DuplicateMachinings {
+            e.apply(Operation::DuplicateBodies {
                 target: target.clone(),
-                machinings: holes,
+                bodies: holes,
                 transform: DAffine3::from_translation(step),
                 scope: Scope::All,
             })

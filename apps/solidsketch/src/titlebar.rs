@@ -97,7 +97,8 @@ fn move_window(ui: &egui::Ui) {
 }
 
 /// The view's toggles, after the standard views' menu.
-const TOGGLES: [&str; 7] = ["view.parallel", "view.grid", "view.axes", "view.guides", "view.silhouettes", "view.section", "view.materials"];
+const TOGGLES: [&str; 8] =
+    ["view.parallel", "view.grid", "view.axes", "view.guides", "view.silhouettes", "view.xray", "view.section", "view.materials"];
 /// Room kept for the tabs before the search field narrows.
 const TABS_MIN: f32 = 160.0;
 
@@ -172,6 +173,7 @@ fn id_icon(id: &str) -> egui::ImageSource<'static> {
         "view.guides" => icons::GUIDES,
         "view.axes" => icons::AXES,
         "view.silhouettes" => icons::SILHOUETTES,
+        "view.xray" => icons::XRAY,
         "view.section" => icons::SECTION,
         _ => icons::MATERIALS,
     }

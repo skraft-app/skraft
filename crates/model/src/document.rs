@@ -18,7 +18,7 @@ use solidsketch_kernel::Solid;
 use crate::{Error, FastMap, Result};
 
 /// A stable identifier, from one counter: unique across a document for components, within
-/// their assembly for occurrences and within their part for machinings (a copy of a component
+/// their assembly for occurrences and within their part for bodies (a copy of a component
 /// keeps them, docs/ARCHITECTURE.md §2.6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -189,22 +189,21 @@ impl GuideShape {
     }
 }
 
-/// A part: its blank minus its machinings, in the part's own axes (§2.3, §2.4).
+/// A part: the union of its positive bodies minus the union of its negative ones, every body
+/// placed in the part's own axes (docs/ARCHITECTURE.md §2.3, §2.4, §2.11). A body is an
+/// occurrence of one of the part's body definitions: copies share theirs, a change to its shape
+/// shows in every one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Part {
-    pub blank: Arc<Solid>,
-    /// The profile the blank is built from (§6 nonies, step 3), when it has one: the blank is
-    /// then its cache. None for a free part (imported, a boolean's result, stretched askew).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile: Option<crate::BlankProfile>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub machinings: Vec<Machining>,
-    /// The blank minus the machinings, as last computed; absent without machinings (the
-    /// blank is the shape). A cache saved with the file: the recipe is the source.
+    /// The shapes of the bodies, each used by one body at least.
+    pub defs: Vec<BodyDef>,
+    pub bodies: Vec<Body>,
+    /// The part as last computed from its bodies; absent when it is its single positive body,
+    /// unplaced (no kernel). A cache saved with the file: the bodies are the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) shape: Option<Arc<Solid>>,
-    /// The machinings that failed to cut when the shape was computed: skipped, the others
-    /// cut (§2.4). Part of the same cache.
+    /// The bodies whose boolean failed when the shape was computed: skipped, the others
+    /// computed (§2.4). Part of the same cache.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub(crate) failed: BTreeSet<Id>,
     /// The material of single faces of the shape, by their index in its record (§7 quater):
@@ -215,40 +214,144 @@ pub struct Part {
 }
 
 impl Part {
-    pub fn new(blank: Arc<Solid>) -> Self {
-        Part { blank, profile: None, machinings: Vec::new(), shape: None, failed: BTreeSet::new(), faces: BTreeMap::new() }
+    /// A part of the single positive body `solid`, unplaced: its definition `def`, its body
+    /// `id`.
+    pub fn new(def: Id, id: Id, solid: Arc<Solid>) -> Self {
+        Part::of_body(BodyDef::new(def, solid), Body::new(id, def, Sign::Positive, DAffine3::IDENTITY))
     }
 
-    /// The part as it is drawn and used: the blank with its machinings cut.
+    /// A part of the single positive body `body`, of `def`; computed when it is placed.
+    pub(crate) fn of_body(def: BodyDef, body: Body) -> Self {
+        Part { defs: vec![def], bodies: vec![body], shape: None, failed: BTreeSet::new(), faces: BTreeMap::new() }
+    }
+
+    /// The part as it is drawn and used: its bodies combined.
     pub fn shape(&self) -> &Arc<Solid> {
-        self.shape.as_ref().unwrap_or(&self.blank)
+        match &self.shape {
+            Some(s) => s,
+            // The single positive body is the shape (`is_plain`).
+            None => self.solid_of(&self.bodies[0]),
+        }
     }
 
-    pub fn machining(&self, id: Id) -> Option<&Machining> {
-        self.machinings.iter().find(|m| m.id == id)
+    pub fn def(&self, id: Id) -> Option<&BodyDef> {
+        self.defs.iter().find(|d| d.id == id)
     }
 
-    /// Did the machining `id` fail to cut, the last time the shape was computed?
+    /// The definition of `b`, a body of this part (a part read or changed keeps every body's).
+    pub fn def_of(&self, b: &Body) -> &BodyDef {
+        self.def(b.def).expect("a body's definition is in its part")
+    }
+
+    /// The solid of `b`, in its own axes.
+    pub fn solid_of(&self, b: &Body) -> &Arc<Solid> {
+        &self.def_of(b).solid
+    }
+
+    /// The profile `b`'s solid is built from, if any.
+    pub fn profile_of(&self, b: &Body) -> Option<&crate::BodyProfile> {
+        self.def_of(b).profile.as_ref()
+    }
+
+    /// How many bodies use the definition `def`.
+    pub fn copies_of(&self, def: Id) -> usize {
+        self.bodies.iter().filter(|b| b.def == def).count()
+    }
+
+    /// Drops the definitions no body uses.
+    pub(crate) fn drop_unused_defs(&mut self) {
+        let used: BTreeSet<Id> = self.bodies.iter().map(|b| b.def).collect();
+        self.defs.retain(|d| used.contains(&d.id));
+    }
+
+    /// Is the part its single positive body, unplaced: its own shape, with no kernel?
+    pub fn is_plain(&self) -> bool {
+        matches!(&self.bodies[..], [b] if b.sign == Sign::Positive && is_identity(&b.placement))
+    }
+
+    pub fn body(&self, id: Id) -> Option<&Body> {
+        self.bodies.iter().find(|b| b.id == id)
+    }
+
+    pub fn positives(&self) -> impl Iterator<Item = &Body> {
+        self.bodies.iter().filter(|b| b.sign == Sign::Positive)
+    }
+
+    pub fn negatives(&self) -> impl Iterator<Item = &Body> {
+        self.bodies.iter().filter(|b| b.sign == Sign::Negative)
+    }
+
+    /// The first positive body with a profile: the one the Profile tool edits for now.
+    pub fn profiled(&self) -> Option<&Body> {
+        self.positives().find(|b| self.profile_of(b).is_some())
+    }
+
+    /// Did the body `id` fail, the last time the shape was computed?
     pub fn is_failed(&self, id: Id) -> bool {
         self.failed.contains(&id)
     }
+
+    /// How many separate lumps of material the shape holds: a part is one piece of wood, more
+    /// is an error the user has to correct (§2.11).
+    pub fn pieces(&self) -> usize {
+        self.shape().pieces()
+    }
 }
 
-/// Material taken out of a part: `tool`, placed by `placement` in the part's axes (§2.4).
+/// `t` within a hair of the identity.
+pub(crate) fn is_identity(t: &DAffine3) -> bool {
+    t.abs_diff_eq(DAffine3::IDENTITY, 1e-12)
+}
+
+/// Whether a body adds material to its part or takes it away (§2.11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Sign {
+    Positive,
+    Negative,
+}
+
+/// The shape of bodies of a part (§2.11): `solid`, in its own axes — a body's.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Machining {
+pub struct BodyDef {
     pub id: Id,
-    pub tool: Arc<Solid>,
-    pub placement: DAffine3,
+    pub solid: Arc<Solid>,
+    /// The profile `solid` is built from (§6 nonies), in its axes: the solid is then its
+    /// cache. None for a free shape (imported, a boolean's result, stretched askew).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<crate::BodyProfile>,
     #[serde(default)]
-    pub source: MachiningSource,
+    pub source: BodySource,
 }
 
-/// Where a machining comes from. Only local ones for now; linked ones (from fixed hardware)
-/// will come (§2.4).
+impl BodyDef {
+    /// A free shape (no profile), local.
+    pub fn new(id: Id, solid: Arc<Solid>) -> Self {
+        BodyDef { id, solid, profile: None, source: BodySource::Local }
+    }
+}
+
+/// A solid of a part: an occurrence of the definition `def`, placed by `placement` in the part's
+/// axes, adding material or taking it away (`sign`; a negative body is a machining, §2.4).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Body {
+    pub id: Id,
+    pub def: Id,
+    pub sign: Sign,
+    pub placement: DAffine3,
+}
+
+impl Body {
+    pub fn new(id: Id, def: Id, sign: Sign, placement: DAffine3) -> Self {
+        Body { id, def, sign, placement }
+    }
+}
+
+/// Where a body comes from. Only local ones for now; linked ones (machinings of fixed
+/// hardware) will come (§2.4).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum MachiningSource {
+pub enum BodySource {
     #[default]
     Local,
 }
@@ -762,6 +865,13 @@ impl Document {
         id
     }
 
+    /// A part of the single positive body `solid`, unplaced, its definition and body named
+    /// with fresh ids.
+    pub(crate) fn plain_part(&mut self, solid: Arc<Solid>) -> Part {
+        let def = self.fresh_id();
+        Part::new(def, self.fresh_id(), solid)
+    }
+
     pub(crate) fn component_mut(&mut self, id: Id) -> Result<&mut Component> {
         self.components.get_mut(&id).map(Arc::make_mut).ok_or(Error::NotFound(id))
     }
@@ -896,13 +1006,13 @@ impl Document {
                 ComponentKind::Assembly(a) => ComponentKind::Assembly(Assembly::new(occurrences(self, &a.occurrences)?)),
                 ComponentKind::Part(p) => {
                     let mut p = p.clone();
-                    let mut machinings: HashMap<Id, Id> = HashMap::new();
-                    for m in &mut p.machinings {
+                    let mut bodies: HashMap<Id, Id> = HashMap::new();
+                    for b in &mut p.bodies {
                         let id = self.fresh_id();
-                        machinings.insert(m.id, id);
-                        m.id = id;
+                        bodies.insert(b.id, id);
+                        b.id = id;
                     }
-                    p.failed = p.failed.iter().filter_map(|id| machinings.get(id).copied()).collect();
+                    p.failed = p.failed.iter().filter_map(|id| bodies.get(id).copied()).collect();
                     p.faces = p.faces.iter().filter_map(|(f, m)| materials.get(m).map(|m| (*f, *m))).collect();
                     ComponentKind::Part(p)
                 }

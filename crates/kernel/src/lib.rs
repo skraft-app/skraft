@@ -220,6 +220,11 @@ impl Solid {
         Some(it.fold((first, first), |(lo, hi), p| (lo.min(p), hi.max(p))))
     }
 
+    /// How many separate lumps of material it holds: its bounded regions that are not voids.
+    pub fn pieces(&self) -> usize {
+        self.record.regions.iter().skip(1).filter(|r| !r.void).count()
+    }
+
     /// Counts of faces, edges and vertices.
     pub fn topology_counts(&self) -> (usize, usize, usize) {
         (self.record.faces.len(), self.record.edges.len(), self.record.vertices.len())

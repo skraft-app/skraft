@@ -91,8 +91,13 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
 - Tools working on a part use its axes; elsewhere, the context's.
 - Changing a part's axes = re-expressing its B-rep in another frame and compensating the T of
   each of its occurrences.
+- **To come (§2.11, decided on 2026-11-14)**: the cut list reads the box of the **final**
+  B-rep, not the blank's; the blank becomes placed bodies, independent of the part's axes.
 
 ### 2.4 Machinings
+
+To come (§2.11, decided on 2026-11-14): blank and machinings become positive and negative
+bodies, `Part = (∪ positives) − (∪ negatives)`.
 
 - A part is **a recipe**: **blank** − (tool₁ ∪ tool₂ ∪ …). The **final B-rep** is computed by
   the kernel (asynchronous, §7 ter) and cached, identified by the recipe; it is never the
@@ -280,6 +285,171 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
   tool snap to the 24 orientations on a parametric part, or stay free and offer the conversion
   only on an oblique angle?
 
+### 2.11 Bodies: a part as positive and negative solids
+
+Decided on 2026-11-14 (questions / answers). Branch `feature/part-bodies`, built in steps:
+1. the model and the kernel (done, 2026-11-14): `Part { bodies }`, `Body { id, sign, solid,
+   placement, profile, source }`; `Task::Recipe { base, positives, negatives }`;
+   `Solid::pieces` (the record's bounded regions that are not voids); the operations on
+   machinings made operations on bodies (`AddBody { sign }`, `DeleteBodies`,
+   `TransformBodies`, `DuplicateBodies`, `ArrayBodies`, `PasteBodies`, `SetProfile { body }`,
+   `SetSign`);
+   the entity info's dimensions read on the final shape, « en N morceaux, à corriger » instead
+   when it is in pieces. The interface otherwise as before: an open part shows its positive
+   bodies as ghosts, its negative ones as its machinings; the Profile tool edits its first
+   profiled positive body, in that body's axes;
+2. the interface of bodies (done, 2026-11-14): in an open part, the drawing tools' bar has a
+   « Matière » choice, « Enlever » (a machining) / « Ajouter » (a positive body), back to
+   « Enlever » at each opening; the « Corps » switch shows positive bodies as
+   ghosts, negative ones as solids, all picked (a negative one first, whatever the depth —
+   it lies inside —, else the nearest positive one), selected, moved, copied and erased alike
+   (`Piece::Blank(id)`); a double-click on a body with a profile (in Select or Profile) edits
+   its profile (`Command::EditProfile`), the « Profil » button the first profiled positive
+   body's; the entity info lists the bodies flat, « Corps (n) », blanks first, each numbered
+   in its order of creation (kept when its sign changes) with a ＋/－ badge whose click
+   toggles its sign — the selected bodies' too when it is one of them
+   (`Operation::SetSign { target, bodies, sign, scope }`, the last positive kept, the part
+   computed again). The interface says « corps » for any body, « brut » (a blank) for a
+   positive one, « usinage » (a machining) for a negative one; no tree of the two kinds, in
+   the entity info nor in the outliner: the model is a flat list with a sign, the order
+   meaningless, and the outliner keeps to occurrences. Machinings are ghosts too, red, a
+   little more opaque than the blanks (`Theme::machining_opacity`, the placement's tint
+   weight added to the ghosts' opacity); one that failed stays opaque, in its own colour. A
+   body hovered or selected stays see-through: its highlight washes its faces with the
+   mark's tint over the ghost's own (`Highlight::ghost`, `fs_face_ghost_mark`), its edges as
+   any highlight's. A part in pieces gets
+   ⚠ and its name in the error colour in the outliner; the union's warning
+   (`Outcome::warning`, `Warning::UnionCut`) is said in the status bar, worked out from two
+   volumes (`Task::UnionVolume`: the target and the tool joined before, the result after).
+   Not done: the positive bodies apart drawn in the error colour (which lump a body lies in
+   is not known cheaply). Then (2026-11-14): a difference whose tool is its single positive
+   body (a shape drawn) takes that body whole as the negative one, its profile with it — still
+   editable; the « Profil » button edits the body selected when it has a profile. The
+   Profile tool's thickness grip was dropped: the Stretch tool along the body's Z does it
+   better (snaps, centred, offset or overall, cutters), the Profile tool keeps the outline;
+3. stretching bodies (2026-11-14): in an open part showing its bodies, the Stretch tool takes
+   the bodies selected (`Operation::StretchBodies { target, bodies, frame, … }`, the stretch's
+   axes placed in the part's): along the body's own axes (one, « entity »), the part's
+   (several, or « context »), or the model's; each body in one section moved, across a cutter
+   stretched in its own axes, its profile kept when it stays one; the guides selected follow
+   their section. Their cutters are kept for the session only (nothing on the body in the
+   file). The preview draws each body stretched from its recipe mesh (`Editor::body_swaps`);
+4. body definitions (2026-11-14): a body is an occurrence of a definition of its part, as an
+   occurrence is of a component — copies made by Move or Rotate with a copy, an array, or a
+   paste into the part copied from share it, a change to the shape (its profile, a stretch)
+   shows in every one. See **Body definitions** below.
+
+**Why**: a profiled blank (§6 nonies) is bound to the part's axes — its outline in their XY
+plane, extruded along their Z. Changing a part's axes (§2.3) would then have to transform the
+profile, and drop it whenever Z ends up in the plane or oblique. Giving the blank its own
+placement in the part frees the profile from the part's axes; going one step further, the
+blank and the machinings become one notion: a placed solid with a sign.
+
+```
+Part = (∪ positive bodies) − (∪ negative bodies)
+
+Part { bodies: Vec<Body> }                          — replaces blank + profile + machinings
+Body { id, placement: T, sign: Positive | Negative, source }
+  source = Profile { profile, z0, height }          — §6 nonies, in the body's own axes
+         | Brep(Arc<Brep>)                          — a free solid (import, intersection…)
+```
+
+- **Every body is placed in the part's axes**, positive or negative (the machinings stay
+  there, as today). A profile lives in its body's own axes (its XY plane, its Z), never in the
+  part's. Today's blank is one positive body at the identity; today's machinings are the
+  negative bodies; a free part (import, boolean result) is one positive `Brep` body.
+- **The part's axes are independent of its bodies.** Changing them (§2.3) = correcting every
+  body's placement and compensating the T of each occurrence: exact, for any rotation, no
+  kernel, the profiles never touched. This supersedes the quarter-turn discussion of §2.10 for
+  profiled bodies.
+- **A fixed formula, no history**: the union of the positives minus the union of the
+  negatives. **Every negative cuts every positive**, those added later included; the order
+  bodies were made in does not matter (§2.4 stays true). A hole is filled by deleting its
+  negative, not by adding a positive into it.
+- **Incremental computation**: adding a negative = one subtraction on the cached final, as
+  today; adding a positive `P` = `final ∪ (P − ∪N)` (since `(A ∪ B) − N = (A − N) ∪ (B − N)`);
+  a part with a single positive, the common case, makes no union at all. Removing or moving a
+  body computes the part again from the union of the positives (worth caching).
+- **Failures**: a body whose boolean fails is skipped and reported by its id, the others still
+  computed, as a failed machining today (`Part::failed`).
+
+**The cut list reads the final** (supersedes §2.3's blank box): the part's dimensions are the
+exact box of the **final** B-rep in the **part's** axes, the grain along their red axis. A
+machining that shortens or narrows the part changes its dimensions. The exact outline for the
+DXF / SVG exports and nesting is read from the final B-rep too (its faces across the part's Z,
+as OpenCutList does), not from the profiles: **a profile is an editing parameter of its
+body**, it carries nothing for the cut list (supersedes §6 nonies on that point).
+
+**One piece of wood**: the final must be a single lump. It is not when a positive touches no
+other, or when negatives split the part (a groove right through). The part is then **in
+error**:
+- marked with a warning in the outliner and the cut list, « in N pieces », and shown whole so
+  the problem can be seen;
+- the positives apart — those outside the lump holding the first positive — drawn and listed
+  in the error colour, as failed machinings; a split made by negatives blames no body, only
+  the part is marked;
+- **no cut-list dimensions** while it is in error: « to correct » instead.
+
+**Stretch** (§6 sexies) goes through the bodies as it goes through an assembly's components:
+each body is stretched in its own axes and keeps its profile under §6 nonies' rules,
+evaluated there, or becomes a free `Brep` body.
+
+**Booleans between parts** (supersedes §4 on these points; the tool brought into the target's
+axes by the relative transformation, the tool occurrence leaving the model, the scope of §2.5,
+as today):
+- **Union**: the target receives **all the tool part's bodies, positive and negative**, their
+  placements composed with the relative transformation; nothing is computed into a new blank,
+  every body stays editable. The tool's negatives then cut the target as well (above): a
+  through-hole's tool, longer than its part on purpose, drills the target where it enters it.
+  **A warning** says so when the tool's negatives remove material from the target.
+- **Subtract**: as today, the tool's final shape becomes one negative `Brep` body of the
+  target (its bodies are not kept).
+- **Intersection**: for now a new part with a single positive `Brep` body (the common
+  volume). To think over later.
+
+**Body definitions** (decided and built on 2026-11-14): bodies are moved, copied and arrayed
+with the tools that do so to occurrences, so they share their shape as occurrences share their
+component.
+
+```
+Part { defs: Vec<BodyDef>, bodies: Vec<Body>, shape, failed, faces }
+BodyDef { id, solid, profile, source }      — the shape, in its own axes
+Body { id, def, sign, placement }           — an occurrence of it, placed in the part's axes
+```
+
+- **The sign is the body's**, not the definition's: one shape can be a dowel (positive) here
+  and its hole (negative) there; the ＋/－ badge flips the body clicked.
+- **Definitions belong to their part** (not to the document, for now): copies, an array, a
+  paste into the part copied from share a definition (`copies_of_bodies` gives another part
+  copies of the definitions, still shared between its bodies — a union, a paste elsewhere, a
+  difference's plain tool); a definition no body uses any more is dropped.
+- **A change to a shape changes the definition**: `SetProfile` edits the definition, every
+  copy shows it; **« Rendre unique »** (`Operation::MakeBodiesUnique`, the command
+  `edit.make_unique` in an open part) gives each body selected a copy of its own.
+- **Stretch** follows the components' rules (§6 sexies, `Part::body_stretch`): bodies of one
+  definition stretched alike (the same stretch in their axes) share the new shape; the change
+  most of them take is made in place (the copies not reached show it), the others go to new
+  definitions — all of them do when a body reached keeps the shape (only moved). The preview
+  shows the same split. Unlike components, a definition changed in place is not moved back
+  by its anchor: the copies not reached show the change in their axes as computed.
+- **Display and file**: one mesh per definition (the recipe's key), the copies of a selected
+  body marked « related »; the entity info shows `×N` on a shared body; the file writes each
+  definition once.
+
+**Format**: version 1 until the release (§8), no compatibility to keep.
+
+**Open**:
+- The open part (§2.9): positives selected, moved, turned, deleted and their profile edited
+  as the machinings are; how the « Machinings » view shows them (ghost positives, solid
+  negatives?) and where the profile grips go when several positives have one.
+- The rule naming the « main » lump (the first positive's, above) is a proposal.
+- The profiled machinings (worktree `solidsketch-profile-machining`, uncommitted) are set
+  aside (2026-11-14): they are negative bodies with a `Profile` source, to build on this model.
+- Generators: a carcass (an assembly of parts, one per wall of an initial solid) is not a part
+  and stays outside this model — a generator of assemblies whose parts are made of bodies, to
+  discuss separately. The procedural track (§2.10) stays open: a parametric source is one more
+  kind of `source`.
+
 ## 3. Storing solids: the SolidCore record
 
 - A solid is a **`solidcore_record::brep::Brep`**: plain data, `Clone` + `serde`, shared by
@@ -300,7 +470,8 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
   without destroying its geometry; it leaves the model, the other occurrences of its part stay.
   **Integrate** applies a machining to the blank and removes it from the list.
 - **Union and intersection** are destructive: a new blank, made of the final shapes, into which
-  the machinings of both parts are integrated.
+  the machinings of both parts are integrated. To come (§2.11): the union gives the target all
+  the tool's bodies, the intersection a new part with one positive body.
 - The change affects all occurrences of the target part or only this one (§2.5).
 - No "keep the tool" option: the tool always leaves the model (it lives in the machining).
 
@@ -1323,12 +1494,14 @@ Discussed on 2026-11-13, after OpenCutList's `SmartDrawPolygonActionHandler`
 (`tool/smart_draw_tool.rb`). Branch `feature/shape-polygon`.
 
 **The sketch lives in the part** (decided): no free-standing sketch entity in the model, no
-live link between a sketch and the parts made from it (that would be a parametric history,
-§1). A profiled blank is `Profile × thickness`, the profile stored in the blank's recipe; to
-change the outline later, the part is opened and its profile with it (as its machinings,
-§2.9). The cut list reads the thickness along the part's Z and the length and width from the
-profile's box, and gets the exact outline for DXF / SVG exports and nesting, without reading
-it back from the B-rep. (A prism drawn in an open part is a machining already, §2.9.)
+live link between a sketch and the parts made from it (that would be a parametric history, §1).
+(To come, §2.11: the profile belongs to a positive body placed in the part, and the cut list
+and exports read the final B-rep, not the profile.) A profiled blank is `Profile × thickness`,
+the profile stored in the blank's recipe; to change the outline later, the part is opened and
+its profile with it (as its machinings, §2.9). The cut list reads the thickness along the
+part's Z and the length and width from the profile's box, and gets the exact outline for DXF /
+SVG exports and nesting, without reading it back from the B-rep. (A prism drawn in an open part
+is a machining already, §2.9.)
 
 **Steps**: 1. the `Prism` primitive (straight sides) and the Prism tool (first named Polygon),
 faithful to OCL (this section); 2. arcs in the profile and the tool (below); 3. the profile
@@ -1447,7 +1620,8 @@ states are OCL's: the first point, the points, the height.
   bar's Options while a part with a profile is open, on while the tool is the active one (any
   other tool turns it off). The outline is drawn on the cap facing the eye (both caps' when
   seen edge on, the top's), with grips: its corners (round), its arcs' middles (diamonds), its
-  straight sides' middles (small, to insert a corner) and the cap's middle (the thickness). A
+  straight sides' middles (small, to insert a corner) — and the cap's middle (the thickness)
+  until 2026-11-14, when the Stretch tool on the body took it over (§2.11). A
   grip is taken by a click and dropped by another (SketchUp's Move; a drag works too), Esc
   dropping the gesture; each gesture is one operation (one undo step):
   - a corner follows the cursor, inferred with the lines through where it was and brought onto
@@ -1456,8 +1630,6 @@ states are OCL's: the first point, the points, the height.
   - a side's middle inserts a corner there, which then moves as a corner;
   - an arc's middle sets its bulge (the arc through the cursor), snapping to the half circle
     and to straight (the chord) within 10 px. Typed: its height (sagitta);
-  - the thickness grip moves that cap along the part's Z (the box's height step). Typed: the
-    thickness;
   - Delete over a corner takes it away (the outline must stay simple, at least three corners
     or an arc).
   An outline that would cross itself is refused, said in the status bar. The corners' and the
@@ -1932,6 +2104,18 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   `POST /run` (body: an id), `GET /state` (tool, context, selection, status, revision,
   modified), `GET /screenshot` (the view, as a PNG). Each request is handed to the UI thread,
   which answers at its next frame.
+
+### X-ray (2026-11-14)
+
+A display mode for the session (`Editor::xray`, command `view.xray`, a toggle of the title
+bar — not saved with the document): every part is drawn as a ghost (faces blended at
+`Style::ghost_opacity`, no depth written, so every edge is seen), its highlights as a wash of
+the mark's tint over it (`Highlight::ghost`); a section cuts it without caps. Inferences see
+through everything: `DisplayScene::see_through` (already true for an open part's bodies shown
+as ghosts) holds for every piece, so a point behind a face is inferred on — stacked points,
+the nearest to the eye. A click picks the nearest solid along the ray, as without X-ray;
+cycling through stacked ones on repeated clicks is left for later. A ghost's own opacity
+over the ghosts' rides with its placement (`render::Placement::opacity`: a machining's).
 
 ## 7 quinquies. Title bar and native menus
 

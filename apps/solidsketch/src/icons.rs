@@ -33,6 +33,7 @@ icon!(GRID, "grid");
 icon!(GUIDES, "guides");
 icon!(AXES, "axes");
 icon!(SILHOUETTES, "silhouettes");
+icon!(XRAY, "xray");
 icon!(VIEWS, "views");
 icon!(SEARCH, "search");
 icon!(SETTINGS, "settings");

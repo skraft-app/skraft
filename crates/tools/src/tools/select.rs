@@ -25,7 +25,7 @@ impl SelectTool {
         let target = if let Some(g) = cx.pick_guide(px) {
             Some(Some(g))
         } else if cx.machinings_shown() {
-            Some(cx.pick_machining(px))
+            Some(cx.pick_body(px))
         } else {
             cx.pick(px).map(|h| cx.selectable(&h.path))
         };
@@ -67,9 +67,14 @@ impl Tool for SelectTool {
             ToolInput::Click { px, mods } => self.click(*px, *mods, cx),
             // Its first click has already left the context when off its box: a double-click
             // only enters (one level left per double-click, as per click).
-            ToolInput::DoubleClick { px, .. } => match cx.pick(*px).and_then(|h| cx.selectable(&h.path)) {
-                Some(id) => vec![Command::Enter(id)],
-                None => vec![],
+            // On a body of the open part with a profile, while they show: its profile edited
+            // (§2.11).
+            ToolInput::DoubleClick { px, .. } => match cx.profiled_body_at(*px) {
+                Some(body) => vec![Command::EditProfile(body)],
+                None => match cx.pick(*px).and_then(|h| cx.selectable(&h.path)) {
+                    Some(id) => vec![Command::Enter(id)],
+                    None => vec![],
+                },
             },
             ToolInput::DragStart { px, .. } => {
                 self.hover = None;

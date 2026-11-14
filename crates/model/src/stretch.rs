@@ -214,6 +214,30 @@ impl Document {
         Ok(spans)
     }
 
+    /// [`Document::stretch_spans`] for bodies of the part `target` places, the stretch's axes
+    /// placed by `frame` in the part's ([`Operation::StretchBodies`](crate::Operation::StretchBodies)).
+    pub fn body_stretch_spans(
+        &self,
+        target: &crate::EntityPath,
+        bodies: &[Id],
+        frame: &DAffine3,
+        axis: DVec3,
+        cuts: &[f64],
+    ) -> Result<Vec<Option<(f64, f64)>>> {
+        let (_, p, _) = self.resolve_part(target)?;
+        let s = Stretch::new(axis, cuts.to_vec(), vec![0.0; cuts.len() + 1]).map_err(solidsketch_kernel::Error::from)?;
+        let mut spans = vec![None; cuts.len() + 1];
+        for b in p.bodies.iter().filter(|b| bodies.contains(&b.id)) {
+            let t = frame.inverse() * b.placement;
+            for (i, span) in s.in_frame(&t).section_spans(p.solid_of(b)).into_iter().enumerate() {
+                if let Some(span) = span {
+                    add_span(&mut spans, i, span, s.axis().dot(t.translation));
+                }
+            }
+        }
+        Ok(spans)
+    }
+
     /// Adds to `spans` (along the target's axis) what `component` holds, `s` in its axes and
     /// `shift` from its axes' positions to the target's.
     fn collect_spans(&self, component: Id, s: &Stretch, shift: f64, spans: &mut [Option<(f64, f64)>], depth: usize) {
@@ -382,7 +406,7 @@ impl Document {
     }
 
     /// Adds to `out` what the stretch `s` (in `c`'s axes) does to each piece of `c`, as moves
-    /// along its axis: a part's blank, its machinings' tools, its guides; an assembly's
+    /// along its axis: a part's bodies, its guides; an assembly's
     /// occurrences — moved whole, or their own pieces — and its guides.
     fn piece_moves(&self, c: Id, s: &Stretch, out: &mut Vec<f64>, depth: usize) {
         let Ok(component) = self.component(c) else { return };
@@ -391,9 +415,8 @@ impl Document {
         }
         match &component.kind {
             ComponentKind::Part(p) => {
-                out.extend(s.piece_moves(&p.blank));
-                for m in &p.machinings {
-                    out.extend(s.in_frame(&m.placement).piece_moves(&m.tool));
+                for b in &p.bodies {
+                    out.extend(s.in_frame(&b.placement).piece_moves(p.solid_of(b)));
                 }
             }
             ComponentKind::Assembly(a) => {
@@ -511,7 +534,7 @@ impl Document {
             ComponentKind::Assembly(a) => {
                 let occs: Vec<_> = a.occurrences().iter().map(|o| (o.clone(), o.transform)).collect();
                 self.make_occurrences(walk, id, &occs, s, &DAffine3::IDENTITY, stretch_part, depth + 1)?;
-                self.stretch_guides(id, s)?;
+                self.stretch_guides(id, s, None)?;
             }
         }
         Ok((id, to_anchor))
@@ -552,7 +575,7 @@ impl Document {
         Ok(())
     }
 
-    /// A copy of the component `c` as it is in `before` (ids of its occurrences, machinings and
+    /// A copy of the component `c` as it is in `before` (ids of its occurrences, bodies and
     /// guides kept, §2.6, and its behavior), under a name of its own.
     fn copy_from(&mut self, before: &Document, c: Id) -> Result<Id> {
         let src = before.component(c)?.clone();
@@ -564,9 +587,13 @@ impl Document {
 
     /// The guides of `component` follow their section: a line square to the axis or a circle
     /// about it; a line along it stays, an oblique one has no section of its own.
-    pub(crate) fn stretch_guides(&mut self, component: Id, s: &Stretch) -> Result<()> {
+    /// Only those of `only`, when given.
+    pub(crate) fn stretch_guides(&mut self, component: Id, s: &Stretch, only: Option<&[Id]>) -> Result<()> {
         let a = s.axis();
         for g in &mut self.component_mut(component)?.guides {
+            if only.is_some_and(|ids| !ids.contains(&g.id)) {
+                continue;
+            }
             let at = match g.shape {
                 GuideShape::Line { origin, dir } if dir.dot(a).abs() < 1e-9 => Some(origin),
                 GuideShape::Circle { center, normal, .. } if normal.cross(a).length() < 1e-9 => Some(center),
@@ -622,5 +649,91 @@ impl Walk<'_> {
         for b in below {
             self.keep(b, depth + 1);
         }
+    }
+}
+
+/// How a stretch splits the bodies of a part (§2.11, after the components' rules above): the
+/// bodies only moved, and the changes of definitions.
+#[derive(Clone, Debug, Default)]
+pub struct BodyStretch {
+    /// Bodies lying in one section: their new placements.
+    pub moved: Vec<(Id, DAffine3)>,
+    pub changes: Vec<DefChange>,
+}
+
+/// A change of a body definition: the stretch in its axes, the bodies reached taking it, and
+/// whether it is made to the definition in place (the bodies not reached show it too) or to a
+/// copy.
+#[derive(Clone, Debug)]
+pub struct DefChange {
+    pub def: Id,
+    pub local: Stretch,
+    pub bodies: Vec<Id>,
+    pub in_place: bool,
+}
+
+impl crate::Part {
+    /// How `stretch` (in the part's axes) splits the bodies `ids` (all: `None`): a body lying
+    /// in one section is moved; one across a cutter changes its definition, the stretch taken
+    /// in its own axes. Bodies of one definition stretched alike share the change; the one most
+    /// of them take is made in place, the others go to copies — all of them do when a body
+    /// reached keeps the shape (only moved).
+    pub fn body_stretch(&self, ids: Option<&[Id]>, stretch: &Stretch) -> BodyStretch {
+        let key = |s: &Stretch| {
+            let a = s.axis();
+            let round = |x: f64| (x * 1e6).round() as i64;
+            [a.x, a.y, a.z].into_iter().chain(s.cuts().iter().copied()).chain(s.moves().iter().copied()).map(round).collect::<Vec<_>>()
+        };
+        let mut out = BodyStretch::default();
+        let mut keys: Vec<Vec<i64>> = Vec::new();
+        let mut kept: FastSet<Id> = FastSet::default();
+        for b in self.bodies.iter().filter(|b| ids.is_none_or(|ids| ids.contains(&b.id))) {
+            let local = stretch.in_frame(&b.placement);
+            match local.extent(self.solid_of(b)).map_or(Some(0.0), |(lo, hi)| local.rigid_move(lo, hi)) {
+                Some(d) => {
+                    out.moved.push((b.id, DAffine3::from_translation(stretch.axis() * d) * b.placement));
+                    kept.insert(b.def);
+                }
+                None => {
+                    let k = key(&local);
+                    match out.changes.iter().zip(&keys).position(|(c, ck)| c.def == b.def && *ck == k) {
+                        Some(i) => out.changes[i].bodies.push(b.id),
+                        None => {
+                            out.changes.push(DefChange { def: b.def, local, bodies: vec![b.id], in_place: false });
+                            keys.push(k);
+                        }
+                    }
+                }
+            }
+        }
+        // Per definition, the change made in place: the one most bodies take, none when a body
+        // reached keeps the shape.
+        let mut best: FastMap<Id, usize> = FastMap::default();
+        for (i, c) in out.changes.iter().enumerate() {
+            if kept.contains(&c.def) {
+                continue;
+            }
+            match best.get(&c.def) {
+                Some(&j) if out.changes[j].bodies.len() >= c.bodies.len() => {}
+                _ => {
+                    best.insert(c.def, i);
+                }
+            }
+        }
+        for i in best.into_values() {
+            out.changes[i].in_place = true;
+        }
+        out
+    }
+
+    /// The bodies showing the change `c` once made: those it reaches, and, made in place, the
+    /// others of its definition it does not.
+    pub fn shown_by(&self, c: &DefChange, s: &BodyStretch) -> Vec<Id> {
+        let reached = |id: Id| s.moved.iter().any(|(m, _)| *m == id) || s.changes.iter().any(|x| x.bodies.contains(&id));
+        let mut out = c.bodies.clone();
+        if c.in_place {
+            out.extend(self.bodies.iter().filter(|b| b.def == c.def && !reached(b.id)).map(|b| b.id));
+        }
+        out
     }
 }

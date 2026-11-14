@@ -99,6 +99,7 @@ pub const COMMANDS: &[Command] = &[
     c("view.axes", || t!("menu.view.axes"), M::View, None),
     c("view.guides", || t!("menu.view.guides"), M::View, None),
     c("view.silhouettes", || t!("menu.view.silhouettes"), M::View, None),
+    c("view.xray", || t!("menu.view.xray"), M::View, None),
     c("view.hide_rest_of_model", || t!("menu.view.hide_rest_of_model"), M::View, Some("W")),
     g("view.show_hidden", || t!("menu.view.show_hidden"), M::View, None),
     c("view.show_all", || t!("menu.view.show_all"), M::View, None),

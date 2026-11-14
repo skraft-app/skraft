@@ -16,7 +16,7 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::kernel::{JobId, KernelService, Quality, Solid};
-use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope, measure};
+use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope, Sign, measure};
 
 use crate::camera::{Camera, ViewArea};
 use crate::infer::{EdgeRef, InferKind, Lock};
@@ -66,9 +66,14 @@ pub struct Editor {
     open_part: Option<Id>,
     /// The "Machinings" switch: an open part shows its blank as a ghost and its tools.
     machinings_shown: bool,
+    /// X-ray (for the session): everything see-through, hiding nothing from inferences.
+    xray: bool,
     /// What a change to the open part reaches (§2.5): every occurrence, until said otherwise
     /// for this opening.
     part_scope: Scope,
+    /// Whether a shape drawn in the open part takes material away (a machining) or adds it
+    /// (§2.11): taking away, until said otherwise for this opening.
+    body_sign: Sign,
     /// The machining hovered in the entity info's list (drawn hovered in the view).
     listed_hover: Option<Id>,
     /// The occurrence hovered in the outliner (drawn hovered in the view).
@@ -81,6 +86,9 @@ pub struct Editor {
     held_stretch: Option<(JobId, tools::StretchPreview)>,
     /// The occurrences a stretch previewed draws otherwise, by path: the mesh, the transform.
     stretch_swaps: HashMap<EntityPath, (Id, DAffine3)>,
+    /// The bodies of the open part a stretch previewed draws otherwise (§2.11): the mesh, the
+    /// placement in the part's axes.
+    pub(super) body_swaps: HashMap<Id, (Id, DAffine3)>,
     /// How the selection is drawn, worked out once for the frames that follow (§7 bis).
     selection_drawing: std::cell::RefCell<Option<view::SelectionDrawing>>,
     /// Is anything hidden, at the history's revision ([`Editor::has_hidden`]: asked at every
@@ -154,13 +162,16 @@ impl Editor {
             context: Vec::new(),
             open_part: None,
             machinings_shown: false,
+            xray: false,
             part_scope: Scope::All,
+            body_sign: Sign::Negative,
             listed_hover: None,
             outliner_hover: None,
             stretch_meshed: None,
             preview_revision: 0,
             held_stretch: None,
             stretch_swaps: HashMap::new(),
+            body_swaps: HashMap::new(),
             selection_drawing: std::cell::RefCell::new(None),
             has_hidden: std::cell::Cell::new(None),
             selection: Vec::new(),
@@ -226,9 +237,30 @@ impl Editor {
         self.open_part
     }
 
-    /// Has the open part a profile to edit (§6 nonies, step 3)?
+    /// Has the open part a profile to edit (§6 nonies, §2.11): the body selected's, else its
+    /// first profiled positive body's?
     pub fn open_part_profile(&self) -> bool {
-        self.open_part_path().and_then(|p| self.document().resolve_part(&p).ok()).is_some_and(|(_, part, _)| part.profile.is_some())
+        self.selected_profiled_body().is_some()
+            || self
+                .open_part_path()
+                .and_then(|p| self.document().resolve_part(&p).ok())
+                .is_some_and(|(_, part, _)| part.profiled().is_some())
+    }
+
+    /// The body of the open part selected alone, when it has a profile.
+    fn selected_profiled_body(&self) -> Option<Id> {
+        let [id] = self.selection[..] else { return None };
+        let (_, part, _) = self.document().resolve_part(&self.open_part_path()?).ok()?;
+        part.body(id).filter(|b| part.profile_of(b).is_some()).map(|b| b.id)
+    }
+
+    /// The Profile tool (the « Profil » button): on the body selected when it has a profile,
+    /// else on the open part's first profiled positive body.
+    pub fn edit_profile(&mut self) {
+        match self.selected_profiled_body() {
+            Some(body) => self.run(Command::EditProfile(body)),
+            None => self.set_tool(ToolKind::Profile),
+        }
     }
 
     /// The path of the open part's occurrence.
@@ -281,6 +313,17 @@ impl Editor {
         changed
     }
 
+    /// X-ray: every part drawn see-through, its edges all seen, and nothing hiding a point
+    /// from inferences (a setting for the session).
+    pub fn xray(&self) -> bool {
+        self.xray
+    }
+
+    pub fn set_xray(&mut self, on: bool) {
+        self.xray = on;
+        self.scene.set_xray(on);
+    }
+
     /// What a change to the open part reaches.
     pub fn part_scope(&self) -> Scope {
         self.part_scope
@@ -288,6 +331,15 @@ impl Editor {
 
     pub fn set_part_scope(&mut self, scope: Scope) {
         self.part_scope = scope;
+    }
+
+    /// Whether a shape drawn in the open part adds material or takes it away (§2.11).
+    pub fn body_sign(&self) -> Sign {
+        self.body_sign
+    }
+
+    pub fn set_body_sign(&mut self, sign: Sign) {
+        self.body_sign = sign;
     }
 
     /// Are an open part's machinings shown now (its blank a ghost)?
@@ -413,6 +465,7 @@ impl Editor {
             axes_in_context: self.axes_in_context(),
             recipe: self.scene.recipe().filter(|_| self.showing_machinings()),
             part_scope: self.part_scope,
+            body_sign: self.body_sign,
             selection: &self.selection,
             axis_lock: self.axis_lock,
             face_lock: self.face_lock,
@@ -747,7 +800,51 @@ impl Editor {
         }
         let mut meshes = Vec::new();
         let mut swaps = HashMap::new();
-        if let Some(s) = &wanted {
+        let mut body_swaps = HashMap::new();
+        if let Some(s) = wanted.as_ref().filter(|s| s.bodies.is_some()) {
+            // Bodies of the open part, each from its recipe mesh, in its own axes (§2.11).
+            let path = EntityPath::new(s.context.clone(), s.occurrences[0]);
+            let stretch = solidsketch_model::kernel::Stretch::new(s.axis, s.cuts.clone(), s.moves.clone());
+            let doc = self.document().clone();
+            let recipe = self.scene.recipe().cloned();
+            if let (Ok((_, part, _)), Ok(stretch), Some(r)) = (doc.resolve_part(&path), stretch, recipe) {
+                let stretch = stretch.in_frame(&s.frame.inverse());
+                // As the operation splits them: moved, or a definition changed — shown by the
+                // copies it reaches, and made in place, by those it does not (§2.11).
+                let plan = part.body_stretch(s.bodies.as_deref(), &stretch);
+                for (id, t) in &plan.moved {
+                    if let Some(rb) = r.body(*id) {
+                        body_swaps.insert(*id, (rb.key, *t));
+                    }
+                }
+                for c in &plan.changes {
+                    let Some(def) = part.def(c.def) else { continue };
+                    let Some(rb) = c.bodies.first().and_then(|id| r.body(*id)) else { continue };
+                    let local = &c.local;
+                    let Some(dm) = self.scene.definition_mesh(rb.key) else { continue };
+                    let key = crate::scene::preview_key(meshes.len());
+                    let spans = local.section_spans(&def.solid);
+                    let parts = dm
+                        .parts
+                        .iter()
+                        .map(|p| crate::scene::PartMesh {
+                            solid: key,
+                            mesh: Arc::new(crate::scene::stretched_mesh(&p.mesh, local, &spans)),
+                            snaps: Arc::default(),
+                            bounds: None,
+                        })
+                        .collect();
+                    self.preview_revision += 1;
+                    let faces = dm.faces.clone();
+                    meshes.push(crate::scene::DefinitionMesh { definition: key, revision: self.preview_revision, parts, faces });
+                    for id in part.shown_by(c, &plan) {
+                        if let Some(b) = part.body(id) {
+                            body_swaps.insert(id, (key, b.placement));
+                        }
+                    }
+                }
+            }
+        } else if let Some(s) = &wanted {
             let doc = self.document().clone();
             let scope = if s.all { Scope::All } else { Scope::This };
             if let Ok((sketch, stretched)) = doc.stretch_sketch(&s.context, &s.occurrences, &s.frame, s.axis, &s.cuts, &s.moves, scope) {
@@ -785,6 +882,7 @@ impl Editor {
         }
         self.scene.set_preview(meshes);
         self.stretch_swaps = swaps;
+        self.body_swaps = body_swaps;
         self.stretch_meshed = wanted;
     }
 
@@ -795,11 +893,12 @@ impl Editor {
                 if !matches!(op, Operation::SetBehavior { .. }) {
                     self.clear_locks();
                 }
-                let held = matches!(op, Operation::Stretch { .. }).then(|| self.stretch_meshed.clone()).flatten();
+                let stretching = matches!(op, Operation::Stretch { .. } | Operation::StretchBodies { .. });
+                let held = stretching.then(|| self.stretch_meshed.clone()).flatten();
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.
                 let after = match op {
-                    Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddMachining { .. } | Operation::SetProfile { .. } => After::Nothing,
+                    Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddBody { .. } | Operation::SetProfile { .. } => After::Nothing,
                     _ => After::Select,
                 };
                 // Hidden (the eraser with Shift), they leave the selection, unless the hidden
@@ -819,6 +918,11 @@ impl Editor {
             Command::SetOption { key, value } => self.set_tool_option(key, value),
             Command::RememberHeight(h) => self.last_height = Some(h),
             Command::Enter(id) => self.enter(id),
+            Command::EditProfile(body) => {
+                self.set_tool(ToolKind::Profile);
+                self.tool = Box::new(tools::profile::ProfileTool::of_body(body));
+                self.selection.clear();
+            }
             Command::Exit => self.exit(),
             Command::ClickOff(px) => match self.context_bounds() {
                 Some(b) if !b.hit_by(&self.camera.ray(px, self.size)) => self.exit(),

@@ -77,6 +77,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         face_tint: [0.1, 0.3, 0.9, 0.5],
         edge_tint: [0.1, 0.3, 0.9, 1.0],
         material: NO_MATERIAL,
+        ghost: false,
     }];
     let frame = Frame {
         view,

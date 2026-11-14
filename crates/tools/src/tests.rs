@@ -45,7 +45,7 @@ pub(crate) fn drawn(e: &Editor) -> Id {
     let doc = e.document();
     if let Some(part) = e.open_part() {
         let (_, part, _) = doc.resolve_part(&EntityPath::new(e.context().to_vec(), part)).unwrap();
-        return part.machinings.last().unwrap().id;
+        return part.machinings().last().unwrap().id;
     }
     doc.assembly(doc.context_of(e.context()).unwrap()).unwrap().occurrences().last().unwrap().id
 }
@@ -1069,7 +1069,7 @@ fn boolean_tool_across_contexts() {
     let doc = e.document();
     assert!(doc.root_assembly().occurrence(cyl).is_none(), "tool consumed: {}", e.status());
     let (_, part, _) = doc.resolve_part(&EntityPath::new(vec![g], a)).unwrap();
-    assert_eq!(part.machinings.len(), 1);
+    assert_eq!(part.machinings().len(), 1);
     assert!(part.shape().topology_counts().0 >= 7);
     // The hole is pickable through: the ray at the centre goes down to the ground.
     let hit = e.scene().pick(&e.camera.ray(px(&e, DVec3::new(100.0, 100.0, 100.0)), e.viewport_size()), |_| true);
@@ -1530,8 +1530,8 @@ fn boolean_scope_option_counts_marks_and_cuts_one_or_all() {
     let part = |doc: &Document, id: Id| doc.resolve_part(&EntityPath::root(id)).unwrap().0;
     assert_ne!(part(doc, b), part(doc, a));
     assert_eq!(part(doc, c), part(doc, a));
-    assert_eq!(doc.resolve_part(&EntityPath::root(b)).unwrap().1.machinings.len(), 1);
-    assert!(doc.resolve_part(&EntityPath::root(a)).unwrap().1.machinings.is_empty());
+    assert_eq!(doc.resolve_part(&EntityPath::root(b)).unwrap().1.machinings().len(), 1);
+    assert!(doc.resolve_part(&EntityPath::root(a)).unwrap().1.machinings().is_empty());
 
     // Back to all, by a click in the bar: the other two both get the cut.
     e.set_tool_option("scope", OptionValue::Choice("all".into()));
@@ -1542,7 +1542,7 @@ fn boolean_scope_option_counts_marks_and_cuts_one_or_all() {
     let doc = e.document();
     assert!(doc.root_assembly().occurrence(d2).is_none(), "{}", e.status());
     assert_eq!(part(doc, c), part(doc, a));
-    assert_eq!(doc.resolve_part(&EntityPath::root(c)).unwrap().1.machinings.len(), 1);
+    assert_eq!(doc.resolve_part(&EntityPath::root(c)).unwrap().1.machinings().len(), 1);
 
     // Settings are per tool, and go to and from the preferences as they are.
     assert_eq!(e.tool_settings().keys().collect::<Vec<_>>(), vec!["difference"]);
@@ -1691,13 +1691,13 @@ fn a_part_opens_with_its_axes_the_rest_faded() {
     e.set_tool(ToolKind::Select);
     assert_eq!(e.open_part(), Some(b), "{}", e.status());
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
-    assert_eq!(part.machinings.len(), 1);
-    let m = &part.machinings[0];
+    assert_eq!(part.machinings().len(), 1);
+    let m = part.machinings()[0].clone();
     assert!(close(m.placement.translation, DVec3::new(100.0, 100.0, 30.0)), "{}", m.placement.translation);
-    let (lo, hi) = m.tool.vertex_bounds().unwrap();
+    let (lo, hi) = part.solid_of(&m).vertex_bounds().unwrap();
     assert!(close(hi - lo, DVec3::new(150.0, 100.0, 20.0)), "{lo} {hi}");
     // Every occurrence shows it (scope "all"): `a` is the same part.
-    assert_eq!(e.document().resolve_part(&EntityPath::root(a)).unwrap().1.machinings.len(), 1);
+    assert_eq!(e.document().resolve_part(&EntityPath::root(a)).unwrap().1.machinings().len(), 1);
 
     // Esc closes it, the occurrence left selected; so does a click in the void.
     e.enter(b);
@@ -1713,7 +1713,7 @@ fn a_part_opens_with_its_axes_the_rest_faded() {
     e.enter(b);
     e.undo();
     assert_eq!(e.open_part(), Some(b));
-    assert!(e.document().resolve_part(&EntityPath::root(b)).unwrap().1.machinings.is_empty());
+    assert!(e.document().resolve_part(&EntityPath::root(b)).unwrap().1.machinings().is_empty());
     e.undo();
     assert_eq!(e.open_part(), None);
 }
@@ -1738,10 +1738,10 @@ fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
     e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
         .unwrap();
     let (part, p, _) = e.document().resolve_part(&target).unwrap();
-    let hole = p.machinings[0].id;
-    e.apply(Operation::DuplicateMachinings {
+    let hole = p.machinings()[0].id;
+    e.apply(Operation::DuplicateBodies {
         target: target.clone(),
-        machinings: vec![hole],
+        bodies: vec![hole],
         transform: DAffine3::from_translation(DVec3::X * 100.0),
         scope: Scope::All,
     })
@@ -1770,7 +1770,7 @@ fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
     let r = e.scene().recipe().unwrap();
     assert!(close(r.tools[1].placement.translation, DVec3::new(150.0, 100.0, -5.0)));
     // Hovered in the entity info's list: drawn hovered in the view.
-    let copy = r.tools[1].machining;
+    let copy = r.tools[1].body;
     e.set_listed_hover(Some(copy));
     assert_eq!(e.hovered_machining(), Some(copy));
     let hovered: Vec<_> = e.view().highlights.into_iter().filter(|h| h.mark == Mark::Hover).collect();
@@ -1812,7 +1812,7 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     let target = EntityPath::root(board);
     e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
         .unwrap();
-    let machinings = |e: &Editor, o: Id| e.document().resolve_part(&EntityPath::root(o)).unwrap().1.machinings.clone();
+    let machinings = |e: &Editor, o: Id| e.document().resolve_part(&EntityPath::root(o)).unwrap().1.machinings().clone();
     let hole = machinings(&e, board)[0].id;
     e.set_machinings_switch(true);
     e.enter(board);
@@ -1860,8 +1860,10 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     // Erased under "only this one": this occurrence gets a part of its own, the other keeps
     // the holes.
     e.set_tool(ToolKind::Select);
+    // All: the blank (a positive body, §2.11) and the holes; the holes alone erased.
     e.select_all();
-    assert_eq!(e.selection().len(), 4);
+    assert_eq!(e.selection().len(), 5);
+    e.select(machinings(&e, board).iter().map(|m| m.id).collect());
     e.set_part_scope(Scope::This);
     e.input(ToolInput::Key { key: Key::Delete, mods: Modifiers::default() });
     assert!(machinings(&e, board).is_empty(), "{}", e.status());
@@ -1954,7 +1956,7 @@ fn exact_sizes_of_tools_and_blanks() {
     e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
         .unwrap();
     let (_, p, _) = e.document().resolve_part(&target).unwrap();
-    let (blank, tool) = (p.blank.clone(), p.machinings[0].tool.clone());
+    let (blank, tool) = (p.blank().clone(), p.solid_of(&p.machinings()[0]).clone());
     let near = |b: Option<(DVec3, DVec3)>, lo: DVec3, hi: DVec3| b.is_some_and(|(a, b)| close(a, lo) && close(b, hi));
     // A machined part's blank: its exact box, not its vertices' (a cylinder has one per circle).
     assert!(
@@ -2558,8 +2560,8 @@ fn drilled_board_editor(xs: &[f64]) -> (Editor, Id) {
 /// The board's blank extent along X, and its holes' places.
 fn stretched(e: &Editor, a: Id) -> ((f64, f64), Vec<f64>) {
     let (_, p, _) = e.document().resolve_part(&EntityPath::root(a)).unwrap();
-    let (lo, hi) = p.blank.vertex_bounds().unwrap();
-    let mut xs: Vec<f64> = p.machinings.iter().map(|m| (m.placement.translation.x * 1e6).round() / 1e6).collect();
+    let (lo, hi) = p.blank().vertex_bounds().unwrap();
+    let mut xs: Vec<f64> = p.machinings().iter().map(|m| (m.placement.translation.x * 1e6).round() / 1e6).collect();
     xs.sort_by(f64::total_cmp);
     ((lo.x, hi.x), xs)
 }
@@ -2776,7 +2778,7 @@ fn stretch_tool_refuses_what_cannot_stretch_and_takes_the_open_part() {
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     click(&mut e, DVec3::new(50.0, 0.0, 200.0));
     assert!(e.status().contains("traverse une coupe"), "{}", e.status());
-    let before = e.document().resolve_part(&EntityPath::root(rod)).unwrap().1.blank.clone();
+    let before = e.document().resolve_part(&EntityPath::root(rod)).unwrap().1.blank().clone();
 
     // Along its axis it stretches — the top grip, nearer the eye than the bottom one under it;
     // in the open part, the part's own scope (no option of the tool's).
@@ -2786,7 +2788,7 @@ fn stretch_tool_refuses_what_cannot_stretch_and_takes_the_open_part() {
     assert!(e.tool_options().iter().all(|o| o.key != "scope"));
     click(&mut e, DVec3::new(0.0, 0.0, 200.0));
     e.input(ToolInput::Vcb("300".into()));
-    let after = e.document().resolve_part(&EntityPath::root(rod)).unwrap().1.blank.clone();
+    let after = e.document().resolve_part(&EntityPath::root(rod)).unwrap().1.blank().clone();
     assert!(!std::sync::Arc::ptr_eq(&before, &after), "{}", e.status());
     let (lo, hi) = after.bounds().unwrap();
     assert!((lo.z - 0.0).abs() < 1e-6 && (hi.z - 300.0).abs() < 1e-6, "{lo} {hi}");
@@ -3040,7 +3042,7 @@ fn stretch_tool_stretches_a_prism_with_fillets_along_its_height() {
     assert!((lo.z, hi.z) == (0.0, 80.0), "{lo} {hi} {}", e.status());
     // Its fillets kept as radii: the profile follows.
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(p)).unwrap();
-    let blank = part.profile.as_ref().expect("a profile");
+    let blank = part.profiled().and_then(|b| part.profile_of(b)).expect("a profile");
     assert_eq!(blank.height, 80.0);
     assert!(blank.profile.iter().all(|c| c.fillet == 20.0), "{:?}", blank.profile);
 }
@@ -3377,7 +3379,7 @@ fn erase_tool_erases_the_open_part_s_machinings() {
         scope: Scope::All,
     })
     .unwrap();
-    let machinings = |e: &Editor| e.document().resolve_part(&EntityPath::root(board)).unwrap().1.machinings.len();
+    let machinings = |e: &Editor| e.document().resolve_part(&EntityPath::root(board)).unwrap().1.machinings().len();
     assert_eq!(machinings(&e), 1);
     e.set_machinings_switch(true);
     e.enter(board);
@@ -3831,12 +3833,13 @@ fn board_profile_editor() -> (Editor, Id) {
     (e, id)
 }
 
-fn blank_profile(e: &Editor, id: Id) -> solidsketch_model::BlankProfile {
-    e.document().resolve_part(&EntityPath::root(id)).unwrap().1.profile.clone().unwrap()
+fn blank_profile(e: &Editor, id: Id) -> solidsketch_model::BodyProfile {
+    let p = e.document().resolve_part(&EntityPath::root(id)).unwrap().1;
+    p.profile_of(p.profiled().unwrap()).cloned().unwrap()
 }
 
 #[test]
-fn profile_corner_moved_side_split_thickness_set() {
+fn profile_corner_moved_side_split() {
     let (mut e, id) = board_profile_editor();
     // The far corner taken and dropped 100 further along red.
     click(&mut e, DVec3::new(600.0, 300.0, 18.0));
@@ -3866,22 +3869,15 @@ fn profile_corner_moved_side_split_thickness_set() {
     assert!(close(lo, DVec3::new(0.0, -200.0, 0.0)), "{lo}");
     assert!(!e.status().contains("(libre)"), "{}", e.status());
 
-    // The thickness: 30, typed.
-    let b = blank_profile(&e, id);
-    let (a, c) = solidsketch_model::kernel::profile::bounds(&b.profile).unwrap();
-    click(&mut e, ((a + c) / 2.0).extend(18.0));
-    e.input(ToolInput::Vcb("30".into()));
-    assert_eq!(blank_profile(&e, id).height, 30.0);
-
     // Esc drops a gesture: nothing changes.
     let before = blank_profile(&e, id);
-    click(&mut e, DVec3::new(0.0, 300.0, 30.0));
-    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-200.0, 300.0, 30.0)) });
+    click(&mut e, DVec3::new(0.0, 300.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-200.0, 300.0, 18.0)) });
     key(&mut e, Key::Escape);
     assert_eq!(blank_profile(&e, id), before);
-    // One undo per gesture.
+    // One undo per gesture: the corner inserted taken away.
     e.undo();
-    assert_eq!(blank_profile(&e, id).height, 18.0);
+    assert_eq!(blank_profile(&e, id).profile.len(), 4);
 }
 
 #[test]
@@ -4078,7 +4074,8 @@ fn machinings_paste_only_into_an_open_part() {
     // Copied in the open part, its machinings shown.
     e.set_machinings_switch(true);
     e.enter(a);
-    e.select_all();
+    let holes = e.document().resolve_part(&EntityPath::root(a)).unwrap().1.machinings().iter().map(|m| m.id).collect();
+    e.select(holes);
     let clip = e.copy().unwrap();
     assert!(matches!(clip.content, Content::Machinings(_)));
     e.exit();
@@ -4090,9 +4087,9 @@ fn machinings_paste_only_into_an_open_part() {
     assert!(e.can_paste(&clip));
     e.paste_in_place(&clip, true);
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
-    assert_eq!(part.machinings.len(), 1);
-    assert!(close(part.machinings[0].placement.translation, DVec3::new(20.0, 25.0, -5.0)));
-    assert_eq!(e.selection(), &[part.machinings[0].id]);
+    assert_eq!(part.machinings().len(), 1);
+    assert!(close(part.machinings()[0].placement.translation, DVec3::new(20.0, 25.0, -5.0)));
+    assert_eq!(e.selection(), &[part.machinings()[0].id]);
 
     // At the cursor: carried in the part's axes, put down 50 further along red.
     e.paste(&clip, true);
@@ -4102,8 +4099,8 @@ fn machinings_paste_only_into_an_open_part() {
     e.input(ToolInput::Vcb("50".into()));
     assert!(!e.carrying());
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
-    assert_eq!(part.machinings.len(), 2);
-    assert!(close(part.machinings[1].placement.translation, DVec3::new(70.0, 25.0, -5.0)), "{:?}", part.machinings[1].placement);
+    assert_eq!(part.machinings().len(), 2);
+    assert!(close(part.machinings()[1].placement.translation, DVec3::new(70.0, 25.0, -5.0)), "{:?}", part.machinings()[1].placement);
 }
 
 #[test]
@@ -4258,4 +4255,140 @@ fn standard_views_are_in_the_active_frame() {
     // Back to the world's axes.
     e.standard_view(StandardView::Top);
     assert!(e.camera.frame == glam::DMat3::IDENTITY && e.camera.up().y > 0.99);
+}
+
+/// Parts seen as before §2.11 (a blank and its machinings), for these tests.
+pub(crate) trait PartExt {
+    /// The first positive body's solid.
+    fn blank(&self) -> std::sync::Arc<solidsketch_model::kernel::Solid>;
+    /// The negative bodies.
+    fn machinings(&self) -> Vec<solidsketch_model::Body>;
+}
+
+impl PartExt for solidsketch_model::Part {
+    fn blank(&self) -> std::sync::Arc<solidsketch_model::kernel::Solid> {
+        self.solid_of(self.positives().next().unwrap()).clone()
+    }
+
+    fn machinings(&self) -> Vec<solidsketch_model::Body> {
+        self.negatives().cloned().collect()
+    }
+}
+
+#[test]
+fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_part() {
+    use solidsketch_model::Sign;
+    let mut e = top_editor(Document::new());
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    let path = EntityPath::root(board);
+    e.set_machinings_switch(true);
+    e.enter(board);
+    let blank = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
+    // « Ajouter »: a block drawn on the board's top joins it (ARCHITECTURE.md §2.11).
+    assert_eq!(e.body_sign(), Sign::Negative);
+    e.set_body_sign(Sign::Positive);
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::new(300.0, 50.0, 18.0));
+    click(&mut e, DVec3::new(380.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("30".into()));
+    let p = e.document().resolve_part(&path).unwrap().1;
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 0), "{}", e.status());
+    assert_eq!(p.pieces(), 1);
+    assert!((p.shape().bounds().unwrap().1.z - 48.0).abs() < 1e-6);
+    let block = p.positives().nth(1).unwrap().id;
+
+    // Picked as a body, the nearest positive one under the cursor.
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(340.0, 100.0, 48.0));
+    assert_eq!(e.selection(), &[block]);
+    click(&mut e, DVec3::new(100.0, 100.0, 18.0));
+    assert_eq!(e.selection(), &[blank]);
+
+    // A double-click on a body edits its profile.
+    e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(340.0, 100.0, 48.0)), mods: Modifiers::default() });
+    assert_eq!(e.tool_kind(), ToolKind::Profile);
+    assert_eq!(e.open_part(), Some(board));
+
+    // « Profil » on the body selected: its profile; with none selected, the first one's.
+    e.set_tool(ToolKind::Select);
+    e.select(vec![block]);
+    assert!(e.open_part_profile());
+    e.edit_profile();
+    assert_eq!(e.tool_kind(), ToolKind::Profile);
+    assert!(e.selection().is_empty());
+    e.set_tool(ToolKind::Select);
+    e.edit_profile();
+    assert_eq!(e.tool_kind(), ToolKind::Profile);
+
+    // The block erased; the blank, last positive body, refused.
+    e.set_tool(ToolKind::Select);
+    e.select(vec![block]);
+    e.input(ToolInput::Key { key: Key::Delete, mods: Modifiers::default() });
+    assert_eq!(e.document().resolve_part(&path).unwrap().1.bodies.len(), 1);
+    e.select(vec![blank]);
+    e.input(ToolInput::Key { key: Key::Delete, mods: Modifiers::default() });
+    assert_eq!(e.document().resolve_part(&path).unwrap().1.bodies.len(), 1);
+
+    // Reopened, a shape drawn takes material away again.
+    e.exit();
+    e.enter(board);
+    assert_eq!(e.body_sign(), Sign::Negative);
+}
+
+#[test]
+fn stretch_tool_stretches_the_bodies_selected_alone() {
+    use glam::DAffine3;
+    use solidsketch_model::{Scope, Sign};
+    let mut e = top_editor(Document::new());
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    let path = EntityPath::root(board);
+    let block = Primitive::Box { origin: DVec3::new(300.0, 50.0, 18.0), size: DVec3::new(80.0, 100.0, 30.0) };
+    let block = e
+        .apply(Operation::AddBody {
+            target: path.clone(),
+            primitive: block,
+            placement: DAffine3::IDENTITY,
+            sign: Sign::Positive,
+            scope: Scope::All,
+        })
+        .unwrap()
+        .unwrap()
+        .bodies[0];
+    let board_body = e.document().resolve_part(&path).unwrap().1.positives().next().unwrap().clone();
+    e.set_machinings_switch(true);
+    e.enter(board);
+    e.select(vec![block]);
+    e.set_tool(ToolKind::Stretch);
+    // The block's grip on +X, pulled: it alone drawn stretched.
+    click(&mut e, DVec3::new(380.0, 100.0, 48.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 100.0, 48.0)) });
+    assert!(e.view().batches.iter().any(|(k, _)| *k == crate::scene::PREVIEW_KEY), "{}", e.status());
+    // Typed: 120 long overall.
+    e.input(ToolInput::Vcb("120".into()));
+    let p = e.document().resolve_part(&path).unwrap().1;
+    let b = p.body(block).unwrap();
+    assert_eq!(solidsketch_model::kernel::profile::bounds(&p.profile_of(b).unwrap().profile).unwrap().1, DVec2::new(120.0, 100.0));
+    assert_eq!(p.positives().next().unwrap(), &board_body, "the board untouched");
+    assert!((p.shape().bounds().unwrap().1.x - 420.0).abs() < 1e-6, "{}", e.status());
+    assert_eq!(e.open_part(), Some(board));
+}
+
+#[test]
+fn a_click_in_the_outliner_selects_or_deselects() {
+    let mut e = top_editor(Document::new());
+    two_boxes(&mut e);
+    let ids: Vec<Id> = e.document().root_assembly().occurrences().iter().map(|o| o.id).collect();
+    let (a, b) = (EntityPath::root(ids[0]), EntityPath::root(ids[1]));
+    e.toggle_path(&a, false);
+    assert_eq!(e.selection(), &[ids[0]]);
+    e.toggle_path(&b, false);
+    assert_eq!(e.selection(), &[ids[1]], "another one selected alone");
+    e.toggle_path(&b, false);
+    assert!(e.selection().is_empty(), "selected, deselected");
+    // With Shift: added, then taken out alone.
+    e.toggle_path(&a, true);
+    e.toggle_path(&b, true);
+    assert_eq!(e.selection(), &[ids[0], ids[1]]);
+    e.toggle_path(&a, true);
+    assert_eq!(e.selection(), &[ids[1]]);
 }

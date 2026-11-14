@@ -21,7 +21,7 @@ use glam::{DAffine3, DMat3, DVec3};
 use serde::Deserialize;
 use solidsketch_i18n::t;
 
-use crate::document::{Assembly, Behavior, ComponentKind, Document, Id, Material, Occurrence, Part, StretchMask};
+use crate::document::{Assembly, Behavior, ComponentKind, Document, Id, Material, Occurrence, StretchMask};
 use crate::{Error, FileError, Result};
 use solidsketch_kernel::{PolyFace, Polyhedron, Solid};
 
@@ -324,7 +324,8 @@ impl Document {
                     report.faces += faces;
                     report.parts += 1;
                     let name = if r.loose { t!("default_name.loose_faces", name = name_of(r.def)) } else { name_of(r.def) };
-                    let id = doc.insert_component(&name, named_def(r.def), ComponentKind::Part(Part::new(Arc::new(solid))));
+                    let part = doc.plain_part(Arc::new(solid));
+                    let id = doc.insert_component(&name, named_def(r.def), ComponentKind::Part(part));
                     doc.component_mut(id)?.behavior = behavior(r.def);
                     part_ids.push(Some(id));
                 }

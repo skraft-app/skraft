@@ -15,12 +15,8 @@ impl Editor {
     pub fn select_all(&mut self) {
         let guides = self.shown_guides();
         if self.open_part.is_some() {
-            self.selection = self
-                .scene
-                .recipe()
-                .filter(|_| self.showing_machinings())
-                .map(|r| r.tools.iter().map(|t| t.machining).collect())
-                .unwrap_or_default();
+            self.selection =
+                self.scene.recipe().filter(|_| self.showing_machinings()).map(|r| r.bodies().map(|t| t.body).collect()).unwrap_or_default();
             self.selection.extend(guides);
             return;
         }
@@ -64,6 +60,21 @@ impl Editor {
         self.selection = vec![path.entity];
     }
 
+    /// The outliner's click on the occurrence `path` leads to: selected already (in the active
+    /// context, no part open), it is taken out of the selection; else selected as
+    /// [`Editor::select_path`] does — added to the selection with `add` (Shift) when it lies in
+    /// the active context.
+    pub fn toggle_path(&mut self, path: &EntityPath, add: bool) {
+        let here = self.context == path.instances && self.open_part.is_none();
+        if here && self.selection.contains(&path.entity) {
+            self.selection.retain(|id| *id != path.entity);
+        } else if here && add && self.document().resolve(path).is_ok() {
+            self.selection.push(path.entity);
+        } else {
+            self.select_path(path);
+        }
+    }
+
     /// Edits the assembly the occurrence `id` of the active context places, or opens the part
     /// it places.
     pub fn enter(&mut self, id: Id) {
@@ -78,6 +89,7 @@ impl Editor {
         } else if is_part {
             self.open_part = Some(id);
             self.part_scope = solidsketch_model::Scope::All;
+            self.body_sign = solidsketch_model::Sign::Negative;
         } else {
             return;
         }
@@ -205,6 +217,17 @@ impl Editor {
 
     pub fn make_unique(&mut self) {
         if self.busy() {
+            return;
+        }
+        // In an open part: its bodies selected, each given its own definition (§2.11).
+        if let Some(target) = self.open_part_path() {
+            let Ok((_, p, _)) = self.document().resolve_part(&target) else { return };
+            let bodies: Vec<Id> = self.selection.iter().copied().filter(|id| p.body(*id).is_some()).collect();
+            if !bodies.is_empty() {
+                let op = Operation::MakeBodiesUnique { target, bodies, scope: self.part_scope };
+                self.queue.push_back((op, After::Nothing));
+                self.pump();
+            }
             return;
         }
         let context = self.context_definition();

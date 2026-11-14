@@ -374,6 +374,8 @@ impl Viewport {
         let fade: render::Tint = [background[0], background[1], background[2], theme.fade];
         let slots = &self.slots;
         let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
+        // A machining's ghost, a little more opaque than a blank's.
+        let machining = (theme.machining_opacity - theme.ghost_opacity).max(0.0);
         let batches: Vec<render::Batch> = view
             .batches
             .iter()
@@ -384,6 +386,8 @@ impl Viewport {
                     .map(|p| render::Placement {
                         transform: DMat4::from(p.transform),
                         tint: if p.faded { fade } else { render::NO_TINT },
+                        // Not what the eraser would take: that one as faint as any.
+                        opacity: if p.look == Look::Tool && p.ghost && !p.faint_edges { machining } else { 0.0 },
                         material: match p.look {
                             Look::Tool => tool_slot,
                             Look::FailedTool => tool_slot + 1,
@@ -417,6 +421,7 @@ impl Viewport {
                     face_tint: colors.face,
                     edge_tint: colors.edge,
                     material: slot(h.material),
+                    ghost: h.ghost,
                 }
             })
             .collect();

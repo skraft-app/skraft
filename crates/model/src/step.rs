@@ -14,7 +14,7 @@ use glam::DAffine3;
 use solidsketch_i18n::t;
 use solidsketch_kernel::StepImport;
 
-use crate::document::{Assembly, ComponentKind, Document, Id, Material, Occurrence, Part};
+use crate::document::{Assembly, ComponentKind, Document, Id, Material, Occurrence};
 
 /// What became of a STEP file's content.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -56,10 +56,11 @@ impl Document {
                 && let [body] = p.bodies.as_slice()
             {
                 let base = product_name.clone().or_else(|| Some(body.name.clone()).filter(|n| !n.is_empty()));
+                let part = doc.plain_part(Arc::new(body.solid.clone()));
                 let id = doc.insert_component(
                     &base.clone().unwrap_or_else(|| t!("default_name.part")),
                     base.is_some(),
-                    ComponentKind::Part(Part::new(Arc::new(body.solid.clone()))),
+                    ComponentKind::Part(part),
                 );
                 report.parts += 1;
                 component_of[k] = Some((id, material(&mut doc, body.color)));
@@ -68,10 +69,11 @@ impl Document {
             for (b, body) in p.bodies.iter().enumerate() {
                 let base =
                     Some(body.name.clone()).filter(|n| !n.is_empty()).or_else(|| product_name.as_ref().map(|n| format!("{n} {}", b + 1)));
+                let part = doc.plain_part(Arc::new(body.solid.clone()));
                 let part = doc.insert_component(
                     &base.clone().unwrap_or_else(|| t!("default_name.part")),
                     base.is_some(),
-                    ComponentKind::Part(Part::new(Arc::new(body.solid.clone()))),
+                    ComponentKind::Part(part),
                 );
                 report.parts += 1;
                 let material = material(&mut doc, body.color);
