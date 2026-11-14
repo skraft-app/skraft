@@ -22,8 +22,9 @@
 //! - The height is the box's.
 //! - The "Offset" option (the box's and the cylinder's, `3x` at any step) moves the outline
 //!   made ([`profile::offset`], as SolidCraft's sketch offset, a side it turns over taken out as
-//!   Clipper does), then the "Fillet" option (`5r`) rounds its corners between straight sides
-//!   ([`profile::fillet`]): the outline drawn is dashed then, the one made solid.
+//!   Clipper does), then the "Fillet" option (`5r`) rounds its corners between straight sides,
+//!   recorded as radii on them ([`profile::with_fillets`], made arcs by [`profile::rounded`]):
+//!   the outline drawn is dashed then, the one made solid.
 
 use std::f64::consts::PI;
 
@@ -348,10 +349,11 @@ fn offset_refused(e: profile::OffsetError) -> String {
     }
 }
 
-/// The outline made from the one drawn: offset, then filleted (§ module doc).
+/// The outline made from the one drawn: offset, then its fillets' radius on its corners
+/// (§ module doc). Its shape: [`profile::rounded`].
 fn made(cx: &Cx<'_>, drawn: &[Corner]) -> Result<Vec<Corner>, profile::OffsetError> {
     let o = profile::offset(drawn, cx.length(OFFSET))?;
-    Ok(profile::fillet(&o, cx.length(FILLET)))
+    Ok(profile::with_fillets(&o, cx.length(FILLET)))
 }
 
 /// Does the outline made differ from the one drawn (an offset or a fillet)?
@@ -990,7 +992,7 @@ impl Tool for PrismTool {
                         if drawn.len() >= 3
                             && let Ok(o) = made(cx, &drawn)
                         {
-                            segments(cx, &mut lines, ring(&f, &o, 0.0), color, false);
+                            segments(cx, &mut lines, ring(&f, &profile::rounded(&o), 0.0), color, false);
                         }
                     }
                     if let Some(i) = cur.on_corner {
@@ -1039,7 +1041,7 @@ impl Tool for PrismTool {
                 let dash = changed(cx);
                 prism(&mut lines, profile, dash);
                 if dash && let Ok(o) = made(cx, profile) {
-                    prism(&mut lines, &o, false);
+                    prism(&mut lines, &profile::rounded(&o), false);
                 }
                 let e = local2(f, *end);
                 label(cx, &mut labels, f.at(e.extend(z0)), f.at(e.extend(z1)), BLUE);

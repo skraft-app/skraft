@@ -1374,6 +1374,7 @@ states are OCL's: the first point, the points, the height.
   the offset's `5x`) rounds every corner between two straight sides at creation, after the
   offset — the radius is the made part's. A corner whose sides are too short for it (the
   fillets at both ends of a side counted) stays sharp. Previewed with the offset's outline.
+  Recorded as radii on the sharp corners since 2026-11-14 (« The shape kept while editing »).
 - **Whole face** (step 2): Shift with the copy modifier held takes a face's outer outline with
   its arcs too.
 
@@ -1383,13 +1384,15 @@ states are OCL's: the first point, the points, the height.
   outline in the part's XY plane, extruded from `z0` by `height` along its Z; the blank solid is
   built from it (`Primitive::Prism`) and stays a cache of it, as the shape is of the machinings
   (§2.4). Box, Cylinder and Prism all record theirs (a rectangle; a disc as two half circles;
-  the outline made, offset and fillets included). Imports and booleans make free parts (none).
+  the outline made, offset included, fillets as radii). Imports and booleans make free parts
+  (none).
 - **Stretching keeps it when it can** (§6 sexies, in the part's axes): along Z, `z0` and
   `height` follow their sections; along any axis in its plane, each corner moves with its
   section, an arc whole in one section rigidly; an arc across a cutter (it would not stay an
   arc), or an axis neither in its plane nor along Z, drops it — the part becomes free. (The
   kernel refuses these stretches anyway, an edge across a cutter having to run along the axis:
-  a safeguard.)
+  a safeguard.) Open (2026-11-14): with fillets as radii, a stretch across a fillet keeps the
+  profile — the blank could then be built again from it rather than stretched by the kernel.
 - **The machinings stay where they are** in the part's axes, and so does the origin when the
   outline grows or shrinks (anchoring them on the blank, §2.10, is for later).
 - **`Operation::SetProfile { target, profile, z0, height, scope }`**: the blank built again
@@ -1413,7 +1416,57 @@ states are OCL's: the first point, the points, the height.
     thickness;
   - Delete over a corner takes it away (the outline must stay simple, at least three corners
     or an arc).
-  An outline that would cross itself is refused, said in the status bar.
+  An outline that would cross itself is refused, said in the status bar. The corners' and the
+  sides' grips were then free moves; they keep the outline's shape since 2026-11-14 (below).
+
+**The shape kept while editing** (decided on 2026-11-14, branch `feature/profile`): a box's
+profile edited corner by corner stopped being a rectangle, a cylinder's arc grip turned its
+disc into an oval, a fillet next to a moved corner lost its tangency. Three ways were weighed:
+editing by sides with no stored constraint (SpaceClaim's, Shapr3D's direct editing), the
+designer's intent kept in the recipe (fillets as radii), a parametric sketch (stored
+constraints, driving dimensions, a solver). The first two now; the sketch later, if needed —
+the candidate solver is ezpz (KittyCAD, Rust, MIT; SolveSpace's libslvs is GPLv3, out). The
+format is not shaped for it in advance (v1 until the first release).
+
+- **Fillets are radii**: `Corner { p, bulge, fillet }` — `fillet`, a radius on a sharp corner
+  between two straight sides (0: sharp); the outline stores the sharp corner, the arc is
+  computed wherever the outline is used (the blank built, its box, the display, the exports),
+  so it follows every edit and stays tangent. The Prism's « Congé » option records radii
+  instead of arcs. An arc tangent to two straight sides that are not parallel, however it was
+  drawn (an arc tangent closed tangent, a face taken whole), is a fillet: recognised when the
+  profile is recorded, it becomes its radius on the sharp corner. A radius that no longer fits
+  (the sides too short, the fillets at both ends counted) leaves its corner sharp, as at
+  creation, and comes back when there is room again.
+- **Sides keep their direction**: the grip of a corner moves the two sides meeting there
+  parallel to themselves, through the cursor's point, and the neighbouring corners slide along
+  the sides beyond (a rectangle stays a rectangle, a trapezoid keeps its angles; 2 degrees of
+  freedom: inferred on the cap's plane, typed as a distance along the move or a point). When
+  that would move every corner (a triangle: a mere scaling), the corner moves alone. The
+  grip in a straight side's middle moves that side parallel to itself, its neighbours
+  extended (1 degree: the cursor's point taken along the side's normal, typed as a distance).
+  A neighbour that cannot meet the moved side any more refuses the move.
+- **Free, the copy modifier tapped** (as Move's copy: before or during the gesture, the cursor
+  carries the word « Libre », dropped once done; also the « Libre » toggle in the option bar):
+  a corner then moves alone as before; a side's middle inserts a corner there, which moves
+  alone. Built by `kernel::profile::{shift_sides, corner_moved, side_moved}`.
+- **Tangencies kept by rules** (read on the outline as it was when the grip was taken, no
+  solver; free moves too; `kernel::profile::rearced`): a fillet (above); a
+  half circle tangent to two parallel sides (a rounded end, a slot's end) stays tangent, its
+  radius half the gap (its still end slides along its side to face the moved one); a whole
+  disc (a cylinder's) has one grip, its radius (typed too; `profile::circle`); an arc tangent to
+  a straight neighbour keeps that tangency: its ends go where their sides take them, and the one
+  arc leaving that side along it to its other end is taken (tangent at both ends to sides that
+  are not parallel, the start's tangency wins, unless only its end moved). Chains of arcs
+  tangent to each other (an S) may lose it: that is the sketch's job.
+- **An arc tangent to nothing keeps its sagitta** (the rise over its chord, the dimension a
+  bent rail is given): its ends follow their sides, its height stays.
+- **Fillet grip**: hovering a sharp corner between two straight sides shows a small grip on
+  its bisector, 18 px inside; dragging it rounds the corner, the arc through the cursor's
+  point on the bisector (typed: the radius). On a fillet, the grip sits at the arc's middle,
+  always shown; brought back onto the corner (10 px) it makes it sharp again, as Delete over
+  it does. Dragged, the radius stops where a side runs out (its other end's fillet kept);
+  typed too big, it is refused, said (`profile::{fillet_middle, fillet_through,
+  fillet_max}`).
 
 ## 6 decies. Copy, cut and paste
 

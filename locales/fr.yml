@@ -652,16 +652,28 @@ tool:
   profile:
     name: "Profil"
     hint:
-      idle: "Cliquer une poignée : un coin à déplacer, le milieu d'un côté pour ajouter un coin, d'un arc pour son bombé, le centre pour l'épaisseur · Suppr sur un coin : le retirer"
-      corner: "Cliquer la nouvelle place, ou taper une distance ou un point · flèches : bloquer un axe · Échap : annuler"
+      idle: "Cliquer une poignée : un coin à déplacer, le milieu d'un côté pour le décaler, d'un arc pour son bombé, le centre pour l'épaisseur, la poignée à l'intérieur d'un coin pour son congé · %{copy_key} : libre (un coin seul, ou ajouter un coin) · Suppr sur un coin : le retirer, sur un congé : le rendre vif"
+      corner: "Cliquer la nouvelle place, ou taper une distance ou un point · flèches : bloquer un axe · %{copy_key} : libre · Échap : annuler"
+      side: "Cliquer la nouvelle place du côté, ou taper une distance · les côtés voisins suivent · %{copy_key} : ajouter un coin à la place · Échap : annuler"
       bulge: "Cliquer le bombé de l'arc, ou taper sa flèche · près de la corde : droit · Échap : annuler"
       thickness: "Cliquer l'épaisseur, ou la taper · Échap : annuler"
+      radius: "Cliquer le rayon du disque, ou le taper · Échap : annuler"
+      fillet: "Cliquer le rayon du congé, ou le taper · sur le coin : vif · Échap : annuler"
     vcb:
       distance: "Distance"
       bulge: "Flèche"
       thickness: "Épaisseur"
+      radius: "Rayon"
+      fillet: "Congé"
     say:
       crossed: "Le contour se croiserait, ou n'aurait plus d'aire : non appliqué"
+      fillet_too_big: "Congé trop grand pour les côtés du coin : non appliqué"
+    # The copy modifier tapped: a corner moved alone, a corner inserted in a side (§6 nonies).
+    free: "Libre"
+    freely: "(libre)"
+    option:
+      free: "Libre"
+      free_tip: "Déplacer un coin seul, sans garder la direction de ses côtés, ou ajouter un coin au milieu d'un côté (%{copy_key} tapé)"
   stretch:
     name: "Étirer"
     hint:

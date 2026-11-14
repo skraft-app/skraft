@@ -49,11 +49,12 @@ impl Solid {
     /// The outline `profile` (corners in the XY plane through `origin`, relative to it, each
     /// with the bulge of its side) extruded along +Z by `height`: SolidCore's planar region of
     /// lines and arcs swept between two levels. Sides of no length and straight corners are
-    /// dropped; an outline that is not simple is refused.
+    /// dropped, its fillets made arcs ([`crate::profile::rounded`]); an outline that is not
+    /// simple is refused.
     pub fn new_prism(origin: DVec3, profile: &[crate::profile::Corner], height: f64) -> Result<Self> {
         use crate::profile::{self as pr, Side};
         use solidcore::prism::profile::{Loop2, Region2, Seg2};
-        let p = pr::cleaned(profile);
+        let p = pr::rounded(profile);
         if !pr::is_simple(&p) || !(height.is_finite() && height > 0.0) {
             return Err(Error::Kernel { call: "prism".into(), message: "profile not a simple outline, or no height".into() });
         }
