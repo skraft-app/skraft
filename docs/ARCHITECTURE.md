@@ -1080,9 +1080,14 @@ the booleans; shortcut S). Rebuilt on 2026-11-11 on OCL's own interaction
     shifts by `(Δ·u, Δ·v)` of its section (planes are affine in mm), the domain is taken again
     from the pcurves; or a **cylinder whose axis is parallel** — its NURBS net (SMLib's form,
     v = the height in mm) has its rows past the cutter moved, its v knots, domain and pcurves
-    grown;
+    grown; or a **NURBS net extruded along the axis** (same form, as the face's own surface:
+    SolidCore writes a prism's arc sides — fillets included — so), stretched the same way;
   - the kernel writes a mirrored solid's lines as degree-1 splines over ±1234567 and its
-    cylinders as cones of half angle 0: both taken as what they are;
+    cylinders as cones of half angle 0: both taken as what they are; a prism's upright edges
+    are degree-1 splines on their own length: a spline (or a two-point polyline) across a
+    cutter has its knots and points grown with its interval, else it is no longer read back
+    ("parameter interval outside the natural domain") — found 2026-11-14, a filleted prism
+    could not be stretched along its height;
   - built in `kernel::Stretch` (`crates/kernel/src/stretch.rs`): `apply`, `in_frame` (a tool
     in its own frame), `extent` (along the axis: exact for lines and whole circles,
     conservative for curved faces);
