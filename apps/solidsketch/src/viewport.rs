@@ -229,11 +229,11 @@ impl Viewport {
         let local = |p: egui::Pos2| DVec2::new((p.x - rect.min.x) as f64, (p.y - rect.min.y) as f64);
         // The preferences: orbit direction and speed per device, zoom speed and target.
         let sign = |invert: bool| if invert { -1.0 } else { 1.0 };
-        let mouse_orbit = DVec2::new(sign(nav.mouse_invert_x), sign(nav.mouse_invert_y)) * nav.orbit_speed;
-        let trackpad_orbit = DVec2::new(sign(nav.trackpad_invert_x), sign(nav.trackpad_invert_y)) * nav.orbit_speed;
+        let mouse_orbit = DVec2::new(sign(nav.mouse_invert_x), sign(nav.mouse_invert_y)) * nav.orbit_rate();
+        let trackpad_orbit = DVec2::new(sign(nav.trackpad_invert_x), sign(nav.trackpad_invert_y)) * nav.orbit_rate();
         let zoom_at =
             |p: egui::Pos2| if nav.zoom_to_cursor { local(p) } else { DVec2::new(rect.width() as f64, rect.height() as f64) / 2.0 };
-        let zoom_steps = nav.zoom_speed * sign(nav.wheel_invert);
+        let zoom_steps = nav.zoom_rate() * sign(nav.wheel_invert);
         let (mods, events, time, zoom) = ui.input(|i| (i.modifiers, i.events.clone(), i.time, i.zoom_delta()));
         // Shift held locks the line inferred (§6 ter); a point hovered a while is tracked: the
         // editor needs the time, every frame while it waits.
@@ -315,7 +315,7 @@ impl Viewport {
             }
         }
         if (zoom - 1.0).abs() > 1e-4 {
-            editor.zoom(zoom_at(p), (zoom as f64).ln() / (1.0f64 / 0.85).ln() * nav.zoom_speed);
+            editor.zoom(zoom_at(p), (zoom as f64).ln() / (1.0f64 / 0.85).ln() * nav.zoom_rate());
         }
     }
 

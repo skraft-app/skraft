@@ -85,17 +85,34 @@ impl Default for Preferences {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Navigation {
-    /// Orbit speed factor (1: SketchUp's).
+    /// Orbit speed factor (1: `ORBIT_BASE` times SketchUp's).
     pub orbit_speed: f64,
     pub mouse_invert_x: bool,
     pub mouse_invert_y: bool,
     pub trackpad_invert_x: bool,
     pub trackpad_invert_y: bool,
-    /// Zoom speed factor (1: a wheel notch zooms by 15 %).
+    /// Zoom speed factor (1: `ZOOM_BASE` times a 15 % zoom per wheel notch).
     pub zoom_speed: f64,
     pub wheel_invert: bool,
     /// Zoom towards the cursor (else towards the centre of the view).
     pub zoom_to_cursor: bool,
+}
+
+impl Navigation {
+    /// The orbit rate at speed 1, relative to SketchUp's.
+    const ORBIT_BASE: f64 = 0.7;
+    /// The zoom rate at speed 1, in 15 % steps per wheel notch.
+    const ZOOM_BASE: f64 = 0.5;
+
+    /// The orbit rate the speed preference gives, relative to SketchUp's.
+    pub fn orbit_rate(&self) -> f64 {
+        self.orbit_speed * Self::ORBIT_BASE
+    }
+
+    /// The zoom rate the speed preference gives, in 15 % steps per wheel notch.
+    pub fn zoom_rate(&self) -> f64 {
+        self.zoom_speed * Self::ZOOM_BASE
+    }
 }
 
 impl Default for Navigation {
