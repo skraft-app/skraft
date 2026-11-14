@@ -4,7 +4,7 @@
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::{t, tp};
-use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, Occurrence, Operation, Scope, Units, measure};
+use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, Occurrence, Operation, Scope, Sign, Units, measure};
 use solidsketch_tools::{Editor, OptionValue, ToolKind};
 
 use crate::commands::Menu;
@@ -16,7 +16,8 @@ pub enum Action {
     Command(&'static str),
     /// The control channel failed to start: try again (the title bar's mark).
     RemoteRetry,
-    SelectPath(EntityPath),
+    /// An outliner's click: selects or deselects, Shift (`true`) adding to the selection.
+    SelectPath(EntityPath, bool),
     Apply(Operation),
     /// An option of the active tool changed in its bar.
     ToolOption(&'static str, OptionValue),
@@ -30,6 +31,8 @@ pub enum Action {
     ToggleProfile,
     /// What changes to the open part reach (§2.5).
     PartScope(Scope),
+    /// Whether shapes drawn in the open part add material or take it away (§2.11).
+    BodySign(Sign),
     /// Machinings of the open part chosen in its list: shown, then selected.
     SelectMachinings(Vec<Id>),
     /// The machining hovered in the list, if any.
@@ -124,6 +127,19 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             let (values, segments): (Vec<_>, Vec<_>) = scopes.into_iter().unzip();
             if let Some(i) = segmented(ui, egui::Id::unique("option_bar_part_scope"), &segments) {
                 actions.push(Action::PartScope(values[i]));
+            }
+            // A shape drawn in it: a machining, or material added (§2.11).
+            if matches!(editor.tool_kind(), ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism) {
+                group(ui, &t!("option_bar.body_sign"), &t!("option_bar.body_sign_tip"));
+                let sign = editor.body_sign();
+                let signs = [
+                    (Sign::Negative, Segment::new(&t!("option_bar.remove"), &t!("option_bar.remove_tip"), None, sign == Sign::Negative)),
+                    (Sign::Positive, Segment::new(&t!("option_bar.add"), &t!("option_bar.add_tip"), None, sign == Sign::Positive)),
+                ];
+                let (values, segments): (Vec<_>, Vec<_>) = signs.into_iter().unzip();
+                if let Some(i) = segmented(ui, egui::Id::unique("option_bar_body_sign"), &segments) {
+                    actions.push(Action::BodySign(values[i]));
+                }
             }
         }
         for o in &options {
@@ -467,9 +483,16 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
                     let eye = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
                     let label = ui
                         .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            let label = egui::RichText::new(occurrence_label(doc, o));
-                            let label = if greyed { label.color(weak) } else { label };
-                            ui.add(egui::Button::selectable(selected, label).truncate())
+                            // A part in several pieces: an error to correct (§2.11).
+                            let pieces = doc.part(o.component).map_or(1, |p| p.pieces());
+                            let (label, broken) = if pieces > 1 {
+                                (egui::RichText::new(format!("⚠ {}", occurrence_label(doc, o))).color(ui.visuals().error_fg_color), true)
+                            } else {
+                                (egui::RichText::new(occurrence_label(doc, o)), false)
+                            };
+                            let label = if greyed && !broken { label.color(weak) } else { label };
+                            let r = ui.add(egui::Button::selectable(selected, label).truncate());
+                            if broken { r.on_hover_text(t!("panel.outliner.pieces", count = pieces)) } else { r }
                         })
                         .inner;
                     (label, eye)
@@ -485,7 +508,7 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
             if eye {
                 actions.push(Action::SetHidden(path, !o.hidden));
             } else if label.clicked() {
-                actions.push(Action::SelectPath(path));
+                actions.push(Action::SelectPath(path, ui.input(|i| i.modifiers.shift)));
             }
         }
     });
@@ -626,14 +649,25 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                 ui.end_row();
                 if let ComponentKind::Part(p) = &c.kind {
                     // In the part's own axes: length, width, thickness as the part lies; the
-                    // blank's exact box, once the kernel has given it.
-                    if let Some((lo, hi)) = editor.scene().bounds_of(&p.blank) {
+                    // final shape's exact box, once the kernel has given it (§2.11). None for a
+                    // part in several pieces: an error to correct.
+                    let pieces = p.pieces();
+                    if pieces > 1 {
+                        ui.label(t!("panel.entity_info.dimensions"));
+                        ui.colored_label(ui.visuals().error_fg_color, t!("panel.entity_info.pieces", count = pieces));
+                        ui.end_row();
+                    } else if let Some((lo, hi)) = editor.scene().bounds_of(p.shape()) {
                         ui.label(t!("panel.entity_info.dimensions"));
                         ui.label(dims(lo, hi, units));
                         ui.end_row();
                     }
-                    ui.label(t!("panel.entity_info.machinings"));
-                    ui.label(p.machinings.len().to_string());
+                    ui.label(t!("panel.entity_info.bodies"));
+                    ui.label(t!(
+                        "panel.entity_info.bodies_value",
+                        count = p.bodies.len(),
+                        positives = p.positives().count(),
+                        negatives = p.negatives().count()
+                    ));
                     ui.end_row();
                     let (f, ed, v) = p.shape().topology_counts();
                     ui.label(t!("panel.entity_info.topology"));
@@ -702,9 +736,12 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
     }
 }
 
-/// The open part (ARCHITECTURE.md §2.9): its name, how to close it, and its machinings — each
-/// with its tool's size, the failed ones marked; hovered and selected with the view. A click
-/// shows the machinings if they are not, and selects (Shift: adds or removes).
+/// The open part (ARCHITECTURE.md §2.9, §2.11): its name, how to close it, and its bodies in a
+/// flat list — its blanks first, then its machinings —, each numbered in its order of creation,
+/// with its solid's size, the failed ones marked; hovered and selected with the view. A click
+/// shows the bodies if they are not, and selects (Shift: adds), or deselects a body selected; a
+/// click on a body's
+/// sign badge toggles it (the selected bodies' too, when it is one of them).
 fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let units = &doc.settings().units;
@@ -712,47 +749,95 @@ fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions
     ui.label(t!("panel.entity_info.editing", name = c.name));
     ui.weak(t!("panel.entity_info.editing_part_exit"));
     let Some(p) = c.as_part() else { return };
-    ui.add_space(6.0);
-    if p.machinings.is_empty() {
-        ui.weak(t!("panel.entity_info.no_machinings"));
-        return;
+    let pieces = p.pieces();
+    if pieces > 1 {
+        ui.colored_label(ui.visuals().error_fg_color, format!("⚠ {}", t!("panel.entity_info.pieces", count = pieces)));
     }
-    ui.strong(t!("panel.entity_info.machinings_count", count = p.machinings.len()));
     let shown = editor.showing_machinings();
     let hovered = editor.hovered_machining();
     let mut over = None;
-    for (k, m) in p.machinings.iter().enumerate() {
-        // The tool's exact box, once the kernel has given it.
-        let size =
-            editor.scene().bounds_of(&m.tool).map_or_else(|| solidsketch_i18n::ellipsis(String::new()), |(lo, hi)| dims(lo, hi, units));
-        let mut text = egui::RichText::new(t!("panel.entity_info.machining_row", number = k + 1, size = size));
+    // Numbered in the part's order (of creation), listed blanks first.
+    let mut bodies: Vec<(usize, &solidsketch_model::Body)> = p.bodies.iter().enumerate().map(|(k, b)| (k + 1, b)).collect();
+    bodies.sort_by_key(|(_, b)| b.sign == Sign::Negative);
+    ui.add_space(6.0);
+    ui.strong(t!("panel.entity_info.bodies_count", count = bodies.len()));
+    for (number, m) in bodies {
+        // The solid's exact box, once the kernel has given it.
+        let size = editor
+            .scene()
+            .bounds_of(p.solid_of(m))
+            .map_or_else(|| solidsketch_i18n::ellipsis(String::new()), |(lo, hi)| dims(lo, hi, units));
+        // A body sharing its definition: how many show it.
+        let row = match p.copies_of(m.def) {
+            1 => t!("panel.entity_info.body_row", number = number, size = size),
+            n => t!("panel.entity_info.body_row_shared", number = number, size = size, copies = n),
+        };
+        let mut text = egui::RichText::new(row);
         if p.is_failed(m.id) {
-            text = egui::RichText::new(t!("panel.entity_info.machining_failed", row = text.text())).color(ui.visuals().error_fg_color);
+            text = egui::RichText::new(t!("panel.entity_info.body_failed", row = text.text())).color(ui.visuals().error_fg_color);
         }
         if shown && hovered == Some(m.id) {
             text = text.strong();
         }
         let selected = shown && editor.selection().contains(&m.id);
-        let r = ui.selectable_label(selected, text);
-        let r = if shown { r } else { r.on_hover_text(t!("panel.entity_info.machining_show_tip")) };
-        if r.hovered() {
-            over = Some(m.id);
-        }
-        if r.clicked() {
-            if !shown {
-                actions.push(Action::ToggleMachinings);
+        ui.horizontal(|ui| {
+            let (tip, other) = match m.sign {
+                Sign::Positive => (t!("panel.entity_info.sign_positive_tip"), Sign::Negative),
+                Sign::Negative => (t!("panel.entity_info.sign_negative_tip"), Sign::Positive),
+            };
+            let b = sign_badge(ui, m.sign).on_hover_text(tip);
+            if b.hovered() {
+                over = Some(m.id);
             }
-            let mut ids = if shown && ui.input(|i| i.modifiers.shift) { editor.selection().to_vec() } else { Vec::new() };
-            match ids.iter().position(|id| *id == m.id) {
-                Some(i) => {
-                    ids.remove(i);
+            if b.clicked()
+                && let Some(target) = editor.open_part_path()
+            {
+                let ids = match selected {
+                    true => editor.selection().iter().copied().filter(|id| p.body(*id).is_some()).collect(),
+                    false => vec![m.id],
+                };
+                actions.push(Action::Apply(Operation::SetSign { target, bodies: ids, sign: other, scope: editor.part_scope() }));
+            }
+            let r = ui.selectable_label(selected, text);
+            let r = if shown { r } else { r.on_hover_text(t!("panel.entity_info.body_show_tip")) };
+            if r.hovered() {
+                over = Some(m.id);
+            }
+            if r.clicked() {
+                if !shown {
+                    actions.push(Action::ToggleMachinings);
                 }
-                None => ids.push(m.id),
+                // Selected, taken out of the selection; else selected alone (Shift: added).
+                let ids = if selected {
+                    editor.selection().iter().copied().filter(|id| *id != m.id).collect()
+                } else if shown && ui.input(|i| i.modifiers.shift) {
+                    editor.selection().iter().copied().chain([m.id]).collect()
+                } else {
+                    vec![m.id]
+                };
+                actions.push(Action::SelectMachinings(ids));
             }
-            actions.push(Action::SelectMachinings(ids));
-        }
+        });
     }
     actions.push(Action::HoverMachining(over));
+}
+
+/// A body's sign, `+` or `−`, drawn with lines in a small button (not every font has them).
+fn sign_badge(ui: &mut egui::Ui, sign: Sign) -> egui::Response {
+    let side = ui.spacing().interact_size.y.min(18.0);
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let v = ui.style().interact(&r);
+        ui.painter().rect(rect, v.corner_radius, v.weak_bg_fill, v.bg_stroke, egui::StrokeKind::Inside);
+        let c = rect.center();
+        let h = side * 0.25;
+        let stroke = egui::Stroke::new(1.5, v.fg_stroke.color);
+        ui.painter().line_segment([c - egui::vec2(h, 0.0), c + egui::vec2(h, 0.0)], stroke);
+        if sign == Sign::Positive {
+            ui.painter().line_segment([c - egui::vec2(0.0, h), c + egui::vec2(0.0, h)], stroke);
+        }
+    }
+    r
 }
 
 // ---- materials ---------------------------------------------------------------------------------

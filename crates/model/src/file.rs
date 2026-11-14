@@ -55,9 +55,11 @@ impl Document {
 
     /// The structural invariants a file must keep: the root an assembly, known components, no
     /// cycle, ids below `next_id` — unique in the document for components, within their
-    /// assembly for occurrences and within their part for machinings (§2.6), guides within
-    /// their component and apart from its occurrences or machinings —, a part's shape there
-    /// exactly when it has machinings, and only its machinings marked failed.
+    /// assembly for occurrences and within their part for bodies and their definitions (§2.6),
+    /// every body's definition there, guides within their
+    /// component and apart from its occurrences or bodies —, a positive body in every part, its
+    /// shape there exactly when it is not plain ([`Part::is_plain`]), and only its bodies
+    /// marked failed.
     fn check(&self) -> Result<()> {
         self.assembly(self.root).map_err(|_| Error::File(FileError::RootNotAssembly))?;
         let mut seen = std::collections::HashSet::new();
@@ -85,7 +87,7 @@ impl Document {
             if !c.behavior.is_valid() {
                 return Err(Error::File(FileError::BadBehavior(c.id)));
             }
-            // A component's guides, apart from its occurrences or machinings.
+            // A component's guides, apart from its occurrences or bodies.
             let mut here = std::collections::HashSet::new();
             for g in &c.guides {
                 if g.id.0 >= self.next_id || !g.shape.is_valid() || !here.insert(g.id) {
@@ -94,18 +96,23 @@ impl Document {
             }
             match &c.kind {
                 ComponentKind::Part(p) => {
-                    for m in &p.machinings {
-                        if m.id.0 >= self.next_id || !here.insert(m.id) {
-                            return Err(Error::File(FileError::BadMachiningId(m.id)));
+                    for d in &p.defs {
+                        if d.id.0 >= self.next_id || !here.insert(d.id) {
+                            return Err(Error::File(FileError::BadBodyId(d.id)));
                         }
                     }
-                    if p.failed.iter().any(|id| !p.machinings.iter().any(|m| m.id == *id)) {
+                    for b in &p.bodies {
+                        if b.id.0 >= self.next_id || !here.insert(b.id) || p.def(b.def).is_none() {
+                            return Err(Error::File(FileError::BadBodyId(b.id)));
+                        }
+                    }
+                    if p.positives().next().is_none() || p.failed.iter().any(|id| p.body(*id).is_none()) {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
                     for m in p.faces.values() {
                         material(&Some(*m))?;
                     }
-                    if p.machinings.is_empty() != p.shape.is_none() {
+                    if p.is_plain() != p.shape.is_none() {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
                 }

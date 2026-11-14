@@ -48,7 +48,6 @@ common:
   assembly: "Assemblage"
   material: "Matière"
   materials: "Matières"
-  machinings: "Usinages"
 
 # Key names, in hints and shortcuts.
 key:
@@ -123,6 +122,9 @@ menu:
     axes: "$t(common.axes)"
     guides: "$t(common.guides)"
     silhouettes: "$t(common.silhouettes)"
+    # Every part see-through, its edges all seen, and points behind faces inferred on (for
+    # the session).
+    xray: "Rayon X"
     hide_rest_of_model: "$t(common.hide_rest_of_model)"
     # Draws what the user hid, faded (and lets it be picked).
     show_hidden: "Voir les éléments masqués"
@@ -279,13 +281,20 @@ option_bar:
   options_tip: "Les options à activer ou désactiver"
   # The tip of a value drawn as an icon: its name, then what it does.
   icon_tip: "%{label} — %{tip}"
-  # The switch shown while a part is open: its blank as a ghost, its machinings' tools
-  # (ARCHITECTURE.md §2.9).
-  machinings: "$t(common.machinings)"
-  machinings_tip: "Montrer le brut en transparence et les outils de ses usinages"
+  # The switch shown while a part is open: its blanks (positive bodies) as ghosts, its
+  # machinings (negative ones) as solids, all of them selectable (ARCHITECTURE.md §2.9, §2.11).
+  machinings: "Corps"
+  machinings_tip: "Montrer et modifier les corps de la pièce : ses bruts en transparence, ses usinages en volume"
   # The open part's profile edited with grips (ARCHITECTURE.md §6 nonies).
   profile: "Profil"
-  profile_tip: "Modifier le contour et l'épaisseur du débit de la pièce avec des poignées"
+  profile_tip: "Modifier le contour du corps sélectionné (ou du premier brut de la pièce) avec des poignées ; double-clic sur un corps pour le choisir"
+  # What a shape drawn in an open part does (ARCHITECTURE.md §2.11).
+  body_sign: "Matière"
+  body_sign_tip: "Ce que fait une forme dessinée dans la pièce ouverte (revient à « Enlever » à chaque ouverture)"
+  remove: "Enlever"
+  remove_tip: "La forme dessinée est un usinage : elle enlève de la matière à la pièce"
+  add: "Ajouter"
+  add_tip: "La forme dessinée est un brut : elle ajoute de la matière à la pièce"
   # The open part's scope, before its choices (those of the booleans' scope).
   part_scope_tip: "Ce que les modifications de la pièce ouverte changent (revient à tous les exemplaires à chaque ouverture)"
 
@@ -371,13 +380,18 @@ panel:
     editing_exit: "Clic hors de la boîte pour sortir"
     # An open part (its axes shown, the rest faded).
     editing_part_exit: "Clic hors de la boîte ou Échap pour fermer la pièce"
-    # The open part's machinings, listed (ARCHITECTURE.md §2.9).
-    no_machinings: "Aucun usinage"
-    machinings_count: "$t(common.machinings) (%{count})"
-    # One machining: its number in the part, its tool's size.
-    machining_row: "Usinage %{number} · %{size}"
-    machining_failed: "%{row} — n'a pas pu être découpé"
-    machining_show_tip: "Cliquer pour montrer les usinages et choisir celui-ci"
+    # The open part's bodies, listed flat, blanks first (ARCHITECTURE.md §2.9, §2.11).
+    bodies_count: "Corps (%{count})"
+    # One body: its number in the part (its order of creation), its solid's size.
+    body_row: "Corps %{number} · %{size}"
+    # A body sharing its definition with others: how many bodies have its shape.
+    body_row_shared: "Corps %{number} · %{size} · ×%{copies}"
+    body_failed: "%{row} — n'a pas pu être calculé"
+    body_show_tip: "Cliquer pour montrer les corps et choisir celui-ci"
+    # The sign badge before a body's row, a click toggling it (on the selected bodies too
+    # when the body is selected).
+    sign_positive_tip: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
+    sign_negative_tip: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire un brut"
     type: "Type"
     type_part: "$t(common.part)"
     type_assembly: "$t(common.assembly)"
@@ -389,7 +403,10 @@ panel:
     occurrence: "Exemplaire"
     occurrences: "Exemplaires"
     dimensions: "$t(common.dimensions)"
-    machinings: "$t(common.machinings)"
+    pieces: "en %{count} morceaux, à corriger"
+    bodies: "Corps"
+    # The bodies of a part: their count, the blanks' and the machinings'.
+    bodies_value: "%{count} (＋%{positives} −%{negatives})"
     topology: "Topologie"
     topology_counts: "%{faces} faces · %{edges} arêtes · %{vertices} sommets"
     position: "Position"
@@ -410,6 +427,12 @@ panel:
     # The eye of a row.
     hide: "$t(common.hide)"
     show: "$t(common.show)"
+    # A part in several pieces (ARCHITECTURE.md §2.11).
+    pieces: "Pièce en %{count} morceaux : à corriger"
+
+# What an operation done has to say (the status bar).
+warning:
+  union_cut: "Union faite : les usinages de la pièce ajoutée entament aussi la cible"
 
 # The status bar: the measurements box, and the messages of the app and of the editor.
 status:
@@ -668,17 +691,15 @@ tool:
   profile:
     name: "Profil"
     hint:
-      idle: "Cliquer une poignée : un coin à déplacer, le milieu d'un côté pour le décaler, d'un arc pour son bombé, le centre pour l'épaisseur, la poignée à l'intérieur d'un coin pour son congé · %{copy_key} : libre (un coin seul, ou ajouter un coin) · Suppr sur un coin : le retirer, sur un congé : le rendre vif"
+      idle: "Cliquer une poignée : un coin à déplacer, le milieu d'un côté pour le décaler, d'un arc pour son bombé, la poignée à l'intérieur d'un coin pour son congé · %{copy_key} : libre (un coin seul, ou ajouter un coin) · Suppr sur un coin : le retirer, sur un congé : le rendre vif"
       corner: "Cliquer la nouvelle place, ou taper une distance ou un point · flèches : bloquer un axe · %{copy_key} : libre · Échap : annuler"
       side: "Cliquer la nouvelle place du côté, ou taper une distance · les côtés voisins suivent · %{copy_key} : ajouter un coin à la place · Échap : annuler"
       bulge: "Cliquer le bombé de l'arc, ou taper sa flèche · près de la corde : droit · Échap : annuler"
-      thickness: "Cliquer l'épaisseur, ou la taper · Échap : annuler"
       radius: "Cliquer le rayon du disque, ou le taper · Échap : annuler"
       fillet: "Cliquer le rayon du congé, ou le taper · sur le coin : vif · Échap : annuler"
     vcb:
       distance: "Distance"
       bulge: "Flèche"
-      thickness: "Épaisseur"
       radius: "Rayon"
       fillet: "Congé"
     say:
@@ -778,6 +799,10 @@ operation:
   add_part: "$t(common.part)"
   # A shape drawn in an open part: cut from it.
   add_machining: "Usinage"
+  add_body: "Brut"
+  # Bodies made blanks, or machinings (§2.11).
+  set_sign_positive: "Changer en brut"
+  set_sign_negative: "Changer en usinage"
   add_guide: "Guide"
   transform: "$t(common.move)"
   duplicate: "$t(common.copy)"
@@ -866,11 +891,12 @@ error:
     root_placed: "le modèle ne se place pas"
     self_boolean: "une pièce ne se combine pas avec elle-même"
     no_such_face: "pas de telle face"
-    no_machinings: "aucun usinage désigné"
+    no_bodies: "aucun corps désigné"
+    last_positive: "une pièce garde au moins un brut"
     bad_guide: "guide sans direction ou sans rayon"
     nothing_stretched: "aucun exemplaire à étirer"
     bad_behavior: "plans de coupe ou axes bloqués invalides"
-    bad_profile: "profil qui se croise, sans épaisseur, ou pièce sans profil"
+    bad_profile: "profil qui se croise, sans épaisseur, ou brut sans profil"
     nothing_pasted: "rien à coller"
   # A file that cannot be opened.
   file:
@@ -879,12 +905,12 @@ error:
     too_new: "fichier en version %{version}, plus récente que celle de cette application (%{supported})"
     root_not_assembly: "la racine n'est pas un assemblage"
     bad_component_id: "identifiant de composant %{id} invalide"
-    bad_machining_id: "identifiant d'usinage %{id} invalide"
+    bad_body_id: "identifiant de corps %{id} invalide"
     bad_occurrence_id: "identifiant d'exemplaire %{id} invalide"
     bad_guide: "guide %{id} invalide"
     bad_behavior: "composant %{id} : plans de coupe ou axes bloqués invalides"
     misfiled: "composant %{id} rangé sous %{key}"
-    shape_out_of_step: "pièce %{id} : forme sans rapport avec ses usinages"
+    shape_out_of_step: "pièce %{id} : forme sans rapport avec ses corps"
     duplicate_occurrence: "exemplaire %{occurrence} en double dans %{assembly}"
     bad_material_id: "identifiant de matière %{id} invalide"
     unknown_material: "matière %{id} inconnue"

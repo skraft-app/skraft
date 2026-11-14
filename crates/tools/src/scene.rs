@@ -11,19 +11,22 @@
 //!   Assemblies have no geometry of their own.
 //! - Placements: every occurrence of every part in the scene, with its occurrence path and
 //!   world transform; a part is drawn once, instanced at all of them.
-//! - The recipe of one open part (ARCHITECTURE.md §2.9), when its machinings are shown: its
-//!   blank and its tools, meshed like shapes, under keys of their own ([`RecipeMeshes`]); one
-//!   mesh per distinct tool solid, a copied machining sharing its original's. Drawn by the
+//! - The recipe of one open part (ARCHITECTURE.md §2.9, §2.11), when its machinings are shown:
+//!   its positive bodies (the blank) and its negative ones (the tools), meshed like shapes,
+//!   under keys of their own ([`RecipeMeshes`]); one mesh per distinct solid, a copied body
+//!   sharing its original's. Drawn by the
 //!   view; for inferences ([`DisplayScene::inferable`]) they stand in for the open
 //!   occurrence's shape, each saying what it is ([`Piece`]).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use solidsketch_kernel::{Display, Mesh, Quality, Snaps, Solid};
-use solidsketch_model::{Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section};
+use solidsketch_model::{
+    Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section, Sign,
+};
 
 use crate::bvh::{Aabb, Bvh, ray_box_entry};
 use crate::camera::Ray;
@@ -142,7 +145,9 @@ pub fn preview_key(i: usize) -> Id {
 pub enum Piece {
     #[default]
     Shape,
-    Blank,
+    /// A positive body of the open part (§2.11).
+    Blank(Id),
+    /// A negative body of the open part: a machining's tool.
     Tool(Id),
     /// A guide (§6 quinquies); its owner's path names its component's occurrences then the
     /// guide's id.
@@ -157,23 +162,41 @@ pub struct Owner<'a> {
     pub piece: Piece,
 }
 
-/// One machining of the recipe shown.
+/// One body of the recipe shown.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecipeTool {
-    pub machining: Id,
-    /// The mesh of its tool.
+    pub body: Id,
+    /// The mesh of its solid.
     pub key: Id,
-    /// Its tool in the part's axes.
+    /// Its solid in the part's axes.
     pub placement: DAffine3,
     pub failed: bool,
 }
 
-/// The meshes of the recipe shown: the blank's and the tools', in the part's axes.
+/// The meshes of the recipe shown, in the part's axes: its positive bodies (`blanks`) and its
+/// negative ones (`tools`, the machinings).
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecipeMeshes {
     pub part: Id,
-    pub blank: Id,
+    pub blanks: Vec<RecipeTool>,
     pub tools: Vec<RecipeTool>,
+}
+
+impl RecipeMeshes {
+    /// Every body: the positive ones, then the negative ones.
+    pub fn bodies(&self) -> impl Iterator<Item = &RecipeTool> {
+        self.blanks.iter().chain(&self.tools)
+    }
+
+    /// The body `id`.
+    pub fn body(&self, id: Id) -> Option<&RecipeTool> {
+        self.bodies().find(|b| b.body == id)
+    }
+
+    /// Is the body `id` drawn as a ghost (a blank, or a machining that did not fail)?
+    pub fn is_ghost(&self, id: Id) -> bool {
+        self.blanks.iter().any(|b| b.body == id) || self.tools.iter().any(|b| b.body == id && !b.failed)
+    }
 }
 
 /// A guide placed in the world (ARCHITECTURE.md §6 quinquies): drawn and inferred on.
@@ -214,6 +237,8 @@ pub struct DisplayScene {
     recipe_shown: bool,
     recipe: Option<RecipeMeshes>,
     recipe_places: Vec<(Placement, Id, Piece)>,
+    /// X-ray: everything drawn see-through, hiding nothing from inferences.
+    xray: bool,
     guides: Vec<SceneGuide>,
     /// The placed meshes, indexed for picking and regions.
     index: SceneIndex,
@@ -317,33 +342,21 @@ impl DisplayScene {
         for c in doc.components() {
             let ComponentKind::Part(p) = &c.kind else { continue };
             self.define(p.shape(), c.id, &p.faces, &mut seen);
-            // A machined part's blank too, for its exact size (its dimensions).
-            if !p.machinings.is_empty() {
-                self.mesh_of(&p.blank, c.id, &BTreeMap::new(), &mut seen);
-            }
         }
         self.recipe = None;
         let shown = self.recipe_path.as_ref().and_then(|path| doc.resolve_part(path).ok());
         if let Some((part, p, _)) = shown {
-            let blank = Id(RECIPE_KEY | part.0);
-            self.define(&p.blank, blank, &BTreeMap::new(), &mut seen);
-            // One mesh per distinct tool solid, keyed by the first machining using it.
-            let mut keys: HashMap<usize, Id> = HashMap::new();
-            let mut tools = Vec::with_capacity(p.machinings.len());
-            for m in &p.machinings {
-                let at = Arc::as_ptr(&m.tool) as usize;
-                let key = match keys.get(&at) {
-                    Some(k) => *k,
-                    None => {
-                        let key = Id(RECIPE_KEY | TOOL_KEY | m.id.0);
-                        self.define(&m.tool, key, &BTreeMap::new(), &mut seen);
-                        keys.insert(at, key);
-                        key
-                    }
-                };
-                tools.push(RecipeTool { machining: m.id, key, placement: m.placement, failed: p.is_failed(m.id) });
+            // One mesh per definition (its copies share it), keyed by it.
+            for d in &p.defs {
+                self.define(&d.solid, Id(RECIPE_KEY | TOOL_KEY | d.id.0), &BTreeMap::new(), &mut seen);
             }
-            self.recipe = Some(RecipeMeshes { part, blank, tools });
+            let (mut blanks, mut tools) = (Vec::new(), Vec::with_capacity(p.bodies.len()));
+            for b in &p.bodies {
+                let key = Id(RECIPE_KEY | TOOL_KEY | b.def.0);
+                let t = RecipeTool { body: b.id, key, placement: b.placement, failed: p.is_failed(b.id) };
+                if b.sign == Sign::Positive { blanks.push(t) } else { tools.push(t) }
+            }
+            self.recipe = Some(RecipeMeshes { part, blanks, tools });
         }
         // Keep what the document shows, and what something else holds (undo, a job).
         self.solids.retain(|key, c| seen.contains(key) || Arc::strong_count(&c.solid) > 1);
@@ -373,10 +386,13 @@ impl DisplayScene {
         if let (Some(r), Some(path), true) = (&self.recipe, &self.recipe_path, self.recipe_shown) {
             let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
             if let Some(open) = self.placements.get(&r.part).and_then(|ps| ps.iter().find(|p| p.path == chain)).cloned() {
-                self.recipe_places.push((open.clone(), r.blank, Piece::Blank));
+                for b in &r.blanks {
+                    let place = Placement { transform: open.transform * b.placement, ..open.clone() };
+                    self.recipe_places.push((place, b.key, Piece::Blank(b.body)));
+                }
                 for t in &r.tools {
                     let place = Placement { transform: open.transform * t.placement, material: None, ..open.clone() };
-                    self.recipe_places.push((place, t.key, Piece::Tool(t.machining)));
+                    self.recipe_places.push((place, t.key, Piece::Tool(t.body)));
                 }
             }
         }
@@ -743,6 +759,22 @@ impl DisplayScene {
         self.pick_among(ray, false, |o| keep(o.path))
     }
 
+    /// X-ray: everything drawn see-through, hiding nothing from inferences.
+    pub fn set_xray(&mut self, on: bool) {
+        self.xray = on;
+    }
+
+    /// Is `piece` drawn see-through, hiding nothing from inferences: anything in X-ray, else
+    /// an open part's body shown as a ghost (a blank, a machining that did not fail, §2.11)?
+    pub fn see_through(&self, piece: Piece) -> bool {
+        match (piece, &self.recipe) {
+            _ if self.xray => true,
+            (Piece::Blank(_), Some(_)) => true,
+            (Piece::Tool(id), Some(r)) => r.tools.iter().any(|t| t.body == id && !t.failed),
+            _ => false,
+        }
+    }
+
     /// The nearest geometry inferences see along `ray` ([`DisplayScene::inferable`]), among
     /// what `keep` accepts.
     pub fn pick_inferable(&self, ray: &Ray, keep: impl Fn(&Owner<'_>) -> bool) -> Option<Hit> {
@@ -853,12 +885,19 @@ impl DisplayScene {
 }
 
 impl DisplayScene {
-    /// The machining of the recipe shown whose tool `ray` meets first, the part drawn by
-    /// `part_to_world`, with the distance along the ray.
-    pub fn pick_tool(&self, ray: &Ray, part_to_world: DAffine3) -> Option<(Id, f64)> {
+    /// The body of the recipe shown that `ray` meets first, the part drawn by
+    /// `part_to_world`, with the distance along the ray: a negative one (a machining) first,
+    /// whatever the depth — they lie inside the positive ones, drawn as ghosts —, else a
+    /// positive one.
+    pub fn pick_body(&self, ray: &Ray, part_to_world: DAffine3) -> Option<(Id, f64)> {
         let recipe = self.recipe.as_ref()?;
+        self.pick_in(&recipe.tools, ray, part_to_world).or_else(|| self.pick_in(&recipe.blanks, ray, part_to_world))
+    }
+
+    /// The body of `bodies` that `ray` meets first, and where.
+    fn pick_in(&self, bodies: &[RecipeTool], ray: &Ray, part_to_world: DAffine3) -> Option<(Id, f64)> {
         let mut best: Option<(Id, f64)> = None;
-        for tool in &recipe.tools {
+        for tool in bodies {
             let Some(part) = self.definitions.get(&tool.key).and_then(|d| d.parts.first()) else { continue };
             let Some(b) = part.bounds else { continue };
             let t = part_to_world * tool.placement;
@@ -871,7 +910,7 @@ impl DisplayScene {
             let Some((k, _, _)) = ray_mesh(o, d, &part.mesh, ray.t_min, clip) else { continue };
             let world_t = (t.transform_point3(o + d * k) - ray.origin).dot(ray.dir);
             if best.is_none_or(|(_, b)| world_t < b) {
-                best = Some((tool.machining, world_t));
+                best = Some((tool.body, world_t));
             }
         }
         best

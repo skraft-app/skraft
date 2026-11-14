@@ -419,7 +419,7 @@ fn near_ray(camera: &Camera, size: DVec2, ray: &Ray, (lo, hi): (DVec3, DVec3)) -
 }
 
 /// Is `p` seen from the camera: not cut away by the section, and nothing before it on its
-/// own ray?
+/// own ray — what is drawn see-through hides nothing ([`DisplayScene::see_through`])?
 fn visible(scene: &DisplayScene, camera: &Camera, size: DVec2, screen: &Projector, p: DVec3, q: &Query<'_>) -> bool {
     if scene.section().is_some_and(|s| s.cuts(p)) {
         return false;
@@ -427,7 +427,7 @@ fn visible(scene: &DisplayScene, camera: &Camera, size: DVec2, screen: &Projecto
     let Some(s) = screen.project(p) else { return false };
     let ray = camera.ray(s, size);
     let depth = (p - ray.origin).dot(ray.dir);
-    match scene.pick_inferable(&ray, q.keep) {
+    match scene.pick_inferable(&ray, |o| (q.keep)(o) && !scene.see_through(o.piece)) {
         None => true,
         // Points on the surface hit are seen: allow a few pixels (a mesh only approximates
         // curved faces) and a hair for rounding.

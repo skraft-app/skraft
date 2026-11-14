@@ -51,6 +51,8 @@ struct FaceOut {
     @location(2) tint: vec4<f32>,
     @location(3) @interpolate(flat) mirrored: f32,
     @location(4) @interpolate(flat) colour: u32,
+    // A ghost's opacity over the ghosts'.
+    @location(5) @interpolate(flat) opacity: f32,
 };
 
 @vertex
@@ -64,6 +66,7 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
     out.normal = nmat * normal;
     out.tint = inst.tint;
     out.mirrored = inst.n0.w;
+    out.opacity = inst.n1.w;
     // The face's own colour, else its placement's.
     out.colour = select(inst.material, paint, paint != NO_MATERIAL);
     return out;
@@ -95,14 +98,25 @@ fn fs_face_cut(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0)
     return shade(in, facing, true);
 }
 
-// A ghost's faces (an open part's blank): its fronts only, shaded, blended at the ghosts'
-// opacity; cut by the section like the rest.
+// A ghost's faces (an open part's body, every part in X-ray): its fronts only, shaded,
+// blended at the ghosts' opacity raised by its own (a machining's, a little more opaque than a
+// blank); cut by the section like the rest.
 @fragment
 fn fs_face_ghost(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec4<f32> {
     if (cut(in.world) || !is_front(in, facing)) {
         discard;
     }
-    return vec4<f32>(shade(in, facing, false).rgb, g.section.z);
+    return vec4<f32>(shade(in, facing, false).rgb, min(g.section.z + in.opacity, 1.0));
+}
+
+// A ghost highlighted: its fronts washed with the tint, at a part of the tint's weight — over
+// the ghost's own faces, see-through still.
+@fragment
+fn fs_face_ghost_mark(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec4<f32> {
+    if (cut(in.world) || !is_front(in, facing)) {
+        discard;
+    }
+    return vec4<f32>(in.tint.rgb, in.tint.a * 0.6);
 }
 
 // Does the fragment show the outside of its part? (A mirrored placement turns the winding

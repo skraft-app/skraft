@@ -65,6 +65,8 @@ pub struct ViewHighlight {
     pub mark: Mark,
     /// The material the part takes there.
     pub material: Option<Id>,
+    /// An open part's blank, drawn as a ghost: highlighted see-through (§2.11).
+    pub ghost: bool,
 }
 
 /// What the viewport draws this frame (meshes come from [`Editor::scene`]).
@@ -114,7 +116,7 @@ pub struct View {
 /// the context, the selection and the recipe shown stay, worked out again only then. A move's
 /// ghost is the same, moved.
 pub(crate) struct SelectionDrawing {
-    key: (u64, Vec<Id>, Vec<Id>, bool),
+    key: (u64, Vec<Id>, Vec<Id>, bool, bool),
     marks: Vec<ViewHighlight>,
     boxes: Vec<OrientedBox>,
     set: solidsketch_model::FastSet<Id>,
@@ -185,13 +187,18 @@ impl Editor {
         let to_local = frame.inverse();
         let mut bounds: Option<(DVec3, DVec3)> = None;
         for u in under {
-            // A part's recipe shown: its blank holds the tools' cuts.
-            let key = self.scene.recipe().filter(|r| r.part == u.part).map_or(u.part, |r| r.blank);
-            let Some(dm) = self.scene.definition_mesh(key) else { continue };
-            let rel = to_local * extra * u.transform;
-            for b in dm.parts.iter().filter_map(|p| p.bounds) {
-                let (lo, hi) = transform_bounds(&rel, b);
-                bounds = Some(bounds.map_or((lo, hi), |(l, h)| (l.min(lo), h.max(hi))));
+            // A part's recipe shown: its positive bodies hold the tools' cuts.
+            let keys = match self.scene.recipe().filter(|r| r.part == u.part) {
+                Some(r) => r.blanks.iter().map(|b| (b.key, b.placement)).collect(),
+                None => vec![(u.part, DAffine3::IDENTITY)],
+            };
+            for (key, placement) in keys {
+                let Some(dm) = self.scene.definition_mesh(key) else { continue };
+                let rel = to_local * extra * u.transform * placement;
+                for b in dm.parts.iter().filter_map(|p| p.bounds) {
+                    let (lo, hi) = transform_bounds(&rel, b);
+                    bounds = Some(bounds.map_or((lo, hi), |(l, h)| (l.min(lo), h.max(hi))));
+                }
             }
         }
         let (mut lo, mut hi) = bounds?;
@@ -218,7 +225,7 @@ impl Editor {
     }
 
     /// The selection drawn where it is ([`SelectionDrawing`]), for `key`.
-    fn selection_drawing_of(&self, key: (u64, Vec<Id>, Vec<Id>, bool)) -> SelectionDrawing {
+    fn selection_drawing_of(&self, key: (u64, Vec<Id>, Vec<Id>, bool, bool)) -> SelectionDrawing {
         let doc = self.document();
         let mut marks = Vec::new();
         let mut boxes = Vec::new();
@@ -228,13 +235,29 @@ impl Editor {
             // The open part's machinings: their tools, where the part is.
             let at = self.open_part_path().and_then(|o| doc.resolve_part(&o).ok()).map(|(_, _, t)| t);
             for id in &self.selection {
-                if let (Some(t), Some(tool)) = (at, r.tools.iter().find(|tool| tool.machining == *id)) {
+                if let (Some(t), Some(tool)) = (at, r.body(*id)) {
                     marks.push(ViewHighlight {
                         definition: tool.key,
                         solid: tool.key,
                         transform: t * tool.placement,
                         mark: Mark::Selected,
                         material: None,
+                        ghost: key.4 || r.is_ghost(*id),
+                    });
+                }
+            }
+            // The other copies of the bodies selected (one definition, one mesh): a change to
+            // the shape shows there too.
+            let keys: Vec<Id> = self.selection.iter().filter_map(|id| r.body(*id)).map(|b| b.key).collect();
+            for b in r.bodies().filter(|b| keys.contains(&b.key) && !self.selection.contains(&b.body)) {
+                if let Some(t) = at {
+                    marks.push(ViewHighlight {
+                        definition: b.key,
+                        solid: b.key,
+                        transform: t * b.placement,
+                        mark: Mark::Related,
+                        material: None,
+                        ghost: key.4 || r.is_ghost(b.body),
                     });
                 }
             }
@@ -266,6 +289,7 @@ impl Editor {
                         transform: u.transform,
                         mark: Mark::Selected,
                         material: u.material,
+                        ghost: key.4,
                     }));
                 }
             }
@@ -297,7 +321,8 @@ impl Editor {
             .filter(|_| open.as_ref().is_none_or(|o| swaps.is_none_or(|s| !s.contains_key(o))));
         // The selection's marks, boxes and set (looked up for every placement: a selection can
         // hold tens of thousands), kept from the last frame when nothing they hang on changed.
-        let key = (self.scene.generation(), self.context.clone(), self.selection.clone(), recipe.is_some());
+        // X-ray (`key.4`): the marks drawn see-through.
+        let key = (self.scene.generation(), self.context.clone(), self.selection.clone(), recipe.is_some(), self.xray);
         if self.selection_drawing.borrow().as_ref().is_none_or(|d| d.key != key) {
             let drawing = self.selection_drawing_of(key);
             *self.selection_drawing.borrow_mut() = Some(drawing);
@@ -340,7 +365,7 @@ impl Editor {
                     faded: outside(p) || p.hidden,
                     material: p.material,
                     look: Look::Shape,
-                    ghost: false,
+                    ghost: self.xray,
                     faint_edges: false,
                 };
                 if erased(p) {
@@ -367,31 +392,56 @@ impl Editor {
                 .placements()
                 .find(|(p, _)| *p == r.part)
                 .and_then(|(_, places)| places.iter().find(|p| p.entity_path() == *o).and_then(|p| p.material));
-            v.batches.push((r.blank, vec![ViewPlacement { transform: t, faded: false, material, look: Look::Blank, ghost: true, faint_edges: false }]));
-            let (mut tools, mut tool_ghosts): (Batches, Batches) = (Vec::new(), Vec::new());
+            // A body stretched is drawn as previewed (§2.11).
+            let body_swaps = if preview.stretch.is_some() { Some(&self.body_swaps) } else { None };
+            let drawn = |b: &crate::scene::RecipeTool| body_swaps.and_then(|s| s.get(&b.body)).copied().unwrap_or((b.key, b.placement));
+            // A positive body moved without a copy is drawn only where it goes, as a tool.
+            for b in r.blanks.iter().filter(|b| !(hide_original && selected.contains(&b.body))) {
+                let (key, placement) = drawn(b);
+                let p = ViewPlacement {
+                    transform: t * placement,
+                    faded: false,
+                    material,
+                    look: Look::Blank,
+                    ghost: true,
+                    faint_edges: erasing.contains(&b.body),
+                };
+                v.batches.push((key, vec![p]));
+            }
+            let (mut tools, mut tool_ghosts, mut tool_faint): (Batches, Batches, Batches) = (Vec::new(), Vec::new(), Vec::new());
             // A tool moved without a copy is drawn only where it goes.
-            for tool in r.tools.iter().filter(|tool| !(hide_original && selected.contains(&tool.machining))) {
+            for tool in r.tools.iter().filter(|tool| !(hide_original && selected.contains(&tool.body))) {
+                // A ghost, a little more opaque than a blank; one that failed opaque (§2.11).
                 let look = if tool.failed { Look::FailedTool } else { Look::Tool };
-                let ghost = erasing.contains(&tool.machining);
-                let p = ViewPlacement { transform: t * tool.placement, faded: false, material: None, look, ghost, faint_edges: ghost };
-                push_to(if ghost { &mut tool_ghosts } else { &mut tools }, tool.key, p);
+                let faint = erasing.contains(&tool.body);
+                let ghost = faint || !tool.failed || self.xray;
+                let (key, placement) = drawn(tool);
+                let p = ViewPlacement { transform: t * placement, faded: false, material: None, look, ghost, faint_edges: faint };
+                // Batches of one kind: a batch's edges are faint, or not, as a whole.
+                let out = match (ghost, faint) {
+                    (_, true) => &mut tool_faint,
+                    (true, false) => &mut tool_ghosts,
+                    (false, false) => &mut tools,
+                };
+                push_to(out, key, p);
             }
             v.batches.extend(tools);
             v.batches.extend(tool_ghosts);
+            v.batches.extend(tool_faint);
         }
         // While an open part's machinings show, the selection and hover are its machinings.
         let tool_at = |id: Id| {
             let r = recipe?;
             let t = doc.resolve_part(open.as_ref()?).ok()?.2;
-            r.tools.iter().find(|tool| tool.machining == id).map(|tool| (tool.key, t * tool.placement))
+            r.body(id).map(|tool| (tool.key, t * tool.placement, self.xray || r.is_ghost(id)))
         };
         // The occurrences of the context, indexed once, when something is marked.
         let index_cell = std::cell::OnceCell::new();
         let index = || index_cell.get_or_init(|| ContextIndex::new(doc, &self.context)).as_ref();
         let mark = |out: &mut Vec<ViewHighlight>, ctx: &[Id], id: Id, m: Mark, extra: DAffine3| {
             if recipe.is_some() {
-                if let Some((key, t)) = tool_at(id) {
-                    out.push(ViewHighlight { definition: key, solid: key, transform: extra * t, mark: m, material: None });
+                if let Some((key, t, ghost)) = tool_at(id) {
+                    out.push(ViewHighlight { definition: key, solid: key, transform: extra * t, mark: m, material: None, ghost });
                 }
                 return;
             }
@@ -407,6 +457,7 @@ impl Editor {
                     transform: extra * u.transform,
                     mark: m,
                     material: u.material,
+                    ghost: self.xray,
                 });
             }
         };
@@ -493,6 +544,7 @@ impl Editor {
                     transform: u.transform,
                     mark: if faded { Mark::HoverFaded } else { Mark::Hover },
                     material: u.material,
+                    ghost: self.xray,
                 });
             }
         }
@@ -520,6 +572,7 @@ impl Editor {
                     transform: p.transform,
                     mark: Mark::Related,
                     material: p.material,
+                    ghost: self.xray,
                 });
             }
         }

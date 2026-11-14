@@ -20,11 +20,13 @@ use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
 
-use crate::clipboard::MachiningFragment;
+use crate::clipboard::BodyFragment;
 use crate::document::{
-    Assembly, Behavior, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Machining, MachiningSource, Material, Occurrence, Part,
+    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign,
+    is_identity,
 };
 use crate::settings::Settings;
+use crate::stretch::BodyStretch;
 use crate::{Error, FastSet, Refusal, Result};
 
 /// What a change to a part touches (ARCHITECTURE.md §2.5).
@@ -62,11 +64,11 @@ fn identity() -> DAffine3 {
 
 /// Every change to a document. `context` is always the id of the assembly being edited, and
 /// `entities` occurrences of it — or its guides (§6 quinquies), which removing, moving,
-/// copying and grouping take too, as the operations on machinings take the part's.
+/// copying and grouping take too, as the operations on bodies take the part's.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Operation {
-    /// A new part built from a primitive, and its first occurrence in `context`: the blank in
-    /// the part's own axes, the occurrence placed by the rigid `placement` (a box drawn on a
+    /// A new part built from a primitive, and its first occurrence in `context`: its positive
+    /// body in the part's own axes, the occurrence placed by the rigid `placement` (a box drawn on a
     /// wall, §6 ter; identity for an axis-aligned one) and where the primitive stood.
     AddPrimitive {
         context: Id,
@@ -99,8 +101,9 @@ pub enum Operation {
     PlaceOccurrence { context: Id, component: Id, transform: DAffine3 },
     /// `target op tool`, on the target's part, the tool brought into its axes
     /// (ARCHITECTURE.md §4): on every occurrence of the part, or only the one picked
-    /// (`scope`, §2.5). A difference adds a machining; a union or an intersection makes a new
-    /// blank. The tool's occurrence leaves the model.
+    /// (`scope`, §2.5). A difference adds the tool's shape as a negative body; a union gives
+    /// the target all the tool's bodies (§2.11); an intersection makes a new part of one
+    /// positive body. The tool's occurrence leaves the model.
     Boolean {
         target: EntityPath,
         tool: EntityPath,
@@ -108,48 +111,67 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
-    /// A primitive cut from the part `target` places, as a new machining (drawn in an open
-    /// part, ARCHITECTURE.md §2.9): built in its own axes, placed by the rigid `placement` in
-    /// the part's, as [`Operation::AddPrimitive`] places a blank in its context.
-    AddMachining {
+    /// A primitive added to the part `target` places, as a new body of `sign` (drawn in an
+    /// open part, ARCHITECTURE.md §2.9, §2.11 — a negative one is a machining): built in its
+    /// own axes, placed by the rigid `placement` in the part's, as [`Operation::AddPrimitive`]
+    /// places a part in its context.
+    AddBody {
         target: EntityPath,
         primitive: Primitive,
         #[serde(default = "identity", skip_serializing_if = "is_identity")]
         placement: DAffine3,
+        sign: Sign,
         #[serde(default)]
         scope: Scope,
     },
-    /// Removes machinings from the part `target` places; the part is computed again from its
-    /// blank.
-    DeleteMachinings {
+    /// Removes bodies from the part `target` places (a positive one is left); the part is
+    /// computed again.
+    DeleteBodies {
         target: EntityPath,
-        machinings: Vec<Id>,
+        bodies: Vec<Id>,
         #[serde(default)]
         scope: Scope,
     },
-    /// Moves (rotates, mirrors) machinings of the part `target` places by `transform`, in the
-    /// part's axes; the part is computed again from its blank.
-    TransformMachinings {
+    /// Gives each of the bodies of the part `target` places that shares its definition a copy of
+    /// its own (§2.11): a change to its shape no longer shows in the others.
+    MakeBodiesUnique {
         target: EntityPath,
-        machinings: Vec<Id>,
+        bodies: Vec<Id>,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Gives bodies of the part `target` places the sign `sign` (a blank becomes a machining,
+    /// or the reverse; a positive one is left); the part is computed again.
+    SetSign {
+        target: EntityPath,
+        bodies: Vec<Id>,
+        sign: Sign,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Moves (rotates, mirrors) bodies of the part `target` places by `transform`, in the
+    /// part's axes; the part is computed again.
+    TransformBodies {
+        target: EntityPath,
+        bodies: Vec<Id>,
         transform: DAffine3,
         #[serde(default)]
         scope: Scope,
     },
-    /// Copies machinings of the part `target` places, moved by `transform` in its axes: the
-    /// copies are cut from the part as it is.
-    DuplicateMachinings {
+    /// Copies bodies of the part `target` places, moved by `transform` in its axes: the
+    /// copies are added to the part as it is.
+    DuplicateBodies {
         target: EntityPath,
-        machinings: Vec<Id>,
+        bodies: Vec<Id>,
         transform: DAffine3,
         #[serde(default)]
         scope: Scope,
     },
-    /// `count` copies of machinings of the part `target` places, the k-th moved by `step`
+    /// `count` copies of bodies of the part `target` places, the k-th moved by `step`
     /// applied k times, in its axes.
-    ArrayMachinings {
+    ArrayBodies {
         target: EntityPath,
-        machinings: Vec<Id>,
+        bodies: Vec<Id>,
         step: DAffine3,
         count: u32,
         #[serde(default)]
@@ -160,9 +182,9 @@ pub enum Operation {
     /// own, the context's or the model's, ARCHITECTURE.md §6 sexies): the cutters at `cuts`
     /// (increasing positions along the axis, as `axis · p`) split them into sections, section
     /// `i` moved by `moves[i]` along the axis. What lies in one section is moved; a part across
-    /// a cutter has its blank stretched, a machining in one section moved with it, one across a
-    /// cutter its tool stretched, its guides following their section, then is computed again
-    /// from its blank; an assembly across a cutter is walked, each component stretched in its
+    /// a cutter has each body in one section moved with it, each one across a cutter stretched
+    /// in its own axes, its guides following their section, then is computed again; an
+    /// assembly across a cutter is walked, each component stretched in its
     /// own axes (`stretch.rs`).
     ///
     /// `cutters`, with one occurrence: the cutters its component (as it is after the stretch)
@@ -180,12 +202,28 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cutters: Option<Box<[Vec<f64>; 3]>>,
     },
-    /// Gives the part `target` places a new blank profile (§6 nonies, step 3): the blank is
-    /// built again from it, then the shape from the blank; under the scope, "only this one"
-    /// making it a separate part. The part must have a profile already.
+    /// Stretches bodies of the part `target` places, each in its own axes (§2.11, §6 sexies),
+    /// and its guides among `bodies`: along `axis`, in the axes `frame` places in the part's,
+    /// the cutters at `cuts` splitting them into sections moved by `moves` (as
+    /// [`Operation::Stretch`]). A body in one section is moved, one across a cutter stretched
+    /// (its profile kept when it stays one); then the part is computed again.
+    StretchBodies {
+        target: EntityPath,
+        bodies: Vec<Id>,
+        frame: DAffine3,
+        axis: DVec3,
+        cuts: Vec<f64>,
+        moves: Vec<f64>,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Gives the body `body` of the part `target` places a new profile (§6 nonies, §2.11), in
+    /// the body's axes: its solid is built again from it, then the part; under the scope,
+    /// "only this one" making it a separate part. The body must have a profile already.
     SetProfile {
         target: EntityPath,
-        profile: crate::BlankProfile,
+        body: Id,
+        profile: crate::BodyProfile,
         #[serde(default)]
         scope: Scope,
     },
@@ -226,12 +264,12 @@ pub enum Operation {
     /// still here are used as they are — the copies are occurrences of the same parts (§2.5);
     /// the others are grafted as from another document ([`Operation::Insert`]).
     Paste { context: Id, fragment: Arc<Document>, transform: DAffine3, reuse: bool },
-    /// Adds to the part `target` places the machinings and guides copied from an open part
-    /// ([`Document::machinings_fragment`]), moved by the rigid `transform` in the part's axes;
-    /// the copies are cut from the part as it is.
-    PasteMachinings {
+    /// Adds to the part `target` places the bodies and guides copied from an open part
+    /// ([`Document::bodies_fragment`]), moved by the rigid `transform` in the part's axes;
+    /// the copies are added to the part as it is.
+    PasteBodies {
         target: EntityPath,
-        fragment: Arc<MachiningFragment>,
+        fragment: Arc<BodyFragment>,
         #[serde(default = "identity", skip_serializing_if = "is_identity")]
         transform: DAffine3,
         #[serde(default)]
@@ -251,7 +289,7 @@ impl Operation {
             Operation::RenameOccurrence { .. } | Operation::RenameComponent { .. } => t!("operation.rename"),
             Operation::MakeAssembly { .. } => t!("operation.make_assembly"),
             Operation::Explode { .. } => t!("operation.explode"),
-            Operation::MakeUnique { .. } => t!("operation.make_unique"),
+            Operation::MakeUnique { .. } | Operation::MakeBodiesUnique { .. } => t!("operation.make_unique"),
             Operation::PlaceOccurrence { .. } => t!("operation.place"),
             Operation::Boolean { op: Boolean::Union, .. } => t!("operation.union"),
             Operation::Boolean { op: Boolean::Difference, .. } => t!("operation.difference"),
@@ -264,15 +302,18 @@ impl Operation {
             Operation::SetHidden { hidden: true, .. } => t!("operation.hide"),
             Operation::SetHidden { hidden: false, .. } => t!("operation.show"),
             Operation::ShowAll => t!("operation.show_all"),
-            Operation::AddMachining { .. } => t!("operation.add_machining"),
-            Operation::DeleteMachinings { .. } => t!("operation.delete"),
-            Operation::TransformMachinings { .. } => t!("operation.transform"),
-            Operation::DuplicateMachinings { .. } => t!("operation.duplicate"),
-            Operation::ArrayMachinings { .. } => t!("operation.array"),
+            Operation::AddBody { sign: Sign::Negative, .. } => t!("operation.add_machining"),
+            Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
+            Operation::DeleteBodies { .. } => t!("operation.delete"),
+            Operation::SetSign { sign: Sign::Positive, .. } => t!("operation.set_sign_positive"),
+            Operation::SetSign { sign: Sign::Negative, .. } => t!("operation.set_sign_negative"),
+            Operation::TransformBodies { .. } => t!("operation.transform"),
+            Operation::DuplicateBodies { .. } => t!("operation.duplicate"),
+            Operation::ArrayBodies { .. } => t!("operation.array"),
             Operation::AddGuide { .. } => t!("operation.add_guide"),
             Operation::Insert { .. } => t!("operation.import"),
-            Operation::Paste { .. } | Operation::PasteMachinings { .. } => t!("operation.paste"),
-            Operation::Stretch { .. } => t!("operation.stretch"),
+            Operation::Paste { .. } | Operation::PasteBodies { .. } => t!("operation.paste"),
+            Operation::Stretch { .. } | Operation::StretchBodies { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
             Operation::SetProfile { .. } => t!("operation.set_profile"),
         }
@@ -298,14 +339,32 @@ pub const MAX_ARRAY: u32 = 1000;
 pub struct Outcome {
     /// Occurrences created, in the operation's context (the target's, for a boolean).
     pub created: Vec<Id>,
-    /// Machinings created, in the target's part (as it is after the operation).
-    pub machinings: Vec<Id>,
+    /// Bodies (and guides, pasted with them) created, in the target's part (as it is after
+    /// the operation).
+    pub bodies: Vec<Id>,
     /// The material created.
     pub material: Option<Id>,
     /// The guide created, in the operation's component.
     pub guide: Option<Id>,
     /// The parts a stretch changed, and how (§6 sexies).
     pub stretched: Vec<crate::StretchedPart>,
+    /// Done, but the user should know something about it (the status bar says it).
+    pub warning: Option<Warning>,
+}
+
+/// What an operation done has to say.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Warning {
+    /// A union whose tool's machinings (negative bodies) cut the target too (§2.11).
+    UnionCut,
+}
+
+impl std::fmt::Display for Warning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&match self {
+            Warning::UnionCut => t!("warning.union_cut"),
+        })
+    }
 }
 
 /// An operation applied: the new document, what it created, and the displays the kernel made
@@ -518,7 +577,7 @@ impl Document {
                 self.component_mut(*context)?.guides.extend(guides);
                 Ok(Outcome { created, ..Outcome::default() })
             }
-            Operation::PasteMachinings { target, fragment, transform, scope } => {
+            Operation::PasteBodies { target, fragment, transform, scope } => {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
@@ -526,25 +585,36 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NothingPasted));
                 }
                 self.resolve_part(target)?;
-                if *scope == Scope::This && !fragment.machinings.is_empty() {
+                if *scope == Scope::This && !fragment.bodies.is_empty() {
                     self.separate(target)?;
                 }
-                let (part, _, _) = self.resolve_part(target)?;
-                let copies: Vec<Machining> = fragment
-                    .machinings
-                    .iter()
-                    .map(|m| Machining { id: self.fresh_id(), placement: *transform * m.placement, ..m.clone() })
-                    .collect();
-                let mut created: Vec<Id> = copies.iter().map(|m| m.id).collect();
+                let (part, p, _) = self.resolve_part(target)?;
+                // Into the part copied from, its definitions as they are: the bodies pasted are
+                // copies of theirs; elsewhere, copies of the definitions.
+                let here = |b: &Body| {
+                    let from = fragment.defs.iter().find(|d| d.id == b.def);
+                    p.def(b.def).is_some_and(|d| from.is_some_and(|f| Arc::ptr_eq(&f.solid, &d.solid) && f.profile == d.profile))
+                };
+                let (same, other): (Vec<&Body>, Vec<&Body>) = fragment.bodies.iter().partition(|b| here(b));
+                let other: Vec<Body> = other.into_iter().cloned().collect();
+                let mut copies: Vec<Body> = Vec::with_capacity(fragment.bodies.len());
+                for b in same {
+                    copies.push(Body { id: self.fresh_id(), placement: *transform * b.placement, ..b.clone() });
+                }
+                let (defs, rest) = self.copies_of_bodies(&fragment.defs, &other, transform);
+                copies.extend(rest);
+                let mut created: Vec<Id> = copies.iter().map(|b| b.id).collect();
                 if !copies.is_empty() {
-                    self.part_mut(part)?.machinings.extend(copies);
+                    let p = self.part_mut(part)?;
+                    p.defs.extend(defs);
+                    p.bodies.extend(copies);
                     self.recompute(part, Some(&created), solver)?;
                 }
                 let guides: Vec<Guide> =
                     fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: s.transformed(transform) }).collect();
                 created.extend(guides.iter().map(|g| g.id));
                 self.component_mut(part)?.guides.extend(guides);
-                Ok(Outcome { machinings: created, ..Outcome::default() })
+                Ok(Outcome { bodies: created, ..Outcome::default() })
             }
             Operation::AddGuide { component, shape } => {
                 self.component(*component)?;
@@ -561,9 +631,11 @@ impl Document {
                     return Err(Error::Invalid(Refusal::PlacementNotRigid));
                 }
                 let (local, at) = primitive.at_origin();
-                let blank = solver.primitive(&local)?;
+                let solid = solver.primitive(&local)?;
                 // The shapes drawn keep their profile (§6 nonies, step 3).
-                let part = Part { profile: crate::BlankProfile::of(&local), ..Part::new(blank) };
+                let def = BodyDef { profile: crate::BodyProfile::of(&local), ..BodyDef::new(self.fresh_id(), solid) };
+                let body = Body::new(self.fresh_id(), def.id, Sign::Positive, DAffine3::IDENTITY);
+                let part = Part::of_body(def, body);
                 let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(part));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
@@ -756,7 +828,7 @@ impl Document {
                 }
                 self.boolean(target, tool, *op, solver)
             }
-            Operation::AddMachining { target, primitive, placement, scope } => {
+            Operation::AddBody { target, primitive, placement, sign, scope } => {
                 if !is_rigid(placement) {
                     return Err(Error::Invalid(Refusal::PlacementNotRigid));
                 }
@@ -766,65 +838,110 @@ impl Document {
                 }
                 let (part, _, _) = self.resolve_part(target)?;
                 let (local, at) = primitive.at_origin();
-                let tool = solver.primitive(&local)?;
+                let solid = solver.primitive(&local)?;
                 let id = self.fresh_id();
                 let placement = *placement * DAffine3::from_translation(at);
-                self.part_mut(part)?.machinings.push(Machining { id, tool, placement, source: MachiningSource::Local });
+                // Drawn, it keeps its profile (§6 nonies).
+                let def = BodyDef { profile: crate::BodyProfile::of(&local), ..BodyDef::new(self.fresh_id(), solid) };
+                let p = self.part_mut(part)?;
+                p.bodies.push(Body::new(id, def.id, *sign, placement));
+                p.defs.push(def);
                 self.recompute(part, Some(&[id]), solver)?;
-                Ok(Outcome { machinings: vec![id], ..Outcome::default() })
+                Ok(Outcome { bodies: vec![id], ..Outcome::default() })
             }
-            Operation::DeleteMachinings { target, machinings, scope } => {
-                let (part, guides, machinings) = &self.machined_part(target, machinings, *scope)?;
+            Operation::DeleteBodies { target, bodies, scope } => {
+                let (part, guides, bodies) = &self.bodies_of(target, bodies, *scope)?;
+                if !bodies.is_empty() && self.part(*part)?.positives().all(|b| bodies.contains(&b.id)) {
+                    return Err(Error::Invalid(Refusal::LastPositive));
+                }
                 self.component_mut(*part)?.guides.retain(|g| !guides.contains(&g.id));
-                if !machinings.is_empty() {
-                    self.part_mut(*part)?.machinings.retain(|m| !machinings.contains(&m.id));
+                if !bodies.is_empty() {
+                    let p = self.part_mut(*part)?;
+                    p.bodies.retain(|b| !bodies.contains(&b.id));
+                    p.drop_unused_defs();
                     self.recompute(*part, None, solver)?;
                 }
                 Ok(Outcome::default())
             }
-            Operation::TransformMachinings { target, machinings, transform, scope } => {
+            Operation::MakeBodiesUnique { target, bodies, scope } => {
+                let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                for id in bodies {
+                    let p = self.part(part)?;
+                    let Some(b) = p.body(id) else { continue };
+                    if p.copies_of(b.def) < 2 {
+                        continue;
+                    }
+                    let def = p.def_of(b).clone();
+                    let copy = BodyDef { id: self.fresh_id(), ..def };
+                    let p = self.part_mut(part)?;
+                    if let Some(b) = p.bodies.iter_mut().find(|b| b.id == id) {
+                        b.def = copy.id;
+                    }
+                    p.defs.push(copy);
+                }
+                Ok(Outcome::default())
+            }
+            Operation::SetSign { target, bodies, sign, scope } => {
+                let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let p = self.part(part)?;
+                let flipped: Vec<Id> = p.bodies.iter().filter(|b| bodies.contains(&b.id) && b.sign != *sign).map(|b| b.id).collect();
+                if flipped.is_empty() {
+                    return Ok(Outcome::default());
+                }
+                if *sign == Sign::Negative && p.positives().all(|b| flipped.contains(&b.id)) {
+                    return Err(Error::Invalid(Refusal::LastPositive));
+                }
+                for b in &mut self.part_mut(part)?.bodies {
+                    if flipped.contains(&b.id) {
+                        b.sign = *sign;
+                    }
+                }
+                self.recompute(part, None, solver)?;
+                Ok(Outcome::default())
+            }
+            Operation::TransformBodies { target, bodies, transform, scope } => {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                let (part, guides, machinings) = self.machined_part(target, machinings, *scope)?;
+                let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
                 self.move_guides(part, &guides, transform)?;
-                if !machinings.is_empty() {
-                    for m in &mut self.part_mut(part)?.machinings {
-                        if machinings.contains(&m.id) {
-                            m.placement = *transform * m.placement;
+                if !bodies.is_empty() {
+                    for b in &mut self.part_mut(part)?.bodies {
+                        if bodies.contains(&b.id) {
+                            b.placement = *transform * b.placement;
                         }
                     }
                     self.recompute(part, None, solver)?;
                 }
                 Ok(Outcome::default())
             }
-            Operation::DuplicateMachinings { target, machinings, transform, scope } => {
+            Operation::DuplicateBodies { target, bodies, transform, scope } => {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                let (part, guides, machinings) = self.machined_part(target, machinings, *scope)?;
-                let mut created = self.copy_machinings(part, &machinings, &[*transform])?;
+                let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let mut created = self.copy_bodies(part, &bodies, &[*transform])?;
                 if !created.is_empty() {
                     self.recompute(part, Some(&created), solver)?;
                 }
                 created.extend(self.copy_guides(part, &guides, &[*transform])?);
-                Ok(Outcome { machinings: created, ..Outcome::default() })
+                Ok(Outcome { bodies: created, ..Outcome::default() })
             }
-            Operation::ArrayMachinings { target, machinings, step, count, scope } => {
+            Operation::ArrayBodies { target, bodies, step, count, scope } => {
                 if *count == 0 || *count > MAX_ARRAY {
                     return Err(Error::Invalid(Refusal::ArrayCount));
                 }
                 if !is_rigid(step) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                let (part, guides, machinings) = self.machined_part(target, machinings, *scope)?;
+                let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
                 let steps: Vec<DAffine3> = std::iter::successors(Some(*step), |at| Some(*step * *at)).take(*count as usize).collect();
-                let mut created = self.copy_machinings(part, &machinings, &steps)?;
+                let mut created = self.copy_bodies(part, &bodies, &steps)?;
                 if !created.is_empty() {
                     self.recompute(part, Some(&created), solver)?;
                 }
                 created.extend(self.copy_guides(part, &guides, &steps)?);
-                Ok(Outcome { machinings: created, ..Outcome::default() })
+                Ok(Outcome { bodies: created, ..Outcome::default() })
             }
             Operation::Stretch { context, occurrences, frame, axis, cuts, moves, scope, cutters } => {
                 let stretch = Stretch::new(*axis, cuts.clone(), moves.clone()).map_err(solidsketch_kernel::Error::from)?;
@@ -842,19 +959,38 @@ impl Document {
                 }
                 Ok(Outcome { stretched, ..Outcome::default() })
             }
-            Operation::SetProfile { target, profile, scope } => {
+            Operation::StretchBodies { target, bodies, frame, axis, cuts, moves, scope } => {
+                if !is_rigid(frame) {
+                    return Err(Error::Invalid(Refusal::NotRigid));
+                }
+                let stretch = Stretch::new(*axis, cuts.clone(), moves.clone()).map_err(solidsketch_kernel::Error::from)?;
+                // In the part's axes.
+                let stretch = stretch.in_frame(&frame.inverse());
+                let (part, guides, ids) = self.bodies_of(target, bodies, *scope)?;
+                self.stretch_guides(part, &stretch, Some(&guides))?;
+                if !ids.is_empty() {
+                    self.stretch_bodies(part, Some(&ids), &stretch, solver)?;
+                    self.recompute(part, None, solver)?;
+                }
+                Ok(Outcome::default())
+            }
+            Operation::SetProfile { target, body, profile, scope } => {
                 let (_, p, _) = self.resolve_part(target)?;
-                if p.profile.is_none() || !profile.is_valid() {
+                let b = p.body(*body).ok_or(Error::NotFound(*body))?;
+                if p.profile_of(b).is_none() || !profile.is_valid() {
                     return Err(Error::Invalid(Refusal::BadProfile));
                 }
+                let def = b.def;
                 if *scope == Scope::This {
                     self.separate(target)?;
                 }
                 let (part, _, _) = self.resolve_part(target)?;
-                let blank = solver.primitive(&profile.primitive())?;
-                let p = self.part_mut(part)?;
-                p.blank = blank;
-                p.profile = Some(profile.clone());
+                let solid = solver.primitive(&profile.primitive())?;
+                // Its definition's: every copy of the body shows it.
+                if let Some(d) = self.part_mut(part)?.defs.iter_mut().find(|d| d.id == def) {
+                    d.solid = solid;
+                    d.profile = Some(profile.clone());
+                }
                 self.recompute(part, None, solver)?;
                 Ok(Outcome::default())
             }
@@ -870,49 +1006,73 @@ impl Document {
         }
     }
 
-    /// Stretches `part` (§6 sexies): its blank, its machinings — moved when in one section,
-    /// their tool stretched in its own frame across a cutter — and its guides; then computes it
-    /// again from the blank.
+    /// Stretches `part` (§6 sexies): each body moved when in one section, stretched in its own
+    /// axes across a cutter (its profile kept when it stays one, §6 nonies), and its guides;
+    /// then computes it again.
     fn stretch_part(&mut self, part: Id, stretch: &Stretch, solver: &mut dyn Solver) -> Result<()> {
-        let p = self.part(part)?.clone();
-        let blank = solver.stretch(&p.blank, stretch)?;
-        let mut machinings = Vec::with_capacity(p.machinings.len());
-        for m in &p.machinings {
-            let local = stretch.in_frame(&m.placement);
-            let rigid = local.extent(&m.tool).map_or(Some(0.0), |(lo, hi)| local.rigid_move(lo, hi));
-            machinings.push(match rigid {
-                Some(d) => Machining { placement: DAffine3::from_translation(stretch.axis() * d) * m.placement, ..m.clone() },
-                None => Machining { tool: solver.stretch(&m.tool, &local)?, ..m.clone() },
-            });
-        }
-        self.stretch_guides(part, stretch)?;
-        let p = self.part_mut(part)?;
-        p.blank = blank;
-        // The profile follows when it stays one (§6 nonies, step 3); else the part is free.
-        p.profile = p.profile.as_ref().and_then(|b| b.stretched(stretch));
-        p.machinings = machinings;
+        self.stretch_bodies(part, None, stretch, solver)?;
+        self.stretch_guides(part, stretch, None)?;
         self.recompute(part, None, solver)
     }
 
-    /// The part `target` places, `ids` (at least one) split into its guides and its
-    /// machinings, every one in it; made its own first under the scope "only this one" when
-    /// machinings change (they and the guides keep their ids, §2.6) — guides alone ignore the
-    /// scope (§6 quinquies).
-    fn machined_part(&mut self, target: &EntityPath, ids: &[Id], scope: Scope) -> Result<(Id, Vec<Id>, Vec<Id>)> {
+    /// Stretches the bodies `ids` of `part` (all of them: `None`) by `stretch`, in the part's
+    /// axes (§2.11, after §6 sexies' components): a body lying in one section is moved; one
+    /// across a cutter changes its definition, the stretch taken in its own axes (its profile
+    /// kept when it stays one, §6 nonies). Bodies of one definition stretched alike keep one;
+    /// the change most of them take is made to it in place — the bodies not reached show it
+    /// too —, the others go to copies; all of them do when a body reached keeps the shape (only
+    /// moved). The part is not computed again.
+    fn stretch_bodies(&mut self, part: Id, ids: Option<&[Id]>, stretch: &Stretch, solver: &mut dyn Solver) -> Result<()> {
+        let p = self.part(part)?.clone();
+        let BodyStretch { moved, changes } = p.body_stretch(ids, stretch);
+        let mut defs = p.defs.clone();
+        let mut bodies = p.bodies.clone();
+        for c in &changes {
+            let def = p.def(c.def).ok_or(Error::NotFound(c.def))?;
+            let solid = solver.stretch(&def.solid, &c.local)?;
+            let profile = def.profile.as_ref().and_then(|f| f.stretched(&c.local));
+            if c.in_place {
+                if let Some(d) = defs.iter_mut().find(|d| d.id == c.def) {
+                    (d.solid, d.profile) = (solid, profile);
+                }
+            } else {
+                let copy = BodyDef { id: self.fresh_id(), solid, profile, ..def.clone() };
+                for b in bodies.iter_mut().filter(|b| c.bodies.contains(&b.id)) {
+                    b.def = copy.id;
+                }
+                defs.push(copy);
+            }
+        }
+        for b in &mut bodies {
+            if let Some((_, t)) = moved.iter().find(|(id, _)| *id == b.id) {
+                b.placement = *t;
+            }
+        }
+        let p = self.part_mut(part)?;
+        (p.defs, p.bodies) = (defs, bodies);
+        p.drop_unused_defs();
+        Ok(())
+    }
+
+    /// The part `target` places, `ids` (at least one) split into its guides and its bodies,
+    /// every one in it; made its own first under the scope "only this one" when bodies change
+    /// (they and the guides keep their ids, §2.6) — guides alone ignore the scope (§6
+    /// quinquies).
+    fn bodies_of(&mut self, target: &EntityPath, ids: &[Id], scope: Scope) -> Result<(Id, Vec<Id>, Vec<Id>)> {
         if ids.is_empty() {
-            return Err(Error::Invalid(Refusal::NoMachinings));
+            return Err(Error::Invalid(Refusal::NoBodies));
         }
         let (part, p, _) = self.resolve_part(target)?;
         let p = p.clone();
-        let (guides, machinings) = self.split_guides(part, ids)?;
-        if let Some(&missing) = machinings.iter().find(|id| p.machining(**id).is_none()) {
+        let (guides, bodies) = self.split_guides(part, ids)?;
+        if let Some(&missing) = bodies.iter().find(|id| p.body(**id).is_none()) {
             return Err(Error::NotFound(missing));
         }
-        if scope == Scope::This && !machinings.is_empty() {
+        if scope == Scope::This && !bodies.is_empty() {
             self.separate(target)?;
-            return Ok((self.resolve_part(target)?.0, guides, machinings));
+            return Ok((self.resolve_part(target)?.0, guides, bodies));
         }
-        Ok((part, guides, machinings))
+        Ok((part, guides, bodies))
     }
 
     /// `ids` split into the guides of `component` and the rest, each in the order given.
@@ -952,45 +1112,85 @@ impl Document {
         Ok(created)
     }
 
-    /// Adds to `part`, for each transform of `steps`, a copy of its machinings `ids` moved by
-    /// it (in the part's axes), with fresh ids; returns them in order.
-    fn copy_machinings(&mut self, part: Id, ids: &[Id], steps: &[DAffine3]) -> Result<Vec<Id>> {
-        let sources: Vec<Machining> = self.part(part)?.machinings.iter().filter(|m| ids.contains(&m.id)).cloned().collect();
+    /// Copies of `bodies` moved by `t`, and of the definitions `defs` they use, all with fresh
+    /// ids — bodies sharing a definition still share its copy: what another part receives.
+    fn copies_of_bodies(&mut self, defs: &[BodyDef], bodies: &[Body], t: &DAffine3) -> (Vec<BodyDef>, Vec<Body>) {
+        let mut renamed: Vec<(Id, BodyDef)> = Vec::new();
+        let mut out = Vec::with_capacity(bodies.len());
+        for b in bodies {
+            let def = match renamed.iter().find(|(from, _)| *from == b.def) {
+                Some((_, d)) => d.id,
+                None => {
+                    let Some(d) = defs.iter().find(|d| d.id == b.def) else { continue };
+                    let copy = BodyDef { id: self.fresh_id(), ..d.clone() };
+                    let id = copy.id;
+                    renamed.push((b.def, copy));
+                    id
+                }
+            };
+            out.push(Body { id: self.fresh_id(), def, placement: *t * b.placement, ..b.clone() });
+        }
+        (renamed.into_iter().map(|(_, d)| d).collect(), out)
+    }
+
+    /// Adds to `part`, for each transform of `steps`, a copy of its bodies `ids` moved by it (in
+    /// the part's axes), with fresh ids; returns them in order.
+    fn copy_bodies(&mut self, part: Id, ids: &[Id], steps: &[DAffine3]) -> Result<Vec<Id>> {
+        let sources: Vec<Body> = self.part(part)?.bodies.iter().filter(|b| ids.contains(&b.id)).cloned().collect();
         let mut copies = Vec::with_capacity(sources.len() * steps.len());
         for t in steps {
-            for m in &sources {
-                copies.push(Machining { id: self.fresh_id(), placement: *t * m.placement, ..m.clone() });
+            for b in &sources {
+                copies.push(Body { id: self.fresh_id(), placement: *t * b.placement, ..b.clone() });
             }
         }
-        let created = copies.iter().map(|m| m.id).collect();
-        self.part_mut(part)?.machinings.extend(copies);
+        let created = copies.iter().map(|b| b.id).collect();
+        self.part_mut(part)?.bodies.extend(copies);
         Ok(created)
     }
 
-    /// Computes `part`'s shape again from its recipe (§2.4): only the machinings `added` cut
-    /// from the shape as it is, when given (they were just added); else all of them from the
-    /// blank. Without machinings, the blank is the shape: no kernel.
+    /// Computes `part`'s shape again from its bodies (§2.4, §2.11): `(∪ positives) − (∪
+    /// negatives)`. When `added` is given (bodies just added) and all of one sign, the part as
+    /// it is is kept: added negatives cut it, added positives are cut by every negative then
+    /// joined to it (`(A ∪ B) − N = (A − N) ∪ (B − N)`); else everything is computed again. A
+    /// plain part (a single positive body, unplaced) is its body: no kernel.
     fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
         let p = self.part(part)?;
-        if p.machinings.is_empty() {
+        if p.is_plain() {
             let p = self.part_mut(part)?;
             p.shape = None;
             p.failed.clear();
             return Ok(());
         }
-        let (start, cut): (Arc<Solid>, Vec<&Machining>) = match added {
-            Some(ids) => (p.shape().clone(), p.machinings.iter().filter(|m| ids.contains(&m.id)).collect()),
-            None => (p.blank.clone(), p.machinings.iter().collect()),
-        };
-        let tools: Vec<(Arc<Solid>, DAffine3)> = cut.iter().map(|m| (m.tool.clone(), m.placement)).collect();
-        let ids: Vec<Id> = cut.iter().map(|m| m.id).collect();
-        let (shape, failed) = solver.recipe(&start, &tools)?;
+        let placed = |b: &Body| (p.solid_of(b).clone(), b.placement);
+        let is_added = |b: &Body| added.is_some_and(|ids| ids.contains(&b.id));
+        let new: Vec<&Body> = p.bodies.iter().filter(|b| is_added(b)).collect();
+        let current = p.shape().clone();
+        // The bodies each index of the task's failures names: its positives, then its negatives.
+        let (base, positives, negatives): (Option<Arc<Solid>>, Vec<&Body>, Vec<&Body>) =
+            if !new.is_empty() && new.iter().all(|b| b.sign == Sign::Negative) {
+                (None, Vec::new(), new)
+            } else if !new.is_empty() && new.iter().all(|b| b.sign == Sign::Positive) {
+                (Some(current.clone()), new, p.negatives().collect())
+            } else {
+                (None, p.positives().collect(), p.negatives().collect())
+            };
+        let incremental = base.is_some() || positives.is_empty();
+        let mut named: Vec<Id> = positives.iter().chain(&negatives).map(|b| b.id).collect();
+        let mut pos: Vec<(Arc<Solid>, DAffine3)> = positives.iter().map(|b| placed(b)).collect();
+        if positives.is_empty() {
+            // Negatives added: they cut the part as it is.
+            pos.push((current, DAffine3::IDENTITY));
+            named.insert(0, Id(u64::MAX));
+        }
+        let neg: Vec<(Arc<Solid>, DAffine3)> = negatives.iter().map(|b| placed(b)).collect();
+        // Added positives are cut by every negative: only their failures are new.
+        let fresh: Vec<Id> = if base.is_some() { positives.iter().map(|b| b.id).collect() } else { named.clone() };
+        let (shape, failed) = solver.recipe(base.as_ref(), &pos, &neg)?;
         let p = self.part_mut(part)?;
-        // From the blank, the failures are all new; else those of the machinings added join.
-        if added.is_none() {
+        if !incremental {
             p.failed.clear();
         }
-        p.failed.extend(failed.iter().filter_map(|k| ids.get(*k).copied()));
+        p.failed.extend(failed.iter().filter_map(|k| named.get(*k).copied()).filter(|id| fresh.contains(id)));
         p.shape = Some(shape);
         Ok(())
     }
@@ -1002,24 +1202,64 @@ impl Document {
         let (part, p, t_target) = self.resolve_part(target)?;
         let p = p.clone();
         let (_, q, t_tool) = self.resolve_part(tool)?;
-        let tool_shape = q.shape().clone();
+        let q = q.clone();
         let tool_ctx = self.context_of(&tool.instances)?;
         // The tool, in the target part's axes.
         let relative = t_target.inverse() * t_tool;
-        let moved = if is_identity(&relative) { None } else { Some(relative) };
-        let result = solver.boolean(p.shape(), &tool_shape, moved, op.into())?;
-        let next = match op {
+        match op {
+            // The tool's shape, a negative body of the target, cut from it as it is. A tool
+            // that is its single positive body (a shape drawn) is taken whole, its profile
+            // with it: still editable (§2.11).
             Boolean::Difference => {
                 let id = self.fresh_id();
+                let moved = if is_identity(&relative) { None } else { Some(relative) };
+                let result = solver.boolean(p.shape(), q.shape(), moved, op.into())?;
+                let (def, body) = match q.is_plain() {
+                    true => {
+                        let def = BodyDef { id: self.fresh_id(), ..q.def_of(&q.bodies[0]).clone() };
+                        let body = Body::new(id, def.id, Sign::Negative, relative * q.bodies[0].placement);
+                        (def, body)
+                    }
+                    false => {
+                        let def = BodyDef::new(self.fresh_id(), q.shape().clone());
+                        let body = Body::new(id, def.id, Sign::Negative, relative);
+                        (def, body)
+                    }
+                };
                 let mut next = p;
-                next.machinings.push(Machining { id, tool: tool_shape, placement: relative, source: MachiningSource::Local });
+                next.defs.push(def);
+                next.bodies.push(body);
                 next.shape = Some(result);
-                next
+                *self.part_mut(part)? = next;
             }
-            // A new blank, the machinings of both in it.
-            Boolean::Union | Boolean::Intersection => Part::new(result),
-        };
-        *self.part_mut(part)? = next;
+            // Every body of the tool, positive and negative, joins the target's (§2.11). Its
+            // machinings cut the target too: said when they do, the result then holding less
+            // than both shapes joined.
+            Boolean::Union => {
+                let (defs, bodies) = self.copies_of_bodies(&q.defs, &q.bodies, &relative);
+                let check = q.negatives().next().is_some();
+                let both = if check {
+                    solver.union_volume(&[(p.shape().clone(), DAffine3::IDENTITY), (q.shape().clone(), relative)])?
+                } else {
+                    None
+                };
+                let p = self.part_mut(part)?;
+                p.defs.extend(defs);
+                p.bodies.extend(bodies);
+                self.recompute(part, None, solver)?;
+                let after = if check { solver.union_volume(&[(self.part(part)?.shape().clone(), DAffine3::IDENTITY)])? } else { None };
+                let cut = matches!((both, after), (Some(b), Some(a)) if a < b * (1.0 - 1e-5));
+                self.assembly_mut(tool_ctx)?.occurrences_mut().retain(|o| o.id != tool.entity);
+                let warning = cut.then_some(Warning::UnionCut);
+                return Ok(Outcome { created: vec![target.entity], warning, ..Outcome::default() });
+            }
+            // A new part of one positive body: the common volume.
+            Boolean::Intersection => {
+                let moved = if is_identity(&relative) { None } else { Some(relative) };
+                let result = solver.boolean(p.shape(), q.shape(), moved, op.into())?;
+                *self.part_mut(part)? = self.plain_part(result);
+            }
+        }
         self.assembly_mut(tool_ctx)?.occurrences_mut().retain(|o| o.id != tool.entity);
         Ok(Outcome { created: vec![target.entity], ..Outcome::default() })
     }
@@ -1096,10 +1336,6 @@ fn id_set(ids: &[Id]) -> FastSet<Id> {
     ids.iter().copied().collect()
 }
 
-fn is_identity(t: &DAffine3) -> bool {
-    t.abs_diff_eq(DAffine3::IDENTITY, 1e-12)
-}
-
 /// A move, a rotation and maybe a mirror: unit, square axes (§2.2).
 pub(crate) fn is_rigid(t: &DAffine3) -> bool {
     let m = t.matrix3;
@@ -1120,10 +1356,20 @@ trait Solver {
     fn primitive(&mut self, primitive: &Primitive) -> Result<Arc<Solid>>;
     /// `target op tool`, the tool first moved by `tool_transform`.
     fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>>;
-    /// `blank` minus each placed tool in turn; the solid, and the tools (by index) that failed.
-    fn recipe(&mut self, blank: &Arc<Solid>, tools: &[(Arc<Solid>, DAffine3)]) -> Result<(Arc<Solid>, Vec<usize>)>;
+    /// The union of the placed `positives` minus each placed negative, joined to `base` when
+    /// given ([`Task::Recipe`]); the solid, and the bodies (by index, positives then
+    /// negatives) that failed.
+    fn recipe(
+        &mut self,
+        base: Option<&Arc<Solid>>,
+        positives: &[(Arc<Solid>, DAffine3)],
+        negatives: &[(Arc<Solid>, DAffine3)],
+    ) -> Result<(Arc<Solid>, Vec<usize>)>;
     /// `solid` stretched.
     fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>>;
+    /// The volume of the union of the placed `solids`, when it can be computed (always none
+    /// while the job is recorded).
+    fn union_volume(&mut self, solids: &[(Arc<Solid>, DAffine3)]) -> Result<Option<f64>>;
 }
 
 /// Records the calls into a job and answers with stand-ins (the operation only stores them,
@@ -1166,10 +1412,16 @@ impl Solver for Recorder {
         self.task(Task::Boolean { target, tool, tool_transform, op })
     }
 
-    fn recipe(&mut self, blank: &Arc<Solid>, tools: &[(Arc<Solid>, DAffine3)]) -> Result<(Arc<Solid>, Vec<usize>)> {
-        let blank = self.input(blank);
-        let tools = tools.iter().map(|(t, p)| (self.input(t), *p)).collect();
-        Ok((self.task(Task::Recipe { blank, tools })?, Vec::new()))
+    fn recipe(
+        &mut self,
+        base: Option<&Arc<Solid>>,
+        positives: &[(Arc<Solid>, DAffine3)],
+        negatives: &[(Arc<Solid>, DAffine3)],
+    ) -> Result<(Arc<Solid>, Vec<usize>)> {
+        let base = base.map(|b| self.input(b));
+        let positives = positives.iter().map(|(s, p)| (self.input(s), *p)).collect();
+        let negatives = negatives.iter().map(|(s, p)| (self.input(s), *p)).collect();
+        Ok((self.task(Task::Recipe { base, positives, negatives })?, Vec::new()))
     }
 
     /// Refused here already when the record cannot be stretched: the operation is refused when
@@ -1178,6 +1430,12 @@ impl Solver for Recorder {
         stretch.apply(solid).map_err(solidsketch_kernel::Error::from)?;
         let solid = self.input(solid);
         self.task(Task::Stretch { solid, stretch: stretch.clone() })
+    }
+
+    fn union_volume(&mut self, solids: &[(Arc<Solid>, DAffine3)]) -> Result<Option<f64>> {
+        let solids = solids.iter().map(|(s, t)| (self.input(s), *t)).collect();
+        self.job.tasks.push(Task::UnionVolume { solids });
+        Ok(None)
     }
 }
 
@@ -1209,7 +1467,12 @@ impl Solver for Replayer {
         self.next()
     }
 
-    fn recipe(&mut self, _: &Arc<Solid>, _: &[(Arc<Solid>, DAffine3)]) -> Result<(Arc<Solid>, Vec<usize>)> {
+    fn recipe(
+        &mut self,
+        _: Option<&Arc<Solid>>,
+        _: &[(Arc<Solid>, DAffine3)],
+        _: &[(Arc<Solid>, DAffine3)],
+    ) -> Result<(Arc<Solid>, Vec<usize>)> {
         match self.outputs.next() {
             Some(Output::Recipe { solid, display, failed }) => {
                 let solid = Arc::new(solid);
@@ -1222,5 +1485,12 @@ impl Solver for Replayer {
 
     fn stretch(&mut self, _: &Arc<Solid>, _: &Stretch) -> Result<Arc<Solid>> {
         self.next()
+    }
+
+    fn union_volume(&mut self, _: &[(Arc<Solid>, DAffine3)]) -> Result<Option<f64>> {
+        match self.outputs.next() {
+            Some(Output::Volume(v)) => Ok(v),
+            _ => Err(Error::Invalid(Refusal::OutOfStep)),
+        }
     }
 }

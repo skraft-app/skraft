@@ -1,8 +1,7 @@
-//! SolidSketch's document: components — parts (a blank and its machinings) and assemblies —
+//! SolidSketch's document: components — parts (positive and negative bodies) and assemblies —
 //! placed by occurrences, the operations that change it, its undo history and its file
 //! format. See docs/ARCHITECTURE.md §2–§5 and §8.
 
-mod blank;
 mod clipboard;
 mod document;
 pub mod expr;
@@ -12,6 +11,7 @@ mod history;
 mod import;
 pub mod measure;
 mod ops;
+mod profile;
 mod settings;
 mod step;
 mod stretch;
@@ -19,23 +19,24 @@ mod stretch;
 #[cfg(test)]
 mod tests;
 
-pub use blank::BlankProfile;
-pub use clipboard::MachiningFragment;
+pub use clipboard::BodyFragment;
 pub use document::{
-    Assembly, Behavior, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH, Machining, MachiningSource,
-    Material, Occurrence, Part, PlacedGuide, PlacedPart, StretchMask,
+    Assembly, Behavior, Body, BodyDef, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH,
+    Material, Occurrence, Part, PlacedGuide, PlacedPart, Sign, StretchMask,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{FORMAT, VERSION};
 pub use history::History;
 pub use import::{ImportReport, SKETCHUP_FORMAT, SKETCHUP_VERSION};
-pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope};
+pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope, Warning};
+pub use profile::BodyProfile;
 pub use settings::{Display, LengthUnit, Section, Settings, Units};
 use solidsketch_i18n::t;
 pub use solidsketch_kernel as kernel;
 pub use solidsketch_kernel::Primitive;
 pub use step::StepReport;
 pub use stretch::StretchedPart;
+pub use stretch::{BodyStretch, DefChange};
 
 /// Why an operation (or a file) was refused. Shown to the user: each kind has its text in
 /// the catalog (`error.model.*`, `error.file.*`).
@@ -78,15 +79,17 @@ pub enum Refusal {
     SelfBoolean,
     /// A face index past the part's faces (§7 quater).
     NoSuchFace,
-    /// A change to machinings names none.
-    NoMachinings,
+    /// A change to bodies names none.
+    NoBodies,
+    /// A part would be left without a positive body.
+    LastPositive,
     /// A guide with no length or direction, or not finite.
     BadGuide,
     /// A stretch names no occurrence.
     NothingStretched,
     /// A behavior with an unknown mask, or cutters not increasing inside ]0, 1[.
     BadBehavior,
-    /// A blank's profile that crosses itself or has no height, or a part without one.
+    /// A body's profile that crosses itself or has no height, or a body without one.
     BadProfile,
     /// A paste with nothing in it.
     NothingPasted,
@@ -102,7 +105,7 @@ pub enum FileError {
     TooNew(u32),
     RootNotAssembly,
     BadComponentId(Id),
-    BadMachiningId(Id),
+    BadBodyId(Id),
     BadOccurrenceId(Id),
     /// A guide's id taken twice in its component, past the counter, or a guide not well formed.
     BadGuide(Id),
@@ -111,7 +114,7 @@ pub enum FileError {
         id: Id,
         key: Id,
     },
-    /// A part whose shape is there without machinings, or missing with some.
+    /// A part without a body, whose shape is missing when needed, or failed bodies unknown.
     ShapeOutOfStep(Id),
     DuplicateOccurrence {
         occurrence: Id,
@@ -154,7 +157,8 @@ impl std::fmt::Display for Refusal {
             Refusal::RootPlaced => t!("error.model.root_placed"),
             Refusal::SelfBoolean => t!("error.model.self_boolean"),
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
-            Refusal::NoMachinings => t!("error.model.no_machinings"),
+            Refusal::NoBodies => t!("error.model.no_bodies"),
+            Refusal::LastPositive => t!("error.model.last_positive"),
             Refusal::BadGuide => t!("error.model.bad_guide"),
             Refusal::NothingStretched => t!("error.model.nothing_stretched"),
             Refusal::BadBehavior => t!("error.model.bad_behavior"),
@@ -172,7 +176,7 @@ impl std::fmt::Display for FileError {
             FileError::TooNew(version) => t!("error.file.too_new", version = version, supported = file::VERSION),
             FileError::RootNotAssembly => t!("error.file.root_not_assembly"),
             FileError::BadComponentId(id) => t!("error.file.bad_component_id", id = id),
-            FileError::BadMachiningId(id) => t!("error.file.bad_machining_id", id = id),
+            FileError::BadBodyId(id) => t!("error.file.bad_body_id", id = id),
             FileError::BadOccurrenceId(id) => t!("error.file.bad_occurrence_id", id = id),
             FileError::BadGuide(id) => t!("error.file.bad_guide", id = id),
             FileError::Misfiled { id, key } => t!("error.file.misfiled", id = id, key = key),

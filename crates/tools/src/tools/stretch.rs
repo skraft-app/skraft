@@ -8,6 +8,10 @@
 //!   encloses, right to left: what it touches).
 //! - **Axes** (OCL's option): the occurrence's own (entity; the context's for several), the
 //!   context's, or the model's (active). Several share one box in them.
+//! - **Bodies** (ARCHITECTURE.md §2.11): in an open part showing its bodies, the bodies
+//!   selected are stretched alone (`Operation::StretchBodies`), along the body's own axes
+//!   (one), the part's (several, or « context »), or the model's; their cutters kept for the
+//!   session. With none selected, the open part whole, as before.
 //! - **Grips and cutters** (OCL's `STATE_STRETCH_START`): a grip at the centre of each face of
 //!   the part's box, a point drawn over everything and taken near it on screen, seen or not
 //!   (30 px for the active axis's, 10 for the others'). Hovering a grip makes its axis the
@@ -177,6 +181,9 @@ enum Keep {
 struct Target {
     context: Vec<Id>,
     occurrences: Vec<Id>,
+    /// Bodies of the part the one occurrence places (open, its bodies shown): they alone are
+    /// stretched, `in_context` then placing the stretch's axes in the part's (§2.11).
+    bodies: Option<Vec<Id>>,
     /// Where its cutters are kept.
     keep: Keep,
     /// The stretch's axes in the context's (the operation's frame), and to world.
@@ -250,7 +257,48 @@ impl Target {
             }
         }
         let (lo, hi) = (b.0.x <= b.1.x).then_some(b)?;
-        Some(Target { context, occurrences, keep, in_context, frame, lo, hi })
+        Some(Target { context, occurrences, bodies: None, keep, in_context, frame, lo, hi })
+    }
+
+    /// The bodies `ids` of the part `path` places (§2.11): along the body's own axes (one, and
+    /// the option « entity »), the model's (« active »), else the part's.
+    fn of_bodies(cx: &Cx<'_>, path: &EntityPath, ids: Vec<Id>, axes: Axes) -> Option<Target> {
+        let (_, part, to_world) = cx.doc.resolve_part(path).ok()?;
+        let bodies = ids.iter().map(|id| part.body(*id)).collect::<Option<Vec<_>>>()?;
+        let in_part = match (axes, &bodies[..]) {
+            (_, []) => return None,
+            (Axes::Entity, [b]) => b.placement,
+            (Axes::Active, _) => to_world.inverse(),
+            _ => DAffine3::IDENTITY,
+        };
+        let keep = Keep::Session(match &bodies[..] {
+            [b] => Some(b.id),
+            _ => None,
+        });
+        let frame = to_world * in_part;
+        let to_target = in_part.inverse();
+        let mut b = (DVec3::INFINITY, DVec3::NEG_INFINITY);
+        for body in &bodies {
+            let t = to_target * body.placement;
+            let mut add = |w: DVec3| b = (b.0.min(w), b.1.max(w));
+            // Its exact box when square to the axes, else its mesh's vertices.
+            let key = cx.recipe.and_then(|r| r.body(body.id)).map(|r| r.key);
+            let mesh = key.and_then(|k| cx.scene.definition_mesh(k)).filter(|_| !square(&t.matrix3));
+            if let Some(m) = mesh {
+                for pm in &m.parts {
+                    for v in &pm.mesh.positions {
+                        add(t.transform_point3(pm.mesh.origin + DVec3::new(v[0] as f64, v[1] as f64, v[2] as f64)));
+                    }
+                }
+            } else if let Some((lo, hi)) = cx.scene.bounds_of(part.solid_of(body)).or_else(|| part.solid_of(body).vertex_bounds()) {
+                for i in 0..8 {
+                    add(t.transform_point3(DVec3::new([lo.x, hi.x][i & 1], [lo.y, hi.y][(i >> 1) & 1], [lo.z, hi.z][(i >> 2) & 1])));
+                }
+            }
+        }
+        let (lo, hi) = (b.0.x <= b.1.x).then_some(b)?;
+        let (context, occurrences) = (path.instances.clone(), vec![path.entity]);
+        Some(Target { context, occurrences, bodies: Some(ids), keep, in_context: in_part, frame, lo, hi })
     }
 
     /// The paths of the occurrences stretched.
@@ -578,6 +626,7 @@ struct TargetKey {
     generation: u64,
     context: Vec<Id>,
     occurrences: Vec<Id>,
+    bodies: Option<Vec<Id>>,
     axes: Axes,
 }
 
@@ -614,24 +663,27 @@ impl StretchTool {
         if let State::Stretch { target, .. } = &self.state {
             return Some((**target).clone());
         }
-        let (context, occurrences) = if let Some(id) = cx.open_part {
-            (cx.context.to_vec(), vec![id])
+        let (context, occurrences, bodies) = if let Some(id) = cx.open_part {
+            (cx.context.to_vec(), vec![id], self.selected_bodies(cx))
         } else {
             let selected = self.selected(cx);
             if !selected.is_empty() {
-                (cx.context.to_vec(), selected)
+                (cx.context.to_vec(), selected, None)
             } else {
                 let p = self.picked.as_ref()?;
-                (p.instances.clone(), vec![p.entity])
+                (p.instances.clone(), vec![p.entity], None)
             }
         };
-        let key = TargetKey { generation: cx.scene.generation(), context, occurrences, axes: axes(cx) };
+        let key = TargetKey { generation: cx.scene.generation(), context, occurrences, bodies, axes: axes(cx) };
         if let Some((k, target)) = &*self.memo.borrow()
             && *k == key
         {
             return target.clone();
         }
-        let target = Target::of(cx, key.context.clone(), key.occurrences.clone(), key.axes);
+        let target = match &key.bodies {
+            Some(ids) => Target::of_bodies(cx, &EntityPath::new(key.context.clone(), key.occurrences[0]), ids.clone(), key.axes),
+            None => Target::of(cx, key.context.clone(), key.occurrences.clone(), key.axes),
+        };
         *self.memo.borrow_mut() = Some((key, target.clone()));
         target
     }
@@ -643,6 +695,13 @@ impl StretchTool {
             return Vec::new();
         }
         Self::occurrences(cx, cx.selection.to_vec())
+    }
+
+    /// The bodies of the open part selected, while they show (§2.11); none when none is.
+    fn selected_bodies(&self, cx: &Cx<'_>) -> Option<Vec<Id>> {
+        let r = cx.recipe?;
+        let ids: Vec<Id> = cx.selection.iter().copied().filter(|id| r.body(*id).is_some()).collect();
+        (!ids.is_empty()).then_some(ids)
     }
 
     /// The occurrences of the context `ids` names (not its guides).
@@ -851,8 +910,14 @@ impl StretchTool {
         if let Err(e) = cx.doc.prepare(&self.operation(cx, &target, k, side, handle, 1.0)) {
             return vec![Command::Say(e.to_string())];
         }
-        let spans =
-            cx.doc.stretch_spans(&target.context, &target.occurrences, &target.in_context, DVec3::AXES[k], &cuts).unwrap_or_default();
+        let spans = match &target.bodies {
+            Some(ids) => {
+                let path = EntityPath::new(target.context.clone(), target.occurrences[0]);
+                cx.doc.body_stretch_spans(&path, ids, &target.in_context, DVec3::AXES[k], &cuts)
+            }
+            None => cx.doc.stretch_spans(&target.context, &target.occurrences, &target.in_context, DVec3::AXES[k], &cuts),
+        }
+        .unwrap_or_default();
         let range = move_range(&spans, &shares);
         if let Some(path) = target.single() {
             self.picked = Some(path);
@@ -877,6 +942,17 @@ impl StretchTool {
     fn operation(&self, cx: &Cx<'_>, target: &Target, k: usize, side: f64, handle: Option<Handle>, d: f64) -> Operation {
         let cuts: Vec<f64> = self.cutters[k].iter().map(|r| target.at(k, *r)).collect();
         let moves = self.shares(cuts.len() + 1, side, handle).into_iter().map(|s| s * d).collect();
+        if let (Some(bodies), Some(target_path)) = (&target.bodies, target.single()) {
+            return Operation::StretchBodies {
+                target: target_path,
+                bodies: bodies.clone(),
+                frame: target.in_context,
+                axis: DVec3::AXES[k],
+                cuts,
+                moves,
+                scope: scope(cx),
+            };
+        }
         Operation::Stretch {
             context: target.context.clone(),
             occurrences: target.occurrences.clone(),
@@ -911,15 +987,19 @@ impl StretchTool {
             return vec![];
         }
         let mut op = self.operation(cx, &target, k, side, handle, d);
-        let Operation::Stretch { moves, cutters, .. } = &mut op else { unreachable!() };
+        let (moves, cutters) = match &mut op {
+            Operation::Stretch { moves, cutters, .. } => (moves.clone(), Some(cutters)),
+            Operation::StretchBodies { moves, .. } => (moves.clone(), None),
+            _ => unreachable!(),
+        };
         let (lo, hi) = (target.lo[k] + moves[0], target.hi[k] + moves[moves.len() - 1]);
         // None left between the matter: one in the middle (not a lock).
-        self.cutters[k] = sanitized(kept_cutters(&spans, moves, lo, hi), false);
+        self.cutters[k] = sanitized(kept_cutters(&spans, &moves, lo, hi), false);
         self.synced = Some((target.keep.clone(), self.cutters.clone()));
         // Kept on the component by the stretch itself, else for the session.
-        match (&target.keep, target.behavior(cx, &self.cutters)) {
-            (_, Some((_, behavior))) => *cutters = behavior.cutters.map(Box::new),
-            (Keep::Session(key), None) => store_cutters(*key, &self.cutters),
+        match (&target.keep, target.behavior(cx, &self.cutters), cutters) {
+            (_, Some((_, behavior)), Some(cutters)) => *cutters = behavior.cutters.map(Box::new),
+            (Keep::Session(key), None, _) => store_cutters(*key, &self.cutters),
             _ => {}
         }
         self.axis = Some(k);
@@ -978,7 +1058,13 @@ impl StretchTool {
             // assemblies is stretched or moved (and, under the scope « all », their other
             // occurrences): they are not where they were.
             let paths = target.paths();
-            let inf = cx.infer(px, |w| !paths.contains(w.path) && !cx.previewed.contains_key(w.path), None);
+            let keep = |w: &crate::scene::Owner<'_>| match (&target.bodies, w.piece) {
+                // Bodies stretched: those only.
+                (Some(ids), crate::scene::Piece::Blank(id) | crate::scene::Piece::Tool(id)) => !ids.contains(&id),
+                (Some(_), _) => !cx.previewed.contains_key(w.path),
+                (None, _) => !paths.contains(w.path) && !cx.previewed.contains_key(w.path),
+            };
+            let inf = cx.infer(px, keep, None);
             match inf.filter(|i| stable_along(i, dir) && opposite.is_none_or(|op| (i.point - op).dot(dir).abs() > MIN)) {
                 Some(i) => {
                     let m = (i.point - o).dot(dir) * side;
@@ -1370,6 +1456,7 @@ impl Tool for StretchTool {
                 p.stretch = Some(StretchPreview {
                     context: target.context.clone(),
                     occurrences: target.occurrences.clone(),
+                    bodies: target.bodies.clone(),
                     frame: target.in_context,
                     all: scope(cx) == Scope::All,
                     axis: DVec3::AXES[k],

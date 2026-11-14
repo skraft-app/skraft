@@ -680,6 +680,7 @@ impl SolidSketchApp {
             "view.axes" => Some(d.axes),
             "view.guides" => Some(d.guides),
             "view.silhouettes" => Some(d.silhouettes),
+            "view.xray" => Some(editor.xray()),
             "view.hide_rest_of_model" => Some(d.hide_rest_of_model),
             "view.show_hidden" => Some(d.show_hidden),
             "view.section" => Some(d.section_active),
@@ -829,6 +830,7 @@ impl SolidSketchApp {
                 let p = !e.camera.is_parallel();
                 e.set_parallel(p);
             }
+            "view.xray" => e.set_xray(!e.xray()),
             "view.grid"
             | "view.axes"
             | "view.guides"
@@ -914,15 +916,22 @@ impl SolidSketchApp {
         let e = &mut doc.editor;
         match a {
             Action::Command(_) | Action::Tab(_) | Action::Ribbon(_) | Action::ToggleMachinings | Action::RemoteRetry => {}
-            Action::SelectPath(p) => e.select_path(&p),
+            Action::SelectPath(p, add) => e.toggle_path(&p, add),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
             Action::Apply(op) => {
                 let _ = e.apply(op);
             }
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
-            Action::ToggleProfile => e.set_tool(if e.tool_kind() == ToolKind::Profile { ToolKind::Select } else { ToolKind::Profile }),
+            Action::ToggleProfile => {
+                if e.tool_kind() == ToolKind::Profile {
+                    e.set_tool(ToolKind::Select);
+                } else {
+                    e.edit_profile();
+                }
+            }
             Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),
+            Action::BodySign(s) => e.set_body_sign(s),
             Action::SelectMachinings(ids) => e.select(ids),
             Action::HoverMachining(m) => e.set_listed_hover(m),
             // The view is drawn before the panels: again, for the hover to show this frame.

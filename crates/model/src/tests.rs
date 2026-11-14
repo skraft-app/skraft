@@ -44,7 +44,7 @@ fn a_primitive_is_a_part_in_its_own_axes() {
     let o = occ(doc, &EntityPath::root(a));
     let part = doc.part(o.component).unwrap();
     // The blank starts at the part's origin; the occurrence puts it back where it was drawn.
-    let (lo, hi) = part.blank.vertex_bounds().unwrap();
+    let (lo, hi) = part.blank().vertex_bounds().unwrap();
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(5.0, 6.0, 7.0)), "{lo} {hi}");
     assert!(close(o.transform.translation, DVec3::new(5.0, 20.0, 30.0)));
     assert_eq!(doc.component(o.component).unwrap().name, "Pièce");
@@ -75,9 +75,9 @@ fn moving_copying_and_arraying_need_no_kernel() {
     }
 
     // Moving changes the occurrence only: the part's B-rep is the same.
-    let blank = doc.part(part).unwrap().blank.clone();
+    let blank = doc.part(part).unwrap().blank().clone();
     h.apply(Operation::Transform { context: root, entities: vec![a], transform: rot }).unwrap();
-    assert!(Arc::ptr_eq(&blank, &h.document().part(part).unwrap().blank));
+    assert!(Arc::ptr_eq(&blank, &h.document().part(part).unwrap().blank()));
     assert!(close(occ(h.document(), &EntityPath::root(a)).transform.translation, rot.translation));
 
     // Copies are more occurrences of the same part.
@@ -193,31 +193,33 @@ fn a_difference_machines_the_part_for_all_its_occurrences() {
     })
     .unwrap();
     let part = occ(h.document(), &EntityPath::root(board)).component;
-    let blank = h.document().part(part).unwrap().blank.clone();
+    let blank = h.document().part(part).unwrap().blank().clone();
 
     let target = EntityPath::root(board);
     let tool = EntityPath::new(vec![g], drill);
     h.apply(Operation::Boolean { target: target.clone(), tool, op: Boolean::Difference, scope: Scope::All }).unwrap();
     let doc = h.document();
     let p = doc.part(part).unwrap();
-    assert!(Arc::ptr_eq(&p.blank, &blank), "the blank stays");
-    assert_eq!(p.machinings.len(), 1);
+    assert!(Arc::ptr_eq(&p.blank(), &blank), "the blank stays");
+    assert_eq!(p.machinings().len(), 1);
     // The drill, in the board's axes: 100, 50 from its corner, its base 6 up.
-    assert!(close(p.machinings[0].placement.translation, DVec3::new(100.0, 50.0, 6.0)), "{}", p.machinings[0].placement.translation);
+    assert!(close(p.machinings()[0].placement.translation, DVec3::new(100.0, 50.0, 6.0)), "{}", p.machinings()[0].placement.translation);
     assert!(p.shape().topology_counts().0 > blank.topology_counts().0);
     // Both occurrences show the hole; the drill left the model, its assembly and part with it.
     assert_eq!(doc.resolve_part(&EntityPath::root(copy)).unwrap().0, part);
     assert!(doc.resolve(&EntityPath::root(g)).is_err() || doc.assembly(doc.context_of(&[g]).unwrap()).unwrap().occurrences().is_empty());
     assert_eq!(doc.components().filter(|c| c.is_part()).count(), 1, "{:?}", doc.components().map(|c| &c.name).collect::<Vec<_>>());
 
-    // A union makes a new blank, without machinings.
+    // A union gives the target the tool's bodies (§2.11): its blank stays, the hole too.
     let other = add(&mut h, Primitive::Box { origin: DVec3::new(1590.0, 0.0, 0.0), size: DVec3::new(20.0, 300.0, 100.0) });
     h.apply(Operation::Boolean { target, tool: EntityPath::root(other), op: Boolean::Union, scope: Scope::All }).unwrap();
     let p = h.document().part(part).unwrap();
-    assert!(p.machinings.is_empty());
-    assert!(!Arc::ptr_eq(&p.blank, &blank));
-    let (_, hi) = p.blank.vertex_bounds().unwrap();
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 1));
+    assert!(Arc::ptr_eq(&p.blank(), &blank));
+    assert!(p.positives().all(|b| p.profile_of(b).is_some()), "the profiles kept");
+    let (_, hi) = p.shape().vertex_bounds().unwrap();
     assert!((hi.x - 610.0).abs() < 1e-9 && (hi.z - 100.0).abs() < 1e-9, "{hi}");
+    assert_eq!(p.pieces(), 1);
 }
 
 #[test]
@@ -456,14 +458,14 @@ fn only_this_one_makes_the_way_to_it_unique() {
     // The path still names it; its cabinet and its shelf are their own now.
     let (own_part, p, _) = doc.resolve_part(&target).unwrap();
     assert_ne!(own_part, part);
-    assert_eq!(p.machinings.len(), 1);
+    assert_eq!(p.machinings().len(), 1);
     let own_cabinet = occ(doc, &EntityPath::root(cab2)).component;
     assert_ne!(own_cabinet, cabinet);
     assert_eq!(doc.component(own_cabinet).unwrap().name, "Caisson#2");
     // The others are untouched: the first cabinet's shelf and the loose one share the old part.
     assert_eq!(doc.resolve_part(&EntityPath::new(vec![cab], shelf)).unwrap().0, part);
     assert_eq!(doc.resolve_part(&EntityPath::root(loose)).unwrap().0, part);
-    assert!(doc.part(part).unwrap().machinings.is_empty());
+    assert!(doc.part(part).unwrap().machinings().is_empty());
     // Occurrence ids are unique within an assembly only: the file says so, and opens.
     let back = Document::from_json(&doc.to_json().unwrap()).unwrap();
     assert_eq!(back, *doc);
@@ -474,7 +476,7 @@ fn only_this_one_makes_the_way_to_it_unique() {
     h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::This })
         .unwrap();
     assert_eq!(h.document().components().count(), n);
-    assert_eq!(h.document().resolve_part(&target).unwrap().1.machinings.len(), 2);
+    assert_eq!(h.document().resolve_part(&target).unwrap().1.machinings().len(), 2);
 
     // All occurrences: the first cabinet's shelf and the loose one both get the hole.
     let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(250.0, 150.0, 10.0), radius: 4.0, height: 20.0 });
@@ -485,7 +487,7 @@ fn only_this_one_makes_the_way_to_it_unique() {
         scope: Scope::All,
     })
     .unwrap();
-    assert_eq!(h.document().part(part).unwrap().machinings.len(), 1);
+    assert_eq!(h.document().part(part).unwrap().machinings().len(), 1);
     assert_eq!(h.document().resolve_part(&EntityPath::root(loose)).unwrap().0, part);
 }
 
@@ -618,7 +620,7 @@ fn drilled_board(h: &mut History) -> (EntityPath, Id, Id) {
     h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
         .unwrap();
     let (part, p, _) = h.document().resolve_part(&target).unwrap();
-    (target, part, p.machinings[0].id)
+    (target, part, p.machinings()[0].id)
 }
 
 fn faces(doc: &Document, part: Id) -> usize {
@@ -633,36 +635,36 @@ fn machinings_are_copied_arrayed_moved_and_deleted() {
 
     // A copy is cut from the shape as it is: one tool in the recipe.
     let dx = |x: f64| DAffine3::from_translation(DVec3::X * x);
-    let op = Operation::DuplicateMachinings { target: target.clone(), machinings: vec![hole], transform: dx(40.0), scope: Scope::All };
+    let op = Operation::DuplicateBodies { target: target.clone(), bodies: vec![hole], transform: dx(40.0), scope: Scope::All };
     let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
-    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { tools, .. }] if tools.len() == 1), "{:?}", job.tasks);
-    let copy = h.apply(op).unwrap().machinings[0];
+    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { negatives: tools, .. }] if tools.len() == 1), "{:?}", job.tasks);
+    let copy = h.apply(op).unwrap().machinings()[0];
     let p = h.document().part(part).unwrap();
-    assert_eq!(p.machinings.len(), 2);
+    assert_eq!(p.machinings().len(), 2);
     assert!(close(p.machining(copy).unwrap().placement.translation, DVec3::new(60.0, 25.0, -5.0)));
     let two = faces(h.document(), part);
     assert!(two > one, "{two} > {one}");
 
     // An array: three more, 40 apart.
     let created = h
-        .apply(Operation::ArrayMachinings { target: target.clone(), machinings: vec![copy], step: dx(40.0), count: 3, scope: Scope::All })
+        .apply(Operation::ArrayBodies { target: target.clone(), bodies: vec![copy], step: dx(40.0), count: 3, scope: Scope::All })
         .unwrap()
-        .machinings;
+        .machinings();
     assert_eq!(created.len(), 3);
     let p = h.document().part(part).unwrap();
     assert!(close(p.machining(created[2]).unwrap().placement.translation, DVec3::new(180.0, 25.0, -5.0)));
     assert!(p.failed.is_empty());
 
     // A move computes the part again from the blank: every tool in the recipe.
-    let op = Operation::TransformMachinings { target: target.clone(), machinings: vec![hole], transform: dx(-10.0), scope: Scope::All };
+    let op = Operation::TransformBodies { target: target.clone(), bodies: vec![hole], transform: dx(-10.0), scope: Scope::All };
     let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
-    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { tools, .. }] if tools.len() == 5));
+    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { negatives: tools, .. }] if tools.len() == 5));
     h.apply(op).unwrap();
     assert!(close(h.document().part(part).unwrap().machining(hole).unwrap().placement.translation, DVec3::new(10.0, 25.0, -5.0)));
     assert!(
-        h.apply(Operation::TransformMachinings {
+        h.apply(Operation::TransformBodies {
             target: target.clone(),
-            machinings: vec![hole],
+            bodies: vec![hole],
             transform: DAffine3::from_scale(DVec3::splat(2.0)),
             scope: Scope::All
         })
@@ -670,21 +672,21 @@ fn machinings_are_copied_arrayed_moved_and_deleted() {
     );
 
     // Deleting all but one, then the last: the blank is the shape again, without the kernel.
-    let all: Vec<Id> = h.document().part(part).unwrap().machinings.iter().map(|m| m.id).collect();
-    h.apply(Operation::DeleteMachinings { target: target.clone(), machinings: all[1..].to_vec(), scope: Scope::All }).unwrap();
+    let all: Vec<Id> = h.document().part(part).unwrap().machinings().iter().map(|m| m.id).collect();
+    h.apply(Operation::DeleteBodies { target: target.clone(), bodies: all[1..].to_vec(), scope: Scope::All }).unwrap();
     assert_eq!(faces(h.document(), part), one);
-    let op = Operation::DeleteMachinings { target: target.clone(), machinings: vec![hole], scope: Scope::All };
+    let op = Operation::DeleteBodies { target: target.clone(), bodies: vec![hole], scope: Scope::All };
     assert!(matches!(h.document().prepare(&op).unwrap(), Prepared::Done(_)));
     h.apply(op).unwrap();
     let p = h.document().part(part).unwrap();
-    assert!(p.machinings.is_empty() && p.shape.is_none());
+    assert!(p.machinings().is_empty() && p.shape.is_none());
 
     // Refused: no machining named, one the part does not have.
-    assert!(h.apply(Operation::DeleteMachinings { target: target.clone(), machinings: vec![], scope: Scope::All }).is_err());
-    assert!(h.apply(Operation::DeleteMachinings { target, machinings: vec![hole], scope: Scope::All }).is_err());
+    assert!(h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![], scope: Scope::All }).is_err());
+    assert!(h.apply(Operation::DeleteBodies { target, bodies: vec![hole], scope: Scope::All }).is_err());
     // Undo brings them back.
     h.undo();
-    assert_eq!(h.document().part(part).unwrap().machinings.len(), 1);
+    assert_eq!(h.document().part(part).unwrap().machinings().len(), 1);
 }
 
 #[test]
@@ -696,31 +698,29 @@ fn a_failing_machining_is_skipped_and_reported() {
     let mut doc = h.document().clone();
     let huge = doc.fresh_id();
     let tool = Arc::new(kernel::Solid::new_box(DVec3::splat(-100.0), DVec3::splat(1000.0)).unwrap());
-    doc.part_mut(part).unwrap().machinings.push(Machining {
-        id: huge,
-        tool,
-        placement: DAffine3::IDENTITY,
-        source: MachiningSource::Local,
-    });
+    let def = doc.fresh_id();
+    let p = doc.part_mut(part).unwrap();
+    p.defs.push(BodyDef::new(def, tool));
+    p.bodies.push(Body::new(huge, def, Sign::Negative, DAffine3::IDENTITY));
     let mut h = History::new(doc);
 
     // Moving the hole computes the part from the blank: the huge tool fails, the hole cuts.
-    h.apply(Operation::TransformMachinings {
+    h.apply(Operation::TransformBodies {
         target: target.clone(),
-        machinings: vec![hole],
+        bodies: vec![hole],
         transform: DAffine3::from_translation(DVec3::X * 50.0),
         scope: Scope::All,
     })
     .unwrap();
     let p = h.document().part(part).unwrap();
     assert!(p.is_failed(huge) && !p.is_failed(hole));
-    let blank = p.blank.topology_counts().0;
+    let blank = p.blank().topology_counts().0;
     assert!(faces(h.document(), part) > blank);
     // Saved with the file.
     let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
     assert!(back.part(part).unwrap().is_failed(huge));
     // Gone with it.
-    h.apply(Operation::DeleteMachinings { target, machinings: vec![huge], scope: Scope::All }).unwrap();
+    h.apply(Operation::DeleteBodies { target, bodies: vec![huge], scope: Scope::All }).unwrap();
     assert!(h.document().part(part).unwrap().failed.is_empty());
 }
 
@@ -738,11 +738,11 @@ fn only_this_one_separates_a_machined_part_keeping_machining_ids() {
         .unwrap()
         .created[0];
 
-    h.apply(Operation::DeleteMachinings { target: target.clone(), machinings: vec![hole], scope: Scope::This }).unwrap();
+    h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![hole], scope: Scope::This }).unwrap();
     let doc = h.document();
     let (own, p, _) = doc.resolve_part(&target).unwrap();
     assert_ne!(own, part);
-    assert!(p.machinings.is_empty());
+    assert!(p.machinings().is_empty());
     // The other occurrence keeps the hole, under the same id.
     let (shared, q, _) = doc.resolve_part(&EntityPath::root(other)).unwrap();
     assert_eq!(shared, part);
@@ -754,9 +754,9 @@ fn only_this_one_separates_a_machined_part_keeping_machining_ids() {
     let root = h.document().root();
     h.apply(Operation::Duplicate { context: root, entities: vec![target.entity], transform: DAffine3::from_translation(DVec3::Y * 100.0) })
         .unwrap();
-    h.apply(Operation::TransformMachinings {
+    h.apply(Operation::TransformBodies {
         target: target.clone(),
-        machinings: vec![hole],
+        bodies: vec![hole],
         transform: DAffine3::from_translation(DVec3::X * 30.0),
         scope: Scope::This,
     })
@@ -774,21 +774,28 @@ fn a_primitive_drawn_in_a_part_is_a_machining() {
     // A groove along the board's top, flush with its ends, over the hole, in its axes.
     let groove = Primitive::Box { origin: DVec3::new(0.0, 20.0, 12.0), size: DVec3::new(200.0, 10.0, 10.0) };
     let out = h
-        .apply(Operation::AddMachining { target: target.clone(), primitive: groove, placement: DAffine3::IDENTITY, scope: Scope::All })
+        .apply(Operation::AddBody {
+            target: target.clone(),
+            primitive: groove,
+            placement: DAffine3::IDENTITY,
+            sign: Sign::Negative,
+            scope: Scope::All,
+        })
         .unwrap();
     let p = h.document().part(part).unwrap();
-    assert_eq!(p.machinings.len(), 2);
-    let m = p.machining(out.machinings[0]).unwrap();
+    assert_eq!(p.machinings().len(), 2);
+    let m = p.machining(out.machinings()[0]).unwrap();
     // The tool at its own origin, placed where it was drawn.
     assert!(close(m.placement.translation, DVec3::new(0.0, 20.0, 12.0)));
-    assert!(close(m.tool.vertex_bounds().unwrap().0, DVec3::ZERO));
+    assert!(close(p.solid_of(m).vertex_bounds().unwrap().0, DVec3::ZERO));
     assert!(p.failed.is_empty(), "{:?}", p.failed);
     assert!(faces(h.document(), part) > before, "{} {before}", faces(h.document(), part));
     assert!(
-        h.apply(Operation::AddMachining {
+        h.apply(Operation::AddBody {
             target,
             primitive: cube(DVec3::ZERO, 5.0),
             placement: DAffine3::from_scale(DVec3::splat(2.0)),
+            sign: Sign::Negative,
             scope: Scope::All
         })
         .is_err()
@@ -844,26 +851,25 @@ fn a_part_s_guides_go_with_its_machinings() {
     let part = occ(h.document(), &target).component;
     let circle = GuideShape::Circle { center: DVec3::new(50.0, 50.0, 100.0), normal: DVec3::Z, radius: 20.0 };
     let g = h.apply(Operation::AddGuide { component: part, shape: circle }).unwrap().guide.unwrap();
-    let m = h.document().part(part).unwrap().machinings[0].id;
+    let m = h.document().part(part).unwrap().machinings()[0].id;
     let shift = DAffine3::from_translation(DVec3::new(10.0, 0.0, 0.0));
 
     // Guides alone: no kernel, no separate part even "only this one".
     let doc = h.document().clone();
-    let op = Operation::TransformMachinings { target: target.clone(), machinings: vec![g], transform: shift, scope: Scope::This };
+    let op = Operation::TransformBodies { target: target.clone(), bodies: vec![g], transform: shift, scope: Scope::This };
     assert!(matches!(doc.prepare(&op).unwrap(), Prepared::Done(_)));
     h.apply(op).unwrap();
     assert_eq!(occ(h.document(), &target).component, part);
     let GuideShape::Circle { center, .. } = h.document().component(part).unwrap().guide(g).unwrap().shape else { panic!() };
     assert!(close(center, DVec3::new(60.0, 50.0, 100.0)));
     // Copied with a machining: both copies created.
-    let out =
-        h.apply(Operation::DuplicateMachinings { target: target.clone(), machinings: vec![m, g], transform: shift, scope: Scope::All });
-    assert_eq!(out.unwrap().machinings.len(), 2);
+    let out = h.apply(Operation::DuplicateBodies { target: target.clone(), bodies: vec![m, g], transform: shift, scope: Scope::All });
+    assert_eq!(out.unwrap().machinings().len(), 2);
     assert_eq!(h.document().component(part).unwrap().guides.len(), 2);
     // Erased alone.
-    h.apply(Operation::DeleteMachinings { target, machinings: vec![g], scope: Scope::All }).unwrap();
+    h.apply(Operation::DeleteBodies { target, bodies: vec![g], scope: Scope::All }).unwrap();
     assert_eq!(h.document().component(part).unwrap().guides.len(), 1);
-    assert_eq!(h.document().part(part).unwrap().machinings.len(), 2);
+    assert_eq!(h.document().part(part).unwrap().machinings().len(), 2);
 }
 
 /// A stretch of the occurrence `target`, in its component's axes.
@@ -892,43 +898,49 @@ fn a_stretch_stretches_the_blank_and_moves_or_stretches_the_machinings() {
     let (target, part, hole) = drilled_board(&mut h);
     // A second hole past the cutter, and a groove along the whole board.
     let far = h
-        .apply(Operation::DuplicateMachinings {
+        .apply(Operation::DuplicateBodies {
             target: target.clone(),
-            machinings: vec![hole],
+            bodies: vec![hole],
             transform: DAffine3::from_translation(DVec3::X * 160.0),
             scope: Scope::All,
         })
         .unwrap()
-        .machinings[0];
+        .machinings()[0];
     let groove = Primitive::Box { origin: DVec3::new(0.0, 20.0, 12.0), size: DVec3::new(200.0, 10.0, 10.0) };
     let groove = h
-        .apply(Operation::AddMachining { target: target.clone(), primitive: groove, placement: DAffine3::IDENTITY, scope: Scope::All })
+        .apply(Operation::AddBody {
+            target: target.clone(),
+            primitive: groove,
+            placement: DAffine3::IDENTITY,
+            sign: Sign::Negative,
+            scope: Scope::All,
+        })
         .unwrap()
-        .machinings[0];
+        .machinings()[0];
 
     // The blank and the groove's tool are stretched, the holes only moved; then the recipe.
     let op = stretch_x(h.document(), &target, 100.0, 50.0, Scope::All);
     let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
     assert!(
-        matches!(&job.tasks[..], [kernel::Task::Stretch { .. }, kernel::Task::Stretch { .. }, kernel::Task::Recipe { tools, .. }] if tools.len() == 3),
+        matches!(&job.tasks[..], [kernel::Task::Stretch { .. }, kernel::Task::Stretch { .. }, kernel::Task::Recipe { negatives: tools, .. }] if tools.len() == 3),
         "{:?}",
         job.tasks
     );
     h.apply(op).unwrap();
     let p = h.document().part(part).unwrap();
-    assert!(close(p.blank.vertex_bounds().unwrap().1, DVec3::new(250.0, 50.0, 18.0)));
+    assert!(close(p.blank().vertex_bounds().unwrap().1, DVec3::new(250.0, 50.0, 18.0)));
     assert!(close(p.machining(hole).unwrap().placement.translation, DVec3::new(20.0, 25.0, -5.0)));
     assert!(close(p.machining(far).unwrap().placement.translation, DVec3::new(230.0, 25.0, -5.0)));
-    assert!(close(p.machining(groove).unwrap().tool.vertex_bounds().unwrap().1, DVec3::new(250.0, 10.0, 10.0)));
+    assert!(close(p.solid_of(p.machining(groove).unwrap()).vertex_bounds().unwrap().1, DVec3::new(250.0, 10.0, 10.0)));
     assert!(p.failed.is_empty(), "{:?}", p.failed);
     assert!(close(p.shape().bounds().unwrap().1, DVec3::new(250.0, 50.0, 18.0)));
 
     // Compressed back, then undone.
     h.apply(stretch_x(h.document(), &target, 100.0, -50.0, Scope::All)).unwrap();
-    assert!(close(h.document().part(part).unwrap().blank.vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
+    assert!(close(h.document().part(part).unwrap().blank().vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
     h.undo();
     h.undo();
-    assert!(close(h.document().part(part).unwrap().blank.vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
+    assert!(close(h.document().part(part).unwrap().blank().vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
     assert!(close(h.document().part(part).unwrap().machining(far).unwrap().placement.translation, DVec3::new(180.0, 25.0, -5.0)));
 }
 
@@ -944,7 +956,7 @@ fn a_bare_part_is_stretched_without_a_recipe() {
     let (_, p, t) = h.document().resolve_part(&target).unwrap();
     assert!(p.shape.is_none());
     // The origin, in the section moving by -10, follows it (OCL's anchor).
-    assert_eq!(p.blank.vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(200.0, 70.0, 18.0)));
+    assert_eq!(p.blank().vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(200.0, 70.0, 18.0)));
     assert!(close(t.translation, DVec3::new(0.0, -10.0, 0.0)));
 }
 
@@ -963,7 +975,7 @@ fn the_origin_follows_its_section_and_the_other_occurrences_show_the_same_change
     h.apply(stretch(h.document(), &target, DVec3::X, vec![100.0], vec![-30.0, 0.0], Scope::All)).unwrap();
     let doc = h.document();
     let (part, p, t) = doc.resolve_part(&target).unwrap();
-    assert_eq!(p.blank.vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(230.0, 50.0, 18.0)));
+    assert_eq!(p.blank().vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(230.0, 50.0, 18.0)));
     assert!(close(t.translation, DVec3::new(-30.0, 0.0, 0.0)));
     assert!(close(world_bounds(doc, &target).0, DVec3::new(-30.0, 0.0, 0.0)));
     // The other occurrence, not stretched, shows the same change in its own axes.
@@ -979,7 +991,7 @@ fn the_origin_stays_when_its_section_does_not_move() {
     let target = EntityPath::root(board);
     h.apply(stretch_x(h.document(), &target, 100.0, 30.0, Scope::All)).unwrap();
     let (_, p, t) = h.document().resolve_part(&target).unwrap();
-    assert_eq!(p.blank.vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(230.0, 50.0, 18.0)));
+    assert_eq!(p.blank().vertex_bounds().unwrap(), (DVec3::ZERO, DVec3::new(230.0, 50.0, 18.0)));
     assert!(close(t.translation, DVec3::ZERO));
 }
 
@@ -1000,10 +1012,10 @@ fn a_stretch_of_only_this_one_makes_it_a_separate_part() {
     let doc = h.document();
     let (mine, p, _) = doc.resolve_part(&target).unwrap();
     assert_ne!(mine, part);
-    assert!(close(p.blank.vertex_bounds().unwrap().1, DVec3::new(250.0, 50.0, 18.0)));
+    assert!(close(p.blank().vertex_bounds().unwrap().1, DVec3::new(250.0, 50.0, 18.0)));
     let (theirs, q, _) = doc.resolve_part(&EntityPath::root(other)).unwrap();
     assert_eq!(theirs, part);
-    assert!(close(q.blank.vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
+    assert!(close(q.blank().vertex_bounds().unwrap().1, DVec3::new(200.0, 50.0, 18.0)));
 }
 
 #[test]
@@ -1040,11 +1052,11 @@ fn a_stretch_that_cannot_apply_is_refused_when_prepared() {
     refused(&stretch(h.document(), &target, DVec3::Z, vec![20.0], vec![0.0, -45.0], Scope::All));
     assert!(h.apply(stretch_x(h.document(), &target, 0.0, 10.0, Scope::All)).is_err());
     // Unchanged.
-    assert!((h.document().resolve_part(&target).unwrap().1.blank.bounds().unwrap().1.z - 40.0).abs() < 1e-9);
+    assert!((h.document().resolve_part(&target).unwrap().1.blank().bounds().unwrap().1.z - 40.0).abs() < 1e-9);
     // Along its axis it stretches.
     h.apply(stretch(h.document(), &target, DVec3::Z, vec![20.0], vec![0.0, 10.0], Scope::All)).unwrap();
     let (_, p, _) = h.document().resolve_part(&target).unwrap();
-    assert!((p.blank.bounds().unwrap().1.z - 50.0).abs() < 1e-9);
+    assert!((p.blank().bounds().unwrap().1.z - 50.0).abs() < 1e-9);
 }
 
 /// A frame along X at the root, made an assembly: two rails 0–600 (one part, the second a copy
@@ -1101,7 +1113,7 @@ fn an_assembly_stretched_moves_what_is_in_one_section_and_stretches_what_crosses
     assert_eq!(x_of(doc, a, legs[0]), ((0.0, 50.0), leg_part));
     assert_eq!(x_of(doc, a, legs[1]), ((650.0, 700.0), leg_part));
     assert_eq!(out.stretched.iter().map(|s| (s.part, s.from)).collect::<Vec<_>>(), vec![(rail_part, rail_part)]);
-    assert!((doc.part(leg_part).unwrap().blank.bounds().unwrap().1.x - 50.0).abs() < 1e-9);
+    assert!((doc.part(leg_part).unwrap().blank().bounds().unwrap().1.x - 50.0).abs() < 1e-9);
 }
 
 #[test]
@@ -1112,7 +1124,8 @@ fn occurrences_of_one_part_stretched_differently_become_separate_parts() {
     let rail_part = x_of(h.document(), a, rails[0]).1;
     let hole = Primitive::Cylinder { origin: DVec3::new(250.0, 10.0, -10.0), radius: 5.0, height: 60.0 };
     let target = EntityPath::new(vec![a], rails[0]);
-    h.apply(Operation::AddMachining { target, primitive: hole, placement: DAffine3::IDENTITY, scope: Scope::All }).unwrap();
+    h.apply(Operation::AddBody { target, primitive: hole, placement: DAffine3::IDENTITY, sign: Sign::Negative, scope: Scope::All })
+        .unwrap();
     h.apply(stretch_x(h.document(), &EntityPath::root(a), 300.0, 100.0, Scope::All)).unwrap();
     let doc = h.document();
     let ((r0, p0), (r1, p1)) = (x_of(doc, a, rails[0]), x_of(doc, a, rails[1]));
@@ -1120,7 +1133,7 @@ fn occurrences_of_one_part_stretched_differently_become_separate_parts() {
     // The first met keeps the part; the other is a copy, its ids kept.
     assert_eq!(p0, rail_part);
     assert_ne!(p1, rail_part);
-    assert_eq!(doc.part(p1).unwrap().blank.bounds().unwrap().1.x, 700.0);
+    assert_eq!(doc.part(p1).unwrap().blank().bounds().unwrap().1.x, 700.0);
 }
 
 #[test]
@@ -1149,7 +1162,7 @@ fn a_part_only_moved_in_the_stretched_tree_keeps_its_shape() {
     assert_eq!(p0, rail_part);
     assert_ne!(p1, rail_part);
     assert_eq!(p1, p3);
-    assert_eq!(doc.part(rail_part).unwrap().blank.bounds().unwrap().1.y, 20.0);
+    assert_eq!(doc.part(rail_part).unwrap().blank().bounds().unwrap().1.y, 20.0);
     assert_eq!(y_of(legs[0]), ((0.0, 50.0), leg_part));
 }
 
@@ -1624,8 +1637,9 @@ fn placements_are_counted_over_the_distinct_assemblies() {
 
 // ---- Blank profiles (ARCHITECTURE.md §6 nonies, step 3) --------------------------------------
 
-fn profile_of(doc: &Document, path: &EntityPath) -> Option<BlankProfile> {
-    doc.resolve_part(path).unwrap().1.profile.clone()
+fn profile_of(doc: &Document, path: &EntityPath) -> Option<BodyProfile> {
+    let p = doc.resolve_part(path).unwrap().1;
+    p.profiled().and_then(|b| p.profile_of(b).cloned())
 }
 
 #[test]
@@ -1647,9 +1661,11 @@ fn a_profile_is_kept_set_and_stretched() {
     let l = polygon(
         &[(0.0, 0.0), (600.0, 0.0), (600.0, 100.0), (100.0, 100.0), (100.0, 300.0), (0.0, 300.0)].map(|(x, y)| glam::DVec2::new(x, y)),
     );
+    let body = h.document().resolve_part(&path).unwrap().1.profiled().unwrap().id;
     let set = |profile: Vec<Corner>, height: f64, scope| Operation::SetProfile {
         target: path.clone(),
-        profile: BlankProfile { profile, z0: 0.0, height },
+        body,
+        profile: BodyProfile { profile, z0: 0.0, height },
         scope,
     };
     h.apply(set(l.clone(), 19.0, Scope::All)).unwrap();
@@ -1674,16 +1690,17 @@ fn a_profile_is_kept_set_and_stretched() {
     let b = profile_of(h.document(), &copy_path).unwrap();
     assert_eq!(solidsketch_kernel::profile::bounds(&b.profile).unwrap().1, glam::DVec2::new(700.0, 300.0));
 
-    // A free part (a boolean's result) has no profile to set.
+    // A free part (an intersection's result) has no profile to set.
     let a = add(&mut h, cube(DVec3::new(-500.0, 0.0, 0.0), 20.0));
     let b = add(&mut h, cube(DVec3::new(-490.0, 0.0, 0.0), 20.0));
     let out = h
-        .apply(Operation::Boolean { target: EntityPath::root(a), tool: EntityPath::root(b), op: Boolean::Union, scope: Scope::All })
+        .apply(Operation::Boolean { target: EntityPath::root(a), tool: EntityPath::root(b), op: Boolean::Intersection, scope: Scope::All })
         .unwrap();
-    let union = EntityPath::root(*out.created.first().unwrap_or(&a));
-    assert!(profile_of(h.document(), &union).is_none());
+    let common = EntityPath::root(*out.created.first().unwrap_or(&a));
+    assert!(profile_of(h.document(), &common).is_none());
     let any = profile_of(h.document(), &copy_path).unwrap();
-    assert!(h.apply(Operation::SetProfile { target: union, profile: any, scope: Scope::All }).is_err());
+    let only = h.document().resolve_part(&common).unwrap().1.bodies[0].id;
+    assert!(h.apply(Operation::SetProfile { target: common, body: only, profile: any, scope: Scope::All }).is_err());
 }
 
 // ---- copy and paste (§6 decies) ---------------------------------------------------------
@@ -1828,8 +1845,8 @@ fn machinings_paste_into_another_part() {
     let (source, part, hole) = drilled_board(&mut h);
     let line = GuideShape::Line { origin: DVec3::new(0.0, 25.0, 18.0), dir: DVec3::X };
     let g = h.apply(Operation::AddGuide { component: part, shape: line }).unwrap().guide.unwrap();
-    let fragment = Arc::new(h.document().machinings_fragment(&source, &[hole, g]).unwrap());
-    assert_eq!((fragment.machinings.len(), fragment.guides.len()), (1, 1));
+    let fragment = Arc::new(h.document().bodies_fragment(&source, &[hole, g]).unwrap());
+    assert_eq!((fragment.bodies.len(), fragment.guides.len()), (1, 1));
 
     // Its twin, elsewhere and turned: in place, the hole lands at the same spot in its axes.
     let twin = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
@@ -1843,21 +1860,24 @@ fn machinings_paste_into_another_part() {
     let target = EntityPath::root(twin);
     let before = faces(h.document(), occ(h.document(), &target).component);
     let op =
-        Operation::PasteMachinings { target: target.clone(), fragment: fragment.clone(), transform: DAffine3::IDENTITY, scope: Scope::All };
+        Operation::PasteBodies { target: target.clone(), fragment: fragment.clone(), transform: DAffine3::IDENTITY, scope: Scope::All };
     let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
-    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { tools, .. }] if tools.len() == 1));
+    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { negatives: tools, .. }] if tools.len() == 1));
     let out = h.apply(op).unwrap();
-    assert_eq!(out.machinings.len(), 2, "the machining and the guide");
+    assert_eq!(out.machinings().len(), 2, "the machining and the guide");
     let twin_part = occ(h.document(), &target).component;
     let p = h.document().part(twin_part).unwrap();
-    assert_eq!(p.machinings.len(), 1);
-    assert!(close(p.machinings[0].placement.translation, h.document().part(part).unwrap().machining(hole).unwrap().placement.translation));
+    assert_eq!(p.machinings().len(), 1);
+    assert!(close(
+        p.machinings()[0].placement.translation,
+        h.document().part(part).unwrap().machining(hole).unwrap().placement.translation
+    ));
     assert!(faces(h.document(), twin_part) > before);
-    assert_eq!(h.document().component(twin_part).unwrap().guide(out.machinings[1]).unwrap().shape, line);
+    assert_eq!(h.document().component(twin_part).unwrap().guide(out.machinings()[1]).unwrap().shape, line);
 
     // Into a part with no occurrence path: refused; nothing to paste: refused.
     assert!(
-        h.apply(Operation::PasteMachinings {
+        h.apply(Operation::PasteBodies {
             target: EntityPath::root(Id(999)),
             fragment: fragment.clone(),
             transform: DAffine3::IDENTITY,
@@ -1865,8 +1885,8 @@ fn machinings_paste_into_another_part() {
         })
         .is_err()
     );
-    let empty = Arc::new(MachiningFragment::default());
-    assert!(h.apply(Operation::PasteMachinings { target, fragment: empty, transform: DAffine3::IDENTITY, scope: Scope::All }).is_err());
+    let empty = Arc::new(BodyFragment::default());
+    assert!(h.apply(Operation::PasteBodies { target, fragment: empty, transform: DAffine3::IDENTITY, scope: Scope::All }).is_err());
 }
 
 #[test]
@@ -1882,4 +1902,444 @@ fn the_history_tells_which_states_it_holds() {
     // Another way taken: the state copied is gone.
     add(&mut h, cube(DVec3::Y * 20.0, 10.0));
     assert!(!h.holds(copied));
+}
+
+// ---- bodies: positive and negative solids (ARCHITECTURE.md §2.11) ---------------------------
+
+/// The bounds of the part `target` places, in its own axes.
+fn part_bounds(doc: &Document, target: &EntityPath) -> (DVec3, DVec3) {
+    doc.resolve_part(target).unwrap().1.shape().bounds().unwrap()
+}
+
+#[test]
+fn a_positive_body_joins_the_part_and_every_negative_cuts_it() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    assert!(!h.document().part(part).unwrap().is_plain());
+    // A tenon at the board's end, drawn in the part: one recipe, from the part as it is.
+    let tenon = Primitive::Box { origin: DVec3::new(200.0, 15.0, 4.0), size: DVec3::new(30.0, 20.0, 10.0) };
+    let op = Operation::AddBody {
+        target: target.clone(),
+        primitive: tenon,
+        placement: DAffine3::IDENTITY,
+        sign: Sign::Positive,
+        scope: Scope::All,
+    };
+    let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!() };
+    assert!(
+        matches!(&job.tasks[..], [kernel::Task::Primitive { .. }, kernel::Task::Recipe { base: Some(_), positives, negatives }] if positives.len() == 1 && negatives.len() == 1),
+        "{:?}",
+        job.tasks
+    );
+    let tenon = h.apply(op).unwrap().bodies[0];
+    let p = h.document().part(part).unwrap();
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 1));
+    assert_eq!(p.body(tenon).unwrap().sign, Sign::Positive);
+    assert!(p.profile_of(p.body(tenon).unwrap()).is_some(), "drawn, it keeps its profile");
+    assert_eq!(p.pieces(), 1);
+    // The part's size is its final shape's (§2.11): the tenon counts.
+    let (lo, hi) = part_bounds(h.document(), &target);
+    assert!((hi.x - lo.x - 230.0).abs() < 1e-6, "{lo} {hi}");
+
+    // The hole moved onto the tenon cuts it too, though it was made before.
+    let before = faces(h.document(), part);
+    h.apply(Operation::TransformBodies {
+        target: target.clone(),
+        bodies: vec![hole],
+        transform: DAffine3::from_translation(DVec3::X * 195.0),
+        scope: Scope::All,
+    })
+    .unwrap();
+    assert!(faces(h.document(), part) >= before, "the hole goes through the tenon");
+    assert!(h.document().part(part).unwrap().failed.is_empty());
+
+    // Deleting the blank keeps the tenon; deleting the last positive is refused.
+    let blank = h.document().part(part).unwrap().positives().next().unwrap().id;
+    h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![blank], scope: Scope::All }).unwrap();
+    let e = h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![tenon], scope: Scope::All }).unwrap_err();
+    assert!(matches!(e, Error::Invalid(Refusal::LastPositive)), "{e:?}");
+
+    // Saved and read back with its bodies.
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap().bodies, h.document().part(part).unwrap().bodies);
+}
+
+#[test]
+fn a_body_s_sign_is_toggled() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    let blank = h.document().part(part).unwrap().positives().next().unwrap().id;
+    let full = faces(h.document(), part);
+    let set = |bodies: Vec<Id>, sign| Operation::SetSign { target: target.clone(), bodies, sign, scope: Scope::All };
+    // The hole made a blank: a pin through the board, out of it on both sides.
+    h.apply(set(vec![hole], Sign::Positive)).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 0));
+    let (lo, hi) = part_bounds(h.document(), &target);
+    assert!((lo.z + 5.0).abs() < 1e-6 && (hi.z - 25.0).abs() < 1e-6, "{lo} {hi}");
+    // Back to a machining: the part as it was, the body keeping its id and number.
+    h.apply(set(vec![hole], Sign::Negative)).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.bodies.iter().map(|b| b.id).collect::<Vec<_>>(), vec![blank, hole]);
+    assert_eq!(faces(h.document(), part), full);
+    // A sign already held changes nothing; the last blank made a machining is refused.
+    h.apply(set(vec![hole], Sign::Negative)).unwrap();
+    let e = h.apply(set(vec![blank, hole], Sign::Negative)).unwrap_err();
+    assert!(matches!(e, Error::Invalid(Refusal::LastPositive)), "{e:?}");
+    // Undone with the history.
+    h.apply(set(vec![hole], Sign::Positive)).unwrap();
+    h.undo();
+    assert_eq!(h.document().part(part).unwrap().body(hole).unwrap().sign, Sign::Negative);
+}
+
+#[test]
+fn a_part_in_several_pieces_is_counted() {
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let target = EntityPath::root(board);
+    let apart = Primitive::Box { origin: DVec3::new(300.0, 0.0, 0.0), size: DVec3::new(20.0, 20.0, 18.0) };
+    h.apply(Operation::AddBody {
+        target: target.clone(),
+        primitive: apart,
+        placement: DAffine3::IDENTITY,
+        sign: Sign::Positive,
+        scope: Scope::All,
+    })
+    .unwrap();
+    assert_eq!(h.document().resolve_part(&target).unwrap().1.pieces(), 2);
+    // A groove right through splits a part too.
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let target = EntityPath::root(board);
+    let groove = Primitive::Box { origin: DVec3::new(90.0, -10.0, -10.0), size: DVec3::new(20.0, 70.0, 40.0) };
+    h.apply(Operation::AddBody {
+        target: target.clone(),
+        primitive: groove,
+        placement: DAffine3::IDENTITY,
+        sign: Sign::Negative,
+        scope: Scope::All,
+    })
+    .unwrap();
+    assert_eq!(h.document().resolve_part(&target).unwrap().1.pieces(), 2);
+}
+
+#[test]
+fn a_placed_body_keeps_its_profile_in_its_own_axes() {
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0, 300.0, 18.0) });
+    let target = EntityPath::root(board);
+    let (part, p, _) = h.document().resolve_part(&target).unwrap();
+    let blank = p.bodies[0].id;
+    // Stood up in the part: a quarter turn about X, its profile untouched.
+    let up = DAffine3::from_rotation_x(std::f64::consts::FRAC_PI_2);
+    h.apply(Operation::TransformBodies { target: target.clone(), bodies: vec![blank], transform: up, scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert!(!p.is_plain() && p.shape.is_some());
+    let b = p.body(blank).unwrap();
+    assert_eq!(kernel::profile::bounds(&p.profile_of(b).unwrap().profile).unwrap().1, glam::DVec2::new(600.0, 300.0));
+    let (lo, hi) = part_bounds(h.document(), &target);
+    assert!(close(hi - lo, DVec3::new(600.0, 18.0, 300.0)), "{lo} {hi}");
+
+    // Stretched along the part's Z: along the body's Y, in its plane — the profile follows.
+    h.apply(stretch(h.document(), &target, DVec3::Z, vec![150.0], vec![0.0, 100.0], Scope::All)).unwrap();
+    let p = h.document().part(part).unwrap();
+    let b = p.body(blank).unwrap();
+    assert_eq!(kernel::profile::bounds(&p.profile_of(b).unwrap().profile).unwrap().1, glam::DVec2::new(600.0, 400.0));
+    let (lo, hi) = part_bounds(h.document(), &target);
+    assert!((hi.z - lo.z - 400.0).abs() < 1e-6, "{lo} {hi}");
+
+    // Its profile set again, in its own axes: the part stays stood up.
+    let square = kernel::profile::polygon(&[(0.0, 0.0), (50.0, 0.0), (50.0, 50.0), (0.0, 50.0)].map(|(x, y)| glam::DVec2::new(x, y)));
+    let profile = BodyProfile { profile: square, z0: 0.0, height: 10.0 };
+    h.apply(Operation::SetProfile { target: target.clone(), body: blank, profile, scope: Scope::All }).unwrap();
+    let (lo, hi) = part_bounds(h.document(), &target);
+    assert!(close(hi - lo, DVec3::new(50.0, 10.0, 50.0)), "{lo} {hi}");
+}
+
+#[test]
+fn a_union_brings_the_tool_s_bodies() {
+    let mut h = History::new(Document::new());
+    let (target, part, _) = drilled_board(&mut h);
+    // A second drilled board, crossing the first's end, turned a quarter.
+    let other = add(&mut h, Primitive::Box { origin: DVec3::new(180.0, -100.0, 0.0), size: DVec3::new(20.0, 250.0, 18.0) });
+    let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(190.0, -80.0, -5.0), radius: 3.0, height: 30.0 });
+    h.apply(Operation::Boolean {
+        target: EntityPath::root(other),
+        tool: EntityPath::root(drill),
+        op: Boolean::Difference,
+        scope: Scope::All,
+    })
+    .unwrap();
+    h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(other), op: Boolean::Union, scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 2));
+    assert!(p.failed.is_empty(), "{:?}", p.failed);
+    assert_eq!(p.pieces(), 1);
+    // The tool's hole, in the target's axes.
+    let hole = p.negatives().nth(1).unwrap();
+    assert!(close(hole.placement.translation, DVec3::new(190.0, -80.0, -5.0)), "{}", hole.placement.translation);
+    let (lo, hi) = part_bounds(h.document(), &target);
+    assert!(close(lo, DVec3::new(0.0, -100.0, 0.0)) && close(hi, DVec3::new(200.0, 150.0, 18.0)), "{lo} {hi}");
+}
+
+#[test]
+fn a_union_says_when_the_tool_s_machinings_cut_the_target() {
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    // A block on the board, drilled through by a drill longer than it, down into the board.
+    let block = add(&mut h, Primitive::Box { origin: DVec3::new(50.0, 10.0, 18.0), size: DVec3::new(30.0, 30.0, 20.0) });
+    let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(65.0, 25.0, 5.0), radius: 4.0, height: 40.0 });
+    h.apply(Operation::Boolean {
+        target: EntityPath::root(block),
+        tool: EntityPath::root(drill),
+        op: Boolean::Difference,
+        scope: Scope::All,
+    })
+    .unwrap();
+    let op = Operation::Boolean { target: EntityPath::root(board), tool: EntityPath::root(block), op: Boolean::Union, scope: Scope::All };
+    assert_eq!(h.document().apply(&op).unwrap().1.warning, Some(Warning::UnionCut));
+    // The drill kept inside the block: nothing to say.
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let block = add(&mut h, Primitive::Box { origin: DVec3::new(50.0, 10.0, 18.0), size: DVec3::new(30.0, 30.0, 20.0) });
+    let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(65.0, 25.0, 25.0), radius: 4.0, height: 40.0 });
+    h.apply(Operation::Boolean {
+        target: EntityPath::root(block),
+        tool: EntityPath::root(drill),
+        op: Boolean::Difference,
+        scope: Scope::All,
+    })
+    .unwrap();
+    let op = Operation::Boolean { target: EntityPath::root(board), tool: EntityPath::root(block), op: Boolean::Union, scope: Scope::All };
+    assert_eq!(h.document().apply(&op).unwrap().1.warning, None);
+}
+
+#[test]
+fn a_difference_keeps_a_drawn_tool_s_profile() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    let p = h.document().part(part).unwrap();
+    let (b, profile) = (p.body(hole).unwrap().clone(), p.profile_of(p.body(hole).unwrap()).cloned());
+    assert!(profile.is_some(), "the drill's disc");
+    assert!(close(b.placement.translation, DVec3::new(20.0, 25.0, -5.0)), "{}", b.placement.translation);
+    // Its profile set: the hole made larger.
+    let mut disc = profile.unwrap();
+    disc.profile = kernel::profile::with_radius(&disc.profile, 6.0).unwrap();
+    h.apply(Operation::SetProfile { target: target.clone(), body: hole, profile: disc, scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    let (lo, hi) = p.solid_of(p.body(hole).unwrap()).bounds().unwrap();
+    assert!(((hi - lo).x - 12.0).abs() < 1e-6, "{lo} {hi}");
+    // A machined tool is taken as its shape, no profile.
+    let tool = add(&mut h, Primitive::Box { origin: DVec3::new(100.0, 10.0, -5.0), size: DVec3::new(20.0, 20.0, 30.0) });
+    let small = add(&mut h, Primitive::Cylinder { origin: DVec3::new(110.0, 20.0, -10.0), radius: 2.0, height: 40.0 });
+    h.apply(Operation::Boolean {
+        target: EntityPath::root(tool),
+        tool: EntityPath::root(small),
+        op: Boolean::Difference,
+        scope: Scope::All,
+    })
+    .unwrap();
+    let out = h.apply(Operation::Boolean { target, tool: EntityPath::root(tool), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    let _ = out;
+    let p = h.document().part(part).unwrap();
+    assert!(p.profile_of(p.negatives().last().unwrap()).is_none());
+}
+
+#[test]
+fn copies_of_a_body_share_its_definition() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    let dx = DAffine3::from_translation(DVec3::X * 100.0);
+    let copy = h
+        .apply(Operation::DuplicateBodies { target: target.clone(), bodies: vec![hole], transform: dx, scope: Scope::All })
+        .unwrap()
+        .bodies[0];
+    let p = h.document().part(part).unwrap();
+    let def = p.body(hole).unwrap().def;
+    assert_eq!(p.body(copy).unwrap().def, def, "a copy shares the definition");
+    assert_eq!((p.defs.len(), p.copies_of(def)), (2, 2));
+    // Saved once.
+    let json = h.document().to_json().unwrap();
+    let back = Document::from_json(&json).unwrap();
+    assert_eq!(back.part(part).unwrap().defs.len(), 2);
+
+    // The copy's profile set: both holes made larger.
+    let width = |h: &History, id: Id| {
+        let p = h.document().part(part).unwrap();
+        let (lo, hi) = p.solid_of(p.body(id).unwrap()).bounds().unwrap();
+        (hi - lo).x
+    };
+    let mut disc = p.profile_of(p.body(copy).unwrap()).cloned().unwrap();
+    disc.profile = kernel::profile::with_radius(&disc.profile, 6.0).unwrap();
+    h.apply(Operation::SetProfile { target: target.clone(), body: copy, profile: disc.clone(), scope: Scope::All }).unwrap();
+    assert!((width(&h, hole) - 12.0).abs() < 1e-6 && (width(&h, copy) - 12.0).abs() < 1e-6);
+
+    // Made unique, the copy changes alone.
+    h.apply(Operation::MakeBodiesUnique { target: target.clone(), bodies: vec![copy], scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_ne!(p.body(copy).unwrap().def, p.body(hole).unwrap().def);
+    disc.profile = kernel::profile::with_radius(&disc.profile, 3.0).unwrap();
+    h.apply(Operation::SetProfile { target: target.clone(), body: copy, profile: disc, scope: Scope::All }).unwrap();
+    assert!((width(&h, hole) - 12.0).abs() < 1e-6 && (width(&h, copy) - 6.0).abs() < 1e-6);
+    // Erased, its definition goes with it.
+    h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![copy], scope: Scope::All }).unwrap();
+    assert_eq!(h.document().part(part).unwrap().defs.len(), 2);
+}
+
+#[test]
+fn bodies_pasted_share_their_definition_in_their_part_only() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    let fragment = Arc::new(h.document().bodies_fragment(&target, &[hole]).unwrap());
+    let paste = |target: &EntityPath| Operation::PasteBodies {
+        target: target.clone(),
+        fragment: fragment.clone(),
+        transform: DAffine3::from_translation(DVec3::X * 50.0),
+        scope: Scope::All,
+    };
+    let pasted = h.apply(paste(&target)).unwrap().bodies[0];
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.body(pasted).unwrap().def, p.body(hole).unwrap().def, "pasted in its part: a copy");
+    let other = add(&mut h, Primitive::Box { origin: DVec3::new(0.0, 100.0, 0.0), size: DVec3::new(200.0, 50.0, 18.0) });
+    let other = EntityPath::root(other);
+    let there = h.apply(paste(&other)).unwrap().bodies[0];
+    let (_, q, _) = h.document().resolve_part(&other).unwrap();
+    let def = q.body(there).unwrap().def;
+    assert!(q.def(def).is_some() && h.document().part(part).unwrap().def(def).is_none(), "elsewhere: a definition of its own");
+}
+
+#[test]
+fn copies_of_a_body_stretched_alike_or_not() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    let dx = DAffine3::from_translation(DVec3::X * 100.0);
+    let copy = h
+        .apply(Operation::DuplicateBodies { target: target.clone(), bodies: vec![hole], transform: dx, scope: Scope::All })
+        .unwrap()
+        .bodies[0];
+    let height = |h: &History, id: Id| {
+        let p = h.document().part(part).unwrap();
+        let (lo, hi) = p.solid_of(p.body(id).unwrap()).bounds().unwrap();
+        (hi - lo).z
+    };
+    let stretch = |bodies: Vec<Id>, axis: DVec3, cut: f64| Operation::StretchBodies {
+        target: target.clone(),
+        bodies,
+        frame: DAffine3::IDENTITY,
+        axis,
+        cuts: vec![cut],
+        moves: vec![0.0, 5.0],
+        scope: Scope::All,
+    };
+    // One of them stretched along Z: the other, its copy, shows it too.
+    h.apply(stretch(vec![hole], DVec3::Z, 10.0)).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.body(hole).unwrap().def, p.body(copy).unwrap().def);
+    assert!((height(&h, hole) - 35.0).abs() < 1e-6 && (height(&h, copy) - 35.0).abs() < 1e-6);
+    // Both, alike: still one definition.
+    h.apply(stretch(vec![hole, copy], DVec3::Z, 10.0)).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!((p.defs.len(), p.body(hole).unwrap().def), (2, p.body(copy).unwrap().def));
+    assert!((height(&h, copy) - 40.0).abs() < 1e-6);
+    // The copy raised, a cutter across it only: the hole keeps the shape (moved), the copy goes
+    // to a definition of its own.
+    let up = DAffine3::from_translation(DVec3::Z * 100.0);
+    h.apply(Operation::TransformBodies { target: target.clone(), bodies: vec![copy], transform: up, scope: Scope::All }).unwrap();
+    h.apply(stretch(vec![hole, copy], DVec3::Z, 110.0)).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_ne!(p.body(hole).unwrap().def, p.body(copy).unwrap().def);
+    assert_eq!(p.defs.len(), 3);
+    assert!((height(&h, hole) - 40.0).abs() < 1e-6 && (height(&h, copy) - 45.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_union_s_bodies_share_their_copied_definitions() {
+    let mut h = History::new(Document::new());
+    let (_, _, hole) = drilled_board(&mut h);
+    let _ = hole;
+    let (tool_path, tool_part, tool_hole) = drilled_board(&mut h);
+    let dx = DAffine3::from_translation(DVec3::X * 100.0);
+    h.apply(Operation::DuplicateBodies { target: tool_path.clone(), bodies: vec![tool_hole], transform: dx, scope: Scope::All }).unwrap();
+    let target = add(&mut h, Primitive::Box { origin: DVec3::new(0.0, 100.0, 0.0), size: DVec3::new(50.0, 50.0, 18.0) });
+    let target = EntityPath::root(target);
+    h.apply(Operation::Boolean { target: target.clone(), tool: tool_path, op: Boolean::Union, scope: Scope::All }).unwrap();
+    let (_, p, _) = h.document().resolve_part(&target).unwrap();
+    let holes: Vec<&Body> = p.negatives().collect();
+    assert_eq!(holes.len(), 2);
+    assert_eq!(holes[0].def, holes[1].def, "still copies of one definition");
+    let source = h.document().part(tool_part).ok();
+    assert!(source.is_none_or(|s| s.def(holes[0].def).is_none()), "a definition of the target's own");
+}
+
+#[test]
+fn bodies_are_stretched_alone_in_their_axes() {
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(400.0, 200.0, 18.0) });
+    let target = EntityPath::root(board);
+    // A block on it, turned a quarter about Z: its own X along the part's Y.
+    let turn = DAffine3::from_translation(DVec3::new(300.0, 50.0, 18.0)) * DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    let block = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(100.0, 40.0, 30.0) };
+    let out = h
+        .apply(Operation::AddBody { target: target.clone(), primitive: block, placement: turn, sign: Sign::Positive, scope: Scope::All })
+        .unwrap();
+    let block = out.bodies[0];
+    let (part, p, _) = h.document().resolve_part(&target).unwrap();
+    let board_body = p.positives().next().unwrap().clone();
+    let placement = p.body(block).unwrap().placement;
+    // Along its own X (frame: its placement), a cutter at 50 moving what lies beyond by 60.
+    let op = Operation::StretchBodies {
+        target: target.clone(),
+        bodies: vec![block],
+        frame: placement,
+        axis: DVec3::X,
+        cuts: vec![50.0],
+        moves: vec![0.0, 60.0],
+        scope: Scope::All,
+    };
+    h.apply(op).unwrap();
+    let p = h.document().part(part).unwrap();
+    let b = p.body(block).unwrap();
+    assert_eq!(kernel::profile::bounds(&p.profile_of(b).unwrap().profile).unwrap().1, glam::DVec2::new(160.0, 40.0));
+    assert_eq!(p.positives().next().unwrap(), &board_body, "the board untouched");
+    let (lo, hi) = part_bounds(h.document(), &target);
+    assert!((hi.y - lo.y - 210.0).abs() < 1e-6 && (hi.z - 48.0).abs() < 1e-6, "{lo} {hi}");
+    // A body wholly beyond the cutter is only moved.
+    let p = h.document().part(part).unwrap();
+    let at = p.body(block).unwrap().placement;
+    h.apply(Operation::StretchBodies {
+        target,
+        bodies: vec![block],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::X,
+        cuts: vec![10.0],
+        moves: vec![0.0, 5.0],
+        scope: Scope::All,
+    })
+    .unwrap();
+    let b = h.document().part(part).unwrap().body(block).unwrap().clone();
+    assert!(close(b.placement.translation, at.translation + DVec3::X * 5.0), "{}", b.placement.translation);
+}
+
+// ---- test helpers over bodies ------------------------------------------------------------
+
+impl Part {
+    /// The first positive body's solid: a part's blank before §2.11.
+    fn blank(&self) -> Arc<kernel::Solid> {
+        self.solid_of(self.positives().next().unwrap()).clone()
+    }
+
+    /// The negative bodies: the machinings.
+    fn machinings(&self) -> Vec<&Body> {
+        self.negatives().collect()
+    }
+
+    fn machining(&self, id: Id) -> Option<&Body> {
+        self.body(id).filter(|b| b.sign == Sign::Negative)
+    }
+}
+
+impl Outcome {
+    fn machinings(&self) -> Vec<Id> {
+        self.bodies.clone()
+    }
 }

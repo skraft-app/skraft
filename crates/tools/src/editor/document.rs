@@ -89,11 +89,14 @@ impl Editor {
             }
             self.scene.insert(&solid, display);
         }
+        if let Some(w) = outcome.warning {
+            self.message = Some(w.to_string());
+        }
         match after {
             After::Select | After::Carry(_) if !outcome.created.is_empty() => self.selection = outcome.created.clone(),
             // Machinings made in an open part: selected while they are shown.
-            After::Select | After::Carry(_) if !outcome.machinings.is_empty() => {
-                self.selection = if self.showing_machinings() { outcome.machinings.clone() } else { Vec::new() };
+            After::Select | After::Carry(_) if !outcome.bodies.is_empty() => {
+                self.selection = if self.showing_machinings() { outcome.bodies.clone() } else { Vec::new() };
             }
             After::Collect => self.collected.extend(outcome.created.iter().copied()),
             _ => {}
@@ -419,7 +422,7 @@ impl Editor {
             // An open part: its machinings while shown, and its guides.
             Some((_, p, _)) => {
                 let shown = self.machinings_shown;
-                self.selection.retain(|id| (shown && p.machining(*id).is_some()) || guide(id));
+                self.selection.retain(|id| (shown && p.body(*id).is_some()) || guide(id));
             }
             None => {
                 if let Ok(a) = doc.assembly(ctx)

@@ -93,11 +93,14 @@ pub struct Placement {
     pub tint: Tint,
     /// The palette entry of its faces, or [`NO_MATERIAL`].
     pub material: u32,
+    /// In a ghost batch: how much more opaque than [`Style::ghost_opacity`] its faces are (an
+    /// open part's machining, a little more than its blanks).
+    pub opacity: f32,
 }
 
 impl Placement {
     pub fn new(transform: DMat4) -> Self {
-        Placement { transform, tint: NO_TINT, material: NO_MATERIAL }
+        Placement { transform, tint: NO_TINT, material: NO_MATERIAL, opacity: 0.0 }
     }
 }
 
@@ -111,6 +114,9 @@ pub struct Highlight {
     pub edge_tint: Tint,
     /// The placement's palette entry (its faces keep their colour under the tint).
     pub material: u32,
+    /// A ghost's (an open part's body, §2.11): its faces washed with the face tint over the
+    /// ghost's own, see-through; its edges as any highlight's.
+    pub ghost: bool,
 }
 
 /// A world-space segment, coloured (`rgb` linear; `a` mixed over the background, or, in the
@@ -375,8 +381,9 @@ struct InstanceRaw {
 }
 
 impl InstanceRaw {
-    /// `model_view`: from the mesh's (recentred) coordinates to the camera's, in `f64`.
-    fn new(model_view: &DMat4, tint: Tint, material: u32) -> Self {
+    /// `model_view`: from the mesh's (recentred) coordinates to the camera's, in `f64`;
+    /// `opacity`: a ghost's, over the ghosts' (carried in the normal matrix's spare `w`).
+    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32) -> Self {
         let linear = DMat3::from_mat4(*model_view);
         let n = linear.inverse().transpose();
         let c = |v: DVec3, w: f64| [v.x as f32, v.y as f32, v.z as f32, w as f32];
@@ -384,7 +391,7 @@ impl InstanceRaw {
         let mirrored = if linear.determinant() < 0.0 { -1.0 } else { 1.0 };
         InstanceRaw {
             model: model_view.as_mat4().to_cols_array_2d(),
-            normal: [c(n.x_axis, mirrored), c(n.y_axis, 0.0), c(n.z_axis, 0.0)],
+            normal: [c(n.x_axis, mirrored), c(n.y_axis, opacity as f64), c(n.z_axis, 0.0)],
             tint,
             material,
         }
@@ -488,6 +495,8 @@ pub struct Renderer {
     faces_cut: wgpu::RenderPipeline,
     /// A ghost batch's faces: their fronts blended, cut by the section, no depth written.
     faces_ghost: wgpu::RenderPipeline,
+    /// A ghost highlighted: a wash of its tint over its faces, as see-through.
+    faces_ghost_mark: wgpu::RenderPipeline,
     /// Then the caps marked in the stencil (the parity of the faces left along each ray), and
     /// their depth brought onto the plane.
     cap_mark: wgpu::RenderPipeline,
@@ -697,6 +706,16 @@ impl Renderer {
             Some(wgpu::BlendState::ALPHA_BLENDING),
             false,
         );
+        let faces_ghost_mark = blended(
+            "faces (ghost highlighted)",
+            "vs_face",
+            "fs_face_ghost_mark",
+            &[Some(face_layout.clone()), Some(instance_layout.clone())],
+            depth(false, nearer, face_bias),
+            all,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
+        );
         // Every fragment left flips the stencil: an odd count, the ray meets the plane inside
         // a part.
         let cap_mark = pipeline(
@@ -806,6 +825,7 @@ impl Renderer {
             faces,
             faces_cut,
             faces_ghost,
+            faces_ghost_mark,
             cap_mark,
             cap_depth,
             depth_format,
@@ -1050,20 +1070,26 @@ impl Renderer {
         let mut batch_ranges = Vec::with_capacity(frame.batches.len());
         for b in frame.batches {
             let start = raw.len() as u32;
-            raw.extend(b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material)));
+            raw.extend(b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material, p.opacity)));
             batch_ranges.push(start..raw.len() as u32);
         }
         // Highlights by runs of the same part, each run drawn in one call (a selection can
         // hold tens of thousands): its face instances, then its edge instances. Runs keep the
         // highlights' order.
         let mut runs: Vec<HighlightRun> = Vec::new();
-        for chunk in frame.highlights.chunk_by(|a, b| a.key == b.key && a.part == b.part) {
+        for chunk in frame.highlights.chunk_by(|a, b| a.key == b.key && a.part == b.part && a.ghost == b.ghost) {
             let mvs: Vec<DMat4> = chunk.iter().map(|h| model_view(&h.transform, h.key)).collect();
             let faces = raw.len() as u32;
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, h.material)));
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, h.material, 0.0)));
             let edges = raw.len() as u32;
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material)));
-            runs.push(HighlightRun { key: chunk[0].key, part: chunk[0].part, faces: faces..edges, edges: edges..raw.len() as u32 });
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0)));
+            runs.push(HighlightRun {
+                key: chunk[0].key,
+                part: chunk[0].part,
+                ghost: chunk[0].ghost,
+                faces: faces..edges,
+                edges: edges..raw.len() as u32,
+            });
         }
         self.instances.write(device, queue, bytemuck::cast_slice(&raw));
 
@@ -1153,7 +1179,7 @@ impl Renderer {
                     pass.draw_indexed(0..m.index_count, 0, r.clone());
                 }
             }
-            for run in &runs {
+            for run in runs.iter().filter(|r| !r.ghost) {
                 let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                 if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
                     pass.set_vertex_buffer(0, v.slice(..));
@@ -1214,7 +1240,7 @@ impl Renderer {
         }
         // Ghosts' faces, over everything opaque.
         if let Some(inst) = &self.instances.buffer
-            && frame.batches.iter().any(|b| b.ghost)
+            && (frame.batches.iter().any(|b| b.ghost) || runs.iter().any(|r| r.ghost))
         {
             pass.set_pipeline(&self.faces_ghost);
             pass.set_vertex_buffer(1, inst.slice(..));
@@ -1224,6 +1250,16 @@ impl Renderer {
                     pass.set_vertex_buffer(0, v.slice(..));
                     pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..m.index_count, 0, r.clone());
+                }
+            }
+            // Ghosts highlighted: a wash of their tint, over the ghost's own faces.
+            pass.set_pipeline(&self.faces_ghost_mark);
+            for run in runs.iter().filter(|r| r.ghost) {
+                let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
+                if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
+                    pass.set_vertex_buffer(0, v.slice(..));
+                    pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(part.indices.clone(), 0, run.faces.clone());
                 }
             }
         }
@@ -1362,6 +1398,8 @@ fn part_of(meshes: &std::collections::HashMap<u64, GpuMesh>, key: u64, part: u64
 struct HighlightRun {
     key: u64,
     part: u64,
+    /// Its faces drawn with the ghosts'.
+    ghost: bool,
     /// Tinted by their faces' tint, then by their edges'.
     faces: Range<u32>,
     edges: Range<u32>,
@@ -1420,12 +1458,13 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
         for p in &b.placements {
             h.m(&p.transform);
             h.fs(&p.tint);
+            h.fs(&[p.opacity]);
             p.material.hash(&mut h.0);
         }
     }
     frame.highlights.len().hash(&mut h.0);
     for hl in frame.highlights {
-        (hl.key, hl.part, hl.material).hash(&mut h.0);
+        (hl.key, hl.part, hl.material, hl.ghost).hash(&mut h.0);
         h.m(&hl.transform);
         h.fs(&hl.face_tint);
         h.fs(&hl.edge_tint);

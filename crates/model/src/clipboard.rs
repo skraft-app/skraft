@@ -1,6 +1,6 @@
 //! Copy and paste (docs/ARCHITECTURE.md §6 decies): what a selection copies, as a fragment
 //! that [`Operation::Paste`](crate::Operation::Paste) or
-//! [`Operation::PasteMachinings`](crate::Operation::PasteMachinings) places again.
+//! [`Operation::PasteBodies`](crate::Operation::PasteBodies) places again.
 //!
 //! A fragment shares the source's solids (`Arc`): copying costs nearly nothing, whatever the
 //! model's size.
@@ -10,19 +10,21 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::document::{Assembly, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Machining};
+use crate::document::{Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id};
 use crate::{Error, Result};
 
-/// Machinings and guides copied from an open part, in the part's axes.
+/// Bodies and guides copied from an open part, in the part's axes, with the definitions of
+/// the bodies (pasted into the same part, its bodies are copies of them).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct MachiningFragment {
-    pub machinings: Vec<Machining>,
+pub struct BodyFragment {
+    pub defs: Vec<BodyDef>,
+    pub bodies: Vec<Body>,
     pub guides: Vec<GuideShape>,
 }
 
-impl MachiningFragment {
+impl BodyFragment {
     pub fn is_empty(&self) -> bool {
-        self.machinings.is_empty() && self.guides.is_empty()
+        self.bodies.is_empty() && self.guides.is_empty()
     }
 }
 
@@ -82,13 +84,14 @@ impl Document {
         })
     }
 
-    /// What copying `ids` — machinings and guides of the part `target` places — copies, in the
+    /// What copying `ids` — bodies and guides of the part `target` places — copies, in the
     /// part's axes.
-    pub fn machinings_fragment(&self, target: &EntityPath, ids: &[Id]) -> Result<MachiningFragment> {
+    pub fn bodies_fragment(&self, target: &EntityPath, ids: &[Id]) -> Result<BodyFragment> {
         let (part, p, _) = self.resolve_part(target)?;
-        let (guides, machinings) = self.split_guides(part, ids)?;
-        let machinings = machinings.iter().map(|id| p.machining(*id).cloned().ok_or(Error::NotFound(*id))).collect::<Result<_>>()?;
+        let (guides, bodies) = self.split_guides(part, ids)?;
+        let bodies: Vec<Body> = bodies.iter().map(|id| p.body(*id).cloned().ok_or(Error::NotFound(*id))).collect::<Result<_>>()?;
+        let defs = p.defs.iter().filter(|d| bodies.iter().any(|b| b.def == d.id)).cloned().collect();
         let guides = self.component(part)?.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.shape).collect();
-        Ok(MachiningFragment { machinings, guides })
+        Ok(BodyFragment { defs, bodies, guides })
     }
 }

@@ -279,8 +279,10 @@ pub struct Theme {
     pub ghost_opacity: f32,
     /// How opaque the edges of what the eraser would take are (its faces: `ghost_opacity`).
     pub ghost_edge_opacity: f32,
-    /// The tools of an open part's machinings, and those that failed to cut.
+    /// The tools of an open part's machinings (ghosts, a little more opaque than its blanks:
+    /// `machining_opacity`), and those that failed to cut (opaque).
     pub machining: Rgba,
+    pub machining_opacity: f32,
     pub machining_failed: Rgba,
     pub selected: MarkColors,
     pub hover: MarkColors,
@@ -344,8 +346,9 @@ impl Theme {
             cap_shade: 0.25,
             ghost_opacity: 0.15,
             ghost_edge_opacity: 0.35,
-            machining: srgb(70, 135, 205),
-            machining_failed: srgb(225, 45, 45),
+            machining: srgb(215, 75, 60),
+            machining_opacity: 0.3,
+            machining_failed: srgb(150, 20, 110),
             selected: MarkColors { face: [0.05, 0.2, 1.0, 0.5], edge: [0.005, 0.035, 1.0, 1.0] },
             hover: MarkColors { face: [0.07, 0.25, 1.0, 0.2], edge: [0.01, 0.1, 1.0, 0.75] },
             picked: MarkColors { face: [1.0, 0.3, 0.0, 0.55], edge: [0.79, 0.073, 0.0, 1.0] },

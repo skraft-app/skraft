@@ -7,7 +7,7 @@ mod face;
 mod measure;
 mod mover;
 mod paint;
-mod profile;
+pub(crate) mod profile;
 mod rotate;
 mod section;
 mod select;
@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
-use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope, Section, Units};
+use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope, Section, Sign, Units};
 
 use crate::camera::{Camera, Ray};
 use crate::infer::{self, EdgeRef, InferKind, Inference, LineKind, Lock, Query};
@@ -115,6 +115,9 @@ pub enum Command {
     /// Enters the assembly the occurrence `Id` of the active context places, or opens its
     /// part.
     Enter(Id),
+    /// Edits the profile of the open part's body `Id` (its double-click, §2.11): the Profile
+    /// tool on it.
+    EditProfile(Id),
     /// Closes the open part, else leaves the active context for its parent.
     Exit,
     /// A click on nothing of the active context, at this pixel: off the grey box of the part
@@ -262,6 +265,9 @@ pub struct PreviewFill {
 pub struct StretchPreview {
     pub context: Vec<Id>,
     pub occurrences: Vec<Id>,
+    /// Bodies of the part the one occurrence places, stretched alone (`frame` then in the
+    /// part's axes, §2.11).
+    pub bodies: Option<Vec<Id>>,
     pub frame: DAffine3,
     pub all: bool,
     pub axis: DVec3,
@@ -351,7 +357,7 @@ pub enum ToolKind {
     Measure,
     /// Stretches a part along one of its axes (§6 sexies).
     Stretch,
-    /// Edits the open part's blank profile (§6 nonies, step 3).
+    /// Edits the profile of a body of the open part (§6 nonies, §2.11).
     Profile,
 }
 
@@ -400,6 +406,7 @@ impl ToolKind {
 }
 
 /// What a tool sees of the editor.
+#[derive(Clone)]
 pub struct Cx<'a> {
     /// The time now (seconds, the app's clock).
     pub now: f64,
@@ -423,6 +430,8 @@ pub struct Cx<'a> {
     pub recipe: Option<&'a RecipeMeshes>,
     /// What a change to the open part reaches (§2.5).
     pub part_scope: Scope,
+    /// Whether a shape drawn in the open part adds material or takes it away (§2.11).
+    pub body_sign: Sign,
     pub selection: &'a [Id],
     /// The context axis the arrow keys lock (→ 0 red, ← 1 green, ↑ 2 blue; ↓ frees it).
     pub axis_lock: Option<usize>,
@@ -473,17 +482,24 @@ impl Cx<'_> {
         self.open_part.map(|id| EntityPath::new(self.context.to_vec(), id))
     }
 
-    /// Are the open part's machinings shown (the selection being machinings)?
+    /// Are the open part's blanks and machinings shown (the selection being its bodies)?
     pub fn machinings_shown(&self) -> bool {
         self.recipe.is_some() && self.open_part.is_some()
     }
 
-    /// The machining whose tool is under `px`, while they are shown.
-    pub fn pick_machining(&self, px: DVec2) -> Option<Id> {
+    /// The body of the open part under `px` (a machining before a blank), while they are shown.
+    pub fn pick_body(&self, px: DVec2) -> Option<Id> {
         if !self.machinings_shown() {
             return None;
         }
-        self.scene.pick_tool(&self.ray(px), self.axes()).map(|(id, _)| id)
+        self.scene.pick_body(&self.ray(px), self.axes()).map(|(id, _)| id)
+    }
+
+    /// The body of the open part under `px` that has a profile to edit, while they are shown.
+    pub fn profiled_body_at(&self, px: DVec2) -> Option<Id> {
+        let id = self.pick_body(px)?;
+        let (_, part, _) = self.doc.resolve_part(&self.open_part_path()?).ok()?;
+        part.body(id).filter(|b| part.profile_of(b).is_some()).map(|b| b.id)
     }
 
     /// The occurrences from the root to the component guides are drawn in now: the open
@@ -515,12 +531,11 @@ impl Cx<'_> {
     }
 
     /// The entity of the active context a click of Select takes at `px`: a guide near it,
-    /// else the machining under it while they are shown, else the context's occurrence that
+    /// else the blank or machining under it while they are shown, else the context's occurrence that
     /// leads to the solid under it.
     pub fn entity_at(&self, px: DVec2) -> Option<Id> {
-        self.pick_guide(px).or_else(|| {
-            if self.machinings_shown() { self.pick_machining(px) } else { self.pick(px).and_then(|h| self.selectable(&h.path)) }
-        })
+        self.pick_guide(px)
+            .or_else(|| if self.machinings_shown() { self.pick_body(px) } else { self.pick(px).and_then(|h| self.selectable(&h.path)) })
     }
 
     /// Is `id` an occurrence of the context (not a guide, nor a machining)?
@@ -532,7 +547,7 @@ impl Cx<'_> {
     /// and guides; else the context's occurrences and guides.
     pub fn erase(&self, entities: Vec<Id>) -> Operation {
         match self.open_part_path() {
-            Some(target) => Operation::DeleteMachinings { target, machinings: entities, scope: self.part_scope },
+            Some(target) => Operation::DeleteBodies { target, bodies: entities, scope: self.part_scope },
             None => Operation::Delete { context: self.context_def, entities },
         }
     }
@@ -545,7 +560,7 @@ impl Cx<'_> {
             return Some(g);
         }
         if self.machinings_shown() {
-            return self.pick_machining(px);
+            return self.pick_body(px);
         }
         let under = inf.and_then(|i| i.hit.as_ref().map(|h| &h.path).or(i.path.as_ref()));
         under.and_then(|p| self.selectable(p))
@@ -561,10 +576,11 @@ impl Cx<'_> {
     }
 
     /// The operation making `primitive`, drawn in the axes and placed by `placement` there:
-    /// in an open part, a machining of it (§2.9); else a new part of the context.
+    /// in an open part, a body of it — a machining, or material added, as the bar says (§2.9,
+    /// §2.11); else a new part of the context.
     pub fn add_primitive(&self, primitive: Primitive, placement: DAffine3) -> Operation {
         match self.open_part_path() {
-            Some(target) => Operation::AddMachining { target, primitive, placement, scope: self.part_scope },
+            Some(target) => Operation::AddBody { target, primitive, placement, sign: self.body_sign, scope: self.part_scope },
             None => Operation::AddPrimitive { context: self.context_def, primitive, placement: self.axes_in_context * placement },
         }
     }
@@ -581,8 +597,7 @@ impl Cx<'_> {
     /// What a move or a rotation leaves out of inferences.
     pub fn is_moving(&self, o: &Owner<'_>, moving: &[Id]) -> bool {
         match o.piece {
-            Piece::Tool(id) => moving.contains(&id),
-            Piece::Blank => false,
+            Piece::Tool(id) | Piece::Blank(id) => moving.contains(&id),
             Piece::Shape => self.selectable(o.path).is_some_and(|id| moving.contains(&id)),
             Piece::Guide(id) => moving.contains(&id) && o.path.instances == self.guide_path(),
         }
@@ -831,7 +846,7 @@ impl Moved {
         match self {
             Moved::Occurrences { context, .. } => Operation::Transform { context: *context, entities, transform },
             Moved::Machinings { target, scope, .. } => {
-                Operation::TransformMachinings { target: target.clone(), machinings: entities, transform, scope: *scope }
+                Operation::TransformBodies { target: target.clone(), bodies: entities, transform, scope: *scope }
             }
         }
     }
@@ -844,8 +859,8 @@ impl Moved {
             Operation::Paste { context, fragment, transform, reuse } => {
                 Operation::Paste { context, fragment, transform: local * transform, reuse }
             }
-            Operation::PasteMachinings { target, fragment, transform, scope } => {
-                Operation::PasteMachinings { target, fragment, transform: local * transform, scope }
+            Operation::PasteBodies { target, fragment, transform, scope } => {
+                Operation::PasteBodies { target, fragment, transform: local * transform, scope }
             }
             other => other,
         }
@@ -856,7 +871,7 @@ impl Moved {
         match self {
             Moved::Occurrences { context, .. } => Operation::Duplicate { context: *context, entities, transform },
             Moved::Machinings { target, scope, .. } => {
-                Operation::DuplicateMachinings { target: target.clone(), machinings: entities, transform, scope: *scope }
+                Operation::DuplicateBodies { target: target.clone(), bodies: entities, transform, scope: *scope }
             }
         }
     }
@@ -866,7 +881,7 @@ impl Moved {
         match self {
             Moved::Occurrences { context, .. } => Operation::Array { context: *context, entities, step, count },
             Moved::Machinings { target, scope, .. } => {
-                Operation::ArrayMachinings { target: target.clone(), machinings: entities, step, count, scope: *scope }
+                Operation::ArrayBodies { target: target.clone(), bodies: entities, step, count, scope: *scope }
             }
         }
     }

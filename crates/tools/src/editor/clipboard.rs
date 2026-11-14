@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
-use solidsketch_model::{Document, GuideShape, MachiningFragment, Operation};
+use solidsketch_model::{BodyFragment, Document, GuideShape, Operation};
 
 use super::{After, Editor};
 use crate::ToolKind;
@@ -35,7 +35,7 @@ pub enum Content {
     /// Occurrences and guides of an assembly, in world axes.
     Entities(Arc<Document>),
     /// Machinings and guides of an open part, in its axes.
-    Machinings(Arc<MachiningFragment>),
+    Machinings(Arc<BodyFragment>),
 }
 
 /// A paste carried at the cursor (§6 decies): given up, it is undone.
@@ -61,10 +61,11 @@ impl Editor {
         let doc = self.document();
         match self.open_part_path() {
             Some(path) => {
-                let f = doc.machinings_fragment(&path, &self.selection).ok()?;
+                let f = doc.bodies_fragment(&path, &self.selection).ok()?;
                 let mut hull = guide_points(&f.guides, &DAffine3::IDENTITY);
-                for m in &f.machinings {
-                    let b = self.scene.bounds_of(&m.tool).or_else(|| m.tool.vertex_bounds());
+                for m in &f.bodies {
+                    let Some(d) = f.defs.iter().find(|d| d.id == m.def) else { continue };
+                    let b = self.scene.bounds_of(&d.solid).or_else(|| d.solid.vertex_bounds());
                     hull.extend(b.map(|b| box_corners(transform_bounds(&m.placement, b))).into_iter().flatten());
                 }
                 Some(Clip { content: Content::Machinings(Arc::new(f)), hull })
@@ -143,7 +144,7 @@ impl Editor {
                 transform: self.context_transform().inverse(),
                 reuse,
             },
-            Content::Machinings(fragment) => Operation::PasteMachinings {
+            Content::Machinings(fragment) => Operation::PasteBodies {
                 target: self.open_part_path()?,
                 fragment: fragment.clone(),
                 transform: DAffine3::IDENTITY,

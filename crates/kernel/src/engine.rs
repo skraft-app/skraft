@@ -127,6 +127,15 @@ impl Solid {
         })
     }
 
+    /// The volume of material it holds (mm³), to a millionth.
+    pub fn volume(&self) -> Result<f64> {
+        guarded("volume", || {
+            let mut k = kernel();
+            let mut b = to_kernel(&mut k, &self.record, "volume")?;
+            solidcore::mass::integrator::properties::brep_volume_default(&k, &mut b, 1e-6).map_err(|e| kernel_err("volume", e))
+        })
+    }
+
     /// The solid's exact bounding box, in its own coordinates (the extremes of its faces, not
     /// only of its vertices — a cylinder has a vertex per circle): SolidCore's tight box, its
     /// loose one (which always holds the solid, larger once turned) should the tight one fail.
@@ -268,23 +277,57 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
                 };
                 solid(r)
             }
-            Task::Recipe { blank, tools } => {
-                let mut shape = input(*blank)?.clone();
+            Task::Recipe { base, positives, negatives } => {
+                let placed = |i: u32, t: &DAffine3| -> Result<Solid> {
+                    let s = input(i)?;
+                    if t.abs_diff_eq(DAffine3::IDENTITY, 1e-12) { Ok(s.clone()) } else { s.transformed(t) }
+                };
                 let mut failed = Vec::new();
-                for (k, (tool, placement)) in tools.iter().enumerate() {
-                    let tool = input(*tool)?;
-                    let cut = if placement.abs_diff_eq(DAffine3::IDENTITY, 1e-12) {
-                        shape.boolean(tool, BooleanOp::Difference)
-                    } else {
-                        tool.transformed(placement).and_then(|t| shape.boolean(&t, BooleanOp::Difference))
-                    };
-                    match cut {
-                        Ok(s) => shape = s,
+                let mut shape: Option<Solid> = None;
+                for (k, (i, t)) in positives.iter().enumerate() {
+                    let joined = placed(*i, t).and_then(|p| match &shape {
+                        None => Ok(p),
+                        Some(s) => s.boolean(&p, BooleanOp::Union),
+                    });
+                    match joined {
+                        Ok(s) => shape = Some(s),
                         Err(_) => failed.push(k as u32),
+                    }
+                }
+                let Some(mut shape) = shape else {
+                    return Err(Error::Convert { call: "recipe".into(), message: "no positive body".into() });
+                };
+                for (k, (i, t)) in negatives.iter().enumerate() {
+                    match placed(*i, t).and_then(|n| shape.boolean(&n, BooleanOp::Difference)) {
+                        Ok(s) => shape = s,
+                        Err(_) => failed.push((positives.len() + k) as u32),
+                    }
+                }
+                if let Some(base) = base {
+                    let base = input(*base)?;
+                    match base.boolean(&shape, BooleanOp::Union) {
+                        Ok(s) => shape = s,
+                        // Nothing added: every positive given failed.
+                        Err(_) => {
+                            failed = (0..positives.len() as u32).collect();
+                            shape = base.clone();
+                        }
                     }
                 }
                 let display = shape.display().map_err(|e| e.to_string());
                 Output::Recipe { solid: shape, display, failed }
+            }
+            Task::UnionVolume { solids } => {
+                // Any failure says nothing: a check, never a reason to fail the job.
+                let union = solids.iter().try_fold(None::<Solid>, |acc, (i, t)| {
+                    let s = input(*i)?;
+                    let s = if t.abs_diff_eq(DAffine3::IDENTITY, 1e-12) { s.clone() } else { s.transformed(t)? };
+                    Ok::<_, Error>(Some(match acc {
+                        None => s,
+                        Some(a) => a.boolean(&s, BooleanOp::Union)?,
+                    }))
+                });
+                Output::Volume(union.ok().flatten().and_then(|u| u.volume().ok()))
             }
             Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
             Task::Display { solid: i, quality } => Output::Display(input(*i)?.display_at(*quality).map_err(|e| e.to_string())),
@@ -883,11 +926,16 @@ mod tests {
         // Two holes, and a tool swallowing the whole board between them.
         let job = Job {
             inputs: vec![board.clone(), drill, huge],
-            tasks: vec![Task::Recipe { blank: 0, tools: vec![(1, at(20.0)), (2, DAffine3::IDENTITY), (1, at(80.0))] }],
+            tasks: vec![Task::Recipe {
+                base: None,
+                positives: vec![(0, DAffine3::IDENTITY)],
+                negatives: vec![(1, at(20.0)), (2, DAffine3::IDENTITY), (1, at(80.0))],
+            }],
         };
         let out = run(&job).unwrap();
         let [Output::Recipe { solid, display, failed }] = out.as_slice() else { panic!("{out:?}") };
-        assert_eq!(failed, &[1]);
+        // One list: the positive first, then the negatives.
+        assert_eq!(failed, &[2]);
         assert!(display.is_ok());
         // A box with two through holes: 6 + 2 faces at least.
         assert!(solid.topology_counts().0 >= board.topology_counts().0 + 2, "{:?}", solid.topology_counts());
@@ -895,12 +943,51 @@ mod tests {
         // Every tool failing leaves the blank.
         let job = Job {
             inputs: vec![board.clone(), Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap())],
-            tasks: vec![Task::Recipe { blank: 0, tools: vec![(1, DAffine3::IDENTITY)] }],
+            tasks: vec![Task::Recipe { base: None, positives: vec![(0, DAffine3::IDENTITY)], negatives: vec![(1, DAffine3::IDENTITY)] }],
         };
         let out = run(&job).unwrap();
         let [Output::Recipe { solid, failed, .. }] = out.as_slice() else { panic!("{out:?}") };
-        assert_eq!(failed, &[0]);
+        assert_eq!(failed, &[1]);
         assert_eq!(solid.topology_counts(), board.topology_counts());
+    }
+
+    #[test]
+    fn a_recipe_joins_its_positives_and_counts_its_pieces() {
+        let board = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::new(100.0, 50.0, 18.0)).unwrap());
+        assert_eq!(board.pieces(), 1);
+        let at = |x: f64| DAffine3::from_translation(DVec3::new(x, 0.0, 0.0));
+        let drill = Arc::new(Solid::new_cylinder(DVec3::new(0.0, 25.0, -5.0), 4.0, 30.0).unwrap());
+        let recipe = |base: Option<u32>, positives: Vec<(u32, DAffine3)>, negatives: Vec<(u32, DAffine3)>| {
+            let job = Job { inputs: vec![board.clone(), drill.clone()], tasks: vec![Task::Recipe { base, positives, negatives }] };
+            let mut out = run(&job).unwrap();
+            let Some(Output::Recipe { solid, failed, .. }) = out.pop() else { panic!("{out:?}") };
+            (solid, failed)
+        };
+        // An L of two boards overlapping, a hole through the joint cutting both.
+        let (l, failed) = recipe(None, vec![(0, DAffine3::IDENTITY), (0, at(80.0))], vec![(1, at(90.0))]);
+        assert!(failed.is_empty(), "{failed:?}");
+        assert_eq!(l.pieces(), 1);
+        let (lo, hi) = l.bounds().unwrap();
+        assert!((hi.x - lo.x - 180.0).abs() < 1e-6, "{lo} {hi}");
+        // Two boards apart: two pieces.
+        let (apart, _) = recipe(None, vec![(0, DAffine3::IDENTITY), (0, at(300.0))], vec![]);
+        assert_eq!(apart.pieces(), 2);
+        // A positive added to a part as it is, the negatives cutting it.
+        let job = Job {
+            inputs: vec![board.clone(), drill.clone()],
+            tasks: vec![
+                Task::Recipe { base: None, positives: vec![(0, DAffine3::IDENTITY)], negatives: vec![(1, at(90.0))] },
+                Task::Recipe { base: Some(EARLIER), positives: vec![(0, at(80.0))], negatives: vec![(1, at(90.0))] },
+            ],
+        };
+        let out = run(&job).unwrap();
+        let Some(Output::Recipe { solid, failed, .. }) = out.last() else { panic!("{out:?}") };
+        assert!(failed.is_empty());
+        assert_eq!(solid.pieces(), 1);
+        assert_eq!(solid.record().faces.len(), l.record().faces.len());
+        // Nothing positive: refused.
+        let nothing = Job { inputs: vec![board.clone()], tasks: vec![Task::Recipe { base: None, positives: vec![], negatives: vec![] }] };
+        assert!(run(&nothing).is_err());
     }
 
     #[test]
