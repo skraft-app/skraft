@@ -977,10 +977,9 @@ impl Tool for PrismTool {
                             Some(_) => (a, None),
                             None => (cur.p, None),
                         };
+                        // Solid as the other sides (dashed with them, under an offset or a fillet).
                         if from.distance(to) >= MIN {
-                            for (p, q) in pairs(side_points(&f, from, mid, to)) {
-                                dashed(cx.camera, cx.size, &mut lines, cx.to_world(p), cx.to_world(q), color);
-                            }
+                            segments(cx, &mut lines, pairs(side_points(&f, from, mid, to)), color, dash);
                         }
                     }
                     // The outline made, as it would close with the cursor.

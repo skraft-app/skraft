@@ -3424,17 +3424,17 @@ fn prism_follows_the_cursor_right_after_a_click() {
     let lines = e.preview().lines;
     let at = |p: DVec3| lines.iter().any(|l| close(l.a, p) || close(l.b, p));
     assert!(at(DVec3::ZERO) && at(DVec3::new(300.0, 0.0, 0.0)), "{lines:?}");
-    assert!(lines.len() > 2, "the side, the line to the cursor and the closing one (dashed): {}", lines.len());
+    assert!(lines.len() > 2, "the side, the line to the cursor and the closing one: {}", lines.len());
 
-    // From three corners, the cursor is on the corner just placed: the closing side is dashed
-    // from it to the first one.
+    // From three corners, the cursor is on the corner just placed: the closing side is solid
+    // from it to the first one, as the other sides.
     click(&mut e, DVec3::new(300.0, 200.0, 0.0));
     let lines = e.preview().lines;
     let (a, b) = (DVec3::new(300.0, 200.0, 0.0), DVec3::ZERO);
     let on =
         |p: DVec3| (p - a).cross(b - a).length() < 1e-3 * (b - a).length() && (p - a).dot(b - a) >= -1e-6 && (p - b).dot(a - b) >= -1e-6;
-    let dashes = lines.iter().filter(|l| on(l.a) && on(l.b)).count();
-    assert!(dashes > 2, "the closing side dashed: {dashes} pieces");
+    let pieces = lines.iter().filter(|l| on(l.a) && on(l.b) && l.a.distance(l.b) > 1.0).count();
+    assert_eq!(pieces, 1, "the closing side solid, in one piece");
 }
 
 #[test]
