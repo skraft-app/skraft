@@ -919,7 +919,11 @@ each occurrence is:
   components (§2.5). (First built on the stretch itself, cuts and moves: a copy turned half
   round, stretched alike, became a separate part — fixed 2026-11-11.) Under « all occurrences », the change most of the tree's
   occurrences take is made in place (shown wherever the component is), the others go to
-  copies; under « only this one », the path is made the target's own (`separate`), then a
+  copies — unless the tree also reaches the component unchanged (an occurrence only moved,
+  or anything below one): then every change goes to a copy and the component keeps its shape
+  (OCL counts moved instances among the stretched ones, `make_unique_c`; fixed 2026-11-14:
+  two occurrences of one part in one assembly, the cutter across one only, both changed);
+  under « only this one », the path is made the target's own (`separate`), then a
   change goes to a copy whenever its component is placed elsewhere too (counted over every
   path of the document). Copies keep their ids (§2.6), so paths stay valid.
 - A component below the target that is locked along the axis is a block (see « Behavior »

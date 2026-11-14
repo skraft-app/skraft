@@ -22,8 +22,10 @@
 //! — the one that differs only by a move along the axis moved by it; otherwise each change is a
 //! component of its own (§2.5). Under
 //! "all occurrences" the change most occurrences take is made in place (the occurrences
-//! elsewhere show it), the others go to copies; under "only this one" the path is made the
-//! target's own first, and a change goes to a copy whenever the component shows elsewhere too.
+//! elsewhere show it), the others go to copies — all of them when the tree also reaches the
+//! component unchanged (an occurrence only moved, or below one: OCL's `make_unique_c`); under
+//! "only this one" the path is made the target's own first, and a change goes to a copy
+//! whenever the component shows elsewhere too.
 
 use crate::{FastMap, FastSet};
 
@@ -91,6 +93,10 @@ struct Walk<'a> {
     changes: FastMap<Id, Vec<Key>>,
     /// Per component, how many times the whole document places it.
     placed: FastMap<Id, usize>,
+    /// The components the tree reaches somewhere unchanged — within an occurrence it only
+    /// moves: none of their changes may be made in place (OCL counts moved instances among the
+    /// stretched ones, and makes a split unique when they are not all split alike).
+    kept: FastSet<Id>,
     /// The component each change went to, and the first move (canonical) of the stretch it took.
     made: FastMap<Key, (Id, f64)>,
     /// Several occurrences stretched: a refusal in a part names it, even at the top.
@@ -289,6 +295,7 @@ impl Document {
             counts: FastMap::default(),
             changes: FastMap::default(),
             placed: FastMap::default(),
+            kept: FastSet::default(),
             made: FastMap::default(),
             several: occs.len() > 1,
             stretched: Vec::new(),
@@ -485,7 +492,7 @@ impl Document {
         let main = changes.iter().max_by_key(|k| (walk.counts[*k], std::cmp::Reverse(changes.iter().position(|x| x == *k)))).cloned();
         let reached: usize = changes.iter().map(|k| walk.counts[k]).sum();
         let elsewhere = walk.placed.get(&c).copied().unwrap_or(0) > reached;
-        let in_place = main.as_ref() == Some(&key) && (walk.scope == Scope::All || !elsewhere);
+        let in_place = main.as_ref() == Some(&key) && !walk.kept.contains(&c) && (walk.scope == Scope::All || !elsewhere);
         let id = if in_place { c } else { self.copy_from(walk.before, c)? };
         walk.made.insert(key, (id, first));
         if in_place && anchor.abs() > 1e-12 {
@@ -599,7 +606,21 @@ impl Walk<'_> {
             let Some((lo, hi)) = self.before.extent_along(o.component, &local, depth) else { continue };
             if self.before.whole_move(o.component, &local, lo, hi).is_none() {
                 self.count(o.component, &within(&local, lo, hi), depth);
+            } else {
+                self.keep(o.component, depth);
             }
+        }
+    }
+
+    /// Marks `c` and all it holds as reached unchanged.
+    fn keep(&mut self, c: Id, depth: usize) {
+        if depth > MAX_DEPTH || !self.kept.insert(c) {
+            return;
+        }
+        let Ok(a) = self.before.assembly(c) else { return };
+        let below: Vec<Id> = a.occurrences().iter().map(|o| o.component).collect();
+        for b in below {
+            self.keep(b, depth + 1);
         }
     }
 }

@@ -1124,6 +1124,36 @@ fn occurrences_of_one_part_stretched_differently_become_separate_parts() {
 }
 
 #[test]
+fn a_part_only_moved_in_the_stretched_tree_keeps_its_shape() {
+    // Cut along Y at 310: only the second rail crosses the cutter, the first one and the legs
+    // are in one section. Even "all occurrences", the first rail must not take the change of
+    // the second (OCL counts moved instances among the stretched ones: the split is made unique).
+    let (mut h, a, rails, legs) = frame(0.0);
+    let rail_part = x_of(h.document(), a, rails[0]).1;
+    let leg_part = x_of(h.document(), a, legs[0]).1;
+    // A third rail over the second, cut too: two stretched alike, one moved — still kept apart.
+    let ac = h.document().resolve(&EntityPath::root(a)).unwrap().component;
+    let rail3 = h
+        .apply(Operation::Duplicate { context: ac, entities: vec![rails[1]], transform: DAffine3::from_translation(DVec3::Z * 100.0) })
+        .unwrap()
+        .created[0];
+    h.apply(stretch(h.document(), &EntityPath::root(a), DVec3::Y, vec![310.0], vec![0.0, 100.0], Scope::All)).unwrap();
+    let doc = h.document();
+    let y_of = |o: Id| {
+        let path = EntityPath::new(vec![a], o);
+        let (lo, hi) = world_bounds(doc, &path);
+        ((lo.y, hi.y), doc.resolve(&path).unwrap().component)
+    };
+    let ((y0, p0), (y1, p1), (y3, p3)) = (y_of(rails[0]), y_of(rails[1]), y_of(rail3));
+    assert_eq!((y0, y1, y3), ((0.0, 20.0), (300.0, 420.0), (300.0, 420.0)));
+    assert_eq!(p0, rail_part);
+    assert_ne!(p1, rail_part);
+    assert_eq!(p1, p3);
+    assert_eq!(doc.part(rail_part).unwrap().blank.bounds().unwrap().1.y, 20.0);
+    assert_eq!(y_of(legs[0]), ((0.0, 50.0), leg_part));
+}
+
+#[test]
 fn an_assembly_shown_twice_is_stretched_everywhere_or_only_there() {
     for scope in [Scope::All, Scope::This] {
         let (mut h, a, rails, legs) = frame(0.0);
@@ -1270,12 +1300,15 @@ fn several_occurrences_in_the_context_axes_turned_ones_take_their_own_change() {
         cutters: None,
     };
 
-    // Cut at 50: the first board stretched along its length, the turned one only moved.
+    // Cut at 50: the first board stretched along its length, the turned one only moved — it
+    // keeps the part and its shape, the stretched one goes to a copy.
     h.apply(op(50.0)).unwrap();
     let doc = h.document();
     let ((x1, p1), (x2, p2)) = (root_x(doc, b1), root_x(doc, b2));
     assert!(near(x1, (0.0, 250.0)) && near(x2, (150.0, 200.0)), "{x1:?} {x2:?}");
-    assert_eq!((p1, p2), (part, part));
+    assert_eq!((p1 != part, p2), (true, part));
+    let (lo, hi) = world_bounds(doc, &EntityPath::root(b2));
+    assert!(close(lo, DVec3::new(150.0, 0.0, 0.0)) && close(hi, DVec3::new(200.0, 200.0, 18.0)), "{lo} {hi}");
     h.undo();
 
     // Cut at 125: both cross it, the turned one across its width — a change of its own.
