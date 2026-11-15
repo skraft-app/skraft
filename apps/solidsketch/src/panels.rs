@@ -376,7 +376,9 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
         let unchanged = text.trim() == exact || text.trim() == shown;
         return (applied && !text.trim().is_empty() && !unchanged).then(|| text.trim().to_owned());
     }
-    if r.has_focus() {
+    // egui's focus, not `Response::has_focus`: that one is also false while the window is not
+    // the system's focused one, and the text typed then (control channel, §7 septies) was lost.
+    if ui.memory(|m| m.has_focus(r.id)) {
         ui.data_mut(|d| d.insert_temp(id, text));
     }
     None
