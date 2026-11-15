@@ -1093,6 +1093,28 @@ mod tests {
     }
 
     #[test]
+    fn a_mirrored_box_keeps_straight_edges_and_its_cut() {
+        // Until `5552d4c` (upstream #15862), SolidCore turned each straight edge of a mirrored
+        // body into the degree 1 B-spline of its whole infinite line (knots ±1234567, control
+        // points ~1e7 mm out): a boolean of it with a spline face could take the wrong side.
+        use solidcore_record::brep::Curve;
+        let mirror = DAffine3::from_scale(DVec3::new(-1.0, 1.0, 1.0));
+        let b = Solid::new_box(DVec3::ZERO, DVec3::new(20.0, 10.0, 5.0)).unwrap().transformed(&mirror).unwrap();
+        for (i, e) in b.record().edges.iter().enumerate() {
+            let shown: String = format!("{:?}", e.curve).chars().take(80).collect();
+            assert!(matches!(e.curve, Curve::Line { .. }), "edge {i} is no longer a line: {shown}");
+        }
+        // A hole through it: the mirrored box keeps its extents, less the cylinder's volume.
+        let cyl = Solid::new_cylinder(DVec3::new(-10.0, 5.0, -1.0), 3.0, 7.0).unwrap();
+        let cut = b.boolean(&cyl, BooleanOp::Difference).unwrap();
+        let expected = 20.0 * 10.0 * 5.0 - std::f64::consts::PI * 9.0 * 5.0;
+        let v = cut.volume().unwrap();
+        assert!((v - expected).abs() < 1e-3, "{v}, expected {expected}");
+        let (lo, hi) = cut.bounds().unwrap();
+        assert!((lo - DVec3::new(-20.0, 0.0, 0.0)).length() < 1e-6 && (hi - DVec3::new(0.0, 10.0, 5.0)).length() < 1e-6, "{lo} {hi}");
+    }
+
+    #[test]
     fn a_recipe_joins_blanks_touching_along_an_edge_on_the_way() {
         // The four blanks of a 2 × 2 stack, the first one shallower: once the first three are
         // joined, the second and the third touch along an edge only (y in 8..10), a shape

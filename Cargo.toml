@@ -21,17 +21,17 @@ solidsketch-theme = { path = "crates/theme" }
 # SolidCore (tangency-labs/solidcore, Apache-2.0): the B-rep kernel, its record (geometry as
 # data) and its mesher. Only `solidcore` is on crates.io; the others come from the mirror,
 # pinned to one revision so the crates always agree.
-solidcore = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
-solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
-solidcore-convert = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
-solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
+solidcore = { git = "https://github.com/tangency-labs/solidcore", rev = "f02d13e9ce38f45a8cd4b5a794fa09ae81d2221e" }
+solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "f02d13e9ce38f45a8cd4b5a794fa09ae81d2221e" }
+solidcore-convert = { git = "https://github.com/tangency-labs/solidcore", rev = "f02d13e9ce38f45a8cd4b5a794fa09ae81d2221e" }
+solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "f02d13e9ce38f45a8cd4b5a794fa09ae81d2221e" }
 # SolidCore's operations layer (solidcore-step builds on it): the kernel's pcurves for the faces
 # the STEP reader has no closed form for.
-solidcore-ops = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
+solidcore-ops = { git = "https://github.com/tangency-labs/solidcore", rev = "f02d13e9ce38f45a8cd4b5a794fa09ae81d2221e" }
 # SolidCore's STEP crate, from the same revision: its topology reader builds the bodies of a
 # STEP import and the planar-faced solids of a SketchUp import (crates/kernel, `step.rs`,
 # `Solid::from_polyhedron`).
-solidcore-step = { git = "https://github.com/tangency-labs/solidcore", rev = "7c4c2f4e237dfc9daee1716f1f0e437e16a8fd3c" }
+solidcore-step = { git = "https://github.com/tangency-labs/solidcore", rev = "f02d13e9ce38f45a8cd4b5a794fa09ae81d2221e" }
 
 glam = { version = "0.30", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }

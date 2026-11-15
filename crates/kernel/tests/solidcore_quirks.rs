@@ -3,7 +3,7 @@
 //! bug is fixed upstream; drop its workaround, then the test, and tick its line in
 //! docs/REVIEW.md ("Work: SolidCore").
 //!
-//! Checked at: tangency-labs/solidcore `7c4c2f4` (2026-11-13), the `rev` pinned
+//! Checked at: tangency-labs/solidcore `f02d13e` (2026-11-15), the `rev` pinned
 //! in the workspace's Cargo.toml. Update this line with each upgrade.
 //!
 //! That our results are right in spite of them is checked elsewhere (`engine.rs`'s tests,
