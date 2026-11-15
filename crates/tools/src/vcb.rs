@@ -22,11 +22,27 @@ pub struct Vcb {
     /// How many of the last lengths may be left out (the height typed with the base): they
     /// are given only if typed, and not shown.
     pub optional: usize,
+    /// How many counts (`5x`, `/5`, separated by `;`) are taken too, instead of the lengths
+    /// (the copy tools, §6 duodecies).
+    pub counts: usize,
+    /// A list of spacings is taken too (Distribute, §6 duodecies): two lengths or more, `;`
+    /// between them, empty slots left unset.
+    pub spacings: bool,
 }
 
 impl Vcb {
     pub fn new(label: impl Into<String>, kind: VcbKind) -> Self {
-        Vcb { label: label.into(), kind, point: None, optional: 0 }
+        Vcb { label: label.into(), kind, point: None, optional: 0, counts: 0, spacings: false }
+    }
+
+    /// The same, taking up to `n` counts too.
+    pub fn counts(self, n: usize) -> Self {
+        Vcb { counts: n, ..self }
+    }
+
+    /// The same, taking a list of spacings too.
+    pub fn spacings(self) -> Self {
+        Vcb { spacings: true, ..self }
     }
 
     /// The same, the last `n` lengths optional.
@@ -60,6 +76,12 @@ pub enum VcbValue {
     /// Radians.
     Angle(f64),
     Count(Repeat),
+    /// Counts typed for a tool taking them with lengths ([`Vcb::counts`]): one per slot, `None`
+    /// where left empty.
+    Counts(Vec<Option<Repeat>>),
+    /// Spacings typed for a tool taking them ([`Vcb::spacings`]), in order, `None` where left
+    /// empty; lengths, never negative.
+    Spacings(Vec<Option<f64>>),
     /// World.
     Point(DVec3),
 }
@@ -68,6 +90,14 @@ pub enum VcbValue {
 /// is the status bar's message.
 pub fn read(vcb: &Vcb, text: &str, units: &Units, context: &DAffine3) -> Result<VcbValue, String> {
     let refused = |e: &dyn std::fmt::Display| t!("tool.vcb.refused", label = vcb.label, text = text.trim(), error = e);
+    if let Some(c) = counts(text, vcb.counts) {
+        return Ok(VcbValue::Counts(c));
+    }
+    if vcb.spacings && measure::items(text).len() > 1 {
+        let items = measure::items(text);
+        let read = |i: &String| (!i.trim().is_empty()).then(|| measure::length(i, units, 0.0).map(f64::abs)).transpose();
+        return items.iter().map(read).collect::<Result<Vec<_>, _>>().map(VcbValue::Spacings).map_err(|e| refused(&e));
+    }
     if let Some(r) = vcb.point {
         let inv = context.inverse();
         let (to, from) = (inv.transform_point3(r.to), inv.transform_point3(r.from));
@@ -120,7 +150,8 @@ pub struct Typed {
 /// (yet) shows as typed. A point or a count typed is for the box only: nothing.
 pub fn typed(vcb: &Vcb, text: &str, units: &Units) -> Vec<Option<Typed>> {
     let t = text.trim();
-    let point = t.starts_with('[') || t.starts_with('<');
+    let listed = vcb.spacings && measure::items(text).len() > 1;
+    let point = t.starts_with('[') || t.starts_with('<') || listed || counts(text, vcb.counts).is_some();
     match &vcb.kind {
         VcbKind::Lengths(current) if !point => {
             let mut out = vec![None; current.len()];
@@ -167,6 +198,18 @@ fn says_more(typed: &str, shown: &str) -> bool {
 pub enum Repeat {
     Times(u32),
     Divide(u32),
+}
+
+/// Up to `n` counts, `;` between them (an empty slot: `None`), at least one, all reading;
+/// none for `n` zero.
+pub fn counts(text: &str, n: usize) -> Option<Vec<Option<Repeat>>> {
+    let items: Vec<&str> = text.split(';').map(str::trim).collect();
+    if n == 0 || items.len() > n || items.iter().all(|i| i.is_empty()) {
+        return None;
+    }
+    let mut out = items.iter().map(|i| if i.is_empty() { Some(None) } else { repeat(i).map(Some) }).collect::<Option<Vec<_>>>()?;
+    out.resize(n, None);
+    Some(out)
 }
 
 pub fn repeat(s: &str) -> Option<Repeat> {

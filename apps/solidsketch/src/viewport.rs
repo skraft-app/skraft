@@ -622,6 +622,7 @@ fn paint_overlay_points(painter: &egui::Painter, rect: egui::Rect, editor: &Edit
                 painter.add(egui::Shape::convex_polygon(corners, fill, stroke));
             }
             PointShape::Padlock => paint_padlock(painter, at, r, fill, stroke),
+            PointShape::Mirror => paint_mirror(painter, at, r, fill, stroke.color),
         }
     }
 }
@@ -646,6 +647,22 @@ fn paint_padlock(painter: &egui::Painter, at: egui::Pos2, r: f32, fill: egui::Co
     painter.rect(body, r * 0.2, fill, stroke, egui::StrokeKind::Middle);
     // The keyhole.
     painter.circle_filled(body.center() - egui::vec2(0.0, r * 0.1), r * 0.15, ink);
+}
+
+/// The mirror's badge (OpenCutList's motif): a square of half side `r` in `fill`, inside it two
+/// triangles facing a dashed axis, in `ink`.
+fn paint_mirror(painter: &egui::Painter, at: egui::Pos2, r: f32, fill: egui::Color32, ink: egui::Color32) {
+    painter.rect_filled(egui::Rect::from_center_size(at, egui::vec2(2.0 * r, 2.0 * r)), r * 0.25, fill);
+    // The motif in a unit square, padded by a fifth of the badge on each side.
+    let inner = r * 0.6;
+    let p = |x: f32, y: f32| at + egui::vec2((x - 0.5) * 2.0 * inner, (y - 0.5) * 2.0 * inner);
+    let stroke = egui::Stroke::new(1.5, ink);
+    for (a, b) in [(0.0, 0.2), (0.4, 0.6), (0.8, 1.0)] {
+        painter.line_segment([p(0.5, a), p(0.5, b)], stroke);
+    }
+    for (side, tip) in [(0.0, 0.3), (1.0, 0.7)] {
+        painter.add(egui::Shape::closed_line(vec![p(side, 0.2), p(tip, 0.5), p(side, 0.8)], stroke));
+    }
 }
 
 /// Half the arm of a cross marking a point (points).

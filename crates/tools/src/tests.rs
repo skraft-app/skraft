@@ -4589,3 +4589,187 @@ fn a_click_in_the_outliner_selects_or_deselects() {
     e.toggle_path(&a, true);
     assert_eq!(e.selection(), &[ids[1]]);
 }
+
+#[test]
+fn copy_along_a_line_by_a_click_then_a_count_and_a_distance() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let occurrences = |e: &Editor| e.document().root_assembly().occurrences().len();
+    let xs = |e: &Editor| {
+        let mut xs: Vec<f64> =
+            e.document().root_assembly().occurrences().iter().map(|o| bounds_of(e, &EntityPath::root(o.id)).0.x).collect();
+        xs.sort_by(f64::total_cmp);
+        xs
+    };
+    // The selection taken at once: off the geometry, the cursor runs along the axis nearest it
+    // on screen, from the box's centre; edge to edge, 500 from the source's back.
+    e.set_tool(ToolKind::CopyLine);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 60.0, 0.0)) });
+    let v = e.view();
+    assert!(v.highlights.iter().any(|h| h.mark == Mark::Ghost), "the copy drawn as a ghost");
+    assert!(v.selection_boxes.is_empty(), "the tool draws its own boxes");
+    assert_eq!(e.vcb().map(|v| v.1), Some("500".to_owned()));
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(500.0, 60.0, 0.0)), mods: Modifiers::default() });
+    assert_eq!(occurrences(&e), 2);
+    // (To the pixel's precision.)
+    assert!(xs(&e).iter().zip([0.0, 400.0]).all(|(x, w)| (x - w).abs() < 1e-3), "{:?}", xs(&e));
+    assert!(e.selection().is_empty(), "the copies let go");
+
+    // Typed again: 4 copies over the same way, then 1 000 edge to edge; one undo step.
+    let steps = e.history().journal().count();
+    e.input(ToolInput::Vcb("/4".into()));
+    assert!(xs(&e).iter().zip([0.0, 100.0, 200.0, 300.0, 400.0]).all(|(x, w)| (x - w).abs() < 1e-3), "{:?}", xs(&e));
+    e.input(ToolInput::Vcb("1000".into()));
+    assert!(xs(&e).iter().zip([0.0, 225.0, 450.0, 675.0, 900.0]).all(|(x, w)| (x - w).abs() < 1e-6), "{:?}", xs(&e));
+    // Less than the copies take: refused.
+    e.input(ToolInput::Vcb("300".into()));
+    assert_eq!(occurrences(&e), 5);
+    assert_eq!(e.history().journal().count(), steps, "in place of the copy");
+    e.undo();
+    assert_eq!(occurrences(&e), 1);
+
+    // Nothing selected: a click picks; the mirror makes one copy, mirrored.
+    e.select(vec![]);
+    e.set_tool(ToolKind::CopyLine);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(e.selection(), &[a]);
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    // ← locks green: the cursor off it still goes along it.
+    e.input(ToolInput::Key { key: Key::Left, mods: Modifiers::default() });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 600.0, 0.0)) });
+    let badge = |e: &Editor| e.overlay_points().iter().any(|p| p.shape == crate::tools::PointShape::Mirror);
+    assert!(badge(&e), "the mirror's badge past the copy");
+    e.input(ToolInput::Vcb("2x".into()));
+    assert!(!badge(&e), "not for several copies");
+    e.input(ToolInput::Vcb("/1".into()));
+    e.input(ToolInput::Vcb("200".into()));
+    let copy = e.document().root_assembly().occurrences().iter().find(|o| o.id != a).unwrap().clone();
+    assert!(copy.transform.matrix3.determinant() < 0.0, "mirrored");
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(copy.id));
+    assert!(close(lo, DVec3::new(0.0, 100.0, 0.0)) && close(hi, DVec3::new(100.0, 200.0, 50.0)), "{lo} {hi}");
+}
+
+#[test]
+fn copy_along_a_line_takes_the_bodies_of_the_open_part() {
+    use glam::DAffine3;
+    use solidsketch_model::Scope;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    let drill = e
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: DAffine3::IDENTITY,
+        })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let target = EntityPath::root(board);
+    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+        .unwrap();
+    let hole = e.document().resolve_part(&target).unwrap().1.machinings()[0].id;
+    e.set_machinings_switch(true);
+    e.enter(board);
+    e.select(vec![hole]);
+    e.set_tool(ToolKind::CopyLine);
+    // On the board's face, beside the hole: along X, the way leaving the hole's box.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, 100.0, 18.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    let p = e.document().resolve_part(&target).unwrap().1.clone();
+    let holes: Vec<f64> = p.machinings().iter().map(|m| m.placement.translation.x).collect();
+    // Edge to edge 100 from the hole's back (x 46): the copy's centre at 142.
+    assert_eq!(holes.len(), 2, "{holes:?}");
+    assert!((holes[1] - 142.0).abs() < 1e-6, "{holes:?}");
+}
+
+#[test]
+fn distribute_between_two_points_then_spacings_and_a_double_click() {
+    let mut e = top_editor(Document::new());
+    // Typed: a corner 18 from the first snaps to it on screen.
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::ZERO);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 100.0, 0.0)) });
+    e.input(ToolInput::Vcb("18;300".into()));
+    e.input(ToolInput::Vcb("20".into()));
+    let shelf = drawn(&e);
+    e.set_tool(ToolKind::Select);
+    e.select(vec![shelf]);
+    let los = |e: &Editor| {
+        let mut xs: Vec<f64> =
+            e.document().root_assembly().occurrences().iter().map(|o| bounds_of(e, &EntityPath::root(o.id)).0.x).collect();
+        xs.sort_by(f64::total_cmp);
+        xs
+    };
+    let near = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3);
+    e.set_tool(ToolKind::Distribute);
+    click(&mut e, DVec3::new(100.0, 150.0, 0.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(700.0, 160.0, 0.0)) });
+    // Drawn where it goes only, as a ghost.
+    let shown = |e: &Editor| e.view().batches.iter().map(|(_, ps)| ps.len()).sum::<usize>();
+    assert_eq!(shown(&e), 0);
+    assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Ghost));
+    // Three pieces, even gaps between the parts: (600 − 54) / 4.
+    e.input(ToolInput::Vcb("3x".into()));
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(700.0, 160.0, 0.0)), mods: Modifiers::default() });
+    assert!(near(&los(&e), &[236.5, 391.0, 545.5]), "{:?}", los(&e));
+    assert!(e.document().root_assembly().occurrences().iter().any(|o| o.id == shelf), "the source moved, not copied");
+    assert!(e.selection().is_empty());
+
+    // The first gap 30, then the rest spread: in place of the first, one undo step.
+    e.input(ToolInput::Vcb("30;".into()));
+    let x = los(&e);
+    assert_eq!(x.len(), 3);
+    assert!((x[0] - 130.0).abs() < 1e-3, "{x:?}");
+    e.undo();
+    assert!(near(&los(&e), &[0.0]), "{:?}", los(&e));
+
+    // A double-click on the shelf: the last distribute again.
+    let at = px(&e, DVec3::new(9.0, 150.0, 20.0));
+    e.input(ToolInput::Hover { px: at });
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    e.input(ToolInput::DoubleClick { px: at, mods: Modifiers::default() });
+    let x = los(&e);
+    assert_eq!(x.len(), 3, "{x:?}");
+    assert!((x[0] - 130.0).abs() < 1e-3, "{x:?}");
+}
+
+#[test]
+fn copy_along_a_grid_by_a_click_then_counts_and_sides() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let occurrences = |e: &Editor| e.document().root_assembly().occurrences().len();
+    let lows = |e: &Editor| -> Vec<(f64, f64)> {
+        let mut v: Vec<(f64, f64)> = e
+            .document()
+            .root_assembly()
+            .occurrences()
+            .iter()
+            .map(|o| bounds_of(e, &EntityPath::root(o.id)).0)
+            // To the pixel's precision.
+            .map(|p| ((p.x * 10.0).round() / 10.0, (p.y * 10.0).round() / 10.0))
+            .collect();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v
+    };
+    e.set_tool(ToolKind::CopyGrid);
+    let at = px(&e, DVec3::new(500.0, 400.0, 0.0));
+    e.input(ToolInput::Hover { px: at });
+    // Edge to edge, 500 × 400 from the source's corner: three copies.
+    assert_eq!(e.vcb().map(|v| v.1), Some("500; 400".to_owned()));
+    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Ghost).count(), 3);
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    assert_eq!(lows(&e), vec![(0.0, 0.0), (0.0, 300.0), (400.0, 0.0), (400.0, 300.0)]);
+    assert!(e.selection().is_empty());
+
+    // Two at the step along red, two over the way along green: 3 × 3.
+    e.input(ToolInput::Vcb("2x;/2".into()));
+    assert_eq!(occurrences(&e), 9);
+    assert!(lows(&e).contains(&(800.0, 150.0)), "{:?}", lows(&e));
+    // Then the sides: 1 000 × 600.
+    e.input(ToolInput::Vcb("1000;600".into()));
+    assert_eq!(occurrences(&e), 9);
+    assert_eq!(lows(&e).last(), Some(&(1800.0, 500.0)), "{:?}", lows(&e));
+    e.undo();
+    assert_eq!(occurrences(&e), 1);
+}

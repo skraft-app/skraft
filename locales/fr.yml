@@ -764,6 +764,64 @@ tool:
       entity_tip: "Étirer le long des axes de la pièce ou de l'assemblage (ceux du contexte pour plusieurs exemplaires)"
       scope_tip: "Ce que l'étirement modifie (%{alt_key} : basculer)"
       this_tip: "Seulement les exemplaires étirés : ils deviennent une pièce à part (et leur assemblage, s'il est copié)"
+  # What the copy tools share (OpenCutList's Smart Handle, §6 duodecies).
+  handle:
+    hint:
+      # Shift held after a Shift click (OpenCutList's multiple selection).
+      gather: "Sélection multiple : cliquer un exemplaire pour l'ajouter ou le retirer · relâcher Maj pour copier la sélection"
+    say:
+      min_distance: "%{value} est inférieure à la distance minimale de %{min}"
+      mirror_one: "La copie symétrique ne vaut que pour une seule copie"
+    option:
+      measure: "Mesure"
+      measure_tip: "Ce que mesure la distance tapée ou affichée"
+      outside: "Bord à bord"
+      outside_tip: "Mesurer de l'arrière de l'original à l'avant de la dernière copie"
+      centered: "Centre à centre"
+      centered_tip: "Mesurer du centre de l'original au centre de la dernière copie"
+      inside: "Entre les pièces"
+      inside_tip: "Mesurer l'écart entre l'original et la première copie, jusqu'à la dernière"
+      axes: "Axes"
+      axes_tip: "Les axes le long desquels copier"
+      active: "Modèle"
+      active_tip: "Copier le long des axes du modèle"
+      context: "Contexte"
+      context_tip: "Copier le long des axes de l'assemblage contenant la sélection (ceux de la pièce ouverte pour ses corps)"
+      entity: "Exemplaire"
+      entity_tip: "Copier le long des axes de la pièce ou de l'assemblage (ceux du contexte pour plusieurs exemplaires)"
+      mirror: "Symétrie"
+      mirror_tip: "Une seule copie, symétrique de l'original (%{copy_key} : basculer)"
+  copy_line:
+    name: "Copie en ligne"
+    hint:
+      pick: "Cliquer la pièce ou l'assemblage à copier · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
+      place: "Cliquer pour placer les copies, ou taper une distance · 5x : 5 copies au même pas, /5 : 5 copies sur la distance · flèches : bloquer un axe · %{copy_key} : copie symétrique"
+      # The copies made: a value typed redoes them.
+      again: "Taper une distance, 5x ou /5 pour refaire les copies · ou cliquer une autre pièce ou un autre assemblage à copier"
+    vcb:
+      distance: "Distance"
+  copy_grid:
+    name: "Copie en grille"
+    hint:
+      pick: "Cliquer la pièce ou l'assemblage à copier · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
+      place: "Cliquer pour placer les copies, ou taper deux distances (x;y) · 3x;/4 : nombre de copies par côté · flèches : bloquer la normale du plan · %{copy_key} : copie symétrique"
+      # The copies made: values typed redo them.
+      again: "Taper deux distances (x;y) ou deux nombres (3x;/4) pour refaire les copies · ou cliquer une autre pièce ou un autre assemblage à copier"
+    vcb:
+      size: "Dimensions"
+  distribute:
+    name: "Répartir"
+    hint:
+      pick: "Cliquer la pièce ou l'assemblage à répartir · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
+      start: "Cliquer le premier point de mesure · double-clic : répéter la dernière répartition"
+      end: "Cliquer le second point de mesure, ou taper une distance · 5x : 5 pièces, /5 : 5 intervalles · 30;50 : espacements · flèches : bloquer un axe · %{copy_key} maintenu : jusqu'à l'obstacle suivant"
+      # The pieces placed: a value typed places them again.
+      again: "Taper un nombre (5x, /5), des espacements (30;50) ou une distance pour refaire la répartition · ou cliquer une autre pièce ou un autre assemblage à répartir"
+    vcb:
+      distance: "Distance"
+    say:
+      intervals: "/%{value} : il faut au moins 2 intervalles"
+      nothing_to_repeat: "Aucune répartition à répéter"
   # The measurements box refusing what was typed.
   vcb:
     refused: "%{label} — « %{text} » : %{error}"
@@ -818,6 +876,9 @@ operation:
   transform: "$t(common.move)"
   duplicate: "$t(common.copy)"
   array: "Réseau"
+  # Copy along a line or a grid (§6 duodecies).
+  copies: "Copies"
+  distribute: "Répartir"
   delete: "$t(common.erase)"
   rename: "Renommer"
   make_assembly: "$t(common.make_assembly)"

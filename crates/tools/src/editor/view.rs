@@ -495,10 +495,10 @@ impl Editor {
             v.highlights.extend_from_slice(&drawing.marks);
         }
         // The selected occurrences' boxes (parts and assemblies), where the selection is drawn (moved with the ghost
-        // when the original is hidden). None with the stretch tool: it takes the selection as
+        // when the original is hidden). None with the stretch and copy tools: they take the selection as
         // what it stretches and draws its own box (grips, cutters), which this one would only
         // clutter — and leave behind, unstretched, while it previews.
-        let box_at = if self.tool_kind() == tools::ToolKind::Stretch {
+        let box_at = if matches!(self.tool_kind(), tools::ToolKind::Stretch | tools::ToolKind::CopyLine | tools::ToolKind::CopyGrid | tools::ToolKind::Distribute) {
             None
         } else if hide_original {
             preview.ghost
@@ -530,6 +530,12 @@ impl Editor {
                     v.guides.extend(dashes(&g.shape));
                 }
                 continue;
+            }
+            // Copied by a copy tool: drawn at each copy too.
+            if is_selected {
+                for t in &preview.copies {
+                    v.selected_guides.extend(dashes(&g.shape.transformed(t)));
+                }
             }
             let out = if erasing.contains(&g.id) {
                 &mut v.faded_guides
@@ -606,8 +612,8 @@ impl Editor {
                 });
             }
         }
-        if let Some(g) = preview.ghost {
-            v.highlights.extend(drawing.marks.iter().map(|h| ViewHighlight { transform: g * h.transform, mark: Mark::Ghost, ..*h }));
+        for g in preview.ghost.iter().chain(&preview.copies) {
+            v.highlights.extend(drawing.marks.iter().map(|h| ViewHighlight { transform: *g * h.transform, mark: Mark::Ghost, ..*h }));
         }
         // What the eraser would take is not marked (selected): a mark draws it opaque.
         if !erasing.is_empty() {

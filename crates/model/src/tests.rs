@@ -2378,6 +2378,102 @@ fn bodies_are_stretched_alone_in_their_axes() {
 
 // ---- test helpers over bodies ------------------------------------------------------------
 
+#[test]
+fn copies_put_down_each_placement_and_move_the_sources() {
+    let mut h = History::new(Document::new());
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let root = h.document().root();
+    let part = occ(h.document(), &EntityPath::root(a)).component;
+    let line = GuideShape::Line { origin: DVec3::new(0.0, 5.0, 0.0), dir: DVec3::X };
+    let g = h.apply(Operation::AddGuide { component: root, shape: line }).unwrap().guide.unwrap();
+    let at = |x: f64, y: f64| DAffine3::from_translation(DVec3::new(x, y, 0.0));
+
+    // A grid of 2 × 2 less the source, and a mirrored copy: no kernel, the same part.
+    let mirror = DAffine3::from_translation(DVec3::X * 100.0) * DAffine3::from_scale(DVec3::new(-1.0, 1.0, 1.0));
+    let placements = vec![at(20.0, 0.0), at(0.0, 30.0), at(20.0, 30.0), mirror];
+    let op = Operation::Copies { context: root, entities: vec![a, g], moved: DAffine3::IDENTITY, placements: placements.clone() };
+    assert!(matches!(h.document().prepare(&op).unwrap(), Prepared::Done(_)));
+    assert_eq!(op.label(), t!("operation.copies"));
+    let out = h.apply(op).unwrap();
+    assert_eq!(out.created.len(), 8, "4 occurrences, 4 guides");
+    assert_eq!(h.document().occurrence_count(part), 5);
+    assert_eq!(h.document().components().count(), 1);
+    for (id, t) in out.created[..4].iter().zip(&placements) {
+        assert!(occ(h.document(), &EntityPath::root(*id)).transform.abs_diff_eq(*t, 1e-12));
+    }
+    assert!(occ(h.document(), &EntityPath::root(out.created[3])).transform.matrix3.determinant() < 0.0, "mirrored");
+    let guides = h.document().component(root).unwrap().guides.clone();
+    assert_eq!(guides.len(), 5);
+    assert_eq!(guides[3].shape, GuideShape::Line { origin: DVec3::new(20.0, 35.0, 0.0), dir: DVec3::X });
+    assert!(occ(h.document(), &EntityPath::root(a)).transform.abs_diff_eq(DAffine3::IDENTITY, 1e-12), "the source stays");
+
+    // Distribute: the source moved to the first slot, the copies placed from where it was.
+    let op = Operation::Copies { context: root, entities: vec![a, g], moved: at(0.0, 100.0), placements: vec![at(0.0, 200.0)] };
+    assert_eq!(op.label(), t!("operation.distribute"));
+    let out = h.apply(op).unwrap();
+    assert!(close(occ(h.document(), &EntityPath::root(a)).transform.translation, DVec3::new(0.0, 100.0, 0.0)));
+    assert!(close(occ(h.document(), &EntityPath::root(out.created[0])).transform.translation, DVec3::new(0.0, 200.0, 0.0)));
+    let guides = h.document().component(root).unwrap().guides.clone();
+    assert_eq!(guides.iter().find(|x| x.id == g).unwrap().shape, GuideShape::Line { origin: DVec3::new(0.0, 105.0, 0.0), dir: DVec3::X });
+    assert_eq!(guides.last().unwrap().shape, GuideShape::Line { origin: DVec3::new(0.0, 205.0, 0.0), dir: DVec3::X });
+    // A move alone (one piece distributed) is fine.
+    h.apply(Operation::Copies { context: root, entities: vec![a], moved: at(5.0, 0.0), placements: vec![] }).unwrap();
+
+    // Refused: nothing to do, too many copies, a scale.
+    let copies = |moved: DAffine3, placements: Vec<DAffine3>| Operation::Copies { context: root, entities: vec![a], moved, placements };
+    assert!(h.apply(copies(DAffine3::IDENTITY, vec![])).is_err());
+    assert!(h.apply(copies(DAffine3::IDENTITY, vec![at(1.0, 0.0); MAX_ARRAY as usize + 1])).is_err());
+    assert!(h.apply(copies(DAffine3::IDENTITY, vec![DAffine3::from_scale(DVec3::splat(2.0))])).is_err());
+    assert!(h.apply(copies(DAffine3::from_scale(DVec3::splat(2.0)), vec![at(1.0, 0.0)])).is_err());
+}
+
+#[test]
+fn copies_keep_an_identity_move_out_of_the_file() {
+    let op = Operation::Copies { context: Id(1), entities: vec![Id(2)], moved: DAffine3::IDENTITY, placements: vec![DAffine3::IDENTITY] };
+    let json = serde_json::to_string(&op).unwrap();
+    assert!(!json.contains("moved"), "{json}");
+    assert_eq!(serde_json::from_str::<Operation>(&json).unwrap(), op);
+}
+
+#[test]
+fn bodies_are_copied_along_placements_sharing_their_definition() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    let dx = |x: f64| DAffine3::from_translation(DVec3::X * x);
+
+    // Copies only: cut from the shape as it is.
+    let op = Operation::CopyBodies {
+        target: target.clone(),
+        bodies: vec![hole],
+        moved: DAffine3::IDENTITY,
+        placements: vec![dx(40.0), dx(80.0)],
+        scope: Scope::All,
+    };
+    let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
+    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { negatives: tools, .. }] if tools.len() == 2), "{:?}", job.tasks);
+    let created = h.apply(op).unwrap().machinings();
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.machinings().len(), 3);
+    assert!(close(p.machining(created[1]).unwrap().placement.translation, DVec3::new(100.0, 25.0, -5.0)));
+    assert!(created.iter().all(|c| p.body(*c).unwrap().def == p.body(hole).unwrap().def), "one definition");
+
+    // Distributed: the source moved too, the part computed again from its bodies.
+    let op = Operation::CopyBodies {
+        target: target.clone(),
+        bodies: vec![hole],
+        moved: dx(10.0),
+        placements: vec![dx(150.0)],
+        scope: Scope::All,
+    };
+    let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!("needs the kernel") };
+    assert!(matches!(&job.tasks[..], [kernel::Task::Recipe { negatives: tools, .. }] if tools.len() == 4), "{:?}", job.tasks);
+    let created = h.apply(op).unwrap().machinings();
+    let p = h.document().part(part).unwrap();
+    assert!(close(p.machining(hole).unwrap().placement.translation, DVec3::new(30.0, 25.0, -5.0)));
+    assert!(close(p.machining(created[0]).unwrap().placement.translation, DVec3::new(170.0, 25.0, -5.0)));
+    assert!(p.failed.is_empty());
+}
+
 impl Part {
     /// The first positive body's solid: a part's blank before §2.11.
     fn blank(&self) -> Arc<kernel::Solid> {

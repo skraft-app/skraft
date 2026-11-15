@@ -48,7 +48,7 @@ const fn group(id: &'static str, label: fn() -> String, commands: &'static [&'st
     Group { id, label, commands, pinned }
 }
 
-const MOVE_ROTATE: &[&str] = &["tool.move", "tool.rotate"];
+const MODIFY_ASSEMBLY: &[&str] = &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"];
 const STANDARD_VIEWS: &[&str] = &["view.zoom_extents", "view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
 
 /// Every workspace. Cut list and Drawing are planned (§6 septies): not listed until they exist.
@@ -71,8 +71,8 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
                 group(
                     "modify",
                     || t!("ribbon.group.modify"),
-                    &["tool.move", "tool.rotate", "tool.stretch"],
-                    &["tool.move", "tool.rotate", "tool.stretch"],
+                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute", "tool.stretch"],
+                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute", "tool.stretch"],
                 ),
                 group(
                     "combine",
@@ -93,7 +93,7 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
                     &["edit.make_assembly", "edit.explode", "edit.make_unique"],
                     &["edit.make_assembly", "edit.explode", "edit.make_unique"],
                 ),
-                group("modify", || t!("ribbon.group.modify"), MOVE_ROTATE, MOVE_ROTATE),
+                group("modify", || t!("ribbon.group.modify"), MODIFY_ASSEMBLY, MODIFY_ASSEMBLY),
             ],
         },
         Tab {
