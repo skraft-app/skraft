@@ -29,19 +29,23 @@ wgpu.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The control protocol (ARCHITECTURE.md §7 septies): its methods, the editor's answers.
+solidsketch-control.workspace = true
 # A clock on the web too (the render statistics overlay); already eframe's.
 web-time = "1.1"
+# Screenshots of the control protocol (src/driving.rs), on the web too.
+png = "0.17"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The kernel runs on a thread of the app; on the web, in its own worker (ARCHITECTURE.md §7 ter).
 solidsketch-kernel = { workspace = true, features = ["engine"] }
+# The control protocol and its server (ARCHITECTURE.md §7 septies); volumes by the kernel.
+solidsketch-control = { workspace = true, features = ["engine"] }
 rfd.workspace = true
 # Runs the asynchronous file dialogs on a thread (src/file.rs).
 pollster.workspace = true
 env_logger = "0.11"
 dirs = "6"
-# Screenshots of the control channel (src/control.rs).
-png = "0.17"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # winit's windowing backends, off with eframe's default features (workspace Cargo.toml).

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/i18n", "crates/theme", "crates/kernel", "crates/model", "crates/render", "crates/tools", "apps/solidsketch", "apps/kernel-worker", "apps/import"]
+members = ["crates/i18n", "crates/theme", "crates/kernel", "crates/model", "crates/render", "crates/tools", "crates/control", "apps/solidsketch", "apps/kernel-worker", "apps/import", "apps/solidsketch-mcp"]
 
 [workspace.package]
 version = "0.1.0"
@@ -16,6 +16,7 @@ solidsketch-kernel = { path = "crates/kernel", default-features = false }
 solidsketch-model = { path = "crates/model" }
 solidsketch-render = { path = "crates/render" }
 solidsketch-tools = { path = "crates/tools" }
+solidsketch-control = { path = "crates/control" }
 solidsketch-theme = { path = "crates/theme" }
 
 # SolidCore (tangency-labs/solidcore, Apache-2.0): the B-rep kernel, its record (geometry as

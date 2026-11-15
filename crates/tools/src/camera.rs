@@ -433,16 +433,30 @@ impl Camera {
         (t0.is_finite() && t1.is_finite() && t0 < t1).then(|| (origin + d * t0, origin + d * t1))
     }
 
-    /// Projects many points into a `size` viewport (the matrices computed once).
+    /// Projects many points into a `size` viewport (the camera's axes computed once): in
+    /// `f64`, the exact inverse of [`Camera::ray`] — not through [`Camera::proj`], an `f32`
+    /// matrix for the GPU, which would move a point by a millionth of the view (a world point
+    /// projected then picked back must land on itself).
     pub fn projector(&self, size: DVec2) -> Projector {
-        Projector { view_proj: self.proj(size.x / size.y.max(1.0), None).as_dmat4() * self.view(), parallel: self.is_parallel(), size }
+        let aspect = size.x / size.y.max(1.0);
+        let (forward, right, up) = (self.forward(), self.right(), self.up());
+        let half = match self.projection {
+            Projection::Perspective { fov_y } => (fov_y / 2.0).tan(),
+            Projection::Parallel { height } => height / 2.0,
+        };
+        Projector { eye: self.eye, forward, right: right / (half * aspect), up: up / half, parallel: self.is_parallel(), size }
     }
 }
 
 /// World to viewport pixels, for one camera and viewport.
 #[derive(Clone, Copy, Debug)]
 pub struct Projector {
-    view_proj: DMat4,
+    eye: DVec3,
+    forward: DVec3,
+    /// The camera's right and up, scaled so that the view's edges are at ±1 (at depth 1 in
+    /// perspective).
+    right: DVec3,
+    up: DVec3,
     parallel: bool,
     size: DVec2,
 }
@@ -450,12 +464,18 @@ pub struct Projector {
 impl Projector {
     /// Where the world point `p` lands (pixels, origin top left), if in front of the camera.
     pub fn project(&self, p: DVec3) -> Option<DVec2> {
-        let clip = self.view_proj * p.extend(1.0);
-        if clip.w <= 0.0 && !self.parallel {
-            return None;
-        }
-        let ndc = clip.truncate() / clip.w;
-        Some(DVec2::new((ndc.x + 1.0) * 0.5 * self.size.x, (1.0 - ndc.y) * 0.5 * self.size.y))
+        let d = p - self.eye;
+        let (x, y) = (d.dot(self.right), d.dot(self.up));
+        let (x, y) = if self.parallel {
+            (x, y)
+        } else {
+            let depth = d.dot(self.forward);
+            if depth <= 0.0 {
+                return None;
+            }
+            (x / depth, y / depth)
+        };
+        Some(DVec2::new((x + 1.0) * 0.5 * self.size.x, (1.0 - y) * 0.5 * self.size.y))
     }
 }
 
@@ -471,14 +491,35 @@ mod tests {
 
     #[test]
     fn ray_through_projected_point() {
+        // Near the origin and 100 km away: a point projected then cast back lands on itself,
+        // to the precision of f64 (the control protocol clicks world points, §7 septies).
+        for far in [DVec3::ZERO, DVec3::new(1.0e8, -3.0e7, 2.0e5)] {
+            for parallel in [false, true] {
+                let mut c = Camera::default();
+                c.eye += far;
+                c.set_parallel(parallel);
+                let p = c.eye + c.forward() * c.focus + DVec3::new(120.0, -40.0, 75.0);
+                let px = c.project(p, SIZE).unwrap();
+                let r = c.ray(px, SIZE);
+                let q = r.closest_on_line(p, DVec3::Z);
+                assert!((q - p).length() < 1e-9 * p.length().max(1.0), "parallel {parallel}: {q} vs {p}");
+            }
+        }
+    }
+
+    #[test]
+    fn projecting_agrees_with_what_the_gpu_draws() {
         for parallel in [false, true] {
             let mut c = Camera::default();
             c.set_parallel(parallel);
-            let p = DVec3::new(120.0, -40.0, 75.0);
-            let px = c.project(p, SIZE).unwrap();
-            let r = c.ray(px, SIZE);
-            let q = r.closest_on_line(p, DVec3::Z);
-            assert!((q - p).length() < 1e-6 * c.focus.max(1.0), "parallel {parallel}: {q} vs {p}");
+            let gpu = c.proj(SIZE.x / SIZE.y, None).as_dmat4() * c.view();
+            for p in [DVec3::new(120.0, -40.0, 75.0), DVec3::new(-900.0, 300.0, 10.0), DVec3::ZERO] {
+                let clip = gpu * p.extend(1.0);
+                let ndc = clip.truncate() / clip.w;
+                let drawn = DVec2::new((ndc.x + 1.0) * 0.5 * SIZE.x, (1.0 - ndc.y) * 0.5 * SIZE.y);
+                let px = c.project(p, SIZE).unwrap();
+                assert!((px - drawn).length() < 0.01, "parallel {parallel}: {px} vs {drawn}");
+            }
         }
     }
 

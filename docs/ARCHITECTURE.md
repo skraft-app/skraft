@@ -2076,6 +2076,7 @@ handed back in `smart_tool.rb`'s `onToolUserText`). Built on 2026-11-15, in four
 | `crates/model` — `solidsketch-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, versioned JSON file, reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
 | `crates/render` — `solidsketch-render` | wgpu pipelines (shaded faces, edges, grid, axes, highlight, previews), GPU cache of meshes per part, drawing of a list of `DrawItem { mesh, transform, style }` with a view-projection matrix. Knows neither egui nor the document. Usable off screen. | `kernel` (for `Mesh`), `wgpu`, `glam` |
 | `crates/tools` — `solidsketch-tools` | Camera (orbit/pan/zoom, ray from the screen), display scene (the document flattened into placed solids + mesh cache), picking by ray (CPU, triangle → B-rep face), the tools' state machines, typed dimensions, inferences. Testable without UI or GPU. | `model`, `kernel`, `i18n`, `glam` |
+| `crates/control` — `solidsketch-control` | The control protocol (§7 septies): methods and their parameters (with their JSON Schemas), the handlers that need only an `Editor` (`model.*`, `tool.*`), the loopback HTTP server with its per-start token and discovery files (desktop). No UI toolkit. | `model`, `tools`, `kernel`, `serde_json`, `schemars` |
 | `apps/solidsketch` | eframe: tool bar, outliner, entity info, status bar + VCB, viewport (`render`'s off-screen target shown as an egui texture), kernel service (native thread or Web Worker), translation of egui events into tool events, opening/saving. Native and wasm. | all of the above, `eframe`, `egui-wgpu` |
 
 ## 7 bis. Display: the definition as the rendering unit
@@ -2374,11 +2375,9 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   `POST /run app.remote_control` (its answer still comes). While on, the **title bar** shows
   its mark (left of the preferences): green, flashing at each request; in red when it
   could not start (port taken), still counted as on. Its menu: the address and requests
-  served, copy a `curl …/ping`, stop (or try again). The header `X-SolidSketch: 1` is required (CSRF guard, as the
-  Claude Bridge). `GET /ping`, `GET /commands` (ids, labels, enabled, checked, shortcut),
-  `POST /run` (body: an id), `GET /state` (tool, context, selection, status, revision,
-  modified), `GET /screenshot` (the view, as a PNG). Each request is handed to the UI thread,
-  which answers at its next frame.
+  served, copy a `curl` calling `app.ping` (reading the token file), stop (or try again). Its
+  requests, token and methods: §7 septies (one route, `POST /call`; the first routes are
+  gone). Each request is handed to the UI thread, which answers at its next frame.
 
 ### X-ray (2026-11-14)
 
@@ -2472,6 +2471,190 @@ window that says how far it is and can stop it.
 - **Measured** (`bench_step_loading`, `BENCH_STEP`, 8 threads, dev profile, Cruise): read 1.75 s,
   every preview drawn at 2.9 s, the last final mesh at 14.7 s; cancelled after the previews, an
   operation done 50 ms later.
+
+## 7 septies. Control protocol (debugging now, MCP later)
+
+Decided on 2026-11-15 (questions / answers), after SolidCraft's control channel and MCP server
+(`crates/control`, `crates/mcp`, `crates/mcp-server`, `docs/control-protocol.md`, `docs/mcp.md`,
+`docs/browser-api.md` there). The first step is built (below, "Order"); the rest is the plan. It grows the control
+channel of §7 quater ("External driving") into a protocol that an agent debugs the running
+app with today — the active tool, its preview and inferences, the geometry — and that an MCP
+server will serve unchanged later. A developer's tool for now, not a feature of the product:
+it stays off by default, in the *Débogage* tab.
+
+### Principles
+
+- **One method set, several transports.** A request is a method and JSON parameters,
+  `{"method": "model.geometry", "params": {…}}`; the reply `{"ok": true, "result": …}` or
+  `{"ok": false, "error": "…"}`. The same methods are reached over loopback HTTP (desktop),
+  from JavaScript in the page (web), and through MCP (each tool a method or a few). A method
+  is written once, as a handler on the UI thread.
+- **Typed and self-describing.** Each method's parameters and result are Rust types
+  (`serde`, `schemars`): the JSON Schemas come from them (`app.methods` lists them, the MCP
+  tools' `inputSchema` later). Strict: an unknown field or a wrong type is refused, naming
+  the field, and nothing runs.
+- **What runs headless says so.** The methods split into namespaces by what they need: the
+  model and the tools run on an `Editor` without a window (the `tools` crate already does in
+  its tests), the `ui.*` ones need the window. A headless backend serves all but `ui.*`.
+- **No waiting by guess.** Every reply that may change the model carries
+  `{document, revision}`; `app.wait` returns when the revision moves past a value, or when the
+  editor is idle (no kernel job, no load) — never a `sleep` in a script.
+- **Bounded replies.** Filters (`ids`, `selection`), opt-in heavy parts (`brep`, `mesh`), a
+  size cap with an explicit error: an agent's context is small.
+- **Everything undoable.** Methods that change the document go through `Editor` and its
+  history, as the user's actions do; a `model.batch` is one undo step.
+
+### Methods
+
+| Namespace | Methods | Headless |
+|---|---|---|
+| `app.*` | `ping`, `methods` (names, schemas), `commands` (the registry: id, label, enabled, checked, shortcut), `run` (a command id), `wait` (`revision > n` or `idle`, with a timeout), `docs` (list, new, switch, close, open a path) | all but the documents' window side |
+| `model.*` | `document` (the recipe: the file's JSON, not saved), `outliner` (the tree with `EntityPath`s), `geometry` (per part or occurrence: id, name, world transform, bounds, volume, pieces, topology counts, OCL dimensions in the part's axes, `stale` while computing; `brep`: the SolidCore record; `mesh`: the display mesh, an approximation), `measure`, `run` (an `Operation`), `batch` (operations in order, rolled back on the first error), both with `expect` (volume, pieces, bounds: measured after, a mismatch an error) | yes |
+| `tool.*` | `state` (kind, step, status, VCB values and the one typed, options, busy, the `Preview` as data: lines, labels, ghost solids with bounds and optionally B-rep, the last inference: kind, point, entity, locked axis), `set` (the active tool), `input` (a list of `ToolInput`s — hover, click, double click, drag, keys, modifiers — at pixels or at **world points**, projected by the camera), `option`, `type` (text in the VCB) | yes |
+| `view.*` | `camera` (read; set: eye, target, up, fov, perspective, or a standard view, or fit), `project` (world points → pixels), `pick` (pixels or rays → entity, B-rep face or edge, point, inference) | yes (a virtual viewport of a given size) |
+| `journal.*` | `log` (`since`: inputs, tools, options, operations applied or failed, kernel jobs with durations and errors, undo, redo), `failures` (each failed kernel job: its operation, its job — input solids and tasks — to run again headless), `record` (inputs from a document and a view, written as a `tools` test) | yes |
+| `ui.*` | real egui events (`click`, `move`, `drag`, `key`, `text`, `scroll`), `handles` (where named widgets were drawn last frame), `screenshot` (the viewport or the window, PNG), `messages` | no: the window |
+
+`tool.input` feeds `Editor::input` directly: deterministic, no window focus, the same calls as
+the `tools` tests (`click(e, p)`), which a sequence of inputs can later be written out as.
+`ui.*` sends real egui events (one pointer event per frame, as SolidCraft): it tests the real
+interface — ribbon, panels, the translation of egui events into `ToolInput`s — where the
+CGEvent tool is used today. **Named handles** (as SolidCraft's `ui-registry`): widgets publish
+their rect under a stable name while they draw (`toolbar:<command id>`, `panel:…`, a tool's
+grips), so a script clicks a name, not a pixel.
+
+### Transports
+
+- **Desktop, HTTP on the loopback interface** (the §7 quater server, kept for `curl`):
+  `POST /call` with `{method, params}` as body, the only route (the first routes, `GET
+  /state`…, are gone: nothing used them but scripts). Off by default, as now.
+- **Token**: at each start the server makes a random 256-bit token and writes it, as one line
+  of hex, to `control/<port>.token` in the app's data folder (`dirs::data_dir()/SolidSketch`;
+  folder `0700`, file `0600`; on Windows, the user alone), and the port to
+  `control/current.port`; both removed when the server stops. Every request sends
+  `Authorization: Bearer <token>`; `X-SolidSketch: 1` stays (CSRF guard). A client finds the
+  running app by these two files. `SOLIDSKETCH_CONTROL_TOKEN` gives a token for a launch
+  (tests, a sandbox).
+- **Web**: no listener (a page cannot open one). The same methods are exposed to the page as
+  `window.solidsketch.call(method, params)`, a promise (`wasm-bindgen`), handled on the UI
+  thread between frames like the desktop's. No token: any script of the page already has the
+  app's power; it reaches nothing outside the tab. Per method: files are the browser's (the
+  document comes and goes as JSON text, `docs.open` takes text, not a path); `screenshot`
+  reads the canvas; `wait` and the kernel's work behave as on desktop (the Web Worker
+  answers like the threads). What drives it: an agent able to run JavaScript in the tab
+  (Claude in Chrome), a Playwright test, the console. Later, the page may register the same
+  tools with the browser (WebMCP, `navigator.modelContext`, once browsers ship it).
+- **MCP** (`apps/solidsketch-mcp`, stdio): a thin server mapping MCP tools onto the
+  methods, through a `Backend` trait with two implementations — **`Remote`**, the running
+  desktop app found by `control/current.port` and its token (to watch the agent work), and
+  **`Headless`**, an `Editor` and a kernel in the process, no window, used when no app runs
+  (`--headless` forces it): every method but `ui.*`. The MCP layer itself (JSON-RPC over
+  stdio, lifecycle, schemas) is hand-written (see "Order", 5).
+
+### Crates
+
+- `crates/control` — `solidsketch-control`: the requests and replies (types, schemas), the
+  dispatch of a request to a handler, the token and discovery files, the loopback server and a
+  client. No UI toolkit. The handlers that need only an `Editor` (`model.*`, `tool.*`,
+  `view.*`) live beside it so that both the app and the headless backend call them.
+- `apps/solidsketch/src/control.rs`: what the window adds — documents, registry commands,
+  `ui.*`, screenshots, the title bar's mark — and the web's `window.solidsketch`.
+- `apps/solidsketch-mcp`: the MCP server and its two backends.
+
+### Order
+
+1. **Built** (2026-11-15, branch `feature/control-protocol`): `crates/control` with `POST
+   /call` (the only route), the token and discovery files; `app.methods` (the
+   parameters' schemas), `app.state`, `app.wait`, `app.commands`, `app.run`, `app.docs`
+   (`action`: list, new, switch, close), `app.screenshot`, `model.document`, `model.geometry`
+   (summary, `brep`, `mesh`), `tool.state`. `scripts/control.sh <method> [params]` calls one
+   from a shell (it finds the port and the token).
+2. **Built** (2026-11-15, same branch): `tool.input` — `hover`, `click`, `double_click`,
+   `drag` (`from`, `to`, `steps`), `key` (`name`), `vcb` (typed, then Enter), `tool` (by
+   its id, `ToolKind::from_id`) — each pointer at a world point (`at`) or a pixel (`px`, the
+   viewport's points, origin top left); a click is a hover then the click, as the viewport
+   gives them. `view.camera` (read; set: `perspective`, `view`, `eye` + `target`, `fov_deg`
+   or `height`, `fit`; the window adds `pixels_per_point`, a screenshot's scale),
+   `view.project`, `view.pick` (the scene's pick: part, path, B-rep face, point, normal).
+   Every editor method first takes in what the kernel finished (`Editor::poll`: a headless
+   session has no frames), and *idle* waits for the meshes too (`Editor::meshing`): a pick
+   or an inference after a change needs them. `Camera::project` is in `f64`, the exact
+   inverse of `Camera::ray` (it went through the GPU's `f32` matrix: a box clicked at
+   600 × 400 came out 599.99995): a world point clicked lands on itself, to 1e-9. Between inputs that depend on a change (a
+   face of the box just drawn), `app.wait` with `idle` — the kernel computes in the
+   background in the window.
+3. **Built** (2026-11-15, same branch): the editor keeps a **journal**
+   (`crates/tools/src/editor/journal.rs`, `Editor::journal`): a ring of the last 1 000
+   entries, numbered — inputs (hovers in a row are one entry, counted), tools, options,
+   operations applied (revision) or failed (why), operation jobs back (ms, error), mesh jobs
+   failed, undo, redo; and the last 20 **kernel failures**, each with its `Job` (input solids
+   and tasks, serialisable): an operation's job that failed, a recipe that skipped bodies
+   (`Output::Recipe::failed`), a mesh refused. `journal.log` (`since`, `limit`),
+   `journal.failures` (`seq`: one in full; its `job` read back and given to
+   `solidsketch_kernel::run` fails again, headless). **Recording**: `journal.record`
+   `start` keeps the document (its JSON) and the tool, then each call from outside —
+   `input`, `set_tool`, `set_tool_option`, Shift / copy / Alt changed, undo, redo — with the
+   camera and viewport they were given in when they changed (hovers in a row: the last);
+   `Editor::depth` leaves out what the editor calls itself (its own hovers, a tool it goes
+   back to), so playing them again does not do it twice. `stop` writes a test of
+   `crates/tools/tests/<name>.rs` (the document beside it as `<name>.solidsketch`): the
+   editor with the kernel inline, the view set, each input after a `poll` (a frame), the
+   revision and the parts reached checked. Recorded in the app (a box, then a cylinder on
+   it), the test passes and builds the same geometry. Not recorded: what panels do besides
+   (the outliner's selection, entering a component from it).
+4. **Built** (2026-11-15, same branch). **Real input**: `ui.click` (`double`), `ui.move`,
+   `ui.drag` (`steps`), `ui.key` (egui's key names, `pressed` for one edge), `ui.text`,
+   `ui.scroll` — each at `where`: a window point (`pos`), a handle's centre (`handle`) or a
+   world point's pixel in the viewport (`at`), with `button` and `mods` (`shift`, `ctrl`,
+   `alt`, `command`). They are egui events queued one frame at a time
+   (`apps/solidsketch/src/driving.rs`; `raw_input_hook` feeds them, the modifiers as
+   `ModifiersChanged` events, egui 0.37 having no modifiers in `RawInput`) and answered at the
+   frame after the last one, once the widgets took them in; the window need not have the
+   focus. Being egui points (`f32`), a box clicked this way measures 599.99993: `tool.input`
+   stays the exact path, `ui.*` the real interface's. **Named handles**
+   (`apps/solidsketch/src/handles.rs`, after SolidCraft's `ui-registry`): widgets publish
+   their rect per frame, double-buffered, kept only while the channel is on (nothing made
+   otherwise) — `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<group>`,
+   `titlebar:<command>`, `titlebar:file`, `titlebar:views`, `menu:<command>` (menu items),
+   `option:<key>` (a toggle or a length field), `option:<key>:<value>` (a choice's
+   segment; `part_scope`, `body_sign`, `machinings`, `profile`), `tab:<i>`, `tab_close:<i>`,
+   `tab_new`, `quick:<command>`, `quick:more`, `vcb`, `viewport`; `ui.handles` (`prefix`)
+   lists them with `pixels_per_point`. `ui.screenshot`: the whole window (egui's
+   `request_screenshot`), PNG. `ui.messages` (`clear`): the status bar's texts as they
+   changed, the last 200, with their time. Not yet published: the outliner's rows, entity
+   info's fields, the palette, the preferences.
+   **Web**: `window.solidsketch.call(method, params)` (`apps/solidsketch/src/web.rs`, a
+   `wasm_bindgen` export `solidsketchCall`, set on `window` by `web/index.html`), a promise of
+   the result (`Uint8Array` of PNG for a screenshot), rejected with an `Error`; at most 256
+   calls waiting. Every method of the desktop, served by the same code (`driving::Asker`:
+   a call and where its answer goes, whatever carried it); `app.screenshot` is the window's
+   (the canvas); no volume in `model.geometry` (the kernel is in the worker); the handles kept
+   once the page has called. Checked in headless Chrome (Playwright): a box by `tool.input`
+   (computed in the Web Worker), `app.wait`, `model.geometry`, a real click on
+   `ribbon:tool.cylinder`, the screenshot, a refusal.
+5. **Built** (2026-11-15, same branch): `apps/solidsketch-mcp`, an MCP server over stdio
+   (JSON-RPC 2.0, one message per line; revisions 2025-06-18, 2025-03-26, 2024-11-05:
+   `initialize`, `ping`, `tools/list`, `tools/call`). **Hand-written** (`src/mcp.rs`, ~200
+   lines, `serde_json` only), not `rmcp`: the subset is small, and the SDK would bring tokio
+   and its own `schemars`. **One tool per method** the backend serves, `.` written `_`
+   (`model.geometry` → `model_geometry`; `app.ping` and `app.methods` left out, MCP has its
+   own), its `inputSchema` the method's parameters' (schemars), `readOnlyHint` for the
+   methods that only read; a JSON result is a text block, a PNG an image block (base64), a
+   method's refusal a result with `isError` and its message (for the model to correct), an
+   unknown tool a JSON-RPC error. `initialize` gives instructions: units, `tool_input` at
+   world points, `app_wait` after a change, the reading tools. **Backends**
+   (`src/backend.rs`): `Remote` — the running app, its port and token read again at every
+   call (`solidsketch_control::server::discover` and `call`, a client of the loopback
+   server), so an app started or started again later is found; `Headless` — an `Editor` of
+   its own (the kernel inline, a viewport of 1280 × 800), on an empty document or `--in
+   FILE`, serving every headless method plus `app.state` and `app.wait` (answered at once:
+   the kernel ran inline), the window's refused, said why. Without option the server takes
+   the app if its channel answers, else headless; `--remote`, `--connect PORT`,
+   `--headless`, `--in FILE` choose. The log goes to stderr. In Claude Code:
+   `claude mcp add solidsketch -- <repository>/target/debug/solidsketch-mcp`. Checked from
+   a client over stdio, headless (12 tools, a box by `tool_input`, its geometry exact, a
+   refusal) and on the app (25 tools, the same, a real click on `ribbon:tool.move`, a
+   screenshot as an image).
 
 ## 8. File
 

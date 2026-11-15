@@ -56,6 +56,8 @@ pub struct RemoteMark {
     pub flash: f32,
     /// Why it is not running, though asked for.
     pub error: Option<String>,
+    /// Its token file (docs/ARCHITECTURE.md §7 septies), which the test command reads.
+    pub token_file: Option<std::path::PathBuf>,
 }
 
 /// The running channel's mark: a green readable on the bar's dark ground, whatever the palette.
@@ -214,13 +216,14 @@ fn backed(
 }
 
 /// A menu's button: lit while its menu is open.
-fn menu_button(ui: &mut egui::Ui, button: egui::Button, tip: Option<String>, content: impl FnOnce(&mut egui::Ui)) {
+fn menu_button(ui: &mut egui::Ui, handle: &str, button: egui::Button, tip: Option<String>, content: impl FnOnce(&mut egui::Ui)) {
     let r = backed(ui, menu_open, |ui| {
         egui::containers::menu::MenuButton::from_button(unframed(button))
             .config(egui::containers::menu::MenuConfig::new().style(crate::style::menu))
             .ui(ui, |ui| content(ui))
             .0
     });
+    crate::handles::publish(|| handle.to_owned(), r.rect);
     if let Some(tip) = tip {
         r.on_hover_text(tip);
     }
@@ -232,7 +235,9 @@ fn menu_open(r: &egui::Response) -> bool {
 }
 
 fn command_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, v: &CommandView, lit: bool, tip: &str, actions: &mut Vec<Action>) {
-    if bar_button(ui, icon, lit, v.enabled, tip).clicked() {
+    let r = bar_button(ui, icon, lit, v.enabled, tip);
+    crate::handles::publish_enabled(|| format!("titlebar:{}", v.id), r.rect, v.enabled);
+    if r.clicked() {
         actions.push(Action::Command(v.id));
     }
 }
@@ -263,7 +268,7 @@ fn file_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>
     ui.scope(|ui| {
         ui.spacing_mut().button_padding.x = PADDING_X;
         // The menu opens in the window's style: its items keep their padding.
-        menu_button(ui, button, None, |ui| menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions));
+        menu_button(ui, "titlebar:file", button, None, |ui| menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions));
     });
 }
 
@@ -286,7 +291,9 @@ fn views_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action
     const IDS: [&str; 6] = ["view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
     let button = egui::Button::image(icon_image(ui, icons::VIEWS)).min_size(egui::vec2(26.0, 26.0));
     // Not a group: no separator before the first.
-    menu_button(ui, button, Some(t!("titlebar.views")), |ui| menu_items(ui, views.iter().filter(|v| IDS.contains(&v.id)), actions));
+    menu_button(ui, "titlebar:views", button, Some(t!("titlebar.views")), |ui| {
+        menu_items(ui, views.iter().filter(|v| IDS.contains(&v.id)), actions)
+    });
 }
 
 /// The command search: its icon, a hint and its shortcut, opens the command palette. Drawn as
@@ -294,6 +301,7 @@ fn views_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action
 /// clicked.
 fn search(ui: &mut egui::Ui, v: &CommandView, width: f32) -> bool {
     let (rect, r) = ui.allocate_exact_size(egui::vec2(width, 26.0), egui::Sense::click());
+    crate::handles::publish(|| format!("titlebar:{}", v.id), rect);
     if let Some(fill) = tabs::veil(ui, &r) {
         ui.painter().rect_filled(rect, tabs::VEIL_RADIUS, fill);
     }
@@ -344,7 +352,13 @@ fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) 
                         actions.push(Action::RemoteRetry);
                     }
                 } else if ui.button(t!("titlebar.remote.copy_ping")).clicked() {
-                    ui.ctx().copy_text(format!("curl -s -H 'X-SolidSketch: 1' http://{address}/ping"));
+                    let token = mark
+                        .token_file
+                        .as_ref()
+                        .map_or_else(|| "$SOLIDSKETCH_CONTROL_TOKEN".to_owned(), |f| format!("$(cat '{}')", f.display()));
+                    ui.ctx().copy_text(format!(
+                        "curl -s -H 'X-SolidSketch: 1' -H \"Authorization: Bearer {token}\" -d '{{\"method\": \"app.ping\"}}' http://{address}/call"
+                    ));
                 }
                 if ui.button(t!("titlebar.remote.stop")).clicked() {
                     actions.push(Action::Command("app.remote_control"));

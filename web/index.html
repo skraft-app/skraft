@@ -13,7 +13,7 @@
 <body>
   <canvas id="solidsketch"></canvas>
   <script type="module">
-    import init from "./pkg/solidsketch.js";
+    import init, { solidsketchCall } from "./pkg/solidsketch.js";
 
     // Chrome and Safari report mouse wheel notches in pixels (deltaMode 0), like trackpad
     // scrolling: eframe then hands them as MouseWheelUnit::Point, which the viewport takes for
@@ -38,6 +38,11 @@
         bubbles: true, cancelable: true,
       }));
     }, { capture: true, passive: false });
+
+    // The control protocol from the page (docs/ARCHITECTURE.md §7 septies): the app's methods,
+    // e.g. `await solidsketch.call("model.geometry", { selection: true })`, a promise of the
+    // result (an Uint8Array of PNG for a screenshot), rejected with an Error.
+    window.solidsketch = { call: (method, params) => solidsketchCall(method, params ?? null) };
 
     init();
   </script>

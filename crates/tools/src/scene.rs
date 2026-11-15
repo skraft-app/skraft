@@ -669,6 +669,11 @@ impl DisplayScene {
         self.placements.iter().filter(|(d, _)| self.definitions.contains_key(d)).map(|(d, p)| (*d, p.as_slice()))
     }
 
+    /// Are solids of the document without a mesh not handed out yet ([`DisplayScene::take_missing`])?
+    pub fn has_missing(&self) -> bool {
+        !self.missing.is_empty()
+    }
+
     /// The document's solids that have no mesh and were not handed out before: the caller
     /// asks the kernel for them, then [`DisplayScene::insert`]s each.
     pub fn take_missing(&mut self) -> Vec<Arc<Solid>> {

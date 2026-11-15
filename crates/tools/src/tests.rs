@@ -1118,7 +1118,9 @@ fn rotate_tool_by_clicks_and_typed_angle() {
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "50");
     e.set_tool(ToolKind::Rotate);
     // Centre on the box's top face (axis: its normal, Z), reference along +X, then 90° typed.
-    click(&mut e, DVec3::new(0.0, 0.0, 50.0));
+    // The cursor a hair inside the top face (the corner itself is on three faces: which one a
+    // ray exactly through it hits is a tie), the centre snapped to the corner.
+    click(&mut e, DVec3::new(1.0, 1.0, 50.0));
     assert!(e.view().overlay.len() > 40, "protractor drawn");
     click(&mut e, DVec3::new(150.0, 0.0, 50.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 150.0, 50.0)) });

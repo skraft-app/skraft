@@ -65,6 +65,7 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
 /// A command's button: its icon, its name in the tip; right click unpins it.
 fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) {
     let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), if c.enabled { Sense::click() } else { Sense::hover() });
+    crate::handles::publish_enabled(|| format!("quick:{}", c.id), rect, c.enabled);
     let visuals = ui.style().interact(&response);
     if c.enabled && response.hovered() {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
@@ -90,6 +91,7 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) {
 /// The ▾ button: every command the card can show, each with its pin.
 fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actions: &mut Vec<Action>) {
     let (rect, response) = ui.allocate_exact_size(vec2(MORE, BUTTON), Sense::click());
+    crate::handles::publish(|| "quick:more".into(), rect);
     let visuals = ui.style().interact(&response);
     if response.hovered() {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
