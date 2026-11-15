@@ -8,8 +8,6 @@ use solidsketch_model::Document;
 use solidsketch_model::kernel::SharedKernel;
 use solidsketch_tools::Editor;
 
-use crate::panels::InfoState;
-
 /// A document's identity while the app runs: never given to another one, unlike its place
 /// among the tabs.
 pub type DocId = u64;
@@ -26,8 +24,6 @@ pub struct Doc {
     pub saved_at: u64,
     /// What is being typed into the measurements box.
     pub vcb: String,
-    /// The Entity info field being edited.
-    pub info: InfoState,
 }
 
 impl Doc {
@@ -131,7 +127,7 @@ impl Docs {
         setup(&mut editor);
         let id = self.next_id;
         self.next_id += 1;
-        let doc = Doc { id, editor, path, saved_at: 0, vcb: String::new(), info: InfoState::default() };
+        let doc = Doc { id, editor, path, saved_at: 0, vcb: String::new() };
         Ok(match replaced {
             Some(i) => (id, Some(std::mem::replace(&mut self.list[i], doc).id)),
             None => {

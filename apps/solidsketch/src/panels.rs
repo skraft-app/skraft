@@ -241,53 +241,109 @@ fn face_tip(face: &Face, label: &str, tip: &str) -> String {
     }
 }
 
-/// A length option's value, after its group's name: a text field, always framed (the field's
-/// ground, an outline). Its outline tells its state: the border's colour at rest, the hovered
-/// ink's when hovered, the selection's when the value is not zero, twice as thick when focused.
-/// Focused, all of it is selected to be typed over; Enter applies, Esc or a click away puts the
-/// value back. Shown rounded (`~ 12`), it is edited to the model's precision (`12,346`): what
-/// is typed over is the real value, and Enter on it unchanged applies nothing. The text typed,
-/// when applied.
+/// A length option's value, after its group's name: a [`framed_field`], lit when the value is
+/// not zero. Esc or a click away puts the value back. The text typed, when applied.
 fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Units) -> Option<String> {
-    let id = egui::Id::unique(("length_option", key));
-    let field_id = id.with("field");
     let shown = units.format(value);
     let exact = format!("{}{}", units.exact_number(value), units.suffix());
-    // While focused, the text typed (kept across frames); else the value.
-    let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| shown.clone());
+    let field =
+        Field { tip: Some(tip), width: 80.0, align: egui::Align2::RIGHT_CENTER, lit: value != 0.0, addon: None, blur_applies: false };
+    framed_field(ui, egui::Id::unique(("length_option", key)), &shown, &exact, field)
+}
 
-    // The outline from the state of the last frame (the field's is only known once drawn).
-    let focused = ui.memory(|m| m.has_focus(field_id));
-    let hovered = ui.ctx().read_response(field_id).is_some_and(|r| r.hovered());
-    let visuals = ui.visuals();
-    let stroke = if focused {
+/// How a [`framed_field`] looks and applies.
+struct Field<'a> {
+    tip: Option<&'a str>,
+    /// The whole width, its add-on's included.
+    width: f32,
+    /// A number's to the right, a name's to the left.
+    align: egui::Align2,
+    /// Outlined with the selection's colour (a tool option's value set).
+    lit: bool,
+    /// A letter in a colour, in a box on the left (an axis' `X`).
+    addon: Option<(&'a str, egui::Color32)>,
+    /// A click away applies what was typed (Entity Info), else puts the value back (the tool
+    /// options, applied by Enter only).
+    blur_applies: bool,
+}
+
+/// The outline of a [`framed_field`] (and of a [`material_choice`]): the border's colour at rest,
+/// the hovered ink's when hovered, the selection's when lit, twice as thick when focused (or open).
+fn field_stroke(visuals: &egui::Visuals, focused: bool, lit: bool, hovered: bool) -> egui::Stroke {
+    if focused {
         egui::Stroke::new(2.0, visuals.selection.stroke.color)
-    } else if value != 0.0 {
+    } else if lit {
         egui::Stroke::new(1.0, visuals.selection.stroke.color)
     } else if hovered {
         egui::Stroke::new(1.0, visuals.widgets.hovered.fg_stroke.color)
     } else {
         visuals.widgets.noninteractive.bg_stroke
-    };
+    }
+}
+
+/// The one text field of the interface (the tool options', Entity Info's, the materials'):
+/// always framed, the fields' ground, an outline telling its state — the border's colour at
+/// rest, the hovered ink's when hovered, the selection's when lit, twice as thick when focused.
+/// Focused, all of it is selected to be typed over: the `exact` text, as shown
+/// as `shown` (`~ 12` edited as `12,346`), Enter on it unchanged applying nothing; Esc puts the
+/// value back. The text typed, when applied.
+fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Field) -> Option<String> {
+    let field_id = id.with("field");
+    // While focused, the text typed (kept across frames); else the value.
+    // The outline from the state of the last frame (the field's is only known once drawn).
+    let focused = ui.memory(|m| m.has_focus(field_id));
+    // While focused, the text typed (kept across frames); else the value.
+    let mut text: String = focused.then(|| ui.data(|d| d.get_temp(id))).flatten().unwrap_or_else(|| shown.to_owned());
+    let hovered = ui.ctx().read_response(field_id).is_some_and(|r| r.hovered());
+    let visuals = ui.visuals();
+    let border = visuals.widgets.noninteractive.bg_stroke;
+    let stroke = field_stroke(visuals, focused, f.lit, hovered);
+    let radius = visuals.widgets.inactive.corner_radius;
+    let addon = f.addon.map(|_| OPTION_HEIGHT).unwrap_or(0.0);
+    let mut corners = radius;
+    if addon > 0.0 {
+        (corners.nw, corners.sw) = (0, 0);
+    }
     // The margin keeps room for the thicker outline: focusing does not move the text.
     let frame = egui::Frame::new()
         .fill(visuals.extreme_bg_color)
         .stroke(stroke)
-        .corner_radius(visuals.widgets.inactive.corner_radius)
+        .corner_radius(corners)
         .inner_margin(egui::Margin::symmetric(6, 2) - egui::Margin::from(stroke.width));
-    let field = egui::TextEdit::singleline(&mut text)
-        .id(field_id)
-        .frame(frame)
-        .desired_width(80.0)
-        .min_size(egui::vec2(80.0, OPTION_HEIGHT))
-        .align(egui::Align2::RIGHT_CENTER);
-    let r = ui.add(field).on_hover_text(tip);
+    let (ground, ink) = (visuals.widgets.inactive.bg_fill, visuals.text_color());
+
+    let r = ui
+        .horizontal(|ui| {
+            // The add-on's border and the field's are one line: the field's, drawn over it.
+            ui.spacing_mut().item_spacing.x = -border.width;
+            if let Some((letter, color)) = f.addon {
+                let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(OPTION_HEIGHT), egui::Sense::hover());
+                let p = ui.painter();
+                let rect_corners = egui::CornerRadius { nw: radius.nw, sw: radius.sw, ne: 0, se: 0 };
+                p.rect(rect, rect_corners, ground.lerp_to_gamma(ink, 0.04), border, egui::StrokeKind::Inside);
+                let font = egui::TextStyle::Button.resolve(ui.style());
+                p.text(rect.center(), egui::Align2::CENTER_CENTER, letter, font, color);
+            }
+            let width = f.width - addon + if addon > 0.0 { border.width } else { 0.0 };
+            let field = egui::TextEdit::singleline(&mut text)
+                .id(field_id)
+                .frame(frame)
+                .desired_width(width)
+                .min_size(egui::vec2(width, OPTION_HEIGHT))
+                .align(f.align);
+            let r = ui.add(field);
+            match f.tip {
+                Some(tip) => r.on_hover_text(tip),
+                None => r,
+            }
+        })
+        .inner;
 
     // Just focused (clicked, tabbed into): the real value, all of it selected, to be typed over.
     if r.gained_focus()
         && let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id)
     {
-        text = exact.clone();
+        text = exact.to_owned();
         ui.ctx().request_repaint();
         let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
         state.cursor.set_char_range(Some(all));
@@ -295,9 +351,10 @@ fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Un
     }
     if r.lost_focus() {
         ui.data_mut(|d| d.remove::<String>(id));
-        let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let applied =
+            ui.input(|i| if i.key_pressed(egui::Key::Escape) { false } else { f.blur_applies || i.key_pressed(egui::Key::Enter) });
         let unchanged = text.trim() == exact || text.trim() == shown;
-        return (entered && !text.trim().is_empty() && !unchanged).then(|| text.trim().to_owned());
+        return (applied && !text.trim().is_empty() && !unchanged).then(|| text.trim().to_owned());
     }
     if r.has_focus() {
         ui.data_mut(|d| d.insert_temp(id, text));
@@ -565,30 +622,25 @@ fn flatten<'d>(
 
 // ---- entity info -------------------------------------------------------------------------------
 
-/// Text being edited in the info panel: (entity or definition, field) → text.
-#[derive(Default)]
-pub struct InfoState {
-    editing: Option<((Id, u8), String)>,
+/// A name, in a [`framed_field`] applied by a click away too. `width` is fixed by the caller:
+/// an infinite width inside a `Grid` feeds back on the column width of the previous frame and
+/// widens the side panel at every relayout.
+fn text_field(ui: &mut egui::Ui, key: (Id, u8), current: &str, width: f32) -> Option<String> {
+    let field = Field { tip: None, width, align: egui::Align2::LEFT_CENTER, lit: false, addon: None, blur_applies: true };
+    // The ui's id: the caller's, salted by its document, keeps fields of documents apart.
+    let id = ui.make_persistent_id(("info_field", key));
+    // Laid out as the label beside it (`field_label`): level with it.
+    ui.vertical(|ui| framed_field(ui, id, current, current, field)).inner
 }
 
-/// `width` is fixed by the caller: an infinite width inside a `Grid` feeds back on the column
-/// width of the previous frame and widens the side panel at every relayout.
-fn text_field(ui: &mut egui::Ui, state: &mut InfoState, key: (Id, u8), current: &str, width: f32) -> Option<String> {
-    let mut text = match &state.editing {
-        Some((k, t)) if *k == key => t.clone(),
-        _ => current.to_owned(),
-    };
-    let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(width));
-    if r.has_focus() || r.changed() {
-        state.editing = Some((key, text.clone()));
-    }
-    if r.lost_focus() {
-        state.editing = None;
-        if text != current && !text.trim().is_empty() {
-            return Some(text.trim().to_owned());
-        }
-    }
-    None
+/// A grid row's label, level with the [`framed_field`] beside it (or the first one, on top).
+fn field_label(ui: &mut egui::Ui, text: String) {
+    ui.vertical(|ui| {
+        let size = egui::vec2(0.0, OPTION_HEIGHT);
+        ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.add(egui::Label::new(text).extend());
+        });
+    });
 }
 
 fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
@@ -596,7 +648,7 @@ fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
     format!("{} × {} × {}{}", units.number(d.x), units.number(d.y), units.number(d.z), units.suffix())
 }
 
-pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: &mut Vec<Action>) {
+pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let units = &doc.settings().units;
     let context = editor.context_definition();
@@ -639,20 +691,20 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                 ui.label(t!("panel.entity_info.type"));
                 ui.label(if c.is_part() { t!("panel.entity_info.type_part") } else { t!("panel.entity_info.type_assembly") });
                 ui.end_row();
-                ui.label(t!("panel.entity_info.name"));
-                if let Some(name) = text_field(ui, state, (c.id, 1), &c.name, field) {
+                field_label(ui, t!("panel.entity_info.name"));
+                if let Some(name) = text_field(ui, (c.id, 1), &c.name, field) {
                     actions.push(Action::Apply(Operation::RenameComponent { component: c.id, name }));
                 }
                 ui.end_row();
-                ui.label(t!("panel.entity_info.occurrence"));
-                if let Some(name) = text_field(ui, state, (o.id, 0), &o.name, field) {
+                field_label(ui, t!("panel.entity_info.occurrence"));
+                if let Some(name) = text_field(ui, (o.id, 0), &o.name, field) {
                     actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
                 }
                 ui.end_row();
                 ui.label(t!("panel.entity_info.occurrences"));
                 ui.label(doc.occurrence_count(c.id).to_string());
                 ui.end_row();
-                ui.label(t!("panel.entity_info.material"));
+                field_label(ui, t!("panel.entity_info.material"));
                 if let Some(m) = material_choice(ui, doc, ("occurrence_material", o.id), o.material, field) {
                     actions.push(Action::Apply(Operation::PaintOccurrences { context, entities: vec![o.id], material: m }));
                 }
@@ -685,63 +737,33 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                     ui.end_row();
                 }
                 // At the top of its three fields, level with the first.
-                ui.vertical(|ui| {
-                    let size = egui::vec2(0.0, ui.spacing().interact_size.y);
-                    ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.add(egui::Label::new(t!("panel.entity_info.position")).extend());
-                    });
-                });
-                // Shown in the document's unit; the model stays in mm.
-                let unit = units.length.mm();
-                let mut t = o.transform.translation / unit;
+                field_label(ui, t!("panel.entity_info.position"));
+                // Each after its axis' letter, in its colour. Typed like in the measurements
+                // box: `@+19`, `600-2*19`, `2cm`; shown as everywhere (`~ 12` when rounded),
+                // edited to the micron.
+                let mut t = o.transform.translation;
                 let before = t;
                 ui.vertical(|ui| {
                     let axes = [solidsketch_theme::AXIS_X, solidsketch_theme::AXIS_Y, solidsketch_theme::AXIS_Z];
-                    for (v, axis) in [&mut t.x, &mut t.y, &mut t.z].into_iter().zip(axes) {
-                        // Right-aligned: the button and its text edit align their text as the layout's cross
-                        // alignment (its main one is always centred).
-                        let size = egui::vec2(field, ui.spacing().interact_size.y);
-                        ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Max), |ui| {
-                            // Each tinted with its axis' colour, as a pastel over the field's ground.
-                            let axis = crate::viewport::color(axis);
-                            let vis = ui.visuals_mut();
-                            let ground = vis.extreme_bg_color;
-                            let tint = |k: f32| ground.lerp_to_gamma(axis, k);
-                            vis.extreme_bg_color = tint(0.18);
-                            for (w, k) in
-                                [(&mut vis.widgets.inactive, 0.25), (&mut vis.widgets.hovered, 0.35), (&mut vis.widgets.active, 0.4)]
-                            {
-                                w.bg_fill = tint(k);
-                                w.weak_bg_fill = tint(k);
-                            }
-                            // Typed like in the measurements box: `@+19`, `600-2*19`, `2cm`.
-                            // Shown as everywhere (`~ 12` when rounded). The text left as shown
-                            // keeps the real value: egui reads the field back when it loses focus,
-                            // which would round it.
-                            let current = *v * unit;
-                            let shown = units.number(current);
-                            ui.add(
-                                egui::DragValue::new(v)
-                                    .min_size(size)
-                                    .speed(1.0)
-                                    .suffix(units.suffix())
-                                    .max_decimals(units.decimals as usize)
-                                    .custom_formatter(|n, _| units.number(n * unit))
-                                    .custom_parser(move |s| {
-                                        if s.trim() == shown {
-                                            return Some(current / unit);
-                                        }
-                                        measure::coordinate(s, units, current).ok().map(|mm| mm / unit)
-                                    }),
-                            );
-                        });
+                    for (k, (v, axis)) in [&mut t.x, &mut t.y, &mut t.z].into_iter().zip(axes).enumerate() {
+                        let letter = ["X", "Y", "Z"][k];
+                        let shown = units.format(*v);
+                        let exact = format!("{}{}", units.exact_number(*v), units.suffix());
+                        let addon = Some((letter, crate::viewport::color(axis)));
+                        let f = Field { tip: None, width: field, align: egui::Align2::RIGHT_CENTER, lit: false, addon, blur_applies: true };
+                        let id = ui.make_persistent_id(("info_position", o.id, k));
+                        if let Some(text) = framed_field(ui, id, &shown, &exact, f)
+                            && let Ok(mm) = measure::coordinate(&text, units, *v)
+                        {
+                            *v = mm;
+                        }
                     }
                 });
                 if t != before {
                     actions.push(Action::Apply(Operation::Transform {
                         context,
                         entities: vec![o.id],
-                        transform: DAffine3::from_translation((t - before) * unit),
+                        transform: DAffine3::from_translation(t - before),
                     }));
                 }
                 ui.end_row();
@@ -877,28 +899,53 @@ fn swatch(ui: &mut egui::Ui, color: Option<[u8; 3]>, size: f32) {
     }
 }
 
-/// A material picked in a list (« Aucune » first): `Some(choice)` when it changed.
+/// A material picked in a list (« Aucune » first), framed as a [`framed_field`]: its name and a
+/// downward triangle. `Some(choice)` when it changed.
 fn material_choice(ui: &mut egui::Ui, doc: &Document, salt: (&str, Id), current: Option<Id>, width: f32) -> Option<Option<Id>> {
     let name = |m: Option<Id>| match m {
         Some(id) => doc.material(id).map_or("?".to_owned(), |m| m.name.clone()),
         None => t!("panel.materials.none"),
     };
-    let mut picked = current;
-    egui::ComboBox::from_id_salt(salt).width(width).selected_text(name(current)).show_ui(ui, |ui| {
-        ui.selectable_value(&mut picked, None, t!("panel.materials.none"));
-        for (id, m) in doc.materials() {
-            ui.horizontal(|ui| {
-                swatch(ui, Some(m.color), 12.0);
-                ui.selectable_value(&mut picked, Some(id), &m.name);
-            });
-        }
-    });
-    (picked != current).then_some(picked)
+    // Laid out as the label beside it (`field_label`): level with it.
+    ui.vertical(|ui| {
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, OPTION_HEIGHT), egui::Sense::click());
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        let id = ui.make_persistent_id(salt);
+        let open = egui::Popup::is_id_open(ui.ctx(), id);
+        let visuals = ui.visuals();
+        let stroke = field_stroke(visuals, open, false, response.hovered());
+        let corners = visuals.widgets.inactive.corner_radius;
+        let p = ui.painter();
+        p.rect(rect, corners, visuals.extreme_bg_color, stroke, egui::StrokeKind::Inside);
+        let ink = visuals.text_color();
+        let inner = rect.shrink2(egui::vec2(6.0, 0.0));
+        // The triangle, as egui's combo box draws it.
+        let icon = egui::Rect::from_center_size(egui::pos2(inner.right() - 5.0, inner.center().y), egui::vec2(9.0, 5.0));
+        p.add(egui::Shape::convex_polygon(vec![icon.left_top(), icon.right_top(), icon.center_bottom()], ink, egui::Stroke::NONE));
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let text = ui.fonts_mut(|f| f.layout_no_wrap(name(current), font, ink));
+        let clip = inner.with_max_x(icon.left() - 4.0);
+        ui.painter_at(clip).galley(egui::pos2(inner.left(), inner.center().y - text.size().y / 2.0), text, ink);
+
+        let mut picked = current;
+        egui::Popup::menu(&response).id(id).width(width).style(crate::style::menu).show(|ui| {
+            ui.set_min_width(ui.available_width());
+            ui.selectable_value(&mut picked, None, t!("panel.materials.none"));
+            for (id, m) in doc.materials() {
+                ui.horizontal(|ui| {
+                    swatch(ui, Some(m.color), 12.0);
+                    ui.selectable_value(&mut picked, Some(id), &m.name);
+                });
+            }
+        });
+        (picked != current).then_some(picked)
+    })
+    .inner
 }
 
 /// The Matières panel (§7 quater): the document's materials — colour, name, delete — and the
 /// one the paint tool paints with; picking one starts the paint tool.
-pub fn materials(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: &mut Vec<Action>) {
+pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let painting = editor.tool_kind() == solidsketch_tools::ToolKind::Paint;
     let current = editor.paint_material();
@@ -924,7 +971,7 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, acti
                 actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
             }
             let width = (ui.available_width() - 30.0).max(60.0);
-            if let Some(name) = text_field(ui, state, (id, 2), &m.name, width) {
+            if let Some(name) = text_field(ui, (id, 2), &m.name, width) {
                 actions.push(Action::Apply(Operation::EditMaterial { material: id, name, color: m.color }));
             }
             if ui.small_button("✕").on_hover_text(t!("panel.materials.delete_tip")).clicked() {
