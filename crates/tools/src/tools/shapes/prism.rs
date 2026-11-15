@@ -1164,26 +1164,14 @@ impl Tool for PrismTool {
                 if let Some(s) = &self.first.at {
                     // OCL's small trapezoid at the cursor, in the plane it would take: its first
                     // corner on the cursor, 40 × 20 px along the plane's red and green sides.
-                    // With an offset, the one drawn dashed and the one made solid, 10 % larger or
-                    // smaller (OCL's `_preview_shape_start`).
+                    // With an offset or a fillet, the one drawn dashed and the one made solid,
+                    // offset out or in and rounded (their signs, not their sizes; after OCL's
+                    // `_preview_shape_start`).
                     let f = s.f;
                     let w = pixels(cx, f.o, GAUGE_PX);
-                    let color = plane_color(cx, &f);
-                    let trapezoid = |off: f64, tip: f64| {
-                        let at = |x: f64, y: f64| f.at(DVec3::new(-off + x * (w + 2.0 * off), -off + y * (w / 2.0 + 2.0 * off), 0.0));
-                        let c = [at(0.0, 0.0), at(tip, 0.0), at(0.5, 1.0), at(0.0, 1.0)];
-                        (0..4).map(move |i| (c[i], c[(i + 1) % 4]))
-                    };
-                    let off = cx.length(OFFSET);
-                    if off != 0.0 {
-                        segments(cx, &mut lines, trapezoid(0.0, 1.0), color, true);
-                    }
-                    let (grow, tip) = match off.partial_cmp(&0.0) {
-                        Some(std::cmp::Ordering::Greater) => (w * 0.1, 1.1),
-                        Some(std::cmp::Ordering::Less) => (-w * 0.1, 0.9),
-                        _ => (0.0, 1.0),
-                    };
-                    segments(cx, &mut lines, trapezoid(grow, tip), color, false);
+                    let trapezoid = [(0.0, 0.0), (w, 0.0), (w / 2.0, w / 2.0), (0.0, w / 2.0)].map(|(x, y)| DVec2::new(x, y));
+                    let fillet = if cx.length(FILLET) > 0.0 { GAUGE_FILLET * w } else { 0.0 };
+                    gauge(cx, &mut lines, &f, &trapezoid, gauge_offset(cx, w), fillet, plane_color(cx, &f));
                     if snapped(&inference) {
                         mark(cx, &mut marks, f.o);
                     }

@@ -772,8 +772,10 @@ Decided on 2026-11-09.
   line, a circle by its tangent there) acts as an edge and always turns the base's sides
   along it (even locked plane). The cylinder keeps the
   plane of its centre. The height runs along the normal, towards the eye. Esc goes back one
-  step. Before the first click a small shape at the cursor shows the plane, the lines take the
-  colour of its normal's axis (magenta for another locked one) and the sides being drawn get
+  step. Before the first click a small shape at the cursor shows the plane (OCL's
+  `_preview_shape_start`); with an offset or a fillet it is drawn dashed and the shape made
+  solid, offset out or in by a tenth of its width and rounded: the signs, not the sizes. The
+  lines take the colour of its normal's axis (magenta for another locked one) and the sides being drawn get
   their lengths written (`Preview::labels`, painted by egui like the tooltip, last, above
   everything). A length is written at the middle of its side; when that covers the cursor, a
   marker, the inference tooltip, a cross (`Preview::marks`, a centre or a start, drawn by the app as a flat `+`) or a length placed before, it
@@ -1566,7 +1568,7 @@ states are OCL's: the first point, the points, the height.
 - **Closing**: a click on a placed corner (three at least), a double-click (the corner added,
   then closed), or Enter with the measurements box empty (a deviation from OCL). The profile
   then goes to the height.
-- **Reversed** (OCL's `measure_reversed`, saved toggle, the copy modifier tapped): new corners
+- **Reversed** (OCL's `measure_reversed`, saved toggle drawn with OCL's icon, the copy modifier tapped): new corners
   go before the first one instead of after the last, so the outline can grow at either end;
   the lines, the locks and the typed lengths then start from the first corner.
 - **Guides**: Shift tapped adds a guide from the last corner (the first, reversed) towards the
