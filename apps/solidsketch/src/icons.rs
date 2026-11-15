@@ -43,6 +43,7 @@ icon!(EYE, "eye");
 icon!(EYE_OFF, "eye_off");
 icon!(MODELLING, "modelling");
 icon!(PIN, "pin");
+icon!(PIN_FILLED, "pin_filled");
 icon!(SECTION_CLEAR, "section_clear");
 icon!(GUIDES_DELETE, "guides_delete");
 icon!(CLOSE, "close");

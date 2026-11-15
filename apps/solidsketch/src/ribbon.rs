@@ -410,7 +410,8 @@ fn tab_font() -> FontId {
 fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
     let (row, _) = ui.allocate_exact_size(vec2(width, TAB_ROW_HEIGHT), Sense::hover());
     let visuals = ui.visuals().clone();
-    let band = Rect::from_min_max(pos2(row.left() - inset.leftf(), row.top() - inset.topf()), pos2(row.right() + inset.rightf(), row.bottom()));
+    let band =
+        Rect::from_min_max(pos2(row.left() - inset.leftf(), row.top() - inset.topf()), pos2(row.right() + inset.rightf(), row.bottom()));
     let r = visuals.window_corner_radius;
     ui.painter().rect_filled(band, egui::CornerRadius { nw: r.nw, ne: r.ne, sw: 0, se: 0 }, visuals.faint_bg_color);
 
@@ -733,8 +734,13 @@ fn group_menu(ui: &mut egui::Ui, v: &View, key: &str, group: &'static Group, act
                 ui.close();
             }
             let on = pinned.contains(&id);
-            let tint = if on { ui.visuals().selection.stroke.color } else { ui.visuals().weak_text_color() };
-            let pin = egui::Button::image(egui::Image::new(icons::PIN).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
+            // Pinned: a filled pin in the accent; unpinned: a faint outline.
+            let (icon, tint) = if on {
+                (icons::PIN_FILLED, ui.visuals().selection.stroke.color)
+            } else {
+                (icons::PIN, ui.visuals().weak_text_color().gamma_multiply(0.55))
+            };
+            let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
             let tip = if on { t!("ribbon.unpin") } else { t!("ribbon.pin") };
             if ui.add(pin).on_hover_text(tip).clicked() {
                 actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
