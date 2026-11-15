@@ -1457,6 +1457,13 @@ impl Tool for PrismTool {
         !self.turning && matches!(self.state, State::First)
     }
 
+    /// The press clicks for the first corner, and for the axis's start when turning (not for
+    /// its end).
+    fn drag_clicks(&self) -> DragClicks {
+        let axis_end = self.turning && self.axis_start.is_some() && self.axis.is_none();
+        if matches!(self.state, State::First) && !axis_end { DragClicks::PressAndRelease } else { DragClicks::Release }
+    }
+
     fn waiting(&self) -> bool {
         self.rest.since.is_some()
     }

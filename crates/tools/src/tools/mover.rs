@@ -12,6 +12,7 @@
 //! by a corner ([`MoveTool::carrying`]): the click puts the paste, moved, in the paste's
 //! place in the history (one step), without copying.
 
+use super::DragClicks;
 use crate::scene::Owner;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
@@ -217,6 +218,11 @@ impl Tool for MoveTool {
         {
             self.copy = *on;
         }
+    }
+
+    /// A drag moves from the press to the release (SketchUp's).
+    fn drag_clicks(&self) -> DragClicks {
+        if matches!(self.state, State::Start) { DragClicks::PressAndRelease } else { DragClicks::Release }
     }
 
     fn busy(&self) -> bool {

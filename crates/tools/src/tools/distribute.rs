@@ -17,6 +17,7 @@
 //!   spread; `;; 30` fixes the last); then, the pieces placed, any of them again redoes it.
 //! - **Double-click**: the last distribute again, on what is picked now.
 
+use super::DragClicks;
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Operation;
@@ -425,6 +426,16 @@ impl Tool for DistributeTool {
         }
         let last = self.last.as_ref()?;
         vcb((last.params.end - last.params.start).length())
+    }
+
+    /// Picking, a drag draws a selection rectangle; then, it goes from the start (the press)
+    /// to the end (the release).
+    fn drag_clicks(&self) -> DragClicks {
+        match self.state {
+            _ if !self.aimed => DragClicks::No,
+            State::Start => DragClicks::PressAndRelease,
+            State::End { .. } => DragClicks::Release,
+        }
     }
 
     fn busy(&self) -> bool {

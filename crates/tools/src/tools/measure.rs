@@ -6,6 +6,7 @@
 //! Where curves cross, each gives its guide, and the fallback one more: the other modifier
 //! turns them over after the first click.
 
+use super::DragClicks;
 use glam::{DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::{GuideShape, Operation};
@@ -534,6 +535,11 @@ impl Tool for MeasureTool {
             State::Parallel { .. } | State::Concentric { .. } => t!("tool.measure.vcb.offset"),
         };
         Some(Vcb::new(label, VcbKind::Lengths(vec![self.length()])))
+    }
+
+    /// A drag measures (or offsets a guide) from the press to the release.
+    fn drag_clicks(&self) -> DragClicks {
+        if self.state == State::Idle { DragClicks::PressAndRelease } else { DragClicks::Release }
     }
 
     fn busy(&self) -> bool {

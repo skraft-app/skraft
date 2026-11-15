@@ -21,7 +21,7 @@ use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, S
 use crate::camera::{Camera, ViewArea};
 use crate::infer::{EdgeRef, InferKind, Lock};
 use crate::scene::DisplayScene;
-use crate::tools::{self, Command, Cx, Key, OptionValue, OptionValues, Preview, Tool, ToolInput, ToolKind, ToolOption};
+use crate::tools::{self, Command, Cx, DragClicks, Key, OptionValue, OptionValues, Preview, Tool, ToolInput, ToolKind, ToolOption};
 use crate::vcb;
 
 mod clipboard;
@@ -137,7 +137,23 @@ pub struct Editor {
     aside: Option<Box<dyn Tool>>,
     /// The quick tools' card, offered on what a creation tool just made.
     card: Option<quick::Card>,
+    /// A drag the editor turns into clicks for the tool (§6, [`Tool::drag_clicks`]).
+    drag_click: Option<DragClick>,
 }
+
+/// A drag turned into clicks, while the button is down.
+#[derive(Clone, Copy, Debug)]
+enum DragClick {
+    /// The release clicks.
+    Release,
+    /// The press clicked here; the release clicks unless it is nearer than [`DRAG_CLICK_MIN`].
+    Pressed(DVec2),
+    /// Given up (Esc, another tool): the release does nothing.
+    Dropped,
+}
+
+/// How far from the press a release clicks again (pixels; OpenCutList's 20).
+const DRAG_CLICK_MIN: f64 = 20.0;
 
 /// The settings of a tool that has none saved.
 static NO_SETTINGS: OptionValues = BTreeMap::new();
@@ -205,6 +221,7 @@ impl Editor {
             quick_return: None,
             aside: None,
             card: None,
+            drag_click: None,
         };
         // Opened: its meshes asked as a load (none for an empty document: ended at once).
         e.after_change();
@@ -685,6 +702,9 @@ impl Editor {
         self.message = None;
         self.clear_locks();
         self.reference = None;
+        if self.drag_click.is_some() {
+            self.drag_click = Some(DragClick::Dropped);
+        }
     }
 
     /// Feeds the active tool. Esc goes back one step of the tool; at its first step, it does
@@ -702,6 +722,12 @@ impl Editor {
                 ToolInput::Key { key: Key::Escape, .. } => self.abandon(),
                 ToolInput::Hover { px } => self.last_hover = Some(px),
                 _ => {}
+            }
+            return;
+        }
+        if let Some(inputs) = self.drag_clicks(&input) {
+            for input in inputs {
+                self.input_tool(input);
             }
             return;
         }
@@ -763,6 +789,9 @@ impl Editor {
                 return;
             }
             ToolInput::Key { key: Key::Escape, .. } => {
+                if self.drag_click.is_some() {
+                    self.drag_click = Some(DragClick::Dropped);
+                }
                 self.clear_locks();
                 // A tool at its first step stays active (only Space goes back to Select): Esc
                 // only drops the locks.
@@ -826,6 +855,41 @@ impl Editor {
             self.card = None;
         }
         self.update_preview_mesh();
+    }
+
+    /// A drag as clicks, for a tool that asks for it (§6, OpenCutList's SmartDraw): the press
+    /// clicks at the tool's first step, the cursor hovers, the release clicks (not when nearer
+    /// than [`DRAG_CLICK_MIN`] to a press that clicked, nor when that press left the tool at its
+    /// first step). None: the input goes as it is.
+    fn drag_clicks(&mut self, input: &ToolInput) -> Option<Vec<ToolInput>> {
+        match *input {
+            ToolInput::DragStart { px, mods } => match self.tool.drag_clicks() {
+                DragClicks::No => {
+                    self.drag_click = None;
+                    None
+                }
+                DragClicks::Release => {
+                    self.drag_click = Some(DragClick::Release);
+                    Some(vec![ToolInput::Hover { px }])
+                }
+                DragClicks::PressAndRelease => {
+                    self.drag_click = Some(DragClick::Pressed(px));
+                    Some(vec![ToolInput::Hover { px }, ToolInput::Click { px, mods }])
+                }
+            },
+            ToolInput::Drag { px } if self.drag_click.is_some() => Some(vec![ToolInput::Hover { px }]),
+            ToolInput::DragEnd { px, mods } => {
+                let hover = ToolInput::Hover { px };
+                match self.drag_click.take()? {
+                    DragClick::Dropped => Some(vec![hover]),
+                    DragClick::Pressed(from) if from.distance(px) < DRAG_CLICK_MIN => Some(vec![hover]),
+                    // The press took nothing (the tool is still at its first step): nor does the release.
+                    DragClick::Pressed(_) if self.tool.drag_clicks() == DragClicks::PressAndRelease => Some(vec![hover]),
+                    DragClick::Pressed(_) | DragClick::Release => Some(vec![hover, ToolInput::Click { px, mods }]),
+                }
+            }
+            _ => None,
+        }
     }
 
     /// What the tool previews stretched, in the scene (§6 sexies): the document as the stretch

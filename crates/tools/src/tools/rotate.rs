@@ -8,6 +8,7 @@
 //! spreads 6 copies over it. With nothing selected, the first click takes the entity under
 //! the cursor.
 
+use super::DragClicks;
 use crate::infer::Inference;
 use crate::scene::Owner;
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
@@ -317,6 +318,11 @@ impl Tool for RotateTool {
         if let ("copy", OptionValue::Toggle(on)) = (key, value) {
             self.copy = *on;
         }
+    }
+
+    /// A drag places the centre at the press, the reference at the release.
+    fn drag_clicks(&self) -> DragClicks {
+        if matches!(self.state, State::Center) { DragClicks::PressAndRelease } else { DragClicks::Release }
     }
 
     fn busy(&self) -> bool {

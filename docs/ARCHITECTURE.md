@@ -551,6 +551,24 @@ Body { id, def, sign, placement }           — an occurrence of it, placed in t
   own, its selection marks dropped; erased guides are
   drawn faded. The command `edit.erase` (Delete, the Edit menu) erases the selection as before;
   both build the same operation (`Cx::erase`).
+- **A drag is click + move + click** (decided on 2026-11-15, after OpenCutList's SmartDraw,
+  `smart_draw_tool.rb`): in Box, Cylinder, Prism and Turn, pressing at the first step and
+  dragging places the first point where the button went down, the preview follows the cursor,
+  and releasing is the second click (the base's corner, the radius, the next corner, the axis's
+  end). Released less than 20 px from where it went down, it is only the first click (a still
+  press longer than egui's click time too); a press that took nothing (the tool still at its
+  first step) makes the release take nothing either. At a later step, a drag is a click where
+  the button is released. Esc during the drag, or another tool, drops the release. Extended the
+  same day to the tools with points to place: Move (SketchUp's drag-move: from the press to the
+  release), Rotate (centre, then reference), Measure, Section (face, then depth), the booleans
+  (target, then tool); Paint takes the release as its click; Copy along a line or a grid and
+  Distribute keep their selection rectangle while picking, then take a drag as clicks (Distribute:
+  start at the press, end at the release; the copies: placed at the release). Select, Eraser,
+  Stretch and Profile keep their own drags. The editor does the translation (`DragStart` →
+  hover + click at the press point, `Drag` → hover, `DragEnd` → hover + click), for a tool
+  whose `Tool::drag_clicks` asks for it (`DragClicks::PressAndRelease` / `Release` / `No`);
+  the tools only see hovers and clicks. One difference with OCL: the first point is placed on
+  the press (egui's drag start), OCL waits for the release or the 20 px; the result is the same.
 - **Booleans = a two-click tool** (target, then tool), which designates solids of any context:
   this is how the rule of §4 is expressed.
 - **Typed dimensions** (VCB; decided on 2026-11-10, taken from OpenCutList, `UserTextHelper` +

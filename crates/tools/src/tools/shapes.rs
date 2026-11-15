@@ -59,8 +59,8 @@ use solidsketch_model::kernel::profile::{self, Corner};
 
 use super::face::{self, Face};
 use super::{
-    BLUE, Command, Cx, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, PreviewLabel, PreviewLine, RED, Tool, ToolInput,
-    ToolKind, ToolOption, alt_key, copy_key, dashed,
+    BLUE, Command, Cx, DragClicks, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, PreviewLabel, PreviewLine, RED, Tool,
+    ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
 };
 use crate::camera::Ray;
 use crate::infer::{EdgeRef, InferKind, Inference, LineKind};
@@ -1007,6 +1007,10 @@ impl Tool for BoxTool {
         !matches!(self.state, BoxState::Height { .. })
     }
 
+    fn drag_clicks(&self) -> DragClicks {
+        if matches!(self.state, BoxState::First) { DragClicks::PressAndRelease } else { DragClicks::Release }
+    }
+
     fn length_suffix(&self, suffix: char) -> Option<&'static str> {
         match suffix {
             'x' => Some(OFFSET),
@@ -1341,6 +1345,10 @@ impl Tool for CylinderTool {
 
     fn down_locks_face(&self) -> bool {
         matches!(self.state, CylState::Center)
+    }
+
+    fn drag_clicks(&self) -> DragClicks {
+        if matches!(self.state, CylState::Center) { DragClicks::PressAndRelease } else { DragClicks::Release }
     }
 
     fn leave(&mut self) {
