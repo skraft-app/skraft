@@ -32,7 +32,9 @@
 //! its origin too ([`Tool::infer_line`]),
 //! drawn as the outline above in the plane through the axis and its first point (inferred
 //! anywhere: on a face, an edge; over nothing, on the horizontal plane through the axis's
-//! start — the plane through the axis facing the eye when that one is seen edge on),
+//! start — the plane through the axis facing the eye when that one is seen edge on); a
+//! first point on the axis leaves it free, each point then inferred as the first one and the
+//! plane through the axis and the cursor's, until a corner (or an arc) off the axis sets it —
 //! locked from then on, on one side of the axis; closed by hand, it is turned a whole turn about the axis at once (no
 //! height). Before the first point, its radius from the axis is drawn dashed and measured,
 //! with the circle it turns along, faint. Its mirror across the axis is drawn dashed meanwhile. A profile across the axis is
@@ -139,6 +141,20 @@ impl Axis {
         to_axis(facing(self.d.cross(off).normalize(), ray))
     }
 
+    /// Does `p` lie on the axis (the line through it)?
+    fn on(&self, p: DVec3) -> bool {
+        let off = p - self.a;
+        (off - self.d * off.dot(self.d)).length() < ON
+    }
+
+    /// The normal of the plane through the axis and `q`, on the side of `like`; none when `q`
+    /// lies on the axis.
+    fn plane_at(&self, q: DVec3, like: DVec3) -> Option<DVec3> {
+        let off = q - self.a;
+        let m = self.d.cross(off - self.d * off.dot(self.d)).try_normalize().filter(|_| !self.on(q))?;
+        Some(to_axis(if m.dot(like) < 0.0 { -m } else { m }))
+    }
+
     /// `p` mirrored across the axis, in its plane.
     fn mirror(&self, p: DVec3) -> DVec3 {
         let on = self.a + self.d * (p - self.a).dot(self.d);
@@ -189,6 +205,9 @@ struct Corners {
     dir: Option<DVec3>,
     /// An arc by two points under way: its end is set, its bulge follows the cursor.
     pending: Option<Pending>,
+    /// Turning, every corner on the axis so far: no plane yet, the cursor's point gives it
+    /// (the plane through the axis and it), until a corner off the axis locks it.
+    free: bool,
 }
 
 /// The end of an arc by two points, the plane it is drawn in, and whether it closes the outline.
@@ -216,16 +235,17 @@ struct Cursor {
 
 impl Corners {
     fn new(p: DVec3, n: DVec3, locked: Option<DVec3>, dir: Option<DVec3>) -> Corners {
-        Corners { along: vec![p], mids: vec![None], placed: vec![p], n: locked.unwrap_or(n), locked, dir, pending: None }
+        Corners { along: vec![p], mids: vec![None], placed: vec![p], n: locked.unwrap_or(n), locked, dir, pending: None, free: false }
     }
 
     fn arcs(&self) -> bool {
         self.mids.iter().any(Option::is_some)
     }
 
-    /// Is the plane set (from three corners, an arc, or locked)?
+    /// Is the plane set (from three corners, an arc, or locked; turning, by a corner off the
+    /// axis)?
     fn plane_set(&self) -> bool {
-        self.locked.is_some() || self.along.len() >= 3 || self.arcs()
+        self.locked.is_some() || !self.free && (self.along.len() >= 3 || self.arcs())
     }
 
     /// The plane's frame, on the first corner.
@@ -419,6 +439,17 @@ fn middle(p: &[Corner]) -> DVec2 {
     profile::bounds(p).map_or(DVec2::ZERO, |(lo, hi)| (lo + hi) / 2.0)
 }
 
+/// Turning: the point under `px` for the profile, inferred anywhere with the lines through
+/// `from` (axes); over nothing, on the horizontal plane through `from` (the context's XY) —
+/// seen edge on, on the plane through the axis facing the eye.
+fn off_axis_at(cx: &Cx<'_>, px: DVec2, ax: &Axis, from: DVec3) -> Option<Inference> {
+    let (a, lock) = (cx.to_world(from), cx.lock());
+    let level = cx.axis(2);
+    let edge_on = cx.ray(px).dir.dot(level).abs() < EDGE_ON;
+    let plane = if edge_on { (a, dir_to_world(cx, ax.n)) } else { (a, level) };
+    cx.infer_from(px, |_| true, Some(plane), a, lock)
+}
+
 impl PrismTool {
     /// The « Tournage » tool: the outline turned about an axis (§6 undecies).
     pub fn turning() -> PrismTool {
@@ -431,15 +462,7 @@ impl PrismTool {
     /// plane through the axis and it.
     fn aim_at(&mut self, cx: &Cx<'_>, px: DVec2) {
         let inf = match (self.axis_start, self.axis) {
-            // Over nothing, on the horizontal plane through the axis's start (the context's
-            // XY); seen edge on, the plane through the axis facing the eye.
-            (_, Some(ax)) => {
-                let (a, lock) = (cx.to_world(ax.a), cx.lock());
-                let level = cx.axis(2);
-                let edge_on = cx.ray(px).dir.dot(level).abs() < EDGE_ON;
-                let plane = if edge_on { (a, dir_to_world(cx, ax.n)) } else { (a, level) };
-                cx.infer_from(px, |_| true, Some(plane), a, lock)
-            }
+            (_, Some(ax)) => off_axis_at(cx, px, &ax, ax.a),
             (Some(a), None) => cx.infer_from(px, |_| true, None, cx.to_world(a), cx.lock()),
             (None, None) => cx.infer(px, |_| true, None),
         };
@@ -507,8 +530,10 @@ impl PrismTool {
             }
             (Some(a), None) => self.set_axis(a, p, ray),
             (_, Some(ax)) => {
+                // On the axis, no plane yet: the next corners give it (§ module doc).
                 let n = self.aim_n.unwrap_or(ax.n);
-                self.state = State::Corners(Corners::new(p, n, Some(n), None));
+                let free = ax.on(p);
+                self.state = State::Corners(Corners { free, ..Corners::new(p, n, (!free).then_some(n), None) });
                 self.mode = Mode::Line;
                 self.rest = Rest::default();
                 self.cursor = None;
@@ -627,6 +652,16 @@ impl PrismTool {
                 return Some((cursor(p, c.n, Some(i), None), None));
             }
         }
+        // Turning, every corner on the axis: the point anywhere, as the first one, the plane
+        // through the axis and it (kept while the cursor lies on the axis).
+        if c.free
+            && let Some(ax) = self.axis
+        {
+            let inf = off_axis_at(cx, px, &ax, a)?;
+            let q = cx.to_axes(inf.point);
+            let n = if ax.on(q) { c.n } else { ax.plane_through(q, ray) };
+            return Some((cursor(q, n, None, None), Some(inf).filter(|i| i.kind != InferKind::OnPlane)));
+        }
         let plane = (cx.to_world(a), dir_to_world(cx, c.n));
         let inf = cx.infer_from(px, |_| true, Some(plane), cx.to_world(a), lock)?;
         let q = cx.to_axes(inf.point);
@@ -719,6 +754,15 @@ impl PrismTool {
             return vec![];
         }
         c.add(p, n, mid, self.reversed);
+        // Turning: the first corner (or arc) off the axis locks the plane through it.
+        if c.free
+            && let Some(ax) = self.axis
+            && let Some(n) = ax.plane_at(p, n).or_else(|| mid.and_then(|m| ax.plane_at(m, n)))
+        {
+            c.free = false;
+            c.locked = Some(n);
+            c.n = n;
+        }
         self.state = State::Corners(c);
         self.cursor = None;
         self.snap = None;
@@ -989,7 +1033,7 @@ impl PrismTool {
                         let n = dir_to_axes(cx, face.normal);
                         let along: Vec<DVec3> = lp.iter().map(|(p, _)| cx.to_axes(*p)).collect();
                         let mids = lp.iter().map(|(_, m)| m.map(|m| cx.to_axes(m))).collect();
-                        let c = Corners { placed: along.clone(), along, mids, n, locked: Some(n), dir: None, pending: None };
+                        let c = Corners { placed: along.clone(), along, mids, n, locked: Some(n), dir: None, pending: None, free: false };
                         let (end, closing) = (c.along[0], c.mids[c.mids.len() - 1]);
                         self.first.from_corner = false;
                         return self.close(c, end, closing);
@@ -1030,9 +1074,13 @@ impl PrismTool {
                 return commands;
             }
             (ToolInput::Key { key: Key::Enter, .. }, State::Corners(c)) if c.pending.is_none() => return self.close_now(c),
-            (ToolInput::Hover { px }, State::Corners(c)) => {
+            (ToolInput::Hover { px }, State::Corners(mut c)) => {
                 self.follow_rest(cx, *px, &c);
                 if let Some((cur, snap)) = self.cursor_at(cx, *px, &c) {
+                    // Turning, no plane yet: the cursor's.
+                    if c.free {
+                        c.n = cur.n;
+                    }
                     self.cursor = Some(cur);
                     self.snap = snap;
                 }
@@ -1485,6 +1533,14 @@ impl Tool for PrismTool {
             }
             State::Corners(mut c) => {
                 if c.remove_last() {
+                    // Turning: back to corners all on the axis, the plane free again.
+                    if let Some(ax) = self.axis.filter(|_| self.turning)
+                        && c.along.iter().all(|p| ax.on(*p))
+                        && c.mids.iter().all(Option::is_none)
+                    {
+                        c.free = true;
+                        c.locked = None;
+                    }
                     State::Corners(c)
                 } else {
                     State::First

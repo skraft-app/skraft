@@ -1857,8 +1857,11 @@ surfaces of revolution (`Surface::PlacedRevolution`, STEP import; non-rigid for 
   `Tool::infer_line`, 2026-11-15, user), on one side of the axis, in the plane through the axis and the profile's
   first point (2026-11-15, user: the plane is decided by that click — a point inferred on a
   face or an edge; over nothing, taken on the horizontal plane through the axis's start —
-  2026-11-15, user —, that plane seen edge on or a point on the axis giving the plane through
-  the axis facing the eye),
+  2026-11-15, user —, that plane seen edge on giving the plane through the axis facing the
+  eye); a first point on the axis decides nothing: the plane follows the cursor (through the
+  axis and its point, inferred as the first one's) as long as every corner placed lies on the
+  axis, the first corner or arc off it deciding it (2026-11-15, user; Esc back to corners all
+  on the axis frees it again) —,
   locked for the rest of the outline. It is **closed by hand**, back on its first point (decided: no automatic closing
   along the axis), the side along the axis drawn as any other. A profile crossing the axis
   or itself is refused. The body's Z is the axis (from the first point to the second); as a
