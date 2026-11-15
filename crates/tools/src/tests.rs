@@ -2032,7 +2032,7 @@ fn the_tape_tells_the_edge_hovered() {
     // A circle: its length and its radius.
     let a = 45f64.to_radians();
     hover(&mut e, DVec3::new(600.0 + 100.0 * a.cos(), 600.0 + 100.0 * a.sin(), 50.0));
-    assert_eq!(e.inference_tip(), Some("Longueur : 628\nRayon : 100".into()));
+    assert_eq!(e.inference_tip(), Some("Longueur : ~ 628\nRayon : 100".into()));
     // A face: nothing.
     hover(&mut e, DVec3::new(150.0, 100.0, 100.0));
     assert_eq!(e.inference_tip(), None);
@@ -2058,10 +2058,11 @@ fn the_tape_measures_and_draws_guides() {
     // From a corner to the opposite one: the length, and nothing added.
     click(&mut e, DVec3::new(0.0, 0.0, 100.0));
     hover(&mut e, DVec3::new(300.0, 200.0, 100.0));
-    assert_eq!(e.vcb(), Some(("Longueur".into(), "361".into())));
+    // √(300² + 200²) = 360,56: rounded.
+    assert_eq!(e.vcb(), Some(("Longueur".into(), "~ 361".into())));
     assert_eq!(e.labels("").len(), 1, "the length written on the segment");
     let l = &e.labels("2*@")[0];
-    assert_eq!((l.text.as_str(), l.result.as_deref(), l.active), ("2*@", Some("721"), true), "typed: shown in it");
+    assert_eq!((l.text.as_str(), l.result.as_deref(), l.active), ("2*@", Some("~ 721"), true), "typed: shown in it");
     click(&mut e, DVec3::new(300.0, 200.0, 100.0));
     assert!(e.vcb().is_none(), "the second click ends the measure");
     assert!(guides(&e).is_empty());
@@ -4847,7 +4848,8 @@ fn copy_along_a_grid_by_a_click_then_counts_and_sides() {
     let at = px(&e, DVec3::new(500.0, 400.0, 0.0));
     e.input(ToolInput::Hover { px: at });
     // Edge to edge, 500 × 400 from the source's corner: three copies.
-    assert_eq!(e.vcb().map(|v| v.1), Some("500; 400".to_owned()));
+    // The cursor's point, to the pixel: maybe marked rounded.
+    assert_eq!(e.vcb().map(|v| v.1.replace("~ ", "")), Some("500; 400".to_owned()));
     assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Ghost).count(), 3);
     e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
     assert_eq!(lows(&e), vec![(0.0, 0.0), (0.0, 300.0), (400.0, 0.0), (400.0, 300.0)]);

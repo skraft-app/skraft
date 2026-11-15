@@ -340,9 +340,57 @@ fn units_format() {
     u.length = LengthUnit::Centimeter;
     u.decimals = 1;
     assert_eq!(u.format(1234.0), "123,4 cm");
-    assert_eq!(u.format(-0.01), "0 cm");
+    assert_eq!(u.format(-0.01), "~ 0 cm");
     u.symbol = false;
     assert_eq!(u.format(1234.0), "123,4");
+}
+
+#[test]
+fn units_mark_rounded_values() {
+    let mut u = Units::default();
+    assert_eq!(u.format(600.0), "600");
+    assert_eq!(u.format(600.4), "~ 600");
+    assert_eq!(u.format(-12.6), "~ -13");
+    // Float noise is not a rounding.
+    assert_eq!(u.format(0.1 + 0.2 + 299.7), "300");
+    u.length = LengthUnit::Inch;
+    assert_eq!(u.format(25.4 * 3.0), "3");
+    assert_eq!(u.format(25.4 * 3.0 + 0.01), "~ 3");
+    // The exact number, for editing: to the model's precision, never marked.
+    u.length = LengthUnit::Millimeter;
+    assert_eq!(u.exact_number(12.3456), "12,346");
+    assert_eq!(u.exact_number(199.999998), "200");
+    assert_eq!(u.format(199.999998), "200");
+    u.length = LengthUnit::Meter;
+    assert_eq!(u.exact_number(1234.5678), "1,234568");
+}
+
+#[test]
+fn units_exact_number_reads_back_to_the_value() {
+    // What a focused length field shows, typed back: within half the precision (a micron) of
+    // the value, shown the same again, and never marked rounded when the value shows exactly.
+    let values = [0.0, 1.5875, 19.0, 199.999998, 360.555128, 1234.5678, 2438.4, -12.34567, 25.4 * 3.0 + 0.01];
+    for length in LengthUnit::ALL {
+        for decimals in 0..=6 {
+            let u = Units { length, decimals, symbol: false };
+            let back = |mm: f64| {
+                let text = u.exact_number(mm);
+                let typed = measure::coordinate(&text, &u, 0.0).unwrap_or_else(|e| panic!("{text}: {e}"));
+                (text, typed)
+            };
+            for v in values {
+                let (text, typed) = back(v);
+                assert!((typed - v).abs() <= 0.5e-3 + 1e-9, "{length:?} {decimals}: {v} → {text} → {typed}");
+                assert_eq!(u.exact_number(typed), text, "{length:?} {decimals}: {v}");
+            }
+            // Values shown exactly at these decimals: 1, 37 and 1234 steps of the display.
+            let step = length.mm() / 10f64.powi(decimals as i32);
+            for n in [1.0, 37.0, 1234.0] {
+                let (text, typed) = back(n * step);
+                assert!(!u.is_rounded(typed), "{length:?} {decimals}: {} → {text} → {}", u.format(n * step), u.format(typed));
+            }
+        }
+    }
 }
 
 #[test]

@@ -245,11 +245,14 @@ fn face_tip(face: &Face, label: &str, tip: &str) -> String {
 /// ground, an outline). Its outline tells its state: the border's colour at rest, the hovered
 /// ink's when hovered, the selection's when the value is not zero, twice as thick when focused.
 /// Focused, all of it is selected to be typed over; Enter applies, Esc or a click away puts the
-/// value back. The text typed, when applied.
+/// value back. Shown rounded (`~ 12`), it is edited to the model's precision (`12,346`): what
+/// is typed over is the real value, and Enter on it unchanged applies nothing. The text typed,
+/// when applied.
 fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Units) -> Option<String> {
     let id = egui::Id::unique(("length_option", key));
     let field_id = id.with("field");
     let shown = units.format(value);
+    let exact = format!("{}{}", units.exact_number(value), units.suffix());
     // While focused, the text typed (kept across frames); else the value.
     let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| shown.clone());
 
@@ -280,10 +283,12 @@ fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Un
         .align(egui::Align2::RIGHT_CENTER);
     let r = ui.add(field).on_hover_text(tip);
 
-    // Just focused (clicked, tabbed into): all of it selected, to be typed over.
+    // Just focused (clicked, tabbed into): the real value, all of it selected, to be typed over.
     if r.gained_focus()
         && let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id)
     {
+        text = exact.clone();
+        ui.ctx().request_repaint();
         let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
         state.cursor.set_char_range(Some(all));
         state.store(ui.ctx(), r.id);
@@ -291,7 +296,8 @@ fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Un
     if r.lost_focus() {
         ui.data_mut(|d| d.remove::<String>(id));
         let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
-        return (entered && !text.trim().is_empty() && text.trim() != shown).then(|| text.trim().to_owned());
+        let unchanged = text.trim() == exact || text.trim() == shown;
+        return (entered && !text.trim().is_empty() && !unchanged).then(|| text.trim().to_owned());
     }
     if r.has_focus() {
         ui.data_mut(|d| d.insert_temp(id, text));
@@ -709,17 +715,24 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, state: &mut InfoState, actions: 
                                 w.weak_bg_fill = tint(k);
                             }
                             // Typed like in the measurements box: `@+19`, `600-2*19`, `2cm`.
+                            // Shown as everywhere (`~ 12` when rounded). The text left as shown
+                            // keeps the real value: egui reads the field back when it loses focus,
+                            // which would round it.
                             let current = *v * unit;
+                            let shown = units.number(current);
                             ui.add(
                                 egui::DragValue::new(v)
                                     .min_size(size)
                                     .speed(1.0)
                                     .suffix(units.suffix())
                                     .max_decimals(units.decimals as usize)
-                                    .custom_formatter(|n, decimals| {
-                                        solidsketch_i18n::number(&egui::emath::format_with_decimals_in_range(n, decimals))
-                                    })
-                                    .custom_parser(move |s| measure::coordinate(s, units, current).ok().map(|mm| mm / unit)),
+                                    .custom_formatter(|n, _| units.number(n * unit))
+                                    .custom_parser(move |s| {
+                                        if s.trim() == shown {
+                                            return Some(current / unit);
+                                        }
+                                        measure::coordinate(s, units, current).ok().map(|mm| mm / unit)
+                                    }),
                             );
                         });
                     }

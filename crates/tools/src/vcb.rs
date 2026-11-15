@@ -227,11 +227,13 @@ pub fn format(v: f64, units: &Units) -> String {
     units.format(v)
 }
 
-/// An angle (radians), in degrees to a tenth: `-22,5°`.
+/// An angle (radians), in degrees to a tenth: `-22,5°`, `~ 22,5°` when rounded.
 pub fn format_angle(a: f64) -> String {
     let d = (a.to_degrees() * 10.0).round() / 10.0;
+    // Below 1e-4° (under 2 µm at a metre, as precise as the lengths), float noise.
+    let approx = if (d - a.to_degrees()).abs() > 1e-4 { solidsketch_model::APPROX } else { "" };
     let d = if d == 0.0 { 0.0 } else { d };
-    solidsketch_i18n::number(&format!("{d}°"))
+    solidsketch_i18n::number(&format!("{approx}{d}°"))
 }
 
 #[cfg(test)]
@@ -288,6 +290,8 @@ mod tests {
         assert_eq!(display(&lengths(vec![12.5, -300.0]), &mm), "12,5 mm; 300 mm");
         assert_eq!(display(&lengths(vec![12.5, -300.0, 0.0]).optional(1), &mm), "12,5 mm; 300 mm");
         assert_eq!(display(&Vcb::new("", VcbKind::Angle(-22.5f64.to_radians())), &mm), "-22,5°");
+        assert_eq!(display(&Vcb::new("", VcbKind::Angle(22.54f64.to_radians())), &mm), "~ 22,5°");
+        assert_eq!(display(&lengths(vec![12.345]), &mm), "~ 12,35 mm");
         let cm = Units { length: LengthUnit::Centimeter, ..mm };
         assert_eq!(display(&lengths(vec![250.0]), &cm), "25 cm");
     }
