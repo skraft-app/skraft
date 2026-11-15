@@ -390,6 +390,8 @@ impl Tool for CopyLineTool {
         self.end = None;
         self.snap = None;
         self.last = None;
+        // Nothing aimed at any more: no longer busy (a quick tool then hands back).
+        self.aimed = false;
     }
 
     fn reset(&mut self) {

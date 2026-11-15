@@ -19,6 +19,9 @@ pub(super) enum After {
     /// A paste done in place: select what it made, then carry it from this point (world) at
     /// the cursor (§6 decies).
     Carry(DVec3),
+    /// A drawing tool's: nothing selected, the quick tools' card offered on what it made
+    /// (§6 terdecies).
+    Card,
 }
 
 /// A job of [`Editor::crash_kernel`].
@@ -102,6 +105,9 @@ impl Editor {
             _ => {}
         }
         self.after_change();
+        if matches!(after, After::Card) {
+            self.offer_card(&outcome);
+        }
         if let (After::Carry(from), Some(op)) = (after, carried) {
             self.carry(from, op);
         }

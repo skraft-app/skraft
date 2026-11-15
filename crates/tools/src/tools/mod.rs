@@ -7,7 +7,7 @@ mod copy_line;
 mod distribute;
 mod erase;
 mod face;
-mod handle;
+pub(crate) mod handle;
 mod measure;
 mod mover;
 mod paint;

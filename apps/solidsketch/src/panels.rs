@@ -43,6 +43,10 @@ pub enum Action {
     SetHidden(EntityPath, bool),
     /// The ribbon's own state: tab, workspace, pins, labels (docs/ARCHITECTURE.md §6 septies).
     Ribbon(crate::ribbon::Change),
+    /// A tool started from the quick tools' card, on what was just made (§6 terdecies).
+    QuickTool(&'static str),
+    /// A command of the quick tools' card pinned, or unpinned.
+    QuickPin(&'static str),
     /// On the file tabs (docs/ARCHITECTURE.md §6 octies).
     Tab(crate::tabs::TabAction),
 }

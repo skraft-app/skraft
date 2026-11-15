@@ -167,7 +167,7 @@ fn kernel_service(ctx: &egui::Context) -> Box<dyn KernelService> {
 }
 
 /// The tool a `tool.*` command starts.
-fn tool_of(id: &str) -> Option<ToolKind> {
+pub(crate) fn tool_of(id: &str) -> Option<ToolKind> {
     Some(match id {
         "tool.select" => ToolKind::Select,
         "tool.erase" => ToolKind::Erase,
@@ -907,6 +907,14 @@ impl SolidSketchApp {
             #[cfg(target_arch = "wasm32")]
             Action::RemoteRetry => return,
             Action::Ribbon(change) => return self.prefs.ribbon.apply(change),
+            Action::QuickPin(id) => return crate::quick::toggle(&mut self.prefs.quick_tools, id),
+            Action::QuickTool(id) => {
+                if let (Some(k), Some(d)) = (tool_of(id), self.docs.active_mut()) {
+                    d.vcb.clear();
+                    d.editor.start_quick_tool(k);
+                }
+                return;
+            }
             Action::ToggleMachinings => {
                 self.prefs.show_machinings = !self.prefs.show_machinings;
                 for d in self.docs.iter_mut() {
@@ -919,7 +927,13 @@ impl SolidSketchApp {
         let Some(doc) = self.docs.active_mut() else { return };
         let e = &mut doc.editor;
         match a {
-            Action::Command(_) | Action::Tab(_) | Action::Ribbon(_) | Action::ToggleMachinings | Action::RemoteRetry => {}
+            Action::Command(_)
+            | Action::Tab(_)
+            | Action::Ribbon(_)
+            | Action::QuickPin(_)
+            | Action::QuickTool(_)
+            | Action::ToggleMachinings
+            | Action::RemoteRetry => {}
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
             Action::Apply(op) => {
@@ -2071,6 +2085,11 @@ impl SolidSketchApp {
                 .response
                 .rect;
             free_top = options.bottom() + margin;
+        }
+        // The quick tools' card, at the centre of what was just made (§6 terdecies).
+        if let Some(at) = doc.editor.quick_card() {
+            let at = view.min + egui::vec2(at.x as f32, at.y as f32);
+            crate::quick::card(ctx, view, at, &self.prefs.quick_tools, views, actions);
         }
         // What zoom extents frames: below the ribbon (and the options), beside the side panels,
         // in viewport pixels.

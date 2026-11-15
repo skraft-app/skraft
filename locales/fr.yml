@@ -189,6 +189,11 @@ ribbon:
   more: "Autres groupes"
 
 # The title bar: the document, the view's toggles, the command search.
+quick_tools:
+  choose: "Choisir les outils rapides"
+  pin: "Afficher dans les outils rapides"
+  unpin: "Retirer des outils rapides"
+  menu_note: "La punaise montre l'outil dans les outils rapides, proposés après chaque création, ou l'en retire."
 titlebar:
   modified: "Modifié depuis le dernier enregistrement"
   views: "Vues standard"

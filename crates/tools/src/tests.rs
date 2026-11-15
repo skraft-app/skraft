@@ -4773,3 +4773,185 @@ fn copy_along_a_grid_by_a_click_then_counts_and_sides() {
     e.undo();
     assert_eq!(occurrences(&e), 1);
 }
+
+/// Draws a box and stays in the Box tool: nothing selected, the quick tools' card offered on it.
+fn box_then_quick(e: &mut Editor) -> Id {
+    e.set_tool(ToolKind::Box);
+    click(e, DVec3::ZERO);
+    click(e, DVec3::new(100.0, 100.0, 0.0));
+    e.input(ToolInput::Vcb("50".into()));
+    assert!(e.selection().is_empty());
+    drawn(e)
+}
+
+#[test]
+fn the_quick_tools_card_shows_on_what_was_drawn_until_the_next_shape() {
+    let mut e = top_editor(Document::new());
+    let a = box_then_quick(&mut e);
+    // At the centre of the box, on screen.
+    let at = e.quick_card().expect("the card after a creation");
+    assert!((at - px(&e, DVec3::new(50.0, 50.0, 25.0))).length() < 1e-6, "{at}");
+    // The view moved: the card follows.
+    e.zoom_extents();
+    let (q, p) = (e.quick_card().unwrap(), px(&e, DVec3::new(50.0, 50.0, 25.0)));
+    // (The box read from its mesh: to a float's precision.)
+    assert!((q - p).length() < 1e-3, "{q} {p}");
+    // The next shape started: gone, and not back once it is given up.
+    click(&mut e, DVec3::new(0.0, 500.0, 0.0));
+    assert!(e.quick_card().is_none());
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert!(e.quick_card().is_none());
+
+    // Undone, Alt, or another tool: gone.
+    box_then_quick(&mut e);
+    assert!(e.quick_card().is_some());
+    e.undo();
+    assert!(e.quick_card().is_none());
+    box_then_quick(&mut e);
+    e.input(ToolInput::Key { key: Key::Alt, mods: Modifiers::default() });
+    assert!(e.quick_card().is_none());
+    box_then_quick(&mut e);
+    e.set_tool(ToolKind::Select);
+    assert!(e.quick_card().is_none());
+
+    // A tool started from it takes what was drawn; given up (Esc), the card and the selection
+    // are back as they were.
+    let b = box_then_quick(&mut e);
+    assert_ne!(a, b);
+    e.start_quick_tool(ToolKind::CopyLine);
+    assert_eq!(e.selection(), &[b]);
+    assert!(e.quick_card().is_none(), "not while the tool runs");
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 60.0, 0.0)) });
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+    assert!(e.quick_card().is_some(), "offered again: nothing was done");
+    assert!(e.selection().is_empty());
+    // Done: not offered again.
+    e.start_quick_tool(ToolKind::CopyLine);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 60.0, 0.0)) });
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(500.0, 60.0, 0.0)), mods: Modifiers::default() });
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+    assert!(e.quick_card().is_none());
+}
+
+#[test]
+fn the_quick_tools_card_shows_on_a_body_drawn_in_the_open_part() {
+    let mut e = top_editor(Document::new());
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    e.set_machinings_switch(true);
+    e.enter(board);
+    e.select(vec![]);
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::new(100.0, 50.0, 18.0));
+    click(&mut e, DVec3::new(200.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("10".into()));
+    let body = drawn(&e);
+    let at = e.quick_card().expect("the card on the body");
+    assert!((at - px(&e, DVec3::new(150.0, 100.0, 23.0))).length() < 1e-6, "{at}");
+    e.start_quick_tool(ToolKind::CopyLine);
+    assert_eq!(e.selection(), &[body]);
+}
+
+#[test]
+fn a_quick_tool_hands_back_to_the_creation_tool_and_takes_what_is_typed_next() {
+    let mut e = top_editor(Document::new());
+    box_then_quick(&mut e);
+    let occurrences = |e: &Editor| e.document().root_assembly().occurrences().len();
+    e.start_quick_tool(ToolKind::CopyLine);
+    assert!(e.quick_tool_running());
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 60.0, 0.0)) });
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(500.0, 60.0, 0.0)), mods: Modifiers::default() });
+    // The copy made: back to the Box tool, the copy tool aside.
+    assert_eq!(occurrences(&e), 2);
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+    assert!(!e.quick_tool_running());
+    assert_eq!(e.quick_tool_aside(), Some(ToolKind::CopyLine));
+    assert_eq!(e.vcb().map(|v| v.1), Some("500".to_owned()), "the copy's measure shown");
+    // Typed before the next shape: the copies redone, one undo step (not the Box's offset).
+    let steps = e.history().journal().count();
+    e.input(ToolInput::Vcb("/4".into()));
+    assert_eq!(occurrences(&e), 5);
+    assert_eq!(e.history().journal().count(), steps);
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+    // The next shape started: the tool aside let go.
+    click(&mut e, DVec3::new(0.0, 500.0, 0.0));
+    assert_eq!(e.quick_tool_aside(), None);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+}
+
+#[test]
+fn escape_gives_a_quick_tool_up_and_a_tool_chosen_drops_the_return() {
+    let mut e = top_editor(Document::new());
+    box_then_quick(&mut e);
+    let steps = e.history().journal().count();
+    e.start_quick_tool(ToolKind::CopyLine);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 60.0, 0.0)) });
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+    assert_eq!(e.quick_tool_aside(), None, "nothing done, nothing aside");
+    assert_eq!(e.history().journal().count(), steps);
+
+    // Another tool chosen meanwhile: no return.
+    e.select(vec![drawn(&e)]);
+    e.start_quick_tool(ToolKind::CopyLine);
+    e.set_tool(ToolKind::CopyGrid);
+    assert!(!e.quick_tool_running());
+
+    // Esc at the tool aside lets it go, the creation tool stays.
+    e.set_tool(ToolKind::Box);
+    e.select(vec![drawn(&e)]);
+    e.start_quick_tool(ToolKind::CopyLine);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 60.0, 0.0)) });
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(500.0, 60.0, 0.0)), mods: Modifiers::default() });
+    assert_eq!(e.quick_tool_aside(), Some(ToolKind::CopyLine));
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!(e.quick_tool_aside(), None);
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+}
+
+#[test]
+fn move_started_as_a_quick_tool_hands_back_after_its_copy_and_takes_a_count() {
+    let mut e = top_editor(Document::new());
+    box_then_quick(&mut e);
+    let occurrences = |e: &Editor| e.document().root_assembly().occurrences().len();
+    e.start_quick_tool(ToolKind::Move);
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    click(&mut e, DVec3::new(100.0, 100.0, 0.0));
+    assert_eq!(e.tool_kind(), ToolKind::Move, "the first click is not the action");
+    click(&mut e, DVec3::new(200.0, 100.0, 0.0));
+    assert_eq!(occurrences(&e), 2);
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+    e.input(ToolInput::Vcb("3x".into()));
+    assert_eq!(occurrences(&e), 4, "{}", e.status());
+}
+
+#[test]
+fn distribute_and_paint_started_as_quick_tools_hand_back_at_their_action() {
+    let mut e = top_editor(Document::new());
+    let a = box_then_quick(&mut e);
+    // Distribute: its first click is not the action, its second is; then a count retyped.
+    e.start_quick_tool(ToolKind::Distribute);
+    click(&mut e, DVec3::new(100.0, 150.0, 0.0));
+    assert_eq!(e.tool_kind(), ToolKind::Distribute);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(700.0, 160.0, 0.0)) });
+    e.input(ToolInput::Vcb("3x".into()));
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(700.0, 160.0, 0.0)), mods: Modifiers::default() });
+    assert_eq!(e.document().root_assembly().occurrences().len(), 3);
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+    assert_eq!(e.quick_tool_aside(), Some(ToolKind::Distribute));
+    e.input(ToolInput::Vcb("4x".into()));
+    assert_eq!(e.document().root_assembly().occurrences().len(), 4, "{}", e.status());
+    e.undo();
+
+    // Paint: its first click paints, and hands back.
+    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap();
+    let oak = e.document().materials().next().unwrap().0;
+    e.set_paint_material(Some(oak));
+    e.set_tool(ToolKind::Box);
+    e.select(vec![a]);
+    e.start_quick_tool(ToolKind::Paint);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(drawn_material(&e, a), Some(oak));
+    assert_eq!(e.tool_kind(), ToolKind::Box);
+}

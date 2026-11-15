@@ -764,7 +764,7 @@ fn text_lines(ui: &egui::Ui, text: &str, top_center: egui::Pos2, width: f32, row
 }
 
 /// The chevron of a menu, centered on `at`.
-fn chevron(painter: &egui::Painter, at: egui::Pos2, ink: Color32) {
+pub(crate) fn chevron(painter: &egui::Painter, at: egui::Pos2, ink: Color32) {
     let points = vec![at + vec2(-3.0, -1.5), at + vec2(3.0, -1.5), at + vec2(0.0, 2.0)];
     painter.add(egui::Shape::convex_polygon(points, ink, Stroke::NONE));
 }
