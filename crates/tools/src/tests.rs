@@ -3530,6 +3530,35 @@ fn turn_s_plane_goes_through_the_axis_and_the_first_point() {
     assert!(close(x, DVec3::new(120.0, 0.0, 200.0).normalize()), "{x}");
 }
 
+#[test]
+fn turn_s_profile_infers_on_the_axis_and_its_origin() {
+    use crate::infer::{InferKind, LineKind};
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Turn);
+    // A slanted axis (along no axis of the context's): only its origin marked, no length.
+    let (a, b) = (DVec3::new(100.0, 0.0, 0.0), DVec3::new(400.0, 300.0, 0.0));
+    click(&mut e, a);
+    e.input(ToolInput::Hover { px: px(&e, b) });
+    let p = e.preview();
+    assert!(p.labels.is_empty(), "no length: {:?}", p.labels.len());
+    assert_eq!(p.points.len(), 1, "the origin only");
+    click(&mut e, b);
+    assert_eq!(e.preview().points.len(), 1, "the origin only");
+    // The profile's first point snaps to the axis's origin.
+    e.input(ToolInput::Hover { px: px(&e, a + DVec3::new(6.0, -4.0, 0.0)) });
+    let inf = e.preview().inference.expect("an inference");
+    assert_eq!(inf.kind, InferKind::Endpoint);
+    assert!(close(inf.point, a), "{}", inf.point);
+    // Then a corner off the axis, and the next one onto the axis.
+    click(&mut e, DVec3::new(350.0, 100.0, 0.0));
+    let on = DVec3::new(250.0, 150.0, 0.0);
+    e.input(ToolInput::Hover { px: px(&e, on + DVec3::new(4.0, -4.0, 0.0)) });
+    let inf = e.preview().inference.expect("an inference");
+    assert_eq!(inf.kind, InferKind::OnLine(LineKind::Tool), "{:?}", inf.kind);
+    let off = inf.point - a;
+    assert!(off.cross((b - a).normalize()).length() < 1e-6, "on the axis: {}", inf.point);
+}
+
 /// A turned leg drawn from above: its axis along green from the origin, 600 long, its half
 /// profile 100 wide on the side of red; the part open in the Profile tool.
 fn turned_leg_editor() -> (Editor, Id) {

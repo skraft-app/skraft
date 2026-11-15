@@ -163,7 +163,8 @@ impl Editor {
             }
         };
         let Some(mut aside) = self.aside.take() else { return false };
-        let commands = aside.input(&ToolInput::Value(value), &self.cx_for(aside.kind()));
+        let cx = self.cx_for(&*aside);
+        let commands = aside.input(&ToolInput::Value(value), &cx);
         self.aside = Some(aside);
         for c in commands {
             self.run(c);

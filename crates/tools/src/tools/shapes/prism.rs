@@ -27,7 +27,9 @@
 //!   the outline drawn is dashed then, the one made solid.
 //!
 //! **Turning** (the « Tournage » tool, §6 undecies, [`PrismTool::turning`]): the axis first —
-//! two points, inferred as a line's (a typed length for the second) —, then the half profile,
+//! two points, inferred as a line's (a typed length for the second; only its origin is
+//! marked, no length shown) —, then the half profile, its points inferred on the axis and
+//! its origin too ([`Tool::infer_line`]),
 //! drawn as the outline above in the plane through the axis and its first point (inferred
 //! anywhere: on a face, an edge; over nothing, on the horizontal plane through the axis's
 //! start — the plane through the axis facing the eye when that one is seen edge on),
@@ -556,8 +558,8 @@ impl PrismTool {
         vec![Command::Apply(cx.add_primitive(Primitive::Revolution { origin: DVec3::ZERO, profile: half }, placement))]
     }
 
-    /// Turning: the axis drawn as a guide line, endless (its two points marked), and the
-    /// outline's sides `drawn` mirrored across it, dashed.
+    /// Turning: the axis drawn as a guide line, endless (its origin marked, not its length:
+    /// only its way matters), and the outline's sides `drawn` mirrored across it, dashed.
     fn preview_axis(
         &self,
         cx: &Cx<'_>,
@@ -577,9 +579,7 @@ impl PrismTool {
             let shape = GuideShape::Line { origin: cx.to_world(a), dir };
             guides.extend(crate::guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, color)));
         }
-        for p in [a, b] {
-            points.push(PreviewPoint { at: cx.to_world(p), radius: 3.0, fill: Some(color), stroke: None, shape: PointShape::Round });
-        }
+        points.push(PreviewPoint { at: cx.to_world(a), radius: 3.0, fill: Some(color), stroke: None, shape: PointShape::Round });
         if let Some(ax) = self.axis {
             for (p, q) in drawn {
                 dashed(cx.camera, cx.size, lines, cx.to_world(ax.mirror(*p)), cx.to_world(ax.mirror(*q)), INK);
@@ -1102,6 +1102,11 @@ impl PrismTool {
 }
 
 impl Tool for PrismTool {
+    /// Turning: the axis, once set — the profile's points infer on it and on its origin.
+    fn infer_line(&self) -> Option<(DVec3, DVec3)> {
+        self.axis.filter(|_| self.turning).map(|ax| (ax.a, ax.d))
+    }
+
     fn kind(&self) -> ToolKind {
         if self.turning { ToolKind::Turn } else { ToolKind::Prism }
     }
@@ -1139,9 +1144,6 @@ impl Tool for PrismTool {
         match &self.state {
             State::First if self.turning => {
                 self.preview_axis(cx, &mut lines, &mut points, &mut guides, &[]);
-                if let (Some(a), None, Some(p)) = (self.axis_start, self.axis, self.aim) {
-                    label(cx, &mut labels, a, p, axis_color(p - a).unwrap_or(INK), Some(0));
-                }
                 if let Some(p) = self.aim.filter(|_| snapped(&inference)) {
                     mark(cx, &mut marks, p);
                 }

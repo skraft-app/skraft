@@ -16,7 +16,7 @@ pub(super) struct Line {
     pub(super) dir: DVec3,
     pub(super) kind: LineKind,
     /// 0 for the start point, 1 + i for tracked point i, then the drawn axes, then one per
-    /// guide line: lines of one origin cross only there.
+    /// guide line, then the tool's line: lines of one origin cross only there.
     pub(super) source: usize,
 }
 
@@ -27,7 +27,7 @@ impl Line {
         let (origin, dir) = (self.origin, self.dir);
         let curve = match self.kind {
             LineKind::Guide => Curve::Guide(GuideShape::Line { origin, dir }),
-            LineKind::ModelAxis(_) => Curve::Axis { origin, dir },
+            LineKind::ModelAxis(_) | LineKind::Tool => Curve::Axis { origin, dir },
             _ => return None,
         };
         Some((EdgeRef::Straight(dir), curve))
@@ -37,7 +37,7 @@ impl Line {
 /// The lines inferred on: through the start point, the axes, then those of the reference edge
 /// when not an axis already (parallel and perpendicular — in the tool's plane — to a straight
 /// edge, tangent and radial to an arc); through each tracked point, the axes; the axes as
-/// drawn; the guide lines of the document.
+/// drawn; the guide lines of the document; the tool's own line.
 pub(super) fn lines(q: &Query<'_>, guides: &[&SceneGuide]) -> Vec<Line> {
     let mut out = Vec::new();
     let known = |d: DVec3| q.axes.iter().any(|a| a.dot(d).abs() > 1.0 - 1e-9);
@@ -76,6 +76,9 @@ pub(super) fn lines(q: &Query<'_>, guides: &[&SceneGuide]) -> Vec<Line> {
         if let GuideShape::Line { origin, dir } = g.shape {
             out.push(Line { origin, dir, kind: LineKind::Guide, source: first + 1 + i });
         }
+    }
+    if let Some((origin, dir)) = q.tool_line {
+        out.push(Line { origin, dir, kind: LineKind::Tool, source: first + 1 + guides.len() });
     }
     if q.in_plane {
         // A line of the scene, only lying in the plane.

@@ -494,6 +494,8 @@ pub struct Cx<'a> {
     /// The occurrences the tool's preview draws otherwise — stretched or moved (§6 sexies) —
     /// by path: not where they are drawn, so not to infer on.
     pub previewed: &'a std::collections::HashMap<EntityPath, (Id, DAffine3)>,
+    /// A line the tool draws itself and infers on ([`Tool::infer_line`]), in the axes.
+    pub tool_line: Option<(DVec3, DVec3)>,
 }
 
 impl Cx<'_> {
@@ -729,6 +731,7 @@ impl Cx<'_> {
             axes: [self.axis(0), self.axis(1), self.axis(2)],
             reference: self.reference,
             lock,
+            tool_line: self.tool_line.map(|(o, d)| (self.to_world(o), self.axes().matrix3.mul_vec3(d).normalize())),
         };
         infer::infer(self.scene, self.camera, self.size, px, &q)
     }
@@ -822,6 +825,11 @@ pub trait Tool {
     /// (the shape tools' drawing plane)?
     fn down_locks_face(&self) -> bool {
         false
+    }
+    /// A line the tool draws and infers on, as the axes as drawn, its origin as an endpoint
+    /// (the « Tournage » axis): origin and unit direction, in the axes.
+    fn infer_line(&self) -> Option<(DVec3, DVec3)> {
+        None
     }
     /// What a drag starting now is to the tool: a drag, or clicks (the shape tools).
     fn drag_clicks(&self) -> DragClicks {

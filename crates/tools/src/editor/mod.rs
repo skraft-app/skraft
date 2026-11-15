@@ -473,12 +473,13 @@ impl Editor {
     }
 
     pub(crate) fn cx(&self) -> Cx<'_> {
-        self.cx_for(self.tool.kind())
+        self.cx_for(&*self.tool)
     }
 
-    /// What the tool `kind` sees (its settings among it): the active tool's, also while it is
-    /// taken out for a call.
-    fn cx_for(&self, kind: ToolKind) -> Cx<'_> {
+    /// What `tool` sees (its settings among it, the line it infers on): the active tool's, also
+    /// while it is taken out for a call.
+    fn cx_for(&self, tool: &dyn Tool) -> Cx<'_> {
+        let kind = tool.kind();
         let doc = self.history.document();
         Cx {
             now: self.now,
@@ -507,6 +508,7 @@ impl Editor {
             options: self.tool_settings.get(kind.id()).unwrap_or(&NO_SETTINGS),
             material: self.paint_material(),
             previewed: &self.stretch_swaps,
+            tool_line: tool.infer_line(),
         }
     }
 
@@ -827,7 +829,8 @@ impl Editor {
         }
         // The tool reads the editor while it runs: take it out for the call.
         let mut tool = std::mem::replace(&mut self.tool, tools::make(ToolKind::Select));
-        let commands = tool.input(&input, &self.cx_for(tool.kind()));
+        let cx = self.cx_for(&*tool);
+        let commands = tool.input(&input, &cx);
         self.tool = tool;
         if matches!(input, ToolInput::Hover { .. }) {
             let inference = self.preview().inference;

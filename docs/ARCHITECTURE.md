@@ -1836,9 +1836,11 @@ surfaces of revolution (`Surface::PlacedRevolution`, STEP import; non-rigid for 
   later as an angle). Same corners as an extrusion's (`{ p, bulge, fillet }`): arcs and
   fillets alike. A profile that does not touch the axis gives a ring or a bowl.
 - **Created by a tool of its own** (decided), « Tournage » (`tool.turn`, ribbon group Create
-  after the prism): first the **axis**, two points (inferences, as a line's); then the **half
+  after the prism): first the **axis**, two points (inferences, as a line's; only its origin
+  is marked and no length is shown — 2026-11-15, user: only its way matters); then the **half
   profile**, drawn point by point as the Prism's outline (its arcs, fillets, typed lengths
-  and inferences), on one side of the axis, in the plane through the axis and the profile's
+  and inferences — the axis among them, as a guide line, its origin as an endpoint, through
+  `Tool::infer_line`, 2026-11-15, user), on one side of the axis, in the plane through the axis and the profile's
   first point (2026-11-15, user: the plane is decided by that click — a point inferred on a
   face or an edge; over nothing, taken on the horizontal plane through the axis's start —
   2026-11-15, user —, that plane seen edge on or a point on the axis giving the plane through

@@ -59,6 +59,8 @@ pub enum LineKind {
     Guide,
     /// The axis `k` of the context's axes, as drawn: through their origin.
     ModelAxis(usize),
+    /// The line the tool draws itself (the « Tournage » axis, [`Query::tool_line`]).
+    Tool,
 }
 
 /// An axis's colour, as its name says it.
@@ -75,7 +77,7 @@ impl LineKind {
     /// gives: it is drawn depth-tested (not inferred where hidden), and it is an edge to refer
     /// to (the tape offsets a guide from it).
     pub fn is_fixed(self) -> bool {
-        matches!(self, LineKind::Guide | LineKind::ModelAxis(_))
+        matches!(self, LineKind::Guide | LineKind::ModelAxis(_) | LineKind::Tool)
     }
 
     /// The line's name inside a crossing.
@@ -89,6 +91,7 @@ impl LineKind {
             LineKind::Radial => t!("infer.line.radial"),
             LineKind::Guide => t!("infer.line.guide"),
             LineKind::ModelAxis(k) => t!("infer.line.axis", axis = axis_name(k)),
+            LineKind::Tool => t!("infer.line.tool"),
         }
     }
 
@@ -102,6 +105,7 @@ impl LineKind {
             LineKind::Radial => t!("infer.on_line.radial"),
             LineKind::Guide => t!("infer.on_guide"),
             LineKind::ModelAxis(k) => t!("infer.on_line.axis", axis = axis_name(k)),
+            LineKind::Tool => t!("infer.on_line.tool"),
         }
     }
 
@@ -309,6 +313,9 @@ pub struct Query<'a> {
     pub reference: Option<EdgeRef>,
     /// Keeps the point on this line.
     pub lock: Option<Lock>,
+    /// A line the tool draws itself (origin, unit direction; world): inferred on as the axes
+    /// as drawn, its origin as an endpoint.
+    pub tool_line: Option<(DVec3, DVec3)>,
 }
 
 /// The point inferred at `px`; `None` only when nothing is under the cursor and the ray
