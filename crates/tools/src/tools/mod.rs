@@ -2,8 +2,12 @@
 //! input; it previews without touching the document and, when done, emits an `Operation`.
 
 mod boolean;
+mod copy_grid;
+mod copy_line;
+mod distribute;
 mod erase;
 mod face;
+mod handle;
 mod measure;
 mod mover;
 mod paint;
@@ -15,6 +19,9 @@ mod shapes;
 mod stretch;
 
 pub use boolean::BooleanTool;
+pub use copy_grid::CopyGridTool;
+pub use copy_line::CopyLineTool;
+pub use distribute::DistributeTool;
 pub use erase::EraseTool;
 pub use measure::MeasureTool;
 pub use mover::MoveTool;
@@ -205,6 +212,9 @@ pub struct Preview {
     pub picked_solid: Option<EntityPath>,
     /// The selection drawn moved by this world transform (the move tool's ghost).
     pub ghost: Option<DAffine3>,
+    /// The selection drawn copied at each of these world transforms, the original staying (the
+    /// copy tools' ghosts, §6 duodecies).
+    pub copies: Vec<DAffine3>,
     /// The point the tool infers under the cursor (marker and tooltip).
     pub inference: Option<Inference>,
     /// More lines for the inference's tooltip (the tape: the length of the edge hovered).
@@ -248,6 +258,9 @@ pub enum PointShape {
     Diamond,
     /// A closed padlock: something locked, a click unlocks it (the stretch's locked axes).
     Padlock,
+    /// The mirror's badge (OpenCutList's): a square in `fill`, two triangles facing a dashed
+    /// axis in `stroke` (the copy tools' mirror, §6 duodecies).
+    Mirror,
 }
 
 /// A flat convex polygon a tool draws in the scene, hidden behind faces (world corners; linear
@@ -357,6 +370,12 @@ pub enum ToolKind {
     Measure,
     /// Stretches a part along one of its axes (§6 sexies).
     Stretch,
+    /// Copies along a line (§6 duodecies).
+    CopyLine,
+    /// Copies along a grid (§6 duodecies).
+    CopyGrid,
+    /// Spreads copies between two points (§6 duodecies).
+    Distribute,
     /// Edits the profile of a body of the open part (§6 nonies, §2.11).
     Profile,
 }
@@ -379,6 +398,9 @@ impl ToolKind {
             ToolKind::Section => "section",
             ToolKind::Measure => "measure",
             ToolKind::Stretch => "stretch",
+            ToolKind::CopyLine => "copy_line",
+            ToolKind::CopyGrid => "copy_grid",
+            ToolKind::Distribute => "distribute",
             ToolKind::Profile => "profile",
         }
     }
@@ -400,6 +422,9 @@ impl ToolKind {
             ToolKind::Section => t!("tool.section.name"),
             ToolKind::Measure => t!("tool.measure.name"),
             ToolKind::Stretch => t!("tool.stretch.name"),
+            ToolKind::CopyLine => t!("tool.copy_line.name"),
+            ToolKind::CopyGrid => t!("tool.copy_grid.name"),
+            ToolKind::Distribute => t!("tool.distribute.name"),
             ToolKind::Profile => t!("tool.profile.name"),
         }
     }
@@ -876,6 +901,19 @@ impl Moved {
         }
     }
 
+    /// Copies at the world transforms `placements`, the sources moved by `moved` (world): the
+    /// copy tools' operation (§6 duodecies).
+    pub fn copies(&self, entities: Vec<Id>, moved: DAffine3, placements: &[DAffine3]) -> Operation {
+        let moved = self.local(moved);
+        let placements = placements.iter().map(|w| self.local(*w)).collect();
+        match self {
+            Moved::Occurrences { context, .. } => Operation::Copies { context: *context, entities, moved, placements },
+            Moved::Machinings { target, scope, .. } => {
+                Operation::CopyBodies { target: target.clone(), bodies: entities, moved, placements, scope: *scope }
+            }
+        }
+    }
+
     pub fn array(&self, entities: Vec<Id>, world_step: DAffine3, count: u32) -> Operation {
         let step = self.local(world_step);
         match self {
@@ -931,6 +969,9 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Section => Box::new(SectionTool::default()),
         ToolKind::Measure => Box::new(MeasureTool::default()),
         ToolKind::Stretch => Box::new(StretchTool::default()),
+        ToolKind::CopyLine => Box::new(CopyLineTool::default()),
+        ToolKind::CopyGrid => Box::new(CopyGridTool::default()),
+        ToolKind::Distribute => Box::new(DistributeTool::default()),
         ToolKind::Profile => Box::new(ProfileTool::default()),
     }
 }

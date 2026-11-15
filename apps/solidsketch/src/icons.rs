@@ -29,6 +29,9 @@ icon!(PAINT, "paint");
 icon!(SECTION, "section");
 icon!(MEASURE, "measure");
 icon!(STRETCH, "stretch");
+icon!(COPY_LINE, "copy_line");
+icon!(COPY_GRID, "copy_grid");
+icon!(DISTRIBUTE, "distribute");
 icon!(GRID, "grid");
 icon!(GUIDES, "guides");
 icon!(AXES, "axes");
@@ -60,6 +63,9 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "tool.move" => MOVE,
         "tool.rotate" => ROTATE,
         "tool.stretch" => STRETCH,
+        "tool.copy_line" => COPY_LINE,
+        "tool.copy_grid" => COPY_GRID,
+        "tool.distribute" => DISTRIBUTE,
         "tool.paint" => PAINT,
         "tool.section" => SECTION,
         "tool.measure" => MEASURE,
@@ -106,6 +112,10 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
         "trace_line",
         "trace_tangent",
         "trace_arc",
+        "copy_measure_outside",
+        "copy_measure_centered",
+        "copy_measure_inside",
+        "mirror",
     )
 }
 

@@ -524,7 +524,7 @@ impl Editor {
     /// The active tool's first length option, if `text` is meant for it: a text ending in `x`
     /// (OpenCutList's offset), unless the measurements box takes a count of copies now.
     fn length_typed<'t>(&self, text: &'t str) -> Option<(&'static str, &'t str)> {
-        if matches!(self.tool.vcb(), Some(vcb::Vcb { kind: vcb::VcbKind::Count, .. })) {
+        if self.tool.vcb().is_some_and(|v| v.kind == vcb::VcbKind::Count || v.counts > 0) {
             return None;
         }
         // A suffix the tool gives one of its length options (the prism tool's `5r`, its fillet).

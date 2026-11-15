@@ -84,6 +84,17 @@ pub enum Operation {
     /// `count` copies of occurrences of `context`, the k-th moved by `step` applied k times (a
     /// linear array for a translation, a circular one for a rotation).
     Array { context: Id, entities: Vec<Id>, step: DAffine3, count: u32 },
+    /// Copies of occurrences of `context` (or its guides), one set per placement: each copy at
+    /// `placement · T`, `T` the source's as it was; the sources themselves moved by `moved`
+    /// (identity but for Distribute, which moves them to the first slot). Copy along a line or
+    /// a grid, Distribute (ARCHITECTURE.md §6 duodecies). Rigid placements only.
+    Copies {
+        context: Id,
+        entities: Vec<Id>,
+        #[serde(default = "identity", skip_serializing_if = "is_identity")]
+        moved: DAffine3,
+        placements: Vec<DAffine3>,
+    },
     /// Removes occurrences from `context`.
     Delete { context: Id, entities: Vec<Id> },
     /// Names one occurrence of `context` ("Gauche"); empty to clear.
@@ -174,6 +185,17 @@ pub enum Operation {
         bodies: Vec<Id>,
         step: DAffine3,
         count: u32,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// `Copies` for bodies of the part `target` places (or its guides), in its axes: one copy
+    /// per placement, sharing its definition, the sources moved by `moved`.
+    CopyBodies {
+        target: EntityPath,
+        bodies: Vec<Id>,
+        #[serde(default = "identity", skip_serializing_if = "is_identity")]
+        moved: DAffine3,
+        placements: Vec<DAffine3>,
         #[serde(default)]
         scope: Scope,
     },
@@ -285,6 +307,10 @@ impl Operation {
             Operation::Transform { .. } => t!("operation.transform"),
             Operation::Duplicate { .. } => t!("operation.duplicate"),
             Operation::Array { .. } => t!("operation.array"),
+            Operation::Copies { moved, .. } | Operation::CopyBodies { moved, .. } if !is_identity(moved) => {
+                t!("operation.distribute")
+            }
+            Operation::Copies { .. } | Operation::CopyBodies { .. } => t!("operation.copies"),
             Operation::Delete { .. } => t!("operation.delete"),
             Operation::RenameOccurrence { .. } | Operation::RenameComponent { .. } => t!("operation.rename"),
             Operation::MakeAssembly { .. } => t!("operation.make_assembly"),
@@ -331,7 +357,7 @@ impl Operation {
     }
 }
 
-/// The most copies an `Operation::Array` makes.
+/// The most copies an `Operation::Array` makes, the most placements of an `Operation::Copies`.
 pub const MAX_ARRAY: u32 = 1000;
 
 /// What an operation did, for the caller to update its selection.
@@ -694,6 +720,26 @@ impl Document {
                 created.extend(self.copy_guides(*context, guides, &steps)?);
                 Ok(Outcome { created, ..Outcome::default() })
             }
+            Operation::Copies { context, entities, moved, placements } => {
+                check_copies(moved, placements)?;
+                let (guides, entities) = &self.split_guides(*context, entities)?;
+                let sources = self.occurrences_of(*context, entities)?;
+                let mut created = Vec::new();
+                for t in placements {
+                    created.extend(self.add_copies(*context, &sources, t)?);
+                }
+                created.extend(self.copy_guides(*context, guides, placements)?);
+                if !is_identity(moved) {
+                    let at = self.positions_of(*context, entities)?;
+                    let a = self.assembly_mut(*context)?;
+                    for i in at {
+                        let o = a.occurrence_at_mut(i);
+                        o.transform = *moved * o.transform;
+                    }
+                    self.move_guides(*context, guides, moved)?;
+                }
+                Ok(Outcome { created, ..Outcome::default() })
+            }
             Operation::Delete { context, entities } => {
                 let (guides, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
@@ -941,6 +987,28 @@ impl Document {
                     self.recompute(part, Some(&created), solver)?;
                 }
                 created.extend(self.copy_guides(part, &guides, &steps)?);
+                Ok(Outcome { bodies: created, ..Outcome::default() })
+            }
+            Operation::CopyBodies { target, bodies, moved, placements, scope } => {
+                check_copies(moved, placements)?;
+                let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let mut created = self.copy_bodies(part, &bodies, placements)?;
+                let shifted = !is_identity(moved);
+                if shifted {
+                    for b in &mut self.part_mut(part)?.bodies {
+                        if bodies.contains(&b.id) {
+                            b.placement = *moved * b.placement;
+                        }
+                    }
+                }
+                if shifted && !bodies.is_empty() {
+                    // A source moved: the part from its bodies again.
+                    self.recompute(part, None, solver)?;
+                } else if !created.is_empty() {
+                    self.recompute(part, Some(&created), solver)?;
+                }
+                created.extend(self.copy_guides(part, &guides, placements)?);
+                self.move_guides(part, &guides, moved)?;
                 Ok(Outcome { bodies: created, ..Outcome::default() })
             }
             Operation::Stretch { context, occurrences, frame, axis, cuts, moves, scope, cutters } => {
@@ -1334,6 +1402,17 @@ impl Document {
 /// `ids` as a set, for lookups over a whole assembly.
 fn id_set(ids: &[Id]) -> FastSet<Id> {
     ids.iter().copied().collect()
+}
+
+/// Refuses `Copies` / `CopyBodies` doing nothing or too much, or not rigid.
+fn check_copies(moved: &DAffine3, placements: &[DAffine3]) -> Result<()> {
+    if placements.len() > MAX_ARRAY as usize || (placements.is_empty() && is_identity(moved)) {
+        return Err(Error::Invalid(Refusal::ArrayCount));
+    }
+    if !is_rigid(moved) || !placements.iter().all(is_rigid) {
+        return Err(Error::Invalid(Refusal::NotRigid));
+    }
+    Ok(())
 }
 
 /// A move, a rotation and maybe a mirror: unit, square axes (§2.2).

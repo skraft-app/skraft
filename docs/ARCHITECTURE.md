@@ -1773,6 +1773,102 @@ guides of an open part included.
   So what is carried is in the document meanwhile (drawn by Move's ghost, out of the
   inferences); a paste of machinings computes the part twice (in place, then moved).
 
+## 6 duodecies. Copy along a line, copy along a grid, distribute
+
+Decided on 2026-11-15 (questions / answers), after OpenCutList's Smart Handle tool
+(`tool/smart_handle_tool.rb`: `SmartHandleActionHandler`, `SmartHandleCopyLineActionHandler`,
+`SmartHandleCopyGridActionHandler`, `SmartHandleDistributeActionHandler`). Steps 1 (the model),
+2 (the common module, `tools/handle.rs`, and Copy along a line, `tools/copy_line.rs`), 3
+(Distribute, `tools/distribute.rs`) and 4 (Copy along a grid, `tools/copy_grid.rs`) built on
+2026-11-15.
+
+- **Three tools**, three commands — `tool.copy_line` (« Copie en ligne »), `tool.copy_grid`
+  (« Copie en grille ») and `tool.distribute` (« Répartir ») — sharing one module (picking,
+  box and its centre, axes option, snapping on the nearest axis, arrow locks, counts typed,
+  measure, preview). OCL has them as actions of one tool; here a command is a tool. In the
+  ribbon's **Modify** group of Build and Assemble, after Rotate; **no default shortcut**.
+- **Targets**: the active context's occurrences (parts and assemblies, with the context's
+  guides selected), and in an open part its bodies — as Move and Rotate copy today.
+- **Operations**: a list of placements, one per copy, computed by the tool — the model only
+  puts them down — and a move of the sources. `Operation::Copies { context, entities, moved:
+  DAffine3, placements: Vec<DAffine3> }`: the sources moved to `moved · T` (the identity for
+  the line and the grid; Distribute moves them to the first slot, as OCL sets the source
+  instance's transformation), each copy of an occurrence placed at `placement · T` (rigid,
+  mirror allowed, §2.2; at most `MAX_ARRAY` placements; `T` the source's before the move); and
+  its twin for bodies, `Operation::CopyBodies { target, bodies, moved, placements, scope }`
+  (copies sharing their body definitions, §2.11). One operation, one undo step. `Array`,
+  `ArrayBodies` and Move / Rotate are left as they are: `Array` (one step applied k times) can
+  express neither a grid (two steps), OCL's mirrored copies, nor a moved source.
+- **Interaction of the line and the grid, as OCL's** (one step: no first click):
+  - **picking** as the Stretch (§6 sexies): the selection when the tool starts, else a click,
+    a rectangle or Shift clicks; once there is a target, the handle starts at **the centre of
+    its box** in the chosen axes;
+  - **options**: *measure* — edge to edge (outside), centre to centre, between the parts
+    (inside); *axes* — active, context, entity (saved, as the Stretch's); *mirror* — toggled
+    by a quick tap of Option (Alt elsewhere), for a single copy only (OCL's warning
+    `copies_disable_mirror` otherwise). Option does not toggle copying as in Move: these tools
+    always copy;
+  - **line**: the cursor projected on the axis nearest on screen, or — on a face — the axis of
+    the box face crossed towards the cursor (`_snap_handle`); → ← ↑ lock X, Y, Z;
+  - **grid**: the cursor projected on the plane normal to Z, or to the axis locked by the
+    arrows; its axes from the active X projected on that plane (`_get_handle_axes`);
+  - **minimum distance** by measure (`_get_move_def`'s `dlmin` / `dmin`): the cursor stops at
+    it, a smaller typed value is refused (`lt_min_distance`);
+  - **typing**: a distance (grid: `dx; dy`), a count `x5`, `*5` or `/5` (grid: `x3; /4`, an
+    empty slot = 1 copy); Shift with `+` / `−` changes the count; default `/1`;
+  - **after the click**, typing a distance or a count again redoes the copies
+    (`Command::Replace`: one undo step), as OCL's `STATE_HANDLE_COPIES`;
+  - **mirror** (one copy): line — the copy mirrored across the plane through its centre
+    normal to the move (OCL's scaling by −1 then half turn about the move: that reflection);
+    grid — the corner copy turned half a turn about the normal, the two side copies mirrored
+    as on a line (OCL's transforms).
+- **Distribute, as OCL's** (two steps):
+  - **picking** as above; then a **first click** sets the start point, a **second** the end
+    point (e.g. the inner faces of two uprights); Esc at the second goes back to the first.
+    Both snap as the line's (nearest axis on screen or the box face crossed; → ← ↑ lock X,
+    Y, Z), the measure line held on the line through the box's centre;
+  - **the sources move**: `number` pieces in all, the source taking the first slot, its copies
+    the next ones, spread evenly between the two points; while the tool runs, the sources are
+    hidden and drawn by the preview (OCL `_hide_instances`);
+  - **measure**: centre to centre or between the parts (no edge to edge); the mirror option
+    does not apply;
+  - **typing**: a count `x5` (5 pieces in all) or `/5` (5 intervals: 4 pieces, `/1` refused);
+    Shift with `+` / `−` changes it; a distance sets the end point along the line; a **list
+    of spacings** `30; 50` (two items at least) fixes the first gaps, empty slots first
+    (`;; 30`) fix the last ones, the rest spread (`_get_move_def`'s start / end spacings);
+    after the click, typing a count or spacings again redoes it (`Command::Replace`);
+  - **Option held**: a ray from the start point along the line; the end point snaps to the
+    first thing it hits (`DisplayScene::pick` with any ray), drawn as an arrow (OCL's
+    raytest), so as to spread up to the next part without aiming at it;
+  - **double-click** repeats the last distribute (count, spacings, both points) on the new
+    target.
+- **Preview** (deviation from OCL, which draws the copies' edges in black): the copies as
+  Move's ghosts while copying, the boxes dotted (the source's in black, the copies' in the
+  axis colour), the measure line or rectangle x-ray, dashed, in the axis colour, with its VCB
+  bubbles (one per side for the grid), and OCL's mirror badge (`PointShape::Mirror`, 40 px past
+  the mirrored copy: in the axis colour for the line, black for the grid). The copies' ghosts are the
+  selection's marks drawn at each copy (`Preview::copies`), so what is copied is the selection
+  (a click selects it, as Move); once the copies are made the selection is let go (OCL's
+  restart).
+- **Built so far without** (2026-11-15, steps 2–4): Shift with `+` / `−` (the measurements box
+  takes those keys while typing), and OCL's options shared between the
+  copy tools (each keeps its own; Distribute's measure defaults to « between the parts », as
+  OCL's preset).
+- **Distribute, as built** (deviations): the start point is the point inferred (what is
+  distributed left out, as OCL hides it), else on the ground; on the geometry the end runs
+  along the axis the way from the start mostly goes; what is distributed shows as a ghost in
+  place before the end point, then at its slot (`Preview::ghost`, the copies at the others);
+  changing the axes takes the points again (OCL keeps the start); the copy modifier's ray
+  follows the next cursor move.
+- **The grid, as built**: its boxes are drawn at its four corners only (OCL's), its sides'
+  lengths along the rectangle's sides from its low corner, each in the colour of the axis it
+  runs along.
+- **Not now**: OCL's **twins** (picking the other occurrences of the part, same parent, to
+  replace them — re-spacing an existing row, which Distribute will soon call for); to discuss
+  again after use. OCL's Move along line is not part of this work.
+- **Steps**: 1. the model (`Copies`, `CopyBodies`); 2. the common module and Copy along a line;
+  3. Distribute; 4. Copy along a grid.
+
 ## 7. Crates
 
 ```

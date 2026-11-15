@@ -46,13 +46,12 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::kernel::Solid;
 use solidsketch_model::{Behavior, EntityPath, Id, Operation, Scope};
 
+use super::handle::square;
 use super::select::{marquee_hits, toggled};
 use super::{
     BLUE, Command, Cx, GREEN, Key, Marquee, OptionChoice, OptionValue, PointShape, Preview, PreviewFill, PreviewLabel, PreviewLine,
@@ -145,11 +144,6 @@ fn axes(cx: &Cx<'_>) -> Axes {
     }
 }
 
-/// Does `m` only swap and turn over axes (each column one ±1)? Then a box stays a box, exact.
-fn square(m: &glam::DMat3) -> bool {
-    m.to_cols_array().iter().all(|x| x.abs() < 1e-9 || (x.abs() - 1.0).abs() < 1e-9)
-}
-
 /// Ratios sorted, inside ]0, 1[ and apart (OCL's `_load_cutters`); none left, the axis locked
 /// when it can be (`lockable`: kept on a component), else one in the middle.
 fn sanitized(mut ratios: Vec<f64>, lockable: bool) -> Vec<f64> {
@@ -220,43 +214,7 @@ impl Target {
             _ => Keep::Session(None),
         };
         let frame = to_world * in_context;
-        let exact = |shape: &Arc<Solid>| cx.scene.bounds_of(shape).or_else(|| shape.vertex_bounds());
-        let mut b = (DVec3::INFINITY, DVec3::NEG_INFINITY);
-        // A part placed by `t` in the axes: its exact box when square to them, else (its box
-        // would swell) its display mesh's vertices.
-        let mut add_part = |def: Id, t: DAffine3| {
-            let mut add = |w: DVec3| b = (b.0.min(w), b.1.max(w));
-            let mesh =
-                cx.scene.definition_mesh(def).filter(|m| !square(&t.matrix3) && m.parts.iter().any(|p| !p.mesh.positions.is_empty()));
-            if let Some(m) = mesh {
-                for pm in &m.parts {
-                    for v in &pm.mesh.positions {
-                        add(t.transform_point3(pm.mesh.origin + DVec3::new(v[0] as f64, v[1] as f64, v[2] as f64)));
-                    }
-                }
-            } else if let Some((lo, hi)) = cx.doc.part(def).ok().and_then(|p| exact(p.shape())) {
-                for i in 0..8 {
-                    add(t.transform_point3(DVec3::new([lo.x, hi.x][i & 1], [lo.y, hi.y][(i >> 1) & 1], [lo.z, hi.z][(i >> 2) & 1])));
-                }
-            }
-        };
-        let to_target = in_context.inverse();
-        for o in &occs {
-            if cx.doc.part(o.component).is_ok() {
-                // From the document: there before its mesh is.
-                add_part(o.component, to_target * o.transform);
-                continue;
-            }
-            // What an assembly holds, as the scene places it.
-            let chain: Vec<Id> = context.iter().copied().chain([o.id]).collect();
-            let to_target = frame.inverse();
-            for (def, places) in cx.scene.placements() {
-                for p in places.iter().filter(|p| p.path.starts_with(&chain)) {
-                    add_part(def, to_target * p.transform);
-                }
-            }
-        }
-        let (lo, hi) = (b.0.x <= b.1.x).then_some(b)?;
+        let (lo, hi) = super::handle::occurrences_bounds(cx, &context, &occs, in_context)?;
         Some(Target { context, occurrences, bodies: None, keep, in_context, frame, lo, hi })
     }
 
@@ -276,27 +234,7 @@ impl Target {
             _ => None,
         });
         let frame = to_world * in_part;
-        let to_target = in_part.inverse();
-        let mut b = (DVec3::INFINITY, DVec3::NEG_INFINITY);
-        for body in &bodies {
-            let t = to_target * body.placement;
-            let mut add = |w: DVec3| b = (b.0.min(w), b.1.max(w));
-            // Its exact box when square to the axes, else its mesh's vertices.
-            let key = cx.recipe.and_then(|r| r.body(body.id)).map(|r| r.key);
-            let mesh = key.and_then(|k| cx.scene.definition_mesh(k)).filter(|_| !square(&t.matrix3));
-            if let Some(m) = mesh {
-                for pm in &m.parts {
-                    for v in &pm.mesh.positions {
-                        add(t.transform_point3(pm.mesh.origin + DVec3::new(v[0] as f64, v[1] as f64, v[2] as f64)));
-                    }
-                }
-            } else if let Some((lo, hi)) = cx.scene.bounds_of(part.solid_of(body)).or_else(|| part.solid_of(body).vertex_bounds()) {
-                for i in 0..8 {
-                    add(t.transform_point3(DVec3::new([lo.x, hi.x][i & 1], [lo.y, hi.y][(i >> 1) & 1], [lo.z, hi.z][(i >> 2) & 1])));
-                }
-            }
-        }
-        let (lo, hi) = (b.0.x <= b.1.x).then_some(b)?;
+        let (lo, hi) = super::handle::bodies_bounds(cx, part, &bodies, in_part)?;
         let (context, occurrences) = (path.instances.clone(), vec![path.entity]);
         Some(Target { context, occurrences, bodies: Some(ids), keep, in_context: in_part, frame, lo, hi })
     }
