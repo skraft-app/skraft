@@ -327,56 +327,16 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
                 solid(r)
             }
             Task::Recipe { base, positives, negatives } => {
-                let placed = |i: u32, t: &DAffine3| -> Result<Solid> {
-                    let s = input(i)?;
-                    if t.abs_diff_eq(DAffine3::IDENTITY, 1e-12) { Ok(s.clone()) } else { s.transformed(t) }
-                };
-                let mut failed = Vec::new();
-                let mut shape: Option<Solid> = None;
-                for (k, (i, t)) in positives.iter().enumerate() {
-                    let joined = placed(*i, t).and_then(|p| match &shape {
-                        None => Ok(p),
-                        Some(s) => s.boolean(&p, BooleanOp::Union),
-                    });
-                    match joined {
-                        Ok(s) => shape = Some(s),
-                        Err(_) => failed.push(k as u32),
-                    }
-                }
-                let Some(mut shape) = shape else {
-                    return Err(Error::Convert { call: "recipe".into(), message: "no positive body".into() });
-                };
-                for (k, (i, t)) in negatives.iter().enumerate() {
-                    match placed(*i, t).and_then(|n| shape.boolean(&n, BooleanOp::Difference)) {
-                        Ok(s) => shape = s,
-                        Err(_) => failed.push((positives.len() + k) as u32),
-                    }
-                }
-                if let Some(base) = base {
-                    let base = input(*base)?;
-                    match base.boolean(&shape, BooleanOp::Union) {
-                        Ok(s) => shape = s,
-                        // Nothing added: every positive given failed.
-                        Err(_) => {
-                            failed = (0..positives.len() as u32).collect();
-                            shape = base.clone();
-                        }
-                    }
-                }
+                let placed = |list: &[(u32, DAffine3)]| list.iter().map(|(i, t)| Ok((input(*i)?, *t))).collect::<Result<Vec<_>>>();
+                let base = base.map(input).transpose()?;
+                let (shape, failed) = recipe(base, &placed(positives)?, &placed(negatives)?)?;
                 let display = shape.display().map_err(|e| e.to_string());
                 Output::Recipe { solid: shape, display, failed }
             }
             Task::UnionVolume { solids } => {
                 // Any failure says nothing: a check, never a reason to fail the job.
-                let union = solids.iter().try_fold(None::<Solid>, |acc, (i, t)| {
-                    let s = input(*i)?;
-                    let s = if t.abs_diff_eq(DAffine3::IDENTITY, 1e-12) { s.clone() } else { s.transformed(t)? };
-                    Ok::<_, Error>(Some(match acc {
-                        None => s,
-                        Some(a) => a.boolean(&s, BooleanOp::Union)?,
-                    }))
-                });
-                Output::Volume(union.ok().flatten().and_then(|u| u.volume().ok()))
+                let placed = solids.iter().map(|(i, t)| Ok((input(*i)?, *t))).collect::<Result<Vec<_>>>();
+                Output::Volume(placed.ok().and_then(|p| union_volume(&p).ok()))
             }
             Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
             Task::Display { solid: i, quality } => Output::Display(input(*i)?.display_at(*quality).map_err(|e| e.to_string())),
@@ -386,6 +346,172 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
         out.push(done);
     }
     Ok(out)
+}
+
+// ---- recipes ---------------------------------------------------------------------------------
+
+/// The step of [`recipe_session`] joining the base.
+const BASE: usize = usize::MAX;
+
+/// `solid` read into the kernel `k`, moved by `t` unless it is the identity.
+fn placed_in(k: &mut Kernel, solid: &Solid, t: &DAffine3, call: &str) -> Result<solidcore::Brep> {
+    let mut b = to_kernel(k, &solid.record, call)?;
+    if !t.abs_diff_eq(DAffine3::IDENTITY, 1e-12) {
+        solidcore::topology::brep::mirror::transform_matrix(k, &mut b, &row_major(t), false).map_err(|e| kernel_err(call, e))?;
+    }
+    Ok(b)
+}
+
+/// [`Task::Recipe`]: the union of the placed `positives` minus each placed negative, joined to
+/// `base` when given; the solid, and the bodies that failed (by index, positives then
+/// negatives), skipped.
+///
+/// Every step runs in **one kernel session**, the shape read back to a record only at the end:
+/// a shape between two steps may be one the record cannot be read back from — two blanks
+/// touching along an edge only, until a third fills the corner (SolidCore refuses « a sheet
+/// touching itself along an edge ») — while the kernel carries on with it. A boolean consumes
+/// the shape: a step that fails is marked and the session starts again without it (at most
+/// one session per failure).
+fn recipe(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(&Solid, DAffine3)]) -> Result<(Solid, Vec<u32>)> {
+    let steps: Vec<(&Solid, &DAffine3, BooleanOp)> = positives
+        .iter()
+        .map(|(s, t)| (*s, t, BooleanOp::Union))
+        .chain(negatives.iter().map(|(s, t)| (*s, t, BooleanOp::Difference)))
+        .collect();
+    let no_positive = || Error::Convert { call: "recipe".into(), message: "no positive body".into() };
+    let mut failed: Vec<u32> = Vec::new();
+    loop {
+        if (0..positives.len() as u32).all(|i| failed.contains(&i)) {
+            return Err(no_positive());
+        }
+        if cancel::current().is_some_and(|t| t.is_cancelled()) {
+            return Err(Error::Cancelled);
+        }
+        let at = std::cell::Cell::new(None);
+        match guarded("recipe", || recipe_session(base, &steps, &failed, &at)) {
+            Ok(shape) => {
+                failed.sort_unstable();
+                return Ok((shape, failed));
+            }
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(e) => match at.get() {
+                // Nothing added: every positive given failed.
+                Some(BASE) => return Ok((base.ok_or_else(no_positive)?.clone(), (0..positives.len() as u32).collect())),
+                Some(i) => failed.push(i as u32),
+                // The shape computed but not read back to a record: step by step, as before,
+                // tells which step brings it.
+                None if !matches!(e, Error::Convert { .. } | Error::Panic { .. }) => return Err(e),
+                None => return recipe_stepwise(base, positives, negatives),
+            },
+        }
+    }
+}
+
+/// One session of [`recipe`], the steps in `skip` left out; `at` says which step runs (none
+/// while the shape goes back to a record).
+fn recipe_session(
+    base: Option<&Solid>,
+    steps: &[(&Solid, &DAffine3, BooleanOp)],
+    skip: &[u32],
+    at: &std::cell::Cell<Option<usize>>,
+) -> Result<Solid> {
+    use solidcore::boolean::api_brep as b;
+    use solidcore::topology::brep::p1::num_faces;
+    let call = "recipe";
+    let mut k = kernel();
+    let mut shape: Option<solidcore::Brep> = None;
+    for (i, (solid, t, op)) in steps.iter().enumerate() {
+        if skip.contains(&(i as u32)) {
+            continue;
+        }
+        at.set(Some(i));
+        let placed = placed_in(&mut k, solid, t, call)?;
+        shape = Some(match (shape, op) {
+            (None, BooleanOp::Union) => placed,
+            (Some(s), BooleanOp::Union) => b::boolean_union(&mut k, s, placed).map_err(|e| kernel_err(call, e))?,
+            (Some(s), _) => {
+                let cut = b::boolean_difference(&mut k, s, placed).map_err(|e| kernel_err(call, e))?;
+                // A tool swallowing the whole shape.
+                if num_faces(&cut) == 0 {
+                    return Err(Error::Empty(call.into()));
+                }
+                cut
+            }
+            (None, _) => {
+                at.set(None);
+                return Err(Error::Convert { call: call.into(), message: "no positive body".into() });
+            }
+        });
+    }
+    at.set(None);
+    let Some(mut shape) = shape else {
+        return Err(Error::Convert { call: call.into(), message: "no positive body".into() });
+    };
+    if let Some(base) = base {
+        at.set(Some(BASE));
+        let base = to_kernel(&mut k, &base.record, call)?;
+        shape = b::boolean_union(&mut k, base, shape).map_err(|e| kernel_err(call, e))?;
+        at.set(None);
+    }
+    let out = to_record(&mut k, &mut shape, call)?;
+    if out.record.faces.is_empty() {
+        return Err(Error::Empty(call.into()));
+    }
+    Ok(out)
+}
+
+/// [`recipe`] one boolean at a time, each result read back to a record: the fallback when the
+/// final shape cannot be.
+fn recipe_stepwise(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(&Solid, DAffine3)]) -> Result<(Solid, Vec<u32>)> {
+    let placed = |s: &Solid, t: &DAffine3| if t.abs_diff_eq(DAffine3::IDENTITY, 1e-12) { Ok(s.clone()) } else { s.transformed(t) };
+    let mut failed = Vec::new();
+    let mut shape: Option<Solid> = None;
+    for (k, (s, t)) in positives.iter().enumerate() {
+        let joined = placed(s, t).and_then(|p| match &shape {
+            None => Ok(p),
+            Some(s) => s.boolean(&p, BooleanOp::Union),
+        });
+        match joined {
+            Ok(s) => shape = Some(s),
+            Err(_) => failed.push(k as u32),
+        }
+    }
+    let Some(mut shape) = shape else {
+        return Err(Error::Convert { call: "recipe".into(), message: "no positive body".into() });
+    };
+    for (k, (s, t)) in negatives.iter().enumerate() {
+        match placed(s, t).and_then(|n| shape.boolean(&n, BooleanOp::Difference)) {
+            Ok(s) => shape = s,
+            Err(_) => failed.push((positives.len() + k) as u32),
+        }
+    }
+    if let Some(base) = base {
+        match base.boolean(&shape, BooleanOp::Union) {
+            Ok(s) => shape = s,
+            // Nothing added: every positive given failed.
+            Err(_) => return Ok((base.clone(), (0..positives.len() as u32).collect())),
+        }
+    }
+    Ok((shape, failed))
+}
+
+/// [`Task::UnionVolume`]: the volume of the union of the placed `solids`, joined in one kernel
+/// session (as [`recipe`]: no record between two unions), read on the kernel's body.
+fn union_volume(solids: &[(&Solid, DAffine3)]) -> Result<f64> {
+    guarded("volume", || {
+        use solidcore::boolean::api_brep as b;
+        let mut k = kernel();
+        let mut union: Option<solidcore::Brep> = None;
+        for (s, t) in solids {
+            let placed = placed_in(&mut k, s, t, "volume")?;
+            union = Some(match union {
+                None => placed,
+                Some(u) => b::boolean_union(&mut k, u, placed).map_err(|e| kernel_err("volume", e))?,
+            });
+        }
+        let mut union = union.ok_or_else(|| Error::Empty("volume".into()))?;
+        solidcore::mass::integrator::properties::brep_volume_default(&k, &mut union, 1e-6).map_err(|e| kernel_err("volume", e))
+    })
 }
 
 /// Runs each job as it is submitted: results are ready at the next [`KernelService::poll`].
@@ -964,6 +1090,37 @@ mod tests {
         let b = Solid::new_box(DVec3::ZERO, DVec3::new(20.0, 10.0, 5.0)).unwrap();
         let cut = b.boolean(&Solid::new_cylinder(DVec3::new(10.0, 0.0, -1.0), 3.0, 7.0).unwrap(), BooleanOp::Difference).unwrap();
         assert!(close(cut.bounds().unwrap(), (DVec3::ZERO, DVec3::new(20.0, 10.0, 5.0))), "{:?}", cut.bounds());
+    }
+
+    #[test]
+    fn a_recipe_joins_blanks_touching_along_an_edge_on_the_way() {
+        // The four blanks of a 2 × 2 stack, the first one shallower: once the first three are
+        // joined, the second and the third touch along an edge only (y in 8..10), a shape
+        // SolidCore writes to a record but refuses to read back; the fourth fills the corner.
+        let b = |o: DVec3, size: DVec3| Arc::new(Solid::new_box(o, size).unwrap());
+        let inputs = vec![
+            b(DVec3::ZERO, DVec3::new(10.0, 8.0, 5.0)),
+            b(DVec3::new(0.0, 0.0, 5.0), DVec3::new(10.0, 10.0, 5.0)),
+            b(DVec3::new(10.0, 0.0, 0.0), DVec3::new(10.0, 10.0, 5.0)),
+            b(DVec3::new(10.0, 0.0, 5.0), DVec3::new(10.0, 10.0, 5.0)),
+        ];
+        let all = |n: u32| (0..n).map(|i| (i, DAffine3::IDENTITY)).collect::<Vec<_>>();
+        let job = Job { inputs: inputs.clone(), tasks: vec![Task::Recipe { base: None, positives: all(4), negatives: vec![] }] };
+        let out = run(&job).unwrap();
+        let [Output::Recipe { solid, display, failed }] = out.as_slice() else { panic!("{out:?}") };
+        assert!(failed.is_empty(), "{failed:?}");
+        assert!(display.is_ok());
+        assert_eq!(solid.pieces(), 1);
+        assert!((solid.volume().unwrap() - 1900.0).abs() < 1e-6, "{:?}", solid.volume());
+
+        // The same as a union check, and a body placed by a transform (the fourth from the
+        // first's place).
+        let mut solids = all(4);
+        solids[3] = (2, DAffine3::from_translation(DVec3::new(0.0, 0.0, 5.0)));
+        let job = Job { inputs, tasks: vec![Task::UnionVolume { solids }] };
+        let out = run(&job).unwrap();
+        let [Output::Volume(Some(v))] = out.as_slice() else { panic!("{out:?}") };
+        assert!((v - 1900.0).abs() < 1e-6, "{v}");
     }
 
     #[test]
