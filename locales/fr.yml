@@ -858,6 +858,8 @@ infer:
     tangent: "tangente"
     radial: "rayon"
     guide: "guide"
+    # The line a tool draws itself: the « Tournage » axis.
+    tool: "axe de révolution"
   # On one line.
   on_line:
     axis: "Sur l'axe %{axis}"
@@ -866,6 +868,7 @@ infer:
     perpendicular: "Perpendiculaire à l'arête"
     tangent: "Tangente à l'arc"
     radial: "Perpendiculaire à l'arc"
+    tool: "Sur l'axe de révolution"
 
 # The operations, in Annuler / Rétablir and in the messages about them.
 operation:

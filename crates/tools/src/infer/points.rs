@@ -43,6 +43,10 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
     if let Some(o) = q.origin {
         offer(o, InferKind::Origin, None, None, Vec::new());
     }
+    // The tool's own line: its origin, an end.
+    if let Some((o, dir)) = q.tool_line {
+        offer(o, InferKind::Endpoint, None, Some((EdgeRef::Straight(dir), Curve::Axis { origin: o, dir })), Vec::new());
+    }
     let kept = kept_guides(scene, q);
     let circles: Vec<(DVec3, DVec3, f64)> = kept
         .iter()
