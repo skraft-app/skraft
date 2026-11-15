@@ -3531,6 +3531,32 @@ fn turn_s_plane_goes_through_the_axis_and_the_first_point() {
 }
 
 #[test]
+fn turn_s_plane_waits_for_a_point_off_the_axis() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::new(50.0, 250.0, 0.0), DVec3::new(250.0, 450.0, 0.0), "200");
+    e.select(Vec::new());
+    e.set_tool(ToolKind::Turn);
+    click(&mut e, DVec3::ZERO);
+    click(&mut e, DVec3::new(0.0, 600.0, 0.0));
+    // The first point on the axis: no plane yet.
+    click(&mut e, DVec3::new(0.0, 100.0, 0.0));
+    // A point over nothing, then taken back: the plane free again.
+    click(&mut e, DVec3::new(-150.0, 100.0, 0.0));
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    // A second on the axis still leaves it free; the next, on the block's top, sets it.
+    click(&mut e, DVec3::new(0.0, 560.0, 0.0));
+    let off = DVec3::new(120.0, 330.0, 200.0);
+    click(&mut e, off);
+    click(&mut e, DVec3::new(0.0, 100.0, 0.0));
+    let id = drawn(&e);
+    let (_, part, t) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    let b = part.profiled().unwrap();
+    assert!(part.profile_of(b).unwrap().is_turned());
+    let x = (t * b.placement).matrix3.x_axis;
+    assert!(close(x, DVec3::new(120.0, 0.0, 200.0).normalize()), "{x}");
+}
+
+#[test]
 fn turn_s_profile_infers_on_the_axis_and_its_origin() {
     use crate::infer::{InferKind, LineKind};
     let mut e = top_editor(Document::new());
