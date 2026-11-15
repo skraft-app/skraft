@@ -149,6 +149,13 @@ pub enum Primitive {
         profile: Vec<profile::Corner>,
         height: f64,
     },
+    /// The half profile `profile` (its corners `(x, z)` in the XZ plane through `origin`,
+    /// relative to it, `x` the radius, never negative: [`profile::is_turnable`]) turned a whole
+    /// turn about the Z axis through `origin` (docs/ARCHITECTURE.md §6 undecies).
+    Revolution {
+        origin: DVec3,
+        profile: Vec<profile::Corner>,
+    },
 }
 
 impl Primitive {
@@ -156,9 +163,15 @@ impl Primitive {
     /// blank is built in the part's axes and placed by its occurrence (docs/ARCHITECTURE.md
     /// §2.2). A box's origin is its lowest corner (its extents made positive), a cylinder's or
     /// a cone's the centre of its base, a sphere's or a torus's its centre, a prism's the lowest
-    /// corner of its profile's box, on its base.
+    /// corner of its profile's box, on its base, a revolution's its axis at the lowest height of
+    /// its profile.
     pub fn at_origin(&self) -> (Primitive, DVec3) {
         match *self {
+            Primitive::Revolution { origin, ref profile } => {
+                let lo = profile::bounds(&profile::rounded(profile)).map_or(0.0, |b| b.0.y);
+                let profile = profile.iter().map(|c| profile::Corner { p: c.p - DVec2::Y * lo, ..*c }).collect();
+                (Primitive::Revolution { origin: DVec3::ZERO, profile }, origin + DVec3::Z * lo)
+            }
             Primitive::Prism { origin, ref profile, height } => {
                 let lo = profile::bounds(&profile::rounded(profile)).map_or(DVec2::ZERO, |b| b.0);
                 let profile = profile.iter().map(|c| profile::Corner { p: c.p - lo, ..*c }).collect();

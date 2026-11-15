@@ -1769,6 +1769,15 @@ fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
     // A tool placed in the world through the occurrence.
     let r = e.scene().recipe().unwrap();
     assert!(close(r.tools[1].placement.translation, DVec3::new(150.0, 100.0, -5.0)));
+    // Each body's bottom cap drawn bold: the board's rectangle at z 0, each hole's circle at z -5.
+    let bases = e.view().bases;
+    let at_z = |z: f64| bases.iter().filter(|(a, b)| (a.z - z).abs() < 1e-6 && (b.z - z).abs() < 1e-6).collect::<Vec<_>>();
+    assert_eq!(at_z(0.0).len(), 4, "{bases:?}");
+    let holes = at_z(-5.0);
+    assert_eq!(holes.len() + 4, bases.len());
+    for x in [50.0, 150.0] {
+        assert!(holes.iter().any(|(a, _)| ((a.truncate() - glam::DVec2::new(x, 100.0)).length() - 4.0).abs() < 1e-6));
+    }
     // Hovered in the entity info's list: drawn hovered in the view.
     let copy = r.tools[1].body;
     e.set_listed_hover(Some(copy));
@@ -1781,6 +1790,7 @@ fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
     // Switched off, or closed: the shape again.
     e.set_machinings_switch(false);
     assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
+    assert!(e.view().bases.is_empty());
     e.set_machinings_switch(true);
     e.exit();
     assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
@@ -3043,7 +3053,7 @@ fn stretch_tool_stretches_a_prism_with_fillets_along_its_height() {
     // Its fillets kept as radii: the profile follows.
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(p)).unwrap();
     let blank = part.profiled().and_then(|b| part.profile_of(b)).expect("a profile");
-    assert_eq!(blank.height, 80.0);
+    assert_eq!(blank.extrusion().map(|e| e.1), Some(80.0));
     assert!(blank.profile.iter().all(|c| c.fillet == 20.0), "{:?}", blank.profile);
 }
 
@@ -3389,6 +3399,176 @@ fn erase_tool_erases_the_open_part_s_machinings() {
     click(&mut e, DVec3::new(50.0, 100.0, 25.0));
     assert_eq!(machinings(&e), 0, "{}", e.status());
     assert_eq!(e.open_part(), Some(board));
+}
+
+// ---- Turn tool (docs/ARCHITECTURE.md §6 undecies) --------------------------------------------------
+
+/// The world bounds (exact) of the part an occurrence path names.
+fn exact_bounds_of(e: &Editor, path: &EntityPath) -> (DVec3, DVec3) {
+    let (_, part, t) = e.document().resolve_part(path).unwrap();
+    crate::scene::transform_bounds(&t, part.shape().bounds().unwrap())
+}
+
+#[test]
+fn turn_by_an_axis_and_a_half_profile() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Turn);
+    assert!(e.status().contains("axe"), "{}", e.status());
+    // The axis along green, 600 long (typed); seen from above, the profile is drawn on the ground.
+    click(&mut e, DVec3::ZERO);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 300.0, 0.0)) });
+    e.input(ToolInput::Vcb("600".into()));
+    assert!(e.status().contains("demi-profil"), "{}", e.status());
+    // A rectangle beside the axis, closed on its first corner: turned at once.
+    for (x, y) in [(0.0, 0.0), (100.0, 0.0), (100.0, 600.0), (0.0, 600.0)] {
+        click(&mut e, DVec3::new(x, y, 0.0));
+    }
+    // While drawing, the mirror across the axis shows, dashed — closed: with the cursor off
+    // the corners, its side back to the first corner too.
+    assert!(e.preview().lines.iter().any(|l| l.a.x < -50.0), "the mirror");
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 700.0, 0.0)) });
+    let closing = |l: &crate::tools::PreviewLine| l.a.x < -1.0 && l.a.x > -49.0 && l.a.y > 10.0 && l.a.y < 600.0;
+    assert!(e.preview().lines.iter().any(closing), "the mirror closed");
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 600.0, 0.0)) });
+    click(&mut e, DVec3::ZERO);
+    let id = drawn(&e);
+    let (lo, hi) = exact_bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::new(-100.0, 0.0, -100.0)) && close(hi, DVec3::new(100.0, 600.0, 100.0)), "{lo} {hi}");
+    // A turned body, its axes' Z along the axis.
+    let (_, part, t) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    let b = part.profiled().unwrap();
+    assert!(part.profile_of(b).unwrap().is_turned());
+    assert!(close((t * b.placement).matrix3.z_axis, DVec3::Y));
+    // Back to the axis's first point.
+    assert!(e.status().contains("premier point de l'axe"), "{}", e.status());
+
+    // On the other side of the axis, and across it.
+    click(&mut e, DVec3::new(500.0, 0.0, 0.0));
+    click(&mut e, DVec3::new(500.0, 600.0, 0.0));
+    for (x, y) in [(500.0, 0.0), (350.0, 0.0), (350.0, 600.0), (500.0, 600.0), (500.0, 0.0)] {
+        click(&mut e, DVec3::new(x, y, 0.0));
+    }
+    let id = drawn(&e);
+    let (lo, hi) = exact_bounds_of(&e, &EntityPath::root(id));
+    assert!(close(lo, DVec3::new(350.0, 0.0, -150.0)) && close(hi, DVec3::new(650.0, 600.0, 150.0)), "{lo} {hi}");
+    let before = e.document().assembly(e.document().root()).unwrap().occurrences().len();
+    click(&mut e, DVec3::new(800.0, 0.0, 0.0));
+    click(&mut e, DVec3::new(800.0, 600.0, 0.0));
+    for (x, y) in [(700.0, -200.0), (900.0, -200.0), (900.0, 400.0), (700.0, -200.0)] {
+        click(&mut e, DVec3::new(x, y, 0.0));
+    }
+    assert_eq!(e.document().assembly(e.document().root()).unwrap().occurrences().len(), before, "refused");
+    assert!(e.status().contains("traverse"), "{}", e.status());
+    // Esc takes the corners back, then the axis, end first.
+    for _ in 0..3 {
+        key(&mut e, Key::Escape);
+    }
+    assert!(e.status().contains("demi-profil"), "{}", e.status());
+    key(&mut e, Key::Escape);
+    assert!(e.status().contains("second point"), "{}", e.status());
+    key(&mut e, Key::Escape);
+    assert!(e.status().contains("premier point de l'axe"), "{}", e.status());
+}
+
+#[test]
+fn turn_s_plane_goes_through_the_axis_and_the_first_point() {
+    let mut e = top_editor(Document::new());
+    // A block standing 200 high beside the axis: the first point taken on its top.
+    draw_box(&mut e, DVec3::new(50.0, 250.0, 0.0), DVec3::new(250.0, 450.0, 0.0), "200");
+    e.select(Vec::new());
+    e.set_tool(ToolKind::Turn);
+    click(&mut e, DVec3::ZERO);
+    click(&mut e, DVec3::new(0.0, 600.0, 0.0));
+    let first = DVec3::new(120.0, 330.0, 200.0);
+    click(&mut e, first);
+    // Then two points on the axis, and back to the first: a cone, its plane tilted.
+    click(&mut e, DVec3::new(0.0, 330.0, 0.0));
+    click(&mut e, DVec3::new(0.0, 560.0, 0.0));
+    click(&mut e, first);
+    let id = drawn(&e);
+    let (_, part, t) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
+    let b = part.profiled().unwrap();
+    assert!(part.profile_of(b).unwrap().is_turned());
+    // The body's X towards the first point, square to the axis.
+    let x = (t * b.placement).matrix3.x_axis;
+    assert!(close(x, DVec3::new(120.0, 0.0, 200.0).normalize()), "{x}");
+}
+
+/// A turned leg drawn from above: its axis along green from the origin, 600 long, its half
+/// profile 100 wide on the side of red; the part open in the Profile tool.
+fn turned_leg_editor() -> (Editor, Id) {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Turn);
+    click(&mut e, DVec3::ZERO);
+    click(&mut e, DVec3::new(0.0, 600.0, 0.0));
+    for (x, y) in [(0.0, 0.0), (100.0, 0.0), (100.0, 600.0), (0.0, 600.0), (0.0, 0.0)] {
+        click(&mut e, DVec3::new(x, y, 0.0));
+    }
+    let id = drawn(&e);
+    e.set_machinings_switch(true);
+    e.enter(id);
+    e.set_tool(ToolKind::Profile);
+    (e, id)
+}
+
+#[test]
+fn a_turned_profile_is_edited_in_its_plane_facing_the_eye() {
+    use crate::tools::PointShape;
+    let (mut e, id) = turned_leg_editor();
+    let path = EntityPath::root(id);
+    // The half profile and its axis drawn bold and dashed while the part is open.
+    let v = e.view();
+    assert!(!v.bases.is_empty() && v.base_axes.len() == 1, "{:?}", v.base_axes);
+    // Seen from above, the half profile lies on the ground: its grips there, none across the
+    // side on the axis.
+    let shape_at = |e: &Editor, p: DVec3| e.overlay_points().into_iter().find(|g| (g.at - p).length() < 1e-3).map(|g| g.shape);
+    assert_eq!(shape_at(&e, DVec3::new(100.0, 600.0, 0.0)), Some(PointShape::Square));
+    assert!(matches!(shape_at(&e, DVec3::new(100.0, 300.0, 0.0)), Some(PointShape::Bar { .. })));
+    assert_eq!(shape_at(&e, DVec3::new(0.0, 300.0, 0.0)), None);
+    // The outer side moved out: Ø 300.
+    click(&mut e, DVec3::new(100.0, 300.0, 0.0));
+    click(&mut e, DVec3::new(150.0, 300.0, 0.0));
+    let (lo, hi) = exact_bounds_of(&e, &path);
+    assert!(close(lo, DVec3::new(-150.0, 0.0, -150.0)) && close(hi, DVec3::new(150.0, 600.0, 150.0)), "{lo} {hi}");
+    // A corner on the axis slides along it: the top up to 700.
+    click(&mut e, DVec3::new(0.0, 600.0, 0.0));
+    click(&mut e, DVec3::new(60.0, 700.0, 0.0));
+    let (lo, hi) = exact_bounds_of(&e, &path);
+    assert!(close(lo, DVec3::new(-150.0, 0.0, -150.0)) && close(hi, DVec3::new(150.0, 700.0, 150.0)), "{lo} {hi}");
+    // Free, a corner pulled across the axis stops on it.
+    key(&mut e, Key::Copy);
+    click(&mut e, DVec3::new(150.0, 700.0, 0.0));
+    click(&mut e, DVec3::new(-200.0, 700.0, 0.0));
+    let p = e.document().resolve_part(&path).unwrap().1;
+    let b = p.profile_of(p.profiled().unwrap()).unwrap();
+    assert!(b.is_turned() && b.profile.iter().all(|c| c.p.x >= -1e-9), "{:?}", b.profile);
+    assert!(b.profile.iter().any(|c| c.p.x.abs() < 1e-3 && (c.p.y - 700.0).abs() < 1e-3), "{:?}", b.profile);
+}
+
+#[test]
+fn a_turned_part_stretches_only_along_its_axis() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Turn);
+    click(&mut e, DVec3::ZERO);
+    click(&mut e, DVec3::new(0.0, 600.0, 0.0));
+    for (x, y) in [(0.0, 0.0), (100.0, 0.0), (100.0, 600.0), (0.0, 600.0), (0.0, 0.0)] {
+        click(&mut e, DVec3::new(x, y, 0.0));
+    }
+    let id = drawn(&e);
+    e.select(vec![id]);
+    e.set_tool(ToolKind::Stretch);
+    // Its axes across the turning axis locked for good: two padlocks, the axis's grips.
+    let padlocks = |e: &Editor| {
+        e.overlay_points().into_iter().filter(|p| p.shape == crate::tools::PointShape::Padlock).map(|p| p.at).collect::<Vec<_>>()
+    };
+    let locks = padlocks(&e);
+    assert_eq!(locks.len(), 2, "{locks:?}");
+    e.input(ToolInput::Hover { px: px(&e, locks[0]) });
+    assert!(e.status().contains("tourné"), "{}", e.status());
+    click(&mut e, locks[0]);
+    assert_eq!(padlocks(&e).len(), 2);
+    let part = e.document().resolve(&EntityPath::root(id)).unwrap().component;
+    assert!(e.document().component(part).unwrap().behavior.is_default(), "the lock is not saved");
 }
 
 // ---- Prism tool (docs/ARCHITECTURE.md §6 nonies) ---------------------------------------------------
@@ -3884,20 +4064,37 @@ fn profile_corner_moved_side_split() {
 fn profile_corner_keeps_the_sides_directions_unless_free() {
     let (mut e, id) = board_profile_editor();
     // The far corner dragged down and right: its sides translated, still a rectangle.
-    click(&mut e, DVec3::new(600.0, 300.0, 18.0));
-    click(&mut e, DVec3::new(650.0, 200.0, 18.0));
+    click(&mut e, DVec3::new(600.0, 300.0, 0.0));
+    click(&mut e, DVec3::new(650.0, 200.0, 0.0));
     let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(650.0, 200.0, 18.0)), "{lo} {hi}");
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(id)).unwrap();
     assert_eq!(part.shape().topology_counts(), (6, 12, 8));
     // The copy modifier tapped while moving: the corner alone, its neighbours left in place.
-    click(&mut e, DVec3::new(650.0, 200.0, 18.0));
+    click(&mut e, DVec3::new(650.0, 200.0, 0.0));
     key(&mut e, Key::Copy);
-    click(&mut e, DVec3::new(700.0, 250.0, 18.0));
+    click(&mut e, DVec3::new(700.0, 250.0, 0.0));
     let b = blank_profile(&e, id);
     assert!(b.profile.iter().any(|c| c.p.distance(glam::DVec2::new(650.0, 0.0)) < 1e-3), "{b:?}");
     assert!(b.profile.iter().any(|c| c.p.distance(glam::DVec2::new(0.0, 200.0)) < 1e-3), "{b:?}");
     assert!(b.profile.iter().any(|c| c.p.distance(glam::DVec2::new(700.0, 250.0)) < 1e-3), "{b:?}");
+}
+
+#[test]
+fn profile_grips_say_how_they_move() {
+    use crate::tools::PointShape;
+    let (mut e, _) = board_profile_editor();
+    let shape_at = |e: &Editor, p: DVec3| e.overlay_points().into_iter().find(|g| (g.at - p).length() < 1e-3).map(|g| g.shape);
+    // Kept: a corner a square, a side's middle a bar along the side.
+    assert_eq!(shape_at(&e, DVec3::new(600.0, 300.0, 0.0)), Some(PointShape::Square));
+    let Some(PointShape::Bar { along }) = shape_at(&e, DVec3::new(300.0, 0.0, 0.0)) else { panic!() };
+    assert!(along.normalize().cross(DVec3::X).length() < 1e-9 && along.length() > 1.0, "{along}");
+    let Some(PointShape::Bar { along }) = shape_at(&e, DVec3::new(600.0, 150.0, 0.0)) else { panic!() };
+    assert!(along.normalize().cross(DVec3::Y).length() < 1e-9, "{along}");
+    // Free: round.
+    key(&mut e, Key::Copy);
+    assert_eq!(shape_at(&e, DVec3::new(600.0, 300.0, 0.0)), Some(PointShape::Round));
+    assert_eq!(shape_at(&e, DVec3::new(300.0, 0.0, 0.0)), Some(PointShape::Round));
 }
 
 #[test]
@@ -3991,11 +4188,11 @@ fn profile_fillet_grip_rounds_a_corner_and_makes_it_sharp_again() {
 }
 
 #[test]
-fn profile_shows_on_the_cap_facing_the_eye_at_once() {
+fn profile_shows_where_it_lies_whatever_the_view() {
     let (e, _) = board_profile_editor();
-    // No cursor yet: seen from above, the top (z = 18).
+    // No cursor yet: seen from above too, on the bottom cap (z = 0), where the profile lies.
     let lines = e.preview().lines;
-    assert!(!lines.is_empty() && lines.iter().all(|l| (l.a.z - 18.0).abs() < 1e-9), "{:?}", lines.first());
+    assert!(!lines.is_empty() && lines.iter().all(|l| l.a.z.abs() < 1e-9), "{:?}", lines.first());
 }
 
 // ---- copy and paste (§6 decies) ---------------------------------------------------------

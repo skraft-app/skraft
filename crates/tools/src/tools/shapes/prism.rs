@@ -25,6 +25,17 @@
 //!   Clipper does), then the "Fillet" option (`5r`) rounds its corners between straight sides,
 //!   recorded as radii on them ([`profile::with_fillets`], made arcs by [`profile::rounded`]):
 //!   the outline drawn is dashed then, the one made solid.
+//!
+//! **Turning** (the « Tournage » tool, §6 undecies, [`PrismTool::turning`]): the axis first —
+//! two points, inferred as a line's (a typed length for the second) —, then the half profile,
+//! drawn as the outline above in the plane through the axis and its first point (inferred
+//! anywhere: on a face, an edge; over nothing, on the horizontal plane through the axis's
+//! start — the plane through the axis facing the eye when that one is seen edge on),
+//! locked from then on, on one side of the axis; closed by hand, it is turned a whole turn about the axis at once (no
+//! height). Before the first point, its radius from the axis is drawn dashed and measured,
+//! with the circle it turns along, faint. Its mirror across the axis is drawn dashed meanwhile. A profile across the axis is
+//! refused. The body's Z is the axis, its X towards the profile. Options: the fillet, the
+//! trace, reversed (no offset).
 
 use std::f64::consts::PI;
 
@@ -40,6 +51,9 @@ const TRACE: &str = "trace";
 const LINE: &str = "line";
 const TANGENT: &str = "tangent";
 const ARC: &str = "arc";
+/// Turning: how opaque (a share of the ink's) the circle the profile's first point turns along
+/// is drawn.
+const RADIUS_CIRCLE_ALPHA: f32 = 0.35;
 /// How near a placed corner (pixels) the cursor snaps to it.
 const CORNER_PX: f64 = 10.0;
 /// How near the foot of a placed corner (pixels) the cursor snaps to it (OCL's 30 px aperture,
@@ -89,6 +103,45 @@ pub struct PrismTool {
     closed_at: Option<DVec2>,
     /// The cursor resting on the last corner (SolidCraft's switch).
     rest: Rest,
+    /// Turning the outline about an axis rather than pulling it (§ module doc).
+    turning: bool,
+    /// Turning: the axis's first point (axes), then the axis.
+    axis_start: Option<DVec3>,
+    axis: Option<Axis>,
+    /// Turning, before the outline: the cursor's point (axes), and once the axis is set the
+    /// normal of the plane through it and that point.
+    aim: Option<DVec3>,
+    aim_n: Option<DVec3>,
+}
+
+/// The axis a half profile is turned about (axes): from `a` to `b` (`d` the unit way); `n`, the
+/// normal of the plane through it facing the eye when it was set (the profile's plane when its
+/// first point lies on the axis or over nothing).
+#[derive(Clone, Copy, Debug)]
+struct Axis {
+    a: DVec3,
+    b: DVec3,
+    d: DVec3,
+    n: DVec3,
+}
+
+impl Axis {
+    /// The normal of the plane through the axis and `q`, towards the eye along `ray`; the
+    /// facing plane's when `q` lies on the axis.
+    fn plane_through(&self, q: DVec3, ray: DVec3) -> DVec3 {
+        let off = q - self.a;
+        let off = off - self.d * off.dot(self.d);
+        if off.length() < MIN {
+            return self.n;
+        }
+        to_axis(facing(self.d.cross(off).normalize(), ray))
+    }
+
+    /// `p` mirrored across the axis, in its plane.
+    fn mirror(&self, p: DVec3) -> DVec3 {
+        let on = self.a + self.d * (p - self.a).dot(self.d);
+        on * 2.0 - p
+    }
 }
 
 /// Where the cursor has been against the last corner: away from it since it was placed (or
@@ -362,6 +415,177 @@ fn changed(cx: &Cx<'_>) -> bool {
 /// The middle of a profile's box (in its plane).
 fn middle(p: &[Corner]) -> DVec2 {
     profile::bounds(p).map_or(DVec2::ZERO, |(lo, hi)| (lo + hi) / 2.0)
+}
+
+impl PrismTool {
+    /// The « Tournage » tool: the outline turned about an axis (§6 undecies).
+    pub fn turning() -> PrismTool {
+        PrismTool { turning: true, ..PrismTool::default() }
+    }
+
+    /// Turning, before the outline: the point under `px` — the axis's first point, its second
+    /// (lines inferred through the first, the arrows locking one), or the profile's first
+    /// corner (anywhere; over nothing, on the plane through the axis facing the eye) with the
+    /// plane through the axis and it.
+    fn aim_at(&mut self, cx: &Cx<'_>, px: DVec2) {
+        let inf = match (self.axis_start, self.axis) {
+            // Over nothing, on the horizontal plane through the axis's start (the context's
+            // XY); seen edge on, the plane through the axis facing the eye.
+            (_, Some(ax)) => {
+                let (a, lock) = (cx.to_world(ax.a), cx.lock());
+                let level = cx.axis(2);
+                let edge_on = cx.ray(px).dir.dot(level).abs() < EDGE_ON;
+                let plane = if edge_on { (a, dir_to_world(cx, ax.n)) } else { (a, level) };
+                cx.infer_from(px, |_| true, Some(plane), a, lock)
+            }
+            (Some(a), None) => cx.infer_from(px, |_| true, None, cx.to_world(a), cx.lock()),
+            (None, None) => cx.infer(px, |_| true, None),
+        };
+        let Some(inf) = inf else { return };
+        let q = cx.to_axes(inf.point);
+        self.aim = Some(q);
+        self.aim_n = self.axis.map(|ax| ax.plane_through(q, cx.axes_ray(px).dir));
+        self.snap = Some(inf).filter(|i| i.kind != InferKind::OnPlane);
+    }
+
+    /// Turning: the axis from `a` to `b`, its plane facing the eye along `ray` (axes); none
+    /// when too short.
+    fn set_axis(&mut self, a: DVec3, b: DVec3, ray: DVec3) -> Vec<Command> {
+        let Some(d) = (b - a).try_normalize().filter(|_| a.distance(b) >= MIN) else { return vec![] };
+        // The plane through the axis most square to the eye; seen along the axis, any.
+        let n = (ray - d * ray.dot(d)).try_normalize().map_or_else(|| d.any_orthonormal_vector(), |n| facing(n, ray));
+        self.axis = Some(Axis { a, b, d, n: to_axis(n) });
+        self.snap = None;
+        vec![Command::ClearLocks]
+    }
+
+    /// Turning: what the input does before the outline (§ module doc).
+    fn input_axis(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
+        let blocked = self.closed_at.is_some();
+        match input {
+            ToolInput::Hover { px } => self.aim_at(cx, *px),
+            // The second click (and the double-click) of the one that closed the last profile.
+            ToolInput::Click { .. } | ToolInput::DoubleClick { .. } if blocked => {}
+            ToolInput::Click { px, .. } => {
+                self.aim_at(cx, *px);
+                let Some(p) = self.aim else { return vec![] };
+                return self.placed(p, cx.axes_ray(*px).dir);
+            }
+            // The axis's length, along the cursor's way.
+            ToolInput::Value(VcbValue::Lengths(v)) => {
+                if let (Some(a), None, Some(p)) = (self.axis_start, self.axis, self.aim)
+                    && let Some(d) = (p - a).try_normalize()
+                {
+                    return self.set_axis(a, a + d * v[0], self.eye_at(cx, p));
+                }
+            }
+            ToolInput::Value(VcbValue::Point(w)) => {
+                let q = cx.to_axes(*w);
+                let ray = self.eye_at(cx, q);
+                self.aim_n = self.axis.map(|ax| ax.plane_through(q, ray));
+                return self.placed(q, ray);
+            }
+            _ => {}
+        }
+        vec![]
+    }
+
+    /// The eye's way towards `p` (axes).
+    fn eye_at(&self, cx: &Cx<'_>, p: DVec3) -> DVec3 {
+        cx.axes_ray(cx.camera.project(cx.to_world(p), cx.size).unwrap_or(cx.size / 2.0)).dir
+    }
+
+    /// Turning: a point placed before the outline, `ray` the eye's way there.
+    fn placed(&mut self, p: DVec3, ray: DVec3) -> Vec<Command> {
+        match (self.axis_start, self.axis) {
+            (None, _) => {
+                self.axis_start = Some(p);
+                self.snap = None;
+                vec![Command::ClearLocks]
+            }
+            (Some(a), None) => self.set_axis(a, p, ray),
+            (_, Some(ax)) => {
+                let n = self.aim_n.unwrap_or(ax.n);
+                self.state = State::Corners(Corners::new(p, n, Some(n), None));
+                self.mode = Mode::Line;
+                self.rest = Rest::default();
+                self.cursor = None;
+                self.snap = None;
+                vec![Command::ClearLocks]
+            }
+        }
+    }
+
+    /// Turning: the outline just closed (in the height's state) turned about the axis, or back
+    /// to its corners with a word when it crosses the axis.
+    fn turned(&mut self, cx: &Cx<'_>) -> Vec<Command> {
+        let State::Height { corners, f, profile: outline, .. } = std::mem::take(&mut self.state) else { return vec![] };
+        let Some(ax) = self.axis else { return vec![] };
+        let refuse = |me: &mut PrismTool, corners: Corners| {
+            me.state = State::Corners(corners);
+            vec![Command::Say(t!("tool.turn.say.across"))]
+        };
+        // The body's axes: Z along the axis, X towards the profile (its middle off the axis).
+        let pts: Vec<DVec3> = outline.iter().map(|c| at3(&f, c.p)).collect();
+        let centre = pts.iter().sum::<DVec3>() / pts.len() as f64;
+        let off = centre - ax.a;
+        let Some(x) = (off - ax.d * off.dot(ax.d)).try_normalize() else { return refuse(self, corners) };
+        let (z, y) = (ax.d, ax.d.cross(x));
+        // Arcs turn the same way in the body's XZ plane as in the drawing's when its normal is
+        // the body's −Y (X × Z).
+        let way = if f.n.dot(-y) >= 0.0 { 1.0 } else { -1.0 };
+        let half: Vec<Corner> = outline
+            .iter()
+            .zip(&pts)
+            .map(|(c, q)| {
+                let l = *q - ax.a;
+                let r = l.dot(x);
+                Corner { p: DVec2::new(if r.abs() < ON { 0.0 } else { r }, l.dot(z)), bulge: c.bulge * way, ..*c }
+            })
+            .collect();
+        let half = profile::with_fillets(&half, cx.length(FILLET));
+        if !profile::is_turnable(&half) {
+            return refuse(self, corners);
+        }
+        self.state = State::First;
+        self.axis_start = None;
+        self.axis = None;
+        self.aim = None;
+        self.aim_n = None;
+        let placement = DAffine3::from_cols(x, y, z, ax.a);
+        vec![Command::Apply(cx.add_primitive(Primitive::Revolution { origin: DVec3::ZERO, profile: half }, placement))]
+    }
+
+    /// Turning: the axis drawn as a guide line, endless (its two points marked), and the
+    /// outline's sides `drawn` mirrored across it, dashed.
+    fn preview_axis(
+        &self,
+        cx: &Cx<'_>,
+        lines: &mut Vec<PreviewLine>,
+        points: &mut Vec<PreviewPoint>,
+        guides: &mut Vec<(crate::guides::Stroke, [f32; 4])>,
+        drawn: &[(DVec3, DVec3)],
+    ) {
+        let (a, b) = match (self.axis, self.axis_start, self.aim) {
+            (Some(ax), _, _) => (ax.a, ax.b),
+            (None, Some(a), Some(p)) => (a, p),
+            (None, Some(a), None) => (a, a),
+            (None, None, _) => return,
+        };
+        let color = axis_color(b - a).unwrap_or(INK);
+        if let Some(dir) = (cx.to_world(b) - cx.to_world(a)).try_normalize() {
+            let shape = GuideShape::Line { origin: cx.to_world(a), dir };
+            guides.extend(crate::guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, color)));
+        }
+        for p in [a, b] {
+            points.push(PreviewPoint { at: cx.to_world(p), radius: 3.0, fill: Some(color), stroke: None, shape: PointShape::Round });
+        }
+        if let Some(ax) = self.axis {
+            for (p, q) in drawn {
+                dashed(cx.camera, cx.size, lines, cx.to_world(ax.mirror(*p)), cx.to_world(ax.mirror(*q)), INK);
+            }
+        }
+    }
 }
 
 impl PrismTool {
@@ -743,12 +967,9 @@ impl PrismTool {
     }
 }
 
-impl Tool for PrismTool {
-    fn kind(&self) -> ToolKind {
-        ToolKind::Prism
-    }
-
-    fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
+impl PrismTool {
+    /// [`Tool::input`] for the outline and the height (the prism's).
+    fn input_pulled(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         self.pull_centered = cx.toggle(PULL_CENTERED);
         self.reversed = cx.toggle(REVERSED);
         // Moved away from where the outline was closed.
@@ -878,6 +1099,32 @@ impl Tool for PrismTool {
         }
         vec![]
     }
+}
+
+impl Tool for PrismTool {
+    fn kind(&self) -> ToolKind {
+        if self.turning { ToolKind::Turn } else { ToolKind::Prism }
+    }
+
+    fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
+        if !self.turning {
+            return self.input_pulled(input, cx);
+        }
+        if let ToolInput::Hover { px } = input
+            && self.closed_at.is_some_and(|c| c.distance(*px) > 0.5)
+        {
+            self.closed_at = None;
+        }
+        if matches!(self.state, State::First) {
+            return self.input_axis(input, cx);
+        }
+        let mut commands = self.input_pulled(input, cx);
+        // Closed: turned at once.
+        if matches!(self.state, State::Height { .. }) {
+            commands.extend(self.turned(cx));
+        }
+        commands
+    }
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut lines = Vec::new();
@@ -886,9 +1133,32 @@ impl Tool for PrismTool {
         let mut points = Vec::new();
         let mut inference = self.snap.clone();
         let mut tip = None;
+        let mut guides = Vec::new();
         let corner = |p: DVec3, shape| PreviewPoint { at: cx.to_world(p), radius: 4.0, fill: Some(INK), stroke: None, shape };
         let pairs = |pts: Vec<DVec3>| pts.windows(2).map(|w| (w[0], w[1])).collect::<Vec<_>>();
         match &self.state {
+            State::First if self.turning => {
+                self.preview_axis(cx, &mut lines, &mut points, &mut guides, &[]);
+                if let (Some(a), None, Some(p)) = (self.axis_start, self.axis, self.aim) {
+                    label(cx, &mut labels, a, p, axis_color(p - a).unwrap_or(INK), Some(0));
+                }
+                if let Some(p) = self.aim.filter(|_| snapped(&inference)) {
+                    mark(cx, &mut marks, p);
+                }
+                // The profile's first point: its radius from the axis, dashed and measured, and
+                // the circle it turns along, faint.
+                if let (Some(ax), Some(p)) = (self.axis, self.aim) {
+                    let foot = ax.a + ax.d * (p - ax.a).dot(ax.d);
+                    dashed(cx.camera, cx.size, &mut lines, cx.to_world(foot), cx.to_world(p), INK);
+                    label(cx, &mut labels, foot, p, INK, None);
+                    let (c, w) = (cx.to_world(foot), cx.to_world(p));
+                    if let Some(normal) = (cx.to_world(foot + ax.d) - c).try_normalize().filter(|_| c.distance(w) >= MIN) {
+                        let faint = [INK[0], INK[1], INK[2], INK[3] * RADIUS_CIRCLE_ALPHA];
+                        let circle = GuideShape::Circle { center: c, normal, radius: c.distance(w) };
+                        guides.extend(crate::guides::strokes(cx.camera, cx.size, &circle).into_iter().map(|s| (s, faint)));
+                    }
+                }
+            }
             State::First => {
                 inference = self.first.inference();
                 if let Some(s) = &self.first.at {
@@ -1049,11 +1319,43 @@ impl Tool for PrismTool {
                 label(cx, &mut labels, f.at(e.extend(z0)), f.at(e.extend(z1)), BLUE, Some(0));
             }
         }
-        Preview { lines, labels, marks, points, inference, tip, ..Default::default() }
+        // Turning: the axis, and the outline's mirror (its sides, and the side to the cursor).
+        if self.turning
+            && let State::Corners(c) = &self.state
+        {
+            let f = c.frame();
+            let k = c.along.len();
+            let mut drawn: Vec<(DVec3, DVec3)> =
+                (0..k - 1).flat_map(|i| pairs(side_points(&f, c.along[i], c.mids[i], c.along[i + 1]))).collect();
+            // The side to the cursor and the closing one, as drawn above: the mirror closed.
+            if let Some(cur) = self.cursor.filter(|_| c.pending.is_none()) {
+                let (a, to) = (c.anchor(self.reversed), c.other_end(self.reversed));
+                let (from, mid) = match cur.on_corner {
+                    Some(_) if self.mode == Mode::Tangent => (a, cur.mid),
+                    Some(_) => (a, None),
+                    None => {
+                        drawn.extend(pairs(side_points(&f, a, cur.mid, cur.p)));
+                        (cur.p, None)
+                    }
+                };
+                if from.distance(to) >= MIN {
+                    drawn.extend(pairs(side_points(&f, from, mid, to)));
+                }
+            } else if k >= 2 {
+                drawn.extend(pairs(side_points(&f, c.along[k - 1], None, c.along[0])));
+            }
+            self.preview_axis(cx, &mut lines, &mut points, &mut guides, &drawn);
+        }
+        Preview { lines, labels, marks, points, inference, tip, guides, ..Default::default() }
     }
 
     fn status(&self) -> String {
         match &self.state {
+            State::First if self.turning => match (self.axis_start, self.axis) {
+                (None, _) => t!("tool.turn.hint.axis_start"),
+                (Some(_), None) => t!("tool.turn.hint.axis_end"),
+                (_, Some(_)) => t!("tool.turn.hint.first"),
+            },
             State::First => t!("tool.prism.hint.first", copy_key = copy_key(), alt_key = alt_key()),
             State::Corners(c) if c.pending.is_some() => t!("tool.prism.hint.bulge"),
             State::Corners(_) if self.mode == Mode::Tangent => t!("tool.prism.hint.tangent", copy_key = copy_key()),
@@ -1065,6 +1367,12 @@ impl Tool for PrismTool {
 
     fn vcb(&self) -> Option<Vcb> {
         match &self.state {
+            State::First if self.turning => match (self.axis_start, self.axis, self.aim) {
+                (Some(a), None, aim) => {
+                    Some(Vcb::new(t!("tool.turn.vcb.axis"), VcbKind::Lengths(vec![aim.map_or(0.0, |p| p.distance(a))])))
+                }
+                _ => None,
+            },
             State::First => self.first.vcb(),
             State::Corners(c) => {
                 let a = c.anchor(self.reversed);
@@ -1089,7 +1397,7 @@ impl Tool for PrismTool {
     }
 
     fn busy(&self) -> bool {
-        !matches!(self.state, State::First)
+        !matches!(self.state, State::First) || self.axis_start.is_some()
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
@@ -1116,6 +1424,9 @@ impl Tool for PrismTool {
             true,
             "measure_reversed",
         );
+        if self.turning {
+            return vec![fillet_option(cx), trace, reversed];
+        }
         [offset_option(cx), fillet_option(cx), trace, reversed].into_iter().chain(shared_options(cx, &self.first)).collect()
     }
 
@@ -1143,7 +1454,7 @@ impl Tool for PrismTool {
     }
 
     fn down_locks_face(&self) -> bool {
-        matches!(self.state, State::First)
+        !self.turning && matches!(self.state, State::First)
     }
 
     fn waiting(&self) -> bool {
@@ -1152,6 +1463,7 @@ impl Tool for PrismTool {
 
     fn length_suffix(&self, suffix: char) -> Option<&'static str> {
         match suffix {
+            'x' if self.turning => None,
             'x' => Some(OFFSET),
             'r' => Some(FILLET),
             _ => None,
@@ -1160,6 +1472,8 @@ impl Tool for PrismTool {
 
     fn leave(&mut self) {
         self.first.leave();
+        self.aim = None;
+        self.aim_n = None;
         self.cursor = None;
         self.snap = None;
         self.rest.since = None;
@@ -1179,7 +1493,13 @@ impl Tool for PrismTool {
                     State::First
                 }
             }
-            State::First => State::First,
+            // Turning: the axis taken back, its end first.
+            State::First => {
+                if self.axis.take().is_none() {
+                    self.axis_start = None;
+                }
+                State::First
+            }
         };
         self.cursor = None;
         self.snap = None;
@@ -1187,6 +1507,10 @@ impl Tool for PrismTool {
 
     fn reset(&mut self) {
         self.state = State::First;
+        self.axis_start = None;
+        self.axis = None;
+        self.aim = None;
+        self.aim_n = None;
         self.cursor = None;
         self.snap = None;
         self.mode = Mode::Line;

@@ -1,5 +1,5 @@
 //! Planar profiles: the outline of a [`crate::Primitive::Prism`] (docs/ARCHITECTURE.md
-//! §6 nonies), a closed loop of lines and arcs in its XY plane. Each [`Corner`] carries the
+//! §6 nonies) or the half profile of a [`crate::Primitive::Revolution`] (§6 undecies), a closed loop of lines and arcs in its XY plane. Each [`Corner`] carries the
 //! bulge of the side leaving it, as DXF's LWPOLYLINE: the sides' ends are shared, so the
 //! outline cannot open. Here: the sides, the area, the clean-up, the checks the drawing tool
 //! makes before the kernel does, the box, the offset, the fillets, and points along it for
@@ -392,6 +392,13 @@ pub fn is_simple(p: &[Corner]) -> bool {
         }
     }
     true
+}
+
+/// Can the half profile `p` be turned about its Y axis (a revolution's, §6 undecies): a simple
+/// outline, its fillets made arcs, all on the side of positive X (touching the axis or not)?
+pub fn is_turnable(p: &[Corner]) -> bool {
+    let r = rounded(p);
+    is_simple(&r) && bounds(&r).is_some_and(|(lo, _)| lo.x >= -SAME)
 }
 
 /// The box around the outline, its arcs' furthest points included.

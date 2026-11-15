@@ -1,7 +1,8 @@
 //! Profile: edits the profile of a body of the open part (docs/ARCHITECTURE.md §6 nonies,
 //! §2.11), in that body's axes: the one double-clicked (in Select or here, while the bodies
 //! show), else its first profiled positive body.
-//! The outline is drawn on the cap facing the eye with grips — its corners, its arcs' middles,
+//! The outline is drawn where the profile lies — an extrusion's bottom cap (its `z0`), a turned
+//! body's XZ plane — whatever the view, with grips — its corners, its arcs' middles,
 //! its straight sides' middles (to insert a corner). The thickness is the Stretch tool's (along
 //! the body's Z, §2.11). A grip is taken by a click and dropped by another (SketchUp's Move; a drag works too), Esc
 //! dropping the gesture; each gesture is one `Operation::SetProfile`, under the open part's
@@ -12,9 +13,10 @@
 //!   two sides translated through it, the corners beyond sliding along their sides (a rectangle
 //!   stays one); a straight side's middle moves that side across itself, its neighbours
 //!   extended. Typed: a distance along the move, or a point.
+//!   Its grips say so: a corner's a square, a straight side's middle a bar along the side.
 //! - Free, the copy modifier tapped (before or during the gesture, dropped once done): a corner
 //!   moves alone, its sides following; a side's middle inserts a corner there, which moves
-//!   alone.
+//!   alone. Their grips are round.
 //! - Either way the arcs are fitted again as they lay ([`profile::rearced`]): a half circle
 //!   between parallel sides stays tangent to both, an arc tangent to a straight side stays so,
 //!   any other keeps its sagitta. A whole circle (a cylinder's) has a single grip, its radius.
@@ -27,6 +29,12 @@
 //! - Delete over a corner takes it away.
 //!
 //! An outline that would cross itself is refused, said in the status bar.
+//!
+//! A turned body's half profile (§6 undecies) is edited the same way in its XZ plane, with two
+//! rules: a corner or a side
+//! is stopped on the axis, never beyond it; a corner on the axis slides along it, and a side
+//! lying on the axis stays there (no grip across it unless free). An arc bulging across the
+//! axis is refused.
 
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
@@ -69,9 +77,6 @@ enum Grip {
 #[derive(Default)]
 pub struct ProfileTool {
     state: State,
-    /// The cap the outline is drawn on while a grip is taken: the top (z0 + height) or the
-    /// bottom (z0). Otherwise the cap facing the eye ([`ProfileTool::cap`]).
-    top: bool,
     snap: Option<Inference>,
     /// Free moves (the copy modifier tapped): a corner alone, a corner inserted in a side.
     free: bool,
@@ -80,6 +85,9 @@ pub struct ProfileTool {
     /// The body whose profile is edited; none: the open part's first profiled positive body.
     body: Option<Id>,
 }
+
+/// How near the axis (mm) a turned profile's corner lies on it.
+const ON_AXIS: f64 = 1e-6;
 
 #[derive(Default, Clone)]
 enum State {
@@ -105,14 +113,30 @@ fn open(cx: &Cx<'_>, body: Option<Id>) -> Option<(EntityPath, Id, BodyProfile, D
     Some((path, b.id, part.profile_of(b)?.clone(), b.placement))
 }
 
+/// The frame the profile is edited in (in the part's axes): the body's, for a turned body its
+/// XZ plane made the frame's XY (the profile's `(x, y)` its `(x, z)`).
+fn edit_frame(b: &BodyProfile, placement: DAffine3) -> DAffine3 {
+    if !b.is_turned() {
+        return placement;
+    }
+    placement * DAffine3::from_cols(DVec3::X, DVec3::Z, DVec3::NEG_Y, DVec3::ZERO)
+}
+
+/// Do the corners `i` and `i + 1` of a turned profile both lie on the axis (the side between
+/// them on it)?
+fn on_axis_side(b: &BodyProfile, i: usize) -> bool {
+    let n = b.profile.len();
+    b.is_turned() && b.profile[i].p.x.abs() < ON_AXIS && b.profile[(i + 1) % n].p.x.abs() < ON_AXIS && b.profile[i].bulge == 0.0
+}
+
 /// `cx` with its axes moved by `t` (in them): the tools' frame becomes a body's.
 fn framed<'a>(cx: &Cx<'a>, t: DAffine3) -> Cx<'a> {
     Cx { axes_in_context: cx.axes_in_context * t, ..cx.clone() }
 }
 
-/// The height of the cap in use.
-fn cap_z(b: &BodyProfile, top: bool) -> f64 {
-    if top { b.z0 + b.height } else { b.z0 }
+/// The height the profile lies at: an extrusion's bottom cap (0 in a turned body's frame).
+fn base_z(b: &BodyProfile) -> f64 {
+    b.extrusion().map_or(0.0, |(z0, _)| z0)
 }
 
 /// Is the fillet of the corner `i` made (a radius that fits)?
@@ -122,8 +146,8 @@ fn rounded_at(b: &BodyProfile, i: usize) -> bool {
 }
 
 /// Where a grip is (axes); a sharp corner's fillet grip `inset` inside it.
-fn grip_at(b: &BodyProfile, top: bool, g: Grip, inset: f64) -> DVec3 {
-    let z = cap_z(b, top);
+fn grip_at(b: &BodyProfile, g: Grip, inset: f64) -> DVec3 {
+    let z = base_z(b);
     let n = b.profile.len();
     match g {
         Grip::Corner(i) => b.profile[i].p.extend(z),
@@ -202,9 +226,9 @@ fn removed(b: &BodyProfile, i: usize) -> BodyProfile {
 }
 
 /// How far inside a sharp corner its fillet grip shows, at this zoom (axes).
-fn inset(cx: &Cx<'_>, b: &BodyProfile, top: bool) -> f64 {
+fn inset(cx: &Cx<'_>, b: &BodyProfile) -> f64 {
     let (lo, hi) = profile::bounds(&b.outline()).unwrap_or_default();
-    cx.camera.world_per_pixel(cx.size, cx.to_world(((lo + hi) / 2.0).extend(cap_z(b, top)))) * FILLET_INSET_PX
+    cx.camera.world_per_pixel(cx.size, cx.to_world(((lo + hi) / 2.0).extend(base_z(b)))) * FILLET_INSET_PX
 }
 
 impl ProfileTool {
@@ -234,6 +258,36 @@ impl ProfileTool {
     /// `base` with the grip `grip` brought to `q` (axes, on the cap): a corner alone (free) or
     /// with its sides keeping their direction, a side across itself from `from`.
     fn placed(&self, grip: Grip, from: DVec3, base: &BodyProfile, q: DVec2) -> Option<BodyProfile> {
+        if !base.is_turned() {
+            return self.placed_anywhere(grip, from, base, q);
+        }
+        // A turned profile: a corner on the axis slides along it; a side on it stays.
+        let mut q = q;
+        match (grip, self.lone(grip)) {
+            (_, Some(i)) | (Grip::Corner(i), None) if base.profile[i].p.x.abs() < ON_AXIS => q.x = 0.0,
+            (Grip::Side(i), None) if on_axis_side(base, i) => return None,
+            _ => {}
+        }
+        let turnable = |b: &BodyProfile| profile::is_turnable(&b.profile);
+        if let Some(b) = self.placed_anywhere(grip, from, base, q).filter(turnable) {
+            return Some(b);
+        }
+        // Across the axis: stopped on it, as far along the move as it stays on its side.
+        let o = from.truncate();
+        let (mut lo, mut hi) = (0.0, 1.0);
+        for _ in 0..40 {
+            let m = (lo + hi) / 2.0;
+            if self.placed_anywhere(grip, from, base, o + (q - o) * m).is_some_and(|b| turnable(&b)) {
+                lo = m;
+            } else {
+                hi = m;
+            }
+        }
+        self.placed_anywhere(grip, from, base, o + (q - o) * lo).filter(turnable)
+    }
+
+    /// [`ProfileTool::placed`], whatever the axis.
+    fn placed_anywhere(&self, grip: Grip, from: DVec3, base: &BodyProfile, q: DVec2) -> Option<BodyProfile> {
         let profile = match (grip, self.lone(grip)) {
             (_, Some(i)) => {
                 let mut p = base.profile.clone();
@@ -255,7 +309,7 @@ impl ProfileTool {
     /// The length the grip taken changes, as the measurements box takes it ([`Tool::vcb`]):
     /// the way a corner or a side went (dashed), an arc's bulge, a fillet's or a circle's
     /// radius. `b` is the profile now.
-    fn labels(&self, cx: &Cx<'_>, b: &BodyProfile, top: bool, inset: f64, lines: &mut Vec<PreviewLine>) -> Vec<PreviewLabel> {
+    fn labels(&self, cx: &Cx<'_>, b: &BodyProfile, inset: f64, lines: &mut Vec<PreviewLine>) -> Vec<PreviewLabel> {
         let State::Moving { grip, from, px, .. } = &self.state else { return Vec::new() };
         let px = *px;
         let label = |a: DVec3, c: DVec3, color| {
@@ -263,7 +317,7 @@ impl ProfileTool {
             let text = vcb::format(len, cx.units());
             PreviewLabel { a: cx.to_world(a), b: cx.to_world(c), text, color, slot: Some(0), hidden: len < MIN, ..Default::default() }
         };
-        let (p, z) = (&b.profile, cap_z(b, top));
+        let (p, z) = (&b.profile, base_z(b));
         let n = p.len();
         let label = match *grip {
             Grip::Corner(_) | Grip::Side(_) => {
@@ -288,7 +342,7 @@ impl ProfileTool {
                 let toward = px
                     .and_then(|px| cx.axes_ray(px).hit_plane(DVec3::new(0.0, 0.0, z), DVec3::Z))
                     .and_then(|q| (q.truncate() - c).try_normalize());
-                let to = toward.map_or(grip_at(b, top, Grip::Radius, inset), |u| (c + u * r).extend(z));
+                let to = toward.map_or(grip_at(b, Grip::Radius, inset), |u| (c + u * r).extend(z));
                 dashed(cx.camera, cx.size, lines, cx.to_world(c.extend(z)), cx.to_world(to), INK);
                 label(c.extend(z), to, INK)
             }
@@ -299,25 +353,22 @@ impl ProfileTool {
     fn grip_now(&self, grip: Grip, now: &BodyProfile, z: f64) -> DVec3 {
         match (grip, self.lone(grip)) {
             (_, Some(i)) => now.profile[i].p.extend(z),
-            (g, None) => grip_at(now, self.top, g, self.inset),
+            (g, None) => grip_at(now, g, self.inset),
         }
     }
 
-    /// The cap the outline is drawn on: the one the gesture under way took, else the one facing
-    /// the eye now — the view's middle looking down the part's Z sees its top — from the very
-    /// first frame, whatever the cursor.
-    fn cap(&self, cx: &Cx<'_>) -> bool {
-        match self.state {
-            State::Moving { .. } => self.top,
-            _ => cx.axes_ray(cx.size / 2.0).dir.z <= 0.0,
-        }
+    /// The grips shown: a side lying on a turned profile's axis has none, unless free.
+    fn grips_of(&self, b: &BodyProfile) -> Vec<Grip> {
+        let mut out = grips(b, self.hovered());
+        out.retain(|g| !matches!(g, Grip::Side(i) if !self.free && on_axis_side(b, *i)));
+        out
     }
 
     /// The grip under `px`, the nearest within reach.
     fn grip_under(&self, cx: &Cx<'_>, b: &BodyProfile, px: DVec2) -> Option<Grip> {
-        grips(b, self.hovered())
+        self.grips_of(b)
             .into_iter()
-            .filter_map(|g| Some((g, cx.camera.project(cx.to_world(grip_at(b, self.cap(cx), g, self.inset)), cx.size)?.distance(px))))
+            .filter_map(|g| Some((g, cx.camera.project(cx.to_world(grip_at(b, g, self.inset)), cx.size)?.distance(px))))
             .filter(|(_, d)| *d <= GRIP_PX)
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(g, _)| g)
@@ -325,7 +376,7 @@ impl ProfileTool {
 
     /// The profile with the grip moved by the cursor at `px`, and what it snapped to.
     fn moved(&self, cx: &Cx<'_>, px: DVec2, grip: Grip, from: DVec3, base: &BodyProfile) -> Option<(BodyProfile, Option<Inference>)> {
-        let z = cap_z(base, self.top);
+        let z = base_z(base);
         let n = base.profile.len();
         match grip {
             Grip::Corner(_) | Grip::Side(_) | Grip::Radius => {
@@ -390,7 +441,7 @@ impl ProfileTool {
             Grip::Side(i) if self.free => inserted(b, i),
             _ => b.clone(),
         };
-        let from = self.grip_now(grip, &base, cap_z(&base, self.top));
+        let from = self.grip_now(grip, &base, base_z(&base));
         self.state = State::Moving { grip, from, now: base.clone(), base, drag, world: (DVec3::ZERO, DVec3::ZERO), px: None };
     }
 
@@ -424,9 +475,7 @@ impl ProfileTool {
 impl ProfileTool {
     /// [`Tool::input`], `cx` in the body's axes.
     fn input_in(&mut self, input: &ToolInput, cx: &Cx<'_>, b: BodyProfile) -> Vec<Command> {
-        // The cap facing the eye, kept while a grip is taken.
-        self.top = self.cap(cx);
-        self.inset = inset(cx, &b, self.top);
+        self.inset = inset(cx, &b);
         match (input, self.state.clone()) {
             (ToolInput::Key { key: Key::Copy, .. }, state) => {
                 self.free = !self.free;
@@ -511,7 +560,7 @@ impl ProfileTool {
         let mut lines = Vec::new();
         let mut points = Vec::new();
         let line = |a: DVec3, c: DVec3, color| PreviewLine { a: cx.to_world(a), b: cx.to_world(c), color, bold: false };
-        // The outline on the cap (its fillets made arcs), and on the other one with the sides
+        // The outline where it lies (its fillets made arcs), and on the top cap with the sides
         // while moving.
         let outline = b.outline();
         let ring = |z: f64| {
@@ -519,16 +568,18 @@ impl ProfileTool {
             let n = pts.len();
             (0..n).map(move |i| (pts[i].extend(z), pts[(i + 1) % n].extend(z))).collect::<Vec<_>>()
         };
-        let top = self.cap(cx);
-        let z = cap_z(&b, top);
+        let z = base_z(&b);
         lines.extend(ring(z).into_iter().map(|(a, c)| PreviewLine { bold: true, ..line(a, c, PICK) }));
-        if grip.is_some() {
-            let other = cap_z(&b, !top);
+        // While moving, an extrusion's top cap and sides too.
+        if let (Some(_), Some((z0, height))) = (grip, b.extrusion()) {
+            let other = z0 + height;
             lines.extend(ring(other).into_iter().map(|(a, c)| line(a, c, PICK)));
             lines.extend(outline.iter().map(|c| line(c.p.extend(z), c.p.extend(other), PICK)));
-            // Where it was: the outline as it is, dashed.
+        }
+        // While moving, where it was: the outline as it is, dashed.
+        if grip.is_some() {
             for (a, c) in profile::sample(&part.outline(), STEP).windows(2).map(|w| (w[0], w[1])) {
-                let zp = cap_z(&part, top);
+                let zp = base_z(&part);
                 dashed(cx.camera, cx.size, &mut lines, cx.to_world(a.extend(zp)), cx.to_world(c.extend(zp)), INK);
             }
         }
@@ -544,13 +595,20 @@ impl ProfileTool {
             }),
             State::Idle => None,
         };
-        let inset = inset(cx, &b, top);
-        for g in grips(&b, self.hovered()) {
-            let at = cx.to_world(grip_at(&b, top, g, inset));
+        let inset = inset(cx, &b);
+        for g in self.grips_of(&b) {
+            let at = cx.to_world(grip_at(&b, g, inset));
             let hot = over == Some(g);
+            // Free, a corner and a side's middle move alone: round; else a corner keeps its
+            // sides' lines (a square) and a side moves across itself (a bar along it).
             let (radius, shape, stroke) = match g {
-                Grip::Corner(_) => (5.0, PointShape::Round, INK),
-                Grip::Side(_) => (3.0, PointShape::Round, INK),
+                Grip::Corner(_) if self.free => (5.0, PointShape::Round, INK),
+                Grip::Side(_) if self.free => (3.0, PointShape::Round, INK),
+                Grip::Corner(_) => (4.0, PointShape::Square, INK),
+                Grip::Side(i) => {
+                    let (a, c) = (b.profile[i].p.extend(z), b.profile[(i + 1) % b.profile.len()].p.extend(z));
+                    (2.5, PointShape::Bar { along: (cx.to_world(c) - cx.to_world(a)) / 2.0 }, INK)
+                }
                 Grip::Bulge(_) => (5.0, PointShape::Diamond, MAGENTA),
                 Grip::Radius => (5.0, PointShape::Diamond, INK),
                 Grip::Fillet(_) => (4.0, PointShape::Round, MAGENTA),
@@ -564,7 +622,7 @@ impl ProfileTool {
                 shape,
             });
         }
-        let labels = self.labels(cx, &b, top, inset, &mut lines);
+        let labels = self.labels(cx, &b, inset, &mut lines);
         let tip = self.free.then(|| t!("tool.profile.free"));
         Preview { lines, points, labels, inference: self.snap.clone(), tip, hide_selection: true, ..Default::default() }
     }
@@ -586,12 +644,12 @@ impl Tool for ProfileTool {
             self.state = State::Idle;
             return vec![];
         };
-        self.input_in(input, &framed(cx, t), b)
+        self.input_in(input, &framed(cx, edit_frame(&b, t)), b)
     }
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let Some((_, _, b, t)) = open(cx, self.body) else { return Preview::default() };
-        self.preview_in(&framed(cx, t), b)
+        self.preview_in(&framed(cx, edit_frame(&b, t)), b)
     }
 
     fn status(&self) -> String {

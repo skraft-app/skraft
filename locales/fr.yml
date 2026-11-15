@@ -579,6 +579,16 @@ tool:
       tangent_tip: "Un arc tangent au côté précédent, jusqu'au point cliqué (ou revenir se poser sur le dernier point)"
       arc: "Arc 2 points"
       arc_tip: "Un arc libre : cliquer son extrémité, puis son bombé"
+  turn:
+    name: "Tournage"
+    hint:
+      axis_start: "Cliquer le premier point de l'axe de rotation · flèches : bloquer un axe"
+      axis_end: "Cliquer le second point de l'axe, ou taper sa longueur · flèches : bloquer un axe · Échap : reprendre le premier point"
+      first: "Cliquer le premier point du demi-profil : son plan passe par l'axe et ce point (dans le vide, pris à l'horizontale de l'axe) · Échap : reprendre l'axe"
+    vcb:
+      axis: "Axe"
+    say:
+      across: "Le demi-profil traverse l'axe : impossible de le tourner"
   move:
     name: "$t(common.move)"
     hint:
@@ -731,6 +741,7 @@ tool:
       overall: "Cote hors-tout"
       offset: "Décalage"
     say:
+      turned: "Bloqué : un corps tourné ne s'étire que le long de son axe"
       invalid_length: "Longueur invalide : %{value}"
       min_length: "%{value} est inférieure à la longueur minimale de %{min}"
       max_compression: "%{value} dépasse la compression maximale de %{max}"
@@ -893,6 +904,7 @@ error:
     no_such_face: "pas de telle face"
     no_bodies: "aucun corps désigné"
     last_positive: "une pièce garde au moins un brut"
+    turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"
     nothing_stretched: "aucun exemplaire à étirer"
     bad_behavior: "plans de coupe ou axes bloqués invalides"

@@ -174,6 +174,7 @@ fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.box" => ToolKind::Box,
         "tool.cylinder" => ToolKind::Cylinder,
         "tool.prism" => ToolKind::Prism,
+        "tool.turn" => ToolKind::Turn,
         "tool.move" => ToolKind::Move,
         "tool.rotate" => ToolKind::Rotate,
         "tool.paint" => ToolKind::Paint,

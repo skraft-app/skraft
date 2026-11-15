@@ -93,6 +93,9 @@ pub enum Refusal {
     BadProfile,
     /// A paste with nothing in it.
     NothingPasted,
+    /// A turned body stretched across its axis, or across an arc of its half profile (§6
+    /// undecies).
+    TurnedAcross,
 }
 
 /// A file that cannot be opened.
@@ -164,6 +167,7 @@ impl std::fmt::Display for Refusal {
             Refusal::BadBehavior => t!("error.model.bad_behavior"),
             Refusal::BadProfile => t!("error.model.bad_profile"),
             Refusal::NothingPasted => t!("error.model.nothing_pasted"),
+            Refusal::TurnedAcross => t!("error.model.turned_across"),
         })
     }
 }

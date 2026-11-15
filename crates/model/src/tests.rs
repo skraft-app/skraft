@@ -1643,6 +1643,62 @@ fn profile_of(doc: &Document, path: &EntityPath) -> Option<BodyProfile> {
 }
 
 #[test]
+fn a_turned_body_keeps_its_half_profile() {
+    use solidsketch_kernel::profile::polygon;
+    let v = glam::DVec2::new;
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    // A leg Ø 40 × 700 lying along X: turned about the body's Z, placed with its Z along X.
+    let half = polygon(&[v(0.0, 10.0), v(20.0, 10.0), v(20.0, 710.0), v(0.0, 710.0)]);
+    let lying = DAffine3::from_translation(DVec3::new(0.0, 100.0, 50.0)) * DAffine3::from_rotation_y(std::f64::consts::FRAC_PI_2);
+    let leg = h
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Revolution { origin: DVec3::ZERO, profile: half },
+            placement: lying,
+        })
+        .unwrap()
+        .created[0];
+    let path = EntityPath::root(leg);
+    // Its profile stands on its lowest height, turned.
+    let b = profile_of(h.document(), &path).unwrap();
+    assert!(b.is_turned() && b.extrusion().is_none());
+    assert_eq!(solidsketch_kernel::profile::bounds(&b.profile), Some((v(0.0, 0.0), v(20.0, 700.0))));
+    let world = |h: &History| {
+        let (_, part, t) = h.document().resolve_part(&path).unwrap();
+        let (lo, hi) = part.shape().bounds().unwrap();
+        let (a, b) = (t.transform_point3(lo), t.transform_point3(hi));
+        (a.min(b), a.max(b))
+    };
+    let (lo, hi) = world(&h);
+    assert!((lo - DVec3::new(10.0, 80.0, 30.0)).length() < 1e-6 && (hi - DVec3::new(710.0, 120.0, 70.0)).length() < 1e-6, "{lo} {hi}");
+
+    // Its profile set: thinner; across its axis, refused.
+    let body = h.document().resolve_part(&path).unwrap().1.profiled().unwrap().id;
+    let set = |profile| Operation::SetProfile { target: path.clone(), body, profile: BodyProfile::turned(profile), scope: Scope::All };
+    h.apply(set(polygon(&[v(0.0, 0.0), v(15.0, 0.0), v(15.0, 700.0), v(0.0, 700.0)]))).unwrap();
+    let (lo, hi) = world(&h);
+    assert!((lo.y - 85.0).abs() < 1e-6 && (hi.y - 115.0).abs() < 1e-6, "{lo} {hi}");
+    assert!(h.apply(set(polygon(&[v(-5.0, 0.0), v(15.0, 0.0), v(15.0, 700.0), v(-5.0, 700.0)]))).is_err());
+
+    // Stretched along its axis (the part's Z, the world's X): the half profile follows, still
+    // turned.
+    h.apply(stretch(h.document(), &path, DVec3::Z, vec![300.0], vec![0.0, 100.0], Scope::All)).unwrap();
+    let b = profile_of(h.document(), &path).unwrap();
+    assert!(b.is_turned());
+    assert_eq!(solidsketch_kernel::profile::bounds(&b.profile).unwrap().1, v(15.0, 800.0));
+    assert!((world(&h).1.x - 810.0).abs() < 1e-6, "{:?}", world(&h));
+    // Across its axis (the part's X), cut through: refused.
+    let e = h.apply(stretch(h.document(), &path, DVec3::X, vec![0.0], vec![0.0, 10.0], Scope::All)).unwrap_err();
+    assert!(matches!(e, Error::Invalid(Refusal::TurnedAcross)), "{e:?}");
+
+    // Saved and read back.
+    let json = h.document().to_json().unwrap();
+    assert!(json.contains("\"revolution\":\"whole\""));
+    assert_eq!(Document::from_json(&json).unwrap(), *h.document());
+}
+
+#[test]
 fn a_profile_is_kept_set_and_stretched() {
     use solidsketch_kernel::profile::{Corner, polygon};
     let mut h = History::new(Document::new());
@@ -1652,7 +1708,7 @@ fn a_profile_is_kept_set_and_stretched() {
     // The box's rectangle, at the part's origin (its lowest corner).
     let b = profile_of(h.document(), &path).unwrap();
     assert_eq!(solidsketch_kernel::profile::bounds(&b.profile), Some((glam::DVec2::ZERO, glam::DVec2::new(600.0, 300.0))));
-    assert_eq!((b.z0, b.height), (0.0, 18.0));
+    assert_eq!(b.extrusion(), Some((0.0, 18.0)));
 
     // A copy of it, then the profile set for all: an L, thicker.
     h.apply(Operation::Duplicate { context: root, entities: vec![board], transform: DAffine3::from_translation(DVec3::Y * 500.0) })
@@ -1665,7 +1721,7 @@ fn a_profile_is_kept_set_and_stretched() {
     let set = |profile: Vec<Corner>, height: f64, scope| Operation::SetProfile {
         target: path.clone(),
         body,
-        profile: BodyProfile { profile, z0: 0.0, height },
+        profile: BodyProfile::extruded(profile, 0.0, height),
         scope,
     };
     h.apply(set(l.clone(), 19.0, Scope::All)).unwrap();
@@ -2050,7 +2106,7 @@ fn a_placed_body_keeps_its_profile_in_its_own_axes() {
 
     // Its profile set again, in its own axes: the part stays stood up.
     let square = kernel::profile::polygon(&[(0.0, 0.0), (50.0, 0.0), (50.0, 50.0), (0.0, 50.0)].map(|(x, y)| glam::DVec2::new(x, y)));
-    let profile = BodyProfile { profile: square, z0: 0.0, height: 10.0 };
+    let profile = BodyProfile::extruded(square, 0.0, 10.0);
     h.apply(Operation::SetProfile { target: target.clone(), body: blank, profile, scope: Scope::All }).unwrap();
     let (lo, hi) = part_bounds(h.document(), &target);
     assert!(close(hi - lo, DVec3::new(50.0, 10.0, 50.0)), "{lo} {hi}");

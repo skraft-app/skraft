@@ -129,7 +129,7 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                 actions.push(Action::PartScope(values[i]));
             }
             // A shape drawn in it: a machining, or material added (§2.11).
-            if matches!(editor.tool_kind(), ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism) {
+            if matches!(editor.tool_kind(), ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn) {
                 group(ui, &t!("option_bar.body_sign"), &t!("option_bar.body_sign_tip"));
                 let sign = editor.body_sign();
                 let signs = [
