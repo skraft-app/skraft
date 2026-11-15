@@ -118,6 +118,15 @@ bodies, `Part = (∪ positives) − (∪ negatives)`.
   are kept with the shape (`Part::failed`, the same cache, saved with the file) for the
   interface to show. In the web worker a kernel panic still aborts the whole job (§7 ter): only
   failures SolidCore reports are isolated there.
+- **One kernel session** (2026-11-15): the recipe's steps (and `Task::UnionVolume`'s unions)
+  run in one SolidCore session, the shape read back to a record only at the end. A shape
+  between two steps may be one SolidCore writes to a record but refuses to read back — two
+  blanks touching along an edge only until a third fills the corner (« a sheet touching itself
+  along an edge »): step by step, the third blank failed for nothing. A boolean consumes the
+  shape, so a failing step is marked and the session starts again without it (one more
+  session per failure); should the final shape not go back to a record, the recipe runs step
+  by step as before (`recipe_stepwise`). Fewer conversions, too: one per input and one at the
+  end, instead of two per step.
 - Low level: the tool is **any B-rep**, placed in the part's frame, anchored at its origin.
   **Machining types** (hole, groove, mortise…) will come on top and generate that tool from
   their parameters.
