@@ -1,17 +1,26 @@
-//! Build script: on macOS, embeds an Info.plist in the executable.
+//! Build script: the executable's platform metadata.
 //!
-//! An unbundled executable has no `CFBundleName`, so macOS titles the app menu
-//! of the menu bar with the executable's file name (`solidsketch`). `NSBundle`
-//! also reads an Info.plist from the `__TEXT,__info_plist` section of the
-//! binary, which gives the app its display name without a `.app` bundle.
+//! - macOS: embeds an Info.plist in the executable. An unbundled executable has no
+//!   `CFBundleName`, so macOS titles the app menu of the menu bar with the executable's file
+//!   name (`solidsketch`). `NSBundle` also reads an Info.plist from the `__TEXT,__info_plist`
+//!   section of the binary, which gives the app its display name without a `.app` bundle (the
+//!   bundle the installer ships has its own, `packaging/macos/Info.plist`).
+//! - Windows: embeds the icon and the version resource the Explorer shows. Only when building
+//!   on Windows (the resource compiler is the Windows SDK's): a cross build from elsewhere has
+//!   no icon.
 
 use std::{env, fs, path::PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
-        return;
+    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("macos") => macos_info_plist(),
+        Ok("windows") => windows_resources(),
+        _ => {}
     }
+}
+
+fn macos_info_plist() {
     let version = env::var("CARGO_PKG_VERSION").unwrap_or_default();
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -37,4 +46,17 @@ fn main() {
     let path = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("Info.plist");
     fs::write(&path, plist).expect("write Info.plist");
     println!("cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{}", path.display());
+}
+
+#[cfg(windows)]
+fn windows_resources() {
+    println!("cargo:rerun-if-changed=assets/app-icon.ico");
+    let mut res = winresource::WindowsResource::new();
+    res.set_icon("assets/app-icon.ico").set("ProductName", "SolidSketch").set("FileDescription", "SolidSketch");
+    res.compile().expect("compile the Windows resources");
+}
+
+#[cfg(not(windows))]
+fn windows_resources() {
+    println!("cargo:warning=cross build for Windows: the executable has no icon (build on Windows for it)");
 }

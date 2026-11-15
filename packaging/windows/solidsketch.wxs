@@ -1,0 +1,26 @@
+<!--
+  The Windows installer (WiX 5, scripts/package-windows.sh): SolidSketch in Program Files, a
+  Start menu shortcut, an entry in Apps & features. A newer version replaces the installed one.
+  Variables: Version (x.y.z), ExeFile, IconFile.
+  The UpgradeCode identifies the product across versions: never change it.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="SolidSketch" Manufacturer="L'Air du Bois" Version="$(Version)" UpgradeCode="056EB52C-EBAB-4A03-BC5D-A5CD57A747C7" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of SolidSketch is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SolidSketch">
+        <Component>
+          <File Source="$(ExeFile)" Name="solidsketch.exe" KeyPath="yes">
+            <Shortcut Name="SolidSketch" Directory="ProgramMenuFolder" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" Advertise="no" />
+          </File>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>
