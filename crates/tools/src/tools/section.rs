@@ -3,6 +3,7 @@
 //! lies outside of it — towards the face's outside — is cut away from the view. The cut shows
 //! while the plane is being placed.
 
+use super::DragClicks;
 use glam::{DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::{Operation, Section};
@@ -164,6 +165,11 @@ impl Tool for SectionTool {
 
     fn vcb(&self) -> Option<Vcb> {
         self.placing.map(|p| Vcb::new(t!("tool.section.vcb.depth"), VcbKind::Lengths(vec![p.depth])))
+    }
+
+    /// A drag takes the face at the press, the depth at the release.
+    fn drag_clicks(&self) -> DragClicks {
+        if self.placing.is_none() { DragClicks::PressAndRelease } else { DragClicks::Release }
     }
 
     fn busy(&self) -> bool {

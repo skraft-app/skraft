@@ -2,6 +2,7 @@
 //! cursor — the whole selection when it is in it — or a single face of its part, with the
 //! current material (none: the paint is removed). The option says which.
 
+use super::DragClicks;
 use solidsketch_i18n::t;
 use solidsketch_model::{EntityPath, Operation};
 
@@ -87,6 +88,11 @@ impl Tool for PaintTool {
 
     fn status(&self) -> String {
         t!("tool.paint.hint")
+    }
+
+    /// A drag paints where it is released.
+    fn drag_clicks(&self) -> DragClicks {
+        DragClicks::Release
     }
 
     fn busy(&self) -> bool {

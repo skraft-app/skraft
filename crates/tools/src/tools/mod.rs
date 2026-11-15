@@ -782,6 +782,18 @@ pub fn guide_color(kind: InferKind) -> [f32; 4] {
     }
 }
 
+/// What a drag of the primary button is to a tool (§6, OpenCutList's SmartDraw).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragClicks {
+    /// A drag: [`ToolInput::DragStart`], [`ToolInput::Drag`], [`ToolInput::DragEnd`].
+    No,
+    /// Hovers, then a click where the button is released.
+    Release,
+    /// A click where the button went down, hovers, then a click where it is released (unless
+    /// released near the press).
+    PressAndRelease,
+}
+
 /// An interactive tool.
 pub trait Tool {
     fn kind(&self) -> ToolKind;
@@ -810,6 +822,10 @@ pub trait Tool {
     /// (the shape tools' drawing plane)?
     fn down_locks_face(&self) -> bool {
         false
+    }
+    /// What a drag starting now is to the tool: a drag, or clicks (the shape tools).
+    fn drag_clicks(&self) -> DragClicks {
+        DragClicks::No
     }
     /// The cursor left the view (off it, or over a panel): what follows it is hidden.
     fn leave(&mut self) {}

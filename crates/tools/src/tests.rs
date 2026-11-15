@@ -4773,3 +4773,98 @@ fn copy_along_a_grid_by_a_click_then_counts_and_sides() {
     e.undo();
     assert_eq!(occurrences(&e), 1);
 }
+
+/// Drags a shape tool's button from `a` to `b` (world points, seen from the top), the cursor
+/// moving on the way as the viewport sends it.
+fn drag_tool(e: &mut Editor, a: DVec3, b: DVec3) {
+    let (pa, pb) = (px(e, a), px(e, b));
+    let mods = Modifiers::default();
+    e.input(ToolInput::Hover { px: pa });
+    e.input(ToolInput::DragStart { px: pa, mods });
+    e.input(ToolInput::Drag { px: (pa + pb) / 2.0 });
+    e.input(ToolInput::Drag { px: pb });
+    e.input(ToolInput::DragEnd { px: pb, mods });
+}
+
+#[test]
+fn a_drag_is_click_move_click_in_the_shape_tools() {
+    use solidsketch_i18n::t;
+    let (copy_key, alt_key) = (crate::tools::copy_key(), crate::tools::alt_key());
+    let mut e = top_editor(Document::new());
+
+    // Box: the press is the first corner, the release the second; the height is next.
+    e.set_tool(ToolKind::Box);
+    drag_tool(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0));
+    assert_eq!(e.status(), t!("tool.shape.hint.height", copy_key = copy_key.clone()));
+    e.input(ToolInput::Vcb("150".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(300.0, 200.0, 150.0)), "{lo} {hi}");
+
+    // Released near the press (10 mm, 3 px: under 20 px): only the first click.
+    drag_tool(&mut e, DVec3::new(-500.0, -500.0, 0.0), DVec3::new(-490.0, -500.0, 0.0));
+    assert_eq!(e.status(), t!("tool.box.hint.base", copy_key = copy_key.clone()));
+    // At a later step, a drag clicks where it is released.
+    drag_tool(&mut e, DVec3::new(-300.0, -300.0, 0.0), DVec3::new(-400.0, -450.0, 0.0));
+    assert_eq!(e.status(), t!("tool.shape.hint.height", copy_key = copy_key.clone()));
+    e.input(ToolInput::Vcb("10".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(-500.0, -500.0, 0.0)) && close(hi, DVec3::new(-400.0, -450.0, 10.0)), "{lo} {hi}");
+
+    // Esc during the drag: the release does nothing.
+    let mods = Modifiers::default();
+    let (pa, pb) = (px(&e, DVec3::new(500.0, 500.0, 0.0)), px(&e, DVec3::new(700.0, 700.0, 0.0)));
+    e.input(ToolInput::DragStart { px: pa, mods });
+    e.input(ToolInput::Drag { px: pb });
+    e.input(ToolInput::Key { key: Key::Escape, mods });
+    e.input(ToolInput::DragEnd { px: pb, mods });
+    assert_eq!(e.status(), t!("tool.box.hint.first", copy_key = copy_key.clone(), alt_key = alt_key));
+
+    // Cylinder: the centre, then the radius.
+    e.set_tool(ToolKind::Cylinder);
+    drag_tool(&mut e, DVec3::new(100.0, 600.0, 0.0), DVec3::new(250.0, 600.0, 0.0));
+    e.input(ToolInput::Vcb("30".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!((lo.x - 250.0).abs() < 1e-3 && (hi.z - 30.0).abs() < 1e-6, "radius 150: {lo} {hi}");
+
+    // Prism: the first two corners, then clicks.
+    e.set_tool(ToolKind::Prism);
+    drag_tool(&mut e, DVec3::new(-600.0, 300.0, 0.0), DVec3::new(-200.0, 300.0, 0.0));
+    corners(&mut e, &[(-200.0, 500.0), (-600.0, 500.0), (-600.0, 300.0)]);
+    assert!(e.status().contains("hauteur"), "{}", e.status());
+    e.input(ToolInput::Vcb("18".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(close(lo, DVec3::new(-600.0, 300.0, 0.0)) && close(hi, DVec3::new(-200.0, 500.0, 18.0)), "{lo} {hi}");
+
+    // Turn: the axis's two ends.
+    e.set_tool(ToolKind::Turn);
+    drag_tool(&mut e, DVec3::new(0.0, -900.0, 0.0), DVec3::new(0.0, -300.0, 0.0));
+    assert!(e.status().contains("demi-profil"), "{}", e.status());
+}
+
+#[test]
+fn a_drag_moves_from_the_press_to_the_release() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    e.select(vec![]);
+    e.set_tool(ToolKind::Move);
+    let mods = Modifiers::default();
+
+    // Pressed on void: nothing to move, nor does the release take what lies there.
+    let (pa, pb) = (px(&e, DVec3::new(-600.0, -600.0, 0.0)), px(&e, DVec3::new(50.0, 50.0, 50.0)));
+    e.input(ToolInput::DragStart { px: pa, mods });
+    e.input(ToolInput::Drag { px: pb });
+    e.input(ToolInput::DragEnd { px: pb, mods });
+    assert!(e.selection().is_empty(), "{:?}", e.selection());
+    // (The status says there is nothing to move.)
+    assert!(close(bounds_of(&e, &EntityPath::root(a)).0, DVec3::ZERO));
+
+    // Pressed on the box (taken), dragged along red, released: moved.
+    let (pa, pb) = (px(&e, DVec3::new(50.0, 50.0, 50.0)), px(&e, DVec3::new(350.0, 80.0, 50.0)));
+    e.input(ToolInput::Hover { px: pa });
+    e.input(ToolInput::DragStart { px: pa, mods });
+    e.input(ToolInput::Key { key: Key::Right, mods });
+    e.input(ToolInput::Drag { px: pb });
+    e.input(ToolInput::DragEnd { px: pb, mods });
+    let (lo, _) = bounds_of(&e, &EntityPath::root(a));
+    assert!(close(lo, DVec3::new(300.0, 0.0, 0.0)), "{lo}");
+}

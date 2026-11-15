@@ -15,6 +15,7 @@
 //! - **Then**: the copies made, a distance or a count typed again redoes them, in their place in
 //!   the history (OCL's `STATE_HANDLE_COPIES`); a click picks something else.
 
+use super::DragClicks;
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Operation;
@@ -358,6 +359,11 @@ impl Tool for CopyLineTool {
 
     fn copying(&self) -> bool {
         true
+    }
+
+    /// Picking, a drag draws a selection rectangle; then, it places where it is released.
+    fn drag_clicks(&self) -> DragClicks {
+        if self.aimed { DragClicks::Release } else { DragClicks::No }
     }
 
     fn busy(&self) -> bool {

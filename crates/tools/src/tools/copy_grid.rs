@@ -13,6 +13,7 @@
 //! - **Then**: the copies made, two distances or two counts typed again redo them, in their
 //!   place in the history; a click picks something else.
 
+use super::DragClicks;
 use glam::{DAffine3, DMat3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Operation;
@@ -430,6 +431,11 @@ impl Tool for CopyGridTool {
 
     fn copying(&self) -> bool {
         true
+    }
+
+    /// Picking, a drag draws a selection rectangle; then, it places where it is released.
+    fn drag_clicks(&self) -> DragClicks {
+        if self.aimed { DragClicks::Release } else { DragClicks::No }
     }
 
     fn busy(&self) -> bool {

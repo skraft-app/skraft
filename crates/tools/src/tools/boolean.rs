@@ -3,6 +3,7 @@
 //! scope option says whether every occurrence of the target's part changes, or only the one
 //! clicked (§2.5).
 
+use super::DragClicks;
 use solidsketch_i18n::t;
 use solidsketch_model::{Boolean, EntityPath, Operation, Scope};
 
@@ -96,6 +97,11 @@ impl Tool for BooleanTool {
             None => t!("tool.boolean.hint.target", verb = self.verb()),
             Some(_) => t!("tool.boolean.hint.tool", verb = self.verb()),
         }
+    }
+
+    /// A drag from the target to the tool.
+    fn drag_clicks(&self) -> DragClicks {
+        if self.target.is_none() { DragClicks::PressAndRelease } else { DragClicks::Release }
     }
 
     fn busy(&self) -> bool {
