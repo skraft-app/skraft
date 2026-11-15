@@ -1,0 +1,108 @@
+# Builds the desktop installers and, on a version tag, publishes them as a GitHub Release.
+#
+# - Push a tag `v<version>` (the workspace version of Cargo.toml): installers + Release.
+#     git tag v0.1.0 && git push origin v0.1.0
+# - Actions tab → Release → « Run workflow » (or `gh workflow run release.yml`): the installers
+#   only, as the run's artifacts.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Both macOS builds run on Big Sur and later (packaging/macos/Info.plist).
+  MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            package: scripts/package-macos.sh
+          # Cross-built on the Apple Silicon runner (GitHub's Intel runners are being retired).
+          - name: macos-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            package: scripts/package-macos.sh
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            package: scripts/package-windows.sh
+          # The oldest supported Ubuntu: the AppImage needs a glibc at least as old as the
+          # systems it runs on.
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            package: scripts/package-linux.sh
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag against the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(scripts/version.sh)"
+          if [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} but Cargo.toml says $version"
+            exit 1
+          fi
+
+      # rustup installs the toolchain of rust-toolchain.toml on first use.
+      - name: Rust toolchain
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev
+
+      - name: WiX
+        if: runner.os == 'Windows'
+        run: dotnet tool install --global wix --version 5.0.2
+
+      - name: Build
+        run: cargo build --release --locked -p solidsketch --target ${{ matrix.target }}
+
+      - name: Package
+        run: ${{ matrix.package }} ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SolidSketch-${{ matrix.name }}
+          path: dist/release/*
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: SolidSketch ${{ github.ref_name }}
+          files: dist/*
+          generate_release_notes: true

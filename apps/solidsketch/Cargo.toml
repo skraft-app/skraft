@@ -43,6 +43,14 @@ dirs = "6"
 # Screenshots of the control channel (src/control.rs).
 png = "0.17"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# winit's windowing backends, off with eframe's default features (workspace Cargo.toml).
+eframe = { workspace = true, features = ["wayland", "x11"] }
+
+[target.'cfg(windows)'.build-dependencies]
+# The executable's icon and version in the Explorer (build.rs).
+winresource = "0.1"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # The native menu bar (src/native_menu.rs): the same commands as the ☰ menu elsewhere.
 muda = { version = "0.21", default-features = false }
