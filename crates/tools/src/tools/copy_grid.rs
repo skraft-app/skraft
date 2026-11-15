@@ -18,11 +18,12 @@ use glam::{DAffine3, DMat3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Operation;
 
-use super::handle::{MIRROR, Measure, Memo, Picker, Target, axis_color, draw_axes, draw_box, measure, minimums, mirror_badge, reflection};
+use super::handle::{
+    MIRROR, Measure, Memo, Picker, Target, axis_color, draw_axes, draw_box, draw_measure, measure, minimums, mirror_badge, reflection,
+};
 use super::rotate::rotation_about;
 use super::{
-    Command, Cx, INK, Key, OptionValue, PointShape, Preview, PreviewLabel, PreviewLine, PreviewPoint, Tool, ToolInput, ToolKind,
-    ToolOption, copy_key,
+    Command, Cx, INK, Key, OptionValue, PointShape, Preview, PreviewLabel, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, copy_key,
 };
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
@@ -363,11 +364,11 @@ impl Tool for CopyGridTool {
         let d = grid_def(&t, &h, end, r, measure_of(cx));
         let color = axis_color(k);
         let world = |q: DVec3| t.world(h * q);
-        // The measure rectangle, seen through what lies between.
+        // The measure rectangle, dashed, seen through what lies between.
         let (a, b) = (d.dps, d.dpe);
         let corners = [a, DVec3::new(b.x, a.y, a.z), DVec3::new(b.x, b.y, a.z), DVec3::new(a.x, b.y, a.z)].map(world);
         for i in 0..4 {
-            p.xray.push(PreviewLine { a: corners[i], b: corners[(i + 1) % 4], color, bold: cx.axis_lock.is_some() });
+            draw_measure(cx, &mut p.lines, corners[i], corners[(i + 1) % 4], color);
         }
         // The boxes at the grid's corners (the source's in ink), their centres and measure points.
         let border = [r[0], r[1]].map(|r| if matches!(r, Repeat::Divide(_)) { count(r) } else { 1 });

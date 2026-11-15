@@ -301,6 +301,17 @@ pub(super) fn axis_color(k: usize) -> [f32; 4] {
     [RED, GREEN, BLUE][k]
 }
 
+/// A measure line `a`–`b`, dashed, over everything (seen through what lies between); bold
+/// while an axis is locked.
+pub(super) fn draw_measure(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, a: DVec3, b: DVec3, color: [f32; 4]) {
+    let from = out.len();
+    dashed(cx.camera, cx.size, out, a, b, color);
+    let bold = cx.axis_lock.is_some();
+    for l in &mut out[from..] {
+        l.bold = bold;
+    }
+}
+
 /// The box `lo`–`hi` placed by `to_world`, dotted, in the scene.
 pub(super) fn draw_box(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, to_world: DAffine3, lo: DVec3, hi: DVec3, color: [f32; 4]) {
     let c = corners(lo, hi).map(|p| to_world.transform_point3(p));
