@@ -191,6 +191,43 @@ struct Target {
     frame: DAffine3,
     lo: DVec3,
     hi: DVec3,
+    /// The axes locked for good: a turned body across them spans the whole box, so any cutter
+    /// would cut it across its axis (§6 undecies).
+    fixed: [bool; 3],
+}
+
+/// The axes of a box `lo..hi` a turned body spans whole across its axis: `turned`, each such
+/// body's box and its axis (in the box's axes).
+fn fixed_axes(turned: &[(DVec3, DVec3, DVec3)], lo: DVec3, hi: DVec3) -> [bool; 3] {
+    std::array::from_fn(|k| {
+        let tol = MIN.max((hi[k] - lo[k]) * 1e-6);
+        turned.iter().any(|(blo, bhi, z)| z[k].abs() < 1.0 - 1e-9 && blo[k] <= lo[k] + tol && bhi[k] >= hi[k] - tol)
+    })
+}
+
+/// The box (in the axes `t` places it in) of the solid `shape`: exact corners of its own box.
+fn placed_box(cx: &Cx<'_>, shape: &Arc<Solid>, t: DAffine3) -> Option<(DVec3, DVec3)> {
+    let (lo, hi) = cx.scene.bounds_of(shape).or_else(|| shape.vertex_bounds())?;
+    let mut b = (DVec3::INFINITY, DVec3::NEG_INFINITY);
+    for i in 0..8 {
+        let w = t.transform_point3(DVec3::new([lo.x, hi.x][i & 1], [lo.y, hi.y][(i >> 1) & 1], [lo.z, hi.z][(i >> 2) & 1]));
+        b = (b.0.min(w), b.1.max(w));
+    }
+    Some(b)
+}
+
+/// The turned bodies of `part` (those of `only`, if given), placed in the axes by `t`: their
+/// box and their axis.
+fn turned_bodies(cx: &Cx<'_>, part: &solidsketch_model::Part, t: DAffine3, only: Option<&[Id]>) -> Vec<(DVec3, DVec3, DVec3)> {
+    part.bodies
+        .iter()
+        .filter(|b| only.is_none_or(|o| o.contains(&b.id)) && part.profile_of(b).is_some_and(|f| f.is_turned()))
+        .filter_map(|b| {
+            let at = t * b.placement;
+            let (lo, hi) = placed_box(cx, part.solid_of(b), at)?;
+            Some((lo, hi, at.matrix3.z_axis.normalize()))
+        })
+        .collect()
 }
 
 impl Target {
@@ -241,7 +278,11 @@ impl Target {
             }
         };
         let to_target = in_context.inverse();
+        let mut turned = Vec::new();
         for o in &occs {
+            if let Ok(part) = cx.doc.part(o.component) {
+                turned.extend(turned_bodies(cx, part, to_target * o.transform, None));
+            }
             if cx.doc.part(o.component).is_ok() {
                 // From the document: there before its mesh is.
                 add_part(o.component, to_target * o.transform);
@@ -257,7 +298,8 @@ impl Target {
             }
         }
         let (lo, hi) = (b.0.x <= b.1.x).then_some(b)?;
-        Some(Target { context, occurrences, bodies: None, keep, in_context, frame, lo, hi })
+        let fixed = fixed_axes(&turned, lo, hi);
+        Some(Target { context, occurrences, bodies: None, keep, in_context, frame, lo, hi, fixed })
     }
 
     /// The bodies `ids` of the part `path` places (§2.11): along the body's own axes (one, and
@@ -297,8 +339,9 @@ impl Target {
             }
         }
         let (lo, hi) = (b.0.x <= b.1.x).then_some(b)?;
+        let fixed = fixed_axes(&turned_bodies(cx, part, to_target, Some(&ids)), lo, hi);
         let (context, occurrences) = (path.instances.clone(), vec![path.entity]);
-        Some(Target { context, occurrences, bodies: Some(ids), keep, in_context: in_part, frame, lo, hi })
+        Some(Target { context, occurrences, bodies: Some(ids), keep, in_context: in_part, frame, lo, hi, fixed })
     }
 
     /// The paths of the occurrences stretched.
@@ -594,6 +637,8 @@ pub struct StretchTool {
     /// The target's cutters, per axis of the stretch, as increasing ratios of its box in
     /// ]0, 1[; none: the axis locked.
     cutters: [Vec<f64>; 3],
+    /// The target's axes locked for good (turned bodies across them, [`Target::fixed`]).
+    fixed: [bool; 3],
     /// Where they were last read from or written to, and what was there then: read again when
     /// it changes (another target, an undo).
     synced: Option<(Keep, [Vec<f64>; 3])>,
@@ -640,6 +685,7 @@ impl Default for StretchTool {
             marquee: None,
             axis: None,
             cutters: [vec![0.5], vec![0.5], vec![0.5]],
+            fixed: [false; 3],
             synced: None,
             over: Over::Nothing,
             mode: Mode::Normal,
@@ -713,7 +759,13 @@ impl StretchTool {
     /// The cutters kept for `target`, read again when they changed there (another target, an
     /// undo). Returns whether they were.
     fn sync_cutters(&mut self, cx: &Cx<'_>, target: &Target) -> bool {
-        let kept = target.load_cutters(cx);
+        self.fixed = target.fixed;
+        let mut kept = target.load_cutters(cx);
+        for (k, c) in kept.iter_mut().enumerate() {
+            if target.fixed[k] {
+                c.clear();
+            }
+        }
         let stale = self.synced.as_ref().is_none_or(|(keep, seen)| *keep != target.keep || *seen != kept);
         if stale {
             self.cutters = kept.clone();
@@ -727,13 +779,21 @@ impl StretchTool {
     fn set_cutters(&mut self, cx: &Cx<'_>, target: &Target, k: usize, ratios: Vec<f64>) -> Vec<Command> {
         self.cutters[k] = sanitized(ratios, matches!(target.keep, Keep::Component { .. }));
         self.synced = Some((target.keep.clone(), self.cutters.clone()));
-        if target.load_cutters(cx) == self.cutters {
+        // The axes locked for good are kept as they were (their lock is the turned bodies').
+        let loaded = target.load_cutters(cx);
+        let mut kept = self.cutters.clone();
+        for (j, c) in kept.iter_mut().enumerate() {
+            if target.fixed[j] {
+                c.clone_from(&loaded[j]);
+            }
+        }
+        if loaded == kept {
             return vec![];
         }
-        match (&target.keep, target.behavior(cx, &self.cutters)) {
+        match (&target.keep, target.behavior(cx, &kept)) {
             (_, Some((component, behavior))) => vec![Command::Apply(Operation::SetBehavior { component, behavior })],
             (Keep::Session(key), None) => {
-                store_cutters(*key, &self.cutters);
+                store_cutters(*key, &kept);
                 vec![]
             }
             _ => vec![],
@@ -1204,6 +1264,9 @@ impl StretchTool {
                         return self.set_cutters(cx, &target, k, ratios);
                     }
                     // A padlock clicked: the axis unlocked, one cutter in the middle.
+                    (Mode::Normal, Over::Padlock(k), _) if target.fixed[k] => {
+                        return vec![Command::Say(t!("tool.stretch.say.turned"))];
+                    }
                     (Mode::Normal, Over::Padlock(k), _) => {
                         self.over = Over::Nothing;
                         return self.set_cutters(cx, &target, k, vec![0.5]);
@@ -1480,6 +1543,9 @@ impl Tool for StretchTool {
             },
             (State::Grips, true, Mode::Add) => t!("tool.stretch.hint.add"),
             (State::Grips, true, Mode::Remove) => t!("tool.stretch.hint.remove"),
+            (State::Grips, true, Mode::Normal) if matches!(self.over, Over::Padlock(k) if self.fixed[k]) => {
+                t!("tool.stretch.say.turned")
+            }
             (State::Grips, true, Mode::Normal) if matches!(self.over, Over::Padlock(_)) => t!("tool.stretch.hint.unlock"),
             (State::Grips, true, Mode::Normal) if matches!(self.over, Over::Handle(_)) => {
                 t!("tool.stretch.hint.interior", copy_key = copy_key(), alt_key = alt_key())

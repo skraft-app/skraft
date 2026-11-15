@@ -12,6 +12,7 @@ icon!(SELECT, "select");
 icon!(BOX, "box");
 icon!(CYLINDER, "cylinder");
 icon!(PRISM, "prism");
+icon!(TURN, "turn");
 icon!(MOVE, "move");
 icon!(ROTATE, "rotate");
 icon!(UNION, "union");
@@ -57,6 +58,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "tool.box" => BOX,
         "tool.cylinder" => CYLINDER,
         "tool.prism" => PRISM,
+        "tool.turn" => TURN,
         "tool.move" => MOVE,
         "tool.rotate" => ROTATE,
         "tool.stretch" => STRETCH,

@@ -129,7 +129,7 @@ impl Viewport {
             _ if editor.busy() => egui::CursorIcon::Progress,     // the kernel is at work
             _ if editor.tool_copying() => egui::CursorIcon::Copy, // SketchUp's « + »
             // Primitives keep the arrow: the crosshair hides the snap point.
-            ToolKind::Select | ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism => egui::CursorIcon::Default,
+            ToolKind::Select | ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn => egui::CursorIcon::Default,
             ToolKind::Move => egui::CursorIcon::Move,
             ToolKind::Paint => egui::CursorIcon::PointingHand,
             _ => egui::CursorIcon::Crosshair,
@@ -470,13 +470,23 @@ impl Viewport {
             .chain(view.hovered_guides.iter().map(|s| dashed(s, theme.hover.edge)))
             .chain(view.selected_guides.iter().map(|s| dashed(s, theme.selected.edge)))
             .chain(view.scene_lines.iter().map(preview))
-            // The guides a tool previews: in the scene, as the document's.
-            .chain(view.preview_guides.iter().map(|(s, c)| dashed(s, *c)))
+            // The open part's bodies' bottom caps, bold in the edges' colour.
+            .chain(view.bases.iter().map(|(a, b)| render::Line { width: render::BOLD_WIDTH, ..plain(*a, *b, theme.edge) }))
+            // Their turned bodies' axes, dashed.
+            .chain(view.base_axes.iter().map(|(a, b)| render::Line {
+                dash: Some(render::Dash { length: solidsketch_tools::guides::DASH_PX as f32, phase: 0.0 }),
+                ..plain(*a, *b, theme.edge)
+            }))
+            // The guides a tool previews: in the scene, as the document's (the see-through ones
+            // with the faint lines, which blend).
+            .chain(view.preview_guides.iter().filter(|(_, c)| c[3] >= 1.0).map(|(s, c)| dashed(s, *c)))
             .collect();
         // Faded as the parts are, but blended over what they cross rather than mixed with the
         // background: on a part, they take its colour.
         let faint = [theme.guide[0], theme.guide[1], theme.guide[2], theme.guide[3] * (1.0 - theme.fade)];
-        let faint_lines: Vec<render::Line> = view.faded_guides.iter().map(|s| dashed(s, faint)).collect();
+        let faint_lines: Vec<render::Line> = (view.faded_guides.iter().map(|s| dashed(s, faint)))
+            .chain(view.preview_guides.iter().filter(|(_, c)| c[3] < 1.0).map(|(s, c)| dashed(s, *c)))
+            .collect();
         let fills: Vec<render::Fill> = view.fills.iter().map(|f| render::Fill { corners: f.corners.clone(), color: f.color }).collect();
 
         let aspect = size[0] as f64 / size[1] as f64;
@@ -577,7 +587,10 @@ fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &solidsketch_tool
     }
 }
 
-/// The round points a tool draws over everything (grips).
+/// How much longer than wide a bar point is, each way (points).
+const BAR_LENGTHEN: f32 = 4.0;
+
+/// The points a tool draws over everything (grips).
 fn paint_overlay_points(painter: &egui::Painter, rect: egui::Rect, editor: &Editor) {
     let size = editor.viewport_size();
     let screen = |p: DVec3| editor.camera.project(p, size).map(|at| rect.min + egui::vec2(at.x as f32, at.y as f32));
@@ -593,6 +606,20 @@ fn paint_overlay_points(painter: &egui::Painter, rect: egui::Rect, editor: &Edit
             }
             PointShape::Round => {
                 painter.circle(at, r, fill, stroke);
+            }
+            PointShape::Square => {
+                painter.rect(egui::Rect::from_center_size(at, egui::vec2(2.0 * r, 2.0 * r)), 0.0, fill, stroke, egui::StrokeKind::Middle);
+            }
+            PointShape::Bar { along } => {
+                // The direction on the screen: from the point to a little further along.
+                let toward = screen(p.at + along).map(|b| b - at).and_then(|d| (d.length() > 1e-3).then(|| d.normalized()));
+                let (u, v) = match toward {
+                    Some(u) => (u, u.rot90()),
+                    None => (egui::vec2(1.0, 0.0), egui::vec2(0.0, 1.0)),
+                };
+                let long = if toward.is_some() { r + BAR_LENGTHEN } else { r };
+                let corners = vec![at - u * long - v * r, at + u * long - v * r, at + u * long + v * r, at - u * long + v * r];
+                painter.add(egui::Shape::convex_polygon(corners, fill, stroke));
             }
             PointShape::Padlock => paint_padlock(painter, at, r, fill, stroke),
         }

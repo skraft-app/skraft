@@ -241,9 +241,16 @@ pub struct PreviewPoint {
 }
 
 /// How a [`PreviewPoint`] is drawn.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PointShape {
     Round,
+    /// A square on the screen, its radius half its side (a corner kept on its sides' lines).
+    Square,
+    /// A rectangle along the world direction `along` as the screen shows it, its radius half
+    /// its width (a side moved across itself); a square where `along` is seen end on.
+    Bar {
+        along: DVec3,
+    },
     /// A point taken from the geometry.
     Diamond,
     /// A closed padlock: something locked, a click unlocks it (the stretch's locked axes).
@@ -344,6 +351,8 @@ pub enum ToolKind {
     Cylinder,
     /// Draws an outline, then pulls it into a prism (§6 nonies).
     Prism,
+    /// Sets an axis, draws a half profile, then turns it about the axis (§6 undecies).
+    Turn,
     Move,
     Rotate,
     Boolean(Boolean),
@@ -369,6 +378,7 @@ impl ToolKind {
             ToolKind::Box => "box",
             ToolKind::Cylinder => "cylinder",
             ToolKind::Prism => "prism",
+            ToolKind::Turn => "turn",
             ToolKind::Move => "move",
             ToolKind::Rotate => "rotate",
             ToolKind::Boolean(Boolean::Union) => "union",
@@ -390,6 +400,7 @@ impl ToolKind {
             ToolKind::Box => t!("tool.box.name"),
             ToolKind::Cylinder => t!("tool.cylinder.name"),
             ToolKind::Prism => t!("tool.prism.name"),
+            ToolKind::Turn => t!("tool.turn.name"),
             ToolKind::Move => t!("tool.move.name"),
             ToolKind::Rotate => t!("tool.rotate.name"),
             ToolKind::Boolean(Boolean::Union) => t!("tool.boolean.union.name"),
@@ -923,6 +934,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Box => Box::new(BoxTool::default()),
         ToolKind::Cylinder => Box::new(CylinderTool::default()),
         ToolKind::Prism => Box::new(PrismTool::default()),
+        ToolKind::Turn => Box::new(PrismTool::turning()),
         ToolKind::Move => Box::new(MoveTool::default()),
         ToolKind::Rotate => Box::new(RotateTool::default()),
         ToolKind::Boolean(op) => Box::new(BooleanTool::new(op)),

@@ -124,6 +124,7 @@ pub const COMMANDS: &[Command] = &[
     c("tool.box", || t!("tool.box.name"), M::Tools, Some("R")),
     c("tool.cylinder", || t!("tool.cylinder.name"), M::Tools, Some("C")),
     c("tool.prism", || t!("tool.prism.name"), M::Tools, Some("P")),
+    c("tool.turn", || t!("tool.turn.name"), M::Tools, Some("L")),
     c("tool.move", || t!("tool.move.name"), M::Tools, Some("M")),
     c("tool.rotate", || t!("tool.rotate.name"), M::Tools, Some("Q")),
     g("tool.paint", || t!("tool.paint.name"), M::Tools, Some("B")),

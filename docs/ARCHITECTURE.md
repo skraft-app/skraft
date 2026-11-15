@@ -1618,9 +1618,10 @@ states are OCL's: the first point, the points, the height.
   height.
 - **Editing** (`ToolKind::Profile`, « Profil »): a button beside « Usinages » in the option
   bar's Options while a part with a profile is open, on while the tool is the active one (any
-  other tool turns it off). The outline is drawn on the cap facing the eye (both caps' when
-  seen edge on, the top's), with grips: its corners (round), its arcs' middles (diamonds), its
-  straight sides' middles (small, to insert a corner) — and the cap's middle (the thickness)
+  other tool turns it off). The outline is drawn on the bottom cap, where the profile lies,
+  whatever the view (on the cap facing the eye until 2026-11-15), with grips: its corners
+  (squares; round when free, 2026-11-15), its arcs' middles (diamonds), its straight sides'
+  middles (bars along the side; round when free, to insert a corner) — and the cap's middle (the thickness)
   until 2026-11-14, when the Stretch tool on the body took it over (§2.11). A
   grip is taken by a click and dropped by another (SketchUp's Move; a drag works too), Esc
   dropping the gesture; each gesture is one operation (one undo step):
@@ -1772,6 +1773,75 @@ guides of an open part included.
   step, is undone (`Editor::settle_carry`). Put down or given up, the tool before comes back.
   So what is carried is in the document meanwhile (drawn by Move's ghost, out of the
   inferences); a paste of machinings computes the part twice (in place, then moved).
+
+## 6 undecies. Turned bodies (revolution)
+
+Discussed on 2026-11-15 (Q&A), branch `feature/profile-edit`. A turned leg, a dowel, a knob, a
+ring: a body made by turning a half profile a whole turn about an axis. SolidCore turns a
+planar profile of lines and arcs (`solidcore_ops::sweep::revolve`); the kernel already reads
+surfaces of revolution (`Surface::PlacedRevolution`, STEP import; non-rigid for the stretch).
+
+- **Code** (step 1, 2026-11-15): `Primitive::Revolution { origin, profile }` built by
+  `Solid::new_revolution` (SolidCore's `sweep::revolve`, arcs either way, a point a rounding
+  off the axis put on it), `profile::is_turnable`; `BodyProfile { profile, sweep }` with
+  `Sweep::Extrusion { z0, height }` (saved as before) or `Sweep::Revolution { revolution:
+  Turn::Whole }` (saved `"revolution": "whole"`); `BodyProfile::stretched` follows the
+  heights along Z and drops the profile across the axis.
+  Step 2: the tool is `ToolKind::Turn` (`tool.turn`, L, icon `turn`), a separate tool for the
+  user but the Prism's code in a turning mode (`PrismTool::turning`: the axis's two points
+  before the outline, the plane locked through the axis and the profile's first point, turned at once when
+  closed — no height —, the axis drawn as an endless guide line in its axis colour (its two
+  points marked), the outline's mirror across the axis dashed while drawing, closed as the
+  outline is (its side to the cursor and back to the first corner); before the first point,
+  its radius from the axis dashed with its length, and the circle it turns along as a faint
+  guide (preview guides not opaque go with the faint lines, which blend); options
+  fillet, trace, reversed; no offset).
+  Step 3: the Profile tool frames a turned body's XZ plane (`edit_frame`; first turned to face
+  the eye, dropped the same day at the user's request), an extrusion's bottom cap; a
+  corner on the axis slides along it, a side on it has no grip unless free, a move across the
+  axis stops on it (bisection along the move), an arc bulging across is refused at the drop.
+  `View::bases` holds the half profile in the body's XZ plane, `View::base_axes` its axis
+  (dashed, 10 % past the profile at each end).
+  Step 4: `stretch_bodies` rebuilds a turned body from its stretched half profile (along its
+  axis) and refuses it otherwise (`Refusal::TurnedAcross`: across the axis, or across an arc);
+  the Stretch tool locks for good (`Target::fixed`, a padlock that does not unlock, said in the
+  status bar) the axes a turned body spans whole across its axis — any cutter would cut it —,
+  without saving that lock in the part's cutters; a turned dowel inside a longer board leaves
+  the board's axes free, a cutter through the dowel then refused by the model.
+- **The profile** (decided): a body's profile is either the extrusion it is today (outline
+  in the body's XY plane, `z0`, `height`) or a **revolution**: a half profile in the body's
+  XZ plane — its points `(x, z)` with `x`, the radius, never negative —, turned a **whole
+  turn about the body's Z**. The axis is the body's, so its placement (§2.11) says where the
+  axis is; no axis of its own stored, no partial angle for now (a quarter round can come
+  later as an angle). Same corners as an extrusion's (`{ p, bulge, fillet }`): arcs and
+  fillets alike. A profile that does not touch the axis gives a ring or a bowl.
+- **Created by a tool of its own** (decided), « Tournage » (`tool.turn`, ribbon group Create
+  after the prism): first the **axis**, two points (inferences, as a line's); then the **half
+  profile**, drawn point by point as the Prism's outline (its arcs, fillets, typed lengths
+  and inferences), on one side of the axis, in the plane through the axis and the profile's
+  first point (2026-11-15, user: the plane is decided by that click — a point inferred on a
+  face or an edge; over nothing, taken on the horizontal plane through the axis's start —
+  2026-11-15, user —, that plane seen edge on or a point on the axis giving the plane through
+  the axis facing the eye),
+  locked for the rest of the outline. It is **closed by hand**, back on its first point (decided: no automatic closing
+  along the axis), the side along the axis drawn as any other. A profile crossing the axis
+  or itself is refused. The body's Z is the axis (from the first point to the second); as a
+  prism drawn on a slanted face takes the face's frame, the part made takes the body's axes
+  (its Z along the axis, its origin on the axis at the profile's lowest height,
+  `Primitive::at_origin`); in an open part it is a body of it (§2.11, positive or negative as
+  the drawing tools'), placed in the part's axes.
+- **Edited by the Profile tool** (decided): the half profile drawn in the body's XZ plane
+  (2026-11-15, user: where it lies, not turned to face the eye — and an extrusion's outline
+  likewise on its bottom cap, whatever the view), with the same grips (squares, bars, free, arcs, fillets),
+  plus two rules: a corner is stopped on the axis, never beyond it, and a side lying on the
+  axis stays on it. The bold outline of an open part's bodies (their bottom cap for an
+  extrusion) is the half profile for a turned body, its axis dashed.
+- **Stretch** (decided): along the axis, the body is rebuilt from its profile, the cutters
+  moving the half profile's heights (exact). **Across the axis it is refused**: the body's X
+  and Y locked (padlocks), the diameter changed by the Profile tool only.
+- **Cut list** (decided): nothing particular — the box of the final B-rep in the part's axes,
+  as any part (a Ø 40 × 700 leg reads 40 × 40 × 700). A « turned » mark may come with the cut
+  list itself.
 
 ## 7. Crates
 

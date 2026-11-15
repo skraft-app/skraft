@@ -81,6 +81,13 @@ pub struct View {
     pub xray: Vec<PreviewLine>,
     /// A tool's translucent polygons, drawn depth-tested.
     pub fills: Vec<PreviewFill>,
+    /// The open part's profiled bodies' bottom caps, the cap the profile is drawn on (world
+    /// segments): the app draws them bold, depth-tested, so that a see-through body shows
+    /// which way it stands (§2.11).
+    pub bases: Vec<(DVec3, DVec3)>,
+    /// The axes of the open part's turned bodies (world segments, along their half profile):
+    /// drawn dashed, depth-tested, with the bases (their half profiles, §6 undecies).
+    pub base_axes: Vec<(DVec3, DVec3)>,
     /// The inferred point to mark, with its kind (the app draws the marker and the tooltip).
     pub inference: Option<(DVec3, InferKind)>,
     /// The selection rectangle being dragged (the app draws it).
@@ -385,7 +392,7 @@ impl Editor {
         v.batches.extend(swapped);
         v.batches.extend(ghosts);
         if let (Some(r), Some(o)) = (recipe, &open)
-            && let Ok((_, _, t)) = doc.resolve_part(o)
+            && let Ok((_, part, t)) = doc.resolve_part(o)
         {
             let material = self
                 .scene
@@ -428,6 +435,29 @@ impl Editor {
             v.batches.extend(tools);
             v.batches.extend(tool_ghosts);
             v.batches.extend(tool_faint);
+            // Each profiled body's bottom cap, where it is drawn: not one stretched (its
+            // preview mesh no longer matches its profile), nor one moved (drawn elsewhere).
+            let stretched = |id: Id| body_swaps.is_some_and(|s| s.contains_key(&id));
+            for rb in r.bodies().filter(|b| !stretched(b.body) && !(hide_original && selected.contains(&b.body))) {
+                let Some(profile) = part.body(rb.body).and_then(|b| part.profile_of(b)) else { continue };
+                let outline = profile.outline();
+                let pts = solidsketch_model::kernel::profile::sample(&outline, BASE_STEP);
+                let place = t * rb.placement;
+                // An extrusion's bottom cap; a turned body's half profile in its XZ plane, and
+                // its axis along it.
+                let at = |q: glam::DVec2| match profile.extrusion() {
+                    Some((z0, _)) => place.transform_point3(q.extend(z0)),
+                    None => place.transform_point3(DVec3::new(q.x, 0.0, q.y)),
+                };
+                let n = pts.len();
+                v.bases.extend((0..n).map(|i| (at(pts[i]), at(pts[(i + 1) % n]))));
+                if profile.is_turned()
+                    && let Some((lo, hi)) = solidsketch_model::kernel::profile::bounds(&outline)
+                {
+                    let over = (hi.y - lo.y) * 0.1;
+                    v.base_axes.push((place.transform_point3(DVec3::Z * (lo.y - over)), place.transform_point3(DVec3::Z * (hi.y + over))));
+                }
+            }
         }
         // While an open part's machinings show, the selection and hover are its machinings.
         let tool_at = |id: Id| {
@@ -622,6 +652,9 @@ impl Editor {
         v
     }
 }
+
+/// How far an arc of a body's bottom cap turns between two points (radians).
+const BASE_STEP: f64 = 0.06;
 
 /// Placements by the mesh they draw.
 type Batches = Vec<(Id, Vec<ViewPlacement>)>;

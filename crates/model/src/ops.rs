@@ -1029,8 +1029,13 @@ impl Document {
         let mut bodies = p.bodies.clone();
         for c in &changes {
             let def = p.def(c.def).ok_or(Error::NotFound(c.def))?;
-            let solid = solver.stretch(&def.solid, &c.local)?;
             let profile = def.profile.as_ref().and_then(|f| f.stretched(&c.local));
+            // A turned body: along its axis only, rebuilt from its half profile (§6 undecies).
+            let solid = match (&def.profile, &profile) {
+                (Some(f), None) if f.is_turned() => return Err(Error::Invalid(Refusal::TurnedAcross)),
+                (_, Some(f)) if f.is_turned() => solver.primitive(&f.primitive())?,
+                _ => solver.stretch(&def.solid, &c.local)?,
+            };
             if c.in_place {
                 if let Some(d) = defs.iter_mut().find(|d| d.id == c.def) {
                     (d.solid, d.profile) = (solid, profile);

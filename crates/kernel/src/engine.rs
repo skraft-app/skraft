@@ -16,6 +16,7 @@ impl Primitive {
     pub fn build(&self) -> Result<Solid> {
         match *self {
             Primitive::Prism { origin, ref profile, height } => Solid::new_prism(origin, profile, height),
+            Primitive::Revolution { origin, ref profile } => Solid::new_revolution(origin, profile),
             Primitive::Box { origin, size } => Solid::new_box(origin, size),
             Primitive::Cylinder { origin, radius, height } => Solid::new_cylinder(origin, radius, height),
             Primitive::Sphere { center, radius } => Solid::new_sphere(center, radius),
@@ -71,6 +72,54 @@ impl Solid {
         let region = Region2 { outer: Loop2 { segs }, holes: Vec::new() };
         let frame = solidcore::eval::Frame { origin: origin.to_array(), x_axis: [1.0, 0.0, 0.0], y_axis: [0.0, 1.0, 0.0] };
         create("prism", |k| solidcore::prism::extrude::extrude_region(k, &frame, &region, 0.0, height))
+    }
+
+    /// The half profile `profile` (corners `(x, z)` in the XZ plane through `origin`, relative
+    /// to it, `x` never negative, fillets made arcs) turned a whole turn about the Z axis
+    /// through `origin`: SolidCore's rotational sweep. A profile that is not simple, or that
+    /// crosses the axis, is refused ([`crate::profile::is_turnable`]).
+    pub fn new_revolution(origin: DVec3, profile: &[crate::profile::Corner]) -> Result<Self> {
+        use crate::profile::{self as pr, Side};
+        use solidcore_ops::sweep::Curve;
+        const CALL: &str = "revolution";
+        if !pr::is_turnable(profile) {
+            return Err(Error::Kernel { call: CALL.into(), message: "half profile not simple, or across its axis".into() });
+        }
+        // (x, z) in the XZ plane; a point a rounding off the axis put on it.
+        let at = |v: DVec2| (origin + DVec3::new(v.x.max(0.0), 0.0, v.y)).to_array();
+        let centre = |v: DVec2| (origin + DVec3::new(v.x, 0.0, v.y)).to_array();
+        let curves: Vec<Curve> = pr::sides(&pr::rounded(profile))
+            .into_iter()
+            .map(|s| match s {
+                Side::Line { a, b } => Curve::Line { start: at(a), end: at(b) },
+                // The 2D angle runs from X towards Z: counter-clockwise about −Y. A clockwise
+                // arc turns counter-clockwise about +Y, from the negated angles.
+                Side::Arc { c, r, start, sweep, .. } if sweep > 0.0 => Curve::Arc {
+                    center: centre(c),
+                    axis: [0.0, -1.0, 0.0],
+                    reference: [1.0, 0.0, 0.0],
+                    radius: r,
+                    start,
+                    end: start + sweep,
+                },
+                Side::Arc { c, r, start, sweep, .. } => Curve::Arc {
+                    center: centre(c),
+                    axis: [0.0, 1.0, 0.0],
+                    reference: [1.0, 0.0, 0.0],
+                    radius: r,
+                    start: -start,
+                    end: -start - sweep,
+                },
+            })
+            .collect();
+        guarded(CALL, || {
+            let kernel_error = |e: solidcore_ops::Error| Error::Kernel { call: CALL.into(), message: e.to_string() };
+            let body = solidcore_ops::sweep::revolve(&curves, origin.to_array(), [0.0, 0.0, 1.0], std::f64::consts::TAU, true)
+                .map_err(kernel_error)?;
+            let (mut record, _) = body.to_record().map_err(kernel_error)?;
+            square_frames(&mut record);
+            Ok(Solid::from_record(record))
+        })
     }
 
     /// A torus centred at `center`, around +Z.
