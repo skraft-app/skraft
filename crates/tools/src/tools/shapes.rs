@@ -607,6 +607,33 @@ fn segments(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, pairs: impl IntoIterator<It
     }
 }
 
+/// How the gauge before the first click shows an offset: its sides moved by this share of its
+/// width, out or in (OCL's `_preview_shape_start`); and a fillet: its corners rounded by this
+/// share. Signs, not sizes: the gauge keeps its size whatever the lengths.
+const GAUGE_OFFSET: f64 = 0.1;
+const GAUGE_FILLET: f64 = 0.12;
+
+/// The gauge's offset for a gauge `w` wide: `±GAUGE_OFFSET · w` as the tool's offset, or 0.
+fn gauge_offset(cx: &Cx<'_>, w: f64) -> f64 {
+    match cx.length(OFFSET) {
+        0.0 => 0.0,
+        off => GAUGE_OFFSET * w * off.signum(),
+    }
+}
+
+/// The polygonal gauge before the first click, in the plane of `f`: the outline `drawn` (local,
+/// counter-clockwise), solid; or, when the tool changes it (offset `off`, rounded by `fillet`:
+/// the gauge's own lengths), dashed, and the outline made solid.
+fn gauge(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, f: &Frame, drawn: &[DVec2], off: f64, fillet: f64, color: [f32; 4]) {
+    let drawn = profile::polygon(drawn);
+    let changed = off != 0.0 || fillet > 0.0;
+    segments(cx, out, ring(f, &drawn, 0.0), color, changed);
+    if changed {
+        let made = profile::offset(&drawn, off).unwrap_or(drawn);
+        segments(cx, out, ring(f, &profile::rounded(&profile::with_fillets(&made, fillet)), 0.0), color, false);
+    }
+}
+
 /// A toggle drawn as its icon (after OCL's Smart Draw, `get_action_option_btn_child`).
 fn toggle(key: &'static str, label: String, tip: String, on: bool, saved: bool, icon: &'static str) -> ToolOption {
     ToolOption { key, label, tip, value: OptionValue::Toggle(on), choices: Vec::new(), saved, icon: Some(icon) }
@@ -898,10 +925,14 @@ impl Tool for BoxTool {
                 inference = self.first.inference();
                 if let Some(s) = &self.first.at {
                     // A small base at the cursor, in the plane it would take (around it, centred).
+                    // With an offset or a fillet, the base drawn dashed and the one made solid,
+                    // grown or shrunk and rounded (their signs, not their sizes).
                     let f = s.f;
                     let w = pixels(cx, f.o, GAUGE_PX);
-                    let o = if self.centered { f.at(DVec3::new(-w / 2.0, -w / 4.0, 0.0)) } else { f.o };
-                    rect(&mut lines, corners(&Frame { o, ..f }, w, w / 2.0, 0.0), plane_color(cx, &f), false);
+                    let o = if self.centered { DVec2::new(-w / 2.0, -w / 4.0) } else { DVec2::ZERO };
+                    let quad = [(0.0, 0.0), (w, 0.0), (w, w / 2.0), (0.0, w / 2.0)].map(|(x, y)| o + DVec2::new(x, y));
+                    let fillet = if r > 0.0 { GAUGE_FILLET * w } else { 0.0 };
+                    gauge(cx, &mut lines, &f, &quad, gauge_offset(cx, w), fillet, plane_color(cx, &f));
                     if snapped(&inference) {
                         mark(cx, &mut marks, f.o);
                     }
@@ -1233,8 +1264,14 @@ impl Tool for CylinderTool {
                 inference = self.first.inference();
                 if let Some(s) = &self.first.at {
                     let f = s.f;
+                    // With an offset, the disc drawn dashed and the one made solid, its radius
+                    // grown or shrunk by a tenth of the diameter (OCL's `_preview_shape_start`).
                     let color = plane_color(cx, &f);
-                    lines.extend(circle(f, pixels(cx, f.o, GAUGE_PX) / 2.0, 0.0).map(|(a, b)| line(cx, a, b, color)));
+                    let d = pixels(cx, f.o, GAUGE_PX);
+                    ring(&mut lines, f, d / 2.0, 0.0, color, off != 0.0);
+                    if off != 0.0 {
+                        ring(&mut lines, f, d / 2.0 + gauge_offset(cx, d), 0.0, color, false);
+                    }
                     if snapped(&inference) {
                         mark(cx, &mut marks, f.o);
                     }

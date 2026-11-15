@@ -197,6 +197,42 @@ fn cylinder_tool() {
 }
 
 #[test]
+fn shape_gauge_shows_offset_and_fillet() {
+    let mut e = top_editor(Document::new());
+    // Before the first click, the gauge at the cursor starts on it; an offset out grows it past
+    // the cursor, one in keeps it inside (the outline drawn dashed on the cursor); a fillet
+    // rounds it (askew segments). Box, then prism and cylinder.
+    let at = DVec3::new(100.0, 100.0, 0.0);
+    let lines = |e: &mut Editor| {
+        hover(e, at);
+        e.preview().lines
+    };
+    let past = |l: &[PreviewLine]| l.iter().any(|l| l.a.x.min(l.b.x) < at.x - 1e-6);
+    let askew = |l: &[PreviewLine]| l.iter().any(|l| (l.a.x - l.b.x).abs() > 1e-6 && (l.a.y - l.b.y).abs() > 1e-6);
+    e.set_tool(ToolKind::Box);
+    let plain = lines(&mut e);
+    assert!(!past(&plain) && !askew(&plain));
+    e.input(ToolInput::Vcb("5x".into()));
+    assert!(past(&lines(&mut e)));
+    e.input(ToolInput::Vcb("-5x".into()));
+    let inside = lines(&mut e);
+    assert!(!past(&inside) && inside.len() > plain.len());
+    e.input(ToolInput::Vcb("0x".into()));
+    e.input(ToolInput::Vcb("5r".into()));
+    assert!(askew(&lines(&mut e)));
+
+    e.set_tool(ToolKind::Prism);
+    assert!(!past(&lines(&mut e)));
+    e.input(ToolInput::Vcb("5x".into()));
+    assert!(past(&lines(&mut e)));
+
+    e.set_tool(ToolKind::Cylinder);
+    let plain = lines(&mut e);
+    e.input(ToolInput::Vcb("-5x".into()));
+    assert!(lines(&mut e).len() > plain.len());
+}
+
+#[test]
 fn shape_offset_moves_the_outline() {
     let mut e = top_editor(Document::new());
     // `5x` at the first step sets the box's offset (saved, its own): the base drawn from
