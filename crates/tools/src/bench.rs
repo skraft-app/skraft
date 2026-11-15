@@ -482,7 +482,7 @@ fn bench_step_model() {
             Some((d.parts.iter().map(|p| p.mesh.indices.len() / 3).sum::<usize>(), faces, size, name))
         })
         .collect();
-    heavy.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    heavy.sort_unstable_by_key(|h| std::cmp::Reverse(h.0));
     let total: usize = heavy.iter().map(|h| h.0).sum();
     for (k, (tris, faces, size, name)) in heavy.iter().take(8).enumerate() {
         eprintln!("  #{k} {tris:>9} triangles, {faces:>5} faces, {size:>8.1} mm across: {name}");
