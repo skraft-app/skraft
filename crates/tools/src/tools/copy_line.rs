@@ -21,12 +21,11 @@ use solidsketch_i18n::t;
 use solidsketch_model::Operation;
 
 use super::handle::{
-    MIRROR, Measure, Memo, Picker, Target, axis_color, draw_axes, draw_boxes, half_along, leaving_axis, measure, minimums, mirror_badge,
-    nearest_axis_on_screen, reflection,
+    MIRROR, Measure, Memo, Picker, Target, axis_color, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure, minimums,
+    mirror_badge, nearest_axis_on_screen, reflection,
 };
 use super::{
-    Command, Cx, Key, OptionValue, PointShape, Preview, PreviewLabel, PreviewLine, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption,
-    copy_key,
+    Command, Cx, Key, OptionValue, PointShape, Preview, PreviewLabel, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, copy_key,
 };
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
@@ -317,9 +316,9 @@ impl Tool for CopyLineTool {
         let color = axis_color(k);
         draw_axes(cx, &mut p.scene_lines, &t, |j| j == k, None);
         draw_boxes(cx, &mut p.scene_lines, &t, &copies, color);
-        // The measure, seen through what lies between, its length at its middle.
+        // The measure, dashed, seen through what lies between, its length at its middle.
         let (a, b) = (t.world(d.dps), t.world(d.dpe));
-        p.xray.push(PreviewLine { a, b, color, bold: cx.axis_lock.is_some() });
+        draw_measure(cx, &mut p.lines, a, b, color);
         for at in [a, b] {
             p.points.push(PreviewPoint { at, radius: 4.0, fill: Some(WHITE), stroke: Some(color), shape: PointShape::Round });
         }

@@ -537,7 +537,7 @@ Body { id, def, sign, placement }           — an occurrence of it, placed in t
   afficher », enabled while something is hidden) shows every occurrence again. Exploding a
   hidden assembly leaves its content hidden; copies keep the flag; imports (STEP, SketchUp)
   come in shown.
-- **Eraser** (« Gomme », E, after SketchUp's; decided on 2026-11-13): it takes what a click of
+- **Eraser** (« Effacer », E, after SketchUp's; decided on 2026-11-13): it takes what a click of
   Select takes — a guide near the cursor, else a machining of the open part while they are
   shown, else the active context's occurrence under it — and nothing outside the context. A
   click erases at once; a drag gathers everything it passes over (sampled every 4 px between
@@ -889,6 +889,11 @@ error = e)`. The code holds no user-visible string.
   lookup (`solidsketch_i18n::resolve`), nested references too, before the placeholders are
   filled. Any key can be referred to; a term is taken as is (no change of case), so one used
   inside a sentence is written in the sentence. Each locale chooses its own references.
+- **Tool names** (`tool.<tool>.name`, also the commands' and ribbon buttons' labels): a verb in
+  the infinitive whenever the tool is an action — « Sélectionner », « Effacer », « Dessiner une
+  boîte », « Tourner », « Copier en ligne », « Unir », « Mesurer » (decided on 2026-11-15) — a
+  noun only where no verb fits without ambiguity (« Plan de coupe »: « Couper » is the clipboard's
+  Cut; « Profil »).
 - **Values** are named, `%{name}`, and few: a sentence is one key, but a label built from
   parts stays built by the code ("Edge × red axis" is `infer.edge`, "×", `infer.line.axis`).
 - **No ellipsis** (…) in a catalog: the code adds it (`solidsketch_i18n::ellipsis`), the same
@@ -1543,7 +1548,7 @@ crossing), the box, the offset (an arc offset is the concentric arc, as SolidCra
 the offset turns over or shrinks to nothing is taken out as a line would be), the fillets,
 and points along it for the previews.
 
-**Tool** « Prisme » (`tool.prism`, P, ribbon group Create after the cylinder; renamed from « Polygone » on 2026-11-13: what it makes is a prism, the polygon only its outline). Its
+**Tool** « Dessiner un prisme » (`tool.prism`, P, ribbon group Create after the cylinder; renamed from « Polygone » on 2026-11-13: what it makes is a prism, the polygon only its outline). Its
 states are OCL's: the first point, the points, the height.
 
 - **First point**: the box's first step (§6, §6 ter: the plane of the face aimed at, an edge,
@@ -1833,7 +1838,7 @@ surfaces of revolution (`Surface::PlacedRevolution`, STEP import; non-rigid for 
   axis is; no axis of its own stored, no partial angle for now (a quarter round can come
   later as an angle). Same corners as an extrusion's (`{ p, bulge, fillet }`): arcs and
   fillets alike. A profile that does not touch the axis gives a ring or a bowl.
-- **Created by a tool of its own** (decided), « Tournage » (`tool.turn`, ribbon group Create
+- **Created by a tool of its own** (decided), « Tourner » (`tool.turn`, ribbon group Create
   after the prism): first the **axis**, two points (inferences, as a line's); then the **half
   profile**, drawn point by point as the Prism's outline (its arcs, fillets, typed lengths
   and inferences), on one side of the axis, in the plane through the axis and the profile's
@@ -1870,8 +1875,8 @@ Decided on 2026-11-15 (questions / answers), after OpenCutList's Smart Handle to
 (Distribute, `tools/distribute.rs`) and 4 (Copy along a grid, `tools/copy_grid.rs`) built on
 2026-11-15.
 
-- **Three tools**, three commands — `tool.copy_line` (« Copie en ligne »), `tool.copy_grid`
-  (« Copie en grille ») and `tool.distribute` (« Répartir ») — sharing one module (picking,
+- **Three tools**, three commands — `tool.copy_line` (« Copier en ligne »), `tool.copy_grid`
+  (« Copier en grille ») and `tool.distribute` (« Répartir ») — sharing one module (picking,
   box and its centre, axes option, snapping on the nearest axis, arrow locks, counts typed,
   measure, preview). OCL has them as actions of one tool; here a command is a tool. In the
   ribbon's **Modify** group of Build and Assemble, after Rotate; **no default shortcut**.
@@ -1932,7 +1937,7 @@ Decided on 2026-11-15 (questions / answers), after OpenCutList's Smart Handle to
     target.
 - **Preview** (deviation from OCL, which draws the copies' edges in black): the copies as
   Move's ghosts while copying, the boxes dotted (the source's in black, the copies' in the
-  axis colour), the measure line or rectangle x-ray, dashed, in the axis colour, with its VCB
+  axis colour), the measure line or rectangle dashed over everything (bold while an axis is locked), in the axis colour, with its VCB
   bubbles (one per side for the grid), and OCL's mirror badge (`PointShape::Mirror`, 40 px past
   the mirrored copy: in the axis colour for the line, black for the grid). The copies' ghosts are the
   selection's marks drawn at each copy (`Preview::copies`), so what is copied is the selection

@@ -22,7 +22,7 @@ use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Operation;
 
-use super::handle::{Measure, Memo, Picker, Target, axis_color, draw_axes, draw_boxes, half_along, measure, nearest_axis_on_screen};
+use super::handle::{Measure, Memo, Picker, Target, axis_color, draw_axes, draw_boxes, draw_measure, half_along, measure, nearest_axis_on_screen};
 use super::{
     Command, Cx, PointShape, Preview, PreviewLabel, PreviewLine, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, arrow_head, copy_key,
     dashed,
@@ -385,7 +385,8 @@ impl Tool for DistributeTool {
             p.lines.push(PreviewLine { a: from, b: hit, color, bold: true });
             p.lines.extend(arrow_head(cx.camera, cx.size, from, hit, color));
         }
-        p.xray.push(PreviewLine { a, b, color, bold: cx.axis_lock.is_some() });
+        // The measure, dashed, seen through what lies between.
+        draw_measure(cx, &mut p.lines, a, b, color);
         for at in [a, b] {
             p.points.push(PreviewPoint { at, radius: 4.0, fill: Some(WHITE), stroke: Some(color), shape: PointShape::Round });
         }

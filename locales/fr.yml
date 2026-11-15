@@ -490,13 +490,13 @@ tool:
   # Added to a hint while the tool copies.
   copying: "(copie)"
   select:
-    name: "Sélection"
+    name: "Sélectionner"
     hint:
       idle: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché) · Maj : ajouter/retirer · Double-clic : entrer dans un assemblage ou ouvrir une pièce, ou en sortir"
       crossing: "Capture : sélectionne ce que le rectangle touche · Maj : ajouter/retirer"
       window: "Fenêtre : sélectionne ce que le rectangle contient entièrement · Maj : ajouter/retirer"
   erase:
-    name: "Gomme"
+    name: "Effacer"
     hint:
       idle: "Cliquer pour effacer · Glisser pour effacer tout ce qui est survolé · Maj maintenu : masquer au lieu d'effacer"
       sweep: "Relâcher pour effacer ce qui est survolé · Maj maintenu : le masquer · Échap : annuler"
@@ -518,7 +518,7 @@ tool:
       fillet: "Congé"
       fillet_tip: "Arrondit d'un rayon les coins entre deux côtés droits de la pièce faite, après le décalage · cliquer pour le taper, ou taper rayon suivi de r (5r)"
   box:
-    name: "Boîte"
+    name: "Dessiner une boîte"
     hint:
       first: "Cliquer le premier coin de la base · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
       base: "Cliquer le coin opposé, ou taper longueur;largeur (;hauteur) · flèches : bloquer le plan · %{copy_key} : centré · Échap : revenir"
@@ -534,7 +534,7 @@ tool:
       centered: "Centré"
       centered_tip: "Le premier clic est le centre de la base (%{copy_key} : basculer)"
   cylinder:
-    name: "Cylindre"
+    name: "Dessiner un cylindre"
     hint:
       center: "Cliquer le centre de la base · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : disque entier · %{alt_key} : depuis un coin"
       radius: "Cliquer le rayon, ou taper rayon (;hauteur) · Tab : mesurer le diamètre"
@@ -554,7 +554,7 @@ tool:
       diameter: "Diamètre"
       diameter_tip: "D'un bord à l'autre, par le centre"
   prism:
-    name: "Prisme"
+    name: "Dessiner un prisme"
     hint:
       first: "Cliquer le premier point · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
       corners: "Cliquer le point suivant, ou taper une longueur · clic sur un point posé, double-clic ou Entrée : fermer · flèches : bloquer un axe · Tab : tracé · Maj : guide · %{copy_key} : inverser · Échap : retirer le dernier point"
@@ -585,7 +585,7 @@ tool:
       arc: "Arc 2 points"
       arc_tip: "Un arc libre : cliquer son extrémité, puis son bombé"
   turn:
-    name: "Tournage"
+    name: "Tourner"
     hint:
       axis_start: "Cliquer le premier point de l'axe de rotation · flèches : bloquer un axe"
       axis_end: "Cliquer le second point de l'axe, ou taper sa longueur · flèches : bloquer un axe · Échap : reprendre le premier point"
@@ -628,7 +628,7 @@ tool:
       too_close: "Cliquer à distance du centre pour l'origine de l'angle"
   boolean:
     union:
-      name: "Union"
+      name: "Unir"
       verb: "unir"
     difference:
       name: "Soustraire"
@@ -667,7 +667,7 @@ tool:
     vcb:
       depth: "Profondeur"
   measure:
-    name: "Mètre"
+    name: "Mesurer"
     hint:
       first: "Cliquer un point pour mesurer, ou une arête ou un arc pour tracer un guide parallèle ou concentrique · Tab : type de guide · %{copy_key} : sans guide"
       first_line: "Cliquer une arête pour un guide parallèle, un arc pour un guide tangent, ou un point pour un guide passant par deux points · Tab : type de guide · %{copy_key} : sans guide"
@@ -797,7 +797,7 @@ tool:
       mirror: "Symétrie"
       mirror_tip: "Une seule copie, symétrique de l'original (%{copy_key} : basculer)"
   copy_line:
-    name: "Copie en ligne"
+    name: "Copier en ligne"
     hint:
       pick: "Cliquer la pièce ou l'assemblage à copier · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
       place: "Cliquer pour placer les copies, ou taper une distance · 5x : 5 copies au même pas, /5 : 5 copies sur la distance · flèches : bloquer un axe · %{copy_key} : copie symétrique"
@@ -806,7 +806,7 @@ tool:
     vcb:
       distance: "Distance"
   copy_grid:
-    name: "Copie en grille"
+    name: "Copier en grille"
     hint:
       pick: "Cliquer la pièce ou l'assemblage à copier · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
       place: "Cliquer pour placer les copies, ou taper deux distances (x;y) · 3x;/4 : nombre de copies par côté · flèches : bloquer la normale du plan · %{copy_key} : copie symétrique"
