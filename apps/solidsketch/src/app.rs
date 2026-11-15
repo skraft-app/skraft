@@ -215,7 +215,8 @@ impl SolidSketchApp {
         #[cfg(not(target_arch = "wasm32"))]
         let (remote, error) = {
             let ctx = cc.egui_ctx.clone();
-            let mut remote = crate::control::Remote::new(crate::control::env_port().unwrap_or(prefs.remote_port), move || ctx.request_repaint());
+            let mut remote =
+                crate::control::Remote::new(crate::control::env_port().unwrap_or(prefs.remote_port), move || ctx.request_repaint());
             // The preference, or the environment for this launch only.
             let error = match prefs.remote_control || crate::control::env_wanted() {
                 true => remote.set(true).err().map(|e| t!("status.control_failed", error = e)).or(error),
@@ -1594,10 +1595,13 @@ impl SolidSketchApp {
                     let area = egui::ScrollArea::vertical().auto_shrink(false).max_height(body).min_scrolled_height(body);
                     match id {
                         PanelId::EntityInfo => {
-                            area.id_salt("entity_info").show(ui, |ui| panels::info(ui, &doc.editor, &mut doc.info, actions));
+                            // Salted by the document: a field focused in one is not another's.
+                            let doc_id = doc.id;
+                            area.id_salt("entity_info").show(ui, |ui| ui.push_id(doc_id, |ui| panels::info(ui, &doc.editor, actions)));
                         }
                         PanelId::Materials => {
-                            area.id_salt("materials").show(ui, |ui| panels::materials(ui, &doc.editor, &mut doc.info, actions));
+                            let doc_id = doc.id;
+                            area.id_salt("materials").show(ui, |ui| ui.push_id(doc_id, |ui| panels::materials(ui, &doc.editor, actions)));
                         }
                         PanelId::Outliner => {
                             *outliner_shown = true;
