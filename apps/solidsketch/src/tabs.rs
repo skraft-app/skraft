@@ -186,6 +186,7 @@ pub fn show(
         ui.data_mut(|d| d.insert_temp(key, x));
         let r = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width - 2.0, HEIGHT));
         let resp = ui.interact(r, id.with(("tab", i)), egui::Sense::click_and_drag());
+        crate::handles::publish(|| format!("tab:{i}"), r);
         let active = shown == Some(i);
         let hovered = resp.hovered();
         let ink = match ground {
@@ -240,6 +241,7 @@ pub fn show(
         ui.painter().galley(egui::pos2(r.left() + 10.0, r.center().y - galley.size().y / 2.0), galley, color);
         if show_close && held.is_none() {
             let x = small_button(ui, close, id.with(("close", i)), Glyph::Icon(icons::CLOSE), 12.0, ink);
+            crate::handles::publish(|| format!("tab_close:{i}"), close);
             if x.on_hover_text(t!("tabs.close_tip")).clicked() {
                 out.push(TabAction::Close(i));
             }
@@ -326,6 +328,7 @@ pub fn show(
         }
         x += BUTTON;
     }
+    crate::handles::publish(|| "tab_new".into(), button(x).shrink(1.0));
     if small_button(ui, button(x).shrink(1.0), id.with("new"), Glyph::Icon(icons::ADD), 16.0, visuals.text_color())
         .on_hover_text(t!("tabs.new_tip"))
         .clicked()

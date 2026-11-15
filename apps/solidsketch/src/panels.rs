@@ -88,7 +88,9 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView) -> bool {
     if let Some(s) = &v.shortcut {
         button = button.shortcut_text(s);
     }
-    ui.add_enabled(v.enabled, button).clicked()
+    let r = ui.add_enabled(v.enabled, button);
+    crate::handles::publish_enabled(|| format!("menu:{}", v.id), r.rect, v.enabled);
+    r.clicked()
 }
 
 /// Whether the option bar has anything to show: the active tool's options, or an open part's
@@ -129,7 +131,9 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                 ),
             ];
             let (values, segments): (Vec<_>, Vec<_>) = scopes.into_iter().unzip();
-            if let Some(i) = segmented(ui, egui::Id::unique("option_bar_part_scope"), &segments) {
+            if let Some(i) = segmented(ui, egui::Id::unique("option_bar_part_scope"), &segments, |i| {
+                ["option:part_scope:all", "option:part_scope:this"][i].into()
+            }) {
                 actions.push(Action::PartScope(values[i]));
             }
             // A shape drawn in it: a machining, or material added (§2.11).
@@ -141,7 +145,9 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                     (Sign::Positive, Segment::new(&t!("option_bar.add"), &t!("option_bar.add_tip"), None, sign == Sign::Positive)),
                 ];
                 let (values, segments): (Vec<_>, Vec<_>) = signs.into_iter().unzip();
-                if let Some(i) = segmented(ui, egui::Id::unique("option_bar_body_sign"), &segments) {
+                if let Some(i) = segmented(ui, egui::Id::unique("option_bar_body_sign"), &segments, |i| {
+                    ["option:body_sign:negative", "option:body_sign:positive"][i].into()
+                }) {
                     actions.push(Action::BodySign(values[i]));
                 }
             }
@@ -157,7 +163,9 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             let OptionValue::Choice(current) = &o.value else { continue };
             group(ui, &o.label, &o.tip);
             let segments: Vec<_> = o.choices.iter().map(|c| Segment::new(&c.label, &c.tip, c.icon, current == c.value)).collect();
-            if let Some(c) = segmented(ui, egui::Id::unique(("option_bar", o.key)), &segments) {
+            if let Some(c) =
+                segmented(ui, egui::Id::unique(("option_bar", o.key)), &segments, |i| format!("option:{}:{}", o.key, o.choices[i].value))
+            {
                 actions.push(Action::ToolOption(o.key, OptionValue::Choice(o.choices[c].value.to_owned())));
             }
         }
@@ -171,18 +179,18 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
         ui.spacing_mut().item_spacing.x = crate::ribbon::BUTTON_GAP;
         if editor.open_part().is_some() {
             let on = editor.machinings_switch();
-            if option_button(ui, on, &t!("option_bar.machinings"), &t!("option_bar.machinings_tip"), None) {
+            if option_button(ui, "option:machinings", on, &t!("option_bar.machinings"), &t!("option_bar.machinings_tip"), None) {
                 actions.push(Action::ToggleMachinings);
             }
             if editor.open_part_profile() {
                 let on = editor.tool_kind() == ToolKind::Profile;
-                if option_button(ui, on, &t!("option_bar.profile"), &t!("option_bar.profile_tip"), None) {
+                if option_button(ui, "option:profile", on, &t!("option_bar.profile"), &t!("option_bar.profile_tip"), None) {
                     actions.push(Action::ToggleProfile);
                 }
             }
         }
         for (o, on) in toggles {
-            if option_button(ui, on, &o.label, &o.tip, o.icon) {
+            if option_button(ui, &format!("option:{}", o.key), on, &o.label, &o.tip, o.icon) {
                 actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
             }
         }
@@ -279,6 +287,7 @@ fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Un
         .min_size(egui::vec2(80.0, OPTION_HEIGHT))
         .align(egui::Align2::RIGHT_CENTER);
     let r = ui.add(field).on_hover_text(tip);
+    crate::handles::publish(|| format!("option:{key}"), r.rect);
 
     // Just focused (clicked, tabbed into): all of it selected, to be typed over.
     if r.gained_focus()
@@ -301,9 +310,10 @@ fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Un
 
 /// A toggle of the option bar, drawn like a ribbon button: no frame until hovered, the
 /// selection's fill and outline when on. True when clicked.
-fn option_button(ui: &mut egui::Ui, selected: bool, label: &str, tip: &str, icon: Option<&str>) -> bool {
+fn option_button(ui: &mut egui::Ui, handle: &str, selected: bool, label: &str, tip: &str, icon: Option<&str>) -> bool {
     let face = Face::new(ui, label, icon);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(face.width(OPTION_HEIGHT), OPTION_HEIGHT), egui::Sense::click());
+    crate::handles::publish(|| handle.to_owned(), rect);
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
     let visuals = ui.style().interact_selectable(&response, selected);
     if selected || response.hovered() {
@@ -331,7 +341,8 @@ impl Segment {
 /// A choice as a segmented control: its values side by side, drawn like ribbon buttons, the
 /// chosen one's mark (a selected ribbon button's fill and outline) sliding to the value chosen.
 /// The index of a value clicked other than the chosen one.
-fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment]) -> Option<usize> {
+/// Each segment is published as the handle `handle(index)` (§7 septies).
+fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment], handle: impl Fn(usize) -> String) -> Option<usize> {
     let faces: Vec<Face> = segments.iter().map(|s| Face::new(ui, &s.label, s.icon)).collect();
     let widths: Vec<f32> = faces.iter().map(|f| f.width(OPTION_HEIGHT)).collect();
     let (row, _) = ui.allocate_exact_size(egui::vec2(widths.iter().sum(), OPTION_HEIGHT), egui::Sense::hover());
@@ -346,6 +357,7 @@ fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment]) -> Option<us
         .enumerate()
         .map(|(i, s)| {
             let response = ui.interact(place(i), id.with(i), egui::Sense::click());
+            crate::handles::publish(|| handle(i), place(i));
             response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, s.selected, &s.label));
             if response.hovered() && !s.selected {
                 let visuals = ui.style().interact(&response);

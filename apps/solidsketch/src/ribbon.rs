@@ -650,6 +650,7 @@ fn command_button(
     let Some(c) = v.command(id) else { return };
     let selected = c.checked == Some(true);
     let response = ui.interact(rect, egui::Id::unique(("ribbon_button", key, id)), if c.enabled { Sense::click() } else { Sense::hover() });
+    crate::handles::publish_enabled(|| format!("ribbon:{id}"), rect, c.enabled);
     let visuals = ui.style().interact_selectable(&response, selected);
     if selected || (c.enabled && response.hovered()) {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
@@ -681,6 +682,7 @@ fn command_button(
 /// A collapsed group's button: the icon of its first command; a click opens its menu.
 fn collapsed_button(ui: &mut egui::Ui, l: &Laid, rect: Rect, labels: bool) -> egui::Response {
     let response = ui.interact(rect, egui::Id::unique(("ribbon_collapsed", &l.key)), Sense::click());
+    crate::handles::publish(|| format!("ribbon_group:{}", l.key), rect);
     let visuals = ui.style().interact(&response);
     if response.hovered() {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
@@ -697,6 +699,7 @@ fn collapsed_button(ui: &mut egui::Ui, l: &Laid, rect: Rect, labels: bool) -> eg
 /// A group's label under its buttons, with the chevron of its menu.
 fn group_label(ui: &mut egui::Ui, l: &Laid, rect: Rect, lit: bool) -> egui::Response {
     let response = ui.interact(rect, egui::Id::unique(("ribbon_label", &l.key)), Sense::click());
+    crate::handles::publish(|| format!("ribbon_label:{}", l.key), rect);
     let visuals = ui.style().interact(&response);
     if response.hovered() {
         ui.painter().rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);

@@ -390,6 +390,34 @@ pub enum ToolKind {
 }
 
 impl ToolKind {
+    /// Every tool.
+    pub const ALL: [ToolKind; 19] = [
+        ToolKind::Select,
+        ToolKind::Box,
+        ToolKind::Cylinder,
+        ToolKind::Prism,
+        ToolKind::Turn,
+        ToolKind::Move,
+        ToolKind::Rotate,
+        ToolKind::Boolean(Boolean::Union),
+        ToolKind::Boolean(Boolean::Difference),
+        ToolKind::Boolean(Boolean::Intersection),
+        ToolKind::Erase,
+        ToolKind::Paint,
+        ToolKind::Section,
+        ToolKind::Measure,
+        ToolKind::Stretch,
+        ToolKind::CopyLine,
+        ToolKind::CopyGrid,
+        ToolKind::Distribute,
+        ToolKind::Profile,
+    ];
+
+    /// The tool named `id` ([`ToolKind::id`]).
+    pub fn from_id(id: &str) -> Option<ToolKind> {
+        ToolKind::ALL.into_iter().find(|k| k.id() == id)
+    }
+
     /// A stable name, for the settings kept per tool.
     pub fn id(self) -> &'static str {
         match self {

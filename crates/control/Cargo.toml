@@ -1,0 +1,30 @@
+[package]
+name = "solidsketch-control"
+description = "SolidSketch: the control protocol (docs/ARCHITECTURE.md §7 septies) — its methods and their parameters, the handlers that need only an editor, and the loopback server with its token"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# Volumes measured with the kernel (`model.geometry`); without it, none is given.
+engine = ["solidsketch-kernel/engine"]
+
+[dependencies]
+solidsketch-model.workspace = true
+solidsketch-kernel.workspace = true
+solidsketch-tools.workspace = true
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# The JSON Schemas of the methods' parameters (`app.methods`, later the MCP tools').
+schemars = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The token and discovery files' folder.
+dirs = "6"
+# The per-launch token.
+getrandom = "0.3"
+
+[dev-dependencies]
+solidsketch-kernel = { workspace = true, features = ["engine"] }
+solidsketch-model = { workspace = true, features = ["engine"] }

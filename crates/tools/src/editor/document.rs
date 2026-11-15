@@ -4,6 +4,9 @@
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::kernel::{Error as KernelError, Job, JobId, Output, Quality, Task};
+use web_time::Instant;
+
+use super::journal::{Event, JobKind, Step};
 use solidsketch_model::{Applied, Document, EntityPath, History, Operation, Outcome, Prepared, Primitive};
 
 use super::Editor;
@@ -41,6 +44,9 @@ pub(super) struct Pending {
     /// The last step was undone to make way for this one (`Command::Replace`): redo it if
     /// this one fails or is abandoned.
     pub(super) restore: bool,
+    /// The job sent (kept for the journal: a failure's repro) and when.
+    pub(super) sent: Job,
+    pub(super) at: Instant,
 }
 
 impl Editor {
@@ -63,7 +69,7 @@ impl Editor {
             Ok(Prepared::Done(applied)) => Ok(Some(self.finish(op, *applied, after))),
             Ok(Prepared::Kernel(job)) => {
                 let id = self.job_id();
-                self.pending = Some(Pending { job: id, op, after, restore });
+                self.pending = Some(Pending { job: id, op, after, restore, sent: job.clone(), at: Instant::now() });
                 self.last = None;
                 self.kernel.submit(id, job);
                 // A kernel run inline has answered already.
@@ -85,10 +91,14 @@ impl Editor {
     pub(super) fn finish(&mut self, op: Operation, applied: Applied, after: After) -> Outcome {
         let Applied { document, outcome, displays } = applied;
         let carried = matches!(after, After::Carry(_)).then(|| op.clone());
+        let label = op.label();
         self.history.push(document, op);
+        self.journal.log(Event::Applied { op: label, revision: self.history.revision() });
         for (solid, display) in displays {
             if let Err(e) = &display {
                 self.message = Some(t!("status.display_failed", error = e));
+                let job = Job { inputs: vec![solid.clone()], tasks: vec![Task::Display { solid: 0, quality: Quality::Final }] };
+                self.journal.fail(None, job, e.clone());
             }
             self.scene.insert(&solid, display);
         }
@@ -125,6 +135,7 @@ impl Editor {
 
     /// Says why `op` failed; puts back the step it replaced. Returns the message.
     pub(super) fn fail(&mut self, op: &Operation, why: String, restore: bool) -> String {
+        self.journal.log(Event::Failed { op: op.label(), error: why.clone() });
         let msg = t!("status.op_failed", op = op.label(), error = why);
         if restore && self.history.redo() {
             self.after_change();
@@ -185,6 +196,11 @@ impl Editor {
                     },
                     Err(e) => Err(e.to_string()),
                 };
+                if let Err(e) = &display {
+                    let job = Job { inputs: vec![solid.clone()], tasks: vec![Task::Display { solid: 0, quality }] };
+                    self.journal.log(Event::Job { what: JobKind::Mesh, ms: 0.0, error: Some(e.clone()) });
+                    self.journal.fail(None, job, e.clone());
+                }
                 if quality == Quality::Final
                     && let Err(e) = &display
                 {
@@ -194,6 +210,7 @@ impl Editor {
                 meshed = true;
             } else if self.pending.as_ref().is_some_and(|p| p.job == id) {
                 let Some(p) = self.pending.take() else { continue };
+                self.journal_job(&p, &result);
                 let applied = result.map_err(Into::into).and_then(|outputs| self.document().commit(&p.op, outputs));
                 self.last = Some(match applied {
                     Ok(a) => Ok(self.finish(p.op, a, p.after)),
@@ -213,6 +230,30 @@ impl Editor {
         }
         self.settle_load();
         true
+    }
+
+    /// Notes an operation's job back in the journal: its time, its error; a failure (an error,
+    /// or bodies of a recipe skipped) with the job, to run again.
+    fn journal_job(&mut self, p: &Pending, result: &solidsketch_model::kernel::JobResult) {
+        let ms = p.at.elapsed().as_secs_f64() * 1000.0;
+        let error = match result {
+            Err(KernelError::Cancelled) => None,
+            Err(e) => Some(e.to_string()),
+            Ok(outputs) => {
+                let failed: Vec<u32> = outputs
+                    .iter()
+                    .flat_map(|o| match o {
+                        Output::Recipe { failed, .. } => failed.clone(),
+                        _ => Vec::new(),
+                    })
+                    .collect();
+                (!failed.is_empty()).then(|| format!("recipe: the bodies {failed:?} failed (skipped)"))
+            }
+        };
+        self.journal.log(Event::Job { what: JobKind::Operation, ms, error: error.clone() });
+        if let Some(e) = error {
+            self.journal.fail(Some(p.op.clone()), p.sent.clone(), e);
+        }
     }
 
     /// Starts the queued operations, one at a time; once all are done, selects what they
@@ -330,6 +371,11 @@ impl Editor {
         self.message = Some(message);
     }
 
+    /// Are meshes asked of the kernel still on their way (or meshes missing, not asked yet)?
+    pub fn meshing(&self) -> bool {
+        !self.meshing.is_empty() || self.scene.has_missing()
+    }
+
     /// Asks the kernel for the meshes the scene lacks, one job per solid. During a load, a
     /// preview of each first (all the previews asked before the final meshes: the kernel takes
     /// them in that order), counted in the load.
@@ -361,6 +407,7 @@ impl Editor {
         if self.busy() {
             return;
         }
+        self.note(Event::Undo, Some(Step::Undo));
         // A paste carried: undoing gives it up.
         if self.carrying() {
             self.settle_carry(true);
@@ -377,6 +424,7 @@ impl Editor {
         if self.busy() {
             return;
         }
+        self.note(Event::Redo, Some(Step::Redo));
         if self.carrying() {
             self.settle_carry(true);
             return;

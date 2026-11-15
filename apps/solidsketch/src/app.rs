@@ -73,6 +73,8 @@ pub struct SolidSketchApp {
     taps: [Tap; 3],
     /// Shows the Débogage menu ([`debug_menu_wanted`]).
     debug_menu: bool,
+    /// The control protocol's requests waiting for a frame, real inputs, messages (§7 septies).
+    driving: crate::driving::Driving,
     /// The control channel, switched on and off while the app runs (desktop).
     #[cfg(not(target_arch = "wasm32"))]
     remote: crate::control::Remote,
@@ -207,6 +209,9 @@ impl SolidSketchApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         crate::style::install_fonts(&cc.egui_ctx);
+        // The page's command API asks for a frame when called (§7 septies).
+        #[cfg(target_arch = "wasm32")]
+        crate::web::set_context(cc.egui_ctx.clone());
         let (prefs, error) = Preferences::load();
         // The texts name keys as the platform does (in the browser too).
         solidsketch_i18n::set_mac(cc.egui_ctx.os() == egui::os::OperatingSystem::Mac);
@@ -215,7 +220,11 @@ impl SolidSketchApp {
         #[cfg(not(target_arch = "wasm32"))]
         let (remote, error) = {
             let ctx = cc.egui_ctx.clone();
-            let mut remote = crate::control::Remote::new(crate::control::env_port().unwrap_or(prefs.remote_port), move || ctx.request_repaint());
+            let mut remote = crate::control::Remote::new(
+                crate::control::env_port().unwrap_or(prefs.remote_port),
+                solidsketch_control::server::default_dir(),
+                move || ctx.request_repaint(),
+            );
             // The preference, or the environment for this launch only.
             let error = match prefs.remote_control || crate::control::env_wanted() {
                 true => remote.set(true).err().map(|e| t!("status.control_failed", error = e)).or(error),
@@ -248,6 +257,7 @@ impl SolidSketchApp {
             styled: None,
             taps: Default::default(),
             debug_menu: debug_menu_wanted(),
+            driving: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             remote,
             #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
@@ -1653,11 +1663,13 @@ impl SolidSketchApp {
                 Some(m) if !d.editor.busy() => m.clone(),
                 _ => d.editor.status(),
             };
+            self.driving.message(&status);
             ui.label(status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (label, value) = d.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
                 let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
                 let r = ui.add_enabled(d.editor.takes_typing(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
+                crate::handles::publish_enabled(|| "vcb".into(), r.rect, d.editor.takes_typing());
                 if r.changed() {
                     d.vcb = text.clone();
                 }
@@ -1734,86 +1746,311 @@ impl SolidSketchApp {
         }
     }
 
-    /// Answers the control channel's requests (desktop, when it is on).
-    #[cfg(not(target_arch = "wasm32"))]
-    fn serve_control(&mut self, frame: &eframe::Frame) {
-        use crate::control::{Reply, Request};
+    /// Answers the control channel's requests (desktop, when it is on): the editor's methods
+    /// through `solidsketch_control::editor`, the window's here; an `app.wait` not met yet waits
+    /// for a later frame.
+    fn serve_control(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        // Desktop: the loopback server's requests.
+        #[cfg(not(target_arch = "wasm32"))]
+        let askers: Vec<crate::driving::Asker> = {
+            crate::handles::set_enabled(self.remote.is_on());
+            match self.remote.control() {
+                Some(c) => c
+                    .take()
+                    .into_iter()
+                    .map(|p| {
+                        let call = p.call.clone();
+                        crate::driving::Asker::new(call, move |o| p.answer(o))
+                    })
+                    .collect(),
+                None => Vec::new(),
+            }
+        };
+        // Web: the page's calls (`window.solidsketch`).
+        #[cfg(target_arch = "wasm32")]
+        let askers = {
+            crate::handles::set_enabled(crate::web::used());
+            crate::web::take()
+        };
+        for asker in askers {
+            self.serve(asker, ctx, frame);
+        }
+        self.answer_waits();
+        // Frames go on while something waits: an idle window draws none.
+        if self.driving.busy() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
+
+    /// Takes one request: answered now, or once a later frame has what it waits for.
+    fn serve(&mut self, asker: crate::driving::Asker, ctx: &egui::Context, frame: &eframe::Frame) {
+        use solidsketch_control::Error;
+        use solidsketch_control::params::{UiDragParams, UiKeyParams, UiPointerParams, UiScrollParams, UiTextParams, WaitParams};
+        let call = &asker.call;
+        let frames = match call.method.as_str() {
+            "app.wait" => match call.params::<WaitParams>() {
+                Ok(params) => {
+                    let deadline = web_time::Instant::now() + params.timeout();
+                    self.driving.waiting.push(crate::driving::Waiting { asker, params, deadline });
+                    return;
+                }
+                Err(e) => Err(e),
+            },
+            "ui.screenshot" => {
+                self.driving.screenshot(ctx, asker);
+                return;
+            }
+            // The web draws the viewport in the window's canvas: the window's image.
+            #[cfg(target_arch = "wasm32")]
+            "app.screenshot" => {
+                self.driving.screenshot(ctx, asker);
+                return;
+            }
+            "ui.click" | "ui.move" => call.params::<UiPointerParams>().and_then(|p| {
+                let pos = self.ui_where(&p.at)?;
+                let mods = crate::driving::modifiers(&p.mods);
+                Ok(match call.method.as_str() {
+                    "ui.click" => crate::driving::click(pos, p.button, p.double, mods),
+                    _ => vec![(vec![egui::Event::PointerMoved(pos)], mods)],
+                })
+            }),
+            "ui.drag" => call.params::<UiDragParams>().and_then(|p| {
+                let (from, to) = (self.ui_where(&p.from)?, self.ui_where(&p.to)?);
+                Ok(crate::driving::drag(from, to, p.steps.unwrap_or(8).clamp(1, 1000), p.button, crate::driving::modifiers(&p.mods)))
+            }),
+            "ui.key" => call.params::<UiKeyParams>().and_then(|p| {
+                let key = egui::Key::from_name(&p.key)
+                    .ok_or_else(|| Error::BadParams(format!("no key {:?} (egui's names: Escape, Enter, ArrowUp, A…)", p.key)))?;
+                let mods = crate::driving::modifiers(&p.mods);
+                let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: mods };
+                Ok(match p.pressed {
+                    Some(pressed) => vec![(vec![event(pressed)], mods)],
+                    None => vec![(vec![event(true)], mods), (vec![event(false)], mods)],
+                })
+            }),
+            "ui.text" => call.params::<UiTextParams>().map(|p| vec![(vec![egui::Event::Text(p.text)], egui::Modifiers::NONE)]),
+            "ui.scroll" => call.params::<UiScrollParams>().and_then(|p| {
+                let pos = self.ui_where(&p.at)?;
+                let mods = crate::driving::modifiers(&p.mods);
+                let wheel = egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(p.delta[0], p.delta[1]),
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
+                    modifiers: mods,
+                };
+                Ok(vec![(vec![egui::Event::PointerMoved(pos)], mods), (vec![wheel], mods)])
+            }),
+            _ => {
+                let outcome = self.control_call(call, ctx, frame);
+                asker.answer(outcome);
+                return;
+            }
+        };
+        match frames {
+            Ok(frames) => self.driving.take_in(asker, frames),
+            Err(e) => asker.answer(Err(e)),
+        }
+    }
+
+    /// Where a real pointer event lands (window points): a point, a handle's centre, a world
+    /// point's pixel in the viewport.
+    fn ui_where(&self, w: &solidsketch_control::params::UiWhere) -> Result<egui::Pos2, solidsketch_control::Error> {
+        use solidsketch_control::Error;
+        match (w.pos, &w.handle, w.at) {
+            (Some([x, y]), None, None) => Ok(egui::pos2(x, y)),
+            (None, Some(name), None) => crate::handles::find(name)
+                .map(|h| h.rect.center())
+                .ok_or_else(|| Error::Failed(format!("no handle {name:?} drawn (ui.handles lists them)"))),
+            (None, None, Some(at)) => {
+                let view = crate::handles::find("viewport").ok_or_else(|| Error::Failed("no viewport drawn".into()))?;
+                let d = self.docs.active().ok_or_else(|| Error::Failed("no document open".into()))?;
+                let px = d
+                    .editor
+                    .camera
+                    .project(glam::DVec3::from_array(at), d.editor.viewport_size())
+                    .ok_or_else(|| Error::Failed(format!("{at:?} is behind the camera")))?;
+                Ok(view.rect.min + egui::vec2(px.x as f32, px.y as f32))
+            }
+            _ => Err(Error::BadParams("`where` is `pos`, `handle` or `at`, one of them".into())),
+        }
+    }
+
+    /// Answers what waited for this frame: real inputs taken in, waits met or out of time, the
+    /// window's image.
+    fn answer_waits(&mut self) {
         use serde_json::json;
-        let Some(pending) = self.remote.control().map(|c| c.take()) else { return };
-        for p in pending {
-            let reply = match &p.request {
-                Request::Commands => {
-                    let list: Vec<_> = self
-                        .command_views()
-                        .into_iter()
-                        .map(
-                            |v| json!({ "id": v.id, "label": v.label, "enabled": v.enabled, "checked": v.checked, "shortcut": v.shortcut }),
-                        )
-                        .collect();
-                    Reply::json(200, json!(list))
-                }
-                Request::Run(id) => match self.run(id) {
-                    Ok(()) => Reply::json(200, json!({ "ok": true, "status": self.docs.active().map(|d| d.editor.status()) })),
-                    Err(e) => Reply::json(400, json!({ "ok": false, "error": e })),
-                },
-                Request::Docs => {
-                    let list: Vec<_> = self
-                        .docs
-                        .iter()
-                        .map(|d| json!({ "id": d.id, "name": d.name(), "path": d.path, "modified": d.modified() }))
-                        .collect();
-                    let asking = self.closing.as_ref().and_then(|c| c.asking);
-                    Reply::json(200, json!({ "docs": list, "shown": self.docs.active_index(), "asking": asking }))
-                }
-                Request::DocsSwitch(i) if *i < self.docs.len() => {
-                    self.docs.select(*i);
-                    Reply::json(200, json!({ "ok": true }))
-                }
-                Request::DocsClose { index, force } if *index < self.docs.len() => {
-                    if *force {
-                        self.close_now(*index);
-                    } else {
-                        self.tab_action(TabAction::Close(*index));
+        use solidsketch_control::Answer;
+        let stamp = self.control_stamp();
+        for asker in self.driving.taken() {
+            asker.answer(Ok(Answer::Json(stamp.clone())));
+        }
+        let (revision, idle) = match self.docs.active() {
+            Some(d) => (d.editor.history().revision(), solidsketch_control::editor::idle(&d.editor)),
+            None => (0, true),
+        };
+        let now = web_time::Instant::now();
+        let mut i = 0;
+        while i < self.driving.waiting.len() {
+            let w = &self.driving.waiting[i];
+            let met = w.params.met(revision, idle);
+            if met || now >= w.deadline {
+                let w = self.driving.waiting.swap_remove(i);
+                let mut v = stamp.clone();
+                v["timed_out"] = json!(!met);
+                w.asker.answer(Ok(Answer::Json(v)));
+            } else {
+                i += 1;
+            }
+        }
+        if let Some((image, askers)) = self.driving.screenshot_taken() {
+            let rgba: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_srgba_unmultiplied()).collect();
+            let png = crate::driving::png(image.size[0] as u32, image.size[1] as u32, &rgba);
+            for a in askers {
+                a.answer(png.clone().map(Answer::Png).map_err(solidsketch_control::Error::Failed));
+            }
+        }
+    }
+
+    /// The active document's identity and state, as every wait answers it.
+    fn control_stamp(&self) -> serde_json::Value {
+        use serde_json::json;
+        match self.docs.active() {
+            Some(d) => json!({
+                "document": d.id,
+                "revision": d.editor.history().revision(),
+                "busy": d.editor.busy(),
+                "idle": solidsketch_control::editor::idle(&d.editor),
+            }),
+            None => json!({ "document": null, "revision": 0, "busy": false, "idle": true }),
+        }
+    }
+
+    /// Answers one call of the control channel (but `app.wait`).
+    fn control_call(
+        &mut self,
+        call: &solidsketch_control::Call,
+        ctx: &egui::Context,
+        frame: &eframe::Frame,
+    ) -> solidsketch_control::Outcome {
+        // The viewport's own capture is the desktop's (the web's is the window's).
+        #[cfg(target_arch = "wasm32")]
+        let _ = frame;
+        use serde_json::json;
+        use solidsketch_control::params::{DocsAction, DocsParams, NoParams, RunParams};
+        use solidsketch_control::{Answer, Error};
+        if !solidsketch_control::is_method(&call.method) {
+            return Err(Error::UnknownMethod(call.method.clone()));
+        }
+        if let Some(d) = self.docs.active_mut()
+            && let Some(mut outcome) = solidsketch_control::editor::call(&mut d.editor, call)
+        {
+            // A screenshot's pixels are the viewport's points times this.
+            if call.method == "view.camera"
+                && let Ok(Answer::Json(v)) = &mut outcome
+            {
+                v["pixels_per_point"] = json!(ctx.pixels_per_point());
+            }
+            return outcome;
+        }
+        let ok = |v: serde_json::Value| Ok(Answer::Json(v));
+        match call.method.as_str() {
+            "app.ping" => ok(json!({})),
+            "app.methods" => ok(solidsketch_control::methods_json()),
+            "app.commands" => {
+                call.params::<NoParams>()?;
+                let list: Vec<_> = self
+                    .command_views()
+                    .into_iter()
+                    .map(|v| json!({ "id": v.id, "label": v.label, "enabled": v.enabled, "checked": v.checked, "shortcut": v.shortcut }))
+                    .collect();
+                ok(json!(list))
+            }
+            "app.run" => {
+                let p: RunParams = call.params()?;
+                self.run(&p.id).map_err(Error::Failed)?;
+                let mut v = self.control_stamp();
+                v["status"] = json!(self.docs.active().map(|d| d.editor.status()));
+                ok(v)
+            }
+            "app.docs" => {
+                let p: DocsParams = call.params()?;
+                let tab = || p.index.filter(|i| *i < self.docs.len()).ok_or_else(|| Error::Failed(format!("no tab {:?}", p.index)));
+                match p.action {
+                    DocsAction::List => {}
+                    DocsAction::New => self.new_document(),
+                    DocsAction::Switch => {
+                        let i = tab()?;
+                        self.docs.select(i);
                     }
-                    Reply::json(200, json!({ "ok": true, "asking": self.closing.as_ref().and_then(|c| c.asking) }))
+                    DocsAction::Close => {
+                        let i = tab()?;
+                        if p.force {
+                            self.close_now(i);
+                        } else {
+                            self.tab_action(TabAction::Close(i));
+                        }
+                    }
                 }
-                Request::DocsSwitch(_) | Request::DocsClose { .. } => Reply::json(400, json!({ "ok": false, "error": "no such tab" })),
-                Request::DocsNew => {
-                    self.new_document();
-                    Reply::json(200, json!({ "ok": true, "shown": self.docs.active_index() }))
+                let list: Vec<_> =
+                    self.docs.iter().map(|d| json!({ "id": d.id, "name": d.name(), "path": d.path, "modified": d.modified() })).collect();
+                let asking = self.closing.as_ref().and_then(|c| c.asking);
+                ok(json!({ "docs": list, "shown": self.docs.active_index(), "asking": asking }))
+            }
+            "app.state" => {
+                call.params::<NoParams>()?;
+                let Some(d) = self.docs.active() else { return ok(json!({ "document": null })) };
+                let e = &d.editor;
+                ok(json!({
+                    "tool": e.tool_kind().id(),
+                    "context": e.context().iter().map(|i| i.0).collect::<Vec<_>>(),
+                    "open_part": e.open_part().map(|i| i.0),
+                    "selection": e.selection().iter().map(|i| i.0).collect::<Vec<_>>(),
+                    "status": e.status(),
+                    "busy": e.busy(),
+                    "idle": solidsketch_control::editor::idle(e),
+                    "revision": e.history().revision(),
+                    "modified": d.modified(),
+                    "path": d.path,
+                    "document": d.id,
+                }))
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            "app.screenshot" => {
+                call.params::<NoParams>()?;
+                let shot = frame.wgpu_render_state().and_then(|s| self.viewport.capture(s));
+                match shot.map(|(w, h, px)| crate::driving::png(w, h, &px)) {
+                    Some(Ok(png)) => Ok(Answer::Png(png)),
+                    Some(Err(e)) => Err(Error::Failed(e)),
+                    None => Err(Error::Unavailable("nothing drawn yet".into())),
                 }
-                Request::State => {
-                    let Some(d) = self.docs.active() else {
-                        p.answer(Reply::json(200, json!({ "document": null })));
-                        continue;
-                    };
-                    let e = &d.editor;
-                    Reply::json(
-                        200,
+            }
+            "ui.handles" => {
+                let p: solidsketch_control::params::UiHandlesParams = call.params()?;
+                let list: Vec<_> = crate::handles::last(&p.prefix)
+                    .into_iter()
+                    .map(|h| {
                         json!({
-                            "tool": e.tool_kind().id(),
-                            "context": e.context().iter().map(|i| i.0).collect::<Vec<_>>(),
-                            "open_part": e.open_part().map(|i| i.0),
-                            "selection": e.selection().iter().map(|i| i.0).collect::<Vec<_>>(),
-                            "status": e.status(),
-                            "busy": e.busy(),
-                            "revision": e.history().revision(),
-                            "modified": d.modified(),
-                            "path": d.path,
-                            "document": d.id,
-                        }),
-                    )
+                            "name": h.name,
+                            "enabled": h.enabled,
+                            "min": [h.rect.min.x, h.rect.min.y],
+                            "max": [h.rect.max.x, h.rect.max.y],
+                            "center": [h.rect.center().x, h.rect.center().y],
+                        })
+                    })
+                    .collect();
+                ok(json!({ "handles": list, "pixels_per_point": ctx.pixels_per_point() }))
+            }
+            "ui.messages" => {
+                let p: solidsketch_control::params::UiMessagesParams = call.params()?;
+                let list: Vec<_> = self.driving.messages.iter().map(|m| json!({ "text": m.text, "ms": m.ms })).collect();
+                if p.clear {
+                    self.driving.messages.clear();
                 }
-                Request::Screenshot => {
-                    let shot = frame.wgpu_render_state().and_then(|s| self.viewport.capture(s));
-                    match shot.map(|(w, h, px)| crate::control::png(w, h, &px)) {
-                        Some(Ok(png)) => Reply { status: 200, content_type: "image/png", body: png },
-                        Some(Err(e)) => Reply::json(500, json!({ "ok": false, "error": e })),
-                        None => Reply::json(503, json!({ "ok": false, "error": "nothing drawn yet" })),
-                    }
-                }
-            };
-            p.answer(reply);
+                ok(json!({ "messages": list }))
+            }
+            m if ["model.", "tool.", "view.", "journal."].iter().any(|p| m.starts_with(p)) => Err(Error::Failed("no document open".into())),
+            m => Err(Error::UnknownMethod(m.into())),
         }
     }
 }
@@ -1832,25 +2069,37 @@ impl SolidSketchApp {
             use crate::control::Status;
             match self.remote.status() {
                 Status::Off => None,
-                Status::On { port, served, flash } => {
+                Status::On { port, served, flash, token_file } => {
                     if flash > 0.0 {
                         ctx.request_repaint();
                     }
-                    Some(titlebar::RemoteMark { port, served, flash, error: None })
+                    Some(titlebar::RemoteMark { port, served, flash, error: None, token_file })
                 }
-                Status::Failed { port, error } => Some(titlebar::RemoteMark { port, served: 0, flash: 0.0, error: Some(error) }),
+                Status::Failed { port, error } => {
+                    Some(titlebar::RemoteMark { port, served: 0, flash: 0.0, error: Some(error), token_file: None })
+                }
             }
         }
     }
 }
 
 impl eframe::App for SolidSketchApp {
+    /// The control channel stops with the app: its token and discovery files go.
+    fn on_exit(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = self.remote.set(false);
+    }
+
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         raw_input.events.append(&mut self.pending_keys);
+        // Real input asked over the control channel: one frame's events (§7 septies).
+        self.driving.feed(raw_input);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        crate::handles::frame_start();
+        self.driving.frame_start();
         self.apply_theme(&ctx);
         // What the kernel finished since the last frame (it wakes the UI when it does), for
         // every document: one in the background goes on computing.
@@ -1916,8 +2165,7 @@ impl eframe::App for SolidSketchApp {
         if self.closing.as_ref().is_none_or(|c| c.asking.is_none()) {
             self.keyboard(&ctx);
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        self.serve_control(frame);
+        self.serve_control(&ctx, frame);
 
         // Still the window's title where the OS shows it (Window menu, Mission Control).
         let title = match self.docs.active() {

@@ -8,7 +8,9 @@ mod commands;
 mod control;
 mod dock;
 mod docs;
+mod driving;
 mod file;
+mod handles;
 mod icons;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;
@@ -20,6 +22,8 @@ mod style;
 mod tabs;
 mod titlebar;
 mod viewport;
+#[cfg(target_arch = "wasm32")]
+mod web;
 #[cfg(target_arch = "wasm32")]
 mod worker;
 

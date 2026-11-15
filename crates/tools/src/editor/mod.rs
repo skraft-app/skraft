@@ -26,6 +26,7 @@ use crate::vcb;
 
 mod clipboard;
 mod document;
+pub mod journal;
 mod loading;
 mod navigation;
 mod quick;
@@ -139,6 +140,11 @@ pub struct Editor {
     card: Option<quick::Card>,
     /// A drag the editor turns into clicks for the tool (§6, [`Tool::drag_clicks`]).
     drag_click: Option<DragClick>,
+    /// What it went through: journal, kernel failures, recording (§7 septies).
+    journal: journal::Journal,
+    /// How deep in the editor's own calls: a public method it calls itself is not the outside's
+    /// (not recorded).
+    depth: u32,
 }
 
 /// A drag turned into clicks, while the button is down.
@@ -222,6 +228,8 @@ impl Editor {
             aside: None,
             card: None,
             drag_click: None,
+            journal: journal::Journal::default(),
+            depth: 0,
         };
         // Opened: its meshes asked as a load (none for an empty document: ended at once).
         e.after_change();
@@ -531,6 +539,12 @@ impl Editor {
     /// Sets an option of the active tool (a click in the bar): a setting is kept for the tool,
     /// a gesture's state goes to the tool.
     pub fn set_tool_option(&mut self, key: &str, value: OptionValue) {
+        let event = journal::Event::Option { key: key.to_owned(), value: value.clone() };
+        self.note(event, Some(journal::Step::Option { key: key.to_owned(), value: value.clone() }));
+        self.inside(|e| e.change_tool_option(key, value));
+    }
+
+    fn change_tool_option(&mut self, key: &str, value: OptionValue) {
         let Some(option) = self.tool_options().into_iter().find(|o| o.key == key) else { return };
         if option.saved {
             self.tool_settings.entry(self.tool.kind().id().to_owned()).or_default().insert(key.to_owned(), value.clone());
@@ -603,6 +617,9 @@ impl Editor {
         if down == self.shift {
             return;
         }
+        if self.depth == 0 {
+            self.journal.record(journal::Step::Shift(down), &self.camera, self.size);
+        }
         self.shift = down;
         self.shift_lock = if down {
             self.preview().inference.and_then(|i| {
@@ -619,6 +636,9 @@ impl Editor {
     /// cursor again with it.
     pub fn set_copy(&mut self, down: bool) {
         if down != self.copy {
+            if self.depth == 0 {
+                self.journal.record(journal::Step::Copy(down), &self.camera, self.size);
+            }
             self.copy = down;
             self.rehover();
         }
@@ -628,6 +648,9 @@ impl Editor {
     /// the cursor again with it.
     pub fn set_alt(&mut self, down: bool) {
         if down != self.alt {
+            if self.depth == 0 {
+                self.journal.record(journal::Step::Alt(down), &self.camera, self.size);
+            }
             self.alt = down;
             self.rehover();
         }
@@ -688,13 +711,56 @@ impl Editor {
     /// Feeds the tool the last cursor position again (a lock changed).
     fn rehover(&mut self) {
         if let Some(px) = self.last_hover {
-            self.input(ToolInput::Hover { px });
+            self.inside(|e| e.input(ToolInput::Hover { px }));
         }
+    }
+
+    // ---- journal (§7 septies) ------------------------------------------------------------------
+
+    /// What it went through: the journal, the kernel's failures, the recording under way.
+    pub fn journal(&self) -> &journal::Journal {
+        &self.journal
+    }
+
+    /// Starts recording the inputs from the document and the view as they are now (again: from
+    /// now), or stops: the recording, if one was under way.
+    pub fn record(&mut self, on: bool) -> Option<journal::Recording> {
+        let done = self.journal.stop_recording();
+        if on {
+            let document = self.document().to_json().unwrap_or_default();
+            self.journal.start_recording(document, self.tool.kind());
+        }
+        done
+    }
+
+    /// Notes `event` in the journal and, called from outside (not from the editor's own
+    /// calls), `step` in the recording.
+    fn note(&mut self, event: journal::Event, step: Option<journal::Step>) {
+        self.journal.log(event);
+        if self.depth == 0
+            && self.journal.is_recording()
+            && let Some(step) = step
+        {
+            self.journal.record(step, &self.camera, self.size);
+        }
+    }
+
+    /// Runs `f` as one of the editor's own calls: the public methods it calls are not recorded.
+    fn inside<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        self.depth += 1;
+        let r = f(self);
+        self.depth -= 1;
+        r
     }
 
     // ---- tools ---------------------------------------------------------------------------------
 
     pub fn set_tool(&mut self, kind: ToolKind) {
+        self.note(journal::Event::Tool(kind), Some(journal::Step::Tool(kind)));
+        self.inside(|e| e.switch_tool(kind));
+    }
+
+    fn switch_tool(&mut self, kind: ToolKind) {
         // Another tool gives up a paste carried.
         self.settle_carry(true);
         self.tool = tools::make(kind);
@@ -713,9 +779,12 @@ impl Editor {
     /// nothing more, but with Select, where it clears the selection (or closes the open part).
     /// Delete erases the selection.
     pub fn input(&mut self, input: ToolInput) {
-        self.input_tool(input);
-        // A paste carried put down or given up (Esc): back to the tool before.
-        self.settle_carry(false);
+        self.note(journal::Event::Input { input: input.clone(), count: 1 }, Some(journal::Step::Input(input.clone())));
+        self.inside(|e| {
+            e.input_tool(input);
+            // A paste carried put down or given up (Esc): back to the tool before.
+            e.settle_carry(false);
+        });
     }
 
     fn input_tool(&mut self, input: ToolInput) {

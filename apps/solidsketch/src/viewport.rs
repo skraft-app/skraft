@@ -122,6 +122,7 @@ impl Viewport {
         self.show_document(doc);
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        crate::handles::publish(|| "viewport".into(), rect);
         editor.set_viewport_size(DVec2::new(rect.width() as f64, rect.height() as f64));
         self.input(ui, &response, rect, editor, nav);
 
