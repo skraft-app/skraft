@@ -28,6 +28,7 @@ mod clipboard;
 mod document;
 mod loading;
 mod navigation;
+mod quick;
 mod selection;
 mod view;
 
@@ -129,6 +130,13 @@ pub struct Editor {
     paint: Option<Id>,
     /// A paste carried at the cursor (§6 decies).
     carry: Option<clipboard::Carry>,
+    /// The tool to go back to, once the tool the quick tools started has done its action
+    /// (§6 terdecies).
+    quick_return: Option<quick::Return>,
+    /// The tool that handed back to it: what is typed before the next shape goes to it.
+    aside: Option<Box<dyn Tool>>,
+    /// The quick tools' card, offered on what a creation tool just made.
+    card: Option<quick::Card>,
 }
 
 /// The settings of a tool that has none saved.
@@ -194,6 +202,9 @@ impl Editor {
             tool_settings: BTreeMap::new(),
             paint: None,
             carry: None,
+            quick_return: None,
+            aside: None,
+            card: None,
         };
         // Opened: its meshes asked as a load (none for an empty document: ended at once).
         e.after_change();
@@ -401,7 +412,7 @@ impl Editor {
     /// The measurements box's label and the value it shows while nothing is typed, when the
     /// tool takes one.
     pub fn vcb(&self) -> Option<(String, String)> {
-        self.tool.vcb().map(|v| {
+        self.aside_vcb().or_else(|| self.tool.vcb()).map(|v| {
             let shown = vcb::display(&v, &self.document().settings().units);
             (v.label, shown)
         })
@@ -410,7 +421,7 @@ impl Editor {
     /// Does the measurements box take a typed value now: what the tool takes at this step, or
     /// a length option's `<length>x`?
     pub fn takes_typing(&self) -> bool {
-        self.tool.vcb().is_some() || self.tool_options().iter().any(|o| matches!(o.value, OptionValue::Length(_)))
+        self.aside_vcb().is_some() || self.tool.vcb().is_some() || self.tool_options().iter().any(|o| matches!(o.value, OptionValue::Length(_)))
     }
 
     pub fn set_viewport_size(&mut self, size: DVec2) {
@@ -668,6 +679,9 @@ impl Editor {
         // Another tool gives up a paste carried.
         self.settle_carry(true);
         self.tool = tools::make(kind);
+        self.quick_return = None;
+        self.aside = None;
+        self.card = None;
         self.message = None;
         self.clear_locks();
         self.reference = None;
@@ -697,6 +711,9 @@ impl Editor {
         // A typed value is read for what the tool takes now (vcb.rs).
         let input = match input {
             ToolInput::Vcb(text) => {
+                if self.type_aside(&text) {
+                    return;
+                }
                 if let Some((key, len)) = self.length_typed(&text) {
                     let len = len.to_owned();
                     self.type_tool_length(key, &len);
@@ -713,6 +730,11 @@ impl Editor {
             }
             input => input,
         };
+        if let ToolInput::Key { key, .. } = &input
+            && Self::card_key(*key)
+        {
+            self.card = None;
+        }
         match &input {
             ToolInput::Hover { px } => self.last_hover = Some(*px),
             // The arrow keys lock an axis for every tool: → red, ← green, ↑ blue, ↓ free; for
@@ -746,7 +768,15 @@ impl Editor {
                 // only drops the locks.
                 if self.tool.busy() {
                     self.tool.back();
+                    // Back at its first step, a tool the quick tools started hands back.
+                    if !self.tool.busy() {
+                        self.hand_back(false);
+                    }
                     self.rehover();
+                } else if self.quick_return.is_some() {
+                    self.hand_back(false);
+                } else if self.aside.take().is_some() {
+                    // The tool aside let go first.
                 } else if self.tool.kind() == ToolKind::Select {
                     if self.selection.is_empty() && self.open_part.is_some() {
                         self.exit();
@@ -783,8 +813,17 @@ impl Editor {
                 (None, _) => None,
             };
         }
+        let acted = Self::acts(&commands);
         for c in commands {
             self.run(c);
+        }
+        if acted {
+            self.hand_back(true);
+        }
+        // The next shape started: the tool aside takes nothing more, the card goes.
+        if self.tool.busy() {
+            self.aside = None;
+            self.card = None;
         }
         self.update_preview_mesh();
     }
@@ -897,8 +936,10 @@ impl Editor {
                 let held = stretching.then(|| self.stretch_meshed.clone()).flatten();
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.
+                // What a drawing tool makes is offered the quick tools' card (§6 terdecies).
                 let after = match op {
-                    Operation::Boolean { .. } | Operation::AddPrimitive { .. } | Operation::AddBody { .. } | Operation::SetProfile { .. } => After::Nothing,
+                    Operation::AddPrimitive { .. } | Operation::AddBody { .. } => After::Card,
+                    Operation::Boolean { .. } | Operation::SetProfile { .. } => After::Nothing,
                     _ => After::Select,
                 };
                 // Hidden (the eraser with Shift), they leave the selection, unless the hidden

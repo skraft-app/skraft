@@ -14,6 +14,7 @@ mod icons;
 mod native_menu;
 mod panels;
 mod prefs;
+mod quick;
 mod ribbon;
 mod style;
 mod tabs;

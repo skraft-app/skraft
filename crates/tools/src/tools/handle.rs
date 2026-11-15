@@ -80,7 +80,7 @@ impl Bounds {
 /// `occs` of the context `context` hold: a part's exact box when it lies square to the axes
 /// (read from the document: there before its mesh is), else its display mesh's vertices (its
 /// box's corners would swell it); an assembly's parts as the scene places them.
-pub(super) fn occurrences_bounds(cx: &Cx<'_>, context: &[Id], occs: &[&Occurrence], in_context: DAffine3) -> Option<(DVec3, DVec3)> {
+pub(crate) fn occurrences_bounds(cx: &Cx<'_>, context: &[Id], occs: &[&Occurrence], in_context: DAffine3) -> Option<(DVec3, DVec3)> {
     let to_world = cx.doc.transform_of(context).ok()?;
     let mut b = Bounds::new();
     let mut add_part = |def: Id, t: DAffine3| {
@@ -112,7 +112,7 @@ pub(super) fn occurrences_bounds(cx: &Cx<'_>, context: &[Id], occs: &[&Occurrenc
 
 /// The bounds, in the axes `in_part` places in the part's, of its bodies `bodies` (§2.11): a
 /// body's exact box when square to the axes, else its mesh's vertices.
-pub(super) fn bodies_bounds(cx: &Cx<'_>, part: &Part, bodies: &[&Body], in_part: DAffine3) -> Option<(DVec3, DVec3)> {
+pub(crate) fn bodies_bounds(cx: &Cx<'_>, part: &Part, bodies: &[&Body], in_part: DAffine3) -> Option<(DVec3, DVec3)> {
     let to_target = in_part.inverse();
     let mut b = Bounds::new();
     for body in bodies {

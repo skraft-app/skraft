@@ -59,6 +59,9 @@ pub struct Preferences {
     pub panels: Layout,
     /// The workspace and tab shown, the ribbon's pins and labels (ARCHITECTURE.md §6 septies).
     pub ribbon: crate::ribbon::Prefs,
+    /// The commands the quick tools' card shows (ARCHITECTURE.md §6 terdecies); absent: the
+    /// defaults.
+    pub quick_tools: Option<Vec<String>>,
     /// The control channel (docs/ARCHITECTURE.md §7 quater) is on at launch (desktop).
     pub remote_control: bool,
     /// Its port, on 127.0.0.1.
@@ -84,6 +87,7 @@ impl Default for Preferences {
             shown_file: None,
             panels: Layout::default(),
             ribbon: crate::ribbon::Prefs::default(),
+            quick_tools: None,
             remote_control: false,
             remote_port: DEFAULT_REMOTE_PORT,
         }
