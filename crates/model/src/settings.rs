@@ -138,11 +138,25 @@ impl LengthUnit {
     }
 }
 
+/// What a shown value rounded away from the real one starts with: `~ 12`, as SketchUp does.
+pub const APPROX: &str = "~ ";
+
+/// The precision (mm) of the lengths shown: a micron. A rounded length closer than that to the
+/// real one is not marked rounded, and the real one is edited to it — what is closer is float
+/// noise (a point picked by a ray is off by about 1e-8 of its distance), not a measure.
+const PRECISION: f64 = 1e-3;
+const PRECISION_DIGITS: i32 = 3;
+
 impl Units {
     /// A length in mm, for display in these units, as the locale writes it: `12,5 cm`
-    /// (`12,5` when the symbol is not shown).
+    /// (`12,5` when the symbol is not shown), `~ 12,5 cm` when rounded.
     pub fn format(&self, mm: f64) -> String {
         format!("{}{}", self.number(mm), self.suffix())
+    }
+
+    /// Does showing `mm` with these decimals round it?
+    pub fn is_rounded(&self, mm: f64) -> bool {
+        (self.rounded(mm) * self.length.mm() - mm).abs() > PRECISION
     }
 
     /// What follows a number shown in these units: ` cm`, or nothing when the symbol is not
@@ -151,11 +165,27 @@ impl Units {
         if self.symbol { format!(" {}", self.length.symbol()) } else { String::new() }
     }
 
-    /// The number alone, in these units, without needless decimals: `12,5`.
+    /// The number alone, in these units, without needless decimals: `12,5`, `~ 12,5` when
+    /// rounded.
     pub fn number(&self, mm: f64) -> String {
-        let p = 10f64.powi(self.decimals.min(9) as i32);
+        let approx = if self.is_rounded(mm) { APPROX } else { "" };
+        solidsketch_i18n::number(&format!("{approx}{}", self.rounded(mm)))
+    }
+
+    /// The number to the precision of the lengths shown (for editing it), never marked
+    /// rounded: `12,346`.
+    pub fn exact_number(&self, mm: f64) -> String {
+        // As many decimals as tell the precision in this unit.
+        let p = 10f64.powi(PRECISION_DIGITS + self.length.mm().log10().ceil() as i32);
         let r = (mm / self.length.mm() * p).round() / p;
         let r = if r == 0.0 { 0.0 } else { r }; // no "-0"
         solidsketch_i18n::number(&r.to_string())
+    }
+
+    /// `mm` in these units, to these decimals.
+    fn rounded(&self, mm: f64) -> f64 {
+        let p = 10f64.powi(self.decimals.min(9) as i32);
+        let r = (mm / self.length.mm() * p).round() / p;
+        if r == 0.0 { 0.0 } else { r } // no "-0"
     }
 }

@@ -30,7 +30,7 @@ pub use history::History;
 pub use import::{ImportReport, SKETCHUP_FORMAT, SKETCHUP_VERSION};
 pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope, Warning};
 pub use profile::BodyProfile;
-pub use settings::{Display, LengthUnit, Section, Settings, Units};
+pub use settings::{APPROX, Display, LengthUnit, Section, Settings, Units};
 use solidsketch_i18n::t;
 pub use solidsketch_kernel as kernel;
 pub use solidsketch_kernel::Primitive;
