@@ -546,6 +546,12 @@ impl Editor {
             || self.tool_options().iter().any(|o| matches!(o.value, OptionValue::Length(_)))
     }
 
+    /// Do Shift with `+` / `−` go to the tool now (the copies' count) rather than to the
+    /// measurements box?
+    pub fn takes_counts(&self) -> bool {
+        self.tool.takes_counts()
+    }
+
     pub fn set_viewport_size(&mut self, size: DVec2) {
         self.size = size.max(DVec2::ONE);
     }

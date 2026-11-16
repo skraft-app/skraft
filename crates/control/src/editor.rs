@@ -232,6 +232,8 @@ fn key(k: KeyName) -> Key {
         KeyName::Shift => Key::Shift,
         KeyName::Alt => Key::Alt,
         KeyName::Tab => Key::Tab,
+        KeyName::More => Key::More,
+        KeyName::Fewer => Key::Fewer,
     }
 }
 

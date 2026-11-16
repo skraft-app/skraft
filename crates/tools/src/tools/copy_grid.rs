@@ -19,7 +19,8 @@ use solidsketch_i18n::t;
 use solidsketch_model::Operation;
 
 use super::handle::{
-    MIRROR, Measure, Memo, Picker, Target, axis_color, draw_axes, draw_box, draw_measure, measure, minimums, mirror_badge, reflection,
+    MIRROR, Measure, Memo, Picker, Target, axis_color, count_step, draw_axes, draw_box, draw_measure, measure, minimums, mirror_badge,
+    reflection, repeat_stepped,
 };
 use super::rotate::rotation_about;
 use super::{
@@ -319,6 +320,16 @@ impl Tool for CopyGridTool {
             }
             return out;
         };
+        // Shift with + / −: one copy more or fewer on both sides (OCL's), `x` or `/` kept.
+        if let Some(by) = count_step(input) {
+            let one = count(self.repeat[0]) == 1 && count(self.repeat[1]) == 1;
+            self.repeat = self.repeat.map(|r| repeat_stepped(r, by));
+            if let Some((end, k)) = self.end {
+                self.size = Self::size(cx, &t, k, end, self.repeat);
+            }
+            // OCL warns once, from one copy per side to more.
+            return if by > 0 && one { Self::mirror_warning(cx, self.repeat).into_iter().collect() } else { vec![] };
+        }
         let k = self.end.map_or(Self::normal(cx), |e| e.1);
         let end = self.end.map_or_else(|| handle_axes(k).transpose() * t.center(), |e| e.0);
         match input {
@@ -435,6 +446,11 @@ impl Tool for CopyGridTool {
     }
 
     /// Picking, a drag draws a selection rectangle; then, it places where it is released.
+    /// While placing (OCL's `STATE_HANDLE`).
+    fn takes_counts(&self) -> bool {
+        self.aimed
+    }
+
     fn drag_clicks(&self) -> DragClicks {
         if self.aimed { DragClicks::Release } else { DragClicks::No }
     }

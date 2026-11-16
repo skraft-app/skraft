@@ -21,8 +21,8 @@ use solidsketch_i18n::t;
 use solidsketch_model::Operation;
 
 use super::handle::{
-    MIRROR, Measure, Memo, Picker, Target, axis_color, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure, minimums,
-    mirror_badge, nearest_axis_on_screen, reflection,
+    MIRROR, Measure, Memo, Picker, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure,
+    minimums, mirror_badge, nearest_axis_on_screen, reflection, repeat_stepped,
 };
 use super::{
     Command, Cx, Key, OptionValue, PointShape, Preview, PreviewLabel, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, copy_key,
@@ -270,6 +270,15 @@ impl Tool for CopyLineTool {
             }
             return out;
         };
+        // Shift with + / −: one copy more or fewer (OCL's), `x` or `/` kept.
+        if let Some(by) = count_step(input) {
+            self.repeat = repeat_stepped(self.repeat, by);
+            if let Some((end, _)) = self.end {
+                self.distance = Self::measured(cx, &t, end, self.repeat);
+            }
+            // OCL warns once, from one copy to two.
+            return if by > 0 && count(self.repeat) == 2 { Self::mirror_warning(cx, 2).into_iter().collect() } else { vec![] };
+        }
         let end = self.end.map_or(t.center(), |e| e.0);
         match input {
             ToolInput::Hover { px } => {
@@ -358,6 +367,11 @@ impl Tool for CopyLineTool {
 
     fn copying(&self) -> bool {
         true
+    }
+
+    /// While placing (OCL's `STATE_HANDLE`).
+    fn takes_counts(&self) -> bool {
+        self.aimed
     }
 
     /// Picking, a drag draws a selection rectangle; then, it places where it is released.

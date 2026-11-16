@@ -169,6 +169,10 @@ pub enum KeyName {
     /// Command (macOS) or Alt tapped alone.
     Alt,
     Tab,
+    /// Shift with `+`: one copy more (the copy tools).
+    More,
+    /// Shift with `−`: one copy fewer.
+    Fewer,
 }
 
 /// A key pressed.

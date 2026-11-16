@@ -4877,6 +4877,66 @@ fn copy_along_a_line_by_a_click_then_a_count_and_a_distance() {
 }
 
 #[test]
+fn shift_plus_minus_step_the_copies_count() {
+    let key = |e: &mut Editor, key: Key| e.input(ToolInput::Key { key, mods: Modifiers::default() });
+    let occurrences = |e: &Editor| e.document().root_assembly().occurrences().len();
+    let ghosts = |e: &Editor| e.view().highlights.iter().filter(|h| h.mark == Mark::Ghost).count();
+
+    // Along a line: while placing only; never below one copy, `/` kept.
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    e.set_tool(ToolKind::CopyLine);
+    let at = px(&e, DVec3::new(500.0, 60.0, 0.0));
+    e.input(ToolInput::Hover { px: at });
+    assert!(e.takes_counts());
+    key(&mut e, Key::More);
+    key(&mut e, Key::More);
+    assert_eq!(ghosts(&e), 3);
+    assert_eq!(e.vcb().map(|v| v.1), Some("500".to_owned()), "three copies over the same way");
+    for _ in 0..5 {
+        key(&mut e, Key::Fewer);
+    }
+    assert_eq!(ghosts(&e), 1);
+    key(&mut e, Key::More);
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    assert_eq!(occurrences(&e), 3);
+    assert!(!e.takes_counts(), "the copies made: typed values redo them");
+
+    // Along a grid: both sides at once.
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    e.set_tool(ToolKind::CopyGrid);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 400.0, 0.0)) });
+    assert_eq!(ghosts(&e), 3);
+    key(&mut e, Key::More);
+    assert_eq!(ghosts(&e), 8);
+    key(&mut e, Key::Fewer);
+    key(&mut e, Key::Fewer);
+    assert_eq!(ghosts(&e), 3);
+
+    // Distribute: at the second point only; the pieces in all.
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::ZERO);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 100.0, 0.0)) });
+    e.input(ToolInput::Vcb("18;300".into()));
+    e.input(ToolInput::Vcb("20".into()));
+    let shelf = drawn(&e);
+    e.set_tool(ToolKind::Select);
+    e.select(vec![shelf]);
+    e.set_tool(ToolKind::Distribute);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 150.0, 0.0)) });
+    assert!(!e.takes_counts());
+    click(&mut e, DVec3::new(100.0, 150.0, 0.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(700.0, 160.0, 0.0)) });
+    assert!(e.takes_counts());
+    key(&mut e, Key::More);
+    key(&mut e, Key::More);
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(700.0, 160.0, 0.0)), mods: Modifiers::default() });
+    assert_eq!(occurrences(&e), 3);
+}
+
+#[test]
 fn copy_along_a_line_takes_the_bodies_of_the_open_part() {
     use glam::DAffine3;
     use solidsketch_model::Scope;

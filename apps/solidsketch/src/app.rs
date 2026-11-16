@@ -1149,6 +1149,22 @@ impl SolidSketchApp {
             if let egui::Event::Text(t) = ev
                 && let Some(d) = self.docs.active_mut()
             {
+                // Shift with + / − (the numeric keypad's too; − shifted types `_`): the copies'
+                // count, when the tool takes it and nothing is typed (OCL's SmartHandle).
+                let shift = ctx.input(|i| i.modifiers.shift);
+                let step = match t.as_str() {
+                    "+" => Some(Key::More),
+                    "-" | "_" | "−" => Some(Key::Fewer),
+                    _ => None,
+                };
+                if let Some(key) = step
+                    && shift
+                    && d.vcb.is_empty()
+                    && d.editor.takes_counts()
+                {
+                    d.editor.input(ToolInput::Key { key, mods: Default::default() });
+                    return None;
+                }
                 // `*5` and `/5` (arrays), `@` (the current value), `(`, and points `[x;y;z]`,
                 // `<dx;dy;dz>` start a value too.
                 let starts_value = t.starts_with(|c: char| {
