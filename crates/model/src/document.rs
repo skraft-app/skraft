@@ -694,6 +694,12 @@ impl Document {
         self.root
     }
 
+    /// The id the next thing made will take. It goes back with an undo: the ids of the steps
+    /// undone are handed out again.
+    pub fn next_id(&self) -> u64 {
+        self.next_id
+    }
+
     pub fn root_assembly(&self) -> &Assembly {
         // The root is always an assembly: `new` makes it, files are checked, no operation
         // changes it.
