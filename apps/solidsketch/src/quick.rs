@@ -96,7 +96,7 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
     if response.hovered() {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
     }
-    crate::ribbon::chevron(ui.painter(), rect.center(), ui.visuals().text_color());
+    crate::ribbon::chevron(ui, rect.center(), ui.visuals().text_color());
     let response = response.on_hover_text(t!("quick_tools.choose"));
     Popup::menu(&response).style(crate::style::menu).show(|ui| {
         let ink = ui.visuals().text_color();

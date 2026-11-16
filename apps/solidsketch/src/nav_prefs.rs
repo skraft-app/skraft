@@ -43,7 +43,7 @@ fn settings(ui: &mut egui::Ui, nav: &mut Navigation) {
             let style = &mut nav.style;
             let shown =
                 if style.custom { t!("prefs.navigation.style.custom", name = style.preset.name()) } else { style.preset.name().to_owned() };
-            egui::ComboBox::from_id_salt("nav_preset").width(200.0).selected_text(shown).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("nav_preset").icon(crate::icons::combo_chevron).width(200.0).selected_text(shown).show_ui(ui, |ui| {
                 for p in Preset::ALL {
                     if ui.selectable_label(!style.custom && style.preset == p, p.name()).clicked() {
                         *style = p.style();
@@ -56,7 +56,7 @@ fn settings(ui: &mut egui::Ui, nav: &mut Navigation) {
         });
         ui.end_row();
         ui.label(t!("prefs.navigation.style.pivot"));
-        egui::ComboBox::from_id_salt("nav_pivot").width(200.0).selected_text(pivot_name(nav.style.pivot)).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("nav_pivot").icon(crate::icons::combo_chevron).width(200.0).selected_text(pivot_name(nav.style.pivot)).show_ui(ui, |ui| {
             for p in Pivot::ALL {
                 ui.selectable_value(&mut nav.style.pivot, p, pivot_name(p));
             }
@@ -368,7 +368,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
                     ui.add(egui::Button::new(name).selected(*on).min_size(vec2(26.0, h))).clicked().then(|| *on = !*on);
                 }
                 ui.add_space(10.0);
-                egui::ComboBox::from_id_salt(("nav_trigger", i)).width(120.0).selected_text(trigger_name(b.trigger)).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt(("nav_trigger", i)).icon(crate::icons::combo_chevron).width(120.0).selected_text(trigger_name(b.trigger)).show_ui(ui, |ui| {
                     for k in [Trigger::Drag(button), Trigger::Click(button), Trigger::DoubleClick(button)] {
                         if ui.selectable_label(b.trigger == k, trigger_name(k)).clicked() && b.trigger != k {
                             b.trigger = k;
@@ -394,7 +394,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
                     }
                     ui.add_space(6.0);
                     let width = ui.available_width();
-                    egui::ComboBox::from_id_salt(("nav_action", i)).width(width).selected_text(action_name(b.action)).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt(("nav_action", i)).icon(crate::icons::combo_chevron).width(width).selected_text(action_name(b.action)).show_ui(ui, |ui| {
                         for a in actions {
                             ui.selectable_value(&mut b.action, a, action_name(a));
                         }
@@ -466,7 +466,7 @@ fn error_text(e: BindingError) -> String {
 }
 
 fn trackpad_combo(ui: &mut egui::Ui, id: &str, action: &mut NavAction) {
-    egui::ComboBox::from_id_salt(id).width(200.0).selected_text(action_name(*action)).show_ui(ui, |ui| {
+    egui::ComboBox::from_id_salt(id).icon(crate::icons::combo_chevron).width(200.0).selected_text(action_name(*action)).show_ui(ui, |ui| {
         for a in [NavAction::Orbit, NavAction::Pan] {
             ui.selectable_value(action, a, action_name(a));
         }

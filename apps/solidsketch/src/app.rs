@@ -1416,7 +1416,7 @@ impl SolidSketchApp {
         crate::style::settings_section(ui, &t!("prefs.model.units"));
         crate::style::settings_grid(ui, "model_units", |ui| {
             ui.label(t!("prefs.model.lengths"));
-            egui::ComboBox::from_id_salt("length_unit").selected_text(s.units.length.name()).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("length_unit").icon(crate::icons::combo_chevron).selected_text(s.units.length.name()).show_ui(ui, |ui| {
                 for u in LengthUnit::ALL {
                     ui.selectable_value(&mut s.units.length, u, u.name());
                 }
@@ -1536,7 +1536,7 @@ impl SolidSketchApp {
         let style = ctx.global_style();
         let frame = egui::Frame::window(&style).inner_margin(6.0).total_margin().sum();
         let header = style.spacing.interact_size.y;
-        let metrics = dock::Metrics { header: header + frame.y, min_height: header + frame.y + 60.0, gap: margin };
+        let metrics = dock::Metrics { header: header + frame.y, min_height: header + frame.y + 2.0 * HEAD_PAD + 60.0, gap: margin };
         let max_width = (view.width() * 0.4).max(dock::COLUMN_MIN_WIDTH);
         let pointer = ctx.pointer_latest_pos();
         let dragged = self.panel_drag.map(|d| d.id);
@@ -1646,17 +1646,26 @@ impl SolidSketchApp {
                     let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
                     let head = ui.interact(head_rect, egui::Id::unique(("panel_head", id)), egui::Sense::click_and_drag());
                     let painter = ui.painter();
+                    // The title bar: a band of its own colour across the card's top, a line
+                    // under it parting it from the content (the whole card once folded).
+                    let stroke = ui.visuals().window_stroke;
+                    let card = rect.shrink(stroke.width);
+                    let bottom = if folded { card.bottom() } else { head_rect.bottom() + HEAD_PAD };
+                    let band = egui::Rect::from_x_y_ranges(card.x_range(), card.top()..=bottom);
+                    let r = ui.visuals().window_corner_radius;
+                    let corners = if folded { r } else { egui::CornerRadius { sw: 0, se: 0, ..r } };
+                    painter.rect_filled(band, corners, ui.visuals().faint_bg_color);
+                    if !folded {
+                        painter.hline(band.x_range(), band.bottom(), stroke);
+                    }
                     let color = ui.visuals().strong_text_color();
-                    let c = egui::pos2(head_rect.left() + 6.0, head_rect.center().y);
-                    let arrow = if folded {
-                        vec![c + egui::vec2(-2.5, -4.0), c + egui::vec2(3.5, 0.0), c + egui::vec2(-2.5, 4.0)]
-                    } else {
-                        vec![c + egui::vec2(-4.0, -2.5), c + egui::vec2(4.0, -2.5), c + egui::vec2(0.0, 3.5)]
-                    };
-                    painter.add(egui::Shape::convex_polygon(arrow, color, egui::Stroke::NONE));
-                    let font = egui::TextStyle::Body.resolve(ui.style());
+                    // The fold chevron at the right end: down when open, right when folded.
+                    let angle = if folded { -std::f32::consts::FRAC_PI_2 } else { 0.0 };
+                    crate::icons::chevron(ui, egui::pos2(head_rect.right() - 8.0, head_rect.center().y), 14.0, color, angle);
+                    let painter = ui.painter();
+                    let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size + 1.0);
                     painter.text(
-                        egui::pos2(head_rect.left() + 18.0, head_rect.center().y),
+                        egui::pos2(head_rect.left() + 4.0, head_rect.center().y),
                         egui::Align2::LEFT_CENTER,
                         panel_title(id),
                         font,
@@ -1684,7 +1693,8 @@ impl SolidSketchApp {
                         return;
                     }
                     let Some(doc) = docs.iter_mut().nth(i) else { return };
-                    let body = (inner.y - header - ui.spacing().item_spacing.y).max(0.0);
+                    ui.add_space(2.0 * HEAD_PAD);
+                    let body = (inner.y - header - 2.0 * HEAD_PAD - 2.0 * ui.spacing().item_spacing.y).max(0.0);
                     let area = egui::ScrollArea::vertical().auto_shrink(false).max_height(body).min_scrolled_height(body);
                     match id {
                         PanelId::EntityInfo => {
@@ -2486,7 +2496,7 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
     egui::Grid::new("general").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.general.language"));
         let before = prefs.locale.clone();
-        egui::ComboBox::from_id_salt("locale").selected_text(solidsketch_i18n::locale_name(&prefs.locale)).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("locale").icon(crate::icons::combo_chevron).selected_text(solidsketch_i18n::locale_name(&prefs.locale)).show_ui(ui, |ui| {
             for l in solidsketch_i18n::available_locales() {
                 let name = solidsketch_i18n::locale_name(&l);
                 ui.selectable_value(&mut prefs.locale, l, name);
@@ -2742,6 +2752,10 @@ struct Edges {
     max_width: f32,
     min_height: f32,
 }
+
+/// Room under a side panel's title before its bar's bottom line, and as much again under the
+/// line before the content.
+const HEAD_PAD: f32 = 4.0;
 
 /// What a side panel's header did.
 enum CardEvent {

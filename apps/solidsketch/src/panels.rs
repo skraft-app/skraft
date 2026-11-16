@@ -89,6 +89,14 @@ fn cut_label(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, width: f32) {
 
 /// The warning sign before an error to correct (a part in several pieces, a shortcut's
 /// conflict), in the error colour, as high as the text.
+/// An outliner row's fold toggle: the panels' chevron (as in their title bars), turning from
+/// right (folded) to down (open) as it opens.
+fn chevron_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
+    let color = ui.style().interact(response).fg_stroke.color;
+    // egui's toggle rect is small (its triangle's): the chevron, as wide as the title bars'.
+    icons::chevron(ui, response.rect.center(), 14.0, color, -(1.0 - openness) * std::f32::consts::FRAC_PI_2);
+}
+
 pub fn warning(ui: &egui::Ui) -> egui::Image<'static> {
     let side = ui.text_style_height(&egui::TextStyle::Body);
     egui::Image::new(icons::WARNING).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().error_fg_color)
@@ -645,7 +653,7 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
                 ui.add_space(ui.spacing().indent * row.path.len() as f32);
                 match row.fold {
                     Some(mut fold) => {
-                        fold.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                        fold.show_toggle_button(ui, chevron_icon);
                         fold.store(ui.ctx());
                     }
                     None => ui.add_space(ui.spacing().indent),
@@ -872,7 +880,7 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
             ui.add_space(ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32);
             match row.fold {
                 Some(mut fold) => {
-                    fold.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                    fold.show_toggle_button(ui, chevron_icon);
                     fold.store(ui.ctx());
                 }
                 None => ui.add_space(ui.spacing().indent),
@@ -1275,9 +1283,9 @@ fn material_choice(ui: &mut egui::Ui, doc: &Document, salt: (&str, Id), current:
         p.rect(rect, corners, visuals.extreme_bg_color, stroke, egui::StrokeKind::Inside);
         let ink = visuals.text_color();
         let inner = rect.shrink2(egui::vec2(6.0, 0.0));
-        // The triangle, as egui's combo box draws it.
-        let icon = egui::Rect::from_center_size(egui::pos2(inner.right() - 5.0, inner.center().y), egui::vec2(9.0, 5.0));
-        p.add(egui::Shape::convex_polygon(vec![icon.left_top(), icon.right_top(), icon.center_bottom()], ink, egui::Stroke::NONE));
+        // The chevron, as the combo boxes draw it.
+        let icon = egui::Rect::from_center_size(egui::pos2(inner.right() - 5.0, inner.center().y), egui::vec2(14.0, 14.0));
+        icons::chevron(ui, icon.center(), 14.0, ink, 0.0);
         let font = egui::TextStyle::Body.resolve(ui.style());
         let text = ui.fonts_mut(|f| f.layout_no_wrap(name(current), font, ink));
         let clip = inner.with_max_x(icon.left() - 4.0);

@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use egui::{Align2, Color32, FontId, ImageSource, Popup, PopupCloseBehavior, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
+use egui::{Align2, Color32, FontId, ImageSource, Popup, PopupCloseBehavior, Rect, Sense, StrokeKind, pos2, vec2};
 use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 
@@ -380,9 +380,9 @@ pub fn workspace_card(ui: &mut egui::Ui, v: &View, height: f32, actions: &mut Ve
     let icon = Rect::from_center_size(rect.center() - vec2(0.0, 10.0), vec2(28.0, 28.0));
     egui::Image::new(current.icon.clone()).tint(ink).paint_at(ui, icon);
     let label = ui.painter().layout_no_wrap((current.label)(), FontId::proportional(12.5), ink);
-    let at = pos2(rect.center().x - (label.size().x + 10.0) / 2.0, icon.bottom() + 6.0);
+    let at = pos2(rect.center().x - (label.size().x + CHEVRON_AFTER) / 2.0, icon.bottom() + 6.0);
     ui.painter().galley(at, label.clone(), ink);
-    chevron(ui.painter(), pos2(at.x + label.size().x + 6.0, at.y + label.size().y / 2.0), ink);
+    chevron(ui, pos2(at.x + label.size().x + CHEVRON_AFTER - 6.0, at.y + label.size().y / 2.0), ink);
     let response = response.on_hover_text(t!("ribbon.workspace.tip"));
     Popup::menu(&response).style(crate::style::menu).show(|ui| {
         for w in WORKSPACES {
@@ -723,7 +723,7 @@ fn collapsed_button(ui: &mut egui::Ui, l: &Laid, rect: Rect, labels: bool) -> eg
     if let Some(icon) = l.group.commands.first().and_then(|id| icons::command(id)) {
         egui::Image::new(icon).tint(ink).paint_at(ui, Rect::from_center_size(center, vec2(ICON, ICON)));
     }
-    chevron(ui.painter(), pos2(rect.right() - 7.0, center.y + ICON / 2.0 - 2.0), ink);
+    chevron(ui, pos2(rect.right() - 7.0, center.y + ICON / 2.0 - 2.0), ink);
     response.on_hover_text((l.group.label)())
 }
 
@@ -743,9 +743,9 @@ fn group_label(ui: &mut egui::Ui, l: &Laid, rect: Rect, lit: bool) -> egui::Resp
         ui.visuals().weak_text_color()
     };
     let galley = ui.painter().layout_no_wrap((l.group.label)(), label_font(), ink);
-    let at = pos2(rect.center().x - (galley.size().x + 10.0) / 2.0, rect.center().y - galley.size().y / 2.0);
+    let at = pos2(rect.center().x - (galley.size().x + CHEVRON_AFTER) / 2.0, rect.center().y - galley.size().y / 2.0);
     ui.painter().galley(at, galley.clone(), ink);
-    chevron(ui.painter(), pos2(at.x + galley.size().x + 6.0, rect.center().y), ink);
+    chevron(ui, pos2(at.x + galley.size().x + CHEVRON_AFTER - 6.0, rect.center().y), ink);
     response
 }
 
@@ -797,10 +797,13 @@ fn text_lines(ui: &egui::Ui, text: &str, top_center: egui::Pos2, width: f32, row
     ui.painter().galley(at, galley, ink);
 }
 
+/// The room a menu's chevron takes after its label (the gap, then the chevron 12 wide, its
+/// stroke's 6 in the middle), the pair centred.
+const CHEVRON_AFTER: f32 = 15.0;
+
 /// The chevron of a menu, centered on `at`.
-pub(crate) fn chevron(painter: &egui::Painter, at: egui::Pos2, ink: Color32) {
-    let points = vec![at + vec2(-3.0, -1.5), at + vec2(3.0, -1.5), at + vec2(0.0, 2.0)];
-    painter.add(egui::Shape::convex_polygon(points, ink, Stroke::NONE));
+pub(crate) fn chevron(ui: &egui::Ui, at: egui::Pos2, ink: Color32) {
+    crate::icons::chevron(ui, at, 12.0, ink, 0.0);
 }
 
 #[cfg(test)]

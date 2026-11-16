@@ -56,6 +56,19 @@ icon!(CLOSE, "close");
 icon!(ADD, "add");
 icon!(MORE, "more");
 icon!(WARNING, "warning");
+icon!(CHEVRON_DOWN, "chevron_down");
+
+/// The chevron (pointing down, turned by `angle` clockwise) `side` wide centered on `at`: the
+/// one fold and drop-down mark of the app (panels' title bars, outliner rows, menus, combo boxes).
+pub fn chevron(ui: &egui::Ui, at: egui::Pos2, side: f32, ink: egui::Color32, angle: f32) {
+    let rect = egui::Rect::from_center_size(at, egui::Vec2::splat(side));
+    egui::Image::new(CHEVRON_DOWN).tint(ink).rotate(angle, egui::Vec2::splat(0.5)).paint_at(ui, rect);
+}
+
+/// A combo box's drop-down mark (its `icon`): the chevron in place of egui's triangle.
+pub fn combo_chevron(ui: &egui::Ui, rect: egui::Rect, visuals: &egui::style::WidgetVisuals, _open: bool) {
+    chevron(ui, rect.center(), rect.height().min(14.0), visuals.fg_stroke.color, 0.0);
+}
 
 /// A command's icon on the ribbon (docs/ARCHITECTURE.md §6 septies); none for a command the
 /// ribbon does not show.
