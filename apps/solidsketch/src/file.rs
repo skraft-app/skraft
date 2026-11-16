@@ -1,4 +1,4 @@
-//! Opening and saving `.solidsketch` files (versioned JSON), importing STEP files: file
+//! Opening and saving `.ssk` files (versioned JSON), importing STEP files: file
 //! dialogs on the desktop, a file picker and a download in the browser.
 
 use std::sync::{Arc, Mutex};
@@ -9,7 +9,7 @@ use solidsketch_model::Document;
 
 use crate::docs::DocId;
 
-pub const EXTENSION: &str = "solidsketch";
+pub const EXTENSION: &str = "ssk";
 
 /// The extensions of the files the app imports (ARCHITECTURE.md §8 ter).
 pub const IMPORT_EXTENSIONS: &[&str] = &["step", "stp", "STEP", "STP"];

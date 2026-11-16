@@ -15,6 +15,8 @@ mod icons;
 mod journal_window;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod opened;
 mod panels;
 mod prefs;
 mod quick;

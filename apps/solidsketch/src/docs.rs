@@ -211,7 +211,7 @@ mod tests {
     fn a_file_takes_the_place_of_a_blank_document_only() {
         let mut d = docs();
         let (blank, _) = open(&mut d, None);
-        let (a, replaced) = open(&mut d, Some("/a.solidsketch"));
+        let (a, replaced) = open(&mut d, Some("/a.ssk"));
         assert_eq!((replaced, d.len()), (Some(blank), 1), "the blank one gives its place");
         assert_ne!(a, blank);
         // `a` has a file: the next one gets a tab of its own, shown.
@@ -224,9 +224,9 @@ mod tests {
         // A modified document keeps its tab too.
         change(&mut d);
         assert!(!d.active().unwrap().blank());
-        let (_, replaced) = open(&mut d, Some("/c.solidsketch"));
+        let (_, replaced) = open(&mut d, Some("/c.ssk"));
         assert_eq!((replaced, d.len()), (None, 3));
-        assert_eq!(d.find_path("/a.solidsketch"), Some(0));
+        assert_eq!(d.find_path("/a.ssk"), Some(0));
         assert!(d.any_modified());
     }
 

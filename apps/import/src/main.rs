@@ -1,8 +1,8 @@
 //! Converts a SketchUp export (the JSON `scripts/sketchup/export.rb` writes) to a
-//! `.solidsketch` file, and says what it did:
+//! `.ssk` file, and says what it did:
 //!
 //! ```sh
-//! cargo run --release -p solidsketch-import -- model.json [model.solidsketch]
+//! cargo run --release -p solidsketch-import -- model.json [model.ssk]
 //! ```
 //!
 //! A developer tool (its output in English): the app will import from its own menu later.
@@ -17,10 +17,10 @@ use solidsketch_model::Document;
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(input) = args.first().map(PathBuf::from) else {
-        eprintln!("usage: solidsketch-import <export.json> [<out.solidsketch>]");
+        eprintln!("usage: solidsketch-import <export.json> [<out.ssk>]");
         return ExitCode::FAILURE;
     };
-    let output = args.get(1).map(PathBuf::from).unwrap_or_else(|| input.with_extension("solidsketch"));
+    let output = args.get(1).map(PathBuf::from).unwrap_or_else(|| input.with_extension("ssk"));
     let is_step =
         input.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("step") || e.eq_ignore_ascii_case("stp"));
     if is_step {

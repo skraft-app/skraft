@@ -2626,7 +2626,7 @@ grips), so a script clicks a name, not a pixel.
    camera and viewport they were given in when they changed (hovers in a row: the last);
    `Editor::depth` leaves out what the editor calls itself (its own hovers, a tool it goes
    back to), so playing them again does not do it twice. `stop` writes a test of
-   `crates/tools/tests/<name>.rs` (the document beside it as `<name>.solidsketch`): the
+   `crates/tools/tests/<name>.rs` (the document beside it as `<name>.ssk`): the
    editor with the kernel inline, the view set, each input after a `poll` (a frame), the
    revision and the parts reached checked. Recorded in the app (a box, then a cylinder on
    it), the test passes and builds the same geometry. Not recorded: what panels do besides
@@ -2699,6 +2699,15 @@ Versioned JSON (`{"format": "solidsketch", "version": 1, …}`): serde serialisa
 document, B-reps included (SolidCore's record format), and its settings (`settings`, missing
 from the first files: default values). In the browser: download and file upload.
 
+**Extension `.ssk`**, MIME type `application/x-solidsketch`. The installers associate it with
+the app (`packaging/`): an exported UTI `fr.lairdubois.solidsketch.document` and a document
+type on macOS, a ProgId on Windows, a shared-mime-info type and the `.desktop` entry's
+`MimeType` on Linux. A file double-clicked reaches the app as an argument (Windows, Linux: a
+new instance) or as an Apple Event « open documents » (macOS, launched or running: winit does
+not handle it, the app installs its own handler when it will finish launching); either way it
+waits in a queue (`apps/solidsketch/src/opened.rs`) and opens in a tab of its own at the next
+frame.
+
 Components, occurrences, the parts' recipes (blank + machinings, with their `source`), the
 components' guides (§6 quinquies). The final B-rep is not the source: it is saved as a cache
 (`shape`), present exactly when the part has machinings, to open without recomputing.
@@ -2743,7 +2752,7 @@ structure one to one, which a performance comparison needs.
   comparison at equal geometry). Recognising `ArcCurve`s and smooth faces to rebuild exact
   cylinders may come later.
 - **Not carried**: face materials, tags, hidden geometry, attributes (OCL's included).
-- **Entry point**: `solidsketch-import export.json [out.solidsketch]` (`apps/import`), which
+- **Entry point**: `solidsketch-import export.json [out.ssk]` (`apps/import`), which
   prints counts and timings; the file then opens in the app like any other. An import from the
   app's menu may come later.
 
@@ -2786,7 +2795,7 @@ to undo.
   the operation's data; its components and materials copied with fresh ids (a material equal
   to one already there is reused), names made unique. The fragment's single top occurrence
   is placed itself; several are gathered in an assembly named after the file. Generic: the
-  SketchUp import, or inserting a `.solidsketch` file, may use it later.
+  SketchUp import, or inserting a `.ssk` file, may use it later.
 - **Not yet**: face colours, placing the import at the cursor (it lands at the context's
   origin), cancelling a long read.
 

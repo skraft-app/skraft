@@ -288,6 +288,8 @@ impl SolidSketchApp {
         crate::app_drags_window(cc);
         #[cfg(not(target_arch = "wasm32"))]
         app.reopen_documents();
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::opened::set_context(&cc.egui_ctx);
         #[cfg(target_arch = "wasm32")]
         app.ask_before_leaving();
         app
@@ -2137,6 +2139,14 @@ impl eframe::App for SolidSketchApp {
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit_ok && self.docs.any_modified() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.request_quit();
+        }
+        // The files the system asked to open (a double click, the command line): read now, opened
+        // just below with the dialogs'.
+        #[cfg(not(target_arch = "wasm32"))]
+        for path in crate::opened::take() {
+            if let Err(e) = file::open_path(&path, &self.inbox) {
+                self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&path)), e));
+            }
         }
         // What the file dialogs ended with (they never block the event loop).
         for outcome in self.inbox.take() {

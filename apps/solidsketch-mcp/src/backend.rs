@@ -187,7 +187,7 @@ mod tests {
             json!({ "inputs": [{ "tool": "box" }, { "click": { "at": [0, 0, 0] } }, { "click": { "at": [100, 100, 0] } }, { "vcb": "10" }] }),
         );
         let text = b.editor.document().to_json().unwrap();
-        let path = std::env::temp_dir().join(format!("solidsketch-mcp-{}.solidsketch", std::process::id()));
+        let path = std::env::temp_dir().join(format!("solidsketch-mcp-{}.ssk", std::process::id()));
         std::fs::write(&path, text).unwrap();
         let mut opened = Headless::new(Some(path.clone())).unwrap();
         assert_eq!(json_of(&mut opened, "model.geometry", json!({ "volume": false }))["total"], 1);

@@ -20,6 +20,9 @@ tool="$(pwd)/$tool"
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 cp apps/solidsketch/assets/app-icon.svg "$work/solidsketch.svg"
+# The .ssk documents' MIME type, for the desktop integration (appimaged, AppImageLauncher).
+mkdir -p "$work/AppDir/usr/share/mime/packages"
+cp packaging/linux/solidsketch.xml "$work/AppDir/usr/share/mime/packages/"
 mkdir -p dist/release
 out="$(pwd)/dist/release/SolidSketch-$version-linux-$arch.AppImage"
 rm -f "$out"

@@ -1,6 +1,8 @@
 <!--
   The Windows installer (WiX 5, scripts/package-windows.sh): SolidSketch in Program Files, a
-  Start menu shortcut, an entry in Apps & features. A newer version replaces the installed one.
+  Start menu shortcut, an entry in Apps & features, the .ssk documents opened with it (a
+  double click starts the app with the file as its argument, src/opened.rs). A newer version
+  replaces the installed one.
   Variables: Version (x.y.z), ExeFile, IconFile.
   The UpgradeCode identifies the product across versions: never change it.
 -->
@@ -16,9 +18,14 @@
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="SolidSketch">
         <Component>
-          <File Source="$(ExeFile)" Name="solidsketch.exe" KeyPath="yes">
+          <File Id="SolidSketchExe" Source="$(ExeFile)" Name="solidsketch.exe" KeyPath="yes">
             <Shortcut Name="SolidSketch" Directory="ProgramMenuFolder" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" Advertise="no" />
           </File>
+          <ProgId Id="SolidSketch.Document" Description="SolidSketch Document" Icon="SolidSketchExe" IconIndex="0" Advertise="no">
+            <Extension Id="ssk" ContentType="application/x-solidsketch">
+              <Verb Id="open" TargetFile="SolidSketchExe" Argument="&quot;%1&quot;" />
+            </Extension>
+          </ProgId>
         </Component>
       </Directory>
     </StandardDirectory>

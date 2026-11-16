@@ -15,14 +15,14 @@ pub struct Reached {
     pub parts: usize,
 }
 
-/// The test file (Rust) for `r`, named `name`; it reads the document from `<name>.solidsketch`
+/// The test file (Rust) for `r`, named `name`; it reads the document from `<name>.ssk`
 /// beside it.
 pub fn test_file(r: &Recording, name: &str, reached: &Reached) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
         "//! Recorded by the control protocol (`journal.record`, docs/ARCHITECTURE.md §7 septies): {} steps from\n\
-         //! `{name}.solidsketch`, played again with the kernel inline.\n",
+         //! `{name}.ssk`, played again with the kernel inline.\n",
         r.steps.len()
     );
     out.push_str("use glam::{DMat3, DVec2, DVec3};\n");
@@ -32,7 +32,7 @@ pub fn test_file(r: &Recording, name: &str, reached: &Reached) -> String {
     out.push_str("/// The view the inputs that follow were given in (their pixels are its).\n");
     out.push_str("fn view(e: &mut Editor, camera: Camera, size: DVec2) {\n    e.set_viewport_size(size);\n    e.camera = camera;\n}\n\n");
     let _ = writeln!(out, "#[test]\nfn {name}() {{");
-    let _ = writeln!(out, "    let doc = Document::from_json(include_str!(\"{name}.solidsketch\")).unwrap();");
+    let _ = writeln!(out, "    let doc = Document::from_json(include_str!(\"{name}.ssk\")).unwrap();");
     out.push_str("    let mut e = Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()));\n");
     let _ = writeln!(out, "    e.set_tool(ToolKind::from_id({:?}).unwrap());", r.tool.id());
     for step in &r.steps {

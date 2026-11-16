@@ -449,7 +449,7 @@ fn record(e: &mut Editor, p: &RecordParams) -> Outcome {
                 "steps": r.steps.len(),
                 "test_file": format!("crates/tools/tests/{name}.rs"),
                 "test": crate::record::test_file(&r, &name, &reached),
-                "document_file": format!("crates/tools/tests/{name}.solidsketch"),
+                "document_file": format!("crates/tools/tests/{name}.ssk"),
                 "document": r.document,
             })))
         }
@@ -697,7 +697,7 @@ mod tests {
         assert!(bad.is_err());
         let done = json_of(&mut e, "journal.record", json!({ "action": "stop", "name": "a_box" }));
         let test = done["test"].as_str().unwrap();
-        assert!(test.contains("fn a_box()") && test.contains("include_str!(\"a_box.solidsketch\")"), "{test}");
+        assert!(test.contains("fn a_box()") && test.contains("include_str!(\"a_box.ssk\")"), "{test}");
         assert!(test.contains("ToolInput::Vcb(\"18\".into())"), "{test}");
         assert!(test.contains("assert_eq!(e.history().revision(), 1"), "{test}");
         assert!(solidsketch_model::Document::from_json(done["document"].as_str().unwrap()).is_ok());
