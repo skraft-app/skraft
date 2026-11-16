@@ -10,9 +10,33 @@ use solidsketch_model::{Body, Id, Occurrence, Part};
 
 use super::select::{marquee_hits, toggled};
 use super::{
-    BLUE, Command, Cx, GREEN, Marquee, Moved, OptionChoice, OptionValue, PointShape, PreviewLine, PreviewPoint, RED, ToolInput, ToolOption,
-    arrow_head, copy_key, dashed,
+    BLUE, Command, Cx, GREEN, Key, Marquee, Moved, OptionChoice, OptionValue, PointShape, PreviewLine, PreviewPoint, RED, ToolInput,
+    ToolOption, arrow_head, copy_key, dashed,
 };
+use crate::vcb::Repeat;
+
+/// Shift with `+` / `−` (OCL's SmartHandle): the count one more or one fewer, never below one,
+/// `x` or `/` kept; `None` for any other input.
+pub(super) fn count_step(input: &ToolInput) -> Option<i64> {
+    match input {
+        ToolInput::Key { key: Key::More, .. } => Some(1),
+        ToolInput::Key { key: Key::Fewer, .. } => Some(-1),
+        _ => None,
+    }
+}
+
+/// `n` stepped by `by`, at least one.
+pub(super) fn stepped(n: u32, by: i64) -> u32 {
+    (n as i64 + by).clamp(1, u32::MAX as i64) as u32
+}
+
+/// `r` with its count stepped by `by`.
+pub(super) fn repeat_stepped(r: Repeat, by: i64) -> Repeat {
+    match r {
+        Repeat::Times(n) => Repeat::Times(stepped(n, by)),
+        Repeat::Divide(n) => Repeat::Divide(stepped(n, by)),
+    }
+}
 
 /// The axes option (saved): « active » the model's, « context » the active context's (the
 /// default, as OCL's handle preset), « entity » the one occurrence's or body's own.

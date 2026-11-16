@@ -954,7 +954,7 @@ tool:
     name: "Copier en ligne"
     hint:
       pick: "Cliquer la pièce ou l'assemblage à copier · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
-      place: "Cliquer pour placer les copies, ou taper une distance · 5x : 5 copies au même pas, /5 : 5 copies sur la distance · flèches : bloquer un axe · %{copy_key} : copie symétrique"
+      place: "Cliquer pour placer les copies, ou taper une distance · 5x : 5 copies au même pas, /5 : 5 copies sur la distance · Maj + / − : une copie de plus ou de moins · flèches : bloquer un axe · %{copy_key} : copie symétrique"
       # The copies made: a value typed redoes them.
       again: "Taper une distance, 5x ou /5 pour refaire les copies · ou cliquer une autre pièce ou un autre assemblage à copier"
     vcb:
@@ -963,7 +963,7 @@ tool:
     name: "Copier en grille"
     hint:
       pick: "Cliquer la pièce ou l'assemblage à copier · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
-      place: "Cliquer pour placer les copies, ou taper deux distances (x;y) · 3x;/4 : nombre de copies par côté · flèches : bloquer la normale du plan · %{copy_key} : copie symétrique"
+      place: "Cliquer pour placer les copies, ou taper deux distances (x;y) · 3x;/4 : nombre de copies par côté · Maj + / − : une copie de plus ou de moins par côté · flèches : bloquer la normale du plan · %{copy_key} : copie symétrique"
       # The copies made: values typed redo them.
       again: "Taper deux distances (x;y) ou deux nombres (3x;/4) pour refaire les copies · ou cliquer une autre pièce ou un autre assemblage à copier"
     vcb:
@@ -973,7 +973,7 @@ tool:
     hint:
       pick: "Cliquer la pièce ou l'assemblage à répartir · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
       start: "Cliquer le premier point de mesure · double-clic : répéter la dernière répartition"
-      end: "Cliquer le second point de mesure, ou taper une distance · 5x : 5 pièces, /5 : 5 intervalles · 30;50 : espacements · flèches : bloquer un axe · %{copy_key} maintenu : jusqu'à l'obstacle suivant"
+      end: "Cliquer le second point de mesure, ou taper une distance · 5x : 5 pièces, /5 : 5 intervalles · Maj + / − : une pièce de plus ou de moins · 30;50 : espacements · flèches : bloquer un axe · %{copy_key} maintenu : jusqu'à l'obstacle suivant"
       # The pieces placed: a value typed places them again.
       again: "Taper un nombre (5x, /5), des espacements (30;50) ou une distance pour refaire la répartition · ou cliquer une autre pièce ou un autre assemblage à répartir"
     vcb:

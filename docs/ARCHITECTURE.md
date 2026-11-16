@@ -2249,8 +2249,14 @@ Decided on 2026-11-15 (questions / answers), after OpenCutList's Smart Handle to
   selection's marks drawn at each copy (`Preview::copies`), so what is copied is the selection
   (a click selects it, as Move); once the copies are made the selection is let go (OCL's
   restart).
-- **Built so far without** (2026-11-15, steps 2–4): Shift with `+` / `−` (the measurements box
-  takes those keys while typing), and OCL's options shared between the
+- **Shift with `+` / `−`** (2026-11-16, OCL's `onToolKeyDown`): one copy more or fewer (the
+  grid: on both sides; Distribute: one piece), never below one, `x` or `/` kept; only while
+  placing (line, grid) or at the second point (Distribute), as OCL's `STATE_HANDLE`, the
+  mirror's warning when going past one copy. The app reads them from the typed text (`+`;
+  `-`, `_` — Shift with `−` on most layouts — or `−`) with Shift held and nothing typed yet,
+  when the tool takes them (`Tool::takes_counts`): then `Key::More` / `Key::Fewer` (control
+  protocol `more` / `fewer`) instead of starting a value; the numeric keypad's keys too.
+- **Built so far without** (2026-11-15, steps 2–4): OCL's options shared between the
   copy tools (each keeps its own; Distribute's measure defaults to « between the parts », as
   OCL's preset).
 - **Distribute, as built** (deviations): the start point is the point inferred (what is

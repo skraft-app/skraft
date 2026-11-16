@@ -71,6 +71,11 @@ pub enum Key {
     Alt,
     /// Turns the tool's first choice over to its next value (the booleans' scope).
     Tab,
+    /// Shift with `+`: one copy more (the copy tools, OCL's SmartHandle), when the tool
+    /// [takes counts](Tool::takes_counts).
+    More,
+    /// Shift with `−`: one copy fewer, never below one.
+    Fewer,
 }
 
 /// Primary-button and keyboard input for the active tool (navigation is the editor's). Pixel
@@ -899,6 +904,11 @@ pub trait Tool {
     /// Does Delete go to the tool now rather than erase the selection (the profile's corner
     /// under the cursor)?
     fn takes_delete(&self) -> bool {
+        false
+    }
+    /// Do Shift with `+` / `−` change the count of copies now ([`Key::More`], [`Key::Fewer`])
+    /// rather than start a typed value?
+    fn takes_counts(&self) -> bool {
         false
     }
     /// The length option a value typed with this suffix sets (the prism tool's `r`, its fillet);

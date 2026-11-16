@@ -22,7 +22,10 @@ use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::Operation;
 
-use super::handle::{Measure, Memo, Picker, Target, axis_color, draw_axes, draw_boxes, draw_measure, half_along, measure, nearest_axis_on_screen};
+use super::handle::{
+    Measure, Memo, Picker, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, measure,
+    nearest_axis_on_screen, stepped,
+};
 use super::{
     Command, Cx, PointShape, Preview, PreviewLabel, PreviewLine, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, arrow_head, copy_key,
     dashed,
@@ -318,6 +321,11 @@ impl Tool for DistributeTool {
             (self.number, self.spacings) = (p.number, p.spacings.clone());
             return self.finish(cx, t, p);
         }
+        // Shift with + / − at the second point: one piece more or fewer (OCL's).
+        if let (State::End { .. }, Some(by)) = (self.state, count_step(input)) {
+            self.number = stepped(self.number, by);
+            return vec![];
+        }
         match (self.state, input) {
             (State::Start, ToolInput::Hover { px }) => self.aim_start(cx, &t, *px),
             (State::Start, ToolInput::Click { .. }) => {
@@ -427,6 +435,11 @@ impl Tool for DistributeTool {
         }
         let last = self.last.as_ref()?;
         vcb((last.params.end - last.params.start).length())
+    }
+
+    /// At the second point (OCL's `STATE_HANDLE`).
+    fn takes_counts(&self) -> bool {
+        self.aimed && matches!(self.state, State::End { .. })
     }
 
     /// Picking, a drag draws a selection rectangle; then, it goes from the start (the press)
