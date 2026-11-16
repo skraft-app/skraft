@@ -2145,7 +2145,7 @@ impl eframe::App for SolidSketchApp {
         #[cfg(not(target_arch = "wasm32"))]
         for path in crate::opened::take() {
             if let Err(e) = file::open_path(&path, &self.inbox) {
-                self.message = Some(t!("status.open_failed", file = file_name(&path), error = e));
+                self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&path)), e));
             }
         }
         // What the file dialogs ended with (they never block the event loop).
