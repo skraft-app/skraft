@@ -38,6 +38,26 @@ use document::{After, Pending, Probe};
 pub use loading::{LoadEnd, LoadKind, Loading};
 pub use view::{Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
 
+/// A message for the app's toasts (docs/ARCHITECTURE.md §6, Toasts): an operation that failed, a
+/// file imported… The status bar keeps the tools' hints.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notice {
+    pub kind: NoticeKind,
+    pub title: String,
+    /// What went wrong, or more about it (the kernel's or the system's words).
+    pub detail: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoticeKind {
+    Info,
+    Success,
+    Error,
+}
+
+/// The most notices kept for the app: an editor nobody takes them from (headless) keeps the last.
+const NOTICES: usize = 32;
+
 pub struct Editor {
     history: History,
     kernel: Box<dyn KernelService>,
@@ -100,6 +120,8 @@ pub struct Editor {
     tool: Box<dyn Tool>,
     pivot: Option<DVec3>,
     message: Option<String>,
+    /// What the app shows in its toasts, oldest first, till it takes them ([`Editor::take_notices`]).
+    notices: Vec<Notice>,
     /// The part of the viewport no panel covers, if not all of it (pixels).
     free: Option<(DVec2, DVec2)>,
     /// Inference locks (§6 ter): the arrow keys' axis, and the line Shift holds.
@@ -208,6 +230,7 @@ impl Editor {
             tool: tools::make(ToolKind::Select),
             pivot: None,
             message: None,
+            notices: Vec::new(),
             free: None,
             axis_lock: None,
             face_lock: None,
@@ -422,6 +445,18 @@ impl Editor {
     }
 
     /// The status bar's text: the kernel at work, else the last message, else the tool's hint.
+    /// The notices since the last call, oldest first: the app shows them as toasts.
+    pub fn take_notices(&mut self) -> Vec<Notice> {
+        std::mem::take(&mut self.notices)
+    }
+
+    pub(super) fn notify(&mut self, kind: NoticeKind, title: String, detail: Option<String>) {
+        if self.notices.len() == NOTICES {
+            self.notices.remove(0);
+        }
+        self.notices.push(Notice { kind, title, detail });
+    }
+
     pub fn status(&self) -> String {
         if let Some(p) = &self.pending {
             return format!("{} {}", solidsketch_i18n::ellipsis(t!("status.computing", op = p.op.label())), t!("status.computing_cancel"));
@@ -446,7 +481,9 @@ impl Editor {
     /// Does the measurements box take a typed value now: what the tool takes at this step, or
     /// a length option's `<length>x`?
     pub fn takes_typing(&self) -> bool {
-        self.aside_vcb().is_some() || self.tool.vcb().is_some() || self.tool_options().iter().any(|o| matches!(o.value, OptionValue::Length(_)))
+        self.aside_vcb().is_some()
+            || self.tool.vcb().is_some()
+            || self.tool_options().iter().any(|o| matches!(o.value, OptionValue::Length(_)))
     }
 
     pub fn set_viewport_size(&mut self, size: DVec2) {

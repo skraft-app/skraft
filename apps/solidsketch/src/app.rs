@@ -23,6 +23,7 @@ use crate::prefs::{Navigation, Preferences};
 use crate::ribbon;
 use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
+use crate::toasts::{Act, Note, Toasts};
 use crate::viewport::{self, Viewport};
 
 /// A side panel dragged by its header to another place.
@@ -50,7 +51,9 @@ pub struct SolidSketchApp {
     unsaved: std::rc::Rc<std::cell::Cell<bool>>,
     viewport: Viewport,
     inbox: Inbox,
-    message: Option<String>,
+    /// The app's messages (a file not opened, « Enregistré »…); the status bar keeps the
+    /// tools' hints.
+    toasts: Toasts,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
@@ -219,8 +222,12 @@ impl SolidSketchApp {
         solidsketch_i18n::set_mac(cc.egui_ctx.os() == egui::os::OperatingSystem::Mac);
         solidsketch_i18n::set_locale(&prefs.locale);
         let docs = Docs::new(SharedKernel::new(kernel_service(&cc.egui_ctx)));
+        let mut toasts = Toasts::default();
+        if let Some(e) = error {
+            toasts.push(Note::error(t!("toast.prefs_not_loaded"), e));
+        }
         #[cfg(not(target_arch = "wasm32"))]
-        let (remote, error) = {
+        let remote = {
             let ctx = cc.egui_ctx.clone();
             let mut remote = crate::control::Remote::new(
                 crate::control::env_port().unwrap_or(prefs.remote_port),
@@ -228,11 +235,12 @@ impl SolidSketchApp {
                 move || ctx.request_repaint(),
             );
             // The preference, or the environment for this launch only.
-            let error = match prefs.remote_control || crate::control::env_wanted() {
-                true => remote.set(true).err().map(|e| t!("status.control_failed", error = e)).or(error),
-                false => error,
-            };
-            (remote, error)
+            if (prefs.remote_control || crate::control::env_wanted())
+                && let Err(e) = remote.set(true)
+            {
+                toasts.push(Note::error(t!("toast.control_failed"), e));
+            }
+            remote
         };
         // Its native menu is added below, on macOS.
         #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(unused_mut))]
@@ -246,7 +254,7 @@ impl SolidSketchApp {
             unsaved: Default::default(),
             viewport: Viewport::new(),
             inbox: Inbox::default(),
-            message: error,
+            toasts,
             keymap: Keymap::new(&prefs.shortcuts),
             panel_drag: None,
             stored_prefs: prefs.clone(),
@@ -293,7 +301,6 @@ impl SolidSketchApp {
             return;
         }
         let (files, shown) = (self.prefs.open_files.clone(), self.prefs.shown_file);
-        let mut failed = Vec::new();
         let mut tabs = Vec::new();
         for path in &files {
             match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| Document::from_json(&t).map_err(|e| e.to_string()))
@@ -304,15 +311,12 @@ impl SolidSketchApp {
                 }
                 Err(e) => {
                     tabs.push(None);
-                    failed.push(t!("status.open_failed", file = file_name(path), error = e));
+                    self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(path)), e));
                 }
             }
         }
         if let Some(i) = shown.and_then(|k| tabs.get(k).copied().flatten()) {
             self.docs.select(i);
-        }
-        if let Some(m) = failed.into_iter().next() {
-            self.message = Some(m);
         }
     }
 
@@ -354,7 +358,7 @@ impl SolidSketchApp {
         match self.docs.open(doc, path, Self::setup(&self.prefs)) {
             Ok((_, Some(replaced))) => self.viewport.drop_document(replaced),
             Ok(_) => {}
-            Err(_) => self.message = Some(t!("status.too_many_documents", max = crate::docs::MAX_OPEN)),
+            Err(_) => self.toasts.push(Note::info(t!("toast.too_many_documents", max = crate::docs::MAX_OPEN))),
         }
     }
 
@@ -746,12 +750,12 @@ impl SolidSketchApp {
     }
 
     /// Runs the command `id`.
-    fn run(&mut self, id: &str) -> Result<(), String> {
+    fn run(&mut self, id: &str) -> Result<(), Note> {
         if commands::find(id).is_none() {
-            return Err(t!("status.command_unknown", id = id));
+            return Err(Note::info(t!("toast.command_unknown", id = id)));
         }
         if !self.enabled(id) {
-            return Err(t!("status.command_unavailable", id = id));
+            return Err(Note::info(t!("toast.command_unavailable", id = id)));
         }
         if let Some(k) = commands::recent_slot(id) {
             return self.open_recent(k);
@@ -830,7 +834,7 @@ impl SolidSketchApp {
             return Ok(());
         }
         let Some(doc) = self.docs.active_mut() else {
-            return Err(t!("status.command_unavailable", id = id));
+            return Err(Note::info(t!("toast.command_unavailable", id = id)));
         };
         if let Some(k) = tool_of(id) {
             doc.vcb.clear();
@@ -884,7 +888,7 @@ impl SolidSketchApp {
             "view.zoom_extents" => e.zoom_extents(),
             "view.show_all" => e.show_all(),
             "debug.crash_kernel" => e.crash_kernel(),
-            _ => return Err(t!("status.command_unknown", id = id)),
+            _ => return Err(Note::info(t!("toast.command_unknown", id = id))),
         }
         Ok(())
     }
@@ -919,7 +923,7 @@ impl SolidSketchApp {
         match a {
             Action::Command(id) => {
                 if let Err(m) = self.run(id) {
-                    self.message = Some(m);
+                    self.toasts.push(m);
                 }
                 return;
             }
@@ -996,14 +1000,14 @@ impl SolidSketchApp {
     }
 
     /// Opens the recent file `k`; one that cannot be read leaves the list.
-    fn open_recent(&mut self, k: usize) -> Result<(), String> {
+    fn open_recent(&mut self, k: usize) -> Result<(), Note> {
         let Some(path) = self.prefs.recent_files.get(k).cloned() else {
-            return Err(t!("status.command_unavailable", id = format!("file.recent.{}", k + 1)));
+            return Err(Note::info(t!("toast.command_unavailable", id = format!("file.recent.{}", k + 1))));
         };
         #[cfg(not(target_arch = "wasm32"))]
         if let Err(e) = file::open_path(&path, &self.inbox) {
             self.prefs.recent_files.retain(|p| *p != path);
-            return Err(t!("status.open_failed", file = file_name(&path), error = e));
+            return Err(Note::error(t!("toast.open_failed", file = file_name(&path)), e));
         }
         #[cfg(target_arch = "wasm32")]
         let _ = path;
@@ -1312,7 +1316,7 @@ impl SolidSketchApp {
             self.set_remote(on);
         }
         if port_set && let Err(e) = self.remote.set_port(self.prefs.remote_port) {
-            self.message = Some(t!("status.control_failed", error = e));
+            self.toasts.push(Note::error(t!("toast.control_failed"), e));
         }
     }
 
@@ -1669,15 +1673,9 @@ impl SolidSketchApp {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            let Some(d) = self.docs.active_mut() else {
-                // The start page: the app's message only.
-                ui.label(self.message.clone().unwrap_or_default());
-                return;
-            };
-            let status = match &self.message {
-                Some(m) if !d.editor.busy() => m.clone(),
-                _ => d.editor.status(),
-            };
+            // The start page: nothing (the app's messages are toasts).
+            let Some(d) = self.docs.active_mut() else { return };
+            let status = d.editor.status();
             self.driving.message(&status);
             ui.label(status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1757,7 +1755,7 @@ impl SolidSketchApp {
     fn set_remote(&mut self, on: bool) {
         self.prefs.remote_control = on;
         if let Err(e) = self.remote.set(on) {
-            self.message = Some(t!("status.control_failed", error = e));
+            self.toasts.push(Note::error(t!("toast.control_failed"), e));
         }
     }
 
@@ -1983,7 +1981,7 @@ impl SolidSketchApp {
             }
             "app.run" => {
                 let p: RunParams = call.params()?;
-                self.run(&p.id).map_err(Error::Failed)?;
+                self.run(&p.id).map_err(|n| Error::Failed(n.to_string()))?;
                 let mut v = self.control_stamp();
                 v["status"] = json!(self.docs.active().map(|d| d.editor.status()));
                 ok(v)
@@ -2014,7 +2012,7 @@ impl SolidSketchApp {
             }
             "app.state" => {
                 call.params::<NoParams>()?;
-                let Some(d) = self.docs.active() else { return ok(json!({ "document": null })) };
+                let Some(d) = self.docs.active() else { return ok(json!({ "document": null, "toasts": self.toasts.json() })) };
                 let e = &d.editor;
                 ok(json!({
                     "tool": e.tool_kind().id(),
@@ -2028,6 +2026,7 @@ impl SolidSketchApp {
                     "modified": d.modified(),
                     "path": d.path,
                     "document": d.id,
+                    "toasts": self.toasts.json(),
                 }))
             }
             #[cfg(not(target_arch = "wasm32"))]
@@ -2121,6 +2120,7 @@ impl eframe::App for SolidSketchApp {
         for d in self.docs.iter_mut() {
             d.editor.poll();
         }
+        self.take_notices(&ctx);
         // A file whose opening was cancelled is closed (an import cancelled is undone already).
         let cancelled: Vec<DocId> = self
             .docs
@@ -2146,19 +2146,20 @@ impl eframe::App for SolidSketchApp {
                         self.add_recent_file(&name);
                         self.open_document(doc, Some(name));
                     }
-                    Err(e) => self.message = Some(t!("status.open_failed", file = name, error = e)),
+                    Err(e) => self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&name)), e)),
                 },
                 file::Outcome::Saved { doc, path, revision } => {
                     self.add_recent_file(&path);
                     if let Some(d) = self.docs.by_id_mut(doc) {
                         d.path = Some(path);
                         d.saved_at = revision;
-                        self.message = Some(t!("status.saved"));
+                        self.toasts.push(Note::success(t!("toast.saved", file = d.name())));
                     }
                     self.closing_saved(doc, true);
                 }
                 file::Outcome::SaveFailed { doc, error } => {
-                    self.message = Some(t!("status.save_failed", error = error));
+                    let name = self.docs.by_id_mut(doc).map(|d| d.name()).unwrap_or_default();
+                    self.toasts.push(Note::error(t!("toast.save_failed", file = name), error));
                     self.closing_saved(doc, false);
                 }
                 file::Outcome::SaveCancelled { doc } => self.closing_saved(doc, false),
@@ -2172,10 +2173,6 @@ impl eframe::App for SolidSketchApp {
                     }
                 }
             }
-        }
-        // Any input clears the last app message.
-        if ctx.input(|i| !i.events.is_empty() && i.pointer.any_pressed()) {
-            self.message = None;
         }
         if self.closing.as_ref().is_none_or(|c| c.asking.is_none()) {
             self.keyboard(&ctx);
@@ -2207,7 +2204,7 @@ impl eframe::App for SolidSketchApp {
             remote: self.remote_mark(&ctx),
         };
         titlebar::show(ui, &bar, &views, &mut actions);
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        let status_top = egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui)).response.rect.top();
         self.ribbon_bottom = None;
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);
@@ -2220,9 +2217,19 @@ impl eframe::App for SolidSketchApp {
         self.palette_window(&ctx, &views, &mut actions);
         self.save_prompt(&ctx);
         self.loading_window(&ctx);
+        for act in self.toasts.show(&ctx, status_top) {
+            match act {
+                #[cfg(not(target_arch = "wasm32"))]
+                Act::Reveal(path) => reveal(&path),
+                #[cfg(target_arch = "wasm32")]
+                Act::Reveal(_) => {}
+            }
+        }
         for a in actions {
             self.act(a);
         }
+        // What the frame's actions made the editors say: shown at the next frame.
+        self.take_notices(&ctx);
         self.follow_documents();
         // Not while dragging (a panel's edge…): written once released.
         if self.prefs != self.stored_prefs && !ctx.input(|i| i.pointer.any_down()) {
@@ -2230,7 +2237,7 @@ impl eframe::App for SolidSketchApp {
                 self.keymap = Keymap::new(&self.prefs.shortcuts);
             }
             if let Err(e) = self.prefs.save() {
-                self.message = Some(t!("status.prefs_not_saved", error = e));
+                self.toasts.push(Note::error(t!("toast.prefs_not_saved"), e));
             }
             self.stored_prefs = self.prefs.clone();
         }
@@ -2238,6 +2245,17 @@ impl eframe::App for SolidSketchApp {
 }
 
 impl SolidSketchApp {
+    /// The editors' notices (an operation failed, a file imported), every document's, as toasts.
+    fn take_notices(&mut self, ctx: &egui::Context) {
+        let notes: Vec<Note> = self.docs.iter_mut().flat_map(|d| d.editor.take_notices()).map(Note::from).collect();
+        if !notes.is_empty() {
+            ctx.request_repaint();
+        }
+        for n in notes {
+            self.toasts.push(n);
+        }
+    }
+
     /// After the frame's actions: the tools' settings between the documents and the
     /// preferences, the documents to open again at launch, the page's question (web).
     fn follow_documents(&mut self) {

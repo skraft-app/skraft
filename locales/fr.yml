@@ -498,36 +498,47 @@ panel:
 warning:
   union_cut: "Union faite : les usinages de la pièce ajoutée entament aussi la cible"
 
-# The status bar: the measurements box, and the messages of the app and of the editor.
-status:
-  measurements: "Mesures"
-  saved: "Enregistré"
-  save_failed: "Enregistrement impossible : %{error}"
-  open_failed: "%{file} : %{error}"
+# The app's messages, in toasts at the bottom right (apps/solidsketch/src/toasts.rs): a title,
+# and for an error what went wrong under it (the system's or the kernel's words).
+toast:
+  saved: "%{file} enregistré"
+  save_failed: "Impossible d'enregistrer %{file}"
+  open_failed: "Impossible d'ouvrir %{file}"
   # MAX_OPEN documents are open (%{max}).
   too_many_documents: "Pas plus de %{max} documents ouverts : fermez-en un d'abord"
-  # Importing a file (STEP): read by the kernel, then inserted in the model.
-  importing: "Lecture de %{file}"
+  prefs_not_loaded: "Préférences non lues, celles par défaut sont prises"
+  prefs_not_saved: "Préférences non enregistrées"
+  control_failed: "Canal de pilotage indisponible"
+  command_unknown: "Commande inconnue « %{id} »"
+  command_unavailable: "« %{id} » n'est pas disponible maintenant"
+  # A toast on one line (the control channel, the logs): its title, then what went wrong.
+  with_detail: "%{title} : %{detail}"
+
+# What the editor tells the app's toasts (crates/tools, `Notice`): an operation failed, a file
+# imported…; the detail (the kernel's words) goes under the title.
+notice:
+  op_failed: "« %{op} » a échoué"
+  abandoned: "« %{op} » abandonné"
+  display_failed: "Affichage impossible"
   imported: "%{file} importé : %{count} pièce"
   imported_plural: "%{file} importé : %{count} pièces"
   # Bodies of the file that are no closed solid (surfaces), left out.
   import_excluded: "%{count} corps non fermé ignoré"
   import_excluded_plural: "%{count} corps non fermés ignorés"
-  import_empty: "%{file} : aucun solide à importer (%{count} corps non fermé)"
-  import_empty_plural: "%{file} : aucun solide à importer (%{count} corps non fermés)"
-  import_failed: "Import de %{file} impossible : %{error}"
+  import_empty: "%{file} : aucun solide à importer"
+  import_failed: "Import de %{file} impossible"
   import_cancelled: "Import de %{file} annulé"
-  prefs_not_saved: "Préférences non enregistrées : %{error}"
-  control_failed: "Canal de pilotage : %{error}"
-  command_unknown: "commande inconnue « %{id} »"
-  command_unavailable: "« %{id} » n'est pas disponible maintenant"
+
+# The status bar: the measurements box and the editor's messages.
+status:
+  measurements: "Mesures"
+  # Importing a file (STEP): read by the kernel, then inserted in the model.
+  importing: "Lecture de %{file}"
   # « calcul en cours… (Échap pour abandonner) »: the code joins them with the ellipsis.
   computing: "%{op} : calcul en cours"
   computing_cancel: "(Échap pour abandonner)"
   busy: "Un calcul est déjà en cours"
   op_failed: "%{op} : %{error}"
-  abandoned: "%{op} : abandonné"
-  display_failed: "Affichage impossible : %{error}"
   unexpected_reply: "réponse inattendue du noyau"
   nothing_to_group: "Sélectionner d'abord ce qu'il faut regrouper"
   no_guides: "Aucun guide ici"

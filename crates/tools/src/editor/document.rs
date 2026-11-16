@@ -9,7 +9,7 @@ use web_time::Instant;
 use super::journal::{Event, JobKind, Step};
 use solidsketch_model::{Applied, Document, EntityPath, History, Operation, Outcome, Prepared, Primitive};
 
-use super::Editor;
+use super::{Editor, NoticeKind};
 
 /// What follows an operation applied.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -99,7 +99,7 @@ impl Editor {
         }
         for (solid, display) in displays {
             if let Err(e) = &display {
-                self.message = Some(t!("status.display_failed", error = e));
+                self.notify(NoticeKind::Error, t!("notice.display_failed"), Some(e.clone()));
                 let job = Job { inputs: vec![solid.clone()], tasks: vec![Task::Display { solid: 0, quality: Quality::Final }] };
                 self.journal.fail(None, job, e.clone());
             }
@@ -143,7 +143,7 @@ impl Editor {
         if restore && self.history.redo() {
             self.after_change();
         }
-        self.message = Some(msg.clone());
+        self.notify(NoticeKind::Error, t!("notice.op_failed", op = op.label()), Some(why));
         self.follow_cursor();
         msg
     }
@@ -207,7 +207,7 @@ impl Editor {
                 if quality == Quality::Final
                     && let Err(e) = &display
                 {
-                    self.message = Some(t!("status.display_failed", error = e));
+                    self.notify(NoticeKind::Error, t!("notice.display_failed"), Some(e.clone()));
                 }
                 self.scene.insert_at(&solid, display, quality);
                 meshed = true;
@@ -283,7 +283,7 @@ impl Editor {
         if p.restore && self.history.redo() {
             self.after_change();
         }
-        self.message = Some(t!("status.abandoned", op = p.op.label()));
+        self.notify(NoticeKind::Info, t!("notice.abandoned", op = p.op.label()), None);
     }
 
     /// The debug menu: makes the kernel panic on purpose, a job queued right behind, to check that a
@@ -331,6 +331,8 @@ impl Editor {
 
     /// The kernel read the file `name`: its content inserted, or why not.
     fn imported(&mut self, name: &str, result: solidsketch_model::kernel::JobResult) {
+        // « Lecture de … » done: what came of it is a toast.
+        self.message = None;
         if let Some(load) = &mut self.load {
             load.reading = None;
             load.view.reading = None;
@@ -339,18 +341,19 @@ impl Editor {
             Ok(mut outputs) => match outputs.pop() {
                 Some(Output::Step(s)) => s,
                 _ => {
-                    self.message = Some(t!("status.import_failed", file = name, error = t!("status.unexpected_reply")));
+                    self.notify(NoticeKind::Error, t!("notice.import_failed", file = name), Some(t!("status.unexpected_reply")));
                     return;
                 }
             },
             Err(e) => {
-                self.message = Some(t!("status.import_failed", file = name, error = e));
+                self.notify(NoticeKind::Error, t!("notice.import_failed", file = name), Some(e.to_string()));
                 return;
             }
         };
         let (fragment, report) = Document::from_step(&step, name);
         if fragment.root_assembly().occurrences().is_empty() {
-            self.message = Some(solidsketch_i18n::tp!("status.import_empty", report.excluded, file = name));
+            let detail = (report.excluded > 0).then(|| solidsketch_i18n::tp!("notice.import_excluded", report.excluded));
+            self.notify(NoticeKind::Error, t!("notice.import_empty", file = name), detail);
             return;
         }
         let context = self.document().context_of(&self.context).unwrap_or(self.document().root());
@@ -367,11 +370,8 @@ impl Editor {
         if !self.busy() {
             self.zoom_extents();
         }
-        let mut message = solidsketch_i18n::tp!("status.imported", report.parts, file = name);
-        if report.excluded > 0 {
-            message = format!("{message} — {}", solidsketch_i18n::tp!("status.import_excluded", report.excluded));
-        }
-        self.message = Some(message);
+        let detail = (report.excluded > 0).then(|| solidsketch_i18n::tp!("notice.import_excluded", report.excluded));
+        self.notify(NoticeKind::Success, solidsketch_i18n::tp!("notice.imported", report.parts, file = name), detail);
     }
 
     /// Are meshes asked of the kernel still on their way (or meshes missing, not asked yet)?

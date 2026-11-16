@@ -22,6 +22,7 @@ mod ribbon;
 mod style;
 mod tabs;
 mod titlebar;
+mod toasts;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;
