@@ -75,15 +75,34 @@ impl CommandView {
     }
 }
 
+/// A value of the entity info cut short (…) at `width` rather than widening the panel; whole
+/// in its tool tip (egui's, when cut).
+fn cut_label(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, width: f32) {
+    ui.scope(|ui| {
+        ui.set_max_width(width);
+        ui.add(egui::Label::new(text).truncate());
+    });
+}
+
+/// The warning sign before an error to correct (a part in several pieces, a shortcut's
+/// conflict), in the error colour, as high as the text.
+pub fn warning(ui: &egui::Ui) -> egui::Image<'static> {
+    let side = ui.text_style_height(&egui::TextStyle::Body);
+    egui::Image::new(icons::WARNING).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().error_fg_color)
+}
+
+/// Whether a command is shown in a menu as a check box (a display toggle).
+pub fn is_toggle(v: &CommandView) -> bool {
+    v.checked.is_some() && v.id.starts_with("view.")
+}
+
 /// A menu item: a check box for a toggle, else a button with its shortcut; no hover text.
-/// True when clicked.
-pub fn command_item(ui: &mut egui::Ui, v: &CommandView) -> bool {
-    let toggle = v.checked.is_some() && v.id.starts_with("view.");
-    let mut button = if toggle {
-        let mark = if v.checked == Some(true) { "✔ " } else { "    " };
-        egui::Button::new(format!("{mark}{}", v.label))
+/// `column` when the menu has check boxes: the label after their column. True when clicked.
+pub fn command_item(ui: &mut egui::Ui, v: &CommandView, column: bool) -> bool {
+    let mut button = if is_toggle(v) {
+        crate::style::menu_item(&v.label, v.checked, column)
     } else {
-        egui::Button::new(&v.label).selected(v.checked == Some(true))
+        crate::style::menu_item(&v.label, None, column).selected(v.checked == Some(true))
     };
     if let Some(s) = &v.shortcut {
         button = button.shortcut_text(s);
@@ -577,13 +596,21 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
                         .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             // A part in several pieces: an error to correct (§2.11).
                             let pieces = doc.part(o.component).map_or(1, |p| p.pieces());
-                            let (label, broken) = if pieces > 1 {
-                                (egui::RichText::new(format!("⚠ {}", occurrence_label(doc, o))).color(ui.visuals().error_fg_color), true)
+                            let broken = pieces > 1;
+                            let label = egui::RichText::new(occurrence_label(doc, o));
+                            let label = if broken {
+                                label.color(ui.visuals().error_fg_color)
+                            } else if greyed {
+                                label.color(weak)
                             } else {
-                                (egui::RichText::new(occurrence_label(doc, o)), false)
+                                label
                             };
-                            let label = if greyed && !broken { label.color(weak) } else { label };
-                            let r = ui.add(egui::Button::selectable(selected, label).truncate());
+                            let button = if broken {
+                                egui::Button::selectable(selected, (warning(ui), label))
+                            } else {
+                                egui::Button::selectable(selected, label)
+                            };
+                            let r = ui.add(button.truncate());
                             if broken { r.on_hover_text(t!("panel.outliner.pieces", count = pieces)) } else { r }
                         })
                         .inner;
@@ -741,24 +768,29 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
                     let pieces = p.pieces();
                     if pieces > 1 {
                         ui.label(t!("panel.entity_info.dimensions"));
-                        ui.colored_label(ui.visuals().error_fg_color, t!("panel.entity_info.pieces", count = pieces));
+                        let text = egui::RichText::new(t!("panel.entity_info.pieces", count = pieces)).color(ui.visuals().error_fg_color);
+                        cut_label(ui, text, field);
                         ui.end_row();
                     } else if let Some((lo, hi)) = editor.scene().bounds_of(p.shape()) {
                         ui.label(t!("panel.entity_info.dimensions"));
-                        ui.label(dims(lo, hi, units));
+                        cut_label(ui, dims(lo, hi, units), field);
                         ui.end_row();
                     }
                     ui.label(t!("panel.entity_info.bodies"));
-                    ui.label(t!(
-                        "panel.entity_info.bodies_value",
-                        count = p.bodies.len(),
-                        positives = p.positives().count(),
-                        negatives = p.negatives().count()
-                    ));
+                    cut_label(
+                        ui,
+                        t!(
+                            "panel.entity_info.bodies_value",
+                            count = p.bodies.len(),
+                            positives = p.positives().count(),
+                            negatives = p.negatives().count()
+                        ),
+                        field,
+                    );
                     ui.end_row();
                     let (f, ed, v) = p.shape().topology_counts();
                     ui.label(t!("panel.entity_info.topology"));
-                    ui.label(t!("panel.entity_info.topology_counts", faces = f, edges = ed, vertices = v));
+                    cut_label(ui, t!("panel.entity_info.topology_counts", faces = f, edges = ed, vertices = v), field);
                     ui.end_row();
                 }
                 // At the top of its three fields, level with the first.
@@ -823,7 +855,10 @@ fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions
     let Some(p) = c.as_part() else { return };
     let pieces = p.pieces();
     if pieces > 1 {
-        ui.colored_label(ui.visuals().error_fg_color, format!("⚠ {}", t!("panel.entity_info.pieces", count = pieces)));
+        ui.horizontal(|ui| {
+            ui.add(warning(ui));
+            ui.colored_label(ui.visuals().error_fg_color, t!("panel.entity_info.pieces", count = pieces));
+        });
     }
     let shown = editor.showing_machinings();
     let hovered = editor.hovered_machining();
@@ -1007,12 +1042,14 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
             if let Some(name) = text_field(ui, (id, 2), &m.name, width) {
                 actions.push(Action::Apply(Operation::EditMaterial { material: id, name, color: m.color }));
             }
-            if ui.small_button("✕").on_hover_text(t!("panel.materials.delete_tip")).clicked() {
+            let delete = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ui.visuals().text_color());
+            if ui.add(egui::Button::image(delete).small()).on_hover_text(t!("panel.materials.delete_tip")).clicked() {
                 actions.push(Action::Apply(Operation::DeleteMaterial { material: id }));
             }
         });
     }
-    if ui.button(format!("+ {}", t!("panel.materials.new"))).clicked() {
+    let add = egui::Image::new(icons::ADD).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ui.visuals().text_color());
+    if ui.add(egui::Button::image_and_text(add, t!("panel.materials.new"))).clicked() {
         let count = doc.materials().count();
         let taken = |n: &str| doc.materials().any(|(_, m)| m.name == n);
         let name = (count + 1..).map(|k| t!("default_name.material", number = k)).find(|n| !taken(n)).unwrap_or_default();

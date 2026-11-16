@@ -1467,16 +1467,17 @@ impl SolidSketchApp {
                 for c in COMMANDS.iter().filter(|c| c.menu != Menu::Debug) {
                     ui.label((c.label)()).on_hover_text(c.id);
                     let current = self.keymap.get(c.id);
-                    let mut text = current.map_or("—".to_owned(), |s| s.display(mac));
-                    if let Some(s) = current
-                        && !self.keymap.conflicts(c.id, s).is_empty()
-                    {
-                        text.push_str("  ⚠");
-                    }
+                    let text = current.map_or("—".to_owned(), |s| s.display(mac));
+                    let conflict = current.is_some_and(|s| !self.keymap.conflicts(c.id, s).is_empty());
                     if self.capturing == Some(c.id) {
                         ui.strong("…");
                     } else {
-                        ui.label(text);
+                        ui.horizontal(|ui| {
+                            ui.label(text);
+                            if conflict {
+                                ui.add(crate::panels::warning(ui));
+                            }
+                        });
                     }
                     ui.horizontal(|ui| {
                         if ui.small_button(t!("prefs.shortcuts.edit")).clicked() {
@@ -1707,7 +1708,6 @@ impl SolidSketchApp {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // The start page: nothing (the app's messages are toasts).
             let Some(d) = self.docs.active_mut() else { return };
             let status = d.editor.status();
             self.driving.message(&status);
@@ -1759,7 +1759,7 @@ impl SolidSketchApp {
             }
             for (k, path) in self.prefs.recent_files.iter().enumerate().take(commands::RECENT_FILES) {
                 let id = commands::COMMANDS.iter().find(|c| commands::recent_slot(c.id) == Some(k)).map(|c| c.id);
-                let r = ui.add_sized([width, 24.0], egui::Button::new(file_name(path)).frame(false)).on_hover_text(path);
+                let r = ui.add_sized([width, 24.0], egui::Button::new(file_name(path)).frame_when_inactive(false)).on_hover_text(path);
                 if let (true, Some(id)) = (r.clicked(), id) {
                     actions.push(Action::Command(id));
                 }
@@ -2250,7 +2250,11 @@ impl eframe::App for SolidSketchApp {
             remote: self.remote_mark(&ctx),
         };
         titlebar::show(ui, &bar, &views, &mut actions);
-        let status_top = egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui)).response.rect.top();
+        // The start page has no status bar: the toasts stand above the window's bottom.
+        let status_top = match self.docs.active() {
+            Some(_) => egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui)).response.rect.top(),
+            None => ctx.content_rect().bottom(),
+        };
         self.ribbon_bottom = None;
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);

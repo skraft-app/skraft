@@ -470,7 +470,7 @@ panel:
     pieces: "en %{count} morceaux, à corriger"
     bodies: "Corps"
     # The bodies of a part: their count, the blanks' and the machinings'.
-    bodies_value: "%{count} (＋%{positives} −%{negatives})"
+    bodies_value: "%{count} (+%{positives} −%{negatives})"
     topology: "Topologie"
     topology_counts: "%{faces} faces · %{edges} arêtes · %{vertices} sommets"
     position: "Position"
