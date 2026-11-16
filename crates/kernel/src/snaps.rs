@@ -200,7 +200,7 @@ fn arc(center: DVec3, n: DVec3, radius: f64, start: DVec3, poly: &[DVec3], close
     (sweep > 1e-9).then_some(SnapCurve::Arc { center, x, y, radius, sweep: sweep.min(TAU) })
 }
 
-fn plane_of(s: &Surface) -> Option<Plane> {
+pub(crate) fn plane_of(s: &Surface) -> Option<Plane> {
     let (point, normal) = match s {
         Surface::Plane { origin, u_axis, v_axis } => (v3(*origin), v3(*u_axis).cross(v3(*v_axis))),
         Surface::PlaneThrough { origin, u_point, v_point } => {

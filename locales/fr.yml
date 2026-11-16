@@ -115,6 +115,8 @@ menu:
     preferences: "$t(common.preferences)"
     # Checked while the control channel (the HTTP server that drives the app from a script) is on.
     remote_control: "Pilotage distant"
+    # Shows or hides the journal window (what the shown document's editor went through).
+    journal: "Journal"
   view:
     title: "Vue"
     parallel: "Projection parallèle"
@@ -203,6 +205,7 @@ titlebar:
     on: "Pilotage distant actif sur %{address} — %{n} requête(s)"
     failed: "Pilotage distant impossible : %{error}"
     copy_ping: "Copier une commande de test"
+    journal: "$t(menu.edit.journal)"
     retry: "Réessayer"
     stop: "Arrêter le pilotage distant"
 
@@ -255,6 +258,62 @@ palette:
   title: "$t(common.command_palette)"
   hint: "Commande"
   none: "Aucune commande"
+
+# The journal window (menu Édition, the control channel's mark): what the shown document's
+# editor went through — inputs, tools, operations, kernel jobs — and the kernel's failures.
+journal:
+  title: "Journal"
+  title_of: "Journal — %{name}"
+  no_document: "Aucun document ouvert."
+  tab:
+    log: "Événements"
+    failures: "Échec du noyau (%{count})"
+    failures_plural: "Échecs du noyau (%{count})"
+  # While `journal.record` records the inputs (control channel).
+  recording: "Enregistrement : %{count} étape"
+  recording_plural: "Enregistrement : %{count} étapes"
+  show:
+    inputs: "Entrées"
+    hovers: "Survols"
+    tools: "Outils"
+    operations: "Opérations"
+    jobs: "Calculs"
+  copy: "$t(common.copy)"
+  copy_tip: "Copie les événements affichés en JSON, une ligne chacun (comme journal.log)"
+  empty: "Aucun événement."
+  no_failures: "Aucun échec du noyau."
+  copy_job: "Copier le calcul"
+  copy_job_tip: "Copie l'échec en JSON avec son calcul (solides d'entrée et tâches), à rejouer sans interface"
+  job_size: "%{inputs} solide(s) d'entrée, %{tasks} tâche(s)"
+  applied: "%{op} → révision %{revision}"
+  # A face of a body put onto a face of another body of the same part (plane welding).
+  welded: "pièce %{part}, corps %{body} sur le corps %{reference} : %{distance} mm"
+  event:
+    tool: "Outil"
+    option: "Option"
+    applied: "Opération"
+    welded: "Soudure"
+    failed: "Refusée"
+    job: "Calcul"
+    undo: "$t(common.undo)"
+    redo: "$t(common.redo)"
+  job:
+    operation: "opération"
+    mesh: "maillage"
+  input:
+    hover: "Survol"
+    click: "Clic"
+    double_click: "Double-clic"
+    drag_start: "Début de glisser"
+    drag: "Glisser"
+    drag_end: "Fin de glisser"
+    key: "Touche"
+    vcb: "Saisie"
+    value: "Valeur"
+  # The modifiers held with an input.
+  mod:
+    toggle: "Maj"
+    copy: "copie"
 
 # The render statistics overlay (menu Vue), in a corner of the view.
 render_stats:
@@ -439,36 +498,47 @@ panel:
 warning:
   union_cut: "Union faite : les usinages de la pièce ajoutée entament aussi la cible"
 
-# The status bar: the measurements box, and the messages of the app and of the editor.
-status:
-  measurements: "Mesures"
-  saved: "Enregistré"
-  save_failed: "Enregistrement impossible : %{error}"
-  open_failed: "%{file} : %{error}"
+# The app's messages, in toasts at the bottom right (apps/solidsketch/src/toasts.rs): a title,
+# and for an error what went wrong under it (the system's or the kernel's words).
+toast:
+  saved: "%{file} enregistré"
+  save_failed: "Impossible d'enregistrer %{file}"
+  open_failed: "Impossible d'ouvrir %{file}"
   # MAX_OPEN documents are open (%{max}).
   too_many_documents: "Pas plus de %{max} documents ouverts : fermez-en un d'abord"
-  # Importing a file (STEP): read by the kernel, then inserted in the model.
-  importing: "Lecture de %{file}"
+  prefs_not_loaded: "Préférences non lues, celles par défaut sont prises"
+  prefs_not_saved: "Préférences non enregistrées"
+  control_failed: "Canal de pilotage indisponible"
+  command_unknown: "Commande inconnue « %{id} »"
+  command_unavailable: "« %{id} » n'est pas disponible maintenant"
+  # A toast on one line (the control channel, the logs): its title, then what went wrong.
+  with_detail: "%{title} : %{detail}"
+
+# What the editor tells the app's toasts (crates/tools, `Notice`): an operation failed, a file
+# imported…; the detail (the kernel's words) goes under the title.
+notice:
+  op_failed: "« %{op} » a échoué"
+  abandoned: "« %{op} » abandonné"
+  display_failed: "Affichage impossible"
   imported: "%{file} importé : %{count} pièce"
   imported_plural: "%{file} importé : %{count} pièces"
   # Bodies of the file that are no closed solid (surfaces), left out.
   import_excluded: "%{count} corps non fermé ignoré"
   import_excluded_plural: "%{count} corps non fermés ignorés"
-  import_empty: "%{file} : aucun solide à importer (%{count} corps non fermé)"
-  import_empty_plural: "%{file} : aucun solide à importer (%{count} corps non fermés)"
-  import_failed: "Import de %{file} impossible : %{error}"
+  import_empty: "%{file} : aucun solide à importer"
+  import_failed: "Import de %{file} impossible"
   import_cancelled: "Import de %{file} annulé"
-  prefs_not_saved: "Préférences non enregistrées : %{error}"
-  control_failed: "Canal de pilotage : %{error}"
-  command_unknown: "commande inconnue « %{id} »"
-  command_unavailable: "« %{id} » n'est pas disponible maintenant"
+
+# The status bar: the measurements box and the editor's messages.
+status:
+  measurements: "Mesures"
+  # Importing a file (STEP): read by the kernel, then inserted in the model.
+  importing: "Lecture de %{file}"
   # « calcul en cours… (Échap pour abandonner) »: the code joins them with the ellipsis.
   computing: "%{op} : calcul en cours"
   computing_cancel: "(Échap pour abandonner)"
   busy: "Un calcul est déjà en cours"
   op_failed: "%{op} : %{error}"
-  abandoned: "%{op} : abandonné"
-  display_failed: "Affichage impossible : %{error}"
   unexpected_reply: "réponse inattendue du noyau"
   nothing_to_group: "Sélectionner d'abord ce qu'il faut regrouper"
   no_guides: "Aucun guide ici"

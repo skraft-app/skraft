@@ -12,6 +12,7 @@ mod driving;
 mod file;
 mod handles;
 mod icons;
+mod journal_window;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;
 #[cfg(not(target_arch = "wasm32"))]
@@ -23,6 +24,7 @@ mod ribbon;
 mod style;
 mod tabs;
 mod titlebar;
+mod toasts;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;

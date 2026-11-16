@@ -376,6 +376,8 @@ pub struct Outcome {
     pub stretched: Vec<crate::StretchedPart>,
     /// Done, but the user should know something about it (the status bar says it).
     pub warning: Option<Warning>,
+    /// The faces put onto others after it (§2.11's welding), for the journal.
+    pub welds: Vec<crate::Weld>,
 }
 
 /// What an operation done has to say.
@@ -416,7 +418,8 @@ impl Document {
     pub fn prepare(&self, op: &Operation) -> Result<Prepared> {
         let mut recorder = Recorder::default();
         let mut doc = self.clone();
-        let outcome = doc.apply_in_place(op, &mut recorder)?;
+        let mut outcome = doc.apply_in_place(op, &mut recorder)?;
+        outcome.welds = doc.weld(self, &mut recorder)?;
         if recorder.job.tasks.is_empty() {
             doc.purge();
             return Ok(Prepared::Done(Box::new(Applied { document: doc, outcome, displays: Vec::new() })));
@@ -429,7 +432,8 @@ impl Document {
     pub fn commit(&self, op: &Operation, outputs: Vec<Output>) -> Result<Applied> {
         let mut replayer = Replayer { outputs: outputs.into_iter(), displays: Vec::new() };
         let mut doc = self.clone();
-        let outcome = doc.apply_in_place(op, &mut replayer)?;
+        let mut outcome = doc.apply_in_place(op, &mut replayer)?;
+        outcome.welds = doc.weld(self, &mut replayer)?;
         if replayer.outputs.next().is_some() {
             return Err(Error::Invalid(Refusal::OutOfStep));
         }
@@ -1226,7 +1230,7 @@ impl Document {
     /// it is is kept: added negatives cut it, added positives are cut by every negative then
     /// joined to it (`(A ∪ B) − N = (A − N) ∪ (B − N)`); else everything is computed again. A
     /// plain part (a single positive body, unplaced) is its body: no kernel.
-    fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
+    pub(crate) fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
         let p = self.part(part)?;
         if p.is_plain() {
             let p = self.part_mut(part)?;
@@ -1436,7 +1440,7 @@ pub(crate) fn is_rigid(t: &DAffine3) -> bool {
 // ---- the kernel calls of an operation -------------------------------------------------------
 
 /// The kernel, as an operation sees it.
-trait Solver {
+pub(crate) trait Solver {
     fn primitive(&mut self, primitive: &Primitive) -> Result<Arc<Solid>>;
     /// `target op tool`, the tool first moved by `tool_transform`.
     fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>>;

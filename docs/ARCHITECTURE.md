@@ -381,6 +381,19 @@ Body { id, placement: T, sign: Positive | Negative, source }
   body computes the part again from the union of the positives (worth caching).
 - **Failures**: a body whose boolean fails is skipped and reported by its id, the others still
   computed, as a failed machining today (`Part::failed`).
+- **Plane welding** (2026-11-16, `crates/model/src/weld.rs`): after every operation, a planar
+  face of a body it changed that lies within `WELD` (1e-4 mm) of a parallel planar face of a
+  body of the same part it left alone is put on that face exactly, its body stretched by the
+  difference (its profile kept, a definition it shares copied first); the part is then computed
+  again, in the same job. Faces a few 1e-5 mm apart come from values read on the `f32` display
+  mesh or from sums of rounded moves; the booleans keep what lies between them (a negative a
+  hair short left a 14 nm skin). No drift, by four rules: a face goes onto a face that is there
+  (its exact value, never a mean); the bodies the operation left alone are the references and
+  never move; a face goes onto the nearest reference, once (a face welded is no reference: no
+  chains); never onto a face of its own body. Only extruded bodies move (caps along their axis,
+  straight sides across it); any body with planar faces is a reference. Each weld is in the
+  operation's `Outcome::welds` and the journal (`welded`: part, body, reference, distance).
+  Files saved before are not welded when opened.
 
 **The cut list reads the final** (supersedes §2.3's blank box): the part's dimensions are the
 exact box of the **final** B-rep in the **part's** axes, the grain along their red axis. A
@@ -639,6 +652,22 @@ Decided on 2026-11-09.
   Order, columns, sizes, folded and closed cards are kept in the preferences, written once the
   pointer is released. Opening or resizing a panel therefore never resizes the view; zoom
   extents frames the area left free.
+- **Toasts** (2026-11-16, `toasts.rs`), after OpenCutList's notifications
+  (`SmartTool#notify`): the app's messages — a file not opened or not saved, the preferences
+  or the control channel failing, a command that cannot run, « modele.ssk enregistré » — and
+  the editor's notices (`Editor::take_notices`: an operation failed, with the kernel's or the
+  model's words; a display failed; a STEP file imported, empty, failed, cancelled; an
+  operation abandoned) stack at the bottom center, above the status bar, which keeps the
+  tools' hints. Three levels: info (neutral), success (green), error (red), each a border of
+  its colour on a pale wash of it (a dark one in a dark theme), the title in the colour and
+  what went wrong under it, smaller. A click on a toast closes it. An info or a success goes
+  after 5 s, a bar along its bottom emptying towards the left; the pointer over it stops the
+  countdown, full again. An error stays. A toast may carry a button at its right end (as
+  OpenCutList's « Ouvrir » after an export; none does yet), whose click runs it and closes
+  the toast. The same message again counts
+  (×2); six at most, the oldest timed one dropped first. `app.state` lists them (`toasts`);
+  handles `toast.<i>` and `toast.<i>.action`. An editor nobody takes notices from (headless)
+  keeps its last 32.
 - **Original SVG icons** (drawn for the project), white and tinted by the theme, loaded by
   `egui_extras` (`svg`): no build step, no binary asset.
 - **SketchUp shortcuts**: Space = Select, E = Eraser, M = Move, Q = Rotate, G = Make assembly, Delete =
@@ -2602,6 +2631,14 @@ grips), so a script clicks a name, not a pixel.
    revision and the parts reached checked. Recorded in the app (a box, then a cylinder on
    it), the test passes and builds the same geometry. Not recorded: what panels do besides
    (the outliner's selection, entering a component from it).
+   **In the app** (2026-11-16): the **journal window** (`apps/solidsketch/src/journal_window.rs`,
+   command `app.journal`: the control channel's mark's menu, the command palette) reads the
+   shown tab's journal directly, channel on or off: its events (filtered by kind — inputs,
+   hovers, left out at first, tools, operations, jobs — following the last; failed ones in
+   red; copied as JSON lines, as `journal.log` gives them), its kernel failures (each copied
+   in full with its job, as `journal.failures` `seq` gives it: `solidsketch_control::json` is
+   public for this), and a recording under way. Its two tabs are drawn as the ribbon's
+   (`ribbon::tab_strip`), their band joining the window's title bar.
 4. **Built** (2026-11-15, same branch). **Real input**: `ui.click` (`double`), `ui.move`,
    `ui.drag` (`steps`), `ui.key` (egui's key names, `pressed` for one edge), `ui.text`,
    `ui.scroll` — each at `where`: a window point (`pos`), a handle's centre (`handle`) or a
