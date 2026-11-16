@@ -62,6 +62,35 @@ impl Editor {
         self.selection = vec![path.entity];
     }
 
+    /// The model chosen (the outliner's first row clicked): every assembly left and the part
+    /// closed (its profile's editing with it), nothing selected — the model is, until anything
+    /// else is.
+    pub fn select_model(&mut self) {
+        if !self.context.is_empty() || self.open_part.is_some() {
+            self.tool.reset();
+            if self.tool.kind() == ToolKind::Profile {
+                self.set_tool(ToolKind::Select);
+            }
+            self.context.clear();
+            self.open_part = None;
+            self.open_group.clear();
+            self.listed_hover = None;
+            self.sync_scene();
+        }
+        self.selection.clear();
+        self.model_selected = true;
+    }
+
+    /// Whether the model is what is chosen (the outliner's first row highlighted, the entity
+    /// info showing the model): its row clicked, nothing chosen since.
+    pub fn model_chosen(&self) -> bool {
+        self.model_selected && self.at_model_level_with_nothing_selected()
+    }
+
+    pub(crate) fn at_model_level_with_nothing_selected(&self) -> bool {
+        self.context.is_empty() && self.open_part.is_none() && self.selection.is_empty()
+    }
+
     /// The outliner's click on the occurrence `path` leads to: selected already (in the active
     /// context, no part open), it is taken out of the selection; else selected as
     /// [`Editor::select_path`] does — added to the selection with `add` (Shift) when it lies in

@@ -1013,6 +1013,7 @@ impl SolidSketchApp {
             | Action::SelectBody(..)
             | Action::RemoteRetry => {}
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
+            Action::SelectModel => e.select_model(),
             Action::EditProfile(p, body) => e.edit_body_profile(&p, body),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
             Action::Apply(op) => {
@@ -1694,14 +1695,18 @@ impl SolidSketchApp {
                         return;
                     }
                     let Some(doc) = docs.iter_mut().nth(i) else { return };
-                    ui.add_space(2.0 * HEAD_PAD);
-                    let body = (inner.y - header - 2.0 * HEAD_PAD - 2.0 * ui.spacing().item_spacing.y).max(0.0);
+                    // The navigator's rows close under the title bar (their backgrounds have
+                    // their own room, `panels::outliner`); the other cards' content further down.
+                    let pad = if id == PanelId::Outliner { HEAD_PAD / 2.0 } else { 2.0 * HEAD_PAD };
+                    ui.add_space(pad);
+                    let body = (inner.y - header - pad - 2.0 * ui.spacing().item_spacing.y).max(0.0);
                     let area = egui::ScrollArea::vertical().auto_shrink(false).max_height(body).min_scrolled_height(body);
                     match id {
                         PanelId::EntityInfo => {
                             // Salted by the document: a field focused in one is not another's.
                             let doc_id = doc.id;
-                            area.id_salt("entity_info").show(ui, |ui| ui.push_id(doc_id, |ui| panels::info(ui, &doc.editor, actions)));
+                            let name = doc.name();
+                            area.id_salt("entity_info").show(ui, |ui| ui.push_id(doc_id, |ui| panels::info(ui, &doc.editor, &name, actions)));
                         }
                         PanelId::Materials => {
                             let doc_id = doc.id;
@@ -1709,7 +1714,9 @@ impl SolidSketchApp {
                         }
                         PanelId::Outliner => {
                             *outliner_shown = true;
-                            panels::outliner(ui, &doc.editor, actions, area.id_salt("outliner"));
+                            // Salted by the document: its active path remembered apart.
+                            let (doc_id, name) = (doc.id, doc.name());
+                            ui.push_id(doc_id, |ui| panels::outliner(ui, &doc.editor, &name, actions, area.id_salt("outliner")));
                         }
                     }
                 });

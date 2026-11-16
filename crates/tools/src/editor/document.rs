@@ -158,6 +158,10 @@ impl Editor {
     /// Takes in what the kernel finished: the pending operation, meshes. Call every frame;
     /// returns whether anything came.
     pub fn poll(&mut self) -> bool {
+        // The model stays chosen only while nothing else is, at its level.
+        if !self.at_model_level_with_nothing_selected() {
+            self.model_selected = false;
+        }
         // How far the file being read is (the load's window shows it).
         let mut moved = false;
         for (id, p) in self.kernel.progress() {
