@@ -3167,3 +3167,77 @@ fn bodies_inside_groups_weld_onto_bodies_anywhere_in_the_part() {
     };
     assert!(h.apply(op).unwrap().welds.is_empty());
 }
+
+#[test]
+fn body_definitions_take_a_name_their_copies_share() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    let def = h.document().part(part).unwrap().body(hole).unwrap().def;
+    let name = |h: &History, body: Id| {
+        let p = h.document().part(part).unwrap();
+        p.def_of(p.body(body).unwrap()).name.clone()
+    };
+    assert_eq!(name(&h, hole), None);
+
+    // Named, trimmed; the shape left alone: no kernel.
+    let op = Operation::RenameBodyDef { part, def, name: " Trou de tourillon ".into() };
+    assert!(matches!(h.document().prepare(&op).unwrap(), Prepared::Done(_)));
+    h.apply(op).unwrap();
+    assert_eq!(name(&h, hole).as_deref(), Some("Trou de tourillon"));
+
+    // A copy shares it; made unique, keeps it; a name twice is fine.
+    let dx = DAffine3::from_translation(DVec3::X * 40.0);
+    let op = Operation::DuplicateBodies { target: target.clone(), bodies: vec![hole], transform: dx, scope: Scope::All };
+    let copy = h.apply(op).unwrap().machinings()[0];
+    assert_eq!(name(&h, copy).as_deref(), Some("Trou de tourillon"));
+    h.apply(Operation::MakeBodiesUnique { target: target.clone(), bodies: vec![copy], scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_ne!(p.body(copy).unwrap().def, def);
+    assert_eq!(name(&h, copy).as_deref(), Some("Trou de tourillon"));
+
+    // Saved and read back.
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), h.document().part(part).unwrap());
+
+    // Empty clears it; an unknown definition or part is refused.
+    h.apply(Operation::RenameBodyDef { part, def, name: "  ".into() }).unwrap();
+    assert_eq!(name(&h, hole), None);
+    assert!(h.apply(Operation::RenameBodyDef { part, def: Id(999), name: "x".into() }).is_err());
+    assert!(h.apply(Operation::RenameBodyDef { part: Id(999), def, name: "x".into() }).is_err());
+}
+
+#[test]
+fn named_parts_name_the_bodies_they_become_and_back() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    let dowel = add(&mut h, Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, 10.0), radius: 4.0, height: 30.0 });
+    let target = EntityPath::root(board);
+    let (part, _, _) = h.document().resolve_part(&target).unwrap();
+    let (dowel_part, _, _) = h.document().resolve_part(&EntityPath::root(dowel)).unwrap();
+    h.apply(Operation::RenameComponent { component: dowel_part, name: "Tourillon".into() }).unwrap();
+    let names = |h: &History| -> Vec<Option<String>> {
+        let p = h.document().part(part).unwrap();
+        p.bodies.iter().map(|b| p.def_of(b).name.clone()).collect()
+    };
+
+    // A part pasted into a part: the body it becomes takes its name, an unnamed one none.
+    let other = add(&mut h, cube(DVec3::new(0.0, 0.0, 100.0), 10.0));
+    let fragment = Arc::new(h.document().entities_fragment(&[], &[dowel, other]).unwrap());
+    let (_, _, t) = h.document().resolve_part(&target).unwrap();
+    let pasted = Operation::PasteParts { target: target.clone(), fragment, transform: t.inverse(), scope: Scope::All };
+    h.apply(pasted).unwrap();
+    assert_eq!(names(&h), vec![None, Some("Tourillon".into()), None]);
+
+    // The union's tool too.
+    h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(dowel), op: Boolean::Union, scope: Scope::All }).unwrap();
+    assert_eq!(names(&h)[3].as_deref(), Some("Tourillon"));
+
+    // A named body pasted out of its part: a new part of its name (made unique).
+    let body = h.document().part(part).unwrap().bodies[1].id;
+    let fragment = Arc::new(h.document().bodies_fragment(&target, &[body]).unwrap());
+    let out = h.apply(Operation::PasteAsPart { context: root, fragment, transform: DAffine3::IDENTITY }).unwrap();
+    let (new, _, _) = h.document().resolve_part(&EntityPath::root(out.created[0])).unwrap();
+    let new = h.document().component(new).unwrap();
+    assert!(new.name.starts_with("Tourillon") && new.name != "Tourillon", "{}", new.name);
+}

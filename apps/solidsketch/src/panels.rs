@@ -293,6 +293,7 @@ fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Un
         lit: value != 0.0,
         addon: None,
         blur_applies: false,
+        empty_applies: false,
         handle: Some(format!("option:{key}")),
     };
     framed_field(ui, egui::Id::unique(("length_option", key)), &shown, &exact, field)
@@ -312,6 +313,9 @@ struct Field<'a> {
     /// A click away applies what was typed (Entity Info), else puts the value back (the tool
     /// options, applied by Enter only).
     blur_applies: bool,
+    /// An empty text applies too (a body's name cleared, §2.11 « Body names »), else it puts the
+    /// value back.
+    empty_applies: bool,
     /// Its name among the named handles (docs/ARCHITECTURE.md §7 septies), if published.
     handle: Option<String>,
 }
@@ -406,7 +410,7 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
         let applied =
             ui.input(|i| if i.key_pressed(egui::Key::Escape) { false } else { f.blur_applies || i.key_pressed(egui::Key::Enter) });
         let unchanged = text.trim() == exact || text.trim() == shown;
-        return (applied && !text.trim().is_empty() && !unchanged).then(|| text.trim().to_owned());
+        return (applied && (f.empty_applies || !text.trim().is_empty()) && !unchanged).then(|| text.trim().to_owned());
     }
     // egui's focus, not `Response::has_focus`: that one is also false while the window is not
     // the system's focused one, and the text typed then (control channel, §7 septies) was lost.
@@ -599,7 +603,7 @@ impl Nature {
     }
 
     /// Its name numbered `n` among its siblings: « Extrusion 3 ».
-    fn label(self, n: usize) -> String {
+    fn numbered(self, n: usize) -> String {
         match self {
             Nature::Extrusion => t!("panel.outliner.extrusion", number = n),
             Nature::Revolution => t!("panel.outliner.revolution", number = n),
@@ -618,13 +622,19 @@ impl Nature {
     }
 }
 
+/// What the interface calls the body `b` of `p`, numbered `n` among its siblings: its
+/// definition's name, given by the user, else its nature's (« Solide 3 », §2.11 « Body names »).
+fn body_label(p: &solidsketch_model::Part, b: &solidsketch_model::Body, n: usize) -> String {
+    p.def_of(b).name.clone().unwrap_or_else(|| Nature::of(p, b).numbered(n))
+}
+
 impl BodyRow<'_> {
     fn nature(&self) -> Nature {
         Nature::of(self.part, self.body)
     }
 
     fn label(&self) -> String {
-        self.nature().label(self.number)
+        body_label(self.part, self.body, self.number)
     }
 
     fn icon(&self) -> egui::ImageSource<'static> {
@@ -738,7 +748,12 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
             let pieces = part.map_or(1, |p| p.pieces());
             let broken = pieces != 1;
             let inner = !broken && in_error(doc, o.component, &mut errors, 0);
-            let (response, eye) = tree_row(ui, height, selected, false, false, |ui| {
+            // Its component's name edited in place: from a double-click, or F2 while it is the
+            // one occurrence selected.
+            let rename = ui.make_persistent_id(("outliner_rename", &row.path, o.id));
+            let renaming = ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) == Some(rename);
+            let name = doc.component(o.component).map(|c| c.name.clone()).unwrap_or_default();
+            let (response, (eye, renamed)) = tree_row(ui, height, selected, false, false, |ui| {
                 // The toggle button (or, for a part, its room) one indent per level, so all
                 // the icons of a level line up.
                 let spacing = ui.spacing().item_spacing.x;
@@ -761,15 +776,21 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
                         if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
                     let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
                     let eye = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        if broken || inner {
-                            ui.add(warning(ui));
-                        }
-                        let color = if broken { ui.visuals().error_fg_color } else { tint };
-                        let label = egui::RichText::new(occurrence_label(doc, o)).color(color);
-                        ui.add(egui::Label::new(label).selectable(false).truncate());
-                    });
-                    eye
+                    let renamed = ui
+                        .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            if broken || inner {
+                                ui.add(warning(ui));
+                            }
+                            if renaming {
+                                return rename_field(ui, rename, &name);
+                            }
+                            let color = if broken { ui.visuals().error_fg_color } else { tint };
+                            let label = egui::RichText::new(occurrence_label(doc, o)).color(color);
+                            ui.add(egui::Label::new(label).selectable(false).truncate());
+                            None
+                        })
+                        .inner;
+                    (eye, renamed)
                 })
                 .inner
             });
@@ -788,6 +809,15 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
             // The whole row, its indent and toggle included.
             if ui.rect_contains_pointer(response.rect) {
                 over = Some(path.clone());
+            }
+            // A component's name is never empty, and unique: an emptied one is kept, one taken
+            // refused (the failure told).
+            let alone = selected && selection.len() == 1;
+            match start_rename(ui, &response, renaming, alone, rename, renamed) {
+                Some(Some(name)) if !name.is_empty() => {
+                    actions.push(Action::Apply(Operation::RenameComponent { component: o.component, name }));
+                }
+                _ => {}
             }
             if eye {
                 actions.push(Action::SetHidden(path, !o.hidden));
@@ -1008,7 +1038,11 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
     let def = b.part.def_of(b.body);
     let inner = def.is_group() && !failed && holds_failure(b.part, def.children(), 0);
     let warned = (failed && def.is_group()) || inner;
-    let (response, toggled) = tree_row(ui, height, selected, lit, true, |ui| {
+    // Its name edited in place (§2.11 « Body names »): from a double-click, or F2 while it is
+    // the one body selected.
+    let rename = ui.make_persistent_id(("outliner_rename", &row.path, row.occurrence.id, &b.group, b.body.id));
+    let renaming = ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) == Some(rename);
+    let (response, (toggled, renamed)) = tree_row(ui, height, selected, lit, true, |ui| {
         let spacing = ui.spacing().item_spacing.x;
         ui.spacing_mut().item_spacing.x = 0.0;
         // Under the part's icon: its level, plus one, plus the groups above.
@@ -1031,15 +1065,21 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
             };
             let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
             let toggled = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                if warned {
-                    ui.add(warning(ui));
-                }
-                let color = if failed { ui.visuals().error_fg_color } else { tint };
-                let label = egui::RichText::new(b.label()).color(color);
-                ui.add(egui::Label::new(label).selectable(false).truncate());
-            });
-            toggled
+            let renamed = ui
+                .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    if warned {
+                        ui.add(warning(ui));
+                    }
+                    if renaming {
+                        return rename_field(ui, rename, &b.label());
+                    }
+                    let color = if failed { ui.visuals().error_fg_color } else { tint };
+                    let label = egui::RichText::new(b.label()).color(color);
+                    ui.add(egui::Label::new(label).selectable(false).truncate());
+                    None
+                })
+                .inner;
+            (toggled, renamed)
         })
         .inner
     });
@@ -1055,6 +1095,10 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
     };
     if shown && ui.rect_contains_pointer(response.rect) {
         *over = Some(b.body.id);
+    }
+    let alone = selected && editor.selection().len() == 1;
+    if let Some(Some(name)) = start_rename(ui, &response, renaming, alone, rename, renamed) {
+        actions.push(Action::Apply(Operation::RenameBodyDef { part: row.occurrence.component, def: b.body.def, name }));
     }
     if toggled {
         let sign = match b.body.sign {
@@ -1075,13 +1119,87 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
     }
 }
 
+/// The temporary key of the body row whose name is edited in place, if any.
+const RENAMING: &str = "outliner_renaming";
+
+/// A navigator row's name edited in place, under the key `rename` (`renaming`: it is): a
+/// double-click on the row (`response`), or F2 while it is the one thing selected (`alone`),
+/// opens its field; `renamed`, the field's outcome, closes it and is given back.
+fn start_rename(
+    ui: &mut egui::Ui,
+    response: &egui::Response,
+    renaming: bool,
+    alone: bool,
+    rename: egui::Id,
+    renamed: Option<Option<String>>,
+) -> Option<Option<String>> {
+    if renamed.is_some() {
+        ui.data_mut(|d| d.remove::<egui::Id>(egui::Id::unique(RENAMING)));
+    } else if !renaming {
+        let f2 = alone && ui.memory(|m| m.focused().is_none()) && ui.input(|i| i.key_pressed(egui::Key::F2));
+        if response.double_clicked() || f2 {
+            ui.data_mut(|d| d.insert_temp(egui::Id::unique(RENAMING), rename));
+        }
+    }
+    renamed
+}
+
+/// A row's name (a body's, a component's) edited in place in its navigator row (§2.11 « Body names »), under the key
+/// `id`: the name `current` wholly selected as it opens, to be typed over. Enter or a click away
+/// gives the text typed — empty: the name cleared —, Esc nothing: `Some` once done, `Some(None)`
+/// when nothing changes; None while it is edited.
+fn rename_field(ui: &mut egui::Ui, id: egui::Id, current: &str) -> Option<Option<String>> {
+    let (text_id, started) = (id.with("text"), id.with("started"));
+    let first = !ui.data(|d| d.get_temp::<bool>(started).unwrap_or(false));
+    let mut text = ui.data(|d| d.get_temp::<String>(text_id)).unwrap_or_else(|| current.to_owned());
+    let edit = egui::TextEdit::singleline(&mut text).id(id.with("edit")).desired_width(ui.available_width()).margin(egui::vec2(2.0, 0.0));
+    let r = ui.add(edit);
+    let done = |ui: &mut egui::Ui| ui.data_mut(|d| (d.remove::<String>(text_id), d.remove::<bool>(started)));
+    // Focused and all of it selected as it opens (and whenever focus comes back to it).
+    if first || r.gained_focus() {
+        if first {
+            r.request_focus();
+            ui.data_mut(|d| d.insert_temp(started, true));
+        }
+        let mut state = egui::TextEdit::load_state(ui.ctx(), r.id).unwrap_or_default();
+        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
+        state.cursor.set_char_range(Some(all));
+        state.store(ui.ctx(), r.id);
+        ui.ctx().request_repaint();
+    }
+    // egui's focus, as `framed_field`'s (the window not the system's focused one).
+    let focused = ui.memory(|m| m.has_focus(r.id));
+    if r.lost_focus() || (!first && !focused && !r.gained_focus()) {
+        done(ui);
+        let escaped = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        let name = text.trim();
+        return Some((!escaped && name != current).then(|| name.to_owned()));
+    }
+    ui.data_mut(|d| d.insert_temp(text_id, text));
+    None
+}
+
 // ---- entity info -------------------------------------------------------------------------------
 
 /// A name, in a [`framed_field`] applied by a click away too. `width` is fixed by the caller:
 /// an infinite width inside a `Grid` feeds back on the column width of the previous frame and
 /// widens the side panel at every relayout.
 fn text_field(ui: &mut egui::Ui, key: (Id, u8), current: &str, width: f32) -> Option<String> {
-    let field = Field { tip: None, width, align: egui::Align2::LEFT_CENTER, lit: false, addon: None, blur_applies: true, handle: None };
+    name_field(ui, key, current, width, false)
+}
+
+/// A [`text_field`], its text emptied applying too when `empty` (to clear a name).
+fn name_field(ui: &mut egui::Ui, key: (Id, u8), current: &str, width: f32, empty: bool) -> Option<String> {
+    let field = Field {
+        tip: None,
+        width,
+        align: egui::Align2::LEFT_CENTER,
+        lit: false,
+        addon: None,
+        blur_applies: true,
+        empty_applies: empty,
+        handle: None,
+    };
     // The ui's id: the caller's, salted by its document, keeps fields of documents apart.
     let id = ui.make_persistent_id(("info_field", key));
     // Laid out as the label beside it (`field_label`): level with it.
@@ -1113,7 +1231,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let sel = editor.selection();
     let Ok(asm) = doc.assembly(context) else { return };
     if let Some(open) = editor.open_part().and_then(|id| asm.occurrence(id)) {
-        let Some((_, p, _)) = editor.open_part_path().and_then(|path| doc.resolve_container(&path).ok()) else { return };
+        let Some((part, p, _)) = editor.open_part_path().and_then(|path| doc.resolve_container(&path).ok()) else { return };
         // A body's profile edited: it is what is chosen (the outliner's « Profil » row).
         let edited = editor.profile_body().and_then(|id| p.bodies.iter().position(|b| b.id == id));
         match sel {
@@ -1125,7 +1243,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
             },
             [id] => {
                 if let Some(k) = p.bodies.iter().position(|b| b.id == *id) {
-                    body_info(ui, editor, &p, k);
+                    body_info(ui, editor, part, &p, k, actions);
                 } else if let Some(g) = doc.component(open.component).ok().and_then(|c| c.guide(*id)) {
                     guide_info(ui, g, units);
                 }
@@ -1229,6 +1347,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
                             lit: false,
                             addon,
                             blur_applies: true,
+                            empty_applies: false,
                             handle: None,
                         };
                         let id = ui.make_persistent_id(("info_position", o.id, k));
@@ -1290,7 +1409,7 @@ fn profile_info(ui: &mut egui::Ui, p: &solidsketch_model::Part, k: usize) {
         ui.label(t!("panel.entity_info.type_profile"));
         ui.end_row();
         ui.label(t!("panel.entity_info.body"));
-        ui.label(Nature::of(p, b).label(k + 1));
+        ui.label(body_label(p, b, k + 1));
         ui.end_row();
         ui.label(t!("panel.entity_info.corners"));
         ui.label(profile.profile.len().to_string());
@@ -1299,9 +1418,9 @@ fn profile_info(ui: &mut egui::Ui, p: &solidsketch_model::Part, k: usize) {
 }
 
 /// The body `k` of `p` (the open part, or the group open in it, §2.11): a body or a group, its
-/// name as the outliner gives it, blank or machining (its sign toggled in the outliner), failed
+/// name as the outliner gives it — its definition's, edited here —, blank or machining (its sign toggled in the outliner), failed
 /// or not, its solid's size, how many bodies share its definition; a group's bodies.
-fn body_info(ui: &mut egui::Ui, editor: &Editor, p: &solidsketch_model::Part, k: usize) {
+fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &solidsketch_model::Part, k: usize, actions: &mut Vec<Action>) {
     let units = &editor.document().settings().units;
     let b = &p.bodies[k];
     let def = p.def_of(b);
@@ -1310,8 +1429,11 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, p: &solidsketch_model::Part, k:
         ui.label(t!("panel.entity_info.type"));
         ui.label(if def.is_group() { t!("panel.entity_info.type_group") } else { t!("panel.entity_info.type_body") });
         ui.end_row();
-        ui.label(t!("panel.entity_info.name"));
-        cut_label(ui, Nature::of(p, b).label(k + 1), field);
+        // Its definition's: every copy shows it; emptied, it is named by its nature again.
+        field_label(ui, t!("panel.entity_info.name"));
+        if let Some(name) = name_field(ui, (def.id, 2), &body_label(p, b, k + 1), field, true) {
+            actions.push(Action::Apply(Operation::RenameBodyDef { part, def: def.id, name }));
+        }
         ui.end_row();
         ui.label(t!("panel.entity_info.role"));
         ui.label(match b.sign {

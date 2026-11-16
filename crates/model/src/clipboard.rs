@@ -128,7 +128,11 @@ impl Document {
         out.guides = root.guides.iter().map(|g| g.shape).collect();
         let mut stack: Vec<(Id, DAffine3)> = vec![(self.root, DAffine3::IDENTITY)];
         while let Some((id, t)) = stack.pop() {
-            match &self.component(id)?.kind {
+            let c = self.component(id)?;
+            // A part the user named names the body it becomes, unless that one has a name
+            // (§2.11 « Body names »).
+            let named = c.named.then(|| c.name.clone());
+            match &c.kind {
                 ComponentKind::Assembly(a) => {
                     // Reversed: popped in the assembly's order.
                     for o in a.occurrences().iter().rev().filter(|o| !o.hidden) {
@@ -151,6 +155,11 @@ impl Document {
                             (id, t)
                         }
                     };
+                    if let Some(d) = out.defs.iter_mut().find(|d| d.id == def)
+                        && d.name.is_none()
+                    {
+                        d.name = named;
+                    }
                     out.bodies.push(Body::new(Id(out.bodies.len() as u64), def, Sign::Positive, placement));
                 }
             }
