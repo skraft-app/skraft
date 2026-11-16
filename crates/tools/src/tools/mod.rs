@@ -864,6 +864,10 @@ pub trait Tool {
     }
     /// Is an operation under way (Esc cancels it rather than clearing the selection)?
     fn busy(&self) -> bool;
+    /// The body of the part (or group) open whose profile the tool edits, if any.
+    fn profile_body(&self, _cx: &Cx<'_>) -> Option<Id> {
+        None
+    }
     /// The options the bar shows (ARCHITECTURE.md §6 bis), labels as they read now.
     fn options(&self, _cx: &Cx<'_>) -> Vec<ToolOption> {
         Vec::new()

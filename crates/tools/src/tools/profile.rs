@@ -633,6 +633,10 @@ impl Tool for ProfileTool {
         ToolKind::Profile
     }
 
+    fn profile_body(&self, cx: &Cx<'_>) -> Option<Id> {
+        open(cx, self.body).map(|(_, id, ..)| id)
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         // A double-click on another profiled body edits it.
         if let (ToolInput::DoubleClick { px, .. }, false) = (input, self.busy())

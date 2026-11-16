@@ -491,35 +491,31 @@ panel:
     no_selection: "Aucune sélection"
     editing: "Édition de « %{name} »"
     editing_exit: "Clic hors de la boîte pour sortir"
-    # An open part (its axes shown, the rest faded).
-    editing_part_exit: "Clic hors de la boîte ou Échap pour fermer la pièce"
-    # A group of bodies open in the part (§2.11 « Body groups »), `depth` groups down.
-    editing_group: "Édition d'un groupe de « %{name} » (niveau %{depth})"
-    editing_group_exit: "Échap pour revenir au niveau du dessus"
-    # The open part's bodies, listed flat, blanks first (ARCHITECTURE.md §2.9, §2.11).
-    bodies_count: "Corps (%{count})"
-    # One body: its number in the part (its order of creation), its solid's size.
-    body_row: "Corps %{number} · %{size}"
-    # A body sharing its definition with others: how many bodies have its shape.
-    body_row_shared: "Corps %{number} · %{size} · ×%{copies}"
-    body_failed: "%{row} — n'a pas pu être calculé"
-    # A group of bodies: the row, and how many bodies it holds.
-    group_row: "%{row} · groupe de %{count}"
-    body_show_tip: "Cliquer pour montrer les corps et choisir celui-ci"
-    # The sign badge before a body's row, a click toggling it (on the selected bodies too
-    # when the body is selected).
-    sign_positive_tip: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
-    sign_negative_tip: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire un brut"
     type: "Type"
     type_part: "$t(common.part)"
     type_assembly: "$t(common.assembly)"
     type_guide: "Guide"
+    # A body of the open part (§2.11), or a group of its bodies.
+    type_body: "Corps"
+    type_group: "Groupe de corps"
+    # A body's profile, edited (the tool « Profil »): its body, its corners.
+    type_profile: "Profil"
+    body: "Corps"
+    corners: "Coins"
     shape: "Forme"
     guide_line: "Ligne"
     guide_circle: "Cercle · rayon %{radius}"
     name: "Nom"
     occurrence: "Exemplaire"
     occurrences: "Exemplaires"
+    # A body: blank (adds material) or machining (takes it away), toggled in the navigator.
+    role: "Rôle"
+    role_positive: "Brut"
+    role_negative: "Usinage"
+    state: "État"
+    failed: "n'a pas pu être calculé, à corriger"
+    # How many bodies of the part share the body's definition (its shape).
+    copies: "Copies"
     dimensions: "$t(common.dimensions)"
     pieces: "en %{count} morceaux, à corriger"
     # A part without material (no blank, or a machining swallowing it), §2.11.
@@ -542,7 +538,7 @@ panel:
     color_tip: "Couleur"
     delete_tip: "Supprimer (ce qui en est peint ne l'est plus)"
   outliner:
-    title: "Arborescence"
+    title: "Navigateur"
     empty: "Modèle vide : dessiner une boîte (%{shortcut})"
     # The eye of a row.
     hide: "$t(common.hide)"
@@ -563,9 +559,12 @@ panel:
     revolution: "Révolution %{number}"
     solid: "Solide %{number}"
     group: "Groupe %{number}"
+    # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
+    profile: "Profil"
+    profile_tip: "Cliquer pour modifier le profil"
     # A body's sign toggle, at the right end of its row.
-    sign_positive: "$t(panel.entity_info.sign_positive_tip)"
-    sign_negative: "$t(panel.entity_info.sign_negative_tip)"
+    sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
+    sign_negative: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire un brut"
 
 # The app's messages, in toasts at the bottom right (apps/solidsketch/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).
