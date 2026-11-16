@@ -328,7 +328,8 @@ Decided on 2026-11-14 (questions / answers). Branch `feature/part-bodies`, built
    mark's tint over the ghost's own (`Highlight::ghost`, `fs_face_ghost_mark`), its edges as
    any highlight's. A part in pieces gets
    ⚠ and its name in the error colour in the outliner; the union's warning
-   (`Outcome::warning`, `Warning::UnionCut`) is said in the status bar, worked out from two
+   (`Outcome::warning`, `Warning::UnionCut`) is said in a warning toast (since 2026-11-16; in
+   the status bar before), worked out from two
    volumes (`Task::UnionVolume`: the target and the tool joined before, the result after).
    Not done: the positive bodies apart drawn in the error colour (which lump a body lies in
    is not known cheaply). Then (2026-11-14): a difference whose tool is its single positive
@@ -658,9 +659,10 @@ Decided on 2026-11-09.
   the editor's notices (`Editor::take_notices`: an operation failed, with the kernel's or the
   model's words; a display failed; a STEP file imported, empty, failed, cancelled; an
   operation abandoned) stack at the bottom center, above the status bar, which keeps the
-  tools' hints. Three levels: info (neutral), success (green), error (red), each a border of
+  tools' hints. Four levels: info (neutral), success (green), warning (amber, an operation's
+  `Outcome::warning`, the warning sign at its left), error (red), each a border of
   its colour on a pale wash of it (a dark one in a dark theme), the title in the colour and
-  what went wrong under it, smaller. A click on a toast closes it. An info or a success goes
+  what went wrong under it, smaller. A click on a toast closes it. An info, a success or a warning goes
   after 5 s, a bar along its bottom emptying towards the left; the pointer over it stops the
   countdown, full again. An error stays. A toast may carry a button at its right end (as
   OpenCutList's « Ouvrir » after an export; none does yet), whose click runs it and closes
@@ -1836,6 +1838,32 @@ guides of an open part included.
   step, is undone (`Editor::settle_carry`). Put down or given up, the tool before comes back.
   So what is carried is in the document meanwhile (drawn by Move's ghost, out of the
   inferences); a paste of machinings computes the part twice (in place, then moved).
+
+**Across the part's boundary** (decided on 2026-11-16, questions / answers; branch
+`feature/paste-into-part`). Parts paste into an open part, bodies out of one: this
+supersedes "Occurrences do not paste into an open part, nor machinings out of one".
+
+- **Parts into an open part** (`Operation::PasteParts { target, fragment, transform, scope }`,
+  the entities' fragment, in world axes, brought into the part's): **one body per part**, at
+  any depth of the assemblies copied (hidden occurrences left out), placed by its world
+  transformation, **positive** whatever the « Matière » choice (the ＋/－ badge changes it
+  after). As the difference's tool (§2.11): a part that is its single positive body (a shape
+  drawn) gives that body whole, its profile with it — still editable, nothing said; any other
+  part is **flattened**: its final shape becomes one `Brep` body, its bodies and profiles
+  lost, and **a warning says so** (`Warning::Flattened`). Copies of one part share one
+  definition. The guides copied go into the part. The « Corps » switch is turned on, so the
+  bodies pasted can be seen, selected and carried.
+- **Bodies out of an open part** (`Operation::PasteAsPart { context, fragment, transform }`):
+  **one new part** holding every body pasted, their placements kept — **its axes are the
+  part's copied from** (the fragment carries its world transformation, `BodyFragment::world`),
+  so the occurrence is placed by it, then brought into the context. **Signs kept**; with no
+  positive among them, they all become positive (a hole's shape becomes a part: a dowel).
+  Positives apart make a part « in N pieces », as anywhere. The definitions are copied (they
+  belong to their part); the guides copied become the new part's. Named as a new part.
+- Both are carried at the cursor as the other pastes are (`Moved::paste`), the hull brought
+  into the axes the tools work in. The warning is said once, when the paste is put down (not
+  for the paste in place under the cursor). Outcome warnings become toasts of a fourth level,
+  **warning** (amber), the union's too.
 
 ## 6 undecies. Turned bodies (revolution)
 

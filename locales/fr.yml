@@ -494,9 +494,10 @@ panel:
     # A part in several pieces (ARCHITECTURE.md §2.11).
     pieces: "Pièce en %{count} morceaux : à corriger"
 
-# What an operation done has to say (the status bar).
+# What an operation done has to say (a warning toast).
 warning:
   union_cut: "Union faite : les usinages de la pièce ajoutée entament aussi la cible"
+  flattened: "Pièce collée aplatie en un seul corps : ses corps et ses profils sont perdus"
 
 # The app's messages, in toasts at the bottom right (apps/solidsketch/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).

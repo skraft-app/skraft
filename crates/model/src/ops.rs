@@ -297,6 +297,23 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
+    /// Adds to the part `target` places the parts copied ([`Document::entities_fragment`], in
+    /// world axes) as bodies ([`Document::parts_as_bodies`]): one positive body per part,
+    /// flattened unless it is its single body (said by [`Warning::Flattened`]), moved by the
+    /// rigid `transform` from world axes into the part's (§6 decies, across the part's
+    /// boundary).
+    PasteParts {
+        target: EntityPath,
+        fragment: Arc<Document>,
+        transform: DAffine3,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Places in `context` a new part of the bodies copied from an open part
+    /// ([`Document::bodies_fragment`]): in the axes of the part copied from, the occurrence
+    /// moved by the rigid `transform` from world axes into the context's. Signs kept, unless
+    /// no body is positive: then they all are.
+    PasteAsPart { context: Id, fragment: Arc<BodyFragment>, transform: DAffine3 },
 }
 
 impl Operation {
@@ -338,7 +355,9 @@ impl Operation {
             Operation::ArrayBodies { .. } => t!("operation.array"),
             Operation::AddGuide { .. } => t!("operation.add_guide"),
             Operation::Insert { .. } => t!("operation.import"),
-            Operation::Paste { .. } | Operation::PasteBodies { .. } => t!("operation.paste"),
+            Operation::Paste { .. } | Operation::PasteBodies { .. } | Operation::PasteParts { .. } | Operation::PasteAsPart { .. } => {
+                t!("operation.paste")
+            }
             Operation::Stretch { .. } | Operation::StretchBodies { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
             Operation::SetProfile { .. } => t!("operation.set_profile"),
@@ -385,12 +404,16 @@ pub struct Outcome {
 pub enum Warning {
     /// A union whose tool's machinings (negative bodies) cut the target too (§2.11).
     UnionCut,
+    /// Parts pasted into an open part, one at least flattened into a single body: its bodies
+    /// and profiles lost (§6 decies, across the part's boundary).
+    Flattened,
 }
 
 impl std::fmt::Display for Warning {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&match self {
             Warning::UnionCut => t!("warning.union_cut"),
+            Warning::Flattened => t!("warning.flattened"),
         })
     }
 }
@@ -607,44 +630,39 @@ impl Document {
                 self.component_mut(*context)?.guides.extend(guides);
                 Ok(Outcome { created, ..Outcome::default() })
             }
-            Operation::PasteBodies { target, fragment, transform, scope } => {
+            Operation::PasteBodies { target, fragment, transform, scope } => self.paste_bodies(target, fragment, transform, *scope, solver),
+            Operation::PasteParts { target, fragment, transform, scope } => {
+                let parts = fragment.parts_as_bodies()?;
+                let mut outcome = self.paste_bodies(target, &parts.fragment, transform, *scope, solver)?;
+                outcome.warning = parts.flattened.then_some(Warning::Flattened);
+                Ok(outcome)
+            }
+            Operation::PasteAsPart { context, fragment, transform } => {
+                self.assembly(*context)?;
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                if fragment.is_empty() {
+                if fragment.bodies.is_empty() {
                     return Err(Error::Invalid(Refusal::NothingPasted));
                 }
-                self.resolve_part(target)?;
-                if *scope == Scope::This && !fragment.bodies.is_empty() {
-                    self.separate(target)?;
+                let (defs, mut bodies) = self.copies_of_bodies(&fragment.defs, &fragment.bodies, &DAffine3::IDENTITY);
+                if bodies.iter().all(|b| b.sign == Sign::Negative) {
+                    bodies.iter_mut().for_each(|b| b.sign = Sign::Positive);
                 }
-                let (part, p, _) = self.resolve_part(target)?;
-                // Into the part copied from, its definitions as they are: the bodies pasted are
-                // copies of theirs; elsewhere, copies of the definitions.
-                let here = |b: &Body| {
-                    let from = fragment.defs.iter().find(|d| d.id == b.def);
-                    p.def(b.def).is_some_and(|d| from.is_some_and(|f| Arc::ptr_eq(&f.solid, &d.solid) && f.profile == d.profile))
-                };
-                let (same, other): (Vec<&Body>, Vec<&Body>) = fragment.bodies.iter().partition(|b| here(b));
-                let other: Vec<Body> = other.into_iter().cloned().collect();
-                let mut copies: Vec<Body> = Vec::with_capacity(fragment.bodies.len());
-                for b in same {
-                    copies.push(Body { id: self.fresh_id(), placement: *transform * b.placement, ..b.clone() });
-                }
-                let (defs, rest) = self.copies_of_bodies(&fragment.defs, &other, transform);
-                copies.extend(rest);
-                let mut created: Vec<Id> = copies.iter().map(|b| b.id).collect();
-                if !copies.is_empty() {
-                    let p = self.part_mut(part)?;
-                    p.defs.extend(defs);
-                    p.bodies.extend(copies);
-                    self.recompute(part, Some(&created), solver)?;
-                }
-                let guides: Vec<Guide> =
-                    fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: s.transformed(transform) }).collect();
-                created.extend(guides.iter().map(|g| g.id));
-                self.component_mut(part)?.guides.extend(guides);
-                Ok(Outcome { bodies: created, ..Outcome::default() })
+                let part = Part { defs, bodies, shape: None, failed: Default::default(), faces: Default::default() };
+                let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(part));
+                self.component_mut(part)?.guides = fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: *s }).collect();
+                self.recompute(part, None, solver)?;
+                let id = self.fresh_id();
+                self.assembly_mut(*context)?.occurrences_mut().push(Occurrence {
+                    id,
+                    name: String::new(),
+                    component: part,
+                    transform: *transform * fragment.world,
+                    material: None,
+                    hidden: false,
+                });
+                Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::AddGuide { component, shape } => {
                 self.component(*component)?;
@@ -1187,6 +1205,54 @@ impl Document {
         let created = copies.iter().map(|g| g.id).collect();
         self.component_mut(component)?.guides.extend(copies);
         Ok(created)
+    }
+
+    /// Adds to the part `target` places the bodies and guides of `fragment`, moved by `transform`
+    /// in the part's axes ([`Operation::PasteBodies`]).
+    fn paste_bodies(
+        &mut self,
+        target: &EntityPath,
+        fragment: &BodyFragment,
+        transform: &DAffine3,
+        scope: Scope,
+        solver: &mut dyn Solver,
+    ) -> Result<Outcome> {
+        if !is_rigid(transform) {
+            return Err(Error::Invalid(Refusal::NotRigid));
+        }
+        if fragment.is_empty() {
+            return Err(Error::Invalid(Refusal::NothingPasted));
+        }
+        self.resolve_part(target)?;
+        if scope == Scope::This && !fragment.bodies.is_empty() {
+            self.separate(target)?;
+        }
+        let (part, p, _) = self.resolve_part(target)?;
+        // Into the part copied from, its definitions as they are: the bodies pasted are
+        // copies of theirs; elsewhere, copies of the definitions.
+        let here = |b: &Body| {
+            let from = fragment.defs.iter().find(|d| d.id == b.def);
+            p.def(b.def).is_some_and(|d| from.is_some_and(|f| Arc::ptr_eq(&f.solid, &d.solid) && f.profile == d.profile))
+        };
+        let (same, other): (Vec<&Body>, Vec<&Body>) = fragment.bodies.iter().partition(|b| here(b));
+        let other: Vec<Body> = other.into_iter().cloned().collect();
+        let mut copies: Vec<Body> = Vec::with_capacity(fragment.bodies.len());
+        for b in same {
+            copies.push(Body { id: self.fresh_id(), placement: *transform * b.placement, ..b.clone() });
+        }
+        let (defs, rest) = self.copies_of_bodies(&fragment.defs, &other, transform);
+        copies.extend(rest);
+        let mut created: Vec<Id> = copies.iter().map(|b| b.id).collect();
+        if !copies.is_empty() {
+            let p = self.part_mut(part)?;
+            p.defs.extend(defs);
+            p.bodies.extend(copies);
+            self.recompute(part, Some(&created), solver)?;
+        }
+        let guides: Vec<Guide> = fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: s.transformed(transform) }).collect();
+        created.extend(guides.iter().map(|g| g.id));
+        self.component_mut(part)?.guides.extend(guides);
+        Ok(Outcome { bodies: created, ..Outcome::default() })
     }
 
     /// Copies of `bodies` moved by `t`, and of the definitions `defs` they use, all with fresh

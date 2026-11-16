@@ -92,18 +92,16 @@ impl Editor {
         Some(clip)
     }
 
-    /// Can `clip` be pasted here now? Machinings only into an open part, occurrences only
-    /// out of one.
-    pub fn can_paste(&self, clip: &Clip) -> bool {
-        let fits = match clip.content {
-            Content::Entities(_) => self.open_part.is_none(),
-            Content::Machinings(_) => self.open_part.is_some(),
-        };
-        fits && self.idle()
+    /// Can `clip` be pasted here now? Anywhere: occurrences pasted into an open part become
+    /// bodies of it, bodies pasted out of one a new part (§6 decies, across the part's
+    /// boundary).
+    pub fn can_paste(&self, _clip: &Clip) -> bool {
+        self.idle()
     }
 
     /// Pastes `clip` where it was copied from: in world space for occurrences, brought into
-    /// the active context; in the open part's axes for machinings. With `reuse`, the
+    /// the active context (into an open part, as its bodies); in the open part's axes for
+    /// machinings (out of a part, a new part in the axes of the part copied from). With `reuse`, the
     /// document is the one it was copied from, its ids still naming the same things (the
     /// copies are then occurrences of the same parts). What is pasted is selected.
     pub fn paste_in_place(&mut self, clip: &Clip, reuse: bool) {
@@ -117,12 +115,13 @@ impl Editor {
     /// history — or Esc, Undo or another tool gives it up.
     pub fn paste(&mut self, clip: &Clip, reuse: bool) {
         let Some(op) = self.paste_op(clip, reuse) else { return };
-        // The hull in the axes tools work in (the open part's for machinings, whose hull is
-        // in them already).
+        // The hull in the axes tools work in (the open part's for machinings pasted into one,
+        // whose hull is in them already).
         let axes = self.axes_transform();
-        let to_axes = match clip.content {
+        let to_axes = match &clip.content {
             Content::Entities(_) => axes.inverse(),
-            Content::Machinings(_) => DAffine3::IDENTITY,
+            Content::Machinings(_) if self.open_part.is_some() => DAffine3::IDENTITY,
+            Content::Machinings(f) => axes.inverse() * f.world,
         };
         let low = clip.hull.iter().map(|p| to_axes.transform_point3(*p)).reduce(DVec3::min);
         let after = match low {
@@ -132,25 +131,40 @@ impl Editor {
         let _ = self.start(op, after, false);
     }
 
-    /// The operation pasting `clip` in place, if it can be pasted here.
-    fn paste_op(&self, clip: &Clip, reuse: bool) -> Option<Operation> {
+    /// The operation pasting `clip` in place, if it can be pasted here. Parts pasted into an
+    /// open part turn its « Corps » switch on: the bodies they become can be seen, selected
+    /// and carried.
+    fn paste_op(&mut self, clip: &Clip, reuse: bool) -> Option<Operation> {
         if !self.can_paste(clip) {
             return None;
         }
-        Some(match &clip.content {
-            Content::Entities(fragment) => Operation::Paste {
+        let into = self.open_part_path();
+        let op = match (&clip.content, into) {
+            (Content::Entities(fragment), None) => Operation::Paste {
                 context: self.context_definition(),
                 fragment: fragment.clone(),
                 transform: self.context_transform().inverse(),
                 reuse,
             },
-            Content::Machinings(fragment) => Operation::PasteBodies {
-                target: self.open_part_path()?,
+            (Content::Entities(fragment), Some(target)) => {
+                self.set_machinings_switch(true);
+                Operation::PasteParts {
+                    target,
+                    fragment: fragment.clone(),
+                    transform: self.axes_transform().inverse(),
+                    scope: self.part_scope,
+                }
+            }
+            (Content::Machinings(fragment), Some(target)) => {
+                Operation::PasteBodies { target, fragment: fragment.clone(), transform: DAffine3::IDENTITY, scope: self.part_scope }
+            }
+            (Content::Machinings(fragment), None) => Operation::PasteAsPart {
+                context: self.context_definition(),
                 fragment: fragment.clone(),
-                transform: DAffine3::IDENTITY,
-                scope: self.part_scope,
+                transform: self.context_transform().inverse(),
             },
-        })
+        };
+        Some(op)
     }
 
     /// The paste `op` done in place, what it made selected: carried from `from` by the Move

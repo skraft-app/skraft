@@ -1994,6 +1994,87 @@ fn machinings_paste_into_another_part() {
 }
 
 #[test]
+fn parts_paste_into_a_part_as_bodies_flattened_unless_plain() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    // A drilled board (flattened) and a plain dowel (kept whole, its profile with it), both
+    // turned and moved, into a board elsewhere.
+    let (drilled, drilled_part, _) = drilled_board(&mut h);
+    let dowel = add(&mut h, Primitive::Cylinder { origin: DVec3::new(0.0, 100.0, 0.0), radius: 4.0, height: 30.0 });
+    let target = add(&mut h, Primitive::Box { origin: DVec3::new(0.0, 0.0, 100.0), size: DVec3::new(300.0, 200.0, 18.0) });
+    let target = EntityPath::root(target);
+    let fragment = Arc::new(h.document().entities_fragment(&[], &[drilled.entity, dowel]).unwrap());
+    let parts = fragment.parts_as_bodies().unwrap();
+    assert!(parts.flattened);
+    assert_eq!(parts.fragment.bodies.len(), 2);
+    assert!(parts.fragment.bodies.iter().all(|b| b.sign == Sign::Positive));
+
+    let (part, _, t) = h.document().resolve_part(&target).unwrap();
+    let op = Operation::PasteParts { target: target.clone(), fragment: fragment.clone(), transform: t.inverse(), scope: Scope::All };
+    let out = h.apply(op).unwrap();
+    assert_eq!(out.warning, Some(Warning::Flattened));
+    assert_eq!(out.machinings().len(), 2);
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.positives().count(), 3);
+    // The drilled board, one free body, its shape the final one, at its world place.
+    let flat = p.body(out.machinings()[0]).unwrap();
+    assert!(p.profile_of(flat).is_none());
+    assert!(Arc::ptr_eq(p.solid_of(flat), h.document().part(drilled_part).unwrap().shape()));
+    let (_, _, t_drilled) = h.document().resolve_part(&drilled).unwrap();
+    assert!(close((t * flat.placement).translation, t_drilled.translation));
+    // The dowel, its profile kept.
+    let kept = p.body(out.machinings()[1]).unwrap();
+    assert!(p.profile_of(kept).is_some());
+
+    // Plain parts only: nothing said.
+    let fragment = Arc::new(h.document().entities_fragment(&[], &[dowel]).unwrap());
+    let op = Operation::PasteParts { target: target.clone(), fragment, transform: t.inverse(), scope: Scope::All };
+    assert_eq!(h.apply(op).unwrap().warning, None);
+
+    // An assembly: one body per part under it, the hidden ones left out.
+    let a = add(&mut h, cube(DVec3::new(500.0, 0.0, 0.0), 10.0));
+    let b = add(&mut h, cube(DVec3::new(520.0, 0.0, 0.0), 10.0));
+    let c = add(&mut h, cube(DVec3::new(540.0, 0.0, 0.0), 10.0));
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b, c], name: None }).unwrap().created[0];
+    h.apply(Operation::SetHidden { context: asm_def(&h, asm), entities: vec![c], hidden: true }).unwrap();
+    let fragment = Arc::new(h.document().entities_fragment(&[], &[asm]).unwrap());
+    assert_eq!(fragment.parts_as_bodies().unwrap().fragment.bodies.len(), 2);
+}
+
+#[test]
+fn bodies_paste_out_of_a_part_as_a_new_part_in_its_axes() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let (source, part, hole) = drilled_board(&mut h);
+    let turn = DAffine3::from_translation(DVec3::Y * 300.0) * DAffine3::from_rotation_z(1.0);
+    h.apply(Operation::Transform { context: root, entities: vec![source.entity], transform: turn }).unwrap();
+    let blank = h.document().part(part).unwrap().positives().next().unwrap().id;
+
+    // The blank and its hole: a part drilled as the source, where it is.
+    let fragment = Arc::new(h.document().bodies_fragment(&source, &[blank, hole]).unwrap());
+    let op = Operation::PasteAsPart { context: root, fragment, transform: DAffine3::IDENTITY };
+    let out = h.apply(op).unwrap();
+    let path = EntityPath::root(out.created[0]);
+    let (new, p, t) = h.document().resolve_part(&path).unwrap();
+    assert_ne!(new, part);
+    assert_eq!((p.positives().count(), p.negatives().count()), (1, 1));
+    assert!(close(t.translation, h.document().resolve_part(&source).unwrap().2.translation));
+    assert_eq!(faces(h.document(), new), faces(h.document(), part));
+
+    // The hole alone: its shape becomes a part (a dowel), positive.
+    let fragment = Arc::new(h.document().bodies_fragment(&source, &[hole]).unwrap());
+    let out = h.apply(Operation::PasteAsPart { context: root, fragment, transform: DAffine3::IDENTITY }).unwrap();
+    let (_, p, _) = h.document().resolve_part(&EntityPath::root(out.created[0])).unwrap();
+    assert_eq!((p.positives().count(), p.negatives().count()), (1, 0));
+
+    // Guides only: refused.
+    let line = GuideShape::Line { origin: DVec3::ZERO, dir: DVec3::X };
+    let g = h.apply(Operation::AddGuide { component: part, shape: line }).unwrap().guide.unwrap();
+    let fragment = Arc::new(h.document().bodies_fragment(&source, &[g]).unwrap());
+    assert!(h.apply(Operation::PasteAsPart { context: root, fragment, transform: DAffine3::IDENTITY }).is_err());
+}
+
+#[test]
 fn the_history_tells_which_states_it_holds() {
     let mut h = History::new(Document::new());
     add(&mut h, cube(DVec3::ZERO, 10.0));
