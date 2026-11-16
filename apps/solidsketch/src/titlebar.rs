@@ -13,6 +13,8 @@ use solidsketch_i18n::{ellipsis, t};
 
 /// The app's name, as the bar shows it next to its mark. Not translated.
 const APP_NAME: &str = "SolidSketch";
+/// The app's version (the workspace's, Cargo.toml), shown after its name.
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use crate::commands::Menu;
 use crate::icons;
@@ -242,22 +244,33 @@ fn command_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, v: &Comma
     }
 }
 
-/// The app's mark and name. Not a control: its place moves the window like the bar's empty
-/// space.
+/// The app's mark, name and version. Not a control: its place moves the window like the bar's
+/// empty space.
 fn brand(ui: &mut egui::Ui) {
     // The icon's tile fills 824 of its 1024 units: drawn larger so the tile is MARK wide.
     const MARK: f32 = 18.0;
     const TILE: f32 = 824.0 / 1024.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(MARK, MARK), egui::Sense::hover());
     egui::Image::new(icons::APP).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
-    // The headings' semibold, at the text's size.
+    // The name in the headings' semibold at the text's size, then the version, smaller and
+    // weak, on the name's baseline.
+    const GAP: f32 = 6.0;
     let mut font = egui::TextStyle::Heading.resolve(ui.style());
     font.size = egui::TextStyle::Body.resolve(ui.style()).size;
-    ui.add(
-        egui::Label::new(egui::RichText::new(APP_NAME).font(font).color(ui.visuals().strong_text_color()))
-            .selectable(false)
-            .sense(egui::Sense::hover()),
-    );
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    let name = ui.painter().layout_no_wrap(APP_NAME.to_owned(), font, ui.visuals().strong_text_color());
+    let version = ui.painter().layout_no_wrap(APP_VERSION.to_owned(), small, ui.visuals().weak_text_color());
+    let size = egui::vec2(name.size().x + GAP + version.size().x, name.size().y);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let lift = baseline(&version) - baseline(&name);
+    ui.painter().galley(rect.left_top(), name, egui::Color32::PLACEHOLDER);
+    let at = egui::pos2(rect.right() - version.size().x, rect.top() - lift);
+    ui.painter().galley(at, version, egui::Color32::PLACEHOLDER);
+}
+
+/// The baseline of a galley's first row, from its top.
+fn baseline(galley: &egui::Galley) -> f32 {
+    galley.rows.first().and_then(|r| r.glyphs.first().map(|g| r.pos.y + g.pos.y)).unwrap_or(galley.size().y)
 }
 
 /// The File menu: a text button opening the registry's File commands.

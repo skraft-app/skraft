@@ -2396,8 +2396,8 @@ over the ghosts' rides with its placement (`render::Placement::opacity`: a machi
 Decided on 2026-11-10, after SolidCraft (`ui-kit/src/window_chrome.rs`, `app_bar.rs`). The
 menu strip is gone: its room goes to one bar holding the document and the commands used most.
 
-- **Title bar** (`apps/solidsketch/src/titlebar.rs`, 34 pt): the app's mark (`assets/app-icon.svg`)
-  and name, the **File** menu (a text button: the registry's File commands), Undo / Redo, the
+- **Title bar** (`apps/solidsketch/src/titlebar.rs`, 34 pt): the app's mark (`assets/app-icon.svg`),
+  name and version (the workspace's, smaller and weak), the **File** menu (a text button: the registry's File commands), Undo / Redo, the
   file tabs (§6 octies), the standard views (a menu), the view's toggles
   (perspective, grid, axes, silhouettes, section, Materials panel), and at the right the
   command search (opens the palette, shows its shortcut; only its icon when the window is
