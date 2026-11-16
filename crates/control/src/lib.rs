@@ -13,7 +13,7 @@
 //! [`Editor`]: solidsketch_tools::Editor
 
 pub mod editor;
-mod json;
+pub mod json;
 pub mod params;
 pub mod record;
 #[cfg(not(target_arch = "wasm32"))]

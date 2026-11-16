@@ -94,6 +94,8 @@ pub const COMMANDS: &[Command] = &[
     c("app.preferences", || ellipsis(t!("menu.edit.preferences")), M::Edit, Some("Cmd+Comma")),
     // The control channel, on or off (desktop).
     c("app.remote_control", || t!("menu.edit.remote_control"), M::Edit, None),
+    // The journal window: what the shown document's editor went through (§7 septies).
+    c("app.journal", || t!("menu.edit.journal"), M::Edit, None),
     c("view.parallel", || t!("menu.view.parallel"), M::View, None),
     c("view.grid", || t!("menu.view.grid"), M::View, None),
     c("view.axes", || t!("menu.view.axes"), M::View, None),

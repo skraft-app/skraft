@@ -55,6 +55,8 @@ pub struct SolidSketchApp {
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
     prefs_window: Option<PrefsTab>,
+    /// The journal window, while open (`app.journal`).
+    journal_window: Option<crate::journal_window::JournalWindow>,
     /// The side panel being dragged to another place.
     panel_drag: Option<PanelDrag>,
     /// The shortcuts in use (the defaults with the user's changes).
@@ -250,6 +252,7 @@ impl SolidSketchApp {
             stored_prefs: prefs.clone(),
             prefs,
             prefs_window: None,
+            journal_window: None,
             capturing: None,
             palette: None,
             ribbon_bottom: None,
@@ -652,6 +655,7 @@ impl SolidSketchApp {
         let Some(d) = self.docs.active() else {
             return match id {
                 "file.new" | "file.open" | "file.import" | "app.command_palette" | "app.preferences" | "view.render_stats" => true,
+                "app.journal" => true,
                 "app.quit" | "app.remote_control" => !cfg!(target_arch = "wasm32"),
                 _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
                 _ => PanelId::from_command(id).is_some(),
@@ -682,6 +686,7 @@ impl SolidSketchApp {
         match id {
             id if let Some(p) = PanelId::from_command(id) => return Some(self.prefs.panels.is_shown(p)),
             "view.render_stats" => return Some(self.prefs.show_render_stats),
+            "app.journal" => return Some(self.journal_window.is_some()),
             #[cfg(not(target_arch = "wasm32"))]
             "app.remote_control" => return Some(self.remote.is_on()),
             _ => {}
@@ -784,6 +789,13 @@ impl SolidSketchApp {
             }
             "app.command_palette" => {
                 self.palette = Some(Palette::default());
+                true
+            }
+            "app.journal" => {
+                self.journal_window = match self.journal_window {
+                    Some(_) => None,
+                    None => Some(Default::default()),
+                };
                 true
             }
             "app.preferences" => {
@@ -2203,6 +2215,8 @@ impl eframe::App for SolidSketchApp {
             egui::CentralPanel::default().show(ui, |ui| self.start_page(ui, &mut actions));
         }
         self.preferences_window(&ctx);
+        let journal = self.docs.active().map(|d| (d.name(), d.editor.journal()));
+        crate::journal_window::show(&ctx, &mut self.journal_window, journal);
         self.palette_window(&ctx, &views, &mut actions);
         self.save_prompt(&ctx);
         self.loading_window(&ctx);

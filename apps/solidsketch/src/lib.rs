@@ -12,6 +12,7 @@ mod driving;
 mod file;
 mod handles;
 mod icons;
+mod journal_window;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;
 mod panels;

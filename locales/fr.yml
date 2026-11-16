@@ -115,6 +115,8 @@ menu:
     preferences: "$t(common.preferences)"
     # Checked while the control channel (the HTTP server that drives the app from a script) is on.
     remote_control: "Pilotage distant"
+    # Shows or hides the journal window (what the shown document's editor went through).
+    journal: "Journal"
   view:
     title: "Vue"
     parallel: "Projection parallèle"
@@ -203,6 +205,7 @@ titlebar:
     on: "Pilotage distant actif sur %{address} — %{n} requête(s)"
     failed: "Pilotage distant impossible : %{error}"
     copy_ping: "Copier une commande de test"
+    journal: "$t(menu.edit.journal)"
     retry: "Réessayer"
     stop: "Arrêter le pilotage distant"
 
@@ -255,6 +258,62 @@ palette:
   title: "$t(common.command_palette)"
   hint: "Commande"
   none: "Aucune commande"
+
+# The journal window (menu Édition, the control channel's mark): what the shown document's
+# editor went through — inputs, tools, operations, kernel jobs — and the kernel's failures.
+journal:
+  title: "Journal"
+  title_of: "Journal — %{name}"
+  no_document: "Aucun document ouvert."
+  tab:
+    log: "Événements"
+    failures: "Échec du noyau (%{count})"
+    failures_plural: "Échecs du noyau (%{count})"
+  # While `journal.record` records the inputs (control channel).
+  recording: "Enregistrement : %{count} étape"
+  recording_plural: "Enregistrement : %{count} étapes"
+  show:
+    inputs: "Entrées"
+    hovers: "Survols"
+    tools: "Outils"
+    operations: "Opérations"
+    jobs: "Calculs"
+  copy: "$t(common.copy)"
+  copy_tip: "Copie les événements affichés en JSON, une ligne chacun (comme journal.log)"
+  empty: "Aucun événement."
+  no_failures: "Aucun échec du noyau."
+  copy_job: "Copier le calcul"
+  copy_job_tip: "Copie l'échec en JSON avec son calcul (solides d'entrée et tâches), à rejouer sans interface"
+  job_size: "%{inputs} solide(s) d'entrée, %{tasks} tâche(s)"
+  applied: "%{op} → révision %{revision}"
+  # A face of a body put onto a face of another body of the same part (plane welding).
+  welded: "pièce %{part}, corps %{body} sur le corps %{reference} : %{distance} mm"
+  event:
+    tool: "Outil"
+    option: "Option"
+    applied: "Opération"
+    welded: "Soudure"
+    failed: "Refusée"
+    job: "Calcul"
+    undo: "$t(common.undo)"
+    redo: "$t(common.redo)"
+  job:
+    operation: "opération"
+    mesh: "maillage"
+  input:
+    hover: "Survol"
+    click: "Clic"
+    double_click: "Double-clic"
+    drag_start: "Début de glisser"
+    drag: "Glisser"
+    drag_end: "Fin de glisser"
+    key: "Touche"
+    vcb: "Saisie"
+    value: "Valeur"
+  # The modifiers held with an input.
+  mod:
+    toggle: "Maj"
+    copy: "copie"
 
 # The render statistics overlay (menu Vue), in a corner of the view.
 render_stats:
