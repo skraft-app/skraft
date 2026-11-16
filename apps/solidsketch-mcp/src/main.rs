@@ -5,7 +5,7 @@
 //! solidsketch-mcp --remote         the running app (found again at each call, even if started later)
 //! solidsketch-mcp --connect 7858   the app on that port
 //! solidsketch-mcp --headless       an editor of its own, no window
-//! solidsketch-mcp --in a.solidsketch   headless, on that document
+//! solidsketch-mcp --in a.ssk          headless, on that document
 //! ```
 //!
 //! In Claude Code: `claude mcp add solidsketch -- <path>/solidsketch-mcp`.
@@ -26,7 +26,7 @@ solidsketch-mcp: SolidSketch as an MCP server (stdio)
   --remote           the running app, found again at each call
   --connect PORT     the app listening on PORT
   --headless         an editor of its own, without a window
-  --in FILE          headless, on the document FILE (.solidsketch)";
+  --in FILE          headless, on the document FILE (.ssk)";
 
 impl Backend for Box<dyn Backend> {
     fn call(&mut self, call: &Call) -> Outcome {
@@ -129,7 +129,7 @@ mod tests {
     fn the_command_line() {
         assert_eq!(parse(&[]).unwrap(), Options::default());
         assert_eq!(parse(&["--connect", "7868"]).unwrap().port, Some(7868));
-        assert_eq!(parse(&["--in", "a.solidsketch"]).unwrap().input, Some(PathBuf::from("a.solidsketch")));
+        assert_eq!(parse(&["--in", "a.ssk"]).unwrap().input, Some(PathBuf::from("a.ssk")));
         assert!(parse(&["--connect", "x"]).is_err());
         assert!(parse(&["--remote", "--headless"]).is_err());
         assert!(parse(&["--nope"]).is_err());

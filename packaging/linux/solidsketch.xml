@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The .ssk documents' MIME type (shared-mime-info), installed in the AppImage beside the
+     .desktop entry that opens them (scripts/package-linux.sh). -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-solidsketch">
+    <comment>SolidSketch document</comment>
+    <sub-class-of type="application/json"/>
+    <icon name="solidsketch"/>
+    <glob pattern="*.ssk"/>
+  </mime-type>
+</mime-info>

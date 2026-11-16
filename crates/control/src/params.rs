@@ -305,7 +305,7 @@ pub struct RecordParams {
     #[serde(default)]
     pub action: RecordAction,
     /// `stop`: the test's name, a Rust identifier (default `recorded`); its file is
-    /// `crates/tools/tests/<name>.rs`, the document beside it as `<name>.solidsketch`.
+    /// `crates/tools/tests/<name>.rs`, the document beside it as `<name>.ssk`.
     pub name: Option<String>,
 }
 

@@ -24,5 +24,48 @@
     <string>public.app-category.graphics-design</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <!-- The documents (.ssk): the app opens them, a double click in the Finder (src/opened.rs). -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>SolidSketch Document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleTypeIconFile</key>
+            <string>SolidSketch</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>fr.lairdubois.solidsketch.document</string>
+            </array>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>fr.lairdubois.solidsketch.document</string>
+            <key>UTTypeDescription</key>
+            <string>SolidSketch Document</string>
+            <key>UTTypeIconFile</key>
+            <string>SolidSketch</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>ssk</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/x-solidsketch</string>
+            </dict>
+        </dict>
+    </array>
 </dict>
 </plist>

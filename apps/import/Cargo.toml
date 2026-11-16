@@ -1,6 +1,6 @@
 [package]
 name = "solidsketch-import"
-description = "SolidSketch: converts a SketchUp export (scripts/sketchup/export.rb) to a .solidsketch file"
+description = "SolidSketch: converts a SketchUp export (scripts/sketchup/export.rb) to a .ssk file"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
