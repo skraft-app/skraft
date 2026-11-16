@@ -480,7 +480,13 @@ fn pull_at(cx: &Cx<'_>, px: DVec2, f: &Frame, p: DVec3, mid: DVec3, centered: bo
     if cx.copy_down {
         let ray = Ray { origin: cx.to_world(mid), dir: dir_to_world(cx, f.n * sign), t_min: ON };
         if let Some(hit) = cx.scene.pick_inferable(&ray, |_| true) {
-            return (sign * hit.t, None);
+            // On a planar face, up to its exact plane: the hit is on the `f32` display mesh,
+            // some 1e-5 mm off, which would leave a skin that thin (or a step) at the face.
+            let t = face::plane_at(cx.scene, &hit)
+                .map(|(q, n)| (q - ray.origin).dot(n) / ray.dir.dot(n))
+                .filter(|t| t.is_finite() && (t - hit.t).abs() < 1e-2)
+                .unwrap_or(hit.t);
+            return (sign * t, None);
         }
     }
     (h, snap)

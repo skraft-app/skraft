@@ -5145,3 +5145,61 @@ fn a_drag_moves_from_the_press_to_the_release() {
     let (lo, _) = bounds_of(&e, &EntityPath::root(a));
     assert!(close(lo, DVec3::new(300.0, 0.0, 0.0)), "{lo}");
 }
+
+#[test]
+fn up_to_the_face_reaches_its_exact_plane() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    // A block floating above, its bottom off the middle of its bounds (where its display mesh,
+    // `f32` about that middle, is some 1e-5 mm off it).
+    let bottom = 496.59507189112446;
+    let block = Primitive::Box { origin: DVec3::new(100.0, 100.0, bottom), size: DVec3::new(200.0, 200.0, 1500.0 - bottom) };
+    e.apply(Operation::AddPrimitive { context: root, primitive: block, placement: glam::DAffine3::IDENTITY }).unwrap();
+
+    // The copy modifier held for the height: up to the block's bottom, exactly (every shape
+    // tool's height step pulls so; a base wider than the block, its corners in sight).
+    e.set_tool(ToolKind::Box);
+    click(&mut e, DVec3::new(50.0, 50.0, 0.0));
+    click(&mut e, DVec3::new(350.0, 350.0, 0.0));
+    e.set_copy(true);
+    click(&mut e, DVec3::new(350.0, 350.0, 400.0));
+    e.set_copy(false);
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!(lo.z.abs() < 1e-9 && (hi.z - bottom).abs() < 1e-9, "{lo} {hi}");
+}
+
+#[test]
+fn stretch_tool_makes_a_typed_length_however_close() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    // A board a hair short of 600.
+    let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0 - 1.4e-5, 300.0, 18.0) };
+    e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let a = drawn(&e);
+    e.select(vec![a]);
+    e.set_tool(ToolKind::Stretch);
+    let length = |e: &Editor| {
+        let (lo, hi) = bounds_of(e, &EntityPath::root(a));
+        hi.x - lo.x
+    };
+    // 600 typed: made, the 14 nm too.
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("600".into()));
+    assert!((length(&e) - 600.0).abs() < 1e-9, "{} {}", length(&e), e.status());
+    // A click without a move still does nothing.
+    let revision = e.history().revision();
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    assert_eq!(e.history().revision(), revision);
+
+    // Short again; a corner of another box at 600 clicked: there too.
+    e.undo();
+    assert!((length(&e) - 600.0).abs() > 1e-6);
+    let other = Primitive::Box { origin: DVec3::new(600.0, 400.0, 0.0), size: DVec3::new(100.0, 100.0, 18.0) };
+    e.apply(Operation::AddPrimitive { context: root, primitive: other, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.select(vec![a]);
+    e.set_tool(ToolKind::Stretch);
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    click(&mut e, DVec3::new(600.0, 400.0, 18.0));
+    assert!((length(&e) - 600.0).abs() < 1e-9, "{} {}", length(&e), e.status());
+}
