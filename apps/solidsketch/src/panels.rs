@@ -796,12 +796,18 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
             let pieces = part.map_or(1, |p| p.pieces());
             let broken = pieces != 1;
             let inner = !broken && in_error(doc, o.component, &mut errors, 0);
-            // Its component's name edited in place: from a double-click, or F2 while it is the
-            // one occurrence selected.
+            // A name edited in place, from a double-click, or F2 while it is the one occurrence
+            // selected: the occurrence's own, shown first, where it has one and the double-click
+            // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
             let rename = ui.make_persistent_id(("outliner_rename", &row.path, o.id));
-            let renaming = ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) == Some(rename);
+            let rename_occurrence = rename.with("occurrence");
+            let renaming = match ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) {
+                Some(id) if id == rename => Some(false),
+                Some(id) if id == rename_occurrence => Some(true),
+                _ => None,
+            };
             let name = doc.component(o.component).map(|c| c.name.clone()).unwrap_or_default();
-            let (response, (eye, renamed)) = tree_row(ui, height, selected, false, false, |ui| {
+            let (response, (eye, renamed, split)) = tree_row(ui, height, selected, false, false, |ui| {
                 // The toggle button (or, for a part, its room) one indent per level, so all
                 // the icons of a level line up.
                 let spacing = ui.spacing().item_spacing.x;
@@ -829,16 +835,26 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
                             if broken || inner {
                                 ui.add(warning(ui));
                             }
-                            if renaming {
-                                return rename_field(ui, rename, &name);
-                            }
                             let color = if broken { ui.visuals().error_fg_color } else { tint };
+                            // The name edited alone in its field, the whole row's width.
+                            match renaming {
+                                Some(true) => return (rename_field(ui, rename_occurrence, &o.name), None),
+                                Some(false) => return (rename_field(ui, rename, &name), None),
+                                None => {}
+                            }
                             let label = egui::RichText::new(occurrence_label(doc, o)).color(color);
-                            ui.add(egui::Label::new(label).selectable(false).truncate());
-                            None
+                            let r = ui.add(egui::Label::new(label).selectable(false).truncate());
+                            // Where the occurrence's name ends and its component's starts:
+                            // halfway across the space between them.
+                            let split = (!o.name.is_empty()).then(|| {
+                                let font = egui::TextStyle::Body.resolve(ui.style());
+                                let width = |t: String| ui.fonts_mut(|f| f.layout_no_wrap(t, font.clone(), color).size().x);
+                                r.rect.min.x + (width(o.name.clone()) + width(format!("{} ", o.name))) / 2.0
+                            });
+                            (None, split)
                         })
                         .inner;
-                    (eye, renamed)
+                    (eye, renamed.0, renamed.1)
                 })
                 .inner
             });
@@ -859,10 +875,19 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
                 over = Some(path.clone());
             }
             // A component's name is never empty, and unique: an emptied one is kept, one taken
-            // refused (the failure told).
+            // refused (the failure told); an occurrence's emptied is cleared.
             let alone = selected && selection.len() == 1;
-            match start_rename(ui, &response, renaming, alone, rename, renamed) {
-                Some(Some(name)) if !name.is_empty() => {
+            let on_occurrence = match (split, response.interact_pointer_pos()) {
+                (Some(split), Some(at)) if response.double_clicked() => at.x < split,
+                (split, _) => split.is_some(),
+            };
+            let key = if on_occurrence { rename_occurrence } else { rename };
+            match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
+                (Some(true), Some(Some(name))) => {
+                    let context = doc.context_of(&path.instances).unwrap_or(doc.root());
+                    actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
+                }
+                (_, Some(Some(name))) if !name.is_empty() => {
                     actions.push(Action::Apply(Operation::RenameComponent { component: o.component, name }));
                 }
                 _ => {}
@@ -1319,7 +1344,13 @@ fn rename_field(ui: &mut egui::Ui, id: egui::Id, current: &str) -> Option<Option
     let (text_id, started) = (id.with("text"), id.with("started"));
     let first = !ui.data(|d| d.get_temp::<bool>(started).unwrap_or(false));
     let mut text = ui.data(|d| d.get_temp::<String>(text_id)).unwrap_or_else(|| current.to_owned());
-    let edit = egui::TextEdit::singleline(&mut text).id(id.with("edit")).desired_width(ui.available_width()).margin(egui::vec2(2.0, 0.0));
+    // Centred in the row as the name it replaces: egui's theme gives the field the row's height
+    // (`interact_size`), taller than a line of text, and would keep the text at its top.
+    let edit = egui::TextEdit::singleline(&mut text)
+        .id(id.with("edit"))
+        .desired_width(ui.available_width())
+        .margin(egui::vec2(2.0, 0.0))
+        .align(egui::Align2::LEFT_CENTER);
     let r = ui.add(edit);
     let done = |ui: &mut egui::Ui| ui.data_mut(|d| (d.remove::<String>(text_id), d.remove::<bool>(started)));
     // Focused and all of it selected as it opens (and whenever focus comes back to it).
@@ -1801,5 +1832,33 @@ mod tests {
         let half = slide_at(&ctx, 1.1 + SLIDE_TIME, b);
         assert!(a.0 < half.0 && half.0 < b.0 && half.1 - half.0 == 26.0, "on its way: {half:?}");
         assert_eq!(slide_at(&ctx, 1.1 + 2.0 * SLIDE_TIME, b), b);
+    }
+
+    /// The top of the text drawn in a navigator row: its name, or the field renaming it.
+    fn text_top(ctx: &egui::Context, renaming: bool) -> f32 {
+        let mut top = f32::NAN;
+        // The field takes the focus on its first frame, then settles.
+        for time in 0..3 {
+            let input = egui::RawInput { time: Some(time as f64), ..Default::default() };
+            let mut output = ctx.run_ui(input, |ui| {
+                let height = ui.spacing().interact_size.y;
+                tree_row(ui, height, false, false, false, |ui| match renaming {
+                    true => drop(rename_field(ui, egui::Id::unique("rename_test"), "Solide 1")),
+                    false => drop(ui.add(egui::Label::new("Solide 1").selectable(false))),
+                });
+            });
+            output.textures_delta.clear();
+            top = output.shapes.iter().find_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.pos.y) } else { None }).unwrap();
+        }
+        top
+    }
+
+    #[test]
+    fn the_rename_field_keeps_the_name_where_the_row_had_it() {
+        let ctx = egui::Context::default();
+        crate::style::install_fonts(&ctx);
+        let label = text_top(&ctx, false);
+        assert!(label > 0.0, "the row's name centred in it: {label}");
+        assert_eq!(text_top(&ctx, true), label);
     }
 }
