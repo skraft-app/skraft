@@ -94,6 +94,9 @@ impl Editor {
         let label = op.label();
         self.history.push(document, op);
         self.journal.log(Event::Applied { op: label, revision: self.history.revision() });
+        for w in &outcome.welds {
+            self.journal.log(Event::Welded { part: w.part.0, body: w.body.0, reference: w.reference.0, distance: w.distance });
+        }
         for (solid, display) in displays {
             if let Err(e) = &display {
                 self.message = Some(t!("status.display_failed", error = e));
