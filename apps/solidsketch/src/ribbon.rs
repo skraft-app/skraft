@@ -491,6 +491,12 @@ fn tab_labels_width(painter: &egui::Painter, labels: &[String]) -> f32 {
     width + labels.len().saturating_sub(1) as f32 * TAB_GAP
 }
 
+/// The width a [`tab_strip`] of `labels` needs: its tabs, and the shown one's curves on both
+/// sides (a window sized to its content gives it at least that).
+pub fn tab_strip_width(painter: &egui::Painter, labels: &[String]) -> f32 {
+    tab_labels_width(painter, labels) + 2.0 * crate::tabs::TAB_RADIUS
+}
+
 /// The tab row's width: its tabs, and the shown one's curves on both sides.
 fn tab_row_width(painter: &egui::Painter, w: &Workspace) -> f32 {
     let labels: Vec<String> = w.tabs.iter().map(|t| (t.label)()).collect();

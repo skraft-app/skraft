@@ -19,7 +19,7 @@ use crate::file::{self, Inbox};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView};
-use crate::prefs::{Navigation, Preferences};
+use crate::prefs::Preferences;
 use crate::ribbon;
 use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
@@ -1103,7 +1103,8 @@ impl SolidSketchApp {
         let down = [viewport::modifiers(ctx, mods).copy, mods.shift, other_key];
         let pressed: Vec<bool> = down.iter().zip(&self.taps).map(|(d, t)| *d && !t.down).collect();
         for (k, key) in [Key::Copy, Key::Shift, Key::Alt].into_iter().enumerate() {
-            let other = events || pressed.iter().enumerate().any(|(j, p)| j != k && *p);
+            // A modifier pressed during a navigation gesture is the gesture's (§6 quindecies).
+            let other = events || self.viewport.navigating() || pressed.iter().enumerate().any(|(j, p)| j != k && *p);
             if self.taps[k].feed(down[k], other)
                 && !ctx.egui_wants_keyboard_input()
                 && let Some(d) = self.docs.active_mut()
@@ -1320,17 +1321,30 @@ impl SolidSketchApp {
                 egui::pos2(r.center().x, r.top() + r.height() * 0.15)
             })
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut tab, PrefsTab::General, t!("prefs.tab.general"));
-                    ui.selectable_value(&mut tab, PrefsTab::Model, t!("prefs.tab.model"));
-                    ui.selectable_value(&mut tab, PrefsTab::Navigation, t!("prefs.tab.navigation"));
-                    ui.selectable_value(&mut tab, PrefsTab::Interface, t!("prefs.tab.interface"));
-                    ui.selectable_value(&mut tab, PrefsTab::Shortcuts, t!("prefs.tab.shortcuts"));
-                    if !cfg!(target_arch = "wasm32") {
-                        ui.selectable_value(&mut tab, PrefsTab::Debug, t!("prefs.tab.debug"));
-                    }
-                });
-                ui.separator();
+                // The ribbon's tabs (as the journal window's), their band across the window
+                // under its title bar.
+                let mut tabs = vec![
+                    (PrefsTab::General, t!("prefs.tab.general")),
+                    (PrefsTab::Model, t!("prefs.tab.model")),
+                    (PrefsTab::Navigation, t!("prefs.tab.navigation")),
+                    (PrefsTab::Interface, t!("prefs.tab.interface")),
+                    (PrefsTab::Shortcuts, t!("prefs.tab.shortcuts")),
+                ];
+                if !cfg!(target_arch = "wasm32") {
+                    tabs.push((PrefsTab::Debug, t!("prefs.tab.debug")));
+                }
+                let labels: Vec<String> = tabs.iter().map(|(_, l)| l.clone()).collect();
+                let ids: Vec<egui::Id> = tabs.iter().map(|(k, _)| egui::Id::unique(("prefs_tab", *k as u8))).collect();
+                let shown = tabs.iter().position(|(k, _)| *k == tab);
+                // Up to the title bar's line: the window's margin and a spacing above the content.
+                let m = ui.style().spacing.window_margin;
+                let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
+                // The window as wide as its tabs at least (it takes its content's width).
+                let width = ui.available_width().max(crate::ribbon::tab_strip_width(ui.painter(), &labels));
+                if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, false) {
+                    tab = tabs[k].0;
+                }
+                ui.add_space(4.0);
                 match tab {
                     PrefsTab::General => general_settings(ui, &mut self.prefs),
                     #[cfg(not(target_arch = "wasm32"))]
@@ -1338,7 +1352,7 @@ impl SolidSketchApp {
                     #[cfg(target_arch = "wasm32")]
                     PrefsTab::Debug => {}
                     PrefsTab::Model => self.model_settings(ui),
-                    PrefsTab::Navigation => navigation_settings(ui, &mut self.prefs.navigation),
+                    PrefsTab::Navigation => crate::nav_prefs::navigation_settings(ui, &mut self.prefs.navigation),
                     PrefsTab::Interface => interface_settings(ui, &mut self.prefs),
                     PrefsTab::Shortcuts => self.shortcut_settings(ui),
                 }
@@ -1380,9 +1394,9 @@ impl SolidSketchApp {
         let mut s = current.clone();
         ui.weak(t!("prefs.model.intro"));
         ui.add_space(4.0);
-        egui::Grid::new("model_settings").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-            ui.strong(t!("prefs.model.display"));
-            ui.end_row();
+        // The settings window's sections: a semibold title over a line, the same labels' column.
+        crate::style::settings_section(ui, &t!("prefs.model.display"));
+        crate::style::settings_grid(ui, "model_display", |ui| {
             ui.label(t!("prefs.model.grid"));
             ui.checkbox(&mut s.display.grid, "");
             ui.end_row();
@@ -1398,8 +1412,9 @@ impl SolidSketchApp {
             ui.label(t!("prefs.model.hide_rest_of_model"));
             ui.checkbox(&mut s.display.hide_rest_of_model, "").on_hover_text(t!("prefs.model.hide_rest_of_model_tip"));
             ui.end_row();
-            ui.strong(t!("prefs.model.units"));
-            ui.end_row();
+        });
+        crate::style::settings_section(ui, &t!("prefs.model.units"));
+        crate::style::settings_grid(ui, "model_units", |ui| {
             ui.label(t!("prefs.model.lengths"));
             egui::ComboBox::from_id_salt("length_unit").selected_text(s.units.length.name()).show_ui(ui, |ui| {
                 for u in LengthUnit::ALL {
@@ -2584,43 +2599,6 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
         });
         ui.end_row();
     });
-}
-
-fn navigation_settings(ui: &mut egui::Ui, nav: &mut Navigation) {
-    egui::Grid::new("navigation").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-        ui.strong(t!("prefs.navigation.orbit.title"));
-        ui.end_row();
-        ui.label(t!("prefs.navigation.orbit.speed"));
-        ui.add(egui::Slider::new(&mut nav.orbit_speed, 0.25..=4.0).logarithmic(true).fixed_decimals(2));
-        ui.end_row();
-        ui.label(t!("prefs.navigation.orbit.mouse"));
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut nav.mouse_invert_x, t!("prefs.navigation.orbit.invert_x"));
-            ui.checkbox(&mut nav.mouse_invert_y, t!("prefs.navigation.orbit.invert_y"));
-        });
-        ui.end_row();
-        ui.label(t!("prefs.navigation.orbit.trackpad"));
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut nav.trackpad_invert_x, t!("prefs.navigation.orbit.invert_x"));
-            ui.checkbox(&mut nav.trackpad_invert_y, t!("prefs.navigation.orbit.invert_y"));
-        });
-        ui.end_row();
-        ui.strong(t!("prefs.navigation.zoom.title"));
-        ui.end_row();
-        ui.label(t!("prefs.navigation.zoom.speed"));
-        ui.add(egui::Slider::new(&mut nav.zoom_speed, 0.25..=4.0).logarithmic(true).fixed_decimals(2));
-        ui.end_row();
-        ui.label(t!("prefs.navigation.zoom.wheel"));
-        ui.checkbox(&mut nav.wheel_invert, t!("prefs.navigation.zoom.wheel_invert"));
-        ui.end_row();
-        ui.label(t!("prefs.navigation.zoom.target"));
-        ui.checkbox(&mut nav.zoom_to_cursor, t!("prefs.navigation.zoom.to_cursor"));
-        ui.end_row();
-    });
-    ui.add_space(8.0);
-    if ui.add_enabled(*nav != Navigation::default(), egui::Button::new(t!("prefs.navigation.defaults"))).clicked() {
-        *nav = Navigation::default();
-    }
 }
 
 /// Does `e` make a held copy modifier something else than a tap (a shortcut, a click, a

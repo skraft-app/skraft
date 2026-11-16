@@ -8,6 +8,7 @@ pub mod camera;
 mod editor;
 pub mod guides;
 pub mod infer;
+pub mod navigation;
 pub mod scene;
 pub mod tools;
 pub mod vcb;

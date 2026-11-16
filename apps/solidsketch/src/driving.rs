@@ -194,6 +194,8 @@ pub fn button(b: UiButton) -> egui::PointerButton {
         UiButton::Left => egui::PointerButton::Primary,
         UiButton::Right => egui::PointerButton::Secondary,
         UiButton::Middle => egui::PointerButton::Middle,
+        UiButton::Back => egui::PointerButton::Extra1,
+        UiButton::Forward => egui::PointerButton::Extra2,
     }
 }
 

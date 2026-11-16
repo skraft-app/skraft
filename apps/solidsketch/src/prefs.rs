@@ -16,6 +16,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::Settings;
 use solidsketch_theme::{Choice, Palette};
 use solidsketch_tools::OptionValues;
+use solidsketch_tools::navigation::NavStyle;
 
 use crate::commands::RECENT_FILES;
 
@@ -106,9 +107,11 @@ pub struct Navigation {
     pub trackpad_invert_y: bool,
     /// Zoom speed factor (1: `ZOOM_BASE` times a 15 % zoom per wheel notch).
     pub zoom_speed: f64,
-    pub wheel_invert: bool,
     /// Zoom towards the cursor (else towards the centre of the view).
     pub zoom_to_cursor: bool,
+    /// Which buttons and gestures do what (§6 quindecies): a preset, maybe edited. The wheel's
+    /// direction is the style's.
+    pub style: NavStyle,
 }
 
 impl Navigation {
@@ -137,8 +140,8 @@ impl Default for Navigation {
             trackpad_invert_x: false,
             trackpad_invert_y: false,
             zoom_speed: 1.0,
-            wheel_invert: false,
             zoom_to_cursor: true,
+            style: NavStyle::default(),
         }
     }
 }

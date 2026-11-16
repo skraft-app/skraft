@@ -21,6 +21,33 @@ const KEY_SYMBOLS: &[u8] = include_bytes!("../assets/fonts/dejavu-sans/DejaVuSan
 /// The family headings are written in.
 const SEMIBOLD: &str = "plex-sans-semibold";
 
+/// Plex Sans semibold at `size`: text painted bold (a heading's family).
+pub fn semibold(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name(SEMIBOLD.into()))
+}
+
+/// The width of a settings window's labels' column (points), the same in every section.
+const LABEL_WIDTH: f32 = 170.0;
+
+/// A settings window's section: some room above, its title (semibold), a thin line under it.
+pub fn settings_section(ui: &mut egui::Ui, title: &str) {
+    ui.add_space(10.0);
+    section_title(ui, title);
+    ui.separator();
+}
+
+/// A settings window's two-column grid, its labels' column as wide in every section.
+pub fn settings_grid(ui: &mut egui::Ui, id: &str, body: impl FnOnce(&mut egui::Ui)) {
+    egui::Grid::new(id).num_columns(2).spacing([12.0, 8.0]).min_col_width(LABEL_WIDTH).show(ui, body);
+}
+
+/// A section's title in a settings window: semibold, at the body's size, in the strong text
+/// colour.
+pub fn section_title(ui: &mut egui::Ui, title: impl Into<String>) -> egui::Response {
+    let size = egui::TextStyle::Body.resolve(ui.style()).size;
+    ui.label(egui::RichText::new(title.into()).font(semibold(size)).color(ui.visuals().strong_text_color()))
+}
+
 /// Installs the fonts (once, at start-up).
 pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts());

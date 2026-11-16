@@ -136,6 +136,9 @@ pub struct Editor {
     selection: Vec<Id>,
     tool: Box<dyn Tool>,
     pivot: Option<DVec3>,
+    /// The views gone through, for previous / next view (§6 quindecies), and the one shown.
+    views: Vec<Camera>,
+    view_index: usize,
     message: Option<String>,
     /// What the app shows in its toasts, oldest first, till it takes them ([`Editor::take_notices`]).
     notices: Vec<Notice>,
@@ -249,6 +252,8 @@ impl Editor {
             selection: Vec::new(),
             tool: tools::make(ToolKind::Select),
             pivot: None,
+            views: Vec::new(),
+            view_index: 0,
             message: None,
             notices: Vec::new(),
             free: None,
@@ -280,6 +285,7 @@ impl Editor {
         e.settle_load();
         e.load_end = None;
         e.zoom_extents();
+        e.views.clear();
         e
     }
 

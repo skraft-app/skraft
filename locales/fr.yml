@@ -42,7 +42,6 @@ common:
   show_all: "Tout afficher"
   dimensions: "Dimensions"
   height: "Hauteur"
-  speed: "Vitesse"
   model: "Modèle"
   part: "Pièce"
   assembly: "Assemblage"
@@ -407,20 +406,67 @@ prefs:
     restore_tip: "Applique à ce modèle les réglages des nouveaux modèles"
     are_defaults: "Ce sont les réglages des nouveaux modèles."
   navigation:
-    orbit:
-      title: "Orbite"
-      speed: "$t(common.speed)"
-      mouse: "Souris (bouton du milieu)"
-      trackpad: "Trackpad (deux doigts)"
-      invert_x: "inverser ↔"
-      invert_y: "inverser ↕"
-    zoom:
-      title: "Zoom"
-      speed: "$t(common.speed)"
+    # The Navigation tab (ARCHITECTURE §6 quindecies): another CAD program's mouse habits.
+    section:
+      style: "Style de navigation"
+      mouse: "Souris"
+      trackpad: "Trackpad"
+      speeds: "Vitesses"
+    style:
+      label: "Comme"
+      # A preset edited by the user; {name}: the program (not translated).
+      custom: "Personnalisé (%{name})"
+      restore: "Rétablir %{name}"
+      pivot: "Pivot de l'orbite"
+    mouse:
+      # Under the mouse drawn: its left button is the tools'.
+      left_button: "Gauche : les outils"
       wheel: "Molette"
-      wheel_invert: "inverser le sens"
-      target: "Cible"
+      wheel_reversed: "inverser le sens"
+      orbit: "Orbite"
+    trackpad:
+      scroll: "Deux doigts"
+      # {shift}: ⇧ on macOS, the key's name elsewhere.
+      shift_scroll: "%{shift} + deux doigts"
+      pinch: "Pincer"
+      orbit: "Orbite"
+    speeds:
+      orbit: "Orbite"
+      zoom: "Zoom"
+      zoom_target: "Cible du zoom"
       to_cursor: "vers le curseur"
+    invert_x: "inverser ↔"
+    invert_y: "inverser ↕"
+    gestures:
+      none: "Aucun geste sur ce bouton."
+      add: "Ajouter un geste"
+      delete_tip: "Supprimer ce geste"
+      duplicate: "Un autre geste a le même bouton et les mêmes touches : seul le premier compte."
+      right_click: "Le clic droit est réservé au menu contextuel."
+      click_and_double: "Ce bouton a aussi un double-clic : le premier clic le devancerait."
+      wrong_kind: "Cette action ne va pas avec ce déclencheur."
+    trigger:
+      drag: "Glisser"
+      click: "Clic"
+      double_click: "Double-clic"
+    button:
+      middle: "Bouton du milieu"
+      right: "Bouton droit"
+      back: "Bouton 4"
+      forward: "Bouton 5"
+    action:
+      orbit: "Orbite"
+      pan: "Panoramique"
+      zoom_drag: "Zoom"
+      zoom_window: "Zoom fenêtre"
+      recentre: "Recentrer"
+      zoom_extents: "Zoom étendu"
+      previous_view: "Vue précédente"
+      next_view: "Vue suivante"
+    pivot:
+      aimed: "Le point visé"
+      selection_or_model: "Le centre de la sélection, sinon du modèle"
+      screen_centre: "Le centre de la vue"
     defaults: "Valeurs par défaut"
   interface:
     theme: "Thème"

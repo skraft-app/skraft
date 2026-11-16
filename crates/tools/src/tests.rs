@@ -5450,3 +5450,56 @@ fn machinings_inside_groups_show_with_their_group() {
     assert!((r.nested[0].placement.translation - DVec3::new(65.0, 25.0, 20.0)).length() < 1e-9);
     assert_eq!(r.bodies().count(), 3);
 }
+
+#[test]
+fn previous_and_next_view_go_through_the_views() {
+    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    e.set_viewport_size(DVec2::new(1000.0, 1000.0));
+    assert!(!e.previous_view(), "nothing before the first view");
+    let first = e.camera.clone();
+    // An orbit, then a pan: two gestures, each from where the last one ended.
+    e.nav_begin(DVec2::new(500.0, 500.0));
+    e.orbit(DVec2::new(80.0, 0.0));
+    let orbited = e.camera.clone();
+    e.nav_begin(DVec2::new(500.0, 500.0));
+    e.pan(DVec2::new(30.0, 10.0));
+    let panned = e.camera.clone();
+    assert!(e.previous_view());
+    assert_eq!(e.camera, orbited);
+    assert!(e.previous_view());
+    assert_eq!(e.camera, first);
+    assert!(!e.previous_view());
+    assert!(e.next_view());
+    assert_eq!(e.camera, orbited);
+    assert!(e.next_view());
+    assert_eq!(e.camera, panned);
+    assert!(!e.next_view());
+    // Gone back, then moved: the views after it are dropped.
+    assert!(e.previous_view());
+    e.zoom_extents();
+    assert!(!e.next_view());
+    assert!(e.previous_view());
+    assert_eq!(e.camera, orbited);
+    // At most 50 views.
+    for _ in 0..60 {
+        e.nav_begin(DVec2::new(500.0, 500.0));
+        e.orbit(DVec2::new(5.0, 0.0));
+    }
+    assert!(e.previous_view());
+    assert_eq!(e.views().0.len(), 50);
+}
+
+#[test]
+fn the_pivot_is_the_style_s() {
+    use crate::navigation::Pivot;
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::new(200.0, 0.0, 0.0), DVec3::new(300.0, 100.0, 0.0), "100");
+    e.set_tool(ToolKind::Select);
+    e.select(Vec::new());
+    // The model's centre, nothing selected; the screen's centre.
+    e.nav_begin_about(DVec2::ZERO, Pivot::SelectionOrModel);
+    assert!((e.pivot() - DVec3::new(250.0, 50.0, 50.0)).length() < 1e-3, "{}", e.pivot());
+    e.nav_begin_about(DVec2::ZERO, Pivot::ScreenCentre);
+    let target = e.camera.eye + e.camera.forward() * e.camera.focus;
+    assert!((e.pivot() - target).length() < 1e-9);
+}

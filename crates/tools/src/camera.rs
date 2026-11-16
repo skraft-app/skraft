@@ -268,6 +268,28 @@ impl Camera {
         }
     }
 
+    /// Fills the view with the pixel rectangle from `a` to `b`, its direction kept: the point
+    /// `depth_point` (under the rectangle's centre) slides to the view's centre, then the
+    /// camera closes in on it until the rectangle spans the view (its larger side relative to
+    /// the view's).
+    pub fn zoom_window(&mut self, a: DVec2, b: DVec2, size: DVec2, depth_point: DVec3) {
+        let size = size.max(DVec2::ONE);
+        let (lo, hi) = (a.min(b), a.max(b));
+        let extent = (hi - lo).max(DVec2::ONE);
+        let factor = (extent.x / size.x).max(extent.y / size.y);
+        // The point under the rectangle's centre, to the view's centre.
+        self.pan(size * 0.5 - (lo + hi) * 0.5, size, depth_point);
+        match self.projection {
+            Projection::Perspective { .. } => {
+                let f = self.forward();
+                let p = self.eye + f * (depth_point - self.eye).dot(f).max(1e-3);
+                self.eye = p + (self.eye - p) * factor;
+                self.focus = (p - self.eye).dot(f).abs().max(1e-3);
+            }
+            Projection::Parallel { height } => self.projection = Projection::Parallel { height: height * factor },
+        }
+    }
+
     /// Frames `bounds` in a viewport of aspect `aspect`.
     pub fn zoom_extents(&mut self, bounds: (DVec3, DVec3), area: ViewArea) {
         let (lo, hi) = bounds;
@@ -565,6 +587,27 @@ mod tests {
         c.pan(DVec2::new(30.0, -12.0), SIZE, p);
         let after = c.project(p, SIZE).unwrap();
         assert!((after - before - DVec2::new(30.0, -12.0)).length() < 1e-3, "{before} → {after}");
+    }
+
+    #[test]
+    fn zoom_window_fills_the_view_with_the_rectangle() {
+        for parallel in [false, true] {
+            let mut c = Camera::default();
+            c.set_parallel(parallel);
+            let p = c.eye + c.forward() * c.focus;
+            let at = c.project(p, SIZE).unwrap();
+            // A rectangle a quarter of the view wide, centred off the view's centre, on `p`.
+            let (a, b) = (at - SIZE / 8.0 + DVec2::new(40.0, 20.0), at + SIZE / 8.0 + DVec2::new(40.0, 20.0));
+            let q = c.ray((a + b) * 0.5, SIZE).at((p - c.eye).dot(c.forward()) / c.ray((a + b) * 0.5, SIZE).dir.dot(c.forward()));
+            let corner = c.ray(a, SIZE);
+            let corner = corner.at((q - c.eye).dot(c.forward()) / corner.dir.dot(c.forward()));
+            c.zoom_window(a, b, SIZE, q);
+            let centre = c.project(q, SIZE).unwrap();
+            assert!((centre - SIZE / 2.0).length() < 1e-3, "parallel {parallel}: {centre}");
+            // The rectangle's corner (at its depth) lands on the view's corner.
+            let corner = c.project(corner, SIZE).unwrap();
+            assert!(corner.length() < 1e-2, "parallel {parallel}: {corner}");
+        }
     }
 
     #[test]
