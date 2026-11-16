@@ -1913,6 +1913,14 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     assert_eq!(e.selection().len(), 3);
     assert_eq!(machinings(&e, other).len(), 4);
 
+    // One of the four (one definition) moved: it alone drawn where it goes, not its copies.
+    e.select(vec![ms[0].id]);
+    let x0 = ms[0].placement.translation.x;
+    click(&mut e, DVec3::new(x0, 100.0, 25.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(x0, 150.0, 25.0)) });
+    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Ghost).count(), 1);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+
     // Erased under "only this one": this occurrence gets a part of its own, the other keeps
     // the holes.
     e.set_tool(ToolKind::Select);

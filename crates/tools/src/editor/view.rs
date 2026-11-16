@@ -433,7 +433,11 @@ impl Editor {
                 push_to(out, key, p);
             }
             // The machinings inside groups: faint ghosts, with their group (§2.11 « Body groups »).
-            for tool in r.nested.iter().filter(|n| !(hide_original && selected.contains(&n.body)) && !body_swaps.is_some_and(|s| s.contains_key(&n.body))) {
+            for tool in r
+                .nested
+                .iter()
+                .filter(|n| !(hide_original && selected.contains(&n.body)) && !body_swaps.is_some_and(|s| s.contains_key(&n.body)))
+            {
                 let look = if tool.failed { Look::FailedTool } else { Look::Tool };
                 let p = ViewPlacement { transform: t * tool.placement, faded: false, material: None, look, ghost: true, faint_edges: true };
                 push_to(&mut tool_faint, tool.key, p);
@@ -504,7 +508,10 @@ impl Editor {
         // when the original is hidden). None with the stretch and copy tools: they take the selection as
         // what it stretches and draws its own box (grips, cutters), which this one would only
         // clutter — and leave behind, unstretched, while it previews.
-        let box_at = if matches!(self.tool_kind(), tools::ToolKind::Stretch | tools::ToolKind::CopyLine | tools::ToolKind::CopyGrid | tools::ToolKind::Distribute) {
+        let box_at = if matches!(
+            self.tool_kind(),
+            tools::ToolKind::Stretch | tools::ToolKind::CopyLine | tools::ToolKind::CopyGrid | tools::ToolKind::Distribute
+        ) {
             None
         } else if hide_original {
             preview.ghost
@@ -619,8 +626,10 @@ impl Editor {
                 });
             }
         }
+        // The selection alone moves: not the other copies of its bodies' definitions (`Related`).
         for g in preview.ghost.iter().chain(&preview.copies) {
-            v.highlights.extend(drawing.marks.iter().map(|h| ViewHighlight { transform: *g * h.transform, mark: Mark::Ghost, ..*h }));
+            let selection = drawing.marks.iter().filter(|h| h.mark == Mark::Selected);
+            v.highlights.extend(selection.map(|h| ViewHighlight { transform: *g * h.transform, mark: Mark::Ghost, ..*h }));
         }
         // What the eraser would take is not marked (selected): a mark draws it opaque.
         if !erasing.is_empty() {
