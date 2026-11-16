@@ -140,6 +140,9 @@ impl Solid {
 
     /// This solid moved by the rigid (or uniformly scaled) transform `t`.
     pub fn transformed(&self, t: &DAffine3) -> Result<Self> {
+        if self.is_empty() {
+            return Ok(self.clone());
+        }
         let m = row_major(t);
         guarded("transform", || {
             let mut k = kernel();
@@ -218,6 +221,10 @@ impl Solid {
     /// [`Solid::display`] at `quality`: a preview is meshed at a hundredth of the body
     /// (`solidcore_tess::preview`), in a fraction of the time.
     pub fn display_at(&self, quality: Quality) -> Result<Display> {
+        // Nothing to draw nor to infer on (an empty part, §2.11).
+        if self.is_empty() {
+            return Ok(Display::default());
+        }
         let bounds = self.bounds().ok();
         let size = bounds.or_else(|| self.vertex_bounds()).map(|(lo, hi)| (hi - lo).length()).filter(|s| *s > 1e-6).unwrap_or(100.0);
         guarded("mesh", || {
@@ -319,10 +326,23 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
             }
             Task::Transform { solid: i, transform } => solid(input(*i)?.transformed(transform)?),
             Task::Boolean { target, tool, tool_transform, op } => {
-                let tool = input(*tool)?;
-                let r = match tool_transform {
-                    Some(t) => input(*target)?.boolean(&tool.transformed(t)?, *op)?,
-                    None => input(*target)?.boolean(tool, *op)?,
+                let (target, tool) = (input(*target)?, input(*tool)?);
+                let r = match (op, target.is_empty(), tool.is_empty()) {
+                    // A difference never fails for want of material (§2.11 « Empty parts »):
+                    // nothing cut from nothing, nothing cut by nothing, a tool swallowing the
+                    // whole target leaving nothing.
+                    (BooleanOp::Difference, true, _) => Solid::empty(),
+                    (BooleanOp::Difference, false, true) => target.clone(),
+                    _ => {
+                        let r = match tool_transform {
+                            Some(t) => target.boolean(&tool.transformed(t)?, *op),
+                            None => target.boolean(tool, *op),
+                        };
+                        match r {
+                            Err(Error::Empty(_)) if *op == BooleanOp::Difference => Solid::empty(),
+                            r => r?,
+                        }
+                    }
                 };
                 solid(r)
             }
@@ -374,7 +394,14 @@ fn recipe(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(
         .chain(negatives.iter().map(|(s, t)| (*s, t, BooleanOp::Difference)))
         .collect();
     let no_positive = || Error::Convert { call: "recipe".into(), message: "no positive body".into() };
-    let mut failed: Vec<u32> = Vec::new();
+    // Empty bodies (a group with nothing left, §2.11 « Empty parts ») are reported as failed
+    // and left out; without a positive holding material the result is the base, or nothing.
+    let base = base.filter(|b| !b.is_empty());
+    let empty: Vec<u32> = steps.iter().enumerate().filter(|(_, (s, _, _))| s.is_empty()).map(|(k, _)| k as u32).collect();
+    if positives.iter().all(|(s, _)| s.is_empty()) {
+        return Ok((base.cloned().unwrap_or_else(Solid::empty), empty));
+    }
+    let mut failed = empty.clone();
     loop {
         if (0..positives.len() as u32).all(|i| failed.contains(&i)) {
             return Err(no_positive());
@@ -396,7 +423,7 @@ fn recipe(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(
                 // The shape computed but not read back to a record: step by step, as before,
                 // tells which step brings it.
                 None if !matches!(e, Error::Convert { .. } | Error::Panic { .. }) => return Err(e),
-                None => return recipe_stepwise(base, positives, negatives),
+                None => return recipe_stepwise(base, positives, negatives, &empty),
             },
         }
     }
@@ -426,9 +453,11 @@ fn recipe_session(
             (Some(s), BooleanOp::Union) => b::boolean_union(&mut k, s, placed).map_err(|e| kernel_err(call, e))?,
             (Some(s), _) => {
                 let cut = b::boolean_difference(&mut k, s, placed).map_err(|e| kernel_err(call, e))?;
-                // A tool swallowing the whole shape.
+                // A tool swallowing the whole shape: nothing left to cut, the base alone (§2.11
+                // « Empty parts »).
                 if num_faces(&cut) == 0 {
-                    return Err(Error::Empty(call.into()));
+                    at.set(None);
+                    return Ok(base.cloned().unwrap_or_else(Solid::empty));
                 }
                 cut
             }
@@ -450,18 +479,26 @@ fn recipe_session(
     }
     let out = to_record(&mut k, &mut shape, call)?;
     if out.record.faces.is_empty() {
-        return Err(Error::Empty(call.into()));
+        return Ok(Solid::empty());
     }
     Ok(out)
 }
 
 /// [`recipe`] one boolean at a time, each result read back to a record: the fallback when the
-/// final shape cannot be.
-fn recipe_stepwise(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(&Solid, DAffine3)]) -> Result<(Solid, Vec<u32>)> {
+/// final shape cannot be. The steps `empty` (empty bodies) are left out, reported as failed.
+fn recipe_stepwise(
+    base: Option<&Solid>,
+    positives: &[(&Solid, DAffine3)],
+    negatives: &[(&Solid, DAffine3)],
+    empty: &[u32],
+) -> Result<(Solid, Vec<u32>)> {
     let placed = |s: &Solid, t: &DAffine3| if t.abs_diff_eq(DAffine3::IDENTITY, 1e-12) { Ok(s.clone()) } else { s.transformed(t) };
-    let mut failed = Vec::new();
+    let mut failed = empty.to_vec();
     let mut shape: Option<Solid> = None;
     for (k, (s, t)) in positives.iter().enumerate() {
+        if empty.contains(&(k as u32)) {
+            continue;
+        }
         let joined = placed(s, t).and_then(|p| match &shape {
             None => Ok(p),
             Some(s) => s.boolean(&p, BooleanOp::Union),
@@ -475,9 +512,18 @@ fn recipe_stepwise(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negat
         return Err(Error::Convert { call: "recipe".into(), message: "no positive body".into() });
     };
     for (k, (s, t)) in negatives.iter().enumerate() {
+        let step = (positives.len() + k) as u32;
+        if empty.contains(&step) {
+            continue;
+        }
         match placed(s, t).and_then(|n| shape.boolean(&n, BooleanOp::Difference)) {
             Ok(s) => shape = s,
-            Err(_) => failed.push((positives.len() + k) as u32),
+            // A tool swallowing the whole shape: the base alone, or nothing (§2.11).
+            Err(Error::Empty(_)) => {
+                failed.sort_unstable();
+                return Ok((base.cloned().unwrap_or_else(Solid::empty), failed));
+            }
+            Err(_) => failed.push(step),
         }
     }
     if let Some(base) = base {
@@ -487,6 +533,7 @@ fn recipe_stepwise(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negat
             Err(_) => return Ok((base.clone(), (0..positives.len() as u32).collect())),
         }
     }
+    failed.sort_unstable();
     Ok((shape, failed))
 }
 
@@ -1113,37 +1160,55 @@ mod tests {
     }
 
     #[test]
-    fn a_recipe_skips_the_tools_that_fail() {
+    fn a_recipe_without_material_leaves_nothing() {
         let board = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::new(100.0, 50.0, 18.0)).unwrap());
         let drill = Arc::new(Solid::new_cylinder(DVec3::ZERO, 4.0, 30.0).unwrap());
         let huge = Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap());
+        let empty = Arc::new(Solid::empty());
         let at = |x: f64| DAffine3::from_translation(DVec3::new(x, 25.0, -5.0));
-        // Two holes, and a tool swallowing the whole board between them.
-        let job = Job {
-            inputs: vec![board.clone(), drill, huge],
-            tasks: vec![Task::Recipe {
-                base: None,
-                positives: vec![(0, DAffine3::IDENTITY)],
-                negatives: vec![(1, at(20.0)), (2, DAffine3::IDENTITY), (1, at(80.0))],
-            }],
+        let recipe = |base: Option<u32>, positives: Vec<(u32, DAffine3)>, negatives: Vec<(u32, DAffine3)>| {
+            let job = Job { inputs: vec![board.clone(), drill.clone(), huge.clone(), empty.clone()], tasks: vec![Task::Recipe { base, positives, negatives }] };
+            let mut out = run(&job).unwrap();
+            let Some(Output::Recipe { solid, display, failed }) = out.pop() else { panic!("{out:?}") };
+            assert!(display.is_ok());
+            (solid, failed)
         };
-        let out = run(&job).unwrap();
-        let [Output::Recipe { solid, display, failed }] = out.as_slice() else { panic!("{out:?}") };
-        // One list: the positive first, then the negatives.
-        assert_eq!(failed, &[2]);
-        assert!(display.is_ok());
-        // A box with two through holes: 6 + 2 faces at least.
-        assert!(solid.topology_counts().0 >= board.topology_counts().0 + 2, "{:?}", solid.topology_counts());
+        let id = DAffine3::IDENTITY;
+        // A tool swallowing the whole board, between two holes: nothing left, no failure.
+        let (s, failed) = recipe(None, vec![(0, id)], vec![(1, at(20.0)), (2, id), (1, at(80.0))]);
+        assert!(s.is_empty() && failed.is_empty(), "{failed:?}");
+        // No positive: nothing.
+        let (s, failed) = recipe(None, vec![], vec![(1, at(20.0))]);
+        assert!(s.is_empty() && failed.is_empty());
+        // Empty bodies (a group with nothing left) fail and are left out, whatever their sign.
+        let (s, failed) = recipe(None, vec![(3, id), (0, id)], vec![(3, id), (1, at(20.0))]);
+        assert_eq!(failed, &[0, 2]);
+        assert!(s.topology_counts().0 > board.topology_counts().0, "{:?}", s.topology_counts());
+        let (s, failed) = recipe(None, vec![(3, id)], vec![]);
+        assert!(s.is_empty());
+        assert_eq!(failed, &[0]);
+        // An empty part given a positive: that positive, cut.
+        let (s, failed) = recipe(Some(3), vec![(0, id)], vec![(1, at(20.0))]);
+        assert!(failed.is_empty() && s.pieces() == 1);
+    }
 
-        // Every tool failing leaves the blank.
-        let job = Job {
-            inputs: vec![board.clone(), Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap())],
-            tasks: vec![Task::Recipe { base: None, positives: vec![(0, DAffine3::IDENTITY)], negatives: vec![(1, DAffine3::IDENTITY)] }],
+    #[test]
+    fn a_difference_leaves_nothing_rather_than_failing() {
+        let board = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::new(100.0, 50.0, 18.0)).unwrap());
+        let huge = Arc::new(Solid::new_box(DVec3::splat(-10.0), DVec3::splat(200.0)).unwrap());
+        let difference = |target: u32, tool: u32| {
+            let job = Job {
+                inputs: vec![board.clone(), huge.clone(), Arc::new(Solid::empty())],
+                tasks: vec![Task::Boolean { target, tool, tool_transform: None, op: BooleanOp::Difference }],
+            };
+            let mut out = run(&job).unwrap();
+            let Some(Output::Solid { solid, display }) = out.pop() else { panic!("{out:?}") };
+            assert!(display.is_ok());
+            solid
         };
-        let out = run(&job).unwrap();
-        let [Output::Recipe { solid, failed, .. }] = out.as_slice() else { panic!("{out:?}") };
-        assert_eq!(failed, &[1]);
-        assert_eq!(solid.topology_counts(), board.topology_counts());
+        assert!(difference(0, 1).is_empty());
+        assert!(difference(2, 0).is_empty());
+        assert_eq!(difference(0, 2).topology_counts(), board.topology_counts());
     }
 
     #[test]
@@ -1180,9 +1245,9 @@ mod tests {
         assert!(failed.is_empty());
         assert_eq!(solid.pieces(), 1);
         assert_eq!(solid.record().faces.len(), l.record().faces.len());
-        // Nothing positive: refused.
+        // Nothing positive: nothing (§2.11 « Empty parts »).
         let nothing = Job { inputs: vec![board.clone()], tasks: vec![Task::Recipe { base: None, positives: vec![], negatives: vec![] }] };
-        assert!(run(&nothing).is_err());
+        assert!(matches!(run(&nothing).unwrap().as_slice(), [Output::Recipe { solid, .. }] if solid.is_empty()));
     }
 
     #[test]

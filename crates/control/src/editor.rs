@@ -659,12 +659,12 @@ mod tests {
             e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created[0]
         };
         let small = add(&mut e, 0.0, 10.0);
-        let huge = add(&mut e, -100.0, 1000.0);
-        // The small box minus one swallowing it: nothing left, the kernel fails.
+        let far = add(&mut e, 100.0, 10.0);
+        // The common volume of two boxes apart: nothing, the kernel fails.
         let op = Operation::Boolean {
             target: EntityPath::root(small),
-            tool: EntityPath::root(huge),
-            op: Boolean::Difference,
+            tool: EntityPath::root(far),
+            op: Boolean::Intersection,
             scope: Default::default(),
         };
         assert!(e.apply(op).is_err());

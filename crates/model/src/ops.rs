@@ -961,10 +961,9 @@ impl Document {
                 Ok(Outcome { bodies: vec![id], ..Outcome::default() })
             }
             Operation::DeleteBodies { target, bodies, scope } => {
+                // The last positive ones too: the part is then empty, an error shown (§2.11
+                // « Empty parts »).
                 let (part, guides, bodies) = &self.bodies_of(target, bodies, *scope)?;
-                if !bodies.is_empty() && self.part(*part)?.positives().all(|b| bodies.contains(&b.id)) {
-                    return Err(Error::Invalid(Refusal::LastPositive));
-                }
                 self.component_mut(*part)?.guides.retain(|g| !guides.contains(&g.id));
                 if !bodies.is_empty() {
                     let p = self.part_mut(*part)?;
@@ -1010,11 +1009,9 @@ impl Document {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
                 let p = self.part(part)?;
                 let flipped: Vec<Id> = p.bodies.iter().filter(|b| bodies.contains(&b.id) && b.sign != *sign).map(|b| b.id).collect();
+                // The last positive ones too: the part is then empty (§2.11 « Empty parts »).
                 if flipped.is_empty() {
                     return Ok(Outcome::default());
-                }
-                if *sign == Sign::Negative && p.positives().all(|b| flipped.contains(&b.id)) {
-                    return Err(Error::Invalid(Refusal::LastPositive));
                 }
                 for b in &mut self.part_mut(part)?.bodies {
                     if flipped.contains(&b.id) {
@@ -1501,12 +1498,15 @@ impl Document {
     /// negatives)`. When `added` is given (bodies just added) and all of one sign, the part as
     /// it is is kept: added negatives cut it, added positives are cut by every negative then
     /// joined to it (`(A ∪ B) − N = (A − N) ∪ (B − N)`); else everything is computed again. A
-    /// plain part (a single positive body, unplaced) is its body: no kernel.
+    /// plain part (a single positive body, unplaced) is its body, a part without bodies empty:
+    /// no kernel. Without material (no positive, a machining swallowing it) the shape is empty
+    /// (§2.11 « Empty parts »): the kernel says so.
     pub(crate) fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
         let p = self.part(part)?;
-        if p.is_plain() {
+        if p.is_plain() || p.bodies.is_empty() {
+            let empty = p.bodies.is_empty();
             let p = self.part_mut(part)?;
-            p.shape = None;
+            p.shape = empty.then(|| Arc::new(Solid::empty()));
             p.failed.clear();
             return Ok(());
         }
@@ -1515,19 +1515,21 @@ impl Document {
         let new: Vec<&Body> = p.bodies.iter().filter(|b| is_added(b)).collect();
         let current = p.shape().clone();
         // The bodies each index of the task's failures names: its positives, then its negatives.
+        let cut_current = !new.is_empty() && new.iter().all(|b| b.sign == Sign::Negative);
         let (base, positives, negatives): (Option<Arc<Solid>>, Vec<&Body>, Vec<&Body>) =
-            if !new.is_empty() && new.iter().all(|b| b.sign == Sign::Negative) {
+            if cut_current {
                 (None, Vec::new(), new)
             } else if !new.is_empty() && new.iter().all(|b| b.sign == Sign::Positive) {
                 (Some(current.clone()), new, p.negatives().collect())
             } else {
                 (None, p.positives().collect(), p.negatives().collect())
             };
-        let incremental = base.is_some() || positives.is_empty();
+        let incremental = base.is_some() || cut_current;
         let mut named: Vec<Id> = positives.iter().chain(&negatives).map(|b| b.id).collect();
         let mut pos: Vec<(Arc<Solid>, DAffine3)> = positives.iter().map(|b| placed(b)).collect();
-        if positives.is_empty() {
-            // Negatives added: they cut the part as it is.
+        if cut_current {
+            // Negatives added: they cut the part as it is (reported failed when it is empty: no
+            // body of the part's).
             pos.push((current, DAffine3::IDENTITY));
             named.insert(0, Id(u64::MAX));
         }
@@ -1539,7 +1541,7 @@ impl Document {
         if !incremental {
             p.failed.clear();
         }
-        p.failed.extend(failed.iter().filter_map(|k| named.get(*k).copied()).filter(|id| fresh.contains(id)));
+        p.failed.extend(failed.iter().filter_map(|k| named.get(*k).copied()).filter(|id| fresh.contains(id) && *id != Id(u64::MAX)));
         p.shape = Some(shape);
         Ok(())
     }

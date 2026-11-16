@@ -4,7 +4,7 @@
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::{t, tp};
-use solidsketch_model::{ComponentKind, Document, EntityPath, GuideShape, Id, Occurrence, Operation, Scope, Sign, Units, measure};
+use solidsketch_model::{ComponentKind, Document, EntityPath, FastMap, GuideShape, Id, Occurrence, Operation, Scope, Sign, Units, measure};
 use solidsketch_tools::{Editor, OptionValue, ToolKind};
 
 use crate::commands::Menu;
@@ -558,26 +558,50 @@ struct BodyRow<'d> {
     number: usize,
     /// The groups it lies in, the part's own body first: a click opens them.
     group: Vec<Id>,
+    /// Its siblings, itself included: the bodies of the part or group it lies in.
+    siblings: &'d [solidsketch_model::Body],
+}
+
+/// What a body is made of, its row's icon and name.
+#[derive(Clone, Copy)]
+enum Nature {
+    /// A profile extruded along the body's Z.
+    Extrusion,
+    /// A half profile turned about the body's Z.
+    Revolution,
+    /// A free B-rep (imported, a boolean's result, stretched askew).
+    Solid,
+    /// A group of bodies.
+    Group,
 }
 
 impl BodyRow<'_> {
-    fn label(&self) -> String {
-        let group = self.part.def_of(self.body).is_group();
-        let n = self.number;
-        match (self.body.sign, group) {
-            (Sign::Positive, false) => t!("panel.outliner.blank", number = n),
-            (Sign::Negative, false) => t!("panel.outliner.machining", number = n),
-            (Sign::Positive, true) => t!("panel.outliner.group", number = n),
-            (Sign::Negative, true) => t!("panel.outliner.machining_group", number = n),
+    fn nature(&self) -> Nature {
+        let def = self.part.def_of(self.body);
+        match &def.profile {
+            _ if def.is_group() => Nature::Group,
+            Some(f) if f.is_turned() => Nature::Revolution,
+            Some(_) => Nature::Extrusion,
+            None => Nature::Solid,
         }
     }
 
-    /// Its sign's: union for a body adding material, subtract for one taking it away (a group
-    /// too: its label and its fold say it is one).
+    fn label(&self) -> String {
+        let n = self.number;
+        match self.nature() {
+            Nature::Extrusion => t!("panel.outliner.extrusion", number = n),
+            Nature::Revolution => t!("panel.outliner.revolution", number = n),
+            Nature::Solid => t!("panel.outliner.solid", number = n),
+            Nature::Group => t!("panel.outliner.group", number = n),
+        }
+    }
+
     fn icon(&self) -> egui::ImageSource<'static> {
-        match self.body.sign {
-            Sign::Positive => icons::UNION,
-            Sign::Negative => icons::SUBTRACT,
+        match self.nature() {
+            Nature::Extrusion => icons::PRISM,
+            Nature::Revolution => icons::TURN,
+            Nature::Solid => icons::SOLID,
+            Nature::Group => icons::GROUP,
         }
     }
 }
@@ -597,6 +621,8 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
     let weak = ui.visuals().weak_text_color();
     let height = ui.spacing().interact_size.y;
     let mut over = None;
+    // The components in error at any depth, each found once (definitions are shared).
+    let mut errors = FastMap::default();
     area.show_rows(ui, height, rows.len(), |ui, range| {
         ui.set_min_width(ui.available_width());
         for row in rows.drain(range) {
@@ -636,9 +662,13 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
                     let eye = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
                     let label = ui
                         .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            // A part in several pieces: an error to correct (§2.11).
-                            let pieces = doc.part(o.component).map_or(1, |p| p.pieces());
-                            let broken = pieces > 1;
+                            // A part in several pieces, or empty: an error to correct (§2.11). A
+                            // body failed in it, at any depth, or a part in error in an assembly:
+                            // ⚠ too, its name as it is (the error is below, seen once unfolded).
+                            let part = doc.part(o.component).ok();
+                            let pieces = part.map_or(1, |p| p.pieces());
+                            let broken = pieces != 1;
+                            let inner = !broken && in_error(doc, o.component, &mut errors, 0);
                             let label = egui::RichText::new(occurrence_label(doc, o));
                             let label = if broken {
                                 label.color(ui.visuals().error_fg_color)
@@ -647,13 +677,19 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
                             } else {
                                 label
                             };
-                            let button = if broken {
+                            let button = if broken || inner {
                                 egui::Button::selectable(selected, (warning(ui), label))
                             } else {
                                 egui::Button::selectable(selected, label)
                             };
                             let r = ui.add(button.truncate());
-                            if broken { r.on_hover_text(t!("panel.outliner.pieces", count = pieces)) } else { r }
+                            match pieces {
+                                0 => r.on_hover_text(t!("panel.outliner.empty_part")),
+                                1 if inner && part.is_some() => r.on_hover_text(t!("panel.outliner.failed_inside_part")),
+                                1 if inner => r.on_hover_text(t!("panel.outliner.error_inside_assembly")),
+                                1 => r,
+                                _ => r.on_hover_text(t!("panel.outliner.pieces", count = pieces)),
+                            }
                         })
                         .inner;
                     (label, eye)
@@ -710,16 +746,16 @@ fn flatten<'d>(
             out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
             if open {
                 let open_group = (editor.context() == path.as_slice() && editor.open_part() == Some(o.id)).then(|| editor.open_group());
-                let row = |fold, number, group, body| OutlinerRow {
+                let row = |fold, number, group, body, siblings| OutlinerRow {
                     path: path.clone(),
                     occurrence: o,
                     fold,
                     hidden_above,
-                    body: Some(BodyRow { part: p, body, number, group }),
+                    body: Some(BodyRow { part: p, body, number, group, siblings }),
                 };
                 let at = (path.as_slice(), o.id);
                 body_rows(ctx, at, p, &p.bodies, &mut Vec::new(), open_group.unwrap_or(&[]), &mut |r: BodyLine<'d>| {
-                    out.push(row(r.0, r.1, r.2, r.3))
+                    out.push(row(r.0, r.1, r.2, r.3, r.4))
                 });
             }
             continue;
@@ -744,13 +780,40 @@ fn flatten<'d>(
     }
 }
 
-/// A body row's parts: its folding state (a group's), its number, the groups it lies in, the
-/// body.
-type BodyLine<'d> = (Option<egui::collapsing_header::CollapsingState>, usize, Vec<Id>, &'d solidsketch_model::Body);
+/// Is the component `id` in error, or does it hold one, at any depth: a part in several pieces
+/// or empty, or holding a body failed; an assembly holding such a part. Remembered in `memo`,
+/// `depth` assemblies down.
+fn in_error(doc: &Document, id: Id, memo: &mut FastMap<Id, bool>, depth: usize) -> bool {
+    if let Some(e) = memo.get(&id) {
+        return *e;
+    }
+    let e = match doc.part(id) {
+        Ok(p) => p.pieces() != 1 || holds_failure(p, &p.bodies, 0),
+        Err(_) => {
+            depth <= solidsketch_model::MAX_DEPTH
+                && doc.assembly(id).is_ok_and(|a| a.occurrences().iter().any(|o| in_error(doc, o.component, memo, depth + 1)))
+        }
+    };
+    memo.insert(id, e);
+    e
+}
 
-/// The rows of `bodies` (of the part `p` the occurrence `at` places, in the groups `group`),
-/// blanks first, each numbered in its order of creation; under an open group, its children.
-/// The groups along `open` (the group open in the part) are unfolded.
+/// Does one of `bodies` (of the part `p`, `depth` groups down) fail, or a body of a group among
+/// them, at any depth?
+fn holds_failure(p: &solidsketch_model::Part, bodies: &[solidsketch_model::Body], depth: usize) -> bool {
+    depth <= solidsketch_model::MAX_DEPTH
+        && bodies.iter().any(|b| p.is_failed(b.id) || holds_failure(p, p.def_of(b).children(), depth + 1))
+}
+
+/// A body row's parts: its folding state (a group's), its number, the groups it lies in, the
+/// body, its siblings.
+type BodyLine<'d> =
+    (Option<egui::collapsing_header::CollapsingState>, usize, Vec<Id>, &'d solidsketch_model::Body, &'d [solidsketch_model::Body]);
+
+/// The rows of `bodies` (of the part `p` the occurrence `at` places, in the groups `group`), in
+/// their order of creation — a row toggling its sign stays under the pointer —, each numbered;
+/// under an open group, its children. The groups along `open` (the group open in the part) are
+/// unfolded.
 fn body_rows<'d>(
     ctx: &egui::Context,
     at: (&[Id], Id),
@@ -763,12 +826,10 @@ fn body_rows<'d>(
     if group.len() > solidsketch_model::MAX_DEPTH {
         return;
     }
-    let mut listed: Vec<(usize, &solidsketch_model::Body)> = bodies.iter().enumerate().map(|(k, b)| (k + 1, b)).collect();
-    listed.sort_by_key(|(_, b)| b.sign == Sign::Negative);
-    for (number, b) in listed {
+    for (number, b) in bodies.iter().enumerate().map(|(k, b)| (k + 1, b)) {
         let children = p.def_of(b).children();
         if children.is_empty() {
-            out((None, number, group.clone(), b));
+            out((None, number, group.clone(), b, bodies));
             continue;
         }
         let id = egui::Id::unique(("outliner_body", at.0, at.1, group.as_slice(), b.id));
@@ -779,7 +840,7 @@ fn body_rows<'d>(
         }
         let opened = fold.is_open();
         group.pop();
-        out((Some(fold), number, group.clone(), b));
+        out((Some(fold), number, group.clone(), b, bodies));
         if opened {
             group.push(b.id);
             body_rows(ctx, at, p, children, group, open, out);
@@ -788,17 +849,22 @@ fn body_rows<'d>(
     }
 }
 
-/// One body's line of the outliner: its fold for a group, its kind's icon, its name; a click
-/// opens its part and selects the part's own body it lies in (Shift: added).
+/// One body's line of the outliner: its fold for a group, its nature's icon and name, its sign
+/// toggle at the right end; a click opens its part and selects the part's own body it lies in
+/// (Shift: added). The toggle flips its sign — the selected bodies' too when it is one of them,
+/// in its part or group opened —, in every occurrence of the part unless it is open for this
+/// one alone (« Celui-ci »); the only positive body among its siblings is refused (the error
+/// says why).
 fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, actions: &mut Vec<Action>) {
     let Some(b) = &row.body else { return };
     let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
     let open = editor.open_part_path().as_ref() == Some(&path);
     let selected = open && editor.showing_machinings() && editor.selection().contains(&b.body.id);
     let greyed = row.occurrence.hidden || row.hidden_above;
-    let tint = if greyed { ui.visuals().weak_text_color() } else { ui.visuals().text_color() };
+    let weak = ui.visuals().weak_text_color();
+    let tint = if greyed { weak } else { ui.visuals().text_color() };
     let layout = egui::Layout::left_to_right(egui::Align::Center);
-    let clicked = ui
+    let (clicked, toggled) = ui
         .allocate_ui_with_layout(egui::vec2(ui.available_width(), height), layout, |ui| {
             let spacing = ui.spacing().item_spacing.x;
             ui.spacing_mut().item_spacing.x = 0.0;
@@ -813,16 +879,62 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
             }
             ui.spacing_mut().item_spacing.x = spacing;
             ui.add(egui::Image::new(b.icon()).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-            let mut label = egui::RichText::new(b.label());
-            if b.part.is_failed(b.body.id) {
-                label = label.color(ui.visuals().error_fg_color);
-            } else if greyed {
-                label = label.color(tint);
-            }
-            ui.add(egui::Button::selectable(selected, label).truncate()).clicked()
+            // The sign toggle first, at the right end where a part's row has its eye, then the
+            // name in the room left.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (icon, tip) = match b.body.sign {
+                    Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
+                    Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
+                };
+                let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(weak);
+                let toggled = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
+                let clicked = ui
+                    .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        let failed = b.part.is_failed(b.body.id);
+                        let mut label = egui::RichText::new(b.label());
+                        if failed {
+                            label = label.color(ui.visuals().error_fg_color);
+                        } else if greyed {
+                            label = label.color(tint);
+                        }
+                        // A group failed (empty, or its boolean failing): ⚠ as a part in error,
+                        // an error to correct (§2.11 « Empty parts »); one holding a body failed,
+                        // at any depth: ⚠ too, its name as it is.
+                        let def = b.part.def_of(b.body);
+                        let inner = def.is_group() && !failed && holds_failure(b.part, def.children(), 0);
+                        if (failed && def.is_group()) || inner {
+                            let tip = match (inner, def.solid.is_empty()) {
+                                (true, _) => t!("panel.outliner.failed_inside_group"),
+                                (false, true) => t!("panel.outliner.empty_group"),
+                                (false, false) => t!("panel.outliner.failed_group"),
+                            };
+                            let button = egui::Button::selectable(selected, (warning(ui), label)).truncate();
+                            ui.add(button).on_hover_text(tip).clicked()
+                        } else {
+                            ui.add(egui::Button::selectable(selected, label).truncate()).clicked()
+                        }
+                    })
+                    .inner;
+                (clicked, toggled)
+            })
+            .inner
         })
         .inner;
-    if clicked {
+    if toggled {
+        let sign = match b.body.sign {
+            Sign::Positive => Sign::Negative,
+            Sign::Negative => Sign::Positive,
+        };
+        // Selected (in its part or group, opened): the selected siblings with it.
+        let bodies = match selected {
+            true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
+            false => vec![b.body.id],
+        };
+        // Its part open (here or in one of its groups): the scope it is open with.
+        let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
+        let scope = if part_open { editor.part_scope() } else { Scope::All };
+        actions.push(Action::Apply(Operation::SetSign { target: path, bodies, sign, scope }));
+    } else if clicked {
         actions.push(Action::SelectBody(path, b.body.id, ui.input(|i| i.modifiers.shift)));
     }
 }
@@ -919,11 +1031,10 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
                 if let ComponentKind::Part(p) = &c.kind {
                     // In the part's own axes: length, width, thickness as the part lies; the
                     // final shape's exact box, once the kernel has given it (§2.11). None for a
-                    // part in several pieces: an error to correct.
-                    let pieces = p.pieces();
-                    if pieces > 1 {
+                    // part in several pieces, or empty: an error to correct.
+                    if let Some(error) = pieces_error(p.pieces()) {
                         ui.label(t!("panel.entity_info.dimensions"));
-                        let text = egui::RichText::new(t!("panel.entity_info.pieces", count = pieces)).color(ui.visuals().error_fg_color);
+                        let text = egui::RichText::new(error).color(ui.visuals().error_fg_color);
                         cut_label(ui, text, field);
                         ui.end_row();
                     } else if let Some((lo, hi)) = editor.scene().bounds_of(p.shape()) {
@@ -995,6 +1106,16 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     }
 }
 
+/// What is wrong with a part of `pieces` lumps of material, if anything: a part is one piece of
+/// wood, in several or none (empty, §2.11 « Empty parts ») an error to correct.
+fn pieces_error(pieces: usize) -> Option<String> {
+    match pieces {
+        0 => Some(t!("panel.entity_info.empty")),
+        1 => None,
+        _ => Some(t!("panel.entity_info.pieces", count = pieces)),
+    }
+}
+
 /// The open part (ARCHITECTURE.md §2.9, §2.11): its name, how to close it, and its bodies in a
 /// flat list — its blanks first, then its machinings —, each numbered in its order of creation,
 /// with its solid's size, the failed ones marked; hovered and selected with the view. A click
@@ -1018,11 +1139,10 @@ fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions
             ui.weak(t!("panel.entity_info.editing_group_exit"));
         }
     }
-    let pieces = p.pieces();
-    if pieces > 1 {
+    if let Some(error) = pieces_error(p.pieces()) {
         ui.horizontal(|ui| {
             ui.add(warning(ui));
-            ui.colored_label(ui.visuals().error_fg_color, t!("panel.entity_info.pieces", count = pieces));
+            ui.colored_label(ui.visuals().error_fg_color, error);
         });
     }
     let shown = editor.showing_machinings();

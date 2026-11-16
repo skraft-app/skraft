@@ -4705,14 +4705,16 @@ fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_
     e.edit_profile();
     assert_eq!(e.tool_kind(), ToolKind::Profile);
 
-    // The block erased; the blank, last positive body, refused.
+    // The block erased; the blank, last positive body, too: the part is empty (§2.11 « Empty
+    // parts »).
     e.set_tool(ToolKind::Select);
     e.select(vec![block]);
     e.input(ToolInput::Key { key: Key::Delete, mods: Modifiers::default() });
     assert_eq!(e.document().resolve_part(&path).unwrap().1.bodies.len(), 1);
     e.select(vec![blank]);
     e.input(ToolInput::Key { key: Key::Delete, mods: Modifiers::default() });
-    assert_eq!(e.document().resolve_part(&path).unwrap().1.bodies.len(), 1);
+    let p = e.document().resolve_part(&path).unwrap().1.clone();
+    assert!(p.bodies.is_empty() && p.shape().is_empty() && p.pieces() == 0);
 
     // Reopened, a shape drawn takes material away again.
     e.exit();

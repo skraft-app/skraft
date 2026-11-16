@@ -738,11 +738,10 @@ fn machinings_are_copied_arrayed_moved_and_deleted() {
 }
 
 #[test]
-fn a_failing_machining_is_skipped_and_reported() {
+fn a_machining_swallowing_the_part_leaves_it_empty() {
     let mut h = History::new(Document::new());
     let (target, part, hole) = drilled_board(&mut h);
-    // A tool swallowing the board, as a moved machining could (put in by hand: a boolean
-    // refuses it at once).
+    // A tool swallowing the board, as a moved machining could.
     let mut doc = h.document().clone();
     let huge = doc.fresh_id();
     let tool = Arc::new(kernel::Solid::new_box(DVec3::splat(-100.0), DVec3::splat(1000.0)).unwrap());
@@ -752,7 +751,8 @@ fn a_failing_machining_is_skipped_and_reported() {
     p.bodies.push(Body::new(huge, def, Sign::Negative, DAffine3::IDENTITY));
     let mut h = History::new(doc);
 
-    // Moving the hole computes the part from the blank: the huge tool fails, the hole cuts.
+    // Moving the hole computes the part from the blank: the huge tool leaves nothing, no
+    // failure (§2.11 « Empty parts »).
     h.apply(Operation::TransformBodies {
         target: target.clone(),
         bodies: vec![hole],
@@ -761,15 +761,20 @@ fn a_failing_machining_is_skipped_and_reported() {
     })
     .unwrap();
     let p = h.document().part(part).unwrap();
-    assert!(p.is_failed(huge) && !p.is_failed(hole));
-    let blank = p.blank().topology_counts().0;
-    assert!(faces(h.document(), part) > blank);
+    assert!(p.shape().is_empty() && p.pieces() == 0 && p.failed.is_empty());
     // Saved with the file.
     let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
-    assert!(back.part(part).unwrap().is_failed(huge));
-    // Gone with it.
+    assert!(back.part(part).unwrap().shape().is_empty());
+    // A machining added to the empty part: still empty.
+    let drill = Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, -5.0), radius: 3.0, height: 30.0 };
+    let add = Operation::AddBody { target: target.clone(), primitive: drill, placement: DAffine3::IDENTITY, sign: Sign::Negative, scope: Scope::All };
+    h.apply(add).unwrap();
+    assert!(h.document().part(part).unwrap().shape().is_empty());
+    // The tool gone: the board back, drilled.
     h.apply(Operation::DeleteBodies { target, bodies: vec![huge], scope: Scope::All }).unwrap();
-    assert!(h.document().part(part).unwrap().failed.is_empty());
+    let p = h.document().part(part).unwrap();
+    assert!(p.failed.is_empty() && p.pieces() == 1);
+    assert!(faces(h.document(), part) > p.blank().topology_counts().0);
 }
 
 #[test]
@@ -2137,11 +2142,13 @@ fn a_positive_body_joins_the_part_and_every_negative_cuts_it() {
     assert!(faces(h.document(), part) >= before, "the hole goes through the tenon");
     assert!(h.document().part(part).unwrap().failed.is_empty());
 
-    // Deleting the blank keeps the tenon; deleting the last positive is refused.
+    // Deleting the blank keeps the tenon; deleting the last positive leaves the part empty
+    // (§2.11 « Empty parts »): no piece, its machinings kept.
     let blank = h.document().part(part).unwrap().positives().next().unwrap().id;
     h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![blank], scope: Scope::All }).unwrap();
-    let e = h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![tenon], scope: Scope::All }).unwrap_err();
-    assert!(matches!(e, Error::Invalid(Refusal::LastPositive)), "{e:?}");
+    h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![tenon], scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert!(p.shape().is_empty() && p.pieces() == 0 && p.positives().next().is_none() && p.negatives().count() > 0);
 
     // Saved and read back with its bodies.
     let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
@@ -2166,10 +2173,17 @@ fn a_body_s_sign_is_toggled() {
     let p = h.document().part(part).unwrap();
     assert_eq!(p.bodies.iter().map(|b| b.id).collect::<Vec<_>>(), vec![blank, hole]);
     assert_eq!(faces(h.document(), part), full);
-    // A sign already held changes nothing; the last blank made a machining is refused.
+    // A sign already held changes nothing; the last blank made a machining leaves the part
+    // empty (§2.11 « Empty parts »), saved and read back as it is; made a blank again, the part
+    // as it was.
     h.apply(set(vec![hole], Sign::Negative)).unwrap();
-    let e = h.apply(set(vec![blank, hole], Sign::Negative)).unwrap_err();
-    assert!(matches!(e, Error::Invalid(Refusal::LastPositive)), "{e:?}");
+    h.apply(set(vec![blank, hole], Sign::Negative)).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert!(p.shape().is_empty() && p.pieces() == 0 && p.failed.is_empty());
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), p);
+    h.apply(set(vec![blank], Sign::Positive)).unwrap();
+    assert_eq!(faces(h.document(), part), full);
     // Undone with the history.
     h.apply(set(vec![hole], Sign::Positive)).unwrap();
     h.undo();
@@ -2987,14 +3001,20 @@ fn bodies_are_edited_inside_a_group_for_every_copy() {
     h.apply(Operation::DeleteBodies { target: inside.clone(), bodies: vec![out.bodies[0]], scope: Scope::All }).unwrap();
     let both = 200.0 * 50.0 * 18.0 + 2.0 * (30.0 * 30.0 * 20.0 - hole(14.0));
     assert!((volume(h.document(), part) - both).abs() < 1e-3, "{}", volume(h.document(), part));
-    // Its last positive stays.
+    // Its last positive deleted: the group is empty, and failed in the part — every copy of it
+    // —, the board alone left (§2.11 « Empty parts »).
     let (_, g, _) = h.document().resolve_container(&inside).unwrap();
     let block = g.positives().next().unwrap().id;
-    let op = Operation::DeleteBodies { target: inside.clone(), bodies: vec![block], scope: Scope::All };
-    assert!(matches!(h.apply(op), Err(Error::Invalid(Refusal::LastPositive))));
+    h.apply(Operation::DeleteBodies { target: inside.clone(), bodies: vec![block], scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert!(p.solid_of(&group).is_empty());
+    assert!(p.bodies.iter().filter(|b| b.def == group.def).all(|b| p.is_failed(b.id)));
+    assert!((volume(h.document(), part) - 200.0 * 50.0 * 18.0).abs() < 1e-3, "{}", volume(h.document(), part));
     let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
     assert_eq!(back.part(part).unwrap(), h.document().part(part).unwrap());
-    // Undone in one step.
+    // Undone in one step each.
+    assert!(h.undo());
+    assert!((volume(h.document(), part) - both).abs() < 1e-3);
     assert!(h.undo());
     assert!((volume(h.document(), part) - (both - 2.0 * std::f64::consts::PI * 4.0 * 20.0)).abs() < 1e-3);
 }
