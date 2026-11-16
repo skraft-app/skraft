@@ -658,6 +658,13 @@ fn band_color(v: &egui::Visuals) -> egui::Color32 {
     if v.dark_mode { v.window_fill.lerp_to_gamma(v.text_color(), 0.07) } else { egui::Color32::WHITE }
 }
 
+/// The text and icons of a hidden row (itself or by an assembly above): the weak text halfway
+/// to the row's background (`band`: a part's bodies'), well behind the rows shown.
+fn hidden_color(v: &egui::Visuals, band: bool) -> egui::Color32 {
+    let back = if band { band_color(v) } else { v.window_fill };
+    v.weak_text_color().lerp_to_gamma(back, 0.5)
+}
+
 /// One line of the outliner across the whole list: its background — `band` that of a part's
 /// bodies, then the selection, or the hover (`lit`: hovered in the view) — painted under the
 /// widgets `add` lays in it from left to right. The response is the line's click; the buttons
@@ -712,6 +719,14 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
     margin.top = margin.top.max(gap);
     margin.bottom = margin.bottom.max(gap);
     let area = area.content_margin(margin);
+    // The ids handed out again since the last frame reborn (an empty model too: undone
+    // to it, then made again).
+    let key = ui.make_persistent_id("outliner_births");
+    let mut births = ui.ctx().data(|d| d.get_temp::<std::sync::Arc<Births>>(key)).unwrap_or_default();
+    if births.next_id != doc.next_id() {
+        std::sync::Arc::make_mut(&mut births).update(doc.next_id());
+        ui.ctx().data_mut(|d| d.insert_temp(key, births.clone()));
+    }
     if doc.root_assembly().occurrences().is_empty() {
         area.show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -726,12 +741,12 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
     let before = ui.ctx().data(|d| d.get_temp::<ActivePath>(key));
     if before.as_ref() != Some(&active) {
         if let Some(before) = &before {
-            before.fold_left(ui.ctx(), &active);
+            before.fold_left(ui.ctx(), &births, &active);
         }
         ui.ctx().data_mut(|d| d.insert_temp(key, active.clone()));
     }
     let mut rows = Vec::new();
-    flatten(ui.ctx(), editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
+    flatten(ui.ctx(), &births, editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
     let text = ui.visuals().text_color();
     let weak = ui.visuals().weak_text_color();
@@ -770,7 +785,7 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
             let tint = if selected {
                 on_selection
             } else if greyed {
-                weak
+                hidden_color(ui.visuals(), false)
             } else {
                 text
             };
@@ -897,7 +912,7 @@ impl ActivePath {
     }
 
     /// `self` left for `now`: the rows unfolded along `self` beyond what both share, folded.
-    fn fold_left(&self, ctx: &egui::Context, now: &Self) {
+    fn fold_left(&self, ctx: &egui::Context, births: &Births, now: &Self) {
         let fold = |id: egui::Id| {
             let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
             state.set_open(false);
@@ -905,20 +920,61 @@ impl ActivePath {
         };
         let shared = self.occurrences.iter().zip(&now.occurrences).take_while(|(a, b)| a == b).count();
         for k in shared..self.occurrences.len() {
-            fold(egui::Id::unique(("outliner", &self.occurrences[..k], self.occurrences[k])));
+            fold(births.occurrence_fold(&self.occurrences[..k], self.occurrences[k]));
         }
         // In the part open: its groups and the body whose profile was edited.
         let Some((&part, above)) = self.occurrences.split_last() else { return };
         let same_part = self.occurrences == now.occurrences;
         let shared = if same_part { self.groups.iter().zip(&now.groups).take_while(|(a, b)| a == b).count() } else { 0 };
         for k in shared..self.groups.len() {
-            fold(egui::Id::unique(("outliner_body", above, part, &self.groups[..k], self.groups[k])));
+            fold(births.body_fold((above, part), &self.groups[..k], self.groups[k]));
         }
         if let Some(body) = self.profile
             && !(same_part && self.groups == now.groups && now.profile == Some(body))
         {
-            fold(egui::Id::unique(("outliner_body", above, part, self.groups.as_slice(), body)));
+            fold(births.body_fold((above, part), &self.groups, body));
         }
+    }
+}
+
+/// The births of the ids handed out again: an undo takes the document's next id back, the
+/// next things made take the ids of those undone. A row's fold is kept under its ids salted
+/// with their births, so that a new thing does not open as the one undone was (a copy
+/// unfolded, undone, made again).
+#[derive(Clone, Debug, Default)]
+struct Births {
+    /// The document's next id when last seen.
+    next_id: u64,
+    /// The ids given back by undos, each with how many times.
+    of: FastMap<Id, u32>,
+}
+
+impl Births {
+    /// The document's next id now `next_id`: the ids above it, given back, reborn.
+    fn update(&mut self, next_id: u64) {
+        for id in next_id..self.next_id {
+            *self.of.entry(Id(id)).or_default() += 1;
+        }
+        self.next_id = next_id;
+    }
+
+    /// The births of `ids`, folded into one salt (0 while no id was given back).
+    fn salt<'a>(&self, ids: impl IntoIterator<Item = &'a Id>) -> u64 {
+        if self.of.is_empty() {
+            return 0;
+        }
+        ids.into_iter().fold(0, |h: u64, id| h.rotate_left(7) ^ u64::from(self.of.get(id).copied().unwrap_or(0)))
+    }
+
+    /// The fold of the occurrence `id` under the occurrences `path`.
+    fn occurrence_fold(&self, path: &[Id], id: Id) -> egui::Id {
+        egui::Id::unique(("outliner", path, id, self.salt(path.iter().chain([&id]))))
+    }
+
+    /// The fold of the body `id` in the groups `group` of the part of the occurrence `at`.
+    fn body_fold(&self, at: (&[Id], Id), group: &[Id], id: Id) -> egui::Id {
+        let salt = self.salt(at.0.iter().chain([&at.1]).chain(group).chain([&id]));
+        egui::Id::unique(("outliner_body", at.0, at.1, group, id, salt))
     }
 }
 
@@ -927,6 +983,7 @@ impl ActivePath {
 #[allow(clippy::too_many_arguments)]
 fn flatten<'d>(
     ctx: &egui::Context,
+    births: &Births,
     editor: &Editor,
     doc: &'d Document,
     assembly: Id,
@@ -948,7 +1005,7 @@ fn flatten<'d>(
         }
         if let Ok(p) = doc.part(o.component) {
             // Its bodies under it, a single one too.
-            let id = egui::Id::unique(("outliner", path.as_slice(), o.id));
+            let id = births.occurrence_fold(path, o.id);
             let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
             // Open while the part is.
             if editor.context() == path.as_slice() && editor.open_part() == Some(o.id) {
@@ -968,7 +1025,9 @@ fn flatten<'d>(
                 let at = (path.as_slice(), o.id);
                 // The profile edited, in the group open: its body unfolded.
                 let open = Open { group: open_group.unwrap_or(&[]), profile: open_group.and(editor.profile_body()) };
-                body_rows(ctx, at, p, &p.bodies, &mut Vec::new(), open, &mut |r: BodyLine<'d>| out.push(row(r.0, r.1, r.2, r.3, r.4, r.5)));
+                body_rows(ctx, births, at, p, &p.bodies, &mut Vec::new(), open, &mut |r: BodyLine<'d>| {
+                    out.push(row(r.0, r.1, r.2, r.3, r.4, r.5))
+                });
             }
             continue;
         }
@@ -976,7 +1035,7 @@ fn flatten<'d>(
             out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None });
             continue;
         }
-        let id = egui::Id::unique(("outliner", path.as_slice(), o.id));
+        let id = births.occurrence_fold(path, o.id);
         let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
         // Open along the context being edited.
         if editor.context().starts_with(&[path.as_slice(), &[o.id]].concat()) {
@@ -986,7 +1045,7 @@ fn flatten<'d>(
         out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
         if open {
             path.push(o.id);
-            flatten(ctx, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
+            flatten(ctx, births, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
             path.pop();
         }
     }
@@ -1033,8 +1092,10 @@ struct Open<'a> {
 /// their order of creation — a row toggling its sign stays under the pointer —, each numbered;
 /// under an open group, its children. The groups along `open` (the group open in the part) are
 /// unfolded.
+#[allow(clippy::too_many_arguments)]
 fn body_rows<'d>(
     ctx: &egui::Context,
+    births: &Births,
     at: (&[Id], Id),
     p: &'d solidsketch_model::Part,
     bodies: &'d [solidsketch_model::Body],
@@ -1060,7 +1121,7 @@ fn body_rows<'d>(
             out((None, number, group.clone(), b, bodies, false));
             continue;
         }
-        let id = egui::Id::unique(("outliner_body", at.0, at.1, group.as_slice(), b.id));
+        let id = births.body_fold(at, group, b.id);
         let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
         // Along the group open, or its profile edited: unfolded.
         let edited = open.profile == Some(b.id) && open.group == group.as_slice();
@@ -1078,7 +1139,7 @@ fn body_rows<'d>(
             out((None, number, group.clone(), b, bodies, true));
         } else {
             group.push(b.id);
-            body_rows(ctx, at, p, children, group, open, out);
+            body_rows(ctx, births, at, p, children, group, open, out);
             group.pop();
         }
     }
@@ -1095,7 +1156,7 @@ fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &OutlinerRow, height: f3
     let tint = if selected {
         v.selection.stroke.color
     } else if row.occurrence.hidden || row.hidden_above {
-        v.weak_text_color()
+        hidden_color(v, true)
     } else {
         v.text_color()
     };
@@ -1134,7 +1195,7 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
     let tint = if selected {
         v.selection.stroke.color
     } else if greyed {
-        weak
+        hidden_color(v, true)
     } else {
         v.text_color()
     };

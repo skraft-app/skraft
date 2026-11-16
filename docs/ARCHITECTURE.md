@@ -868,6 +868,11 @@ Decided on 2026-11-09.
   unfolded along it beyond what both share is folded (`ActivePath::fold_left`, the last path
   kept per document in egui's memory). The fold arrows stay, to look into an assembly or a
   part without entering it.
+- **A new row opens folded** (2026-11-16): an undo takes the document's next id back, so the
+  next copy takes the id of the one undone and inherited its fold (egui keeps it by id). The
+  ids given back (`Document::next_id` going down) are reborn (`Births`, per document in egui's
+  memory): a row's fold is kept under its ids salted with their births, nothing salted while
+  no undo gave an id back. A step redone opens folded as well.
 - **The entity info shows the selection**, whatever it is (2026-11-16): an assembly or a part
   (its name, occurrence, material, dimensions, position…), a guide, and a part open, the body
   or group selected in it — its name as the navigator gives it (« Extrusion 3 »), blank or
