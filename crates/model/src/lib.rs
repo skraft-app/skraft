@@ -15,6 +15,7 @@ mod profile;
 mod settings;
 mod step;
 mod stretch;
+mod weld;
 
 #[cfg(test)]
 mod tests;
@@ -37,6 +38,7 @@ pub use solidsketch_kernel::Primitive;
 pub use step::StepReport;
 pub use stretch::StretchedPart;
 pub use stretch::{BodyStretch, DefChange};
+pub use weld::{WELD, Weld};
 
 /// Why an operation (or a file) was refused. Shown to the user: each kind has its text in
 /// the catalog (`error.model.*`, `error.file.*`).

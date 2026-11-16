@@ -381,6 +381,19 @@ Body { id, placement: T, sign: Positive | Negative, source }
   body computes the part again from the union of the positives (worth caching).
 - **Failures**: a body whose boolean fails is skipped and reported by its id, the others still
   computed, as a failed machining today (`Part::failed`).
+- **Plane welding** (2026-11-16, `crates/model/src/weld.rs`): after every operation, a planar
+  face of a body it changed that lies within `WELD` (1e-4 mm) of a parallel planar face of a
+  body of the same part it left alone is put on that face exactly, its body stretched by the
+  difference (its profile kept, a definition it shares copied first); the part is then computed
+  again, in the same job. Faces a few 1e-5 mm apart come from values read on the `f32` display
+  mesh or from sums of rounded moves; the booleans keep what lies between them (a negative a
+  hair short left a 14 nm skin). No drift, by four rules: a face goes onto a face that is there
+  (its exact value, never a mean); the bodies the operation left alone are the references and
+  never move; a face goes onto the nearest reference, once (a face welded is no reference: no
+  chains); never onto a face of its own body. Only extruded bodies move (caps along their axis,
+  straight sides across it); any body with planar faces is a reference. Each weld is in the
+  operation's `Outcome::welds` and the journal (`welded`: part, body, reference, distance).
+  Files saved before are not welded when opened.
 
 **The cut list reads the final** (supersedes §2.3's blank box): the part's dimensions are the
 exact box of the **final** B-rep in the **part's** axes, the grain along their red axis. A

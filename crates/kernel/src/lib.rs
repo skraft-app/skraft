@@ -226,6 +226,12 @@ impl Solid {
         &self.record
     }
 
+    /// The exact planes of its planar faces, in its coordinates (read from the record: no
+    /// tessellation, so anywhere).
+    pub fn planes(&self) -> impl Iterator<Item = Plane> + '_ {
+        self.record.faces.iter().filter_map(|f| snaps::plane_of(&f.surface))
+    }
+
     /// Axis-aligned bounds of the solid's vertices (`None` for a body without vertices).
     pub fn vertex_bounds(&self) -> Option<(DVec3, DVec3)> {
         let mut it = self.record.vertices.iter().map(|v| DVec3::from_array(v.point));

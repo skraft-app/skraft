@@ -2543,3 +2543,123 @@ impl Outcome {
         self.bodies.clone()
     }
 }
+
+// ---- plane welding (§2.11) -------------------------------------------------------------------
+
+/// A board 600 × 300 × 18 at the origin, as a part; its occurrence.
+fn weld_board(h: &mut History) -> Id {
+    add(h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0, 300.0, 18.0) })
+}
+
+fn add_body(h: &mut History, board: Id, primitive: Primitive, sign: Sign) -> Outcome {
+    let target = EntityPath::root(board);
+    h.apply(Operation::AddBody { target, primitive, placement: DAffine3::IDENTITY, sign, scope: Scope::All }).unwrap()
+}
+
+/// The bounds, in the part's axes, of its body `id`.
+fn body_bounds(h: &History, board: Id, id: Id) -> (DVec3, DVec3) {
+    let (_, p, _) = h.document().resolve_part(&EntityPath::root(board)).unwrap();
+    let b = p.body(id).unwrap();
+    let (lo, hi) = p.solid_of(b).vertex_bounds().unwrap();
+    let (a, c) = (b.placement.transform_point3(lo), b.placement.transform_point3(hi));
+    (a.min(c), a.max(c))
+}
+
+fn faces_of(h: &History, board: Id) -> usize {
+    let (_, p, _) = h.document().resolve_part(&EntityPath::root(board)).unwrap();
+    p.shape().record().faces.len()
+}
+
+#[test]
+fn a_hole_a_hair_short_of_a_face_goes_through() {
+    let mut h = History::new(Document::new());
+    let board = weld_board(&mut h);
+    // A hole from 1.4e-5 above the bottom to the top: welded onto the bottom, through.
+    let hole = Primitive::Cylinder { origin: DVec3::new(100.0, 100.0, 1.4e-5), radius: 10.0, height: 18.0 - 1.4e-5 };
+    let out = add_body(&mut h, board, hole, Sign::Negative);
+    let id = out.bodies[0];
+    assert_eq!(out.welds.len(), 1, "{:?}", out.welds);
+    let w = out.welds[0];
+    assert_eq!(w.body, id);
+    assert!((w.distance + 1.4e-5).abs() < 1e-12, "{w:?}");
+    let (lo, hi) = body_bounds(&h, board, id);
+    assert!(lo.z.abs() < 1e-12 && (hi.z - 18.0).abs() < 1e-12, "{lo} {hi}");
+    // Through: the board's six faces and the hole's side, no skin.
+    assert_eq!(faces_of(&h, board), 7);
+    // One undo step.
+    h.undo();
+    assert_eq!(h.document().resolve_part(&EntityPath::root(board)).unwrap().1.bodies.len(), 1);
+}
+
+#[test]
+fn faces_further_than_the_weld_stay_where_they_are() {
+    let mut h = History::new(Document::new());
+    let board = weld_board(&mut h);
+    let hole = Primitive::Cylinder { origin: DVec3::new(100.0, 100.0, 2.0 * WELD), radius: 10.0, height: 18.0 - 2.0 * WELD };
+    let out = add_body(&mut h, board, hole, Sign::Negative);
+    assert!(out.welds.is_empty(), "{:?}", out.welds);
+    assert!((body_bounds(&h, board, out.bodies[0]).0.z - 2.0 * WELD).abs() < 1e-12);
+}
+
+#[test]
+fn a_side_goes_onto_a_side_and_the_references_stay() {
+    let mut h = History::new(Document::new());
+    let board = weld_board(&mut h);
+    // A groove along X, its far side 3e-5 short of the board's edge (y = 300), its bottom 6 deep.
+    let groove = Primitive::Box { origin: DVec3::new(-10.0, 280.0, 12.0), size: DVec3::new(620.0, 20.0 - 3e-5, 10.0) };
+    let out = add_body(&mut h, board, groove, Sign::Negative);
+    assert_eq!(out.welds.len(), 1, "{:?}", out.welds);
+    let (lo, hi) = body_bounds(&h, board, out.bodies[0]);
+    assert!((hi.y - 300.0).abs() < 1e-12 && (lo.y - 280.0).abs() < 1e-12, "{lo} {hi}");
+    // The board, left alone, did not move.
+    let (_, p, _) = h.document().resolve_part(&EntityPath::root(board)).unwrap();
+    let blank = p.bodies[0].id;
+    assert_eq!(body_bounds(&h, board, blank), (DVec3::ZERO, DVec3::new(600.0, 300.0, 18.0)));
+}
+
+/// Bodies dropped one by one a little off the board's planes and off each other's: each face
+/// moves once, onto a face that was there, never more than the weld away from where it was
+/// asked; then two parallel faces of two bodies are one plane or the weld apart at least.
+#[test]
+fn welding_never_drifts() {
+    let mut h = History::new(Document::new());
+    let board = weld_board(&mut h);
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed >> 11) as f64 / (1u64 << 53) as f64
+    };
+    // Places on a grid of 5 mm, each a jitter of up to twice the weld away.
+    let mut asked: Vec<(Id, DVec3, DVec3)> = Vec::new();
+    for _ in 0..24 {
+        let mut at = || (next() * 20.0).floor() * 5.0 + (next() - 0.5) * 4.0 * WELD;
+        let (x, y, z) = (at() + 50.0, at() + 50.0, at() * 0.1);
+        let size = DVec3::new(at().abs() + 20.0, at().abs() + 20.0, at().abs() * 0.1 + 5.0);
+        let lo = DVec3::new(x, y, z);
+        let out = add_body(&mut h, board, Primitive::Box { origin: lo, size }, Sign::Negative);
+        asked.push((out.bodies[0], lo, lo + size));
+        // The bodies welded are this one only.
+        assert!(out.welds.iter().all(|w| w.body == out.bodies[0]), "{:?}", out.welds);
+    }
+    let (_, p, _) = h.document().resolve_part(&EntityPath::root(board)).unwrap();
+    let mut planes: Vec<(Id, usize, f64)> = Vec::new();
+    for (id, lo, hi) in &asked {
+        let (a, b) = body_bounds(&h, board, *id);
+        for k in 0..3 {
+            assert!((a[k] - lo[k]).abs() < WELD && (b[k] - hi[k]).abs() < WELD, "{id:?}: {a} {b}, asked {lo} {hi}");
+            planes.push((*id, k, a[k]));
+            planes.push((*id, k, b[k]));
+        }
+    }
+    planes.extend([(p.bodies[0].id, 2, 0.0), (p.bodies[0].id, 2, 18.0)]);
+    for (i, (ia, ka, a)) in planes.iter().enumerate() {
+        for (ib, kb, b) in &planes[i + 1..] {
+            if ia != ib && ka == kb {
+                let d = (a - b).abs();
+                assert!(!(1e-9..WELD - 1e-12).contains(&d), "{ia:?} and {ib:?} along {ka}: {a} {b}");
+            }
+        }
+    }
+}

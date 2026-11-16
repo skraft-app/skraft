@@ -41,6 +41,15 @@ pub enum Event {
         op: String,
         revision: u64,
     },
+    /// A face put onto another after the operation before (docs/ARCHITECTURE.md §2.11's
+    /// welding): a face of the body `body` of the part `part` moved by `distance` (mm) onto one
+    /// of the body `reference`.
+    Welded {
+        part: u64,
+        body: u64,
+        reference: u64,
+        distance: f64,
+    },
     /// An operation refused, or failed in the kernel.
     Failed {
         op: String,

@@ -186,6 +186,9 @@ pub fn entry(e: &Entry) -> Value {
         Event::Tool(k) => json!({ "tool": k.id() }),
         Event::Option { key, value } => json!({ "option": { "key": key, "value": value } }),
         Event::Applied { op, revision } => json!({ "applied": { "op": op, "revision": revision } }),
+        Event::Welded { part, body, reference, distance } => {
+            json!({ "welded": { "part": part, "body": body, "reference": reference, "distance": distance } })
+        }
         Event::Failed { op, error } => json!({ "failed": { "op": op, "error": error } }),
         Event::Job { what, ms, error } => json!({ "job": {
             "for": match what { JobKind::Operation => "operation", JobKind::Mesh => "mesh" },
