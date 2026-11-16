@@ -103,6 +103,10 @@ pub enum Operation {
     RenameOccurrence { context: Id, occurrence: Id, name: String },
     /// Names a part or an assembly; a named component is kept while unused.
     RenameComponent { component: Id, name: String },
+    /// Names the body definition `def` of the part `part` (§2.11 « Body names »): every body
+    /// of it, copies included, shows the name; empty to clear (named by its nature again).
+    /// Names need not be unique. No scope: the shape is left alone.
+    RenameBodyDef { part: Id, def: Id, name: String },
     /// Moves occurrences of `context` into a new assembly, placed by one new occurrence.
     MakeAssembly { context: Id, entities: Vec<Id>, name: Option<String> },
     /// Replaces an occurrence of an assembly by the assembly's occurrences, placed by it.
@@ -350,7 +354,9 @@ impl Operation {
             }
             Operation::Copies { .. } | Operation::CopyBodies { .. } => t!("operation.copies"),
             Operation::Delete { .. } => t!("operation.delete"),
-            Operation::RenameOccurrence { .. } | Operation::RenameComponent { .. } => t!("operation.rename"),
+            Operation::RenameOccurrence { .. } | Operation::RenameComponent { .. } | Operation::RenameBodyDef { .. } => {
+                t!("operation.rename")
+            }
             Operation::MakeAssembly { .. } => t!("operation.make_assembly"),
             Operation::Explode { .. } => t!("operation.explode"),
             Operation::MakeUnique { .. } | Operation::MakeBodiesUnique { .. } => t!("operation.make_unique"),
@@ -692,8 +698,14 @@ impl Document {
                 if bodies.iter().all(|b| b.sign == Sign::Negative) {
                     bodies.iter_mut().for_each(|b| b.sign = Sign::Positive);
                 }
+                // A single body named: the new part takes its name (§2.11 « Body names »).
+                let base = match &bodies[..] {
+                    [b] => defs.iter().find(|d| d.id == b.def).and_then(|d| d.name.clone()),
+                    _ => None,
+                };
+                let base = base.unwrap_or_else(|| t!("default_name.part"));
                 let part = Part { defs, bodies, shape: None, failed: Default::default(), faces: Default::default() };
-                let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(part));
+                let part = self.insert_component(&base, false, ComponentKind::Part(part));
                 self.component_mut(part)?.guides = fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: *s }).collect();
                 self.recompute(part, None, solver)?;
                 let id = self.fresh_id();
@@ -831,6 +843,13 @@ impl Document {
                 let c = self.component_mut(*component)?;
                 c.name = name.clone();
                 c.named = true;
+                Ok(Outcome::default())
+            }
+            Operation::RenameBodyDef { part, def, name } => {
+                let p = self.part_mut(*part)?;
+                let d = p.defs.iter_mut().find(|d| d.id == *def).ok_or(Error::NotFound(*def))?;
+                let name = name.trim();
+                d.name = (!name.is_empty()).then(|| name.to_owned());
                 Ok(Outcome::default())
             }
             Operation::MakeAssembly { context, entities, name } => {
@@ -1552,8 +1571,10 @@ impl Document {
         }
         let (part, p, t_target) = self.resolve_part(target)?;
         let p = p.clone();
-        let (_, q, t_tool) = self.resolve_part(tool)?;
+        let (tool_part, q, t_tool) = self.resolve_part(tool)?;
         let q = q.clone();
+        // A tool the user named names the body it becomes (§2.11 « Body names »).
+        let named = self.component(tool_part).ok().filter(|c| c.named).map(|c| c.name.clone());
         let tool_ctx = self.context_of(&tool.instances)?;
         // The tool, in the target part's axes.
         let relative = t_target.inverse() * t_tool;
@@ -1565,7 +1586,7 @@ impl Document {
             Boolean::Difference => {
                 let moved = if is_identity(&relative) { None } else { Some(relative) };
                 let result = solver.boolean(p.shape(), q.shape(), moved, op.into())?;
-                let (defs, mut body) = self.tool_as_body(&q, &relative);
+                let (defs, mut body) = self.tool_as_body(&q, &relative, named);
                 body.sign = Sign::Negative;
                 let mut next = p;
                 next.defs.extend(defs);
@@ -1577,7 +1598,7 @@ impl Document {
             // copies of its bodies, its machinings cutting that group only (§2.11 « Body
             // groups »). Added as it is: cut by the target's machinings, joined to its shape.
             Boolean::Union => {
-                let (defs, body) = self.tool_as_body(&q, &relative);
+                let (defs, body) = self.tool_as_body(&q, &relative, named);
                 let id = body.id;
                 let p = self.part_mut(part)?;
                 p.defs.extend(defs);
@@ -1674,14 +1695,22 @@ impl Document {
     /// The part `q` as one positive body of another part, placed by `relative` in its axes,
     /// with the definitions it needs (fresh ids): its single positive body when it is plain
     /// (its profile kept), else a group of copies of its bodies, the group's result `q`'s shape.
-    fn tool_as_body(&mut self, q: &Part, relative: &DAffine3) -> (Vec<BodyDef>, Body) {
+    /// `named`: the name of `q`'s part, given by the user, for the body's definition unless it
+    /// has one.
+    fn tool_as_body(&mut self, q: &Part, relative: &DAffine3, named: Option<String>) -> (Vec<BodyDef>, Body) {
         if q.is_plain() {
-            let (defs, mut bodies) = self.copies_of_bodies(&q.defs, &q.bodies, relative);
-            return (defs, bodies.remove(0));
+            let (mut defs, mut bodies) = self.copies_of_bodies(&q.defs, &q.bodies, relative);
+            let body = bodies.remove(0);
+            if let Some(d) = defs.iter_mut().find(|d| d.id == body.def)
+                && d.name.is_none()
+            {
+                d.name = named;
+            }
+            return (defs, body);
         }
         let (mut defs, children) = self.copies_of_bodies(&q.defs, &q.bodies, &DAffine3::IDENTITY);
         let failed = q.bodies.iter().zip(&children).filter(|(b, _)| q.failed.contains(&b.id)).map(|(_, c)| c.id).collect();
-        let group = BodyDef::group(self.fresh_id(), q.shape().clone(), children, failed);
+        let group = BodyDef { name: named, ..BodyDef::group(self.fresh_id(), q.shape().clone(), children, failed) };
         let body = Body::new(self.fresh_id(), group.id, Sign::Positive, *relative);
         defs.push(group);
         (defs, body)

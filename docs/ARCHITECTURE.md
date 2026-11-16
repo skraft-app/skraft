@@ -607,6 +607,34 @@ Part    = the root group (+ material, grain, cut list)
      machining, drawn as its result: what it spares inside is not shown in red. X-ray needs
      nothing more (the ghosts are see-through already).
 
+**Body names** (decided on 2026-11-16, questions / answers; built the same day, branch
+`feature/body-names`): a body definition takes a name given by the user, as a part's.
+- **On the definition** (`BodyDef::name`, `Option<String>`), not the body: every copy shows it,
+  as every occurrence of a part shows the part's name. A name per body (as an occurrence's) may
+  come later. None: the interface names it by its nature and rank (« Solide 3 », « Extrusion
+  2 »), the icon its nature's either way.
+- **Not unique**: unlike parts' names, they never reach the cut list; only for finding one's
+  way. No scope either: the name is shared by every occurrence of the part, the shape left
+  alone (no kernel).
+- **`Operation::RenameBodyDef { part, def, name }`**, trimmed, empty to clear (« Renommer » in
+  the history).
+- **Kept** wherever the definition goes: its shape changed (stretch, profile, a boolean's
+  result, welding), its copies (copied, arrayed, made unique, pasted), a group flattened (the
+  children's definitions are the same).
+- **Across a part's boundary**: a part the user named (`Component::named`) becoming a body —
+  pasted into a part (`Document::parts_as_bodies`), the tool of a union or a difference
+  (`tool_as_body`) — names that body's definition, unless it has a name; the other way, bodies
+  pasted out as a new part (`PasteAsPart`) name it after their single body's definition, if
+  named (made unique as any part's name).
+- **Interface**: the navigator shows the name; a double-click on a body row, or F2 while it is
+  the one body selected, edits it in place (Enter or a click away names it, emptied it clears,
+  Esc keeps it). The entity info's « Nom » of a body or group is a field (emptied: cleared).
+  A part's or an assembly's row the same (asked on 2026-11-16): its component's name edited in
+  place (`RenameComponent`; emptied, it is kept; one taken, refused and told), not the
+  occurrence's (the entity info's « Occurrence »).
+- **No naming at creation**: « Nommage des pièces » (§6 quattuordecies) stays for parts; a body
+  added to an open part is not asked its name.
+
 **Format**: version 1 until the release (§8), no compatibility to keep.
 
 **Open**:

@@ -372,6 +372,11 @@ pub enum Sign {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BodyDef {
     pub id: Id,
+    /// Its name, given by the user (§2.11 « Body names »): every body of it shows it. None:
+    /// the interface names it by its nature and rank (« Solide 3 »). Kept when its shape
+    /// changes (a stretch, a boolean, a new profile) and by its copies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub solid: Arc<Solid>,
     /// The profile `solid` is built from (§6 nonies), in its axes: the solid is then its
     /// cache. None for a free shape (imported, a boolean's result, stretched askew) and a group.
@@ -387,7 +392,7 @@ pub struct BodyDef {
 impl BodyDef {
     /// A free shape (no profile), local.
     pub fn new(id: Id, solid: Arc<Solid>) -> Self {
-        BodyDef { id, solid, profile: None, source: BodySource::Local, group: None }
+        BodyDef { id, name: None, solid, profile: None, source: BodySource::Local, group: None }
     }
 
     /// A group of `children`, `solid` their result, `failed` those whose boolean failed.
