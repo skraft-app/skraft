@@ -101,6 +101,8 @@ const MIN_MARQUEE: f64 = 3.0;
 const KEEP: f64 = 1.0;
 /// Shorter than this (mm), nothing.
 const MIN: f64 = 1e-3;
+/// An exact move (typed, snapped) shorter than this (mm) is none: the end is already there.
+const EXACT_MIN: f64 = 1e-9;
 /// Closer than this, two cutters are one; at or past it from an end, a cutter is removed (ratio).
 const SAME_CUT: f64 = 1e-3;
 
@@ -975,8 +977,10 @@ impl StretchTool {
 
     /// The stretch done by `d`: the operation, the cutters set again in the middle of the gaps
     /// between the matter ([`kept_cutters`]); back to the grips, on the same part (the axis kept: an interior handle leaves the
-    /// cursor away from the grips).
-    fn finish(&mut self, cx: &Cx<'_>, d: f64) -> Vec<Command> {
+    /// cursor away from the grips). A move shorter than [`MIN`] is a click without a move, unless
+    /// `exact` (typed, taken again, or snapped to a feature or a face): any length asked for is
+    /// made, a tiny gap closed too.
+    fn finish(&mut self, cx: &Cx<'_>, d: f64, exact: bool) -> Vec<Command> {
         let overall = self.overall();
         let measure = match &self.state {
             State::Stretch { target, k, .. } => self.measure(target, *k, d),
@@ -985,7 +989,7 @@ impl StretchTool {
         let State::Stretch { target, k, side, handle, spans, .. } = std::mem::replace(&mut self.state, State::Grips) else {
             return vec![];
         };
-        if d.abs() < MIN {
+        if d.abs() < if exact { EXACT_MIN } else { MIN } {
             return vec![];
         }
         let mut op = self.operation(cx, &target, k, side, handle, d);
@@ -1027,7 +1031,7 @@ impl StretchTool {
             };
             return vec![Command::Say(say)];
         }
-        self.finish(cx, d)
+        self.finish(cx, d, true)
     }
 
     fn format(&self, cx: &Cx<'_>, v: f64) -> String {
@@ -1053,28 +1057,27 @@ impl StretchTool {
         let opposite = handle.is_none().then(|| target.world(target.grip(k, -side)));
         self.snap = None;
         let near_start = cx.camera.project(o, cx.size).is_some_and(|at| at.distance(px) <= START_PX);
-        let mut moved = if near_start {
-            0.0
-        } else {
-            // Not on what the preview draws elsewhere — the parts stretched, or what of the
-            // assemblies is stretched or moved (and, under the scope « all », their other
-            // occurrences): they are not where they were.
-            let paths = target.paths();
-            let keep = |w: &crate::scene::Owner<'_>| match (&target.bodies, w.piece) {
-                // Bodies stretched: those only.
-                (Some(ids), crate::scene::Piece::Blank(id) | crate::scene::Piece::Tool(id)) => !ids.contains(&id),
-                (Some(_), _) => !cx.previewed.contains_key(w.path),
-                (None, _) => !paths.contains(w.path) && !cx.previewed.contains_key(w.path),
-            };
-            let inf = cx.infer(px, keep, None);
-            match inf.filter(|i| stable_along(i, dir) && opposite.is_none_or(|op| (i.point - op).dot(dir).abs() > MIN)) {
-                Some(i) => {
-                    let m = (i.point - o).dot(dir) * side;
-                    self.snap = Some(i);
-                    m
-                }
-                None => (cx.ray(px).closest_on_line(o, dir) - o).dot(dir) * side,
+        // Not on what the preview draws elsewhere — the parts stretched, or what of the
+        // assemblies is stretched or moved (and, under the scope « all », their other
+        // occurrences): they are not where they were.
+        let paths = target.paths();
+        let keep = |w: &crate::scene::Owner<'_>| match (&target.bodies, w.piece) {
+            // Bodies stretched: those only.
+            (Some(ids), crate::scene::Piece::Blank(id) | crate::scene::Piece::Tool(id)) => !ids.contains(&id),
+            (Some(_), _) => !cx.previewed.contains_key(w.path),
+            (None, _) => !paths.contains(w.path) && !cx.previewed.contains_key(w.path),
+        };
+        let inf = cx.infer(px, keep, None);
+        // A feature or a face snapped to, even by the grip (the face around it, a hair off):
+        // there; else nothing by the grip, and elsewhere the cursor along the axis.
+        let mut moved = match inf.filter(|i| stable_along(i, dir) && opposite.is_none_or(|op| (i.point - op).dot(dir).abs() > MIN)) {
+            Some(i) => {
+                let m = (i.point - o).dot(dir) * side;
+                self.snap = Some(i);
+                m
             }
+            None if near_start => 0.0,
+            None => (cx.ray(px).closest_on_line(o, dir) - o).dot(dir) * side,
         };
         if shift && let Some(last) = last {
             moved = if overall {
@@ -1340,8 +1343,9 @@ impl StretchTool {
             (State::Stretch { .. }, ToolInput::Hover { px } | ToolInput::Drag { px }) => self.pull_at(cx, *px),
             (State::Stretch { d, drag: false, .. }, ToolInput::Click { .. })
             | (State::Stretch { d, drag: true, .. }, ToolInput::DragEnd { .. }) => {
-                let d = *d;
-                return self.finish(cx, d);
+                // Snapped to a feature or a face: that place, however close.
+                let (d, snapped) = (*d, self.snap.is_some());
+                return self.finish(cx, d, snapped);
             }
             (State::Stretch { target, k, .. }, ToolInput::DoubleClick { .. }) => {
                 let (target, k) = ((**target).clone(), *k);
