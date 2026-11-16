@@ -8,6 +8,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::Id;
 use solidsketch_render as render;
 use solidsketch_theme::{Rgba, Theme};
+use solidsketch_tools::navigation::{Button, Mods, NavAction, Trigger};
 use solidsketch_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput, ToolKind};
 
 use crate::prefs::Navigation;
@@ -21,6 +22,32 @@ pub fn color(c: Rgba) -> egui::Color32 {
 /// How long without trackpad scrolling ends a trackpad gesture (seconds): the next one picks
 /// a new orbit pivot.
 const GESTURE_GAP: f64 = 0.3;
+/// How long without wheel or pinch zooming ends a burst of them: the next one is another step
+/// of the views gone through (seconds).
+const VIEW_BURST_GAP: f64 = 0.5;
+/// How far a zoom drag moves for one wheel notch (points).
+const ZOOM_DRAG_PX: f64 = 20.0;
+
+/// The buttons a navigation style may use, and egui's.
+const BUTTONS: [(Button, egui::PointerButton); 4] = [
+    (Button::Middle, egui::PointerButton::Middle),
+    (Button::Right, egui::PointerButton::Secondary),
+    (Button::Back, egui::PointerButton::Extra1),
+    (Button::Forward, egui::PointerButton::Extra2),
+];
+
+/// A navigation gesture under way (§6 quindecies).
+struct Gesture {
+    button: Button,
+    egui: egui::PointerButton,
+    /// Where the button went down, and the pointer now.
+    from: egui::Pos2,
+    at: egui::Pos2,
+    /// What it does with the modifiers held now (none: they match no binding).
+    action: Option<NavAction>,
+    /// The modifiers the tool had when it began: it keeps them till it ends.
+    tool_mods: egui::Modifiers,
+}
 
 #[derive(Default)]
 pub struct Viewport {
@@ -28,6 +55,13 @@ pub struct Viewport {
     texture: Option<(egui::TextureId, u64)>,
     last_hover: Option<egui::Pos2>,
     last_trackpad: f64,
+    /// The last wheel or pinch zoom (egui's clock).
+    last_zoom: f64,
+    gesture: Option<Gesture>,
+    /// The modifiers the tool saw last, and those hidden from it till released (Shift, Ctrl,
+    /// Alt, Command), pressed during a gesture.
+    tool_mods: egui::Modifiers,
+    hidden: [bool; 4],
     /// Each material's palette entry, for the session: an entry is never given to another
     /// material, so meshes with painted faces stay valid when materials come and go.
     /// They are the shown document's: ids are a document's own.
@@ -136,7 +170,12 @@ impl Viewport {
             _ => egui::CursorIcon::Crosshair,
         };
         if response.hovered() {
-            ui.ctx().set_cursor_icon(if response.dragged_by(egui::PointerButton::Middle) { egui::CursorIcon::Grabbing } else { cursor });
+            let cursor = match self.gesture.as_ref().map(|g| g.action) {
+                Some(Some(NavAction::Orbit | NavAction::Pan)) => egui::CursorIcon::Grabbing,
+                Some(Some(NavAction::ZoomDrag | NavAction::ZoomWindow)) => egui::CursorIcon::ZoomIn,
+                _ => cursor,
+            };
+            ui.ctx().set_cursor_icon(cursor);
         }
 
         let ppp = ui.ctx().pixels_per_point();
@@ -167,6 +206,12 @@ impl Viewport {
         }
         if let Some(m) = editor.marquee() {
             paint_marquee(ui.painter(), rect, &m, theme);
+        }
+        // The zoom window's rectangle, dashed.
+        if let Some(g) = self.gesture.as_ref().filter(|g| g.action == Some(NavAction::ZoomWindow)) {
+            let r = egui::Rect::from_two_pos(g.from, g.at);
+            let path = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
+            ui.painter().extend(egui::Shape::dashed_line(&path, egui::Stroke::new(1.0, color(theme.marquee_stroke)), 5.0, 4.0));
         }
         // Last: the lengths stay above everything (markers, tooltip, marquee), placed clear of
         // the cursor, the markers, the tooltip and the crosses.
@@ -223,20 +268,87 @@ impl Viewport {
 
     fn input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: egui::Rect, editor: &mut Editor, nav: &Navigation) {
         let ctx = ui.ctx();
+        let mac = ctx.os() == egui::os::OperatingSystem::Mac;
         let local = |p: egui::Pos2| DVec2::new((p.x - rect.min.x) as f64, (p.y - rect.min.y) as f64);
+        let style = &nav.style;
         // The preferences: orbit direction and speed per device, zoom speed and target.
         let sign = |invert: bool| if invert { -1.0 } else { 1.0 };
         let mouse_orbit = DVec2::new(sign(nav.mouse_invert_x), sign(nav.mouse_invert_y)) * nav.orbit_rate();
         let trackpad_orbit = DVec2::new(sign(nav.trackpad_invert_x), sign(nav.trackpad_invert_y)) * nav.orbit_rate();
         let zoom_at =
             |p: egui::Pos2| if nav.zoom_to_cursor { local(p) } else { DVec2::new(rect.width() as f64, rect.height() as f64) / 2.0 };
-        let zoom_steps = nav.zoom_rate() * sign(nav.wheel_invert);
+        let zoom_steps = nav.zoom_rate() * sign(style.wheel_reversed);
         let (mods, events, time, zoom) = ui.input(|i| (i.modifiers, i.events.clone(), i.time, i.zoom_delta()));
+        let nav_mods = Mods { shift: mods.shift, ctrl: mods.ctrl, alt: mods.alt, cmd: mac && mods.mac_cmd };
+
+        // The style's gestures (§6 quindecies). A drag starts past egui's threshold: a right
+        // button released before it is a click, kept for a context menu.
+        if self.gesture.is_none() {
+            for (b, eb) in BUTTONS {
+                if response.drag_started_by(eb) && style.drags_with(b) {
+                    let from = ui.input(|i| i.pointer.press_origin()).or(response.interact_pointer_pos()).unwrap_or_default();
+                    editor.nav_begin_about(local(from), style.pivot);
+                    self.gesture = Some(Gesture { button: b, egui: eb, from, at: from, action: None, tool_mods: self.tool_mods });
+                    break;
+                }
+            }
+        }
+        if let Some(g) = &mut self.gesture {
+            // Live modifiers: the action is resolved again at every frame, the pivot kept.
+            let action = style.resolve(Trigger::Drag(g.button), nav_mods);
+            if response.dragged_by(g.egui) {
+                let d = response.drag_delta();
+                let d = DVec2::new(d.x as f64, d.y as f64);
+                match action {
+                    Some(NavAction::Orbit) => editor.orbit(d * mouse_orbit),
+                    Some(NavAction::Pan) => editor.pan(d),
+                    Some(NavAction::ZoomDrag) => editor.zoom(zoom_at(g.from), -d.y / ZOOM_DRAG_PX * zoom_steps),
+                    _ => {}
+                }
+                if let Some(p) = response.interact_pointer_pos() {
+                    g.at = p;
+                }
+            }
+            g.action = action;
+            if response.drag_stopped_by(g.egui) || !ui.input(|i| i.pointer.button_down(g.egui)) {
+                if g.action == Some(NavAction::ZoomWindow) {
+                    let r = egui::Rect::from_two_pos(g.from, g.at);
+                    if r.width().max(r.height()) > ctx.options(|o| o.input_options.max_click_dist) {
+                        editor.zoom_window(local(g.from), local(g.at));
+                    }
+                }
+                self.gesture = None;
+            }
+        }
+        if self.gesture.is_none()
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            for (b, eb) in BUTTONS {
+                // A double-click the style has nothing for is a click (back, back, quickly).
+                let double = response.double_clicked_by(eb).then(|| style.resolve(Trigger::DoubleClick(b), nav_mods)).flatten();
+                let action = double.or_else(|| response.clicked_by(eb).then(|| style.resolve(Trigger::Click(b), nav_mods)).flatten());
+                match action {
+                    Some(NavAction::Recentre) => editor.recenter(local(p)),
+                    Some(NavAction::ZoomExtents) => editor.zoom_extents(),
+                    Some(NavAction::PreviousView) => {
+                        editor.previous_view();
+                    }
+                    Some(NavAction::NextView) => {
+                        editor.next_view();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Priority to the button: during a gesture the tool keeps the modifiers it had; one
+        // pressed then stays hidden from it until released.
+        let tool_mods = self.tool_modifiers(mods, mac);
         // Shift held locks the line inferred (§6 ter); a point hovered a while is tracked: the
         // editor needs the time, every frame while it waits.
-        editor.set_shift(mods.shift);
-        editor.set_copy(modifiers(ctx, mods).copy);
-        editor.set_alt(if ctx.os() == egui::os::OperatingSystem::Mac { mods.mac_cmd } else { mods.alt });
+        editor.set_shift(tool_mods.shift);
+        editor.set_copy(modifiers(ctx, tool_mods).copy);
+        editor.set_alt(if mac { tool_mods.mac_cmd } else { tool_mods.alt });
         if editor.tick(time) {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
@@ -252,27 +364,10 @@ impl Viewport {
             _ => {}
         }
 
-        // Middle button: orbit, Shift = pan; double-click = recentre.
-        use egui::PointerButton::{Middle, Primary};
-        if response.drag_started_by(Middle)
-            && let Some(p) = response.interact_pointer_pos()
-        {
-            editor.nav_begin(local(p));
-        }
-        if response.dragged_by(Middle) {
-            let d = response.drag_delta();
-            let d = DVec2::new(d.x as f64, d.y as f64);
-            if mods.shift { editor.pan(d) } else { editor.orbit(d * mouse_orbit) }
-        }
-        if response.double_clicked_by(Middle)
-            && let Some(p) = response.interact_pointer_pos()
-        {
-            editor.recenter(local(p));
-        }
-
         // Primary button: the tool (clicks; drags from where the button went down).
+        use egui::PointerButton::Primary;
         if let Some(p) = response.interact_pointer_pos() {
-            let m = modifiers(ctx, mods);
+            let m = modifiers(ctx, tool_mods);
             if response.double_clicked_by(Primary) {
                 editor.input(ToolInput::DoubleClick { px: local(p), mods: m });
             } else if response.clicked_by(Primary) {
@@ -290,8 +385,15 @@ impl Viewport {
             }
         }
 
-        // Wheel = zoom; trackpad scroll = orbit (Shift: pan); pinch = zoom.
+        // Wheel = zoom; trackpad scroll = the style's (orbit or pan, Shift: the other); pinch =
+        // zoom. A burst of them is one step of the views gone through.
         let Some(p) = hover else { return };
+        let burst = |editor: &mut Editor, last: &mut f64| {
+            if time - *last > VIEW_BURST_GAP {
+                editor.view_changing();
+            }
+            *last = time;
+        };
         for e in &events {
             let egui::Event::MouseWheel { unit, delta, modifiers, .. } = e else { continue };
             if modifiers.command || modifiers.ctrl {
@@ -300,20 +402,59 @@ impl Viewport {
             match unit {
                 egui::MouseWheelUnit::Point => {
                     if time - self.last_trackpad > GESTURE_GAP {
-                        editor.nav_begin(local(p));
+                        editor.nav_begin_about(local(p), style.pivot);
                     }
                     self.last_trackpad = time;
                     let d = DVec2::new(-delta.x as f64, -delta.y as f64);
-                    if modifiers.shift { editor.pan(-d) } else { editor.orbit(d * trackpad_orbit) }
+                    let action = if modifiers.shift { style.trackpad.shift_scroll } else { style.trackpad.scroll };
+                    match action {
+                        NavAction::Pan => editor.pan(-d),
+                        _ => editor.orbit(d * trackpad_orbit),
+                    }
                 }
                 egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
+                    burst(editor, &mut self.last_zoom);
                     editor.zoom(zoom_at(p), delta.y as f64 * zoom_steps);
                 }
             }
         }
         if (zoom - 1.0).abs() > 1e-4 {
+            burst(editor, &mut self.last_zoom);
             editor.zoom(zoom_at(p), (zoom as f64).ln() / (1.0f64 / 0.85).ln() * nav.zoom_rate());
         }
+    }
+
+    /// The modifiers the tool sees (§6 quindecies, priority to the button): the ones it had
+    /// when a navigation gesture began, as long as it lasts; after it, a modifier pressed
+    /// during it stays hidden until released.
+    fn tool_modifiers(&mut self, mods: egui::Modifiers, mac: bool) -> egui::Modifiers {
+        let keys = |m: &egui::Modifiers| [m.shift, m.ctrl, m.alt, m.mac_cmd];
+        let now = keys(&mods);
+        let seen = if let Some(g) = &self.gesture {
+            let before = keys(&g.tool_mods);
+            for ((hidden, now), before) in self.hidden.iter_mut().zip(now).zip(before) {
+                *hidden |= now && !before;
+            }
+            g.tool_mods
+        } else {
+            for (hidden, now) in self.hidden.iter_mut().zip(now) {
+                *hidden &= now;
+            }
+            let mut m = mods;
+            m.shift &= !self.hidden[0];
+            m.ctrl &= !self.hidden[1];
+            m.alt &= !self.hidden[2];
+            m.mac_cmd &= !self.hidden[3];
+            m.command = if mac { m.mac_cmd } else { m.ctrl };
+            m
+        };
+        self.tool_mods = seen;
+        seen
+    }
+
+    /// Is a navigation gesture under way? (A modifier tapped meanwhile is not a tap.)
+    pub fn navigating(&self) -> bool {
+        self.gesture.is_some()
     }
 
     /// The palette entry of `material`, given on first use (§7 quater).

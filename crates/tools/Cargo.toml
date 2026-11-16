@@ -18,3 +18,4 @@ web-time = "1.1"
 [dev-dependencies]
 solidsketch-model = { workspace = true, features = ["engine"] }
 solidsketch-kernel = { workspace = true, features = ["engine"] }
+serde_json.workspace = true

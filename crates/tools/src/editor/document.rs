@@ -461,6 +461,7 @@ impl Editor {
         self.tool.reset();
         self.after_change();
         self.zoom_extents();
+        self.views.clear();
     }
 
     /// Keeps the context, the open part and the selection valid, and the scene in step.

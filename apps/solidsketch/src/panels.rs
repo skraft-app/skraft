@@ -1038,12 +1038,15 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
             if ui.color_edit_button_srgb(&mut c).on_hover_text(t!("panel.materials.color_tip")).changed() {
                 actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
             }
-            let width = (ui.available_width() - 30.0).max(60.0);
+            // Room left for the delete button, as high as the field (`OPTION_HEIGHT`) and square.
+            let width = (ui.available_width() - OPTION_HEIGHT - ui.spacing().item_spacing.x).max(60.0);
             if let Some(name) = text_field(ui, (id, 2), &m.name, width) {
                 actions.push(Action::Apply(Operation::EditMaterial { material: id, name, color: m.color }));
             }
             let delete = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ui.visuals().text_color());
-            if ui.add(egui::Button::image(delete).small()).on_hover_text(t!("panel.materials.delete_tip")).clicked() {
+            // As high as the name's field beside it.
+            let h = OPTION_HEIGHT;
+            if ui.add(egui::Button::image(delete).min_size(egui::vec2(h, h))).on_hover_text(t!("panel.materials.delete_tip")).clicked() {
                 actions.push(Action::Apply(Operation::DeleteMaterial { material: id }));
             }
         });

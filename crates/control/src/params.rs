@@ -328,6 +328,10 @@ pub enum UiButton {
     Left,
     Right,
     Middle,
+    /// Button 4.
+    Back,
+    /// Button 5.
+    Forward,
 }
 
 /// Modifier keys held.

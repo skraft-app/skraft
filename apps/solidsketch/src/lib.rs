@@ -14,6 +14,7 @@ mod handles;
 mod icons;
 mod journal_window;
 mod naming;
+mod nav_prefs;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;
 #[cfg(not(target_arch = "wasm32"))]
