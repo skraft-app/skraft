@@ -20,7 +20,7 @@ mod weld;
 #[cfg(test)]
 mod tests;
 
-pub use clipboard::BodyFragment;
+pub use clipboard::{BodyFragment, PartsAsBodies};
 pub use document::{
     Assembly, Behavior, Body, BodyDef, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH,
     Material, Occurrence, Part, PlacedGuide, PlacedPart, Sign, StretchMask,

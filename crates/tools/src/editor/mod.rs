@@ -64,6 +64,8 @@ pub enum NoticeAction {
 pub enum NoticeKind {
     Info,
     Success,
+    /// What an operation done has to say (`Outcome::warning`).
+    Warning,
     Error,
 }
 

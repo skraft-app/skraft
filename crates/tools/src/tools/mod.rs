@@ -954,6 +954,12 @@ impl Moved {
             Operation::PasteBodies { target, fragment, transform, scope } => {
                 Operation::PasteBodies { target, fragment, transform: local * transform, scope }
             }
+            Operation::PasteParts { target, fragment, transform, scope } => {
+                Operation::PasteParts { target, fragment, transform: local * transform, scope }
+            }
+            Operation::PasteAsPart { context, fragment, transform } => {
+                Operation::PasteAsPart { context, fragment, transform: local * transform }
+            }
             other => other,
         }
     }

@@ -4354,7 +4354,7 @@ fn copied_in_an_assembly_pasted_in_place_at_the_root() {
 }
 
 #[test]
-fn machinings_paste_only_into_an_open_part() {
+fn machinings_paste_into_an_open_part() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
     let b = draw_box(&mut e, DVec3::new(0.0, 100.0, 0.0), DVec3::new(200.0, 150.0, 0.0), "18");
@@ -4379,11 +4379,7 @@ fn machinings_paste_only_into_an_open_part() {
     let clip = e.copy().unwrap();
     assert!(matches!(clip.content, Content::Machinings(_)));
     e.exit();
-    // Not out of an open part; occurrences not into one.
-    assert!(!e.can_paste(&clip));
-    let occurrences = e.copy().unwrap();
     e.enter(b);
-    assert!(!e.can_paste(&occurrences));
     assert!(e.can_paste(&clip));
     e.paste_in_place(&clip, true);
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
@@ -4401,6 +4397,77 @@ fn machinings_paste_only_into_an_open_part() {
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
     assert_eq!(part.machinings().len(), 2);
     assert!(close(part.machinings()[1].placement.translation, DVec3::new(70.0, 25.0, -5.0)), "{:?}", part.machinings()[1].placement);
+}
+
+#[test]
+fn a_part_pasted_into_an_open_part_becomes_a_body_flattened_with_a_warning() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
+    let b = draw_box(&mut e, DVec3::new(0.0, 100.0, 0.0), DVec3::new(200.0, 150.0, 0.0), "18");
+    let root = e.document().root();
+    let drill = Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, -5.0), radius: 4.0, height: 30.0 };
+    let tool = e.apply(Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap();
+    e.apply(Operation::Boolean {
+        target: EntityPath::root(a),
+        tool: EntityPath::root(tool.created[0]),
+        op: Boolean::Difference,
+        scope: Default::default(),
+    })
+    .unwrap();
+    e.take_notices();
+
+    // The drilled board copied, pasted into the other one: one positive body, flattened, at
+    // its world place, selected and shown (« Corps » turned on).
+    e.select(vec![a]);
+    let clip = e.copy().unwrap();
+    e.enter(b);
+    assert!(!e.machinings_switch());
+    assert!(e.can_paste(&clip));
+    e.paste_in_place(&clip, true);
+    assert!(e.machinings_switch());
+    let (_, part, t) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    assert_eq!(part.positives().count(), 2);
+    let body = part.bodies.iter().find(|x| e.selection() == [x.id]).unwrap();
+    assert!(part.profile_of(body).is_none());
+    assert!(close((t * body.placement).translation, DVec3::ZERO), "{:?}", t * body.placement);
+    let notices = e.take_notices();
+    assert!(matches!(&notices[..], [n] if n.kind == NoticeKind::Warning), "{notices:?}");
+
+    // At the cursor: said once, when put down.
+    e.paste(&clip, true);
+    assert!(e.carrying());
+    assert!(e.take_notices().is_empty());
+    click(&mut e, DVec3::new(0.0, 300.0, 18.0));
+    assert!(!e.carrying());
+    assert_eq!(e.take_notices().len(), 1);
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    assert_eq!(part.positives().count(), 3);
+}
+
+#[test]
+fn bodies_pasted_out_of_an_open_part_make_a_new_part() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
+    e.set_machinings_switch(true);
+    e.enter(a);
+    let blank = e.document().resolve_part(&EntityPath::root(a)).unwrap().1.bodies[0].id;
+    e.select(vec![blank]);
+    let clip = e.copy().unwrap();
+    e.exit();
+    assert!(e.can_paste(&clip));
+    let parts = e.document().components().count();
+    e.paste_in_place(&clip, true);
+    assert_eq!(e.document().components().count(), parts + 1);
+    let pasted = e.selection()[0];
+    assert_ne!(pasted, a);
+    assert_eq!(bounds_of(&e, &EntityPath::root(pasted)), bounds_of(&e, &EntityPath::root(a)));
+
+    // At the cursor, from the low corner.
+    e.paste(&clip, true);
+    assert!(e.carrying());
+    click(&mut e, DVec3::new(300.0, 300.0, 0.0));
+    let (lo, _) = bounds_of(&e, &EntityPath::root(e.selection()[0]));
+    assert!(close(lo, DVec3::new(300.0, 300.0, 0.0)), "{lo:?}");
 }
 
 #[test]

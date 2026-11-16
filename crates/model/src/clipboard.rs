@@ -8,24 +8,49 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use glam::DAffine3;
 use serde::{Deserialize, Serialize};
 
-use crate::document::{Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id};
+use crate::document::{Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Sign, is_identity};
 use crate::{Error, Result};
 
 /// Bodies and guides copied from an open part, in the part's axes, with the definitions of
 /// the bodies (pasted into the same part, its bodies are copies of them).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BodyFragment {
     pub defs: Vec<BodyDef>,
     pub bodies: Vec<Body>,
     pub guides: Vec<GuideShape>,
+    /// The world transformation of the part copied from: pasted out of a part, the new part
+    /// takes its axes (§6 decies, across the part's boundary).
+    #[serde(default = "identity", skip_serializing_if = "is_identity")]
+    pub world: DAffine3,
+}
+
+impl Default for BodyFragment {
+    fn default() -> Self {
+        BodyFragment { defs: Vec::new(), bodies: Vec::new(), guides: Vec::new(), world: DAffine3::IDENTITY }
+    }
 }
 
 impl BodyFragment {
     pub fn is_empty(&self) -> bool {
         self.bodies.is_empty() && self.guides.is_empty()
     }
+}
+
+/// Parts copied, as the bodies they paste into an open part as (§6 decies, across the part's
+/// boundary).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PartsAsBodies {
+    /// In world axes, as the parts were copied; every body positive.
+    pub fragment: BodyFragment,
+    /// Did a part lose its bodies, flattened into its final shape?
+    pub flattened: bool,
+}
+
+fn identity() -> DAffine3 {
+    DAffine3::IDENTITY
 }
 
 impl Document {
@@ -92,6 +117,44 @@ impl Document {
         let bodies: Vec<Body> = bodies.iter().map(|id| p.body(*id).cloned().ok_or(Error::NotFound(*id))).collect::<Result<_>>()?;
         let defs = p.defs.iter().filter(|d| bodies.iter().any(|b| b.def == d.id)).cloned().collect();
         let guides = self.component(part)?.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.shape).collect();
-        Ok(BodyFragment { defs, bodies, guides })
+        let world = self.resolve_part(target)?.2;
+        Ok(BodyFragment { defs, bodies, guides, world })
+    }
+
+    /// This document — an entities' fragment ([`Document::entities_fragment`]) — as the bodies
+    /// it pastes into an open part: one positive body per part placed, at any depth (hidden
+    /// occurrences left out), in world axes. A part that is its single positive body gives
+    /// it whole, its profile with it; any other is flattened, its final shape one free body.
+    /// Copies of a part share one definition: its own (plain), else under the part's id.
+    pub fn parts_as_bodies(&self) -> Result<PartsAsBodies> {
+        let mut out = PartsAsBodies::default();
+        let root = self.component(self.root)?;
+        out.fragment.guides = root.guides.iter().map(|g| g.shape).collect();
+        let mut stack: Vec<(Id, DAffine3)> = vec![(self.root, DAffine3::IDENTITY)];
+        while let Some((id, t)) = stack.pop() {
+            match &self.component(id)?.kind {
+                ComponentKind::Assembly(a) => {
+                    // Reversed: popped in the assembly's order.
+                    for o in a.occurrences().iter().rev().filter(|o| !o.hidden) {
+                        stack.push((o.component, t * o.transform));
+                    }
+                }
+                ComponentKind::Part(p) => {
+                    let (def, placement) = match p.is_plain() {
+                        true => (p.def_of(&p.bodies[0]).clone(), t * p.bodies[0].placement),
+                        false => {
+                            out.flattened = true;
+                            (BodyDef::new(id, p.shape().clone()), t)
+                        }
+                    };
+                    let body = Body::new(Id(out.fragment.bodies.len() as u64), def.id, Sign::Positive, placement);
+                    if !out.fragment.defs.iter().any(|d| d.id == def.id) {
+                        out.fragment.defs.push(def);
+                    }
+                    out.fragment.bodies.push(body);
+                }
+            }
+        }
+        Ok(out)
     }
 }

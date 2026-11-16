@@ -20,6 +20,8 @@ pub enum Level {
     Info,
     /// Green; goes by itself.
     Success,
+    /// Amber; goes by itself.
+    Warning,
     /// Red; stays until clicked.
     Error,
 }
@@ -33,6 +35,7 @@ impl Level {
         match self {
             Level::Info => "info",
             Level::Success => "success",
+            Level::Warning => "warning",
             Level::Error => "error",
         }
     }
@@ -88,6 +91,7 @@ impl Note {
         let level = match n.kind {
             K::Info => Level::Info,
             K::Success => Level::Success,
+            K::Warning => Level::Warning,
             K::Error => Level::Error,
         };
         let note = Note::new(level, n.title, n.detail);
@@ -219,7 +223,10 @@ impl Toasts {
                             .as_ref()
                             .map(|l| (l.size() + 2.0 * ui.spacing().button_padding).max(egui::vec2(0.0, ui.spacing().interact_size.y)));
                         let gap = 2.0 * ui.spacing().item_spacing.x;
-                        let room = WIDTH - button.map_or(0.0, |b| b.x + gap);
+                        // A warning's sign at the left, as high as a line of the title.
+                        let sign = ui.text_style_height(&egui::TextStyle::Body);
+                        let indent = if t.note.level == Level::Warning { sign + gap } else { 0.0 };
+                        let room = WIDTH - indent - button.map_or(0.0, |b| b.x + gap);
                         // The text laid out first, to center it on the row.
                         let title = if t.count > 1 { format!("{} (×{})", t.note.title, t.count) } else { t.note.title.clone() };
                         let title = ui.painter().layout(title, egui::TextStyle::Body.resolve(ui.style()), ink, room);
@@ -232,10 +239,15 @@ impl Toasts {
                         let row_h = text_h.max(button.map_or(0.0, |b| b.y));
                         let (row, _) = ui.allocate_exact_size(egui::vec2(WIDTH, row_h), egui::Sense::hover());
                         let mut y = row.top() + (row_h - text_h) / 2.0;
-                        ui.painter().galley(egui::pos2(row.left(), y), title.clone(), ink);
+                        if indent > 0.0 {
+                            let at = egui::Rect::from_min_size(egui::pos2(row.left(), row.center().y - sign / 2.0), egui::vec2(sign, sign));
+                            egui::Image::new(crate::icons::WARNING).tint(ink).paint_at(ui, at);
+                        }
+                        let left = row.left() + indent;
+                        ui.painter().galley(egui::pos2(left, y), title.clone(), ink);
                         y += title.size().y + LINE_GAP;
                         if let Some(d) = detail {
-                            ui.painter().galley(egui::pos2(row.left(), y), d, body);
+                            ui.painter().galley(egui::pos2(left, y), d, body);
                         }
                         if let (Some((_, act)), Some(size), Some(label)) = (&t.note.action, button, label) {
                             // Drawn here, not an egui button: egui's restyles a hovered button
@@ -308,6 +320,8 @@ fn colors(v: &egui::Visuals, level: Level, dark: bool) -> (egui::Color32, egui::
         (Level::Info, _) => return (v.strong_text_color(), base, v.window_stroke.color),
         (Level::Success, false) => C::from_rgb(46, 125, 50),
         (Level::Success, true) => C::from_rgb(102, 187, 106),
+        (Level::Warning, false) => C::from_rgb(176, 120, 0),
+        (Level::Warning, true) => C::from_rgb(255, 193, 7),
         (Level::Error, false) => C::from_rgb(198, 40, 40),
         (Level::Error, true) => C::from_rgb(239, 83, 80),
     };
