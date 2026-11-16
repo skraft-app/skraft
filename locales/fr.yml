@@ -522,6 +522,8 @@ panel:
     occurrences: "Exemplaires"
     dimensions: "$t(common.dimensions)"
     pieces: "en %{count} morceaux, à corriger"
+    # A part without material (no blank, or a machining swallowing it), §2.11.
+    empty: "vide, à corriger"
     bodies: "Corps"
     # The bodies of a part: their count, the blanks' and the machinings'.
     bodies_value: "%{count} (+%{positives} −%{negatives})"
@@ -547,11 +549,23 @@ panel:
     show: "$t(common.show)"
     # A part in several pieces (ARCHITECTURE.md §2.11).
     pieces: "Pièce en %{count} morceaux : à corriger"
-    # A part's bodies under it, numbered among their siblings (§2.11 « Body groups »).
-    blank: "Brut %{number}"
-    machining: "Usinage %{number}"
+    empty_part: "Pièce vide : à corriger"
+    # A group of bodies failed in its part (§2.11 « Empty parts »).
+    empty_group: "Groupe vide : à corriger"
+    failed_group: "Groupe en échec : à corriger"
+    # A part or group holding a body failed, at any depth.
+    failed_inside_part: "Un corps de cette pièce est en échec : à corriger"
+    failed_inside_group: "Un corps de ce groupe est en échec : à corriger"
+    error_inside_assembly: "Une pièce de cet assemblage est en erreur : à corriger"
+    # A part's bodies under it, named by their nature, numbered among their siblings in their
+    # order of creation (§2.11 « Body groups »).
+    extrusion: "Extrusion %{number}"
+    revolution: "Révolution %{number}"
+    solid: "Solide %{number}"
     group: "Groupe %{number}"
-    machining_group: "Usinage composé %{number}"
+    # A body's sign toggle, at the right end of its row.
+    sign_positive: "$t(panel.entity_info.sign_positive_tip)"
+    sign_negative: "$t(panel.entity_info.sign_negative_tip)"
 
 # The app's messages, in toasts at the bottom right (apps/solidsketch/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).
@@ -1112,7 +1126,6 @@ error:
     self_boolean: "une pièce ne se combine pas avec elle-même"
     no_such_face: "pas de telle face"
     no_bodies: "aucun corps désigné"
-    last_positive: "une pièce garde au moins un brut"
     ungroup_negative: "un usinage composé qui épargne de la matière ne se dégroupe pas"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"

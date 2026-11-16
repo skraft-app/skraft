@@ -206,7 +206,8 @@ impl Solid {
         Solid { record }
     }
 
-    /// A body with nothing in it (a stand-in while the kernel has not answered).
+    /// A body with nothing in it: a stand-in while the kernel has not answered, or what is left
+    /// of a part without material (docs/ARCHITECTURE.md §2.11 « Empty parts »).
     pub fn empty() -> Self {
         Solid {
             record: Record {
@@ -237,6 +238,11 @@ impl Solid {
         let mut it = self.record.vertices.iter().map(|v| DVec3::from_array(v.point));
         let first = it.next()?;
         Some(it.fold((first, first), |(lo, hi), p| (lo.min(p), hi.max(p))))
+    }
+
+    /// Does it hold nothing (no face)?
+    pub fn is_empty(&self) -> bool {
+        self.record.faces.is_empty()
     }
 
     /// How many separate lumps of material it holds: its bounded regions that are not voids.

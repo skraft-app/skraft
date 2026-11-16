@@ -83,8 +83,6 @@ pub enum Refusal {
     NoSuchFace,
     /// A change to bodies names none.
     NoBodies,
-    /// A part would be left without a positive body.
-    LastPositive,
     /// A guide with no length or direction, or not finite.
     BadGuide,
     /// A stretch names no occurrence.
@@ -165,7 +163,6 @@ impl std::fmt::Display for Refusal {
             Refusal::SelfBoolean => t!("error.model.self_boolean"),
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
             Refusal::NoBodies => t!("error.model.no_bodies"),
-            Refusal::LastPositive => t!("error.model.last_positive"),
             Refusal::BadGuide => t!("error.model.bad_guide"),
             Refusal::NothingStretched => t!("error.model.nothing_stretched"),
             Refusal::BadBehavior => t!("error.model.bad_behavior"),

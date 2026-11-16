@@ -13,6 +13,7 @@ icon!(BOX, "box");
 icon!(CYLINDER, "cylinder");
 icon!(PRISM, "prism");
 icon!(TURN, "turn");
+icon!(SOLID, "solid");
 icon!(MOVE, "move");
 icon!(ROTATE, "rotate");
 icon!(UNION, "union");

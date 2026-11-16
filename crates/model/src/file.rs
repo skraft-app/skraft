@@ -106,18 +106,18 @@ impl Document {
                             return Err(Error::File(FileError::BadBodyId(b.id)));
                         }
                     }
-                    // A group: a positive child at least, its failures among its children, no
-                    // group holding itself, at any depth.
+                    // A group: its failures among its children, no group holding itself, at any
+                    // depth. Without a positive child it is empty, as a part may be (§2.11
+                    // « Empty parts »).
                     for d in &p.defs {
                         let Some(g) = &d.group else { continue };
-                        if !g.children.iter().any(|b| b.sign == crate::Sign::Positive)
-                            || g.failed.iter().any(|id| !g.children.iter().any(|b| b.id == *id))
+                        if g.failed.iter().any(|id| !g.children.iter().any(|b| b.id == *id))
                             || crate::document::used_defs(&p.defs, &g.children).contains(&d.id)
                         {
                             return Err(Error::File(FileError::BadBodyId(d.id)));
                         }
                     }
-                    if p.positives().next().is_none() || p.failed.iter().any(|id| p.body(*id).is_none()) {
+                    if p.failed.iter().any(|id| p.body(*id).is_none()) {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
                     for m in p.faces.values() {

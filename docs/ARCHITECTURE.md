@@ -316,7 +316,8 @@ Decided on 2026-11-14 (questions / answers). Branch `feature/part-bodies`, built
    body's; the entity info lists the bodies flat, « Corps (n) », blanks first, each numbered
    in its order of creation (kept when its sign changes) with a ＋/－ badge whose click
    toggles its sign — the selected bodies' too when it is one of them
-   (`Operation::SetSign { target, bodies, sign, scope }`, the last positive kept, the part
+   (`Operation::SetSign { target, bodies, sign, scope }`, the last positive too since
+   2026-11-16 — « Empty parts » below —, the part
    computed again). The interface says « corps » for any body, « brut » (a blank) for a
    positive one, « usinage » (a machining) for a negative one; no tree of the two kinds, in
    the entity info nor in the outliner: the model is a flat list with a sign, the order
@@ -410,6 +411,29 @@ error**:
   in the error colour, as failed machinings; a split made by negatives blames no body, only
   the part is marked;
 - **no cut-list dimensions** while it is in error: « to correct » instead.
+
+**Empty parts** (decided and built on 2026-11-16, supersedes « a part keeps a positive »): a
+part may be left without material — its last blank made a machining or deleted (every body,
+even), or a machining swallowing it. Nothing is refused: the part is **empty**, its shape
+`Solid::empty()` (`Solid::is_empty`, no face), **0 pieces**, the same error as « in N
+pieces »: ⚠ and its name in the error colour in the outliner (« Pièce vide : à corriger »),
+« vide, à corriger » instead of its dimensions and in the open part's info. Closed, nothing of
+it is drawn (the outliner reaches it); open, its bodies are, so a blank can be given back. The
+**kernel** says so, never the model (an operation is recorded with stand-ins, empty too):
+`Task::Recipe` leaves out its empty inputs, reported as failed, and without a positive
+holding material gives its base, or nothing; a negative swallowing the shape gives the base,
+or nothing — no longer a failed machining; `Task::Boolean`'s difference gives nothing rather
+than failing (nothing cut from nothing, nothing cut by nothing, a tool swallowing the
+target); an empty solid is moved as it is and displayed as nothing. An intersection with
+nothing in common still fails. A **group** without a positive child is accepted: its result
+is empty, so it fails in its parent (skipped, marked) as a group whose boolean fails — its
+outliner row, as any failed group's, with ⚠ before its name in the error colour (« Groupe vide
+: à corriger », « Groupe en échec : à corriger »); the ⚠ goes up to the groups and the part
+holding a failed body, at any depth, their names as they are (« Un corps de ce groupe / cette
+pièce est en échec : à corriger »), and to the assemblies holding a part in error or holding
+one (« Une pièce de cet assemblage est en erreur : à corriger »; each definition looked at
+once per frame), so a folded tree still shows it; the file
+no longer refuses a part or a group without a positive body. `Refusal::LastPositive` is gone.
 
 **Stretch** (§6 sexies) goes through the bodies as it goes through an assembly's components:
 each body is stretched in its own axes and keeps its profile under §6 nonies' rules,
@@ -543,8 +567,14 @@ Part    = the root group (+ material, grain, cut list)
      `edit.ungroup_bodies`, in Assembler › Composants; in an open part, « Créer un
      assemblage » (G) and « Éclater » do the same on its bodies); the outliner shows the bodies
      of a part that is not its single body under it (folded; open while the part is),
-     « Brut n », « Usinage n », « Groupe n », « Usinage composé n », blanks first, numbered
-     among their siblings, a group's children under it: a click opens the part, turns « Corps »
+     named and drawn by their nature — « Extrusion n » (`PRISM`), « Révolution n » (`TURN`),
+     « Solide n » (a free B-rep, `SOLID`), « Groupe n » (`GROUP`) —, in their order of
+     creation, numbered among their siblings, a group's children under it; their sign a toggle
+     at the right end, where a part's row has its eye (`UNION` / `SUBTRACT`, since 2026-11-16):
+     a click flips it (`Operation::SetSign`, the part open or not; the selected siblings too
+     when the body is one of them; the open part's scope, else every occurrence), the last
+     positive one too, leaving the part (or group) empty (« Empty parts » above); the rows stay
+     in place (no blanks first, as the entity info lists them). A click on a row opens the part, turns « Corps »
      on, and selects the part's own body the row lies in (`Editor::toggle_body`); the entity
      info's row of a group says « groupe de n ».
   3. *editing inside a group* (2026-11-16): a group opens as a part does, nested in it —
