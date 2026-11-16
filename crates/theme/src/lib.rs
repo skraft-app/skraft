@@ -284,6 +284,7 @@ pub struct Theme {
     pub machining: Rgba,
     pub machining_opacity: f32,
     pub machining_failed: Rgba,
+    /// The selection: its edges only, its faces keeping their colour (face tint alpha 0).
     pub selected: MarkColors,
     pub hover: MarkColors,
     /// Picked by a tool (the boolean's target).
@@ -349,7 +350,7 @@ impl Theme {
             machining: srgb(215, 75, 60),
             machining_opacity: 0.3,
             machining_failed: srgb(150, 20, 110),
-            selected: MarkColors { face: [0.05, 0.2, 1.0, 0.5], edge: [0.005, 0.035, 1.0, 1.0] },
+            selected: MarkColors { face: [0.05, 0.2, 1.0, 0.0], edge: [0.005, 0.035, 1.0, 1.0] },
             hover: MarkColors { face: [0.07, 0.25, 1.0, 0.2], edge: [0.01, 0.1, 1.0, 0.75] },
             picked: MarkColors { face: [1.0, 0.3, 0.0, 0.55], edge: [0.79, 0.073, 0.0, 1.0] },
             ghost: MarkColors { face: [0.1, 0.25, 1.0, 0.4], edge: [0.005, 0.035, 1.0, 1.0] },
@@ -378,7 +379,7 @@ impl Theme {
         Theme {
             mode: Mode::Dark,
             ui: UiTokens::dark(),
-            selected: MarkColors { face: [0.1, 0.3, 1.0, 0.55], edge: [0.05, 0.21, 1.0, 1.0] },
+            selected: MarkColors { face: [0.1, 0.3, 1.0, 0.0], edge: [0.05, 0.21, 1.0, 1.0] },
             marquee_fill: srgba(90, 140, 255, 35),
             marquee_stroke: srgb(120, 160, 255),
             tooltip_fill: srgb(45, 46, 52),
