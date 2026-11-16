@@ -1013,6 +1013,7 @@ impl SolidSketchApp {
             | Action::SelectBody(..)
             | Action::RemoteRetry => {}
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
+            Action::EditProfile(p, body) => e.edit_body_profile(&p, body),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
             Action::Apply(op) => {
                 let _ = e.apply(op);
@@ -1028,7 +1029,6 @@ impl SolidSketchApp {
             Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),
             Action::BodySign(s) => e.set_body_sign(s),
-            Action::SelectMachinings(ids) => e.select(ids),
             Action::HoverMachining(m) => e.set_listed_hover(m),
             // The view is drawn before the panels: again, for the hover to show this frame.
             Action::HoverOutliner(p) => {
@@ -1534,7 +1534,7 @@ impl SolidSketchApp {
     /// The docked cards, in columns from `top` (under the ribbon) to the bottom of the view.
     fn side_panels(&mut self, ctx: &egui::Context, view: egui::Rect, top: f32, margin: f32, actions: &mut Vec<Action>) -> egui::Rangef {
         let style = ctx.global_style();
-        let frame = egui::Frame::window(&style).inner_margin(6.0).total_margin().sum();
+        let frame = egui::Frame::window(&style).inner_margin(panels::CARD_MARGIN).total_margin().sum();
         let header = style.spacing.interact_size.y;
         let metrics = dock::Metrics { header: header + frame.y, min_height: header + frame.y + 60.0, gap: margin };
         let max_width = (view.width() * 0.4).max(dock::COLUMN_MIN_WIDTH);
@@ -1570,6 +1570,7 @@ impl SolidSketchApp {
         }
         if !outliner_shown {
             actions.push(Action::HoverOutliner(None));
+            actions.push(Action::HoverMachining(None));
         }
         // Where a dragged card goes: the column of the nearer edge, above the first card whose
         // middle is below the pointer.
@@ -1638,7 +1639,7 @@ impl SolidSketchApp {
             .fixed_pos(rect.min)
             .order(if floating { egui::Order::Foreground } else { egui::Order::Middle })
             .show(ctx, |ui| {
-                let frame = egui::Frame::window(ui.style()).inner_margin(6.0);
+                let frame = egui::Frame::window(ui.style()).inner_margin(panels::CARD_MARGIN);
                 let inner = rect.size() - frame.total_margin().sum();
                 frame.show(ui, |ui| {
                     ui.set_min_size(inner);
@@ -2409,7 +2410,7 @@ impl SolidSketchApp {
             .response
             .rect;
         let margin = 8.0;
-        let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(6.0);
+        let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(panels::CARD_MARGIN);
         // The workspace card and the ribbon across the top (ARCHITECTURE.md §6 septies); the
         // docked cards below them.
         let ribbon_view = ribbon::View { prefs: &self.prefs.ribbon, views };

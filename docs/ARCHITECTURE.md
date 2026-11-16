@@ -240,10 +240,10 @@ Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
   the option bar while it is open, its first choice: "All occurrences ×N" / "Only this
   one", **back to "all" at each opening** (a change to one occurrence only makes it a
   separate part: better chosen each time). The `Related` marks follow it.
-- **The entity info of an open part lists its machinings** ("Machining 3 · 8 × 8 × 30 mm",
-  in the part's order; a failed one in the error colour, said so): hovering a row draws its
-  tool hovered, hovering a tool in the view makes its row bold; a click selects it (Shift adds
-  or removes), first showing the machinings if they are not.
+- **The outliner lists an open part's bodies** under its row (§2.11 « Body groups »; until
+  2026-11-16 the entity info listed them): hovering a row draws its body hovered, hovering a
+  body in the view lights its row; a click selects it (Shift adds or removes), first showing
+  the bodies if they are not. The entity info shows what is selected, a body too (§2.11).
 - Later: integrating a machining into the blank, machining types, and changing a part's axes
   (§2.3) from there.
 
@@ -313,9 +313,9 @@ Decided on 2026-11-14 (questions / answers). Branch `feature/part-bodies`, built
    it lies inside —, else the nearest positive one), selected, moved, copied and erased alike
    (`Piece::Blank(id)`); a double-click on a body with a profile (in Select or Profile) edits
    its profile (`Command::EditProfile`), the « Profil » button the first profiled positive
-   body's; the entity info lists the bodies flat, « Corps (n) », blanks first, each numbered
-   in its order of creation (kept when its sign changes) with a ＋/－ badge whose click
-   toggles its sign — the selected bodies' too when it is one of them
+   body's; the outliner lists the bodies, each numbered in its order of creation (kept when its sign
+   changes) with a sign toggle — until 2026-11-16 a ＋/－ badge in the entity info — whose
+   click flips it — the selected bodies' too when it is one of them
    (`Operation::SetSign { target, bodies, sign, scope }`, the last positive too since
    2026-11-16 — « Empty parts » below —, the part
    computed again). The interface says « corps » for any body, « brut » (a blank) for a
@@ -566,7 +566,7 @@ Part    = the root group (+ material, grain, cut list)
   2. *the interface*: « Grouper les corps » / « Dégrouper » (`edit.group_bodies`,
      `edit.ungroup_bodies`, in Assembler › Composants; in an open part, « Créer un
      assemblage » (G) and « Éclater » do the same on its bodies); the outliner shows the bodies
-     of a part that is not its single body under it (folded; open while the part is),
+     of every part under it, a single one too (since 2026-11-16; folded, open while the part is),
      named and drawn by their nature — « Extrusion n » (`PRISM`), « Révolution n » (`TURN`),
      « Solide n » (a free B-rep, `SOLID`), « Groupe n » (`GROUP`) —, in their order of
      creation, numbered among their siblings, a group's children under it; their sign a toggle
@@ -574,9 +574,8 @@ Part    = the root group (+ material, grain, cut list)
      a click flips it (`Operation::SetSign`, the part open or not; the selected siblings too
      when the body is one of them; the open part's scope, else every occurrence), the last
      positive one too, leaving the part (or group) empty (« Empty parts » above); the rows stay
-     in place (no blanks first, as the entity info lists them). A click on a row opens the part, turns « Corps »
-     on, and selects the part's own body the row lies in (`Editor::toggle_body`); the entity
-     info's row of a group says « groupe de n ».
+     in place (no blanks first). A click on a row opens the part, turns « Corps »
+     on, and selects the part's own body the row lies in (`Editor::toggle_body`).
   3. *editing inside a group* (2026-11-16): a group opens as a part does, nested in it —
      `EntityPath::group` (the bodies leading to it, the part's own first; `in_group`,
      `part_path`), the editor's `open_group` (`Editor::open_group`), `open_part_path` carrying
@@ -594,8 +593,8 @@ Part    = the root group (+ material, grain, cut list)
      as in a part's. A double-click on a group body opens it (`Cx::group_body_at`); Échap, or a
      click off its box, goes back to its parent, the group selected; a group no longer there
      (undone, ungrouped) closes. The outliner's click on a body in a group opens that group and
-     selects the body itself; the groups along the open one are unfolded. The entity info says
-     « Édition d'un groupe de « X » (niveau n) » and lists the group's bodies. The part's guides
+     selects the body itself; the groups along the open one are unfolded. The entity info shows
+     the body selected in the group, as in the part. The part's guides
      stay the part's, in its axes (`Cx::part_in_context`, where new ones are drawn): while an
      operation runs in a group they are brought into its axes, then back, those it left alone
      put back exactly as they were (no drift); a copy made in a group takes its guides in the
@@ -803,6 +802,27 @@ Decided on 2026-11-09.
   Order, columns, sizes, folded and closed cards are kept in the preferences, written once the
   pointer is released. Opening or resizing a panel therefore never resizes the view; zoom
   extents frames the area left free.
+- **The outliner is titled « Navigateur »** (2026-11-16; the code keeps `outliner`, its
+  `PanelId` being in the preferences and `model.outliner` in the control protocol). Its rows
+  span the whole list (`tree_row`): the hover and the selection fill the line edge to edge,
+  indent and buttons included, a click anywhere on it but on its buttons (fold, eye, sign)
+  choosing it; a part's bodies lie on a band of their own (`band_color`: the card's colour a
+  shade towards the text; white in the light theme), the tree of assemblies and parts on the
+  card's, the band and the hover reaching the card's border across its margin
+  (`panels::CARD_MARGIN`). The tree follows the path being edited down to its end: a part's
+  bodies under it (a single one too), a group's under it, and under a body with a profile
+  (an extrusion, a revolution) its « Profil » (`icons::PROFILE`), a click editing it
+  (`Action::EditProfile`, `Editor::edit_body_profile`: its part and group opened, the tool
+  « Profil » on it). Only the deepest step of the path is marked selected: a body selected,
+  not its part; its profile edited (`Editor::profile_body`, from `Tool::profile_body`), its
+  « Profil » row, not the body nor the part — its body unfolded; the entity info then shows the
+  profile (its body, its corners).
+- **The entity info shows the selection**, whatever it is (2026-11-16): an assembly or a part
+  (its name, occurrence, material, dimensions, position…), a guide, and a part open, the body
+  or group selected in it — its name as the navigator gives it (« Extrusion 3 »), blank or
+  machining (read only: the sign is toggled in the navigator), failed or empty, its solid's
+  size, how many bodies share it, a group's bodies, its topology —; nothing selected,
+  « Aucune sélection », the part open or not.
 - **Toasts** (2026-11-16, `toasts.rs`), after OpenCutList's notifications
   (`SmartTool#notify`): the app's messages — a file not opened or not saved, the preferences
   or the control channel failing, a command that cannot run, « modele.ssk enregistré » — and

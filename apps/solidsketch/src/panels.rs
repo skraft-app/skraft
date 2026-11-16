@@ -33,13 +33,15 @@ pub enum Action {
     PartScope(Scope),
     /// Whether shapes drawn in the open part add material or take it away (§2.11).
     BodySign(Sign),
-    /// Machinings of the open part chosen in its list: shown, then selected.
-    SelectMachinings(Vec<Id>),
-    /// The machining hovered in the list, if any.
+    /// The body of the open part hovered in the outliner, if any (its part open on it, the
+    /// bodies shown).
     HoverMachining(Option<Id>),
     /// A body of a part chosen in the outliner (§2.11 « Body groups »): the part, and the group
     /// the path names, opened; the body selected or deselected, Shift (`true`) adding it.
     SelectBody(EntityPath, Id, bool),
+    /// A body's « Profil » row chosen in the outliner: its part (and group) opened, its profile
+    /// edited.
+    EditProfile(EntityPath, Id),
     /// The occurrence hovered in the outliner, if any.
     HoverOutliner(Option<EntityPath>),
     /// Hide the occurrence (true) or show it again: the outliner's eye.
@@ -542,7 +544,7 @@ struct OutlinerRow<'d> {
     /// The occurrences above it.
     path: Vec<Id>,
     occurrence: &'d Occurrence,
-    /// Its folding state, for an assembly, a part of several bodies, a group.
+    /// Its folding state, for an assembly, a part, a group.
     fold: Option<egui::collapsing_header::CollapsingState>,
     /// An assembly above it is hidden: it is not drawn either.
     hidden_above: bool,
@@ -560,6 +562,8 @@ struct BodyRow<'d> {
     group: Vec<Id>,
     /// Its siblings, itself included: the bodies of the part or group it lies in.
     siblings: &'d [solidsketch_model::Body],
+    /// The line is the body's profile's, under it, not the body's own.
+    profile: bool,
 }
 
 /// What a body is made of, its row's icon and name.
@@ -575,9 +579,9 @@ enum Nature {
     Group,
 }
 
-impl BodyRow<'_> {
-    fn nature(&self) -> Nature {
-        let def = self.part.def_of(self.body);
+impl Nature {
+    fn of(part: &solidsketch_model::Part, body: &solidsketch_model::Body) -> Nature {
+        let def = part.def_of(body);
         match &def.profile {
             _ if def.is_group() => Nature::Group,
             Some(f) if f.is_turned() => Nature::Revolution,
@@ -586,9 +590,9 @@ impl BodyRow<'_> {
         }
     }
 
-    fn label(&self) -> String {
-        let n = self.number;
-        match self.nature() {
+    /// Its name numbered `n` among its siblings: « Extrusion 3 ».
+    fn label(self, n: usize) -> String {
+        match self {
             Nature::Extrusion => t!("panel.outliner.extrusion", number = n),
             Nature::Revolution => t!("panel.outliner.revolution", number = n),
             Nature::Solid => t!("panel.outliner.solid", number = n),
@@ -596,8 +600,8 @@ impl BodyRow<'_> {
         }
     }
 
-    fn icon(&self) -> egui::ImageSource<'static> {
-        match self.nature() {
+    fn icon(self) -> egui::ImageSource<'static> {
+        match self {
             Nature::Extrusion => icons::PRISM,
             Nature::Revolution => icons::TURN,
             Nature::Solid => icons::SOLID,
@@ -606,38 +610,127 @@ impl BodyRow<'_> {
     }
 }
 
+impl BodyRow<'_> {
+    fn nature(&self) -> Nature {
+        Nature::of(self.part, self.body)
+    }
+
+    fn label(&self) -> String {
+        self.nature().label(self.number)
+    }
+
+    fn icon(&self) -> egui::ImageSource<'static> {
+        self.nature().icon()
+    }
+}
+
+/// The margin inside a panel's card, around its content (its border just outside).
+pub const CARD_MARGIN: f32 = 6.0;
+
+/// The background of a part's bodies in the outliner: white in the light theme, in the dark one
+/// the card's a shade towards the text.
+fn band_color(v: &egui::Visuals) -> egui::Color32 {
+    if v.dark_mode { v.window_fill.lerp_to_gamma(v.text_color(), 0.07) } else { egui::Color32::WHITE }
+}
+
+/// One line of the outliner across the whole list: its background — `band` that of a part's
+/// bodies, then the selection, or the hover (`lit`: hovered in the view) — painted under the
+/// widgets `add` lays in it from left to right. The response is the line's click; the buttons
+/// in it (a fold, an eye, a sign), added after, take theirs first.
+fn tree_row<R>(
+    ui: &mut egui::Ui,
+    height: f32,
+    selected: bool,
+    lit: bool,
+    band: bool,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> (egui::Response, R) {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::click());
+    // Edge to edge of the list, its indent included, and half the spacing above and below: the
+    // band of a part's bodies unbroken, the hover covering the line's whole height.
+    let gap = ui.spacing().item_spacing.y / 2.0;
+    // Out to the card's border, across its margin: the list's width (a vertical scroll area
+    // does not clip across), widened by the margin, painted past the list's clip.
+    let x = ui.max_rect().x_range();
+    let clip = egui::Rect::from_x_y_ranges(x, ui.clip_rect().y_range()).expand2(egui::vec2(CARD_MARGIN, 0.0));
+    let back = egui::Rect::from_x_y_ranges(clip.x_range(), rect.y_range()).expand2(egui::vec2(0.0, gap));
+    let v = ui.visuals();
+    let fill = if selected {
+        Some(v.selection.bg_fill)
+    } else if lit || ui.rect_contains_pointer(back) {
+        Some(v.widgets.hovered.weak_bg_fill)
+    } else if band {
+        Some(band_color(v))
+    } else {
+        None
+    };
+    if let Some(fill) = fill {
+        ui.painter().with_clip_rect(clip).rect_filled(back, 0.0, fill);
+    }
+    let layout = egui::Layout::left_to_right(egui::Align::Center);
+    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
+    let inner = add(&mut row);
+    (response, inner)
+}
+
 /// The outliner, in `area`: only the rows in view are laid out (a model can hold tens of
 /// thousands of occurrences).
 pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, area: egui::ScrollArea) {
     let doc = editor.document();
     if doc.root_assembly().occurrences().is_empty() {
         ui.weak(t!("panel.outliner.empty", shortcut = "R"));
+        actions.push(Action::HoverMachining(None));
         return;
     }
     let mut rows = Vec::new();
     flatten(ui.ctx(), editor, doc, doc.root(), &mut Vec::new(), &mut rows, false, 0);
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
-    let tint = ui.visuals().text_color();
+    let text = ui.visuals().text_color();
     let weak = ui.visuals().weak_text_color();
+    let on_selection = ui.visuals().selection.stroke.color;
     let height = ui.spacing().interact_size.y;
     let mut over = None;
+    let mut over_body = None;
+    // The body whose profile is edited: its « Profil » row the one selected.
+    let editing = editor.profile_body();
     // The components in error at any depth, each found once (definitions are shared).
     let mut errors = FastMap::default();
     area.show_rows(ui, height, rows.len(), |ui, range| {
         ui.set_min_width(ui.available_width());
         for row in rows.drain(range) {
-            if row.body.is_some() {
-                body_row(ui, editor, row, height, actions);
-                continue;
+            match &row.body {
+                Some(b) if b.profile => {
+                    profile_row(ui, editor, &row, height, editing, actions);
+                    continue;
+                }
+                Some(_) => {
+                    body_row(ui, editor, row, height, actions, &mut over_body);
+                    continue;
+                }
+                None => {}
             }
             let o = row.occurrence;
-            let selected = editor.context() == row.path.as_slice() && (selection.contains(&o.id) || editor.open_part() == Some(o.id));
+            // The part open: selected while none of its bodies is (a body selected is marked on
+            // its own row, not its part's).
+            let open = editor.open_part() == Some(o.id) && selection.is_empty() && editing.is_none();
+            let selected = editor.context() == row.path.as_slice() && (selection.contains(&o.id) || open);
             // Hidden, itself or by an assembly above: greyed.
             let greyed = o.hidden || row.hidden_above;
-            let tint = if greyed { weak } else { tint };
-            let width = ui.available_width();
-            let layout = egui::Layout::left_to_right(egui::Align::Center);
-            let row_ui = ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
+            let tint = if selected {
+                on_selection
+            } else if greyed {
+                weak
+            } else {
+                text
+            };
+            // A part in several pieces, or empty: an error to correct (§2.11). A body failed
+            // in it, at any depth, or a part in error in an assembly: ⚠ too, its name as it is
+            // (the error is below, seen once unfolded).
+            let part = doc.part(o.component).ok();
+            let pieces = part.map_or(1, |p| p.pieces());
+            let broken = pieces != 1;
+            let inner = !broken && in_error(doc, o.component, &mut errors, 0);
+            let (response, eye) = tree_row(ui, height, selected, false, false, |ui| {
                 // The toggle button (or, for a part, its room) one indent per level, so all
                 // the icons of a level line up.
                 let spacing = ui.spacing().item_spacing.x;
@@ -658,58 +751,45 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (icon, tip) =
                         if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
-                    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(weak);
+                    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
                     let eye = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
-                    let label = ui
-                        .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            // A part in several pieces, or empty: an error to correct (§2.11). A
-                            // body failed in it, at any depth, or a part in error in an assembly:
-                            // ⚠ too, its name as it is (the error is below, seen once unfolded).
-                            let part = doc.part(o.component).ok();
-                            let pieces = part.map_or(1, |p| p.pieces());
-                            let broken = pieces != 1;
-                            let inner = !broken && in_error(doc, o.component, &mut errors, 0);
-                            let label = egui::RichText::new(occurrence_label(doc, o));
-                            let label = if broken {
-                                label.color(ui.visuals().error_fg_color)
-                            } else if greyed {
-                                label.color(weak)
-                            } else {
-                                label
-                            };
-                            let button = if broken || inner {
-                                egui::Button::selectable(selected, (warning(ui), label))
-                            } else {
-                                egui::Button::selectable(selected, label)
-                            };
-                            let r = ui.add(button.truncate());
-                            match pieces {
-                                0 => r.on_hover_text(t!("panel.outliner.empty_part")),
-                                1 if inner && part.is_some() => r.on_hover_text(t!("panel.outliner.failed_inside_part")),
-                                1 if inner => r.on_hover_text(t!("panel.outliner.error_inside_assembly")),
-                                1 => r,
-                                _ => r.on_hover_text(t!("panel.outliner.pieces", count = pieces)),
-                            }
-                        })
-                        .inner;
-                    (label, eye)
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        if broken || inner {
+                            ui.add(warning(ui));
+                        }
+                        let color = if broken { ui.visuals().error_fg_color } else { tint };
+                        let label = egui::RichText::new(occurrence_label(doc, o)).color(color);
+                        ui.add(egui::Label::new(label).selectable(false).truncate());
+                    });
+                    eye
                 })
                 .inner
             });
+            let tip = match pieces {
+                0 => Some(t!("panel.outliner.empty_part")),
+                1 if inner && part.is_some() => Some(t!("panel.outliner.failed_inside_part")),
+                1 if inner => Some(t!("panel.outliner.error_inside_assembly")),
+                1 => None,
+                _ => Some(t!("panel.outliner.pieces", count = pieces)),
+            };
+            let response = match tip {
+                Some(tip) => response.on_hover_text(tip),
+                None => response,
+            };
             let path = EntityPath::new(row.path, o.id);
             // The whole row, its indent and toggle included.
-            if ui.rect_contains_pointer(row_ui.response.rect) {
+            if ui.rect_contains_pointer(response.rect) {
                 over = Some(path.clone());
             }
-            let (label, eye) = row_ui.inner;
             if eye {
                 actions.push(Action::SetHidden(path, !o.hidden));
-            } else if label.clicked() {
+            } else if response.clicked() {
                 actions.push(Action::SelectPath(path, ui.input(|i| i.modifiers.shift)));
             }
         }
     });
     actions.push(Action::HoverOutliner(over));
+    actions.push(Action::HoverMachining(over_body));
 }
 
 /// The rows of the tree under `assembly`, those of folded assemblies left out (`hidden_above`:
@@ -731,11 +811,7 @@ fn flatten<'d>(
     }
     for o in a.occurrences() {
         if let Ok(p) = doc.part(o.component) {
-            // A part of its single body: nothing under it.
-            if p.is_plain() && !p.def_of(&p.bodies[0]).is_group() {
-                out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None });
-                continue;
-            }
+            // Its bodies under it, a single one too.
             let id = egui::Id::unique(("outliner", path.as_slice(), o.id));
             let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
             // Open while the part is.
@@ -746,17 +822,17 @@ fn flatten<'d>(
             out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
             if open {
                 let open_group = (editor.context() == path.as_slice() && editor.open_part() == Some(o.id)).then(|| editor.open_group());
-                let row = |fold, number, group, body, siblings| OutlinerRow {
+                let row = |fold, number, group, body, siblings, profile| OutlinerRow {
                     path: path.clone(),
                     occurrence: o,
                     fold,
                     hidden_above,
-                    body: Some(BodyRow { part: p, body, number, group, siblings }),
+                    body: Some(BodyRow { part: p, body, number, group, siblings, profile }),
                 };
                 let at = (path.as_slice(), o.id);
-                body_rows(ctx, at, p, &p.bodies, &mut Vec::new(), open_group.unwrap_or(&[]), &mut |r: BodyLine<'d>| {
-                    out.push(row(r.0, r.1, r.2, r.3, r.4))
-                });
+                // The profile edited, in the group open: its body unfolded.
+                let open = Open { group: open_group.unwrap_or(&[]), profile: open_group.and(editor.profile_body()) };
+                body_rows(ctx, at, p, &p.bodies, &mut Vec::new(), open, &mut |r: BodyLine<'d>| out.push(row(r.0, r.1, r.2, r.3, r.4, r.5)));
             }
             continue;
         }
@@ -801,14 +877,21 @@ fn in_error(doc: &Document, id: Id, memo: &mut FastMap<Id, bool>, depth: usize) 
 /// Does one of `bodies` (of the part `p`, `depth` groups down) fail, or a body of a group among
 /// them, at any depth?
 fn holds_failure(p: &solidsketch_model::Part, bodies: &[solidsketch_model::Body], depth: usize) -> bool {
-    depth <= solidsketch_model::MAX_DEPTH
-        && bodies.iter().any(|b| p.is_failed(b.id) || holds_failure(p, p.def_of(b).children(), depth + 1))
+    depth <= solidsketch_model::MAX_DEPTH && bodies.iter().any(|b| p.is_failed(b.id) || holds_failure(p, p.def_of(b).children(), depth + 1))
 }
 
-/// A body row's parts: its folding state (a group's), its number, the groups it lies in, the
-/// body, its siblings.
+/// A body row's parts: its folding state (a group's, a profiled body's), its number, the groups
+/// it lies in, the body, its siblings, whether the row is the body's profile's.
 type BodyLine<'d> =
-    (Option<egui::collapsing_header::CollapsingState>, usize, Vec<Id>, &'d solidsketch_model::Body, &'d [solidsketch_model::Body]);
+    (Option<egui::collapsing_header::CollapsingState>, usize, Vec<Id>, &'d solidsketch_model::Body, &'d [solidsketch_model::Body], bool);
+
+/// What is open in a part, its rows unfolded along it: the group open (the bodies leading to
+/// it), the body of that group whose profile is edited.
+#[derive(Clone, Copy)]
+struct Open<'a> {
+    group: &'a [Id],
+    profile: Option<Id>,
+}
 
 /// The rows of `bodies` (of the part `p` the occurrence `at` places, in the groups `group`), in
 /// their order of creation — a row toggling its sign stays under the pointer —, each numbered;
@@ -820,7 +903,7 @@ fn body_rows<'d>(
     p: &'d solidsketch_model::Part,
     bodies: &'d [solidsketch_model::Body],
     group: &mut Vec<Id>,
-    open: &[Id],
+    open: Open,
     out: &mut dyn FnMut(BodyLine<'d>),
 ) {
     if group.len() > solidsketch_model::MAX_DEPTH {
@@ -828,20 +911,28 @@ fn body_rows<'d>(
     }
     for (number, b) in bodies.iter().enumerate().map(|(k, b)| (k + 1, b)) {
         let children = p.def_of(b).children();
-        if children.is_empty() {
-            out((None, number, group.clone(), b, bodies));
+        let profiled = p.profile_of(b).is_some();
+        if children.is_empty() && !profiled {
+            out((None, number, group.clone(), b, bodies, false));
             continue;
         }
         let id = egui::Id::unique(("outliner_body", at.0, at.1, group.as_slice(), b.id));
         let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
+        // Along the group open, or its profile edited: unfolded.
+        let edited = open.profile == Some(b.id) && open.group == group.as_slice();
         group.push(b.id);
-        if open.starts_with(group) {
+        if edited || open.group.starts_with(group) {
             fold.set_open(true);
         }
         let opened = fold.is_open();
         group.pop();
-        out((Some(fold), number, group.clone(), b, bodies));
-        if opened {
+        out((Some(fold), number, group.clone(), b, bodies, false));
+        if !opened {
+            continue;
+        }
+        if profiled {
+            out((None, number, group.clone(), b, bodies, true));
+        } else {
             group.push(b.id);
             body_rows(ctx, at, p, children, group, open, out);
             group.pop();
@@ -849,77 +940,114 @@ fn body_rows<'d>(
     }
 }
 
-/// One body's line of the outliner: its fold for a group, its nature's icon and name, its sign
-/// toggle at the right end; a click opens its part and selects the part's own body it lies in
-/// (Shift: added). The toggle flips its sign — the selected bodies' too when it is one of them,
-/// in its part or group opened —, in every occurrence of the part unless it is open for this
-/// one alone (« Celui-ci »); the only positive body among its siblings is refused (the error
-/// says why).
-fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, actions: &mut Vec<Action>) {
+/// A body's « Profil » line, under it on the band of its part's bodies: selected while it is
+/// edited (`editing`, in the part or group open), a click editing it (its part and group
+/// opened).
+fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &OutlinerRow, height: f32, editing: Option<Id>, actions: &mut Vec<Action>) {
+    let Some(b) = &row.body else { return };
+    let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
+    let selected = editor.open_part_path().as_ref() == Some(&path) && editing == Some(b.body.id);
+    let v = ui.visuals();
+    let tint = if selected {
+        v.selection.stroke.color
+    } else if row.occurrence.hidden || row.hidden_above {
+        v.weak_text_color()
+    } else {
+        v.text_color()
+    };
+    let (response, ()) = tree_row(ui, height, selected, false, true, |ui| {
+        // Under its body's icon: one level further, its fold's room left.
+        let spacing = ui.spacing().item_spacing.x;
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(ui.spacing().indent * (row.path.len() + 3 + b.group.len()) as f32);
+        ui.spacing_mut().item_spacing.x = spacing;
+        ui.add(egui::Image::new(icons::PROFILE).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
+        let label = egui::RichText::new(t!("panel.outliner.profile")).color(tint);
+        ui.add(egui::Label::new(label).selectable(false).truncate());
+    });
+    if response.on_hover_text(t!("panel.outliner.profile_tip")).clicked() && !selected {
+        actions.push(Action::EditProfile(path, b.body.id));
+    }
+}
+
+/// One body's line of the outliner, on the band of its part's bodies: its fold for a group, its
+/// nature's icon and name, its sign toggle at the right end; a click opens its part and selects
+/// the part's own body it lies in (Shift: added). Its part open on its siblings and « Corps »
+/// on, it is hovered and selected with the view (`over`: the body hovered here). The toggle
+/// flips its sign — the selected bodies' too when it is one of them, in its part or group
+/// opened —, in every occurrence of the part unless it is open for this one alone
+/// (« Celui-ci »).
+fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, actions: &mut Vec<Action>, over: &mut Option<Id>) {
     let Some(b) = &row.body else { return };
     let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
     let open = editor.open_part_path().as_ref() == Some(&path);
-    let selected = open && editor.showing_machinings() && editor.selection().contains(&b.body.id);
+    let shown = open && editor.showing_machinings();
+    let selected = shown && editor.selection().contains(&b.body.id);
+    let lit = shown && editor.hovered_machining() == Some(b.body.id);
     let greyed = row.occurrence.hidden || row.hidden_above;
-    let weak = ui.visuals().weak_text_color();
-    let tint = if greyed { weak } else { ui.visuals().text_color() };
-    let layout = egui::Layout::left_to_right(egui::Align::Center);
-    let (clicked, toggled) = ui
-        .allocate_ui_with_layout(egui::vec2(ui.available_width(), height), layout, |ui| {
-            let spacing = ui.spacing().item_spacing.x;
-            ui.spacing_mut().item_spacing.x = 0.0;
-            // Under the part's icon: its level, plus one, plus the groups above.
-            ui.add_space(ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32);
-            match row.fold {
-                Some(mut fold) => {
-                    fold.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
-                    fold.store(ui.ctx());
-                }
-                None => ui.add_space(ui.spacing().indent),
+    let v = ui.visuals();
+    let weak = v.weak_text_color();
+    let tint = if selected {
+        v.selection.stroke.color
+    } else if greyed {
+        weak
+    } else {
+        v.text_color()
+    };
+    let failed = b.part.is_failed(b.body.id);
+    // A group failed (empty, or its boolean failing): ⚠ as a part in error, an error to correct
+    // (§2.11 « Empty parts »); one holding a body failed, at any depth: ⚠ too, its name as it is.
+    let def = b.part.def_of(b.body);
+    let inner = def.is_group() && !failed && holds_failure(b.part, def.children(), 0);
+    let warned = (failed && def.is_group()) || inner;
+    let (response, toggled) = tree_row(ui, height, selected, lit, true, |ui| {
+        let spacing = ui.spacing().item_spacing.x;
+        ui.spacing_mut().item_spacing.x = 0.0;
+        // Under the part's icon: its level, plus one, plus the groups above.
+        ui.add_space(ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32);
+        match row.fold {
+            Some(mut fold) => {
+                fold.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                fold.store(ui.ctx());
             }
-            ui.spacing_mut().item_spacing.x = spacing;
-            ui.add(egui::Image::new(b.icon()).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-            // The sign toggle first, at the right end where a part's row has its eye, then the
-            // name in the room left.
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (icon, tip) = match b.body.sign {
-                    Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
-                    Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
-                };
-                let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(weak);
-                let toggled = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
-                let clicked = ui
-                    .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        let failed = b.part.is_failed(b.body.id);
-                        let mut label = egui::RichText::new(b.label());
-                        if failed {
-                            label = label.color(ui.visuals().error_fg_color);
-                        } else if greyed {
-                            label = label.color(tint);
-                        }
-                        // A group failed (empty, or its boolean failing): ⚠ as a part in error,
-                        // an error to correct (§2.11 « Empty parts »); one holding a body failed,
-                        // at any depth: ⚠ too, its name as it is.
-                        let def = b.part.def_of(b.body);
-                        let inner = def.is_group() && !failed && holds_failure(b.part, def.children(), 0);
-                        if (failed && def.is_group()) || inner {
-                            let tip = match (inner, def.solid.is_empty()) {
-                                (true, _) => t!("panel.outliner.failed_inside_group"),
-                                (false, true) => t!("panel.outliner.empty_group"),
-                                (false, false) => t!("panel.outliner.failed_group"),
-                            };
-                            let button = egui::Button::selectable(selected, (warning(ui), label)).truncate();
-                            ui.add(button).on_hover_text(tip).clicked()
-                        } else {
-                            ui.add(egui::Button::selectable(selected, label).truncate()).clicked()
-                        }
-                    })
-                    .inner;
-                (clicked, toggled)
-            })
-            .inner
+            None => ui.add_space(ui.spacing().indent),
+        }
+        ui.spacing_mut().item_spacing.x = spacing;
+        ui.add(egui::Image::new(b.icon()).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
+        // The sign toggle first, at the right end where a part's row has its eye, then the
+        // name in the room left.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let (icon, tip) = match b.body.sign {
+                Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
+                Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
+            };
+            let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
+            let toggled = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                if warned {
+                    ui.add(warning(ui));
+                }
+                let color = if failed { ui.visuals().error_fg_color } else { tint };
+                let label = egui::RichText::new(b.label()).color(color);
+                ui.add(egui::Label::new(label).selectable(false).truncate());
+            });
+            toggled
         })
-        .inner;
+        .inner
+    });
+    let response = if warned {
+        let tip = match (inner, def.solid.is_empty()) {
+            (true, _) => t!("panel.outliner.failed_inside_group"),
+            (false, true) => t!("panel.outliner.empty_group"),
+            (false, false) => t!("panel.outliner.failed_group"),
+        };
+        response.on_hover_text(tip)
+    } else {
+        response
+    };
+    if shown && ui.rect_contains_pointer(response.rect) {
+        *over = Some(b.body.id);
+    }
     if toggled {
         let sign = match b.body.sign {
             Sign::Positive => Sign::Negative,
@@ -934,7 +1062,7 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
         let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
         let scope = if part_open { editor.part_scope() } else { Scope::All };
         actions.push(Action::Apply(Operation::SetSign { target: path, bodies, sign, scope }));
-    } else if clicked {
+    } else if response.clicked() {
         actions.push(Action::SelectBody(path, b.body.id, ui.input(|i| i.modifiers.shift)));
     }
 }
@@ -967,6 +1095,9 @@ fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
     format!("{} × {} × {}{}", units.number(d.x), units.number(d.y), units.number(d.z), units.suffix())
 }
 
+/// What is selected: an occurrence (a part, an assembly), a guide; a part open, a body or a
+/// group of its bodies, in it or in the group open (§2.11) — nothing shown for the part itself,
+/// the selection empty.
 pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let units = &doc.settings().units;
@@ -974,7 +1105,27 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let sel = editor.selection();
     let Ok(asm) = doc.assembly(context) else { return };
     if let Some(open) = editor.open_part().and_then(|id| asm.occurrence(id)) {
-        open_part_info(ui, editor, open, actions);
+        let Some((_, p, _)) = editor.open_part_path().and_then(|path| doc.resolve_container(&path).ok()) else { return };
+        // A body's profile edited: it is what is chosen (the outliner's « Profil » row).
+        let edited = editor.profile_body().and_then(|id| p.bodies.iter().position(|b| b.id == id));
+        match sel {
+            [] => match edited {
+                Some(k) => profile_info(ui, &p, k),
+                None => {
+                    ui.weak(t!("panel.entity_info.no_selection"));
+                }
+            },
+            [id] => {
+                if let Some(k) = p.bodies.iter().position(|b| b.id == *id) {
+                    body_info(ui, editor, &p, k);
+                } else if let Some(g) = doc.component(open.component).ok().and_then(|c| c.guide(*id)) {
+                    guide_info(ui, g, units);
+                }
+            }
+            many => {
+                ui.label(tp!("panel.entity_info.selected", many.len()));
+            }
+        }
         return;
     }
     match sel {
@@ -989,17 +1140,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
         }
         [id] if doc.component(context).is_ok_and(|c| c.guide(*id).is_some()) => {
             let Some(g) = doc.component(context).ok().and_then(|c| c.guide(*id)) else { return };
-            egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                ui.label(t!("panel.entity_info.type"));
-                ui.label(t!("panel.entity_info.type_guide"));
-                ui.end_row();
-                ui.label(t!("panel.entity_info.shape"));
-                ui.label(match g.shape {
-                    GuideShape::Line { .. } => t!("panel.entity_info.guide_line"),
-                    GuideShape::Circle { radius, .. } => t!("panel.entity_info.guide_circle", radius = units.format(radius)),
-                });
-                ui.end_row();
-            });
+            guide_info(ui, g, units);
         }
         [id] => {
             let Some(o) = asm.occurrence(*id) else { return };
@@ -1116,123 +1257,94 @@ fn pieces_error(pieces: usize) -> Option<String> {
     }
 }
 
-/// The open part (ARCHITECTURE.md §2.9, §2.11): its name, how to close it, and its bodies in a
-/// flat list — its blanks first, then its machinings —, each numbered in its order of creation,
-/// with its solid's size, the failed ones marked; hovered and selected with the view. A click
-/// shows the bodies if they are not, and selects (Shift: adds), or deselects a body selected; a
-/// click on a body's
-/// sign badge toggles it (the selected bodies' too, when it is one of them).
-fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions: &mut Vec<Action>) {
-    let doc = editor.document();
-    let units = &doc.settings().units;
-    let Ok(c) = doc.component(open.component) else { return };
-    // In a group of its bodies (§2.11 « Body groups »): the group's.
-    let Some((_, p, _)) = editor.open_part_path().and_then(|path| doc.resolve_container(&path).ok()) else { return };
-    let p = &*p;
-    match editor.open_group().len() {
-        0 => {
-            ui.label(t!("panel.entity_info.editing", name = c.name));
-            ui.weak(t!("panel.entity_info.editing_part_exit"));
-        }
-        depth => {
-            ui.label(t!("panel.entity_info.editing_group", name = c.name, depth = depth));
-            ui.weak(t!("panel.entity_info.editing_group_exit"));
-        }
-    }
-    if let Some(error) = pieces_error(p.pieces()) {
-        ui.horizontal(|ui| {
-            ui.add(warning(ui));
-            ui.colored_label(ui.visuals().error_fg_color, error);
+/// A guide: its shape (a circle's radius).
+fn guide_info(ui: &mut egui::Ui, g: &solidsketch_model::Guide, units: &Units) {
+    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+        ui.label(t!("panel.entity_info.type"));
+        ui.label(t!("panel.entity_info.type_guide"));
+        ui.end_row();
+        ui.label(t!("panel.entity_info.shape"));
+        ui.label(match g.shape {
+            GuideShape::Line { .. } => t!("panel.entity_info.guide_line"),
+            GuideShape::Circle { radius, .. } => t!("panel.entity_info.guide_circle", radius = units.format(radius)),
         });
-    }
-    let shown = editor.showing_machinings();
-    let hovered = editor.hovered_machining();
-    let mut over = None;
-    // Numbered in the part's order (of creation), listed blanks first.
-    let mut bodies: Vec<(usize, &solidsketch_model::Body)> = p.bodies.iter().enumerate().map(|(k, b)| (k + 1, b)).collect();
-    bodies.sort_by_key(|(_, b)| b.sign == Sign::Negative);
-    ui.add_space(6.0);
-    ui.strong(t!("panel.entity_info.bodies_count", count = bodies.len()));
-    for (number, m) in bodies {
-        // The solid's exact box, once the kernel has given it.
-        let size = editor
-            .scene()
-            .bounds_of(p.solid_of(m))
-            .map_or_else(|| solidsketch_i18n::ellipsis(String::new()), |(lo, hi)| dims(lo, hi, units));
-        // A body sharing its definition: how many show it.
-        let row = match p.copies_of(m.def) {
-            1 => t!("panel.entity_info.body_row", number = number, size = size),
-            n => t!("panel.entity_info.body_row_shared", number = number, size = size, copies = n),
-        };
-        // A group: how many bodies it holds (§2.11 « Body groups »).
-        let held = p.def_of(m).children().len();
-        let row = if held > 0 { t!("panel.entity_info.group_row", row = row, count = held) } else { row };
-        let mut text = egui::RichText::new(row);
-        if p.is_failed(m.id) {
-            text = egui::RichText::new(t!("panel.entity_info.body_failed", row = text.text())).color(ui.visuals().error_fg_color);
-        }
-        if shown && hovered == Some(m.id) {
-            text = text.strong();
-        }
-        let selected = shown && editor.selection().contains(&m.id);
-        ui.horizontal(|ui| {
-            let (tip, other) = match m.sign {
-                Sign::Positive => (t!("panel.entity_info.sign_positive_tip"), Sign::Negative),
-                Sign::Negative => (t!("panel.entity_info.sign_negative_tip"), Sign::Positive),
-            };
-            let b = sign_badge(ui, m.sign).on_hover_text(tip);
-            if b.hovered() {
-                over = Some(m.id);
-            }
-            if b.clicked()
-                && let Some(target) = editor.open_part_path()
-            {
-                let ids = match selected {
-                    true => editor.selection().iter().copied().filter(|id| p.body(*id).is_some()).collect(),
-                    false => vec![m.id],
-                };
-                actions.push(Action::Apply(Operation::SetSign { target, bodies: ids, sign: other, scope: editor.part_scope() }));
-            }
-            let r = ui.selectable_label(selected, text);
-            let r = if shown { r } else { r.on_hover_text(t!("panel.entity_info.body_show_tip")) };
-            if r.hovered() {
-                over = Some(m.id);
-            }
-            if r.clicked() {
-                if !shown {
-                    actions.push(Action::ToggleMachinings);
-                }
-                // Selected, taken out of the selection; else selected alone (Shift: added).
-                let ids = if selected {
-                    editor.selection().iter().copied().filter(|id| *id != m.id).collect()
-                } else if shown && ui.input(|i| i.modifiers.shift) {
-                    editor.selection().iter().copied().chain([m.id]).collect()
-                } else {
-                    vec![m.id]
-                };
-                actions.push(Action::SelectMachinings(ids));
-            }
-        });
-    }
-    actions.push(Action::HoverMachining(over));
+        ui.end_row();
+    });
 }
 
-/// A body's sign, `+` or `−`, drawn with lines in a small button (not every font has them).
-fn sign_badge(ui: &mut egui::Ui, sign: Sign) -> egui::Response {
-    let side = ui.spacing().interact_size.y.min(18.0);
-    let (rect, r) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
-    if ui.is_rect_visible(rect) {
-        let v = ui.style().interact(&r);
-        ui.painter().rect(rect, v.corner_radius, v.weak_bg_fill, v.bg_stroke, egui::StrokeKind::Inside);
-        let c = rect.center();
-        let h = side * 0.25;
-        let stroke = egui::Stroke::new(1.5, v.fg_stroke.color);
-        ui.painter().line_segment([c - egui::vec2(h, 0.0), c + egui::vec2(h, 0.0)], stroke);
-        if sign == Sign::Positive {
-            ui.painter().line_segment([c - egui::vec2(0.0, h), c + egui::vec2(0.0, h)], stroke);
+/// The profile of the body `k` of `p` (the open part, or the group open in it), being edited:
+/// its body, how it is swept, its corners.
+fn profile_info(ui: &mut egui::Ui, p: &solidsketch_model::Part, k: usize) {
+    let b = &p.bodies[k];
+    let Some(profile) = p.profile_of(b) else { return };
+    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+        ui.label(t!("panel.entity_info.type"));
+        ui.label(t!("panel.entity_info.type_profile"));
+        ui.end_row();
+        ui.label(t!("panel.entity_info.body"));
+        ui.label(Nature::of(p, b).label(k + 1));
+        ui.end_row();
+        ui.label(t!("panel.entity_info.corners"));
+        ui.label(profile.profile.len().to_string());
+        ui.end_row();
+    });
+}
+
+/// The body `k` of `p` (the open part, or the group open in it, §2.11): a body or a group, its
+/// name as the outliner gives it, blank or machining (its sign toggled in the outliner), failed
+/// or not, its solid's size, how many bodies share its definition; a group's bodies.
+fn body_info(ui: &mut egui::Ui, editor: &Editor, p: &solidsketch_model::Part, k: usize) {
+    let units = &editor.document().settings().units;
+    let b = &p.bodies[k];
+    let def = p.def_of(b);
+    let field = (ui.available_width() - 90.0).max(60.0);
+    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+        ui.label(t!("panel.entity_info.type"));
+        ui.label(if def.is_group() { t!("panel.entity_info.type_group") } else { t!("panel.entity_info.type_body") });
+        ui.end_row();
+        ui.label(t!("panel.entity_info.name"));
+        cut_label(ui, Nature::of(p, b).label(k + 1), field);
+        ui.end_row();
+        ui.label(t!("panel.entity_info.role"));
+        ui.label(match b.sign {
+            Sign::Positive => t!("panel.entity_info.role_positive"),
+            Sign::Negative => t!("panel.entity_info.role_negative"),
+        });
+        ui.end_row();
+        if p.is_failed(b.id) {
+            ui.label(t!("panel.entity_info.state"));
+            let error = if def.solid.is_empty() { t!("panel.entity_info.empty") } else { t!("panel.entity_info.failed") };
+            cut_label(ui, egui::RichText::new(error).color(ui.visuals().error_fg_color), field);
+            ui.end_row();
         }
-    }
-    r
+        // Its solid's exact box, in its own axes, once the kernel has given it.
+        if let Some((lo, hi)) = editor.scene().bounds_of(&def.solid) {
+            ui.label(t!("panel.entity_info.dimensions"));
+            cut_label(ui, dims(lo, hi, units), field);
+            ui.end_row();
+        }
+        let copies = p.copies_of(b.def);
+        if copies > 1 {
+            ui.label(t!("panel.entity_info.copies"));
+            ui.label(copies.to_string());
+            ui.end_row();
+        }
+        if def.is_group() {
+            let children = def.children();
+            let positives = children.iter().filter(|c| c.sign == Sign::Positive).count();
+            ui.label(t!("panel.entity_info.bodies"));
+            cut_label(
+                ui,
+                t!("panel.entity_info.bodies_value", count = children.len(), positives = positives, negatives = children.len() - positives),
+                field,
+            );
+            ui.end_row();
+        }
+        let (f, ed, v) = def.solid.topology_counts();
+        ui.label(t!("panel.entity_info.topology"));
+        cut_label(ui, t!("panel.entity_info.topology_counts", faces = f, edges = ed, vertices = v), field);
+        ui.end_row();
+    });
 }
 
 // ---- materials ---------------------------------------------------------------------------------

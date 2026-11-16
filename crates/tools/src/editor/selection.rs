@@ -6,6 +6,7 @@ use solidsketch_model::{EntityPath, Id, Operation};
 
 use super::{After, Editor};
 use crate::ToolKind;
+use crate::tools::Command;
 
 impl Editor {
     pub fn select(&mut self, ids: Vec<Id>) {
@@ -81,9 +82,32 @@ impl Editor {
     /// not; the body then taken out of the selection when selected, else selected alone — added
     /// to it with `add` (Shift).
     pub fn toggle_body(&mut self, path: &EntityPath, body: Id, add: bool) {
-        let Ok((_, p, _)) = self.document().resolve_container(path) else { return };
-        if p.body(body).is_none() {
+        if !self.open_container(path, body) {
             return;
+        }
+        if self.selection.contains(&body) {
+            self.selection.retain(|id| *id != body);
+        } else if add {
+            self.selection.push(body);
+        } else {
+            self.selection = vec![body];
+        }
+    }
+
+    /// Edits the profile of the body `body` of the part or group `path` leads into (the
+    /// outliner's « Profil » row): opened as for a click on the body's row, the tool « Profil »
+    /// started on it.
+    pub fn edit_body_profile(&mut self, path: &EntityPath, body: Id) {
+        if self.open_container(path, body) {
+            self.run(Command::EditProfile(body));
+        }
+    }
+
+    /// Opens the part and the group `path` leads into, if it holds `body`: is it there?
+    fn open_container(&mut self, path: &EntityPath, body: Id) -> bool {
+        let Ok((_, p, _)) = self.document().resolve_container(path) else { return false };
+        if p.body(body).is_none() {
+            return false;
         }
         let part = path.part_path();
         if self.open_part_path().map(|p| p.part_path()).as_ref() != Some(&part) {
@@ -97,13 +121,7 @@ impl Editor {
             self.listed_hover = None;
             self.sync_scene();
         }
-        if self.selection.contains(&body) {
-            self.selection.retain(|id| *id != body);
-        } else if add {
-            self.selection.push(body);
-        } else {
-            self.selection = vec![body];
-        }
+        true
     }
 
     /// Edits the assembly the occurrence `id` of the active context places, or opens the part

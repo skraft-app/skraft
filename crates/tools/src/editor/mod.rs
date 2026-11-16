@@ -355,6 +355,12 @@ impl Editor {
         }
     }
 
+    /// The body of the part (or group) open whose profile is edited (the tool « Profil »), if
+    /// any.
+    pub fn profile_body(&self) -> Option<Id> {
+        self.tool.profile_body(&self.cx())
+    }
+
     /// The path of the open part's occurrence, into its group open (§2.11 « Body groups »).
     pub fn open_part_path(&self) -> Option<EntityPath> {
         self.open_part.map(|id| EntityPath::new(self.context.clone(), id).in_group(self.open_group.clone()))
