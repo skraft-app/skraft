@@ -457,6 +457,7 @@ impl Editor {
         self.collected.clear();
         self.context.clear();
         self.open_part = None;
+        self.open_group.clear();
         self.selection.clear();
         self.tool.reset();
         self.after_change();
@@ -469,11 +470,19 @@ impl Editor {
         while !self.context.is_empty() && doc.context_of(&self.context).is_err() {
             self.context.pop();
             self.open_part = None;
+            self.open_group.clear();
         }
         let ctx = doc.context_of(&self.context).unwrap_or(doc.root());
         let open = self.open_part.and_then(|id| doc.resolve_part(&EntityPath::new(self.context.clone(), id)).ok());
         if open.is_none() {
             self.open_part = None;
+        }
+        // A group open no longer there (undone, ungrouped): closed, up to what still is.
+        while !self.open_group.is_empty() && self.open_part_path().is_none_or(|p| doc.resolve_container(&p).is_err()) {
+            self.open_group.pop();
+        }
+        if self.open_part.is_none() {
+            self.open_group.clear();
         }
         // The guides of the active context stay selected while they are shown.
         let guide_component = match &open {

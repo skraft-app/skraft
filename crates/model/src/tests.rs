@@ -1994,42 +1994,41 @@ fn machinings_paste_into_another_part() {
 }
 
 #[test]
-fn parts_paste_into_a_part_as_bodies_flattened_unless_plain() {
+fn parts_paste_into_a_part_as_groups_unless_plain() {
     let mut h = History::new(Document::new());
     let root = h.document().root();
-    // A drilled board (flattened) and a plain dowel (kept whole, its profile with it), both
-    // turned and moved, into a board elsewhere.
+    // A drilled board (a group of its bodies) and a plain dowel (kept whole, its profile with
+    // it), into a board elsewhere.
     let (drilled, drilled_part, _) = drilled_board(&mut h);
     let dowel = add(&mut h, Primitive::Cylinder { origin: DVec3::new(0.0, 100.0, 0.0), radius: 4.0, height: 30.0 });
     let target = add(&mut h, Primitive::Box { origin: DVec3::new(0.0, 0.0, 100.0), size: DVec3::new(300.0, 200.0, 18.0) });
     let target = EntityPath::root(target);
     let fragment = Arc::new(h.document().entities_fragment(&[], &[drilled.entity, dowel]).unwrap());
     let parts = fragment.parts_as_bodies().unwrap();
-    assert!(parts.flattened);
-    assert_eq!(parts.fragment.bodies.len(), 2);
-    assert!(parts.fragment.bodies.iter().all(|b| b.sign == Sign::Positive));
+    assert_eq!(parts.bodies.len(), 2);
+    assert!(parts.bodies.iter().all(|b| b.sign == Sign::Positive));
 
     let (part, _, t) = h.document().resolve_part(&target).unwrap();
     let op = Operation::PasteParts { target: target.clone(), fragment: fragment.clone(), transform: t.inverse(), scope: Scope::All };
     let out = h.apply(op).unwrap();
-    assert_eq!(out.warning, Some(Warning::Flattened));
     assert_eq!(out.machinings().len(), 2);
     let p = h.document().part(part).unwrap();
     assert_eq!(p.positives().count(), 3);
-    // The drilled board, one free body, its shape the final one, at its world place.
-    let flat = p.body(out.machinings()[0]).unwrap();
-    assert!(p.profile_of(flat).is_none());
-    assert!(Arc::ptr_eq(p.solid_of(flat), h.document().part(drilled_part).unwrap().shape()));
+    // The drilled board, a group of its blank and its hole, its shape the final one, at its
+    // world place.
+    let group = p.body(out.machinings()[0]).unwrap();
+    let def = p.def_of(group);
+    assert!(def.is_group() && p.profile_of(group).is_none());
+    assert_eq!(def.children().iter().map(|c| c.sign).collect::<Vec<_>>(), vec![Sign::Positive, Sign::Negative]);
+    assert!(Arc::ptr_eq(p.solid_of(group), h.document().part(drilled_part).unwrap().shape()));
+    assert!(def.children().iter().all(|c| p.def(c.def).is_some()));
     let (_, _, t_drilled) = h.document().resolve_part(&drilled).unwrap();
-    assert!(close((t * flat.placement).translation, t_drilled.translation));
+    assert!(close((t * group.placement).translation, t_drilled.translation));
     // The dowel, its profile kept.
     let kept = p.body(out.machinings()[1]).unwrap();
     assert!(p.profile_of(kept).is_some());
-
-    // Plain parts only: nothing said.
-    let fragment = Arc::new(h.document().entities_fragment(&[], &[dowel]).unwrap());
-    let op = Operation::PasteParts { target: target.clone(), fragment, transform: t.inverse(), scope: Scope::All };
-    assert_eq!(h.apply(op).unwrap().warning, None);
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), p);
 
     // An assembly: one body per part under it, the hidden ones left out.
     let a = add(&mut h, cube(DVec3::new(500.0, 0.0, 0.0), 10.0));
@@ -2038,7 +2037,7 @@ fn parts_paste_into_a_part_as_bodies_flattened_unless_plain() {
     let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b, c], name: None }).unwrap().created[0];
     h.apply(Operation::SetHidden { context: asm_def(&h, asm), entities: vec![c], hidden: true }).unwrap();
     let fragment = Arc::new(h.document().entities_fragment(&[], &[asm]).unwrap());
-    assert_eq!(fragment.parts_as_bodies().unwrap().fragment.bodies.len(), 2);
+    assert_eq!(fragment.parts_as_bodies().unwrap().bodies.len(), 2);
 }
 
 #[test]
@@ -2242,7 +2241,7 @@ fn a_placed_body_keeps_its_profile_in_its_own_axes() {
 }
 
 #[test]
-fn a_union_brings_the_tool_s_bodies() {
+fn a_union_brings_the_tool_as_a_group() {
     let mut h = History::new(Document::new());
     let (target, part, _) = drilled_board(&mut h);
     // A second drilled board, crossing the first's end, turned a quarter.
@@ -2257,21 +2256,26 @@ fn a_union_brings_the_tool_s_bodies() {
     .unwrap();
     h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(other), op: Boolean::Union, scope: Scope::All }).unwrap();
     let p = h.document().part(part).unwrap();
-    assert_eq!((p.positives().count(), p.negatives().count()), (2, 2));
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 1));
     assert!(p.failed.is_empty(), "{:?}", p.failed);
     assert_eq!(p.pieces(), 1);
-    // The tool's hole, in the target's axes.
-    let hole = p.negatives().nth(1).unwrap();
-    assert!(close(hole.placement.translation, DVec3::new(190.0, -80.0, -5.0)), "{}", hole.placement.translation);
+    // The tool, a group of its blank and its hole; the hole in the target's axes.
+    let group = p.positives().nth(1).unwrap();
+    let children = p.def_of(group).children();
+    assert_eq!(children.len(), 2);
+    let hole = children.iter().find(|c| c.sign == Sign::Negative).unwrap();
+    assert!(close((group.placement * hole.placement).translation, DVec3::new(190.0, -80.0, -5.0)));
     let (lo, hi) = part_bounds(h.document(), &target);
     assert!(close(lo, DVec3::new(0.0, -100.0, 0.0)) && close(hi, DVec3::new(200.0, 150.0, 18.0)), "{lo} {hi}");
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), p);
 }
 
-#[test]
-fn a_union_says_when_the_tool_s_machinings_cut_the_target() {
+/// A board with a block on it drilled through by a drill longer than it, down into the board,
+/// the block joined to the board: its part and the occurrence.
+fn board_and_drilled_block() -> (History, Id, EntityPath) {
     let mut h = History::new(Document::new());
     let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
-    // A block on the board, drilled through by a drill longer than it, down into the board.
     let block = add(&mut h, Primitive::Box { origin: DVec3::new(50.0, 10.0, 18.0), size: DVec3::new(30.0, 30.0, 20.0) });
     let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(65.0, 25.0, 5.0), radius: 4.0, height: 40.0 });
     h.apply(Operation::Boolean {
@@ -2281,22 +2285,186 @@ fn a_union_says_when_the_tool_s_machinings_cut_the_target() {
         scope: Scope::All,
     })
     .unwrap();
-    let op = Operation::Boolean { target: EntityPath::root(board), tool: EntityPath::root(block), op: Boolean::Union, scope: Scope::All };
-    assert_eq!(h.document().apply(&op).unwrap().1.warning, Some(Warning::UnionCut));
-    // The drill kept inside the block: nothing to say.
+    let target = EntityPath::root(board);
+    h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(block), op: Boolean::Union, scope: Scope::All }).unwrap();
+    let part = h.document().resolve_part(&target).unwrap().0;
+    (h, part, target)
+}
+
+fn volume(doc: &Document, part: Id) -> f64 {
+    doc.part(part).unwrap().shape().volume().unwrap()
+}
+
+#[test]
+fn a_union_s_tool_machinings_cut_the_tool_only_until_ungrouped() {
+    let (mut h, part, target) = board_and_drilled_block();
+    let hole = |length: f64| std::f64::consts::PI * 16.0 * length;
+    // The drill goes through the block (20 long in it), not into the board (13 more).
+    let whole = 200.0 * 50.0 * 18.0 + 30.0 * 30.0 * 20.0;
+    assert!((volume(h.document(), part) - (whole - hole(20.0))).abs() < 1e-3, "{}", volume(h.document(), part));
+    // Flattened, its reach is the part's: it drills the board too.
+    let group = h.document().part(part).unwrap().positives().nth(1).unwrap().id;
+    let out = h.apply(Operation::UngroupBodies { target: target.clone(), bodies: vec![group], scope: Scope::All }).unwrap();
+    assert_eq!(out.bodies.len(), 2);
+    let p = h.document().part(part).unwrap();
+    assert!(p.defs.iter().all(|d| !d.is_group()), "the group's definition dropped");
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 1));
+    assert!((volume(h.document(), part) - (whole - hole(33.0))).abs() < 1e-3, "{}", volume(h.document(), part));
+    // Grouped again: the drill's reach is the group's once more.
+    let ids: Vec<Id> = out.bodies.clone();
+    let out = h.apply(Operation::GroupBodies { target: target.clone(), bodies: ids, scope: Scope::All }).unwrap();
+    assert_eq!(out.bodies.len(), 1);
+    assert!((volume(h.document(), part) - (whole - hole(20.0))).abs() < 1e-3, "{}", volume(h.document(), part));
+    assert!(h.undo() && h.undo());
+    assert!(h.document().part(part).unwrap().def_of(h.document().part(part).unwrap().positives().nth(1).unwrap()).is_group());
+}
+
+#[test]
+fn negatives_grouped_make_a_compound_machining() {
+    let mut h = History::new(Document::new());
+    let (target, part, hole) = drilled_board(&mut h);
+    // A counterbore: a wider, shallow cylinder over the hole.
+    let bore = Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, 12.0), radius: 8.0, height: 10.0 };
+    let bore = h
+        .apply(Operation::AddBody {
+            target: target.clone(),
+            primitive: bore,
+            placement: DAffine3::IDENTITY,
+            sign: Sign::Negative,
+            scope: Scope::All,
+        })
+        .unwrap()
+        .bodies[0];
+    let before = volume(h.document(), part);
+    let out = h.apply(Operation::GroupBodies { target: target.clone(), bodies: vec![hole, bore], scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    let group = p.body(out.bodies[0]).unwrap().clone();
+    assert_eq!(group.sign, Sign::Negative);
+    assert!(p.def_of(&group).children().iter().all(|c| c.sign == Sign::Positive));
+    assert_eq!((p.positives().count(), p.negatives().count()), (1, 1));
+    assert!((volume(h.document(), part) - before).abs() < 1e-6);
+    // Copied along the board: one definition, computed once.
+    let step = DAffine3::from_translation(DVec3::X * 50.0);
+    h.apply(Operation::ArrayBodies { target: target.clone(), bodies: vec![group.id], step, count: 2, scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.negatives().count(), 3);
+    assert_eq!(p.defs.iter().filter(|d| d.is_group()).count(), 1);
+    assert_eq!(p.copies_of(group.def), 3);
+    // Made unique: a definition of its own, its children too.
+    let first = p.negatives().next().unwrap().id;
+    h.apply(Operation::MakeBodiesUnique { target: target.clone(), bodies: vec![first], scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    let groups: Vec<&BodyDef> = p.defs.iter().filter(|d| d.is_group()).collect();
+    assert_eq!(groups.len(), 2);
+    let ids = |d: &BodyDef| d.children().iter().map(|c| c.id).collect::<Vec<_>>();
+    assert!(ids(groups[0]).iter().all(|id| !ids(groups[1]).contains(id)));
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), p);
+    // Flattened: two machinings again.
+    let out = h.apply(Operation::UngroupBodies { target: target.clone(), bodies: vec![first], scope: Scope::All }).unwrap();
+    assert_eq!(out.bodies.len(), 2);
+    assert_eq!(h.document().part(part).unwrap().negatives().count(), 4);
+}
+
+#[test]
+fn a_negative_group_sparing_material_is_not_flattened() {
     let mut h = History::new(Document::new());
     let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
-    let block = add(&mut h, Primitive::Box { origin: DVec3::new(50.0, 10.0, 18.0), size: DVec3::new(30.0, 30.0, 20.0) });
-    let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(65.0, 25.0, 25.0), radius: 4.0, height: 40.0 });
+    // A tool that spares material: a pocket with an island (a drilled block, subtracted).
+    let pocket = add(&mut h, Primitive::Box { origin: DVec3::new(50.0, 10.0, 10.0), size: DVec3::new(40.0, 30.0, 20.0) });
+    let island = add(&mut h, Primitive::Box { origin: DVec3::new(65.0, 20.0, 0.0), size: DVec3::new(10.0, 10.0, 40.0) });
     h.apply(Operation::Boolean {
-        target: EntityPath::root(block),
-        tool: EntityPath::root(drill),
+        target: EntityPath::root(pocket),
+        tool: EntityPath::root(island),
         op: Boolean::Difference,
         scope: Scope::All,
     })
     .unwrap();
-    let op = Operation::Boolean { target: EntityPath::root(board), tool: EntityPath::root(block), op: Boolean::Union, scope: Scope::All };
-    assert_eq!(h.document().apply(&op).unwrap().1.warning, None);
+    let target = EntityPath::root(board);
+    h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(pocket), op: Boolean::Difference, scope: Scope::All })
+        .unwrap();
+    let part = h.document().resolve_part(&target).unwrap().0;
+    let p = h.document().part(part).unwrap();
+    // The tool, a negative group of its bodies: still editable.
+    let group = p.negatives().next().unwrap().clone();
+    assert!(p.def_of(&group).is_group());
+    assert_eq!(p.def_of(&group).children().len(), 2);
+    let blank = p.positives().next().unwrap().id;
+    // The pocket, 8 deep, around a 10 × 10 island left standing.
+    let expected = 200.0 * 50.0 * 18.0 - (40.0 * 30.0 - 100.0) * 8.0;
+    assert!((volume(h.document(), part) - expected).abs() < 1e-3, "{}", volume(h.document(), part));
+    let op = Operation::UngroupBodies { target: target.clone(), bodies: vec![group.id], scope: Scope::All };
+    assert!(matches!(h.apply(op), Err(Error::Invalid(Refusal::UngroupNegative))));
+    // Computed again from its bodies (a body added and deleted): the same.
+    let other = h
+        .apply(Operation::AddBody {
+            target: target.clone(),
+            primitive: cube(DVec3::new(150.0, 0.0, 18.0), 10.0),
+            placement: DAffine3::IDENTITY,
+            sign: Sign::Positive,
+            scope: Scope::All,
+        })
+        .unwrap()
+        .bodies[0];
+    h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![other], scope: Scope::All }).unwrap();
+    assert!((volume(h.document(), part) - expected).abs() < 1e-3);
+    assert!(h.document().part(part).unwrap().body(blank).is_some());
+}
+
+#[test]
+fn a_stretch_goes_through_groups() {
+    let (mut h, part, target) = board_and_drilled_block();
+    // Across the block (x 50..80) at x = 70: the block 30 longer, its hole (at 65) left where it
+    // is; the board too, 230 long.
+    let op = stretch_x(h.document(), &target, 70.0, 30.0, Scope::All);
+    h.apply(op).unwrap();
+    let p = h.document().part(part).unwrap();
+    let group = p.positives().find(|b| p.def_of(b).is_group()).unwrap();
+    let def = p.def_of(group);
+    let block = def.children().iter().find(|c| c.sign == Sign::Positive).unwrap();
+    let (lo, hi) = p.solid_of(block).vertex_bounds().unwrap();
+    let (lo, hi) = (block.placement.transform_point3(lo), block.placement.transform_point3(hi));
+    let (lo, hi) = (group.placement.transform_point3(lo), group.placement.transform_point3(hi));
+    assert!((hi.x - lo.x - 60.0).abs() < 1e-6, "{lo} {hi}");
+    let hole = |length: f64| std::f64::consts::PI * 16.0 * length;
+    let whole = 230.0 * 50.0 * 18.0 + 60.0 * 30.0 * 20.0;
+    assert!((volume(h.document(), part) - (whole - hole(20.0))).abs() < 1e-3, "{}", volume(h.document(), part));
+    let (lo, hi) = part_bounds(h.document(), &target);
+    assert!((hi.x - lo.x - 230.0).abs() < 1e-6);
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), p);
+}
+
+#[test]
+fn a_file_with_a_group_holding_itself_is_refused() {
+    let (h, part, _) = board_and_drilled_block();
+    let p = h.document().part(part).unwrap();
+    let group = p.defs.iter().find(|d| d.is_group()).unwrap();
+    let json = h.document().to_json().unwrap();
+    // A child of the group made an occurrence of the group itself.
+    let child = group.children()[0].def;
+    let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    fn repoint(v: &mut serde_json::Value, group: u64, from: u64) {
+        match v {
+            serde_json::Value::Object(m) => {
+                if m.get("id").and_then(|i| i.as_u64()) == Some(group)
+                    && let Some(children) = m.get_mut("group").and_then(|g| g.get_mut("children")).and_then(|c| c.as_array_mut())
+                {
+                    for c in children {
+                        if c.get("def").and_then(|d| d.as_u64()) == Some(from) {
+                            c["def"] = group.into();
+                        }
+                    }
+                }
+                m.values_mut().for_each(|x| repoint(x, group, from));
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(|x| repoint(x, group, from)),
+            _ => {}
+        }
+    }
+    repoint(&mut v, group.id.0, child.0);
+    assert!(Document::from_json(&v.to_string()).is_err());
+    assert!(Document::from_json(&json).is_ok());
 }
 
 #[test]
@@ -2449,7 +2617,9 @@ fn a_union_s_bodies_share_their_copied_definitions() {
     let target = EntityPath::root(target);
     h.apply(Operation::Boolean { target: target.clone(), tool: tool_path, op: Boolean::Union, scope: Scope::All }).unwrap();
     let (_, p, _) = h.document().resolve_part(&target).unwrap();
-    let holes: Vec<&Body> = p.negatives().collect();
+    // In the tool's group.
+    let group = p.positives().find(|b| p.def_of(b).is_group()).unwrap();
+    let holes: Vec<&Body> = p.def_of(group).children().iter().filter(|c| c.sign == Sign::Negative).collect();
     assert_eq!(holes.len(), 2);
     assert_eq!(holes[0].def, holes[1].def, "still copies of one definition");
     let source = h.document().part(tool_part).ok();
@@ -2764,4 +2934,216 @@ fn an_amended_step_undoes_as_one() {
     assert_eq!(h.document().component(part).unwrap().name, "Pied", "redone named");
     assert!(h.undo());
     assert!(!h.amend(Document::new()), "not with steps undone");
+}
+
+// ---- editing inside groups (§2.11 « Body groups ») -----------------------------------------------
+
+#[test]
+fn bodies_are_edited_inside_a_group_for_every_copy() {
+    let (mut h, part, target) = board_and_drilled_block();
+    let hole = |length: f64| std::f64::consts::PI * 16.0 * length;
+    let whole = 200.0 * 50.0 * 18.0 + 30.0 * 30.0 * 20.0;
+    let p = h.document().part(part).unwrap();
+    let group = p.positives().find(|b| p.def_of(b).is_group()).unwrap().clone();
+    let inside = target.clone().in_group(vec![group.id]);
+    // Seen as a part: its children, in the group's axes, placed in the world.
+    let (_, g, t) = h.document().resolve_container(&inside).unwrap();
+    assert_eq!(g.bodies.len(), 2);
+    assert!(close(t.translation, group.placement.translation));
+    let drill = g.negatives().next().unwrap().id;
+
+    // The drill moved down 13 inside the group (5..45 → -8..32): still the group's, it cuts the
+    // block over 14 only and never the board, the group's shape and the part computed again.
+    let down = DAffine3::from_translation(DVec3::Z * -13.0);
+    h.apply(Operation::TransformBodies { target: inside.clone(), bodies: vec![drill], transform: down, scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.bodies.len(), 2, "nothing came out of the group");
+    let (_, g, _) = h.document().resolve_container(&inside).unwrap();
+    assert!(
+        close(g.body(drill).unwrap().placement.translation.z * DVec3::Z, DVec3::Z * (5.0 - 13.0 - 18.0)),
+        "{}",
+        g.body(drill).unwrap().placement.translation
+    );
+    assert!((volume(h.document(), part) - (whole - hole(14.0))).abs() < 1e-3, "{}", volume(h.document(), part));
+
+    // A body drawn in the group: a second hole, through the block only.
+    let second = Primitive::Cylinder { origin: DVec3::new(5.0, 5.0, -10.0), radius: 2.0, height: 40.0 };
+    let out = h
+        .apply(Operation::AddBody {
+            target: inside.clone(),
+            primitive: second,
+            placement: DAffine3::IDENTITY,
+            sign: Sign::Negative,
+            scope: Scope::All,
+        })
+        .unwrap();
+    let (_, g, _) = h.document().resolve_container(&inside).unwrap();
+    assert!(g.body(out.bodies[0]).is_some());
+    assert!((volume(h.document(), part) - (whole - hole(14.0) - std::f64::consts::PI * 4.0 * 20.0)).abs() < 1e-3);
+
+    // Copied along the board: the copies show what is done inside the group.
+    let dx = DAffine3::from_translation(DVec3::X * 100.0);
+    h.apply(Operation::DuplicateBodies { target: target.clone(), bodies: vec![group.id], transform: dx, scope: Scope::All }).unwrap();
+    h.apply(Operation::DeleteBodies { target: inside.clone(), bodies: vec![out.bodies[0]], scope: Scope::All }).unwrap();
+    let both = 200.0 * 50.0 * 18.0 + 2.0 * (30.0 * 30.0 * 20.0 - hole(14.0));
+    assert!((volume(h.document(), part) - both).abs() < 1e-3, "{}", volume(h.document(), part));
+    // Its last positive stays.
+    let (_, g, _) = h.document().resolve_container(&inside).unwrap();
+    let block = g.positives().next().unwrap().id;
+    let op = Operation::DeleteBodies { target: inside.clone(), bodies: vec![block], scope: Scope::All };
+    assert!(matches!(h.apply(op), Err(Error::Invalid(Refusal::LastPositive))));
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), h.document().part(part).unwrap());
+    // Undone in one step.
+    assert!(h.undo());
+    assert!((volume(h.document(), part) - (both - 2.0 * std::f64::consts::PI * 4.0 * 20.0)).abs() < 1e-3);
+}
+
+#[test]
+fn groups_nest_and_never_hold_themselves() {
+    let (mut h, part, target) = board_and_drilled_block();
+    let p = h.document().part(part).unwrap();
+    let group = p.positives().find(|b| p.def_of(b).is_group()).unwrap().id;
+    let inside = target.clone().in_group(vec![group]);
+    let (_, g, _) = h.document().resolve_container(&inside).unwrap();
+    let drill = g.negatives().next().unwrap().id;
+    // The drill grouped inside the group: a compound machining two levels down.
+    let out = h.apply(Operation::GroupBodies { target: inside.clone(), bodies: vec![drill], scope: Scope::All }).unwrap();
+    let deeper = target.clone().in_group(vec![group, out.bodies[0]]);
+    let (_, g2, _) = h.document().resolve_container(&deeper).unwrap();
+    assert_eq!(g2.bodies.len(), 1);
+    let hole = |length: f64| std::f64::consts::PI * 16.0 * length;
+    let whole = 200.0 * 50.0 * 18.0 + 30.0 * 30.0 * 20.0;
+    assert!((volume(h.document(), part) - (whole - hole(20.0))).abs() < 1e-3);
+    // Edited two levels down: wider, every level computed again.
+    let (_, g2, _) = h.document().resolve_container(&deeper).unwrap();
+    let inner = g2.bodies[0].id;
+    let mut disc = g2.profile_of(&g2.bodies[0]).cloned().unwrap();
+    disc.profile = kernel::profile::with_radius(&disc.profile, 6.0).unwrap();
+    h.apply(Operation::SetProfile { target: deeper.clone(), body: inner, profile: disc, scope: Scope::All }).unwrap();
+    assert!((volume(h.document(), part) - (whole - std::f64::consts::PI * 36.0 * 20.0)).abs() < 1e-3, "{}", volume(h.document(), part));
+
+    // The group copied, then pasted into itself: refused.
+    let fragment = Arc::new(h.document().bodies_fragment(&target, &[group]).unwrap());
+    let op = Operation::PasteBodies { target: inside.clone(), fragment, transform: DAffine3::IDENTITY, scope: Scope::All };
+    assert!(matches!(h.apply(op), Err(Error::Cycle)));
+    // A path through a leaf, or to nothing: refused.
+    let blank = h.document().part(part).unwrap().bodies[0].id;
+    let op = Operation::DeleteBodies { target: target.clone().in_group(vec![blank]), bodies: vec![drill], scope: Scope::All };
+    assert!(h.apply(op).is_err());
+}
+
+#[test]
+fn only_this_one_separates_the_part_before_editing_inside_its_group() {
+    let (mut h, part, target) = board_and_drilled_block();
+    let root = h.document().root();
+    let twin = h
+        .apply(Operation::Duplicate {
+            context: root,
+            entities: vec![target.entity],
+            transform: DAffine3::from_translation(DVec3::Y * 200.0),
+        })
+        .unwrap()
+        .created[0];
+    let p = h.document().part(part).unwrap();
+    let group = p.positives().find(|b| p.def_of(b).is_group()).unwrap().id;
+    let inside = target.clone().in_group(vec![group]);
+    let (_, g, _) = h.document().resolve_container(&inside).unwrap();
+    let drill = g.negatives().next().unwrap().id;
+    h.apply(Operation::DeleteBodies { target: inside.clone(), bodies: vec![drill], scope: Scope::This }).unwrap();
+    let mine = h.document().resolve_part(&target).unwrap().0;
+    assert_ne!(mine, part, "the part made its own");
+    assert_eq!(h.document().resolve_part(&EntityPath::root(twin)).unwrap().0, part);
+    let whole = 200.0 * 50.0 * 18.0 + 30.0 * 30.0 * 20.0;
+    assert!((volume(h.document(), mine) - whole).abs() < 1e-3);
+    assert!(volume(h.document(), part) < whole - 1.0);
+}
+
+#[test]
+fn guides_move_with_bodies_inside_a_placed_group_in_its_axes() {
+    let (mut h, part, target) = board_and_drilled_block();
+    let p = h.document().part(part).unwrap();
+    // The block's group, placed at the block's corner (50, 10, 18) in the part.
+    let group = p.positives().find(|b| p.def_of(b).is_group()).unwrap().clone();
+    assert!(close(group.placement.translation, DVec3::new(50.0, 10.0, 18.0)));
+    let line = |origin: DVec3| GuideShape::Line { origin, dir: DVec3::X };
+    let mut ids = Vec::new();
+    for at in [DVec3::new(60.0, 20.0, 38.0), DVec3::new(0.0, 0.0, 18.0)] {
+        ids.push(h.apply(Operation::AddGuide { component: part, shape: line(at) }).unwrap().guide.unwrap());
+    }
+    let inside = target.clone().in_group(vec![group.id]);
+    let (_, g, _) = h.document().resolve_container(&inside).unwrap();
+    let drill = g.negatives().next().unwrap().id;
+    // A quarter turn about the group's Z, through its origin, the drill and the first guide.
+    let turn = DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    let op = Operation::TransformBodies { target: inside.clone(), bodies: vec![drill, ids[0]], transform: turn, scope: Scope::All };
+    h.apply(op).unwrap();
+    let c = h.document().component(part).unwrap();
+    // In the group's axes (10, 10, 20) → (-10, 10, 20): (40, 20, 38) in the part's, along Y.
+    let expected = GuideShape::Line { origin: DVec3::new(40.0, 20.0, 38.0), dir: DVec3::Y };
+    match (c.guide(ids[0]).unwrap().shape, expected) {
+        (GuideShape::Line { origin, dir }, GuideShape::Line { origin: o, dir: d }) => {
+            assert!(close(origin, o) && close(dir, d), "{origin} {dir}");
+        }
+        (s, _) => panic!("{s:?}"),
+    }
+    // The other one left exactly as it was.
+    assert_eq!(c.guide(ids[1]).unwrap().shape, line(DVec3::new(0.0, 0.0, 18.0)));
+
+    // Copied from inside the group: in its axes; pasted at the part's level, back where the
+    // group puts it (the fragment's world, the group's).
+    let fragment = h.document().bodies_fragment(&inside, &[ids[0]]).unwrap();
+    match fragment.guides[..] {
+        [GuideShape::Line { origin, .. }] => assert!(close(origin, DVec3::new(-10.0, 10.0, 20.0)), "{origin}"),
+        _ => panic!("{:?}", fragment.guides),
+    }
+}
+
+#[test]
+fn bodies_inside_groups_weld_onto_bodies_anywhere_in_the_part() {
+    let mut h = History::new(Document::new());
+    let board = weld_board(&mut h);
+    let target = EntityPath::root(board);
+    // Two holes through, grouped: a compound machining (its children positive).
+    let mut holes = Vec::new();
+    for x in [100.0, 200.0] {
+        let hole = Primitive::Cylinder { origin: DVec3::new(x, 100.0, -5.0), radius: 5.0, height: 30.0 };
+        holes.push(add_body(&mut h, board, hole, Sign::Negative).bodies[0]);
+    }
+    let group = h.apply(Operation::GroupBodies { target: target.clone(), bodies: holes, scope: Scope::All }).unwrap().bodies[0];
+    let inside = target.clone().in_group(vec![group]);
+    // A third one drawn in the group, 1.4e-5 above the board's bottom (a body outside the group):
+    // welded onto it, through.
+    let hole = Primitive::Cylinder { origin: DVec3::new(300.0, 100.0, 1.4e-5), radius: 5.0, height: 18.0 - 1.4e-5 };
+    let op = Operation::AddBody {
+        target: inside.clone(),
+        primitive: hole,
+        placement: DAffine3::IDENTITY,
+        sign: Sign::Positive,
+        scope: Scope::All,
+    };
+    let out = h.apply(op).unwrap();
+    let id = out.bodies[0];
+    assert_eq!(out.welds.len(), 1, "{:?}", out.welds);
+    assert_eq!(out.welds[0].body, id);
+    let (_, g, _) = h.document().resolve_container(&inside).unwrap();
+    let b = g.body(id).unwrap();
+    let (lo, _) = g.solid_of(b).vertex_bounds().unwrap();
+    assert!(b.placement.transform_point3(lo).z.abs() < 1e-12);
+    // Through: the board's six faces and three holes' sides, no skin.
+    assert_eq!(faces_of(&h, board), 9);
+
+    // The group copied: a hair-short body drawn in it is never moved (it would be elsewhere in
+    // each copy).
+    let dy = DAffine3::from_translation(DVec3::Y * 100.0);
+    h.apply(Operation::DuplicateBodies { target: target.clone(), bodies: vec![group], transform: dy, scope: Scope::All }).unwrap();
+    let hole = Primitive::Cylinder { origin: DVec3::new(400.0, 100.0, 1.4e-5), radius: 5.0, height: 18.0 - 1.4e-5 };
+    let op = Operation::AddBody {
+        target: inside.clone(),
+        primitive: hole,
+        placement: DAffine3::IDENTITY,
+        sign: Sign::Positive,
+        scope: Scope::All,
+    };
+    assert!(h.apply(op).unwrap().welds.is_empty());
 }

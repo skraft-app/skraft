@@ -224,7 +224,7 @@ impl Document {
         axis: DVec3,
         cuts: &[f64],
     ) -> Result<Vec<Option<(f64, f64)>>> {
-        let (_, p, _) = self.resolve_part(target)?;
+        let (_, p, _) = self.resolve_container(target)?;
         let s = Stretch::new(axis, cuts.to_vec(), vec![0.0; cuts.len() + 1]).map_err(solidsketch_kernel::Error::from)?;
         let mut spans = vec![None; cuts.len() + 1];
         for b in p.bodies.iter().filter(|b| bodies.contains(&b.id)) {
@@ -679,51 +679,7 @@ impl crate::Part {
     /// of them take is made in place, the others go to copies — all of them do when a body
     /// reached keeps the shape (only moved).
     pub fn body_stretch(&self, ids: Option<&[Id]>, stretch: &Stretch) -> BodyStretch {
-        let key = |s: &Stretch| {
-            let a = s.axis();
-            let round = |x: f64| (x * 1e6).round() as i64;
-            [a.x, a.y, a.z].into_iter().chain(s.cuts().iter().copied()).chain(s.moves().iter().copied()).map(round).collect::<Vec<_>>()
-        };
-        let mut out = BodyStretch::default();
-        let mut keys: Vec<Vec<i64>> = Vec::new();
-        let mut kept: FastSet<Id> = FastSet::default();
-        for b in self.bodies.iter().filter(|b| ids.is_none_or(|ids| ids.contains(&b.id))) {
-            let local = stretch.in_frame(&b.placement);
-            match local.extent(self.solid_of(b)).map_or(Some(0.0), |(lo, hi)| local.rigid_move(lo, hi)) {
-                Some(d) => {
-                    out.moved.push((b.id, DAffine3::from_translation(stretch.axis() * d) * b.placement));
-                    kept.insert(b.def);
-                }
-                None => {
-                    let k = key(&local);
-                    match out.changes.iter().zip(&keys).position(|(c, ck)| c.def == b.def && *ck == k) {
-                        Some(i) => out.changes[i].bodies.push(b.id),
-                        None => {
-                            out.changes.push(DefChange { def: b.def, local, bodies: vec![b.id], in_place: false });
-                            keys.push(k);
-                        }
-                    }
-                }
-            }
-        }
-        // Per definition, the change made in place: the one most bodies take, none when a body
-        // reached keeps the shape.
-        let mut best: FastMap<Id, usize> = FastMap::default();
-        for (i, c) in out.changes.iter().enumerate() {
-            if kept.contains(&c.def) {
-                continue;
-            }
-            match best.get(&c.def) {
-                Some(&j) if out.changes[j].bodies.len() >= c.bodies.len() => {}
-                _ => {
-                    best.insert(c.def, i);
-                }
-            }
-        }
-        for i in best.into_values() {
-            out.changes[i].in_place = true;
-        }
-        out
+        bodies_stretch(&self.defs, &self.bodies, ids, stretch)
     }
 
     /// The bodies showing the change `c` once made: those it reaches, and, made in place, the
@@ -736,4 +692,56 @@ impl crate::Part {
         }
         out
     }
+}
+
+/// [`Part::body_stretch`](crate::Part::body_stretch) for `bodies` of the definitions `defs`:
+/// a part's, or a group's children (in the group's axes).
+pub(crate) fn bodies_stretch(defs: &[crate::BodyDef], bodies: &[crate::Body], ids: Option<&[Id]>, stretch: &Stretch) -> BodyStretch {
+    let solid_of = |b: &crate::Body| defs.iter().find(|d| d.id == b.def).map(|d| d.solid.clone());
+    let key = |s: &Stretch| {
+        let a = s.axis();
+        let round = |x: f64| (x * 1e6).round() as i64;
+        [a.x, a.y, a.z].into_iter().chain(s.cuts().iter().copied()).chain(s.moves().iter().copied()).map(round).collect::<Vec<_>>()
+    };
+    let mut out = BodyStretch::default();
+    let mut keys: Vec<Vec<i64>> = Vec::new();
+    let mut kept: FastSet<Id> = FastSet::default();
+    for b in bodies.iter().filter(|b| ids.is_none_or(|ids| ids.contains(&b.id))) {
+        let local = stretch.in_frame(&b.placement);
+        let Some(solid) = solid_of(b) else { continue };
+        match local.extent(&solid).map_or(Some(0.0), |(lo, hi)| local.rigid_move(lo, hi)) {
+            Some(d) => {
+                out.moved.push((b.id, DAffine3::from_translation(stretch.axis() * d) * b.placement));
+                kept.insert(b.def);
+            }
+            None => {
+                let k = key(&local);
+                match out.changes.iter().zip(&keys).position(|(c, ck)| c.def == b.def && *ck == k) {
+                    Some(i) => out.changes[i].bodies.push(b.id),
+                    None => {
+                        out.changes.push(DefChange { def: b.def, local, bodies: vec![b.id], in_place: false });
+                        keys.push(k);
+                    }
+                }
+            }
+        }
+    }
+    // Per definition, the change made in place: the one most bodies take, none when a body
+    // reached keeps the shape.
+    let mut best: FastMap<Id, usize> = FastMap::default();
+    for (i, c) in out.changes.iter().enumerate() {
+        if kept.contains(&c.def) {
+            continue;
+        }
+        match best.get(&c.def) {
+            Some(&j) if out.changes[j].bodies.len() >= c.bodies.len() => {}
+            _ => {
+                best.insert(c.def, i);
+            }
+        }
+    }
+    for i in best.into_values() {
+        out.changes[i].in_place = true;
+    }
+    out
 }

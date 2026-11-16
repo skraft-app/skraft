@@ -118,8 +118,7 @@ bodies, `Part = (∪ positives) − (∪ negatives)`.
   are kept with the shape (`Part::failed`, the same cache, saved with the file) for the
   interface to show. In the web worker a kernel panic still aborts the whole job (§7 ter): only
   failures SolidCore reports are isolated there.
-- **One kernel session** (2026-11-15): the recipe's steps (and `Task::UnionVolume`'s unions)
-  run in one SolidCore session, the shape read back to a record only at the end. A shape
+- **One kernel session** (2026-11-15): the recipe's steps run in one SolidCore session, the shape read back to a record only at the end. A shape
   between two steps may be one SolidCore writes to a record but refuses to read back — two
   blanks touching along an edge only until a third fills the corner (« a sheet touching itself
   along an edge »): step by step, the third blank failed for nothing. A boolean consumes the
@@ -327,10 +326,9 @@ Decided on 2026-11-14 (questions / answers). Branch `feature/part-bodies`, built
    body hovered or selected stays see-through: its highlight washes its faces with the
    mark's tint over the ghost's own (`Highlight::ghost`, `fs_face_ghost_mark`), its edges as
    any highlight's. A part in pieces gets
-   ⚠ and its name in the error colour in the outliner; the union's warning
-   (`Outcome::warning`, `Warning::UnionCut`) is said in a warning toast (since 2026-11-16; in
-   the status bar before), worked out from two
-   volumes (`Task::UnionVolume`: the target and the tool joined before, the result after).
+   ⚠ and its name in the error colour in the outliner. The union's warning (`Warning::UnionCut`,
+   worked out from two volumes by `Task::UnionVolume`) went with body groups (2026-11-16): the
+   tool's machinings now cut the tool only.
    Not done: the positive bodies apart drawn in the error colour (which lump a body lies in
    is not known cheaply). Then (2026-11-14): a difference whose tool is its single positive
    body (a shape drawn) takes that body whole as the negative one, its profile with it — still
@@ -458,6 +456,127 @@ Body { id, def, sign, placement }           — an occurrence of it, placed in t
 - **Display and file**: one mesh per definition (the recipe's key), the copies of a selected
   body marked « related »; the entity info shows `×N` on a shared body; the file writes each
   definition once.
+
+**Body groups** (decided on 2026-11-16, questions / answers; built the same day, branch
+`feature/body-groups`, steps below): a body definition
+may itself be a group of bodies, so a part becomes a tree of CSG without history — the same
+fixed formula at every level.
+
+```
+BodyDef = Leaf  { id, solid, profile, source }   — a shape, in its own axes (as today)
+        | Group { id, children: Vec<Body> }      — (∪ positive children) − (∪ negative children)
+Body    = { id, def, sign, placement }           — unchanged: a placed, signed occurrence
+Part    = the root group (+ material, grain, cut list)
+```
+
+- **Where the B-rep lives**: a leaf has a **source** B-rep (or profile); a group has **only a
+  cached** B-rep, computed from its children — never one of its own. A group holding a single
+  positive leaf at the identity *is* that leaf (no boolean, as `Part::is_plain`). Freezing a
+  group into a shape is an explicit « Convertir en forme libre » (the group becomes a `Brep`
+  leaf).
+- **A negative's reach is its group**: it cuts the positives of its own group only, no longer
+  every positive of the part (supersedes « every negative cuts every positive » above, which
+  stays true within a group). Flattening a group (its children brought up one level, their
+  placements composed) widens the reach of its negatives to the parent's. A negative group
+  is a compound tool (a counterbore = two cylinders, a hinge drilling = cup ∪ screws); a
+  negative inside a negative group spares material (`parent − (A − B)`).
+- **Booleans between parts** (supersedes the union and the difference above): the union
+  puts the tool part's root **as a positive sub-group** of the target, its structure kept,
+  its negatives reaching that sub-group only — `Warning::UnionCut` goes; a through-hole meant
+  to drill the target too is had by flattening. The difference puts the tool part's root as
+  a **negative sub-group** (its bodies kept, still editable) instead of one frozen `Brep`
+  body. The intersection stays a new part with one positive `Brep` leaf: **no ∩ node**, nor
+  any ordered operation — that would turn the tree into a feature history (persistent naming).
+- **No order between siblings**: only nesting carries meaning; adding a body to a group,
+  in any order, gives the same result.
+- **Definitions stay local to their part** (groups included): a group's copies in the part
+  share it, a change shows in every one, « Rendre unique » as for leaves; cycles are
+  forbidden (a group cannot contain an occurrence of itself or of an ancestor); a union, a
+  difference, a paste elsewhere give the target copies of the definitions, the whole tree.
+  A document-wide library (tools, hardware, `source: Linked`) is for later.
+- **Caching**: every group caches, in **its own axes**, its result and also `∪P` and `∪N`
+  apart, keyed by its definition and a version. A shared group is thus computed once for all
+  its copies. Changing a leaf invalidates its path to the root only: O(depth) booleans, the
+  siblings' caches reused; adding a negative is one subtraction on the result, moving one
+  is `∪P − ∪N'` without the union of the positives. The computation tree may differ from the
+  visible one: a group with many children is balanced internally (pairwise unions, as the
+  BVH), out of sight.
+- **Failures** are reported by the body's **path** (group / … / body): a failed child is
+  skipped, the others computed; a group whose result is empty or broken fails as a whole for
+  its parent.
+- **One piece of wood** is checked **at the root only**: a sub-group in several lumps can be
+  meant (a jig of three holes).
+- **Plane welding**: references are the leaves of the whole part tree, in the part's axes.
+- **Interface**: the tree shows **in the outliner, under its part** (supersedes « the
+  outliner keeps to occurrences » and the flat list above): groups and bodies with their sign;
+  a group is opened as a component is (§2.9), nested editing contexts. A sub-group can be
+  extracted into a part of its own (« Extraire en pièce »), the converse of the union.
+- **Built** (2026-11-16):
+  1. *the model*: `BodyDef { group: Option<BodyGroup> }`, `BodyGroup { children, failed }`
+     (`BodyDef::group`, `children`, `is_group`), the group's `solid` its cached result;
+     `Part::{all_bodies, children_of}`, `copies_of` and `is_failed` through groups,
+     `drop_unused_defs` through them (`used_defs`); the file refuses a group without a positive
+     child, failures outside its children, or a group holding itself at any depth. A group is
+     computed by one `Task::Recipe` (`Document::group_result`; a single positive child,
+     unplaced, is the result: no kernel), its children's shapes cached: an operation reaching
+     inside a group computes it, then its parent, in one job (the recorder's stand-ins chain
+     them). `Operation::GroupBodies` (the group's axes the part's, the body where the first one
+     stood; negatives alone make a negative group of positive children — a compound machining;
+     the part computed again only when the group mixes signs, or is now the part alone) and
+     `Operation::UngroupBodies` (`Refusal::UngroupNegative` for a negative group holding a
+     negative; fresh ids for the children when the group is shared). The union and the
+     difference put a non-plain tool in as a group (`tool_as_body`, its shape the group's: no
+     more kernel work than before); `Task::UnionVolume`, `Warning::UnionCut` and
+     `Warning::Flattened` are gone (parts pasted into a part come as groups too).
+     `copies_of_bodies` copies whole trees (`renamed_children`: every copy of a group holds
+     bodies of its own ids); « Rendre unique » on a group too. **Stretch**: a group across a
+     cutter has its children stretched in its axes (`stretched_def`, recursively), each one
+     across a cutter given a definition of its own — inside a group, changes never go in place
+     (simple and right: a definition shared with bodies outside it is not changed under them).
+     **Plane welding** goes through groups (2026-11-16, after step 3): it works on the part's
+     leaves (no group), each reached through its groups and placed in the part's axes
+     (`weld.rs`, `Leaf`); a leaf the operation changed is welded onto the faces of the leaves it
+     left alone, anywhere in the part — in its group or out of it —, then the groups on its way
+     are computed again, the deepest first, and the part. A leaf in a group shown by copies is
+     never moved (a face lies elsewhere in each copy), a reference still;
+  2. *the interface*: « Grouper les corps » / « Dégrouper » (`edit.group_bodies`,
+     `edit.ungroup_bodies`, in Assembler › Composants; in an open part, « Créer un
+     assemblage » (G) and « Éclater » do the same on its bodies); the outliner shows the bodies
+     of a part that is not its single body under it (folded; open while the part is),
+     « Brut n », « Usinage n », « Groupe n », « Usinage composé n », blanks first, numbered
+     among their siblings, a group's children under it: a click opens the part, turns « Corps »
+     on, and selects the part's own body the row lies in (`Editor::toggle_body`); the entity
+     info's row of a group says « groupe de n ».
+  3. *editing inside a group* (2026-11-16): a group opens as a part does, nested in it —
+     `EntityPath::group` (the bodies leading to it, the part's own first; `in_group`,
+     `part_path`), the editor's `open_group` (`Editor::open_group`), `open_part_path` carrying
+     it. **Every operation on bodies takes it**: `Document::apply_in_group` puts the group's
+     definition in the part's place as a part of its own (`Part::group_as_part`: its children
+     the bodies, its result the shape, every definition of the part), applies the operation to
+     it unchanged — in the group's axes —, gives the definition the result (every copy of the
+     group shows it), computes the groups above it, innermost first, then the part, all in the
+     operation's job; a group made to hold itself (pasted into itself) is refused
+     (`Error::Cycle`); « Celui-ci » makes the part its own first, as for its bodies.
+     `Document::resolve_container` gives what a path leads into — the part, or the group as a
+     part, and its axes to world (`Part::group_chain`) —: the editor, the tools, the scene's
+     recipe (`RecipeMeshes::within`, the group in the part's axes) and the entity info read it,
+     so the tools draw, infer, move, stretch, erase, copy and edit profiles in the group's axes
+     as in a part's. A double-click on a group body opens it (`Cx::group_body_at`); Échap, or a
+     click off its box, goes back to its parent, the group selected; a group no longer there
+     (undone, ungrouped) closes. The outliner's click on a body in a group opens that group and
+     selects the body itself; the groups along the open one are unfolded. The entity info says
+     « Édition d'un groupe de « X » (niveau n) » and lists the group's bodies. The part's guides
+     stay the part's, in its axes (`Cx::part_in_context`, where new ones are drawn): while an
+     operation runs in a group they are brought into its axes, then back, those it left alone
+     put back exactly as they were (no drift); a copy made in a group takes its guides in the
+     group's axes, as its bodies.
+  4. *machinings inside groups shown* (2026-11-16): in an open part (or group) showing its
+     bodies, a positive group is drawn as its result and, over it, the machinings inside it —
+     at any depth through positive groups — as faint red ghosts (`RecipeMeshes::nested`, each
+     with the group of the open level it lies in: hidden with it while it is carried, never
+     picked — the click takes the group, a double-click opens it). A negative group is one
+     machining, drawn as its result: what it spares inside is not shown in red. X-ray needs
+     nothing more (the ghosts are see-through already).
 
 **Format**: version 1 until the release (§8), no compatibility to keep.
 
@@ -1848,10 +1967,10 @@ supersedes "Occurrences do not paste into an open part, nor machinings out of on
   any depth of the assemblies copied (hidden occurrences left out), placed by its world
   transformation, **positive** whatever the « Matière » choice (the ＋/－ badge changes it
   after). As the difference's tool (§2.11): a part that is its single positive body (a shape
-  drawn) gives that body whole, its profile with it — still editable, nothing said; any other
-  part is **flattened**: its final shape becomes one `Brep` body, its bodies and profiles
-  lost, and **a warning says so** (`Warning::Flattened`). Copies of one part share one
-  definition. The guides copied go into the part. The « Corps » switch is turned on, so the
+  drawn) gives that body whole, its profile with it — still editable; any other part comes
+  as **a group of its bodies** (§2.11 « Body groups », since 2026-11-16; flattened into one
+  `Brep` body with a warning before), its shape the group's: nothing lost. Copies of one part
+  share one definition. The guides copied go into the part. The « Corps » switch is turned on, so the
   bodies pasted can be seen, selected and carried.
 - **Bodies out of an open part** (`Operation::PasteAsPart { context, fragment, transform }`):
   **one new part** holding every body pasted, their placements kept — **its axes are the

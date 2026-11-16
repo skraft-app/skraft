@@ -71,6 +71,8 @@ impl Tool for SelectTool {
             // (§2.11).
             ToolInput::DoubleClick { px, .. } => match cx.profiled_body_at(*px) {
                 Some(body) => vec![Command::EditProfile(body)],
+                // On a group of bodies: opened (§2.11 « Body groups »).
+                None if let Some(group) = cx.group_body_at(*px) => vec![Command::Enter(group)],
                 None => match cx.pick(*px).and_then(|h| cx.selectable(&h.path)) {
                     Some(id) => vec![Command::Enter(id)],
                     None => vec![],

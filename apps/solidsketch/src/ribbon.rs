@@ -91,8 +91,8 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
                 group(
                     "components",
                     || t!("ribbon.group.components"),
-                    &["edit.make_assembly", "edit.explode", "edit.make_unique"],
-                    &["edit.make_assembly", "edit.explode", "edit.make_unique"],
+                    &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies"],
+                    &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies"],
                 ),
                 group("modify", || t!("ribbon.group.modify"), MODIFY_ASSEMBLY, MODIFY_ASSEMBLY),
             ],

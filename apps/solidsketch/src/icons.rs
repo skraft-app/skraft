@@ -21,6 +21,7 @@ icon!(INTERSECT, "intersect");
 icon!(UNDO, "undo");
 icon!(REDO, "redo");
 icon!(COMPONENT, "component");
+icon!(GROUP, "group");
 icon!(EXPLODE, "explode");
 icon!(UNIQUE, "unique");
 icon!(EXTENTS, "extents");
@@ -81,6 +82,8 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "edit.make_assembly" => COMPONENT,
         "edit.explode" => EXPLODE,
         "edit.make_unique" => UNIQUE,
+        "edit.group_bodies" => GROUP,
+        "edit.ungroup_bodies" => EXPLODE,
         "edit.delete_guides" => GUIDES_DELETE,
         "view.section_clear" => SECTION_CLEAR,
         "view.zoom_extents" => EXTENTS,

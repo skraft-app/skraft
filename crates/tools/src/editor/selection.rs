@@ -55,6 +55,7 @@ impl Editor {
             self.tool.reset();
             self.context = path.instances.clone();
             self.open_part = None;
+            self.open_group.clear();
             self.sync_scene();
         }
         self.selection = vec![path.entity];
@@ -75,10 +76,51 @@ impl Editor {
         }
     }
 
+    /// The outliner's click on the body `body` of the part — or group of bodies — `path`
+    /// leads to (§2.11 « Body groups »): the part, then the group, opened first when they are
+    /// not; the body then taken out of the selection when selected, else selected alone — added
+    /// to it with `add` (Shift).
+    pub fn toggle_body(&mut self, path: &EntityPath, body: Id, add: bool) {
+        let Ok((_, p, _)) = self.document().resolve_container(path) else { return };
+        if p.body(body).is_none() {
+            return;
+        }
+        let part = path.part_path();
+        if self.open_part_path().map(|p| p.part_path()).as_ref() != Some(&part) {
+            self.select_path(&part);
+            self.enter(part.entity);
+        }
+        if self.open_group != path.group {
+            self.open_group = path.group.clone();
+            self.tool.reset();
+            self.selection.clear();
+            self.listed_hover = None;
+            self.sync_scene();
+        }
+        if self.selection.contains(&body) {
+            self.selection.retain(|id| *id != body);
+        } else if add {
+            self.selection.push(body);
+        } else {
+            self.selection = vec![body];
+        }
+    }
+
     /// Edits the assembly the occurrence `id` of the active context places, or opens the part
     /// it places.
     pub fn enter(&mut self, id: Id) {
+        // In an open part: a group of its bodies opened (§2.11 « Body groups »).
         if self.open_part.is_some() {
+            let Some(path) = self.open_part_path() else { return };
+            let Ok((_, p, _)) = self.document().resolve_container(&path) else { return };
+            if !p.body(id).is_some_and(|b| p.def_of(b).is_group()) {
+                return;
+            }
+            self.open_group.push(id);
+            self.tool.reset();
+            self.selection.clear();
+            self.listed_hover = None;
+            self.sync_scene();
             return;
         }
         let doc = self.document();
@@ -102,7 +144,12 @@ impl Editor {
     /// Closes the open part, else goes back to the parent context; the occurrence left is
     /// selected.
     pub fn exit(&mut self) {
-        if let Some(id) = self.open_part.take().or_else(|| self.context.pop()) {
+        let left = match self.open_group.pop() {
+            // Out of the group: back in its parent, the group selected.
+            Some(id) => Some(id),
+            None => self.open_part.take().or_else(|| self.context.pop()),
+        };
+        if let Some(id) = left {
             self.tool.reset();
             // The profile's editing goes with the part (§6 nonies, step 3).
             if self.tool.kind() == ToolKind::Profile {
@@ -184,10 +231,13 @@ impl Editor {
         self.erase(guides);
     }
 
-    /// Puts the selection in a new assembly.
+    /// Puts the selection in a new assembly; in an open part, groups its bodies selected.
     pub fn make_assembly(&mut self) {
         if self.busy() {
             return;
+        }
+        if self.open_part.is_some() {
+            return self.group_bodies();
         }
         if self.selection.is_empty() {
             self.message = Some(t!("status.nothing_to_group"));
@@ -203,9 +253,13 @@ impl Editor {
         self.selection.iter().copied().filter(|id| self.document().is_assembly_occurrence(ctx, *id)).collect()
     }
 
+    /// Explodes the assemblies selected; in an open part, flattens its groups selected.
     pub fn explode(&mut self) {
         if self.busy() {
             return;
+        }
+        if self.open_part.is_some() {
+            return self.ungroup_bodies();
         }
         let context = self.context_definition();
         self.collected.clear();
@@ -215,13 +269,54 @@ impl Editor {
         self.pump();
     }
 
+    /// The bodies selected in the open part, with its path.
+    fn selected_bodies(&self) -> Option<(EntityPath, Vec<Id>)> {
+        let target = self.open_part_path()?;
+        let (_, p, _) = self.document().resolve_container(&target).ok()?;
+        let bodies: Vec<Id> = self.selection.iter().copied().filter(|id| p.body(*id).is_some()).collect();
+        Some((target, bodies))
+    }
+
+    /// Can the selection be grouped: bodies of the open part (§2.11 « Body groups »)?
+    pub fn can_group_bodies(&self) -> bool {
+        self.selected_bodies().is_some_and(|(_, b)| !b.is_empty())
+    }
+
+    /// Can the selection be ungrouped: a group among the bodies selected in the open part?
+    pub fn can_ungroup_bodies(&self) -> bool {
+        let Some((target, bodies)) = self.selected_bodies() else { return false };
+        let Ok((_, p, _)) = self.document().resolve_container(&target) else { return false };
+        bodies.iter().any(|id| p.body(*id).is_some_and(|b| p.def_of(b).is_group()))
+    }
+
+    /// Groups the bodies selected in the open part; the group then selected.
+    pub fn group_bodies(&mut self) {
+        if self.busy() {
+            return;
+        }
+        let Some((target, bodies)) = self.selected_bodies().filter(|(_, b)| !b.is_empty()) else {
+            self.message = Some(t!("status.nothing_to_group"));
+            return;
+        };
+        let _ = self.start(Operation::GroupBodies { target, bodies, scope: self.part_scope }, After::Select, false);
+    }
+
+    /// Flattens the groups selected in the open part; what they held then selected.
+    pub fn ungroup_bodies(&mut self) {
+        if self.busy() {
+            return;
+        }
+        let Some((target, bodies)) = self.selected_bodies().filter(|(_, b)| !b.is_empty()) else { return };
+        let _ = self.start(Operation::UngroupBodies { target, bodies, scope: self.part_scope }, After::Select, false);
+    }
+
     pub fn make_unique(&mut self) {
         if self.busy() {
             return;
         }
         // In an open part: its bodies selected, each given its own definition (§2.11).
         if let Some(target) = self.open_part_path() {
-            let Ok((_, p, _)) = self.document().resolve_part(&target) else { return };
+            let Ok((_, p, _)) = self.document().resolve_container(&target) else { return };
             let bodies: Vec<Id> = self.selection.iter().copied().filter(|id| p.body(*id).is_some()).collect();
             if !bodies.is_empty() {
                 let op = Operation::MakeBodiesUnique { target, bodies, scope: self.part_scope };

@@ -4400,7 +4400,7 @@ fn machinings_paste_into_an_open_part() {
 }
 
 #[test]
-fn a_part_pasted_into_an_open_part_becomes_a_body_flattened_with_a_warning() {
+fn a_part_pasted_into_an_open_part_becomes_a_group_of_its_bodies() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
     let b = draw_box(&mut e, DVec3::new(0.0, 100.0, 0.0), DVec3::new(200.0, 150.0, 0.0), "18");
@@ -4416,8 +4416,9 @@ fn a_part_pasted_into_an_open_part_becomes_a_body_flattened_with_a_warning() {
     .unwrap();
     e.take_notices();
 
-    // The drilled board copied, pasted into the other one: one positive body, flattened, at
-    // its world place, selected and shown (« Corps » turned on).
+    // The drilled board copied, pasted into the other one: one positive body, a group of its
+    // blank and its hole, at its world place, selected and shown (« Corps » turned on); nothing
+    // lost, nothing to say.
     e.select(vec![a]);
     let clip = e.copy().unwrap();
     e.enter(b);
@@ -4429,17 +4430,26 @@ fn a_part_pasted_into_an_open_part_becomes_a_body_flattened_with_a_warning() {
     assert_eq!(part.positives().count(), 2);
     let body = part.bodies.iter().find(|x| e.selection() == [x.id]).unwrap();
     assert!(part.profile_of(body).is_none());
+    assert_eq!(part.def_of(body).children().len(), 2);
     assert!(close((t * body.placement).translation, DVec3::ZERO), "{:?}", t * body.placement);
-    let notices = e.take_notices();
-    assert!(matches!(&notices[..], [n] if n.kind == NoticeKind::Warning), "{notices:?}");
+    assert!(e.take_notices().is_empty());
+    // Grouped and ungrouped by the commands, the group selected.
+    assert!(e.can_ungroup_bodies());
+    e.ungroup_bodies();
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    assert_eq!((part.positives().count(), part.negatives().count()), (2, 1));
+    assert_eq!(e.selection().len(), 2);
+    assert!(!e.can_ungroup_bodies() && e.can_group_bodies());
+    e.make_assembly();
+    let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    assert_eq!((part.positives().count(), part.negatives().count()), (2, 0));
+    assert!(e.can_ungroup_bodies());
 
-    // At the cursor: said once, when put down.
+    // At the cursor.
     e.paste(&clip, true);
     assert!(e.carrying());
-    assert!(e.take_notices().is_empty());
     click(&mut e, DVec3::new(0.0, 300.0, 18.0));
     assert!(!e.carrying());
-    assert_eq!(e.take_notices().len(), 1);
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
     assert_eq!(part.positives().count(), 3);
 }
@@ -5356,4 +5366,87 @@ fn with_ask_name_the_dialog_opens_and_the_name_joins_the_creation() {
     let steps = e.history().journal().count();
     e.name_part(&naming, "Dos").unwrap();
     assert_eq!(e.history().journal().count(), steps + 1);
+}
+
+#[test]
+fn a_group_of_bodies_opens_like_a_part_and_closes_onto_its_parent() {
+    use solidsketch_model::{Scope, Sign};
+    let mut e = top_editor(Document::new());
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
+    let target = EntityPath::root(board);
+    let mut holes = Vec::new();
+    for x in [20.0, 40.0] {
+        let drill = Primitive::Cylinder { origin: DVec3::new(x, 25.0, -5.0), radius: 4.0, height: 30.0 };
+        let op = Operation::AddBody {
+            target: target.clone(),
+            primitive: drill,
+            placement: glam::DAffine3::IDENTITY,
+            sign: Sign::Negative,
+            scope: Scope::All,
+        };
+        holes.push(e.apply(op).unwrap().unwrap().bodies[0]);
+    }
+    e.enter(board);
+    e.set_machinings_switch(true);
+    e.select(holes.clone());
+    assert!(e.can_group_bodies());
+    e.group_bodies();
+    let group = e.selection()[0];
+    // Opened: its two holes, the bodies the tools act on.
+    e.enter(group);
+    assert_eq!(e.open_group(), [group]);
+    let path = e.open_part_path().unwrap();
+    assert_eq!(path.group, vec![group]);
+    let (_, g, _) = e.document().resolve_container(&path).unwrap();
+    assert_eq!(g.bodies.iter().map(|b| b.id).collect::<Vec<_>>(), holes);
+    assert_eq!(e.scene().recipe().unwrap().bodies().count(), 2);
+    // One erased inside it: the group keeps the other.
+    e.select(vec![holes[0]]);
+    e.delete_selection();
+    let (_, g, _) = e.document().resolve_container(&path).unwrap();
+    assert_eq!(g.bodies.len(), 1);
+    assert_eq!(e.document().resolve_part(&target).unwrap().1.bodies.len(), 2);
+    // Out of it: in the part, the group selected; then out of the part.
+    e.exit();
+    assert!(e.open_group().is_empty() && e.open_part() == Some(board));
+    assert_eq!(e.selection(), [group]);
+    e.exit();
+    assert_eq!(e.open_part(), None);
+    // Undone back to before the group: the group open is closed.
+    e.enter(board);
+    e.enter(group);
+    e.undo();
+    e.undo();
+    assert!(e.open_group().is_empty());
+    assert_eq!(e.open_part(), Some(board));
+}
+
+#[test]
+fn machinings_inside_groups_show_with_their_group() {
+    use solidsketch_model::{Scope, Sign};
+    let mut e = top_editor(Document::new());
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
+    let target = EntityPath::root(board);
+    let add = |e: &mut Editor, primitive: Primitive, sign: Sign| {
+        let op = Operation::AddBody { target: target.clone(), primitive, placement: glam::DAffine3::IDENTITY, sign, scope: Scope::All };
+        e.apply(op).unwrap().unwrap().bodies[0]
+    };
+    let block = add(&mut e, Primitive::Box { origin: DVec3::new(50.0, 10.0, 18.0), size: DVec3::new(30.0, 30.0, 20.0) }, Sign::Positive);
+    let drill = add(&mut e, Primitive::Cylinder { origin: DVec3::new(65.0, 25.0, 20.0), radius: 4.0, height: 30.0 }, Sign::Negative);
+    let a = add(&mut e, Primitive::Cylinder { origin: DVec3::new(150.0, 25.0, -5.0), radius: 4.0, height: 30.0 }, Sign::Negative);
+    let b = add(&mut e, Primitive::Cylinder { origin: DVec3::new(150.0, 25.0, 12.0), radius: 8.0, height: 10.0 }, Sign::Negative);
+    e.enter(board);
+    e.set_machinings_switch(true);
+    // The block and its drill: a positive group; the counterbore: a negative one.
+    e.select(vec![block, drill]);
+    e.group_bodies();
+    let group = e.selection()[0];
+    e.select(vec![a, b]);
+    e.group_bodies();
+    let r = e.scene().recipe().unwrap();
+    // The drill shows, with its group (not picked); nothing of the counterbore's inside.
+    assert_eq!(r.nested.len(), 1);
+    assert_eq!(r.nested[0].body, group);
+    assert!((r.nested[0].placement.translation - DVec3::new(65.0, 25.0, 20.0)).length() < 1e-9);
+    assert_eq!(r.bodies().count(), 3);
 }

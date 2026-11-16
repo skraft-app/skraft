@@ -706,6 +706,8 @@ impl SolidSketchApp {
             "edit.undo" => e.history().can_undo(),
             "edit.redo" => e.history().can_redo(),
             "edit.erase" | "edit.make_assembly" | "edit.explode" | "edit.make_unique" => has_sel,
+            "edit.group_bodies" => e.can_group_bodies(),
+            "edit.ungroup_bodies" => e.can_ungroup_bodies(),
             "edit.cut" | "edit.copy" => e.can_copy(),
             "edit.paste" | "edit.paste_in_place" => self.clipboard.as_ref().is_some_and(|c| e.can_paste(&c.clip)),
             "view.section" | "view.section_clear" => section,
@@ -889,6 +891,8 @@ impl SolidSketchApp {
             "edit.make_assembly" => e.make_assembly(),
             "edit.explode" => e.explode(),
             "edit.make_unique" => e.make_unique(),
+            "edit.group_bodies" => e.group_bodies(),
+            "edit.ungroup_bodies" => e.ungroup_bodies(),
             "edit.delete_guides" => e.delete_guides(),
             "view.parallel" => {
                 let p = !e.camera.is_parallel();
@@ -982,6 +986,19 @@ impl SolidSketchApp {
                 }
                 return;
             }
+            // A body chosen in the outliner: its part opened, the bodies shown.
+            Action::SelectBody(path, body, add) => {
+                if !self.prefs.show_machinings {
+                    self.prefs.show_machinings = true;
+                    for d in self.docs.iter_mut() {
+                        d.editor.set_machinings_switch(true);
+                    }
+                }
+                if let Some(d) = self.docs.active_mut() {
+                    d.editor.toggle_body(&path, body, add);
+                }
+                return;
+            }
             _ => {}
         }
         let Some(doc) = self.docs.active_mut() else { return };
@@ -993,6 +1010,7 @@ impl SolidSketchApp {
             | Action::QuickPin(_)
             | Action::QuickTool(_)
             | Action::ToggleMachinings
+            | Action::SelectBody(..)
             | Action::RemoteRetry => {}
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),

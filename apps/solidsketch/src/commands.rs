@@ -89,6 +89,9 @@ pub const COMMANDS: &[Command] = &[
     g("edit.make_assembly", || t!("menu.edit.make_assembly"), M::Edit, Some("G")),
     c("edit.explode", || t!("menu.edit.explode"), M::Edit, None),
     c("edit.make_unique", || t!("menu.edit.make_unique"), M::Edit, None),
+    // In an open part: its bodies selected grouped, its groups flattened (§2.11 « Body groups »).
+    c("edit.group_bodies", || t!("menu.edit.group_bodies"), M::Edit, None),
+    c("edit.ungroup_bodies", || t!("menu.edit.ungroup_bodies"), M::Edit, None),
     c("edit.delete_guides", || t!("menu.edit.delete_guides"), M::Edit, None),
     g("app.command_palette", || ellipsis(t!("menu.edit.command_palette")), M::Edit, Some("Cmd+K")),
     c("app.preferences", || ellipsis(t!("menu.edit.preferences")), M::Edit, Some("Cmd+Comma")),

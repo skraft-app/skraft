@@ -12,7 +12,10 @@
 //! apart at least, between bodies the operation left alone and those it changed.
 //!
 //! Only extruded bodies (their profile, §6 nonies) move: their caps along their axis, their
-//! straight sides across it. Any body with planar faces is a reference.
+//! straight sides across it. Any body with planar faces is a reference. Through groups of
+//! bodies (§2.11 « Body groups »), the leaves are welded, placed in the part's axes, onto
+//! leaves anywhere in the part; a leaf in a group shown by copies never moves (its faces lie
+//! elsewhere in each), a reference still.
 
 use std::sync::Arc;
 
@@ -87,68 +90,139 @@ impl Document {
         Ok(welds)
     }
 
-    /// [`Document::weld`] for the part `id`, `old` as it was.
+    /// [`Document::weld`] for the part `id`, `old` as it was: through its groups of bodies
+    /// (§2.11 « Body groups »), on its leaves placed in its axes.
     fn weld_part(&mut self, id: Id, old: &Part, solver: &mut dyn Solver) -> Result<Vec<Weld>> {
         let p = self.part(id)?.clone();
-        if p.bodies.len() < 2 {
+        let now = leaves(&p);
+        if now.len() < 2 {
             return Ok(Vec::new());
         }
-        let changed = |b: &Body| match old.body(b.id) {
+        let before = leaves(old);
+        let changed = |l: &Leaf| match before.iter().find(|o| o.path == l.path) {
             None => true,
             Some(o) => {
-                let (d, od) = (p.def(b.def), old.def(o.def));
-                o.placement != b.placement || d.zip(od).is_none_or(|(d, od)| !Arc::ptr_eq(&d.solid, &od.solid) || d.profile != od.profile)
+                let (d, od) = (p.def(l.body.def), old.def(o.body.def));
+                o.body.placement != l.body.placement
+                    || d.zip(od).is_none_or(|(d, od)| !Arc::ptr_eq(&d.solid, &od.solid) || d.profile != od.profile)
             }
         };
-        let (moved, kept): (Vec<&Body>, Vec<&Body>) = p.bodies.iter().partition(|b| changed(b));
+        let (moved, kept): (Vec<&Leaf>, Vec<&Leaf>) = now.iter().partition(|l| changed(l));
         if moved.is_empty() || kept.is_empty() {
             return Ok(Vec::new());
         }
-        // The references: every planar face of the bodies left alone, in the part's axes.
-        let references: Vec<(PartPlane, Id)> = kept.iter().flat_map(|b| planes_of(&p, b).into_iter().map(|q| (q, b.id))).collect();
+        // The references: every planar face of the leaves left alone, in the part's axes.
+        let references: Vec<(PartPlane, Id)> =
+            kept.iter().flat_map(|l| planes_of(&p, &l.body).into_iter().map(|q| (q, l.body.id))).collect();
 
         let mut welds = Vec::new();
-        let mut defs = p.defs.clone();
-        let mut bodies = p.bodies.clone();
-        for b in moved {
-            let Some(def) = p.def(b.def) else { continue };
+        let mut next = p.clone();
+        // The groups whose children changed, by depth: computed again, the deepest first.
+        let mut groups: Vec<(usize, Id)> = Vec::new();
+        for l in moved {
+            // In a group shown by copies, a face lies elsewhere in each: never moved.
+            if l.in_shared_group {
+                continue;
+            }
+            let Some(def) = p.def(l.body.def) else { continue };
             let Some(mut profile) = def.profile.clone().filter(|f| f.extrusion().is_some()) else { continue };
             let mut solid = def.solid.clone();
             let mut done = Vec::new();
             for face in faces(&profile) {
                 // Each face once, from the profile as it is now (an earlier weld of the body
                 // may have moved it by a hair: the stretch is then that hair shorter).
-                let Some((plane, axis, at)) = face_plane(&profile, face, &b.placement) else { continue };
+                let Some((plane, axis, at)) = face_plane(&profile, face, &l.body.placement) else { continue };
                 let Some((distance, reference)) = nearest(&plane, &references) else { continue };
                 let Some(stretch) = face_stretch(&profile, face, axis, at, distance) else { continue };
-                let Some(next) = profile.stretched(&stretch) else { continue };
+                let Some(stretched) = profile.stretched(&stretch) else { continue };
                 solid = solver.stretch(&solid, &stretch)?;
-                profile = next;
-                done.push(Weld { part: id, body: b.id, reference, distance });
+                profile = stretched;
+                done.push(Weld { part: id, body: l.body.id, reference, distance });
             }
             if done.is_empty() {
                 continue;
             }
             // Its own definition: one it shares keeps its shape for the others.
-            let shared = p.bodies.iter().any(|o| o.id != b.id && o.def == b.def);
-            if shared {
+            if p.copies_of(l.body.def) > 1 {
                 let copy = BodyDef { id: self.fresh_id(), solid, profile: Some(profile), ..def.clone() };
-                if let Some(body) = bodies.iter_mut().find(|x| x.id == b.id) {
-                    body.def = copy.id;
+                let new = copy.id;
+                next.defs.push(copy);
+                if let Some(b) = body_at_mut(&mut next, &l.path) {
+                    b.def = new;
                 }
-                defs.push(copy);
-            } else if let Some(d) = defs.iter_mut().find(|d| d.id == b.def) {
+            } else if let Some(d) = next.defs.iter_mut().find(|d| d.id == l.body.def) {
                 (d.solid, d.profile) = (solid, Some(profile));
+            }
+            if let Ok((chain, _)) = p.group_chain(&l.path[..l.path.len() - 1]) {
+                for (depth, g) in chain.into_iter().enumerate() {
+                    if !groups.contains(&(depth, g)) {
+                        groups.push((depth, g));
+                    }
+                }
             }
             welds.extend(done);
         }
-        if !welds.is_empty() {
-            let p = self.part_mut(id)?;
-            (p.defs, p.bodies) = (defs, bodies);
-            p.drop_unused_defs();
+        if welds.is_empty() {
+            return Ok(Vec::new());
         }
+        groups.sort_by_key(|(depth, _)| std::cmp::Reverse(*depth));
+        for (_, g) in groups {
+            let Some(children) = next.def(g).map(|d| d.children().to_vec()) else { continue };
+            let (solid, failed) = Self::group_result(&next.defs, &children, solver)?;
+            if let Some(d) = next.defs.iter_mut().find(|d| d.id == g) {
+                d.solid = solid;
+                d.group = Some(crate::BodyGroup { children, failed });
+            }
+        }
+        next.drop_unused_defs();
+        *self.part_mut(id)? = next;
         Ok(welds)
     }
+}
+
+/// A body of a part that is no group, reached through its groups (§2.11 « Body groups »).
+struct Leaf {
+    /// The bodies leading to it, its own last.
+    path: Vec<Id>,
+    /// The body, placed in the part's axes.
+    body: Body,
+    /// Does a group on its way show in several copies?
+    in_shared_group: bool,
+}
+
+/// The leaves of `p`, each group's once per copy of it.
+fn leaves(p: &Part) -> Vec<Leaf> {
+    fn walk(p: &Part, bodies: &[Body], at: DAffine3, path: &mut Vec<Id>, shared: bool, out: &mut Vec<Leaf>) {
+        if path.len() > crate::MAX_DEPTH {
+            return;
+        }
+        for b in bodies {
+            let placement = at * b.placement;
+            path.push(b.id);
+            match p.def(b.def) {
+                Some(d) if d.is_group() => {
+                    let shared = shared || p.copies_of(b.def) > 1;
+                    walk(p, d.children(), placement, path, shared, out);
+                }
+                _ => out.push(Leaf { path: path.clone(), body: Body { placement, ..b.clone() }, in_shared_group: shared }),
+            }
+            path.pop();
+        }
+    }
+    let mut out = Vec::new();
+    walk(p, &p.bodies, DAffine3::IDENTITY, &mut Vec::new(), false, &mut out);
+    out
+}
+
+/// The body `path` leads to in `p` (the part's own first, through its groups).
+fn body_at_mut<'p>(p: &'p mut Part, path: &[Id]) -> Option<&'p mut Body> {
+    let (last, above) = path.split_last()?;
+    if above.is_empty() {
+        return p.bodies.iter_mut().find(|b| b.id == *last);
+    }
+    let (chain, _) = p.group_chain(above).ok()?;
+    let g = *chain.last()?;
+    p.defs.iter_mut().find(|d| d.id == g)?.group.as_mut()?.children.iter_mut().find(|b| b.id == *last)
 }
 
 /// The planar faces of an extruded profile that can be welded: its caps, its straight sides.

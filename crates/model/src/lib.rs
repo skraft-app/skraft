@@ -20,10 +20,10 @@ mod weld;
 #[cfg(test)]
 mod tests;
 
-pub use clipboard::{BodyFragment, PartsAsBodies};
+pub use clipboard::BodyFragment;
 pub use document::{
-    Assembly, Behavior, Body, BodyDef, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, MAX_DEPTH,
-    Material, Occurrence, Part, PlacedGuide, PlacedPart, Sign, StretchMask,
+    Assembly, Behavior, Body, BodyDef, BodyGroup, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id,
+    MAX_DEPTH, Material, Occurrence, Part, PlacedGuide, PlacedPart, Sign, StretchMask,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{FORMAT, VERSION};
@@ -95,6 +95,8 @@ pub enum Refusal {
     BadProfile,
     /// A paste with nothing in it.
     NothingPasted,
+    /// A negative group holding a negative body flattened: it would add material.
+    UngroupNegative,
     /// A turned body stretched across its axis, or across an arc of its half profile (§6
     /// undecies).
     TurnedAcross,
@@ -170,6 +172,7 @@ impl std::fmt::Display for Refusal {
             Refusal::BadProfile => t!("error.model.bad_profile"),
             Refusal::NothingPasted => t!("error.model.nothing_pasted"),
             Refusal::TurnedAcross => t!("error.model.turned_across"),
+            Refusal::UngroupNegative => t!("error.model.ungroup_negative"),
         })
     }
 }

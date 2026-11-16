@@ -182,6 +182,8 @@ struct Target {
     /// Bodies of the part the one occurrence places (open, its bodies shown): they alone are
     /// stretched, `in_context` then placing the stretch's axes in the part's (§2.11).
     bodies: Option<Vec<Id>>,
+    /// The group of bodies open they lie in (§2.11 « Body groups »), the stretch then in its axes.
+    group: Vec<Id>,
     /// Where its cutters are kept.
     keep: Keep,
     /// The stretch's axes in the context's (the operation's frame), and to world.
@@ -263,13 +265,13 @@ impl Target {
             .flatten()
             .collect();
         let fixed = fixed_axes(&turned, lo, hi);
-        Some(Target { context, occurrences, bodies: None, keep, in_context, frame, lo, hi, fixed })
+        Some(Target { context, occurrences, bodies: None, group: Vec::new(), keep, in_context, frame, lo, hi, fixed })
     }
 
     /// The bodies `ids` of the part `path` places (§2.11): along the body's own axes (one, and
     /// the option « entity »), the model's (« active »), else the part's.
     fn of_bodies(cx: &Cx<'_>, path: &EntityPath, ids: Vec<Id>, axes: Axes) -> Option<Target> {
-        let (_, part, to_world) = cx.doc.resolve_part(path).ok()?;
+        let (_, part, to_world) = cx.doc.resolve_container(path).ok()?;
         let bodies = ids.iter().map(|id| part.body(*id)).collect::<Option<Vec<_>>>()?;
         let in_part = match (axes, &bodies[..]) {
             (_, []) => return None,
@@ -282,10 +284,16 @@ impl Target {
             _ => None,
         });
         let frame = to_world * in_part;
-        let (lo, hi) = super::handle::bodies_bounds(cx, part, &bodies, in_part)?;
-        let fixed = fixed_axes(&turned_bodies(cx, part, in_part.inverse(), Some(&ids)), lo, hi);
+        let (lo, hi) = super::handle::bodies_bounds(cx, &part, &bodies, in_part)?;
+        let fixed = fixed_axes(&turned_bodies(cx, &part, in_part.inverse(), Some(&ids)), lo, hi);
         let (context, occurrences) = (path.instances.clone(), vec![path.entity]);
-        Some(Target { context, occurrences, bodies: Some(ids), keep, in_context: in_part, frame, lo, hi, fixed })
+        let group = path.group.clone();
+        Some(Target { context, occurrences, bodies: Some(ids), group, keep, in_context: in_part, frame, lo, hi, fixed })
+    }
+
+    /// The path of the part (or group) whose bodies are stretched.
+    fn body_path(&self) -> EntityPath {
+        EntityPath::new(self.context.clone(), self.occurrences[0]).in_group(self.group.clone())
     }
 
     /// The paths of the occurrences stretched.
@@ -671,7 +679,10 @@ impl StretchTool {
             return target.clone();
         }
         let target = match &key.bodies {
-            Some(ids) => Target::of_bodies(cx, &EntityPath::new(key.context.clone(), key.occurrences[0]), ids.clone(), key.axes),
+            Some(ids) => {
+                let path = EntityPath::new(key.context.clone(), key.occurrences[0]).in_group(cx.open_group.to_vec());
+                Target::of_bodies(cx, &path, ids.clone(), key.axes)
+            }
             None => Target::of(cx, key.context.clone(), key.occurrences.clone(), key.axes),
         };
         *self.memo.borrow_mut() = Some((key, target.clone()));
@@ -915,10 +926,7 @@ impl StretchTool {
             return vec![Command::Say(e.to_string())];
         }
         let spans = match &target.bodies {
-            Some(ids) => {
-                let path = EntityPath::new(target.context.clone(), target.occurrences[0]);
-                cx.doc.body_stretch_spans(&path, ids, &target.in_context, DVec3::AXES[k], &cuts)
-            }
+            Some(ids) => cx.doc.body_stretch_spans(&target.body_path(), ids, &target.in_context, DVec3::AXES[k], &cuts),
             None => cx.doc.stretch_spans(&target.context, &target.occurrences, &target.in_context, DVec3::AXES[k], &cuts),
         }
         .unwrap_or_default();
@@ -946,9 +954,9 @@ impl StretchTool {
     fn operation(&self, cx: &Cx<'_>, target: &Target, k: usize, side: f64, handle: Option<Handle>, d: f64) -> Operation {
         let cuts: Vec<f64> = self.cutters[k].iter().map(|r| target.at(k, *r)).collect();
         let moves = self.shares(cuts.len() + 1, side, handle).into_iter().map(|s| s * d).collect();
-        if let (Some(bodies), Some(target_path)) = (&target.bodies, target.single()) {
+        if let Some(bodies) = &target.bodies {
             return Operation::StretchBodies {
-                target: target_path,
+                target: target.body_path(),
                 bodies: bodies.clone(),
                 frame: target.in_context,
                 axis: DVec3::AXES[k],
