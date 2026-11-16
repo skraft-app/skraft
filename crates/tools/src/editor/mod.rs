@@ -100,6 +100,9 @@ pub struct Editor {
     context: Vec<Id>,
     /// The part open in the context, by its occurrence there (ARCHITECTURE.md §2.9).
     open_part: Option<Id>,
+    /// The group of bodies open in the open part (§2.11 « Body groups »): the bodies leading
+    /// to it, the part's own first; empty, the part itself.
+    open_group: Vec<Id>,
     /// The "Machinings" switch: an open part shows its blank as a ghost and its tools.
     machinings_shown: bool,
     /// X-ray (for the session): everything see-through, hiding nothing from inferences.
@@ -229,6 +232,7 @@ impl Editor {
             size: DVec2::new(800.0, 600.0),
             context: Vec::new(),
             open_part: None,
+            open_group: Vec::new(),
             machinings_shown: false,
             xray: false,
             part_scope: Scope::All,
@@ -313,20 +317,26 @@ impl Editor {
         self.open_part
     }
 
+    /// The group of bodies open in the open part: the bodies leading to it (§2.11 « Body
+    /// groups »); empty, the part itself.
+    pub fn open_group(&self) -> &[Id] {
+        &self.open_group
+    }
+
     /// Has the open part a profile to edit (§6 nonies, §2.11): the body selected's, else its
     /// first profiled positive body's?
     pub fn open_part_profile(&self) -> bool {
         self.selected_profiled_body().is_some()
             || self
                 .open_part_path()
-                .and_then(|p| self.document().resolve_part(&p).ok())
+                .and_then(|p| self.document().resolve_container(&p).ok())
                 .is_some_and(|(_, part, _)| part.profiled().is_some())
     }
 
     /// The body of the open part selected alone, when it has a profile.
     fn selected_profiled_body(&self) -> Option<Id> {
         let [id] = self.selection[..] else { return None };
-        let (_, part, _) = self.document().resolve_part(&self.open_part_path()?).ok()?;
+        let (_, part, _) = self.document().resolve_container(&self.open_part_path()?).ok()?;
         part.body(id).filter(|b| part.profile_of(b).is_some()).map(|b| b.id)
     }
 
@@ -339,9 +349,9 @@ impl Editor {
         }
     }
 
-    /// The path of the open part's occurrence.
+    /// The path of the open part's occurrence, into its group open (§2.11 « Body groups »).
     pub fn open_part_path(&self) -> Option<EntityPath> {
-        self.open_part.map(|id| EntityPath::new(self.context.clone(), id))
+        self.open_part.map(|id| EntityPath::new(self.context.clone(), id).in_group(self.open_group.clone()))
     }
 
     /// The "Machinings" switch (a preference: it holds for every part opened).
@@ -434,11 +444,24 @@ impl Editor {
     }
 
     /// The open part's axes in the context's (its occurrence's T); identity without one.
-    fn axes_in_context(&self) -> DAffine3 {
+    fn part_in_context(&self) -> DAffine3 {
         let doc = self.document();
         self.open_part
             .and_then(|id| doc.assembly(self.context_definition()).ok()?.occurrence(id).map(|o| o.transform))
             .unwrap_or(DAffine3::IDENTITY)
+    }
+
+    /// The axes of what is open in the context's: the open part's, or its group open's
+    /// (§2.11 « Body groups »); identity without one.
+    fn axes_in_context(&self) -> DAffine3 {
+        let doc = self.document();
+        let group = self
+            .open_part
+            .filter(|_| !self.open_group.is_empty())
+            .and_then(|id| doc.assembly(self.context_definition()).ok()?.occurrence(id).and_then(|o| doc.part(o.component).ok()))
+            .and_then(|p| p.group_chain(&self.open_group).ok())
+            .map_or(DAffine3::IDENTITY, |(_, t)| t);
+        self.part_in_context() * group
     }
 
     /// The frame tools draw and infer in, to world: the open part's axes, else the context's
@@ -557,6 +580,8 @@ impl Editor {
             context_def: doc.context_of(&self.context).unwrap_or(doc.root()),
             context_transform: doc.transform_of(&self.context).unwrap_or(DAffine3::IDENTITY),
             open_part: self.open_part,
+            open_group: &self.open_group,
+            part_in_context: self.part_in_context(),
             axes_in_context: self.axes_in_context(),
             recipe: self.scene.recipe().filter(|_| self.showing_machinings()),
             part_scope: self.part_scope,
@@ -1036,11 +1061,11 @@ impl Editor {
         let mut body_swaps = HashMap::new();
         if let Some(s) = wanted.as_ref().filter(|s| s.bodies.is_some()) {
             // Bodies of the open part, each from its recipe mesh, in its own axes (§2.11).
-            let path = EntityPath::new(s.context.clone(), s.occurrences[0]);
+            let path = EntityPath::new(s.context.clone(), s.occurrences[0]).in_group(self.open_group.clone());
             let stretch = solidsketch_model::kernel::Stretch::new(s.axis, s.cuts.clone(), s.moves.clone());
             let doc = self.document().clone();
             let recipe = self.scene.recipe().cloned();
-            if let (Ok((_, part, _)), Ok(stretch), Some(r)) = (doc.resolve_part(&path), stretch, recipe) {
+            if let (Ok((_, part, _)), Ok(stretch), Some(r)) = (doc.resolve_container(&path), stretch, recipe) {
                 let stretch = stretch.in_frame(&s.frame.inverse());
                 // As the operation splits them: moved, or a definition changed — shown by the
                 // copies it reaches, and made in place, by those it does not (§2.11).

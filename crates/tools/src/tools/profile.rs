@@ -105,7 +105,7 @@ enum State {
 /// profile and its placement in the part's axes.
 fn open(cx: &Cx<'_>, body: Option<Id>) -> Option<(EntityPath, Id, BodyProfile, DAffine3)> {
     let path = cx.open_part_path()?;
-    let (_, part, _) = cx.doc.resolve_part(&path).ok()?;
+    let (_, part, _) = cx.doc.resolve_container(&path).ok()?;
     let b = match body {
         Some(id) => part.body(id)?,
         None => part.profiled()?,

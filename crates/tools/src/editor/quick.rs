@@ -5,7 +5,7 @@
 //! app where [`Editor::quick_card`] says.
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_model::{EntityPath, Id, Operation, Outcome};
+use solidsketch_model::{Id, Operation, Outcome};
 
 use super::Editor;
 use crate::tools::{self, Command, Key, Tool, ToolInput, ToolKind, handle};
@@ -86,11 +86,11 @@ impl Editor {
     fn made_centre(&self, made: &[Id]) -> Option<DVec3> {
         let cx = self.cx();
         let doc = self.document();
-        let (lo, hi, to_world) = match self.open_part {
-            Some(part) => {
-                let (_, part, t) = doc.resolve_part(&EntityPath::new(self.context.clone(), part)).ok()?;
+        let (lo, hi, to_world) = match self.open_part_path() {
+            Some(path) => {
+                let (_, part, t) = doc.resolve_container(&path).ok()?;
                 let bodies: Vec<_> = made.iter().filter_map(|id| part.body(*id)).collect();
-                let (lo, hi) = handle::bodies_bounds(&cx, part, &bodies, DAffine3::IDENTITY)?;
+                let (lo, hi) = handle::bodies_bounds(&cx, &part, &bodies, DAffine3::IDENTITY)?;
                 (lo, hi, t)
             }
             None => {

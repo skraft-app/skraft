@@ -173,13 +173,20 @@ pub struct RecipeTool {
     pub failed: bool,
 }
 
-/// The meshes of the recipe shown, in the part's axes: its positive bodies (`blanks`) and its
-/// negative ones (`tools`, the machinings).
+/// The meshes of the recipe shown, in the axes of what is open — the part, or a group of its
+/// bodies (§2.11 « Body groups »): its positive bodies (`blanks`) and its negative ones
+/// (`tools`, the machinings).
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecipeMeshes {
     pub part: Id,
+    /// The group open in the part's axes (identity: the part itself).
+    pub within: DAffine3,
     pub blanks: Vec<RecipeTool>,
     pub tools: Vec<RecipeTool>,
+    /// The machinings inside its positive groups, at any depth through positive groups
+    /// (§2.11 « Body groups »), placed in its axes; `body` the group of its own they lie in.
+    /// Drawn as faint ghosts, never picked: the group is.
+    pub nested: Vec<RecipeTool>,
 }
 
 impl RecipeMeshes {
@@ -344,8 +351,9 @@ impl DisplayScene {
             self.define(p.shape(), c.id, &p.faces, &mut seen);
         }
         self.recipe = None;
-        let shown = self.recipe_path.as_ref().and_then(|path| doc.resolve_part(path).ok());
-        if let Some((part, p, _)) = shown {
+        let shown = self.recipe_path.as_ref().and_then(|path| Some((doc.resolve_container(path).ok()?, path)));
+        if let Some(((part, p, _), path)) = shown {
+            let within = doc.part(part).ok().and_then(|q| q.group_chain(&path.group).ok()).map_or(DAffine3::IDENTITY, |(_, t)| t);
             // One mesh per definition (its copies share it), keyed by it.
             for d in &p.defs {
                 self.define(&d.solid, Id(RECIPE_KEY | TOOL_KEY | d.id.0), &BTreeMap::new(), &mut seen);
@@ -356,7 +364,11 @@ impl DisplayScene {
                 let t = RecipeTool { body: b.id, key, placement: b.placement, failed: p.is_failed(b.id) };
                 if b.sign == Sign::Positive { blanks.push(t) } else { tools.push(t) }
             }
-            self.recipe = Some(RecipeMeshes { part, blanks, tools });
+            let mut nested = Vec::new();
+            for b in p.bodies.iter().filter(|b| b.sign == Sign::Positive) {
+                nested_tools(&p, p.def_of(b).children(), b.placement, b.id, &mut nested, 0);
+            }
+            self.recipe = Some(RecipeMeshes { part, within, blanks, tools, nested });
         }
         // Keep what the document shows, and what something else holds (undo, a job).
         self.solids.retain(|key, c| seen.contains(key) || Arc::strong_count(&c.solid) > 1);
@@ -387,11 +399,11 @@ impl DisplayScene {
             let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
             if let Some(open) = self.placements.get(&r.part).and_then(|ps| ps.iter().find(|p| p.path == chain)).cloned() {
                 for b in &r.blanks {
-                    let place = Placement { transform: open.transform * b.placement, ..open.clone() };
+                    let place = Placement { transform: open.transform * r.within * b.placement, ..open.clone() };
                     self.recipe_places.push((place, b.key, Piece::Blank(b.body)));
                 }
                 for t in &r.tools {
-                    let place = Placement { transform: open.transform * t.placement, material: None, ..open.clone() };
+                    let place = Placement { transform: open.transform * r.within * t.placement, material: None, ..open.clone() };
                     self.recipe_places.push((place, t.key, Piece::Tool(t.body)));
                 }
             }
@@ -1186,4 +1198,29 @@ fn cut_at(mesh: &Mesh, a: DVec3, at: &[f64]) -> Mesh {
         }
     }
     Mesh { positions, normals, indices, tri_face, ..mesh.clone() }
+}
+
+/// Adds to `out` the machinings among `bodies` (children of a positive group of `p` placed by
+/// `at`, lying in its own body `top`), and those inside their positive groups in turn; a
+/// negative group is one machining (its result), what it spares inside never shown in red.
+fn nested_tools(
+    p: &solidsketch_model::Part,
+    bodies: &[solidsketch_model::Body],
+    at: DAffine3,
+    top: Id,
+    out: &mut Vec<RecipeTool>,
+    depth: usize,
+) {
+    if depth > solidsketch_model::MAX_DEPTH {
+        return;
+    }
+    for b in bodies {
+        let placement = at * b.placement;
+        match b.sign {
+            Sign::Negative => {
+                out.push(RecipeTool { body: top, key: Id(RECIPE_KEY | TOOL_KEY | b.def.0), placement, failed: p.is_failed(b.id) })
+            }
+            Sign::Positive => nested_tools(p, p.def_of(b).children(), placement, top, out, depth + 1),
+        }
+    }
 }

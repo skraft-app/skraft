@@ -11,7 +11,9 @@ use std::sync::Arc;
 use glam::DAffine3;
 use serde::{Deserialize, Serialize};
 
-use crate::document::{Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Sign, is_identity};
+use crate::document::{
+    Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Sign, is_identity, used_defs,
+};
 use crate::{Error, Result};
 
 /// Bodies and guides copied from an open part, in the part's axes, with the definitions of
@@ -37,16 +39,6 @@ impl BodyFragment {
     pub fn is_empty(&self) -> bool {
         self.bodies.is_empty() && self.guides.is_empty()
     }
-}
-
-/// Parts copied, as the bodies they paste into an open part as (§6 decies, across the part's
-/// boundary).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PartsAsBodies {
-    /// In world axes, as the parts were copied; every body positive.
-    pub fragment: BodyFragment,
-    /// Did a part lose its bodies, flattened into its final shape?
-    pub flattened: bool,
 }
 
 fn identity() -> DAffine3 {
@@ -112,24 +104,28 @@ impl Document {
     /// What copying `ids` — bodies and guides of the part `target` places — copies, in the
     /// part's axes.
     pub fn bodies_fragment(&self, target: &EntityPath, ids: &[Id]) -> Result<BodyFragment> {
-        let (part, p, _) = self.resolve_part(target)?;
+        // In an open group, its bodies (§2.11 « Body groups »), in its axes.
+        let (part, p, world) = self.resolve_container(target)?;
         let (guides, bodies) = self.split_guides(part, ids)?;
         let bodies: Vec<Body> = bodies.iter().map(|id| p.body(*id).cloned().ok_or(Error::NotFound(*id))).collect::<Result<_>>()?;
-        let defs = p.defs.iter().filter(|d| bodies.iter().any(|b| b.def == d.id)).cloned().collect();
-        let guides = self.component(part)?.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.shape).collect();
-        let world = self.resolve_part(target)?.2;
+        let used = used_defs(&p.defs, &bodies);
+        let defs = p.defs.iter().filter(|d| used.contains(&d.id)).cloned().collect();
+        // The part's guides, in the axes of what is open (a group's, §2.11 « Body groups »).
+        let into = self.resolve_part(target)?.2.inverse() * world;
+        let into = into.inverse();
+        let guides = self.component(part)?.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.shape.transformed(&into)).collect();
         Ok(BodyFragment { defs, bodies, guides, world })
     }
 
     /// This document — an entities' fragment ([`Document::entities_fragment`]) — as the bodies
-    /// it pastes into an open part: one positive body per part placed, at any depth (hidden
-    /// occurrences left out), in world axes. A part that is its single positive body gives
-    /// it whole, its profile with it; any other is flattened, its final shape one free body.
-    /// Copies of a part share one definition: its own (plain), else under the part's id.
-    pub fn parts_as_bodies(&self) -> Result<PartsAsBodies> {
-        let mut out = PartsAsBodies::default();
+    /// it pastes into an open part, in world axes: one positive body per part placed, at any
+    /// depth (hidden occurrences left out). A part that is its single positive body gives it
+    /// whole, its profile with it; any other comes as a group of its bodies (§2.11 « Body
+    /// groups »), its shape the group's, under the part's id: copies of a part share it.
+    pub fn parts_as_bodies(&self) -> Result<BodyFragment> {
+        let mut out = BodyFragment::default();
         let root = self.component(self.root)?;
-        out.fragment.guides = root.guides.iter().map(|g| g.shape).collect();
+        out.guides = root.guides.iter().map(|g| g.shape).collect();
         let mut stack: Vec<(Id, DAffine3)> = vec![(self.root, DAffine3::IDENTITY)];
         while let Some((id, t)) = stack.pop() {
             match &self.component(id)?.kind {
@@ -140,18 +136,22 @@ impl Document {
                     }
                 }
                 ComponentKind::Part(p) => {
+                    let used = used_defs(&p.defs, &p.bodies);
+                    for d in p.defs.iter().filter(|d| used.contains(&d.id)) {
+                        if !out.defs.iter().any(|o| o.id == d.id) {
+                            out.defs.push(d.clone());
+                        }
+                    }
                     let (def, placement) = match p.is_plain() {
-                        true => (p.def_of(&p.bodies[0]).clone(), t * p.bodies[0].placement),
+                        true => (p.bodies[0].def, t * p.bodies[0].placement),
                         false => {
-                            out.flattened = true;
-                            (BodyDef::new(id, p.shape().clone()), t)
+                            if !out.defs.iter().any(|d| d.id == id) {
+                                out.defs.push(BodyDef::group(id, p.shape().clone(), p.bodies.clone(), p.failed.clone()));
+                            }
+                            (id, t)
                         }
                     };
-                    let body = Body::new(Id(out.fragment.bodies.len() as u64), def.id, Sign::Positive, placement);
-                    if !out.fragment.defs.iter().any(|d| d.id == def.id) {
-                        out.fragment.defs.push(def);
-                    }
-                    out.fragment.bodies.push(body);
+                    out.bodies.push(Body::new(Id(out.bodies.len() as u64), def, Sign::Positive, placement));
                 }
             }
         }

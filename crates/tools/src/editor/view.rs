@@ -196,7 +196,7 @@ impl Editor {
         for u in under {
             // A part's recipe shown: its positive bodies hold the tools' cuts.
             let keys = match self.scene.recipe().filter(|r| r.part == u.part) {
-                Some(r) => r.blanks.iter().map(|b| (b.key, b.placement)).collect(),
+                Some(r) => r.blanks.iter().map(|b| (b.key, r.within * b.placement)).collect(),
                 None => vec![(u.part, DAffine3::IDENTITY)],
             };
             for (key, placement) in keys {
@@ -240,7 +240,7 @@ impl Editor {
         let recipe = self.scene.recipe().filter(|_| key.3);
         if let Some(r) = recipe {
             // The open part's machinings: their tools, where the part is.
-            let at = self.open_part_path().and_then(|o| doc.resolve_part(&o).ok()).map(|(_, _, t)| t);
+            let at = self.open_part_path().and_then(|o| doc.resolve_container(&o).ok()).map(|(_, _, t)| t);
             for id in &self.selection {
                 if let (Some(t), Some(tool)) = (at, r.body(*id)) {
                     marks.push(ViewHighlight {
@@ -392,7 +392,7 @@ impl Editor {
         v.batches.extend(swapped);
         v.batches.extend(ghosts);
         if let (Some(r), Some(o)) = (recipe, &open)
-            && let Ok((_, part, t)) = doc.resolve_part(o)
+            && let Ok((_, part, t)) = doc.resolve_container(o)
         {
             let material = self
                 .scene
@@ -432,6 +432,12 @@ impl Editor {
                 };
                 push_to(out, key, p);
             }
+            // The machinings inside groups: faint ghosts, with their group (§2.11 « Body groups »).
+            for tool in r.nested.iter().filter(|n| !(hide_original && selected.contains(&n.body)) && !body_swaps.is_some_and(|s| s.contains_key(&n.body))) {
+                let look = if tool.failed { Look::FailedTool } else { Look::Tool };
+                let p = ViewPlacement { transform: t * tool.placement, faded: false, material: None, look, ghost: true, faint_edges: true };
+                push_to(&mut tool_faint, tool.key, p);
+            }
             v.batches.extend(tools);
             v.batches.extend(tool_ghosts);
             v.batches.extend(tool_faint);
@@ -462,7 +468,7 @@ impl Editor {
         // While an open part's machinings show, the selection and hover are its machinings.
         let tool_at = |id: Id| {
             let r = recipe?;
-            let t = doc.resolve_part(open.as_ref()?).ok()?.2;
+            let t = doc.resolve_container(open.as_ref()?).ok()?.2;
             r.body(id).map(|tool| (tool.key, t * tool.placement, self.xray || r.is_ghost(id)))
         };
         // The occurrences of the context, indexed once, when something is marked.
@@ -601,7 +607,8 @@ impl Editor {
             && let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part)
         {
             // Those not shown (the rest of the model hidden, or hidden by the user) are not marked either.
-            for p in places.iter().filter(|p| p.entity_path() != *aimed && self.scene.is_shown(p)) {
+            let aimed = aimed.part_path();
+            for p in places.iter().filter(|p| p.entity_path() != aimed && self.scene.is_shown(p)) {
                 v.highlights.push(ViewHighlight {
                     definition: part,
                     solid: part,

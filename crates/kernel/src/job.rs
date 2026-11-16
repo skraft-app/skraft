@@ -47,10 +47,6 @@ pub enum Task {
         positives: Vec<(u32, DAffine3)>,
         negatives: Vec<(u32, DAffine3)>,
     },
-    /// The volume of the union of the `solids` (each `inputs[k]` placed by its transform): an
-    /// [`Output::Volume`], none when it cannot be computed. Produces no solid: a check (a
-    /// union whose tool's machinings cut the target, docs/ARCHITECTURE.md §2.11).
-    UnionVolume { solids: Vec<(u32, DAffine3)> },
     /// `inputs[solid]` stretched (docs/ARCHITECTURE.md §6 sexies), read back by the kernel.
     Stretch { solid: u32, stretch: Stretch },
     /// The display mesh and snap features of `inputs[solid]`, at `quality`.
@@ -115,8 +111,6 @@ pub enum Output {
         display: Result<Display, String>,
         failed: Vec<u32>,
     },
-    /// A volume, mm³ ([`Task::UnionVolume`]).
-    Volume(Option<f64>),
     /// A STEP file read (boxed: far larger than the others).
     Step(Box<crate::StepImport>),
 }

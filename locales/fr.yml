@@ -109,6 +109,9 @@ menu:
     make_assembly: "$t(common.make_assembly)"
     explode: "$t(common.explode)"
     make_unique: "$t(common.make_unique)"
+    # In an open part (§2.11 « Body groups »).
+    group_bodies: "Grouper les corps"
+    ungroup_bodies: "Dégrouper"
     delete_guides: "Supprimer les guides"
     select_all: "Tout sélectionner"
     command_palette: "$t(common.command_palette)"
@@ -444,6 +447,9 @@ panel:
     editing_exit: "Clic hors de la boîte pour sortir"
     # An open part (its axes shown, the rest faded).
     editing_part_exit: "Clic hors de la boîte ou Échap pour fermer la pièce"
+    # A group of bodies open in the part (§2.11 « Body groups »), `depth` groups down.
+    editing_group: "Édition d'un groupe de « %{name} » (niveau %{depth})"
+    editing_group_exit: "Échap pour revenir au niveau du dessus"
     # The open part's bodies, listed flat, blanks first (ARCHITECTURE.md §2.9, §2.11).
     bodies_count: "Corps (%{count})"
     # One body: its number in the part (its order of creation), its solid's size.
@@ -451,6 +457,8 @@ panel:
     # A body sharing its definition with others: how many bodies have its shape.
     body_row_shared: "Corps %{number} · %{size} · ×%{copies}"
     body_failed: "%{row} — n'a pas pu être calculé"
+    # A group of bodies: the row, and how many bodies it holds.
+    group_row: "%{row} · groupe de %{count}"
     body_show_tip: "Cliquer pour montrer les corps et choisir celui-ci"
     # The sign badge before a body's row, a click toggling it (on the selected bodies too
     # when the body is selected).
@@ -493,11 +501,11 @@ panel:
     show: "$t(common.show)"
     # A part in several pieces (ARCHITECTURE.md §2.11).
     pieces: "Pièce en %{count} morceaux : à corriger"
-
-# What an operation done has to say (a warning toast).
-warning:
-  union_cut: "Union faite : les usinages de la pièce ajoutée entament aussi la cible"
-  flattened: "Pièce collée aplatie en un seul corps : ses corps et ses profils sont perdus"
+    # A part's bodies under it, numbered among their siblings (§2.11 « Body groups »).
+    blank: "Brut %{number}"
+    machining: "Usinage %{number}"
+    group: "Groupe %{number}"
+    machining_group: "Usinage composé %{number}"
 
 # The app's messages, in toasts at the bottom right (apps/solidsketch/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).
@@ -963,6 +971,9 @@ operation:
   # Bodies made blanks, or machinings (§2.11).
   set_sign_positive: "Changer en brut"
   set_sign_negative: "Changer en usinage"
+  # Bodies grouped, a group flattened (§2.11 « Body groups »).
+  group: "Grouper"
+  ungroup: "Dégrouper"
   add_guide: "Guide"
   transform: "$t(common.move)"
   duplicate: "$t(common.copy)"
@@ -1056,6 +1067,7 @@ error:
     no_such_face: "pas de telle face"
     no_bodies: "aucun corps désigné"
     last_positive: "une pièce garde au moins un brut"
+    ungroup_negative: "un usinage composé qui épargne de la matière ne se dégroupe pas"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"
     nothing_stretched: "aucun exemplaire à étirer"

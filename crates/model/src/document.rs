@@ -253,14 +253,55 @@ impl Part {
         self.def_of(b).profile.as_ref()
     }
 
-    /// How many bodies use the definition `def`.
+    /// How many bodies use the definition `def`, those of groups included (a group's children
+    /// counted once, however many copies of the group there are).
     pub fn copies_of(&self, def: Id) -> usize {
-        self.bodies.iter().filter(|b| b.def == def).count()
+        self.all_bodies().filter(|b| b.def == def).count()
     }
 
-    /// Drops the definitions no body uses.
+    /// Every body of the part: its own, then those of the groups they lead to, at any depth
+    /// (each group's once, however many copies of it there are).
+    pub fn all_bodies(&self) -> impl Iterator<Item = &Body> {
+        let used = used_defs(&self.defs, &self.bodies);
+        self.bodies.iter().chain(self.defs.iter().filter(move |d| used.contains(&d.id)).flat_map(|d| d.children()))
+    }
+
+    /// The bodies of the group `def` uses (none for a leaf or an unknown definition).
+    pub fn children_of(&self, def: Id) -> &[Body] {
+        self.def(def).map_or(&[], |d| d.children())
+    }
+
+    /// The group definitions the bodies `group` lead through (the part's own body first, each
+    /// a group's, the next one among its children), and the last one's placement in the part's
+    /// axes.
+    pub fn group_chain(&self, group: &[Id]) -> crate::Result<(Vec<Id>, DAffine3)> {
+        let mut chain = Vec::with_capacity(group.len());
+        let mut placed = DAffine3::IDENTITY;
+        let mut bodies: &[Body] = &self.bodies;
+        for id in group {
+            let b = bodies.iter().find(|b| b.id == *id).ok_or(Error::NotFound(*id))?;
+            let d = self.def(b.def).filter(|d| d.is_group()).ok_or(Error::NotFound(*id))?;
+            placed *= b.placement;
+            chain.push(d.id);
+            bodies = d.children();
+        }
+        Ok((chain, placed))
+    }
+
+    /// The group `def` (one of this part's) seen as a part: its children as the bodies, its
+    /// result as the shape, every definition of the part.
+    pub(crate) fn group_as_part(&self, def: &BodyDef) -> Part {
+        let g = def.group.clone().unwrap_or_default();
+        let mut p = Part { defs: self.defs.clone(), bodies: g.children, shape: None, failed: g.failed, faces: BTreeMap::new() };
+        if !p.bodies.is_empty() && !p.is_plain() {
+            p.shape = Some(def.solid.clone());
+        }
+        p
+    }
+
+    /// Drops the definitions no body uses, through groups.
     pub(crate) fn drop_unused_defs(&mut self) {
-        let used: BTreeSet<Id> = self.bodies.iter().map(|b| b.def).collect();
+        let used = used_defs(&self.defs, &self.bodies);
         self.defs.retain(|d| used.contains(&d.id));
     }
 
@@ -286,9 +327,9 @@ impl Part {
         self.positives().find(|b| self.profile_of(b).is_some())
     }
 
-    /// Did the body `id` fail, the last time the shape was computed?
+    /// Did the body `id` fail, the last time the shape (or its group) was computed?
     pub fn is_failed(&self, id: Id) -> bool {
-        self.failed.contains(&id)
+        self.failed.contains(&id) || self.defs.iter().any(|d| d.group.as_ref().is_some_and(|g| g.failed.contains(&id)))
     }
 
     /// How many separate lumps of material the shape holds: a part is one piece of wood, more
@@ -296,6 +337,20 @@ impl Part {
     pub fn pieces(&self) -> usize {
         self.shape().pieces()
     }
+}
+
+/// The definitions `bodies` use, through groups (`defs` the part's).
+pub(crate) fn used_defs(defs: &[BodyDef], bodies: &[Body]) -> BTreeSet<Id> {
+    let mut used = BTreeSet::new();
+    let mut stack: Vec<Id> = bodies.iter().map(|b| b.def).collect();
+    while let Some(id) = stack.pop() {
+        if used.insert(id)
+            && let Some(d) = defs.iter().find(|d| d.id == id)
+        {
+            stack.extend(d.children().iter().map(|b| b.def));
+        }
+    }
+    used
 }
 
 /// `t` within a hair of the identity.
@@ -311,24 +366,54 @@ pub enum Sign {
     Negative,
 }
 
-/// The shape of bodies of a part (§2.11): `solid`, in its own axes — a body's.
+/// The shape of bodies of a part (§2.11): `solid`, in its own axes — a body's. A leaf holds its
+/// shape (a free one, or built from its profile); a group (§2.11 « Body groups ») holds bodies,
+/// `solid` then only their result cached: `(∪ positive children) − (∪ negative children)`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BodyDef {
     pub id: Id,
     pub solid: Arc<Solid>,
     /// The profile `solid` is built from (§6 nonies), in its axes: the solid is then its
-    /// cache. None for a free shape (imported, a boolean's result, stretched askew).
+    /// cache. None for a free shape (imported, a boolean's result, stretched askew) and a group.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<crate::BodyProfile>,
     #[serde(default)]
     pub source: BodySource,
+    /// The bodies a group is made of, placed in its axes; none for a leaf.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<BodyGroup>,
 }
 
 impl BodyDef {
     /// A free shape (no profile), local.
     pub fn new(id: Id, solid: Arc<Solid>) -> Self {
-        BodyDef { id, solid, profile: None, source: BodySource::Local }
+        BodyDef { id, solid, profile: None, source: BodySource::Local, group: None }
     }
+
+    /// A group of `children`, `solid` their result, `failed` those whose boolean failed.
+    pub fn group(id: Id, solid: Arc<Solid>, children: Vec<Body>, failed: BTreeSet<Id>) -> Self {
+        BodyDef { group: Some(BodyGroup { children, failed }), ..BodyDef::new(id, solid) }
+    }
+
+    /// The bodies of a group, none for a leaf.
+    pub fn children(&self) -> &[Body] {
+        self.group.as_ref().map_or(&[], |g| &g.children)
+    }
+
+    pub fn is_group(&self) -> bool {
+        self.group.is_some()
+    }
+}
+
+/// The content of a group of bodies (§2.11 « Body groups »): its bodies, each an occurrence of a
+/// definition of the same part, placed in the group's axes. Its negatives cut its positives
+/// only. Body ids are unique in the whole part, groups included.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct BodyGroup {
+    pub children: Vec<Body>,
+    /// The children whose boolean failed when the group was computed (skipped).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub failed: BTreeSet<Id>,
 }
 
 /// A solid of a part: an occurrence of the definition `def`, placed by `placement` in the part's
@@ -478,15 +563,31 @@ pub struct EntityPath {
     /// Occurrence ids from the root, outermost first; empty for an occurrence of the root.
     pub instances: Vec<Id>,
     pub entity: Id,
+    /// In the part `entity` places, the group of bodies open (§2.11 « Body groups »): the
+    /// bodies leading to it, the part's own first, each a group's. Empty: the part itself. Only
+    /// the operations on bodies, and [`Document::resolve_container`], read it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub group: Vec<Id>,
 }
 
 impl EntityPath {
     pub fn new(instances: Vec<Id>, entity: Id) -> Self {
-        EntityPath { instances, entity }
+        EntityPath { instances, entity, group: Vec::new() }
     }
 
     pub fn root(entity: Id) -> Self {
-        EntityPath { instances: Vec::new(), entity }
+        EntityPath::new(Vec::new(), entity)
+    }
+
+    /// This path into the group of bodies `group` of its part.
+    pub fn in_group(mut self, group: Vec<Id>) -> Self {
+        self.group = group;
+        self
+    }
+
+    /// This path to the part itself, out of any group.
+    pub fn part_path(&self) -> EntityPath {
+        EntityPath::new(self.instances.clone(), self.entity)
     }
 
     /// The path `chain` (occurrences from the root, the last one included) names.
@@ -651,6 +752,20 @@ impl Document {
         let o = self.resolve(path)?;
         let part = self.part(o.component)?;
         Ok((o.component, part, self.transform_of(&path.instances)? * o.transform))
+    }
+
+    /// What `path` leads into: the part it places — its id, the part, part to world — or,
+    /// when it names a group of bodies (`path.group`), that group seen as a part (§2.11 « Body
+    /// groups »): its children as the bodies, its result as the shape, every definition of
+    /// the part, and group to world.
+    pub fn resolve_container(&self, path: &EntityPath) -> Result<(Id, std::borrow::Cow<'_, Part>, DAffine3)> {
+        let (id, p, t) = self.resolve_part(path)?;
+        if path.group.is_empty() {
+            return Ok((id, std::borrow::Cow::Borrowed(p), t));
+        }
+        let (chain, placed) = p.group_chain(&path.group)?;
+        let def = p.def(*chain.last().expect("a group path is not empty")).ok_or(Error::NotFound(path.entity))?;
+        Ok((id, std::borrow::Cow::Owned(p.group_as_part(def)), t * placed))
     }
 
     /// Is the occurrence `id` of the assembly `context` an assembly's (can it be entered)?
@@ -1013,6 +1128,15 @@ impl Document {
                         b.id = id;
                     }
                     p.failed = p.failed.iter().filter_map(|id| bodies.get(id).copied()).collect();
+                    for g in p.defs.iter_mut().filter_map(|d| d.group.as_mut()) {
+                        let mut own: HashMap<Id, Id> = HashMap::new();
+                        for b in &mut g.children {
+                            let id = self.fresh_id();
+                            own.insert(b.id, id);
+                            b.id = id;
+                        }
+                        g.failed = g.failed.iter().filter_map(|id| own.get(id).copied()).collect();
+                    }
                     p.faces = p.faces.iter().filter_map(|(f, m)| materials.get(m).map(|m| (*f, *m))).collect();
                     ComponentKind::Part(p)
                 }

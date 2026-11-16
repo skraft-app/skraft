@@ -101,9 +101,20 @@ impl Document {
                             return Err(Error::File(FileError::BadBodyId(d.id)));
                         }
                     }
-                    for b in &p.bodies {
+                    for b in p.all_bodies() {
                         if b.id.0 >= self.next_id || !here.insert(b.id) || p.def(b.def).is_none() {
                             return Err(Error::File(FileError::BadBodyId(b.id)));
+                        }
+                    }
+                    // A group: a positive child at least, its failures among its children, no
+                    // group holding itself, at any depth.
+                    for d in &p.defs {
+                        let Some(g) = &d.group else { continue };
+                        if !g.children.iter().any(|b| b.sign == crate::Sign::Positive)
+                            || g.failed.iter().any(|id| !g.children.iter().any(|b| b.id == *id))
+                            || crate::document::used_defs(&p.defs, &g.children).contains(&d.id)
+                        {
+                            return Err(Error::File(FileError::BadBodyId(d.id)));
                         }
                     }
                     if p.positives().next().is_none() || p.failed.iter().any(|id| p.body(*id).is_none()) {

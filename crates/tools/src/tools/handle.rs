@@ -189,7 +189,7 @@ impl Target {
     pub fn of(cx: &Cx<'_>, ids: &[Id], axes: Axes) -> Option<Target> {
         let to_world = |in_context: DAffine3| (in_context, cx.context_transform * in_context);
         let (frame, lo, hi) = if cx.machinings_shown() {
-            let (_, part, part_to_world) = cx.doc.resolve_part(&cx.open_part_path()?).ok()?;
+            let (_, part, part_to_world) = cx.doc.resolve_container(&cx.open_part_path()?).ok()?;
             let bodies: Vec<&Body> = ids.iter().filter_map(|id| part.body(*id)).collect();
             let in_part = match (axes, &bodies[..]) {
                 (_, []) => return None,
@@ -197,7 +197,7 @@ impl Target {
                 (Axes::Active, _) => part_to_world.inverse(),
                 _ => DAffine3::IDENTITY,
             };
-            let (lo, hi) = bodies_bounds(cx, part, &bodies, in_part)?;
+            let (lo, hi) = bodies_bounds(cx, &part, &bodies, in_part)?;
             (part_to_world * in_part, lo, hi)
         } else {
             if cx.open_part.is_some() {

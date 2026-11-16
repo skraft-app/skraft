@@ -115,6 +115,7 @@ pub enum ToolInput {
 
 /// What a tool asks the editor to do.
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)] // Transient: made and taken at once, an operation most often.
 pub enum Command {
     Apply(Operation),
     /// Replaces the selection (entities of the active context).
@@ -490,8 +491,13 @@ pub struct Cx<'a> {
     pub context_transform: DAffine3,
     /// The part open in the context, by its occurrence there (ARCHITECTURE.md §2.9).
     pub open_part: Option<Id>,
-    /// The open part's axes in the context's (identity without one): tools draw and infer
-    /// in these axes (§2.3), see [`Cx::axes`].
+    /// The group of bodies open in the open part (§2.11 « Body groups »): the bodies leading
+    /// to it; empty, the part itself.
+    pub open_group: &'a [Id],
+    /// The open part's axes in the context's (identity without one): its guides' frame.
+    pub part_in_context: DAffine3,
+    /// The axes of what is open in the context's — the open part's, or its group's (identity
+    /// without one): tools draw and infer in these axes (§2.3), see [`Cx::axes`].
     pub axes_in_context: DAffine3,
     /// The open part's recipe, while its machinings are shown: the selection is machinings
     /// then, and the tools act on them (§2.9).
@@ -549,7 +555,7 @@ impl Cx<'_> {
 
     /// The open part's occurrence path.
     pub fn open_part_path(&self) -> Option<EntityPath> {
-        self.open_part.map(|id| EntityPath::new(self.context.to_vec(), id))
+        self.open_part.map(|id| EntityPath::new(self.context.to_vec(), id).in_group(self.open_group.to_vec()))
     }
 
     /// Are the open part's blanks and machinings shown (the selection being its bodies)?
@@ -568,8 +574,16 @@ impl Cx<'_> {
     /// The body of the open part under `px` that has a profile to edit, while they are shown.
     pub fn profiled_body_at(&self, px: DVec2) -> Option<Id> {
         let id = self.pick_body(px)?;
-        let (_, part, _) = self.doc.resolve_part(&self.open_part_path()?).ok()?;
+        let (_, part, _) = self.doc.resolve_container(&self.open_part_path()?).ok()?;
         part.body(id).filter(|b| part.profile_of(b).is_some()).map(|b| b.id)
+    }
+
+    /// The group of bodies of the open part (or group) under `px`, while they are shown: what a
+    /// double-click opens (§2.11 « Body groups »).
+    pub fn group_body_at(&self, px: DVec2) -> Option<Id> {
+        let id = self.pick_body(px)?;
+        let (_, part, _) = self.doc.resolve_container(&self.open_part_path()?).ok()?;
+        part.body(id).filter(|b| part.def_of(b).is_group()).map(|b| b.id)
     }
 
     /// The occurrences from the root to the component guides are drawn in now: the open
@@ -659,7 +673,11 @@ impl Cx<'_> {
     /// context — and its axes to world.
     pub fn guide_owner(&self) -> (Id, DAffine3) {
         let part = self.open_part_path().and_then(|p| self.doc.resolve(&p).ok()).map(|o| o.component);
-        (part.unwrap_or(self.context_def), self.axes())
+        // Its guides stay the part's, in its axes, a group open or not.
+        match part {
+            Some(part) => (part, self.context_transform * self.part_in_context),
+            None => (self.context_def, self.axes()),
+        }
     }
 
     /// Is `o` one of `moving` (occurrences of the context, or machinings of the open part, and

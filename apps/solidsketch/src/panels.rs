@@ -37,6 +37,9 @@ pub enum Action {
     SelectMachinings(Vec<Id>),
     /// The machining hovered in the list, if any.
     HoverMachining(Option<Id>),
+    /// A body of a part chosen in the outliner (§2.11 « Body groups »): the part, and the group
+    /// the path names, opened; the body selected or deselected, Shift (`true`) adding it.
+    SelectBody(EntityPath, Id, bool),
     /// The occurrence hovered in the outliner, if any.
     HoverOutliner(Option<EntityPath>),
     /// Hide the occurrence (true) or show it again: the outliner's eye.
@@ -533,15 +536,50 @@ pub fn occurrence_label(doc: &Document, o: &Occurrence) -> String {
     if o.name.is_empty() { name.to_owned() } else { format!("{} <{name}>", o.name) }
 }
 
-/// One line of the outliner: an occurrence at some depth of the tree.
+/// One line of the outliner: an occurrence at some depth of the tree, or a body of the part it
+/// places.
 struct OutlinerRow<'d> {
     /// The occurrences above it.
     path: Vec<Id>,
     occurrence: &'d Occurrence,
-    /// Its folding state, for an assembly.
+    /// Its folding state, for an assembly, a part of several bodies, a group.
     fold: Option<egui::collapsing_header::CollapsingState>,
     /// An assembly above it is hidden: it is not drawn either.
     hidden_above: bool,
+    /// The body this line shows, of the part `occurrence` places: none for the occurrence's own.
+    body: Option<BodyRow<'d>>,
+}
+
+/// A body in the outliner, under its part (§2.11 « Body groups »).
+struct BodyRow<'d> {
+    part: &'d solidsketch_model::Part,
+    body: &'d solidsketch_model::Body,
+    /// Its number among its siblings, in their order of creation.
+    number: usize,
+    /// The groups it lies in, the part's own body first: a click opens them.
+    group: Vec<Id>,
+}
+
+impl BodyRow<'_> {
+    fn label(&self) -> String {
+        let group = self.part.def_of(self.body).is_group();
+        let n = self.number;
+        match (self.body.sign, group) {
+            (Sign::Positive, false) => t!("panel.outliner.blank", number = n),
+            (Sign::Negative, false) => t!("panel.outliner.machining", number = n),
+            (Sign::Positive, true) => t!("panel.outliner.group", number = n),
+            (Sign::Negative, true) => t!("panel.outliner.machining_group", number = n),
+        }
+    }
+
+    /// Its sign's: union for a body adding material, subtract for one taking it away (a group
+    /// too: its label and its fold say it is one).
+    fn icon(&self) -> egui::ImageSource<'static> {
+        match self.body.sign {
+            Sign::Positive => icons::UNION,
+            Sign::Negative => icons::SUBTRACT,
+        }
+    }
 }
 
 /// The outliner, in `area`: only the rows in view are laid out (a model can hold tens of
@@ -562,6 +600,10 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
     area.show_rows(ui, height, rows.len(), |ui, range| {
         ui.set_min_width(ui.available_width());
         for row in rows.drain(range) {
+            if row.body.is_some() {
+                body_row(ui, editor, row, height, actions);
+                continue;
+            }
             let o = row.occurrence;
             let selected = editor.context() == row.path.as_slice() && (selection.contains(&o.id) || editor.open_part() == Some(o.id));
             // Hidden, itself or by an assembly above: greyed.
@@ -652,8 +694,38 @@ fn flatten<'d>(
         return;
     }
     for o in a.occurrences() {
+        if let Ok(p) = doc.part(o.component) {
+            // A part of its single body: nothing under it.
+            if p.is_plain() && !p.def_of(&p.bodies[0]).is_group() {
+                out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None });
+                continue;
+            }
+            let id = egui::Id::unique(("outliner", path.as_slice(), o.id));
+            let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
+            // Open while the part is.
+            if editor.context() == path.as_slice() && editor.open_part() == Some(o.id) {
+                fold.set_open(true);
+            }
+            let open = fold.is_open();
+            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
+            if open {
+                let open_group = (editor.context() == path.as_slice() && editor.open_part() == Some(o.id)).then(|| editor.open_group());
+                let row = |fold, number, group, body| OutlinerRow {
+                    path: path.clone(),
+                    occurrence: o,
+                    fold,
+                    hidden_above,
+                    body: Some(BodyRow { part: p, body, number, group }),
+                };
+                let at = (path.as_slice(), o.id);
+                body_rows(ctx, at, p, &p.bodies, &mut Vec::new(), open_group.unwrap_or(&[]), &mut |r: BodyLine<'d>| {
+                    out.push(row(r.0, r.1, r.2, r.3))
+                });
+            }
+            continue;
+        }
         if doc.assembly(o.component).is_err() {
-            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above });
+            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None });
             continue;
         }
         let id = egui::Id::unique(("outliner", path.as_slice(), o.id));
@@ -663,12 +735,95 @@ fn flatten<'d>(
             fold.set_open(true);
         }
         let open = fold.is_open();
-        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above });
+        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
         if open {
             path.push(o.id);
             flatten(ctx, editor, doc, o.component, path, out, hidden_above || o.hidden, depth + 1);
             path.pop();
         }
+    }
+}
+
+/// A body row's parts: its folding state (a group's), its number, the groups it lies in, the
+/// body.
+type BodyLine<'d> = (Option<egui::collapsing_header::CollapsingState>, usize, Vec<Id>, &'d solidsketch_model::Body);
+
+/// The rows of `bodies` (of the part `p` the occurrence `at` places, in the groups `group`),
+/// blanks first, each numbered in its order of creation; under an open group, its children.
+/// The groups along `open` (the group open in the part) are unfolded.
+fn body_rows<'d>(
+    ctx: &egui::Context,
+    at: (&[Id], Id),
+    p: &'d solidsketch_model::Part,
+    bodies: &'d [solidsketch_model::Body],
+    group: &mut Vec<Id>,
+    open: &[Id],
+    out: &mut dyn FnMut(BodyLine<'d>),
+) {
+    if group.len() > solidsketch_model::MAX_DEPTH {
+        return;
+    }
+    let mut listed: Vec<(usize, &solidsketch_model::Body)> = bodies.iter().enumerate().map(|(k, b)| (k + 1, b)).collect();
+    listed.sort_by_key(|(_, b)| b.sign == Sign::Negative);
+    for (number, b) in listed {
+        let children = p.def_of(b).children();
+        if children.is_empty() {
+            out((None, number, group.clone(), b));
+            continue;
+        }
+        let id = egui::Id::unique(("outliner_body", at.0, at.1, group.as_slice(), b.id));
+        let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
+        group.push(b.id);
+        if open.starts_with(group) {
+            fold.set_open(true);
+        }
+        let opened = fold.is_open();
+        group.pop();
+        out((Some(fold), number, group.clone(), b));
+        if opened {
+            group.push(b.id);
+            body_rows(ctx, at, p, children, group, open, out);
+            group.pop();
+        }
+    }
+}
+
+/// One body's line of the outliner: its fold for a group, its kind's icon, its name; a click
+/// opens its part and selects the part's own body it lies in (Shift: added).
+fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, actions: &mut Vec<Action>) {
+    let Some(b) = &row.body else { return };
+    let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
+    let open = editor.open_part_path().as_ref() == Some(&path);
+    let selected = open && editor.showing_machinings() && editor.selection().contains(&b.body.id);
+    let greyed = row.occurrence.hidden || row.hidden_above;
+    let tint = if greyed { ui.visuals().weak_text_color() } else { ui.visuals().text_color() };
+    let layout = egui::Layout::left_to_right(egui::Align::Center);
+    let clicked = ui
+        .allocate_ui_with_layout(egui::vec2(ui.available_width(), height), layout, |ui| {
+            let spacing = ui.spacing().item_spacing.x;
+            ui.spacing_mut().item_spacing.x = 0.0;
+            // Under the part's icon: its level, plus one, plus the groups above.
+            ui.add_space(ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32);
+            match row.fold {
+                Some(mut fold) => {
+                    fold.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                    fold.store(ui.ctx());
+                }
+                None => ui.add_space(ui.spacing().indent),
+            }
+            ui.spacing_mut().item_spacing.x = spacing;
+            ui.add(egui::Image::new(b.icon()).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
+            let mut label = egui::RichText::new(b.label());
+            if b.part.is_failed(b.body.id) {
+                label = label.color(ui.visuals().error_fg_color);
+            } else if greyed {
+                label = label.color(tint);
+            }
+            ui.add(egui::Button::selectable(selected, label).truncate()).clicked()
+        })
+        .inner;
+    if clicked {
+        actions.push(Action::SelectBody(path, b.body.id, ui.input(|i| i.modifiers.shift)));
     }
 }
 
@@ -850,9 +1005,19 @@ fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions
     let doc = editor.document();
     let units = &doc.settings().units;
     let Ok(c) = doc.component(open.component) else { return };
-    ui.label(t!("panel.entity_info.editing", name = c.name));
-    ui.weak(t!("panel.entity_info.editing_part_exit"));
-    let Some(p) = c.as_part() else { return };
+    // In a group of its bodies (§2.11 « Body groups »): the group's.
+    let Some((_, p, _)) = editor.open_part_path().and_then(|path| doc.resolve_container(&path).ok()) else { return };
+    let p = &*p;
+    match editor.open_group().len() {
+        0 => {
+            ui.label(t!("panel.entity_info.editing", name = c.name));
+            ui.weak(t!("panel.entity_info.editing_part_exit"));
+        }
+        depth => {
+            ui.label(t!("panel.entity_info.editing_group", name = c.name, depth = depth));
+            ui.weak(t!("panel.entity_info.editing_group_exit"));
+        }
+    }
     let pieces = p.pieces();
     if pieces > 1 {
         ui.horizontal(|ui| {
@@ -879,6 +1044,9 @@ fn open_part_info(ui: &mut egui::Ui, editor: &Editor, open: &Occurrence, actions
             1 => t!("panel.entity_info.body_row", number = number, size = size),
             n => t!("panel.entity_info.body_row_shared", number = number, size = size, copies = n),
         };
+        // A group: how many bodies it holds (§2.11 « Body groups »).
+        let held = p.def_of(m).children().len();
+        let row = if held > 0 { t!("panel.entity_info.group_row", row = row, count = held) } else { row };
         let mut text = egui::RichText::new(row);
         if p.is_failed(m.id) {
             text = egui::RichText::new(t!("panel.entity_info.body_failed", row = text.text())).color(ui.visuals().error_fg_color);

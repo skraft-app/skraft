@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use solidsketch_i18n::t;
 use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
 
+use std::collections::BTreeSet;
+
 use crate::clipboard::BodyFragment;
 use crate::document::{
     Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign,
@@ -27,7 +29,7 @@ use crate::document::{
 };
 use crate::settings::Settings;
 use crate::stretch::BodyStretch;
-use crate::{Error, FastSet, Refusal, Result};
+use crate::{Error, FastMap, FastSet, Refusal, Result};
 
 /// What a change to a part touches (ARCHITECTURE.md §2.5).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -146,6 +148,26 @@ pub enum Operation {
     /// Gives each of the bodies of the part `target` places that shares its definition a copy of
     /// its own (§2.11): a change to its shape no longer shows in the others.
     MakeBodiesUnique {
+        target: EntityPath,
+        bodies: Vec<Id>,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Groups bodies of the part `target` places (§2.11 « Body groups »): one body of a new
+    /// group definition takes their place, the group's axes the part's. Their negatives then
+    /// cut their positives only. Negatives alone make a negative group of positive children
+    /// (a compound machining); otherwise the group is positive, the signs kept.
+    GroupBodies {
+        target: EntityPath,
+        bodies: Vec<Id>,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Flattens groups among bodies of the part `target` places: each one's children brought
+    /// up into the part, their placements and signs composed with the group's — the reach of
+    /// their negatives widened to the part. A negative group holding a negative is refused
+    /// (it would add material).
+    UngroupBodies {
         target: EntityPath,
         bodies: Vec<Id>,
         #[serde(default)]
@@ -298,10 +320,9 @@ pub enum Operation {
         scope: Scope,
     },
     /// Adds to the part `target` places the parts copied ([`Document::entities_fragment`], in
-    /// world axes) as bodies ([`Document::parts_as_bodies`]): one positive body per part,
-    /// flattened unless it is its single body (said by [`Warning::Flattened`]), moved by the
-    /// rigid `transform` from world axes into the part's (§6 decies, across the part's
-    /// boundary).
+    /// world axes) as bodies ([`Document::parts_as_bodies`]): one positive body per part, a
+    /// group of its bodies unless it is its single body, moved by the rigid `transform` from
+    /// world axes into the part's (§6 decies, across the part's boundary).
     PasteParts {
         target: EntityPath,
         fragment: Arc<Document>,
@@ -348,6 +369,8 @@ impl Operation {
             Operation::AddBody { sign: Sign::Negative, .. } => t!("operation.add_machining"),
             Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
             Operation::DeleteBodies { .. } => t!("operation.delete"),
+            Operation::GroupBodies { .. } => t!("operation.group"),
+            Operation::UngroupBodies { .. } => t!("operation.ungroup"),
             Operation::SetSign { sign: Sign::Positive, .. } => t!("operation.set_sign_positive"),
             Operation::SetSign { sign: Sign::Negative, .. } => t!("operation.set_sign_negative"),
             Operation::TransformBodies { .. } => t!("operation.transform"),
@@ -361,6 +384,28 @@ impl Operation {
             Operation::Stretch { .. } | Operation::StretchBodies { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
             Operation::SetProfile { .. } => t!("operation.set_profile"),
+        }
+    }
+
+    /// The part (or group of bodies, §2.11 « Body groups ») an operation on bodies changes,
+    /// and what it reaches; none for the other operations.
+    fn body_target_mut(&mut self) -> Option<(&mut EntityPath, Scope)> {
+        match self {
+            Operation::AddBody { target, scope, .. }
+            | Operation::DeleteBodies { target, scope, .. }
+            | Operation::MakeBodiesUnique { target, scope, .. }
+            | Operation::SetSign { target, scope, .. }
+            | Operation::TransformBodies { target, scope, .. }
+            | Operation::DuplicateBodies { target, scope, .. }
+            | Operation::ArrayBodies { target, scope, .. }
+            | Operation::CopyBodies { target, scope, .. }
+            | Operation::StretchBodies { target, scope, .. }
+            | Operation::SetProfile { target, scope, .. }
+            | Operation::PasteBodies { target, scope, .. }
+            | Operation::PasteParts { target, scope, .. }
+            | Operation::GroupBodies { target, scope, .. }
+            | Operation::UngroupBodies { target, scope, .. } => Some((target, *scope)),
+            _ => None,
         }
     }
 
@@ -399,22 +444,14 @@ pub struct Outcome {
     pub welds: Vec<crate::Weld>,
 }
 
-/// What an operation done has to say.
+/// What an operation done has to say. None for now: a union's tool, and a part pasted into a
+/// part, now come as groups (§2.11 « Body groups »), with nothing lost to tell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Warning {
-    /// A union whose tool's machinings (negative bodies) cut the target too (§2.11).
-    UnionCut,
-    /// Parts pasted into an open part, one at least flattened into a single body: its bodies
-    /// and profiles lost (§6 decies, across the part's boundary).
-    Flattened,
-}
+pub enum Warning {}
 
 impl std::fmt::Display for Warning {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&match self {
-            Warning::UnionCut => t!("warning.union_cut"),
-            Warning::Flattened => t!("warning.flattened"),
-        })
+    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {}
     }
 }
 
@@ -476,6 +513,14 @@ impl Document {
     }
 
     fn apply_in_place(&mut self, op: &Operation, solver: &mut dyn Solver) -> Result<Outcome> {
+        let mut inner = op.clone();
+        if let Some((target, scope)) = inner.body_target_mut()
+            && !target.group.is_empty()
+        {
+            let group = std::mem::take(&mut target.group);
+            let path = target.clone();
+            return self.apply_in_group(&path, &group, scope, &inner, solver);
+        }
         match op {
             Operation::SetSettings(settings) => {
                 self.settings = settings.clone();
@@ -633,9 +678,7 @@ impl Document {
             Operation::PasteBodies { target, fragment, transform, scope } => self.paste_bodies(target, fragment, transform, *scope, solver),
             Operation::PasteParts { target, fragment, transform, scope } => {
                 let parts = fragment.parts_as_bodies()?;
-                let mut outcome = self.paste_bodies(target, &parts.fragment, transform, *scope, solver)?;
-                outcome.warning = parts.flattened.then_some(Warning::Flattened);
-                Ok(outcome)
+                self.paste_bodies(target, &parts, transform, *scope, solver)
             }
             Operation::PasteAsPart { context, fragment, transform } => {
                 self.assembly(*context)?;
@@ -931,6 +974,19 @@ impl Document {
                 }
                 Ok(Outcome::default())
             }
+            Operation::GroupBodies { target, bodies, scope } => {
+                let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                if bodies.is_empty() {
+                    return Err(Error::Invalid(Refusal::NoBodies));
+                }
+                let id = self.group_bodies(part, &bodies, solver)?;
+                Ok(Outcome { bodies: vec![id], ..Outcome::default() })
+            }
+            Operation::UngroupBodies { target, bodies, scope } => {
+                let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let created = self.ungroup_bodies(part, &bodies, solver)?;
+                Ok(Outcome { bodies: created, ..Outcome::default() })
+            }
             Operation::MakeBodiesUnique { target, bodies, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
                 for id in bodies {
@@ -940,7 +996,8 @@ impl Document {
                         continue;
                     }
                     let def = p.def_of(b).clone();
-                    let copy = BodyDef { id: self.fresh_id(), ..def };
+                    let fresh = self.fresh_id();
+                    let copy = self.renamed_children(BodyDef { id: fresh, ..def });
                     let p = self.part_mut(part)?;
                     if let Some(b) = p.bodies.iter_mut().find(|b| b.id == id) {
                         b.def = copy.id;
@@ -1119,19 +1176,15 @@ impl Document {
         let mut bodies = p.bodies.clone();
         for c in &changes {
             let def = p.def(c.def).ok_or(Error::NotFound(c.def))?;
-            let profile = def.profile.as_ref().and_then(|f| f.stretched(&c.local));
-            // A turned body: along its axis only, rebuilt from its half profile (§6 undecies).
-            let solid = match (&def.profile, &profile) {
-                (Some(f), None) if f.is_turned() => return Err(Error::Invalid(Refusal::TurnedAcross)),
-                (_, Some(f)) if f.is_turned() => solver.primitive(&f.primitive())?,
-                _ => solver.stretch(&def.solid, &c.local)?,
-            };
+            let (stretched, inner) = self.stretched_def(&p.defs, def, &c.local, solver)?;
+            defs.extend(inner);
             if c.in_place {
                 if let Some(d) = defs.iter_mut().find(|d| d.id == c.def) {
-                    (d.solid, d.profile) = (solid, profile);
+                    *d = stretched;
                 }
             } else {
-                let copy = BodyDef { id: self.fresh_id(), solid, profile, ..def.clone() };
+                let id = self.fresh_id();
+                let copy = self.renamed_children(BodyDef { id, ..stretched });
                 for b in bodies.iter_mut().filter(|b| c.bodies.contains(&b.id)) {
                     b.def = copy.id;
                 }
@@ -1147,6 +1200,53 @@ impl Document {
         (p.defs, p.bodies) = (defs, bodies);
         p.drop_unused_defs();
         Ok(())
+    }
+
+    /// The definition `def` (of the definitions `defs`) stretched by `local`, in its axes, under
+    /// its id; and the definitions it now needs that `defs` lacks. A leaf has its solid
+    /// stretched (its profile kept when it stays one, §6 nonies); a group has its children
+    /// stretched in turn — each in one section moved, each across a cutter given a definition
+    /// of its own, stretched in its axes — then is computed again.
+    fn stretched_def(
+        &mut self,
+        defs: &[BodyDef],
+        def: &BodyDef,
+        local: &Stretch,
+        solver: &mut dyn Solver,
+    ) -> Result<(BodyDef, Vec<BodyDef>)> {
+        let Some(g) = &def.group else {
+            let profile = def.profile.as_ref().and_then(|f| f.stretched(local));
+            // A turned body: along its axis only, rebuilt from its half profile (§6 undecies).
+            let solid = match (&def.profile, &profile) {
+                (Some(f), None) if f.is_turned() => return Err(Error::Invalid(Refusal::TurnedAcross)),
+                (_, Some(f)) if f.is_turned() => solver.primitive(&f.primitive())?,
+                _ => solver.stretch(&def.solid, local)?,
+            };
+            return Ok((BodyDef { solid, profile, ..def.clone() }, Vec::new()));
+        };
+        let BodyStretch { moved, changes } = crate::stretch::bodies_stretch(defs, &g.children, None, local);
+        let mut children = g.children.clone();
+        let mut extra: Vec<BodyDef> = Vec::new();
+        for c in &changes {
+            let inner = defs.iter().find(|d| d.id == c.def).ok_or(Error::NotFound(c.def))?;
+            let (stretched, more) = self.stretched_def(defs, inner, &c.local, solver)?;
+            let id = self.fresh_id();
+            let copy = self.renamed_children(BodyDef { id, ..stretched });
+            for b in children.iter_mut().filter(|b| c.bodies.contains(&b.id)) {
+                b.def = copy.id;
+            }
+            extra.extend(more);
+            extra.push(copy);
+        }
+        for b in &mut children {
+            if let Some((_, t)) = moved.iter().find(|(id, _)| *id == b.id) {
+                b.placement = *t;
+            }
+        }
+        let all: Vec<BodyDef> = defs.iter().chain(&extra).cloned().collect();
+        let (solid, failed) = Self::group_result(&all, &children, solver)?;
+        let group = crate::BodyGroup { children, failed };
+        Ok((BodyDef { solid, group: Some(group), ..def.clone() }, extra))
     }
 
     /// The part `target` places, `ids` (at least one) split into its guides and its bodies,
@@ -1255,25 +1355,131 @@ impl Document {
         Ok(Outcome { bodies: created, ..Outcome::default() })
     }
 
-    /// Copies of `bodies` moved by `t`, and of the definitions `defs` they use, all with fresh
-    /// ids — bodies sharing a definition still share its copy: what another part receives.
+    /// Copies of `bodies` moved by `t`, and of the definitions `defs` they use through groups,
+    /// all with fresh ids — bodies sharing a definition still share its copy: what another part
+    /// receives.
     fn copies_of_bodies(&mut self, defs: &[BodyDef], bodies: &[Body], t: &DAffine3) -> (Vec<BodyDef>, Vec<Body>) {
-        let mut renamed: Vec<(Id, BodyDef)> = Vec::new();
+        let used = crate::document::used_defs(defs, bodies);
+        let kept: Vec<&BodyDef> = defs.iter().filter(|d| used.contains(&d.id)).collect();
+        let renamed: FastMap<Id, Id> = kept.iter().map(|d| (d.id, self.fresh_id())).collect();
+        let mut out_defs = Vec::with_capacity(kept.len());
+        for d in kept {
+            let mut copy = BodyDef { id: renamed[&d.id], ..d.clone() };
+            if let Some(g) = &mut copy.group {
+                g.children.retain(|c| renamed.contains_key(&c.def));
+                g.children.iter_mut().for_each(|c| c.def = renamed[&c.def]);
+            }
+            out_defs.push(self.renamed_children(copy));
+        }
         let mut out = Vec::with_capacity(bodies.len());
         for b in bodies {
-            let def = match renamed.iter().find(|(from, _)| *from == b.def) {
-                Some((_, d)) => d.id,
-                None => {
-                    let Some(d) = defs.iter().find(|d| d.id == b.def) else { continue };
-                    let copy = BodyDef { id: self.fresh_id(), ..d.clone() };
-                    let id = copy.id;
-                    renamed.push((b.def, copy));
-                    id
-                }
-            };
+            let Some(&def) = renamed.get(&b.def) else { continue };
             out.push(Body { id: self.fresh_id(), def, placement: *t * b.placement, ..b.clone() });
         }
-        (renamed.into_iter().map(|(_, d)| d).collect(), out)
+        (out_defs, out)
+    }
+
+    /// `def` with fresh ids for a group's children, its failures following them: a copy of a
+    /// group holds bodies of its own (body ids are unique in a part, groups included).
+    pub(crate) fn renamed_children(&mut self, mut def: BodyDef) -> BodyDef {
+        if let Some(g) = &mut def.group {
+            let mut map: Vec<(Id, Id)> = Vec::with_capacity(g.children.len());
+            for c in &mut g.children {
+                let id = self.fresh_id();
+                map.push((c.id, id));
+                c.id = id;
+            }
+            g.failed = g.failed.iter().filter_map(|f| map.iter().find(|(old, _)| old == f).map(|(_, new)| *new)).collect();
+        }
+        def
+    }
+
+    /// The result of a group of `children` (`defs` the part's): `(∪ positives) − (∪
+    /// negatives)`, and the children whose boolean failed. A single positive child, unplaced,
+    /// is the result: no kernel.
+    pub(crate) fn group_result(defs: &[BodyDef], children: &[Body], solver: &mut dyn Solver) -> Result<(Arc<Solid>, BTreeSet<Id>)> {
+        let solid = |b: &Body| defs.iter().find(|d| d.id == b.def).map(|d| d.solid.clone()).ok_or(Error::NotFound(b.def));
+        if let [c] = children
+            && c.sign == Sign::Positive
+            && is_identity(&c.placement)
+        {
+            return Ok((solid(c)?, BTreeSet::new()));
+        }
+        let (pos, neg): (Vec<&Body>, Vec<&Body>) = children.iter().partition(|b| b.sign == Sign::Positive);
+        let placed = |list: &[&Body]| list.iter().map(|b| Ok((solid(b)?, b.placement))).collect::<Result<Vec<_>>>();
+        let (shape, failed) = solver.recipe(None, &placed(&pos)?, &placed(&neg)?)?;
+        let named: Vec<Id> = pos.iter().chain(&neg).map(|b| b.id).collect();
+        Ok((shape, failed.iter().filter_map(|k| named.get(*k).copied()).collect()))
+    }
+
+    /// [`Operation::GroupBodies`]: the bodies `ids` of `part` (each one of its own) replaced
+    /// by one body of a new group of them, where the first of them stood; returns its id.
+    fn group_bodies(&mut self, part: Id, ids: &[Id], solver: &mut dyn Solver) -> Result<Id> {
+        let p = self.part(part)?;
+        let mut children: Vec<Body> = p.bodies.iter().filter(|b| ids.contains(&b.id)).cloned().collect();
+        let negative = children.iter().all(|b| b.sign == Sign::Negative);
+        // Negatives alone: a compound machining, its children the shape it takes away.
+        if negative {
+            children.iter_mut().for_each(|c| c.sign = Sign::Positive);
+        }
+        let mixed = children.iter().any(|b| b.sign == Sign::Negative);
+        let (solid, failed) = Self::group_result(&p.defs, &children, solver)?;
+        let def = BodyDef::group(self.fresh_id(), solid, children, failed);
+        let sign = if negative { Sign::Negative } else { Sign::Positive };
+        let body = Body::new(self.fresh_id(), def.id, sign, DAffine3::IDENTITY);
+        let id = body.id;
+        let p = self.part_mut(part)?;
+        let at = p.bodies.iter().position(|b| ids.contains(&b.id)).unwrap_or(p.bodies.len());
+        p.bodies.retain(|b| !ids.contains(&b.id));
+        p.bodies.insert(at.min(p.bodies.len()), body);
+        p.defs.push(def);
+        p.failed.retain(|f| !ids.contains(f));
+        // The same bodies of one sign: the part is the same, unless it is now its group alone.
+        // Mixed, the group's negatives no longer cut the positives outside it.
+        if mixed || self.part(part)?.is_plain() {
+            self.recompute(part, None, solver)?;
+        }
+        Ok(id)
+    }
+
+    /// [`Operation::UngroupBodies`]: the groups among the bodies `ids` of `part` flattened in
+    /// place — their children brought up, placements and signs composed (fresh ids when the
+    /// group is shared); returns the bodies brought up.
+    fn ungroup_bodies(&mut self, part: Id, ids: &[Id], solver: &mut dyn Solver) -> Result<Vec<Id>> {
+        let p = self.part(part)?.clone();
+        let is_group = |b: &Body| ids.contains(&b.id) && p.def_of(b).is_group();
+        if !p.bodies.iter().any(is_group) {
+            return Ok(Vec::new());
+        }
+        // `parent − (P − N)`: no body of the parent's takes away P but leaves N.
+        if p.bodies
+            .iter()
+            .filter(|b| is_group(b))
+            .any(|b| b.sign == Sign::Negative && p.def_of(b).children().iter().any(|c| c.sign == Sign::Negative))
+        {
+            return Err(Error::Invalid(Refusal::UngroupNegative));
+        }
+        let mut bodies = Vec::with_capacity(p.bodies.len());
+        let mut created = Vec::new();
+        for b in &p.bodies {
+            if !is_group(b) {
+                bodies.push(b.clone());
+                continue;
+            }
+            let shared = p.copies_of(b.def) > 1;
+            for c in p.def_of(b).children() {
+                let id = if shared { self.fresh_id() } else { c.id };
+                // A negative group holds positives only (above): each one a machining.
+                let sign = if b.sign == Sign::Negative { Sign::Negative } else { c.sign };
+                bodies.push(Body { id, def: c.def, sign, placement: b.placement * c.placement });
+                created.push(id);
+            }
+        }
+        let p = self.part_mut(part)?;
+        p.bodies = bodies;
+        p.drop_unused_defs();
+        self.recompute(part, None, solver)?;
+        Ok(created)
     }
 
     /// Adds to `part`, for each transform of `steps`, a copy of its bodies `ids` moved by it (in
@@ -1352,49 +1558,29 @@ impl Document {
         match op {
             // The tool's shape, a negative body of the target, cut from it as it is. A tool
             // that is its single positive body (a shape drawn) is taken whole, its profile
-            // with it: still editable (§2.11).
+            // with it: still editable; any other comes as a negative group of copies of its
+            // bodies, its shape the group's (§2.11 « Body groups »).
             Boolean::Difference => {
-                let id = self.fresh_id();
                 let moved = if is_identity(&relative) { None } else { Some(relative) };
                 let result = solver.boolean(p.shape(), q.shape(), moved, op.into())?;
-                let (def, body) = match q.is_plain() {
-                    true => {
-                        let def = BodyDef { id: self.fresh_id(), ..q.def_of(&q.bodies[0]).clone() };
-                        let body = Body::new(id, def.id, Sign::Negative, relative * q.bodies[0].placement);
-                        (def, body)
-                    }
-                    false => {
-                        let def = BodyDef::new(self.fresh_id(), q.shape().clone());
-                        let body = Body::new(id, def.id, Sign::Negative, relative);
-                        (def, body)
-                    }
-                };
+                let (defs, mut body) = self.tool_as_body(&q, &relative);
+                body.sign = Sign::Negative;
                 let mut next = p;
-                next.defs.push(def);
+                next.defs.extend(defs);
                 next.bodies.push(body);
                 next.shape = Some(result);
                 *self.part_mut(part)? = next;
             }
-            // Every body of the tool, positive and negative, joins the target's (§2.11). Its
-            // machinings cut the target too: said when they do, the result then holding less
-            // than both shapes joined.
+            // The tool joins the target as a positive body: its single body, or a group of
+            // copies of its bodies, its machinings cutting that group only (§2.11 « Body
+            // groups »). Added as it is: cut by the target's machinings, joined to its shape.
             Boolean::Union => {
-                let (defs, bodies) = self.copies_of_bodies(&q.defs, &q.bodies, &relative);
-                let check = q.negatives().next().is_some();
-                let both = if check {
-                    solver.union_volume(&[(p.shape().clone(), DAffine3::IDENTITY), (q.shape().clone(), relative)])?
-                } else {
-                    None
-                };
+                let (defs, body) = self.tool_as_body(&q, &relative);
+                let id = body.id;
                 let p = self.part_mut(part)?;
                 p.defs.extend(defs);
-                p.bodies.extend(bodies);
-                self.recompute(part, None, solver)?;
-                let after = if check { solver.union_volume(&[(self.part(part)?.shape().clone(), DAffine3::IDENTITY)])? } else { None };
-                let cut = matches!((both, after), (Some(b), Some(a)) if a < b * (1.0 - 1e-5));
-                self.assembly_mut(tool_ctx)?.occurrences_mut().retain(|o| o.id != tool.entity);
-                let warning = cut.then_some(Warning::UnionCut);
-                return Ok(Outcome { created: vec![target.entity], warning, ..Outcome::default() });
+                p.bodies.push(body);
+                self.recompute(part, Some(&[id]), solver)?;
             }
             // A new part of one positive body: the common volume.
             Boolean::Intersection => {
@@ -1405,6 +1591,98 @@ impl Document {
         }
         self.assembly_mut(tool_ctx)?.occurrences_mut().retain(|o| o.id != tool.entity);
         Ok(Outcome { created: vec![target.entity], ..Outcome::default() })
+    }
+
+    /// `op`, an operation on the bodies of the part `path` places (no group in it), applied
+    /// inside its group of bodies `group` (§2.11 « Body groups »): the group's definition is
+    /// put in the part's place as a part of its own — its children the bodies, its result the
+    /// shape —, `op` applied to it as to any part (in the group's axes), then the definition
+    /// takes the result: every copy of the group shows it. The groups above it, then the part,
+    /// are computed again. A group made to hold itself, at any depth, is refused.
+    fn apply_in_group(
+        &mut self,
+        path: &EntityPath,
+        group: &[Id],
+        scope: Scope,
+        op: &Operation,
+        solver: &mut dyn Solver,
+    ) -> Result<Outcome> {
+        self.resolve_part(path)?;
+        if scope == Scope::This {
+            self.separate(path)?;
+        }
+        let (part, p, _) = self.resolve_part(path)?;
+        let original = p.clone();
+        let (chain, placed) = original.group_chain(group)?;
+        let last = original.def(*chain.last().expect("a group path is not empty")).ok_or(Error::NotFound(path.entity))?;
+        *self.part_mut(part)? = original.group_as_part(last);
+        // The part's guides, in the group's axes while the operation runs (moved, copied with
+        // bodies in them), then back in the part's: those it left alone as they were, exactly.
+        let guides = self.component(part)?.guides.clone();
+        let into = placed.inverse();
+        let inside: Vec<Guide> = guides.iter().map(|g| Guide { id: g.id, shape: g.shape.transformed(&into) }).collect();
+        self.component_mut(part)?.guides = inside.clone();
+        let outcome = self.apply_in_place(op, solver)?;
+        let back: Vec<Guide> = self
+            .component(part)?
+            .guides
+            .iter()
+            .map(|g| match inside.iter().position(|i| i.id == g.id && i.shape == g.shape) {
+                Some(k) => guides[k].clone(),
+                None => Guide { id: g.id, shape: g.shape.transformed(&placed) },
+            })
+            .collect();
+        self.component_mut(part)?.guides = back;
+        let edited = self.part(part)?.clone();
+        // The definitions: the group's part's, then those it never saw used elsewhere.
+        let mut defs = edited.defs.clone();
+        for d in &original.defs {
+            if !defs.iter().any(|e| e.id == d.id) {
+                defs.push(d.clone());
+            }
+        }
+        let shape = edited.shape().clone();
+        if let Some(d) = defs.iter_mut().find(|d| d.id == *chain.last().expect("a group path is not empty")) {
+            d.solid = shape;
+            d.group = Some(crate::BodyGroup { children: edited.bodies, failed: edited.failed });
+        }
+        for d in defs.iter().filter(|d| d.is_group()) {
+            if crate::document::used_defs(&defs, d.children()).contains(&d.id) {
+                return Err(Error::Cycle);
+            }
+        }
+        // The groups above, innermost first.
+        for id in chain.iter().rev().skip(1) {
+            let Some(d) = defs.iter().find(|d| d.id == *id) else { continue };
+            let children = d.children().to_vec();
+            let (solid, failed) = Self::group_result(&defs, &children, solver)?;
+            if let Some(d) = defs.iter_mut().find(|d| d.id == *id) {
+                d.solid = solid;
+                d.group = Some(crate::BodyGroup { children, failed });
+            }
+        }
+        let mut next = original;
+        next.defs = defs;
+        next.drop_unused_defs();
+        *self.part_mut(part)? = next;
+        self.recompute(part, None, solver)?;
+        Ok(outcome)
+    }
+
+    /// The part `q` as one positive body of another part, placed by `relative` in its axes,
+    /// with the definitions it needs (fresh ids): its single positive body when it is plain
+    /// (its profile kept), else a group of copies of its bodies, the group's result `q`'s shape.
+    fn tool_as_body(&mut self, q: &Part, relative: &DAffine3) -> (Vec<BodyDef>, Body) {
+        if q.is_plain() {
+            let (defs, mut bodies) = self.copies_of_bodies(&q.defs, &q.bodies, relative);
+            return (defs, bodies.remove(0));
+        }
+        let (mut defs, children) = self.copies_of_bodies(&q.defs, &q.bodies, &DAffine3::IDENTITY);
+        let failed = q.bodies.iter().zip(&children).filter(|(b, _)| q.failed.contains(&b.id)).map(|(_, c)| c.id).collect();
+        let group = BodyDef::group(self.fresh_id(), q.shape().clone(), children, failed);
+        let body = Body::new(self.fresh_id(), group.id, Sign::Positive, *relative);
+        defs.push(group);
+        (defs, body)
     }
 
     /// Makes what `path` names its own (§2.5, scope "only this one"): top down, every
@@ -1521,9 +1799,6 @@ pub(crate) trait Solver {
     ) -> Result<(Arc<Solid>, Vec<usize>)>;
     /// `solid` stretched.
     fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>>;
-    /// The volume of the union of the placed `solids`, when it can be computed (always none
-    /// while the job is recorded).
-    fn union_volume(&mut self, solids: &[(Arc<Solid>, DAffine3)]) -> Result<Option<f64>>;
 }
 
 /// Records the calls into a job and answers with stand-ins (the operation only stores them,
@@ -1585,12 +1860,6 @@ impl Solver for Recorder {
         let solid = self.input(solid);
         self.task(Task::Stretch { solid, stretch: stretch.clone() })
     }
-
-    fn union_volume(&mut self, solids: &[(Arc<Solid>, DAffine3)]) -> Result<Option<f64>> {
-        let solids = solids.iter().map(|(s, t)| (self.input(s), *t)).collect();
-        self.job.tasks.push(Task::UnionVolume { solids });
-        Ok(None)
-    }
 }
 
 /// Hands out the job's outputs, in the order the calls come (the order they were recorded).
@@ -1639,12 +1908,5 @@ impl Solver for Replayer {
 
     fn stretch(&mut self, _: &Arc<Solid>, _: &Stretch) -> Result<Arc<Solid>> {
         self.next()
-    }
-
-    fn union_volume(&mut self, _: &[(Arc<Solid>, DAffine3)]) -> Result<Option<f64>> {
-        match self.outputs.next() {
-            Some(Output::Volume(v)) => Ok(v),
-            _ => Err(Error::Invalid(Refusal::OutOfStep)),
-        }
     }
 }

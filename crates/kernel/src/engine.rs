@@ -333,11 +333,6 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
                 let display = shape.display().map_err(|e| e.to_string());
                 Output::Recipe { solid: shape, display, failed }
             }
-            Task::UnionVolume { solids } => {
-                // Any failure says nothing: a check, never a reason to fail the job.
-                let placed = solids.iter().map(|(i, t)| Ok((input(*i)?, *t))).collect::<Result<Vec<_>>>();
-                Output::Volume(placed.ok().and_then(|p| union_volume(&p).ok()))
-            }
             Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
             Task::Display { solid: i, quality } => Output::Display(input(*i)?.display_at(*quality).map_err(|e| e.to_string())),
             Task::ImportStep { bytes } => Output::Step(Box::new(crate::step::read::import(bytes, cx.report)?)),
@@ -493,25 +488,6 @@ fn recipe_stepwise(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negat
         }
     }
     Ok((shape, failed))
-}
-
-/// [`Task::UnionVolume`]: the volume of the union of the placed `solids`, joined in one kernel
-/// session (as [`recipe`]: no record between two unions), read on the kernel's body.
-fn union_volume(solids: &[(&Solid, DAffine3)]) -> Result<f64> {
-    guarded("volume", || {
-        use solidcore::boolean::api_brep as b;
-        let mut k = kernel();
-        let mut union: Option<solidcore::Brep> = None;
-        for (s, t) in solids {
-            let placed = placed_in(&mut k, s, t, "volume")?;
-            union = Some(match union {
-                None => placed,
-                Some(u) => b::boolean_union(&mut k, u, placed).map_err(|e| kernel_err("volume", e))?,
-            });
-        }
-        let mut union = union.ok_or_else(|| Error::Empty("volume".into()))?;
-        solidcore::mass::integrator::properties::brep_volume_default(&k, &mut union, 1e-6).map_err(|e| kernel_err("volume", e))
-    })
 }
 
 /// Runs each job as it is submitted: results are ready at the next [`KernelService::poll`].
@@ -1127,22 +1103,13 @@ mod tests {
             b(DVec3::new(10.0, 0.0, 5.0), DVec3::new(10.0, 10.0, 5.0)),
         ];
         let all = |n: u32| (0..n).map(|i| (i, DAffine3::IDENTITY)).collect::<Vec<_>>();
-        let job = Job { inputs: inputs.clone(), tasks: vec![Task::Recipe { base: None, positives: all(4), negatives: vec![] }] };
+        let job = Job { inputs, tasks: vec![Task::Recipe { base: None, positives: all(4), negatives: vec![] }] };
         let out = run(&job).unwrap();
         let [Output::Recipe { solid, display, failed }] = out.as_slice() else { panic!("{out:?}") };
         assert!(failed.is_empty(), "{failed:?}");
         assert!(display.is_ok());
         assert_eq!(solid.pieces(), 1);
         assert!((solid.volume().unwrap() - 1900.0).abs() < 1e-6, "{:?}", solid.volume());
-
-        // The same as a union check, and a body placed by a transform (the fourth from the
-        // first's place).
-        let mut solids = all(4);
-        solids[3] = (2, DAffine3::from_translation(DVec3::new(0.0, 0.0, 5.0)));
-        let job = Job { inputs, tasks: vec![Task::UnionVolume { solids }] };
-        let out = run(&job).unwrap();
-        let [Output::Volume(Some(v))] = out.as_slice() else { panic!("{out:?}") };
-        assert!((v - 1900.0).abs() < 1e-6, "{v}");
     }
 
     #[test]
