@@ -795,7 +795,8 @@ Decided on 2026-11-09.
   (anchored cards): **the workspace switcher and the ribbon across the top** (§6 septies,
   2026-11-13; formerly a tool bar centered at the top), the tool option bar centered under the
   ribbon; **Entity info**, **Materials** and **Outliner** are three
-  cards docked in two columns, one per edge of the view (`dock.rs`, 2026-11-12). A card's header folds
+  cards docked in two columns, one per edge of the view (`dock.rs`, 2026-11-12). A card's header (a title bar
+  in the headers' fill, a line under it, its title semibold, its chevron at the right end; 2026-11-16) folds
   it (click) or moves it (drag: it follows the pointer and drops into the column of the nearer edge,
   where a bar shows the insertion point); the View menu closes or shows each one. A card keeps the
   height given by dragging its bottom edge, except the last unfolded list of its column (Materials or
@@ -1618,7 +1619,9 @@ another product.
   A button is never narrower than its label's longest word: labels wrap between words only.
 - **Icons**: drawn for it — Modelling (workspace), pin, Clear section, Delete guides
   (`icons::command` maps a command to its icon, a test checks every command of the ribbon has
-  one); the standard views share the views icon; the chevron and » are painted.
+  one); the standard views share the views icon; » is painted. One chevron (`icons::chevron`, an
+  SVG turned as needed) marks every fold and drop-down: panels' title bars, outliner rows, ribbon
+  and quick-card menus, the Matière picker, combo boxes (`icons::combo_chevron`).
 - The render statistics card sits in the top right corner of the area the cards leave free
   (`Editor::free_area`), under the ribbon.
 - **Code**: `apps/solidsketch/src/ribbon.rs` (description, `Prefs`, `fit`, drawing, tests);
