@@ -408,50 +408,72 @@ fn tab_font() -> FontId {
 
 /// `inset`: the card's inner margin, which the band spans to reach the card's edges.
 fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
+    let labels: Vec<String> = w.tabs.iter().map(|t| (t.label)()).collect();
+    let shown = w.tabs.iter().position(|t| t.id == tab.id);
+    let ids: Vec<_> = w.tabs.iter().map(|t| egui::Id::unique(("ribbon_tab", t.id))).collect();
+    if let Some(k) = tab_strip(ui, &labels, &ids, shown, width, inset, true) {
+        actions.push(Action::Ribbon(Change::Tab(w.tabs[k].id)));
+    }
+}
+
+/// A row of tabs as the ribbon's (also the journal window's): a faint band, the shown tab
+/// open onto the content below, the others greyed until hovered. `ids`: each tab's; `inset`:
+/// the margin of the card (or window) the band spans to reach its edges; `round_top`: the
+/// band's top corners follow the card's. The tab clicked, if any (not the shown one).
+pub fn tab_strip(
+    ui: &mut egui::Ui,
+    labels: &[String],
+    ids: &[egui::Id],
+    shown: Option<usize>,
+    width: f32,
+    inset: egui::Margin,
+    round_top: bool,
+) -> Option<usize> {
     let (row, _) = ui.allocate_exact_size(vec2(width, TAB_ROW_HEIGHT), Sense::hover());
     let visuals = ui.visuals().clone();
     let band =
         Rect::from_min_max(pos2(row.left() - inset.leftf(), row.top() - inset.topf()), pos2(row.right() + inset.rightf(), row.bottom()));
-    let r = visuals.window_corner_radius;
+    let r = if round_top { visuals.window_corner_radius } else { egui::CornerRadius::ZERO };
     ui.painter().rect_filled(band, egui::CornerRadius { nw: r.nw, ne: r.ne, sw: 0, se: 0 }, visuals.faint_bg_color);
 
     // Centered on the card; from its left edge when narrower than the tabs.
-    let mut x = (row.center().x - tab_labels_width(ui.painter(), w) / 2.0).max(row.left() + crate::tabs::TAB_RADIUS);
+    let mut x = (row.center().x - tab_labels_width(ui.painter(), labels) / 2.0).max(row.left() + crate::tabs::TAB_RADIUS);
     let font = tab_font();
+    let mut clicked = None;
     // The shown tab drawn last: its curves over its neighbours' hover.
-    let mut shown = None;
-    for t in w.tabs {
-        let active = t.id == tab.id;
-        let galley = ui.painter().layout_no_wrap((t.label)(), font.clone(), Color32::WHITE);
+    let mut open = None;
+    for (k, label) in labels.iter().enumerate() {
+        let galley = ui.painter().layout_no_wrap(label.clone(), font.clone(), Color32::WHITE);
         let rect = Rect::from_min_size(pos2(x, row.top() - TAB_RISE), vec2(galley.size().x + 2.0 * TAB_PAD, TAB_ROW_HEIGHT + TAB_RISE));
         x = rect.right() + TAB_GAP;
-        if active {
-            shown = Some((t, rect));
+        if shown == Some(k) {
+            open = Some((label, rect));
             continue;
         }
-        let response = ui.interact(rect, egui::Id::unique(("ribbon_tab", t.id)), Sense::click());
+        let response = ui.interact(rect, ids[k], Sense::click());
         if let Some(fill) = crate::tabs::veil(ui, &response) {
             ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::tabs::VEIL_RADIUS, fill);
         }
         let ink = if response.hovered() { visuals.text_color() } else { visuals.weak_text_color() };
-        ui.painter().text(rect.center(), Align2::CENTER_CENTER, (t.label)(), font.clone(), ink);
+        ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
         if response.clicked() {
-            actions.push(Action::Ribbon(Change::Tab(t.id)));
+            clicked = Some(k);
         }
     }
     // The band's edge, going round the shown tab.
     let line = visuals.widgets.noninteractive.bg_stroke;
-    match shown {
-        Some((t, rect)) => {
+    match open {
+        Some((label, rect)) => {
             crate::tabs::open_tab(ui.painter(), rect, visuals.window_fill);
             let outline = crate::tabs::open_tab_outline(rect, band.left(), band.right(), line.width / 2.0);
             ui.painter().add(egui::Shape::line(outline, line));
-            ui.painter().text(rect.center(), Align2::CENTER_CENTER, (t.label)(), font.clone(), visuals.strong_text_color());
+            ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), visuals.strong_text_color());
         }
         None => {
             ui.painter().hline(band.x_range(), band.bottom() - line.width / 2.0, line);
         }
     }
+    clicked
 }
 
 /// One group laid out: where it is, and how [`fit`] placed it.
@@ -463,14 +485,15 @@ struct Laid {
 }
 
 /// The tabs' width, with the gaps between them.
-fn tab_labels_width(painter: &egui::Painter, w: &Workspace) -> f32 {
-    let labels: f32 = w.tabs.iter().map(|t| painter.layout_no_wrap((t.label)(), tab_font(), Color32::WHITE).size().x + 2.0 * TAB_PAD).sum();
-    labels + w.tabs.len().saturating_sub(1) as f32 * TAB_GAP
+fn tab_labels_width(painter: &egui::Painter, labels: &[String]) -> f32 {
+    let width: f32 = labels.iter().map(|l| painter.layout_no_wrap(l.clone(), tab_font(), Color32::WHITE).size().x + 2.0 * TAB_PAD).sum();
+    width + labels.len().saturating_sub(1) as f32 * TAB_GAP
 }
 
 /// The tab row's width: its tabs, and the shown one's curves on both sides.
 fn tab_row_width(painter: &egui::Painter, w: &Workspace) -> f32 {
-    tab_labels_width(painter, w) + 2.0 * crate::tabs::TAB_RADIUS
+    let labels: Vec<String> = w.tabs.iter().map(|t| (t.label)()).collect();
+    tab_labels_width(painter, &labels) + 2.0 * crate::tabs::TAB_RADIUS
 }
 
 /// The groups shown (the fixed one first) and their sizes, as [`fit`] sees them.

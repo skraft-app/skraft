@@ -373,6 +373,9 @@ fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) 
                         "curl -s -H 'X-SolidSketch: 1' -H \"Authorization: Bearer {token}\" -d '{{\"method\": \"app.ping\"}}' http://{address}/call"
                     ));
                 }
+                if ui.button(t!("titlebar.remote.journal")).clicked() {
+                    actions.push(Action::Command("app.journal"));
+                }
                 if ui.button(t!("titlebar.remote.stop")).clicked() {
                     actions.push(Action::Command("app.remote_control"));
                 }

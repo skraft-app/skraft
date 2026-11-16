@@ -2615,6 +2615,14 @@ grips), so a script clicks a name, not a pixel.
    revision and the parts reached checked. Recorded in the app (a box, then a cylinder on
    it), the test passes and builds the same geometry. Not recorded: what panels do besides
    (the outliner's selection, entering a component from it).
+   **In the app** (2026-11-16): the **journal window** (`apps/solidsketch/src/journal_window.rs`,
+   command `app.journal`: the control channel's mark's menu, the command palette) reads the
+   shown tab's journal directly, channel on or off: its events (filtered by kind — inputs,
+   hovers, left out at first, tools, operations, jobs — following the last; failed ones in
+   red; copied as JSON lines, as `journal.log` gives them), its kernel failures (each copied
+   in full with its job, as `journal.failures` `seq` gives it: `solidsketch_control::json` is
+   public for this), and a recording under way. Its two tabs are drawn as the ribbon's
+   (`ribbon::tab_strip`), their band joining the window's title bar.
 4. **Built** (2026-11-15, same branch). **Real input**: `ui.click` (`double`), `ui.move`,
    `ui.drag` (`steps`), `ui.key` (egui's key names, `pressed` for one edge), `ui.text`,
    `ui.scroll` — each at `where`: a window point (`pos`), a handle's centre (`handle`) or a
