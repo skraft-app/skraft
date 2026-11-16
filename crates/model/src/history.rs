@@ -59,6 +59,20 @@ impl History {
         self.future.clear();
     }
 
+    /// Makes `next` the current document within the last step, which keeps its operation (its
+    /// undo label): a change that rides on it, as a part's name asked as soon as it is made
+    /// (§6 quattuordecies). A new revision. False, nothing done, without a step to join or with
+    /// steps undone.
+    pub fn amend(&mut self, next: Document) -> bool {
+        if self.past.is_empty() || !self.future.is_empty() {
+            return false;
+        }
+        self.current = next;
+        self.last_revision += 1;
+        self.revision = self.last_revision;
+        true
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.past.is_empty()
     }

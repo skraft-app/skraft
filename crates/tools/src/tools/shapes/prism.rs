@@ -1463,9 +1463,13 @@ impl Tool for PrismTool {
             "measure_reversed",
         );
         if self.turning {
-            return vec![fillet_option(cx), trace, reversed];
+            return [fillet_option(cx), trace, reversed].into_iter().chain(ask_name_option(cx)).collect();
         }
-        [offset_option(cx), fillet_option(cx), trace, reversed].into_iter().chain(shared_options(cx, &self.first)).collect()
+        [offset_option(cx), fillet_option(cx), trace, reversed]
+            .into_iter()
+            .chain(shared_options(cx, &self.first))
+            .chain(ask_name_option(cx))
+            .collect()
     }
 
     fn set_option(&mut self, key: &str, value: &OptionValue) {

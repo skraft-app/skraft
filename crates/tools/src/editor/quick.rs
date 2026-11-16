@@ -33,6 +33,16 @@ pub(super) struct Card {
     open_part: Option<Id>,
 }
 
+impl Card {
+    /// The state it belongs to changed in place (`before` → `now`, a name joining the
+    /// creation's step): still its own.
+    pub(super) fn follow(&mut self, before: u64, now: u64) {
+        if self.revision == before {
+            self.revision = now;
+        }
+    }
+}
+
 impl Editor {
     /// Where the quick tools' card is drawn now (pixels, its centre), if it is shown: after a
     /// creation, while the creation tool waits at its first step.

@@ -2077,6 +2077,30 @@ handed back in `smart_tool.rb`'s `onToolUserText`). Built on 2026-11-15, in four
   the editor's scenarios (copy line, Move, Distribute, Paint started from the card; the card's
   anchor, its going, a body in an open part).
 
+## 6 quattuordecies. Naming a part just made
+
+Decided on 2026-11-16 (questions / answers), after OpenCutList's Smart Draw tool
+(`tool/smart_draw_tool.rb`, `fn_ask_name`, the same in `smart_build_tool.rb`): once it has made
+a part, either it asks its name at once (`UI.inputbox`, option `ask_name`), or a success
+notification « Nouvelle pièce créée : {{ name }} » offers a « Renommer » button that asks it.
+
+- **When**: a creation tool (Box, Cylinder, Prism, Turn) has made a part (`AddPrimitive`), not
+  a body in an open part (`AddBody`: no new part), nor a copy or a paste (the same parts).
+- **The toast**: a success « Nouvelle pièce créée : Pièce#3 » with a « Renommer » button, at
+  the bottom center as the others; the quick tools' card (§6 terdecies) shows as before, each on
+  its own. The button opens the naming dialog. The toast goes as soon as its part is no more
+  (undone, erased): no button on a part that does not exist.
+- **The option « Nommage des pièces »** (OCL's `ask_name`): a toggle of each creation tool's
+  option bar, kept with its settings (`ask_name`, off by default), OCL's icon (a frame holding
+  an N and a caret). On, the dialog opens as soon as the part is made, and no toast.
+- **The dialog**: a modal « Nom de la pièce » (asked on 2026-11-16), one field for the part's
+  name (`RenameComponent`), filled with its name, wholly selected (typing replaces it); Enter or OK names it, Esc or Cancel
+  keeps its name. An empty name or one another component has: OK greyed and a line under the
+  field says why; the dialog stays.
+- **Undo**: named from the dialog opened by itself, the name joins the creation's step (one
+  undo takes the part away, its label the creation's), as OCL's inputbox inside the operation;
+  from the toast's button, a step of its own (« Renommer »).
+
 ## 7. Crates
 
 ```

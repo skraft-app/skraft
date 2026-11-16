@@ -28,6 +28,7 @@ mod clipboard;
 mod document;
 pub mod journal;
 mod loading;
+mod naming;
 mod navigation;
 mod quick;
 mod selection;
@@ -36,6 +37,7 @@ mod view;
 pub use clipboard::{Clip, Content};
 use document::{After, Pending, Probe};
 pub use loading::{LoadEnd, LoadKind, Loading};
+pub use naming::Naming;
 pub use view::{Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
 
 /// A message for the app's toasts (docs/ARCHITECTURE.md §6, Toasts): an operation that failed, a
@@ -46,6 +48,16 @@ pub struct Notice {
     pub title: String,
     /// What went wrong, or more about it (the kernel's or the system's words).
     pub detail: Option<String>,
+    /// What the toast's button does, if it has one.
+    pub action: Option<NoticeAction>,
+}
+
+/// A notice's button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoticeAction {
+    /// Opens the naming dialog on this part, just made (§6 quattuordecies,
+    /// [`Editor::naming_of`]).
+    Rename(Id),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +172,8 @@ pub struct Editor {
     aside: Option<Box<dyn Tool>>,
     /// The quick tools' card, offered on what a creation tool just made.
     card: Option<quick::Card>,
+    /// The naming dialog the app is to open, on a part just made (§6 quattuordecies).
+    naming: Option<Naming>,
     /// A drag the editor turns into clicks for the tool (§6, [`Tool::drag_clicks`]).
     drag_click: Option<DragClick>,
     /// What it went through: journal, kernel failures, recording (§7 septies).
@@ -250,6 +264,7 @@ impl Editor {
             quick_return: None,
             aside: None,
             card: None,
+            naming: None,
             drag_click: None,
             journal: journal::Journal::default(),
             depth: 0,
@@ -451,10 +466,14 @@ impl Editor {
     }
 
     pub(super) fn notify(&mut self, kind: NoticeKind, title: String, detail: Option<String>) {
+        self.push_notice(Notice { kind, title, detail, action: None });
+    }
+
+    pub(super) fn push_notice(&mut self, notice: Notice) {
         if self.notices.len() == NOTICES {
             self.notices.remove(0);
         }
-        self.notices.push(Notice { kind, title, detail });
+        self.notices.push(notice);
     }
 
     pub fn status(&self) -> String {
@@ -1109,9 +1128,11 @@ impl Editor {
                 let held = stretching.then(|| self.stretch_meshed.clone()).flatten();
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.
-                // What a drawing tool makes is offered the quick tools' card (§6 terdecies).
+                // What a drawing tool makes is offered the quick tools' card (§6 terdecies); a
+                // part made, its name asked or offered (§6 quattuordecies).
                 let after = match op {
-                    Operation::AddPrimitive { .. } | Operation::AddBody { .. } => After::Card,
+                    Operation::AddPrimitive { .. } => After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) },
+                    Operation::AddBody { .. } => After::Card { ask_name: None },
                     Operation::Boolean { .. } | Operation::SetProfile { .. } => After::Nothing,
                     _ => After::Select,
                 };

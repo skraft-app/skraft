@@ -528,6 +528,16 @@ notice:
   import_empty: "%{file} : aucun solide à importer"
   import_failed: "Import de %{file} impossible"
   import_cancelled: "Import de %{file} annulé"
+  # A creation tool made a part (§6 quattuordecies); the toast's button names it.
+  part_created: "Nouvelle pièce créée : %{name}"
+  rename: "Renommer"
+
+# The dialog naming a part just made (§6 quattuordecies; apps/solidsketch/src/naming.rs).
+naming:
+  title: "Nom de la pièce"
+  ok: "OK"
+  cancel: "Annuler"
+  empty: "le nom est vide"
 
 # The status bar: the measurements box and the editor's messages.
 status:
@@ -587,6 +597,8 @@ tool:
       offset_tip: "Décale le contour de la forme tracée, pas sa hauteur (négatif : vers l'intérieur) · cliquer pour le taper, ou taper longueur suivie de x (3x)"
       fillet: "Congé"
       fillet_tip: "Arrondit d'un rayon les coins entre deux côtés droits de la pièce faite, après le décalage · cliquer pour le taper, ou taper rayon suivi de r (5r)"
+      ask_name: "Nommage des pièces"
+      ask_name_tip: "Saisir le nom de chaque pièce dès qu'elle est faite (sinon, le bouton Renommer de la notification)"
   box:
     name: "Dessiner une boîte"
     hint:
