@@ -79,6 +79,31 @@ pub fn menu(style: &mut egui::Style) {
     style.spacing.button_padding.x = MENU_PADDING_X;
 }
 
+/// The check box column of a menu that has check boxes: its side, the box's.
+const MENU_CHECK: f32 = 13.0;
+
+/// A menu item: `check` its check box (a toggle's state), in a column every item of the menu
+/// keeps when one of them has one (`column`), so that their labels start at the same place.
+pub fn menu_item<'a>(label: impl Into<String>, check: Option<bool>, column: bool) -> egui::Button<'a> {
+    let label = label.into();
+    if !column && check.is_none() {
+        return egui::Button::new(label);
+    }
+    let mark = egui::Atom::paint(egui::Vec2::splat(MENU_CHECK), move |ui: &egui::Ui, args: egui::AtomPaintArgs| {
+        let Some(on) = check else { return };
+        let ink = args.fallback_text_color;
+        let p = ui.painter();
+        let r = egui::Rect::from_center_size(args.rect.center(), egui::Vec2::splat(MENU_CHECK - 1.0));
+        p.rect_stroke(r, CornerRadius::same(3), Stroke::new(1.0, ink.gamma_multiply(0.7)), egui::StrokeKind::Inside);
+        if on {
+            let (c, s) = (r.center(), r.width() / 2.0);
+            let points = vec![c + egui::vec2(-0.55 * s, 0.0), c + egui::vec2(-0.15 * s, 0.4 * s), c + egui::vec2(0.55 * s, -0.4 * s)];
+            p.add(egui::Shape::line(points, Stroke::new(1.6, ink)));
+        }
+    });
+    egui::Button::new((mark, label))
+}
+
 /// A palette's card in the preferences: a small window drawn in its colours (`mode`'s
 /// variant), its name below; outlined in the current accent when `selected`.
 pub fn palette_card(ui: &mut egui::Ui, palette: Palette, mode: Mode, name: &str, selected: bool) -> egui::Response {

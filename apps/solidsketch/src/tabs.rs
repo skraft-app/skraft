@@ -240,7 +240,7 @@ pub fn show(
         let cut = galley.elided;
         ui.painter().galley(egui::pos2(r.left() + 10.0, r.center().y - galley.size().y / 2.0), galley, color);
         if show_close && held.is_none() {
-            let x = small_button(ui, close, id.with(("close", i)), Glyph::Icon(icons::CLOSE), 12.0, ink);
+            let x = small_button(ui, close, id.with(("close", i)), icons::CLOSE, 12.0, ink);
             crate::handles::publish(|| format!("tab_close:{i}"), close);
             if x.on_hover_text(t!("tabs.close_tip")).clicked() {
                 out.push(TabAction::Close(i));
@@ -314,7 +314,7 @@ pub fn show(
     if count < n {
         let r = button(x);
         let mut chosen = None;
-        let more = small_button(ui, r, id.with("more"), Glyph::Text("»"), 16.0, visuals.text_color()).on_hover_text(t!("tabs.more_tip"));
+        let more = small_button(ui, r, id.with("more"), icons::MORE, 14.0, visuals.text_color()).on_hover_text(t!("tabs.more_tip"));
         egui::Popup::menu(&more).style(crate::style::menu).show(|ui| {
             for (i, tab) in tabs.iter().enumerate() {
                 let label = format!("{}{}", tab.name, if tab.modified { " •" } else { "" });
@@ -329,19 +329,13 @@ pub fn show(
         x += BUTTON;
     }
     crate::handles::publish(|| "tab_new".into(), button(x).shrink(1.0));
-    if small_button(ui, button(x).shrink(1.0), id.with("new"), Glyph::Icon(icons::ADD), 16.0, visuals.text_color())
+    if small_button(ui, button(x).shrink(1.0), id.with("new"), icons::ADD, 16.0, visuals.text_color())
         .on_hover_text(t!("tabs.new_tip"))
         .clicked()
     {
         out.push(TabAction::New);
     }
     out
-}
-
-/// What a [`small_button`] shows.
-enum Glyph {
-    Icon(egui::ImageSource<'static>),
-    Text(&'static str),
 }
 
 /// A frameless button's corner radius.
@@ -422,21 +416,21 @@ pub fn open_tab_outline(rect: egui::Rect, left: f32, right: f32, inset: f32) -> 
     out
 }
 
-/// A frameless button of the strip (×, +, »), drawn in `ink`: its [`veil`]. `size`: its
-/// glyph's.
-fn small_button(ui: &mut egui::Ui, rect: egui::Rect, id: egui::Id, glyph: Glyph, size: f32, ink: egui::Color32) -> egui::Response {
+/// A frameless button of the strip (×, +, »), its `icon` drawn in `ink`: its [`veil`]. `size`:
+/// its icon's.
+fn small_button(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    id: egui::Id,
+    icon: egui::ImageSource<'static>,
+    size: f32,
+    ink: egui::Color32,
+) -> egui::Response {
     let resp = ui.interact(rect, id, egui::Sense::click());
     if let Some(fill) = veil_of(ink, &resp) {
         ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
     }
-    match glyph {
-        Glyph::Icon(icon) => {
-            egui::Image::new(icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::vec2(size, size)))
-        }
-        Glyph::Text(text) => {
-            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, egui::FontId::proportional(size), ink);
-        }
-    }
+    egui::Image::new(icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::vec2(size, size)));
     resp
 }
 

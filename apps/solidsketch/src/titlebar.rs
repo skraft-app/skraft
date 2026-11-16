@@ -287,13 +287,16 @@ fn file_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>
 
 /// A menu's items, a separator before each group.
 fn menu_items<'a>(ui: &mut egui::Ui, items: impl Iterator<Item = &'a CommandView>, actions: &mut Vec<Action>) {
+    let items: Vec<&CommandView> = items.collect();
+    // A check box among them: every label after their column.
+    let column = items.iter().any(|v| panels::is_toggle(v));
     let mut first = true;
     for v in items {
         if v.group && !first {
             ui.separator();
         }
         first = false;
-        if panels::command_item(ui, v) {
+        if panels::command_item(ui, v, column) {
             actions.push(Action::Command(v.id));
         }
     }

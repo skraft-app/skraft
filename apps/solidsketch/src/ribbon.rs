@@ -15,6 +15,7 @@ use solidsketch_i18n::t;
 
 use crate::icons;
 use crate::panels::{Action, CommandView};
+use crate::style::menu_item;
 
 // ---- the description -------------------------------------------------------------------------
 
@@ -624,7 +625,7 @@ pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, acti
         if response.hovered() {
             ui.painter().rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
         }
-        ui.painter().text(rect.center(), Align2::CENTER_CENTER, "»", FontId::proportional(18.0), visuals.text_color());
+        egui::Image::new(icons::MORE).tint(visuals.text_color()).paint_at(ui, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)));
         let response = response.on_hover_text(t!("ribbon.more"));
         Popup::menu(&response).style(crate::style::menu).show(|ui| {
             for l in laid.iter().filter(|l| l.plan.fit == Fit::More) {
@@ -635,13 +636,14 @@ pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, acti
 }
 
 /// The ribbon's own menu (right click on its empty space or on a button).
+/// Its items after the check boxes' column (see [`crate::style::menu_item`]), as the items
+/// put before them.
 pub fn ribbon_menu(ui: &mut egui::Ui, prefs: &Prefs, actions: &mut Vec<Action>) {
-    if ui.button(t!("ribbon.reset_tab")).clicked() {
+    if ui.add(menu_item(t!("ribbon.reset_tab"), None, true)).clicked() {
         actions.push(Action::Ribbon(Change::ResetTab));
     }
-    let mut labels = prefs.labels;
-    if ui.checkbox(&mut labels, t!("ribbon.labels")).changed() {
-        actions.push(Action::Ribbon(Change::Labels(labels)));
+    if ui.add(menu_item(t!("ribbon.labels"), Some(prefs.labels), true)).clicked() {
+        actions.push(Action::Ribbon(Change::Labels(!prefs.labels)));
     }
 }
 
@@ -694,7 +696,7 @@ fn command_button(
         actions.push(Action::Command(id));
     }
     Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
-        if ui.button(t!("ribbon.unpin")).clicked() {
+        if ui.add(menu_item(t!("ribbon.unpin"), None, true)).clicked() {
             actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
         }
         ui.separator();
