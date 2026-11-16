@@ -115,6 +115,9 @@ pub struct Editor {
     body_sign: Sign,
     /// The machining hovered in the entity info's list (drawn hovered in the view).
     listed_hover: Option<Id>,
+    /// The model chosen (the outliner's first row clicked), until anything else is: selected,
+    /// entered, opened, or a click in the view.
+    model_selected: bool,
     /// The occurrence hovered in the outliner (drawn hovered in the view).
     outliner_hover: Option<EntityPath>,
     /// The stretch the scene's preview mesh was made for, and the revisions handed out.
@@ -241,6 +244,7 @@ impl Editor {
             part_scope: Scope::All,
             body_sign: Sign::Negative,
             listed_hover: None,
+            model_selected: false,
             outliner_hover: None,
             stretch_meshed: None,
             preview_revision: 0,
@@ -874,6 +878,13 @@ impl Editor {
     /// nothing more, but with Select, where it clears the selection (or closes the open part).
     /// Delete erases the selection.
     pub fn input(&mut self, input: ToolInput) {
+        // A click in the view, or Esc, chooses something else than the model.
+        if matches!(
+            input,
+            ToolInput::Click { .. } | ToolInput::DoubleClick { .. } | ToolInput::DragStart { .. } | ToolInput::Key { key: Key::Escape, .. }
+        ) {
+            self.model_selected = false;
+        }
         self.note(journal::Event::Input { input: input.clone(), count: 1 }, Some(journal::Step::Input(input.clone())));
         self.inside(|e| {
             e.input_tool(input);

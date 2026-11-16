@@ -828,6 +828,43 @@ fn hide_rest_of_model() {
 }
 
 #[test]
+fn select_model_leaves_every_context() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    e.select(vec![a]);
+    assert!(!e.model_chosen());
+    e.make_assembly();
+    let g = e.selection()[0];
+    // At the model's level, something selected: only deselected.
+    assert!(!e.model_chosen());
+    e.select_model();
+    assert!(e.selection().is_empty());
+    assert!(e.model_chosen());
+    // Deep in it: the assembly edited, its part open.
+    e.enter(g);
+    e.enter(a);
+    assert_eq!(e.open_part(), Some(a));
+    assert!(!e.model_chosen());
+    e.select_model();
+    assert!(e.context().is_empty());
+    assert_eq!(e.open_part(), None);
+    assert!(e.selection().is_empty());
+    assert!(e.model_chosen());
+    // Something else chosen, then nothing: the model is not chosen again by itself.
+    e.select(vec![g]);
+    e.poll();
+    e.select(Vec::new());
+    e.poll();
+    assert!(!e.model_chosen());
+    // A click in the view (in the void) chooses something else too.
+    e.select_model();
+    click(&mut e, DVec3::new(5000.0, 5000.0, 0.0));
+    assert!(e.selection().is_empty());
+    assert!(!e.model_chosen());
+}
+
+#[test]
 fn outliner_hover_marks_in_view() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");

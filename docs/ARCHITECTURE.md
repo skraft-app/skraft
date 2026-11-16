@@ -817,13 +817,36 @@ Decided on 2026-11-09.
   « Profil » on it). Only the deepest step of the path is marked selected: a body selected,
   not its part; its profile edited (`Editor::profile_body`, from `Tool::profile_body`), its
   « Profil » row, not the body nor the part — its body unfolded; the entity info then shows the
-  profile (its body, its corners).
+  profile (its body, its corners). A body row shows its nature's icon, not its tool's: an
+  extrusion `icons::EXTRUSION` (an ISO square, a vertical arrow from its centre), a
+  revolution `icons::REVOLUTION` (a profile standing on its dashed axis, an ISO circular arrow
+  around it) — the tools « Prisme » and « Tournage » keep theirs; an assembly
+  `icons::COMPONENT` (three ISO cubes about one corner, one up and two down, also « Créer un assemblage »'s).
+- **The model on the navigator's first row** (2026-11-16): named as its file (« Sans titre »),
+  `icons::MODEL` (a page holding a cube), semibold, at the list's left edge (no indent, no fold
+  nor eye), scrolling with the tree (row 0 of `show_rows`); alone in an empty model (no hint
+  there). A click (`Action::SelectModel`, `Editor::select_model`) leaves every assembly and part
+  edited, the profile's editing with it, and chooses the model: highlighted, the entity info
+  showing it — its name, its parts and assemblies as placed (one per occurrence at any depth,
+  each definition walked once), its materials. It is chosen only so (`Editor::model_chosen`),
+  until anything else is: a click or Esc in the view, a selection, an entry (`model_selected`
+  dropped then, checked again in `poll`); nothing selected otherwise, « Aucune sélection ».
+  The tree's scroll area keeps half the rows' spacing above and below (`content_margin`): a
+  row's background spills that much beyond it, and was clipped on the first row.
+- **The navigator follows the active path** (2026-11-16; `ActivePath`: the assemblies edited,
+  the part open, its groups open, the body whose profile is edited). Above the path's end each
+  level lists only the path's step — the open part's siblings too, a group's, the profiled
+  body's —, the end's level all of its items. The path gone up (or elsewhere), what was
+  unfolded along it beyond what both share is folded (`ActivePath::fold_left`, the last path
+  kept per document in egui's memory). The fold arrows stay, to look into an assembly or a
+  part without entering it.
 - **The entity info shows the selection**, whatever it is (2026-11-16): an assembly or a part
   (its name, occurrence, material, dimensions, position…), a guide, and a part open, the body
   or group selected in it — its name as the navigator gives it (« Extrusion 3 »), blank or
   machining (read only: the sign is toggled in the navigator), failed or empty, its solid's
-  size, how many bodies share it, a group's bodies, its topology —; nothing selected,
-  « Aucune sélection », the part open or not.
+  size, how many bodies share it —; the model when its navigator row is clicked; nothing
+  selected, « Aucune sélection ». No bodies count nor topology row (removed 2026-11-16: the navigator lists the bodies,
+  `model.geometry` gives the topology).
 - **Toasts** (2026-11-16, `toasts.rs`), after OpenCutList's notifications
   (`SmartTool#notify`): the app's messages — a file not opened or not saved, the preferences
   or the control channel failing, a command that cannot run, « modele.ssk enregistré » — and

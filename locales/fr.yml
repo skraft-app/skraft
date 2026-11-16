@@ -494,6 +494,8 @@ panel:
     type: "Type"
     type_part: "$t(common.part)"
     type_assembly: "$t(common.assembly)"
+    # The model itself: nothing selected at its level (the navigator's first row).
+    type_model: "$t(common.model)"
     type_guide: "Guide"
     # A body of the open part (§2.11), or a group of its bodies.
     type_body: "Corps"
@@ -520,13 +522,13 @@ panel:
     pieces: "en %{count} morceaux, à corriger"
     # A part without material (no blank, or a machining swallowing it), §2.11.
     empty: "vide, à corriger"
-    bodies: "Corps"
-    # The bodies of a part: their count, the blanks' and the machinings'.
-    bodies_value: "%{count} (+%{positives} −%{negatives})"
-    topology: "Topologie"
-    topology_counts: "%{faces} faces · %{edges} arêtes · %{vertices} sommets"
     position: "Position"
     material: "$t(common.material)"
+    # The model's: parts and assemblies as placed (one per occurrence, at any depth), its
+    # materials.
+    parts: "Pièces"
+    assemblies: "Assemblages"
+    materials: "$t(common.materials)"
     selected: "%{count} sélectionné"
     selected_plural: "%{count} sélectionnés"
   materials:
@@ -539,7 +541,9 @@ panel:
     delete_tip: "Supprimer (ce qui en est peint ne l'est plus)"
   outliner:
     title: "Navigateur"
-    empty: "Modèle vide : dessiner une boîte (%{shortcut})"
+    # The first row, the model itself (named as its file): a click leaves every assembly and
+    # part edited and chooses the model (the entity info shows it).
+    model_tip: "Cliquer pour revenir au niveau du modèle"
     # The eye of a row.
     hide: "$t(common.hide)"
     show: "$t(common.show)"

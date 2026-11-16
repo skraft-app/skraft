@@ -18,6 +18,9 @@ pub enum Action {
     RemoteRetry,
     /// An outliner's click: selects or deselects, Shift (`true`) adding to the selection.
     SelectPath(EntityPath, bool),
+    /// The outliner's first row, the model, clicked: every assembly and part edited left,
+    /// nothing selected.
+    SelectModel,
     Apply(Operation),
     /// An option of the active tool changed in its bar.
     ToolOption(&'static str, OptionValue),
@@ -82,9 +85,13 @@ impl CommandView {
 
 /// A value of the entity info cut short (…) at `width` rather than widening the panel; whole
 /// in its tool tip (egui's, when cut).
+///
+/// One line high, not a `ui.scope`: in a `Grid` cell a scope spans the whole height the row had
+/// the frame before (its centred row layout), so the row never shrank back — the « Dimensions »
+/// row kept the three position fields' height of the row it replaced (an assembly's).
 fn cut_label(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, width: f32) {
-    ui.scope(|ui| {
-        ui.set_max_width(width);
+    let size = egui::vec2(width, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
         ui.add(egui::Label::new(text).truncate());
     });
 }
@@ -610,8 +617,8 @@ impl Nature {
 
     fn icon(self) -> egui::ImageSource<'static> {
         match self {
-            Nature::Extrusion => icons::PRISM,
-            Nature::Revolution => icons::TURN,
+            Nature::Extrusion => icons::EXTRUSION,
+            Nature::Revolution => icons::REVOLUTION,
             Nature::Solid => icons::SOLID,
             Nature::Group => icons::GROUP,
         }
@@ -681,31 +688,57 @@ fn tree_row<R>(
     (response, inner)
 }
 
-/// The outliner, in `area`: only the rows in view are laid out (a model can hold tens of
-/// thousands of occurrences).
-pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, area: egui::ScrollArea) {
+/// The outliner, in `area`: the model (named `name`, its file's) on the first row, then the
+/// tree; only the rows in view are laid out (a model can hold tens of thousands of
+/// occurrences).
+pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Action>, area: egui::ScrollArea) {
     let doc = editor.document();
+    let height = ui.spacing().interact_size.y;
+    // Room above the first row and below the last for their backgrounds, which spill half the
+    // rows' spacing beyond them (`tree_row`): the scroll area clips to its content and margin,
+    // so the first row selected was shorter than the others.
+    let mut margin = ui.spacing().scroll.content_margin;
+    let gap = (ui.spacing().item_spacing.y / 2.0).ceil() as i8;
+    margin.top = margin.top.max(gap);
+    margin.bottom = margin.bottom.max(gap);
+    let area = area.content_margin(margin);
     if doc.root_assembly().occurrences().is_empty() {
-        ui.weak(t!("panel.outliner.empty", shortcut = "R"));
+        area.show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            model_row(ui, editor, name, height, actions);
+        });
         actions.push(Action::HoverMachining(None));
         return;
     }
+    // The active path gone up (or elsewhere): what was open below folded.
+    let active = ActivePath::of(editor);
+    let key = ui.make_persistent_id("outliner_active");
+    let before = ui.ctx().data(|d| d.get_temp::<ActivePath>(key));
+    if before.as_ref() != Some(&active) {
+        if let Some(before) = &before {
+            before.fold_left(ui.ctx(), &active);
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(key, active.clone()));
+    }
     let mut rows = Vec::new();
-    flatten(ui.ctx(), editor, doc, doc.root(), &mut Vec::new(), &mut rows, false, 0);
+    flatten(ui.ctx(), editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
     let text = ui.visuals().text_color();
     let weak = ui.visuals().weak_text_color();
     let on_selection = ui.visuals().selection.stroke.color;
-    let height = ui.spacing().interact_size.y;
     let mut over = None;
     let mut over_body = None;
     // The body whose profile is edited: its « Profil » row the one selected.
     let editing = editor.profile_body();
     // The components in error at any depth, each found once (definitions are shared).
     let mut errors = FastMap::default();
-    area.show_rows(ui, height, rows.len(), |ui, range| {
+    // Row 0 the model's, the tree's after it.
+    area.show_rows(ui, height, rows.len() + 1, |ui, range| {
         ui.set_min_width(ui.available_width());
-        for row in rows.drain(range) {
+        if range.start == 0 {
+            model_row(ui, editor, name, height, actions);
+        }
+        for row in rows.drain(range.start.saturating_sub(1)..range.end.saturating_sub(1)) {
             match &row.body {
                 Some(b) if b.profile => {
                     profile_row(ui, editor, &row, height, editing, actions);
@@ -800,6 +833,65 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>, a
     actions.push(Action::HoverMachining(over_body));
 }
 
+/// The model, the outliner's first row, at the list's left edge (no indent, no fold nor eye):
+/// a click chooses it (`Editor::model_chosen`), highlighted then, the entity info showing it.
+fn model_row(ui: &mut egui::Ui, editor: &Editor, name: &str, height: f32, actions: &mut Vec<Action>) {
+    let selected = editor.model_chosen();
+    let tint = if selected { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
+    let (response, ()) = tree_row(ui, height, selected, false, false, |ui| {
+        ui.add(egui::Image::new(icons::MODEL).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
+        let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size);
+        ui.add(egui::Label::new(egui::RichText::new(name).font(font).color(tint)).selectable(false).truncate());
+    });
+    if response.on_hover_text(t!("panel.outliner.model_tip")).clicked() {
+        actions.push(Action::SelectModel);
+    }
+}
+
+/// Where the editing is (the outliner's active path): the assemblies edited and the part open,
+/// the groups open in it, the body whose profile is edited.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct ActivePath {
+    occurrences: Vec<Id>,
+    groups: Vec<Id>,
+    profile: Option<Id>,
+}
+
+impl ActivePath {
+    fn of(editor: &Editor) -> Self {
+        let mut occurrences = editor.context().to_vec();
+        let part = editor.open_part();
+        occurrences.extend(part);
+        let groups = if part.is_some() { editor.open_group().to_vec() } else { Vec::new() };
+        Self { occurrences, groups, profile: editor.profile_body().filter(|_| part.is_some()) }
+    }
+
+    /// `self` left for `now`: the rows unfolded along `self` beyond what both share, folded.
+    fn fold_left(&self, ctx: &egui::Context, now: &Self) {
+        let fold = |id: egui::Id| {
+            let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
+            state.set_open(false);
+            state.store(ctx);
+        };
+        let shared = self.occurrences.iter().zip(&now.occurrences).take_while(|(a, b)| a == b).count();
+        for k in shared..self.occurrences.len() {
+            fold(egui::Id::unique(("outliner", &self.occurrences[..k], self.occurrences[k])));
+        }
+        // In the part open: its groups and the body whose profile was edited.
+        let Some((&part, above)) = self.occurrences.split_last() else { return };
+        let same_part = self.occurrences == now.occurrences;
+        let shared = if same_part { self.groups.iter().zip(&now.groups).take_while(|(a, b)| a == b).count() } else { 0 };
+        for k in shared..self.groups.len() {
+            fold(egui::Id::unique(("outliner_body", above, part, &self.groups[..k], self.groups[k])));
+        }
+        if let Some(body) = self.profile
+            && !(same_part && self.groups == now.groups && now.profile == Some(body))
+        {
+            fold(egui::Id::unique(("outliner_body", above, part, self.groups.as_slice(), body)));
+        }
+    }
+}
+
 /// The rows of the tree under `assembly`, those of folded assemblies left out (`hidden_above`:
 /// an occurrence above `assembly` is hidden).
 #[allow(clippy::too_many_arguments)]
@@ -808,6 +900,7 @@ fn flatten<'d>(
     editor: &Editor,
     doc: &'d Document,
     assembly: Id,
+    active: &[Id],
     path: &mut Vec<Id>,
     out: &mut Vec<OutlinerRow<'d>>,
     hidden_above: bool,
@@ -817,7 +910,12 @@ fn flatten<'d>(
     if depth > solidsketch_model::MAX_DEPTH {
         return;
     }
+    // Above the end of the active path: only its step at this level.
+    let step = active.get(path.len()).copied().filter(|_| active.starts_with(path));
     for o in a.occurrences() {
+        if step.is_some_and(|id| id != o.id) {
+            continue;
+        }
         if let Ok(p) = doc.part(o.component) {
             // Its bodies under it, a single one too.
             let id = egui::Id::unique(("outliner", path.as_slice(), o.id));
@@ -858,7 +956,7 @@ fn flatten<'d>(
         out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
         if open {
             path.push(o.id);
-            flatten(ctx, editor, doc, o.component, path, out, hidden_above || o.hidden, depth + 1);
+            flatten(ctx, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
             path.pop();
         }
     }
@@ -917,7 +1015,15 @@ fn body_rows<'d>(
     if group.len() > solidsketch_model::MAX_DEPTH {
         return;
     }
+    // Above the end of the active path (the group open, the profile edited): only its step.
+    let step = match open.group.get(group.len()) {
+        Some(&id) if open.group.starts_with(group) => Some(id),
+        _ => open.profile.filter(|_| open.group == group.as_slice()),
+    };
     for (number, b) in bodies.iter().enumerate().map(|(k, b)| (k + 1, b)) {
+        if step.is_some_and(|id| id != b.id) {
+            continue;
+        }
         let children = p.def_of(b).children();
         let profiled = p.profile_of(b).is_some();
         if children.is_empty() && !profiled {
@@ -1106,7 +1212,7 @@ fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
 /// What is selected: an occurrence (a part, an assembly), a guide; a part open, a body or a
 /// group of its bodies, in it or in the group open (§2.11) — nothing shown for the part itself,
 /// the selection empty.
-pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
+pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let units = &doc.settings().units;
     let context = editor.context_definition();
@@ -1138,7 +1244,9 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     }
     match sel {
         [] => {
-            if editor.context().is_empty() {
+            if editor.model_chosen() {
+                model_info(ui, doc, name);
+            } else if editor.context().is_empty() {
                 ui.weak(t!("panel.entity_info.no_selection"));
             } else {
                 let name = doc.component(context).map(|c| c.name.as_str()).unwrap_or("?");
@@ -1191,22 +1299,6 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
                         cut_label(ui, dims(lo, hi, units), field);
                         ui.end_row();
                     }
-                    ui.label(t!("panel.entity_info.bodies"));
-                    cut_label(
-                        ui,
-                        t!(
-                            "panel.entity_info.bodies_value",
-                            count = p.bodies.len(),
-                            positives = p.positives().count(),
-                            negatives = p.negatives().count()
-                        ),
-                        field,
-                    );
-                    ui.end_row();
-                    let (f, ed, v) = p.shape().topology_counts();
-                    ui.label(t!("panel.entity_info.topology"));
-                    cut_label(ui, t!("panel.entity_info.topology_counts", faces = f, edges = ed, vertices = v), field);
-                    ui.end_row();
                 }
                 // At the top of its three fields, level with the first.
                 field_label(ui, t!("panel.entity_info.position"));
@@ -1255,6 +1347,55 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     }
 }
 
+/// The model, chosen (the navigator's first row clicked): its name (`name`, its file's), its
+/// parts and assemblies as placed, its materials.
+fn model_info(ui: &mut egui::Ui, doc: &Document, name: &str) {
+    let (parts, assemblies) = placed_counts(doc, doc.root(), &mut FastMap::default(), 0);
+    let field = (ui.available_width() - 90.0).max(60.0);
+    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+        ui.label(t!("panel.entity_info.type"));
+        ui.label(t!("panel.entity_info.type_model"));
+        ui.end_row();
+        ui.label(t!("panel.entity_info.name"));
+        cut_label(ui, name, field);
+        ui.end_row();
+        ui.label(t!("panel.entity_info.parts"));
+        ui.label(parts.to_string());
+        ui.end_row();
+        ui.label(t!("panel.entity_info.assemblies"));
+        ui.label(assemblies.to_string());
+        ui.end_row();
+        ui.label(t!("panel.entity_info.materials"));
+        ui.label(doc.materials().count().to_string());
+        ui.end_row();
+    });
+}
+
+/// How many parts and assemblies `assembly` places, one per occurrence at any depth; each
+/// definition walked once (`memo`), so a model of many copies costs its definitions, not its
+/// placements.
+fn placed_counts(doc: &Document, assembly: Id, memo: &mut FastMap<Id, (usize, usize)>, depth: usize) -> (usize, usize) {
+    if let Some(&counts) = memo.get(&assembly) {
+        return counts;
+    }
+    let Ok(a) = doc.assembly(assembly) else { return (0, 0) };
+    if depth > solidsketch_model::MAX_DEPTH {
+        return (0, 0);
+    }
+    let mut counts = (0, 0);
+    for o in a.occurrences() {
+        if doc.part(o.component).is_ok() {
+            counts.0 += 1;
+        } else if doc.assembly(o.component).is_ok() {
+            let (parts, assemblies) = placed_counts(doc, o.component, memo, depth + 1);
+            counts.0 += parts;
+            counts.1 += assemblies + 1;
+        }
+    }
+    memo.insert(assembly, counts);
+    counts
+}
+
 /// What is wrong with a part of `pieces` lumps of material, if anything: a part is one piece of
 /// wood, in several or none (empty, §2.11 « Empty parts ») an error to correct.
 fn pieces_error(pieces: usize) -> Option<String> {
@@ -1300,7 +1441,7 @@ fn profile_info(ui: &mut egui::Ui, p: &solidsketch_model::Part, k: usize) {
 
 /// The body `k` of `p` (the open part, or the group open in it, §2.11): a body or a group, its
 /// name as the outliner gives it, blank or machining (its sign toggled in the outliner), failed
-/// or not, its solid's size, how many bodies share its definition; a group's bodies.
+/// or not, its solid's size, how many bodies share its definition.
 fn body_info(ui: &mut egui::Ui, editor: &Editor, p: &solidsketch_model::Part, k: usize) {
     let units = &editor.document().settings().units;
     let b = &p.bodies[k];
@@ -1337,21 +1478,6 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, p: &solidsketch_model::Part, k:
             ui.label(copies.to_string());
             ui.end_row();
         }
-        if def.is_group() {
-            let children = def.children();
-            let positives = children.iter().filter(|c| c.sign == Sign::Positive).count();
-            ui.label(t!("panel.entity_info.bodies"));
-            cut_label(
-                ui,
-                t!("panel.entity_info.bodies_value", count = children.len(), positives = positives, negatives = children.len() - positives),
-                field,
-            );
-            ui.end_row();
-        }
-        let (f, ed, v) = def.solid.topology_counts();
-        ui.label(t!("panel.entity_info.topology"));
-        cut_label(ui, t!("panel.entity_info.topology_counts", faces = f, edges = ed, vertices = v), field);
-        ui.end_row();
     });
 }
 
