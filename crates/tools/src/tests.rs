@@ -5212,3 +5212,81 @@ fn stretch_tool_makes_a_typed_length_however_close() {
     click(&mut e, DVec3::new(600.0, 400.0, 18.0));
     assert!((length(&e) - 600.0).abs() < 1e-9, "{} {}", length(&e), e.status());
 }
+
+/// The part of the occurrence `o` of the root.
+fn part_of(e: &Editor, o: Id) -> Id {
+    e.document().resolve(&EntityPath::root(o)).unwrap().component
+}
+
+#[test]
+fn a_part_made_is_offered_its_name_by_a_toast() {
+    let mut e = top_editor(Document::new());
+    e.take_notices();
+    let o = box_then_quick(&mut e);
+    let part = part_of(&e, o);
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].kind, NoticeKind::Success);
+    assert_eq!(notices[0].title, "Nouvelle pièce créée : Pièce");
+    assert_eq!(notices[0].action, Some(NoticeAction::Rename(part)));
+    assert!(e.take_naming().is_none(), "no dialog by itself");
+    assert!(e.quick_card().is_some(), "the card as well");
+
+    // The button: a step of its own.
+    let naming = e.naming_of(part).unwrap();
+    assert_eq!(naming.name, "Pièce");
+    assert_eq!(e.name_refusal(&naming, "  "), Some("le nom est vide".into()));
+    assert_eq!(e.name_refusal(&naming, "Pièce"), None, "its own name");
+    let steps = e.history().journal().count();
+    e.name_part(&naming, " Pied ").unwrap();
+    assert_eq!(e.document().component(part).unwrap().name, "Pied");
+    assert_eq!(e.history().journal().count(), steps + 1);
+    e.undo();
+    assert_eq!(e.document().component(part).unwrap().name, "Pièce");
+
+    // Another part: the first one's name is taken.
+    let first = e.naming_of(part).unwrap();
+    e.name_part(&first, "Pied").unwrap();
+    let q = box_then_quick(&mut e);
+    let naming = e.naming_of(part_of(&e, q)).unwrap();
+    assert!(e.name_refusal(&naming, "Pied").is_some());
+    assert!(e.name_part(&naming, "Pied").is_err());
+
+    // A copy: no part made, no toast.
+    e.take_notices();
+    e.set_tool(ToolKind::Select);
+    e.apply(Operation::Duplicate { context: e.document().root(), entities: vec![o], transform: glam::DAffine3::IDENTITY }).unwrap();
+    assert!(e.take_notices().is_empty());
+}
+
+#[test]
+fn with_ask_name_the_dialog_opens_and_the_name_joins_the_creation() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Box);
+    assert!(e.tool_options().iter().any(|o| o.key == tools::ASK_NAME));
+    e.set_tool_option(tools::ASK_NAME, OptionValue::Toggle(true));
+    e.take_notices();
+    let steps = e.history().journal().count();
+    let o = box_then_quick(&mut e);
+    let part = part_of(&e, o);
+    assert!(e.take_notices().is_empty(), "no toast");
+    let naming = e.take_naming().expect("the dialog");
+    assert_eq!((naming.component, naming.name.as_str()), (part, "Pièce"));
+    assert!(e.take_naming().is_none(), "taken once");
+    e.name_part(&naming, "Côté").unwrap();
+    assert_eq!(e.document().component(part).unwrap().name, "Côté");
+    assert_eq!(e.history().journal().count(), steps + 1, "one step");
+    assert!(e.quick_card().is_some(), "the card still on it");
+    e.undo();
+    assert!(e.document().component(part).is_err(), "one undo takes the part away");
+    e.redo();
+    assert_eq!(e.document().component(part).unwrap().name, "Côté");
+
+    // Something done since: a step of its own.
+    let o = box_then_quick(&mut e);
+    let naming = e.take_naming().unwrap();
+    e.apply(Operation::RenameOccurrence { context: e.document().root(), occurrence: o, name: "Gauche".into() }).unwrap();
+    let steps = e.history().journal().count();
+    e.name_part(&naming, "Dos").unwrap();
+    assert_eq!(e.history().journal().count(), steps + 1);
+}

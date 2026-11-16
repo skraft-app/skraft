@@ -4,10 +4,14 @@
 //! OpenCutList's notifications (`SmartTool#notify`): a click closes one; an info or a success
 //! goes by itself, a bar at its bottom emptying towards the left as it runs out (the pointer
 //! over it stops it, full again); an error stays. A toast may offer an action (a button at its
-//! right end, as OpenCutList's « Ouvrir » after an export), run by its click; none does yet.
+//! right end, as OpenCutList's « Ouvrir » after an export), run by its click: « Renommer » on
+//! « Nouvelle pièce créée » (§6 quattuordecies), gone with the part.
 //! The same message again counts (×2).
 
 use solidsketch_i18n::t;
+use solidsketch_model::Id;
+
+use crate::docs::DocId;
 
 /// What a toast says, and its colours.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,11 +40,13 @@ impl Level {
 
 /// What a toast's button does.
 #[derive(Clone, Debug, PartialEq, Eq)]
-// No toast offers a button for now: the mechanism stays, for those that will.
-#[allow(dead_code)]
 pub enum Act {
     /// Shows the file in the Finder, the Explorer or the file manager.
+    // No toast offers it for now: kept, for those that will.
+    #[allow(dead_code)]
     Reveal(String),
+    /// Opens the naming dialog on a part just made, of this document.
+    Rename { doc: DocId, part: Id },
 }
 
 /// A message for the user: a title, and what went wrong or more about it (the system's or the
@@ -71,23 +77,24 @@ impl Note {
         Note::new(Level::Error, title, Some(detail.to_string()))
     }
 
-    #[allow(dead_code)]
     pub fn with_action(mut self, label: impl Into<String>, act: Act) -> Note {
         self.action = Some((label.into(), act));
         self
     }
-}
 
-/// The editor's notices, as toasts.
-impl From<solidsketch_tools::Notice> for Note {
-    fn from(n: solidsketch_tools::Notice) -> Note {
+    /// A notice of the editor of document `doc`, as a toast.
+    pub fn of_notice(n: solidsketch_tools::Notice, doc: DocId) -> Note {
         use solidsketch_tools::NoticeKind as K;
         let level = match n.kind {
             K::Info => Level::Info,
             K::Success => Level::Success,
             K::Error => Level::Error,
         };
-        Note::new(level, n.title, n.detail)
+        let note = Note::new(level, n.title, n.detail);
+        match n.action {
+            Some(solidsketch_tools::NoticeAction::Rename(part)) => note.with_action(t!("notice.rename"), Act::Rename { doc, part }),
+            None => note,
+        }
     }
 }
 
@@ -146,6 +153,12 @@ impl Toasts {
             let i = self.list.iter().position(|t| t.note.level.timed()).unwrap_or(0);
             self.list.remove(i);
         }
+    }
+
+    /// Drops the toasts whose button would act on nothing any more (`live` false: a part
+    /// undone or erased, its document closed).
+    pub fn retain_live(&mut self, live: impl Fn(&Act) -> bool) {
+        self.list.retain(|t| t.note.action.as_ref().is_none_or(|(_, act)| live(act)));
     }
 
     /// The toasts shown, oldest first: the control channel's `app.state`.
@@ -331,7 +344,19 @@ mod tests {
 
     #[test]
     fn a_notice_of_the_editor_is_a_toast() {
-        let n = solidsketch_tools::Notice { kind: solidsketch_tools::NoticeKind::Error, title: "t".into(), detail: Some("d".into()) };
-        assert_eq!(Note::from(n), Note::error("t", "d"));
+        use solidsketch_tools::{Notice, NoticeAction, NoticeKind};
+        let n = Notice { kind: NoticeKind::Error, title: "t".into(), detail: Some("d".into()), action: None };
+        assert_eq!(Note::of_notice(n, 1), Note::error("t", "d"));
+        let part = Id(7);
+        let n = Notice { kind: NoticeKind::Success, title: "p".into(), detail: None, action: Some(NoticeAction::Rename(part)) };
+        let note = Note::of_notice(n, 2);
+        assert_eq!(note.action, Some(("Renommer".into(), Act::Rename { doc: 2, part })));
+        // Gone with its part.
+        let mut t = Toasts::default();
+        t.push(note);
+        t.push(Note::info("i"));
+        t.retain_live(|_| false);
+        assert_eq!(t.list.len(), 1);
+        assert_eq!(t.list[0].note.title, "i");
     }
 }

@@ -59,8 +59,8 @@ use solidsketch_model::kernel::profile::{self, Corner};
 
 use super::face::{self, Face};
 use super::{
-    BLUE, Command, Cx, DragClicks, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, PreviewLabel, PreviewLine, RED, Tool,
-    ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
+    ASK_NAME, BLUE, Command, Cx, DragClicks, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, PreviewLabel, PreviewLine, RED,
+    Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
 };
 use crate::camera::Ray;
 use crate::infer::{EdgeRef, InferKind, Inference, LineKind};
@@ -645,6 +645,15 @@ fn toggle(key: &'static str, label: String, tip: String, on: bool, saved: bool, 
     ToolOption { key, label, tip, value: OptionValue::Toggle(on), choices: Vec::new(), saved, icon: Some(icon) }
 }
 
+/// The creation tools' last option, OCL's `ask_name`: the part's name asked as soon as it is
+/// made, else offered by a toast's button (§6 quattuordecies). None in an open part: a body
+/// made there is no new part.
+fn ask_name_option(cx: &Cx<'_>) -> Option<ToolOption> {
+    cx.open_part.is_none().then(|| {
+        toggle(ASK_NAME, t!("tool.shape.option.ask_name"), t!("tool.shape.option.ask_name_tip"), cx.toggle(ASK_NAME), true, "ask_name")
+    })
+}
+
 /// The options both tools have: the height centred, the first point measured from a corner.
 fn shared_options(cx: &Cx<'_>, first: &First) -> Vec<ToolOption> {
     vec![
@@ -1028,7 +1037,11 @@ impl Tool for BoxTool {
             true,
             "rectangle_centered",
         );
-        [offset_option(cx), fillet_option(cx), centered].into_iter().chain(shared_options(cx, &self.first)).collect()
+        [offset_option(cx), fillet_option(cx), centered]
+            .into_iter()
+            .chain(shared_options(cx, &self.first))
+            .chain(ask_name_option(cx))
+            .collect()
     }
 
     fn set_option(&mut self, key: &str, value: &OptionValue) {
@@ -1374,6 +1387,7 @@ impl Tool for CylinderTool {
             },
         ];
         options.extend(shared_options(cx, &self.first));
+        options.extend(ask_name_option(cx));
         options
     }
 

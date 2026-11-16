@@ -2663,3 +2663,24 @@ fn welding_never_drifts() {
         }
     }
 }
+
+#[test]
+fn an_amended_step_undoes_as_one() {
+    let mut h = History::new(Document::new());
+    assert!(!h.amend(Document::new()), "no step to join");
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let part = occ(h.document(), &EntityPath::root(a)).component;
+    let made = h.revision();
+    let (named, _) = h.document().apply(&Operation::RenameComponent { component: part, name: "Pied".into() }).unwrap();
+    assert!(h.amend(named));
+    assert_ne!(h.revision(), made, "another state");
+    assert_eq!(h.document().component(part).unwrap().name, "Pied");
+    assert_eq!(h.journal().count(), 1);
+    assert!(matches!(h.undo_op(), Some(Operation::AddPrimitive { .. })), "the step keeps its operation");
+    assert!(h.undo());
+    assert!(h.document().component(part).is_err(), "one undo takes the part away");
+    assert!(h.redo());
+    assert_eq!(h.document().component(part).unwrap().name, "Pied", "redone named");
+    assert!(h.undo());
+    assert!(!h.amend(Document::new()), "not with steps undone");
+}

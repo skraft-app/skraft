@@ -336,6 +336,10 @@ pub struct ToolOption {
     pub icon: Option<&'static str>,
 }
 
+/// The creation tools' toggle « Nommage des pièces » (OCL's `ask_name`): the part's name asked
+/// as soon as it is made (§6 quattuordecies).
+pub const ASK_NAME: &str = "ask_name";
+
 /// One tool's saved settings, by option key.
 pub type OptionValues = BTreeMap<String, OptionValue>;
 

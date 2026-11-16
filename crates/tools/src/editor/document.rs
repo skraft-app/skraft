@@ -23,8 +23,11 @@ pub(super) enum After {
     /// the cursor (§6 decies).
     Carry(DVec3),
     /// A drawing tool's: nothing selected, the quick tools' card offered on what it made
-    /// (§6 terdecies).
-    Card,
+    /// (§6 terdecies); a new part's name asked (`Some(true)`) or offered by a toast
+    /// (`Some(false)`, §6 quattuordecies).
+    Card {
+        ask_name: Option<bool>,
+    },
 }
 
 /// A job of [`Editor::crash_kernel`].
@@ -118,8 +121,11 @@ impl Editor {
             _ => {}
         }
         self.after_change();
-        if matches!(after, After::Card) {
+        if let After::Card { ask_name } = after {
             self.offer_card(&outcome);
+            if let Some(ask) = ask_name {
+                self.offer_naming(&outcome, ask);
+            }
         }
         if let (After::Carry(from), Some(op)) = (after, carried) {
             self.carry(from, op);

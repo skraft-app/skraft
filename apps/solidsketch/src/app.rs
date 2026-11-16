@@ -54,6 +54,8 @@ pub struct SolidSketchApp {
     /// The app's messages (a file not opened, « Enregistré »…); the status bar keeps the
     /// tools' hints.
     toasts: Toasts,
+    /// The dialog naming a part just made (§6 quattuordecies).
+    naming: Option<crate::naming::Dialog>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
@@ -249,6 +251,7 @@ impl SolidSketchApp {
             docs,
             last_shown: None,
             closing: None,
+            naming: None,
             quit_ok: false,
             #[cfg(target_arch = "wasm32")]
             unsaved: Default::default(),
@@ -472,6 +475,35 @@ impl SolidSketchApp {
             self.close_now(i);
         }
         self.advance_closing();
+    }
+
+    /// The dialog naming a part just made (§6 quattuordecies): opened by an editor (its tool's
+    /// « Nommage des pièces ») or by a toast's « Renommer »; gone with its document or its part.
+    fn naming_dialog(&mut self, ctx: &egui::Context) {
+        for d in self.docs.iter_mut() {
+            if let Some(n) = d.editor.take_naming()
+                && self.naming.is_none()
+            {
+                self.naming = Some(crate::naming::Dialog::new(d.id, n));
+            }
+        }
+        let Some(dialog) = &mut self.naming else { return };
+        let Some(d) = self.docs.by_id_mut(dialog.doc).filter(|d| d.editor.naming_of(dialog.naming.component).is_some()) else {
+            self.naming = None;
+            return;
+        };
+        let editor = &mut d.editor;
+        let naming = dialog.naming.clone();
+        match dialog.show(ctx, |name| editor.name_refusal(&naming, name)) {
+            crate::naming::Answer::Open => {}
+            crate::naming::Answer::Cancel => self.naming = None,
+            crate::naming::Answer::Name(name) => {
+                if let Err(e) = editor.name_part(&naming, &name) {
+                    self.toasts.push(Note::error(t!("notice.op_failed", op = t!("operation.rename")), e));
+                }
+                self.naming = None;
+            }
+        }
     }
 
     /// « Enregistrer les modifications de « X » ? », while a modified document is closing.
@@ -2014,7 +2046,10 @@ impl SolidSketchApp {
             }
             "app.state" => {
                 call.params::<NoParams>()?;
-                let Some(d) = self.docs.active() else { return ok(json!({ "document": null, "toasts": self.toasts.json() })) };
+                let naming = self.naming.as_ref().map(|n| json!({ "document": n.doc, "part": n.naming.component.0, "name": n.text() }));
+                let Some(d) = self.docs.active() else {
+                    return ok(json!({ "document": null, "toasts": self.toasts.json(), "naming": naming }));
+                };
                 let e = &d.editor;
                 ok(json!({
                     "tool": e.tool_kind().id(),
@@ -2029,6 +2064,7 @@ impl SolidSketchApp {
                     "path": d.path,
                     "document": d.id,
                     "toasts": self.toasts.json(),
+                    "naming": naming,
                 }))
             }
             #[cfg(not(target_arch = "wasm32"))]
@@ -2184,7 +2220,7 @@ impl eframe::App for SolidSketchApp {
                 }
             }
         }
-        if self.closing.as_ref().is_none_or(|c| c.asking.is_none()) {
+        if self.closing.as_ref().is_none_or(|c| c.asking.is_none()) && self.naming.is_none() {
             self.keyboard(&ctx);
         }
         self.serve_control(&ctx, frame);
@@ -2227,14 +2263,28 @@ impl eframe::App for SolidSketchApp {
         self.palette_window(&ctx, &views, &mut actions);
         self.save_prompt(&ctx);
         self.loading_window(&ctx);
+        // A toast whose part is no more goes (undone, erased, its document closed).
+        let docs = &self.docs;
+        self.toasts.retain_live(|act| match act {
+            Act::Rename { doc, part } => docs.index_of(*doc).and_then(|i| docs.get(i)).is_some_and(|d| d.editor.naming_of(*part).is_some()),
+            Act::Reveal(_) => true,
+        });
         for act in self.toasts.show(&ctx, status_top) {
             match act {
                 #[cfg(not(target_arch = "wasm32"))]
                 Act::Reveal(path) => reveal(&path),
                 #[cfg(target_arch = "wasm32")]
                 Act::Reveal(_) => {}
+                Act::Rename { doc, part } => {
+                    if self.naming.is_none()
+                        && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(part))
+                    {
+                        self.naming = Some(crate::naming::Dialog::new(doc, n));
+                    }
+                }
             }
         }
+        self.naming_dialog(&ctx);
         for a in actions {
             self.act(a);
         }
@@ -2257,7 +2307,8 @@ impl eframe::App for SolidSketchApp {
 impl SolidSketchApp {
     /// The editors' notices (an operation failed, a file imported), every document's, as toasts.
     fn take_notices(&mut self, ctx: &egui::Context) {
-        let notes: Vec<Note> = self.docs.iter_mut().flat_map(|d| d.editor.take_notices()).map(Note::from).collect();
+        let notes: Vec<Note> =
+            self.docs.iter_mut().flat_map(|d| d.editor.take_notices().into_iter().map(|n| Note::of_notice(n, d.id))).collect();
         if !notes.is_empty() {
             ctx.request_repaint();
         }
@@ -2592,7 +2643,7 @@ fn interrupts_tap(e: &egui::Event) -> bool {
 }
 
 /// The frame of the app's modal boxes: egui's popup frame, with room around the content.
-fn modal_frame(ctx: &egui::Context) -> egui::Frame {
+pub(crate) fn modal_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(MODAL_MARGIN))
 }
 
@@ -2600,7 +2651,7 @@ fn modal_frame(ctx: &egui::Context) -> egui::Frame {
 const MODAL_MARGIN: i8 = 20;
 
 /// The padding of a modal box's buttons (points): roomier than the app's compact buttons.
-const MODAL_BUTTON_PADDING: egui::Vec2 = egui::vec2(14.0, 5.0);
+pub(crate) const MODAL_BUTTON_PADDING: egui::Vec2 = egui::vec2(14.0, 5.0);
 
 /// Was `key` pressed this frame?
 fn ui_key(ctx: &egui::Context, key: egui::Key) -> bool {
