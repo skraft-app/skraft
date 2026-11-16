@@ -88,7 +88,9 @@ impl Editor {
             if load.inserted && self.history.undo() {
                 self.after_change();
             }
-            self.message = Some(t!("status.import_cancelled", file = name));
+            self.message = None;
+            let title = t!("notice.import_cancelled", file = name);
+            self.notify(super::NoticeKind::Info, title, None);
         }
         self.load_end = Some(LoadEnd::Cancelled(load.view.kind));
     }

@@ -19,7 +19,9 @@ mod tests;
 
 pub use camera::{Camera, Projection, Ray, StandardView, ViewArea};
 pub use editor::journal;
-pub use editor::{Clip, Content, Editor, LoadEnd, LoadKind, Loading, Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
+pub use editor::{
+    Clip, Content, Editor, LoadEnd, LoadKind, Loading, Look, Mark, Notice, NoticeKind, OrientedBox, View, ViewHighlight, ViewPlacement,
+};
 pub use infer::{Curve, EdgeRef, InferKind, Inference, LineKind};
 pub use scene::{DefinitionMesh, DisplayScene, Hit, Owner, PartMesh, Piece, Placement, RecipeMeshes, RecipeTool, SceneGuide};
 pub use tools::{

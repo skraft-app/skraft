@@ -1305,6 +1305,11 @@ fn pending_operation_blocks_editing_until_its_result() {
     assert!(hit.is_some());
 }
 
+/// What the editor told the app's toasts since last asked: titles and details, on lines.
+fn notices(e: &mut Editor) -> String {
+    e.take_notices().into_iter().map(|n| format!("{} {}", n.title, n.detail.unwrap_or_default())).collect::<Vec<_>>().join("\n")
+}
+
 #[test]
 fn escape_abandons_and_failures_leave_the_document() {
     let (mut e, k) = deferred_editor(Document::new());
@@ -1317,7 +1322,8 @@ fn escape_abandons_and_failures_leave_the_document() {
     assert_eq!(e.apply(op.clone()), Ok(None));
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
     assert!(!e.busy());
-    assert!(e.status().contains("abandonné"), "{}", e.status());
+    let said = notices(&mut e);
+    assert!(said.contains("abandonné"), "{said}");
     k.run_all();
     e.poll();
     assert!(e.document().root_assembly().occurrences().is_empty(), "the late result is dropped");
@@ -1327,7 +1333,8 @@ fn escape_abandons_and_failures_leave_the_document() {
     e.poll();
     assert!(!e.busy());
     assert!(e.document().root_assembly().occurrences().is_empty());
-    assert!(e.status().contains("noyau"), "{}", e.status());
+    let said = notices(&mut e);
+    assert!(said.contains("a échoué") && said.contains("noyau"), "{said}");
     assert!(!e.history().can_undo());
 }
 
@@ -1478,7 +1485,8 @@ fn a_step_import_is_a_load_that_can_be_cancelled() {
     assert!(e.document().root_assembly().occurrences().is_empty());
     assert!(!e.is_importing());
     assert_eq!(e.take_load_end(), Some(LoadEnd::Cancelled(LoadKind::Import { name: "assembly.step".into() })));
-    assert!(e.status().contains("annulé"), "{}", e.status());
+    let said = notices(&mut e);
+    assert!(said.contains("annulé"), "{said}");
 
     // Cancelled once inserted: undone.
     let (mut e, k) = deferred_editor(Document::new());
@@ -3250,7 +3258,8 @@ fn a_step_file_is_imported_into_the_context_in_one_step() {
     assert_eq!(doc.placed_parts().len(), 2);
     // What came in is selected; one undo takes it all out.
     assert_eq!(e.selection(), &[doc.root_assembly().occurrences()[0].id][..]);
-    assert!(e.status().contains("assembly.step"), "{}", e.status());
+    let said = notices(&mut e);
+    assert!(said.contains("assembly.step importé"), "{said}");
     e.undo();
     assert!(e.document().root_assembly().occurrences().is_empty());
 }

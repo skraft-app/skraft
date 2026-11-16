@@ -652,6 +652,22 @@ Decided on 2026-11-09.
   Order, columns, sizes, folded and closed cards are kept in the preferences, written once the
   pointer is released. Opening or resizing a panel therefore never resizes the view; zoom
   extents frames the area left free.
+- **Toasts** (2026-11-16, `toasts.rs`), after OpenCutList's notifications
+  (`SmartTool#notify`): the app's messages — a file not opened or not saved, the preferences
+  or the control channel failing, a command that cannot run, « modele.ssk enregistré » — and
+  the editor's notices (`Editor::take_notices`: an operation failed, with the kernel's or the
+  model's words; a display failed; a STEP file imported, empty, failed, cancelled; an
+  operation abandoned) stack at the bottom center, above the status bar, which keeps the
+  tools' hints. Three levels: info (neutral), success (green), error (red), each a border of
+  its colour on a pale wash of it (a dark one in a dark theme), the title in the colour and
+  what went wrong under it, smaller. A click on a toast closes it. An info or a success goes
+  after 5 s, a bar along its bottom emptying towards the left; the pointer over it stops the
+  countdown, full again. An error stays. A toast may carry a button at its right end (as
+  OpenCutList's « Ouvrir » after an export; none does yet), whose click runs it and closes
+  the toast. The same message again counts
+  (×2); six at most, the oldest timed one dropped first. `app.state` lists them (`toasts`);
+  handles `toast.<i>` and `toast.<i>.action`. An editor nobody takes notices from (headless)
+  keeps its last 32.
 - **Original SVG icons** (drawn for the project), white and tinted by the theme, loaded by
   `egui_extras` (`svg`): no build step, no binary asset.
 - **SketchUp shortcuts**: Space = Select, E = Eraser, M = Move, Q = Rotate, G = Make assembly, Delete =
