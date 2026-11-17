@@ -116,10 +116,11 @@ impl Editor {
         let to = self.tool.kind();
         let card = self.card.take().filter(|c| self.card_valid(c));
         let selection = self.selection.clone();
-        self.set_tool(kind);
+        // Selected first: the tool starts on it (Erase erases it, §6 sedecies).
         if let Some(c) = &card {
-            self.selection = c.made.clone();
+            self.set_selection(c.made.clone());
         }
+        self.set_tool(kind);
         self.quick_return = Some(Return { to, card, selection });
     }
 
@@ -140,7 +141,7 @@ impl Editor {
         self.aside = done.then_some(ran);
         if !done {
             self.card = r.card;
-            self.selection = r.selection;
+            self.set_selection(r.selection);
         }
         self.clear_locks();
         self.reference = None;

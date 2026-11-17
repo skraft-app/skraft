@@ -11,6 +11,7 @@ pub(crate) mod handle;
 mod measure;
 mod mover;
 mod paint;
+mod pick;
 pub(crate) mod profile;
 mod rotate;
 mod section;
@@ -125,6 +126,9 @@ pub enum Command {
     Apply(Operation),
     /// Replaces the selection (entities of the active context).
     Select(Vec<Id>),
+    /// Replaces the selection by parts at any depth under the active context (« Parts »,
+    /// ARCHITECTURE.md §6 sedecies).
+    SelectPaths(Vec<EntityPath>),
     /// Enters the assembly the occurrence `Id` of the active context places, or opens its
     /// part.
     Enter(Id),
@@ -243,6 +247,8 @@ pub struct Preview {
     pub hide_selection: bool,
     /// Entities of the active context drawn as ghosts: what the eraser would take.
     pub erasing: Vec<Id>,
+    /// The parts at any depth the eraser would take (« Parts », §6 sedecies).
+    pub erasing_paths: Vec<EntityPath>,
 }
 
 /// A point a tool draws over everything (world; its radius in pixels), filled and / or ringed
@@ -346,6 +352,16 @@ pub struct ToolOption {
 /// as soon as it is made (§6 quattuordecies).
 pub const ASK_NAME: &str = "ask_name";
 
+/// The selection's scope (ARCHITECTURE.md §6 sedecies), shared by Select and every tool's
+/// picking: what a click takes, the active context's child or the part at any depth. Saved
+/// once for all the tools, under [`SELECTION_SETTINGS`].
+pub const PICK_SCOPE: &str = "pick_scope";
+/// The values of [`PICK_SCOPE`].
+pub const PICK_CONTEXT: &str = "context";
+pub const PICK_PARTS: &str = "parts";
+/// Where the settings shared by the tools are kept, as a tool's are under its id.
+pub const SELECTION_SETTINGS: &str = "selection";
+
 /// One tool's saved settings, by option key.
 pub type OptionValues = BTreeMap<String, OptionValue>;
 
@@ -358,11 +374,13 @@ pub struct Marquee {
     pub crossing: bool,
     /// The entities of the active context it would take now.
     pub hits: Vec<Id>,
+    /// The parts at any depth it would take now (« Parts », §6 sedecies).
+    pub paths: Vec<EntityPath>,
 }
 
 impl Marquee {
     pub fn new(from: DVec2, to: DVec2) -> Self {
-        Marquee { from, to, crossing: to.x < from.x, hits: Vec::new() }
+        Marquee { from, to, crossing: to.x < from.x, hits: Vec::new(), paths: Vec::new() }
     }
 }
 
@@ -512,6 +530,10 @@ pub struct Cx<'a> {
     /// Whether a shape drawn in the open part adds material or takes it away (§2.11).
     pub body_sign: Sign,
     pub selection: &'a [Id],
+    /// The parts selected at any depth (« Parts », §6 sedecies), by their paths from the root.
+    pub deep: &'a [EntityPath],
+    /// Does a click take parts at any depth (« Parts », no part open)?
+    pub parts: bool,
     /// The context axis the arrow keys lock (→ 0 red, ← 1 green, ↑ 2 blue; ↓ frees it).
     pub axis_lock: Option<usize>,
     /// The normal ↓ locks for a tool that takes it ([`Tool::down_locks_face`]): the face's
@@ -627,6 +649,15 @@ impl Cx<'_> {
             .or_else(|| if self.machinings_shown() { self.pick_body(px) } else { self.pick(px).and_then(|h| self.selectable(&h.path)) })
     }
 
+    /// The part under `px` at any depth under the active context (« Parts », §6 sedecies), by
+    /// its path from the root; none in an open part.
+    pub fn part_at(&self, px: DVec2) -> Option<EntityPath> {
+        if self.open_part.is_some() {
+            return None;
+        }
+        self.pick(px).map(|h| h.path).filter(|p| p.instances.starts_with(self.context))
+    }
+
     /// Is `id` an occurrence of the context (not a guide, nor a machining)?
     pub fn is_occurrence(&self, id: Id) -> bool {
         self.open_part.is_none() && self.doc.assembly(self.context_def).is_ok_and(|a| a.occurrence(id).is_some())
@@ -641,20 +672,6 @@ impl Cx<'_> {
         }
     }
 
-    /// What a click at `px` takes when nothing is selected (move, rotate): a guide of the
-    /// active context near it, else the machining under it while they are shown, else the
-    /// entity of the context `inf` is on.
-    pub fn entity_under(&self, px: DVec2, inf: Option<&Inference>) -> Option<Id> {
-        if let Some(g) = self.pick_guide(px) {
-            return Some(g);
-        }
-        if self.machinings_shown() {
-            return self.pick_body(px);
-        }
-        let under = inf.and_then(|i| i.hit.as_ref().map(|h| &h.path).or(i.path.as_ref()));
-        under.and_then(|p| self.selectable(p))
-    }
-
     /// What moving the selection changes, and in which frame: in an open part, its
     /// machinings and guides; else the context's occurrences and guides.
     pub fn moved(&self) -> Moved {
@@ -662,6 +679,47 @@ impl Cx<'_> {
             Some(target) => Moved::Machinings { target, scope: self.part_scope, frame: self.axes() },
             None => Moved::Occurrences { context: self.context_def, frame: self.context_transform },
         }
+    }
+
+    /// What moving the parts `paths` at any depth changes (« Parts », §6 sedecies): grouped
+    /// per parent assembly, each in its axes; under « only this one », the assemblies along
+    /// made unique when they are placed more than once.
+    pub fn moved_deep(&self, paths: &[EntityPath]) -> Moved {
+        let mut groups: Vec<DeepGroup> = Vec::new();
+        for p in paths {
+            match groups.iter_mut().find(|g| g.parent == p.instances) {
+                Some(g) if !g.entities.contains(&p.entity) => g.entities.push(p.entity),
+                Some(_) => {}
+                None => groups.push(DeepGroup {
+                    parent: p.instances.clone(),
+                    frame: self.doc.transform_of(&p.instances).unwrap_or(DAffine3::IDENTITY),
+                    entities: vec![p.entity],
+                }),
+            }
+        }
+        let unique = self.part_scope == Scope::This && paths.iter().any(|p| self.doc.shared_along(&p.instances));
+        Moved::Deep { groups, unique }
+    }
+
+    /// The operation erasing the parts `paths` at any depth (« Parts », §6 sedecies): one
+    /// at each parent assembly, in one step.
+    pub fn erase_deep(&self, paths: &[EntityPath]) -> Operation {
+        self.deep_op(paths, |entities| Operation::Delete { context: Id(0), entities })
+    }
+
+    /// `op` of the occurrences selected in each parent assembly of the parts `paths`, applied
+    /// at it (« Parts », §6 sedecies), in one step.
+    pub fn deep_op(&self, paths: &[EntityPath], op: impl Fn(Vec<Id>) -> Operation) -> Operation {
+        let Moved::Deep { groups, unique } = self.moved_deep(paths) else { unreachable!() };
+        Moved::at_each(&groups, unique, |_, entities| op(entities))
+    }
+
+    /// Is `o` under one of the parts `paths` at any depth (« Parts »)? What a move or a
+    /// rotation of them leaves out of inferences.
+    pub fn is_moving_deep(&self, o: &Owner<'_>, paths: &[EntityPath]) -> bool {
+        let chain = |p: &EntityPath| p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>();
+        let under = chain(o.path);
+        paths.iter().any(|p| under.starts_with(&chain(p)))
     }
 
     /// The operation making `primitive`, drawn in the axes and placed by `placement` there:
@@ -714,7 +772,12 @@ impl Cx<'_> {
 
     /// Is `path` under one of the selected entities?
     pub fn in_selection(&self, path: &EntityPath) -> bool {
+        let chain = |p: &EntityPath| p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>();
         self.selectable(path).is_some_and(|id| self.selection.contains(&id))
+            || (!self.deep.is_empty() && {
+                let under = chain(path);
+                self.deep.iter().any(|p| under.starts_with(&chain(p)))
+            })
     }
 
     /// The document's units (lengths typed in the measurements box).
@@ -916,6 +979,26 @@ pub trait Tool {
     fn length_suffix(&self, _suffix: char) -> Option<&'static str> {
         None
     }
+    /// The commands for the level `path` chosen in the tree drop-up (§6 sedecies), if the tool
+    /// takes it its own way (Paint paints it); none: it is selected.
+    fn tree_pick(&self, _path: &EntityPath, _cx: &Cx<'_>) -> Option<Vec<Command>> {
+        None
+    }
+    /// Does the tool take parts at any depth under « Parts » (ARCHITECTURE.md §6 sedecies)?
+    /// Its bar then shows the selection's scope.
+    fn picks_parts(&self) -> bool {
+        false
+    }
+    /// Does the tool pick what it acts on first (ARCHITECTURE.md §6 sedecies)? Esc at its
+    /// first step then lets the selection go, the tool picking again.
+    fn picks_first(&self) -> bool {
+        false
+    }
+    /// Has its last step back dropped what it acts on (the copy tools' target)? Esc then lets
+    /// the selection go too, the tool picking again (§6 sedecies).
+    fn dropped(&self) -> bool {
+        false
+    }
     /// One step back (Esc while busy); by default, back to the first.
     fn back(&mut self) {
         self.reset();
@@ -950,28 +1033,81 @@ impl Motion {
 /// open part (§2.9); each in its own frame (to world), which operations are expressed in.
 #[derive(Clone, Debug)]
 pub enum Moved {
-    Occurrences { context: Id, frame: DAffine3 },
-    Machinings { target: EntityPath, scope: Scope, frame: DAffine3 },
+    Occurrences {
+        context: Id,
+        frame: DAffine3,
+    },
+    Machinings {
+        target: EntityPath,
+        scope: Scope,
+        frame: DAffine3,
+    },
+    /// Parts at any depth (« Parts », ARCHITECTURE.md §6 sedecies), per parent assembly; with
+    /// `unique`, the assemblies along each parent's path made unique first (« only this
+    /// one »). The entities given to the methods are left out: the groups hold them. One
+    /// operation at each parent, in one step.
+    Deep {
+        groups: Vec<DeepGroup>,
+        unique: bool,
+    },
+}
+
+/// The parts selected at any depth in one assembly (§6 sedecies).
+#[derive(Clone, Debug)]
+pub struct DeepGroup {
+    /// The occurrences from the root to the assembly.
+    pub parent: Vec<Id>,
+    /// The assembly's axes to world.
+    pub frame: DAffine3,
+    /// Its occurrences selected.
+    pub entities: Vec<Id>,
+}
+
+/// The world motion `world`, in the frame `frame` (to world).
+fn local_in(frame: &DAffine3, world: DAffine3) -> DAffine3 {
+    if world.matrix3 == glam::DMat3::IDENTITY {
+        // A translation stays one exactly.
+        return DAffine3::from_translation(frame.matrix3.inverse().mul_vec3(world.translation));
+    }
+    frame.inverse() * world * *frame
 }
 
 impl Moved {
-    /// The world motion `world`, in the frame.
+    /// The world motion `world`, in the frame (the root's for parts at any depth: each group
+    /// takes its own, [`Moved::at_each`]).
     fn local(&self, world: DAffine3) -> DAffine3 {
-        let (Moved::Occurrences { frame, .. } | Moved::Machinings { frame, .. }) = self;
-        if world.matrix3 == glam::DMat3::IDENTITY {
-            // A translation stays one exactly.
-            return DAffine3::from_translation(frame.matrix3.inverse().mul_vec3(world.translation));
+        match self {
+            Moved::Occurrences { frame, .. } | Moved::Machinings { frame, .. } => local_in(frame, world),
+            Moved::Deep { .. } => world,
         }
-        frame.inverse() * world * *frame
+    }
+
+    /// Parts at any depth: `op` made at each group from its frame and occurrences, applied
+    /// at its parent, all in one step.
+    fn at_each(groups: &[DeepGroup], unique: bool, op: impl Fn(&DAffine3, Vec<Id>) -> Operation) -> Operation {
+        Operation::Batch(
+            groups
+                .iter()
+                .map(|g| Operation::At { parent: g.parent.clone(), unique, op: Box::new(op(&g.frame, g.entities.clone())) })
+                .collect(),
+        )
     }
 
     pub fn transform(&self, entities: Vec<Id>, world: DAffine3) -> Operation {
+        if let Moved::Deep { groups, unique } = self {
+            return Self::at_each(groups, *unique, |f, entities| Operation::Transform {
+                context: Id(0),
+                entities,
+                transform: local_in(f, world),
+            });
+        }
         let transform = self.local(world);
         match self {
             Moved::Occurrences { context, .. } => Operation::Transform { context: *context, entities, transform },
             Moved::Machinings { target, scope, .. } => {
                 Operation::TransformBodies { target: target.clone(), bodies: entities, transform, scope: *scope }
             }
+            Moved::Deep { .. } => unreachable!(),
         }
     }
 
@@ -1003,6 +1139,11 @@ impl Moved {
             Moved::Machinings { target, scope, .. } => {
                 Operation::DuplicateBodies { target: target.clone(), bodies: entities, transform, scope: *scope }
             }
+            Moved::Deep { groups, unique } => Self::at_each(groups, *unique, |f, entities| Operation::Duplicate {
+                context: Id(0),
+                entities,
+                transform: local_in(f, world),
+            }),
         }
     }
 
@@ -1016,6 +1157,12 @@ impl Moved {
             Moved::Machinings { target, scope, .. } => {
                 Operation::CopyBodies { target: target.clone(), bodies: entities, moved, placements, scope: *scope }
             }
+            Moved::Deep { groups, unique } => Self::at_each(groups, *unique, |f, entities| Operation::Copies {
+                context: Id(0),
+                entities,
+                moved: local_in(f, moved),
+                placements: placements.iter().map(|w| local_in(f, *w)).collect(),
+            }),
         }
     }
 
@@ -1026,6 +1173,12 @@ impl Moved {
             Moved::Machinings { target, scope, .. } => {
                 Operation::ArrayBodies { target: target.clone(), bodies: entities, step, count, scope: *scope }
             }
+            Moved::Deep { groups, unique } => Self::at_each(groups, *unique, |f, entities| Operation::Array {
+                context: Id(0),
+                entities,
+                step: local_in(f, world_step),
+                count,
+            }),
         }
     }
 }

@@ -49,7 +49,7 @@ pub(super) struct Carry {
 impl Editor {
     /// Can the selection be copied now (nothing under way, the tool at its first step)?
     pub fn can_copy(&self) -> bool {
-        !self.selection.is_empty() && self.idle()
+        self.anything_selected() && self.idle()
     }
 
     /// The selection, copied: an open part's machinings and guides, else the context's
@@ -59,6 +59,17 @@ impl Editor {
             return None;
         }
         let doc = self.document();
+        // Parts at any depth (« Parts », §6 sedecies): each from its own assembly.
+        if !self.deep.is_empty() {
+            let f = doc.paths_fragment(&self.deep).ok()?;
+            let mut hull = Vec::new();
+            for p in &self.deep {
+                let Some(ctx) = ContextIndex::new(doc, &p.instances) else { continue };
+                let b = self.content_bounds(&ctx, p.entity, DAffine3::IDENTITY, 0.0);
+                hull.extend(b.map(|b| b.corners()).into_iter().flatten());
+            }
+            return Some(Clip { content: Content::Entities(Arc::new(f)), hull });
+        }
         match self.open_part_path() {
             Some(path) => {
                 let f = doc.bodies_fragment(&path, &self.selection).ok()?;
@@ -190,7 +201,7 @@ impl Editor {
         let previous = c.previous;
         if self.history.revision() == c.revision && !self.busy() {
             self.history.undo();
-            self.selection.clear();
+            self.clear_selection();
             self.after_change();
         }
         self.carry = None;

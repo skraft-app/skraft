@@ -1037,6 +1037,8 @@ impl SolidSketchApp {
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
             Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),
+            Action::TreeHover(row) => e.hover_tree_row(row),
+            Action::TreePick(row) => e.pick_tree_row(row),
             Action::BodySign(s) => e.set_body_sign(s),
             Action::HoverMachining(m) => e.set_listed_hover(m),
             // The view is drawn before the panels: again, for the hover to show this frame.
@@ -2572,6 +2574,11 @@ impl SolidSketchApp {
                 .response
                 .rect;
             free_top = options.bottom() + margin;
+        }
+        // OCL's tree drop-up, at the cursor where it was opened (§6 sedecies).
+        if let Some(tree) = doc.editor.tree() {
+            let at = view.min + egui::vec2(tree.at.x as f32, tree.at.y as f32);
+            crate::tree::drop_up(ctx, view, at, tree, actions);
         }
         // The quick tools' card, at the centre of what was just made (§6 terdecies).
         if let Some(at) = doc.editor.quick_card() {

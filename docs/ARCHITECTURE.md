@@ -1448,7 +1448,8 @@ built the same day):
   to left a crossing, as the Select tool (`select::marquee_hits`, its guides left out) — and
   Shift held with clicks toggling occurrences, the set taken when Shift is released
   (`STATE_SELECT_MULTIPLE`: `StretchTool::gathering`, the selection ignored while Shift is
-  down); a plain click takes one, as before. Both go through the selection (`Command::Select`),
+  down); a plain click takes one. All go through the selection (`Command::Select`; since
+  §6 sedecies, the plain click too, by the shared `pick::Picker`),
   drawn as such, as OCL fills the model's selection.
 - **The axes option** (OCL's three, saved; default **entity**, as OCL's stretch preset):
   *active* — the model's axes, those of the root; *context* — the active context's axes;
@@ -2634,6 +2635,145 @@ section, each section a semibold title and a thin line (`style::settings_section
 - The control protocol's `ui.drag` / `ui.click` send every button (`"button"`: `left`,
   `right`, `middle`, `back`, `forward`; `driving.rs`), with modifiers: the presets can be
   driven from a script.
+
+## 6 sedecies. Select first, and a selection scope
+
+Decided on 2026-11-17 (questions / answers), after OpenCutList's `SmartSelectActionHandler`
+(`tool/smart_tool.rb`). Two pieces of work, built in this order: **B**, the tools that act on
+something pick it first; then **A**, a selection scope that takes parts at any depth.
+
+### B. Select first (decided, built first — 2026-11-17)
+
+- **A definitive switch**, not a preference: one behaviour, OCL's. A tool acting on entities
+  takes **the selection when it starts**; else it starts with a **picking phase** — a click
+  takes the entity under the cursor, Shift clicks add or remove (the set taken once Shift is
+  released), a rectangle takes what it encloses (left to right) or touches (right to left) —
+  and only then does its action.
+- **One picking module** (`tools/pick.rs`): the `Picker` the copy tools share
+  (`handle.rs`) moved out, and the Stretch's own picking brought onto it. It is shaped so that
+  A plugs in: the scope it picks with, and a state for the tree drop-up.
+- **Move and Rotate**: picking first, then the base point (Move) or the centre (Rotate) — one
+  click more than SketchUp's « the first click takes the entity and starts ». Once moved or
+  rotated, **the selection is let go** and the tool goes back to picking (the copy tools' OCL
+  restart): a kept selection would be taken again at once.
+- **Erase and Paint keep the click that acts** (eraser, bucket): Erase started with a
+  selection erases it at once (one operation, as SketchUp), else it stays an eraser; Paint
+  still paints the whole selection when the click is in it.
+- **Booleans ignore the selection**: always the two clicks (target, then tool part).
+- Not concerned: the shape tools, Measure, Section, Profile.
+- **As built**:
+  - `tools/pick.rs`: `Picker` (click, Shift clicks, rectangle; `taken`, `selection`,
+    `shift_released`, `status(pick, gather)`), with a `Keep` filter (the Stretch keeps the
+    context's occurrences: `Picker::keeping`; a guide near the cursor not kept, the solid under
+    it). The copy tools, Move, Rotate and the Stretch use it; the Stretch's plain click now
+    selects too. `Cx::entity_under` (the old « first click takes ») is gone.
+  - Move / Rotate keep `taken` as the last input left it (`drag_clicks` has no `Cx`): picking,
+    a drag is a rectangle (`DragClicks::No`); taken, as before. A typed count after a copy
+    still makes the array while picking.
+  - **Esc**: `Tool::picks_first` — at the tool's first step (not busy), Esc lets the selection
+    go and the tool picks again; while busy, one step back, the selection let go only when that
+    step dropped the target (`Tool::dropped`: the copy tools' `armed`). A quick tool hands back
+    as before.
+  - **Let go after an operation**: `Command::Select([])` right after an operation still
+    computed by the kernel (a body moved in an open part) turns its `After::Select` into
+    `After::LetGo`: the selection kept until it lands (its ghost held), then cleared.
+  - **The tool sees what it took at once**: after an input that changed the selection, a tool
+    that picks first is given the cursor again (a hover, not journaled) — its status, preview
+    and `drag_clicks` follow without waiting for the next move.
+  - **Erase**: `switch_tool` erases the selection (`delete_selection`) when Erase starts; the
+    quick tools select what was made *before* starting the tool.
+
+### A. Selection scope « Parts » (decided in principle, after B)
+
+- **A shared setting**, read by Select and by every tool's picking phase: « Context » (today:
+  the children of the active context) or « Parts » (the part occurrence under the cursor, at
+  any depth, the active context unchanged).
+- **Parts only**: the leaf part. Going up is OCL's **tree drop-up**: Option held over a part
+  opens a list of its path from the root, the levels above the active context disabled;
+  hovering a row previews that level, clicking it selects it (the part, or one of its
+  assemblies); releasing Option without a click closes it. Option keeps its other meanings
+  once picking is over (copy in Move / Rotate, mirror in the copy tools), as in OCL where the
+  state decides.
+- **The selection becomes paths** (`EntityPath` from the root); « Context » is the case where
+  they all start with the active context. The operations, which take one `context` and ids in
+  it, are grouped per parent assembly — one undo step for several operations (a batch to
+  add) — and a world transform is brought into each parent's axes.
+- **A part reached through an assembly placed several times**: changing it changes every copy
+  of that assembly. The tool offers to **make the assemblies along its path unique** (OCL's
+  `_make_unique_groups_in_path`; `MakeUnique` today goes one level only). Two selected paths
+  leading to the same occurrence of the same definition are one.
+- Inside an open part, the selection stays the bodies' (no scope).
+- **Settled on 2026-11-17** (questions / answers, when A started):
+  - the setting is a **choice option** in the bar of Select and of every tool's picking
+    phase, shared by all (saved once, not per tool), **Tab** toggling it as any choice;
+  - the **navigator's click is left as it is** for now (it selects in its context, entering
+    it);
+  - the **highlight goes per path** (view and navigator);
+  - **making unique is the « Portée » option** (« all » / « only this one »), shown only when
+    a selected path goes through an assembly placed more than once; « only this one » makes
+    the assemblies along it unique when the tool acts, in the same undo step;
+  - the **rectangle**, under « Parts », takes **parts at any depth** — enclosed (left to
+    right) or touched (right to left) —, as the click does;
+  - **two steps**: **A1** — the setting, the selection as paths, the highlight, Select, Move,
+    Rotate, Delete / Erase, the batch operation, making unique; **A2** — the copy tools,
+    Distribute, the Stretch, Paint, the clipboard, OCL's Option drop-up.
+- **Built as** (A1): the context's selection stays ids of the active context (read in many
+  places); « Parts » keeps its own list of paths from the root (`Editor::deep`), the ids
+  list then empty. The tools read the targets **grouped per parent assembly**; several
+  groups make several operations, in one undo step.
+- **A1 as built** (2026-11-17):
+  - model: `Operation::At { parent, unique, op }` — `op` (Transform, Duplicate, Array,
+    Copies, Delete, SetHidden) on the assembly `parent` leads into, its `context` set when
+    applied; `unique` makes the assemblies along it unique first, outermost first
+    (`MakeUnique`, ids kept) — and `Operation::Batch(ops)`, applied in order, outcomes put
+    together, one history step; `Document::shared_along(instances)`;
+  - editor: `Editor::deep` (paths), written only through `set_selection` / `clear_selection`
+    / `select_paths` (the ids' selection and the paths exclusive), pruned after each change
+    (still there, under the context, no part open); `Command::SelectPaths`; an operation
+    `At` / `Batch` selects nothing it makes (its ids are not the context's);
+  - the setting: `PICK_SCOPE` (`context` / `parts`) saved under `SELECTION_SETTINGS`, added
+    last to the bar by `Editor::tool_options` for a tool whose `Tool::picks_parts` (Select,
+    Move, Rotate, Erase), no part open; changing it lets the selection go; `Cx::parts`;
+  - picking: `Cx::part_at` (the solid under the cursor, under the context), `marquee_parts`
+    (window / crossing per part), `Picker` and Select take paths under « Parts »;
+  - `Moved::Deep { groups, unique }` (`Cx::moved_deep`): Move / Rotate (copies and `5x`
+    arrays too), Delete (`Cx::erase_deep`), Erase (click, sweep, Shift hides) at each parent;
+    `unique` = the editor's part scope « only this one » and a path shared;
+  - drawing: the selection's marks and boxes per path, the original hidden while moved, the
+    eraser's and the rectangle's parts; the navigator lights the rows of the paths; the entity
+    info shows one part as in its assembly;
+  - the « Portée » segment in the bar (`panels::deep_scope`) for Select, Move, Rotate,
+    Erase when a path is shared — « Tous » without a count.
+- **A2 as built** (2026-11-17):
+  - the copy tools and Distribute: `Target::of_deep` — the box of the parts in the axes
+    chosen (entity: the one part's; active: the model's; context: the active context's),
+    each group's bounds taken in its own assembly; their operation `Moved::Deep::copies`
+    (`Operation::Copies` at each parent); Distribute's inferences leave them out;
+  - the Stretch: parts at any depth **of one assembly** are its target (`Operation::Stretch`
+    takes a context path already); of several, the status says so
+    (`tool.stretch.hint.one_assembly`) and a click picks again;
+  - Paint: under « Parts », the part under the cursor — the parts selected when it is one of
+    them — painted at its parent (`PaintOccurrences` taken by `At`); painting occurrences
+    (either scope), a drag draws a rectangle whose take is painted when released, one step
+    (the context's occurrences, or the parts at any depth); the level chosen in the tree
+    drop-up is painted, not selected (`Tool::tree_pick`); painting faces, no scope, no list;
+  - the clipboard: `Document::paths_fragment` (each occurrence in world axes, an id met twice
+    drawn afresh), the hull from each path; cut erases them as Delete does;
+  - **OCL's tree drop-up** (`editor/tree.rs`, `apps/solidsketch/src/tree.rs`): under
+    « Parts », while the tool picks (Select, Erase, Paint always; the others with nothing
+    taken), the copy modifier pressed over a part of an assembly lists its path — the list's
+    bottom right corner on the cursor —, the model's level first, the levels above the active context disabled; a row hovered is drawn hovered
+    in the view, a row clicked selected (`select_paths`: the part, or an assembly — the paths
+    may name assemblies now, pruned by `resolve`); the key released closes it, and the tap it
+    makes is swallowed (no copy, no mirror toggled). Over a part of the active context itself,
+    no list: the key keeps its meaning. The status says it (« Option maintenu : élément
+    parent », « Choisir un élément dans la liste »).
+  - **one name writer** (`apps/solidsketch/src/instance_name.rs`), for the navigator's rows and
+    the drop-up: the instance's own name in semibold, then its definition's between faint
+    angle brackets, own name or not (an automatic one in italics, greyed);
+  - **one picking step**: the copy tools' « armed » state is the `Picker`'s (`aims`, `drop`,
+    `dropped`), and they draw it with `Picker::preview` (the part hovered at any depth), as
+    Move, Rotate and the Stretch do.
 
 ## 7. Crates
 

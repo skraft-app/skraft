@@ -3333,3 +3333,45 @@ fn automatic_names_are_numbered_by_nature_and_follow_it() {
     assert_eq!(h.document().unique_name("Pièce#1", true), "Pièce#3");
     assert_eq!(h.document().unique_name("Pièce#2", false), "Pièce#3");
 }
+
+#[test]
+fn operations_at_a_path_reach_one_copy_when_made_unique_and_batch_in_one_step() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
+    let g = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
+    // A second copy of the assembly, 100 further.
+    let t = DAffine3::from_translation(DVec3::new(100.0, 0.0, 0.0));
+    let g2 = h.apply(Operation::Duplicate { context: root, entities: vec![g], transform: t }).unwrap().created[0];
+    let x = |h: &History, path: EntityPath| world_bounds(h.document(), &path).0.x;
+    let up = DAffine3::from_translation(DVec3::new(0.0, 0.0, 50.0));
+
+    // At the path, without making unique: the assembly's definition changes, both copies.
+    let moved = |entities| Box::new(Operation::Transform { context: Id(0), entities, transform: up });
+    h.apply(Operation::At { parent: vec![g], unique: false, op: moved(vec![a]) }).unwrap();
+    let z = |h: &History, path: EntityPath| world_bounds(h.document(), &path).0.z;
+    assert!((z(&h, EntityPath::new(vec![g], a)) - 50.0).abs() < 1e-9);
+    assert!((z(&h, EntityPath::new(vec![g2], a)) - 50.0).abs() < 1e-9);
+    h.undo();
+
+    // Made unique: only the copy reached moves; one undo step, the batch too.
+    let steps = h.revision();
+    let batch = Operation::Batch(vec![
+        Operation::At { parent: vec![g2], unique: true, op: moved(vec![a]) },
+        Operation::At { parent: vec![g2], unique: true, op: moved(vec![b]) },
+    ]);
+    h.apply(batch).unwrap();
+    assert!(z(&h, EntityPath::new(vec![g], a)).abs() < 1e-9);
+    assert!((z(&h, EntityPath::new(vec![g2], a)) - 50.0).abs() < 1e-9);
+    assert!((z(&h, EntityPath::new(vec![g2], b)) - 50.0).abs() < 1e-9);
+    assert!((x(&h, EntityPath::new(vec![g2], b)) - 120.0).abs() < 1e-9);
+    assert_ne!(occ(h.document(), &EntityPath::root(g)).component, occ(h.document(), &EntityPath::root(g2)).component);
+    h.undo();
+    assert_eq!(h.revision(), steps);
+    assert!(z(&h, EntityPath::new(vec![g2], a)).abs() < 1e-9);
+
+    // Only operations on occurrences of a context go at a path.
+    let renamed = Box::new(Operation::RenameComponent { component: root, name: "x".into() });
+    assert!(h.apply(Operation::At { parent: vec![g], unique: false, op: renamed }).is_err());
+}

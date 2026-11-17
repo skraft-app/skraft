@@ -833,6 +833,19 @@ impl Document {
         self.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| &a.occurrences).filter(|o| o.component == component).count()
     }
 
+    /// Does the occurrence path `instances` go through an assembly placed more than once — a
+    /// change in the assembly it leads into then reaches other copies (outermost first: a copy
+    /// of an assembly above makes those below it shared too)?
+    pub fn shared_along(&self, instances: &[Id]) -> bool {
+        (0..instances.len()).any(|k| {
+            self.context_of(&instances[..k])
+                .ok()
+                .and_then(|c| self.assembly(c).ok())
+                .and_then(|a| a.occurrence(instances[k]))
+                .is_some_and(|o| self.occurrence_count(o.component) > 1)
+        })
+    }
+
     /// The assembly an occurrence path leads into (the root for an empty path).
     pub fn context_of(&self, instances: &[Id]) -> Result<Id> {
         let mut at = self.root;

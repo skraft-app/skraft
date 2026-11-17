@@ -55,7 +55,42 @@ impl Document {
         let world = self.transform_of(instances)?;
         let (guides, entities) = self.split_guides(context, ids)?;
         let occurrences = self.occurrences_of(context, &entities)?;
+        let occurrences = occurrences.into_iter().map(|o| crate::Occurrence { transform: world * o.transform, ..o }).collect();
+        let shown = self.component(context)?;
+        let guides = shown
+            .guides
+            .iter()
+            .filter(|g| guides.contains(&g.id))
+            .map(|g| Guide { id: g.id, shape: g.shape.transformed(&world) })
+            .collect();
+        self.fragment(occurrences, guides, self.next_id)
+    }
 
+    /// What copying the occurrences `paths` names — at any depth (« Parts »,
+    /// ARCHITECTURE.md §6 sedecies) — copies, as [`Document::entities_fragment`]: each in world
+    /// axes, side by side in the fragment's root; an id met twice (copies of one assembly
+    /// keep their occurrences' ids) drawn afresh.
+    pub fn paths_fragment(&self, paths: &[EntityPath]) -> Result<Document> {
+        let mut next = self.next_id;
+        let mut seen = BTreeSet::new();
+        let mut occurrences = Vec::new();
+        for p in paths {
+            let world = self.transform_of(&p.instances)?;
+            let mut o = self.resolve(p)?.clone();
+            o.transform = world * o.transform;
+            if !seen.insert(o.id) {
+                o.id = Id(next);
+                next += 1;
+            }
+            occurrences.push(o);
+        }
+        self.fragment(occurrences, Vec::new(), next)
+    }
+
+    /// A fragment whose root holds `occurrences` and `guides` (in world axes), with the
+    /// components they use at any depth and the materials they are painted with; ids counted
+    /// from `next_id`.
+    fn fragment(&self, occurrences: Vec<crate::Occurrence>, guides: Vec<Guide>, next_id: u64) -> Result<Document> {
         // The components the occurrences use, at any depth, and their materials.
         let mut components = BTreeSet::new();
         let mut materials: BTreeSet<Id> = occurrences.iter().filter_map(|o| o.material).collect();
@@ -74,20 +109,12 @@ impl Document {
         }
 
         let root = self.component(self.root)?;
-        let shown = self.component(context)?;
         let top = Component {
             id: self.root,
             name: root.name.clone(),
             named: true,
-            kind: ComponentKind::Assembly(Assembly::new(
-                occurrences.into_iter().map(|o| crate::Occurrence { transform: world * o.transform, ..o }).collect(),
-            )),
-            guides: shown
-                .guides
-                .iter()
-                .filter(|g| guides.contains(&g.id))
-                .map(|g| Guide { id: g.id, shape: g.shape.transformed(&world) })
-                .collect(),
+            kind: ComponentKind::Assembly(Assembly::new(occurrences)),
+            guides,
             behavior: Default::default(),
         };
         let mut all: BTreeMap<Id, Arc<Component>> = components.iter().map(|id| (*id, self.components[id].clone())).collect();
@@ -95,7 +122,7 @@ impl Document {
         Ok(Document {
             components: all,
             root: self.root,
-            next_id: self.next_id,
+            next_id,
             settings: self.settings.clone(),
             materials: materials.iter().filter_map(|id| self.materials.get(id).map(|m| (*id, m.clone()))).collect(),
         })

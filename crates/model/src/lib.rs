@@ -98,6 +98,8 @@ pub enum Refusal {
     /// A turned body stretched across its axis, or across an arc of its half profile (§6
     /// undecies).
     TurnedAcross,
+    /// Only an operation on occurrences of a context is applied at a path.
+    NotAtPath,
 }
 
 /// A file that cannot be opened.
@@ -170,6 +172,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NothingPasted => t!("error.model.nothing_pasted"),
             Refusal::TurnedAcross => t!("error.model.turned_across"),
             Refusal::UngroupNegative => t!("error.model.ungroup_negative"),
+            Refusal::NotAtPath => t!("error.model.not_at_path"),
         })
     }
 }

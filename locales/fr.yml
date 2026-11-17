@@ -365,6 +365,14 @@ render_stats:
   mebibytes: "%{n} Mo"
 
 
+# The selection's scope (ARCHITECTURE.md §6 sedecies), in the bar of the tools that take it.
+selection_scope:
+  label: "Sélection"
+  tip: "Ce qu'un clic prend : un élément du contexte actif, ou une pièce à toute profondeur (Tab : basculer)"
+  context: "Contexte"
+  context_tip: "Un clic prend l'élément du contexte actif sous le curseur (pièce ou assemblage)"
+  parts: "Pièces"
+  parts_tip: "Un clic prend la pièce sous le curseur, à toute profondeur, sans entrer dans ses assemblages"
 option_bar:
   # The group of the lone options (toggles), at the end of the bar.
   options: "Options"
@@ -625,6 +633,10 @@ naming:
 # The status bar: the measurements box and the editor's messages.
 status:
   measurements: "Mesures"
+  # The tree drop-up open (OCL's, §6 sedecies): the path of the part hovered, listed.
+  tree: "Choisir un élément dans la liste"
+  # Under « Pièces », what the copy modifier held does while picking.
+  tree_key: "%{key} maintenu : élément parent"
   # Importing a file (STEP): read by the kernel, then inserted in the model.
   importing: "Lecture de %{file}"
   # « calcul en cours… (Échap pour abandonner) »: the code joins them with the ellipsis.
@@ -766,6 +778,9 @@ tool:
     name: "$t(common.move)"
     hint:
       array: "Taper 5x pour un réseau de 5 copies, ou /5 pour 5 copies sur la distance"
+      pick: "Cliquer la pièce ou l'assemblage à déplacer · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
+      # Shift held after a Shift click (OpenCutList's multiple selection).
+      gather: "Sélection multiple : cliquer un exemplaire pour l'ajouter ou le retirer · relâcher Maj pour déplacer la sélection"
       start: "Cliquer le point de départ · flèches : bloquer un axe · %{copy_key} : copier"
       destination: "Cliquer la destination, ou taper une distance · Maj : bloquer l'inférence"
       # Pasting at the cursor: what was pasted follows it until placed.
@@ -776,12 +791,13 @@ tool:
     option:
       copy: "$t(common.copy)"
       copy_tip: "Copier au lieu de déplacer (%{copy_key} : basculer)"
-    say:
-      nothing: "Rien à déplacer : sélectionner d'abord"
   rotate:
     name: "$t(common.rotate)"
     hint:
       array: "Taper 6x pour un réseau de 6 copies, ou /6 pour 6 copies sur l'angle"
+      pick: "Cliquer la pièce ou l'assemblage à faire pivoter · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
+      # Shift held after a Shift click (OpenCutList's multiple selection).
+      gather: "Sélection multiple : cliquer un exemplaire pour l'ajouter ou le retirer · relâcher Maj pour faire pivoter la sélection"
       center: "Cliquer le centre de rotation · flèches : axe rouge, vert, bleu · %{copy_key} : copier"
       reference: "Cliquer l'origine de l'angle"
       angle: "Cliquer l'angle (pas de 15° dans le rapporteur), ou le taper en degrés"
@@ -792,7 +808,6 @@ tool:
       copy: "$t(common.copy)"
       copy_tip: "Copier au lieu de faire pivoter (%{copy_key} : basculer)"
     say:
-      nothing: "Rien à faire pivoter : sélectionner d'abord"
       too_close: "Cliquer à distance du centre pour l'origine de l'angle"
   boolean:
     union:
@@ -818,6 +833,8 @@ tool:
   paint:
     name: "$t(common.paint)"
     hint: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre)"
+    # Painting occurrences: a drag draws a rectangle too.
+    hint_rectangle: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre) · Glisser : rectangle (→ contenu, ← touché)"
     outside: "Hors de l'élément en cours d'édition"
     option:
       target: "$t(common.paint)"
@@ -899,6 +916,8 @@ tool:
       pick: "Cliquer la pièce ou l'assemblage à étirer · Maj : sélection multiple · Glisser : rectangle (→ contenu, ← touché)"
       # Shift held after a Shift click (OpenCutList's multiple selection).
       gather: "Sélection multiple : cliquer un exemplaire pour l'ajouter ou le retirer · relâcher Maj pour étirer la sélection"
+      # Parts picked at any depth (« Pièces ») in more than one assembly.
+      one_assembly: "Les pièces à étirer doivent être dans un même assemblage : en choisir d'autres (Échap pour relâcher)"
       grip: "Cliquer une poignée pour étirer · glisser un plan de coupe pour le déplacer · flèches : bloquer un axe · %{copy_key} maintenu : ajouter un plan de coupe · %{alt_key} maintenu : supprimer un plan de coupe · %{alt_key} : rendre unique"
       add: "Cliquer pour ajouter le plan de coupe"
       remove: "Cliquer un plan de coupe pour le supprimer (le dernier : bloquer l'axe)"
@@ -1081,6 +1100,8 @@ operation:
   import: "Importer"
   # Placing what was copied (occurrences, guides, machinings).
   paste: "Coller"
+  # Several operations in one step, none in it (never shown in practice).
+  batch: "Modifier"
 
 unit:
   millimeter: "Millimètres"
@@ -1154,6 +1175,7 @@ error:
     no_such_face: "pas de telle face"
     no_bodies: "aucun corps désigné"
     ungroup_negative: "un usinage composé qui épargne de la matière ne se dégroupe pas"
+    not_at_path: "seule une opération sur des exemplaires s'applique en profondeur"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"
     nothing_stretched: "aucun exemplaire à étirer"
