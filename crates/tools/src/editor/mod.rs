@@ -662,6 +662,7 @@ impl Editor {
                 ],
                 saved: true,
                 icon: None,
+                swatch: None,
             });
         }
         options
@@ -701,7 +702,11 @@ impl Editor {
             return;
         }
         if option.saved {
-            self.tool_settings.entry(self.tool.kind().id().to_owned()).or_default().insert(key.to_owned(), value.clone());
+            // Shared by the part creation tools that have it, as OCL's (§6 duodevicies).
+            let kind = self.tool.kind();
+            for k in std::iter::once(kind).chain(tools::synced_with(key).iter().copied().filter(|k| *k != kind)) {
+                self.tool_settings.entry(k.id().to_owned()).or_default().insert(key.to_owned(), value.clone());
+            }
         }
         self.tool.set_option(key, &value);
         self.rehover();
@@ -1302,6 +1307,10 @@ impl Editor {
                 // part made, its name asked or offered (§6 quattuordecies).
                 let after = match op {
                     Operation::AddPrimitive { .. } => After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) },
+                    // A part made in another assembly (« Dessiner dans », §6 duodevicies).
+                    Operation::At { op: ref made, .. } if matches!(**made, Operation::AddPrimitive { .. }) => {
+                        After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) }
+                    }
                     Operation::AddBody { .. } => After::Card { ask_name: None },
                     Operation::Boolean { .. } | Operation::SetProfile { .. } => After::Nothing,
                     // At any depth (§6 septendecies): what it makes is not in the active context.

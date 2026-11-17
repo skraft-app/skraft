@@ -238,6 +238,7 @@ impl Tool for MoveTool {
             choices: Vec::new(),
             saved: false,
             icon: None,
+            swatch: None,
         }]
     }
 

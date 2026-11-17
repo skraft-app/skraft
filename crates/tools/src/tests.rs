@@ -228,6 +228,8 @@ fn shape_gauge_shows_offset_and_fillet() {
     e.input(ToolInput::Vcb("5x".into()));
     assert!(past(&lines(&mut e)));
 
+    // The offset is shared (as OCL's): the prism's back to none, then the cylinder's in.
+    e.input(ToolInput::Vcb("0x".into()));
     e.set_tool(ToolKind::Cylinder);
     let plain = lines(&mut e);
     e.input(ToolInput::Vcb("-5x".into()));
@@ -237,7 +239,7 @@ fn shape_gauge_shows_offset_and_fillet() {
 #[test]
 fn shape_offset_moves_the_outline() {
     let mut e = top_editor(Document::new());
-    // `5x` at the first step sets the box's offset (saved, its own): the base drawn from
+    // `5x` at the first step sets the box's offset (saved, shared): the base drawn from
     // (0,0) to (300,200) is made 5 larger on every side; the height is untouched.
     e.set_tool(ToolKind::Box);
     assert!(e.takes_typing());
@@ -269,9 +271,10 @@ fn shape_offset_moves_the_outline() {
     assert!(e.status().starts_with("Décalage — « 2° »"), "{}", e.status());
     assert_eq!(offset(&e), Some(OptionValue::Length(-100.0)));
 
-    // The cylinder keeps its own (none yet); its radius grows by it, in Diameter mode too.
+    // The cylinder shares it (as OCL's, §6 duodevicies); its radius grows by it, in Diameter
+    // mode too.
     e.set_tool(ToolKind::Cylinder);
-    assert_eq!(offset(&e), Some(OptionValue::Length(0.0)));
+    assert_eq!(offset(&e), Some(OptionValue::Length(-100.0)));
     e.input(ToolInput::Vcb("3x".into()));
     click(&mut e, DVec3::new(-400.0, 600.0, 0.0));
     e.input(ToolInput::Vcb("50;10".into()));
@@ -531,7 +534,7 @@ fn the_height_takes_the_last_one_the_next_face_or_both_sides() {
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
     // A block floating above the middle of `a`'s top.
     let block = Primitive::Box { origin: DVec3::new(120.0, 70.0, 350.0), size: DVec3::new(60.0, 60.0, 50.0) };
-    e.apply(Operation::AddPrimitive { context: root, primitive: block, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: block, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
 
     // A double-click on the opposite corner: the last height (150).
     e.set_tool(ToolKind::Box);
@@ -594,7 +597,7 @@ fn the_first_point_from_a_face_centre_a_whole_face_or_a_corner() {
     let root = e.document().root();
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
     let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 50.0, height: 30.0 };
-    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
     let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
 
     // The copy modifier held over a face: its centroid.
@@ -1079,6 +1082,7 @@ fn component_instances_and_scene_caches() {
             context: root,
             primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
             placement: glam::DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap();
     let (d, out) = d.apply(&Operation::MakeAssembly { context: root, entities: out.created, name: None }).unwrap();
@@ -1138,6 +1142,7 @@ fn boolean_tool_across_contexts() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(100.0, 100.0, -20.0), radius: 30.0, height: 150.0 },
             placement: glam::DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .expect("an inline kernel answers at once")
@@ -1316,6 +1321,7 @@ fn add_cube(e: &mut Editor, k: &Deferred) -> Id {
         context: root,
         primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
         placement: glam::DAffine3::IDENTITY,
+        material: None,
     };
     assert_eq!(e.apply(op), Ok(None), "waits for the kernel");
     k.run_all();
@@ -1331,6 +1337,7 @@ fn pending_operation_blocks_editing_until_its_result() {
         context: root,
         primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
         placement: glam::DAffine3::IDENTITY,
+        material: None,
     };
     assert_eq!(e.apply(op.clone()), Ok(None));
     assert!(e.busy());
@@ -1368,6 +1375,7 @@ fn escape_abandons_and_failures_leave_the_document() {
         context: root,
         primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
         placement: glam::DAffine3::IDENTITY,
+        material: None,
     };
     assert_eq!(e.apply(op.clone()), Ok(None));
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
@@ -1430,6 +1438,7 @@ fn opened_solids_are_outlined_until_meshed_and_undo_does_not_remesh() {
             context: root,
             primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) },
             placement: glam::DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap();
     let (mut e, k) = deferred_editor(doc);
@@ -1470,6 +1479,7 @@ fn an_opened_file_loads_previews_then_final_meshes() {
             context: root,
             primitive: Primitive::Box { origin: DVec3::new(x, 0.0, 0.0), size: DVec3::splat(100.0) },
             placement: glam::DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .0
@@ -1581,7 +1591,9 @@ fn boolean_scope_option_counts_marks_and_cuts_one_or_all() {
     let doc = Document::new();
     let root = doc.root();
     let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 100.0, 50.0) };
-    let (d, out) = doc.apply(&Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let (d, out) = doc
+        .apply(&Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap();
     let a = out.created[0];
     let t = glam::DAffine3::from_translation(DVec3::new(0.0, 300.0, 0.0));
     let (d, out) = d.apply(&Operation::Array { context: root, entities: vec![a], step: t, count: 2 }).unwrap();
@@ -1593,6 +1605,7 @@ fn boolean_scope_option_counts_marks_and_cuts_one_or_all() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(100.0, y + 50.0, -10.0), radius: 10.0, height: 80.0 },
             placement: glam::DAffine3::IDENTITY,
+            material: None,
         };
         e.apply(op).unwrap().unwrap().created[0]
     };
@@ -1835,6 +1848,7 @@ fn an_open_part_shows_its_blank_as_a_ghost_and_its_tools() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
             placement: DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .unwrap()
@@ -1916,6 +1930,7 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
             placement: DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .unwrap()
@@ -2009,6 +2024,7 @@ fn a_machining_moved_stays_drawn_where_it_goes_while_the_kernel_computes() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
             placement: DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .unwrap()
@@ -2067,6 +2083,7 @@ fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
             placement: DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .unwrap()
@@ -2119,6 +2136,7 @@ fn exact_sizes_of_tools_and_blanks() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::ZERO, radius: 20.0, height: 300.0 },
             placement: DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .unwrap()
@@ -2128,6 +2146,7 @@ fn exact_sizes_of_tools_and_blanks() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(0.0, 0.0, -5.0), radius: 4.0, height: 30.0 },
             placement: DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .unwrap()
@@ -2156,7 +2175,7 @@ fn the_tape_tells_the_edge_hovered() {
     let root = e.document().root();
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
     let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 100.0, height: 50.0 };
-    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
     let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
     e.set_tool(ToolKind::Measure);
 
@@ -2183,7 +2202,7 @@ fn the_tape_measures_and_draws_guides() {
     let root = e.document().root();
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
     let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 100.0, height: 50.0 };
-    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
     let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
     let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
     e.set_tool(ToolKind::Measure);
@@ -2268,7 +2287,7 @@ fn the_tape_draws_the_kind_of_guide_chosen() {
     let root = e.document().root();
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
     let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 100.0, height: 50.0 };
-    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
     let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
     let tab = |e: &mut Editor| e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
     e.set_tool(ToolKind::Measure);
@@ -2394,7 +2413,10 @@ fn the_tape_draws_a_tangent_from_the_end_of_an_arc_and_marks_its_reference() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let add = |e: &mut Editor, primitive| {
-        e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created[0]
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None })
+            .unwrap()
+            .unwrap()
+            .created[0]
     };
     // A board with its corner (300, 200) cut round: an arc from (200, 200) to (300, 100) on top.
     let board = add(&mut e, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(300.0, 200.0, 50.0) });
@@ -2656,7 +2678,8 @@ fn boxes_doc(boxes: &[(DVec3, DVec3)]) -> (Document, Vec<Id>) {
     for &(origin, size) in boxes {
         let root = d.root();
         let primitive = Primitive::Box { origin, size };
-        let (next, out) = d.apply(&Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap();
+        let (next, out) =
+            d.apply(&Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
         d = next;
         ids.push(out.created[0]);
     }
@@ -2719,13 +2742,15 @@ fn drilled_board_editor(xs: &[f64]) -> (Editor, Id) {
     let doc = Document::new();
     let root = doc.root();
     let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0, 300.0, 18.0) };
-    let (mut d, out) =
-        doc.apply(&Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY }).unwrap();
+    let (mut d, out) = doc
+        .apply(&Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap();
     let a = out.created[0];
     for &x in xs {
         let drill = Primitive::Cylinder { origin: DVec3::new(x, 150.0, -10.0), radius: 5.0, height: 40.0 };
-        let (next, out) =
-            d.apply(&Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY }).unwrap();
+        let (next, out) = d
+            .apply(&Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY, material: None })
+            .unwrap();
         let tool = EntityPath::root(out.created[0]);
         d = next
             .apply(&Operation::Boolean { target: EntityPath::root(a), tool, op: Boolean::Difference, scope: solidsketch_model::Scope::All })
@@ -2950,9 +2975,11 @@ fn stretch_tool_refuses_what_cannot_stretch_and_takes_the_open_part() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let rod = Primitive::Cylinder { origin: DVec3::ZERO, radius: 50.0, height: 200.0 };
-    let rod =
-        e.apply(Operation::AddPrimitive { context: root, primitive: rod, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created
-            [0];
+    let rod = e
+        .apply(Operation::AddPrimitive { context: root, primitive: rod, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap()
+        .created[0];
     e.select(vec![rod]);
     e.set_tool(ToolKind::Stretch);
     // The red axis locked (→): across it, the cylinder cannot stretch.
@@ -3079,7 +3106,8 @@ fn stretch_tool_stretches_an_assembly() {
     let doc = Document::new();
     let root = doc.root();
     let add = |d: Document, p: Primitive| {
-        let (d, out) = d.apply(&Operation::AddPrimitive { context: root, primitive: p, placement: glam::DAffine3::IDENTITY }).unwrap();
+        let (d, out) =
+            d.apply(&Operation::AddPrimitive { context: root, primitive: p, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
         (d, out.created[0])
     };
     let copy = |d: Document, id: Id, by: DVec3| {
@@ -3133,9 +3161,11 @@ fn three_boards_editor() -> (Editor, [Id; 3]) {
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) };
-    let b1 =
-        e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created
-            [0];
+    let b1 = e
+        .apply(Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap()
+        .created[0];
     let mut copy = |by: f64| {
         let t = glam::DAffine3::from_translation(DVec3::Y * by);
         e.apply(Operation::Duplicate { context: root, entities: vec![b1], transform: t }).unwrap().unwrap().created[0]
@@ -3212,9 +3242,11 @@ fn stretch_tool_stretches_a_prism_with_fillets_along_its_height() {
     let root = e.document().root();
     let triangle = profile::polygon(&[DVec2::ZERO, DVec2::new(400.0, 0.0), DVec2::new(200.0, 300.0)]);
     let prism = Primitive::Prism { origin: DVec3::ZERO, profile: profile::with_fillets(&triangle, 20.0), height: 50.0 };
-    let p =
-        e.apply(Operation::AddPrimitive { context: root, primitive: prism, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created
-            [0];
+    let p = e
+        .apply(Operation::AddPrimitive { context: root, primitive: prism, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap()
+        .created[0];
     e.set_tool(ToolKind::Stretch);
     click(&mut e, DVec3::new(200.0, 100.0, 50.0));
     click(&mut e, DVec3::new(200.0, 150.0, 50.0));
@@ -3235,7 +3267,8 @@ fn stretch_tool_stretches_along_the_axes_chosen() {
     let root = e.document().root();
     let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) };
     let turn = glam::DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
-    let b = e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: turn }).unwrap().unwrap().created[0];
+    let b =
+        e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: turn, material: None }).unwrap().unwrap().created[0];
     e.set_tool(ToolKind::Stretch);
     click(&mut e, DVec3::new(-25.0, 100.0, 18.0));
     // In its own axes (the default), its end grip, overall 300.
@@ -3259,7 +3292,7 @@ fn stretch_tool_in_the_context_axes_refuses_a_part_turned_across_a_cutter() {
     let root = e.document().root();
     let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) };
     let turn = glam::DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_4);
-    e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: turn }).unwrap().unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: turn, material: None }).unwrap().unwrap();
     e.set_tool(ToolKind::Stretch);
     e.set_tool_option("axes", OptionValue::Choice("context".into()));
     // Its corners: (0, 0), (141, 141), (106, 177), (−35, 35); the grip of its box's +X face.
@@ -3285,6 +3318,7 @@ fn the_scene_index_picks_as_a_scan_does() {
                     context: root,
                     primitive: Primitive::Box { origin: at, size },
                     placement: glam::DAffine3::IDENTITY,
+                    material: None,
                 })
                 .unwrap();
             doc = d;
@@ -3344,6 +3378,7 @@ fn a_window_takes_an_assembly_only_whole() {
                 context: root,
                 primitive: Primitive::Box { origin: at, size: DVec3::splat(100.0) },
                 placement: glam::DAffine3::IDENTITY,
+                material: None,
             })
             .unwrap();
         *doc = d;
@@ -3449,7 +3484,8 @@ fn meshes_taken_in_leave_the_scene_a_sync_would() {
         } else {
             Primitive::Box { origin: DVec3::new(k as f64 * 200.0, 0.0, 0.0), size: DVec3::new(100.0 + k as f64 * 10.0, 80.0, 30.0) }
         };
-        let (d, out) = doc.apply(&Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap();
+        let (d, out) =
+            doc.apply(&Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
         doc = d;
         made.push(out.created[0]);
     }
@@ -3553,6 +3589,7 @@ fn erase_tool_erases_the_open_part_s_machinings() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
             placement: DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .unwrap()
@@ -3919,7 +3956,7 @@ fn prism_takes_a_whole_face_arcs_included() {
     let root = e.document().root();
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
     let disc = Primitive::Cylinder { origin: DVec3::new(600.0, 600.0, 0.0), radius: 50.0, height: 30.0 };
-    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: disc, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
     let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
     e.set_tool(ToolKind::Prism);
     // The disc: two half circles, the height next.
@@ -4508,7 +4545,10 @@ fn machinings_paste_into_an_open_part() {
     // A hole in the first board, as a boolean would make it.
     let root = e.document().root();
     let drill = Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, -5.0), radius: 4.0, height: 30.0 };
-    let hole = e.apply(Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap();
+    let hole = e
+        .apply(Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap();
     let tool = hole.created[0];
     e.apply(Operation::Boolean {
         target: EntityPath::root(a),
@@ -4552,7 +4592,10 @@ fn a_part_pasted_into_an_open_part_becomes_a_group_of_its_bodies() {
     let b = draw_box(&mut e, DVec3::new(0.0, 100.0, 0.0), DVec3::new(200.0, 150.0, 0.0), "18");
     let root = e.document().root();
     let drill = Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, -5.0), radius: 4.0, height: 30.0 };
-    let tool = e.apply(Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap();
+    let tool = e
+        .apply(Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap();
     e.apply(Operation::Boolean {
         target: EntityPath::root(a),
         tool: EntityPath::root(tool.created[0]),
@@ -5061,6 +5104,7 @@ fn copy_along_a_line_takes_the_bodies_of_the_open_part() {
             context: root,
             primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
             placement: DAffine3::IDENTITY,
+            material: None,
         })
         .unwrap()
         .unwrap()
@@ -5461,7 +5505,7 @@ fn up_to_the_face_reaches_its_exact_plane() {
     // `f32` about that middle, is some 1e-5 mm off it).
     let bottom = 496.59507189112446;
     let block = Primitive::Box { origin: DVec3::new(100.0, 100.0, bottom), size: DVec3::new(200.0, 200.0, 1500.0 - bottom) };
-    e.apply(Operation::AddPrimitive { context: root, primitive: block, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: block, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
 
     // The copy modifier held for the height: up to the block's bottom, exactly (every shape
     // tool's height step pulls so; a base wider than the block, its corners in sight).
@@ -5481,7 +5525,7 @@ fn stretch_tool_makes_a_typed_length_however_close() {
     let root = e.document().root();
     // A board a hair short of 600.
     let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0 - 1.4e-5, 300.0, 18.0) };
-    e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
     let a = drawn(&e);
     e.select(vec![a]);
     e.set_tool(ToolKind::Stretch);
@@ -5503,7 +5547,7 @@ fn stretch_tool_makes_a_typed_length_however_close() {
     e.undo();
     assert!((length(&e) - 600.0).abs() > 1e-6);
     let other = Primitive::Box { origin: DVec3::new(600.0, 400.0, 0.0), size: DVec3::new(100.0, 100.0, 18.0) };
-    e.apply(Operation::AddPrimitive { context: root, primitive: other, placement: glam::DAffine3::IDENTITY }).unwrap();
+    e.apply(Operation::AddPrimitive { context: root, primitive: other, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
     e.select(vec![a]);
     e.set_tool(ToolKind::Stretch);
     click(&mut e, DVec3::new(600.0, 150.0, 18.0));
@@ -5790,7 +5834,10 @@ fn drawers_editor() -> (Editor, [Id; 5]) {
     let root = e.document().root();
     let add = |e: &mut Editor, origin: DVec3| {
         let p = Primitive::Box { origin, size: DVec3::new(100.0, 100.0, 50.0) };
-        e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created[0]
+        e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: glam::DAffine3::IDENTITY, material: None })
+            .unwrap()
+            .unwrap()
+            .created[0]
     };
     let a = add(&mut e, DVec3::ZERO);
     let b = add(&mut e, DVec3::new(200.0, 0.0, 0.0));
@@ -6030,4 +6077,159 @@ fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
     e.set_copy(false);
     assert_eq!(material(&e, EntityPath::root(g2)), Some(oak));
     assert!(e.deep_selection().is_empty());
+}
+
+/// « Dessiner dans » and « Pipette » (§6 duodevicies): the drawers' first part `a` (in the
+/// assembly `g`, placed twice) painted oak; the box tool with both options on.
+fn draw_in_editor() -> (Editor, [Id; 5], Id) {
+    let (mut e, ids) = drawers_editor();
+    let [a, _, _, g, _] = ids;
+    let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
+    let paint = Operation::PaintOccurrences { context: Id(0), entities: vec![a], material: Some(oak) };
+    e.apply(Operation::At { parent: vec![g], unique: false, op: Box::new(paint) }).unwrap();
+    e.set_tool(ToolKind::Box);
+    e.set_tool_option(crate::tools::DRAW_IN, OptionValue::Toggle(true));
+    e.set_tool_option(crate::tools::PICK_MATERIAL, OptionValue::Toggle(true));
+    (e, ids, oak)
+}
+
+/// A box drawn on the top of `a` (50 high), 10 high.
+fn box_on_a(e: &mut Editor) {
+    click(e, DVec3::new(20.0, 20.0, 50.0));
+    click(e, DVec3::new(80.0, 80.0, 50.0));
+    e.input(ToolInput::Vcb("10".into()));
+}
+
+#[test]
+fn draw_in_makes_the_part_in_the_assembly_of_the_part_picked_with_its_material() {
+    let (mut e, [a, b, _, g, g2], oak) = draw_in_editor();
+    let option = |e: &Editor, key: &str| e.tool_options().into_iter().find(|o| o.key == key).unwrap();
+    // Over `a`: « Pipette » shows its material, its box drawn.
+    let (lines, scene) = (e.preview().lines.len(), e.preview().scene_lines.len());
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(20.0, 20.0, 50.0)) });
+    let pick = option(&e, crate::tools::PICK_MATERIAL);
+    assert_eq!(pick.swatch, Some([180, 140, 90]));
+    assert_eq!(pick.label, "Pipette : Chêne");
+    // Its box (the assembly's, 25.4 larger): seen from the top, the edges of its faces turned
+    // to the eye over the scene, the back bottom one only in it, hidden behind faces (OCL's
+    // `shell_on_top`).
+    let preview = e.preview();
+    let grey = [0.25, 0.25, 0.25, 1.0];
+    let back_bottom = |l: &&crate::tools::PreviewLine| {
+        l.color == grey && [l.a, l.b].iter().all(|p| (p.z + 25.4).abs() < 1e-6 && (p.y - 125.4).abs() < 1e-6)
+    };
+    assert!(preview.lines.len() >= lines + 12, "the box over the scene");
+    assert!(!preview.lines.iter().any(|l| back_bottom(&l)), "its back bottom edge not over the scene");
+    assert!(preview.scene_lines.len() > scene && preview.scene_lines.iter().any(|l| back_bottom(&l)), "but in it");
+    // Over the void: nothing picked.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-500.0, -500.0, 0.0)) });
+    assert_eq!(option(&e, crate::tools::PICK_MATERIAL).swatch, None);
+
+    e.take_notices();
+    box_on_a(&mut e);
+    let asm = e.document().resolve(&EntityPath::root(g)).unwrap().component;
+    let occs = e.document().assembly(asm).unwrap().occurrences().to_vec();
+    assert_eq!(occs.len(), 3, "made in the assembly");
+    let made = occs.iter().find(|o| o.id != a && o.id != b).unwrap();
+    assert_eq!(made.material, Some(oak));
+    assert_eq!(e.document().assembly(e.document().root()).unwrap().occurrences().len(), 3, "not in the model");
+    // Placed where it was drawn, in both copies of the assembly (« Portée » all).
+    let path = EntityPath::new(vec![g], made.id);
+    let (lo, hi) = bounds_of(&e, &path);
+    assert!((lo.z - 50.0).abs() < 1e-6 && (hi.z - 60.0).abs() < 1e-6, "on a: {lo} {hi}");
+    assert!(lo.x >= -1e-6 && hi.x <= 100.0 + 1e-6 && lo.y >= -1e-6 && hi.y <= 100.0 + 1e-6, "over a: {lo} {hi}");
+    let (lo2, _) = bounds_of(&e, &EntityPath::new(vec![g2], made.id));
+    assert!(close(lo2, lo + DVec3::Y * 300.0), "{lo2}");
+    // Its name offered, the card on it (selected there, at any depth).
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(e.quick_card().is_some());
+    e.start_quick_tool(ToolKind::Move);
+    assert_eq!(e.deep_selection(), [path]);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+
+    // One undo takes it away.
+    e.set_tool(ToolKind::Box);
+    e.undo();
+    assert_eq!(e.document().assembly(asm).unwrap().occurrences().len(), 2);
+}
+
+#[test]
+fn draw_in_only_this_copy_makes_the_assembly_unique_first() {
+    let (mut e, [_, _, _, g, g2], _) = draw_in_editor();
+    e.set_part_scope(solidsketch_model::Scope::This);
+    box_on_a(&mut e);
+    let doc = e.document();
+    let (one, two) = (doc.resolve(&EntityPath::root(g)).unwrap().component, doc.resolve(&EntityPath::root(g2)).unwrap().component);
+    assert_ne!(one, two, "made unique");
+    assert_eq!(doc.assembly(one).unwrap().occurrences().len(), 3);
+    assert_eq!(doc.assembly(two).unwrap().occurrences().len(), 2);
+}
+
+#[test]
+fn without_the_options_or_over_a_part_of_the_context_the_part_goes_in_the_context() {
+    let (mut e, [_, _, c, g, _], oak) = draw_in_editor();
+    let root = e.document().root();
+    let asm = e.document().resolve(&EntityPath::root(g)).unwrap().component;
+    // « Pipette » alone: in the model, oak.
+    e.set_tool_option(crate::tools::DRAW_IN, OptionValue::Toggle(false));
+    box_on_a(&mut e);
+    assert_eq!(e.document().assembly(asm).unwrap().occurrences().len(), 2);
+    let made = drawn(&e);
+    assert_eq!(e.document().resolve(&EntityPath::root(made)).unwrap().material, Some(oak));
+    // « Dessiner dans » over a part of the model: in the model, no At.
+    e.set_tool_option(crate::tools::DRAW_IN, OptionValue::Toggle(true));
+    e.set_tool_option(crate::tools::PICK_MATERIAL, OptionValue::Toggle(false));
+    let before = e.document().assembly(root).unwrap().occurrences().len();
+    click(&mut e, DVec3::new(620.0, 20.0, 50.0));
+    click(&mut e, DVec3::new(680.0, 80.0, 50.0));
+    e.input(ToolInput::Vcb("10".into()));
+    assert_eq!(e.document().assembly(root).unwrap().occurrences().len(), before + 1);
+    assert_eq!(e.document().resolve(&EntityPath::root(drawn(&e))).unwrap().material, None);
+    let _ = c;
+}
+
+#[test]
+fn the_part_options_are_not_offered_in_an_open_part() {
+    let (mut e, [_, _, c, _, _], _) = draw_in_editor();
+    for kind in [ToolKind::Box, ToolKind::Cylinder, ToolKind::Prism] {
+        e.set_tool(kind);
+        let keys: Vec<_> = e.tool_options().iter().map(|o| o.key).collect();
+        assert!(keys.contains(&crate::tools::DRAW_IN) && keys.contains(&crate::tools::PICK_MATERIAL), "{kind:?}");
+    }
+    e.enter(c);
+    assert!(e.open_part().is_some());
+    e.set_tool(ToolKind::Box);
+    assert!(!e.tool_options().iter().any(|o| o.key == crate::tools::DRAW_IN || o.key == crate::tools::PICK_MATERIAL));
+}
+
+#[test]
+fn the_part_tools_share_their_settings_as_ocl() {
+    let mut e = top_editor(Document::new());
+    let value = |e: &Editor, kind: ToolKind, key: &str| e.tool_settings().get(kind.id()).and_then(|s| s.get(key)).cloned();
+    let on = Some(OptionValue::Toggle(true));
+    e.set_tool(ToolKind::Box);
+    e.set_tool_option(crate::tools::DRAW_IN, OptionValue::Toggle(true));
+    e.set_tool_option(crate::tools::PICK_MATERIAL, OptionValue::Toggle(true));
+    e.set_tool_option("pull_centered", OptionValue::Toggle(true));
+    e.set_tool_option("centered", OptionValue::Toggle(true));
+    for kind in [ToolKind::Cylinder, ToolKind::Prism, ToolKind::Turn] {
+        assert_eq!(value(&e, kind, crate::tools::DRAW_IN), on, "{kind:?}");
+        assert_eq!(value(&e, kind, crate::tools::PICK_MATERIAL), on, "{kind:?}");
+        assert_eq!(value(&e, kind, "centered"), None, "the box's own");
+    }
+    assert_eq!(value(&e, ToolKind::Prism, "pull_centered"), on);
+    assert_eq!(value(&e, ToolKind::Turn, "pull_centered"), None, "Turn has no centred height");
+
+    // From another tool: the offset typed in the cylinder's bar, the naming in Turn's.
+    e.set_tool(ToolKind::Cylinder);
+    e.type_tool_length("offset", "3");
+    assert_eq!(value(&e, ToolKind::Box, "offset"), Some(OptionValue::Length(3.0)));
+    assert_eq!(value(&e, ToolKind::Prism, "offset"), Some(OptionValue::Length(3.0)));
+    assert_eq!(value(&e, ToolKind::Turn, "offset"), None, "Turn has no offset");
+    e.set_tool(ToolKind::Turn);
+    e.set_tool_option(crate::tools::ASK_NAME, OptionValue::Toggle(true));
+    e.set_tool(ToolKind::Box);
+    assert!(e.tool_options().iter().any(|o| o.key == crate::tools::ASK_NAME && o.value == OptionValue::Toggle(true)));
+    assert!(e.tool_options().iter().any(|o| o.key == "offset" && o.value == OptionValue::Length(3.0)));
 }

@@ -481,6 +481,7 @@ pub(super) fn options(cx: &Cx<'_>, measures: &[Measure], mirror: bool) -> Vec<To
             choices: measures.iter().map(|m| measure_choice(*m)).collect(),
             saved: true,
             icon: None,
+            swatch: None,
         },
         ToolOption {
             key: AXES,
@@ -501,6 +502,7 @@ pub(super) fn options(cx: &Cx<'_>, measures: &[Measure], mirror: bool) -> Vec<To
             ],
             saved: true,
             icon: None,
+            swatch: None,
         },
     ];
     if mirror {
@@ -512,6 +514,7 @@ pub(super) fn options(cx: &Cx<'_>, measures: &[Measure], mirror: bool) -> Vec<To
             choices: Vec::new(),
             saved: true,
             icon: Some("mirror"),
+            swatch: None,
         });
     }
     out

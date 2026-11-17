@@ -95,6 +95,7 @@ impl Tool for BooleanTool {
             ],
             saved: true,
             icon: None,
+            swatch: None,
         }]
     }
 

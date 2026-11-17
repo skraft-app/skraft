@@ -160,6 +160,8 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
         "copy_measure_inside",
         "mirror",
         "ask_name",
+        "draw_in",
+        "pick_material",
     )
 }
 

@@ -23,11 +23,12 @@ pub struct Naming {
 
 impl Editor {
     /// After a creation tool's operation: the part it made (`AddPrimitive`, one occurrence of
-    /// a new part in the context) asked its name, or offered to be named by a toast.
-    pub(super) fn offer_naming(&mut self, outcome: &Outcome, ask: bool) {
+    /// a new part in the context, or in the assembly `made_in` leads to, §6 duodevicies) asked
+    /// its name, or offered to be named by a toast.
+    pub(super) fn offer_naming(&mut self, outcome: &Outcome, made_in: Option<&[Id]>, ask: bool) {
         let doc = self.document();
         let Some(component) = doc
-            .assembly(doc.context_of(&self.context).unwrap_or(doc.root()))
+            .assembly(doc.context_of(made_in.unwrap_or(&self.context)).unwrap_or(doc.root()))
             .ok()
             .and_then(|a| outcome.created.first().and_then(|id| a.occurrence(*id)))
             .map(|o| o.component)

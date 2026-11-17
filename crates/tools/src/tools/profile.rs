@@ -678,6 +678,7 @@ impl Tool for ProfileTool {
             choices: Vec::new(),
             saved: false,
             icon: None,
+            swatch: None,
         }]
     }
 

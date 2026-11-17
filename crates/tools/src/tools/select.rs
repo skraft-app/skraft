@@ -358,7 +358,9 @@ mod tests {
                 let size = DVec3::new(40.0 + (i % 3) as f64 * 20.0, 50.0, 30.0 + (j % 2) as f64 * 40.0);
                 let at = DVec3::new(i as f64 * 90.0, j as f64 * 90.0, 0.0);
                 let primitive = Primitive::Box { origin: at, size };
-                let (d, out) = doc.apply(&Operation::AddPrimitive { context: root, primitive, placement: DAffine3::IDENTITY }).unwrap();
+                let (d, out) = doc
+                    .apply(&Operation::AddPrimitive { context: root, primitive, placement: DAffine3::IDENTITY, material: None })
+                    .unwrap();
                 doc = d;
                 made.push(out.created[0]);
             }

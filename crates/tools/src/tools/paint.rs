@@ -159,6 +159,7 @@ impl Tool for PaintTool {
             ],
             saved: true,
             icon: None,
+            swatch: None,
         }]
     }
 

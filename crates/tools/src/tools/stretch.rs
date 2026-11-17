@@ -1500,6 +1500,7 @@ impl Tool for StretchTool {
                 ],
                 saved: true,
                 icon: None,
+                swatch: None,
             },
             ToolOption {
                 key: AXES,
@@ -1520,6 +1521,7 @@ impl Tool for StretchTool {
                 ],
                 saved: true,
                 icon: None,
+                swatch: None,
             },
             ToolOption {
                 key: CENTERED,
@@ -1529,6 +1531,7 @@ impl Tool for StretchTool {
                 choices: Vec::new(),
                 saved: true,
                 icon: Some("centered"),
+                swatch: None,
             },
         ];
         // The open part has its own scope, in the bar already; a part placed once none: both
@@ -1550,6 +1553,7 @@ impl Tool for StretchTool {
                 ],
                 saved: true,
                 icon: None,
+                swatch: None,
             });
         }
         options

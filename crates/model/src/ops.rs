@@ -71,12 +71,15 @@ fn identity() -> DAffine3 {
 pub enum Operation {
     /// A new part built from a primitive, and its first occurrence in `context`: its positive
     /// body in the part's own axes, the occurrence placed by the rigid `placement` (a box drawn on a
-    /// wall, §6 ter; identity for an axis-aligned one) and where the primitive stood.
+    /// wall, §6 ter; identity for an axis-aligned one) and where the primitive stood. The
+    /// occurrence painted with `material` (« Pipette », §6 duodevicies).
     AddPrimitive {
         context: Id,
         primitive: Primitive,
         #[serde(default = "identity", skip_serializing_if = "is_identity")]
         placement: DAffine3,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        material: Option<Id>,
     },
     /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
     /// Rigid only: a scale changes a part, not its place (§2.2).
@@ -349,7 +352,8 @@ pub enum Operation {
     /// copy reached by `parent` changes. Takes the operations on occurrences of a context
     /// ([`Operation::Transform`], [`Operation::Duplicate`], [`Operation::Array`],
     /// [`Operation::Copies`], [`Operation::Delete`], [`Operation::SetHidden`],
-    /// [`Operation::PaintOccurrences`]).
+    /// [`Operation::PaintOccurrences`]), and the one making a part there
+    /// ([`Operation::AddPrimitive`], « Dessiner dans », §6 duodevicies).
     At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
     /// Several operations in one step, applied in order: their outcomes put together.
     Batch(Vec<Operation>),
@@ -422,7 +426,8 @@ impl Operation {
             | Operation::Copies { context, .. }
             | Operation::Delete { context, .. }
             | Operation::SetHidden { context, .. }
-            | Operation::PaintOccurrences { context, .. } => Some(context),
+            | Operation::PaintOccurrences { context, .. }
+            | Operation::AddPrimitive { context, .. } => Some(context),
             _ => None,
         }
     }
@@ -769,10 +774,13 @@ impl Document {
                 self.component_mut(*component)?.guides.push(Guide { id, shape: *shape });
                 Ok(Outcome { guide: Some(id), ..Outcome::default() })
             }
-            Operation::AddPrimitive { context, primitive, placement } => {
+            Operation::AddPrimitive { context, primitive, placement, material } => {
                 self.assembly(*context)?;
                 if !is_rigid(placement) {
                     return Err(Error::Invalid(Refusal::PlacementNotRigid));
+                }
+                if let Some(m) = material {
+                    self.material(*m)?;
                 }
                 let (local, at) = primitive.at_origin();
                 let solid = solver.primitive(&local)?;
@@ -788,7 +796,7 @@ impl Document {
                     name: String::new(),
                     component: part,
                     transform,
-                    material: None,
+                    material: *material,
                     hidden: false,
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
