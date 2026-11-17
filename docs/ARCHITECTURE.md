@@ -3120,9 +3120,13 @@ doing from the pilot's.
   them (none in a release). Shown only in dev builds: a **badge** after the app's name in the
   title bar — the worktree's short name (`solidsketch-prism-z` → `prism-z`; the branch for the
   main checkout) and the commit, `*` when dirty, on a hue hashed from the name (FNV-1a, the
-  same at every launch) — its hover gives the worktree, branch, commit, build and launch
-  times, pid, who launched it, the channel's port; the window's title is `SolidSketch [name] —
-  document`.
+  same at every launch) — or, launched by a Claude Code session named after a colour (red,
+  orange, yellow, green, cyan, blue, purple, pink, or French rouge, jaune, vert, bleu, violet,
+  rose; any case), that colour: the name is read from `~/.claude/sessions/<CLAUDE_PID>.json`
+  (`sessionId`, `name`; else the file of that `sessionId`) every 2 s by a thread
+  (`identity::Session`), so a `/rename` shows at once — its hover gives the worktree, branch,
+  commit, build and launch times, pid, who launched it (the session's name too), the channel's
+  port; the window's title is `SolidSketch [name] — document`.
 - **Registry of running apps** (`solidsketch_control::instances`): every app (desktop) writes
   `control/instances/<pid>.json` — pid, start, version, executable, its channel's port while
   on (kept up to date), its build, `claude_session` (`CLAUDE_CODE_SESSION_ID`, inherited from
