@@ -4,7 +4,9 @@
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::{t, tp};
-use solidsketch_model::{ComponentKind, Document, EntityPath, FastMap, GuideShape, Id, Occurrence, Operation, Scope, Sign, Units, measure};
+use solidsketch_model::{
+    ComponentKind, Document, EntityPath, FastMap, GuideShape, Id, Nature, Occurrence, Operation, Scope, Sign, Units, measure,
+};
 use solidsketch_tools::{Editor, OptionValue, ToolKind};
 
 use crate::commands::Menu;
@@ -555,10 +557,36 @@ fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static>
     if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
 }
 
-/// "Pied", "Gauche <Pied>".
-pub fn occurrence_label(doc: &Document, o: &Occurrence) -> String {
-    let name = doc.component(o.component).map(|c| c.name.as_str()).unwrap_or("?");
-    if o.name.is_empty() { name.to_owned() } else { format!("{} <{name}>", o.name) }
+/// The name of an instance — an occurrence, a body — in its navigator row, its colour `color`:
+/// its definition's (`def`: its component's, its body definition's), after its own where it has
+/// one (« Gauche <Pied> »), the definition's in italics and attenuated when automatic (`auto`,
+/// §2.1, §2.11 « Automatic names »), on `back`. Its response, and where its own name ends and
+/// the definition's starts (halfway across the space between them) where it has one.
+fn instance_label(
+    ui: &mut egui::Ui,
+    own: &str,
+    def: &str,
+    auto: bool,
+    color: egui::Color32,
+    selected: bool,
+    back: egui::Color32,
+) -> (egui::Response, Option<f32>) {
+    let plain = name_format(ui, color, false, selected, back);
+    let mut job = egui::text::LayoutJob::default();
+    if !own.is_empty() {
+        job.append(&format!("{own} <"), 0.0, plain.clone());
+    }
+    job.append(def, 0.0, name_format(ui, color, auto, selected, back));
+    if !own.is_empty() {
+        job.append(">", 0.0, plain);
+    }
+    let r = ui.add(egui::Label::new(job).selectable(false).truncate());
+    let split = (!own.is_empty()).then(|| {
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let width = |t: String| ui.fonts_mut(|f| f.layout_no_wrap(t, font.clone(), color).size().x);
+        r.rect.min.x + (width(own.to_owned()) + width(format!("{own} "))) / 2.0
+    });
+    (r, split)
 }
 
 /// One line of the outliner: an occurrence at some depth of the tree, or a body of the part it
@@ -579,8 +607,6 @@ struct OutlinerRow<'d> {
 struct BodyRow<'d> {
     part: &'d solidsketch_model::Part,
     body: &'d solidsketch_model::Body,
-    /// Its number among its siblings, in their order of creation.
-    number: usize,
     /// The groups it lies in, the part's own body first: a click opens them.
     group: Vec<Id>,
     /// Its siblings, itself included: the bodies of the part or group it lies in.
@@ -589,67 +615,53 @@ struct BodyRow<'d> {
     profile: bool,
 }
 
-/// What a body is made of, its row's icon and name.
-#[derive(Clone, Copy)]
-enum Nature {
-    /// A profile extruded along the body's Z.
-    Extrusion,
-    /// A half profile turned about the body's Z.
-    Revolution,
-    /// A free B-rep (imported, a boolean's result, stretched askew).
-    Solid,
-    /// A group of bodies.
-    Group,
-}
-
-impl Nature {
-    fn of(part: &solidsketch_model::Part, body: &solidsketch_model::Body) -> Nature {
-        let def = part.def_of(body);
-        match &def.profile {
-            _ if def.is_group() => Nature::Group,
-            Some(f) if f.is_turned() => Nature::Revolution,
-            Some(_) => Nature::Extrusion,
-            None => Nature::Solid,
-        }
-    }
-
-    /// Its name numbered `n` among its siblings: « Extrusion 3 ».
-    fn numbered(self, n: usize) -> String {
-        match self {
-            Nature::Extrusion => t!("panel.outliner.extrusion", number = n),
-            Nature::Revolution => t!("panel.outliner.revolution", number = n),
-            Nature::Solid => t!("panel.outliner.solid", number = n),
-            Nature::Group => t!("panel.outliner.group", number = n),
-        }
-    }
-
-    fn icon(self) -> egui::ImageSource<'static> {
-        match self {
-            Nature::Extrusion => icons::EXTRUSION,
-            Nature::Revolution => icons::REVOLUTION,
-            Nature::Solid => icons::SOLID,
-            Nature::Group => icons::GROUP,
-        }
+/// The icon of a body's nature (§2.11 « Body names »).
+fn nature_icon(nature: Nature) -> egui::ImageSource<'static> {
+    match nature {
+        Nature::Extrusion => icons::EXTRUSION,
+        Nature::Revolution => icons::REVOLUTION,
+        Nature::Solid => icons::SOLID,
+        Nature::Group => icons::GROUP,
     }
 }
 
-/// What the interface calls the body `b` of `p`, numbered `n` among its siblings: its
-/// definition's name, given by the user, else its nature's (« Solide 3 », §2.11 « Body names »).
-fn body_label(p: &solidsketch_model::Part, b: &solidsketch_model::Body, n: usize) -> String {
-    p.def_of(b).name.clone().unwrap_or_else(|| Nature::of(p, b).numbered(n))
+/// A name in the navigator, its colour `color`: given by the user, as it is; automatic
+/// (« Pièce#2 », « Extrusion#1 », §2.1, §2.11 « Body names »), in italics, attenuated — towards
+/// `back` as the weak text is, unless selected (`color` then the selection's).
+fn name_format(ui: &egui::Ui, color: egui::Color32, auto: bool, selected: bool, back: egui::Color32) -> egui::TextFormat {
+    let font_id = egui::TextStyle::Body.resolve(ui.style());
+    let v = ui.visuals();
+    let color = match auto && !selected {
+        // As far from the text as the weak text is from it, wherever the text stands.
+        true => color.lerp_to_gamma(back, weak_share(v)),
+        false => color,
+    };
+    egui::TextFormat { font_id, color, italics: auto, ..Default::default() }
+}
+
+/// How far the weak text lies from the text towards the background, 0 to 1.
+fn weak_share(v: &egui::Visuals) -> f32 {
+    let (text, weak, back) = (v.text_color(), v.weak_text_color(), v.window_fill);
+    let d = |a: egui::Color32, b: egui::Color32| {
+        (a.r() as f32 - b.r() as f32).abs() + (a.g() as f32 - b.g() as f32).abs() + (a.b() as f32 - b.b() as f32).abs()
+    };
+    let span = d(text, back);
+    if span > 0.0 { (d(text, weak) / span).clamp(0.0, 1.0) } else { 0.0 }
+}
+
+/// What the interface calls the body `b` of `p`: its definition's name (§2.11 « Body names »),
+/// automatic or not.
+fn body_label(p: &solidsketch_model::Part, b: &solidsketch_model::Body) -> String {
+    p.def_of(b).name.clone()
 }
 
 impl BodyRow<'_> {
-    fn nature(&self) -> Nature {
-        Nature::of(self.part, self.body)
-    }
-
     fn label(&self) -> String {
-        body_label(self.part, self.body, self.number)
+        body_label(self.part, self.body)
     }
 
     fn icon(&self) -> egui::ImageSource<'static> {
-        self.nature().icon()
+        nature_icon(self.part.def_of(self.body).nature())
     }
 }
 
@@ -846,15 +858,9 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
                                 Some(false) => return (rename_field(ui, rename, &name), None),
                                 None => {}
                             }
-                            let label = egui::RichText::new(occurrence_label(doc, o)).color(color);
-                            let r = ui.add(egui::Label::new(label).selectable(false).truncate());
-                            // Where the occurrence's name ends and its component's starts:
-                            // halfway across the space between them.
-                            let split = (!o.name.is_empty()).then(|| {
-                                let font = egui::TextStyle::Body.resolve(ui.style());
-                                let width = |t: String| ui.fonts_mut(|f| f.layout_no_wrap(t, font.clone(), color).size().x);
-                                r.rect.min.x + (width(o.name.clone()) + width(format!("{} ", o.name))) / 2.0
-                            });
+                            let auto = doc.component(o.component).is_ok_and(|c| !c.named);
+                            let back = ui.visuals().window_fill;
+                            let (_, split) = instance_label(ui, &o.name, &name, auto, color, selected, back);
                             (None, split)
                         })
                         .inner;
@@ -1044,18 +1050,18 @@ fn flatten<'d>(
             out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
             if open {
                 let open_group = (editor.context() == path.as_slice() && editor.open_part() == Some(o.id)).then(|| editor.open_group());
-                let row = |fold, number, group, body, siblings, profile| OutlinerRow {
+                let row = |fold, group, body, siblings, profile| OutlinerRow {
                     path: path.clone(),
                     occurrence: o,
                     fold,
                     hidden_above,
-                    body: Some(BodyRow { part: p, body, number, group, siblings, profile }),
+                    body: Some(BodyRow { part: p, body, group, siblings, profile }),
                 };
                 let at = (path.as_slice(), o.id);
                 // The profile edited, in the group open: its body unfolded.
                 let open = Open { group: open_group.unwrap_or(&[]), profile: open_group.and(editor.profile_body()) };
                 body_rows(ctx, births, at, p, &p.bodies, &mut Vec::new(), open, &mut |r: BodyLine<'d>| {
-                    out.push(row(r.0, r.1, r.2, r.3, r.4, r.5))
+                    out.push(row(r.0, r.1, r.2, r.3, r.4))
                 });
             }
             continue;
@@ -1107,7 +1113,7 @@ fn holds_failure(p: &solidsketch_model::Part, bodies: &[solidsketch_model::Body]
 /// A body row's parts: its folding state (a group's, a profiled body's), its number, the groups
 /// it lies in, the body, its siblings, whether the row is the body's profile's.
 type BodyLine<'d> =
-    (Option<egui::collapsing_header::CollapsingState>, usize, Vec<Id>, &'d solidsketch_model::Body, &'d [solidsketch_model::Body], bool);
+    (Option<egui::collapsing_header::CollapsingState>, Vec<Id>, &'d solidsketch_model::Body, &'d [solidsketch_model::Body], bool);
 
 /// What is open in a part, its rows unfolded along it: the group open (the bodies leading to
 /// it), the body of that group whose profile is edited.
@@ -1140,14 +1146,14 @@ fn body_rows<'d>(
         Some(&id) if open.group.starts_with(group) => Some(id),
         _ => open.profile.filter(|_| open.group == group.as_slice()),
     };
-    for (number, b) in bodies.iter().enumerate().map(|(k, b)| (k + 1, b)) {
+    for b in bodies {
         if step.is_some_and(|id| id != b.id) {
             continue;
         }
         let children = p.def_of(b).children();
         let profiled = p.profile_of(b).is_some();
         if children.is_empty() && !profiled {
-            out((None, number, group.clone(), b, bodies, false));
+            out((None, group.clone(), b, bodies, false));
             continue;
         }
         let id = births.body_fold(at, group, b.id);
@@ -1160,12 +1166,12 @@ fn body_rows<'d>(
         }
         let opened = fold.is_open();
         group.pop();
-        out((Some(fold), number, group.clone(), b, bodies, false));
+        out((Some(fold), group.clone(), b, bodies, false));
         if !opened {
             continue;
         }
         if profiled {
-            out((None, number, group.clone(), b, bodies, true));
+            out((None, group.clone(), b, bodies, true));
         } else {
             group.push(b.id);
             body_rows(ctx, births, at, p, children, group, open, out);
@@ -1234,11 +1240,18 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
     let def = b.part.def_of(b.body);
     let inner = def.is_group() && !failed && holds_failure(b.part, def.children(), 0);
     let warned = (failed && def.is_group()) || inner;
-    // Its name edited in place (§2.11 « Body names »): from a double-click, or F2 while it is
-    // the one body selected.
+    // A name edited in place (§2.11 « Body names »), from a double-click, or F2 while it is the
+    // one body selected: the body's own, shown first, where it has one and the double-click is
+    // on it (F2: where it has one), else its definition's (« Haut <Trou#1> »), as an
+    // occurrence's row.
     let rename = ui.make_persistent_id(("outliner_rename", &row.path, row.occurrence.id, &b.group, b.body.id));
-    let renaming = ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) == Some(rename);
-    let (response, (toggled, renamed)) = tree_row(ui, height, selected, lit, true, |ui| {
+    let rename_own = rename.with("own");
+    let renaming = match ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) {
+        Some(id) if id == rename => Some(false),
+        Some(id) if id == rename_own => Some(true),
+        _ => None,
+    };
+    let (response, (toggled, renamed, split)) = tree_row(ui, height, selected, lit, true, |ui| {
         let spacing = ui.spacing().item_spacing.x;
         ui.spacing_mut().item_spacing.x = 0.0;
         // Under the part's icon: its level, plus one, plus the groups above.
@@ -1266,16 +1279,18 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
                     if warned {
                         ui.add(warning(ui));
                     }
-                    if renaming {
-                        return rename_field(ui, rename, &b.label());
+                    match renaming {
+                        Some(true) => return (rename_field(ui, rename_own, &b.body.name), None),
+                        Some(false) => return (rename_field(ui, rename, &b.label()), None),
+                        None => {}
                     }
                     let color = if failed { ui.visuals().error_fg_color } else { tint };
-                    let label = egui::RichText::new(b.label()).color(color);
-                    ui.add(egui::Label::new(label).selectable(false).truncate());
-                    None
+                    let back = band_color(ui.visuals());
+                    let (_, split) = instance_label(ui, &b.body.name, &b.label(), !def.named, color, selected, back);
+                    (None, split)
                 })
                 .inner;
-            (toggled, renamed)
+            (toggled, renamed.0, renamed.1)
         })
         .inner
     });
@@ -1293,8 +1308,16 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
         *over = Some(b.body.id);
     }
     let alone = selected && editor.selection().len() == 1;
-    if let Some(Some(name)) = start_rename(ui, &response, renaming, alone, rename, renamed) {
-        actions.push(Action::Apply(Operation::RenameBodyDef { part: row.occurrence.component, def: b.body.def, name }));
+    let on_own = match (split, response.interact_pointer_pos()) {
+        (Some(split), Some(at)) if response.double_clicked() => at.x < split,
+        (split, _) => split.is_some(),
+    };
+    let key = if on_own { rename_own } else { rename };
+    let part = row.occurrence.component;
+    match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
+        (Some(true), Some(Some(name))) => actions.push(Action::Apply(Operation::RenameBody { part, body: b.body.id, name })),
+        (_, Some(Some(name))) => actions.push(Action::Apply(Operation::RenameBodyDef { part, def: b.body.def, name })),
+        _ => {}
     }
     if toggled {
         let sign = match b.body.sign {
@@ -1487,7 +1510,8 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                 }
                 ui.end_row();
                 field_label(ui, t!("panel.entity_info.occurrence"));
-                if let Some(name) = text_field(ui, (o.id, 0), &o.name, field) {
+                // Emptied, cleared: the occurrence shown by its component's name alone.
+                if let Some(name) = name_field(ui, (o.id, 0), &o.name, field, true) {
                     actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
                 }
                 ui.end_row();
@@ -1646,7 +1670,7 @@ fn profile_info(ui: &mut egui::Ui, p: &solidsketch_model::Part, k: usize) {
         ui.label(t!("panel.entity_info.type_profile"));
         ui.end_row();
         ui.label(t!("panel.entity_info.body"));
-        ui.label(body_label(p, b, k + 1));
+        ui.label(body_label(p, b));
         ui.end_row();
         ui.label(t!("panel.entity_info.corners"));
         ui.label(profile.profile.len().to_string());
@@ -1669,8 +1693,14 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &solidsketch_model
         ui.end_row();
         // Its definition's: every copy shows it; emptied, it is named by its nature again.
         field_label(ui, t!("panel.entity_info.name"));
-        if let Some(name) = name_field(ui, (def.id, 2), &body_label(p, b, k + 1), field, true) {
+        if let Some(name) = name_field(ui, (def.id, 2), &body_label(p, b), field, true) {
             actions.push(Action::Apply(Operation::RenameBodyDef { part, def: def.id, name }));
+        }
+        ui.end_row();
+        // Its own, as an occurrence's: emptied, cleared.
+        field_label(ui, t!("panel.entity_info.occurrence"));
+        if let Some(name) = name_field(ui, (b.id, 3), &b.name, field, true) {
+            actions.push(Action::Apply(Operation::RenameBody { part, body: b.id, name }));
         }
         ui.end_row();
         ui.label(t!("panel.entity_info.role"));

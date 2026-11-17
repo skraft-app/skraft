@@ -225,6 +225,43 @@ impl Part {
         Part { defs: vec![def], bodies: vec![body], shape: None, failed: BTreeSet::new(), faces: BTreeMap::new() }
     }
 
+    /// Settles the automatic names of its body definitions (§2.11 « Body names »): each its
+    /// nature's, numbered from #1, unique in the part — one of another nature (an extrusion
+    /// stretched askew is a free solid now), or taken by an earlier definition (a copy made
+    /// unique), or none yet, numbered anew. Whether one changed.
+    pub(crate) fn settle_names(&mut self) -> bool {
+        if self.names_settled() {
+            return false;
+        }
+        let mut taken: crate::FastSet<String> = self.defs.iter().filter(|d| d.named).map(|d| d.name.clone()).collect();
+        let mut renamed = vec![false; self.defs.len()];
+        for (i, d) in self.defs.iter().enumerate() {
+            if !d.named && !(name_base(&d.name) == d.nature().base() && d.name.contains('#') && taken.insert(d.name.clone())) {
+                renamed[i] = true;
+            }
+        }
+        for (d, renamed) in self.defs.iter_mut().zip(renamed) {
+            if renamed {
+                d.name = numbered_name(&d.nature().base(), 1, |n| taken.contains(n));
+                taken.insert(d.name.clone());
+            }
+        }
+        true
+    }
+
+    /// Whether its automatic names are settled ([`Part::settle_names`]), without allocating
+    /// for the usual few definitions (many: not known, settled again).
+    fn names_settled(&self) -> bool {
+        self.defs.len() <= 32
+            && self.defs.iter().enumerate().all(|(i, d)| {
+                d.named
+                    || (d.name.contains('#')
+                        && name_base(&d.name) == d.nature().base()
+                        && !self.defs[..i].iter().any(|e| e.name == d.name)
+                        && !self.defs[i + 1..].iter().any(|e| e.named && e.name == d.name))
+            })
+    }
+
     /// The part as it is drawn and used: its bodies combined.
     pub fn shape(&self) -> &Arc<Solid> {
         match &self.shape {
@@ -314,6 +351,12 @@ impl Part {
         self.bodies.iter().find(|b| b.id == id)
     }
 
+    /// The body `id`, the part's own or a group's (ids are unique in the whole part).
+    pub(crate) fn any_body_mut(&mut self, id: Id) -> Option<&mut Body> {
+        let groups = self.defs.iter_mut().filter_map(|d| d.group.as_mut()).flat_map(|g| g.children.iter_mut());
+        self.bodies.iter_mut().chain(groups).find(|b| b.id == id)
+    }
+
     pub fn positives(&self) -> impl Iterator<Item = &Body> {
         self.bodies.iter().filter(|b| b.sign == Sign::Positive)
     }
@@ -372,11 +415,15 @@ pub enum Sign {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BodyDef {
     pub id: Id,
-    /// Its name, given by the user (§2.11 « Body names »): every body of it shows it. None:
-    /// the interface names it by its nature and rank (« Solide 3 »). Kept when its shape
-    /// changes (a stretch, a boolean, a new profile) and by its copies.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    /// Its name (§2.11 « Body names »), every body of it showing it: given by the user
+    /// (`named`), kept when its shape changes (a stretch, a boolean, a new profile) and by its
+    /// copies; else automatic, its nature's numbered among its part's (« Extrusion#2 »),
+    /// settled after each operation ([`Part::settle_names`]).
+    #[serde(default)]
+    pub name: String,
+    /// The name given by the user, not automatic.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub named: bool,
     pub solid: Arc<Solid>,
     /// The profile `solid` is built from (§6 nonies), in its axes: the solid is then its
     /// cache. None for a free shape (imported, a boolean's result, stretched askew) and a group.
@@ -392,7 +439,7 @@ pub struct BodyDef {
 impl BodyDef {
     /// A free shape (no profile), local.
     pub fn new(id: Id, solid: Arc<Solid>) -> Self {
-        BodyDef { id, name: None, solid, profile: None, source: BodySource::Local, group: None }
+        BodyDef { id, name: String::new(), named: false, solid, profile: None, source: BodySource::Local, group: None }
     }
 
     /// A group of `children`, `solid` their result, `failed` those whose boolean failed.
@@ -408,6 +455,59 @@ impl BodyDef {
     pub fn is_group(&self) -> bool {
         self.group.is_some()
     }
+
+    /// What it is, which its automatic name and its icon tell.
+    pub fn nature(&self) -> Nature {
+        match &self.profile {
+            _ if self.is_group() => Nature::Group,
+            Some(f) if f.is_turned() => Nature::Revolution,
+            Some(_) => Nature::Extrusion,
+            None => Nature::Solid,
+        }
+    }
+
+    /// Takes the name `name` from the user, or (`None`) an automatic one again.
+    pub fn set_name(&mut self, name: Option<String>) {
+        (self.name, self.named) = match name {
+            Some(n) => (n, true),
+            None => (String::new(), false),
+        };
+    }
+}
+
+/// What a body definition is (§2.11 « Body names »): a group, a body of a profile extruded or
+/// turned, else a free solid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Nature {
+    Extrusion,
+    Revolution,
+    Solid,
+    Group,
+}
+
+impl Nature {
+    /// The base of its automatic names: « Extrusion » of « Extrusion#2 ».
+    pub fn base(self) -> String {
+        match self {
+            Nature::Extrusion => t!("default_name.extrusion"),
+            Nature::Revolution => t!("default_name.revolution"),
+            Nature::Solid => t!("default_name.solid"),
+            Nature::Group => t!("default_name.group"),
+        }
+    }
+}
+
+/// The base of a name numbered as automatic names are: `base` of `base#3`, else the name.
+pub fn name_base(name: &str) -> &str {
+    match name.rsplit_once('#') {
+        Some((base, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => base,
+        _ => name,
+    }
+}
+
+/// The first of `base#first`, `base#first+1`, … not `taken`.
+pub(crate) fn numbered_name(base: &str, first: u32, taken: impl Fn(&str) -> bool) -> String {
+    (first..).map(|i| format!("{base}#{i}")).find(|n| !taken(n)).unwrap_or_default()
 }
 
 /// The content of a group of bodies (§2.11 « Body groups »): its bodies, each an occurrence of a
@@ -426,6 +526,10 @@ pub struct BodyGroup {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Body {
     pub id: Id,
+    /// Its own name, as an occurrence's (« Haut <Trou charnière#1> », §2.11 « Body names »):
+    /// empty for none; kept by its copies.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     pub def: Id,
     pub sign: Sign,
     pub placement: DAffine3,
@@ -433,7 +537,7 @@ pub struct Body {
 
 impl Body {
     pub fn new(id: Id, def: Id, sign: Sign, placement: DAffine3) -> Self {
-        Body { id, def, sign, placement }
+        Body { id, name: String::new(), def, sign, placement }
     }
 }
 
@@ -1016,10 +1120,10 @@ impl Document {
         }
     }
 
-    /// Adds a component, under a name no other component has (`base`, else `base#2`, …).
+    /// Adds a component, under a name no other component has ([`Document::unique_name`]).
     pub(crate) fn insert_component(&mut self, base: &str, named: bool, kind: ComponentKind) -> Id {
         let id = self.fresh_id();
-        let name = self.unique_name(base);
+        let name = self.unique_name(base, named);
         self.components.insert(id, Arc::new(Component { id, name, named, kind, guides: Vec::new(), behavior: Behavior::default() }));
         id
     }
@@ -1034,13 +1138,36 @@ impl Document {
         Ok(copy)
     }
 
-    /// A name not used by another component: `base`, else `base#2`, `base#3`, …
-    pub(crate) fn unique_name(&self, base: &str) -> String {
+    /// A name not used by another component, from `base` (its number dropped: a copy of
+    /// « Caisson#2 » is « Caisson#3 »): given by the user (`named`), `base` if free, else
+    /// `base#2`, `base#3`, …; automatic, always numbered from `base#1`, as SketchUp's (§2.1).
+    pub(crate) fn unique_name(&self, base: &str, named: bool) -> String {
         let taken = |n: &str| self.components.values().any(|c| c.name == n);
-        if !taken(base) {
+        if named && !taken(base) {
             return base.to_owned();
         }
-        (2..).map(|i| format!("{base}#{i}")).find(|n| !taken(n)).unwrap_or_default()
+        // « Caisson » taken: « Caisson#2 »; « Caisson#2 »: the first number free.
+        let numbered = name_base(base);
+        numbered_name(numbered, if named && numbered == base { 2 } else { 1 }, taken)
+    }
+
+    /// Settles the automatic names of the body definitions ([`Part::settle_names`]) of the
+    /// parts changed since `before` (all of them without it: a document read or imported).
+    pub(crate) fn settle_names(&mut self, before: Option<&Document>) {
+        let parts: Vec<Id> = self
+            .components
+            .iter()
+            .filter(|(id, c)| {
+                before.is_none_or(|b| b.components.get(*id).is_none_or(|b| !Arc::ptr_eq(b, c)))
+                    && matches!(&c.kind, ComponentKind::Part(p) if !p.names_settled())
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in parts {
+            if let Some(ComponentKind::Part(p)) = self.components.get_mut(&id).map(|c| &mut Arc::make_mut(c).kind) {
+                p.settle_names();
+            }
+        }
     }
 
     /// Drops the components no occurrence uses that the user did not name (§2.1), and so on
@@ -1153,7 +1280,7 @@ impl Document {
                 }
             };
             let guides = c.guides.iter().map(|g| Guide { id: self.fresh_id(), shape: g.shape }).collect();
-            let name = self.unique_name(&c.name);
+            let name = self.unique_name(&c.name, c.named);
             self.components
                 .insert(*new, Arc::new(Component { id: *new, name, named: c.named, kind, guides, behavior: c.behavior.clone() }));
         }

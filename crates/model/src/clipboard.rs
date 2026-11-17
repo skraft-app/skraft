@@ -126,8 +126,9 @@ impl Document {
         let mut out = BodyFragment::default();
         let root = self.component(self.root)?;
         out.guides = root.guides.iter().map(|g| g.shape).collect();
-        let mut stack: Vec<(Id, DAffine3)> = vec![(self.root, DAffine3::IDENTITY)];
-        while let Some((id, t)) = stack.pop() {
+        // A part's occurrence's name: the body's own (§2.11 « Body names »).
+        let mut stack: Vec<(Id, DAffine3, &str)> = vec![(self.root, DAffine3::IDENTITY, "")];
+        while let Some((id, t, occurrence)) = stack.pop() {
             let c = self.component(id)?;
             // A part the user named names the body it becomes, unless that one has a name
             // (§2.11 « Body names »).
@@ -136,7 +137,7 @@ impl Document {
                 ComponentKind::Assembly(a) => {
                     // Reversed: popped in the assembly's order.
                     for o in a.occurrences().iter().rev().filter(|o| !o.hidden) {
-                        stack.push((o.component, t * o.transform));
+                        stack.push((o.component, t * o.transform, &o.name));
                     }
                 }
                 ComponentKind::Part(p) => {
@@ -156,11 +157,17 @@ impl Document {
                         }
                     };
                     if let Some(d) = out.defs.iter_mut().find(|d| d.id == def)
-                        && d.name.is_none()
+                        && !d.named
+                        && named.is_some()
                     {
-                        d.name = named;
+                        d.set_name(named);
                     }
-                    out.bodies.push(Body::new(Id(out.bodies.len() as u64), def, Sign::Positive, placement));
+                    let mut body = Body::new(Id(out.bodies.len() as u64), def, Sign::Positive, placement);
+                    body.name = match (occurrence, p.is_plain()) {
+                        ("", true) => p.bodies[0].name.clone(),
+                        (name, _) => name.to_owned(),
+                    };
+                    out.bodies.push(body);
                 }
             }
         }

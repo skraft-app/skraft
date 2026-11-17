@@ -104,9 +104,12 @@ pub enum Operation {
     /// Names a part or an assembly; a named component is kept while unused.
     RenameComponent { component: Id, name: String },
     /// Names the body definition `def` of the part `part` (§2.11 « Body names »): every body
-    /// of it, copies included, shows the name; empty to clear (named by its nature again).
-    /// Names need not be unique. No scope: the shape is left alone.
+    /// of it, copies included, shows the name; empty to clear (named automatically again,
+    /// by its nature: « Extrusion#2 »). Names given need not be unique. No scope: the shape is left alone.
     RenameBodyDef { part: Id, def: Id, name: String },
+    /// Names the body `body` of the part `part` (its own, or a group's) by itself, as an
+    /// occurrence (« Haut <Trou#1> », §2.11 « Body names »); trimmed, empty to clear.
+    RenameBody { part: Id, body: Id, name: String },
     /// Moves occurrences of `context` into a new assembly, placed by one new occurrence.
     MakeAssembly { context: Id, entities: Vec<Id>, name: Option<String> },
     /// Replaces an occurrence of an assembly by the assembly's occurrences, placed by it.
@@ -354,7 +357,10 @@ impl Operation {
             }
             Operation::Copies { .. } | Operation::CopyBodies { .. } => t!("operation.copies"),
             Operation::Delete { .. } => t!("operation.delete"),
-            Operation::RenameOccurrence { .. } | Operation::RenameComponent { .. } | Operation::RenameBodyDef { .. } => {
+            Operation::RenameOccurrence { .. }
+            | Operation::RenameComponent { .. }
+            | Operation::RenameBodyDef { .. }
+            | Operation::RenameBody { .. } => {
                 t!("operation.rename")
             }
             Operation::MakeAssembly { .. } => t!("operation.make_assembly"),
@@ -487,6 +493,7 @@ impl Document {
         let mut outcome = doc.apply_in_place(op, &mut recorder)?;
         outcome.welds = doc.weld(self, &mut recorder)?;
         if recorder.job.tasks.is_empty() {
+            doc.settle_names(Some(self));
             doc.purge();
             return Ok(Prepared::Done(Box::new(Applied { document: doc, outcome, displays: Vec::new() })));
         }
@@ -503,6 +510,7 @@ impl Document {
         if replayer.outputs.next().is_some() {
             return Err(Error::Invalid(Refusal::OutOfStep));
         }
+        doc.settle_names(Some(self));
         doc.purge();
         Ok(Applied { document: doc, outcome, displays: replayer.displays })
     }
@@ -700,10 +708,15 @@ impl Document {
                 }
                 // A single body named: the new part takes its name (§2.11 « Body names »).
                 let base = match &bodies[..] {
-                    [b] => defs.iter().find(|d| d.id == b.def).and_then(|d| d.name.clone()),
+                    [b] => defs.iter().find(|d| d.id == b.def).filter(|d| d.named).map(|d| d.name.clone()),
                     _ => None,
                 };
                 let base = base.unwrap_or_else(|| t!("default_name.part"));
+                // Its own name, the occurrence's now.
+                let occurrence_name = match &mut bodies[..] {
+                    [b] => std::mem::take(&mut b.name),
+                    _ => String::new(),
+                };
                 let part = Part { defs, bodies, shape: None, failed: Default::default(), faces: Default::default() };
                 let part = self.insert_component(&base, false, ComponentKind::Part(part));
                 self.component_mut(part)?.guides = fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: *s }).collect();
@@ -711,7 +724,7 @@ impl Document {
                 let id = self.fresh_id();
                 self.assembly_mut(*context)?.occurrences_mut().push(Occurrence {
                     id,
-                    name: String::new(),
+                    name: occurrence_name,
                     component: part,
                     transform: *transform * fragment.world,
                     material: None,
@@ -849,7 +862,12 @@ impl Document {
                 let p = self.part_mut(*part)?;
                 let d = p.defs.iter_mut().find(|d| d.id == *def).ok_or(Error::NotFound(*def))?;
                 let name = name.trim();
-                d.name = (!name.is_empty()).then(|| name.to_owned());
+                d.set_name((!name.is_empty()).then(|| name.to_owned()));
+                Ok(Outcome::default())
+            }
+            Operation::RenameBody { part, body, name } => {
+                let b = self.part_mut(*part)?.any_body_mut(*body).ok_or(Error::NotFound(*body))?;
+                b.name = name.trim().to_owned();
                 Ok(Outcome::default())
             }
             Operation::MakeAssembly { context, entities, name } => {
@@ -1487,7 +1505,7 @@ impl Document {
                 let id = if shared { self.fresh_id() } else { c.id };
                 // A negative group holds positives only (above): each one a machining.
                 let sign = if b.sign == Sign::Negative { Sign::Negative } else { c.sign };
-                bodies.push(Body { id, def: c.def, sign, placement: b.placement * c.placement });
+                bodies.push(Body { id, name: c.name.clone(), def: c.def, sign, placement: b.placement * c.placement });
                 created.push(id);
             }
         }
@@ -1535,14 +1553,13 @@ impl Document {
         let current = p.shape().clone();
         // The bodies each index of the task's failures names: its positives, then its negatives.
         let cut_current = !new.is_empty() && new.iter().all(|b| b.sign == Sign::Negative);
-        let (base, positives, negatives): (Option<Arc<Solid>>, Vec<&Body>, Vec<&Body>) =
-            if cut_current {
-                (None, Vec::new(), new)
-            } else if !new.is_empty() && new.iter().all(|b| b.sign == Sign::Positive) {
-                (Some(current.clone()), new, p.negatives().collect())
-            } else {
-                (None, p.positives().collect(), p.negatives().collect())
-            };
+        let (base, positives, negatives): (Option<Arc<Solid>>, Vec<&Body>, Vec<&Body>) = if cut_current {
+            (None, Vec::new(), new)
+        } else if !new.is_empty() && new.iter().all(|b| b.sign == Sign::Positive) {
+            (Some(current.clone()), new, p.negatives().collect())
+        } else {
+            (None, p.positives().collect(), p.negatives().collect())
+        };
         let incremental = base.is_some() || cut_current;
         let mut named: Vec<Id> = positives.iter().chain(&negatives).map(|b| b.id).collect();
         let mut pos: Vec<(Arc<Solid>, DAffine3)> = positives.iter().map(|b| placed(b)).collect();
@@ -1576,6 +1593,8 @@ impl Document {
         // A tool the user named names the body it becomes (§2.11 « Body names »).
         let named = self.component(tool_part).ok().filter(|c| c.named).map(|c| c.name.clone());
         let tool_ctx = self.context_of(&tool.instances)?;
+        // Its occurrence's name, the body's own.
+        let tool_name = self.assembly(tool_ctx)?.occurrence(tool.entity).map(|o| o.name.clone()).unwrap_or_default();
         // The tool, in the target part's axes.
         let relative = t_target.inverse() * t_tool;
         match op {
@@ -1588,6 +1607,9 @@ impl Document {
                 let result = solver.boolean(p.shape(), q.shape(), moved, op.into())?;
                 let (defs, mut body) = self.tool_as_body(&q, &relative, named);
                 body.sign = Sign::Negative;
+                if !tool_name.is_empty() {
+                    body.name = tool_name;
+                }
                 let mut next = p;
                 next.defs.extend(defs);
                 next.bodies.push(body);
@@ -1598,7 +1620,10 @@ impl Document {
             // copies of its bodies, its machinings cutting that group only (§2.11 « Body
             // groups »). Added as it is: cut by the target's machinings, joined to its shape.
             Boolean::Union => {
-                let (defs, body) = self.tool_as_body(&q, &relative, named);
+                let (defs, mut body) = self.tool_as_body(&q, &relative, named);
+                if !tool_name.is_empty() {
+                    body.name = tool_name;
+                }
                 let id = body.id;
                 let p = self.part_mut(part)?;
                 p.defs.extend(defs);
@@ -1702,15 +1727,19 @@ impl Document {
             let (mut defs, mut bodies) = self.copies_of_bodies(&q.defs, &q.bodies, relative);
             let body = bodies.remove(0);
             if let Some(d) = defs.iter_mut().find(|d| d.id == body.def)
-                && d.name.is_none()
+                && !d.named
+                && named.is_some()
             {
-                d.name = named;
+                d.set_name(named);
             }
             return (defs, body);
         }
         let (mut defs, children) = self.copies_of_bodies(&q.defs, &q.bodies, &DAffine3::IDENTITY);
         let failed = q.bodies.iter().zip(&children).filter(|(b, _)| q.failed.contains(&b.id)).map(|(_, c)| c.id).collect();
-        let group = BodyDef { name: named, ..BodyDef::group(self.fresh_id(), q.shape().clone(), children, failed) };
+        let mut group = BodyDef::group(self.fresh_id(), q.shape().clone(), children, failed);
+        if named.is_some() {
+            group.set_name(named);
+        }
         let body = Body::new(self.fresh_id(), group.id, Sign::Positive, *relative);
         defs.push(group);
         (defs, body)

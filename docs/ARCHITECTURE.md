@@ -47,7 +47,7 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
   uses: it speaks of parts and assemblies.
 - **No more groups**, no more loose geometry: everything in the model is an occurrence.
   Drawing a box creates a part and its first occurrence; gathering occurrences creates an
-  assembly (named "Assembly N" until the user renames it).
+  assembly (named « Assemblage#1 », « Assemblage#2 »… until the user renames it).
 - A part is edited **directly** (no "entering" it); an assembly is opened like a SketchUp
   component (active context, §2.6).
 - **Properties** (exclusion from the cut list…) go on any component. The part's **type**
@@ -57,7 +57,10 @@ Machining  { id, tool: Arc<Brep>, placement: T, source: Local }            — a
   occurrence is painted with a hardware material: counted as one item, without detailing its
   content (OCL does not descend into an instance painted with a hardware material).
 - **Name**: the component's name is the part's name; the **occurrence name** names one
-  occurrence of that part ("Left", "Right"), as in OpenCutList.
+  occurrence of that part ("Left", "Right"), as in OpenCutList. Unique in the document
+  (`Document::unique_name`): an automatic one (not `named`) numbered from #1 as SketchUp's
+  (« Pièce#1 », « Pièce#2 »); one given, taken as it is, a copy of it « Caisson#2 », a copy of
+  « Caisson#2 » the first number free (2026-11-17, « Automatic names » in §2.11).
 - **Purge**: a part with no occurrence disappears, unless the user named it (it then stays in
   the model's library).
 
@@ -567,9 +570,9 @@ Part    = the root group (+ material, grain, cut list)
      `edit.ungroup_bodies`, in Assembler › Composants; in an open part, « Créer un
      assemblage » (G) and « Éclater » do the same on its bodies); the outliner shows the bodies
      of every part under it, a single one too (since 2026-11-16; folded, open while the part is),
-     named and drawn by their nature — « Extrusion n » (`PRISM`), « Révolution n » (`TURN`),
-     « Solide n » (a free B-rep, `SOLID`), « Groupe n » (`GROUP`) —, in their order of
-     creation, numbered among their siblings, a group's children under it; their sign a toggle
+     drawn by their nature — an extrusion (`PRISM`), a revolution (`TURN`), a free B-rep
+     (`SOLID`), a group (`GROUP`) — and named by their definition (« Body names » below), in
+     their order of creation, a group's children under it; their sign a toggle
      at the right end, where a part's row has its eye (`UNION` / `SUBTRACT`, since 2026-11-16):
      a click flips it (`Operation::SetSign`, the part open or not; the selected siblings too
      when the body is one of them; the open part's scope, else every occurrence), the last
@@ -609,12 +612,19 @@ Part    = the root group (+ material, grain, cut list)
 
 **Body names** (decided on 2026-11-16, questions / answers; built the same day, branch
 `feature/body-names`): a body definition takes a name given by the user, as a part's.
-- **On the definition** (`BodyDef::name`, `Option<String>`), not the body: every copy shows it,
-  as every occurrence of a part shows the part's name. A name per body (as an occurrence's) may
-  come later. None: the interface names it by its nature and rank (« Solide 3 », « Extrusion
-  2 »), the icon its nature's either way.
-- **Not unique**: unlike parts' names, they never reach the cut list; only for finding one's
-  way. No scope either: the name is shared by every occurrence of the part, the shape left
+- **On the definition** (`BodyDef::name` + `named`, as `Component`'s), not the body: every
+  copy shows it, as every occurrence of a part shows the part's name. Not given: automatic
+  (below), the icon its nature's either way.
+- **A body's own name** (asked on 2026-11-17), as an occurrence's: `Body::name`, empty for
+  none, « Haut <Trou charnière#1> » in the navigator (`Operation::RenameBody { part, body, name
+  }`, a group's child too; trimmed, empty to clear). Kept by its copies (as an occurrence's), a
+  body made unique, a group dissolved (its children's). Across a part's boundary it is the
+  occurrence's: a part pasted into a part or a boolean's tool gives its occurrence's name to
+  the body it becomes (a plain part with none, its body's); a single body pasted out as a part
+  gives its own to the new occurrence. Edited as an occurrence's: a double-click on it in the
+  row (F2: where it has one), the entity info's « Exemplaire ».
+- **Not unique** when given: unlike parts' names, they never reach the cut list; only for
+  finding one's way. No scope either: the name is shared by every occurrence of the part, the shape left
   alone (no kernel).
 - **`Operation::RenameBodyDef { part, def, name }`**, trimmed, empty to clear (« Renommer » in
   the history).
@@ -636,6 +646,26 @@ Part    = the root group (+ material, grain, cut list)
   alone in the field, the row's whole width (asked on 2026-11-16).
 - **No naming at creation**: « Nommage des pièces » (§6 quattuordecies) stays for parts; a body
   added to an open part is not asked its name.
+
+**Automatic names** (decided on 2026-11-17, questions / answers, branch `feature/auto-names`):
+one rule for components and body definitions. The bodies' first names, by their nature and
+their rank among their siblings (« Solide 3 »), told copies of one definition apart as if they
+were not (« Solide 2 », « Solide 3 » for one shape) and renumbered as bodies came and went.
+- **Stored, numbered from #1** (SketchUp's format): a definition not named by the user is
+  named by its base and a number, stable, shared by its copies — a part « Pièce#2 », a body
+  definition « Extrusion#2 ». Components unique in the document (§2.1), body definitions in
+  their part.
+- **Per nature** (`BodyDef::nature`, `Nature::base`: `default_name.extrusion`, `revolution`,
+  `solid`, `group`): « Extrusion#1 », « Révolution#1 », « Solide#1 », « Groupe#1 » in one part.
+- **Settled after each operation** (`Document::settle_names`, the parts it changed; every part
+  of a file read or imported): `Part::settle_names` names anew, from the first number free,
+  a definition with no name yet, one whose nature changed (an extrusion stretched askew is a
+  free solid now: « Solide#1 »), one whose name an earlier definition holds (a copy made
+  unique, bodies pasted from another part). A name given is never touched.
+- **Shown apart**: in the navigator an automatic name is in italics, attenuated — as far
+  towards the background as the weak text, from the row's colour (a hidden row's paler still,
+  the italics telling it there too); a name given as any text. Parts and assemblies the same
+  (their component's name only: « Gauche <Pièce#1> »).
 
 **Format**: version 1 until the release (§8), no compatibility to keep.
 
