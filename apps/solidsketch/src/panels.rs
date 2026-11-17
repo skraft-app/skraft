@@ -372,8 +372,12 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
         .inner_margin(egui::Margin::symmetric(6, 2) - egui::Margin::from(stroke.width));
     let (ground, ink) = (visuals.widgets.inactive.bg_fill, visuals.text_color());
 
+    // Its row as high as the field from the start: `ui.horizontal` starts one at
+    // `interact_size.y`, centered in the parent's row, and grows it downwards to the field's
+    // height — the field lower than its neighbours, the parent's row taller for those after it.
+    let row = egui::vec2(f.width, OPTION_HEIGHT);
     let r = ui
-        .horizontal(|ui| {
+        .allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
             // The add-on's border and the field's are one line: the field's, drawn over it.
             ui.spacing_mut().item_spacing.x = -border.width;
             if let Some((letter, color)) = f.addon {
