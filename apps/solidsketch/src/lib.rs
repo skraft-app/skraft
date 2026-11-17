@@ -23,6 +23,7 @@ mod panels;
 mod prefs;
 mod quick;
 mod ribbon;
+mod separators;
 mod style;
 mod tabs;
 mod titlebar;

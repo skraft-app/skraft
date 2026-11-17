@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use solidsketch_i18n::{t, tp};
+use solidsketch_i18n::t;
 
 /// A unit mark after a number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,8 +96,6 @@ pub enum ExprError {
     ArgumentCount(&'static str),
     /// `min(8,12)`: a decimal comma where `;` was meant.
     CommaSeparator(&'static str),
-    /// More values than the field takes.
-    TooMany(usize),
 }
 
 impl fmt::Display for ExprError {
@@ -116,7 +114,6 @@ impl fmt::Display for ExprError {
             ExprError::NoMatchingValue(function) => t!("error.expr.no_matching_value", function = function),
             ExprError::ArgumentCount(function) => t!("error.expr.argument_count", function = function),
             ExprError::CommaSeparator(function) => t!("error.expr.comma_separator", function = function),
-            ExprError::TooMany(n) => tp!("error.expr.too_many", *n),
         })
     }
 }
@@ -239,9 +236,15 @@ fn tokenize(text: &str, literal: &dyn Fn(&Literal) -> Result<Value>, variable: &
     Ok(tokens)
 }
 
+/// Is `ch` a decimal point: `.`, and `,` unless it is the system's list separator
+/// ([`solidsketch_i18n::list_separator`]: `,` then separates values, `10,5` is two).
+fn decimal_point(ch: char) -> bool {
+    ch == '.' || (ch == ',' && solidsketch_i18n::list_separator() != ',')
+}
+
 /// The literal at `i`, if a number starts there, and where it ends.
 fn read_literal(c: &[char], i: usize) -> Result<Option<(Literal, usize)>> {
-    let starts = c[i].is_ascii_digit() || (matches!(c[i], '.' | ',') && c.get(i + 1).is_some_and(|d| d.is_ascii_digit()));
+    let starts = c[i].is_ascii_digit() || (decimal_point(c[i]) && c.get(i + 1).is_some_and(|d| d.is_ascii_digit()));
     if !starts {
         return Ok(None);
     }
@@ -314,7 +317,7 @@ fn number(c: &[char], i: usize) -> Result<Option<(f64, usize)>> {
     // 2,5 · 2.5 · .5
     let mut end = j;
     let mut points = 0;
-    while end < c.len() && matches!(c[end], '.' | ',') && c.get(end + 1).is_some_and(|d| d.is_ascii_digit()) {
+    while end < c.len() && decimal_point(c[end]) && c.get(end + 1).is_some_and(|d| d.is_ascii_digit()) {
         points += 1;
         end = digits(c, end + 1).1;
     }
@@ -593,6 +596,12 @@ mod tests {
         assert_eq!(n("2*max(@;150)"), 300.0);
         assert_eq!(eval("floor(5; 12; 15)"), Err(ExprError::NoMatchingValue("floor")));
         assert_eq!(eval("min(8,12)"), Err(ExprError::CommaSeparator("min")));
+        // On a system writing `12.5`, `,` separates.
+        solidsketch_i18n::with_separators('.', None, || {
+            assert_eq!(n("min(8,12)"), 8.0);
+            assert!(eval("2,5").is_err(), "not a decimal point");
+            assert_eq!(n("min(10.5, 20)"), 10.5);
+        });
         assert_eq!(eval("min(8)"), Err(ExprError::ArgumentCount("min")));
         assert_eq!(eval("min(1m; 2m/1m)"), Err(ExprError::InvalidDimension));
         assert!(matches!(eval("sin(3)"), Err(ExprError::Syntax(_))));

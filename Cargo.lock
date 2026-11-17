@@ -3126,6 +3126,7 @@ dependencies = [
  "env_logger",
  "glam",
  "js-sys",
+ "libc",
  "log",
  "muda",
  "objc2 0.6.5",
@@ -3149,6 +3150,7 @@ dependencies = [
  "web-sys",
  "web-time",
  "wgpu",
+ "windows-sys 0.61.2",
  "winresource",
 ]
 

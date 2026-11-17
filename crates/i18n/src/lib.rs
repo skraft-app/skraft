@@ -10,7 +10,7 @@
 //!
 //! Nothing is cached: egui draws every frame, so [`set_locale`] changes the app at once.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 rust_i18n::i18n!("../../locales", fallback = "fr");
 
@@ -163,10 +163,67 @@ pub fn ellipsis(text: impl Into<String>) -> String {
     text
 }
 
-/// A number as the locale writes it: `12,5` in French. `text` is Rust's own formatting of
-/// it (`12.5`).
+/// A number as the system writes it: `12,5` with a decimal comma. `text` is Rust's own
+/// formatting of it (`12.5`).
 pub fn number(text: &str) -> String {
-    text.replace('.', &t!("locale.decimal_separator"))
+    text.replace('.', decimal_separator().encode_utf8(&mut [0; 4]))
+}
+
+/// The separators of numbers are the system's regional settings, not the texts' language
+/// (French texts on a system writing `12.5`): the app reads them at start
+/// ([`set_separators`]); until then, and headless, `,` and `;`.
+static DECIMAL: AtomicU32 = AtomicU32::new(',' as u32);
+static LIST: AtomicU32 = AtomicU32::new(';' as u32);
+
+/// Sets the system's decimal separator, and its list separator when it has one (Windows);
+/// otherwise the list separator follows from the decimal one ([`list_separator_for`]).
+pub fn set_separators(decimal: char, list: Option<char>) {
+    let decimal = if decimal.is_alphanumeric() || decimal.is_whitespace() { ',' } else { decimal };
+    DECIMAL.store(decimal as u32, Ordering::Relaxed);
+    LIST.store(list_separator_for(decimal, list) as u32, Ordering::Relaxed);
+}
+
+thread_local! {
+    /// Separators for this thread only ([`with_separators`]).
+    static SEPARATORS: std::cell::Cell<Option<(char, char)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs `f` with these separators on this thread only, as [`set_separators`] would set them:
+/// for tests, which run side by side.
+pub fn with_separators<R>(decimal: char, list: Option<char>, f: impl FnOnce() -> R) -> R {
+    let before = SEPARATORS.replace(Some((decimal, list_separator_for(decimal, list))));
+    let r = f();
+    SEPARATORS.set(before);
+    r
+}
+
+/// The decimal separator numbers are written with (`,` or `.`, as the system says).
+pub fn decimal_separator() -> char {
+    match SEPARATORS.get() {
+        Some((d, _)) => d,
+        None => char::from_u32(DECIMAL.load(Ordering::Relaxed)).unwrap_or(','),
+    }
+}
+
+/// The separator of typed lists besides `;` (always one), and the one lists are written
+/// with: `;`, or `,` on a system writing `12.5` — `,` is then no decimal point in what is
+/// typed.
+pub fn list_separator() -> char {
+    match SEPARATORS.get() {
+        Some((_, l)) => l,
+        None => char::from_u32(LIST.load(Ordering::Relaxed)).unwrap_or(';'),
+    }
+}
+
+/// The list separator of a system with `decimal` and, if it has one, `list`: only `;` or
+/// `,` (a typed list takes nothing else), never the decimal separator; without one, `,`
+/// when the decimal separator is not (as spreadsheets do).
+pub fn list_separator_for(decimal: char, list: Option<char>) -> char {
+    match list {
+        Some(l @ (';' | ',')) if l != decimal => l,
+        _ if decimal == ',' => ';',
+        _ => ',',
+    }
 }
 
 static MAC: AtomicBool = AtomicBool::new(cfg!(target_os = "macos"));

@@ -50,6 +50,12 @@ dirs = "6"
 [target.'cfg(target_os = "linux")'.dependencies]
 # winit's windowing backends, off with eframe's default features (workspace Cargo.toml).
 eframe = { workspace = true, features = ["wayland", "x11"] }
+# The system's decimal separator (src/separators.rs): its numeric locale.
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# The system's decimal and list separators (src/separators.rs).
+windows-sys = { version = "0.61", features = ["Win32_Globalization"] }
 
 [target.'cfg(windows)'.build-dependencies]
 # The executable's icon and version in the Explorer (build.rs).
@@ -60,7 +66,7 @@ winresource = "0.1"
 muda = { version = "0.21", default-features = false }
 # The documents the system asks to open (src/opened.rs): an Apple Event handler.
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSNotification", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSLocale", "NSNotification", "NSString", "NSURL"] }
 # The window's title bar is the app's (src/lib.rs, `app_drags_window`): AppKit's own drag in it is
 # turned off.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSView", "NSWindow"] }
