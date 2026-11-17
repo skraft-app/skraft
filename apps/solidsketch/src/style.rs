@@ -196,6 +196,10 @@ fn apply(s: &mut egui::Style, t: &UiTokens) {
     }
     s.spacing.item_spacing = t.item_spacing.into();
     s.spacing.button_padding = t.button_padding.into();
+    // Tips come quickly (egui waits 0.5 s), and once one is shown the next ones follow at once
+    // while the pointer goes from widget to widget.
+    s.interaction.tooltip_delay = 0.15;
+    s.interaction.tooltip_grace_time = 0.5;
 
     let v = &mut s.visuals;
     let border = Stroke::new(1.0, color(t.border));
