@@ -1978,6 +1978,64 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
 }
 
 #[test]
+fn a_machining_moved_stays_drawn_where_it_goes_while_the_kernel_computes() {
+    use glam::DAffine3;
+    use solidsketch_model::Scope;
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
+    let drill = e
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 100.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: DAffine3::IDENTITY,
+        })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let target = EntityPath::root(board);
+    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+        .unwrap();
+    let (mut e, k) = deferred_editor(e.document().clone());
+    let settle = |e: &mut Editor| {
+        while k.queued() > 0 {
+            k.run_all();
+            e.poll();
+        }
+    };
+    settle(&mut e);
+    e.set_machinings_switch(true);
+    e.enter(board);
+    settle(&mut e);
+    let hole = e.document().resolve_part(&target).unwrap().1.machinings()[0].id;
+    let tools_drawn = |e: &Editor| e.view().batches.iter().flat_map(|(_, p)| p).filter(|p| p.look == Look::Tool).count();
+    assert_eq!(tools_drawn(&e), 1);
+
+    // Moved 100 along red, then copied 50 further: while the kernel works, the hole is drawn
+    // where it goes (a ghost), not back where it was for a frame or more.
+    for copy in [false, true] {
+        e.set_tool(ToolKind::Move);
+        e.select(vec![hole]);
+        if copy {
+            e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+        }
+        let x = e.document().resolve_part(&target).unwrap().1.machinings()[0].placement.translation.x;
+        click(&mut e, DVec3::new(x, 100.0, 25.0));
+        e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
+        e.input(ToolInput::Hover { px: px(&e, DVec3::new(x + 200.0, 100.0, 25.0)) });
+        e.input(ToolInput::Vcb("100".into()));
+        assert!(e.busy(), "computed by the kernel");
+        let v = e.view();
+        assert_eq!(v.highlights.iter().filter(|h| h.mark == Mark::Ghost).count(), 1, "copy: {copy}");
+        assert_eq!(tools_drawn(&e), usize::from(copy), "the original drawn only when copied");
+        settle(&mut e);
+        assert!(!e.busy());
+        assert!(!e.view().highlights.iter().any(|h| h.mark == Mark::Ghost));
+        assert_eq!(tools_drawn(&e), 1 + usize::from(copy));
+    }
+}
+
+#[test]
 fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
     use glam::DAffine3;
     use solidsketch_model::Scope;

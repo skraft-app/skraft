@@ -247,7 +247,7 @@ impl Editor {
                 self.pump();
                 self.journal.set_origin(now);
                 // A stretch held while computed is done: the part is drawn as it now is.
-                self.held_stretch = None;
+                self.held = None;
                 self.update_preview_mesh();
             }
             // Anything else was abandoned: dropped.
@@ -302,7 +302,7 @@ impl Editor {
         let Some(p) = self.pending.take() else { return };
         // Stopped: no need to compute what nobody waits for.
         self.kernel.cancel(p.job);
-        self.held_stretch = None;
+        self.held = None;
         self.update_preview_mesh();
         self.queue.clear();
         self.collected.clear();
