@@ -318,8 +318,8 @@ Decided on 2026-11-14 (questions / answers). Branch `feature/part-bodies`, built
    bodies as ghosts, its negative ones as its machinings; the Profile tool edits its first
    profiled positive body, in that body's axes;
 2. the interface of bodies (done, 2026-11-14): in an open part, the drawing tools' bar has a
-   « Matière » choice, « Enlever » (a machining) / « Ajouter » (a positive body), back to
-   « Enlever » at each opening; the « Corps » switch shows positive bodies as
+   « Solide » choice, « Enlever » (a machining, the subtraction's icon) / « Ajouter » (a
+   positive body, the union's icon; the names in the tips), back to « Enlever » at each opening; the « Corps » switch shows positive bodies as
    ghosts, negative ones as solids, all picked (a negative one first, whatever the depth —
    it lies inside —, else the nearest positive one), selected, moved, copied and erased alike
    (`Piece::Blank(id)`); a double-click on a body with a profile (in Select or Profile) edits
@@ -2168,7 +2168,7 @@ supersedes "Occurrences do not paste into an open part, nor machinings out of on
 - **Parts into an open part** (`Operation::PasteParts { target, fragment, transform, scope }`,
   the entities' fragment, in world axes, brought into the part's): **one body per part**, at
   any depth of the assemblies copied (hidden occurrences left out), placed by its world
-  transformation, **positive** whatever the « Matière » choice (the ＋/－ badge changes it
+  transformation, **positive** whatever the « Solide » choice (the ＋/－ badge changes it
   after). As the difference's tool (§2.11): a part that is its single positive body (a shape
   drawn) gives that body whole, its profile with it — still editable; any other part comes
   as **a group of its bodies** (§2.11 « Body groups », since 2026-11-16; flattened into one

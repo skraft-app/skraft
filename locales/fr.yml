@@ -379,7 +379,7 @@ option_bar:
   # The tip of a value drawn as an icon: its name, then what it does.
   icon_tip: "%{label} — %{tip}"
   # What a shape drawn in an open part does (ARCHITECTURE.md §2.11).
-  body_sign: "Matière"
+  body_sign: "Solide"
   body_sign_tip: "Ce que fait une forme dessinée dans la pièce ouverte (revient à « Enlever » à chaque ouverture)"
   remove: "Enlever"
   remove_tip: "La forme dessinée est un usinage : elle enlève de la matière à la pièce"
