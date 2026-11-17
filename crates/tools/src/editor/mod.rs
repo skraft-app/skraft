@@ -123,9 +123,10 @@ pub struct Editor {
     /// The stretch the scene's preview mesh was made for, and the revisions handed out.
     stretch_meshed: Option<tools::StretchPreview>,
     preview_revision: u64,
-    /// A stretch applied, drawn as previewed until the kernel's job gives the part its new
-    /// shape (else the part would show as it was for a frame or more).
-    held_stretch: Option<(JobId, tools::StretchPreview)>,
+    /// A stretch, move or rotation applied, drawn as previewed until the kernel's job gives
+    /// the part its new shape (else it would show as it was for a frame or more): the
+    /// stretch, or the selection's ghost (copies left behind: as a copy).
+    held: Option<(JobId, Preview)>,
     /// The occurrences a stretch previewed draws otherwise, by path: the mesh, the transform.
     stretch_swaps: HashMap<EntityPath, (Id, DAffine3)>,
     /// The bodies of the open part a stretch previewed draws otherwise (§2.11): the mesh, the
@@ -248,7 +249,7 @@ impl Editor {
             outliner_hover: None,
             stretch_meshed: None,
             preview_revision: 0,
-            held_stretch: None,
+            held: None,
             stretch_swaps: HashMap::new(),
             body_swaps: HashMap::new(),
             selection_drawing: std::cell::RefCell::new(None),
@@ -1017,8 +1018,15 @@ impl Editor {
         // The tool reads the editor while it runs: take it out for the call.
         let mut tool = std::mem::replace(&mut self.tool, tools::make(ToolKind::Select));
         let cx = self.cx_for(&*tool);
+        // Where the tool draws the selection moved, as the input may apply it: held while
+        // computed (the tool is back at its first step by then).
+        let ghost = match input {
+            ToolInput::Hover { .. } => None,
+            _ => tool.preview(&cx).ghost.map(|g| (g, tool.copying())),
+        };
         let commands = tool.input(&input, &cx);
         self.tool = tool;
+        let job_before = self.pending.as_ref().map(|p| p.job);
         if matches!(input, ToolInput::Hover { .. }) {
             let inference = self.preview().inference;
             if let Some(edge) = inference.as_ref().and_then(|i| i.edge) {
@@ -1035,6 +1043,14 @@ impl Editor {
         let acted = Self::acts(&commands);
         for c in commands {
             self.run(c);
+        }
+        if let (Some((g, copying)), Some(p)) = (ghost, &self.pending)
+            && Some(p.job) != job_before
+            && self.held.is_none()
+        {
+            let held =
+                if copying { Preview { copies: vec![g], ..Preview::default() } } else { Preview { ghost: Some(g), ..Preview::default() } };
+            self.held = Some((p.job, held));
         }
         if acted {
             self.hand_back(true);
@@ -1209,7 +1225,7 @@ impl Editor {
                 if self.start(op, after, false).is_ok() {
                     self.selection.retain(|id| !hidden.contains(id));
                 }
-                self.held_stretch = held.zip(self.pending.as_ref()).map(|(s, p)| (p.job, s));
+                self.held = held.zip(self.pending.as_ref()).map(|(s, p)| (p.job, Preview { stretch: Some(s), ..Preview::default() }));
             }
             Command::Select(ids) => self.selection = ids,
             Command::SetOption { key, value } => self.set_tool_option(key, value),
@@ -1245,12 +1261,13 @@ impl Editor {
         }
     }
 
-    /// What the tool shows; while a stretch it applied is computed, that stretch alone.
+    /// What the tool shows; while a stretch, move or rotation it applied is computed, that
+    /// alone.
     pub fn preview(&self) -> Preview {
-        if let Some((job, s)) = &self.held_stretch
+        if let Some((job, held)) = &self.held
             && self.pending.as_ref().is_some_and(|p| p.job == *job)
         {
-            return Preview { stretch: Some(s.clone()), ..Preview::default() };
+            return held.clone();
         }
         self.tool.preview(&self.cx())
     }
