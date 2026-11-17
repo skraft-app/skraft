@@ -887,6 +887,11 @@ pub fn outliner(
                         if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
                     let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
                     let eye = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
+                    // Its own material, if any: a dot of its colour left of the eye, a column of
+                    // its own so the names stay aligned.
+                    if let Some(m) = o.material.and_then(|m| doc.material(m).ok()) {
+                        material_dot(ui, m, greyed);
+                    }
                     let renamed = ui
                         .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             if broken || inner {
@@ -952,6 +957,19 @@ pub fn outliner(
     });
     actions.push(Action::HoverOutliner(over));
     actions.push(Action::HoverMachining(over_body));
+}
+
+/// A navigator row's material: a round dot of its colour, ringed so a pale one shows on the
+/// band, faded on a hidden row (`greyed`); its name in the tip.
+fn material_dot(ui: &mut egui::Ui, m: &solidsketch_model::Material, greyed: bool) {
+    const SIZE: f32 = 10.0;
+    let (r, response) = ui.allocate_exact_size(egui::vec2(SIZE, SIZE), egui::Sense::hover());
+    let [red, g, b] = m.color;
+    let alpha = if greyed { 0.4 } else { 1.0 };
+    let fill = egui::Color32::from_rgb(red, g, b).gamma_multiply(alpha);
+    let ring = ui.visuals().widgets.noninteractive.fg_stroke.color.gamma_multiply(0.5 * alpha);
+    ui.painter().circle(r.center(), SIZE / 2.0 - 0.5, fill, egui::Stroke::new(1.0, ring));
+    response.on_hover_text(&m.name);
 }
 
 /// The model, the outliner's first row, at the list's left edge (no indent, no fold nor eye):
