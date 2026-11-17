@@ -3066,6 +3066,47 @@ grips), so a script clicks a name, not a pixel.
   (`--headless` forces it): every method but `ui.*`. The MCP layer itself (JSON-RPC over
   stdio, lifecycle, schemas) is hand-written (see "Order", 5).
 
+### Several apps, and who did what (built 2026-11-17)
+
+Agents' sessions each launch the app from their own worktree, beside the user's: which one is
+which, and which one a client talks to, must be plain; and the journal must tell the user's
+doing from the pilot's.
+
+- **Identity of a dev build**: the app's build script (`apps/solidsketch/build.rs`, `dev`
+  profile only) stamps the git worktree, branch, short commit, `dirty` (tracked changes not
+  committed) and build time (`SOLIDSKETCH_GIT_*`, `SOLIDSKETCH_BUILT`; run again on HEAD, the
+  index, the branch's ref or any source changed). `apps/solidsketch/src/identity.rs` reads
+  them (none in a release). Shown only in dev builds: a **badge** after the app's name in the
+  title bar — the worktree's short name (`solidsketch-prism-z` → `prism-z`; the branch for the
+  main checkout) and the commit, `*` when dirty, on a hue hashed from the name (FNV-1a, the
+  same at every launch) — its hover gives the worktree, branch, commit, build and launch
+  times, pid, who launched it, the channel's port; the window's title is `SolidSketch [name] —
+  document`.
+- **Registry of running apps** (`solidsketch_control::instances`): every app (desktop) writes
+  `control/instances/<pid>.json` — pid, start, version, executable, its channel's port while
+  on (kept up to date), its build, `claude_session` (`CLAUDE_CODE_SESSION_ID`, inherited from
+  the Claude Code session that launched it), `launcher` (`SOLIDSKETCH_LAUNCHER`, free text) —
+  and holds a lock on `<pid>.lock` while it runs (`File::try_lock`); the OS frees the lock
+  with a crashed process, so `instances::list` tells live apps from leftovers and removes
+  those. Method `app.instances` lists them; `app.state` gives `instance`, the app answering.
+- **Which app a client calls** (`instances::choose`): among the apps whose channel is on, the
+  one its own Claude Code session launched, else one built from the worktree it runs in
+  (path components), else the last started (`current.port`). `solidsketch-mcp` (`Remote`,
+  no `--connect`) and `scripts/control.sh` (which also has `control.sh instances`) both do.
+- **Who did what**: a request may name its client, `X-SolidSketch-Client: <name>` (80
+  characters, one line; `Call::client`). `solidsketch-mcp` sends `mcp · session <8> ·
+  <worktree>`, `control.sh` the same with its name. Each journal entry has an **origin**
+  (`journal::Origin`: `User`, or `Control { client }`): the app sets it on every document's
+  editor for each call it serves, and for each frame from the events it feeds — a frame fed
+  a client's `ui.*` events is that client's, a frame with the person's own input (pointer,
+  keys, wheel, text) the user's, a frame with neither keeps the last one's (a tool following
+  the pointer where the pilot left it); the native menu bar and files the system opens are
+  the user's. An operation computed later is logged with its asker's origin (kept in the
+  pending job), and hovers merge only within one origin. `journal.log` gives `origin`
+  (`user` / `control`) and `client`; the journal window marks the pilot's entries with the
+  channel's green mark (the client on hover) and filters by origin (Tous / Utilisateur /
+  Pilote). The headless MCP's editor is all pilot (`mcp · headless`).
+
 ### Crates
 
 - `crates/control` — `solidsketch-control`: the requests and replies (types, schemas), the

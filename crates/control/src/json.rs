@@ -198,7 +198,11 @@ pub fn entry(e: &Entry) -> Value {
         Event::Undo => json!("undo"),
         Event::Redo => json!("redo"),
     };
-    json!({ "seq": e.seq, "ms": e.ms, "event": event })
+    let mut v = json!({ "seq": e.seq, "ms": e.ms, "event": event, "origin": if e.origin.is_control() { "control" } else { "user" } });
+    if let Some(c) = e.origin.client() {
+        v["client"] = json!(c);
+    }
+    v
 }
 
 /// A kernel failure: summed up, or in full (its job, which `solidsketch_kernel::run` runs

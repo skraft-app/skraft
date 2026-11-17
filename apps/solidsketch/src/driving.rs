@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use solidsketch_control::params::{UiButton, UiMods, WaitParams};
 use solidsketch_control::{Call, Outcome};
+use solidsketch_tools::journal::Origin;
 use web_time::Instant;
 
 /// A request and where its answer goes.
@@ -34,10 +35,11 @@ pub struct Waiting {
     pub deadline: Instant,
 }
 
-/// The events of one frame, and the modifiers held during it.
+/// The events of one frame, the modifiers held during it, the client that asked for them.
 struct Frame {
     events: Vec<egui::Event>,
     modifiers: egui::Modifiers,
+    client: Option<String>,
 }
 
 /// A `ui.*` request whose events are queued: answered once the frame after its last one has
@@ -48,6 +50,29 @@ struct Taking {
     ticket: u64,
     /// The frame its last events were fed to.
     fed_at: Option<u64>,
+}
+
+/// Whether a window event is a person's input (the pointer, the keyboard, the wheel), not
+/// the window's own (focus, a screenshot).
+fn is_input(e: &egui::Event) -> bool {
+    use egui::Event as E;
+    matches!(
+        e,
+        E::PointerMoved(_)
+            | E::MouseMoved(_)
+            | E::PointerButton { .. }
+            | E::PointerGone
+            | E::Key { .. }
+            | E::Text(_)
+            | E::MouseWheel { .. }
+            | E::Zoom(_)
+            | E::Rotate(_)
+            | E::Touch { .. }
+            | E::Copy
+            | E::Cut
+            | E::Paste(_)
+            | E::Ime(_)
+    )
 }
 
 /// The messages kept.
@@ -69,6 +94,10 @@ pub struct Driving {
     fed: u64,
     /// The modifiers the queued frames hold now.
     held: egui::Modifiers,
+    /// Who caused this frame's input: the client whose events were fed to it, the user if
+    /// they gave any, else whoever did last (a frame with no input — a tool following the
+    /// pointer where the pilot left it — goes on with the last one's).
+    origin: Origin,
     taking: Vec<Taking>,
     /// The window's screenshot asked for, and the image once there.
     shot: Vec<Asker>,
@@ -86,6 +115,7 @@ impl Default for Driving {
             queued: 0,
             fed: 0,
             held: egui::Modifiers::NONE,
+            origin: Origin::User,
             taking: Vec::new(),
             shot: Vec::new(),
             image: Arc::new(Mutex::new(None)),
@@ -104,10 +134,22 @@ impl Driving {
         !self.queue.is_empty() || !self.taking.is_empty() || !self.waiting.is_empty() || !self.shot.is_empty()
     }
 
+    /// Who caused this frame's input (the journal's entries): a client of the channel whose
+    /// real events were fed to it, else the user.
+    pub fn origin(&self) -> Origin {
+        self.origin.clone()
+    }
+
+    /// The user acted other than through the window's events (the native menu bar, a file
+    /// the system opens): what follows is theirs.
+    pub fn user_acted(&mut self) {
+        self.origin = Origin::User;
+    }
+
     /// Queues `frames` of events for `asker`, answered once taken in.
     pub fn take_in(&mut self, asker: Asker, frames: Vec<(Vec<egui::Event>, egui::Modifiers)>) {
         for (events, modifiers) in frames {
-            self.queue.push_back(Frame { events, modifiers });
+            self.queue.push_back(Frame { events, modifiers, client: asker.call.client.clone() });
             self.queued += 1;
         }
         self.taking.push(Taking { asker, ticket: self.queued, fed_at: None });
@@ -117,6 +159,9 @@ impl Driving {
     /// modifiers pressed first when they change (egui follows them by events), let go once
     /// the queue is empty.
     pub fn feed(&mut self, raw: &mut egui::RawInput) {
+        if raw.events.iter().any(is_input) {
+            self.origin = Origin::User;
+        }
         let Some(f) = self.queue.pop_front() else {
             if self.held != egui::Modifiers::NONE {
                 self.held = egui::Modifiers::NONE;
@@ -129,6 +174,7 @@ impl Driving {
             raw.events.push(egui::Event::ModifiersChanged(f.modifiers));
         }
         raw.events.extend(f.events);
+        self.origin = Origin::control(f.client.as_deref());
         self.fed += 1;
         // The frame about to run takes them in.
         let next = self.frame + 1;

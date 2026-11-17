@@ -2,7 +2,9 @@
 //!
 //! ```text
 //! solidsketch-mcp                  the running app if its control channel answers, else headless
-//! solidsketch-mcp --remote         the running app (found again at each call, even if started later)
+//! solidsketch-mcp --remote         the running app (found again at each call, even if started later):
+//!                                  the one this Claude Code session launched, else one built from
+//!                                  this worktree, else the last started
 //! solidsketch-mcp --connect 7858   the app on that port
 //! solidsketch-mcp --headless       an editor of its own, no window
 //! solidsketch-mcp --in a.ssk          headless, on that document

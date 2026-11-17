@@ -1,14 +1,18 @@
 //! The journal window (docs/ARCHITECTURE.md §7 septies): what the shown document's editor
 //! went through — its journal and the kernel's failures — as `journal.log` and
 //! `journal.failures` give them to the control channel, read in the app. Opened from the
-//! control channel's mark or the command palette (`app.journal`).
+//! control channel's mark or the command palette (`app.journal`). What a client of the channel
+//! caused (an agent, a script: the pilot) bears the channel's mark, its client's name on
+//! hover; a filter shows the user's entries or the pilot's alone.
 
 use solidsketch_i18n::{t, tp};
-use solidsketch_tools::journal::{Entry, Event, Failure, JobKind, Journal};
+use solidsketch_tools::journal::{Entry, Event, Failure, JobKind, Journal, Origin};
 use solidsketch_tools::{Modifiers, ToolInput};
 
 /// The width of the entries' kind column (« Début de glisser » fits).
 const KIND_WIDTH: f32 = 120.0;
+/// The pilot's mark before an entry it caused.
+const MARK: f32 = 14.0;
 
 /// The window's state, while it is open.
 #[derive(Clone, Debug)]
@@ -20,7 +24,10 @@ pub struct JournalWindow {
 
 impl Default for JournalWindow {
     fn default() -> Self {
-        JournalWindow { tab: Tab::Log, shown: Shown { inputs: true, hovers: false, tools: true, operations: true, jobs: true } }
+        JournalWindow {
+            tab: Tab::Log,
+            shown: Shown { inputs: true, hovers: false, tools: true, operations: true, jobs: true, origin: Who::All },
+        }
     }
 }
 
@@ -41,10 +48,39 @@ struct Shown {
     operations: bool,
     /// Kernel jobs back.
     jobs: bool,
+    /// Whose entries.
+    origin: Who,
+}
+
+/// Whose entries are shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Who {
+    All,
+    User,
+    Pilot,
+}
+
+impl Who {
+    fn label(self) -> String {
+        match self {
+            Who::All => t!("journal.origin.all"),
+            Who::User => t!("journal.origin.user"),
+            Who::Pilot => t!("journal.origin.pilot"),
+        }
+    }
 }
 
 impl Shown {
-    fn shows(&self, e: &Event) -> bool {
+    fn shows(&self, entry: &Entry) -> bool {
+        let whose = match self.origin {
+            Who::All => true,
+            Who::User => !entry.origin.is_control(),
+            Who::Pilot => entry.origin.is_control(),
+        };
+        whose && self.shows_kind(&entry.event)
+    }
+
+    fn shows_kind(&self, e: &Event) -> bool {
         match e {
             Event::Input { input: ToolInput::Hover { .. }, .. } => self.inputs && self.hovers,
             Event::Input { .. } => self.inputs,
@@ -112,7 +148,7 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
 
 /// The journal's entries, oldest first, following the last.
 fn log(ui: &mut egui::Ui, shown: &mut Shown, journal: &Journal) {
-    let entries: Vec<&Entry> = journal.since(0).filter(|e| shown.shows(&e.event)).collect();
+    let entries: Vec<&Entry> = journal.since(0).filter(|e| shown.shows(e)).collect();
     egui::Sides::new().show(
         ui,
         |ui| {
@@ -121,6 +157,12 @@ fn log(ui: &mut egui::Ui, shown: &mut Shown, journal: &Journal) {
             ui.checkbox(&mut shown.tools, t!("journal.show.tools"));
             ui.checkbox(&mut shown.operations, t!("journal.show.operations"));
             ui.checkbox(&mut shown.jobs, t!("journal.show.jobs"));
+            ui.separator();
+            egui::ComboBox::from_id_salt("journal_origin").selected_text(shown.origin.label()).show_ui(ui, |ui| {
+                for who in [Who::All, Who::User, Who::Pilot] {
+                    ui.selectable_value(&mut shown.origin, who, who.label());
+                }
+            });
         },
         |ui| {
             if ui.button(t!("journal.copy")).on_hover_text(t!("journal.copy_tip")).clicked() {
@@ -144,6 +186,7 @@ fn log(ui: &mut egui::Ui, shown: &mut Shown, journal: &Journal) {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.label(egui::RichText::new(format!("{:>5}", e.seq)).monospace().color(weak));
                 ui.label(egui::RichText::new(clock(e.ms)).monospace().color(weak));
+                pilot_mark(ui, &e.origin, height);
                 // A column of its own: the details line up.
                 let kind = egui::RichText::new(kind).strong();
                 let kind = if failed { kind.color(alert) } else { kind };
@@ -155,6 +198,21 @@ fn log(ui: &mut egui::Ui, shown: &mut Shown, journal: &Journal) {
                 ui.add(egui::Label::new(if failed { detail.color(alert) } else { detail }).extend());
             });
         }
+    });
+}
+
+/// The pilot's mark (the control channel's, in its green) before what a client caused, its
+/// name on hover; the user's entries: the room alone, the columns lined up.
+fn pilot_mark(ui: &mut egui::Ui, origin: &Origin, height: f32) {
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(MARK, height), egui::Sense::hover());
+    if !origin.is_control() {
+        return;
+    }
+    let img = egui::Image::new(crate::icons::REMOTE).tint(crate::titlebar::ACTIVE);
+    img.paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK)));
+    r.on_hover_text(match origin.client() {
+        Some(c) => t!("journal.origin.pilot_named", client = c),
+        None => t!("journal.origin.pilot_tip"),
     });
 }
 

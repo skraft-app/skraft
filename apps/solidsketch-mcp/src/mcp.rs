@@ -27,7 +27,10 @@ cut list dimensions). Every tool is a method of its control protocol (docs/ARCHI
 - `ui_*` tools (when connected to the window) send real input: clicks on named widgets \
 (`ui_handles` lists them) or points; `app_screenshot` / `ui_screenshot` show the view / window.
 - `journal_log`, `journal_failures` tell what happened and what the kernel failed (its job, to \
-replay headless).";
+replay headless); each entry's `origin` says whether the user or a pilot (`client`) caused it.
+- Several apps may run (one per worktree): `app_state`'s `instance` says which one answers \
+(build, worktree, who launched it), `app_instances` lists them all. Launch yours from your \
+worktree with `SOLIDSKETCH_CONTROL=1` and a port of its own.";
 
 /// The tool's name of `method`.
 pub fn tool_name(method: &str) -> String {

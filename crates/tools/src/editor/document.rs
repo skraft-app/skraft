@@ -50,6 +50,8 @@ pub(super) struct Pending {
     /// The job sent (kept for the journal: a failure's repro) and when.
     pub(super) sent: Job,
     pub(super) at: Instant,
+    /// Who asked for it: the journal notes its outcome as theirs.
+    pub(super) origin: super::journal::Origin,
 }
 
 impl Editor {
@@ -72,7 +74,15 @@ impl Editor {
             Ok(Prepared::Done(applied)) => Ok(Some(self.finish(op, *applied, after))),
             Ok(Prepared::Kernel(job)) => {
                 let id = self.job_id();
-                self.pending = Some(Pending { job: id, op, after, restore, sent: job.clone(), at: Instant::now() });
+                self.pending = Some(Pending {
+                    job: id,
+                    op,
+                    after,
+                    restore,
+                    sent: job.clone(),
+                    at: Instant::now(),
+                    origin: self.journal.origin().clone(),
+                });
                 self.last = None;
                 self.kernel.submit(id, job);
                 // A kernel run inline has answered already.
@@ -224,13 +234,18 @@ impl Editor {
                 meshed = true;
             } else if self.pending.as_ref().is_some_and(|p| p.job == id) {
                 let Some(p) = self.pending.take() else { continue };
+                // Its outcome is whoever asked for it's, whatever this frame's origin.
+                let now = self.journal.origin().clone();
+                self.journal.set_origin(p.origin.clone());
                 self.journal_job(&p, &result);
                 let applied = result.map_err(Into::into).and_then(|outputs| self.document().commit(&p.op, outputs));
                 self.last = Some(match applied {
                     Ok(a) => Ok(self.finish(p.op, a, p.after)),
                     Err(e) => Err(self.fail(&p.op, e.to_string(), p.restore)),
                 });
+                // The operations queued after it (a batch) are theirs too.
                 self.pump();
+                self.journal.set_origin(now);
                 // A stretch held while computed is done: the part is drawn as it now is.
                 self.held_stretch = None;
                 self.update_preview_mesh();

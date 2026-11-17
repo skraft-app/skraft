@@ -18,17 +18,25 @@ pub trait Backend {
     fn describe(&self) -> String;
 }
 
-/// The app running on this computer, its channel found anew at every call (the discovery and
-/// token files): an app started, or started again, after the server is found.
+/// The app running on this computer, its channel found anew at every call: an app started,
+/// or started again, after the server is. Several may run (one per worktree): the one this
+/// server's Claude Code session launched, else one built from the worktree it runs in
+/// (`solidsketch_control::instances::choose`), else the last started (the discovery file).
 pub struct Remote {
     dir: PathBuf,
     port: Option<u16>,
+    /// Its name for the app's journal.
+    client: String,
 }
 
 impl Remote {
-    /// The app the discovery file names, or the one on `port`.
+    /// The app this server means (see [`Remote`]), or the one on `port`.
     pub fn new(port: Option<u16>) -> Self {
-        Remote { dir: solidsketch_control::server::default_dir().unwrap_or_default(), port }
+        Remote {
+            dir: solidsketch_control::server::default_dir().unwrap_or_default(),
+            port,
+            client: solidsketch_control::instances::client_name("mcp"),
+        }
     }
 
     /// Does an app answer?
@@ -37,17 +45,32 @@ impl Remote {
     }
 
     fn ping(&self) -> Outcome {
-        let (port, token) = solidsketch_control::server::discover(&self.dir, self.port).map_err(Error::Unavailable)?;
+        let (port, token) = self.find().map_err(Error::Unavailable)?;
         solidsketch_control::server::call(port, &token, &Call::new("app.ping", Value::Null))
+    }
+
+    /// The port and token of the app meant.
+    fn find(&self) -> Result<(u16, String), String> {
+        let port = self.port.or_else(|| {
+            let all = solidsketch_control::instances::list(&self.dir);
+            let session = std::env::var("CLAUDE_CODE_SESSION_ID").ok();
+            let cwd = std::env::current_dir().ok();
+            solidsketch_control::instances::choose(&all, session.as_deref(), cwd.as_deref()).and_then(|i| i.port)
+        });
+        solidsketch_control::server::discover(&self.dir, port)
     }
 }
 
 impl Backend for Remote {
     fn call(&mut self, call: &Call) -> Outcome {
-        let (port, token) = solidsketch_control::server::discover(&self.dir, self.port).map_err(|e| {
+        if call.method == "app.instances" {
+            call.params::<NoParams>()?;
+            return Ok(Answer::Json(solidsketch_control::instances::list_json(&self.dir)));
+        }
+        let (port, token) = self.find().map_err(|e| {
             Error::Unavailable(format!("{e}: start SolidSketch with its control channel on (title bar, or SOLIDSKETCH_CONTROL=1)"))
         })?;
-        solidsketch_control::server::call(port, &token, call)
+        solidsketch_control::server::call(port, &token, &call.clone().from_client(Some(self.client.clone())))
     }
 
     fn serves(&self, _: &Method) -> bool {
@@ -57,9 +80,12 @@ impl Backend for Remote {
     fn describe(&self) -> String {
         let at = match self.port {
             Some(p) => format!("port {p}"),
-            None => "the port its discovery file names".into(),
+            None => "the one this Claude Code session launched, else one built from this worktree, else the last started — `app_state` says which (`instance`), `app_instances` lists them all".into(),
         };
-        format!("connected to the running SolidSketch app ({at}): what it does shows in its window, every tool is there.")
+        format!(
+            "connected to the running SolidSketch app ({at}): what it does shows in its window, every tool is there. Its journal marks what this server does as the pilot's ({}).",
+            self.client
+        )
     }
 }
 
@@ -81,6 +107,8 @@ impl Headless {
             None => Document::new(),
         };
         let mut editor = Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()));
+        // Whatever it goes through, the client asked for.
+        editor.set_origin(solidsketch_tools::journal::Origin::control(Some("mcp · headless")));
         editor.set_viewport_size(glam::DVec2::new(1280.0, 800.0));
         editor.zoom_extents();
         Ok(Headless { editor, path })
@@ -101,6 +129,11 @@ impl Backend for Headless {
         match call.method.as_str() {
             "app.ping" => Ok(Answer::Json(json!({}))),
             "app.methods" => Ok(Answer::Json(solidsketch_control::methods_json())),
+            "app.instances" => {
+                call.params::<NoParams>()?;
+                let dir = solidsketch_control::server::default_dir().unwrap_or_default();
+                Ok(Answer::Json(solidsketch_control::instances::list_json(&dir)))
+            }
             "app.state" => {
                 call.params::<NoParams>()?;
                 Ok(Answer::Json(json!({
