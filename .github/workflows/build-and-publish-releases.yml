@@ -7,6 +7,8 @@
 #   artifacts; with « release » ticked
 #   (`gh workflow run build-and-publish-releases.yml -f release=true`), also the Release
 #   v<version>, its tag created on the run's commit (an existing Release of that tag is updated).
+#   One box per OS, all ticked by default, picks the builds (`-f windows=false`…); a tag push
+#   builds them all.
 name: Build and Publish Releases
 
 on:
@@ -18,6 +20,18 @@ on:
         description: Also publish the GitHub Release v<version> (tag created on this commit)
         type: boolean
         default: false
+      macos:
+        description: Build macOS (arm64 and x86_64)
+        type: boolean
+        default: true
+      windows:
+        description: Build Windows (x86_64)
+        type: boolean
+        default: true
+      linux:
+        description: Build Linux (x86_64)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -28,31 +42,47 @@ env:
   MACOSX_DEPLOYMENT_TARGET: "11.0"
 
 jobs:
+  # The build matrix, keeping the OSes ticked (a manual run) or all of them (a tag push): a
+  # matrix can't be filtered by a job condition, and an `exclude` is undone by `include` entries.
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        env:
+          ALL: ${{ github.event_name != 'workflow_dispatch' }}
+          MACOS: ${{ inputs.macos }}
+          WINDOWS: ${{ inputs.windows }}
+          LINUX: ${{ inputs.linux }}
+        run: |
+          # macos-x86_64: cross-built on the Apple Silicon runner (GitHub's Intel runners are
+          # being retired). Linux: the oldest supported Ubuntu, the AppImage needing a glibc at
+          # least as old as the systems it runs on.
+          all='[
+            {"platform": "macos", "name": "macos-arm64", "os": "macos-latest", "target": "aarch64-apple-darwin", "package": "scripts/package-macos.sh"},
+            {"platform": "macos", "name": "macos-x86_64", "os": "macos-latest", "target": "x86_64-apple-darwin", "package": "scripts/package-macos.sh"},
+            {"platform": "windows", "name": "windows-x86_64", "os": "windows-latest", "target": "x86_64-pc-windows-msvc", "package": "scripts/package-windows.sh"},
+            {"platform": "linux", "name": "linux-x86_64", "os": "ubuntu-22.04", "target": "x86_64-unknown-linux-gnu", "package": "scripts/package-linux.sh"}
+          ]'
+          include="$(jq -c \
+            --argjson all "$ALL" \
+            --arg macos "$MACOS" --arg windows "$WINDOWS" --arg linux "$LINUX" \
+            'map(select($all or ({macos: $macos, windows: $windows, linux: $linux}[.platform] == "true")))' \
+            <<<"$all")"
+          if [ "$include" = "[]" ]; then
+            echo "::error::no OS ticked, nothing to build"
+            exit 1
+          fi
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.name }}
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: macos-arm64
-            os: macos-latest
-            target: aarch64-apple-darwin
-            package: scripts/package-macos.sh
-          # Cross-built on the Apple Silicon runner (GitHub's Intel runners are being retired).
-          - name: macos-x86_64
-            os: macos-latest
-            target: x86_64-apple-darwin
-            package: scripts/package-macos.sh
-          - name: windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            package: scripts/package-windows.sh
-          # The oldest supported Ubuntu: the AppImage needs a glibc at least as old as the
-          # systems it runs on.
-          - name: linux-x86_64
-            os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            package: scripts/package-linux.sh
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
