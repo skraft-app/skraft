@@ -186,6 +186,12 @@ fn in_x_ray_nothing_hides() {
     assert!(e.view().batches.iter().all(|(_, ps)| ps.iter().all(|p| p.ghost)));
     e.set_xray(false);
     assert_eq!(at(&e, DVec3::new(100.0, 100.0, 120.0)).kind, InferKind::OnFace);
+    // The document's setting (§6 sexdecies): undone as the others.
+    e.set_xray(true);
+    assert!(e.document().settings().display.xray);
+    e.undo();
+    assert!(!e.xray());
+    assert_eq!(at(&e, DVec3::new(100.0, 100.0, 120.0)).kind, InferKind::OnFace);
 }
 
 #[test]

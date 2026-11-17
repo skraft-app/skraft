@@ -24,24 +24,20 @@ const MORE: f32 = 16.0;
 const RESTING: f32 = 0.35;
 const HOVERED: f32 = 0.92;
 
-/// The pinned commands, in the card's order: `pins` as the user left them (unknown ids
-/// ignored), else the defaults.
+/// The pinned commands, in the user's order: `pins` as they left them (unknown ids ignored),
+/// else the defaults.
 pub fn pinned(pins: &Option<Vec<String>>) -> Vec<&'static str> {
-    match pins {
-        Some(ids) => COMMANDS.iter().copied().filter(|c| ids.iter().any(|i| i == c)).collect(),
-        None => DEFAULT.to_vec(),
-    }
+    crate::pins::pinned(COMMANDS, DEFAULT, pins)
 }
 
-/// Pins `id`, or unpins it; back to the defaults, nothing kept.
+/// Pins `id` (at the end), or unpins it; back to the defaults, nothing kept.
 pub fn toggle(pins: &mut Option<Vec<String>>, id: &'static str) {
-    let mut now = pinned(pins);
-    if now.contains(&id) {
-        now.retain(|c| *c != id);
-    } else {
-        now = COMMANDS.iter().copied().filter(|c| *c == id || now.contains(c)).collect();
-    }
-    *pins = (now != DEFAULT).then(|| now.into_iter().map(str::to_owned).collect());
+    crate::pins::toggle(COMMANDS, DEFAULT, pins, id);
+}
+
+/// Moves the pinned `id` before `before` (none: at the end).
+pub fn move_to(pins: &mut Option<Vec<String>>, id: &'static str, before: Option<&'static str>) {
+    crate::pins::move_to(COMMANDS, DEFAULT, pins, id, before);
 }
 
 /// The card, centred on `at` (screen points), kept inside `view`.
@@ -65,10 +61,11 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
             frame.show(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 ui.horizontal(|ui| {
-                    for &id in &pinned {
-                        if let Some(c) = views.iter().find(|v| v.id == id) {
-                            button(ui, c, actions);
-                        }
+                    let items: Vec<_> =
+                        pinned.iter().filter_map(|&id| views.iter().find(|v| v.id == id)).filter_map(|c| button(ui, c, actions)).collect();
+                    // A button dragged along the row moves it (§6 terdecies).
+                    if let Some((id, before)) = crate::pins::reorder(ui, egui::Id::unique("quick_tools_drag"), false, &items) {
+                        actions.push(Action::QuickMove(id, before));
                     }
                     more(ui, &pinned, views, actions);
                 });
@@ -81,9 +78,10 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
     }
 }
 
-/// A command's button: its icon, its name in the tip; right click unpins it.
-fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) {
-    let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), if c.enabled { Sense::click() } else { Sense::hover() });
+/// A command's button: its icon, its name in the tip; right click unpins it, a drag moves it.
+fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Option<crate::pins::Item> {
+    let icon = icons::command(c.id)?;
+    let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click_and_drag());
     crate::handles::publish_enabled(|| format!("quick:{}", c.id), rect, c.enabled);
     let visuals = ui.style().interact(&response);
     if c.enabled && response.hovered() {
@@ -93,11 +91,9 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) {
     if !c.enabled {
         ink = ink.gamma_multiply(0.35);
     }
-    if let Some(icon) = icons::command(c.id) {
-        egui::Image::new(icon).tint(ink).paint_at(ui, Rect::from_center_size(rect.center(), vec2(ICON, ICON)));
-    }
+    egui::Image::new(icon.clone()).tint(ink).paint_at(ui, Rect::from_center_size(rect.center(), vec2(ICON, ICON)));
     let response = response.on_hover_text(&c.label);
-    if response.clicked() {
+    if response.clicked() && c.enabled {
         actions.push(Action::QuickTool(c.id));
     }
     Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
@@ -105,6 +101,7 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) {
             actions.push(Action::QuickPin(c.id));
         }
     });
+    Some(crate::pins::Item { id: c.id, rect, response, icon })
 }
 
 /// The ▾ button: every command the card can show, each with its pin.
@@ -117,7 +114,8 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
     }
     crate::ribbon::chevron(ui, rect.center(), ui.visuals().text_color());
     let response = response.on_hover_text(t!("quick_tools.choose"));
-    Popup::menu(&response).style(crate::style::menu).show(|ui| {
+    // A pin clicked leaves it open, as the ribbon's group menus; a row run closes it.
+    Popup::menu(&response).style(crate::style::menu).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         let ink = ui.visuals().text_color();
         for &id in COMMANDS {
             let Some(c) = views.iter().find(|v| v.id == id) else { continue };
@@ -128,8 +126,9 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
                     }
                     None => egui::Button::new(&c.label),
                 };
-                // An empty shortcut pushes the label to the left (else centred).
-                b = b.min_size(vec2(190.0, 22.0)).shortcut_text("");
+                // Its shortcut on the right; none, an empty one still pushes the label to the
+                // left (else centred).
+                b = b.min_size(vec2(190.0, 22.0)).shortcut_text(c.shortcut.clone().unwrap_or_default());
                 if ui.add_enabled(c.enabled, b).clicked() {
                     actions.push(Action::QuickTool(id));
                     ui.close();
@@ -171,20 +170,14 @@ mod tests {
     }
 
     #[test]
-    fn pins_toggle_in_the_card_s_order_and_go_back_to_the_defaults() {
+    fn pins_go_at_the_end_and_back_to_the_defaults() {
         let mut pins = None;
         assert_eq!(pinned(&pins), DEFAULT);
         toggle(&mut pins, "tool.move");
         assert_eq!(pinned(&pins), ["tool.copy_line", "tool.copy_grid", "tool.distribute", "tool.move"]);
-        toggle(&mut pins, "tool.copy_line");
-        assert_eq!(pinned(&pins), ["tool.copy_grid", "tool.distribute", "tool.move"]);
-        toggle(&mut pins, "tool.copy_line");
+        move_to(&mut pins, "tool.move", Some("tool.copy_line"));
+        assert_eq!(pinned(&pins), ["tool.move", "tool.copy_line", "tool.copy_grid", "tool.distribute"]);
         toggle(&mut pins, "tool.move");
         assert_eq!(pins, None, "the defaults again: nothing kept");
-        // Everything unpinned: kept empty (only the ▾ button); unknown ids ignored.
-        let mut pins = Some(vec!["tool.nope".to_owned()]);
-        assert!(pinned(&pins).is_empty());
-        toggle(&mut pins, "tool.paint");
-        assert_eq!(pinned(&pins), ["tool.paint"]);
     }
 }

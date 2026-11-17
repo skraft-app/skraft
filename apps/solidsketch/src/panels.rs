@@ -53,6 +53,14 @@ pub enum Action {
     QuickTool(&'static str),
     /// A command of the quick tools' card pinned, or unpinned.
     QuickPin(&'static str),
+    /// A command of the view bar pinned, or unpinned (§6 sexdecies).
+    ViewPin(&'static str),
+    /// A pinned command dragged before another (none: at the end), in the view bar or in the
+    /// quick tools' card.
+    ViewMove(&'static str, Option<&'static str>),
+    /// The view bar's grip dragged to the other side.
+    ViewBarSide(crate::dock::Dock),
+    QuickMove(&'static str, Option<&'static str>),
     /// On the file tabs (docs/ARCHITECTURE.md §6 octies).
     Tab(crate::tabs::TabAction),
 }

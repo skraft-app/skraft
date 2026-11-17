@@ -61,6 +61,10 @@ pub struct Preferences {
     /// The commands the quick tools' card shows (ARCHITECTURE.md §6 terdecies); absent: the
     /// defaults.
     pub quick_tools: Option<Vec<String>>,
+    /// The commands the view bar shows (ARCHITECTURE.md §6 sexdecies); absent: the defaults.
+    pub view_bar: Option<Vec<String>>,
+    /// The side of the view the view bar is docked to.
+    pub view_bar_side: crate::dock::Dock,
     /// The control channel (docs/ARCHITECTURE.md §7 quater) is on at launch (desktop).
     pub remote_control: bool,
     /// Its port, on 127.0.0.1.
@@ -86,6 +90,8 @@ impl Default for Preferences {
             panels: Layout::default(),
             ribbon: crate::ribbon::Prefs::default(),
             quick_tools: None,
+            view_bar: None,
+            view_bar_side: crate::dock::Dock::Left,
             remote_control: false,
             remote_port: DEFAULT_REMOTE_PORT,
         }

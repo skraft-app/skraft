@@ -1830,7 +1830,7 @@ The pattern is a web browser's; the drawing is ours.
   (`Viewport::slots`) are per document; closing a document frees them. Switching tabs uploads
   nothing.
 - **Tabs in the title bar** (§7 quinquies), **in place of the document's name**: between
-  Undo / Redo and the view's toggles, `+` at the end. A tab shows the file's name (« Sans
+  Undo / Redo and the command search, `+` at the end. A tab shows the file's name (« Sans
   titre » unsaved), a bullet when modified, its path as a tooltip; × on the active and the
   hovered tab. Tabs shrink to 90 pt, then a window of tabs around the active one is shown and
   the others are in a **»** list — a pure function of the width (`tab_layout`), tested. On the
@@ -2383,7 +2383,9 @@ handed back in `smart_tool.rb`'s `onToolUserText`). Built on 2026-11-15, in four
   line, Copy along a grid, Distribute, Move, Rotate, Stretch, Paint. Pinned by default: the
   three copy tools (OCL's, less Move along line and Paneling, which SolidSketch has not).
 - **Choosing them, as the ribbon's pins** (§6 septies): a last ▾ button opens the list of
-  the commands, each row with a pin; right click on a button: Unpin. Order is the list's.
+  the commands, each row with a pin; right click on a button: Unpin. Order is the list's;
+  since 2026-11-17 the user's, a button dragged along the row (§6 sexdecies), a pin added at
+  the end.
   Preference `quick_tools`: the pinned ids, absent = the defaults (unknown ids ignored). No
   pin at all: only the ▾ button.
 - **A click starts the tool on the new part**: the selection becomes what was made, the tool
@@ -2634,6 +2636,59 @@ section, each section a semibold title and a thin line (`style::settings_section
 - The control protocol's `ui.drag` / `ui.click` send every button (`"button"`: `left`,
   `right`, `middle`, `back`, `forward`; `driving.rs`), with modifiers: the presets can be
   driven from a script.
+
+## 6 sexdecies. View bar
+
+Decided on 2026-11-17 (questions / answers), after SolidWorks' heads-up view toolbar: the
+view's settings sit in the view, beside what they change, and leave the title bar to the
+file tabs.
+
+- **What**: a column of icon buttons floating over the **left edge of the view** (or the
+  right one, below), under the workspace card — right of the left column of docked cards
+  when there is one —, a window
+  frame translucent at rest and nearly opaque under the pointer, as the quick tools' card
+  (§6 terdecies).
+- **The commands**: the standard views (one button opening their menu), zoom extents,
+  perspective / parallel (lit in perspective), X-ray, hide the rest of the model, section,
+  grid, axes, guides, silhouettes, show hidden (the Materials panel left out on
+  2026-11-17: a panel, not a view setting; where to open it from is still to decide). Pinned by default: views,
+  zoom extents, perspective, X-ray, hide the rest of the model, section.
+- **Choosing them, as the ribbon's and the quick tools' pins**: a last ▾ button opens the list
+  with a pin on each row (a click on a row runs it); right click on a button: Unpin.
+  **Reordered by a drag** (asked on 2026-11-17, the quick tools' card too): a button dragged
+  along the column — past egui's threshold, so a click stays a click — follows the pointer,
+  faded, a line where it will go; a command pinned goes at the end. Preference
+  `view_bar: Option<Vec<String>>`, the pinned ids **in the user's order** (absent = the
+  defaults, unknown ids and repeats ignored; back to the defaults, absent again).
+- **Left or right, as the side panels' two columns** (asked on 2026-11-17): a grip (two rows
+  of dots) at the bar's head; dragged, the bar follows the pointer, the slot on the pointer's
+  side lit as a docked card's empty column, and let go it is docked there. A slot: under the
+  workspace card (left) or the ribbon (right), between that side's column of cards and the
+  view. Its menus open towards the view. Preference `view_bar_side` (`dock::Dock`, left by
+  default); zoom extents stops at the bar on either side (`view_bar::Place`,
+  `Action::ViewBarSide`).
+- **The title bar loses them**: its standard views' menu and its view toggles are gone; it
+  keeps the mark, File, Undo / Redo, the file tabs, the command search and the preferences.
+  The command palette (and the shortcuts) keep every command: there is no View menu any
+  more, the title bar and the macOS menu bar having only File.
+- **X-ray and hide the rest of the model are both the document's** (`display.xray` joins
+  `display.hide_rest_of_model`, §7 bis X-ray): saved with it, one per tab, undone as the
+  other display settings.
+- **Zoom extents** frames what is left free right of the bar.
+- **As built** (2026-11-17, `apps/solidsketch/src/view_bar.rs`): an `egui::Area` at
+  (`free_left` or the view's left margin, under the ribbon), a window frame at 35 % / 92 %
+  (the hover of the last frame, or one of its menus open), buttons 30 pt (icon 18), the
+  selection's fill behind a lit one; the views button is the pseudo-command `view.views`
+  (its menu opens on the right, `RectAlign::RIGHT_START`), the ▾ menu as the quick tools'
+  (`pins.rs`: `pinned` / `toggle` / `move_to` and the drag, `pins::reorder`, shared;
+  `Action::ViewMove` / `QuickMove`), a toggle's row with its check box (`style::menu_check`,
+  the View menu's), pinned or not (asked on 2026-11-17). `Action::ViewPin(id)` → preference
+  `view_bar`. Handles `view_bar:<command>`, `view_bar:more` (§7 septies). New icon
+  `hide_rest` (a cube, another dashed behind it); `icons::command` knows the view toggles.
+  `Editor::set_xray` applies a `SetSettings`; the scene takes `display.xray` in `sync_scene`.
+  Texts `view_bar.*`.
+- **Later**: in an open part, a toggle « bodies / final solid » (the user leans to a real
+  toggle, the bodies drawn as ghosts and still picked while the final solid is shown).
 
 ## 7. Crates
 
@@ -2968,8 +3023,8 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
 
 ### X-ray (2026-11-14)
 
-A display mode for the session (`Editor::xray`, command `view.xray`, a toggle of the title
-bar — not saved with the document): every part is drawn as a ghost (faces blended at
+A display mode (`Editor::xray`, command `view.xray`, a toggle of the view bar, §6 sexdecies);
+until 2026-11-17 for the session, now the document's setting `display.xray`: every part is drawn as a ghost (faces blended at
 `Style::ghost_opacity`, no depth written, so every edge is seen), its highlights as a wash of
 the mark's tint over it (`Highlight::ghost`); a section cuts it without caps. Inferences see
 through everything: `DisplayScene::see_through` (already true for an open part's bodies shown
@@ -2985,10 +3040,10 @@ menu strip is gone: its room goes to one bar holding the document and the comman
 
 - **Title bar** (`apps/solidsketch/src/titlebar.rs`, 34 pt): the app's mark (`assets/app-icon.svg`),
   name and version (the workspace's, smaller and weak), the **File** menu (a text button: the registry's File commands), Undo / Redo, the
-  file tabs (§6 octies), the standard views (a menu), the view's toggles
-  (perspective, grid, axes, silhouettes, section, Materials panel), and at the right the
+  file tabs (§6 octies), and at the right the
   command search (opens the palette, shows its shortcut; only its icon when the window is
-  narrow) and the preferences. Every button is a registry command, its state and tip from it.
+  narrow) and the preferences. Until 2026-11-17 the standard views and the view's toggles
+  were there too; they moved to the view bar (§6 sexdecies) to leave room to the tabs. Every button is a registry command, its state and tip from it.
   The bar is **dark in both modes** (as SolidCraft's application bar), its text light: each
   palette's `title_bar` tokens (ground, text, dim text, separators, lit surface; a test holds
   its text to ≥ 7:1 on the ground and the lit surface), applied to the bar's panel only

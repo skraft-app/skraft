@@ -34,6 +34,9 @@ pub struct Display {
     /// The occurrences hidden by the user are drawn faded, picked and inferred on, as if
     /// shown (to find them, show them again).
     pub show_hidden: bool,
+    /// X-ray (§7 bis): every part drawn see-through, its edges all seen, and points behind
+    /// faces inferred on.
+    pub xray: bool,
 }
 
 impl Default for Display {
@@ -47,6 +50,7 @@ impl Default for Display {
             guides: true,
             hide_rest_of_model: false,
             show_hidden: false,
+            xray: false,
         }
     }
 }

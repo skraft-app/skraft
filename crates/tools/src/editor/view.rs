@@ -348,7 +348,7 @@ impl Editor {
         // The selection's marks, boxes and set (looked up for every placement: a selection can
         // hold tens of thousands), kept from the last frame when nothing they hang on changed.
         // X-ray (`key.4`): the marks drawn see-through.
-        let key = (self.scene.generation(), self.context.clone(), self.selection.clone(), recipe.is_some(), self.xray);
+        let key = (self.scene.generation(), self.context.clone(), self.selection.clone(), recipe.is_some(), self.xray());
         if self.selection_drawing.borrow().as_ref().is_none_or(|d| d.key != key) {
             let drawing = self.selection_drawing_of(key);
             *self.selection_drawing.borrow_mut() = Some(drawing);
@@ -391,7 +391,7 @@ impl Editor {
                     faded: outside(p) || p.hidden,
                     material: p.material,
                     look: Look::Shape,
-                    ghost: self.xray,
+                    ghost: self.xray(),
                     faint_edges: false,
                 };
                 if erased(p) {
@@ -444,7 +444,7 @@ impl Editor {
                 // A ghost, a little more opaque than a blank; one that failed opaque (§2.11).
                 let look = if tool.failed { Look::FailedTool } else { Look::Tool };
                 let faint = erasing.contains(&tool.body);
-                let ghost = faint || !tool.failed || self.xray;
+                let ghost = faint || !tool.failed || self.xray();
                 let (key, placement) = drawn(tool);
                 let p =
                     ViewPlacement { transform: t * placement, faded: faded(tool.body), material: None, look, ghost, faint_edges: faint };
@@ -505,7 +505,7 @@ impl Editor {
         let tool_at = |id: Id| {
             let r = recipe?;
             let t = doc.resolve_container(open.as_ref()?).ok()?.2;
-            r.body(id).map(|tool| (tool.key, t * tool.placement, self.xray || r.is_ghost(id)))
+            r.body(id).map(|tool| (tool.key, t * tool.placement, self.xray() || r.is_ghost(id)))
         };
         // The occurrences of the context, indexed once, when something is marked.
         let index_cell = std::cell::OnceCell::new();
@@ -529,7 +529,7 @@ impl Editor {
                     transform: extra * u.transform,
                     mark: m,
                     material: u.material,
-                    ghost: self.xray,
+                    ghost: self.xray(),
                 });
             }
         };
@@ -625,7 +625,7 @@ impl Editor {
                     transform: u.transform,
                     mark: if faded { Mark::HoverFaded } else { Mark::Hover },
                     material: u.material,
-                    ghost: self.xray,
+                    ghost: self.xray(),
                 });
             }
         }
@@ -654,7 +654,7 @@ impl Editor {
                     transform: p.transform,
                     mark: Mark::Related,
                     material: p.material,
-                    ghost: self.xray,
+                    ghost: self.xray(),
                 });
             }
         }
