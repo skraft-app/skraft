@@ -116,7 +116,7 @@ impl Editor {
         let to = self.tool.kind();
         let card = self.card.take().filter(|c| self.card_valid(c));
         let selection = self.selection.clone();
-        // Selected first: the tool starts on it (Erase erases it, §6 septendecies).
+        // Selected first: the tool starts on it (§6 septendecies).
         if let Some(c) = &card {
             self.set_selection(c.made.clone());
         }

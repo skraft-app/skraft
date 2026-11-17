@@ -72,14 +72,14 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
                 group(
                     "modify",
                     || t!("ribbon.group.modify"),
-                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute", "tool.stretch"],
-                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute", "tool.stretch"],
+                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
+                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
                 ),
                 group(
                     "combine",
                     || t!("ribbon.group.combine"),
-                    &["tool.union", "tool.difference", "tool.intersection"],
-                    &["tool.union", "tool.difference", "tool.intersection"],
+                    &["tool.stretch", "tool.union", "tool.difference", "tool.intersection"],
+                    &["tool.stretch", "tool.union", "tool.difference", "tool.intersection"],
                 ),
                 group("appearance", || t!("ribbon.group.appearance"), &["tool.paint"], &["tool.paint"]),
             ],

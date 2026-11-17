@@ -802,8 +802,8 @@ enters an assembly, Esc (or a click off the level's grey box) one up:
   click erases at once; a drag gathers everything it passes over (sampled every 4 px between
   two cursor positions, so a quick stroke misses nothing) and erases it on release, in one
   operation (one undo step); Esc drops the drag. With Shift held on release, the occurrences
-  taken are hidden instead (`SetHidden`), guides and machinings left. The selection is left
-  alone (activating the tool does not erase it, unlike SketchUp). What would go is drawn as a
+  taken are hidden instead (`SetHidden`), guides and machinings left. The selection is let go
+  when the tool starts (activating it erases nothing, unlike SketchUp). What would go is drawn as a
   ghost (`Preview::erasing`): translucent faces as an open part's blank, and translucent edges
   and silhouettes too (`ViewPlacement::faint_edges`, drawn by `render` after the ghosts' faces,
   at the theme's `ghost_edge_opacity`; the blank keeps its edges opaque), in batches of its
@@ -1756,9 +1756,11 @@ another product.
   document setting.
 - **Tabs of Modelling**, each a list of groups, each group a list of commands of the registry
   (§7 quater) — a command may be in several groups:
-  - **Build**: Create (Box, Cylinder), Modify (Move, Rotate, Stretch), Combine (Union,
-    Difference, Intersection), Appearance (Paint);
-  - **Assemble**: Components (Make assembly, Explode, Make unique), Modify (Move, Rotate);
+  - **Build**: Draw « Dessiner » (Box, Cylinder, Prism, Turn), Manipulate « Manipuler » (Move,
+    Rotate, the copy tools), Reshape « Remodeler » (Stretch, Union, Difference, Intersection),
+    Appearance (Paint);
+  - **Assemble**: Components (Make assembly, Explode, Make unique), Manipulate (Move, Rotate,
+    the copy tools);
   - **Inspect**: Measure (Tape measure, Delete guides), Section (Section plane, Clear
     section), View (Zoom extents, the standard views).
   - A fixed **Selection** group (Select, Eraser) stays at the left of every tab, before the
@@ -2711,8 +2713,8 @@ something pick it first; then **A**, a selection scope that takes parts at any d
   click more than SketchUp's « the first click takes the entity and starts ». Once moved or
   rotated, **the selection is let go** and the tool goes back to picking (the copy tools' OCL
   restart): a kept selection would be taken again at once.
-- **Erase and Paint keep the click that acts** (eraser, bucket): Erase started with a
-  selection erases it at once (one operation, as SketchUp), else it stays an eraser; Paint
+- **Erase and Paint keep the click that acts** (eraser, bucket): Erase lets the selection
+  go when it starts (it never erases it; Delete does), then erases what it clicks; Paint
   still paints the whole selection when the click is in it.
 - **Booleans ignore the selection**: always the two clicks (target, then tool part).
 - Not concerned: the shape tools, Measure, Section, Profile.
@@ -2735,7 +2737,7 @@ something pick it first; then **A**, a selection scope that takes parts at any d
   - **The tool sees what it took at once**: after an input that changed the selection, a tool
     that picks first is given the cursor again (a hover, not journaled) — its status, preview
     and `drag_clicks` follow without waiting for the next move.
-  - **Erase**: `switch_tool` erases the selection (`delete_selection`) when Erase starts; the
+  - **Erase**: `switch_tool` clears the selection (`clear_selection`) when Erase starts; the
     quick tools select what was made *before* starting the tool.
 
 ### A. Selection scope « Parts » (decided in principle, after B)
