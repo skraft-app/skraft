@@ -43,8 +43,6 @@ pub struct Preferences {
     pub palette: Palette,
     /// Shortcuts changed by the user, by command id (`Cmd+Shift+Z`; empty: none).
     pub shortcuts: BTreeMap<String, String>,
-    /// An open part shows its machinings (ARCHITECTURE.md §2.9).
-    pub show_machinings: bool,
     /// The render statistics overlay, in a corner of the view.
     pub show_render_stats: bool,
     /// The last files opened or saved, the latest first (desktop: the browser gives no path to
@@ -80,7 +78,6 @@ impl Default for Preferences {
             theme: Choice::System,
             palette: Palette::Warm,
             shortcuts: BTreeMap::new(),
-            show_machinings: false,
             show_render_stats: false,
             recent_files: Vec::new(),
             reopen_documents: true,

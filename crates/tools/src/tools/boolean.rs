@@ -72,9 +72,10 @@ impl Tool for BooleanTool {
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
         let aimed = self.target.as_ref().or(self.hover.as_ref());
+        // No scope for a part placed once: both choices are the same (§2.5).
         let all = match aimed.map(|p| cx.copies_shown(p)) {
             Some(n) if n > 1 => t!("tool.boolean.option.all_count", count = n),
-            Some(_) => t!("tool.boolean.option.all_one"),
+            Some(_) => return Vec::new(),
             None => t!("tool.boolean.option.all"),
         };
         let value = if scope(cx) == Scope::This { THIS } else { ALL };

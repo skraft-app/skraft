@@ -514,8 +514,7 @@ impl Editor {
         match open {
             // An open part: its machinings while shown, and its guides.
             Some((_, p, _)) => {
-                let shown = self.machinings_shown;
-                self.selection.retain(|id| (shown && p.body(*id).is_some()) || guide(id));
+                self.selection.retain(|id| p.body(*id).is_some() || guide(id));
             }
             None => {
                 if let Ok(a) = doc.assembly(ctx)

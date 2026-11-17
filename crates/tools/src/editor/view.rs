@@ -188,6 +188,22 @@ impl Editor {
         self.content_box(extra * ctx.transform() * o.transform, extra, &ctx.solids_under(id), offset_px)
     }
 
+    /// The box bounding the body `id` of the open part (its recipe shown), in the body's axes,
+    /// grown by `offset_px` pixels on every side.
+    fn body_bounds(&self, id: Id, offset_px: f64) -> Option<OrientedBox> {
+        let r = self.scene.recipe()?;
+        let body = r.body(id)?;
+        let (_, _, at) = self.document().resolve_container(&self.open_part_path()?).ok()?;
+        let frame = at * body.placement;
+        let dm = self.scene.definition_mesh(body.key)?;
+        let (mut lo, mut hi) = dm.parts.iter().filter_map(|p| p.bounds).reduce(|(l, h), (lo, hi)| (l.min(lo), h.max(hi)))?;
+        if offset_px > 0.0 {
+            let d = self.camera.world_per_pixel(self.size, frame.transform_point3((lo + hi) * 0.5)) * offset_px;
+            (lo, hi) = (lo - DVec3::splat(d), hi + DVec3::splat(d));
+        }
+        Some(OrientedBox { frame, lo, hi })
+    }
+
     /// [`Editor::content_bounds`] for the parts `under` the occurrence (placed by
     /// [`ContextIndex::solids_under`]), its axes to world being `frame` (`extra` included).
     fn content_box(&self, frame: DAffine3, extra: DAffine3, under: &[crate::scene::Under], offset_px: f64) -> Option<OrientedBox> {
@@ -217,9 +233,12 @@ impl Editor {
         Some(OrientedBox { frame, lo, hi })
     }
 
-    /// The grey box drawn around the part open, else the assembly being edited (`None` at the
-    /// model's level).
+    /// The grey box drawn around the body open (its profile edited), else the part open, else
+    /// the assembly being edited (`None` at the model's level).
     pub(super) fn context_bounds(&self) -> Option<OrientedBox> {
+        if let Some(b) = self.profile_body().and_then(|id| self.body_bounds(id, CONTEXT_BOX_OFFSET_PX)) {
+            return Some(b);
+        }
         match (self.open_part, self.context.split_last()) {
             (Some(id), _) => {
                 self.content_bounds(&ContextIndex::new(self.document(), &self.context)?, id, DAffine3::IDENTITY, CONTEXT_BOX_OFFSET_PX)
@@ -402,12 +421,16 @@ impl Editor {
             // A body stretched is drawn as previewed (§2.11).
             let body_swaps = if preview.stretch.is_some() { Some(&self.body_swaps) } else { None };
             let drawn = |b: &crate::scene::RecipeTool| body_swaps.and_then(|s| s.get(&b.body)).copied().unwrap_or((b.key, b.placement));
+            // A body open (its profile edited): the others faded, as what lies outside any
+            // context (§2.11 « Edit levels »).
+            let open_body = self.profile_body();
+            let faded = |id: Id| open_body.is_some_and(|o| o != id);
             // A positive body moved without a copy is drawn only where it goes, as a tool.
             for b in r.blanks.iter().filter(|b| !(hide_original && selected.contains(&b.body))) {
                 let (key, placement) = drawn(b);
                 let p = ViewPlacement {
                     transform: t * placement,
-                    faded: false,
+                    faded: faded(b.body),
                     material,
                     look: Look::Blank,
                     ghost: true,
@@ -423,7 +446,8 @@ impl Editor {
                 let faint = erasing.contains(&tool.body);
                 let ghost = faint || !tool.failed || self.xray;
                 let (key, placement) = drawn(tool);
-                let p = ViewPlacement { transform: t * placement, faded: false, material: None, look, ghost, faint_edges: faint };
+                let p =
+                    ViewPlacement { transform: t * placement, faded: faded(tool.body), material: None, look, ghost, faint_edges: faint };
                 // Batches of one kind: a batch's edges are faint, or not, as a whole.
                 let out = match (ghost, faint) {
                     (_, true) => &mut tool_faint,
@@ -439,16 +463,24 @@ impl Editor {
                 .filter(|n| !(hide_original && selected.contains(&n.body)) && !body_swaps.is_some_and(|s| s.contains_key(&n.body)))
             {
                 let look = if tool.failed { Look::FailedTool } else { Look::Tool };
-                let p = ViewPlacement { transform: t * tool.placement, faded: false, material: None, look, ghost: true, faint_edges: true };
+                let p = ViewPlacement {
+                    transform: t * tool.placement,
+                    faded: faded(tool.body),
+                    material: None,
+                    look,
+                    ghost: true,
+                    faint_edges: true,
+                };
                 push_to(&mut tool_faint, tool.key, p);
             }
             v.batches.extend(tools);
             v.batches.extend(tool_ghosts);
             v.batches.extend(tool_faint);
             // Each profiled body's bottom cap, where it is drawn: not one stretched (its
-            // preview mesh no longer matches its profile), nor one moved (drawn elsewhere).
+            // preview mesh no longer matches its profile), nor one moved (drawn elsewhere), nor
+            // one faded.
             let stretched = |id: Id| body_swaps.is_some_and(|s| s.contains_key(&id));
-            for rb in r.bodies().filter(|b| !stretched(b.body) && !(hide_original && selected.contains(&b.body))) {
+            for rb in r.bodies().filter(|b| !stretched(b.body) && !(hide_original && selected.contains(&b.body)) && !faded(b.body)) {
                 let Some(profile) = part.body(rb.body).and_then(|b| part.profile_of(b)) else { continue };
                 let outline = profile.outline();
                 let pts = solidsketch_model::kernel::profile::sample(&outline, BASE_STEP);

@@ -159,6 +159,11 @@ bodies, `Part = (∪ positives) − (∪ negatives)`.
 - **Propagation must be visible**: the number of occurrences affected in the option bar ("All
   occurrences ×4"), the affected occurrences highlighted during a change. "Make unique" becomes
   **"Make a separate part"**, with a deep version for an assembly.
+- **No scope for a part placed once** (2026-11-17): the choice is left out of the bar when
+  the part aimed at (the open part, the boolean's target or the part hovered, Stretch's single
+  target) has one occurrence — both choices are the same, `Document::separate` copying nothing
+  —; nothing aimed at yet, it shows, to be set beforehand. Its hidden value stays as saved
+  (harmless), and Tab finds no choice to switch.
 - The **cut list** may merge parts with the same dimensions and material (a display option);
   the model, the cutting diagram and the exports always keep them apart (same dimensions does
   not mean same shape).
@@ -214,9 +219,9 @@ Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
   (`Cx::axes`, `Cx::axes_in_context` = the occurrence's T). **Drawing in an open part adds a
   machining** to it (`Operation::AddMachining`): the shape drawn, in the part's axes, is a
   tool, cut at once; the part stays open.
-- **Shown by default: the shape**, as anywhere else. A **"Machinings" switch** — a button in
-  the option bar's "Options" group while a part is open, remembered in the preferences; neither a
-  menu command nor a shortcut — shows instead **the blank as a ghost** (very light faces, sharp edges and
+- **Shown: its bodies** (since 2026-11-17, §2.11 « Edit levels »; until then the shape, a
+  **"Machinings" switch** — later « Corps », a button of the option bar remembered in the
+  preferences — showing the bodies instead): **the blank as a ghost** (very light faces, sharp edges and
   silhouettes, drawn after the opaque pass, depth tested without writing) and **each
   machining's tool as a solid**, in a colour of the theme, another for those that failed.
   The tools are picked first; the ghost blank is not picked but keeps its snaps.
@@ -242,7 +247,10 @@ Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
 - **The scope** of every change to the open part (drawing, editing machinings) is a choice of
   the option bar while it is open, its first choice: "All occurrences ×N" / "Only this
   one", **back to "all" at each opening** (a change to one occurrence only makes it a
-  separate part: better chosen each time). The `Related` marks follow it.
+  separate part: better chosen each time). The `Related` marks follow it. Shown only for a
+  part placed more than once (since 2026-11-17; `Editor::open_part_copies`, hidden
+  occurrences and copies of assemblies counted): for one alone both choices are the same
+  (`Document::separate` copies nothing), the scope stays « all ».
 - **The outliner lists an open part's bodies** under its row (§2.11 « Body groups »; until
   2026-11-16 the entity info listed them): hovering a row draws its body hovered, hovering a
   body in the view lights its row; a click selects it (Shift adds or removes), first showing
@@ -315,8 +323,8 @@ Decided on 2026-11-14 (questions / answers). Branch `feature/part-bodies`, built
    ghosts, negative ones as solids, all picked (a negative one first, whatever the depth —
    it lies inside —, else the nearest positive one), selected, moved, copied and erased alike
    (`Piece::Blank(id)`); a double-click on a body with a profile (in Select or Profile) edits
-   its profile (`Command::EditProfile`), the « Profil » button the first profiled positive
-   body's; the outliner lists the bodies, each numbered in its order of creation (kept when its sign
+   its profile (`Command::EditProfile`), the « Profil » button (until 2026-11-17, « Edit
+   levels » below) the first profiled positive body's; the outliner lists the bodies, each numbered in its order of creation (kept when its sign
    changes) with a sign toggle — until 2026-11-16 a ＋/－ badge in the entity info — whose
    click flips it — the selected bodies' too when it is one of them
    (`Operation::SetSign { target, bodies, sign, scope }`, the last positive too since
@@ -577,8 +585,9 @@ Part    = the root group (+ material, grain, cut list)
      a click flips it (`Operation::SetSign`, the part open or not; the selected siblings too
      when the body is one of them; the open part's scope, else every occurrence), the last
      positive one too, leaving the part (or group) empty (« Empty parts » above); the rows stay
-     in place (no blanks first). A click on a row opens the part, turns « Corps »
-     on, and selects the part's own body the row lies in (`Editor::toggle_body`).
+     in place (no blanks first). A click on a row opens the part (« Corps » turned on until
+     2026-11-17, when it went) and selects the part's own body the row lies in
+     (`Editor::toggle_body`).
   3. *editing inside a group* (2026-11-16): a group opens as a part does, nested in it —
      `EntityPath::group` (the bodies leading to it, the part's own first; `in_group`,
      `part_path`), the editor's `open_group` (`Editor::open_group`), `open_part_path` carrying
@@ -666,6 +675,24 @@ were not (« Solide 2 », « Solide 3 » for one shape) and renumbered as bodies
   towards the background as the weak text, from the row's colour (a hidden row's paler still,
   the italics telling it there too); a name given as any text. Parts and assemblies the same
   (their component's name only: « Gauche <Pièce#1> »).
+
+**Edit levels** (decided and built on 2026-11-17, branch `feature/edit-levels`): the
+option bar's « Corps » and « Profil » buttons went; a double-click goes one level down, as it
+enters an assembly, Esc (or a click off the level's grey box) one up:
+- **the part open shows its bodies**, always: blanks as ghosts, machinings as solids, all
+  picked and selected (what « Corps » turned on). The shape alone is seen once the part is
+  closed. The preference `show_machinings` and `DisplayScene::set_recipe`'s `shown` went;
+- **a group of bodies opens** inside it, as before (« Body groups » above);
+- **a body with a profile opens**: its profile edited (`Command::EditProfile`, the Profile
+  tool on it). It is a level: the grey box is the body's (`Editor::context_bounds` →
+  `body_bounds`), Esc at the tool's first step, `Editor::exit` or a click off the box leave it
+  for its part (or group), the body selected (`Editor::leave_body`); another tool chosen
+  leaves it too. The part's other bodies are faded, as what lies outside any context
+  (`ViewPlacement::faded`), their bottom caps not drawn. A body without a profile does not
+  open. No shortcut for a part of one body:
+  two double-clicks reach its profile, as for any part;
+- **the navigator stays as it is**: a double-click on a row renames it, its « Profil » row
+  opens the body.
 
 **Format**: version 1 until the release (§8), no compatibility to keep.
 
@@ -988,7 +1015,10 @@ Decided on 2026-11-09.
   bar's card (at first a fixed strip under the title bar, moved there the same day), with the
   tool's options — exclusive choices and toggles; no tool name, and no footer at all for a tool
   without options (nor open part). Every choice is visible and clickable there; a shortcut is only a
-  complement (Tab cycles the scope). The status bar keeps the guidance for the current step.
+  complement (Tab cycles the tool's first choice, `Editor::next_choice`). The status bar keeps
+  the guidance for the current step; what Tab does is not written in the tools' hints but
+  added by the editor (`Editor::tab_hint`, since 2026-11-17): « · Tab : <choice> → <the value
+  it gives> », only while the tool shows a choice — none for a part placed once (§2.5).
   - **Tools describe their options, the app draws them**: `Tool::options` returns a list of
     `ToolOption` (key, label — which may depend on what is hovered, "×4" —, tooltip, value,
     choices), `Tool::set_option` receives a change. `tools` stays without an interface: a test
@@ -1974,9 +2004,8 @@ states are OCL's: the first point, the points, the height.
   from the outline, then the shape from the blank (§2.4); the scope of the open part (§2.9),
   "only this one" making it a separate part. Refused for an outline that is not simple or no
   height.
-- **Editing** (`ToolKind::Profile`, « Profil »): a button beside « Usinages » in the option
-  bar's Options while a part with a profile is open, on while the tool is the active one (any
-  other tool turns it off). The outline is drawn on the bottom cap, where the profile lies,
+- **Editing** (`ToolKind::Profile`, « Profil »): the body open, the deepest edit level
+  (§2.11 « Edit levels », since 2026-11-17; a button of the option bar until then). The outline is drawn on the bottom cap, where the profile lies,
   whatever the view (on the cap facing the eye until 2026-11-15), with grips: its corners
   (squares; round when free, 2026-11-15), its arcs' middles (diamonds), its straight sides'
   middles (bars along the side; round when free, to insert a corner) — and the cap's middle (the thickness)
@@ -2144,8 +2173,8 @@ supersedes "Occurrences do not paste into an open part, nor machinings out of on
   drawn) gives that body whole, its profile with it — still editable; any other part comes
   as **a group of its bodies** (§2.11 « Body groups », since 2026-11-16; flattened into one
   `Brep` body with a warning before), its shape the group's: nothing lost. Copies of one part
-  share one definition. The guides copied go into the part. The « Corps » switch is turned on, so the
-  bodies pasted can be seen, selected and carried.
+  share one definition. The guides copied go into the part. The bodies pasted are seen, selected and
+  carried (the « Corps » switch was turned on for it until 2026-11-17).
 - **Bodies out of an open part** (`Operation::PasteAsPart { context, fragment, transform }`):
   **one new part** holding every body pasted, their placements kept — **its axes are the
   part's copied from** (the fragment carries its world transformation, `BodyFragment::world`),

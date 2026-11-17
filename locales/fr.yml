@@ -371,13 +371,6 @@ option_bar:
   options_tip: "Les options à activer ou désactiver"
   # The tip of a value drawn as an icon: its name, then what it does.
   icon_tip: "%{label} — %{tip}"
-  # The switch shown while a part is open: its blanks (positive bodies) as ghosts, its
-  # machinings (negative ones) as solids, all of them selectable (ARCHITECTURE.md §2.9, §2.11).
-  machinings: "Corps"
-  machinings_tip: "Montrer et modifier les corps de la pièce : ses bruts en transparence, ses usinages en volume"
-  # The open part's profile edited with grips (ARCHITECTURE.md §6 nonies).
-  profile: "Profil"
-  profile_tip: "Modifier le contour du corps sélectionné (ou du premier brut de la pièce) avec des poignées ; double-clic sur un corps pour le choisir"
   # What a shape drawn in an open part does (ARCHITECTURE.md §2.11).
   body_sign: "Matière"
   body_sign_tip: "Ce que fait une forme dessinée dans la pièce ouverte (revient à « Enlever » à chaque ouverture)"
@@ -637,6 +630,9 @@ status:
   # « calcul en cours… (Échap pour abandonner) »: the code joins them with the ellipsis.
   computing: "%{op} : calcul en cours"
   computing_cancel: "(Échap pour abandonner)"
+  # Appended to a tool's hint while Tab switches one of its choices: the choice, then the
+  # value Tab gives it.
+  tab: "Tab : %{option} → %{next}"
   busy: "Un calcul est déjà en cours"
   op_failed: "%{op} : %{error}"
   unexpected_reply: "réponse inattendue du noyau"
@@ -709,8 +705,8 @@ tool:
     name: "Dessiner un cylindre"
     hint:
       center: "Cliquer le centre de la base · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : disque entier · %{alt_key} : depuis un coin"
-      radius: "Cliquer le rayon, ou taper rayon (;hauteur) · Tab : mesurer le diamètre"
-      diameter: "Cliquer le bord, ou taper diamètre (;hauteur) · Tab : mesurer le rayon"
+      radius: "Cliquer le rayon, ou taper rayon (;hauteur)"
+      diameter: "Cliquer le bord, ou taper diamètre (;hauteur)"
     vcb:
       radius: "Rayon"
       diameter: "Diamètre"
@@ -729,9 +725,9 @@ tool:
     name: "Dessiner un prisme"
     hint:
       first: "Cliquer le premier point · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
-      corners: "Cliquer le point suivant, ou taper une longueur · clic sur un point posé, double-clic ou Entrée : fermer · flèches : bloquer un axe · Tab : tracé · Maj : guide · %{copy_key} : inverser · Échap : retirer le dernier point"
-      tangent: "Arc tangent : cliquer son extrémité, ou taper le rayon · revenir se poser sur le dernier point : lignes · Tab : tracé · %{copy_key} : inverser · Échap : retirer le dernier point"
-      arc_end: "Arc 2 points : cliquer son extrémité, ou taper la longueur de la corde · Tab : tracé · %{copy_key} : inverser · Échap : retirer le dernier point"
+      corners: "Cliquer le point suivant, ou taper une longueur · clic sur un point posé, double-clic ou Entrée : fermer · flèches : bloquer un axe · Maj : guide · %{copy_key} : inverser · Échap : retirer le dernier point"
+      tangent: "Arc tangent : cliquer son extrémité, ou taper le rayon · revenir se poser sur le dernier point : lignes · %{copy_key} : inverser · Échap : retirer le dernier point"
+      arc_end: "Arc 2 points : cliquer son extrémité, ou taper la longueur de la corde · %{copy_key} : inverser · Échap : retirer le dernier point"
       bulge: "Cliquer le bombé de l'arc, ou taper sa flèche · Échap : abandonner l'arc"
     vcb:
       length: "Longueur"
@@ -809,20 +805,19 @@ tool:
       name: "Intersecter"
       verb: "intersecter"
     hint:
-      target: "Cliquer la pièce à modifier (%{verb}) · Tab : changer la portée"
-      tool: "Cliquer la pièce outil (elle sera consommée) pour %{verb} · Tab : changer la portée"
+      target: "Cliquer la pièce à modifier (%{verb})"
+      tool: "Cliquer la pièce outil (elle sera consommée) pour %{verb}"
     option:
       scope: "Portée"
       scope_tip: "Ce que l'opération modifie (Tab pour changer)"
       all: "Tous les exemplaires"
       all_count: "Tous les exemplaires ×%{count}"
-      all_one: "Tous les exemplaires (un seul)"
       all_tip: "La pièce elle-même : tous ses exemplaires changent"
       this: "Celui-ci"
       this_tip: "Seulement l'exemplaire cliqué : il devient une pièce à part (et son assemblage, s'il est copié)"
   paint:
     name: "$t(common.paint)"
-    hint: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre) · Tab : l'exemplaire / la face"
+    hint: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre)"
     outside: "Hors de l'élément en cours d'édition"
     option:
       target: "$t(common.paint)"
@@ -841,9 +836,9 @@ tool:
   measure:
     name: "Mesurer"
     hint:
-      first: "Cliquer un point pour mesurer, ou une arête ou un arc pour tracer un guide parallèle ou concentrique · Tab : type de guide · %{copy_key} : sans guide"
-      first_line: "Cliquer une arête pour un guide parallèle, un arc pour un guide tangent, ou un point pour un guide passant par deux points · Tab : type de guide · %{copy_key} : sans guide"
-      first_circle: "Cliquer un arc pour un guide concentrique, ou un point pour un cercle centré dessus · Tab : type de guide · %{copy_key} : sans guide"
+      first: "Cliquer un point pour mesurer, ou une arête ou un arc pour tracer un guide parallèle ou concentrique · %{copy_key} : sans guide"
+      first_line: "Cliquer une arête pour un guide parallèle, un arc pour un guide tangent, ou un point pour un guide passant par deux points · %{copy_key} : sans guide"
+      first_circle: "Cliquer un arc pour un guide concentrique, ou un point pour un cercle centré dessus · %{copy_key} : sans guide"
       first_measure_only: "Cliquer un point pour mesurer · %{copy_key} : tracer aussi des guides"
       measure: "Cliquer pour finir la mesure · Échap : recommencer"
       parallel: "Guide parallèle : cliquer pour le poser, ou taper le décalage · Échap : revenir"
