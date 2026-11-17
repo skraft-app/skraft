@@ -365,7 +365,8 @@ pub(super) fn draw_boxes(d: &mut Drawer<'_>, target: &Target, copies: &[DAffine3
 }
 
 /// The axes of the target through its centre, past its box, in the scene, with arrows at both
-/// ends; but those `skip` says (OCL's `_preview_edit_axes`). Bold for a locked one.
+/// ends; but those `skip` says (OCL's `_preview_edit_axes`). Bold for a locked one, its heads
+/// too.
 pub(super) fn draw_axes(d: &mut Drawer<'_>, target: &Target, skip: impl Fn(usize) -> bool, locked: Option<usize>) {
     let c = target.world(target.center());
     let pad = d.px(c, AXES_PX);
@@ -373,8 +374,7 @@ pub(super) fn draw_axes(d: &mut Drawer<'_>, target: &Target, skip: impl Fn(usize
         let reach = target.half()[k] + pad;
         let (a, b) = (c - target.dir(k) * reach, c + target.dir(k) * reach);
         let color = axis_color(k);
-        d.pen(Pen::new(color).bold_if(locked == Some(k))).line(a, b);
-        d.pen(Pen::new(color)).arrow_heads(a, b, Ends::Both);
+        d.pen(Pen::new(color).bold_if(locked == Some(k))).edge(a, b, Ends::Both);
     }
 }
 

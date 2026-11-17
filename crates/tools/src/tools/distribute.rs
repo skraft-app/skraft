@@ -385,8 +385,7 @@ impl Tool for DistributeTool {
         let cursor = self.ray_hit.unwrap_or_else(|| self.snap.as_ref().map_or(t.world(end), |i| i.point));
         draw.pen(Pen::new(GREY).over().dashed()).line(from, a).line(cursor, b);
         if let Some(hit) = self.ray_hit {
-            draw.pen(Pen::new(color).over().bold()).line(from, hit);
-            draw.pen(Pen::new(color).over()).arrow_heads(from, hit, Ends::End);
+            draw.pen(Pen::new(color).over().bold()).edge(from, hit, Ends::End);
         }
         // The measure, dashed, seen through what lies between.
         draw_measure(cx, draw, a, b, color);

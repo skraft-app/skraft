@@ -488,7 +488,8 @@ impl<'a> Drawer<'a> {
         self.line(a, b).arrow_heads(a, b, ends)
     }
 
-    /// Only the arrow heads of [`Self::edge`] (the line drawn otherwise: seen through faces).
+    /// Only the arrow heads of [`Self::edge`] (the line drawn otherwise: seen through faces),
+    /// with a pen as wide as the line's: a head is as wide as the segment it ends.
     pub fn arrow_heads(&mut self, a: DVec3, b: DVec3, ends: Ends) -> &mut Self {
         let (wa, wb) = (self.world(a), self.world(b));
         let head = Pen { stipple: Stipple::Solid, ..self.pen };
@@ -868,6 +869,13 @@ mod tests {
         });
         // The first line, two heads of two strokes; the second line alone.
         assert_eq!(d.lines.len(), 1 + 4 + 1);
+        // A head as wide as the segment it ends.
+        let bold = drawn(|d| {
+            d.pen(Pen::new([0.0; 4]).bold().dashed()).edge(DVec3::ZERO, DVec3::new(2000.0, 0.0, 0.0), Ends::End);
+        });
+        assert_eq!(bold.lines.len(), 1 + 2);
+        assert!(bold.lines.iter().all(|l| l.pen.width == BOLD));
+        assert!(bold.lines[1..].iter().all(|l| l.pen.stipple == Stipple::Solid));
     }
 
     #[test]
