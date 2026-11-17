@@ -12,7 +12,6 @@ _version: 1
 locale:
   # The language's name in itself, in the language menu.
   name: "Français"
-  decimal_separator: ","
 
 # Generic terms, written once: other texts take them in with `$t(common.undo)` (any key can
 # be taken in this way). Named by meaning, not by the French word: « Annuler » is `undo` here,
@@ -1107,8 +1106,6 @@ error:
     no_matching_value: "%{function} : aucune valeur ne convient"
     argument_count: "%{function} : au moins deux valeurs"
     comma_separator: "%{function} : séparer les valeurs par « ; »"
-    too_many: "%{count} valeur au plus"
-    too_many_plural: "%{count} valeurs au plus"
   # An operation refused by the document.
   model:
     not_found: "%{id} introuvable"

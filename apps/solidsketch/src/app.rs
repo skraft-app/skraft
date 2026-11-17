@@ -222,6 +222,7 @@ impl SolidSketchApp {
         let (prefs, error) = Preferences::load();
         // The texts name keys as the platform does (in the browser too).
         solidsketch_i18n::set_mac(cc.egui_ctx.os() == egui::os::OperatingSystem::Mac);
+        crate::separators::read();
         solidsketch_i18n::set_locale(&prefs.locale);
         let docs = Docs::new(SharedKernel::new(kernel_service(&cc.egui_ctx)));
         let mut toasts = Toasts::default();

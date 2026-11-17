@@ -785,10 +785,21 @@ Part    = the root group (+ material, grain, cut list)
 
   A bare number is in the document's unit: the computation is done in it, so `@*3` and `@-2`
   both read. Units are checked strictly (`2m*3m` and `@/@` are refused). A typed length keeps
-  the direction of the gesture. `,` and `.` are both decimal separators, so `;` is the only
-  list separator, and it only splits outside parentheses. The evaluator lives in `model`
-  (`expr`, `measure`), to serve the fields too (Position in the entity info) and later the
-  parts' dimensions. Each tool declares what it takes (`Tool::vcb`: lengths, angle, number of
+  the direction of the gesture. `;` always separates a list; `,` does too on a system
+  whose list separator it is (decimal `.`: `10,5` is two values), otherwise `,` and `.` are
+  both decimal points. A list only splits outside parentheses and brackets.
+
+  **Every list typed goes through one helper** (decided on 2026-11-17), `measure::list`, as
+  OCL's `_split_user_text`: lengths, a point's coordinates, the copies' counts (`5x=` is
+  `5x;5x`), Distribute's spacings (`10==;20`), and the bubbles showing what is typed. It
+  splits, trims, unfolds `=` (a lone `=` is no repeat, refused), and says of each value which
+  item typed it and whether it is a repeat. Values beyond those a field takes are left out,
+  typed or repeated (`600===` for two values is `600;600`, `1;2;3` too), never an error.
+  Lists written back (the box's current values) are joined by the system's list separator
+  (`measure::join`). A new field taking a list reads it with `measure::list`.
+
+  The evaluator lives in `model` (`expr`, `measure`), to serve the fields too (Position in
+  the entity info) and later the parts' dimensions. Each tool declares what it takes (`Tool::vcb`: lengths, angle, number of
   copies, whether a point is accepted) with its current values; the editor reads the input and
   passes it a `ToolInput::Value`, or shows the error.
 
@@ -1180,8 +1191,16 @@ error = e)`. The code holds no user-visible string.
 - **Platform**: hints and shortcuts name keys as the platform does (Option / Ctrl, `⇧⌘Z` /
   `Ctrl+Shift+Z`); the app tells `solidsketch-i18n` whether it runs on a Mac (`ctx.os()`, right
   in the browser too).
-- **Numbers** are written with the locale's decimal separator (`locale.decimal_separator`);
-  typed values read `.` and `,` alike and always separate a list with `;`, in any language.
+- **Numbers** follow the system's regional settings, not the texts' language (decided on
+  2026-11-17): at start the app reads its decimal separator, and its list separator where it
+  has one (`src/separators.rs`: macOS `NSLocale`, Windows `GetLocaleInfoEx` `LOCALE_SDECIMAL`
+  / `LOCALE_SLIST`, Linux the numeric locale by `localeconv` on its own thread's locale, the
+  browser `Intl.NumberFormat`) and gives them to `solidsketch-i18n` (`set_separators`).
+  Without a list separator (all but Windows) it follows from the decimal one: `;` after `,`,
+  `,` after `.`; only `;` or `,`, never the decimal one. Until then, headless and in the tests,
+  `,` and `;` (`with_separators` sets others on one thread, for the tests). Numbers are
+  written with the decimal separator (`number`); typed values always separate a list with
+  `;`, and with `,` too when it is the list separator (then not a decimal point).
 - **Locale**: in the preferences (General › Language), applied at once — egui draws every frame
   and nothing caches a text. Texts already in the status bar stay as they were. egui ids never
   come from a text (fixed `id` / `id_salt`), so a window or a section keeps its state across a
@@ -2214,7 +2233,7 @@ Decided on 2026-11-15 (questions / answers), after OpenCutList's Smart Handle to
   - **minimum distance** by measure (`_get_move_def`'s `dlmin` / `dmin`): the cursor stops at
     it, a smaller typed value is refused (`lt_min_distance`);
   - **typing**: a distance (grid: `dx; dy`), a count `x5`, `*5` or `/5` (grid: `x3; /4`, an
-    empty slot = 1 copy); Shift with `+` / `−` changes the count; default `/1`;
+    empty slot = 1 copy, `x3=` both ways); Shift with `+` / `−` changes the count; default `/1`;
   - **after the click**, typing a distance or a count again redoes the copies
     (`Command::Replace`: one undo step), as OCL's `STATE_HANDLE_COPIES`;
   - **mirror** (one copy): line — the copy mirrored across the plane through its centre
@@ -2233,7 +2252,7 @@ Decided on 2026-11-15 (questions / answers), after OpenCutList's Smart Handle to
     does not apply;
   - **typing**: a count `x5` (5 pieces in all) or `/5` (5 intervals: 4 pieces, `/1` refused);
     Shift with `+` / `−` changes it; a distance sets the end point along the line; a **list
-    of spacings** `30; 50` (two items at least) fixes the first gaps, empty slots first
+    of spacings** `30; 50` (two items at least, `30=` is two) fixes the first gaps, empty slots first
     (`;; 30`) fix the last ones, the rest spread (`_get_move_def`'s start / end spacings);
     after the click, typing a count or spacings again redoes it (`Command::Replace`);
   - **Option held**: a ray from the start point along the line; the end point snaps to the

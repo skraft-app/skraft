@@ -259,6 +259,19 @@ fn no_catalog_holds_an_ellipsis() {
 }
 
 #[test]
+fn list_separators() {
+    assert_eq!(list_separator_for(',', None), ';');
+    assert_eq!(list_separator_for('.', None), ',');
+    assert_eq!(list_separator_for('.', Some(';')), ';');
+    assert_eq!(list_separator_for(',', Some(',')), ';', "never the decimal separator");
+    assert_eq!(list_separator_for('.', Some('|')), ',', "only `;` or `,`");
+    assert_eq!(list_separator_for('٫', None), ',');
+    let english = with_separators('.', None, || (number("-12.5"), list_separator()));
+    assert_eq!(english, ("-12.5".to_owned(), ','));
+    assert_eq!((decimal_separator(), list_separator()), (',', ';'), "for the closure only");
+}
+
+#[test]
 fn plurals() {
     assert!(!is_plural("fr", 0) && !is_plural("fr", 1) && is_plural("fr", 2));
     assert!(is_plural("en", 0) && !is_plural("en-GB", 1) && is_plural("en", 2));
@@ -271,6 +284,7 @@ fn texts_numbers_and_the_locale() {
     assert_eq!(translate("no.such.key", &[]), "no.such.key");
     assert_eq!(locale_name("fr"), "Français");
     assert_eq!(number("-12.5"), "-12,5");
+    assert_eq!((decimal_separator(), list_separator()), (',', ';'));
     assert_eq!(ellipsis("Ouvrir"), "Ouvrir…");
     assert!(available_locales().contains(&DEFAULT_LOCALE.to_owned()));
 }

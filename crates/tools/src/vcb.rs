@@ -4,7 +4,9 @@
 //! whether a point does too) with its current values; the editor reads what is typed with
 //! [`solidsketch_model::measure`] — expressions (`2m*(2+3)`, `min(@; 300)`), `@` for the current
 //! value, `;` lists with `=` to repeat, points `[x;y;z]` and `<dx;dy;dz>` — and gives the tool a
-//! [`VcbValue`]. A bare number is in the document's unit; `,` and `.` are both decimal points.
+//! [`VcbValue`]. Every list typed (lengths, counts, spacings, a point's coordinates) is read by
+//! [`measure::list`], values beyond those taken left out. A bare number is in the document's
+//! unit; `,` and `.` are both decimal points, unless `,` is the system's list separator.
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::t;
@@ -93,9 +95,8 @@ pub fn read(vcb: &Vcb, text: &str, units: &Units, context: &DAffine3) -> Result<
     if let Some(c) = counts(text, vcb.counts) {
         return Ok(VcbValue::Counts(c));
     }
-    if vcb.spacings && measure::items(text).len() > 1 {
-        let items = measure::items(text);
-        let read = |i: &String| (!i.trim().is_empty()).then(|| measure::length(i, units, 0.0).map(f64::abs)).transpose();
+    if let Some(items) = spacings(vcb, text) {
+        let read = |i: &measure::Item| (!i.value.is_empty()).then(|| measure::length(&i.value, units, 0.0).map(f64::abs)).transpose();
         return items.iter().map(read).collect::<Result<Vec<_>, _>>().map(VcbValue::Spacings).map_err(|e| refused(&e));
     }
     if let Some(r) = vcb.point {
@@ -108,7 +109,7 @@ pub fn read(vcb: &Vcb, text: &str, units: &Units, context: &DAffine3) -> Result<
     match &vcb.kind {
         VcbKind::Lengths(current) => {
             let mut v = measure::lengths(text, units, current).map_err(|e| refused(&e))?;
-            let typed = measure::split(text).len();
+            let typed = measure::list(text).len();
             v.truncate(typed.max(current.len().saturating_sub(vcb.optional)));
             Ok(VcbValue::Lengths(v))
         }
@@ -124,7 +125,7 @@ pub fn display(vcb: &Vcb, units: &Units) -> String {
     match &vcb.kind {
         VcbKind::Lengths(v) => {
             let shown = &v[..v.len().saturating_sub(vcb.optional)];
-            shown.iter().map(|&x| format(x.abs(), units)).collect::<Vec<_>>().join("; ")
+            measure::join(shown.iter().map(|&x| format(x.abs(), units)))
         }
         VcbKind::Angle(a) => format_angle(*a),
         VcbKind::Count => String::new(),
@@ -150,29 +151,28 @@ pub struct Typed {
 /// (yet) shows as typed. A point or a count typed is for the box only: nothing.
 pub fn typed(vcb: &Vcb, text: &str, units: &Units) -> Vec<Option<Typed>> {
     let t = text.trim();
-    let listed = vcb.spacings && measure::items(text).len() > 1;
-    let point = t.starts_with('[') || t.starts_with('<') || listed || counts(text, vcb.counts).is_some();
+    let point = t.starts_with('[') || t.starts_with('<') || spacings(vcb, text).is_some() || counts(text, vcb.counts).is_some();
     match &vcb.kind {
         VcbKind::Lengths(current) if !point => {
-            let mut out = vec![None; current.len()];
-            let items = measure::items(text);
-            let last = items.len() - 1;
-            let mut slot = 0;
-            for (j, item) in items.iter().enumerate() {
-                if slot >= current.len() {
-                    break;
+            let items = measure::list(text);
+            let last = items.last().map_or(0, |i| i.typed);
+            let typed = |(slot, item): (usize, &measure::Item)| {
+                let value = item.value.as_str();
+                let read = (!value.is_empty()).then(|| measure::length(value, units, current[slot]).ok()).flatten();
+                let read = read.map(|v| format(v.abs(), units));
+                if item.repeat {
+                    read.map(|r| Typed { text: String::new(), result: Some(r), active: false })
+                } else {
+                    let active = item.typed == last;
+                    (!value.is_empty() || active).then(|| Typed {
+                        text: value.to_owned(),
+                        result: read.filter(|r| says_more(value, r)),
+                        active,
+                    })
                 }
-                let (value, repeats) = measure::repeated(item);
-                let read = |s: usize| (!value.is_empty()).then(|| measure::length(value, units, current[s]).ok()).flatten();
-                if !value.is_empty() || j == last {
-                    let result = read(slot).map(|v| format(v.abs(), units)).filter(|r| says_more(value, r));
-                    out[slot] = Some(Typed { text: value.to_owned(), result, active: j == last });
-                }
-                for s in (slot + 1..=slot + repeats).take_while(|&s| s < current.len()) {
-                    out[s] = read(s).map(|v| Typed { text: String::new(), result: Some(format(v.abs(), units)), active: false });
-                }
-                slot += 1 + repeats;
-            }
+            };
+            let mut out: Vec<_> = items.iter().take(current.len()).enumerate().map(typed).collect();
+            out.resize(current.len(), None);
             out
         }
         VcbKind::Angle(current) if !point => {
@@ -200,16 +200,24 @@ pub enum Repeat {
     Divide(u32),
 }
 
-/// Up to `n` counts, `;` between them (an empty slot: `None`), at least one, all reading;
-/// none for `n` zero.
+/// `n` counts, a list ([`measure::list`]: `5x=` is `5x;5x`; an empty slot: `None`, those
+/// beyond `n` left out), at least one typed, all those taken reading; none for `n` zero.
 pub fn counts(text: &str, n: usize) -> Option<Vec<Option<Repeat>>> {
-    let items: Vec<&str> = text.split(';').map(str::trim).collect();
-    if n == 0 || items.len() > n || items.iter().all(|i| i.is_empty()) {
+    let items = measure::list(text);
+    let items = &items[..items.len().min(n)];
+    if items.iter().all(|i| i.value.is_empty()) {
         return None;
     }
-    let mut out = items.iter().map(|i| if i.is_empty() { Some(None) } else { repeat(i).map(Some) }).collect::<Option<Vec<_>>>()?;
+    let mut out =
+        items.iter().map(|i| if i.value.is_empty() { Some(None) } else { repeat(&i.value).map(Some) }).collect::<Option<Vec<_>>>()?;
     out.resize(n, None);
     Some(out)
+}
+
+/// The spacings typed for a tool taking them ([`Vcb::spacings`]): a list of two values or
+/// more (`10=` is two).
+fn spacings(vcb: &Vcb, text: &str) -> Option<Vec<measure::Item>> {
+    vcb.spacings.then(|| measure::list(text)).filter(|items| items.len() > 1)
 }
 
 pub fn repeat(s: &str) -> Option<Repeat> {
@@ -261,7 +269,35 @@ mod tests {
         assert_eq!(read(&with_height, "600", &mm, &id), Ok(VcbValue::Lengths(vec![600.0, -50.0])));
         assert_eq!(read(&with_height, "600==", &mm, &id), Ok(VcbValue::Lengths(vec![600.0, -600.0, 600.0])));
         assert_eq!(read(&with_height, ";;30", &mm, &id), Ok(VcbValue::Lengths(vec![100.0, -50.0, 30.0])));
-        assert!(read(&with_height, "1;2;3;4", &mm, &id).is_err());
+        // Beyond the values taken: left out.
+        assert_eq!(read(&with_height, "1;2;3;4", &mm, &id), Ok(VcbValue::Lengths(vec![1.0, -2.0, 3.0])));
+        assert_eq!(read(&base, "7====", &mm, &id), Ok(VcbValue::Lengths(vec![7.0, -7.0])));
+    }
+
+    #[test]
+    fn every_list_repeats_with_equals() {
+        let mm = Units::default();
+        let id = DAffine3::IDENTITY;
+        // Counts (Copy along grid).
+        let grid = Vcb::new("", VcbKind::Lengths(vec![100.0, 50.0])).counts(2);
+        let times = |n| Some(Repeat::Times(n));
+        assert_eq!(read(&grid, "5x=", &mm, &id), Ok(VcbValue::Counts(vec![times(5), times(5)])));
+        assert_eq!(read(&grid, ";3x", &mm, &id), Ok(VcbValue::Counts(vec![None, times(3)])));
+        assert_eq!(read(&grid, "5x;3x;2x", &mm, &id), Ok(VcbValue::Counts(vec![times(5), times(3)])));
+        assert_eq!(read(&grid, "5x;3x;oops", &mm, &id), Ok(VcbValue::Counts(vec![times(5), times(3)])), "left out, not read");
+        // Spacings (Distribute): `10=` is two.
+        let distribute = Vcb::new("", VcbKind::Lengths(vec![100.0])).counts(1).spacings();
+        assert_eq!(read(&distribute, "10==;20", &mm, &id), Ok(VcbValue::Spacings(vec![Some(10.0), Some(10.0), Some(10.0), Some(20.0)])));
+        assert_eq!(read(&distribute, "10=", &mm, &id), Ok(VcbValue::Spacings(vec![Some(10.0), Some(10.0)])));
+        assert_eq!(read(&distribute, "40", &mm, &id), Ok(VcbValue::Lengths(vec![40.0])));
+        // On a system writing `12.5`, `,` separates too, and lists are written with it.
+        solidsketch_i18n::with_separators('.', None, || {
+            assert_eq!(read(&grid, "5x,3x", &mm, &id), Ok(VcbValue::Counts(vec![times(5), times(3)])));
+            assert_eq!(read(&grid, "12.5,3", &mm, &id), Ok(VcbValue::Lengths(vec![12.5, 3.0])));
+            assert_eq!(read(&grid, "60;4", &mm, &id), Ok(VcbValue::Lengths(vec![60.0, 4.0])), "`;` always");
+            let tenths = Units { decimals: 1, ..Default::default() };
+            assert_eq!(display(&Vcb::new("", VcbKind::Lengths(vec![12.5, 300.0])), &tenths), "12.5, 300");
+        });
     }
 
     #[test]
@@ -318,6 +354,10 @@ mod tests {
         // `=` repeats: the next ones show the result.
         assert_eq!(shown("600="), vec![some("600", true), some("|= 600 mm", false), None]);
         assert_eq!(shown("@/2=="), vec![some("@/2|= 50 mm", true), some("|= 25 mm", false), some("|= 0 mm", false)]);
+        // Beyond the values: left out.
+        assert_eq!(shown("1;2;3;4"), vec![some("1", false), some("2", false), some("3", false)]);
+        assert_eq!(shown("7===="), vec![some("7", true), some("|= 7 mm", false), some("|= 7 mm", false)]);
+        assert_eq!(shown("1=;"), vec![some("1", false), some("|= 1 mm", false), some("", true)]);
         // A point: for the box only.
         assert_eq!(shown("[0;0;0]"), vec![None, None, None]);
         let angle = Vcb::new("", VcbKind::Angle(90f64.to_radians()));

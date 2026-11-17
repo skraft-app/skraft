@@ -3,9 +3,11 @@
 //!
 //! - `@` is the field's current value: `@/2`, `@+10`, `min(@; 300)`;
 //! - `;` separates values (`600;400`), an empty one keeps its current value (`;400`), `=`
-//!   repeats one (`600=` is `600;600`, `50==;20` is `50;50;50;20`). `,` and `.` are both
-//!   decimal points, so `;` is the only separator; it only splits outside parentheses, so
-//!   `min(@; 300);400` is two values;
+//!   repeats one (`600=` is `600;600`, `50==;20` is `50;50;50;20`), as [`list`] reads them —
+//!   every list typed goes through it. `,` separates them too on a system writing `12.5`
+//!   (its list separator, [`solidsketch_i18n::list_separator`]); otherwise `,` and `.` are
+//!   both decimal points. A list only splits outside parentheses, so `min(@; 300);400` is
+//!   two values. Values beyond those a field takes are left out;
 //! - `[x;y;z]` is a point in absolute coordinates, `<dx;dy;dz>` a point relative to another;
 //!   `@` is then the coordinate the cursor gives.
 //!
@@ -63,14 +65,11 @@ pub fn angle(text: &str, current: f64) -> Result<f64> {
     result(v, Quantity::Angle)
 }
 
-/// `;`-separated lengths (mm), at most one per current value (see [`length`] for each);
-/// those not typed keep their current value.
+/// `;`-separated lengths (mm), one per current value (see [`length`] for each); those not
+/// typed keep their current value, those beyond are left out.
 pub fn lengths(text: &str, units: &Units, current: &[f64]) -> Result<Vec<f64>> {
-    let items = split(text);
-    if items.len() > current.len() {
-        return Err(ExprError::TooMany(current.len()));
-    }
-    current.iter().enumerate().map(|(i, &c)| length(items.get(i).map_or("", String::as_str), units, c)).collect()
+    let items = list(text);
+    current.iter().enumerate().map(|(i, &c)| length(items.get(i).map_or("", |i| i.value.as_str()), units, c)).collect()
 }
 
 /// A typed point, if `text` is one (`None` otherwise): `[x;y;z]` absolute, `<dx;dy;dz>` from
@@ -82,13 +81,9 @@ pub fn point(text: &str, units: &Units, target: DVec3, relative_to: DVec3) -> Op
         Some(s) => (s, DVec3::ZERO),
         None => (t.strip_prefix('<')?.strip_suffix('>')?, relative_to),
     };
-    let items = split(inner);
-    if items.len() > 3 {
-        return Some(Err(ExprError::TooMany(3)));
-    }
     let mut p = target;
-    for (k, item) in items.iter().enumerate() {
-        match coordinate(item, units, target[k] - origin[k]) {
+    for (k, item) in list(inner).iter().take(3).enumerate() {
+        match coordinate(&item.value, units, target[k] - origin[k]) {
             Ok(v) => p[k] = origin[k] + v,
             Err(e) => return Some(Err(e)),
         }
@@ -96,46 +91,55 @@ pub fn point(text: &str, units: &Units, target: DVec3, relative_to: DVec3) -> Op
     Some(Ok(p))
 }
 
-/// The values of a `;`-separated list, split outside parentheses, trimmed; `=` after one
-/// repeats it (`50=;-12` → `50`, `50`, `-12`).
-pub fn split(text: &str) -> Vec<String> {
-    items(text)
-        .into_iter()
-        .flat_map(|item| {
-            let (value, repeats) = repeated(&item);
-            if repeats > 0 { vec![value.to_owned(); repeats + 1] } else { vec![item] }
-        })
-        .collect()
+/// A value of a typed list ([`list`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Item {
+    /// As typed, trimmed, without the `=` repeating it; empty: keeps the current value.
+    pub value: String,
+    /// Which of the items typed it is (the one before it repeated by `=` keeps its index).
+    pub typed: usize,
+    /// A repeat of the one before (by `=`), not typed itself.
+    pub repeat: bool,
 }
 
-/// The items of a `;`-separated list as typed: split outside parentheses, trimmed, their `=`
-/// kept (`50=;-12` → `50=`, `-12`).
-pub fn items(text: &str) -> Vec<String> {
-    let mut items = Vec::new();
+/// The values of a typed list — every one goes through it, as OpenCutList's
+/// `_split_user_text`: split on `;`, and on the system's list separator when it is `,`
+/// ([`solidsketch_i18n::list_separator`]), outside parentheses and brackets; trimmed; `=`
+/// after a value repeats it (`50=;-12` → `50`, `50`, `-12`; `50==` → three `50`). An item of
+/// `=` alone is no repeat (it does not read). Never empty: `""` is one empty value.
+pub fn list(text: &str) -> Vec<Item> {
+    let comma = solidsketch_i18n::list_separator() == ',';
+    let mut typed = Vec::new();
     let mut depth = 0i32;
     let mut item = String::new();
     for c in text.chars() {
         match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            ';' if depth <= 0 => {
-                items.push(std::mem::take(&mut item));
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            ';' | ',' if depth <= 0 && (c == ';' || comma) => {
+                typed.push(std::mem::take(&mut item));
                 continue;
             }
             _ => {}
         }
         item.push(c);
     }
-    items.push(item);
-    items.into_iter().map(|item| item.trim().to_owned()).collect()
+    typed.push(item);
+    let mut out = Vec::with_capacity(typed.len());
+    for (i, item) in typed.iter().enumerate() {
+        let item = item.trim();
+        let value = item.trim_end_matches('=').trim_end();
+        let repeats = if value.is_empty() { 0 } else { item.len() - item.trim_end_matches('=').len() };
+        let value = if repeats > 0 { value } else { item };
+        out.extend((0..=repeats).map(|r| Item { value: value.to_owned(), typed: i, repeat: r > 0 }));
+    }
+    out
 }
 
-/// An item of a list (as [`items`] gives it) without the `=` that repeat it, and how many
-/// more times it is repeated; an item of `=` alone is no repeat.
-pub fn repeated(item: &str) -> (&str, usize) {
-    let value = item.trim_end_matches('=').trim_end();
-    let repeats = item.len() - item.trim_end_matches('=').len();
-    if repeats > 0 && !value.is_empty() { (value, repeats) } else { (item, 0) }
+/// What [`list`] gives, written back: its values joined by the list separator.
+pub fn join<S: AsRef<str>>(values: impl IntoIterator<Item = S>) -> String {
+    let separator = format!("{} ", solidsketch_i18n::list_separator());
+    values.into_iter().map(|v| v.as_ref().to_owned()).collect::<Vec<_>>().join(&separator)
 }
 
 fn variable(name: &str, current: f64) -> Result<Value> {
@@ -208,20 +212,48 @@ mod tests {
         assert!(angle("abc", 0.0).is_err());
     }
 
+    fn values(text: &str) -> Vec<String> {
+        list(text).into_iter().map(|i| i.value).collect()
+    }
+
     #[test]
     fn lists() {
-        assert_eq!(split("50"), ["50"]);
-        assert_eq!(split(";50"), ["", "50"]);
-        assert_eq!(split("50=;-12"), ["50", "50", "-12"]);
-        assert_eq!(split("50=="), ["50", "50", "50"]);
-        assert_eq!(split(" @/2 = ; 3"), ["@/2", "@/2", "3"]);
-        assert_eq!(split("min(@; 300);400"), ["min(@; 300)", "400"]);
+        assert_eq!(values("50"), ["50"]);
+        assert_eq!(values(""), [""]);
+        assert_eq!(values(";50"), ["", "50"]);
+        assert_eq!(values("50=;-12"), ["50", "50", "-12"]);
+        assert_eq!(values("50=="), ["50", "50", "50"]);
+        assert_eq!(values(" @/2 = ; 3"), ["@/2", "@/2", "3"]);
+        assert_eq!(values("min(@; 300);400"), ["min(@; 300)", "400"]);
+        assert_eq!(values("10,5=;2"), ["10,5", "10,5", "2"], "`,` a decimal point");
+        assert_eq!(values("=;="), ["=", "="], "a lone `=` is no repeat");
+        assert_eq!(values("5x=;/3"), ["5x", "5x", "/3"]);
+        let typed = |text: &str| list(text).into_iter().map(|i| (i.typed, i.repeat)).collect::<Vec<_>>();
+        assert_eq!(typed("1=;2;3=="), [(0, false), (0, true), (1, false), (2, false), (2, true), (2, true)]);
+        assert_eq!(join(["1 mm", "2 mm"]), "1 mm; 2 mm");
         assert_eq!(lengths("60cm;0,4m", &mm(), &[1.0, 1.0]), Ok(vec![600.0, 400.0]));
         assert_eq!(lengths("300;;", &mm(), &[1.0, 2.0, 3.0]), Ok(vec![300.0, 2.0, 3.0]));
         assert_eq!(lengths("600=", &mm(), &[1.0, -2.0]), Ok(vec![600.0, -600.0]));
         assert_eq!(lengths(";@*2", &mm(), &[10.0, 20.0]), Ok(vec![10.0, 40.0]));
-        assert_eq!(lengths("1;2;3", &mm(), &[0.0, 0.0]), Err(ExprError::TooMany(2)));
-        assert_eq!(lengths("1;2", &mm(), &[0.0]), Err(ExprError::TooMany(1)));
+        // Beyond the values taken: left out.
+        assert_eq!(lengths("1;2;3", &mm(), &[0.0, 0.0]), Ok(vec![1.0, 2.0]));
+        assert_eq!(lengths("1;x", &mm(), &[0.0]), Ok(vec![1.0]));
+        assert_eq!(lengths("7====", &mm(), &[0.0, 0.0]), Ok(vec![7.0, 7.0]));
+    }
+
+    #[test]
+    fn lists_on_a_system_writing_12_point_5() {
+        solidsketch_i18n::with_separators('.', None, || {
+            assert_eq!(values("10,5"), ["10", "5"]);
+            assert_eq!(values("10;5, 2="), ["10", "5", "2", "2"]);
+            assert_eq!(values("min(@, 300),400"), ["min(@, 300)", "400"]);
+            assert_eq!(lengths("12.5,3", &mm(), &[0.0, 0.0]), Ok(vec![12.5, 3.0]));
+            assert_eq!(join(["1", "2"]), "1, 2");
+            let target = DVec3::ZERO;
+            assert_eq!(point("[1,2,3]", &mm(), target, target), Some(Ok(DVec3::new(1.0, 2.0, 3.0))));
+        });
+        // A system's list separator other than `,` (Windows': `;` with `.`): `,` is a decimal point.
+        solidsketch_i18n::with_separators('.', Some(';'), || assert_eq!(values("10,5;2"), ["10,5", "2"]));
     }
 
     #[test]
@@ -235,7 +267,7 @@ mod tests {
         assert_eq!(point("[;;0]", &mm(), target, from), Some(Ok(DVec3::new(100.0, -200.0, 0.0))));
         assert_eq!(point("<@/2;@;0>", &mm(), target, from), Some(Ok(DVec3::new(55.0, -200.0, 10.0))));
         assert_eq!(point("[50=;]", &mm(), target, from), Some(Ok(DVec3::new(50.0, 50.0, 300.0))));
-        assert_eq!(point("[1;2;3;4]", &mm(), target, from), Some(Err(ExprError::TooMany(3))));
+        assert_eq!(point("[1;2;3;4]", &mm(), target, from), Some(Ok(DVec3::new(1.0, 2.0, 3.0))));
         assert!(matches!(point("[1;x;3]", &mm(), target, from), Some(Err(_))));
     }
 }
