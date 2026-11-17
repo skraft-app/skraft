@@ -1727,6 +1727,12 @@ impl SolidSketchApp {
                     let pad = if id == PanelId::Outliner { HEAD_PAD / 2.0 } else { 2.0 * HEAD_PAD };
                     ui.add_space(pad);
                     let body = (inner.y - header - pad - 2.0 * ui.spacing().item_spacing.y).max(0.0);
+                    // The floating scroll bar out in the card's right margin, a pixel short of its
+                    // border, and no wider than that margin once hovered: over the content it hid
+                    // the rows' right end (the navigator's eyes, signs).
+                    let scroll = &mut ui.spacing_mut().scroll;
+                    scroll.bar_outer_margin = -(panels::CARD_MARGIN - 1.0);
+                    scroll.bar_width = panels::CARD_MARGIN;
                     let area = egui::ScrollArea::vertical().auto_shrink(false).max_height(body).min_scrolled_height(body);
                     match id {
                         PanelId::EntityInfo => {
