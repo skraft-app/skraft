@@ -562,6 +562,7 @@ impl Tool for MeasureTool {
                 choices: Vec::new(),
                 saved: true,
                 icon: None,
+                swatch: None,
             },
             ToolOption {
                 key: SHAPE,
@@ -575,6 +576,7 @@ impl Tool for MeasureTool {
                 ],
                 saved: true,
                 icon: None,
+                swatch: None,
             },
         ]
     }

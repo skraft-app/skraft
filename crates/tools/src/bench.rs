@@ -113,7 +113,11 @@ fn bench_stretch_one_among_many() {
     e.set_parallel(true);
     let root = e.document().root();
     let cube = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) };
-    let a = e.apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY }).unwrap().unwrap().created[0];
+    let a = e
+        .apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap()
+        .created[0];
     let row = e
         .apply(Operation::Array { context: root, entities: vec![a], step: DAffine3::from_translation(DVec3::X * 200.0), count: n - 1 })
         .unwrap()
@@ -198,7 +202,11 @@ fn bench_mixed_sizes() {
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     let root = e.document().root();
     let cube = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(20.0) };
-    let a = e.apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY }).unwrap().unwrap().created[0];
+    let a = e
+        .apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap()
+        .created[0];
     let row = e
         .apply(Operation::Array { context: root, entities: vec![a], step: DAffine3::from_translation(DVec3::X * 100.0), count: 99 })
         .unwrap()
@@ -208,7 +216,7 @@ fn bench_mixed_sizes() {
     e.apply(Operation::Array { context: root, entities: row, step: DAffine3::from_translation(DVec3::Y * 100.0), count: 99 }).unwrap();
     for k in 0..20 {
         let plate = Primitive::Box { origin: DVec3::new(-50.0, -50.0, 40.0 + k as f64 * 30.0), size: DVec3::new(10_000.0, 10_000.0, 5.0) };
-        e.apply(Operation::AddPrimitive { context: root, primitive: plate, placement: DAffine3::IDENTITY }).unwrap();
+        e.apply(Operation::AddPrimitive { context: root, primitive: plate, placement: DAffine3::IDENTITY, material: None }).unwrap();
     }
     eprintln!("occurrences: {}", e.document().root_assembly().occurrences().len());
     e.set_tool(ToolKind::Move);
@@ -353,8 +361,11 @@ fn bench_small_edit() {
         let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
         let root = e.document().root();
         let cube = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(20.0) };
-        let a =
-            e.apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY }).unwrap().unwrap().created[0];
+        let a = e
+            .apply(Operation::AddPrimitive { context: root, primitive: cube, placement: DAffine3::IDENTITY, material: None })
+            .unwrap()
+            .unwrap()
+            .created[0];
         let step = DAffine3::from_translation(DVec3::X * 100.0);
         let row = e.apply(Operation::Array { context: root, entities: vec![a], step, count: 199 }).unwrap().unwrap().created;
         let row: Vec<_> = std::iter::once(a).chain(row).collect();
@@ -569,6 +580,7 @@ fn bench_step_loading() {
         context: root,
         primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE },
         placement: DAffine3::IDENTITY,
+        material: None,
     };
     let _ = e.apply(op);
     while e.busy() && t.elapsed() < Duration::from_secs(600) {

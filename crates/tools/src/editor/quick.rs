@@ -5,7 +5,7 @@
 //! app where [`Editor::quick_card`] says.
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_model::{Id, Operation, Outcome};
+use solidsketch_model::{EntityPath, Id, Operation, Outcome};
 
 use super::Editor;
 use crate::tools::{self, Command, Key, Tool, ToolInput, ToolKind, handle};
@@ -24,6 +24,9 @@ pub(super) struct Return {
 pub(super) struct Card {
     /// The occurrences made in the context, or the bodies in the open part.
     made: Vec<Id>,
+    /// The assembly they were made in instead of the context (« Dessiner dans »,
+    /// §6 duodevicies), by its occurrences from the root: selected there, at any depth.
+    made_in: Option<Vec<Id>>,
     /// The centre of their box (world): where the card is drawn.
     anchor: DVec3,
     /// The history's revision and the context it was made at: any other step, an undo or
@@ -65,15 +68,16 @@ impl Editor {
 
     /// After a creation tool's operation: the card offered on what it made, unless what it made
     /// cannot be selected (bodies of an open part whose machinings are not shown).
-    pub(super) fn offer_card(&mut self, outcome: &Outcome) {
+    pub(super) fn offer_card(&mut self, outcome: &Outcome, made_in: Option<&[Id]>) {
         self.card = None;
         let made = if self.open_part.is_some() { &outcome.bodies } else { &outcome.created };
         if made.is_empty() || (self.open_part.is_some() && !self.showing_machinings()) {
             return;
         }
-        let Some(anchor) = self.made_centre(made) else { return };
+        let Some(anchor) = self.made_centre(made, made_in) else { return };
         self.card = Some(Card {
             made: made.clone(),
+            made_in: made_in.map(<[Id]>::to_vec),
             anchor,
             revision: self.history.revision(),
             context: self.context.clone(),
@@ -81,9 +85,9 @@ impl Editor {
         });
     }
 
-    /// The centre (world) of the box of `made`: occurrences of the context, or bodies of the
-    /// open part.
-    fn made_centre(&self, made: &[Id]) -> Option<DVec3> {
+    /// The centre (world) of the box of `made`: occurrences of the context (or of the assembly
+    /// `made_in` leads to), or bodies of the open part.
+    fn made_centre(&self, made: &[Id], made_in: Option<&[Id]>) -> Option<DVec3> {
         let cx = self.cx();
         let doc = self.document();
         let (lo, hi, to_world) = match self.open_part_path() {
@@ -94,10 +98,11 @@ impl Editor {
                 (lo, hi, t)
             }
             None => {
-                let assembly = doc.assembly(doc.context_of(&self.context).ok()?).ok()?;
+                let context = made_in.unwrap_or(&self.context);
+                let assembly = doc.assembly(doc.context_of(context).ok()?).ok()?;
                 let occs: Vec<_> = assembly.occurrences().iter().filter(|o| made.contains(&o.id)).collect();
-                let (lo, hi) = handle::occurrences_bounds(&cx, &self.context, &occs, DAffine3::IDENTITY)?;
-                (lo, hi, doc.transform_of(&self.context).ok()?)
+                let (lo, hi) = handle::occurrences_bounds(&cx, context, &occs, DAffine3::IDENTITY)?;
+                (lo, hi, doc.transform_of(context).ok()?)
             }
         };
         Some(to_world.transform_point3((lo + hi) * 0.5))
@@ -118,7 +123,10 @@ impl Editor {
         let selection = self.selection.clone();
         // Selected first: the tool starts on it (Erase erases it, §6 septendecies).
         if let Some(c) = &card {
-            self.set_selection(c.made.clone());
+            match &c.made_in {
+                Some(parent) => self.select_paths(c.made.iter().map(|&entity| EntityPath::new(parent.clone(), entity)).collect()),
+                None => self.set_selection(c.made.clone()),
+            }
         }
         self.set_tool(kind);
         self.quick_return = Some(Return { to, card, selection });

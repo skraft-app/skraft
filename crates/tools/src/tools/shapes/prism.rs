@@ -581,7 +581,7 @@ impl PrismTool {
         self.aim = None;
         self.aim_n = None;
         let placement = DAffine3::from_cols(x, y, z, ax.a);
-        vec![Command::Apply(cx.add_primitive(Primitive::Revolution { origin: DVec3::ZERO, profile: half }, placement))]
+        vec![self.first.add_part(cx, Primitive::Revolution { origin: DVec3::ZERO, profile: half }, placement)]
     }
 
     /// Turning: the axis drawn as a guide line, endless (its origin marked, not its length:
@@ -887,7 +887,7 @@ impl PrismTool {
         } else {
             (Primitive::Prism { origin: DVec3::new(0.0, 0.0, z0), profile: outline, height: z1 - z0 }, f.placement())
         };
-        vec![Command::Apply(cx.add_primitive(primitive, placement)), Command::RememberHeight(z1 - z0)]
+        vec![self.first.add_part(cx, primitive, placement), Command::RememberHeight(z1 - z0)]
     }
 
     /// The height step ends at `h`.
@@ -1187,6 +1187,8 @@ impl Tool for PrismTool {
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut lines = Vec::new();
+        // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
+        let scene_lines = self.first.container_preview(cx, &mut lines);
         let mut labels = Vec::new();
         let mut marks = Vec::new();
         let mut points = Vec::new();
@@ -1390,7 +1392,7 @@ impl Tool for PrismTool {
             }
             self.preview_axis(cx, &mut lines, &mut points, &mut guides, &drawn);
         }
-        Preview { lines, labels, marks, points, inference, tip, guides, ..Default::default() }
+        Preview { lines, scene_lines, labels, marks, points, inference, tip, guides, ..Default::default() }
     }
 
     fn status(&self) -> String {
@@ -1459,6 +1461,7 @@ impl Tool for PrismTool {
             ],
             saved: false,
             icon: None,
+            swatch: None,
         };
         let reversed = toggle(
             REVERSED,
@@ -1469,12 +1472,12 @@ impl Tool for PrismTool {
             "measure_reversed",
         );
         if self.turning {
-            return [fillet_option(cx), trace, reversed].into_iter().chain(ask_name_option(cx)).collect();
+            return [fillet_option(cx), trace, reversed].into_iter().chain(part_options(cx, &self.first)).collect();
         }
         [offset_option(cx), fillet_option(cx), trace, reversed]
             .into_iter()
             .chain(shared_options(cx, &self.first))
-            .chain(ask_name_option(cx))
+            .chain(part_options(cx, &self.first))
             .collect()
     }
 

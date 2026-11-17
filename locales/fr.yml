@@ -702,6 +702,11 @@ tool:
       offset_tip: "Décale le contour de la forme tracée, pas sa hauteur (négatif : vers l'intérieur) · cliquer pour le taper, ou taper longueur suivie de x (3x)"
       fillet: "Congé"
       fillet_tip: "Arrondit d'un rayon les coins entre deux côtés droits de la pièce faite, après le décalage · cliquer pour le taper, ou taper rayon suivi de r (5r)"
+      draw_in: "Dessiner dans"
+      draw_in_tip: "Dessiner dans l'assemblage de la pièce ciblée par le premier point"
+      pick_material: "Pipette"
+      pick_material_named: "Pipette : %{material}"
+      pick_material_tip: "Appliquer la matière de la pièce ciblée par le premier point à la pièce créée"
       ask_name: "Nommage des pièces"
       ask_name_tip: "Saisir le nom de chaque pièce dès qu'elle est faite (sinon, le bouton Renommer de la notification)"
   box:

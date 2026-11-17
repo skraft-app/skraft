@@ -11,7 +11,7 @@ fn cube(at: DVec3, size: f64) -> Primitive {
 /// Adds a primitive at the root, returns its occurrence.
 fn add(h: &mut History, p: Primitive) -> Id {
     let root = h.document().root();
-    h.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY }).unwrap().created[0]
+    h.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None }).unwrap().created[0]
 }
 
 fn occ(doc: &Document, path: &EntityPath) -> Occurrence {
@@ -227,7 +227,12 @@ fn errors_leave_the_document_unchanged() {
     let mut h = History::new(Document::new());
     let root = h.document().root();
     let before = h.document().clone();
-    let r = h.apply(Operation::AddPrimitive { context: root, primitive: cube(DVec3::ZERO, 0.0), placement: DAffine3::IDENTITY });
+    let r = h.apply(Operation::AddPrimitive {
+        context: root,
+        primitive: cube(DVec3::ZERO, 0.0),
+        placement: DAffine3::IDENTITY,
+        material: None,
+    });
     assert!(matches!(r, Err(Error::Kernel(_))), "{r:?}");
     assert_eq!(*h.document(), before);
     assert!(!h.can_undo());
@@ -1264,7 +1269,7 @@ fn a_part_of_an_assembly_that_cannot_stretch_is_named() {
     // A rod in the assembly across the cutter, square to the axis: it cannot be stretched along X.
     let asm = h.document().resolve(&EntityPath::root(a)).unwrap().component;
     let cyl = Primitive::Cylinder { origin: DVec3::new(300.0, 150.0, 0.0), radius: 10.0, height: 40.0 };
-    h.apply(Operation::AddPrimitive { context: asm, primitive: cyl, placement: DAffine3::IDENTITY }).unwrap();
+    h.apply(Operation::AddPrimitive { context: asm, primitive: cyl, placement: DAffine3::IDENTITY, material: None }).unwrap();
     let e = h.document().prepare(&stretch_x(h.document(), &EntityPath::root(a), 300.0, 100.0, Scope::All)).unwrap_err();
     assert!(matches!(&e, Error::InPart { error, .. } if matches!(**error, Error::Kernel(kernel::Error::Stretch(_)))), "{e:?}");
 }
@@ -1715,6 +1720,7 @@ fn a_turned_body_keeps_its_half_profile() {
             context: root,
             primitive: Primitive::Revolution { origin: DVec3::ZERO, profile: half },
             placement: lying,
+            material: None,
         })
         .unwrap()
         .created[0];

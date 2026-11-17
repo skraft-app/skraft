@@ -107,6 +107,11 @@ impl Editor {
     pub(super) fn finish(&mut self, op: Operation, applied: Applied, after: After) -> Outcome {
         let Applied { document, outcome, displays } = applied;
         let carried = matches!(after, After::Carry(_)).then(|| op.clone());
+        // A part made in another assembly (« Dessiner dans », §6 duodevicies): its path there.
+        let made_in = match &op {
+            Operation::At { parent, op, .. } if matches!(**op, Operation::AddPrimitive { .. }) => Some(parent.clone()),
+            _ => None,
+        };
         let label = op.label();
         self.history.push(document, op);
         self.journal.log(Event::Applied { op: label, revision: self.history.revision() });
@@ -137,9 +142,9 @@ impl Editor {
         }
         self.after_change();
         if let After::Card { ask_name } = after {
-            self.offer_card(&outcome);
+            self.offer_card(&outcome, made_in.as_deref());
             if let Some(ask) = ask_name {
-                self.offer_naming(&outcome, ask);
+                self.offer_naming(&outcome, made_in.as_deref(), ask);
             }
         }
         if let (After::Carry(from), Some(op)) = (after, carried) {

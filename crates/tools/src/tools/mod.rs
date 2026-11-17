@@ -31,7 +31,7 @@ pub use profile::ProfileTool;
 pub use rotate::RotateTool;
 pub use section::SectionTool;
 pub use select::SelectTool;
-pub use shapes::{BoxTool, CylinderTool, PrismTool};
+pub use shapes::{BoxTool, CylinderTool, PrismTool, synced_with};
 pub use stretch::StretchTool;
 
 use std::collections::BTreeMap;
@@ -346,11 +346,20 @@ pub struct ToolOption {
     pub saved: bool,
     /// A toggle's icon, by name, which the app draws instead of the label (then in the tip).
     pub icon: Option<&'static str>,
+    /// A colour (sRGB) filling the toggle's button while it is on: « Pipette »'s material
+    /// (§6 duodevicies).
+    pub swatch: Option<[u8; 3]>,
 }
 
 /// The creation tools' toggle « Nommage des pièces » (OCL's `ask_name`): the part's name asked
 /// as soon as it is made (§6 quattuordecies).
 pub const ASK_NAME: &str = "ask_name";
+
+/// The part creation tools' toggles « Dessiner dans » and « Pipette » (OCL's `draw_in` and
+/// `pick_material`, ARCHITECTURE.md §6 duodevicies): the part made goes into the assembly of
+/// the part picked before the first click, takes its material.
+pub const DRAW_IN: &str = "draw_in";
+pub const PICK_MATERIAL: &str = "pick_material";
 
 /// The selection's scope (ARCHITECTURE.md §6 septendecies), shared by Select and every tool's
 /// picking: what a click takes, the active context's child or the part at any depth. Saved
@@ -728,7 +737,60 @@ impl Cx<'_> {
     pub fn add_primitive(&self, primitive: Primitive, placement: DAffine3) -> Operation {
         match self.open_part_path() {
             Some(target) => Operation::AddBody { target, primitive, placement, sign: self.body_sign, scope: self.part_scope },
-            None => Operation::AddPrimitive { context: self.context_def, primitive, placement: self.axes_in_context * placement },
+            None => Operation::AddPrimitive {
+                context: self.context_def,
+                primitive,
+                placement: self.axes_in_context * placement,
+                material: None,
+            },
+        }
+    }
+
+    /// The part a creation tool's first click picks (§6 duodevicies): the one under `px`, at
+    /// any depth under the context, while « Dessiner dans » or « Pipette » is on.
+    pub fn creation_pick(&self, px: DVec2) -> Option<EntityPath> {
+        (self.toggle(DRAW_IN) || self.toggle(PICK_MATERIAL)).then(|| self.part_at(px).map(|p| p.part_path())).flatten()
+    }
+
+    /// The assembly « Dessiner dans » makes a part in, for the part `picked`: the one holding
+    /// it, by its occurrences from the root, unless it is the context (or the option is off).
+    pub fn draw_in<'p>(&self, picked: Option<&'p EntityPath>) -> Option<&'p [Id]> {
+        let parent = picked.filter(|_| self.open_part.is_none() && self.toggle(DRAW_IN))?.instances.as_slice();
+        (parent != self.context && self.doc.context_of(parent).is_ok()).then_some(parent)
+    }
+
+    /// The material « Pipette » gives a part made, from the part `picked`: its occurrence's own,
+    /// else the one it inherits from its assemblies (as the view paints it).
+    pub fn picked_material(&self, picked: Option<&EntityPath>) -> Option<Id> {
+        let p = picked.filter(|_| self.open_part.is_none() && self.toggle(PICK_MATERIAL))?;
+        let mut at = self.doc.root();
+        let mut material = None;
+        for &i in p.instances.iter().chain([&p.entity]) {
+            let o = self.doc.assembly(at).ok()?.occurrence(i)?;
+            material = o.material.or(material);
+            at = o.component;
+        }
+        material.filter(|m| self.doc.material(*m).is_ok())
+    }
+
+    /// The operation a part creation tool applies (as [`Cx::add_primitive`]), « Dessiner dans »
+    /// and « Pipette » taken from the part `picked` before the first click (§6 duodevicies):
+    /// in another assembly than the context, placed in its axes, its copies made unique first
+    /// under « only this one » when it is placed more than once (as parts moved at any depth).
+    pub fn add_part(&self, primitive: Primitive, placement: DAffine3, picked: Option<&EntityPath>) -> Operation {
+        if self.open_part.is_some() {
+            return self.add_primitive(primitive, placement);
+        }
+        let material = self.picked_material(picked);
+        match self.draw_in(picked) {
+            Some(parent) => {
+                let frame = self.doc.transform_of(parent).unwrap_or(DAffine3::IDENTITY);
+                let placement = frame.inverse() * self.context_transform * self.axes_in_context * placement;
+                let unique = self.part_scope == Scope::This && self.doc.shared_along(parent);
+                let op = Operation::AddPrimitive { context: self.context_def, primitive, placement, material };
+                Operation::At { parent: parent.to_vec(), unique, op: Box::new(op) }
+            }
+            None => Operation::AddPrimitive { context: self.context_def, primitive, placement: self.axes_in_context * placement, material },
         }
     }
 

@@ -658,7 +658,10 @@ mod tests {
         let root = e.document().root();
         let add = |e: &mut Editor, origin: f64, size: f64| {
             let primitive = Primitive::Box { origin: DVec3::splat(origin), size: DVec3::splat(size) };
-            e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created[0]
+            e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None })
+                .unwrap()
+                .unwrap()
+                .created[0]
         };
         let small = add(&mut e, 0.0, 10.0);
         let far = add(&mut e, 100.0, 10.0);

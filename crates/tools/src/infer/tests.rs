@@ -23,7 +23,10 @@ fn view_editor(view: StandardView, at: DVec3) -> Editor {
 
 fn add(e: &mut Editor, primitive: Primitive) -> Id {
     let root = e.document().root();
-    e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY }).unwrap().expect("done").created[0]
+    e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .expect("done")
+        .created[0]
 }
 
 fn add_box(e: &mut Editor, origin: DVec3, size: DVec3) -> Id {

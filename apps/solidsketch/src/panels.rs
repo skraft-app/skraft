@@ -278,7 +278,7 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
         // Side by side like the ribbon's buttons.
         ui.spacing_mut().item_spacing.x = crate::ribbon::BUTTON_GAP;
         for (o, on) in toggles {
-            if option_button(ui, &format!("option:{}", o.key), on, &o.label, &o.tip, o.icon) {
+            if option_button(ui, &format!("option:{}", o.key), on, &o.label, &o.tip, o.icon, o.swatch) {
                 actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
             }
         }
@@ -482,18 +482,42 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
 
 /// A toggle of the option bar, drawn like a ribbon button: no frame until hovered, the
 /// selection's fill and outline when on. True when clicked.
-fn option_button(ui: &mut egui::Ui, handle: &str, selected: bool, label: &str, tip: &str, icon: Option<&str>) -> bool {
+fn option_button(
+    ui: &mut egui::Ui,
+    handle: &str,
+    selected: bool,
+    label: &str,
+    tip: &str,
+    icon: Option<&str>,
+    swatch: Option<[u8; 3]>,
+) -> bool {
     let face = Face::new(ui, label, icon);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(face.width(OPTION_HEIGHT), OPTION_HEIGHT), egui::Sense::click());
     crate::handles::publish(|| handle.to_owned(), rect);
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
     let visuals = ui.style().interact_selectable(&response, selected);
-    if selected || response.hovered() {
+    // On, filled with its colour (« Pipette »'s material, §6 duodevicies), as OCL's button.
+    let swatch = swatch.filter(|_| selected).map(|[r, g, b]| egui::Color32::from_rgb(r, g, b));
+    if let Some(fill) = swatch {
+        ui.painter().rect(rect, visuals.corner_radius, fill, visuals.bg_stroke, egui::StrokeKind::Inside);
+    } else if selected || response.hovered() {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, egui::StrokeKind::Inside);
     }
-    let ink = if selected { visuals.text_color() } else { ui.visuals().text_color() };
+    let ink = match swatch {
+        Some(fill) => ink_on(fill),
+        None if selected => visuals.text_color(),
+        None => ui.visuals().text_color(),
+    };
     face.paint(ui, rect, ink);
     response.on_hover_text(face_tip(&face, label, tip)).clicked()
+}
+
+/// The ink readable on `fill`: black on a light colour, white on a dark one (OCL's
+/// `ColorUtils.color_is_dark?`).
+fn ink_on(fill: egui::Color32) -> egui::Color32 {
+    let l = egui::Rgba::from(fill);
+    let luminance = 0.2126 * l.r() + 0.7152 * l.g() + 0.0722 * l.b();
+    if luminance > 0.18 { egui::Color32::BLACK } else { egui::Color32::WHITE }
 }
 
 /// A value of a choice in its segmented control.

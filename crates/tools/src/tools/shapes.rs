@@ -54,13 +54,13 @@
 
 use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::Primitive;
 use solidsketch_model::kernel::profile::{self, Corner};
+use solidsketch_model::{EntityPath, Id, Primitive};
 
 use super::face::{self, Face};
 use super::{
-    ASK_NAME, BLUE, Command, Cx, DragClicks, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, PreviewLabel, PreviewLine, RED,
-    Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
+    ASK_NAME, BLUE, Command, Cx, DRAW_IN, DragClicks, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, PICK_MATERIAL, Preview,
+    PreviewLabel, PreviewLine, RED, Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
 };
 use crate::camera::Ray;
 use crate::infer::{EdgeRef, InferKind, Inference, LineKind};
@@ -331,17 +331,49 @@ struct First {
     at: Option<StartAt>,
     from_corner: bool,
     measure: Option<Measure>,
+    /// The part under the cursor, kept by the first click: where « Dessiner dans » draws, the
+    /// material « Pipette » takes (§6 duodevicies).
+    picked: Option<EntityPath>,
+    /// The assembly « Dessiner dans » draws in, for `picked`: its occurrences from the root
+    /// and its box in its axes (§6 duodevicies).
+    container: Option<(Vec<Id>, DVec3, DVec3)>,
 }
 
 impl First {
     fn hover(&mut self, cx: &Cx<'_>, px: DVec2) {
         self.at = start_at(cx, px);
         self.measure = self.at.as_ref().filter(|_| self.from_corner).and_then(|s| Measure::at(cx, s));
+        self.picked = cx.creation_pick(px);
+        // Its box measured at the move, not at each frame (it grows with what is drawn in it).
+        let parent = cx.draw_in(self.picked.as_ref());
+        self.container = parent.and_then(|p| container_bounds(cx, p).map(|(lo, hi)| (p.to_vec(), lo, hi)));
     }
 
     fn leave(&mut self) {
         self.at = None;
         self.measure = None;
+        self.picked = None;
+        self.container = None;
+    }
+
+    /// The operation making the part: in the picked part's assembly, with its material, as the
+    /// options say.
+    fn add_part(&self, cx: &Cx<'_>, primitive: Primitive, placement: DAffine3) -> Command {
+        Command::Apply(cx.add_part(primitive, placement, self.picked.as_ref()))
+    }
+
+    /// The box of the assembly « Dessiner dans » draws in, as OCL's: dark grey corners and a
+    /// dotted box, at every step.
+    /// Its back edges returned, to draw in the scene (hidden behind faces).
+    fn container_preview(&self, cx: &Cx<'_>, out: &mut Vec<PreviewLine>) -> Vec<PreviewLine> {
+        let mut scene = Vec::new();
+        let Some((parent, lo, hi)) = &self.container else { return scene };
+        if cx.draw_in(self.picked.as_ref()) != Some(parent.as_slice()) {
+            return scene;
+        }
+        let frame = cx.doc.transform_of(parent).unwrap_or(DAffine3::IDENTITY);
+        container_box(cx, out, &mut scene, frame, *lo, *hi);
+        scene
     }
 
     fn inference(&self) -> Option<Inference> {
@@ -579,6 +611,7 @@ fn fillet_option(cx: &Cx<'_>) -> ToolOption {
         choices: Vec::new(),
         saved: true,
         icon: None,
+        swatch: None,
     }
 }
 
@@ -599,6 +632,7 @@ fn offset_option(cx: &Cx<'_>) -> ToolOption {
         choices: Vec::new(),
         saved: true,
         icon: None,
+        swatch: None,
     }
 }
 
@@ -642,7 +676,100 @@ fn gauge(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, f: &Frame, drawn: &[DVec2], of
 
 /// A toggle drawn as its icon (after OCL's Smart Draw, `get_action_option_btn_child`).
 fn toggle(key: &'static str, label: String, tip: String, on: bool, saved: bool, icon: &'static str) -> ToolOption {
-    ToolOption { key, label, tip, value: OptionValue::Toggle(on), choices: Vec::new(), saved, icon: Some(icon) }
+    ToolOption { key, label, tip, value: OptionValue::Toggle(on), choices: Vec::new(), saved, icon: Some(icon), swatch: None }
+}
+
+/// The part creation tools a setting of one of them is shared with, after OpenCutList's
+/// `get_action_option_sync_actions` (Rectangle, Circle, Polygon): the offset and the centred
+/// height with the tools that have them, « Dessiner dans », « Pipette » and « Nommage des
+/// pièces » with all four; none for the others.
+pub fn synced_with(key: &str) -> &'static [ToolKind] {
+    const DRAWN: &[ToolKind] = &[ToolKind::Box, ToolKind::Cylinder, ToolKind::Prism];
+    const ALL: &[ToolKind] = &[ToolKind::Box, ToolKind::Cylinder, ToolKind::Prism, ToolKind::Turn];
+    match key {
+        OFFSET | PULL_CENTERED => DRAWN,
+        DRAW_IN | PICK_MATERIAL | ASK_NAME => ALL,
+        _ => &[],
+    }
+}
+
+/// The part creation tools' last options (none in an open part, a body made there is no new
+/// part): « Dessiner dans », « Pipette » (its button filled with the material it takes, named
+/// in its tip, §6 duodevicies), « Nommage des pièces ».
+fn part_options(cx: &Cx<'_>, first: &First) -> Vec<ToolOption> {
+    if cx.open_part.is_some() {
+        return Vec::new();
+    }
+    let draw_in =
+        toggle(DRAW_IN, t!("tool.shape.option.draw_in"), t!("tool.shape.option.draw_in_tip"), cx.toggle(DRAW_IN), true, "draw_in");
+    let material = cx.picked_material(first.picked.as_ref()).and_then(|m| cx.doc.material(m).ok());
+    let label = match material {
+        Some(m) => t!("tool.shape.option.pick_material_named", material = m.name),
+        None => t!("tool.shape.option.pick_material"),
+    };
+    let pick = toggle(PICK_MATERIAL, label, t!("tool.shape.option.pick_material_tip"), cx.toggle(PICK_MATERIAL), true, "pick_material");
+    let pick = ToolOption { swatch: material.map(|m| m.color), ..pick };
+    [draw_in, pick].into_iter().chain(ask_name_option(cx)).collect()
+}
+
+/// The box of the assembly `parent` (its occurrences from the root), in its axes.
+fn container_bounds(cx: &Cx<'_>, parent: &[Id]) -> Option<(DVec3, DVec3)> {
+    let assembly = cx.doc.assembly(cx.doc.context_of(parent).ok()?).ok()?;
+    let occs: Vec<_> = assembly.occurrences().iter().collect();
+    super::handle::occurrences_bounds(cx, parent, &occs, DAffine3::IDENTITY)
+}
+
+/// The colour of the assembly « Dessiner dans » draws in (OCL's `COLOR_DARK_GREY`).
+const CONTAINER: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
+/// How long its corners are drawn (pixels), and how much larger than its box (mm: OCL's inch).
+const CONTAINER_CORNER_PX: f64 = 20.0;
+const CONTAINER_MARGIN: f64 = 25.4;
+
+/// A box (`lo`..`hi`, in the axes `frame` places in the world), as OCL draws a container
+/// (`Kuix::BoxMotif3d` dotted, `BoxCornersMotif3d` solid and bolder): every edge drawn in the
+/// scene, hidden behind faces (`scene`); the edges of the box's faces turned to the eye drawn
+/// again over it (`over`, OCL's `shell_on_top`), so that only its back hides.
+fn container_box(cx: &Cx<'_>, over: &mut Vec<PreviewLine>, scene: &mut Vec<PreviewLine>, frame: DAffine3, lo: DVec3, hi: DVec3) {
+    let (lo, hi) = (lo - DVec3::splat(CONTAINER_MARGIN), hi + DVec3::splat(CONTAINER_MARGIN));
+    // Corner `i`: bit 0 x, bit 1 y, bit 2 z at `hi`.
+    let corner = |i: usize| {
+        let at = |bit: usize, l: f64, h: f64| if i & bit == 0 { l } else { h };
+        frame.transform_point3(DVec3::new(at(1, lo.x, hi.x), at(2, lo.y, hi.y), at(4, lo.z, hi.z)))
+    };
+    // A face, by its axis bit and side: turned to the eye when its outward normal goes against
+    // the ray through its centre (OCL's `exposed_path_indexes`); seen edge on, not.
+    let exposed = |bit: usize, high: bool| {
+        let centre = frame.transform_point3(
+            (lo + hi) * 0.5
+                + DVec3::from_array([0, 1, 2].map(|k| {
+                    let half = (hi - lo)[k] * 0.5;
+                    if 1 << k == bit { if high { half } else { -half } } else { 0.0 }
+                })),
+        );
+        let axis = frame.matrix3.col(bit.trailing_zeros() as usize);
+        let normal = if high { axis } else { -axis };
+        cx.camera.project(centre, cx.size).is_some_and(|px| normal.dot(cx.ray(px).dir) < -SQUARE)
+    };
+    let faces: Vec<(usize, bool)> = [1, 2, 4].iter().flat_map(|&b| [(b, false), (b, true)]).filter(|&(b, h)| exposed(b, h)).collect();
+    for i in 0..8 {
+        for axis in [1, 2, 4] {
+            let j = i | axis;
+            if j == i {
+                continue;
+            }
+            let (a, b) = (corner(i), corner(j));
+            // The edge `i`–`j` bounds the faces across the two other axes, on its corners' side.
+            let front = faces.iter().any(|&(bit, high)| bit != axis && (i & bit != 0) == high);
+            let edge = |out: &mut Vec<PreviewLine>| {
+                dashed(cx.camera, cx.size, out, a, b, CONTAINER);
+                for (p, q) in [(a, b), (b, a)] {
+                    let len = (cx.camera.world_per_pixel(cx.size, p) * CONTAINER_CORNER_PX).min(p.distance(q) / 2.0);
+                    out.push(PreviewLine { a: p, b: p + (q - p).normalize_or_zero() * len, color: CONTAINER, bold: true });
+                }
+            };
+            edge(if front { &mut *over } else { &mut *scene });
+        }
+    }
 }
 
 /// The creation tools' last option, OCL's `ask_name`: the part's name asked as soon as it is
@@ -799,7 +926,7 @@ impl BoxTool {
             Some(profile) => Primitive::Prism { origin, profile, height: size.z },
             None => Primitive::Box { origin, size },
         };
-        vec![Command::Apply(cx.add_primitive(primitive, placement)), Command::RememberHeight(z1 - z0)]
+        vec![self.first.add_part(cx, primitive, placement), Command::RememberHeight(z1 - z0)]
     }
 
     /// The height step ends at `h`: the box, or, without a height, a word and the step stays.
@@ -905,6 +1032,8 @@ impl Tool for BoxTool {
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut lines = Vec::new();
+        // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
+        let scene_lines = self.first.container_preview(cx, &mut lines);
         let mut labels = Vec::new();
         let mut marks = Vec::new();
         // The corners of the base from `f.o` to the local `(x, y)`, at height `z`.
@@ -1001,7 +1130,7 @@ impl Tool for BoxTool {
                 }
             }
         }
-        Preview { lines, labels, marks, inference, ..Default::default() }
+        Preview { lines, scene_lines, labels, marks, inference, ..Default::default() }
     }
 
     fn status(&self) -> String {
@@ -1040,7 +1169,7 @@ impl Tool for BoxTool {
         [offset_option(cx), fillet_option(cx), centered]
             .into_iter()
             .chain(shared_options(cx, &self.first))
-            .chain(ask_name_option(cx))
+            .chain(part_options(cx, &self.first))
             .collect()
     }
 
@@ -1171,7 +1300,7 @@ impl CylinderTool {
             (DVec3::new(0.0, 0.0, z0), f.placement())
         };
         let primitive = Primitive::Cylinder { origin, radius: r, height: z1 - z0 };
-        vec![Command::Apply(cx.add_primitive(primitive, placement)), Command::RememberHeight(z1 - z0)]
+        vec![self.first.add_part(cx, primitive, placement), Command::RememberHeight(z1 - z0)]
     }
 
     /// The height step ends at `h`: the cylinder, or, without a height, a word and the step stays.
@@ -1275,6 +1404,8 @@ impl Tool for CylinderTool {
         };
         let off = cx.length(OFFSET);
         let mut lines = Vec::new();
+        // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
+        let scene_lines = self.first.container_preview(cx, &mut lines);
         let mut labels = Vec::new();
         let mut marks = Vec::new();
         let mut inference = self.snap.clone();
@@ -1326,7 +1457,7 @@ impl Tool for CylinderTool {
                 label(cx, &mut labels, f.at(rim + DVec3::Z * z0), f.at(rim + DVec3::Z * z1), BLUE, Some(0));
             }
         }
-        Preview { lines, labels, marks, inference, ..Default::default() }
+        Preview { lines, scene_lines, labels, marks, inference, ..Default::default() }
     }
 
     fn status(&self) -> String {
@@ -1384,10 +1515,11 @@ impl Tool for CylinderTool {
                 ],
                 saved: true,
                 icon: None,
+                swatch: None,
             },
         ];
         options.extend(shared_options(cx, &self.first));
-        options.extend(ask_name_option(cx));
+        options.extend(part_options(cx, &self.first));
         options
     }
 
