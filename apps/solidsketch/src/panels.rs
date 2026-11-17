@@ -147,7 +147,7 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView, column: bool) -> bool {
 }
 
 /// Whether the option bar has anything to show: the active tool's options, or an open part's
-/// scope or « Matière ».
+/// scope or « Solide ».
 pub fn has_tool_options(editor: &Editor) -> bool {
     shows_part_scope(editor) || shows_body_sign(editor) || !editor.tool_options().is_empty()
 }
@@ -158,14 +158,14 @@ fn shows_part_scope(editor: &Editor) -> bool {
     editor.open_part().is_some() && editor.open_part_copies() > 1
 }
 
-/// The open part's « Matière », while a shape is drawn in it (§2.11).
+/// The open part's « Solide », while a shape is drawn in it (§2.11).
 fn shows_body_sign(editor: &Editor) -> bool {
     editor.open_part().is_some() && matches!(editor.tool_kind(), ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn)
 }
 
 /// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its choices, each a segmented
 /// control after its name, then its lone toggles together in an "Options" group, all drawn like
-/// the ribbon's buttons. An open part puts its scope first, then its « Matière » (§2.9, §2.11).
+/// the ribbon's buttons. An open part puts its scope first, then its « Solide » (§2.9, §2.11).
 pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let options = editor.tool_options();
     ui.horizontal(|ui| {
@@ -206,8 +206,8 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             group(ui, &t!("option_bar.body_sign"), &t!("option_bar.body_sign_tip"));
             let sign = editor.body_sign();
             let signs = [
-                (Sign::Negative, Segment::new(&t!("option_bar.remove"), &t!("option_bar.remove_tip"), None, sign == Sign::Negative)),
-                (Sign::Positive, Segment::new(&t!("option_bar.add"), &t!("option_bar.add_tip"), None, sign == Sign::Positive)),
+                (Sign::Negative, Segment::new(&t!("option_bar.remove"), &t!("option_bar.remove_tip"), Some("subtract"), sign == Sign::Negative)),
+                (Sign::Positive, Segment::new(&t!("option_bar.add"), &t!("option_bar.add_tip"), Some("union"), sign == Sign::Positive)),
             ];
             let (values, segments): (Vec<_>, Vec<_>) = signs.into_iter().unzip();
             if let Some(i) = segmented(ui, egui::Id::unique("option_bar_body_sign"), &segments, |i| {

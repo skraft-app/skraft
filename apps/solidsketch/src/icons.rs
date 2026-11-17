@@ -113,6 +113,12 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
 /// A tool option's icon (assets/icons/options), by the name the tool gives it
 /// ([`solidsketch_tools::OptionChoice::icon`]); none for an unknown name (its label is shown).
 pub fn option(name: &str) -> Option<ImageSource<'static>> {
+    // The booleans' icons, shared with the open part's « Solide » (§2.11).
+    match name {
+        "union" => return Some(UNION),
+        "subtract" => return Some(SUBTRACT),
+        _ => {}
+    }
     macro_rules! options {
         ($($file:literal),* $(,)?) => {
             match name {
