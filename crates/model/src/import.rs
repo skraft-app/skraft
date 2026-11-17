@@ -417,6 +417,7 @@ impl Document {
         report.occurrences = doc.components.values().filter_map(|c| c.as_assembly()).map(|a| a.occurrences().len()).sum();
         report.placed_parts = doc.placed_parts().len();
         report.assemble = t2.elapsed();
+        doc.settle_names(None);
         Ok((doc, report))
     }
 }

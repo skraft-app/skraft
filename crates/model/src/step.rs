@@ -128,6 +128,7 @@ impl Document {
         if let Ok(a) = doc.assembly_mut(root) {
             *a.occurrences_mut() = top;
         }
+        doc.settle_names(None);
         doc.purge();
         (doc, report)
     }

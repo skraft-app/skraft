@@ -580,12 +580,6 @@ panel:
     failed_inside_part: "Un corps de cette pièce est en échec : à corriger"
     failed_inside_group: "Un corps de ce groupe est en échec : à corriger"
     error_inside_assembly: "Une pièce de cet assemblage est en erreur : à corriger"
-    # A part's bodies under it, named by their nature, numbered among their siblings in their
-    # order of creation (§2.11 « Body groups »).
-    extrusion: "Extrusion %{number}"
-    revolution: "Révolution %{number}"
-    solid: "Solide %{number}"
-    group: "Groupe %{number}"
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"
@@ -1099,12 +1093,19 @@ unit:
   inch: "Pouces"
   foot: "Pieds"
 
-# The names new components get (then the user's to change).
+# The names new components and body definitions get (then the user's to change): the code
+# numbers them, « Pièce#1 » (ARCHITECTURE.md §2.1, §2.11 « Body names »).
 default_name:
   model: "$t(common.model)"
   assembly: "$t(common.assembly)"
   # Every part a drawing tool makes, whatever its shape.
   part: "$t(common.part)"
+  # A part's body definitions, by their nature: a profile extruded, a profile turned, a free
+  # shape, a group of bodies.
+  extrusion: "Extrusion"
+  revolution: "Révolution"
+  solid: "Solide"
+  group: "Groupe"
   material: "$t(common.material) %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"

@@ -48,8 +48,9 @@ impl Document {
         if h.version > VERSION {
             return Err(Error::File(FileError::TooNew(h.version)));
         }
-        let doc = serde_json::from_str::<FileIn<Document>>(text).map_err(file_err)?.document;
+        let mut doc = serde_json::from_str::<FileIn<Document>>(text).map_err(file_err)?.document;
         doc.check()?;
+        doc.settle_names(None);
         Ok(doc)
     }
 

@@ -47,7 +47,7 @@ fn a_primitive_is_a_part_in_its_own_axes() {
     let (lo, hi) = part.blank().vertex_bounds().unwrap();
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(5.0, 6.0, 7.0)), "{lo} {hi}");
     assert!(close(o.transform.translation, DVec3::new(5.0, 20.0, 30.0)));
-    assert_eq!(doc.component(o.component).unwrap().name, "Pièce");
+    assert_eq!(doc.component(o.component).unwrap().name, "Pièce#1");
     assert!(!doc.component(o.component).unwrap().named);
 
     assert!(h.undo());
@@ -134,7 +134,7 @@ fn assemblies_make_explode_and_share() {
     let doc = h.document();
     assert_eq!(doc.root_assembly().occurrences().len(), 1);
     let asm = occ(doc, &EntityPath::root(g)).component;
-    assert_eq!(doc.component(asm).unwrap().name, "Assemblage");
+    assert_eq!(doc.component(asm).unwrap().name, "Assemblage#1");
     assert_eq!(doc.context_of(&[g]).unwrap(), asm);
     assert!(doc.is_assembly_occurrence(root, g));
 
@@ -3173,11 +3173,18 @@ fn body_definitions_take_a_name_their_copies_share() {
     let mut h = History::new(Document::new());
     let (target, part, hole) = drilled_board(&mut h);
     let def = h.document().part(part).unwrap().body(hole).unwrap().def;
+    // The name given, None while automatic.
     let name = |h: &History, body: Id| {
+        let p = h.document().part(part).unwrap();
+        let d = p.def_of(p.body(body).unwrap());
+        d.named.then(|| d.name.clone())
+    };
+    let auto = |h: &History, body: Id| {
         let p = h.document().part(part).unwrap();
         p.def_of(p.body(body).unwrap()).name.clone()
     };
     assert_eq!(name(&h, hole), None);
+    assert_eq!(auto(&h, hole), "Extrusion#2");
 
     // Named, trimmed; the shape left alone: no kernel.
     let op = Operation::RenameBodyDef { part, def, name: " Trou de tourillon ".into() };
@@ -3199,9 +3206,10 @@ fn body_definitions_take_a_name_their_copies_share() {
     let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
     assert_eq!(back.part(part).unwrap(), h.document().part(part).unwrap());
 
-    // Empty clears it; an unknown definition or part is refused.
+    // Empty clears it: automatic again; an unknown definition or part is refused.
     h.apply(Operation::RenameBodyDef { part, def, name: "  ".into() }).unwrap();
     assert_eq!(name(&h, hole), None);
+    assert_eq!(auto(&h, hole), "Extrusion#2");
     assert!(h.apply(Operation::RenameBodyDef { part, def: Id(999), name: "x".into() }).is_err());
     assert!(h.apply(Operation::RenameBodyDef { part: Id(999), def, name: "x".into() }).is_err());
 }
@@ -3216,9 +3224,10 @@ fn named_parts_name_the_bodies_they_become_and_back() {
     let (part, _, _) = h.document().resolve_part(&target).unwrap();
     let (dowel_part, _, _) = h.document().resolve_part(&EntityPath::root(dowel)).unwrap();
     h.apply(Operation::RenameComponent { component: dowel_part, name: "Tourillon".into() }).unwrap();
+    // The names given, None where automatic.
     let names = |h: &History| -> Vec<Option<String>> {
         let p = h.document().part(part).unwrap();
-        p.bodies.iter().map(|b| p.def_of(b).name.clone()).collect()
+        p.bodies.iter().map(|b| p.def_of(b)).map(|d| d.named.then(|| d.name.clone())).collect()
     };
 
     // A part pasted into a part: the body it becomes takes its name, an unnamed one none.
@@ -3240,4 +3249,87 @@ fn named_parts_name_the_bodies_they_become_and_back() {
     let (new, _, _) = h.document().resolve_part(&EntityPath::root(out.created[0])).unwrap();
     let new = h.document().component(new).unwrap();
     assert!(new.name.starts_with("Tourillon") && new.name != "Tourillon", "{}", new.name);
+}
+
+#[test]
+fn bodies_take_names_of_their_own_as_occurrences_do() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let (target, part, hole) = drilled_board(&mut h);
+    let name = |h: &History, body: Id| h.document().part(part).unwrap().body(body).unwrap().name.clone();
+    assert_eq!(name(&h, hole), "");
+
+    // Named, trimmed, no kernel; its copy keeps it, the definition's name untouched.
+    let op = Operation::RenameBody { part, body: hole, name: " Haut ".into() };
+    assert!(matches!(h.document().prepare(&op).unwrap(), Prepared::Done(_)));
+    h.apply(op).unwrap();
+    assert_eq!(name(&h, hole), "Haut");
+    let dx = DAffine3::from_translation(DVec3::X * 40.0);
+    let op = Operation::DuplicateBodies { target: target.clone(), bodies: vec![hole], transform: dx, scope: Scope::All };
+    let copy = h.apply(op).unwrap().machinings()[0];
+    assert_eq!(name(&h, copy), "Haut");
+    let p = h.document().part(part).unwrap();
+    assert!(!p.def_of(p.body(hole).unwrap()).named);
+    h.apply(Operation::RenameBody { part, body: copy, name: "".into() }).unwrap();
+    assert_eq!((name(&h, hole), name(&h, copy)), ("Haut".into(), "".into()));
+    assert!(h.apply(Operation::RenameBody { part, body: Id(999), name: "x".into() }).is_err());
+
+    // A single body pasted out as a part: its name the occurrence's.
+    let fragment = Arc::new(h.document().bodies_fragment(&target, &[hole]).unwrap());
+    let out = h.apply(Operation::PasteAsPart { context: root, fragment, transform: DAffine3::IDENTITY }).unwrap();
+    let o = h.document().root_assembly().occurrence(out.created[0]).unwrap();
+    assert_eq!(o.name, "Haut");
+    let (_, p, _) = h.document().resolve_part(&EntityPath::root(o.id)).unwrap();
+    assert_eq!(p.bodies[0].name, "");
+
+    // And back: an occurrence's name, the body's it becomes (pasted into a part).
+    let tool = o.id;
+    let fragment = Arc::new(h.document().entities_fragment(&[], &[tool]).unwrap());
+    let (_, _, t) = h.document().resolve_part(&target).unwrap();
+    let pasted = Operation::PasteParts { target: target.clone(), fragment, transform: t.inverse(), scope: Scope::All };
+    let bodies = h.apply(pasted).unwrap().bodies;
+    assert_eq!(name(&h, bodies[0]), "Haut");
+}
+
+#[test]
+fn automatic_names_are_numbered_by_nature_and_follow_it() {
+    let mut h = History::new(Document::new());
+    let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
+    add(&mut h, Primitive::Box { origin: DVec3::Z * 100.0, size: DVec3::splat(10.0) });
+    let target = EntityPath::root(board);
+    let (part, _, _) = h.document().resolve_part(&target).unwrap();
+    // Components from #1, as SketchUp's.
+    let names: Vec<String> = h.document().components().filter(|c| c.id != h.document().root()).map(|c| c.name.clone()).collect();
+    assert!(names.contains(&"Pièce#1".to_owned()) && names.contains(&"Pièce#2".to_owned()), "{names:?}");
+    let defs = |h: &History| -> Vec<String> {
+        let p = h.document().part(part).unwrap();
+        p.bodies.iter().map(|b| p.def_of(b).name.clone()).collect()
+    };
+    assert_eq!(defs(&h), ["Extrusion#1"]);
+
+    // A copy shares its definition's name; made unique, numbered anew.
+    let b0 = h.document().part(part).unwrap().bodies[0].id;
+    let dx = DAffine3::from_translation(DVec3::Y * 60.0);
+    let op = Operation::DuplicateBodies { target: target.clone(), bodies: vec![b0], transform: dx, scope: Scope::All };
+    let copy = h.apply(op).unwrap().machinings()[0];
+    assert_eq!(defs(&h), ["Extrusion#1", "Extrusion#1"]);
+    h.apply(Operation::MakeBodiesUnique { target: target.clone(), bodies: vec![copy], scope: Scope::All }).unwrap();
+    assert_eq!(defs(&h), ["Extrusion#1", "Extrusion#2"]);
+
+    // Its nature changed (no profile any more): renamed after it, a given name kept.
+    let mut p = h.document().part(part).unwrap().clone();
+    p.defs[1].profile = None;
+    p.defs[0].set_name(Some("Plateau".into()));
+    assert!(p.settle_names());
+    assert_eq!(p.bodies.iter().map(|b| p.def_of(b).name.as_str()).collect::<Vec<_>>(), ["Plateau", "Solide#1"]);
+    assert!(!p.settle_names());
+    // An automatic name a given one took: renumbered.
+    p.defs[0].set_name(Some("Solide#1".into()));
+    p.settle_names();
+    assert_eq!(p.def_of(&p.bodies[1]).name, "Solide#2");
+
+    // A named component's copy: the next number of its base.
+    assert_eq!(h.document().unique_name("Caisson#2", true), "Caisson#2");
+    assert_eq!(h.document().unique_name("Pièce#1", true), "Pièce#3");
+    assert_eq!(h.document().unique_name("Pièce#2", false), "Pièce#3");
 }

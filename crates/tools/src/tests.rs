@@ -5430,22 +5430,22 @@ fn a_part_made_is_offered_its_name_by_a_toast() {
     let notices = e.take_notices();
     assert_eq!(notices.len(), 1, "{notices:?}");
     assert_eq!(notices[0].kind, NoticeKind::Success);
-    assert_eq!(notices[0].title, "Nouvelle pièce créée : Pièce");
+    assert_eq!(notices[0].title, "Nouvelle pièce créée : Pièce#1");
     assert_eq!(notices[0].action, Some(NoticeAction::Rename(part)));
     assert!(e.take_naming().is_none(), "no dialog by itself");
     assert!(e.quick_card().is_some(), "the card as well");
 
     // The button: a step of its own.
     let naming = e.naming_of(part).unwrap();
-    assert_eq!(naming.name, "Pièce");
+    assert_eq!(naming.name, "Pièce#1");
     assert_eq!(e.name_refusal(&naming, "  "), Some("le nom est vide".into()));
-    assert_eq!(e.name_refusal(&naming, "Pièce"), None, "its own name");
+    assert_eq!(e.name_refusal(&naming, "Pièce#1"), None, "its own name");
     let steps = e.history().journal().count();
     e.name_part(&naming, " Pied ").unwrap();
     assert_eq!(e.document().component(part).unwrap().name, "Pied");
     assert_eq!(e.history().journal().count(), steps + 1);
     e.undo();
-    assert_eq!(e.document().component(part).unwrap().name, "Pièce");
+    assert_eq!(e.document().component(part).unwrap().name, "Pièce#1");
 
     // Another part: the first one's name is taken.
     let first = e.naming_of(part).unwrap();
@@ -5474,7 +5474,7 @@ fn with_ask_name_the_dialog_opens_and_the_name_joins_the_creation() {
     let part = part_of(&e, o);
     assert!(e.take_notices().is_empty(), "no toast");
     let naming = e.take_naming().expect("the dialog");
-    assert_eq!((naming.component, naming.name.as_str()), (part, "Pièce"));
+    assert_eq!((naming.component, naming.name.as_str()), (part, "Pièce#1"));
     assert!(e.take_naming().is_none(), "taken once");
     e.name_part(&naming, "Côté").unwrap();
     assert_eq!(e.document().component(part).unwrap().name, "Côté");
