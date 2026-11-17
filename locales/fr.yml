@@ -218,6 +218,7 @@ titlebar:
     built: "Compilé il y a %{ago}"
     started: "Lancé il y a %{ago} (PID %{pid})"
     session: "Lancé par la session Claude Code %{id}"
+    session_named: "Lancé par la session Claude Code « %{name} » (%{id})"
     launcher: "Lancé par %{who}"
     by_hand: "Lancé hors d'une session Claude Code"
     port: "Pilotage distant sur le port %{port}"

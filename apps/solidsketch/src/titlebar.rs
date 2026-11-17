@@ -48,6 +48,9 @@ pub struct Bar<'a> {
     /// This app, when a dev build (desktop): its badge after the name says which build it is,
     /// several running at once.
     pub instance: Option<&'a solidsketch_control::instances::Instance>,
+    /// The name of the Claude Code session that launched it, if it has one: named after a
+    /// colour, it colours the badge.
+    pub session: Option<String>,
 }
 
 /// The control channel's mark (docs/ARCHITECTURE.md §7 quater): green while it runs,
@@ -117,7 +120,7 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
     }
     brand(ui);
     if let Some(i) = bar.instance {
-        instance_badge(ui, i);
+        instance_badge(ui, i, bar.session.as_deref());
     }
     ui.separator();
     file_menu(ui, views, actions);
@@ -275,9 +278,9 @@ fn brand(ui: &mut egui::Ui) {
 }
 
 /// A dev build's badge: its worktree (its branch for the main checkout) and commit, `*` when
-/// changes not committed went in, on a colour of the worktree's own; the hover says all,
-/// who launched it among it.
-fn instance_badge(ui: &mut egui::Ui, i: &solidsketch_control::instances::Instance) {
+/// changes not committed went in, on a colour of the worktree's own — or the one its Claude
+/// Code session is named after; the hover says all, who launched it among it.
+fn instance_badge(ui: &mut egui::Ui, i: &solidsketch_control::instances::Instance, session: Option<&str>) {
     let Some(b) = &i.build else { return };
     let label = b.label();
     let text = format!("{label} · {}{}", b.commit, if b.dirty { "*" } else { "" });
@@ -285,7 +288,7 @@ fn instance_badge(ui: &mut egui::Ui, i: &solidsketch_control::instances::Instanc
     let galley = ui.painter().layout_no_wrap(text, font, egui::Color32::from_gray(24));
     let pad = egui::vec2(6.0, 2.0);
     let (rect, r) = ui.allocate_exact_size(galley.size() + 2.0 * pad, egui::Sense::hover());
-    ui.painter().rect_filled(rect, 4.0, crate::identity::color(&label));
+    ui.painter().rect_filled(rect, 4.0, crate::identity::color(&label, session));
     ui.painter().galley(rect.min + pad, galley, egui::Color32::PLACEHOLDER);
     r.on_hover_ui(|ui| {
         let now = solidsketch_control::instances::now();
@@ -299,7 +302,13 @@ fn instance_badge(ui: &mut egui::Ui, i: &solidsketch_control::instances::Instanc
         ui.label(t!("titlebar.instance.started", ago = ago(now.saturating_sub(i.started)), pid = i.pid));
         match (&i.claude_session, &i.launcher) {
             (_, Some(who)) => ui.label(t!("titlebar.instance.launcher", who = who)),
-            (Some(s), None) => ui.label(t!("titlebar.instance.session", id = s.chars().take(8).collect::<String>())),
+            (Some(s), None) => {
+                let id = s.chars().take(8).collect::<String>();
+                match session {
+                    Some(name) => ui.label(t!("titlebar.instance.session_named", name = name, id = id)),
+                    None => ui.label(t!("titlebar.instance.session", id = id)),
+                }
+            }
             (None, None) => ui.label(t!("titlebar.instance.by_hand")),
         };
         if let Some(port) = i.port {

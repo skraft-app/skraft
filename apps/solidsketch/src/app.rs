@@ -89,6 +89,9 @@ pub struct SolidSketchApp {
     /// none if it could not be written).
     #[cfg(not(target_arch = "wasm32"))]
     registration: Option<solidsketch_control::instances::Registration>,
+    /// The Claude Code session that launched this dev build, watched for its name (desktop).
+    #[cfg(not(target_arch = "wasm32"))]
+    session: Option<crate::identity::Session>,
     /// The macOS menu bar (`None` if it could not be built: the ☰ menu then).
     #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
     native_menu: Option<NativeMenu>,
@@ -313,6 +316,8 @@ impl SolidSketchApp {
             remote,
             #[cfg(not(target_arch = "wasm32"))]
             registration,
+            #[cfg(not(target_arch = "wasm32"))]
+            session: crate::identity::Session::watch(cc.egui_ctx.clone()),
             #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
             native_menu: None,
             pending_keys: Vec::new(),
@@ -2414,6 +2419,10 @@ impl eframe::App for SolidSketchApp {
             instance: self.registration.as_ref().map(|r| r.info()).filter(|i| i.build.is_some()),
             #[cfg(target_arch = "wasm32")]
             instance: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            session: self.session.as_ref().and_then(crate::identity::Session::name),
+            #[cfg(target_arch = "wasm32")]
+            session: None,
         };
         titlebar::show(ui, &bar, &views, &mut actions);
         // The start page has no status bar: the toasts stand above the window's bottom.
