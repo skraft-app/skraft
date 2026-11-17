@@ -216,10 +216,35 @@ fn view_of(id: &str) -> Option<StandardView> {
     })
 }
 
+/// The preferences window's id (its place kept at launch, [`prune_egui_memory`]).
+fn prefs_window_id() -> egui::Id {
+    egui::Id::unique("preferences")
+}
+
+/// What egui keeps on disk (`app.ron`) and never drops, dropped at launch: the text fields'
+/// states (cursor, undo), many keyed by model ids (renames, positions); the places of every
+/// area ever shown — each tooltip's, each menu's —, but the windows' the user moves (the
+/// preferences, the journal). The other areas of the app are placed every frame.
+fn prune_egui_memory(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove_by_type::<egui::text_edit::TextEditState>());
+    let windows: Vec<_> = [prefs_window_id(), crate::journal_window::window_id()]
+        .into_iter()
+        .filter_map(|id| egui::AreaState::load(ctx, id).map(|s| (id, s)))
+        .collect();
+    ctx.memory_mut(|m| {
+        let areas = m.areas_mut();
+        *areas = Default::default();
+        for (id, state) in windows {
+            areas.set_state(egui::LayerId::new(egui::Order::Middle, id), state);
+        }
+    });
+}
+
 impl SolidSketchApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         crate::style::install_fonts(&cc.egui_ctx);
+        prune_egui_memory(&cc.egui_ctx);
         // The page's command API asks for a frame when called (§7 septies).
         #[cfg(target_arch = "wasm32")]
         crate::web::set_context(cc.egui_ctx.clone());
@@ -1340,7 +1365,7 @@ impl SolidSketchApp {
         let mut open = true;
         // A fixed id: the title changes with the language.
         egui::Window::new(t!("prefs.title"))
-            .id(egui::Id::unique("preferences"))
+            .id(prefs_window_id())
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -1748,9 +1773,10 @@ impl SolidSketchApp {
                         }
                         PanelId::Outliner => {
                             *outliner_shown = true;
-                            // Salted by the document: its active path remembered apart.
+                            // Salted by the document: its rows' clicks apart from another's.
                             let (doc_id, name) = (doc.id, doc.name());
-                            ui.push_id(doc_id, |ui| panels::outliner(ui, &doc.editor, &name, actions, area.id_salt("outliner")));
+                            let (editor, state) = (&doc.editor, &mut doc.outliner);
+                            ui.push_id(doc_id, |ui| panels::outliner(ui, editor, state, &name, actions, area.id_salt("outliner")));
                         }
                     }
                 });

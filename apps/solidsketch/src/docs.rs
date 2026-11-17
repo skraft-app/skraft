@@ -24,6 +24,8 @@ pub struct Doc {
     pub saved_at: u64,
     /// What is being typed into the measurements box.
     pub vcb: String,
+    /// Its outliner's rows unfolded, and what they are kept by.
+    pub outliner: crate::panels::OutlinerState,
 }
 
 impl Doc {
@@ -127,7 +129,7 @@ impl Docs {
         setup(&mut editor);
         let id = self.next_id;
         self.next_id += 1;
-        let doc = Doc { id, editor, path, saved_at: 0, vcb: String::new() };
+        let doc = Doc { id, editor, path, saved_at: 0, vcb: String::new(), outliner: Default::default() };
         Ok(match replaced {
             Some(i) => (id, Some(std::mem::replace(&mut self.list[i], doc).id)),
             None => {
