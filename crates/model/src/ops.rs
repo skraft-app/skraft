@@ -342,6 +342,17 @@ pub enum Operation {
     /// moved by the rigid `transform` from world axes into the context's. Signs kept, unless
     /// no body is positive: then they all are.
     PasteAsPart { context: Id, fragment: Arc<BodyFragment>, transform: DAffine3 },
+    /// `op` on the assembly the occurrences `parent` lead to from the root: its `context` is
+    /// that assembly's definition as it is when applied (ARCHITECTURE.md §6 septendecies, parts
+    /// picked at any depth). With `unique`, each assembly along `parent` placed more than once
+    /// first gets a definition of its own (outermost first), as « make unique » does: only the
+    /// copy reached by `parent` changes. Takes the operations on occurrences of a context
+    /// ([`Operation::Transform`], [`Operation::Duplicate`], [`Operation::Array`],
+    /// [`Operation::Copies`], [`Operation::Delete`], [`Operation::SetHidden`],
+    /// [`Operation::PaintOccurrences`]).
+    At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
+    /// Several operations in one step, applied in order: their outcomes put together.
+    Batch(Vec<Operation>),
 }
 
 impl Operation {
@@ -396,6 +407,23 @@ impl Operation {
             Operation::Stretch { .. } | Operation::StretchBodies { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
             Operation::SetProfile { .. } => t!("operation.set_profile"),
+            Operation::At { op, .. } => op.label(),
+            Operation::Batch(ops) => ops.first().map_or_else(|| t!("operation.batch"), |op| op.label()),
+        }
+    }
+
+    /// The context an operation on occurrences of a context changes, to set; none for the
+    /// others.
+    fn context_mut(&mut self) -> Option<&mut Id> {
+        match self {
+            Operation::Transform { context, .. }
+            | Operation::Duplicate { context, .. }
+            | Operation::Array { context, .. }
+            | Operation::Copies { context, .. }
+            | Operation::Delete { context, .. }
+            | Operation::SetHidden { context, .. }
+            | Operation::PaintOccurrences { context, .. } => Some(context),
+            _ => None,
         }
     }
 
@@ -935,6 +963,31 @@ impl Document {
                 let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
                 ctx.occurrences_mut().splice(at..=at, copies);
                 Ok(Outcome { created, ..Outcome::default() })
+            }
+            Operation::At { parent, unique, op } => {
+                if *unique {
+                    for k in 0..parent.len() {
+                        let context = self.context_of(&parent[..k])?;
+                        self.apply_in_place(&Operation::MakeUnique { context, occurrence: parent[k] }, solver)?;
+                    }
+                }
+                let mut op = (**op).clone();
+                *op.context_mut().ok_or(Error::Invalid(Refusal::NotAtPath))? = self.context_of(parent)?;
+                self.apply_in_place(&op, solver)
+            }
+            Operation::Batch(ops) => {
+                let mut all = Outcome::default();
+                for op in ops {
+                    let o = self.apply_in_place(op, solver)?;
+                    all.created.extend(o.created);
+                    all.bodies.extend(o.bodies);
+                    all.material = all.material.or(o.material);
+                    all.guide = all.guide.or(o.guide);
+                    all.stretched.extend(o.stretched);
+                    all.warning = all.warning.or(o.warning);
+                    all.welds.extend(o.welds);
+                }
+                Ok(all)
             }
             Operation::MakeUnique { context, occurrence } => {
                 let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);

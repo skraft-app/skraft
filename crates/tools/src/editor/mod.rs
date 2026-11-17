@@ -32,12 +32,14 @@ mod naming;
 mod navigation;
 mod quick;
 mod selection;
+mod tree;
 mod view;
 
 pub use clipboard::{Clip, Content};
 use document::{After, Pending, Probe};
 pub use loading::{LoadEnd, LoadKind, Loading};
 pub use naming::Naming;
+pub use tree::{Tree, TreeRow};
 pub use view::{Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
 
 /// A message for the app's toasts (docs/ARCHITECTURE.md §6, Toasts): an operation that failed, a
@@ -111,6 +113,14 @@ pub struct Editor {
     body_sign: Sign,
     /// The machining hovered in the entity info's list (drawn hovered in the view).
     listed_hover: Option<Id>,
+    /// The parts selected at any depth under « Parts » (ARCHITECTURE.md §6 septendecies), by their
+    /// paths from the root, all under the active context; `selection` then empty.
+    deep: Vec<EntityPath>,
+    /// OCL's tree drop-up, while the copy modifier is held over a part (§6 septendecies).
+    tree: Option<tree::Tree>,
+    /// The tree drop-up was opened since the copy modifier was pressed: the tap its release
+    /// makes is not the tool's.
+    tree_tap: bool,
     /// The model chosen (the outliner's first row clicked), until anything else is: selected,
     /// entered, opened, or a click in the view.
     model_selected: bool,
@@ -240,6 +250,9 @@ impl Editor {
             body_sign: Sign::Negative,
             listed_hover: None,
             model_selected: false,
+            deep: Vec::new(),
+            tree: None,
+            tree_tap: false,
             outliner_hover: None,
             stretch_meshed: None,
             preview_revision: 0,
@@ -342,7 +355,7 @@ impl Editor {
         }
         let body = self.profile_body();
         self.set_tool(ToolKind::Select);
-        self.selection = body.into_iter().collect();
+        self.set_selection(body.into_iter().collect());
         self.listed_hover = None;
         true
     }
@@ -492,9 +505,19 @@ impl Editor {
         if let Some(p) = &self.pending {
             return format!("{} {}", solidsketch_i18n::ellipsis(t!("status.computing", op = p.op.label())), t!("status.computing_cancel"));
         }
-        self.message.clone().unwrap_or_else(|| match self.tab_hint() {
-            Some(tab) => format!("{} · {tab}", self.tool.status()),
-            None => self.tool.status(),
+        if self.tree.is_some() {
+            return t!("status.tree");
+        }
+        self.message.clone().unwrap_or_else(|| {
+            let mut s = self.tool.status();
+            if let Some(tab) = self.tab_hint() {
+                s = format!("{s} · {tab}");
+            }
+            // Under « Parts », the tree drop-up (§6 septendecies).
+            if self.tree_allowed() {
+                s = format!("{s} · {}", t!("status.tree_key", key = tools::copy_key()));
+            }
+            s
         })
     }
 
@@ -592,6 +615,8 @@ impl Editor {
             part_scope: self.part_scope,
             body_sign: self.body_sign,
             selection: &self.selection,
+            deep: &self.deep,
+            parts: self.picks_parts_now(),
             axis_lock: self.axis_lock,
             face_lock: self.face_lock,
             shift_down: self.shift,
@@ -619,9 +644,40 @@ impl Editor {
 
     // ---- the tool's options (the option bar) -------------------------------------------------
 
-    /// The active tool's options, as the bar shows them now.
+    /// The active tool's options, as the bar shows them now: the selection's scope last
+    /// (§6 septendecies), for a tool that takes parts at any depth, no part open.
     pub fn tool_options(&self) -> Vec<ToolOption> {
-        self.tool.options(&self.cx())
+        let mut options = self.tool.options(&self.cx());
+        if self.tool.picks_parts() && self.open_part.is_none() {
+            let parts = self.pick_parts();
+            let choice = |value: &'static str, label: String, tip: String| tools::OptionChoice { value, label, tip, icon: None };
+            options.push(ToolOption {
+                key: tools::PICK_SCOPE,
+                label: t!("selection_scope.label"),
+                tip: t!("selection_scope.tip"),
+                value: OptionValue::Choice(if parts { tools::PICK_PARTS } else { tools::PICK_CONTEXT }.into()),
+                choices: vec![
+                    choice(tools::PICK_CONTEXT, t!("selection_scope.context"), t!("selection_scope.context_tip")),
+                    choice(tools::PICK_PARTS, t!("selection_scope.parts"), t!("selection_scope.parts_tip")),
+                ],
+                saved: true,
+                icon: None,
+            });
+        }
+        options
+    }
+
+    /// Is the selection's scope « Parts » (§6 septendecies)?
+    pub fn pick_parts(&self) -> bool {
+        self.tool_settings
+            .get(tools::SELECTION_SETTINGS)
+            .and_then(|s| s.get(tools::PICK_SCOPE))
+            .is_some_and(|v| matches!(v, OptionValue::Choice(c) if c == tools::PICK_PARTS))
+    }
+
+    /// Does a click of the active tool take parts at any depth now?
+    fn picks_parts_now(&self) -> bool {
+        self.pick_parts() && self.open_part.is_none() && self.tool.picks_parts()
     }
 
     /// Sets an option of the active tool (a click in the bar): a setting is kept for the tool,
@@ -634,6 +690,16 @@ impl Editor {
 
     fn change_tool_option(&mut self, key: &str, value: OptionValue) {
         let Some(option) = self.tool_options().into_iter().find(|o| o.key == key) else { return };
+        // The selection's scope, shared by the tools: what was selected the other way let go.
+        if key == tools::PICK_SCOPE {
+            if option.value != value {
+                self.tool_settings.entry(tools::SELECTION_SETTINGS.to_owned()).or_default().insert(key.to_owned(), value);
+                self.clear_selection();
+                self.tool.reset();
+                self.rehover();
+            }
+            return;
+        }
         if option.saved {
             self.tool_settings.entry(self.tool.kind().id().to_owned()).or_default().insert(key.to_owned(), value.clone());
         }
@@ -729,6 +795,11 @@ impl Editor {
                 self.journal.record(journal::Step::Copy(down), &self.camera, self.size);
             }
             self.copy = down;
+            if down {
+                self.open_tree();
+            } else {
+                self.close_tree();
+            }
             self.rehover();
         }
     }
@@ -859,6 +930,11 @@ impl Editor {
         // Another tool gives up a paste carried.
         self.settle_carry(true);
         self.tool = tools::make(kind);
+        // Erase started on a selection erases it at once (SketchUp's), and stays an eraser
+        // (§6 septendecies).
+        if kind == ToolKind::Erase {
+            self.delete_selection();
+        }
         self.quick_return = None;
         self.aside = None;
         self.card = None;
@@ -897,6 +973,12 @@ impl Editor {
                 ToolInput::Hover { px } => self.last_hover = Some(px),
                 _ => {}
             }
+            return;
+        }
+        // The copy modifier's tap after the tree drop-up was open: the list's, not the tool's.
+        if let ToolInput::Key { key: Key::Copy, .. } = input
+            && std::mem::take(&mut self.tree_tap)
+        {
             return;
         }
         if let Some(inputs) = self.drag_clicks(&input) {
@@ -971,8 +1053,12 @@ impl Editor {
                 // only drops the locks.
                 if self.tool.busy() {
                     self.tool.back();
-                    // Back at its first step, a tool the quick tools started hands back.
+                    // Back at its first step, a tool the quick tools started hands back; one
+                    // that picks first lets the selection go, and picks again (§6 septendecies).
                     if !self.tool.busy() {
+                        if self.quick_return.is_none() && self.tool.dropped() {
+                            self.clear_selection();
+                        }
                         self.hand_back(false);
                     }
                     self.rehover();
@@ -980,6 +1066,10 @@ impl Editor {
                     self.hand_back(false);
                 } else if self.aside.take().is_some() {
                     // The tool aside let go first.
+                } else if self.tool.picks_first() && self.anything_selected() {
+                    // What the tool would act on let go: it picks again (§6 septendecies).
+                    self.clear_selection();
+                    self.rehover();
                 } else if self.tool.kind() == ToolKind::Profile {
                     // The body open left for its part (§2.11 « Edit levels »).
                     self.exit();
@@ -987,7 +1077,7 @@ impl Editor {
                     if self.selection.is_empty() && self.open_part.is_some() {
                         self.exit();
                     } else {
-                        self.selection.clear();
+                        self.clear_selection();
                     }
                 }
                 return;
@@ -1028,8 +1118,23 @@ impl Editor {
             };
         }
         let acted = Self::acts(&commands);
+        let selection = (self.selection.clone(), self.deep.clone());
         for c in commands {
             self.run(c);
+        }
+        // What a tool that picks first just took (or let go) is what it acts on from now: it
+        // sees it at once, not at the next move of the cursor (§6 septendecies).
+        if self.tool.picks_first()
+            && (&self.selection, &self.deep) != (&selection.0, &selection.1)
+            && let Some(px) = self.last_hover
+        {
+            let mut tool = std::mem::replace(&mut self.tool, tools::make(ToolKind::Select));
+            let cx = self.cx_for(&*tool);
+            let commands = tool.input(&ToolInput::Hover { px }, &cx);
+            self.tool = tool;
+            for c in commands {
+                self.run(c);
+            }
         }
         if let (Some((g, copying)), Some(p)) = (ghost, &self.pending)
             && Some(p.job) != job_before
@@ -1199,6 +1304,8 @@ impl Editor {
                     Operation::AddPrimitive { .. } => After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) },
                     Operation::AddBody { .. } => After::Card { ask_name: None },
                     Operation::Boolean { .. } | Operation::SetProfile { .. } => After::Nothing,
+                    // At any depth (§6 septendecies): what it makes is not in the active context.
+                    Operation::At { .. } | Operation::Batch(_) => After::Nothing,
                     _ => After::Select,
                 };
                 // Hidden (the eraser with Shift), they leave the selection, unless the hidden
@@ -1214,19 +1321,37 @@ impl Editor {
                 }
                 self.held = held.zip(self.pending.as_ref()).map(|(s, p)| (p.job, Preview { stretch: Some(s), ..Preview::default() }));
             }
-            Command::Select(ids) => self.selection = ids,
+            Command::Select(ids) => {
+                // Let go right after an operation still computed (a tool picking again,
+                // §6 septendecies): once it lands, what it moved drawn where it goes until then.
+                if ids.is_empty() {
+                    let pending = self.pending.as_mut().map(|p| &mut p.after);
+                    let mut waiting = false;
+                    for after in pending.into_iter().chain(self.queue.iter_mut().map(|(_, a)| a)) {
+                        if matches!(after, After::Select | After::Nothing) {
+                            *after = After::LetGo;
+                            waiting = true;
+                        }
+                    }
+                    if waiting {
+                        return;
+                    }
+                }
+                self.set_selection(ids);
+            }
+            Command::SelectPaths(paths) => self.select_paths(paths),
             Command::SetOption { key, value } => self.set_tool_option(key, value),
             Command::RememberHeight(h) => self.last_height = Some(h),
             Command::Enter(id) => self.enter(id),
             Command::EditProfile(body) => {
                 self.set_tool(ToolKind::Profile);
                 self.tool = Box::new(tools::profile::ProfileTool::of_body(body));
-                self.selection.clear();
+                self.clear_selection();
             }
             Command::Exit => self.exit(),
             Command::ClickOff(px) => match self.context_bounds() {
                 Some(b) if !b.hit_by(&self.camera.ray(px, self.size)) => self.exit(),
-                _ => self.selection.clear(),
+                _ => self.clear_selection(),
             },
             Command::Say(s) => self.message = Some(s),
             Command::ClearLocks => {
@@ -1240,7 +1365,8 @@ impl Editor {
                 if self.history.undo_op() == Some(&*previous) && self.history.undo() {
                     self.after_change();
                     self.clear_locks();
-                    let _ = self.start(*op, After::Select, true);
+                    let after = if matches!(*op, Operation::At { .. } | Operation::Batch(_)) { After::Nothing } else { After::Select };
+                    let _ = self.start(*op, after, true);
                 } else {
                     self.message = Some(t!("status.copy_not_last"));
                 }

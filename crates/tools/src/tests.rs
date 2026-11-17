@@ -168,6 +168,8 @@ fn typed_expressions_lists_and_points() {
     e.input(ToolInput::Vcb("[10;20;100]".into()));
     let (lo, _) = bounds_of(&e, &EntityPath::root(id));
     assert!(close(lo, DVec3::new(10.0, 20.0, 0.0)), "{lo}");
+    // Moved, let go (§6 septendecies): picked again, then the start.
+    click(&mut e, DVec3::new(10.0, 20.0, 100.0));
     click(&mut e, DVec3::new(10.0, 20.0, 100.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(40.0, 20.0, 100.0)) });
     e.input(ToolInput::Vcb("<-10;;@-100>".into()));
@@ -757,7 +759,12 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
     tap(&mut e);
     tap(&mut e);
     assert!(!e.tool_copying());
+    // Moved, the selection is let go (§6 septendecies): a click picks, the next starts.
+    assert!(e.selection().is_empty());
     let at = px(&e, DVec3::new(300.0, 50.0, 50.0));
+    e.input(ToolInput::Hover { px: at });
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    assert_eq!(e.selection(), &[a]);
     e.input(ToolInput::Hover { px: at });
     e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
     tap(&mut e);
@@ -766,7 +773,8 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
     e.input(ToolInput::Vcb("100".into()));
     assert!(!e.tool_copying(), "back to moving after a copy");
     assert_eq!(e.document().root_assembly().occurrences().len(), 2);
-    let copy = e.selection()[0];
+    assert!(e.selection().is_empty(), "the copy let go");
+    let copy = e.document().root_assembly().occurrences().iter().map(|o| o.id).find(|id| *id != a).unwrap();
     assert_ne!(copy, a);
     let (lo, _) = bounds_of(&e, &EntityPath::root(copy));
     // Up locks Z; in a top view the cursor's side is undefined, the distance is what counts.
@@ -1154,6 +1162,8 @@ fn rotate_tool_by_clicks_and_typed_angle() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "50");
     e.set_tool(ToolKind::Rotate);
+    // The box just drawn is selected: it is what turns (§6 septendecies).
+    assert_eq!(e.selection(), &[a]);
     // Centre on the box's top face (axis: its normal, Z), reference along +X, then 90° typed.
     // The cursor a hair inside the top face (the corner itself is on three faces: which one a
     // ray exactly through it hits is a tie), the centre snapped to the corner.
@@ -1174,13 +1184,16 @@ fn rotate_tool_by_clicks_and_typed_angle() {
     let at = px(&e, DVec3::new(-50.0, 100.0, 50.0));
     e.input(ToolInput::Hover { px: at });
     e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    assert!(e.selection().is_empty(), "turned, the selection is let go");
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    e.input(ToolInput::Hover { px: at });
     e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
     click(&mut e, DVec3::new(-50.0 + 100.0, 100.0, 50.0));
     click(&mut e, DVec3::new(-50.0 + 100.0, 200.0, 50.0));
     assert_eq!(e.document().root_assembly().occurrences().len(), 2);
 
     // `/2` right after: two copies spread over the angle (the last one where the copy was).
-    let copy = e.selection()[0];
+    let copy = e.document().root_assembly().occurrences().iter().map(|o| o.id).find(|id| *id != a).unwrap();
     let before = bounds_of(&e, &EntityPath::root(copy));
     e.input(ToolInput::Vcb("/2".into()));
     assert_eq!(e.document().root_assembly().occurrences().len(), 3);
@@ -1924,11 +1937,13 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     assert!(e.selection().is_empty());
     assert_eq!(e.open_part(), Some(board), "a click inside its box keeps the part open");
 
-    // Move, nothing selected: the tool under the first click; 100 along red. While moving, the
-    // tool is a ghost where it goes, not drawn where it was.
+    // Move, nothing selected: the tool picked by a first click (§6 septendecies), the start by
+    // the next; 100 along red. While moving, the tool is a ghost where it goes, not drawn
+    // where it was.
     e.set_tool(ToolKind::Move);
     click(&mut e, DVec3::new(50.0, 100.0, 25.0));
     assert_eq!(e.selection(), &[hole]);
+    click(&mut e, DVec3::new(50.0, 100.0, 25.0));
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(250.0, 100.0, 25.0)) });
     let v = e.view();
@@ -1936,10 +1951,11 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     assert!(!v.batches.iter().flat_map(|(_, p)| p).any(|p| p.look == Look::Tool));
     e.input(ToolInput::Vcb("100".into()));
     assert!(close(machinings(&e, board)[0].placement.translation, DVec3::new(150.0, 100.0, -5.0)));
-    assert_eq!(e.selection(), &[hole]);
+    assert!(e.selection().is_empty(), "moved, let go");
 
     // A copy 50 further, then `3x`: an array of three, every occurrence shows them.
     e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    click(&mut e, DVec3::new(150.0, 100.0, 25.0));
     click(&mut e, DVec3::new(150.0, 100.0, 25.0));
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, 100.0, 25.0)) });
@@ -2075,16 +2091,19 @@ fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
     assert!(p.z < 18.0 + 1e-6, "{p}");
 
     // The part open, its bodies shown: the tool's top circle, its centre inferred.
+    // Picked first (§6 septendecies).
     e.enter(board);
     e.set_tool(ToolKind::Move);
+    let at = px(&e, centre);
+    e.input(ToolInput::Hover { px: at });
+    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    assert_eq!(e.selection().len(), 1);
     let (p, kind) = hover(&mut e, centre).unwrap();
     assert_eq!(kind, InferKind::Center);
     assert!(close(p, centre), "{p}");
 
     // Moving it from there: it is left out, the blank's top is what is under the cursor.
-    let at = px(&e, centre);
     e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
-    assert_eq!(e.selection().len(), 1);
     let (p, _) = hover(&mut e, DVec3::new(52.0, 100.0, 25.0)).unwrap();
     assert!(p.z < 18.0 + 1e-6, "{p}");
 }
@@ -3475,10 +3494,16 @@ fn erase_tool_erases_what_it_is_clicked_or_dragged_over() {
     let shift = Modifiers { toggle: true, copy: false };
     let there = |e: &Editor, id: Id| e.document().assembly(root).unwrap().occurrence(id).is_some();
     let ghosts = |e: &Editor| e.view().batches.iter().flat_map(|(_, p)| p).filter(|p| p.ghost).count();
-    // The selection is left alone.
+    // Started on a selection, it erases it at once, in one step, and stays an eraser
+    // (§6 septendecies).
     e.select(vec![a]);
     e.set_tool(ToolKind::Erase);
-    assert_eq!(e.selection(), &[a]);
+    assert!(!there(&e, a) && e.selection().is_empty());
+    assert_eq!(e.tool_kind(), ToolKind::Erase);
+    e.undo();
+    assert!(there(&e, a));
+    // Selected while it runs, the selection is left alone.
+    e.select(vec![a]);
 
     // Hovered: drawn as a ghost.
     hover(&mut e, DVec3::new(350.0, 50.0, 50.0));
@@ -5408,17 +5433,20 @@ fn a_drag_moves_from_the_press_to_the_release() {
     e.set_tool(ToolKind::Move);
     let mods = Modifiers::default();
 
-    // Pressed on void: nothing to move, nor does the release take what lies there.
+    // Nothing taken, a drag is a selection rectangle (§6 septendecies): from the void over half
+    // the box, left to right, it encloses nothing.
     let (pa, pb) = (px(&e, DVec3::new(-600.0, -600.0, 0.0)), px(&e, DVec3::new(50.0, 50.0, 50.0)));
     e.input(ToolInput::DragStart { px: pa, mods });
     e.input(ToolInput::Drag { px: pb });
     e.input(ToolInput::DragEnd { px: pb, mods });
     assert!(e.selection().is_empty(), "{:?}", e.selection());
-    // (The status says there is nothing to move.)
     assert!(close(bounds_of(&e, &EntityPath::root(a)).0, DVec3::ZERO));
 
-    // Pressed on the box (taken), dragged along red, released: moved.
+    // The box picked, then pressed on it, dragged along red, released: moved.
     let (pa, pb) = (px(&e, DVec3::new(50.0, 50.0, 50.0)), px(&e, DVec3::new(350.0, 80.0, 50.0)));
+    e.input(ToolInput::Hover { px: pa });
+    e.input(ToolInput::Click { px: pa, mods });
+    assert_eq!(e.selection(), &[a]);
     e.input(ToolInput::Hover { px: pa });
     e.input(ToolInput::DragStart { px: pa, mods });
     e.input(ToolInput::Key { key: Key::Right, mods });
@@ -5696,4 +5724,313 @@ fn the_pivot_is_the_style_s() {
     e.nav_begin_about(DVec2::ZERO, Pivot::ScreenCentre);
     let target = e.camera.eye + e.camera.forward() * e.camera.focus;
     assert!((e.pivot() - target).length() < 1e-9);
+}
+
+#[test]
+fn move_picks_first_by_a_click_a_rectangle_or_shift_clicks() {
+    let (mut e, [b1, b2, b3]) = three_boards_editor();
+    let none = Modifiers::default();
+    let shift = Modifiers { toggle: true, copy: false };
+    let x = |e: &Editor, o: Id| bounds_of(e, &EntityPath::root(o)).0.x;
+    e.select(vec![]);
+    e.set_tool(ToolKind::Move);
+
+    // Nothing selected: the tool picks (§6 septendecies); a click takes one, the next starts.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 25.0, 18.0)) });
+    assert!(e.status().contains("à déplacer"), "{}", e.status());
+    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Hover).count(), 1);
+    click(&mut e, DVec3::new(100.0, 25.0, 18.0));
+    assert_eq!(e.selection(), [b1]);
+    assert!(e.status().contains("point de départ"), "{}", e.status());
+    // Esc while moving goes back to the start, the selection kept; Esc again lets it go.
+    click(&mut e, DVec3::new(100.0, 25.0, 18.0));
+    e.input(ToolInput::Key { key: Key::Escape, mods: none });
+    assert_eq!(e.selection(), [b1]);
+    e.input(ToolInput::Key { key: Key::Escape, mods: none });
+    assert!(e.selection().is_empty());
+    assert_eq!(e.tool_kind(), ToolKind::Move);
+
+    // A rectangle around the first two, left to right: taken; moved 50 along red, let go.
+    drag(&mut e, DVec3::new(-10.0, -10.0, 0.0), DVec3::new(210.0, 160.0, 0.0), none);
+    assert_eq!(e.selection(), [b1, b2]);
+    click(&mut e, DVec3::new(0.0, 0.0, 18.0));
+    e.input(ToolInput::Key { key: Key::Right, mods: none });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 0.0, 18.0)) });
+    e.input(ToolInput::Vcb("50".into()));
+    assert_eq!((x(&e, b1).round(), x(&e, b2).round(), x(&e, b3).round()), (50.0, 50.0, 0.0));
+    assert!(e.selection().is_empty());
+
+    // Shift held, two clicked: gathered, taken once Shift is released.
+    e.set_shift(true);
+    for p in [DVec3::new(150.0, 25.0, 18.0), DVec3::new(100.0, 325.0, 18.0)] {
+        e.input(ToolInput::Hover { px: px(&e, p) });
+        e.input(ToolInput::Click { px: px(&e, p), mods: shift });
+    }
+    assert_eq!(e.selection(), [b1, b3]);
+    assert!(e.status().contains("Sélection multiple"), "{}", e.status());
+    e.set_shift(false);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 325.0, 18.0)) });
+    assert!(e.status().contains("point de départ"), "{}", e.status());
+}
+
+#[test]
+fn rotate_picks_first() {
+    let (mut e, [b1, ..]) = three_boards_editor();
+    e.select(vec![]);
+    e.set_tool(ToolKind::Rotate);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 25.0, 18.0)) });
+    assert!(e.status().contains("à faire pivoter"), "{}", e.status());
+    // No protractor while picking.
+    assert!(e.view().overlay.len() < 40);
+    click(&mut e, DVec3::new(100.0, 25.0, 18.0));
+    assert_eq!(e.selection(), [b1]);
+    assert!(e.status().contains("centre de rotation"), "{}", e.status());
+}
+
+/// Two parts in an assembly placed twice (the second 300 along green), and a part on its own.
+fn drawers_editor() -> (Editor, [Id; 5]) {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let add = |e: &mut Editor, origin: DVec3| {
+        let p = Primitive::Box { origin, size: DVec3::new(100.0, 100.0, 50.0) };
+        e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: glam::DAffine3::IDENTITY }).unwrap().unwrap().created[0]
+    };
+    let a = add(&mut e, DVec3::ZERO);
+    let b = add(&mut e, DVec3::new(200.0, 0.0, 0.0));
+    let c = add(&mut e, DVec3::new(600.0, 0.0, 0.0));
+    let g = e.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().unwrap().created[0];
+    let t = glam::DAffine3::from_translation(DVec3::Y * 300.0);
+    let g2 = e.apply(Operation::Duplicate { context: root, entities: vec![g], transform: t }).unwrap().unwrap().created[0];
+    e.select(vec![]);
+    (e, [a, b, c, g, g2])
+}
+
+fn parts_scope(e: &mut Editor) {
+    e.set_tool_option(crate::tools::PICK_SCOPE, OptionValue::Choice(crate::tools::PICK_PARTS.into()));
+    assert!(e.pick_parts());
+}
+
+#[test]
+fn parts_are_selected_at_any_depth_without_entering() {
+    let (mut e, [a, b, c, g, g2]) = drawers_editor();
+    let none = Modifiers::default();
+    let shift = Modifiers { toggle: true, copy: false };
+    // The scope shows in Select's bar, last.
+    assert!(e.tool_options().last().is_some_and(|o| o.key == crate::tools::PICK_SCOPE));
+    parts_scope(&mut e);
+
+    // A click takes the part, in its assembly; the context stays the model's.
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![g], a)]);
+    assert!(e.selection().is_empty());
+    assert!(e.context().is_empty());
+    assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Selected));
+    // Shift adds one of the other copy; a part of the model is one too.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(250.0, 350.0, 50.0)) });
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(250.0, 350.0, 50.0)), mods: shift });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(650.0, 50.0, 50.0)) });
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(650.0, 50.0, 50.0)), mods: shift });
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![g], a), EntityPath::new(vec![g2], b), EntityPath::root(c)]);
+    assert!(e.deep_shared(), "through an assembly placed twice");
+    // Esc lets them go.
+    e.input(ToolInput::Key { key: Key::Escape, mods: none });
+    assert!(e.deep_selection().is_empty());
+
+    // A rectangle around the second copy, left to right: its two parts.
+    drag(&mut e, DVec3::new(-10.0, 410.0, 0.0), DVec3::new(310.0, 290.0, 0.0), none);
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![g2], a), EntityPath::new(vec![g2], b)]);
+    // Back to « Context »: let go; a click takes the assembly.
+    e.set_tool_option(crate::tools::PICK_SCOPE, OptionValue::Choice(crate::tools::PICK_CONTEXT.into()));
+    assert!(e.deep_selection().is_empty());
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(e.selection(), [g]);
+}
+
+#[test]
+fn parts_at_any_depth_move_in_their_assembly_all_copies_or_this_one() {
+    let (mut e, [a, _, c, g, g2]) = drawers_editor();
+    let none = Modifiers::default();
+    let x = |e: &Editor, path: EntityPath| bounds_of(e, &path).0.x;
+    parts_scope(&mut e);
+    e.set_tool(ToolKind::Move);
+    assert!(e.tool_options().iter().any(|o| o.key == crate::tools::PICK_SCOPE), "shared by the tools that pick parts");
+    assert!(e.pick_parts(), "one setting for all");
+
+    // Picked, then moved 100 along red: the assembly's definition changes, both copies.
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![g], a)]);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    e.input(ToolInput::Key { key: Key::Right, mods: none });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(150.0, 50.0, 50.0)) });
+    assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Ghost));
+    e.input(ToolInput::Vcb("100".into()));
+    assert_eq!(x(&e, EntityPath::new(vec![g], a)).round(), 100.0);
+    assert_eq!(x(&e, EntityPath::new(vec![g2], a)).round(), 100.0);
+    assert!(e.deep_selection().is_empty(), "moved, let go");
+    e.undo();
+
+    // « Only this one »: the copy reached made unique, the other stays; one undo step.
+    e.set_part_scope(solidsketch_model::Scope::This);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    e.input(ToolInput::Key { key: Key::Right, mods: none });
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(150.0, 50.0, 50.0)) });
+    e.input(ToolInput::Vcb("100".into()));
+    assert_eq!(x(&e, EntityPath::new(vec![g], a)).round(), 100.0);
+    assert_eq!(x(&e, EntityPath::new(vec![g2], a)).round(), 0.0);
+    let comp = |e: &Editor, o: Id| e.document().resolve(&EntityPath::root(o)).unwrap().component;
+    assert_ne!(comp(&e, g), comp(&e, g2));
+    e.undo();
+    assert_eq!(comp(&e, g), comp(&e, g2));
+
+    // Delete erases parts at any depth, each from its assembly, in one step.
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(50.0, 350.0, 50.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(650.0, 50.0, 50.0)) });
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(650.0, 50.0, 50.0)), mods: Modifiers { toggle: true, copy: false } });
+    assert_eq!(e.deep_selection().len(), 2);
+    e.input(ToolInput::Key { key: Key::Delete, mods: none });
+    assert!(e.document().resolve(&EntityPath::root(c)).is_err());
+    assert!(e.document().resolve(&EntityPath::new(vec![g2], a)).is_err(), "only this one: the copy");
+    assert!(e.document().resolve(&EntityPath::new(vec![g], a)).is_ok());
+    e.undo();
+    assert!(e.document().resolve(&EntityPath::root(c)).is_ok());
+}
+
+#[test]
+fn copy_tools_stretch_paint_and_the_clipboard_take_parts_at_any_depth() {
+    let (mut e, [a, b, _, g, g2]) = drawers_editor();
+    let none = Modifiers::default();
+    let in_g =
+        |e: &Editor| e.document().assembly(e.document().resolve(&EntityPath::root(g)).unwrap().component).unwrap().occurrences().len();
+    parts_scope(&mut e);
+
+    // Copy along a line: the part picked in its assembly, copied there (both copies of it).
+    e.set_tool(ToolKind::CopyLine);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![g], a)]);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 200.0, 50.0)) });
+    e.input(ToolInput::Click { px: px(&e, DVec3::new(50.0, 200.0, 50.0)), mods: none });
+    assert_eq!(in_g(&e), 3, "{}", e.status());
+    assert!(e.deep_selection().is_empty(), "the copies let go");
+    e.undo();
+    assert_eq!(in_g(&e), 2);
+
+    // The Stretch: parts of one assembly are its target; of two, it says so.
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(50.0, 350.0, 50.0));
+    e.set_tool(ToolKind::Stretch);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(900.0, 900.0, 0.0)) });
+    assert!(e.status().contains("Cliquer une poignée"), "{}", e.status());
+    e.select_paths(vec![EntityPath::new(vec![g], a), EntityPath::new(vec![g2], b)]);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(900.0, 900.0, 0.0)) });
+    assert!(e.status().contains("même assemblage"), "{}", e.status());
+
+    // The clipboard: both copied, in world axes, ids made distinct.
+    let clip = e.copy().expect("copied");
+    let Content::Entities(f) = &clip.content else { panic!("entities") };
+    assert_eq!(f.root_assembly().occurrences().len(), 2);
+
+    // Paint: the part under the cursor, in its assembly (the definition shared: both copies).
+    e.set_tool(ToolKind::Select);
+    e.input(ToolInput::Key { key: Key::Escape, mods: none });
+    let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
+    e.set_paint_material(Some(oak));
+    e.set_tool(ToolKind::Paint);
+    click(&mut e, DVec3::new(250.0, 350.0, 50.0));
+    let material = |e: &Editor, p: EntityPath| e.document().resolve(&p).unwrap().material;
+    assert_eq!(material(&e, EntityPath::new(vec![g2], b)), Some(oak));
+    assert_eq!(material(&e, EntityPath::new(vec![g], b)), Some(oak));
+    assert_eq!(material(&e, EntityPath::root(g2)), None);
+}
+
+#[test]
+fn the_copy_modifier_held_over_a_part_lists_its_path_to_choose_a_parent() {
+    let (mut e, [a, _, c, g, _]) = drawers_editor();
+    parts_scope(&mut e);
+    e.set_tool(ToolKind::Move);
+    // Over a part of the model: no list (nothing above it to choose).
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(650.0, 50.0, 50.0)) });
+    e.set_copy(true);
+    assert!(e.tree().is_none());
+    e.set_copy(false);
+    let _ = c;
+
+    // Over a part of an assembly: its path, the model's level first.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 50.0, 50.0)) });
+    assert!(e.status().contains("élément parent"), "{}", e.status());
+    e.set_copy(true);
+    let rows: Vec<EntityPath> = e.tree().unwrap().rows.iter().map(|r| r.path.clone()).collect();
+    assert_eq!(rows, [EntityPath::root(g), EntityPath::new(vec![g], a)]);
+    assert!(e.status().contains("Choisir un élément"), "{}", e.status());
+    // A row hovered is drawn hovered; clicked, the assembly is selected and taken.
+    e.hover_tree_row(Some(0));
+    assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Hover));
+    e.pick_tree_row(0);
+    assert!(e.tree().is_none());
+    assert_eq!(e.deep_selection(), [EntityPath::root(g)]);
+    assert!(e.status().contains("point de départ"), "{}", e.status());
+    // The key released: its tap is not the tool's (no copy toggled).
+    e.set_copy(false);
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    assert!(!e.tool_copying());
+}
+
+#[test]
+fn the_copy_tools_show_the_part_hovered_at_any_depth_while_picking() {
+    let (mut e, _) = drawers_editor();
+    parts_scope(&mut e);
+    for tool in [ToolKind::CopyLine, ToolKind::CopyGrid, ToolKind::Distribute] {
+        e.set_tool(tool);
+        e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 50.0, 50.0)) });
+        assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Hover), "{tool:?}");
+    }
+}
+
+#[test]
+fn a_click_on_nothing_lets_the_parts_at_any_depth_go() {
+    let (mut e, [a, _, _, g, _]) = drawers_editor();
+    parts_scope(&mut e);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![g], a)]);
+    click(&mut e, DVec3::new(-800.0, -800.0, 0.0));
+    assert!(e.deep_selection().is_empty());
+    assert!(!e.view().highlights.iter().any(|h| h.mark == Mark::Selected));
+}
+
+#[test]
+fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
+    let (mut e, [a, b, c, g, g2]) = drawers_editor();
+    let none = Modifiers::default();
+    let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
+    e.set_paint_material(Some(oak));
+    let material = |e: &Editor, p: EntityPath| e.document().resolve(&p).unwrap().material;
+    e.set_tool(ToolKind::Paint);
+
+    // « Context »: a rectangle around the first copy and the lone part, left to right: both
+    // painted, in one step.
+    let steps = e.history().journal().count();
+    drag(&mut e, DVec3::new(-10.0, 110.0, 0.0), DVec3::new(710.0, -10.0, 0.0), none);
+    assert_eq!(material(&e, EntityPath::root(g)), Some(oak));
+    assert_eq!(material(&e, EntityPath::root(c)), Some(oak));
+    assert_eq!(material(&e, EntityPath::root(g2)), None);
+    assert_eq!(e.history().journal().count(), steps + 1);
+    e.undo();
+
+    // « Parts »: the parts the rectangle takes, at any depth.
+    parts_scope(&mut e);
+    drag(&mut e, DVec3::new(-10.0, 410.0, 0.0), DVec3::new(310.0, 290.0, 0.0), none);
+    assert_eq!(material(&e, EntityPath::new(vec![g2], a)), Some(oak));
+    assert_eq!(material(&e, EntityPath::new(vec![g2], b)), Some(oak));
+    assert_eq!(material(&e, EntityPath::root(g2)), None);
+    e.undo();
+
+    // The tree drop-up: the level chosen is painted, not selected.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 350.0, 50.0)) });
+    e.set_copy(true);
+    assert!(e.tree().is_some());
+    e.pick_tree_row(0);
+    e.set_copy(false);
+    assert_eq!(material(&e, EntityPath::root(g2)), Some(oak));
+    assert!(e.deep_selection().is_empty());
 }

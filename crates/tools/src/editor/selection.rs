@@ -9,8 +9,45 @@ use crate::ToolKind;
 use crate::tools::Command;
 
 impl Editor {
-    pub fn select(&mut self, ids: Vec<Id>) {
+    /// Selects `ids`, entities of the active context: the parts selected at any depth let go.
+    pub(super) fn set_selection(&mut self, ids: Vec<Id>) {
+        self.deep.clear();
         self.selection = ids;
+    }
+
+    /// Nothing selected, at any depth.
+    pub(super) fn clear_selection(&mut self) {
+        self.deep.clear();
+        self.selection.clear();
+    }
+
+    /// Selects the parts `paths` name, at any depth under the active context (« Parts »,
+    /// ARCHITECTURE.md §6 septendecies): the ids' selection let go.
+    pub fn select_paths(&mut self, paths: Vec<EntityPath>) {
+        self.selection.clear();
+        self.deep = paths;
+    }
+
+    /// The parts selected at any depth (« Parts »), by their paths from the root; empty
+    /// while the selection is the active context's.
+    pub fn deep_selection(&self) -> &[EntityPath] {
+        &self.deep
+    }
+
+    /// Is anything selected, here or at any depth?
+    pub fn anything_selected(&self) -> bool {
+        !self.selection.is_empty() || !self.deep.is_empty()
+    }
+
+    /// Does the selection at any depth go through an assembly placed more than once (a change
+    /// to it reaches the other copies, unless made unique: the scope, §6 septendecies)?
+    pub fn deep_shared(&self) -> bool {
+        let doc = self.document();
+        self.deep.iter().any(|p| doc.shared_along(&p.instances))
+    }
+
+    pub fn select(&mut self, ids: Vec<Id>) {
+        self.set_selection(ids);
     }
 
     pub fn select_all(&mut self) {
@@ -24,6 +61,7 @@ impl Editor {
         let ctx = self.context_definition();
         // Not those hidden, unless the hidden are shown.
         let show_hidden = self.document().settings().display.show_hidden;
+        self.deep.clear();
         self.selection = self
             .document()
             .assembly(ctx)
@@ -59,7 +97,7 @@ impl Editor {
             self.open_group.clear();
             self.sync_scene();
         }
-        self.selection = vec![path.entity];
+        self.set_selection(vec![path.entity]);
     }
 
     /// The model chosen (the outliner's first row clicked): every assembly left and the part
@@ -77,7 +115,7 @@ impl Editor {
             self.listed_hover = None;
             self.sync_scene();
         }
-        self.selection.clear();
+        self.clear_selection();
         self.model_selected = true;
     }
 
@@ -88,7 +126,7 @@ impl Editor {
     }
 
     pub(crate) fn at_model_level_with_nothing_selected(&self) -> bool {
-        self.context.is_empty() && self.open_part.is_none() && self.selection.is_empty()
+        self.context.is_empty() && self.open_part.is_none() && !self.anything_selected()
     }
 
     /// The outliner's click on the occurrence `path` leads to: selected already (in the active
@@ -119,7 +157,7 @@ impl Editor {
         } else if add {
             self.selection.push(body);
         } else {
-            self.selection = vec![body];
+            self.set_selection(vec![body]);
         }
     }
 
@@ -146,7 +184,7 @@ impl Editor {
         if self.open_group != path.group {
             self.open_group = path.group.clone();
             self.tool.reset();
-            self.selection.clear();
+            self.clear_selection();
             self.listed_hover = None;
             self.sync_scene();
         }
@@ -165,7 +203,7 @@ impl Editor {
             }
             self.open_group.push(id);
             self.tool.reset();
-            self.selection.clear();
+            self.clear_selection();
             self.listed_hover = None;
             self.sync_scene();
             return;
@@ -183,7 +221,7 @@ impl Editor {
             return;
         }
         self.tool.reset();
-        self.selection.clear();
+        self.clear_selection();
         self.listed_hover = None;
         self.sync_scene();
     }
@@ -206,13 +244,19 @@ impl Editor {
             if self.tool.kind() == ToolKind::Profile {
                 self.set_tool(ToolKind::Select);
             }
-            self.selection = vec![id];
+            self.set_selection(vec![id]);
             self.listed_hover = None;
             self.sync_scene();
         }
     }
 
     pub fn delete_selection(&mut self) {
+        if !self.deep.is_empty() && !self.busy() {
+            let paths = std::mem::take(&mut self.deep);
+            let op = self.cx().erase_deep(&paths);
+            let _ = self.start(op, After::Nothing, false);
+            return;
+        }
         if self.selection.is_empty() || self.busy() {
             return;
         }

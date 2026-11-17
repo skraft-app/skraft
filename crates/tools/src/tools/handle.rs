@@ -6,12 +6,11 @@ use std::cell::RefCell;
 
 use glam::{DAffine3, DMat3, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::{Body, Id, Occurrence, Part};
+use solidsketch_model::{Body, EntityPath, Id, Occurrence, Part};
 
-use super::select::{marquee_hits, toggled};
 use super::{
-    BLUE, Command, Cx, GREEN, Key, Marquee, Moved, OptionChoice, OptionValue, PointShape, PreviewLine, PreviewPoint, RED, ToolInput,
-    ToolOption, arrow_head, copy_key, dashed,
+    BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, PreviewLine, PreviewPoint, RED, ToolInput, ToolOption, arrow_head,
+    copy_key, dashed,
 };
 use crate::vcb::Repeat;
 
@@ -55,8 +54,6 @@ pub(super) const MIRROR: &str = "mirror";
 
 /// How far past the box the axes are drawn (pixels).
 const AXES_PX: f64 = 50.0;
-/// The least a rectangle is dragged to be one (pixels).
-const MIN_MARQUEE: f64 = 3.0;
 /// Below this many copies their boxes are drawn.
 const MAX_BOXES: usize = 100;
 /// How far past the mirrored copy its badge is (pixels; OCL's 40), and its half size.
@@ -242,6 +239,31 @@ impl Target {
         Some(Target { entities: ids.to_vec(), moved: cx.moved(), frame, lo, hi })
     }
 
+    /// The parts `paths` selected at any depth (« Parts », ARCHITECTURE.md §6 septendecies), in the
+    /// axes `axes`: each from its own assembly, their box in those axes.
+    pub fn of_deep(cx: &Cx<'_>, paths: &[EntityPath], axes: Axes) -> Option<Target> {
+        if cx.open_part.is_some() || paths.is_empty() {
+            return None;
+        }
+        let moved = cx.moved_deep(paths);
+        let Moved::Deep { groups, .. } = &moved else { return None };
+        let frame = match (axes, paths) {
+            (Axes::Entity, [p]) => cx.doc.transform_of(&p.instances).ok()? * cx.doc.resolve(p).ok()?.transform,
+            (Axes::Active, _) => DAffine3::IDENTITY,
+            _ => cx.context_transform,
+        };
+        let mut b: Option<(DVec3, DVec3)> = None;
+        for g in groups {
+            let a = cx.doc.assembly(cx.doc.context_of(&g.parent).ok()?).ok()?;
+            let occs: Vec<&Occurrence> = g.entities.iter().filter_map(|id| a.occurrence(*id)).collect();
+            let in_parent = g.frame.inverse() * frame;
+            let Some((lo, hi)) = occurrences_bounds(cx, &g.parent, &occs, in_parent) else { continue };
+            b = Some(b.map_or((lo, hi), |(l, h)| (l.min(lo), h.max(hi))));
+        }
+        let (lo, hi) = b?;
+        Some(Target { entities: Vec::new(), moved, frame, lo, hi })
+    }
+
     pub fn center(&self) -> DVec3 {
         (self.lo + self.hi) * 0.5
     }
@@ -386,75 +408,6 @@ pub(super) fn nearest_axis_on_screen(cx: &Cx<'_>, target: &Target, start: DVec3,
     (0..3).fold(0, |best, k| if distance(k) < distance(best) { k } else { best })
 }
 
-/// Picking what to copy, as OCL's `SmartSelectActionHandler` (and the Stretch): a click takes
-/// what the selection would, Shift clicks add or remove (the set taken once Shift is
-/// released), a rectangle takes what it encloses (left to right) or touches (right to left).
-/// What is taken becomes the selection.
-#[derive(Clone, Debug, Default)]
-pub(super) struct Picker {
-    /// Shift held after a Shift click or rectangle: the selection is being made.
-    pub gathering: bool,
-    pub marquee: Option<Marquee>,
-    /// What a click would take.
-    pub hovered: Option<Id>,
-}
-
-impl Picker {
-    /// The commands for `input`, and whether a target was taken by it.
-    pub fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> (Vec<Command>, bool) {
-        match input {
-            ToolInput::Hover { px } => self.hovered = cx.entity_at(*px),
-            ToolInput::Click { px, mods } if mods.toggle => {
-                if let Some(id) = cx.entity_at(*px) {
-                    self.gathering = true;
-                    return (vec![Command::Select(toggled(cx.selection, &[id]))], false);
-                }
-            }
-            ToolInput::Click { px, .. } => {
-                if let Some(id) = cx.entity_at(*px) {
-                    self.hovered = None;
-                    return (vec![Command::Select(vec![id])], true);
-                }
-            }
-            ToolInput::DragStart { px, .. } => {
-                self.hovered = None;
-                self.marquee = Some(Marquee::new(*px, *px));
-            }
-            ToolInput::Drag { px } => {
-                if let Some(m) = &mut self.marquee {
-                    *m = Marquee::new(m.from, *px);
-                    m.hits = marquee_hits(cx, m.from, m.to, m.crossing);
-                }
-            }
-            ToolInput::DragEnd { px, mods } => {
-                let Some(m) = self.marquee.take() else { return (vec![], false) };
-                if (*px - m.from).abs().max_element() < MIN_MARQUEE {
-                    return self.input(&ToolInput::Click { px: *px, mods: *mods }, cx);
-                }
-                let m = Marquee::new(m.from, *px);
-                let hits = marquee_hits(cx, m.from, m.to, m.crossing);
-                if mods.toggle {
-                    self.gathering = true;
-                    return (vec![Command::Select(toggled(cx.selection, &hits))], false);
-                }
-                return (vec![Command::Select(hits)], true);
-            }
-            _ => {}
-        }
-        (vec![], false)
-    }
-
-    /// The status while picking.
-    pub fn status(&self, pick: String) -> String {
-        match &self.marquee {
-            Some(m) if m.crossing => t!("tool.select.hint.crossing"),
-            Some(_) => t!("tool.select.hint.window"),
-            None if self.gathering => t!("tool.handle.hint.gather"),
-            None => pick,
-        }
-    }
-}
-
 /// The target worked out last, and what from (asked again at each input and preview, costly
 /// for many occurrences: their bounds).
 #[derive(Default)]
@@ -467,6 +420,7 @@ struct MemoKey {
     open_part: Option<Id>,
     shown: bool,
     selection: Vec<Id>,
+    deep: Vec<EntityPath>,
     axes: Axes,
 }
 
@@ -478,6 +432,7 @@ impl Memo {
             open_part: cx.open_part,
             shown: cx.machinings_shown(),
             selection: cx.selection.to_vec(),
+            deep: cx.deep.to_vec(),
             axes: axes(cx),
         };
         if let Some((k, t)) = &*self.0.borrow()
@@ -485,7 +440,7 @@ impl Memo {
         {
             return t.clone();
         }
-        let t = Target::of(cx, &key.selection, key.axes);
+        let t = if key.deep.is_empty() { Target::of(cx, &key.selection, key.axes) } else { Target::of_deep(cx, &key.deep, key.axes) };
         *self.0.borrow_mut() = Some((key, t.clone()));
         t
     }

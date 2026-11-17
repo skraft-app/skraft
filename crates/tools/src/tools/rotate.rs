@@ -5,16 +5,18 @@
 //! parallels, features), and the radii reach the cursor. The angle can be
 //! typed in degrees (`360/7`, `@/2`: half the angle so far). A tap of the copy modifier (Option on macOS, Ctrl elsewhere) toggles
 //! copying; right after a copy, `6x` makes a circular array of 6 at the same angle and `/6`
-//! spreads 6 copies over it. With nothing selected, the first click takes the entity under
-//! the cursor.
+//! spreads 6 copies over it. What turns is picked first (§6 septendecies, [`Picker`]): the
+//! selection, else a click, Shift clicks or a rectangle; once turned, the selection is let go
+//! and the tool picks again.
 
 use super::DragClicks;
+use super::pick::Picker;
 use crate::infer::Inference;
 use crate::scene::Owner;
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 use glam::{DAffine3, DQuat, DVec2, DVec3};
 use solidsketch_i18n::t;
-use solidsketch_model::Id;
+use solidsketch_model::{EntityPath, Id};
 
 use super::{
     BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLabel, PreviewLine, RED, Tool, ToolInput, ToolKind,
@@ -28,9 +30,14 @@ const PROTRACTOR_PX: f64 = 70.0;
 
 #[derive(Default)]
 pub struct RotateTool {
+    picker: Picker,
+    /// The selection is taken, as the last input left it (else the tool picks).
+    taken: bool,
     state: State,
     copy: bool,
     moving: Vec<Id>,
+    /// The parts moved at any depth (« Parts », §6 septendecies).
+    moving_paths: Vec<EntityPath>,
     /// Where the protractor would go, and its axis, before the first click.
     cursor: Option<(DVec3, DVec3)>,
     snap: Option<Inference>,
@@ -105,7 +112,7 @@ impl RotateTool {
             return (Some((zero * a.cos() + v * a.sin(), r)), None);
         }
         let turning = matches!(self.state, State::Angle { .. });
-        let keep = |o: &Owner<'_>| self.copy || !(turning && cx.is_moving(o, &self.moving));
+        let keep = |o: &Owner<'_>| self.copy || !(turning && (cx.is_moving(o, &self.moving) || cx.is_moving_deep(o, &self.moving_paths)));
         let inf = cx.infer_in_plane(px, keep, (center, axis), center).filter(|i| i.kind.is_feature());
         let d = match &inf {
             Some(i) => Some(in_plane(i.point)),
@@ -130,36 +137,46 @@ impl RotateTool {
     fn finish(&mut self, cx: &Cx<'_>, center: DVec3, axis: DVec3, angle: f64) -> Vec<Command> {
         let world = rotation_about(center, axis, angle);
         let entities = std::mem::take(&mut self.moving);
+        let paths = std::mem::take(&mut self.moving_paths);
+        let moved = if paths.is_empty() { cx.moved() } else { cx.moved_deep(&paths) };
         let copy = self.copy;
         self.reset();
         let op = if copy {
-            let last = LastCopy::new(cx.moved(), entities, Motion::Rotate { center, axis, angle });
+            let last = LastCopy::new(moved, entities, Motion::Rotate { center, axis, angle });
             let op = last.op.clone();
             self.last = Some(last);
             op
         } else {
-            cx.moved().transform(entities, world)
+            moved.transform(entities, world)
         };
-        vec![Command::Apply(op)]
+        // Turned, the selection is let go: the tool picks again (OCL's restart).
+        vec![Command::Apply(op), Command::Select(Vec::new())]
     }
 
-    fn color(&self, cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
-        [(0, RED), (1, GREEN), (2, BLUE)].into_iter().find(|(k, _)| context_axis(cx, *k).dot(axis).abs() > 0.9999).map_or(INK, |(_, c)| c)
-    }
-}
-
-/// The protractor's radius at `center`, in the world.
-fn protractor_radius(cx: &Cx<'_>, center: DVec3) -> f64 {
-    cx.camera.world_per_pixel(cx.size, center) * PROTRACTOR_PX
-}
-
-impl Tool for RotateTool {
-    fn kind(&self) -> ToolKind {
-        ToolKind::Rotate
+    /// Is the tool picking what it turns (§6 septendecies)?
+    fn picking(&self) -> bool {
+        matches!(self.state, State::Center) && !self.taken
     }
 
-    fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
+    fn input_state(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
+        self.picker.shift_released(cx);
+        let picking = matches!(self.state, State::Center) && !self.picker.taken(cx);
         match (input, self.state) {
+            (ToolInput::Key { key: Key::Copy, .. }, _) => self.copy = !self.copy,
+            (ToolInput::Value(VcbValue::Count(r)), State::Center) => {
+                let Some(last) = &mut self.last else { return vec![] };
+                return last.retype(*r);
+            }
+            // Picking (§6 septendecies): what turns becomes the selection.
+            _ if picking => {
+                self.snap = None;
+                self.cursor = None;
+                let (out, took) = self.picker.input(input, cx);
+                if took {
+                    self.last = None;
+                }
+                return out;
+            }
             (ToolInput::Hover { px }, State::Center) => {
                 let c = self.center_at(cx, *px);
                 self.cursor = c.as_ref().map(|(p, a, _)| (*p, *a));
@@ -179,24 +196,12 @@ impl Tool for RotateTool {
                 }
                 self.snap = snap;
             }
-            (ToolInput::Key { key: Key::Copy, .. }, _) => self.copy = !self.copy,
             (ToolInput::Click { px, .. }, State::Center) => {
                 self.last = None;
-                let mut out = vec![];
-                self.moving = cx.selection.to_vec();
-                if self.moving.is_empty() {
-                    let inf = cx.infer(*px, |_| true, None);
-                    match cx.entity_under(*px, inf.as_ref()) {
-                        Some(id) => {
-                            self.moving = vec![id];
-                            out.push(Command::Select(vec![id]));
-                        }
-                        None => return vec![Command::Say(t!("tool.rotate.say.nothing"))],
-                    }
-                }
-                let Some((center, axis, _)) = self.center_at(cx, *px) else { return out };
+                let Some((center, axis, _)) = self.center_at(cx, *px) else { return vec![] };
+                self.moving = self.picker.selection(cx);
+                self.moving_paths = self.picker.deep(cx);
                 self.state = State::Reference { center, axis, dir: None };
-                return out;
             }
             (ToolInput::Click { .. }, State::Reference { center, axis, dir }) => {
                 let Some((reference, reach)) = dir else {
@@ -207,10 +212,6 @@ impl Tool for RotateTool {
             (ToolInput::Click { .. }, State::Angle { center, axis, angle, .. }) => {
                 return self.finish(cx, center, axis, angle);
             }
-            (ToolInput::Value(VcbValue::Count(r)), State::Center) => {
-                let Some(last) = &mut self.last else { return vec![] };
-                return last.retype(*r);
-            }
             (ToolInput::Value(VcbValue::Angle(angle)), State::Reference { center, axis, .. } | State::Angle { center, axis, .. }) => {
                 return self.finish(cx, center, axis, *angle);
             }
@@ -219,6 +220,26 @@ impl Tool for RotateTool {
         vec![]
     }
 
+    fn color(&self, cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
+        [(0, RED), (1, GREEN), (2, BLUE)].into_iter().find(|(k, _)| context_axis(cx, *k).dot(axis).abs() > 0.9999).map_or(INK, |(_, c)| c)
+    }
+}
+
+/// The protractor's radius at `center`, in the world.
+fn protractor_radius(cx: &Cx<'_>, center: DVec3) -> f64 {
+    cx.camera.world_per_pixel(cx.size, center) * PROTRACTOR_PX
+}
+
+impl Tool for RotateTool {
+    fn kind(&self) -> ToolKind {
+        ToolKind::Rotate
+    }
+
+    fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
+        let out = self.input_state(input, cx);
+        self.taken = self.picker.taken(cx);
+        out
+    }
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         // Its graduations start from `u`, in its plane.
         let protractor = |center: DVec3, axis: DVec3, u: DVec3, color: [f32; 4]| -> Vec<PreviewLine> {
@@ -240,6 +261,11 @@ impl Tool for RotateTool {
             lines
         };
         match self.state {
+            State::Center if self.picking() => {
+                let mut p = Preview::default();
+                self.picker.preview(&mut p);
+                p
+            }
             State::Center => Preview {
                 lines: self.cursor.map(|(c, a)| protractor(c, a, Self::zero(cx, a), self.color(cx, a))).unwrap_or_default(),
                 inference: self.snap.clone(),
@@ -282,7 +308,8 @@ impl Tool for RotateTool {
 
     fn status(&self) -> String {
         let hint = match self.state {
-            State::Center if self.last.is_some() => return t!("tool.rotate.hint.array"),
+            State::Center if self.last.is_some() && !self.picker.busy() => return t!("tool.rotate.hint.array"),
+            State::Center if self.picking() => self.picker.status(t!("tool.rotate.hint.pick"), t!("tool.rotate.hint.gather")),
             State::Center => t!("tool.rotate.hint.center", copy_key = super::copy_key()),
             State::Reference { .. } => return t!("tool.rotate.hint.reference"),
             State::Angle { .. } => t!("tool.rotate.hint.angle"),
@@ -320,20 +347,45 @@ impl Tool for RotateTool {
         }
     }
 
-    /// A drag places the centre at the press, the reference at the release.
+    /// Picking, a drag draws a selection rectangle; then, it places the centre at the press,
+    /// the reference at the release.
     fn drag_clicks(&self) -> DragClicks {
-        if matches!(self.state, State::Center) { DragClicks::PressAndRelease } else { DragClicks::Release }
+        match self.state {
+            State::Center if self.picking() => DragClicks::No,
+            State::Center => DragClicks::PressAndRelease,
+            _ => DragClicks::Release,
+        }
     }
 
     fn busy(&self) -> bool {
-        !matches!(self.state, State::Center)
+        !matches!(self.state, State::Center) || self.picker.busy()
+    }
+
+    fn picks_first(&self) -> bool {
+        true
+    }
+
+    fn picks_parts(&self) -> bool {
+        true
+    }
+
+    fn leave(&mut self) {
+        self.picker.leave();
+    }
+
+    fn back(&mut self) {
+        if !self.picker.back() {
+            self.reset();
+        }
     }
 
     fn reset(&mut self) {
+        self.picker = Picker::default();
         self.state = State::Center;
         self.copy = false;
         self.last = None;
         self.moving.clear();
+        self.moving_paths.clear();
         self.snap = None;
     }
 }

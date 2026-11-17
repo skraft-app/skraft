@@ -54,10 +54,10 @@ use solidsketch_model::kernel::Solid;
 use solidsketch_model::{Behavior, EntityPath, Id, Operation, Scope};
 
 use super::handle::square;
-use super::select::{marquee_hits, toggled};
+use super::pick::Picker;
 use super::{
-    BLUE, Command, Cx, GREEN, Key, Marquee, OptionChoice, OptionValue, PointShape, Preview, PreviewFill, PreviewLabel, PreviewLine,
-    PreviewPoint, RED, StretchPreview, Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
+    BLUE, Command, Cx, GREEN, Key, OptionChoice, OptionValue, PointShape, Preview, PreviewFill, PreviewLabel, PreviewLine, PreviewPoint,
+    RED, StretchPreview, Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
 };
 use crate::camera::Ray;
 use crate::infer::{EdgeRef, InferKind, Inference};
@@ -95,8 +95,6 @@ const ARROW_PX: f64 = 10.0;
 const INFLATE_PX: f64 = 50.0;
 /// How near the start point the cursor snaps back to it (pixels).
 const START_PX: f64 = 40.0;
-/// A drag shorter than this (pixels, both ways) is a click.
-const MIN_MARQUEE: f64 = 3.0;
 /// What a compression leaves between the matter of two sections (mm), as OpenCutList does.
 const KEEP: f64 = 1.0;
 /// Shorter than this (mm), nothing.
@@ -577,13 +575,9 @@ pub struct StretchTool {
     state: State,
     /// The occurrence clicked, when nothing is open nor selected.
     picked: Option<EntityPath>,
-    /// The occurrence under the cursor, when none is picked.
-    hovered: Option<EntityPath>,
-    /// Shift held after a Shift click or rectangle (OCL's `STATE_SELECT_MULTIPLE`): the
-    /// selection is being made, taken once Shift is released.
-    gathering: bool,
-    /// The selection rectangle dragged, when nothing is taken yet.
-    marquee: Option<Marquee>,
+    /// Picking what to stretch, when nothing is taken (§6 septendecies): occurrences of the
+    /// context, not its guides.
+    picker: Picker,
     /// The active axis (0 red, 1 green, 2 blue): the last grip hovered's.
     axis: Option<usize>,
     /// The target's cutters, per axis of the stretch, as increasing ratios of its box in
@@ -600,6 +594,9 @@ pub struct StretchTool {
     adding: Option<f64>,
     /// A part was there to stretch at the last input (for the hints).
     aimed: bool,
+    /// Parts selected at any depth in several assemblies, at the last input: one only is
+    /// stretched (for the hints).
+    split: bool,
     snap: Option<Inference>,
     /// The last measures applied, per kind (a double-click or Shift takes it again): an overall
     /// dimension, a signed offset.
@@ -632,9 +629,7 @@ impl Default for StretchTool {
         StretchTool {
             state: State::Grips,
             picked: None,
-            hovered: None,
-            gathering: false,
-            marquee: None,
+            picker: Picker::keeping(StretchTool::occurrences),
             axis: None,
             cutters: [vec![0.5], vec![0.5], vec![0.5]],
             fixed: [false; 3],
@@ -643,6 +638,7 @@ impl Default for StretchTool {
             mode: Mode::Normal,
             adding: None,
             aimed: false,
+            split: false,
             snap: None,
             last_overall: None,
             last_offset: None,
@@ -663,6 +659,10 @@ impl StretchTool {
         }
         let (context, occurrences, bodies) = if let Some(id) = cx.open_part {
             (cx.context.to_vec(), vec![id], self.selected_bodies(cx))
+        } else if !cx.deep.is_empty() {
+            // Parts at any depth (« Parts », §6 septendecies): those of one assembly.
+            let (parent, ids) = Self::one_assembly(cx)?;
+            (parent, ids, None)
         } else {
             let selected = self.selected(cx);
             if !selected.is_empty() {
@@ -692,10 +692,14 @@ impl StretchTool {
     /// The occurrences (of parts or assemblies) selected in the context — none while the
     /// selection is being made.
     fn selected(&self, cx: &Cx<'_>) -> Vec<Id> {
-        if self.gathering {
-            return Vec::new();
-        }
-        Self::occurrences(cx, cx.selection.to_vec())
+        self.picker.selection(cx)
+    }
+
+    /// The parts selected at any depth, when they are all in one assembly: its path, and
+    /// their occurrences in it.
+    fn one_assembly(cx: &Cx<'_>) -> Option<(Vec<Id>, Vec<Id>)> {
+        let parent = &cx.deep.first()?.instances;
+        cx.deep.iter().all(|p| p.instances == *parent).then(|| (parent.clone(), cx.deep.iter().map(|p| p.entity).collect()))
     }
 
     /// The bodies of the open part selected, while they show (§2.11); none when none is.
@@ -1195,7 +1199,7 @@ impl StretchTool {
         let Some(target) = self.target(cx) else {
             return self.input_pick(input, cx);
         };
-        self.hovered = None;
+        self.picker.leave();
         self.sync_cutters(cx, &target);
         match input {
             ToolInput::Hover { px } => self.hover_grips(cx, &target, *px),
@@ -1229,7 +1233,7 @@ impl StretchTool {
                     // A click on nothing lets the part go.
                     (Mode::Normal, Over::Nothing, _) => {
                         self.picked = None;
-                        if !self.selected(cx).is_empty() {
+                        if !self.selected(cx).is_empty() || !cx.deep.is_empty() {
                             return vec![Command::Select(Vec::new())];
                         }
                     }
@@ -1269,49 +1273,13 @@ impl StretchTool {
         vec![]
     }
 
-    /// Nothing taken yet (OCL's `SmartSelectActionHandler`): the occurrence of the active
-    /// context under the cursor — a part, or the assembly holding it, as the selection takes it
-    /// — picked by a click; Shift held, clicks add or remove occurrences to the selection, taken
-    /// once Shift is released; a drag draws a rectangle, its occurrences selected.
+    /// Nothing taken yet (OCL's `SmartSelectActionHandler`, [`Picker`]): the occurrence of
+    /// the active context under the cursor — a part, or the assembly holding it, as the
+    /// selection takes it — picked by a click; Shift held, clicks add or remove occurrences to
+    /// the selection, taken once Shift is released; a drag draws a rectangle, its occurrences
+    /// selected.
     fn input_pick(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        let under = |px: DVec2| cx.pick(px).and_then(|h| cx.selectable(&h.path));
-        match input {
-            ToolInput::Hover { px } => {
-                self.hovered = under(*px).map(|id| EntityPath::new(cx.context.to_vec(), id));
-            }
-            ToolInput::Click { px, mods } if mods.toggle => {
-                if let Some(id) = under(*px) {
-                    self.gathering = true;
-                    return vec![Command::Select(toggled(cx.selection, &[id]))];
-                }
-            }
-            ToolInput::Click { .. } => self.picked = self.hovered.take(),
-            ToolInput::DragStart { px, .. } => {
-                self.hovered = None;
-                self.marquee = Some(Marquee::new(*px, *px));
-            }
-            ToolInput::Drag { px } => {
-                if let Some(m) = &mut self.marquee {
-                    *m = Marquee::new(m.from, *px);
-                    m.hits = Self::occurrences(cx, marquee_hits(cx, m.from, m.to, m.crossing));
-                }
-            }
-            ToolInput::DragEnd { px, mods } => {
-                let Some(m) = self.marquee.take() else { return vec![] };
-                if ((*px - m.from).abs()).max_element() < MIN_MARQUEE {
-                    return self.input_pick(&ToolInput::Click { px: *px, mods: *mods }, cx);
-                }
-                let m = Marquee::new(m.from, *px);
-                let hits = Self::occurrences(cx, marquee_hits(cx, m.from, m.to, m.crossing));
-                if mods.toggle {
-                    self.gathering = true;
-                    return vec![Command::Select(toggled(cx.selection, &hits))];
-                }
-                return vec![Command::Select(hits)];
-            }
-            _ => {}
-        }
-        vec![]
+        self.picker.input(input, cx).0
     }
 
     fn input_state(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
@@ -1393,9 +1361,7 @@ impl Tool for StretchTool {
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         // Shift released: the selection made is taken.
-        if self.gathering && !cx.shift_down {
-            self.gathering = false;
-        }
+        self.picker.shift_released(cx);
         self.centered = cx.toggle(CENTERED);
         self.overall = cx.choice(MEASURE) != Some(OFFSET);
         self.mode = if cx.copy_down {
@@ -1408,6 +1374,7 @@ impl Tool for StretchTool {
         let commands = self.input_state(input, cx);
         let target = self.target(cx);
         self.aimed = target.is_some();
+        self.split = !cx.deep.is_empty() && Self::one_assembly(cx).is_none();
         // A target just taken (a click) shows its cutters and locks at once.
         if let (State::Grips, Some(target)) = (&self.state, &target) {
             self.sync_cutters(cx, target);
@@ -1418,8 +1385,7 @@ impl Tool for StretchTool {
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut p = Preview::default();
         let Some(target) = self.target(cx) else {
-            p.hover_solid = self.hovered.clone();
-            p.marquee = self.marquee.clone();
+            self.picker.preview(&mut p);
             return p;
         };
         // A target taken: its grips, cutters and preview show it, the selection's highlight
@@ -1489,12 +1455,8 @@ impl Tool for StretchTool {
 
     fn status(&self) -> String {
         match (&self.state, self.aimed, self.mode) {
-            (State::Grips, false, _) => match &self.marquee {
-                Some(m) if m.crossing => t!("tool.select.hint.crossing"),
-                Some(_) => t!("tool.select.hint.window"),
-                None if self.gathering => t!("tool.stretch.hint.gather"),
-                None => t!("tool.stretch.hint.pick"),
-            },
+            (State::Grips, false, _) if self.split => t!("tool.stretch.hint.one_assembly"),
+            (State::Grips, false, _) => self.picker.status(t!("tool.stretch.hint.pick"), t!("tool.stretch.hint.gather")),
             (State::Grips, true, Mode::Add) => t!("tool.stretch.hint.add"),
             (State::Grips, true, Mode::Remove) => t!("tool.stretch.hint.remove"),
             (State::Grips, true, Mode::Normal) if matches!(self.over, Over::Padlock(k) if self.fixed[k]) => {
@@ -1518,7 +1480,7 @@ impl Tool for StretchTool {
     }
 
     fn busy(&self) -> bool {
-        !matches!(self.state, State::Grips) || self.picked.is_some() || self.marquee.is_some() || self.gathering
+        !matches!(self.state, State::Grips) || self.picked.is_some() || self.picker.busy()
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
@@ -1610,13 +1572,21 @@ impl Tool for StretchTool {
     fn leave(&mut self) {
         self.over = Over::Nothing;
         self.adding = None;
-        self.hovered = None;
+        self.picker.leave();
         self.snap = None;
+    }
+
+    fn picks_first(&self) -> bool {
+        true
+    }
+
+    fn picks_parts(&self) -> bool {
+        true
     }
 
     fn back(&mut self) {
         match self.state {
-            State::Grips if self.marquee.is_some() => self.marquee = None,
+            State::Grips if self.picker.back() => {}
             State::Grips => self.picked = None,
             _ => self.state = State::Grips,
         }
@@ -1626,8 +1596,7 @@ impl Tool for StretchTool {
     fn reset(&mut self) {
         self.state = State::Grips;
         self.picked = None;
-        self.marquee = None;
-        self.gathering = false;
+        self.picker = Picker::keeping(StretchTool::occurrences);
         self.snap = None;
     }
 }

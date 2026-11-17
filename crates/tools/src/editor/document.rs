@@ -22,6 +22,9 @@ pub(super) enum After {
     /// A paste done in place: select what it made, then carry it from this point (world) at
     /// the cursor (§6 decies).
     Carry(DVec3),
+    /// Nothing selected once it lands (a tool picking again, §6 septendecies): the selection kept
+    /// until then, its ghost held while the kernel computes.
+    LetGo,
     /// A drawing tool's: nothing selected, the quick tools' card offered on what it made
     /// (§6 terdecies); a new part's name asked (`Some(true)`) or offered by a toast
     /// (`Some(false)`, §6 quattuordecies).
@@ -123,12 +126,13 @@ impl Editor {
             self.notify(NoticeKind::Warning, w.to_string(), None);
         }
         match after {
-            After::Select | After::Carry(_) if !outcome.created.is_empty() => self.selection = outcome.created.clone(),
+            After::Select | After::Carry(_) if !outcome.created.is_empty() => self.set_selection(outcome.created.clone()),
             // Machinings made in an open part: selected while they are shown.
             After::Select | After::Carry(_) if !outcome.bodies.is_empty() => {
-                self.selection = if self.showing_machinings() { outcome.bodies.clone() } else { Vec::new() };
+                self.set_selection(if self.showing_machinings() { outcome.bodies.clone() } else { Vec::new() });
             }
             After::Collect => self.collected.extend(outcome.created.iter().copied()),
+            After::LetGo => self.clear_selection(),
             _ => {}
         }
         self.after_change();
@@ -293,7 +297,8 @@ impl Editor {
             let _ = self.start(op, after, false);
         }
         if !self.busy() && !self.collected.is_empty() {
-            self.selection = std::mem::take(&mut self.collected);
+            let collected = std::mem::take(&mut self.collected);
+            self.set_selection(collected);
         }
     }
 
@@ -477,7 +482,7 @@ impl Editor {
         self.context.clear();
         self.open_part = None;
         self.open_group.clear();
-        self.selection.clear();
+        self.clear_selection();
         self.tool.reset();
         self.after_change();
         self.zoom_extents();
@@ -526,6 +531,11 @@ impl Editor {
                 }
             }
         }
+        // What is selected at any depth (§6 septendecies: parts, or an assembly chosen in the tree
+        // drop-up) that is still there, under the context and no part open.
+        let context = &self.context;
+        let closed = self.open_part.is_none();
+        self.deep.retain(|p| closed && p.instances.starts_with(context) && doc.resolve(p).is_ok());
         self.sync_scene();
     }
 }

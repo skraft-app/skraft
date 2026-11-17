@@ -23,9 +23,10 @@ use solidsketch_i18n::t;
 use solidsketch_model::Operation;
 
 use super::handle::{
-    Measure, Memo, Picker, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, measure,
-    nearest_axis_on_screen, stepped,
+    Measure, Memo, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, measure, nearest_axis_on_screen,
+    stepped,
 };
+use super::pick::Picker;
 use super::{
     Command, Cx, PointShape, Preview, PreviewLabel, PreviewLine, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, arrow_head, copy_key,
     dashed,
@@ -124,8 +125,6 @@ enum State {
 pub struct DistributeTool {
     picker: Picker,
     memo: Memo,
-    /// The selection is what is distributed (when the tool starts, and once picked).
-    armed: bool,
     state: State,
     /// The cursor's point (the target's axes), on the line from the start in `End`, and the
     /// axis it runs along.
@@ -147,7 +146,6 @@ impl Default for DistributeTool {
         DistributeTool {
             picker: Picker::default(),
             memo: Memo::default(),
-            armed: true,
             state: State::Start,
             cursor: None,
             ray_hit: None,
@@ -167,7 +165,7 @@ fn measure_of(cx: &Cx<'_>) -> Measure {
 
 impl DistributeTool {
     fn target(&self, cx: &Cx<'_>) -> Option<Target> {
-        if !self.armed || self.picker.gathering {
+        if !self.picker.aims() {
             return None;
         }
         self.memo.target(cx)
@@ -175,7 +173,8 @@ impl DistributeTool {
 
     /// The point inferred under `px`, what is distributed left out (drawn where it goes only).
     fn infer(cx: &Cx<'_>, t: &Target, px: DVec2) -> Option<Inference> {
-        cx.infer(px, |o: &Owner<'_>| !cx.is_moving(o, &t.entities), None).filter(|i| i.kind != InferKind::OnPlane)
+        cx.infer(px, |o: &Owner<'_>| !cx.is_moving(o, &t.entities) && !cx.is_moving_deep(o, cx.deep), None)
+            .filter(|i| i.kind != InferKind::OnPlane)
     }
 
     /// The start point under `px` (OCL's `_snap_handle_start`: the point inferred, else on the
@@ -238,7 +237,7 @@ impl DistributeTool {
         let Some(op) = Self::operation(cx, &target, &params) else { return vec![] };
         self.previous = Some(params.clone());
         self.last = Some(Last { target, params, op: op.clone() });
-        self.armed = false;
+        self.picker.drop();
         self.state = State::Start;
         self.cursor = None;
         self.snap = None;
@@ -294,9 +293,7 @@ impl Tool for DistributeTool {
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        if self.picker.gathering && !cx.shift_down {
-            self.picker.gathering = false;
-            self.armed = true;
+        if self.picker.shift_released(cx) {
             self.last = None;
         }
         let target = self.target(cx);
@@ -310,7 +307,6 @@ impl Tool for DistributeTool {
             }
             let (out, took) = self.picker.input(input, cx);
             if took {
-                self.armed = true;
                 self.last = None;
             }
             return out;
@@ -362,8 +358,7 @@ impl Tool for DistributeTool {
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut p = Preview::default();
         let Some(t) = self.target(cx) else {
-            p.hover = self.picker.hovered;
-            p.marquee = self.picker.marquee.clone();
+            self.picker.preview(&mut p);
             return p;
         };
         // What is distributed is drawn where it goes only: in place until then.
@@ -418,10 +413,10 @@ impl Tool for DistributeTool {
         match (self.aimed, self.state) {
             (true, State::Start) => t!("tool.distribute.hint.start"),
             (true, State::End { .. }) => t!("tool.distribute.hint.end", copy_key = copy_key()),
-            (false, _) if self.last.is_some() && self.picker.marquee.is_none() && !self.picker.gathering => {
+            (false, _) if self.last.is_some() && !self.picker.busy() => {
                 t!("tool.distribute.hint.again")
             }
-            (false, _) => self.picker.status(t!("tool.distribute.hint.pick")),
+            (false, _) => self.picker.status(t!("tool.distribute.hint.pick"), t!("tool.handle.hint.gather")),
         }
     }
 
@@ -453,7 +448,7 @@ impl Tool for DistributeTool {
     }
 
     fn busy(&self) -> bool {
-        self.aimed || self.picker.marquee.is_some() || self.picker.gathering || self.last.is_some()
+        self.aimed || self.picker.busy() || self.last.is_some()
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
@@ -472,11 +467,23 @@ impl Tool for DistributeTool {
         self.cursor = None;
         self.snap = None;
         self.ray_hit = None;
-        self.picker.hovered = None;
+        self.picker.leave();
+    }
+
+    fn picks_first(&self) -> bool {
+        true
+    }
+
+    fn picks_parts(&self) -> bool {
+        true
+    }
+
+    fn dropped(&self) -> bool {
+        self.picker.dropped()
     }
 
     fn back(&mut self) {
-        if self.picker.marquee.take().is_some() {
+        if self.picker.back() {
             return;
         }
         if let State::End { .. } = self.state {
@@ -484,7 +491,7 @@ impl Tool for DistributeTool {
             self.cursor = None;
             return;
         }
-        self.armed = false;
+        self.picker.drop();
         self.cursor = None;
         self.snap = None;
         self.last = None;

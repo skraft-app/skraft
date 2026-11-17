@@ -220,7 +220,12 @@ fn move_puts_a_corner_on_a_corner() {
     add_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(100.0, 100.0, 50.0));
     e.select(vec![]);
     e.set_tool(ToolKind::Move);
-    // Nothing selected and the cursor just off the box: the corner's solid moves.
+    // Nothing selected: a click picks the box (§6 septendecies); then the cursor just off it
+    // takes its corner.
+    let p = px(&e, DVec3::new(50.0, 50.0, 50.0));
+    e.input(ToolInput::Hover { px: p });
+    e.input(ToolInput::Click { px: p, mods: Modifiers::default() });
+    assert_eq!(e.selection(), &[a]);
     let p = px(&e, DVec3::new(104.0, -4.0, 50.0));
     e.input(ToolInput::Hover { px: p });
     e.input(ToolInput::Click { px: p, mods: Modifiers::default() });
@@ -566,7 +571,9 @@ fn a_point_hovered_a_while_is_tracked() {
 #[test]
 fn two_points_tracked_at_most() {
     let mut e = top_editor(DVec3::ZERO);
-    add_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 50.0));
+    let a = add_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 50.0));
+    // Taken: the start point is inferred (§6 septendecies).
+    e.select(vec![a]);
     e.set_tool(ToolKind::Move);
     let corners = [DVec3::new(0.0, 0.0, 50.0), DVec3::new(400.0, 0.0, 50.0), DVec3::new(400.0, 400.0, 50.0)];
     let mut t = 0.0;

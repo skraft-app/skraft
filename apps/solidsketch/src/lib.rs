@@ -15,6 +15,7 @@ mod file;
 mod handles;
 mod icons;
 mod identity;
+mod instance_name;
 mod journal_window;
 mod naming;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
@@ -32,6 +33,7 @@ mod style;
 mod tabs;
 mod titlebar;
 mod toasts;
+mod tree;
 mod view_bar;
 mod viewport;
 #[cfg(target_arch = "wasm32")]

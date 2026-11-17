@@ -20,6 +20,9 @@ pub enum Action {
     RemoteRetry,
     /// An outliner's click: selects or deselects, Shift (`true`) adding to the selection.
     SelectPath(EntityPath, bool),
+    /// A row of the tree drop-up hovered (none: left), or clicked (§6 septendecies).
+    TreeHover(Option<usize>),
+    TreePick(usize),
     /// The outliner's first row, the model, clicked: every assembly and part edited left,
     /// nothing selected.
     SelectModel,
@@ -163,7 +166,25 @@ pub fn has_tool_options(editor: &Editor) -> bool {
 /// The open part's scope, only for a part placed more than once (§2.5): for one alone,
 /// « Celui-ci » and « Tous » are the same.
 fn shows_part_scope(editor: &Editor) -> bool {
-    editor.open_part().is_some() && editor.open_part_copies() > 1
+    (editor.open_part().is_some() && editor.open_part_copies() > 1) || deep_scope(editor)
+}
+
+/// Parts selected at any depth through an assembly placed more than once, by a tool that
+/// changes them (« Parts », §6 septendecies): « only this one » makes the assemblies along unique.
+fn deep_scope(editor: &Editor) -> bool {
+    editor.open_part().is_none()
+        && matches!(
+            editor.tool_kind(),
+            ToolKind::Select
+                | ToolKind::Move
+                | ToolKind::Rotate
+                | ToolKind::Erase
+                | ToolKind::Paint
+                | ToolKind::CopyLine
+                | ToolKind::CopyGrid
+                | ToolKind::Distribute
+        )
+        && editor.deep_shared()
 }
 
 /// The open part's « Solide », while a shape is drawn in it (§2.11).
@@ -189,7 +210,11 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
         };
         if shows_part_scope(editor) {
             group(ui, &t!("tool.boolean.option.scope"), &t!("option_bar.part_scope_tip"));
-            let all = t!("tool.boolean.option.all_count", count = editor.open_part_copies());
+            let all = if deep_scope(editor) {
+                t!("tool.boolean.option.all")
+            } else {
+                t!("tool.boolean.option.all_count", count = editor.open_part_copies())
+            };
             let scope = editor.part_scope();
             let scopes = [
                 (Scope::All, Segment::new(&all, &t!("tool.boolean.option.all_tip"), Some("scope_all"), scope == Scope::All)),
@@ -576,11 +601,11 @@ fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static>
     if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
 }
 
-/// The name of an instance — an occurrence, a body — in its navigator row, its colour `color`:
-/// its definition's (`def`: its component's, its body definition's), after its own where it has
-/// one (« Gauche <Pied> »), the definition's in italics and attenuated when automatic (`auto`,
-/// §2.1, §2.11 « Automatic names »), on `back`. Its response, and where its own name ends and
-/// the definition's starts (halfway across the space between them) where it has one.
+/// The name of an instance — an occurrence, a body — in its navigator row, its colour `color`,
+/// on `back`, as [`crate::instance_name`] writes it (own name, then the definition's — `def`:
+/// its component's, its body definition's — between brackets; automatic, `auto`, attenuated
+/// unless the row is selected). Its response, and where its own name ends and the
+/// definition's starts (halfway across the space between them) where it has one.
 fn instance_label(
     ui: &mut egui::Ui,
     own: &str,
@@ -590,21 +615,11 @@ fn instance_label(
     selected: bool,
     back: egui::Color32,
 ) -> (egui::Response, Option<f32>) {
-    let plain = name_format(ui, color, false, selected, back);
-    let mut job = egui::text::LayoutJob::default();
-    if !own.is_empty() {
-        job.append(&format!("{own} <"), 0.0, plain.clone());
-    }
-    job.append(def, 0.0, name_format(ui, color, auto, selected, back));
-    if !own.is_empty() {
-        job.append(">", 0.0, plain);
-    }
+    let weak = if selected { color } else { color.lerp_to_gamma(back, weak_share(ui.visuals())) };
+    let size = egui::TextStyle::Body.resolve(ui.style()).size;
+    let job = crate::instance_name::job(own, def, auto, crate::instance_name::NameInk { size, ink: color, weak });
     let r = ui.add(egui::Label::new(job).selectable(false).truncate());
-    let split = (!own.is_empty()).then(|| {
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let width = |t: String| ui.fonts_mut(|f| f.layout_no_wrap(t, font.clone(), color).size().x);
-        r.rect.min.x + (width(own.to_owned()) + width(format!("{own} "))) / 2.0
-    });
+    let split = (!own.is_empty()).then(|| r.rect.min.x + crate::instance_name::split(ui, own, size));
     (r, split)
 }
 
@@ -659,20 +674,6 @@ fn nature_icon(nature: Nature) -> egui::ImageSource<'static> {
         Nature::Solid => icons::SOLID,
         Nature::Group => icons::GROUP,
     }
-}
-
-/// A name in the navigator, its colour `color`: given by the user, as it is; automatic
-/// (« Pièce#2 », « Extrusion#1 », §2.1, §2.11 « Body names »), in italics, attenuated — towards
-/// `back` as the weak text is, unless selected (`color` then the selection's).
-fn name_format(ui: &egui::Ui, color: egui::Color32, auto: bool, selected: bool, back: egui::Color32) -> egui::TextFormat {
-    let font_id = egui::TextStyle::Body.resolve(ui.style());
-    let v = ui.visuals();
-    let color = match auto && !selected {
-        // As far from the text as the weak text is from it, wherever the text stands.
-        true => color.lerp_to_gamma(back, weak_share(v)),
-        false => color,
-    };
-    egui::TextFormat { font_id, color, italics: auto, ..Default::default() }
 }
 
 /// How far the weak text lies from the text towards the background, 0 to 1.
@@ -834,7 +835,8 @@ pub fn outliner(
             // The part open: selected while none of its bodies is (a body selected is marked on
             // its own row, not its part's).
             let open = editor.open_part() == Some(o.id) && selection.is_empty() && editing.is_none();
-            let selected = editor.context() == row.path.as_slice() && (selection.contains(&o.id) || open);
+            let selected = (editor.context() == row.path.as_slice() && (selection.contains(&o.id) || open))
+                || editor.deep_selection().iter().any(|p| p.instances == row.path && p.entity == o.id);
             // Hidden, itself or by an assembly above: greyed.
             let greyed = o.hidden || row.hidden_above;
             let tint = if selected {
@@ -1492,8 +1494,19 @@ fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
 pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let units = &doc.settings().units;
-    let context = editor.context_definition();
-    let sel = editor.selection();
+    // A part selected at any depth (« Parts », §6 septendecies): shown as in its own assembly.
+    let (context, sel) = match editor.deep_selection() {
+        [] => (editor.context_definition(), editor.selection().to_vec()),
+        [p] => match doc.context_of(&p.instances) {
+            Ok(c) => (c, vec![p.entity]),
+            Err(_) => return,
+        },
+        many => {
+            ui.label(tp!("panel.entity_info.selected", many.len()));
+            return;
+        }
+    };
+    let sel = sel.as_slice();
     let Ok(asm) = doc.assembly(context) else { return };
     if let Some(open) = editor.open_part().and_then(|id| asm.occurrence(id)) {
         let Some((part, p, _)) = editor.open_part_path().and_then(|path| doc.resolve_container(&path).ok()) else { return };

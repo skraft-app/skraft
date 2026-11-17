@@ -21,9 +21,10 @@ use solidsketch_i18n::t;
 use solidsketch_model::Operation;
 
 use super::handle::{
-    MIRROR, Measure, Memo, Picker, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure,
+    MIRROR, Measure, Memo, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure,
     minimums, mirror_badge, nearest_axis_on_screen, reflection, repeat_stepped,
 };
+use super::pick::Picker;
 use super::{
     Command, Cx, Key, OptionValue, PointShape, Preview, PreviewLabel, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, copy_key,
 };
@@ -108,9 +109,6 @@ struct Last {
 pub struct CopyLineTool {
     picker: Picker,
     memo: Memo,
-    /// The selection is what is copied (when the tool starts, and once picked); else a click
-    /// picks.
-    armed: bool,
     /// The cursor's point, in the target's axes, and the axis it runs along.
     end: Option<(DVec3, usize)>,
     snap: Option<Inference>,
@@ -127,7 +125,6 @@ impl Default for CopyLineTool {
         CopyLineTool {
             picker: Picker::default(),
             memo: Memo::default(),
-            armed: true,
             end: None,
             snap: None,
             repeat: Repeat::Divide(1),
@@ -140,7 +137,7 @@ impl Default for CopyLineTool {
 
 impl CopyLineTool {
     fn target(&self, cx: &Cx<'_>) -> Option<Target> {
-        if !self.armed || self.picker.gathering {
+        if !self.picker.aims() {
             return None;
         }
         self.memo.target(cx)
@@ -192,7 +189,7 @@ impl CopyLineTool {
         let op = Self::operation(cx, &target, end, self.repeat);
         let distance = Self::measured(cx, &target, end, self.repeat);
         self.last = Some(Last { target, end, repeat: self.repeat, distance, op: op.clone() });
-        self.armed = false;
+        self.picker.drop();
         self.end = None;
         self.snap = None;
         // OCL lets the copies go: the next click picks something else.
@@ -241,9 +238,7 @@ impl Tool for CopyLineTool {
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         // Shift released: the selection made is taken.
-        if self.picker.gathering && !cx.shift_down {
-            self.picker.gathering = false;
-            self.armed = true;
+        if self.picker.shift_released(cx) {
             self.last = None;
         }
         // The copy modifier tapped: the mirror (OCL's Alt / Command).
@@ -265,7 +260,6 @@ impl Tool for CopyLineTool {
             }
             let (out, took) = self.picker.input(input, cx);
             if took {
-                self.armed = true;
                 self.last = None;
             }
             return out;
@@ -311,8 +305,7 @@ impl Tool for CopyLineTool {
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut p = Preview::default();
         let Some(t) = self.target(cx) else {
-            p.hover = self.picker.hovered;
-            p.marquee = self.picker.marquee.clone();
+            self.picker.preview(&mut p);
             return p;
         };
         let Some((end, k)) = self.end else {
@@ -349,10 +342,10 @@ impl Tool for CopyLineTool {
         if self.aimed {
             return t!("tool.copy_line.hint.place", copy_key = copy_key());
         }
-        if self.last.is_some() && self.picker.marquee.is_none() && !self.picker.gathering {
+        if self.last.is_some() && !self.picker.busy() {
             return t!("tool.copy_line.hint.again");
         }
-        self.picker.status(t!("tool.copy_line.hint.pick"))
+        self.picker.status(t!("tool.copy_line.hint.pick"), t!("tool.handle.hint.gather"))
     }
 
     fn vcb(&self) -> Option<Vcb> {
@@ -380,7 +373,7 @@ impl Tool for CopyLineTool {
     }
 
     fn busy(&self) -> bool {
-        self.aimed || self.picker.marquee.is_some() || self.picker.gathering || self.last.is_some()
+        self.aimed || self.picker.busy() || self.last.is_some()
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
@@ -398,14 +391,26 @@ impl Tool for CopyLineTool {
     fn leave(&mut self) {
         self.end = None;
         self.snap = None;
-        self.picker.hovered = None;
+        self.picker.leave();
+    }
+
+    fn picks_first(&self) -> bool {
+        true
+    }
+
+    fn picks_parts(&self) -> bool {
+        true
+    }
+
+    fn dropped(&self) -> bool {
+        self.picker.dropped()
     }
 
     fn back(&mut self) {
-        if self.picker.marquee.take().is_some() {
+        if self.picker.back() {
             return;
         }
-        self.armed = false;
+        self.picker.drop();
         self.end = None;
         self.snap = None;
         self.last = None;

@@ -2,7 +2,7 @@
 //! lines and the inferred point.
 
 use glam::{DAffine3, DVec3};
-use solidsketch_model::{Id, Section};
+use solidsketch_model::{EntityPath, Id, Section};
 
 use super::Editor;
 use crate::guides::Stroke;
@@ -123,10 +123,22 @@ pub struct View {
 /// the context, the selection and the recipe shown stay, worked out again only then. A move's
 /// ghost is the same, moved.
 pub(crate) struct SelectionDrawing {
-    key: (u64, Vec<Id>, Vec<Id>, bool, bool),
+    key: DrawingKey,
     marks: Vec<ViewHighlight>,
     boxes: Vec<OrientedBox>,
     set: solidsketch_model::FastSet<Id>,
+    /// The occurrence chains of the parts selected at any depth (§6 septendecies).
+    deep: solidsketch_model::FastSet<Vec<Id>>,
+}
+
+/// What the selection's drawing hangs on: the scene's generation, the context, the selection,
+/// the recipe shown, x-ray, the parts selected at any depth.
+type DrawingKey = (u64, Vec<Id>, Vec<Id>, bool, bool, Vec<EntityPath>);
+
+/// Is the placement `path` (occurrences from the root, its part's included) under one of
+/// `chains` (occurrence chains), below the first `depth` (the active context's)?
+fn under_any(chains: &solidsketch_model::FastSet<Vec<Id>>, path: &[Id], depth: usize) -> bool {
+    !chains.is_empty() && (depth + 1..=path.len()).any(|k| chains.contains(&path[..k]))
 }
 
 /// How far the box of the assembly being edited stands off its content, in pixels.
@@ -251,7 +263,7 @@ impl Editor {
     }
 
     /// The selection drawn where it is ([`SelectionDrawing`]), for `key`.
-    fn selection_drawing_of(&self, key: (u64, Vec<Id>, Vec<Id>, bool, bool)) -> SelectionDrawing {
+    fn selection_drawing_of(&self, key: DrawingKey) -> SelectionDrawing {
         let doc = self.document();
         let mut marks = Vec::new();
         let mut boxes = Vec::new();
@@ -320,8 +332,28 @@ impl Editor {
                 }
             }
         }
+        // The parts selected at any depth (« Parts », §6 septendecies): each from its own assembly.
+        for p in &self.deep {
+            let Some(index) = ContextIndex::new(doc, &p.instances) else { continue };
+            let Some(o) = index.occurrence(p.entity) else { continue };
+            let under = index.solids_under(p.entity);
+            let frame = index.transform() * o.transform;
+            let bounds = *component_bounds
+                .entry(o.component)
+                .or_insert_with(|| self.content_box(frame, DAffine3::IDENTITY, &under, 0.0).map(|b| (b.lo, b.hi)));
+            boxes.extend(bounds.map(|(lo, hi)| OrientedBox { frame, lo, hi }));
+            marks.extend(under.iter().map(|u| ViewHighlight {
+                definition: u.part,
+                solid: u.part,
+                transform: u.transform,
+                mark: Mark::Selected,
+                material: u.material,
+                ghost: key.4,
+            }));
+        }
         let set = self.selection.iter().copied().collect();
-        SelectionDrawing { key, marks, boxes, set }
+        let deep = self.deep.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
+        SelectionDrawing { key, marks, boxes, set, deep }
     }
 
     /// What to draw now.
@@ -348,7 +380,7 @@ impl Editor {
         // The selection's marks, boxes and set (looked up for every placement: a selection can
         // hold tens of thousands), kept from the last frame when nothing they hang on changed.
         // X-ray (`key.4`): the marks drawn see-through.
-        let key = (self.scene.generation(), self.context.clone(), self.selection.clone(), recipe.is_some(), self.xray());
+        let key = (self.scene.generation(), self.context.clone(), self.selection.clone(), recipe.is_some(), self.xray(), self.deep.clone());
         if self.selection_drawing.borrow().as_ref().is_none_or(|d| d.key != key) {
             let drawing = self.selection_drawing_of(key);
             *self.selection_drawing.borrow_mut() = Some(drawing);
@@ -368,16 +400,20 @@ impl Editor {
             (hide_rest_of_model && outside(p))
                 || (p.hidden && !show_hidden)
                 || (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| selected.contains(id)))
+                || (hide_original && under_any(&drawing.deep, &p.path, depth))
                 || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
         };
         // What the eraser would take: the context's occurrences (and the solids under them)
         // or the open part's machinings, drawn as ghosts, in batches of their own.
         let erasing: solidsketch_model::FastSet<Id> = preview.erasing.iter().copied().collect();
+        let erasing_deep: solidsketch_model::FastSet<Vec<Id>> =
+            preview.erasing_paths.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
         let erased = |p: &crate::scene::Placement| {
-            !erasing.is_empty()
+            (!erasing.is_empty()
                 && open.is_none()
                 && p.path.starts_with(&self.context)
-                && p.path.get(depth).is_some_and(|id| erasing.contains(id))
+                && p.path.get(depth).is_some_and(|id| erasing.contains(id)))
+                || under_any(&erasing_deep, &p.path, depth)
         };
         let mut ghosts: Batches = Vec::new();
         let mut swapped: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
@@ -633,6 +669,14 @@ impl Editor {
         for h in preview.marquee.iter().flat_map(|m| &m.hits).filter(|h| !selected.contains(h)) {
             mark(&mut v.highlights, &self.context, *h, Mark::Hover, DAffine3::IDENTITY);
         }
+        // The row hovered in the tree drop-up (§6 septendecies).
+        if let Some(p) = self.tree_hovered() {
+            mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
+        }
+        // The parts at any depth it would take (« Parts », §6 septendecies).
+        for p in preview.marquee.iter().flat_map(|m| &m.paths).filter(|p| !self.deep.contains(p)) {
+            mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
+        }
         for (path, m) in [(&preview.hover_solid, Mark::Hover), (&preview.picked_solid, Mark::Picked)] {
             if let Some(p) = path {
                 mark(&mut v.highlights, &p.instances, p.entity, m, DAffine3::IDENTITY);
@@ -664,10 +708,13 @@ impl Editor {
             v.highlights.extend(selection.map(|h| ViewHighlight { transform: *g * h.transform, mark: Mark::Ghost, ..*h }));
         }
         // What the eraser would take is not marked (selected): a mark draws it opaque.
-        if !erasing.is_empty() {
+        if !erasing.is_empty() || !preview.erasing_paths.is_empty() {
             let mut gone = Vec::new();
             for id in &erasing {
                 mark(&mut gone, &self.context, *id, Mark::Hover, DAffine3::IDENTITY);
+            }
+            for p in &preview.erasing_paths {
+                mark(&mut gone, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
             }
             v.highlights.retain(|h| !gone.iter().any(|g| g.definition == h.definition && g.transform.abs_diff_eq(h.transform, 1e-9)));
         }
