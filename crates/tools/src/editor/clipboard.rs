@@ -110,9 +110,9 @@ impl Editor {
         self.idle()
     }
 
-    /// Pastes `clip` where it was copied from: in world space for occurrences, brought into
-    /// the active context (into an open part, as its bodies); in the open part's axes for
-    /// machinings (out of a part, a new part in the axes of the part copied from). With `reuse`, the
+    /// Pastes `clip` where it was copied from in world space, brought into the active context:
+    /// occurrences (into an open part, as its bodies) and machinings (into an open part, into
+    /// its axes; out of a part, a new part in the axes of the part copied from). With `reuse`, the
     /// document is the one it was copied from, its ids still naming the same things (the
     /// copies are then occurrences of the same parts). What is pasted is selected.
     pub fn paste_in_place(&mut self, clip: &Clip, reuse: bool) {
@@ -126,12 +126,11 @@ impl Editor {
     /// history — or Esc, Undo or another tool gives it up.
     pub fn paste(&mut self, clip: &Clip, reuse: bool) {
         let Some(op) = self.paste_op(clip, reuse) else { return };
-        // The hull in the axes tools work in (the open part's for machinings pasted into one,
-        // whose hull is in them already).
+        // The hull, in world axes for occurrences, in the axes of the part copied from for
+        // machinings, brought into the axes tools work in.
         let axes = self.axes_transform();
         let to_axes = match &clip.content {
             Content::Entities(_) => axes.inverse(),
-            Content::Machinings(_) if self.open_part.is_some() => DAffine3::IDENTITY,
             Content::Machinings(f) => axes.inverse() * f.world,
         };
         let low = clip.hull.iter().map(|p| to_axes.transform_point3(*p)).reduce(DVec3::min);
@@ -161,9 +160,13 @@ impl Editor {
                 transform: self.axes_transform().inverse(),
                 scope: self.part_scope,
             },
-            (Content::Machinings(fragment), Some(target)) => {
-                Operation::PasteBodies { target, fragment: fragment.clone(), transform: DAffine3::IDENTITY, scope: self.part_scope }
-            }
+            // Where they were in world space, brought into the open part's axes (or group's).
+            (Content::Machinings(fragment), Some(target)) => Operation::PasteBodies {
+                target,
+                fragment: fragment.clone(),
+                transform: self.axes_transform().inverse() * fragment.world,
+                scope: self.part_scope,
+            },
             (Content::Machinings(fragment), None) => Operation::PasteAsPart {
                 context: self.context_definition(),
                 fragment: fragment.clone(),

@@ -2112,9 +2112,12 @@ guides of an open part included.
   axes (low, left, front), so it lands on the ground or on a face as in SketchUp. **Paste in
   place** (⇧⌘V) puts it where it was in world space, brought into the active context. The
   pasted content is selected; one undo step.
-- **Machinings paste only into an open part** (of any part, of any document), in its axes:
-  "in place" keeps their placement in the part's axes (the holes of one part carried onto its
-  twin), at the cursor as the rest. Occurrences do not paste into an open part, nor
+- **Machinings paste only into an open part** (of any part, of any document): "in place"
+  puts them **where they were in world space**, brought into the part's axes (the fragment
+  carries the world transformation of the part copied from, `BodyFragment::world`), at the
+  cursor as the rest. (Until 2026-11-17 "in place" kept their placement in the part's axes —
+  the holes of one part carried onto its twin —, which the user took for a bug: the other
+  pastes keep the world place; carrying holes onto a twin is a paste at the cursor.) Occurrences do not paste into an open part, nor
   machinings out of one: Paste is disabled. Guides follow the content they were copied with.
 - **Commands**: `edit.cut` (⌘X), `edit.copy` (⌘C), `edit.paste` (⌘V), `edit.paste_in_place`
   (⇧⌘V), in the Edit group (palette, shortcuts, control channel); enabled when the selection
@@ -2155,8 +2158,8 @@ guides of an open part included.
   (`After::Carry`), then carried by the **Move tool** in a mode of its own
   (`MoveTool::carrying`): already moving, from the low corner of the content's box in the axes
   (the box from the `Clip`'s hull: the corners of its solids' boxes, taken at the copy, where
-  they are meshed, and a point of each guide; in world axes for occurrences, the part's for
-  machinings), with Move's inferences, locks and typed distance or point; no copy toggle. The
+  they are meshed, and a point of each guide; in world axes for occurrences, the part's copied
+  from for machinings, brought into the axes tools work in), with Move's inferences, locks and typed distance or point; no copy toggle. The
   click **replaces** the paste in place by the same paste moved (`Command::Replace`,
   `Moved::paste`: the transformation composed with the motion in the frame): one step in the
   history. Esc, Undo, Redo or another tool give it up: the paste in place, still the last

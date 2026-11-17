@@ -4564,25 +4564,56 @@ fn machinings_paste_into_an_open_part() {
     e.select(holes);
     let clip = e.copy().unwrap();
     assert!(matches!(clip.content, Content::Machinings(_)));
+    let (_, part, t) = e.document().resolve_part(&EntityPath::root(a)).unwrap();
+    let world = (t * part.machinings()[0].placement).translation;
     e.exit();
     e.enter(b);
     assert!(e.can_paste(&clip));
+    // In place: where it was in world space, not at the same place in the other part's axes.
     e.paste_in_place(&clip, true);
-    let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    let (_, part, t) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
     assert_eq!(part.machinings().len(), 1);
-    assert!(close(part.machinings()[0].placement.translation, DVec3::new(20.0, 25.0, -5.0)));
+    assert!(close((t * part.machinings()[0].placement).translation, world), "{:?}", t * part.machinings()[0].placement);
     assert_eq!(e.selection(), &[part.machinings()[0].id]);
 
-    // At the cursor: carried in the part's axes, put down 50 further along red.
+    // At the cursor: carried from the low corner, put down 50 further along red.
     e.paste(&clip, true);
     assert!(e.carrying());
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(120.0, 125.0, 0.0)) });
     e.input(ToolInput::Vcb("50".into()));
     assert!(!e.carrying());
-    let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    let (_, part, t) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
     assert_eq!(part.machinings().len(), 2);
-    assert!(close(part.machinings()[1].placement.translation, DVec3::new(70.0, 25.0, -5.0)), "{:?}", part.machinings()[1].placement);
+    let at = (t * part.machinings()[1].placement).translation;
+    assert!(close(at, world + DVec3::new(50.0, 0.0, 0.0)), "{at:?}");
+}
+
+#[test]
+fn bodies_pasted_in_place_into_a_part_placed_elsewhere_keep_their_world_place() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::new(100.0, 0.0, 0.0), DVec3::new(300.0, 50.0, 0.0), "18");
+    let b = draw_box(&mut e, DVec3::new(0.0, 400.0, 0.0), DVec3::new(200.0, 450.0, 0.0), "18");
+    // The second board turned a quarter about blue and lifted: its axes are not the first's.
+    let root = e.document().root();
+    let turn = glam::DAffine3::from_translation(DVec3::new(-500.0, 0.0, 300.0))
+        * glam::DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    e.apply(Operation::Transform { context: root, entities: vec![b], transform: turn })
+    .unwrap();
+    e.enter(a);
+    let blank = e.document().resolve_part(&EntityPath::root(a)).unwrap().1.bodies[0].id;
+    e.select(vec![blank]);
+    let clip = e.copy().unwrap();
+    e.exit();
+    let world = bounds_of(&e, &EntityPath::root(a));
+    e.enter(b);
+    e.paste_in_place(&clip, true);
+    let (_, part, t) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
+    let body = part.bodies.iter().find(|x| e.selection() == [x.id]).unwrap();
+    let def = part.def_of(body);
+    let (lo, hi) = def.solid.vertex_bounds().unwrap();
+    let at = crate::scene::transform_bounds(&(t * body.placement), (lo, hi));
+    assert!(close(at.0, world.0) && close(at.1, world.1), "{at:?} {world:?}");
 }
 
 #[test]
