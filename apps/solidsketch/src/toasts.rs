@@ -121,7 +121,7 @@ const WIDTH: f32 = 380.0;
 /// The room under the toasts, above the status bar, and between them (points).
 const GAP: f32 = 10.0;
 /// The countdown bar's height (points).
-const BAR: f32 = 3.0;
+const BAR: f32 = 1.0;
 /// The corners of a toast and of its button (points).
 const RADIUS: u8 = 3;
 /// Between a toast's title and its detail (points).
