@@ -1012,6 +1012,10 @@ impl SolidSketchApp {
             Action::RemoteRetry => return,
             Action::Ribbon(change) => return self.prefs.ribbon.apply(change),
             Action::QuickPin(id) => return crate::quick::toggle(&mut self.prefs.quick_tools, id),
+            Action::ViewPin(id) => return crate::view_bar::toggle(&mut self.prefs.view_bar, id),
+            Action::ViewBarSide(side) => return self.prefs.view_bar_side = side,
+            Action::ViewMove(id, before) => return crate::view_bar::move_to(&mut self.prefs.view_bar, id, before),
+            Action::QuickMove(id, before) => return crate::quick::move_to(&mut self.prefs.quick_tools, id, before),
             Action::QuickTool(id) => {
                 if let (Some(k), Some(d)) = (tool_of(id), self.docs.active_mut()) {
                     d.vcb.clear();
@@ -1024,7 +1028,16 @@ impl SolidSketchApp {
         let Some(doc) = self.docs.active_mut() else { return };
         let e = &mut doc.editor;
         match a {
-            Action::Command(_) | Action::Tab(_) | Action::Ribbon(_) | Action::QuickPin(_) | Action::QuickTool(_) | Action::RemoteRetry => {}
+            Action::Command(_)
+            | Action::Tab(_)
+            | Action::Ribbon(_)
+            | Action::QuickPin(_)
+            | Action::ViewPin(_)
+            | Action::ViewMove(..)
+            | Action::ViewBarSide(_)
+            | Action::QuickMove(..)
+            | Action::QuickTool(_)
+            | Action::RemoteRetry => {}
             // A body chosen in the outliner: its part opened.
             Action::SelectBody(path, body, add) => e.toggle_body(&path, body, add),
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
@@ -2573,6 +2586,18 @@ impl SolidSketchApp {
                 .rect;
             free_top = options.bottom() + margin;
         }
+        // The view bar (§6 sexdecies): over the left or right edge, under the workspace card or
+        // the ribbon, beside that side's column; what zoom extents frames stops at it.
+        let bar_width = crate::view_bar::width(&ctx.global_style());
+        let left_x = if free_left > view.left() { free_left } else { view.left() + margin };
+        let right_x = if free_right < view.right() { free_right } else { view.right() - margin } - bar_width;
+        let side = self.prefs.view_bar_side;
+        let place = crate::view_bar::Place { side, slots: [egui::pos2(left_x, below_ribbon), egui::pos2(right_x, below_ribbon)] };
+        crate::view_bar::bar(ctx, view, &place, &self.prefs.view_bar, views, actions);
+        let (free_left, free_right) = match side {
+            crate::dock::Dock::Left => (left_x + bar_width + margin, free_right),
+            crate::dock::Dock::Right => (free_left, right_x - margin),
+        };
         // The quick tools' card, at the centre of what was just made (§6 terdecies).
         if let Some(at) = doc.editor.quick_card() {
             let at = view.min + egui::vec2(at.x as f32, at.y as f32);

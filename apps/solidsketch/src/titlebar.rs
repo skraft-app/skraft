@@ -1,8 +1,8 @@
 //! The title bar (docs/ARCHITECTURE.md §7 quinquies): one band at the top of the window with
 //! the app's mark and name, the File menu, undo and redo, the file tabs (§6 octies,
-//! [`crate::tabs`]), the view's toggles, the command search and the preferences, every button a
-//! command of the registry. The other menus are not in the bar: their commands are in the
-//! ribbon, the command search and the shortcuts (as SolidCraft's bar).
+//! [`crate::tabs`]), the command search and the preferences, every button a command of the
+//! registry. The other menus are not in the bar: their commands are in the ribbon, the view bar
+//! ([`crate::view_bar`]), the command search and the shortcuts (as SolidCraft's bar).
 //!
 //! On the macOS desktop it is the window's title bar: the OS bar is hidden, the content runs
 //! under it ([`native_options`](crate::native_options)), room is left for the traffic lights,
@@ -106,9 +106,6 @@ fn move_window(ui: &egui::Ui) {
     }
 }
 
-/// The view's toggles, after the standard views' menu.
-const TOGGLES: [&str; 8] =
-    ["view.parallel", "view.grid", "view.axes", "view.guides", "view.silhouettes", "view.xray", "view.section", "view.materials"];
 /// Room kept for the tabs before the search field narrows.
 const TABS_MIN: f32 = 160.0;
 
@@ -130,8 +127,8 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
         }
     }
     ui.separator();
-    // The right end first (right to left): the preferences, the search, the view's toggles;
-    // the tabs take what is left between.
+    // The right end first (right to left): the preferences, the search; the tabs take what is
+    // left between.
     let row = ui.available_rect_before_wrap();
     let right = ui
         .scope_builder(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
@@ -141,10 +138,8 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
             if let Some(mark) = &bar.remote {
                 remote_mark(ui, mark, actions);
             }
-            // The toggles' width, as egui spaces the buttons.
-            let toggles = (TOGGLES.len() + 1) as f32 * (26.0 + ui.spacing().item_spacing.x) + 12.0;
             if let Some(v) = find("app.command_palette") {
-                let room = ui.available_width() - toggles - TABS_MIN;
+                let room = ui.available_width() - TABS_MIN;
                 if room >= SEARCH_MIN {
                     if search(ui, v, room.min(SEARCH_WIDTH)) {
                         actions.push(Action::Command(v.id));
@@ -153,18 +148,6 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
                     command_button(ui, icons::SEARCH, v, false, &v.tip(), actions);
                 }
             }
-            ui.separator();
-            for id in TOGGLES.iter().rev() {
-                let Some(v) = find(id) else { continue };
-                // The perspective button is lit in perspective (the command toggles parallel).
-                let (lit, tip) = if *id == "view.parallel" {
-                    (v.checked == Some(false), t!("toolbar.perspective"))
-                } else {
-                    (v.checked == Some(true), v.tip())
-                };
-                command_button(ui, id_icon(id), v, lit, &tip, actions);
-            }
-            views_menu(ui, views, actions);
             ui.separator();
             ui.min_rect()
         })
@@ -180,15 +163,7 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
 fn id_icon(id: &str) -> egui::ImageSource<'static> {
     match id {
         "edit.undo" => icons::UNDO,
-        "edit.redo" => icons::REDO,
-        "view.parallel" => icons::PERSPECTIVE,
-        "view.grid" => icons::GRID,
-        "view.guides" => icons::GUIDES,
-        "view.axes" => icons::AXES,
-        "view.silhouettes" => icons::SILHOUETTES,
-        "view.xray" => icons::XRAY,
-        "view.section" => icons::SECTION,
-        _ => icons::MATERIALS,
+        _ => icons::REDO,
     }
 }
 
@@ -359,16 +334,6 @@ fn menu_items<'a>(ui: &mut egui::Ui, items: impl Iterator<Item = &'a CommandView
             actions.push(Action::Command(v.id));
         }
     }
-}
-
-/// The standard views, in a menu.
-fn views_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
-    const IDS: [&str; 6] = ["view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
-    let button = egui::Button::image(icon_image(ui, icons::VIEWS)).min_size(egui::vec2(26.0, 26.0));
-    // Not a group: no separator before the first.
-    menu_button(ui, "titlebar:views", button, Some(t!("titlebar.views")), |ui| {
-        menu_items(ui, views.iter().filter(|v| IDS.contains(&v.id)), actions)
-    });
 }
 
 /// The command search: its icon, a hint and its shortcut, opens the command palette. Drawn as

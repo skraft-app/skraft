@@ -116,7 +116,12 @@ pub fn menu_item<'a>(label: impl Into<String>, check: Option<bool>, column: bool
     if !column && check.is_none() {
         return egui::Button::new(label);
     }
-    let mark = egui::Atom::paint(egui::Vec2::splat(MENU_CHECK), move |ui: &egui::Ui, args: egui::AtomPaintArgs| {
+    egui::Button::new((menu_check(check), label))
+}
+
+/// A menu item's check box (none: its empty column), as [`menu_item`] draws it.
+pub fn menu_check<'a>(check: Option<bool>) -> egui::Atom<'a> {
+    egui::Atom::paint(egui::Vec2::splat(MENU_CHECK), move |ui: &egui::Ui, args: egui::AtomPaintArgs| {
         let Some(on) = check else { return };
         let ink = args.fallback_text_color;
         let p = ui.painter();
@@ -127,8 +132,7 @@ pub fn menu_item<'a>(label: impl Into<String>, check: Option<bool>, column: bool
             let points = vec![c + egui::vec2(-0.55 * s, 0.0), c + egui::vec2(-0.15 * s, 0.4 * s), c + egui::vec2(0.55 * s, -0.4 * s)];
             p.add(egui::Shape::line(points, Stroke::new(1.6, ink)));
         }
-    });
-    egui::Button::new((mark, label))
+    })
 }
 
 /// A palette's card in the preferences: a small window drawn in its colours (`mode`'s

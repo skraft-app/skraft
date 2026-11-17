@@ -103,8 +103,6 @@ pub struct Editor {
     /// The group of bodies open in the open part (§2.11 « Body groups »): the bodies leading
     /// to it, the part's own first; empty, the part itself.
     open_group: Vec<Id>,
-    /// X-ray (for the session): everything see-through, hiding nothing from inferences.
-    xray: bool,
     /// What a change to the open part reaches (§2.5): every occurrence, until said otherwise
     /// for this opening.
     part_scope: Scope,
@@ -238,7 +236,6 @@ impl Editor {
             context: Vec::new(),
             open_part: None,
             open_group: Vec::new(),
-            xray: false,
             part_scope: Scope::All,
             body_sign: Sign::Negative,
             listed_hover: None,
@@ -384,14 +381,18 @@ impl Editor {
     }
 
     /// X-ray: every part drawn see-through, its edges all seen, and nothing hiding a point
-    /// from inferences (a setting for the session).
+    /// from inferences (the document's setting `display.xray`, §6 sexdecies).
     pub fn xray(&self) -> bool {
-        self.xray
+        self.history.document().settings().display.xray
     }
 
+    /// Turns X-ray on or off: a change of the document's settings (undone as the others).
     pub fn set_xray(&mut self, on: bool) {
-        self.xray = on;
-        self.scene.set_xray(on);
+        if on != self.xray() {
+            let mut s = self.history.document().settings().clone();
+            s.display.xray = on;
+            let _ = self.apply(Operation::SetSettings(s));
+        }
     }
 
     /// What a change to the open part reaches.
@@ -422,7 +423,9 @@ impl Editor {
     pub(super) fn sync_scene(&mut self) {
         self.scene.set_recipe(self.open_part_path());
         let active = self.context.iter().copied().chain(self.open_part).collect();
-        self.scene.set_active(active, self.history.document().settings().display.hide_rest_of_model);
+        let display = &self.history.document().settings().display;
+        self.scene.set_active(active, display.hide_rest_of_model);
+        self.scene.set_xray(display.xray);
         self.scene.sync(self.history.document());
         self.request_meshes();
     }

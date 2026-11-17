@@ -197,9 +197,16 @@ quick_tools:
   pin: "Afficher dans les outils rapides"
   unpin: "Retirer des outils rapides"
   menu_note: "La punaise montre l'outil dans les outils rapides, proposés après chaque création, ou l'en retire."
+# The view bar, over the left edge of the view (docs/ARCHITECTURE.md §6 sexdecies).
+view_bar:
+  views: "Vues standard"
+  choose: "Choisir les commandes de la barre de vue"
+  pin: "Afficher dans la barre de vue"
+  unpin: "Retirer de la barre de vue"
+  menu_note: "La punaise montre la commande dans la barre de vue, ou l'en retire."
+  grip: "Glisser pour placer la barre à gauche ou à droite"
 titlebar:
   modified: "Modifié depuis le dernier enregistrement"
-  views: "Vues standard"
   search: "Rechercher une commande"
   # The control channel's mark, shown while it is on.
   remote:

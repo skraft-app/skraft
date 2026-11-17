@@ -61,6 +61,7 @@ icon!(ADD, "add");
 icon!(MORE, "more");
 icon!(WARNING, "warning");
 icon!(CHEVRON_DOWN, "chevron_down");
+icon!(HIDE_REST, "hide_rest");
 
 /// The chevron (pointing down, turned by `angle` clockwise) `side` wide centered on `at`: the
 /// one fold and drop-down mark of the app (panels' title bars, outliner rows, menus, combo boxes).
@@ -104,6 +105,16 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "edit.ungroup_bodies" => EXPLODE,
         "edit.delete_guides" => GUIDES_DELETE,
         "view.section_clear" => SECTION_CLEAR,
+        "view.parallel" => PERSPECTIVE,
+        "view.grid" => GRID,
+        "view.axes" => AXES,
+        "view.guides" => GUIDES,
+        "view.silhouettes" => SILHOUETTES,
+        "view.xray" => XRAY,
+        "view.hide_rest_of_model" => HIDE_REST,
+        "view.show_hidden" => EYE,
+        "view.materials" => MATERIALS,
+        "view.section" => SECTION,
         "view.zoom_extents" => EXTENTS,
         "view.top" | "view.front" | "view.right" | "view.back" | "view.left" | "view.iso" => VIEWS,
         _ => return None,
