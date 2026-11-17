@@ -4650,10 +4650,9 @@ fn bodies_pasted_in_place_into_a_part_placed_elsewhere_keep_their_world_place() 
     let b = draw_box(&mut e, DVec3::new(0.0, 400.0, 0.0), DVec3::new(200.0, 450.0, 0.0), "18");
     // The second board turned a quarter about blue and lifted: its axes are not the first's.
     let root = e.document().root();
-    let turn = glam::DAffine3::from_translation(DVec3::new(-500.0, 0.0, 300.0))
-        * glam::DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
-    e.apply(Operation::Transform { context: root, entities: vec![b], transform: turn })
-    .unwrap();
+    let turn =
+        glam::DAffine3::from_translation(DVec3::new(-500.0, 0.0, 300.0)) * glam::DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    e.apply(Operation::Transform { context: root, entities: vec![b], transform: turn }).unwrap();
     e.enter(a);
     let blank = e.document().resolve_part(&EntityPath::root(a)).unwrap().1.bodies[0].id;
     e.select(vec![blank]);
