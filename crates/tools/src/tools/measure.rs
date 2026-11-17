@@ -12,9 +12,10 @@ use solidsketch_i18n::t;
 use solidsketch_model::{GuideShape, Operation};
 
 use super::{
-    BLUE, Command, Cx, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, PreviewLabel, PreviewLine, RED, Tool, ToolInput,
-    ToolKind, ToolOption, alt_key, copy_key,
+    BLUE, Command, Cx, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, alt_key,
+    copy_key,
 };
+use crate::draw::{Drawer, Drawing, Ends, Pen};
 use crate::guides;
 use crate::infer::{Curve, EdgeRef, InferKind, Inference};
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
@@ -31,8 +32,6 @@ const CIRCLE: &str = "circle";
 const MIN: f64 = 1e-6;
 /// The cursor this close to the edge's line (mm) gives no side to offset a typed guide to.
 const SIDE: f64 = 1e-3;
-/// A length is written on its segment only when it is this long on screen (pixels).
-const LABEL_PX: f64 = 30.0;
 
 /// The kind of guide the tape draws (the option "Guide").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -358,12 +357,12 @@ fn edge_tip(cx: &Cx<'_>, inf: &Inference) -> Option<String> {
     }
 }
 
-/// The length of `a`–`b` written along it, the value the measurements box takes; too short on
-/// screen, only while that value is typed.
-fn label(cx: &Cx<'_>, out: &mut Vec<PreviewLabel>, a: DVec3, b: DVec3, color: [f32; 4]) {
-    let len = (b - a).length();
-    let hidden = len < MIN || len <= cx.camera.world_per_pixel(cx.size, (a + b) * 0.5) * LABEL_PX;
-    out.push(PreviewLabel { a, b, text: vcb::format(len, cx.units()), color, slot: Some(0), hidden, ..Default::default() });
+/// The measure `a`–`b` (or the offset): seen through what lies between — plain where seen,
+/// dashed behind faces —, a head at each end over the scene, its length written along it (the
+/// value the measurements box takes).
+fn measure(d: &mut Drawer<'_>, a: DVec3, b: DVec3, color: [f32; 4]) {
+    d.pen(Pen::new(color).x_ray()).line(a, b);
+    d.pen(Pen::new(color).over()).arrow_heads(a, b, Ends::Both).length(a, b, color, Some(0));
 }
 
 impl Tool for MeasureTool {
@@ -433,10 +432,8 @@ impl Tool for MeasureTool {
     }
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
-        let mut lines = Vec::new();
-        let mut guide_strokes = Vec::new();
-        let mut labels = Vec::new();
-        let mut marks = Vec::new();
+        let mut drawing = Drawing::default();
+        let d = &mut cx.drawer(&mut drawing);
         let inference = self.hover.clone();
         let Some(p) = inference.as_ref().map(|i| i.point) else { return Preview::default() };
         // The curve the guide refers to, in magenta (an axis in its colour): the one picked;
@@ -450,22 +447,21 @@ impl Tool for MeasureTool {
             }
             _ => None,
         };
-        let mut scene_lines = Vec::new();
-        // The measure (or the offset): seen through what lies between — dashed behind faces.
-        let mut xray = Vec::new();
         match reference.map(|(_, c)| c) {
-            Some(Curve::Segment(a, b)) => lines.push(PreviewLine { a, b, color: MAGENTA, bold: true }),
+            Some(Curve::Segment(a, b)) => {
+                d.pen(Pen::new(MAGENTA).over().bold()).line(a, b);
+            }
             Some(Curve::Arc(points)) => {
-                lines.extend(points.windows(2).map(|w| PreviewLine { a: w[0], b: w[1], color: MAGENTA, bold: true }));
+                d.pen(Pen::new(MAGENTA).over().bold()).curve(&points, false);
             }
             Some(Curve::Guide(shape)) => {
-                guide_strokes.extend(guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, MAGENTA)));
+                d.pen(Pen::guide(MAGENTA)).guide(&shape);
             }
             // An axis: bolder, in its own colour, in the scene (hidden behind faces as drawn).
             Some(Curve::Axis { origin, dir }) => {
                 let range = (f64::NEG_INFINITY, f64::INFINITY);
                 if let Some((a, b)) = guides::visible_line(cx.camera, cx.size, origin, dir, range) {
-                    scene_lines.push(PreviewLine { a, b, color: axis_color(cx, dir), bold: true });
+                    d.pen(Pen::new(axis_color(cx, dir)).bold()).line(a, b);
                 }
             }
             None => {}
@@ -474,35 +470,27 @@ impl Tool for MeasureTool {
             State::Idle => {}
             State::Measure { from } | State::Through { from } => {
                 if let (State::Through { .. }, Some((shape, _, _))) = (self.state, self.guide_through(p)) {
-                    guide_strokes.extend(guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, INK)));
+                    d.pen(Pen::guide(INK)).guide(&shape);
                 }
                 let color = inference.as_ref().map_or(INK, |i| super::guide_color(i.kind));
-                xray.push(PreviewLine { a: from, b: p, color, bold: false });
-                // A double arrow: a head at each end.
-                lines.extend(super::arrow_head(cx.camera, cx.size, from, p, color));
-                lines.extend(super::arrow_head(cx.camera, cx.size, p, from, color));
-                label(cx, &mut labels, from, p, color);
-                marks.push(from);
+                measure(d, from, p, color);
+                d.mark(from);
             }
             State::Parallel { at, .. } | State::Concentric { at, .. } => {
                 if let Some((shape, _, (a, b))) = self.guide_through(p) {
                     let valid = !matches!(shape, GuideShape::Circle { radius, .. } if radius < MIN);
                     if valid {
-                        guide_strokes.extend(guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, INK)));
+                        d.pen(Pen::guide(INK)).guide(&shape);
                     }
                     // The offset in the colour of the axis it runs along, else ink.
                     let color = axis_color(cx, b - a);
-                    xray.push(PreviewLine { a, b, color, bold: false });
-                    // A double arrow: a head at each end (`b` is the guide's, towards the cursor).
-                    lines.extend(super::arrow_head(cx.camera, cx.size, a, b, color));
-                    lines.extend(super::arrow_head(cx.camera, cx.size, b, a, color));
-                    label(cx, &mut labels, a, b, color);
+                    measure(d, a, b, color);
                 }
-                marks.push(at);
+                d.mark(at);
             }
         }
         let tip = inference.as_ref().and_then(|i| edge_tip(cx, i));
-        Preview { lines, scene_lines, xray, guides: guide_strokes, labels, marks, inference, tip, ..Default::default() }
+        Preview { drawing, inference, tip, ..Default::default() }
     }
 
     fn status(&self) -> String {

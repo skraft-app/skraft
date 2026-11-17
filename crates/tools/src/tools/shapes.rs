@@ -59,12 +59,13 @@ use solidsketch_model::{EntityPath, Id, Primitive};
 
 use super::face::{self, Face};
 use super::{
-    ASK_NAME, BLUE, Command, Cx, DRAW_IN, DragClicks, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, PICK_MATERIAL, Preview,
-    PreviewLabel, PreviewLine, RED, Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
+    ASK_NAME, BLUE, Command, Cx, DRAW_IN, DragClicks, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, PICK_MATERIAL, Preview, RED,
+    Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key,
 };
 use crate::camera::Ray;
+use crate::draw::{BoxStyle, Drawer, Drawing, Pen};
 use crate::infer::{EdgeRef, InferKind, Inference, LineKind};
-use crate::vcb::{self, Vcb, VcbKind, VcbValue};
+use crate::vcb::{Vcb, VcbKind, VcbValue};
 
 mod prism;
 pub use prism::PrismTool;
@@ -77,8 +78,6 @@ const ON: f64 = 1e-3;
 const SQUARE: f64 = 1e-9;
 /// The size of the shape drawn at the cursor before the first click (pixels).
 const GAUGE_PX: f64 = 40.0;
-/// The shortest side (pixels) that gets its length written.
-const LABEL_PX: f64 = 30.0;
 
 /// A drawing frame, in the axes' coordinates: origin `o`, in-plane axes `u` and `v`, normal `n`
 /// (right-handed, orthonormal).
@@ -364,16 +363,13 @@ impl First {
 
     /// The box of the assembly « Dessiner dans » draws in, as OCL's: dark grey corners and a
     /// dotted box, at every step.
-    /// Its back edges returned, to draw in the scene (hidden behind faces).
-    fn container_preview(&self, cx: &Cx<'_>, out: &mut Vec<PreviewLine>) -> Vec<PreviewLine> {
-        let mut scene = Vec::new();
-        let Some((parent, lo, hi)) = &self.container else { return scene };
+    fn container_preview(&self, cx: &Cx<'_>, d: &mut Drawer<'_>) {
+        let Some((parent, lo, hi)) = &self.container else { return };
         if cx.draw_in(self.picked.as_ref()) != Some(parent.as_slice()) {
-            return scene;
+            return;
         }
         let frame = cx.doc.transform_of(parent).unwrap_or(DAffine3::IDENTITY);
-        container_box(cx, out, &mut scene, frame, *lo, *hi);
-        scene
+        container_box(d, frame, *lo, *hi);
     }
 
     fn inference(&self) -> Option<Inference> {
@@ -393,19 +389,17 @@ impl First {
 
     /// The corner measured from, and the distances, dashed (one along the edge, else one per
     /// side).
-    fn preview(&self, cx: &Cx<'_>, lines: &mut Vec<PreviewLine>, labels: &mut Vec<PreviewLabel>, marks: &mut Vec<DVec3>) {
+    fn preview(&self, d: &mut Drawer<'_>) {
         let Some(m) = &self.measure else { return };
-        mark(cx, marks, m.v);
+        d.mark(m.v);
         match m.sides.as_slice() {
             [(_, foot)] => {
-                dashed(cx.camera, cx.size, lines, cx.to_world(m.v), cx.to_world(*foot), RED);
-                label(cx, labels, m.v, *foot, RED, Some(0));
+                d.pen(pen(RED, true)).line(m.v, *foot).length(m.v, *foot, RED, Some(0));
             }
             sides => {
                 for (slot, ((_, foot), color)) in sides.iter().zip([RED, GREEN]).enumerate() {
-                    dashed(cx.camera, cx.size, lines, cx.to_world(m.v), cx.to_world(*foot), INK);
-                    dashed(cx.camera, cx.size, lines, cx.to_world(*foot), cx.to_world(m.p), color);
-                    label(cx, labels, *foot, m.p, color, Some(slot));
+                    d.pen(pen(INK, true)).line(m.v, *foot);
+                    d.pen(pen(color, true)).line(*foot, m.p).length(*foot, m.p, color, Some(slot));
                 }
             }
         }
@@ -555,29 +549,11 @@ fn plane_color(cx: &Cx<'_>, f: &Frame) -> [f32; 4] {
     }
 }
 
-/// Model length of `px` pixels at `p` (the axes' coordinates).
-fn pixels(cx: &Cx<'_>, p: DVec3, px: f64) -> f64 {
-    cx.camera.world_per_pixel(cx.size, cx.to_world(p)) * px
-}
-
-/// The length of the side `a`–`b` written at its middle, measuring the value `slot` of the
-/// measurements box if any; too short on screen, only while that value is typed.
-fn label(cx: &Cx<'_>, out: &mut Vec<PreviewLabel>, a: DVec3, b: DVec3, color: [f32; 4], slot: Option<usize>) {
-    let len = (b - a).length();
-    let hidden = len < MIN || len <= pixels(cx, a, LABEL_PX);
-    if !hidden || slot.is_some() {
-        let text = vcb::format(len, cx.units());
-        out.push(PreviewLabel { a: cx.to_world(a), b: cx.to_world(b), text, color, slot, hidden, ..Default::default() });
-    }
-}
-
-/// A cross at `p` (the axes' coordinates), which the lengths keep clear of.
-fn mark(cx: &Cx<'_>, marks: &mut Vec<DVec3>, p: DVec3) {
-    marks.push(cx.to_world(p));
-}
-
-fn line(cx: &Cx<'_>, a: DVec3, b: DVec3, color: [f32; 4]) -> PreviewLine {
-    PreviewLine { a: cx.to_world(a), b: cx.to_world(b), color, bold: false }
+/// The pen of a shape's lines, drawn over the scene: dashed (the shape drawn when an offset
+/// or a fillet makes another one, a measure) or not.
+fn pen(color: [f32; 4], dash: bool) -> Pen {
+    let pen = Pen::new(color).over();
+    if dash { pen.dashed() } else { pen }
 }
 
 /// Whether the cursor's point is an inferred feature, worth a cross: not on the empty ground
@@ -615,11 +591,10 @@ fn fillet_option(cx: &Cx<'_>) -> ToolOption {
     }
 }
 
-/// The lines along the closed outline `p` (in the plane of `f`, at the height `z`).
-fn ring(f: &Frame, p: &[Corner], z: f64) -> Vec<(DVec3, DVec3)> {
-    let pts = profile::sample(p, STEP);
-    let n = pts.len();
-    (0..n).map(|i| (f.at(pts[i].extend(z)), f.at(pts[(i + 1) % n].extend(z)))).collect()
+/// The points along the closed outline `p` (in the plane of `f`, at the height `z`): a curve
+/// to draw closed.
+fn ring(f: &Frame, p: &[Corner], z: f64) -> Vec<DVec3> {
+    profile::sample(p, STEP).into_iter().map(|q| f.at(q.extend(z))).collect()
 }
 
 /// The offset option, first in the bar (as OCL's).
@@ -633,17 +608,6 @@ fn offset_option(cx: &Cx<'_>) -> ToolOption {
         saved: true,
         icon: None,
         swatch: None,
-    }
-}
-
-/// The lines from `a` to `b`, dashed (the drawn shape, an offset making another one) or not.
-fn segments(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, pairs: impl IntoIterator<Item = (DVec3, DVec3)>, color: [f32; 4], dash: bool) {
-    for (a, b) in pairs {
-        if dash {
-            dashed(cx.camera, cx.size, out, cx.to_world(a), cx.to_world(b), color);
-        } else {
-            out.push(line(cx, a, b, color));
-        }
     }
 }
 
@@ -664,13 +628,14 @@ fn gauge_offset(cx: &Cx<'_>, w: f64) -> f64 {
 /// The polygonal gauge before the first click, in the plane of `f`: the outline `drawn` (local,
 /// counter-clockwise), solid; or, when the tool changes it (offset `off`, rounded by `fillet`:
 /// the gauge's own lengths), dashed, and the outline made solid.
-fn gauge(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, f: &Frame, drawn: &[DVec2], off: f64, fillet: f64, color: [f32; 4]) {
+fn gauge(d: &mut Drawer<'_>, f: &Frame, drawn: &[DVec2], off: f64, fillet: f64, color: [f32; 4]) {
     let drawn = profile::polygon(drawn);
     let changed = off != 0.0 || fillet > 0.0;
-    segments(cx, out, ring(f, &drawn, 0.0), color, changed);
+    // A polygon: each side dashed from its corners.
+    d.pen(pen(color, changed)).polygon(&ring(f, &drawn, 0.0));
     if changed {
         let made = profile::offset(&drawn, off).unwrap_or(drawn);
-        segments(cx, out, ring(f, &profile::rounded(&profile::with_fillets(&made, fillet)), 0.0), color, false);
+        d.pen(pen(color, false)).curve(&ring(f, &profile::rounded(&profile::with_fillets(&made, fillet)), 0.0), true);
     }
 }
 
@@ -722,54 +687,20 @@ fn container_bounds(cx: &Cx<'_>, parent: &[Id]) -> Option<(DVec3, DVec3)> {
 /// The colour of the assembly « Dessiner dans » draws in (OCL's `COLOR_DARK_GREY`).
 const CONTAINER: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 /// How long its corners are drawn (pixels), and how much larger than its box (mm: OCL's inch).
-const CONTAINER_CORNER_PX: f64 = 20.0;
+const CONTAINER_CORNER_PX: f32 = 20.0;
 const CONTAINER_MARGIN: f64 = 25.4;
 
-/// A box (`lo`..`hi`, in the axes `frame` places in the world), as OCL draws a container
-/// (`Kuix::BoxMotif3d` dotted, `BoxCornersMotif3d` solid and bolder): every edge drawn in the
-/// scene, hidden behind faces (`scene`); the edges of the box's faces turned to the eye drawn
-/// again over it (`over`, OCL's `shell_on_top`), so that only its back hides.
-fn container_box(cx: &Cx<'_>, over: &mut Vec<PreviewLine>, scene: &mut Vec<PreviewLine>, frame: DAffine3, lo: DVec3, hi: DVec3) {
+/// A box (`lo`..`hi`, in the axes `frame` places in the world), grown by OCL's margin, as OCL
+/// draws a container (`Kuix::BoxMotif3d` dotted, `BoxCornersMotif3d` solid and bolder): the
+/// edges of its faces turned to the eye over the scene (OCL's `shell_on_top`), its back hidden
+/// behind faces.
+fn container_box(d: &mut Drawer<'_>, frame: DAffine3, lo: DVec3, hi: DVec3) {
     let (lo, hi) = (lo - DVec3::splat(CONTAINER_MARGIN), hi + DVec3::splat(CONTAINER_MARGIN));
-    // Corner `i`: bit 0 x, bit 1 y, bit 2 z at `hi`.
-    let corner = |i: usize| {
-        let at = |bit: usize, l: f64, h: f64| if i & bit == 0 { l } else { h };
-        frame.transform_point3(DVec3::new(at(1, lo.x, hi.x), at(2, lo.y, hi.y), at(4, lo.z, hi.z)))
-    };
-    // A face, by its axis bit and side: turned to the eye when its outward normal goes against
-    // the ray through its centre (OCL's `exposed_path_indexes`); seen edge on, not.
-    let exposed = |bit: usize, high: bool| {
-        let centre = frame.transform_point3(
-            (lo + hi) * 0.5
-                + DVec3::from_array([0, 1, 2].map(|k| {
-                    let half = (hi - lo)[k] * 0.5;
-                    if 1 << k == bit { if high { half } else { -half } } else { 0.0 }
-                })),
-        );
-        let axis = frame.matrix3.col(bit.trailing_zeros() as usize);
-        let normal = if high { axis } else { -axis };
-        cx.camera.project(centre, cx.size).is_some_and(|px| normal.dot(cx.ray(px).dir) < -SQUARE)
-    };
-    let faces: Vec<(usize, bool)> = [1, 2, 4].iter().flat_map(|&b| [(b, false), (b, true)]).filter(|&(b, h)| exposed(b, h)).collect();
-    for i in 0..8 {
-        for axis in [1, 2, 4] {
-            let j = i | axis;
-            if j == i {
-                continue;
-            }
-            let (a, b) = (corner(i), corner(j));
-            // The edge `i`–`j` bounds the faces across the two other axes, on its corners' side.
-            let front = faces.iter().any(|&(bit, high)| bit != axis && (i & bit != 0) == high);
-            let edge = |out: &mut Vec<PreviewLine>| {
-                dashed(cx.camera, cx.size, out, a, b, CONTAINER);
-                for (p, q) in [(a, b), (b, a)] {
-                    let len = (cx.camera.world_per_pixel(cx.size, p) * CONTAINER_CORNER_PX).min(p.distance(q) / 2.0);
-                    out.push(PreviewLine { a: p, b: p + (q - p).normalize_or_zero() * len, color: CONTAINER, bold: true });
-                }
-            };
-            edge(if front { &mut *over } else { &mut *scene });
-        }
-    }
+    d.in_frame(d.frame().inverse() * frame, |d| {
+        d.pen(Pen::new(CONTAINER).dotted()).box_(lo, hi);
+        let corners = BoxStyle { corners: Some(CONTAINER_CORNER_PX), ..Default::default() };
+        d.pen(Pen::new(CONTAINER).bold()).box_styled(lo, hi, corners);
+    });
 }
 
 /// The creation tools' last option, OCL's `ask_name`: the part's name asked as soon as it is
@@ -1031,15 +962,14 @@ impl Tool for BoxTool {
     }
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
-        let mut lines = Vec::new();
+        let mut drawing = Drawing::default();
+        let d = &mut cx.axes_drawer(&mut drawing);
         // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
-        let scene_lines = self.first.container_preview(cx, &mut lines);
-        let mut labels = Vec::new();
-        let mut marks = Vec::new();
+        self.first.container_preview(cx, d);
         // The corners of the base from `f.o` to the local `(x, y)`, at height `z`.
         let corners = |f: &Frame, x: f64, y: f64, z: f64| [(0.0, 0.0), (x, 0.0), (x, y), (0.0, y)].map(|(x, y)| f.at(DVec3::new(x, y, z)));
-        let rect = |lines: &mut Vec<PreviewLine>, c: [DVec3; 4], color, dash| {
-            segments(cx, lines, (0..4).map(|i| (c[i], c[(i + 1) % 4])), color, dash);
+        let rect = |d: &mut Drawer<'_>, c: [DVec3; 4], color, dash| {
+            d.pen(pen(color, dash)).polygon(&c);
         };
         // The base from `f.o` to the local `(x, y)`, grown by the offset: its frame and sides,
         // if anything is left of it.
@@ -1072,65 +1002,63 @@ impl Tool for BoxTool {
                     // With an offset or a fillet, the base drawn dashed and the one made solid,
                     // grown or shrunk and rounded (their signs, not their sizes).
                     let f = s.f;
-                    let w = pixels(cx, f.o, GAUGE_PX);
+                    let w = d.px(f.o, GAUGE_PX);
                     let o = if self.centered { DVec2::new(-w / 2.0, -w / 4.0) } else { DVec2::ZERO };
                     let quad = [(0.0, 0.0), (w, 0.0), (w, w / 2.0), (0.0, w / 2.0)].map(|(x, y)| o + DVec2::new(x, y));
                     let fillet = if r > 0.0 { GAUGE_FILLET * w } else { 0.0 };
-                    gauge(cx, &mut lines, &f, &quad, gauge_offset(cx, w), fillet, plane_color(cx, &f));
+                    gauge(d, &f, &quad, gauge_offset(cx, w), fillet, plane_color(cx, &f));
                     if snapped(&inference) {
-                        mark(cx, &mut marks, f.o);
+                        d.mark(f.o);
                     }
                 }
-                self.first.preview(cx, &mut lines, &mut labels, &mut marks);
+                self.first.preview(d);
             }
             BoxState::Base { f, p2, .. } => {
                 let color = plane_color(cx, &f);
                 let (g, p2) = base(f, p2, self.centered);
-                let d = g.local(p2);
-                let c = corners(&g, d.x, d.y, 0.0);
-                rect(&mut lines, c, color, changed);
-                if changed && let Some((o, outline)) = made(&g, d.x, d.y) {
-                    segments(cx, &mut lines, ring(&o, &outline, 0.0), color, false);
+                let v = g.local(p2);
+                let c = corners(&g, v.x, v.y, 0.0);
+                rect(d, c, color, changed);
+                if changed && let Some((o, outline)) = made(&g, v.x, v.y) {
+                    d.pen(pen(color, false)).curve(&ring(&o, &outline, 0.0), true);
                 }
-                label(cx, &mut labels, c[0], c[1], RED, Some(0));
-                label(cx, &mut labels, c[0], c[3], GREEN, Some(1));
+                d.length(c[0], c[1], RED, Some(0)).length(c[0], c[3], GREEN, Some(1));
                 // A square base: its diagonal; centred: the centre, and on to the cursor.
-                if (d.x.abs() - d.y.abs()).abs() <= 1e-9 * d.x.abs().max(1.0) && d.x.abs() >= MIN {
-                    dashed(cx.camera, cx.size, &mut lines, cx.to_world(c[0]), cx.to_world(c[2]), color);
+                if (v.x.abs() - v.y.abs()).abs() <= 1e-9 * v.x.abs().max(1.0) && v.x.abs() >= MIN {
+                    d.pen(pen(color, true)).line(c[0], c[2]);
                 } else if self.centered {
-                    dashed(cx.camera, cx.size, &mut lines, cx.to_world(f.o), cx.to_world(p2), INK);
+                    d.pen(pen(INK, true)).line(f.o, p2);
                 }
                 if self.centered {
-                    mark(cx, &mut marks, f.o);
+                    d.mark(f.o);
                 }
             }
             BoxState::Height { f, p2, centered, h, .. } => {
                 let color = plane_color(cx, &f);
                 let (f, p2) = base(f, p2, centered);
-                let d = f.local(p2);
+                let v = f.local(p2);
                 let (z0, z1) = span(h, self.pull_centered);
-                let solid = |lines: &mut Vec<PreviewLine>, f: &Frame, x: f64, y: f64, dash: bool| {
+                let solid = |d: &mut Drawer<'_>, f: &Frame, x: f64, y: f64, dash: bool| {
                     let (bottom, top) = (corners(f, x, y, z0), corners(f, x, y, z1));
-                    rect(lines, bottom, color, dash);
-                    rect(lines, top, color, dash);
-                    segments(cx, lines, bottom.into_iter().zip(top), color, dash);
+                    rect(d, bottom, color, dash);
+                    rect(d, top, color, dash);
+                    d.segments(bottom.into_iter().zip(top));
                 };
-                solid(&mut lines, &f, d.x, d.y, changed);
-                if changed && let Some((o, outline)) = made(&f, d.x, d.y) {
-                    segments(cx, &mut lines, ring(&o, &outline, z0), color, false);
-                    segments(cx, &mut lines, ring(&o, &outline, z1), color, false);
-                    segments(cx, &mut lines, outline.iter().map(|c| (o.at(c.p.extend(z0)), o.at(c.p.extend(z1)))), color, false);
+                solid(d, &f, v.x, v.y, changed);
+                if changed && let Some((o, outline)) = made(&f, v.x, v.y) {
+                    d.pen(pen(color, false)).curve(&ring(&o, &outline, z0), true).curve(&ring(&o, &outline, z1), true);
+                    d.segments(outline.iter().map(|c| (o.at(c.p.extend(z0)), o.at(c.p.extend(z1)))));
                 }
-                let (bottom, top) = (corners(&f, d.x, d.y, z0), corners(&f, d.x, d.y, z1));
-                label(cx, &mut labels, bottom[0], top[0], BLUE, Some(0));
+                let (bottom, top) = (corners(&f, v.x, v.y, z0), corners(&f, v.x, v.y, z1));
+                d.length(bottom[0], top[0], BLUE, Some(0));
                 // Centred: the diagonal through the cursor (at the opposite corner, height `h`).
                 if self.pull_centered {
-                    let (a, b) = (f.at(DVec3::new(0.0, 0.0, -h)), f.at(DVec3::new(d.x, d.y, h)));
-                    dashed(cx.camera, cx.size, &mut lines, cx.to_world(a), cx.to_world(b), INK);
+                    let (a, b) = (f.at(DVec3::new(0.0, 0.0, -h)), f.at(DVec3::new(v.x, v.y, h)));
+                    d.pen(pen(INK, true)).line(a, b);
                 }
             }
         }
-        Preview { lines, scene_lines, labels, marks, inference, ..Default::default() }
+        Preview { drawing, inference, ..Default::default() }
     }
 
     fn status(&self) -> String {
@@ -1390,24 +1318,22 @@ impl Tool for CylinderTool {
     }
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
-        let circle = |f: Frame, r: f64, z: f64| {
+        // The circle of radius `r` about `f.o` at the height `z`, as 48 chords.
+        let ring = |d: &mut Drawer<'_>, f: Frame, r: f64, z: f64, color, dash: bool| {
             const N: usize = 48;
-            let p = move |i: usize| {
-                let a = i as f64 / N as f64 * std::f64::consts::TAU;
-                f.at(DVec3::new(a.cos() * r, a.sin() * r, z))
-            };
-            (0..N).map(move |i| (p(i), p(i + 1)))
-        };
-        // Dashed: every other segment.
-        let ring = |lines: &mut Vec<PreviewLine>, f: Frame, r: f64, z: f64, color, dash: bool| {
-            lines.extend(circle(f, r, z).enumerate().filter(|(i, _)| !dash || i % 2 == 0).map(|(_, (a, b))| line(cx, a, b, color)));
+            let pts: Vec<DVec3> = (0..N)
+                .map(|i| {
+                    let a = i as f64 / N as f64 * std::f64::consts::TAU;
+                    f.at(DVec3::new(a.cos() * r, a.sin() * r, z))
+                })
+                .collect();
+            d.pen(pen(color, dash)).curve(&pts, true);
         };
         let off = cx.length(OFFSET);
-        let mut lines = Vec::new();
+        let mut drawing = Drawing::default();
+        let d = &mut cx.axes_drawer(&mut drawing);
         // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
-        let scene_lines = self.first.container_preview(cx, &mut lines);
-        let mut labels = Vec::new();
-        let mut marks = Vec::new();
+        self.first.container_preview(cx, d);
         let mut inference = self.snap.clone();
         match self.state {
             CylState::Center => {
@@ -1417,47 +1343,46 @@ impl Tool for CylinderTool {
                     // With an offset, the disc drawn dashed and the one made solid, its radius
                     // grown or shrunk by a tenth of the diameter (OCL's `_preview_shape_start`).
                     let color = plane_color(cx, &f);
-                    let d = pixels(cx, f.o, GAUGE_PX);
-                    ring(&mut lines, f, d / 2.0, 0.0, color, off != 0.0);
+                    let w = d.px(f.o, GAUGE_PX);
+                    ring(d, f, w / 2.0, 0.0, color, off != 0.0);
                     if off != 0.0 {
-                        ring(&mut lines, f, d / 2.0 + gauge_offset(cx, d), 0.0, color, false);
+                        ring(d, f, w / 2.0 + gauge_offset(cx, w), 0.0, color, false);
                     }
                     if snapped(&inference) {
-                        mark(cx, &mut marks, f.o);
+                        d.mark(f.o);
                     }
                 }
-                self.first.preview(cx, &mut lines, &mut labels, &mut marks);
+                self.first.preview(d);
             }
             CylState::Radius { f, rim } => {
                 let color = plane_color(cx, &f);
-                ring(&mut lines, f, rim.length(), 0.0, color, off != 0.0);
+                ring(d, f, rim.length(), 0.0, color, off != 0.0);
                 if off != 0.0 && rim.length() + off >= MIN {
-                    ring(&mut lines, f, rim.length() + off, 0.0, color, false);
+                    ring(d, f, rim.length() + off, 0.0, color, false);
                 }
-                mark(cx, &mut marks, f.o);
+                d.mark(f.o);
                 // Measured across: the whole diameter, through the centre.
                 let (o, p) = (if self.diameter { f.at(-rim) } else { f.o }, f.at(rim));
                 let color = axis_color(p - o).unwrap_or(INK);
-                dashed(cx.camera, cx.size, &mut lines, cx.to_world(o), cx.to_world(p), color);
-                label(cx, &mut labels, o, p, color, Some(0));
+                d.pen(pen(color, true)).line(o, p).length(o, p, color, Some(0));
             }
             CylState::Height { f, rim, h } => {
                 let (r, color) = (rim.length(), plane_color(cx, &f));
                 let (z0, z1) = span(h, self.pull_centered);
-                let solid = |lines: &mut Vec<PreviewLine>, r: f64, dash: bool| {
-                    ring(lines, f, r, z0, color, dash);
-                    ring(lines, f, r, z1, color, dash);
+                let solid = |d: &mut Drawer<'_>, r: f64, dash: bool| {
+                    ring(d, f, r, z0, color, dash);
+                    ring(d, f, r, z1, color, dash);
                     let sides = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)].map(|(x, y)| f.at(DVec3::new(x * r, y * r, z0)));
-                    segments(cx, lines, sides.map(|a| (a, a + f.n * (z1 - z0))), color, dash);
+                    d.pen(pen(color, dash)).segments(sides.map(|a| (a, a + f.n * (z1 - z0))));
                 };
-                solid(&mut lines, r, off != 0.0);
+                solid(d, r, off != 0.0);
                 if off != 0.0 && r + off >= MIN {
-                    solid(&mut lines, r + off, false);
+                    solid(d, r + off, false);
                 }
-                label(cx, &mut labels, f.at(rim + DVec3::Z * z0), f.at(rim + DVec3::Z * z1), BLUE, Some(0));
+                d.length(f.at(rim + DVec3::Z * z0), f.at(rim + DVec3::Z * z1), BLUE, Some(0));
             }
         }
-        Preview { lines, scene_lines, labels, marks, inference, ..Default::default() }
+        Preview { drawing, inference, ..Default::default() }
     }
 
     fn status(&self) -> String {

@@ -5,10 +5,10 @@ use glam::{DAffine3, DVec3};
 use solidsketch_model::{EntityPath, Id, Section};
 
 use super::Editor;
-use crate::guides::Stroke;
+use crate::draw::{BoxStyle, Color, Drawer, Pen, Stipple, ThemeColor};
 use crate::infer::InferKind;
 use crate::scene::{ContextIndex, transform_bounds};
-use crate::tools::{self, Marquee, PreviewFill, PreviewLine};
+use crate::tools::{self, Marquee};
 
 /// How a highlighted solid is marked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,48 +74,27 @@ pub struct ViewHighlight {
 pub struct View {
     pub batches: Vec<(Id, Vec<ViewPlacement>)>,
     pub highlights: Vec<ViewHighlight>,
-    pub overlay: Vec<PreviewLine>,
-    /// A tool's lines drawn depth-tested.
-    pub scene_lines: Vec<PreviewLine>,
-    /// A tool's lines plain where seen, dashed where faces hide them.
-    pub xray: Vec<PreviewLine>,
-    /// A tool's translucent polygons, drawn depth-tested.
-    pub fills: Vec<PreviewFill>,
-    /// The open part's profiled bodies' bottom caps, the cap the profile is drawn on (world
-    /// segments): the app draws them bold, depth-tested, so that a see-through body shows
-    /// which way it stands (§2.11).
-    pub bases: Vec<(DVec3, DVec3)>,
-    /// The axes of the open part's turned bodies (world segments, along their half profile):
-    /// drawn dashed, depth-tested, with the bases (their half profiles, §6 undecies).
-    pub base_axes: Vec<(DVec3, DVec3)>,
+    /// What the tool and the editor draw through a [`crate::draw::Drawer`] (§7 octies). The
+    /// editor's, in the scene but where said:
+    /// - the open part's profiled bodies' bottom caps, the cap the profile is drawn on, bold in
+    ///   the edges' colour, so that a see-through body shows which way it stands (§2.11); its
+    ///   turned bodies' axes along their half profiles, dashed (§6 undecies);
+    /// - the bounding boxes of the selected occurrences (parts and assemblies), in their own
+    ///   axes, dashed in the selection's colour; the same box for the part open or the assembly
+    ///   being edited, grown by a few pixels, in the context box's (none at the model's level);
+    /// - the guides (§6 quinquies): the active context's, selected (where they are or where a
+    ///   move puts them), hovered (or taken by the selection rectangle) or not; those of the
+    ///   other components and of the open part's other occurrences faded, blended;
+    /// - the context's axes, as far as the view shows them, their negative halves fainter,
+    ///   when shown;
+    /// - the dashed lines from tracked points to the inference, over the scene.
+    pub drawing: crate::draw::Drawing,
     /// The inferred point to mark, with its kind (the app draws the marker and the tooltip).
     pub inference: Option<(DVec3, InferKind)>,
     /// The selection rectangle being dragged (the app draws it).
     pub marquee: Option<Marquee>,
     /// The section to draw: a tool's preview, else the document's active one.
     pub section: Option<Section>,
-    /// The bounding boxes of the selected occurrences (parts and assemblies), in their own
-    /// axes (the app draws their edges dashed, depth-tested, in the selection's colour).
-    pub selection_boxes: Vec<OrientedBox>,
-    /// The same box for the part open or the assembly being edited, grown by a few pixels
-    /// (drawn dashed, in grey); none at the model's level.
-    pub context_box: Vec<OrientedBox>,
-    /// The guides of the active context (ARCHITECTURE.md §6 quinquies), as strokes the app
-    /// draws dashed and depth-tested.
-    pub guides: Vec<Stroke>,
-    /// Those of the other components, and of the open part's other occurrences (faded).
-    pub faded_guides: Vec<Stroke>,
-    /// The selected guides, where they are or where a move puts them.
-    pub selected_guides: Vec<Stroke>,
-    /// The guide under the cursor, or those the selection rectangle would take.
-    pub hovered_guides: Vec<Stroke>,
-    /// The guides a tool previews, with their colour (drawn dashed and depth-tested, as the
-    /// document's).
-    pub preview_guides: Vec<(Stroke, [f32; 4])>,
-    /// The axes of the context (its frame's), as far as the view shows them: per axis, its
-    /// positive half and its negative half (world segments, `None` out of view). The app draws
-    /// them when they are shown.
-    pub axes: [[Option<(DVec3, DVec3)>; 2]; 3],
 }
 
 /// How the selection is drawn where it is — its solids marked, its occurrences' boxes —, and
@@ -186,11 +165,6 @@ impl OrientedBox {
 
 impl Editor {
     // ---- drawing -------------------------------------------------------------------------------
-
-    /// A dashed line from `a` to `b` (dashes of a few pixels at their depth), dashes at both ends.
-    pub(super) fn dashed(&self, out: &mut Vec<PreviewLine>, a: DVec3, b: DVec3, color: [f32; 4]) {
-        tools::dashed(&self.camera, self.size, out, a, b, color);
-    }
 
     /// The box bounding what the occurrence `id` of the context `ctx_path` holds, in its own
     /// axes, moved by `extra` and grown by `offset_px` pixels on every side: its frame (to
@@ -527,13 +501,15 @@ impl Editor {
                     Some((z0, _)) => place.transform_point3(q.extend(z0)),
                     None => place.transform_point3(DVec3::new(q.x, 0.0, q.y)),
                 };
-                let n = pts.len();
-                v.bases.extend((0..n).map(|i| (at(pts[i]), at(pts[(i + 1) % n]))));
+                let edge = Pen::new(Color::Theme(ThemeColor::Edge));
+                let d = &mut Drawer::new(&self.camera, self.size, &doc.settings().units, &mut v.drawing);
+                d.pen(edge.bold()).curve(&pts.iter().map(|q| at(*q)).collect::<Vec<_>>(), true);
                 if profile.is_turned()
                     && let Some((lo, hi)) = solidsketch_model::kernel::profile::bounds(&outline)
                 {
                     let over = (hi.y - lo.y) * 0.1;
-                    v.base_axes.push((place.transform_point3(DVec3::Z * (lo.y - over)), place.transform_point3(DVec3::Z * (hi.y + over))));
+                    let (a, b) = (place.transform_point3(DVec3::Z * (lo.y - over)), place.transform_point3(DVec3::Z * (hi.y + over)));
+                    d.pen(edge.stipple(Stipple::LongDashes)).line(a, b);
                 }
             }
         }
@@ -586,48 +562,55 @@ impl Editor {
         } else {
             Some(DAffine3::IDENTITY)
         };
-        match box_at {
-            Some(g) if g == DAffine3::IDENTITY => v.selection_boxes.extend_from_slice(&drawing.boxes),
-            Some(g) => v.selection_boxes.extend(drawing.boxes.iter().map(|b| OrientedBox { frame: g * b.frame, ..*b })),
-            None => {}
+        let units = &doc.settings().units;
+        let d = &mut Drawer::new(&self.camera, self.size, units, &mut v.drawing);
+        // Wholly in the scene: they wrap what they mark (a large selection's would cover the
+        // view).
+        let in_scene = BoxStyle { corners: None, shell_on_top: false };
+        d.pen(Pen::new(Color::Theme(ThemeColor::Selected)).dashed());
+        if let Some(g) = box_at {
+            d.oriented_boxes(drawing.boxes.iter(), g, in_scene);
         }
         // The part open, else the assembly being edited: its content's box, a little larger.
-        v.context_box.extend(self.context_bounds());
+        if let Some(b) = self.context_bounds() {
+            d.pen(Pen::new(Color::Theme(ThemeColor::ContextBox)).dashed()).oriented_box(&b, in_scene);
+        }
         // The guides: the active context's (the open part's occurrence, else the context) —
         // selected, hovered or not —, and the others faded.
         let active: Vec<Id> = self.context.iter().copied().chain(self.open_part).collect();
         let marquee_hits: solidsketch_model::FastSet<Id> = preview.marquee.iter().flat_map(|m| m.hits.iter().copied()).collect();
         let hovered = |id: Id| preview.hover == Some(id) || marquee_hits.contains(&id);
+        let guide = |c: ThemeColor| Pen::guide(Color::Theme(c));
+        let faded = guide(ThemeColor::FadedGuide).blended();
         for g in self.scene.guides() {
-            let dashes = |shape: &solidsketch_model::GuideShape| crate::guides::strokes(&self.camera, self.size, shape);
             if g.path != active {
-                v.faded_guides.extend(dashes(&g.shape));
+                d.pen(faded).guide(&g.shape);
                 continue;
             }
             let is_selected = selected.contains(&g.id);
             if is_selected && let Some(t) = preview.ghost {
-                v.selected_guides.extend(dashes(&g.shape.transformed(&t)));
+                d.pen(guide(ThemeColor::Selected)).guide(&g.shape.transformed(&t));
                 if !hide_original {
-                    v.guides.extend(dashes(&g.shape));
+                    d.pen(guide(ThemeColor::Guide)).guide(&g.shape);
                 }
                 continue;
             }
             // Copied by a copy tool: drawn at each copy too.
             if is_selected {
                 for t in &preview.copies {
-                    v.selected_guides.extend(dashes(&g.shape.transformed(t)));
+                    d.pen(guide(ThemeColor::Selected)).guide(&g.shape.transformed(t));
                 }
             }
-            let out = if erasing.contains(&g.id) {
-                &mut v.faded_guides
+            let pen = if erasing.contains(&g.id) {
+                faded
             } else if is_selected {
-                &mut v.selected_guides
+                guide(ThemeColor::Selected)
             } else if hovered(g.id) {
-                &mut v.hovered_guides
+                guide(ThemeColor::Hover)
             } else {
-                &mut v.guides
+                guide(ThemeColor::Guide)
             };
-            out.extend(dashes(&g.shape));
+            d.pen(pen).guide(&g.shape);
         }
         let listed = self.listed_hover.filter(|_| recipe.is_some());
         if let Some(h) = listed.or(preview.hover).filter(|h| !selected.contains(h)) {
@@ -725,25 +708,30 @@ impl Editor {
                 (h.definition, h.solid, h.transform) = (*key, *key, *t);
             }
         }
-        v.overlay = preview.lines;
-        v.scene_lines = preview.scene_lines;
-        v.xray = preview.xray;
-        v.fills = preview.fills;
-        v.preview_guides = preview.guides;
-        // The axes, across the view.
-        let frame = self.axes_transform();
-        for (k, halves) in v.axes.iter_mut().enumerate() {
-            let dir = frame.matrix3.col(k);
-            for (half, range) in halves.iter_mut().zip([(0.0, f64::INFINITY), (f64::NEG_INFINITY, 0.0)]) {
-                *half = crate::guides::visible_line(&self.camera, self.size, frame.translation, dir, range);
+        v.drawing.append(preview.drawing);
+        // The axes, across the view, when shown (an open part always shows its axes, §2.9):
+        // their negative halves fainter.
+        if doc.settings().display.axes || self.open_part.is_some() {
+            let frame = self.axes_transform();
+            let d = &mut Drawer::new(&self.camera, self.size, &doc.settings().units, &mut v.drawing);
+            for (k, [r, g, b, _]) in [tools::RED, tools::GREEN, tools::BLUE].into_iter().enumerate() {
+                let dir = frame.matrix3.col(k);
+                for (range, alpha) in [((0.0, f64::INFINITY), 1.0), ((f64::NEG_INFINITY, 0.0), AXIS_NEGATIVE_ALPHA)] {
+                    if let Some((p, q)) = crate::guides::visible_line(&self.camera, self.size, frame.translation, dir, range) {
+                        d.pen(Pen::new([r, g, b, alpha])).line(p, q);
+                    }
+                }
             }
         }
-        // Guides from tracked points, dashed (the tools draw those from their start point).
+        // Guides from tracked points, dashed over the scene (the tools draw those from their
+        // start point).
         if let Some(i) = &preview.inference {
-            let color = tools::guide_color(i.kind);
+            let units = &doc.settings().units;
+            let d = &mut Drawer::new(&self.camera, self.size, units, &mut v.drawing);
+            d.pen(Pen::new(tools::guide_color(i.kind)).over().dashed());
             for (origin, _) in [i.line, i.line2].into_iter().flatten() {
                 if self.tracked.contains(&origin) {
-                    self.dashed(&mut v.overlay, origin, i.point, color);
+                    d.line(origin, i.point);
                 }
             }
         }
@@ -753,6 +741,9 @@ impl Editor {
         v
     }
 }
+
+/// The opacity of the axes' negative halves.
+const AXIS_NEGATIVE_ALPHA: f32 = 0.35;
 
 /// How far an arc of a body's bottom cap turns between two points (radians).
 const BASE_STEP: f64 = 0.06;

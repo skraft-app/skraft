@@ -90,7 +90,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
-        xray: &[],
+        hidden_lines: &[],
         fills: &[],
         grid: decor.then_some(Grid { spacing: 10.0, count: 10 }),
         axes: decor,
@@ -167,7 +167,7 @@ fn concave_edges_are_not_buried() {
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
-        xray: &[],
+        hidden_lines: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -223,7 +223,7 @@ fn a_mirrored_placement_shows_its_outside() {
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
-            xray: &[],
+            hidden_lines: &[],
             fills: &[],
             grid: None,
             axes: false,
@@ -262,7 +262,7 @@ fn shot(
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
-        xray: &[],
+        hidden_lines: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -306,7 +306,7 @@ fn a_still_frame_is_not_drawn_again() {
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
-        xray: &[],
+        hidden_lines: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -470,7 +470,7 @@ fn a_ghost_shows_what_it_holds() {
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
-            xray: &[],
+            hidden_lines: &[],
             fills: &[],
             grid: None,
             axes: false,
@@ -513,7 +513,7 @@ fn faint_edges_are_see_through() {
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
-            xray: &[],
+            hidden_lines: &[],
             fills: &[],
             grid: None,
             axes: false,
@@ -552,7 +552,7 @@ fn dashed_lines_are_dashed_on_screen() {
         a: DVec3::new(-150.0, 0.0, -z),
         b: DVec3::new(150.0, 0.0, z),
         color: [0.0, 0.0, 0.0, 1.0],
-        dash: Some(Dash { length: 5.0, phase: 2.0 }),
+        dash: Some(Dash::even(5.0, 2.0)),
         width: LINE_WIDTH,
     };
     let frame = Frame {
@@ -566,7 +566,7 @@ fn dashed_lines_are_dashed_on_screen() {
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
-        xray: &[],
+        hidden_lines: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -606,10 +606,12 @@ fn box_outlines_are_dashed_from_their_corners() {
     let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
     let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
     let outline = BoxOutline {
-        transform: DMat4::from_translation(DVec3::new(-80.0, -15.0, 0.0)) * DMat4::from_scale(DVec3::new(160.0, 30.0, 1.0)),
-        color: [0.0, 0.0, 0.0, 1.0],
-        width: LINE_WIDTH,
-        dash: Some(5.0),
+        dash: Some(Dash::even(5.0, 0.0)),
+        ..BoxOutline::new(
+            DMat4::from_translation(DVec3::new(-80.0, -15.0, 0.0)) * DMat4::from_scale(DVec3::new(160.0, 30.0, 1.0)),
+            [0.0, 0.0, 0.0, 1.0],
+            LINE_WIDTH,
+        )
     };
     let frame = Frame {
         view,
@@ -622,7 +624,7 @@ fn box_outlines_are_dashed_from_their_corners() {
         faint_lines: &[],
         boxes: &[outline],
         overlay: &[],
-        xray: &[],
+        hidden_lines: &[],
         fills: &[],
         grid: None,
         axes: false,
@@ -657,8 +659,7 @@ fn fills_hide_behind_faces() {
     let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     // A large red plane under the cube.
     let c = |x: f64, y: f64| DVec3::new(x, y, -20.0);
-    let plane =
-        [Fill { corners: vec![c(-500.0, -500.0), c(500.0, -500.0), c(500.0, 500.0), c(-500.0, 500.0)], color: [1.0, 0.0, 0.0, 0.5] }];
+    let plane = [Fill::polygon(vec![c(-500.0, -500.0), c(500.0, -500.0), c(500.0, 500.0), c(-500.0, 500.0)], [1.0, 0.0, 0.0, 0.5])];
     let shoot = |r: &mut Renderer, fills: &[Fill]| {
         let frame = Frame {
             view: front_view(),
@@ -671,7 +672,7 @@ fn fills_hide_behind_faces() {
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
-            xray: &[],
+            hidden_lines: &[],
             fills,
             grid: None,
             axes: false,
@@ -690,7 +691,8 @@ fn fills_hide_behind_faces() {
     assert!(r0 > 200 && g0 < 220 && b0 < 220 && r0 > g0 + 30, "{:?}", [r0, g0, b0]);
 }
 
-/// An x-ray line (a move's): plain where it is seen, dashed where a face hides it.
+/// An x-ray line (a move's): plain where it is seen (in the depth-tested lines), dashed where
+/// a face hides it (in the hidden lines).
 #[test]
 fn x_ray_lines_are_dashed_behind_faces() {
     let Some((device, queue)) = device() else {
@@ -709,9 +711,10 @@ fn x_ray_lines_are_dashed_behind_faces() {
         a: DVec3::new(-90.0, 0.0, -4.0),
         b: DVec3::new(90.0, 0.0, -4.0),
         color: [1.0, 0.0, 0.0, 1.0],
-        dash: Some(Dash { length: 4.0, phase: 0.0 }),
+        dash: None,
         width: BOLD_WIDTH,
     };
+    let hidden = Line { dash: Some(Dash::even(4.0, 0.0)), ..line };
     let frame = Frame {
         view,
         proj,
@@ -719,11 +722,11 @@ fn x_ray_lines_are_dashed_behind_faces() {
         style: Style::default(),
         batches: &batches,
         highlights: &[],
-        lines: &[],
+        lines: &[line],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
-        xray: &[line],
+        hidden_lines: &[hidden],
         fills: &[],
         grid: None,
         axes: false,
@@ -782,7 +785,7 @@ fn faint_lines_blend_over_faces() {
             faint_lines,
             boxes: &[],
             overlay: &[],
-            xray: &[],
+            hidden_lines: &[],
             fills: &[],
             grid: None,
             axes: false,
@@ -803,4 +806,209 @@ fn faint_lines_blend_over_faces() {
     assert!(r1 > g1 + 30 && g1 > 120 && b1 > 120, "{:?}", [r1, g1, b1]);
     // Under the slab: hidden.
     assert_eq!(at(&plain, 100, 12), at(&px, 100, 12));
+}
+
+/// A frame looking down -Z from z = 10, a pixel a unit, 200 × 40 px, its depth range z = 9
+/// to -30: `lines`, `boxes`, `fills` and the slab `batches` drawn on white.
+fn flat_frame<'a>(batches: &'a [Batch], lines: &'a [Line], boxes: &'a [BoxOutline], fills: &'a [Fill]) -> Frame<'a> {
+    Frame {
+        view: DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y),
+        proj: Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 40.0, 1.0),
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches,
+        highlights: &[],
+        lines,
+        faint_lines: &[],
+        boxes,
+        overlay: &[],
+        hidden_lines: &[],
+        fills,
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+    }
+}
+
+/// A slab over the middle of the view: x and y in ±20 × ±15, z in ±2.
+fn slab(r: &mut Renderer, device: &wgpu::Device) -> [Batch; 1] {
+    let slab = Solid::new_box(DVec3::new(-20.0, -15.0, -2.0), DVec3::new(40.0, 30.0, 4.0)).unwrap().mesh().unwrap();
+    r.set_mesh(device, 1, 1, &[Part { id: 1, mesh: &slab, face_paint: &[] }]);
+    [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])]
+}
+
+/// A line's ink at column `x` of the rows `rows` (the darkest red channel).
+fn ink_at(px: &[u8], x: u32, rows: std::ops::RangeInclusive<u32>) -> u8 {
+    rows.map(|y| pixel(px, 200, x, y)[0]).min().unwrap()
+}
+
+/// A pattern of more than a dash: dash, gap, dot, gap (Kuix's dash-dot-dash), each where it
+/// should be.
+#[test]
+fn dash_dot_lines_follow_their_pattern() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let line = Line {
+        a: DVec3::new(-150.0, 0.0, 0.0),
+        b: DVec3::new(150.0, 0.0, 0.0),
+        color: [0.0, 0.0, 0.0, 1.0],
+        dash: Some(Dash { pattern: [8.0, 3.0, 2.0, 3.0], phase: 0.0, anchored: false }),
+        width: LINE_WIDTH,
+    };
+    let px = draw(&mut r, &device, &queue, [200, 40], &flat_frame(&[], &[line], &[], &[]));
+    save(&px, [200, 40], "dash_dot");
+    let (mut seen, mut dots) = (0, 0);
+    for x in 5..195 {
+        // The line starts 50 px left of the picture.
+        let at = (50.0 + x as f64 + 0.5).rem_euclid(16.0);
+        let ink = ink_at(&px, x, 19..=20);
+        if (1.0..7.0).contains(&at) {
+            assert!(ink < 200, "no dash at {x} ({at}): {ink}");
+            seen += 1;
+        } else if (11.4..12.6).contains(&at) {
+            assert!(ink < 200, "no dot at {x} ({at}): {ink}");
+            dots += 1;
+        } else if (8.6..10.4).contains(&at) || (13.6..15.4).contains(&at) {
+            assert!(ink > 230, "no gap at {x} ({at}): {ink}");
+        }
+    }
+    assert!(seen > 40 && dots > 8, "{seen} {dots}");
+}
+
+/// An anchored dashed line starts and ends with a dash, whatever its length; its pattern
+/// barely stretched.
+#[test]
+fn anchored_dashes_start_and_end_the_line() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    for end in [70.3, 74.0, 77.1, 80.6] {
+        let line = Line {
+            a: DVec3::new(-83.3, 0.0, 0.0),
+            b: DVec3::new(end, 0.0, 0.0),
+            color: [0.0, 0.0, 0.0, 1.0],
+            dash: Some(Dash { anchored: true, ..Dash::even(5.0, 0.0) }),
+            width: LINE_WIDTH,
+        };
+        let px = draw(&mut r, &device, &queue, [200, 40], &flat_frame(&[], &[line], &[], &[]));
+        let first = (100.0 - 83.3 + 1.0) as u32;
+        let last = (100.0 + end - 1.0) as u32;
+        assert!(ink_at(&px, first, 19..=20) < 200, "{end}: no dash at the start");
+        assert!(ink_at(&px, last, 19..=20) < 200, "{end}: no dash at the end");
+        // Dashes and gaps between.
+        let gaps = (first..=last).filter(|x| ink_at(&px, *x, 19..=20) > 230).count();
+        assert!((60..=90).contains(&gaps), "{end}: {gaps} gap pixels");
+    }
+}
+
+/// A box under a slab, tilted so that its four edges along X fall apart on screen: in the
+/// scene, the slab hides them; with `shell_on_top`, the edges of its faces turned to the eye
+/// are drawn over the slab, the back one (of no such face) stays hidden.
+#[test]
+fn box_fronts_are_drawn_over_the_scene() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let batches = slab(&mut r, &device);
+    // The unit cube 120 × 10 × 6, turned 30° about X, below the slab.
+    let transform = DMat4::from_translation(DVec3::new(-60.0, 0.0, -20.0))
+        * DMat4::from_rotation_x(30f64.to_radians())
+        * DMat4::from_scale(DVec3::new(120.0, 10.0, 6.0));
+    let plain = BoxOutline::new(transform, [0.0, 0.0, 0.0, 1.0], LINE_WIDTH);
+    // The edges along X by their corner (y, z): screen rows from the world y.
+    let row = |y: f64, z: f64| {
+        let p = transform.transform_point3(DVec3::new(0.0, y, z));
+        (20.0 - p.y).floor() as u32
+    };
+    let rows = |y, z| row(y, z).saturating_sub(1)..=row(y, z) + 1;
+    let exposed = [(1.0, 1.0), (0.0, 1.0), (1.0, 0.0)];
+    let back = (0.0, 0.0);
+    for shell in [false, true] {
+        let b = BoxOutline { shell_on_top: shell, ..plain };
+        let px = draw(&mut r, &device, &queue, [200, 40], &flat_frame(&batches, &[], &[b], &[]));
+        save(&px, [200, 40], if shell { "box_front" } else { "box_hidden" });
+        // Beside the slab, every edge is seen.
+        for (y, z) in exposed.iter().chain([&back]) {
+            assert!(ink_at(&px, 50, rows(*y, *z)) < 170, "shell {shell}: edge {y} {z} not seen beside the slab");
+        }
+        // Under it, only the exposed faces' edges, and only drawn over the scene.
+        for (y, z) in exposed {
+            let ink = ink_at(&px, 100, rows(y, z));
+            assert_eq!(ink < 170, shell, "shell {shell}: edge {y} {z} under the slab: {ink}");
+            assert!(shell || ink > 200, "shell {shell}: edge {y} {z} under the slab: {ink}");
+        }
+        assert!(ink_at(&px, 100, rows(back.0, back.1)) > 200, "shell {shell}: the back edge is drawn over the slab");
+    }
+}
+
+/// A box drawn by its corners: each edge only so far from its ends.
+#[test]
+fn box_corners_stop_short_of_the_middle() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let outline = BoxOutline {
+        corners: Some(10.0),
+        ..BoxOutline::new(
+            DMat4::from_translation(DVec3::new(-80.0, -15.0, 0.0)) * DMat4::from_scale(DVec3::new(160.0, 30.0, 1.0)),
+            [0.0, 0.0, 0.0, 1.0],
+            LINE_WIDTH,
+        )
+    };
+    let px = draw(&mut r, &device, &queue, [200, 40], &flat_frame(&[], &[], &[outline], &[]));
+    save(&px, [200, 40], "box_corners");
+    // The top edge (row 5): inked near its ends, not past 10 px from them.
+    assert!(ink_at(&px, 25, 4..=5) < 200 && ink_at(&px, 175, 4..=5) < 200);
+    assert!((32..168).all(|x| ink_at(&px, x, 4..=5) > 230));
+}
+
+/// Fills over the scene show over a slab; with `cull_back`, a triangle whose back is turned to
+/// the eye is left out, one whose front is drawn.
+#[test]
+fn fills_over_the_scene_and_their_backs() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let batches = slab(&mut r, &device);
+    let c = |x: f64, y: f64, z: f64| DVec3::new(x, y, z);
+    let red = [1.0, 0.0, 0.0, 0.5];
+    let under = c(0.0, 0.0, -10.0);
+    let fills = [
+        // Under the slab, over the scene.
+        Fill {
+            over: true,
+            ..Fill::polygon(
+                vec![under + c(-5.0, -5.0, 0.0), under + c(5.0, -5.0, 0.0), under + c(5.0, 5.0, 0.0), under + c(-5.0, 5.0, 0.0)],
+                red,
+            )
+        },
+        // Counter-clockwise seen from the eye (its front), then clockwise (its back).
+        Fill {
+            triangles: true,
+            cull_back: true,
+            ..Fill::polygon(vec![c(-80.0, -10.0, 0.0), c(-60.0, -10.0, 0.0), c(-70.0, 10.0, 0.0)], red)
+        },
+        Fill { triangles: true, cull_back: true, ..Fill::polygon(vec![c(60.0, -10.0, 0.0), c(70.0, 10.0, 0.0), c(80.0, -10.0, 0.0)], red) },
+    ];
+    let px = draw(&mut r, &device, &queue, [200, 40], &flat_frame(&batches, &[], &[], &fills));
+    save(&px, [200, 40], "fills_over");
+    let reddish = |x, y| {
+        let [r, g, b, _] = pixel(&px, 200, x, y);
+        r as i32 > g as i32 + 40 && r as i32 > b as i32 + 40
+    };
+    assert!(reddish(100, 20), "the fill over the scene is hidden by the slab");
+    assert!(reddish(30, 22), "the front of the triangle is not drawn");
+    assert!(!reddish(170, 22), "the back of the triangle is drawn");
 }

@@ -4,9 +4,10 @@
 use glam::{DAffine3, DVec2, DVec3};
 use serde_json::{Value, json};
 use solidsketch_model::{EntityPath, Id};
+use solidsketch_tools::draw;
 use solidsketch_tools::journal::{Entry, Event, Failure, JobKind};
 use solidsketch_tools::tools::Preview;
-use solidsketch_tools::{Inference, Modifiers, PreviewLine, ToolInput};
+use solidsketch_tools::{Inference, Modifiers, ToolInput};
 
 pub fn v3(v: DVec3) -> Value {
     json!([v.x, v.y, v.z])
@@ -39,12 +40,80 @@ pub fn bounds((lo, hi): (DVec3, DVec3)) -> Value {
     json!({ "min": v3(lo), "max": v3(hi) })
 }
 
-fn line(l: &PreviewLine) -> Value {
-    json!({ "a": v3(l.a), "b": v3(l.b), "color": l.color, "bold": l.bold })
+fn color(c: draw::Color) -> Value {
+    match c {
+        draw::Color::Rgba(c) => json!(c),
+        draw::Color::Theme(t) => debug(&t),
+    }
 }
 
-fn lines(ls: &[PreviewLine]) -> Value {
-    Value::Array(ls.iter().map(line).collect())
+/// A pen, its defaults left out.
+fn pen(p: &draw::Pen) -> Value {
+    let mut out = serde_json::Map::new();
+    out.insert("color".into(), color(p.color));
+    out.insert("width".into(), json!(p.width));
+    if p.stipple != draw::Stipple::Solid {
+        out.insert("stipple".into(), debug(&p.stipple));
+    }
+    if p.layer != draw::Layer::Scene {
+        out.insert("layer".into(), debug(&p.layer));
+    }
+    if p.blended {
+        out.insert("blended".into(), json!(true));
+    }
+    if let Some(h) = p.hidden {
+        out.insert("hidden".into(), debug(&h.stipple));
+    }
+    Value::Object(out)
+}
+
+/// What a tool or the editor draws through the drawer (ARCHITECTURE.md §7 octies). Empty
+/// lists are left out.
+pub fn drawing(d: &draw::Drawing) -> Value {
+    let mut out = serde_json::Map::new();
+    let mut put = |k: &str, v: Vec<Value>| {
+        if !v.is_empty() {
+            out.insert(k.into(), Value::Array(v));
+        }
+    };
+    put("lines", d.lines.iter().map(|l| json!({ "a": v3(l.a), "b": v3(l.b), "pen": pen(&l.pen) })).collect());
+    put(
+        "fills",
+        d.fills
+            .iter()
+            .map(|f| {
+                json!({
+                    "corners": f.corners.iter().map(|c| v3(*c)).collect::<Vec<_>>(),
+                    "triangles": f.triangles,
+                    "color": color(f.brush.color),
+                    "layer": debug(&f.brush.layer),
+                })
+            })
+            .collect(),
+    );
+    put(
+        "boxes",
+        d.boxes
+            .iter()
+            .map(|b| {
+                json!({
+                    "frame": affine(&b.bounds.frame),
+                    "min": v3(b.bounds.lo),
+                    "max": v3(b.bounds.hi),
+                    "pen": pen(&b.pen),
+                    "corners": b.corners,
+                    "shell_on_top": b.shell_on_top,
+                })
+            })
+            .collect(),
+    );
+    put("grips", d.grips.iter().map(|q| json!({ "at": v3(q.at), "shape": debug(&q.shape) })).collect());
+    put("marks", d.marks.iter().map(|m| v3(*m)).collect());
+    put(
+        "lengths",
+        d.lengths.iter().map(|l| json!({ "a": v3(l.a), "b": v3(l.b), "text": l.text, "slot": l.slot, "hidden": l.hidden })).collect(),
+    );
+    Value::Object(out)
 }
 
 fn debug(v: &impl std::fmt::Debug) -> Value {
@@ -78,18 +147,6 @@ pub fn preview(p: &Preview) -> Value {
             out.insert(k.into(), v);
         }
     };
-    put("lines", lines(&p.lines), p.lines.is_empty());
-    put("scene_lines", lines(&p.scene_lines), p.scene_lines.is_empty());
-    put("xray", lines(&p.xray), p.xray.is_empty());
-    put("guides", Value::Array(p.guides.iter().map(|(g, _)| debug(g)).collect()), p.guides.is_empty());
-    put(
-        "labels",
-        Value::Array(
-            p.labels.iter().map(|l| json!({ "a": v3(l.a), "b": v3(l.b), "text": l.text, "slot": l.slot, "hidden": l.hidden })).collect(),
-        ),
-        p.labels.is_empty(),
-    );
-    put("marks", Value::Array(p.marks.iter().map(|m| v3(*m)).collect()), p.marks.is_empty());
     put("hover", json!(p.hover.map(|i| i.0)), p.hover.is_none());
     put("hover_solid", p.hover_solid.as_ref().map_or(Value::Null, path), p.hover_solid.is_none());
     put("picked_solid", p.picked_solid.as_ref().map_or(Value::Null, path), p.picked_solid.is_none());
@@ -121,16 +178,7 @@ pub fn preview(p: &Preview) -> Value {
         }),
         p.stretch.is_none(),
     );
-    put(
-        "points",
-        Value::Array(p.points.iter().map(|q| json!({ "at": v3(q.at), "shape": debug(&q.shape) })).collect()),
-        p.points.is_empty(),
-    );
-    put(
-        "fills",
-        Value::Array(p.fills.iter().map(|f| json!({ "corners": f.corners.iter().map(|c| v3(*c)).collect::<Vec<_>>() })).collect()),
-        p.fills.is_empty(),
-    );
+    put("drawing", drawing(&p.drawing), p.drawing.is_empty());
     put("hide_selection", json!(true), !p.hide_selection);
     put("erasing", ids(&p.erasing), p.erasing.is_empty());
     Value::Object(out)

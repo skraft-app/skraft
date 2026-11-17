@@ -56,10 +56,11 @@ use solidsketch_model::{Behavior, EntityPath, Id, Operation, Scope};
 use super::handle::square;
 use super::pick::Picker;
 use super::{
-    BLUE, Command, Cx, GREEN, Key, OptionChoice, OptionValue, PointShape, Preview, PreviewFill, PreviewLabel, PreviewLine, PreviewPoint,
-    RED, StretchPreview, Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key, dashed,
+    BLUE, Command, Cx, GREEN, Key, OptionChoice, OptionValue, PointShape, Preview, RED, StretchPreview, Tool, ToolInput, ToolKind,
+    ToolOption, alt_key, copy_key,
 };
 use crate::camera::Ray;
+use crate::draw::{Brush, Drawer, Pen};
 use crate::infer::{EdgeRef, InferKind, Inference};
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 
@@ -1110,31 +1111,32 @@ impl StretchTool {
     /// The interior handle taken (OCL's `_preview_stretch_start`): its segment bold, with arrows
     /// at both ends, over everything; where it is grabbed, a diamond when magnetized; held away
     /// from it, a dashed line from the point it is taken from.
-    fn preview_handle(&self, cx: &Cx<'_>, target: &Target, k: usize, h: Handle, p: &mut Preview) {
+    fn preview_handle(&self, cx: &Cx<'_>, target: &Target, k: usize, h: Handle, d: &mut Drawer<'_>) {
         let color = axis_color(k);
         let Some((_, a, b)) = self.handles(target, k).into_iter().find(|(i, _, _)| *i == h.index) else { return };
         let (a, b) = (target.world(a), target.world(b));
-        p.lines.push(PreviewLine { a, b, color, bold: true });
         let dir = target.dir(k);
         let across = dir.cross(cx.camera.forward()).try_normalize().unwrap_or(DVec3::ZERO);
-        for (tip, back) in [(a, dir), (b, -dir)] {
-            let s = cx.camera.world_per_pixel(cx.size, tip) * ARROW_PX;
-            for side in [-0.5, 0.5] {
-                p.lines.push(PreviewLine { a: tip, b: tip + back * s + across * side * s, color, bold: true });
-            }
-        }
+        let heads: Vec<(DVec3, DVec3)> = [(a, dir), (b, -dir)]
+            .into_iter()
+            .flat_map(|(tip, back)| {
+                let s = d.px(tip, ARROW_PX);
+                [-0.5, 0.5].map(|side| (tip, tip + back * s + across * side * s))
+            })
+            .collect();
+        d.pen(Pen::new(color).over().bold()).line(a, b).segments(heads);
         let at = target.world(h.at);
         let radius = if h.magnetized { 6.0 } else { 5.0 };
         let shape = if h.magnetized { PointShape::Diamond } else { PointShape::Round };
-        p.points.push(PreviewPoint { at, radius, fill: Some(color), stroke: Some(WHITE), shape });
+        d.grip(at, radius, Some(color), Some(WHITE), shape);
         if let Some(from) = h.from.map(|f| target.world(f)).filter(|f| (*f - at).length() > MIN) {
-            dashed(cx.camera, cx.size, &mut p.lines, from, at, color);
+            d.pen(Pen::new(color).over().dashed()).line(from, at);
         }
     }
 
     /// The grips' drawing: the axes between their grips (not while a cutter moves), the active
     /// axis's cutters (in the scene: hidden behind the part's faces).
-    fn preview_grips(&self, cx: &Cx<'_>, target: &Target, p: &mut Preview, moving: Option<(usize, usize)>) {
+    fn preview_grips(&self, cx: &Cx<'_>, target: &Target, d: &mut Drawer<'_>, moving: Option<(usize, usize)>) {
         let active = match moving {
             Some((k, _)) => Some(k),
             None => self.active(cx, target),
@@ -1144,24 +1146,18 @@ impl StretchTool {
                 let (a, b) = (target.world(target.grip(k, -1.0)), target.world(target.grip(k, 1.0)));
                 // Locked: grey, no grips, its padlock (in its colour when hovered).
                 if self.locked(k) {
-                    dashed(cx.camera, cx.size, &mut p.lines, a, b, AXIS_GREY);
+                    d.pen(Pen::new(AXIS_GREY).over().dashed()).line(a, b);
                     let hovered = self.over == Over::Padlock(k);
                     let fill = if hovered { axis_color(k) } else { GREY };
-                    p.points.push(PreviewPoint {
-                        at: b,
-                        radius: PADLOCK_RADIUS,
-                        fill: Some(fill),
-                        stroke: Some(WHITE),
-                        shape: PointShape::Padlock,
-                    });
+                    d.grip(b, PADLOCK_RADIUS, Some(fill), Some(WHITE), PointShape::Padlock);
                     continue;
                 }
                 let color = if active == Some(k) { axis_color(k) } else { GREY };
-                dashed(cx.camera, cx.size, &mut p.lines, a, b, if active == Some(k) { color } else { AXIS_GREY });
+                d.pen(Pen::new(if active == Some(k) { color } else { AXIS_GREY }).over().dashed()).line(a, b);
                 for (side, at) in [(-1.0, a), (1.0, b)] {
                     let fill = if self.over == (Over::Grip { k, side }) { color } else { WHITE };
                     let radius = if active == Some(k) { 5.0 } else { 4.0 };
-                    p.points.push(PreviewPoint { at, radius, fill: Some(fill), stroke: Some(color), shape: PointShape::Round });
+                    d.grip(at, radius, Some(fill), Some(color), PointShape::Round);
                 }
             }
         }
@@ -1170,7 +1166,7 @@ impl StretchTool {
         if moving.is_none()
             && let Over::Handle(h) = self.over
         {
-            self.preview_handle(cx, target, k, h, p);
+            self.preview_handle(cx, target, k, h, d);
         }
         let inflate = Self::inflate(cx, target);
         let color = axis_color(k);
@@ -1182,15 +1178,10 @@ impl StretchTool {
             let going = (picked && self.mode == Mode::Remove) || (dragged && !(SAME_CUT..=1.0 - SAME_CUT).contains(r));
             let c = target.plane(k, target.at(k, *r), inflate);
             let ink = if going { GREY } else { color };
-            p.fills.push(PreviewFill { corners: c.to_vec(), color: translucent(ink, if picked && !going { 0.6 } else { 0.3 }) });
-            for j in 0..4 {
-                if going || adding {
-                    dashed(cx.camera, cx.size, &mut p.scene_lines, c[j], c[(j + 1) % 4], ink);
-                } else {
-                    p.scene_lines.push(PreviewLine { a: c[j], b: c[(j + 1) % 4], color: ink, bold: picked });
-                }
-            }
-            p.points.push(PreviewPoint { at: (c[0] + c[2]) / 2.0, radius: 3.0, fill: Some(ink), stroke: None, shape: PointShape::Round });
+            d.brush(Brush::new(translucent(ink, if picked && !going { 0.6 } else { 0.3 }))).fill_polygon(&c);
+            let outline = if going || adding { Pen::new(ink).dashed() } else { Pen::new(ink).bold_if(picked) };
+            d.pen(outline).polygon(&c);
+            d.grip((c[0] + c[2]) / 2.0, 3.0, Some(ink), None, PointShape::Round);
         }
     }
 
@@ -1391,6 +1382,7 @@ impl Tool for StretchTool {
         // A target taken: its grips, cutters and preview show it, the selection's highlight
         // would only blur them (the Z cutters share its blue).
         p.hide_selection = true;
+        let draw = &mut cx.drawer(&mut p.drawing);
         match &self.state {
             // Taken before any input (the tool started on a selection, or the document changed
             // since): drawn with the cutters and locks kept for it.
@@ -1401,9 +1393,9 @@ impl Tool for StretchTool {
                     t.sync_cutters(cx, &target);
                     fresh = Some(t);
                 }
-                fresh.as_ref().unwrap_or(self).preview_grips(cx, &target, &mut p, None)
+                fresh.as_ref().unwrap_or(self).preview_grips(cx, &target, draw, None)
             }
-            State::Cutter { k, index, .. } => self.preview_grips(cx, &target, &mut p, Some((*k, *index))),
+            State::Cutter { k, index, .. } => self.preview_grips(cx, &target, draw, Some((*k, *index))),
             State::Stretch { k, side, handle, d, .. } => {
                 let (k, side, handle, d) = (*k, *side, *handle, *d);
                 let cuts: Vec<f64> = self.cutters[k].iter().map(|r| target.at(k, *r)).collect();
@@ -1422,20 +1414,14 @@ impl Tool for StretchTool {
                     grip
                 };
                 let (a, b) = (target.world(start), target.world(end));
-                dashed(cx.camera, cx.size, &mut p.lines, a, b, color);
+                draw.pen(Pen::new(color).over().dashed()).line(a, b);
                 for at in [a, b] {
-                    p.points.push(PreviewPoint { at, radius: 4.0, fill: Some(WHITE), stroke: Some(color), shape: PointShape::Round });
+                    draw.grip(at, 4.0, Some(WHITE), Some(color), PointShape::Round);
                 }
-                p.points.push(PreviewPoint {
-                    at: target.world(grip),
-                    radius: 4.0,
-                    fill: Some(color),
-                    stroke: None,
-                    shape: PointShape::Round,
-                });
+                draw.grip(target.world(grip), 4.0, Some(color), None, PointShape::Round);
                 // Too short: only while the length is typed.
                 let text = self.format(cx, self.measure(&target, k, d).abs());
-                p.labels.push(PreviewLabel { a, b, text, color, slot: Some(0), hidden: (b - a).length() <= MIN, ..Default::default() });
+                draw.label(a, b, text, color, Some(0), (b - a).length() <= MIN);
                 p.stretch = Some(StretchPreview {
                     context: target.context.clone(),
                     occurrences: target.occurrences.clone(),

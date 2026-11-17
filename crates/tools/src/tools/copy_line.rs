@@ -25,9 +25,7 @@ use super::handle::{
     minimums, mirror_badge, nearest_axis_on_screen, reflection, repeat_stepped,
 };
 use super::pick::Picker;
-use super::{
-    Command, Cx, Key, OptionValue, PointShape, Preview, PreviewLabel, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, copy_key,
-};
+use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
 
@@ -308,30 +306,28 @@ impl Tool for CopyLineTool {
             self.picker.preview(&mut p);
             return p;
         };
+        let draw = &mut cx.drawer(&mut p.drawing);
         let Some((end, k)) = self.end else {
-            draw_axes(cx, &mut p.scene_lines, &t, |_| false, None);
-            draw_boxes(cx, &mut p.scene_lines, &t, &[], [0.0; 4]);
+            draw_axes(draw, &t, |_| false, None);
+            draw_boxes(draw, &t, &[], [0.0; 4]);
             return p;
         };
         let d = line_def(&t, end, self.repeat, measure(cx, Measure::Outside));
         let copies = placements(&t, &d, self.repeat, cx.toggle(MIRROR));
         let color = axis_color(k);
-        draw_axes(cx, &mut p.scene_lines, &t, |j| j == k, None);
-        draw_boxes(cx, &mut p.scene_lines, &t, &copies, color);
+        draw_axes(draw, &t, |j| j == k, None);
+        draw_boxes(draw, &t, &copies, color);
         // The measure, dashed, seen through what lies between, its length at its middle.
         let (a, b) = (t.world(d.dps), t.world(d.dpe));
-        draw_measure(cx, &mut p.lines, a, b, color);
+        draw_measure(cx, draw, a, b, color);
         for at in [a, b] {
-            p.points.push(PreviewPoint { at, radius: 4.0, fill: Some(WHITE), stroke: Some(color), shape: PointShape::Round });
+            draw.grip(at, 4.0, Some(WHITE), Some(color), PointShape::Round);
         }
-        p.marks = vec![t.world(d.mps), t.world(d.mpe)];
-        let len = (b - a).length();
-        let text = vcb::format(len, cx.units());
-        p.labels.push(PreviewLabel { a, b, text, color, slot: Some(0), hidden: len <= 1e-9, ..Default::default() });
+        draw.mark(t.world(d.mps)).mark(t.world(d.mpe)).length_always(a, b, color, Some(0));
         // The mirror's badge past the copy (OCL's), in the axis's colour.
         if cx.toggle(MIRROR) && count(self.repeat) == 1 {
             let dir = t.frame.transform_vector3(d.u).normalize();
-            p.points.push(mirror_badge(cx, t.world(d.mpe), dir, half_along(t.half(), d.u), color));
+            mirror_badge(draw, t.world(d.mpe), dir, half_along(t.half(), d.u), color);
         }
         p.copies = copies;
         p.inference = self.snap.clone();

@@ -1412,7 +1412,7 @@ impl Editor {
     /// The lengths the tool writes over the scene (the app draws them), those measuring a value
     /// of the measurements box showing what `typed` in it gives that value (vcb.rs).
     pub fn labels(&self, typed: &str) -> Vec<tools::PreviewLabel> {
-        let mut labels = self.preview().labels;
+        let mut labels = self.preview().drawing.lengths;
         let values = match self.tool.vcb() {
             Some(v) if !typed.trim().is_empty() && self.length_typed(typed).is_none() => {
                 vcb::typed(&v, typed, &self.document().settings().units)
@@ -1433,11 +1433,11 @@ impl Editor {
 
     /// The points the tool marks with a cross (world), which the lengths keep clear of.
     pub fn marks(&self) -> Vec<DVec3> {
-        self.preview().marks
+        self.preview().drawing.marks
     }
 
     /// The round points the tool draws over everything (the app draws them).
     pub fn overlay_points(&self) -> Vec<tools::PreviewPoint> {
-        self.preview().points
+        self.preview().drawing.grips
     }
 }

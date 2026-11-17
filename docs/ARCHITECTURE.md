@@ -3529,6 +3529,133 @@ doing from the pilot's.
    refusal) and on the app (25 tools, the same, a real click on `ribbon:tool.move`, a
    screenshot as an image).
 
+## 7 octies. Drawing helpers: one Drawer for everything drawn over the model
+
+Decided on 2026-11-17 (questions / answers), after OpenCutList's Kuix 3D motifs
+(`lib/kuix/entity/3d/`: `Motif3d`, `EdgeMotif3d`, `BoxMotif3d` / `BoxCornersMotif3d`,
+`*FillMotif3d`, `Mesh`, `Points`, `AxesHelper`; the styles `line_stipple`, `on_top`,
+`show_hidden_lines`, `shell_on_top`). Before it, the helpers were scattered (`dashed` and
+`arrow_head` in `tools/mod.rs`; `line`, `segments`, `pixels`, `mark`, `label`, `container_box`
+in `shapes.rs`; `draw_box(es)`, `draw_axes`, `draw_measure` in `handle.rs`; another `label` in
+`measure.rs`; `Editor::dashed`), the pixel-to-model conversion redone in seven files, dashes cut
+on the CPU (up to a thousand pieces a segment) though the renderer dashes on the GPU, and
+`viewport.rs` choosing the look of each of the View's fields.
+
+- **Immediate, not retained.** `crates/tools/src/draw.rs`: a `Drawer` over the tool's `Cx` (or
+  the editor), a frame stack (`in_frame`) and the output, with Kuix's primitives. A tool's
+  preview is already rebuilt at each view, so retained motifs would save nothing; what depends
+  on pixels (arrow heads, corners of 20 px, the faces turned to the eye) stays computed in the
+  tools crate, with the camera; tests read what is drawn. Kuix gives the vocabulary and the
+  styles, not its retained scene.
+- **One output, `Drawing`**: strokes, fills, boxes, grips (`PreviewPoint`'s shapes), marks,
+  lengths. Mostly flat lines and polygons, styled; higher-level primitives where the GPU gains:
+  **boxes** go out as boxes, drawn instanced (`render::BoxOutline`), as the selection's.
+- **Everything goes through it**: a tool's preview (strokes, fills, grips, marks, lengths — one
+  `length` for both former labels —, `d.px(p, n)` for pixels to model), and the editor's own
+  drawings (the open part's bases and turned axes, the inference's line, the guides, the
+  context's axes, the selection and context boxes). `Preview` and `View` carry a `Drawing`; the
+  state fields (hover, ghost, copies, stretch, section…) are not drawings and stay out.
+  `viewport.rs` only translates.
+- **Primitives** (strokes and fills): line / edge (arrows at either end, Kuix's px size),
+  polyline, segments, rectangle, polygon, circle / arc / disc, box (corners option, px, clamped to
+  half the edge; `shell_on_top`), box fill, arrow, chevron, axes, cross, grip point, free
+  triangles (Kuix's `Mesh`). A primitive may draw both its outline and its fill.
+- **Style**: colour — linear RGBA, or a theme colour named (`Color::Theme(Guide)`…), resolved by
+  the app with the current palette and mode —; width in points (`NORMAL` 1.5, `BOLD` 3);
+  stipple; layer; a blended mode (drawn over what it does not hide at its alpha, no depth
+  written: the faded guides).
+- **Layers**: `Scene` (depth-tested, the default), `Over` (Kuix's `on_top`), and `Scene` with its
+  hidden part shown in its own style (Kuix's `show_hidden_lines`: long dashes by default, its
+  colour and width optional) — the former `xray`. `Preview`'s three line lists become one list
+  of styled strokes. Fills take the same layers.
+- **Stipples**: Kuix's five — solid, dotted, short dashes, long dashes, dash-dot-dash — made by
+  the line shader (a pattern of up to four lengths, on / off, in points, and a phase), with an
+  option anchoring a dash at both ends (the period adjusted a little on screen, as the CPU
+  dashes kept a box's corners drawn). No more dashes cut on the CPU.
+- **Boxes in front over the scene**: `shell_on_top` on by default, as Kuix — the copy tools',
+  the handles', « Dessiner dans »'s container: the edges of the faces turned to the eye drawn
+  over the scene, the back ones hidden. Off for the selection and context boxes (they wrap what
+  they mark; a large selection would cover the view). Which faces face the eye is decided by
+  the instanced boxes' shader (normal against the ray through the face's centre, edge-on not
+  exposed), no CPU cost.
+- **Renderer additions**: the stipple patterns and anchoring; fills over everything (a pass
+  without depth test); optional back-face culling (a translucent box's back and front not
+  adding up); triangles as input besides convex polygons; boxes with `shell_on_top`; named
+  theme colours resolved by the app.
+- **Order**: the Drawer and renderer additions; the tools one by one (shapes, prism, profile,
+  measure, rotate, mover, handle, copy line / grid, distribute, stretch, section); the editor's
+  drawings; the guides, axes and boxes. Appearance unchanged but for the boxes above; renderer
+  unit tests for the new shader features, the tools' tests moved to `Drawing`; a visual check
+  in the app at the end.
+- **Step 1, built (2026-11-17)**: `draw.rs` (`Pen`, `Brush`, `Stipple` with its patterns —
+  long dashes the guides' 6 pt, short 3, dotted 1.5 / 3, dash-dot 6 / 3 / 1.5 / 3 —, `Layer`,
+  `Hidden`, `Color::Theme`, `Drawing`, `Drawer` with lines, edges with arrow heads,
+  polylines, rectangles, circles, arcs, boxes, arrows, chevrons, the fills, `axes`, grips,
+  marks, lengths); `Cx::drawer`; `Preview.drawing` and `View.drawing`, the editor's lengths,
+  marks and grips taking the drawing's too; `viewport.rs` translating it (`Translated`,
+  `theme_color`). Renderer: `Dash { pattern, phase, anchored }` (the shader's `gap`),
+  `BoxOutline { corners, shell_on_top, over }` (`vs_box_front`, `face_exposed`), `Fill
+  { triangles, over, cull_back }` (four fill pipelines), `Frame.hidden_lines` instead of
+  `xray` (the app puts the visible part with the depth-tested lines). No tool draws through it
+  yet: the app looks the same.
+- **Step 2, shapes (2026-11-17)**: Box, Cylinder, Prism and Turn draw through `Cx::axes_drawer`
+  (the drawer in the context's axes); `shapes.rs`'s `pixels`, `label`, `mark`, `line`,
+  `segments` gone (`pen(color, dash)`: over the scene, dashed anchored). Sampled curves
+  (circles, fillets, arcs, the turned mirror) go through `Drawer::curve`, their dashes running
+  on from chord to chord (before: each chord dashed alone — solid when short —, a dashed circle
+  every other chord). « Dessiner dans »'s container: two boxes, dotted (OCL's stipple, dashed
+  before) and its corners, both `shell_on_top`, the renderer choosing the front edges. The
+  control protocol's `tool.state` gives the preview's `drawing` (lines with their pen, fills,
+  boxes, grips, marks, lengths).
+- **Step 2, profile (2026-11-17)**: the Profile tool draws through the drawer (the outline bold,
+  its cap and sides, where it was dashed — now closed: its last side was missing —, the fillet
+  stubs, its grips, its length); `Drawer::length_always` for a length written however short on
+  screen (the grip taken's, as before).
+- **Step 2, measure (2026-11-17)**: the tape draws through the drawer in the world's axes: the
+  curve referred to (bold magenta over the scene, an arc as a curve; an axis bold in the scene),
+  the measure or offset `x_ray` (plain where seen, long dashes where hidden), its heads over the
+  scene (`Drawer::arrow_heads`: the heads of `edge` alone), its length, its mark. Its guides stay
+  `Preview.guides` until the guides' step.
+- **Step 2, rotate (2026-11-17)**: the protractor (its circle a curve, its ticks), the radii
+  dashed over the scene, the angle (`Drawer::label`: any text along a segment, the lengths'
+  helpers written on it) and the centre's mark through the drawer.
+- **Step 2, move (2026-11-17)**: the move's line `x_ray`, its head over the scene, its length
+  (`length_always`, written however short, as before), the start's mark.
+- **Step 2, handle and the copy tools (2026-11-17)**: `handle.rs`'s helpers take the drawer:
+  `draw_box` / `draw_boxes` go out as instanced boxes, dashed, their fronts over the scene
+  (`shell_on_top`, decided: they were wholly hidden behind faces), still no more than 100;
+  `draw_axes` in the scene, bold when locked, heads at both ends; `draw_measure` dashed over the
+  scene, bold under an axis lock; `mirror_badge` a grip. Copy along a line, copy as a grid and
+  distribute draw through them (grips, marks, lengths `length_always`; distribute's grey
+  dashed lines and its bold ray with its head). `tools::arrow_head` gone.
+- **Step 2, stretch (2026-11-17)**: the grips' axes (dashed over the scene, grey when locked
+  with their padlock), the grips, the interior handle (bold over the scene, its chevrons, its
+  grip, the dashed line from where it is taken), the cutters (translucent fills in the scene,
+  their outline dashed when going or being added, bold when picked, their centre), the measure,
+  its grips and its length (`Drawer::label`, the tool's own formatting) through the drawer.
+- **Step 2, section, and step 2 closed (2026-11-17)**: the section plane's outline and normal
+  through the drawer. Every tool now draws only through it: `Preview`'s `lines`,
+  `scene_lines`, `xray`, `fills`, `labels`, `marks`, `points` are gone, with `PreviewLine`,
+  `PreviewFill` and `tools::dashed`; `View`'s `overlay`, `scene_lines`, `xray`, `fills` too —
+  the editor's dashed line from a tracked point to the inference (taken from step 3) drawn into
+  `View.drawing`. `tool.state` gives the preview's `drawing` only.
+- **Step 3, the editor's drawings (2026-11-17)**: the open part's profiled bodies' bottom caps
+  (bold, as curves) and its turned bodies' axes (long dashes) drawn into `View.drawing` in the
+  theme's edge colour (`ThemeColor::Edge`, resolved by the app); `View.bases` and
+  `View.base_axes` gone. The tool's drawing is appended after the editor's.
+- **Step 4, guides, axes and boxes (2026-11-17)**: the editor draws the selection's boxes
+  (`ThemeColor::Selected`, dashed, wholly in the scene: `Drawer::oriented_boxes`, room made at
+  once, `place`d by a move's ghost) and the context's (`ThemeColor::ContextBox`); the guides
+  (`Drawer::guide`: a shape's strokes, each stipple at its phase; `Pen::guide`: long dashes,
+  blended when translucent) in `Guide`, `Hover`, `Selected` or `FadedGuide` (blended); the
+  context's axes when shown (or a part open), their negative halves at 0.35. The tools'
+  previewed guides go through the same `Drawer::guide` (`Preview.guides` gone). `View`'s
+  `selection_boxes`, `context_box`, `guides`, `faded_guides`, `selected_guides`,
+  `hovered_guides`, `preview_guides`, `axes` gone, and the renderer's axis colours:
+  `viewport.rs` only translates the `Drawing` (and still tells the grid where the axes are).
+  Bench `bench_array` (10 000 parts selected, `view()`): 0.21 ms kept, main's 0.18.
+  Everything drawn over the model now goes through the drawer.
+
 ## 8. File
 
 Versioned JSON (`{"format": "solidsketch", "version": 1, …}`): serde serialisation of the
