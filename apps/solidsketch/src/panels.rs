@@ -181,10 +181,10 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             };
             let scope = editor.part_scope();
             let scopes = [
-                (Scope::All, Segment::new(&all, &t!("tool.boolean.option.all_tip"), None, scope == Scope::All)),
+                (Scope::All, Segment::new(&all, &t!("tool.boolean.option.all_tip"), Some("scope_all"), scope == Scope::All)),
                 (
                     Scope::This,
-                    Segment::new(&t!("tool.boolean.option.this"), &t!("tool.boolean.option.this_tip"), None, scope == Scope::This),
+                    Segment::new(&t!("tool.boolean.option.this"), &t!("tool.boolean.option.this_tip"), Some("scope_this"), scope == Scope::This),
                 ),
             ];
             let (values, segments): (Vec<_>, Vec<_>) = scopes.into_iter().unzip();
