@@ -549,9 +549,10 @@ mod tests {
         assert_eq!(s["tool"], "box", "{s}");
         assert!(s["vcb"].is_object(), "{s}");
         // The rectangle being drawn, its sides written.
-        let labels: Vec<&str> = s["preview"]["labels"].as_array().unwrap().iter().map(|l| l["text"].as_str().unwrap()).collect();
+        let drawing = &s["preview"]["drawing"];
+        let labels: Vec<&str> = drawing["lengths"].as_array().unwrap().iter().map(|l| l["text"].as_str().unwrap()).collect();
         assert_eq!(labels, ["300", "200"], "{s}");
-        assert_eq!(s["preview"]["lines"].as_array().unwrap().len(), 4, "{s}");
+        assert_eq!(drawing["lines"].as_array().unwrap().len(), 4, "{s}");
         assert!(s["preview"].as_object().is_some_and(|p| !p.is_empty()), "{s}");
     }
 

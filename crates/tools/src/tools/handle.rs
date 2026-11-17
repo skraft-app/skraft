@@ -8,10 +8,8 @@ use glam::{DAffine3, DMat3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::{Body, EntityPath, Id, Occurrence, Part};
 
-use super::{
-    BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, PreviewLine, PreviewPoint, RED, ToolInput, ToolOption, arrow_head,
-    copy_key, dashed,
-};
+use super::{BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, RED, ToolInput, ToolOption, copy_key};
+use crate::draw::{Drawer, Ends, Pen};
 use crate::vcb::Repeat;
 
 /// Shift with `+` / `−` (OCL's SmartHandle): the count one more or one fewer, never below one,
@@ -331,15 +329,9 @@ pub(super) fn reflection(at: DVec3, n: DVec3) -> DAffine3 {
 
 /// The mirror's badge (OCL's): past the point `at` (world) along the unit `dir`, `reach` (world)
 /// then 40 pixels further, on `background`.
-pub(super) fn mirror_badge(cx: &Cx<'_>, at: DVec3, dir: DVec3, reach: f64, background: [f32; 4]) -> PreviewPoint {
-    let gap = cx.camera.world_per_pixel(cx.size, at) * BADGE_GAP_PX;
-    PreviewPoint {
-        at: at + dir * (reach + gap),
-        radius: BADGE_PX,
-        fill: Some(background),
-        stroke: Some([1.0, 1.0, 1.0, 1.0]),
-        shape: PointShape::Mirror,
-    }
+pub(super) fn mirror_badge(d: &mut Drawer<'_>, at: DVec3, dir: DVec3, reach: f64, background: [f32; 4]) {
+    let gap = d.px(at, BADGE_GAP_PX);
+    d.grip(at + dir * (reach + gap), BADGE_PX, Some(background), Some([1.0, 1.0, 1.0, 1.0]), PointShape::Mirror);
 }
 
 /// The axis `k`'s colour.
@@ -349,46 +341,40 @@ pub(super) fn axis_color(k: usize) -> [f32; 4] {
 
 /// A measure line `a`–`b`, dashed, over everything (seen through what lies between); bold
 /// while an axis is locked.
-pub(super) fn draw_measure(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, a: DVec3, b: DVec3, color: [f32; 4]) {
-    let from = out.len();
-    dashed(cx.camera, cx.size, out, a, b, color);
-    let bold = cx.axis_lock.is_some();
-    for l in &mut out[from..] {
-        l.bold = bold;
-    }
+pub(super) fn draw_measure(cx: &Cx<'_>, d: &mut Drawer<'_>, a: DVec3, b: DVec3, color: [f32; 4]) {
+    d.pen(Pen::new(color).over().dashed().bold_if(cx.axis_lock.is_some())).line(a, b);
 }
 
-/// The box `lo`–`hi` placed by `to_world`, dotted, in the scene.
-pub(super) fn draw_box(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, to_world: DAffine3, lo: DVec3, hi: DVec3, color: [f32; 4]) {
-    let c = corners(lo, hi).map(|p| to_world.transform_point3(p));
-    for (i, j) in [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)] {
-        dashed(cx.camera, cx.size, out, c[i], c[j], color);
-    }
+/// The box `lo`–`hi` placed by `to_world`, dashed, in the scene, its front over it (OCL's
+/// `shell_on_top`).
+pub(super) fn draw_box(d: &mut Drawer<'_>, to_world: DAffine3, lo: DVec3, hi: DVec3, color: [f32; 4]) {
+    d.in_frame(to_world, |d| {
+        d.pen(Pen::new(color).dashed()).box_(lo, hi);
+    });
 }
 
 /// The boxes of the copies at the world transforms `copies` (not too many), in `color`, and
 /// the source's in ink.
-pub(super) fn draw_boxes(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, target: &Target, copies: &[DAffine3], color: [f32; 4]) {
-    draw_box(cx, out, target.frame, target.lo, target.hi, super::INK);
+pub(super) fn draw_boxes(d: &mut Drawer<'_>, target: &Target, copies: &[DAffine3], color: [f32; 4]) {
+    draw_box(d, target.frame, target.lo, target.hi, super::INK);
     if copies.len() <= MAX_BOXES {
         for c in copies {
-            draw_box(cx, out, *c * target.frame, target.lo, target.hi, color);
+            draw_box(d, *c * target.frame, target.lo, target.hi, color);
         }
     }
 }
 
-/// The axes of the target through its centre, past its box, with arrows at both ends; but
-/// those `skip` says (OCL's `_preview_edit_axes`). `bold` for a locked one.
-pub(super) fn draw_axes(cx: &Cx<'_>, out: &mut Vec<PreviewLine>, target: &Target, skip: impl Fn(usize) -> bool, locked: Option<usize>) {
+/// The axes of the target through its centre, past its box, in the scene, with arrows at both
+/// ends; but those `skip` says (OCL's `_preview_edit_axes`). Bold for a locked one.
+pub(super) fn draw_axes(d: &mut Drawer<'_>, target: &Target, skip: impl Fn(usize) -> bool, locked: Option<usize>) {
     let c = target.world(target.center());
-    let pad = cx.camera.world_per_pixel(cx.size, c) * AXES_PX;
+    let pad = d.px(c, AXES_PX);
     for k in (0..3).filter(|k| !skip(*k)) {
         let reach = target.half()[k] + pad;
         let (a, b) = (c - target.dir(k) * reach, c + target.dir(k) * reach);
         let color = axis_color(k);
-        out.push(PreviewLine { a, b, color, bold: locked == Some(k) });
-        out.extend(arrow_head(cx.camera, cx.size, a, b, color));
-        out.extend(arrow_head(cx.camera, cx.size, b, a, color));
+        d.pen(Pen::new(color).bold_if(locked == Some(k))).line(a, b);
+        d.pen(Pen::new(color)).arrow_heads(a, b, Ends::Both);
     }
 }
 

@@ -41,12 +41,10 @@ use solidsketch_i18n::t;
 use solidsketch_model::kernel::profile::{self, Corner, Side};
 use solidsketch_model::{BodyProfile, EntityPath, Id, Operation};
 
-use super::{
-    Command, Cx, INK, Key, MAGENTA, OptionValue, PICK, PointShape, Preview, PreviewLabel, PreviewLine, PreviewPoint, Tool, ToolInput,
-    ToolKind, ToolOption, copy_key, dashed,
-};
+use super::{Command, Cx, INK, Key, MAGENTA, OptionValue, PICK, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use crate::draw::{Drawer, Drawing, Pen};
 use crate::infer::Inference;
-use crate::vcb::{self, PointRef, Vcb, VcbKind, VcbValue};
+use crate::vcb::{PointRef, Vcb, VcbKind, VcbValue};
 
 /// How near a grip (pixels) the cursor takes it.
 const GRIP_PX: f64 = 10.0;
@@ -309,45 +307,38 @@ impl ProfileTool {
     /// The length the grip taken changes, as the measurements box takes it ([`Tool::vcb`]):
     /// the way a corner or a side went (dashed), an arc's bulge, a fillet's or a circle's
     /// radius. `b` is the profile now.
-    fn labels(&self, cx: &Cx<'_>, b: &BodyProfile, inset: f64, lines: &mut Vec<PreviewLine>) -> Vec<PreviewLabel> {
-        let State::Moving { grip, from, px, .. } = &self.state else { return Vec::new() };
+    fn lengths(&self, cx: &Cx<'_>, d: &mut Drawer<'_>, b: &BodyProfile, inset: f64) {
+        let State::Moving { grip, from, px, .. } = &self.state else { return };
         let px = *px;
-        let label = |a: DVec3, c: DVec3, color| {
-            let len = a.distance(c);
-            let text = vcb::format(len, cx.units());
-            PreviewLabel { a: cx.to_world(a), b: cx.to_world(c), text, color, slot: Some(0), hidden: len < MIN, ..Default::default() }
-        };
         let (p, z) = (&b.profile, base_z(b));
         let n = p.len();
-        let label = match *grip {
+        let dashed = Pen::new(INK).over().dashed();
+        match *grip {
             Grip::Corner(_) | Grip::Side(_) => {
                 let to = self.grip_now(*grip, b, from.z);
-                dashed(cx.camera, cx.size, lines, cx.to_world(*from), cx.to_world(to), INK);
-                label(*from, to, INK)
+                d.pen(dashed).line(*from, to).length_always(*from, to, INK, Some(0));
             }
             Grip::Bulge(i) => {
                 let s = Side::new(p[i].p, p[(i + 1) % n].p, p[i].bulge);
-                label(((s.a() + s.b()) / 2.0).extend(z), s.at(0.5).extend(z), MAGENTA)
+                d.length_always(((s.a() + s.b()) / 2.0).extend(z), s.at(0.5).extend(z), MAGENTA, Some(0));
             }
             // From the fillet's middle to its centre, on the bisector.
             Grip::Fillet(i) => {
                 let r = p[i].fillet;
                 let m = profile::fillet_middle(p, i, r).unwrap_or(p[i].p);
                 let u = profile::fillet_bisector(p, i).unwrap_or_default();
-                label(m.extend(z), (m + u * r).extend(z), MAGENTA)
+                d.length_always(m.extend(z), (m + u * r).extend(z), MAGENTA, Some(0));
             }
             // From the centre towards the cursor, the radius long, dashed.
             Grip::Radius => {
-                let Some((c, r)) = profile::circle(p) else { return Vec::new() };
+                let Some((c, r)) = profile::circle(p) else { return };
                 let toward = px
                     .and_then(|px| cx.axes_ray(px).hit_plane(DVec3::new(0.0, 0.0, z), DVec3::Z))
                     .and_then(|q| (q.truncate() - c).try_normalize());
                 let to = toward.map_or(grip_at(b, Grip::Radius, inset), |u| (c + u * r).extend(z));
-                dashed(cx.camera, cx.size, lines, cx.to_world(c.extend(z)), cx.to_world(to), INK);
-                label(c.extend(z), to, INK)
+                d.pen(dashed).line(c.extend(z), to).length_always(c.extend(z), to, INK, Some(0));
             }
-        };
-        vec![label]
+        }
     }
 
     fn grip_now(&self, grip: Grip, now: &BodyProfile, z: f64) -> DVec3 {
@@ -557,36 +548,30 @@ impl ProfileTool {
             State::Moving { now, grip, .. } => (now.clone(), Some(*grip)),
             _ => (part.clone(), None),
         };
-        let mut lines = Vec::new();
-        let mut points = Vec::new();
-        let line = |a: DVec3, c: DVec3, color| PreviewLine { a: cx.to_world(a), b: cx.to_world(c), color, bold: false };
+        let mut drawing = Drawing::default();
+        let d = &mut cx.axes_drawer(&mut drawing);
         // The outline where it lies (its fillets made arcs), and on the top cap with the sides
         // while moving.
         let outline = b.outline();
-        let ring = |z: f64| {
-            let pts = profile::sample(&outline, STEP);
-            let n = pts.len();
-            (0..n).map(move |i| (pts[i].extend(z), pts[(i + 1) % n].extend(z))).collect::<Vec<_>>()
-        };
+        let ring = |z: f64| profile::sample(&outline, STEP).into_iter().map(|p| p.extend(z)).collect::<Vec<_>>();
         let z = base_z(&b);
-        lines.extend(ring(z).into_iter().map(|(a, c)| PreviewLine { bold: true, ..line(a, c, PICK) }));
+        let pick = Pen::new(PICK).over();
+        d.pen(pick.bold()).curve(&ring(z), true);
         // While moving, an extrusion's top cap and sides too.
         if let (Some(_), Some((z0, height))) = (grip, b.extrusion()) {
             let other = z0 + height;
-            lines.extend(ring(other).into_iter().map(|(a, c)| line(a, c, PICK)));
-            lines.extend(outline.iter().map(|c| line(c.p.extend(z), c.p.extend(other), PICK)));
+            d.pen(pick).curve(&ring(other), true);
+            d.segments(outline.iter().map(|c| (c.p.extend(z), c.p.extend(other))));
         }
         // While moving, where it was: the outline as it is, dashed.
+        let dashed = Pen::new(INK).over().dashed();
         if grip.is_some() {
-            for (a, c) in profile::sample(&part.outline(), STEP).windows(2).map(|w| (w[0], w[1])) {
-                let zp = base_z(&part);
-                dashed(cx.camera, cx.size, &mut lines, cx.to_world(a.extend(zp)), cx.to_world(c.extend(zp)), INK);
-            }
+            let zp = base_z(&part);
+            let was: Vec<DVec3> = profile::sample(&part.outline(), STEP).into_iter().map(|p| p.extend(zp)).collect();
+            d.pen(dashed).curve(&was, true);
         }
         // A rounded corner's grip is off the outline: its sides run on to it, dashed.
-        for (a, c) in fillet_stubs(&b) {
-            dashed(cx.camera, cx.size, &mut lines, cx.to_world(a.extend(z)), cx.to_world(c.extend(z)), INK);
-        }
+        d.pen(dashed).segments(fillet_stubs(&b).into_iter().map(|(a, c)| (a.extend(z), c.extend(z))));
         let over = match &self.state {
             State::Over(g) => Some(*g),
             State::Moving { grip, .. } => Some(match self.lone(*grip) {
@@ -597,7 +582,7 @@ impl ProfileTool {
         };
         let inset = inset(cx, &b);
         for g in self.grips_of(&b) {
-            let at = cx.to_world(grip_at(&b, g, inset));
+            let at = grip_at(&b, g, inset);
             let hot = over == Some(g);
             // Free, a corner and a side's middle move alone: round; else a corner keeps its
             // sides' lines (a square) and a side moves across itself (a bar along it).
@@ -607,24 +592,18 @@ impl ProfileTool {
                 Grip::Corner(_) => (4.0, PointShape::Square, INK),
                 Grip::Side(i) => {
                     let (a, c) = (b.profile[i].p.extend(z), b.profile[(i + 1) % b.profile.len()].p.extend(z));
-                    (2.5, PointShape::Bar { along: (cx.to_world(c) - cx.to_world(a)) / 2.0 }, INK)
+                    (2.5, PointShape::Bar { along: (c - a) / 2.0 }, INK)
                 }
                 Grip::Bulge(_) => (5.0, PointShape::Diamond, MAGENTA),
                 Grip::Radius => (5.0, PointShape::Diamond, INK),
                 Grip::Fillet(_) => (4.0, PointShape::Round, MAGENTA),
             };
             let radius = if hot { radius + 2.0 } else { radius };
-            points.push(PreviewPoint {
-                at,
-                radius,
-                fill: Some(if hot { PICK } else { [1.0, 1.0, 1.0, 1.0] }),
-                stroke: Some(stroke),
-                shape,
-            });
+            d.grip(at, radius, Some(if hot { PICK } else { [1.0, 1.0, 1.0, 1.0] }), Some(stroke), shape);
         }
-        let labels = self.labels(cx, &b, inset, &mut lines);
+        self.lengths(cx, d, &b, inset);
         let tip = self.free.then(|| t!("tool.profile.free"));
-        Preview { lines, points, labels, inference: self.snap.clone(), tip, hide_selection: true, ..Default::default() }
+        Preview { drawing, inference: self.snap.clone(), tip, hide_selection: true, ..Default::default() }
     }
 }
 

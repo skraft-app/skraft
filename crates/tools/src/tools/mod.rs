@@ -162,16 +162,6 @@ pub enum Command {
     },
 }
 
-/// A line a tool previews, in world coordinates (linear RGBA).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PreviewLine {
-    pub a: DVec3,
-    pub b: DVec3,
-    pub color: [f32; 4],
-    /// Drawn bolder: the edge a tool refers to (the tape's guide offset from it).
-    pub bold: bool,
-}
-
 /// A length a tool writes by what it measures (a side being drawn): the side `a`–`b` (world),
 /// written at its middle, or slid along it or off it to keep clear of what matters (the app
 /// places it).
@@ -199,21 +189,6 @@ pub struct PreviewLabel {
 /// What a tool shows while it works.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Preview {
-    /// Lines drawn over the scene.
-    pub lines: Vec<PreviewLine>,
-    /// Lines drawn in the scene: hidden behind faces (the outlines of the fills).
-    pub scene_lines: Vec<PreviewLine>,
-    /// Lines seen through the faces: plain where seen, dashed where faces hide them (a move's
-    /// line).
-    pub xray: Vec<PreviewLine>,
-    /// Guides previewed, with their colour: drawn dashed in the scene, hidden behind faces as
-    /// the document's guides.
-    pub guides: Vec<(crate::guides::Stroke, [f32; 4])>,
-    /// Lengths written over the scene.
-    pub labels: Vec<PreviewLabel>,
-    /// Points marked with a cross (world; the app draws a `+` on the screen), which the lengths
-    /// keep clear of.
-    pub marks: Vec<DVec3>,
     /// The entity of the active context under the cursor.
     pub hover: Option<Id>,
     /// A solid anywhere in the scene under the cursor (tools that reach across contexts).
@@ -238,13 +213,12 @@ pub struct Preview {
     pub section: Option<Section>,
     /// A part drawn stretched (§6 sexies).
     pub stretch: Option<StretchPreview>,
-    /// Round points drawn over everything (grips), after the fills.
-    pub points: Vec<PreviewPoint>,
-    /// Translucent polygons drawn in the scene: hidden behind faces (cutting planes).
-    pub fills: Vec<PreviewFill>,
     /// The selected occurrences drawn as any others: the tool shows what it took its own way
     /// (the stretch tool's grips and cutters, whose colours the selection's would blur).
     pub hide_selection: bool,
+    /// What the tool draws, through a [`crate::draw::Drawer`] (§7 octies): its lines, fills,
+    /// boxes, grips, marks and lengths.
+    pub drawing: crate::draw::Drawing,
     /// Entities of the active context drawn as ghosts: what the eraser would take.
     pub erasing: Vec<Id>,
     /// The parts at any depth the eraser would take (« Parts », §6 septendecies).
@@ -280,14 +254,6 @@ pub enum PointShape {
     /// The mirror's badge (OpenCutList's): a square in `fill`, two triangles facing a dashed
     /// axis in `stroke` (the copy tools' mirror, §6 duodecies).
     Mirror,
-}
-
-/// A flat convex polygon a tool draws in the scene, hidden behind faces (world corners; linear
-/// RGBA, its alpha its opacity).
-#[derive(Clone, Debug, PartialEq)]
-pub struct PreviewFill {
-    pub corners: Vec<DVec3>,
-    pub color: [f32; 4],
 }
 
 /// What a tool previews stretched: the occurrences `occurrences` of the context `context`, and
@@ -842,6 +808,16 @@ impl Cx<'_> {
             })
     }
 
+    /// A drawer into `out` for this view (§7 octies), in the world's axes.
+    pub fn drawer<'d>(&'d self, out: &'d mut crate::draw::Drawing) -> crate::draw::Drawer<'d> {
+        crate::draw::Drawer::new(self.camera, self.size, self.units(), out)
+    }
+
+    /// The same, in the axes' coordinates (those of the context, [`Self::to_world`]).
+    pub fn axes_drawer<'d>(&'d self, out: &'d mut crate::draw::Drawing) -> crate::draw::Drawer<'d> {
+        self.drawer(out).with_frame(self.axes())
+    }
+
     /// The document's units (lengths typed in the measurements box).
     pub fn units(&self) -> &Units {
         &self.doc.settings().units
@@ -1325,40 +1301,3 @@ pub const BLUE: [f32; 4] = solidsketch_theme::AXIS_Z;
 pub const MAGENTA: [f32; 4] = solidsketch_theme::FREE_LINE;
 /// The highlight colour of picked things.
 pub const PICK: [f32; 4] = solidsketch_theme::PICK;
-
-/// How long an arrow's head is on screen (pixels).
-pub const ARROW_PX: f64 = 10.0;
-
-/// The head of an arrow from `a` to `b` (world), at `b`: two strokes [`ARROW_PX`] long on
-/// screen, in the plane facing the eye through `b`. None when the arrow is too short on screen
-/// for one (seen end on).
-pub fn arrow_head(camera: &Camera, size: DVec2, a: DVec3, b: DVec3, color: [f32; 4]) -> Vec<PreviewLine> {
-    let (Some(pa), Some(pb)) = (camera.project(a, size), camera.project(b, size)) else { return Vec::new() };
-    let d = pb - pa;
-    if d.length() < 2.0 * ARROW_PX {
-        return Vec::new();
-    }
-    let u = d.normalize();
-    let n = DVec2::new(-u.y, u.x);
-    [n, -n]
-        .into_iter()
-        .filter_map(|side| camera.ray(pb - u * ARROW_PX + side * ARROW_PX * 0.45, size).hit_plane(b, camera.forward()))
-        .map(|p| PreviewLine { a: p, b, color, bold: false })
-        .collect()
-}
-
-/// A dashed line from `a` to `b` (world; dashes about as long as the guides', at the depth of
-/// its middle), dashes at both ends.
-pub fn dashed(camera: &Camera, size: DVec2, out: &mut Vec<PreviewLine>, a: DVec3, b: DVec3, color: [f32; 4]) {
-    let len = (b - a).length();
-    let step = camera.world_per_pixel(size, (a + b) * 0.5) * crate::guides::DASH_PX;
-    if len < 1e-12 || step <= 0.0 {
-        return;
-    }
-    // Odd, so that a dash starts and ends the line (a box's corners stay drawn).
-    let n = ((len / step).ceil() as usize).min(1000) | 1;
-    for k in (0..n).step_by(2) {
-        let (t0, t1) = (k as f64 / n as f64, ((k + 1) as f64 / n as f64).min(1.0));
-        out.push(PreviewLine { a: a.lerp(b, t0), b: a.lerp(b, t1), color, bold: false });
-    }
-}

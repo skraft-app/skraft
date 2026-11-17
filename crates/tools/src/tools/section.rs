@@ -8,7 +8,8 @@ use glam::{DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::{Operation, Section};
 
-use super::{Command, Cx, Preview, PreviewLine, Tool, ToolInput, ToolKind};
+use super::{Command, Cx, Preview, Tool, ToolInput, ToolKind};
+use crate::draw::{Drawing, Pen};
 use crate::vcb::{Vcb, VcbKind, VcbValue};
 
 #[derive(Clone, Copy, Debug)]
@@ -148,12 +149,10 @@ impl Tool for SectionTool {
                 let c = |a: f64, b: f64| origin + (u * a + v * b) * half;
                 vec![c(-1.0, -1.0), c(1.0, -1.0), c(1.0, 1.0), c(-1.0, 1.0)]
             });
-        let n = corners.len();
-        let mut lines: Vec<PreviewLine> =
-            (0..n).map(|k| PreviewLine { a: corners[k], b: corners[(k + 1) % n], color, bold: false }).collect();
-        // Its normal: towards what is cut away.
-        lines.push(PreviewLine { a: origin, b: origin + normal * size * 0.1, color, bold: false });
-        Preview { lines, section, ..Default::default() }
+        // Its outline and its normal (towards what is cut away), over the scene.
+        let mut drawing = Drawing::default();
+        cx.drawer(&mut drawing).pen(Pen::new(color).over()).polygon(&corners).line(origin, origin + normal * size * 0.1);
+        Preview { drawing, section, ..Default::default() }
     }
 
     fn status(&self) -> String {

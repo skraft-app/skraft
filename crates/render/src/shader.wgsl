@@ -245,16 +245,23 @@ fn in_front(ca_in: vec4<f32>, cb_in: vec4<f32>) -> Segment {
     return Segment(ca, cb);
 }
 
+// The segment's length on screen (pixels), its part in front of the eye.
+fn screen_length(ca_in: vec4<f32>, cb_in: vec4<f32>) -> f32 {
+    if (ca_in.w < 1e-4 && cb_in.w < 1e-4) {
+        return 0.0;
+    }
+    let s = in_front(ca_in, cb_in);
+    let size = g.viewport.xy;
+    return length(s.b.xy / s.b.w * size * 0.5 - s.a.xy / s.a.w * size * 0.5);
+}
+
 // How far along the segment its quad's corner is, on screen (pixels from `a`): the quad runs
 // half a width past each end.
 fn along_px(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) -> f32 {
     if (ca_in.w < 1e-4 && cb_in.w < 1e-4) {
         return 0.0;
     }
-    let s = in_front(ca_in, cb_in);
-    let size = g.viewport.xy;
-    let len = length(s.b.xy / s.b.w * size * 0.5 - s.a.xy / s.a.w * size * 0.5);
-    return select(0.0, len, corner.x > 0.5) + (corner.x * 2.0 - 1.0) * half;
+    return select(0.0, screen_length(ca_in, cb_in), corner.x > 0.5) + (corner.x * 2.0 - 1.0) * half;
 }
 
 fn wide(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) -> vec4<f32> {
@@ -373,10 +380,12 @@ fn fs_edge_faint(in: EdgeOut) -> @location(0) vec4<f32> {
 struct LineOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) color: vec4<f32>,
-    // The dash pattern's period (px, 0 for a plain line), and where the pattern is here (px
-    // along the line on screen, interpolated on screen).
-    @location(1) @interpolate(flat) period: f32,
+    // The dash pattern (px: dash, gap, dash, gap; all 0 for a plain line), and where the
+    // pattern is here (px along the line on screen, interpolated on screen).
+    @location(1) @interpolate(flat) pattern: vec4<f32>,
     @location(2) @interpolate(linear) along: f32,
+    // Only so far from the line's start drawn (px; a box's corners), 0 for the whole line.
+    @location(3) @interpolate(flat) reach: f32,
 };
 
 @vertex
@@ -385,66 +394,167 @@ fn vs_line(
     @location(1) b: vec3<f32>,
     @location(2) corner: vec3<f32>,
     @location(3) color: vec4<f32>,
-    @location(4) dash: vec2<f32>,
+    @location(4) pattern: vec4<f32>,
+    @location(5) dash: vec2<f32>,
 ) -> LineOut {
-    return line_out(a, b, corner, color, dash);
+    return line_out(a, b, corner, color, pattern, dash.x, dash.y > 0.5, 0.0);
 }
 
 // A box's outline (instanced): the edges of the unit cube placed by `m0..m3` (to camera
-// space), `params`: half its width and its dash period, in pixels. 24 quads of 6 corners:
-// each edge as two halves run from its ends to its middle, so a dash starts at every corner.
-@vertex
-fn vs_box(
+// space), its dash `pattern` (px), `params`: half its width (px), how far from its corners its
+// edges are drawn (px, 0: whole), whether the edges of its faces turned to the eye are drawn
+// again over the scene, whether it is drawn wholly over the scene. 24 quads of 6 corners: each
+// edge as two halves run from its ends to its middle, so a dash starts at every corner.
+struct BoxIn {
     @builtin(vertex_index) vi: u32,
     @location(0) m0: vec4<f32>,
     @location(1) m1: vec4<f32>,
     @location(2) m2: vec4<f32>,
     @location(3) m3: vec4<f32>,
     @location(4) color: vec4<f32>,
-    @location(5) params: vec2<f32>,
-) -> LineOut {
+    @location(5) pattern: vec4<f32>,
+    @location(6) params: vec4<f32>,
+};
+
+// In the scene: every edge, depth tested; none for a box drawn over the scene.
+@vertex
+fn vs_box(in: BoxIn) -> LineOut {
+    if (in.params.w > 0.5) {
+        return no_line();
+    }
+    return box_edge(in);
+}
+
+// Over the scene: a box drawn over it, wholly; one with its faces turned to the eye drawn
+// over it (OpenCutList's `shell_on_top`), those faces' edges; others, nothing.
+@vertex
+fn vs_box_front(in: BoxIn) -> LineOut {
+    if (in.params.w > 0.5) {
+        return box_edge(in);
+    }
+    if (in.params.z < 0.5) {
+        return no_line();
+    }
+    let model = mat4x4<f32>(in.m0, in.m1, in.m2, in.m3);
+    let e = box_edge_corners(in.vi);
+    let axis = e.x ^ e.y;
+    // The edge's two faces: across each other axis, on the side of its corners.
+    for (var k = 0u; k < 3u; k++) {
+        if ((1u << k) != axis && face_exposed(model, k, (e.x >> k) & 1u)) {
+            return box_edge(in);
+        }
+    }
+    return no_line();
+}
+
+fn no_line() -> LineOut {
+    var none: LineOut;
+    none.clip = vec4<f32>(0.0, 0.0, 0.0, 0.0); // degenerate: nothing drawn
+    return none;
+}
+
+// The cube's corners at the ends of the half edge drawn by vertex `vi`: its corner, then the
+// other end of its edge.
+fn box_edge_corners(vi: u32) -> vec2<u32> {
     // The cube's edges by their corners: corner i is at the bits of i (x: 1, y: 2, z: 4).
     var edges = array<vec2<u32>, 12>(
         vec2<u32>(0u, 1u), vec2<u32>(0u, 2u), vec2<u32>(0u, 4u), vec2<u32>(1u, 3u),
         vec2<u32>(1u, 5u), vec2<u32>(2u, 3u), vec2<u32>(2u, 6u), vec2<u32>(3u, 7u),
         vec2<u32>(4u, 5u), vec2<u32>(4u, 6u), vec2<u32>(5u, 7u), vec2<u32>(6u, 7u),
     );
+    let half_edge = vi / 6u;
+    let e = edges[half_edge / 2u];
+    if ((half_edge & 1u) == 1u) {
+        return vec2<u32>(e.y, e.x);
+    }
+    return e;
+}
+
+fn box_edge(in: BoxIn) -> LineOut {
     var quad = array<vec2<f32>, 6>(
         vec2<f32>(0.0, -1.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, -1.0),
         vec2<f32>(1.0, -1.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0),
     );
-    let half_edge = vi / 6u;
-    let e = edges[half_edge / 2u];
-    let ia = select(e.x, e.y, (half_edge & 1u) == 1u);
-    let ib = select(e.y, e.x, (half_edge & 1u) == 1u);
-    let pa = cube_corner(ia);
-    let pb = (pa + cube_corner(ib)) * 0.5;
-    let model = mat4x4<f32>(m0, m1, m2, m3);
+    let e = box_edge_corners(in.vi);
+    let pa = cube_corner(e.x);
+    let pb = (pa + cube_corner(e.y)) * 0.5;
+    let model = mat4x4<f32>(in.m0, in.m1, in.m2, in.m3);
     let a = (model * vec4<f32>(pa, 1.0)).xyz;
     let b = (model * vec4<f32>(pb, 1.0)).xyz;
-    return line_out(a, b, vec3<f32>(quad[vi % 6u], params.x), color, vec2<f32>(params.y, 0.0));
+    return line_out(a, b, vec3<f32>(quad[in.vi % 6u], in.params.x), in.color, in.pattern, 0.0, false, in.params.y);
 }
 
 fn cube_corner(i: u32) -> vec3<f32> {
     return vec3<f32>(f32(i & 1u), f32((i >> 1u) & 1u), f32((i >> 2u) & 1u));
 }
 
-// A corner of a coloured segment's quad, `a` and `b` in camera space.
-fn line_out(a: vec3<f32>, b: vec3<f32>, corner: vec3<f32>, color: vec4<f32>, dash: vec2<f32>) -> LineOut {
+// Whether the face of the unit cube across axis `k` on side `side` (0 or 1), placed by
+// `model` (to camera space), is turned to the eye: its outward normal against the ray through
+// its centre; seen edge on, not (OpenCutList's `exposed_path_indexes`).
+fn face_exposed(model: mat4x4<f32>, k: u32, side: u32) -> bool {
+    var c = vec3<f32>(0.5, 0.5, 0.5);
+    c[k] = f32(side);
+    let centre = (model * vec4<f32>(c, 1.0)).xyz;
+    var cols = array<vec3<f32>, 3>(model[0].xyz, model[1].xyz, model[2].xyz);
+    var n = cross(cols[(k + 1u) % 3u], cols[(k + 2u) % 3u]);
+    // Towards +k (a mirroring placement turns the cross product over), then outwards.
+    let along = cols[k];
+    if (dot(along, along) > 1e-12 && dot(n, along) < 0.0) {
+        n = -n;
+    }
+    if (side == 0u) {
+        n = -n;
+    }
+    // Towards the eye: to the origin in perspective, +Z in parallel projection.
+    let eye = select(vec3<f32>(0.0, 0.0, 1.0), -centre, g.proj[3][3] == 0.0);
+    let nl = length(n);
+    let el = length(eye);
+    return nl > 0.0 && el > 0.0 && dot(n, eye) > 1e-9 * nl * el;
+}
+
+// A corner of a coloured segment's quad, `a` and `b` in camera space; its dash `pattern`
+// (px) at `phase` px at `a`, or, `anchored`, stretched a little so that a dash starts and ends
+// it on screen; drawn only `reach` px from `a` when not 0.
+fn line_out(a: vec3<f32>, b: vec3<f32>, corner: vec3<f32>, color: vec4<f32>, pattern: vec4<f32>, phase: f32, anchored: bool, reach: f32) -> LineOut {
     var out: LineOut;
     let ca = g.proj * pulled(vec4<f32>(a, 1.0), corner.z);
     let cb = g.proj * pulled(vec4<f32>(b, 1.0), corner.z);
     out.clip = wide(ca, cb, corner.xy, corner.z);
     out.color = color;
-    out.period = dash.x;
-    out.along = dash.y + select(0.0, along_px(ca, cb, corner.xy, corner.z), dash.x > 0.0);
+    var p = pattern;
+    var at = phase;
+    let period = dot(pattern, vec4<f32>(1.0));
+    if (anchored && period > 0.0) {
+        // Whole periods and a last dash: as long as the line.
+        let len = screen_length(ca, cb);
+        let k = max(round((len - pattern.x) / period), 0.0);
+        let span = k * period + pattern.x;
+        p = select(vec4<f32>(0.0), pattern * (len / span), span > 0.0 && len > 0.0);
+        at = 0.0;
+    }
+    out.pattern = p;
+    out.along = at + along_px(ca, cb, corner.xy, corner.z);
+    out.reach = reach;
     return out;
+}
+
+// Whether a line's fragment falls in a gap of its dashes, or past its reach.
+fn gap(in: LineOut) -> bool {
+    if (in.reach > 0.0 && in.along > in.reach) {
+        return true;
+    }
+    let period = dot(in.pattern, vec4<f32>(1.0));
+    if (period <= 0.0) {
+        return false;
+    }
+    let t = in.along - floor(in.along / period) * period;
+    let p = in.pattern;
+    return !(t < p.x || (t >= p.x + p.y && t < p.x + p.y + p.z));
 }
 
 @fragment
 fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
-    // A dash, then a gap as long.
-    if (in.period > 0.0 && fract(in.along / in.period) >= 0.5) {
+    if (gap(in)) {
         discard;
     }
     return vec4<f32>(mix(g.background.rgb, in.color.rgb, in.color.a), 1.0);
@@ -453,13 +563,13 @@ fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
 // The overlay's lines: blended over what is drawn under them (their alpha is a true opacity).
 @fragment
 fn fs_overlay(in: LineOut) -> @location(0) vec4<f32> {
-    if (in.period > 0.0 && fract(in.along / in.period) >= 0.5) {
+    if (gap(in)) {
         discard;
     }
     return in.color;
 }
 
-// ---- translucent fills (a tool's planes, in the scene: depth tested, blended) ------------------
+// ---- translucent fills (a tool's planes: in the scene, depth tested, or over it; blended) -----
 
 struct FillOut {
     @builtin(position) clip: vec4<f32>,

@@ -8,6 +8,7 @@ use solidsketch_i18n::t;
 use solidsketch_model::Id;
 use solidsketch_render as render;
 use solidsketch_theme::{Rgba, Theme};
+use solidsketch_tools::draw;
 use solidsketch_tools::navigation::{Button, Mods, NavAction, Trigger};
 use solidsketch_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput, ToolKind};
 
@@ -567,69 +568,21 @@ impl Viewport {
                 }
             })
             .collect();
-        let plain = |a, b, color| render::Line { a, b, color, dash: None, width: render::LINE_WIDTH };
-        // A guide's stroke, dashed by the renderer.
-        let dashed = |s: &solidsketch_tools::guides::Stroke, color| render::Line {
-            a: s.a,
-            b: s.b,
-            color,
-            dash: Some(render::Dash { length: solidsketch_tools::guides::DASH_PX as f32, phase: s.phase as f32 }),
-            width: render::LINE_WIDTH,
-        };
-        // A box's outline, dashed by the renderer from its corners: the unit cube scaled to its
-        // bounds, then placed by its frame.
-        let outline = |b: &solidsketch_tools::OrientedBox, color| render::BoxOutline {
-            transform: DMat4::from(b.frame) * DMat4::from_translation(b.lo) * DMat4::from_scale(b.hi - b.lo),
-            color,
-            width: render::LINE_WIDTH,
-            dash: Some(solidsketch_tools::guides::DASH_PX as f32),
-        };
-        let boxes: Vec<render::BoxOutline> = (view.selection_boxes.iter().map(|b| outline(b, theme.selected.edge)))
-            .chain(view.context_box.iter().map(|b| outline(b, theme.context_box)))
-            .collect();
-        let preview = |l: &solidsketch_tools::tools::PreviewLine| render::Line {
-            width: if l.bold { render::BOLD_WIDTH } else { render::LINE_WIDTH },
-            ..plain(l.a, l.b, l.color)
-        };
-        let overlay: Vec<render::Line> = view.overlay.iter().map(preview).collect();
-        // Plain where seen; the renderer dashes them where faces hide them.
-        let xray: Vec<render::Line> = view
-            .xray
-            .iter()
-            .map(|l| render::Line {
-                dash: Some(render::Dash { length: solidsketch_tools::guides::DASH_PX as f32, phase: 0.0 }),
-                ..preview(l)
-            })
-            .collect();
-        // An open part always shows its axes (ARCHITECTURE.md §2.9).
+        // An open part always shows its axes (ARCHITECTURE.md §2.9): the grid leaves out its
+        // lines along them.
         let axes = display.axes || editor.open_part().is_some();
-        let axis_lines = view.axes.iter().zip([render::AXIS_X, render::AXIS_Y, render::AXIS_Z]).flat_map(|(halves, c)| {
-            let negative = [c[0], c[1], c[2], render::AXIS_NEGATIVE_ALPHA];
-            halves.iter().zip([c, negative]).filter_map(|(h, c)| h.map(|(a, b)| plain(a, b, c)))
-        });
-        let lines: Vec<render::Line> = (axis_lines.filter(|_| axes))
-            .chain(view.guides.iter().map(|s| dashed(s, theme.guide)))
-            .chain(view.hovered_guides.iter().map(|s| dashed(s, theme.hover.edge)))
-            .chain(view.selected_guides.iter().map(|s| dashed(s, theme.selected.edge)))
-            .chain(view.scene_lines.iter().map(preview))
-            // The open part's bodies' bottom caps, bold in the edges' colour.
-            .chain(view.bases.iter().map(|(a, b)| render::Line { width: render::BOLD_WIDTH, ..plain(*a, *b, theme.edge) }))
-            // Their turned bodies' axes, dashed.
-            .chain(view.base_axes.iter().map(|(a, b)| render::Line {
-                dash: Some(render::Dash { length: solidsketch_tools::guides::DASH_PX as f32, phase: 0.0 }),
-                ..plain(*a, *b, theme.edge)
-            }))
-            // The guides a tool previews: in the scene, as the document's (the see-through ones
-            // with the faint lines, which blend).
-            .chain(view.preview_guides.iter().filter(|(_, c)| c[3] >= 1.0).map(|(s, c)| dashed(s, *c)))
-            .collect();
-        // Faded as the parts are, but blended over what they cross rather than mixed with the
-        // background: on a part, they take its colour.
-        let faint = [theme.guide[0], theme.guide[1], theme.guide[2], theme.guide[3] * (1.0 - theme.fade)];
-        let faint_lines: Vec<render::Line> = (view.faded_guides.iter().map(|s| dashed(s, faint)))
-            .chain(view.preview_guides.iter().filter(|(_, c)| c[3] < 1.0).map(|(s, c)| dashed(s, *c)))
-            .collect();
-        let fills: Vec<render::Fill> = view.fills.iter().map(|f| render::Fill { corners: f.corners.clone(), color: f.color }).collect();
+        let (mut lines, mut faint_lines, mut overlay, mut hidden_lines, mut boxes, mut fills) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        // Everything drawn over the model, through the drawer (§7 octies).
+        let out = Translated {
+            lines: &mut lines,
+            faint_lines: &mut faint_lines,
+            overlay: &mut overlay,
+            hidden_lines: &mut hidden_lines,
+            boxes: &mut boxes,
+            fills: &mut fills,
+        };
+        out.push(&view.drawing, |c| theme_color(theme, c));
 
         let aspect = size[0] as f64 / size[1] as f64;
         let cam = &editor.camera;
@@ -656,7 +609,7 @@ impl Viewport {
             faint_lines: &faint_lines,
             boxes: &boxes,
             overlay: &overlay,
-            xray: &xray,
+            hidden_lines: &hidden_lines,
             fills: &fills,
             grid: display.grid.then(|| grid_for(cam.focus)),
             axes,
@@ -687,6 +640,82 @@ impl Viewport {
                     self.texture = Some((id, generation));
                 }
             }
+        }
+    }
+}
+
+/// The unit cube to the box `b`: scaled to its bounds, placed by its frame.
+fn box_transform(b: &solidsketch_tools::OrientedBox) -> DMat4 {
+    DMat4::from(b.frame) * DMat4::from_translation(b.lo) * DMat4::from_scale(b.hi - b.lo)
+}
+
+/// A colour of a drawing in the theme shown (linear RGBA).
+fn theme_color(theme: &Theme, c: draw::Color) -> Rgba {
+    match c {
+        draw::Color::Rgba(c) => c,
+        draw::Color::Theme(t) => match t {
+            draw::ThemeColor::Edge => theme.edge,
+            draw::ThemeColor::Guide => theme.guide,
+            draw::ThemeColor::FadedGuide => [theme.guide[0], theme.guide[1], theme.guide[2], theme.guide[3] * (1.0 - theme.fade)],
+            draw::ThemeColor::Hover => theme.hover.edge,
+            draw::ThemeColor::Selected => theme.selected.edge,
+            draw::ThemeColor::ContextBox => theme.context_box,
+        },
+    }
+}
+
+/// The renderer's lists a [`draw::Drawing`] goes into.
+struct Translated<'a> {
+    lines: &'a mut Vec<render::Line>,
+    faint_lines: &'a mut Vec<render::Line>,
+    overlay: &'a mut Vec<render::Line>,
+    hidden_lines: &'a mut Vec<render::Line>,
+    boxes: &'a mut Vec<render::BoxOutline>,
+    fills: &'a mut Vec<render::Fill>,
+}
+
+impl Translated<'_> {
+    /// `drawing`'s lines, boxes and fills, each to the list of its layer; `color` resolves the
+    /// theme's colours. (Its grips, marks and lengths are drawn by the app over the view.)
+    fn push(self, drawing: &draw::Drawing, color: impl Fn(draw::Color) -> Rgba) {
+        let dash =
+            |stipple: draw::Stipple, anchored: bool, phase: f32| stipple.pattern().map(|pattern| render::Dash { pattern, phase, anchored });
+        for l in &drawing.lines {
+            let p = l.pen;
+            let line = render::Line { a: l.a, b: l.b, color: color(p.color), dash: dash(p.stipple, p.anchored, l.phase), width: p.width };
+            match (p.layer, p.blended) {
+                (draw::Layer::Over, _) => self.overlay.push(line),
+                (draw::Layer::Scene, true) => self.faint_lines.push(line),
+                (draw::Layer::Scene, false) => self.lines.push(line),
+            }
+            if let (draw::Layer::Scene, Some(h)) = (p.layer, p.hidden) {
+                self.hidden_lines.push(render::Line {
+                    color: h.color.map_or(line.color, &color),
+                    width: h.width.unwrap_or(line.width),
+                    dash: dash(h.stipple, false, 0.0),
+                    ..line
+                });
+            }
+        }
+        for b in &drawing.boxes {
+            self.boxes.push(render::BoxOutline {
+                transform: box_transform(&b.bounds),
+                color: color(b.pen.color),
+                width: b.pen.width,
+                dash: dash(b.pen.stipple, false, 0.0),
+                corners: b.corners,
+                shell_on_top: b.shell_on_top,
+                over: b.pen.layer == draw::Layer::Over,
+            });
+        }
+        for f in &drawing.fills {
+            self.fills.push(render::Fill {
+                corners: f.corners.clone(),
+                color: color(f.brush.color),
+                triangles: f.triangles,
+                over: f.brush.layer == draw::Layer::Over,
+                cull_back: f.brush.cull_back,
+            });
         }
     }
 }

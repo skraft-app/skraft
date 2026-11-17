@@ -564,7 +564,7 @@ fn a_point_hovered_a_while_is_tracked() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(303.0, 3.0, 50.0)) });
     let v = e.view();
     assert_eq!(v.inference.map(|i| i.1), Some(InferKind::OnTwoLines(LineKind::Axis(0), LineKind::TrackedAxis(1))));
-    assert!(v.overlay.iter().any(|l| l.a == corner), "a guide from the tracked point");
+    assert!(v.drawing.lines.iter().any(|l| l.a == corner), "a guide from the tracked point");
     e.input(ToolInput::Click { px: px(&e, DVec3::new(303.0, 3.0, 50.0)), mods: Modifiers::default() });
     assert_eq!(bounds(&e, a).0, DVec3::new(200.0, 0.0, 0.0));
     // Gone with the operation.

@@ -45,7 +45,7 @@
 use std::f64::consts::PI;
 
 use super::*;
-use crate::tools::{PointShape, PreviewPoint};
+use crate::tools::PointShape;
 use crate::vcb::PointRef;
 use solidsketch_model::{GuideShape, Operation};
 
@@ -586,14 +586,7 @@ impl PrismTool {
 
     /// Turning: the axis drawn as a guide line, endless (its origin marked, not its length:
     /// only its way matters), and the outline's sides `drawn` mirrored across it, dashed.
-    fn preview_axis(
-        &self,
-        cx: &Cx<'_>,
-        lines: &mut Vec<PreviewLine>,
-        points: &mut Vec<PreviewPoint>,
-        guides: &mut Vec<(crate::guides::Stroke, [f32; 4])>,
-        drawn: &[(DVec3, DVec3)],
-    ) {
+    fn preview_axis(&self, cx: &Cx<'_>, d: &mut Drawer<'_>, drawn: &[Vec<DVec3>]) {
         let (a, b) = match (self.axis, self.axis_start, self.aim) {
             (Some(ax), _, _) => (ax.a, ax.b),
             (None, Some(a), Some(p)) => (a, p),
@@ -603,12 +596,13 @@ impl PrismTool {
         let color = axis_color(b - a).unwrap_or(INK);
         if let Some(dir) = (cx.to_world(b) - cx.to_world(a)).try_normalize() {
             let shape = GuideShape::Line { origin: cx.to_world(a), dir };
-            guides.extend(crate::guides::strokes(cx.camera, cx.size, &shape).into_iter().map(|s| (s, color)));
+            d.pen(Pen::guide(color)).guide(&shape);
         }
-        points.push(PreviewPoint { at: cx.to_world(a), radius: 3.0, fill: Some(color), stroke: None, shape: PointShape::Round });
+        d.grip(a, 3.0, Some(color), None, PointShape::Round);
         if let Some(ax) = self.axis {
-            for (p, q) in drawn {
-                dashed(cx.camera, cx.size, lines, cx.to_world(ax.mirror(*p)), cx.to_world(ax.mirror(*q)), INK);
+            for side in drawn {
+                let mirrored: Vec<DVec3> = side.iter().map(|p| ax.mirror(*p)).collect();
+                d.pen(pen(INK, true)).curve(&mirrored, false);
             }
         }
     }
@@ -1186,34 +1180,36 @@ impl Tool for PrismTool {
     }
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
-        let mut lines = Vec::new();
+        let mut drawing = Drawing::default();
+        let d = &mut cx.axes_drawer(&mut drawing);
         // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
-        let scene_lines = self.first.container_preview(cx, &mut lines);
-        let mut labels = Vec::new();
-        let mut marks = Vec::new();
-        let mut points = Vec::new();
+        self.first.container_preview(cx, d);
         let mut inference = self.snap.clone();
         let mut tip = None;
-        let mut guides = Vec::new();
-        let corner = |p: DVec3, shape| PreviewPoint { at: cx.to_world(p), radius: 4.0, fill: Some(INK), stroke: None, shape };
-        let pairs = |pts: Vec<DVec3>| pts.windows(2).map(|w| (w[0], w[1])).collect::<Vec<_>>();
+        // A placed corner's grip.
+        let corner = |d: &mut Drawer<'_>, p: DVec3, radius: f32, stroke: Option<[f32; 4]>, shape| {
+            d.grip(p, radius, Some(INK), stroke, shape);
+        };
+        // A side's line, its curve sampled (an arc's).
+        let side = |d: &mut Drawer<'_>, pts: Vec<DVec3>, color: [f32; 4], dash: bool| {
+            d.pen(pen(color, dash)).curve(&pts, false);
+        };
         match &self.state {
             State::First if self.turning => {
-                self.preview_axis(cx, &mut lines, &mut points, &mut guides, &[]);
+                self.preview_axis(cx, d, &[]);
                 if let Some(p) = self.aim.filter(|_| snapped(&inference)) {
-                    mark(cx, &mut marks, p);
+                    d.mark(p);
                 }
                 // The profile's first point: its radius from the axis, dashed and measured, and
                 // the circle it turns along, faint.
                 if let (Some(ax), Some(p)) = (self.axis, self.aim) {
                     let foot = ax.a + ax.d * (p - ax.a).dot(ax.d);
-                    dashed(cx.camera, cx.size, &mut lines, cx.to_world(foot), cx.to_world(p), INK);
-                    label(cx, &mut labels, foot, p, INK, None);
+                    d.pen(pen(INK, true)).line(foot, p).length(foot, p, INK, None);
                     let (c, w) = (cx.to_world(foot), cx.to_world(p));
                     if let Some(normal) = (cx.to_world(foot + ax.d) - c).try_normalize().filter(|_| c.distance(w) >= MIN) {
                         let faint = [INK[0], INK[1], INK[2], INK[3] * RADIUS_CIRCLE_ALPHA];
                         let circle = GuideShape::Circle { center: c, normal, radius: c.distance(w) };
-                        guides.extend(crate::guides::strokes(cx.camera, cx.size, &circle).into_iter().map(|s| (s, faint)));
+                        d.pen(Pen::guide(faint)).guide(&circle);
                     }
                 }
             }
@@ -1226,15 +1222,15 @@ impl Tool for PrismTool {
                     // offset out or in and rounded (their signs, not their sizes; after OCL's
                     // `_preview_shape_start`).
                     let f = s.f;
-                    let w = pixels(cx, f.o, GAUGE_PX);
+                    let w = d.px(f.o, GAUGE_PX);
                     let trapezoid = [(0.0, 0.0), (w, 0.0), (w / 2.0, w / 2.0), (0.0, w / 2.0)].map(|(x, y)| DVec2::new(x, y));
                     let fillet = if cx.length(FILLET) > 0.0 { GAUGE_FILLET * w } else { 0.0 };
-                    gauge(cx, &mut lines, &f, &trapezoid, gauge_offset(cx, w), fillet, plane_color(cx, &f));
+                    gauge(d, &f, &trapezoid, gauge_offset(cx, w), fillet, plane_color(cx, &f));
                     if snapped(&inference) {
-                        mark(cx, &mut marks, f.o);
+                        d.mark(f.o);
                     }
                 }
-                self.first.preview(cx, &mut lines, &mut labels, &mut marks);
+                self.first.preview(d);
             }
             State::Corners(c) => {
                 let n = self.cursor.map_or(c.n, |cur| cur.n);
@@ -1244,9 +1240,11 @@ impl Tool for PrismTool {
                 let dash = changed(cx);
                 let k = c.along.len();
                 for i in 0..k - 1 {
-                    segments(cx, &mut lines, pairs(side_points(&f, c.along[i], c.mids[i], c.along[i + 1])), color, dash);
+                    side(d, side_points(&f, c.along[i], c.mids[i], c.along[i + 1]), color, dash);
                 }
-                points.extend(c.along.iter().map(|p| corner(*p, PointShape::Round)));
+                for p in &c.along {
+                    corner(d, *p, 4.0, None, PointShape::Round);
+                }
                 if let Some(cur) = self.cursor {
                     let a = c.anchor(self.reversed);
                     let to = c.other_end(self.reversed);
@@ -1256,32 +1254,28 @@ impl Tool for PrismTool {
                     match c.pending {
                         // An arc by two points: its chord, and the arc through the cursor's bulge.
                         Some(pend) => {
-                            dashed(cx.camera, cx.size, &mut lines, cx.to_world(a), cx.to_world(pend.end), INK);
-                            segments(cx, &mut lines, pairs(side_points(&f, a, cur.mid, pend.end)), color, dash);
+                            d.pen(pen(INK, true)).line(a, pend.end);
+                            side(d, side_points(&f, a, cur.mid, pend.end), color, dash);
                             if let Some(m) = cur.mid {
-                                mark(cx, &mut marks, m);
-                                label(cx, &mut labels, (a + pend.end) / 2.0, m, MAGENTA, Some(0));
+                                d.mark(m).length((a + pend.end) / 2.0, m, MAGENTA, Some(0));
                             }
                         }
                         None if self.mode == Mode::Arc => {
-                            dashed(cx.camera, cx.size, &mut lines, cx.to_world(a), cx.to_world(cur.p), along.unwrap_or(color));
-                            label(cx, &mut labels, a, cur.p, along.unwrap_or(INK), length);
+                            d.pen(pen(along.unwrap_or(color), true)).line(a, cur.p).length(a, cur.p, along.unwrap_or(INK), length);
                         }
                         None if cur.mid.is_some() && cur.on_corner.is_none() => {
-                            segments(cx, &mut lines, pairs(side_points(&f, a, cur.mid, cur.p)), color, dash);
+                            side(d, side_points(&f, a, cur.mid, cur.p), color, dash);
                             // The tangent arc's radius, from its centre to the cursor.
                             if length.is_none()
                                 && let Some((r, phi, t)) = self.tangent_radius(c, &cur)
                                 && let Some(left) = cur.n.cross(t).try_normalize()
                             {
                                 let centre = a + left * r * phi.signum();
-                                dashed(cx.camera, cx.size, &mut lines, cx.to_world(centre), cx.to_world(cur.p), INK);
-                                label(cx, &mut labels, centre, cur.p, MAGENTA, Some(0));
+                                d.pen(pen(INK, true)).line(centre, cur.p).length(centre, cur.p, MAGENTA, Some(0));
                             }
                         }
                         None => {
-                            segments(cx, &mut lines, [(a, cur.p)], along.unwrap_or(color), dash);
-                            label(cx, &mut labels, a, cur.p, along.unwrap_or(INK), length);
+                            d.pen(pen(along.unwrap_or(color), dash)).line(a, cur.p).length(a, cur.p, along.unwrap_or(INK), length);
                         }
                     }
                     // Where the outline would close: from the cursor, or, on a placed corner (a
@@ -1295,33 +1289,33 @@ impl Tool for PrismTool {
                         };
                         // Solid as the other sides (dashed with them, under an offset or a fillet).
                         if from.distance(to) >= MIN {
-                            segments(cx, &mut lines, pairs(side_points(&f, from, mid, to)), color, dash);
+                            side(d, side_points(&f, from, mid, to), color, dash);
                         }
                     }
                     // The outline made, as it would close with the cursor.
                     if dash {
-                        let mut d = c.clone();
+                        let mut closed = c.clone();
                         if c.pending.is_none() && cur.on_corner.is_none() && !cur.behind && self.mode != Mode::Arc {
-                            d.add(cur.p, c.n, cur.mid, self.reversed);
+                            closed.add(cur.p, c.n, cur.mid, self.reversed);
                         } else if let Some(pend) = c.pending.filter(|p| !p.closes) {
-                            d.add(pend.end, c.n, cur.mid, self.reversed);
+                            closed.add(pend.end, c.n, cur.mid, self.reversed);
                         }
-                        let drawn = d.outline(&f);
+                        let drawn = closed.outline(&f);
                         if drawn.len() >= 3
                             && let Ok(o) = made(cx, &drawn)
                         {
-                            segments(cx, &mut lines, ring(&f, &profile::rounded(&o), 0.0), color, false);
+                            d.pen(pen(color, false)).curve(&ring(&f, &profile::rounded(&o), 0.0), true);
                         }
                     }
                     if let Some(i) = cur.on_corner {
-                        points.push(PreviewPoint { radius: 6.0, ..corner(c.along[i], PointShape::Diamond) });
+                        corner(d, c.along[i], 6.0, None, PointShape::Diamond);
                     }
                     if let Some(q) = cur.aligned {
-                        dashed(cx.camera, cx.size, &mut lines, cx.to_world(q), cx.to_world(cur.p), MAGENTA);
-                        points.push(PreviewPoint { stroke: Some(MAGENTA), ..corner(q, PointShape::Round) });
+                        d.pen(pen(MAGENTA, true)).line(q, cur.p);
+                        corner(d, q, 4.0, Some(MAGENTA), PointShape::Round);
                     }
                     if snapped(&inference) || cur.aligned.is_some() {
-                        mark(cx, &mut marks, cur.p);
+                        d.mark(cur.p);
                     }
                     // The mode by the cursor, for an arc (the inference's tip, on a bare point if
                     // nothing is inferred).
@@ -1350,19 +1344,18 @@ impl Tool for PrismTool {
             State::Height { f, profile, end, h, .. } => {
                 let color = plane_color(cx, f);
                 let (z0, z1) = span(*h, self.pull_centered);
-                let prism = |lines: &mut Vec<PreviewLine>, p: &[Corner], dash: bool| {
-                    segments(cx, lines, ring(f, p, z0), color, dash);
-                    segments(cx, lines, ring(f, p, z1), color, dash);
-                    segments(cx, lines, p.iter().map(|c| (f.at(c.p.extend(z0)), f.at(c.p.extend(z1)))), color, dash);
+                let prism = |d: &mut Drawer<'_>, p: &[Corner], dash: bool| {
+                    d.pen(pen(color, dash)).curve(&ring(f, p, z0), true).curve(&ring(f, p, z1), true);
+                    d.segments(p.iter().map(|c| (f.at(c.p.extend(z0)), f.at(c.p.extend(z1)))));
                 };
                 // With an offset or a fillet, the outline drawn dashed and the prism made solid.
                 let dash = changed(cx);
-                prism(&mut lines, profile, dash);
+                prism(d, profile, dash);
                 if dash && let Ok(o) = made(cx, profile) {
-                    prism(&mut lines, &profile::rounded(&o), false);
+                    prism(d, &profile::rounded(&o), false);
                 }
                 let e = local2(f, *end);
-                label(cx, &mut labels, f.at(e.extend(z0)), f.at(e.extend(z1)), BLUE, Some(0));
+                d.length(f.at(e.extend(z0)), f.at(e.extend(z1)), BLUE, Some(0));
             }
         }
         // Turning: the axis, and the outline's mirror (its sides, and the side to the cursor).
@@ -1371,8 +1364,7 @@ impl Tool for PrismTool {
         {
             let f = c.frame();
             let k = c.along.len();
-            let mut drawn: Vec<(DVec3, DVec3)> =
-                (0..k - 1).flat_map(|i| pairs(side_points(&f, c.along[i], c.mids[i], c.along[i + 1]))).collect();
+            let mut drawn: Vec<Vec<DVec3>> = (0..k - 1).map(|i| side_points(&f, c.along[i], c.mids[i], c.along[i + 1])).collect();
             // The side to the cursor and the closing one, as drawn above: the mirror closed.
             if let Some(cur) = self.cursor.filter(|_| c.pending.is_none()) {
                 let (a, to) = (c.anchor(self.reversed), c.other_end(self.reversed));
@@ -1380,19 +1372,19 @@ impl Tool for PrismTool {
                     Some(_) if self.mode == Mode::Tangent => (a, cur.mid),
                     Some(_) => (a, None),
                     None => {
-                        drawn.extend(pairs(side_points(&f, a, cur.mid, cur.p)));
+                        drawn.push(side_points(&f, a, cur.mid, cur.p));
                         (cur.p, None)
                     }
                 };
                 if from.distance(to) >= MIN {
-                    drawn.extend(pairs(side_points(&f, from, mid, to)));
+                    drawn.push(side_points(&f, from, mid, to));
                 }
             } else if k >= 2 {
-                drawn.extend(pairs(side_points(&f, c.along[k - 1], None, c.along[0])));
+                drawn.push(side_points(&f, c.along[k - 1], None, c.along[0]));
             }
-            self.preview_axis(cx, &mut lines, &mut points, &mut guides, &drawn);
+            self.preview_axis(cx, d, &drawn);
         }
-        Preview { lines, scene_lines, labels, marks, points, inference, tip, guides, ..Default::default() }
+        Preview { drawing, inference, tip, ..Default::default() }
     }
 
     fn status(&self) -> String {

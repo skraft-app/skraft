@@ -19,9 +19,9 @@ use solidsketch_i18n::t;
 use solidsketch_model::{EntityPath, Id};
 
 use super::{
-    BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLabel, PreviewLine, RED, Tool, ToolInput, ToolKind,
-    ToolOption, dashed, guide_color,
+    BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, guide_color,
 };
+use crate::draw::{Drawer, Drawing, Pen};
 
 /// The protractor's graduations, which the cursor snaps to inside it (radians).
 const SNAP_STEP: f64 = std::f64::consts::PI / 12.0;
@@ -241,67 +241,66 @@ impl Tool for RotateTool {
         out
     }
     fn preview(&self, cx: &Cx<'_>) -> Preview {
-        // Its graduations start from `u`, in its plane.
-        let protractor = |center: DVec3, axis: DVec3, u: DVec3, color: [f32; 4]| -> Vec<PreviewLine> {
+        // Its graduations start from `u`, in its plane; over everything.
+        let protractor = |d: &mut Drawer<'_>, center: DVec3, axis: DVec3, u: DVec3, color: [f32; 4]| {
             let r = protractor_radius(cx, center);
             let v = axis.cross(u);
             const N: usize = 48;
-            let p = |i: usize| {
-                let a = i as f64 / N as f64 * std::f64::consts::TAU;
-                center + (u * a.cos() + v * a.sin()) * r
-            };
-            let mut lines: Vec<PreviewLine> = (0..N).map(|i| PreviewLine { a: p(i), b: p(i + 1), color, bold: false }).collect();
+            let circle: Vec<DVec3> = (0..N)
+                .map(|i| {
+                    let a = i as f64 / N as f64 * std::f64::consts::TAU;
+                    center + (u * a.cos() + v * a.sin()) * r
+                })
+                .collect();
+            d.pen(Pen::new(color).over()).curve(&circle, true);
             // Ticks every 15°.
-            for k in 0..24 {
+            d.segments((0..24).map(|k| {
                 let a = k as f64 * SNAP_STEP;
-                let d = u * a.cos() + v * a.sin();
+                let dir = u * a.cos() + v * a.sin();
                 let inner = if k % 6 == 0 { 0.8 } else { 0.9 };
-                lines.push(PreviewLine { a: center + d * r * inner, b: center + d * r, color, bold: false });
-            }
-            lines
+                (center + dir * r * inner, center + dir * r)
+            }));
         };
+        // A radius from the centre, dashed, over everything as the protractor.
+        let radius = |d: &mut Drawer<'_>, center: DVec3, to: DVec3, color: [f32; 4]| {
+            d.pen(Pen::new(color).over().dashed()).line(center, to);
+        };
+        let mut drawing = Drawing::default();
+        let d = &mut cx.drawer(&mut drawing);
         match self.state {
             State::Center if self.picking() => {
                 let mut p = Preview::default();
                 self.picker.preview(&mut p);
                 p
             }
-            State::Center => Preview {
-                lines: self.cursor.map(|(c, a)| protractor(c, a, Self::zero(cx, a), self.color(cx, a))).unwrap_or_default(),
-                inference: self.snap.clone(),
-                ..Default::default()
-            },
-            // The radii from the centre, dashed, over everything as the protractor. The one to
-            // the cursor is drawn last.
-            State::Reference { center, axis, dir } => {
-                let mut lines = protractor(center, axis, Self::zero(cx, axis), self.color(cx, axis));
-                let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                if let Some((d, reach)) = dir {
-                    dashed(cx.camera, cx.size, &mut lines, center, center + d * reach, color);
+            State::Center => {
+                if let Some((c, a)) = self.cursor {
+                    protractor(d, c, a, Self::zero(cx, a), self.color(cx, a));
                 }
-                Preview { lines, inference: self.snap.clone(), ..Default::default() }
+                Preview { drawing, inference: self.snap.clone(), ..Default::default() }
+            }
+            // The radii from the centre. The one to the cursor is drawn last.
+            State::Reference { center, axis, dir } => {
+                protractor(d, center, axis, Self::zero(cx, axis), self.color(cx, axis));
+                let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
+                if let Some((dir, reach)) = dir {
+                    radius(d, center, center + dir * reach, color);
+                }
+                Preview { drawing, inference: self.snap.clone(), ..Default::default() }
             }
             State::Angle { center, axis, reference, reference_reach, angle, reach } => {
-                let mut lines = protractor(center, axis, reference, self.color(cx, axis));
+                protractor(d, center, axis, reference, self.color(cx, axis));
                 let r = protractor_radius(cx, center) * 1.4;
                 let now = DQuat::from_axis_angle(axis, angle) * reference;
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                dashed(cx.camera, cx.size, &mut lines, center, center + reference * reference_reach, INK);
-                dashed(cx.camera, cx.size, &mut lines, center, center + now * reach, color);
-                // The angle, between the two radii, just past the protractor.
+                radius(d, center, center + reference * reference_reach, INK);
+                radius(d, center, center + now * reach, color);
+                // The angle, between the two radii, just past the protractor; not turned yet:
+                // only while the angle is typed.
                 let mid = DQuat::from_axis_angle(axis, angle / 2.0) * reference;
-                // Not turned yet: only while the angle is typed.
                 let (a, b) = (center + mid * r * 0.6, center + mid * r * 1.1);
-                let text = vcb::format_angle(angle);
-                let labels = vec![PreviewLabel { a, b, text, color, slot: Some(0), hidden: angle.abs() <= 1e-9, ..Default::default() }];
-                Preview {
-                    lines,
-                    labels,
-                    marks: vec![center],
-                    ghost: Some(rotation_about(center, axis, angle)),
-                    inference: self.snap.clone(),
-                    ..Default::default()
-                }
+                d.label(a, b, vcb::format_angle(angle), color, Some(0), angle.abs() <= 1e-9).mark(center);
+                Preview { drawing, ghost: Some(rotation_about(center, axis, angle)), inference: self.snap.clone(), ..Default::default() }
             }
         }
     }

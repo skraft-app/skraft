@@ -244,13 +244,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_view_draws_the_themes_axes() {
-        use solidsketch_render as render;
-        use solidsketch_theme as theme;
-        assert_eq!([render::AXIS_X, render::AXIS_Y, render::AXIS_Z], [theme::AXIS_X, theme::AXIS_Y, theme::AXIS_Z]);
-    }
-
-    #[test]
     fn both_styles_follow_the_palette() {
         let ctx = egui::Context::default();
         for palette in [Palette::Warm, Palette::Graphite, Palette::Neutral] {

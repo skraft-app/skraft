@@ -180,30 +180,107 @@ impl std::ops::DerefMut for Counted<'_> {
 }
 
 /// A box's outline: the edges of the unit cube `[0, 1]³` placed by `transform` (which may
-/// scale it), `width` points wide, depth-tested; dashed (dashes `dash` points long, gaps as
-/// long) from every corner. Instanced: a selection of tens of thousands costs one draw.
+/// scale it), `width` points wide, depth-tested; dashed (`dash`'s pattern, its phase and
+/// anchoring ignored) from every corner. Instanced: a selection of tens of thousands costs
+/// one draw.
 #[derive(Clone, Copy, Debug)]
 pub struct BoxOutline {
     pub transform: DMat4,
     pub color: [f32; 4],
     pub width: f32,
-    pub dash: Option<f32>,
+    pub dash: Option<Dash>,
+    /// Only its corners: each edge drawn this far (points) from its ends, at most to its middle
+    /// (OpenCutList's `Kuix::BoxCornersMotif3d`).
+    pub corners: Option<f32>,
+    /// The edges of its faces turned to the eye drawn again over the scene, only its back left
+    /// hidden behind faces (OpenCutList's `shell_on_top`).
+    pub shell_on_top: bool,
+    /// Drawn wholly over the scene (OpenCutList's `on_top`).
+    pub over: bool,
 }
 
-/// A flat convex polygon (world corners), translucent (linear RGBA, `a` its opacity), drawn in
-/// the scene: hidden behind faces, blended over what it does not hide (a tool's planes).
+impl BoxOutline {
+    /// Plain, depth-tested, `width` points wide.
+    pub fn new(transform: DMat4, color: [f32; 4], width: f32) -> Self {
+        BoxOutline { transform, color, width, dash: None, corners: None, shell_on_top: false, over: false }
+    }
+}
+
+/// Translucent triangles (linear RGBA, `a` its opacity), blended: a flat convex polygon (world
+/// `corners`, a fan), or, `triangles`, the corners three by three (OpenCutList's `Kuix::Mesh`).
+/// Drawn in the scene, hidden behind faces, or `over` everything; triangles whose back is
+/// turned to the eye (counter-clockwise seen from their front) left out when `cull_back`.
 #[derive(Clone, Debug)]
 pub struct Fill {
     pub corners: Vec<DVec3>,
     pub color: [f32; 4],
+    pub triangles: bool,
+    pub over: bool,
+    pub cull_back: bool,
 }
 
-/// A line's dashes, on screen: a dash of `length` points, a gap as long, the pattern at
-/// `phase` points at the line's `a` (so that it can hold still on the line as the view moves).
+impl Fill {
+    /// A convex polygon in the scene, both sides drawn.
+    pub fn polygon(corners: Vec<DVec3>, color: [f32; 4]) -> Self {
+        Fill { corners, color, triangles: false, over: false, cull_back: false }
+    }
+}
+
+/// The fills drawn by one pipeline: in the scene or over it, both sides or the front only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FillGroup {
+    Scene,
+    SceneFront,
+    Over,
+    OverFront,
+}
+
+impl FillGroup {
+    const ALL: [FillGroup; 4] = [FillGroup::Scene, FillGroup::SceneFront, FillGroup::Over, FillGroup::OverFront];
+
+    fn of(f: &Fill) -> Self {
+        match (f.over, f.cull_back) {
+            (false, false) => FillGroup::Scene,
+            (false, true) => FillGroup::SceneFront,
+            (true, false) => FillGroup::Over,
+            (true, true) => FillGroup::OverFront,
+        }
+    }
+
+    fn over(self) -> bool {
+        matches!(self, FillGroup::Over | FillGroup::OverFront)
+    }
+
+    fn cull_back(self) -> bool {
+        matches!(self, FillGroup::SceneFront | FillGroup::OverFront)
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            FillGroup::Scene => "fills",
+            FillGroup::SceneFront => "fills (front faces)",
+            FillGroup::Over => "fills (over)",
+            FillGroup::OverFront => "fills (over, front faces)",
+        }
+    }
+}
+
+/// A line's dashes, on screen: `pattern` in points, dash, gap, dash, gap (zeros left out: a
+/// dash and a gap, `[l, l, 0, 0]`, is the plain dashed line), at `phase` points at the line's
+/// `a` (so that it can hold still on the line as the view moves); or, `anchored`, stretched a
+/// little so that a dash starts and another ends the line on screen (the phase then ignored).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Dash {
-    pub length: f32,
+    pub pattern: [f32; 4],
     pub phase: f32,
+    pub anchored: bool,
+}
+
+impl Dash {
+    /// Dashes `length` points long, gaps as long, at `phase` points at `a`.
+    pub const fn even(length: f32, phase: f32) -> Self {
+        Dash { pattern: [length, length, 0.0, 0.0], phase, anchored: false }
+    }
 }
 
 /// The optional device features the renderer uses when the device has them:
@@ -284,10 +361,10 @@ pub struct Frame<'a> {
     pub boxes: &'a [BoxOutline],
     /// Lines drawn over everything (tool previews), blended at their alpha.
     pub overlay: &'a [Line],
-    /// Lines seen through the faces (a move's line): plain where they are seen, dashed (their
-    /// `dash`) where faces hide them.
-    pub xray: &'a [Line],
-    /// Translucent polygons, depth tested (tool previews).
+    /// Lines drawn only where faces hide them, blended, in their own style: the hidden part of
+    /// a line drawn in the scene too (a move's line: plain where seen, dashed where hidden).
+    pub hidden_lines: &'a [Line],
+    /// Translucent polygons and triangles (tool previews).
     pub fills: &'a [Fill],
     pub grid: Option<Grid>,
     /// The axes are drawn (in `lines`): the grid leaves out its lines along them.
@@ -338,8 +415,9 @@ struct SilhouetteVertex {
     n2: [f32; 3],
 }
 
-/// A corner of a coloured line's quad; `corner.z` is its half width in pixels; `dash`: the
-/// period of its dash pattern (pixels, 0 when plain) and where the pattern is at `a`.
+/// A corner of a coloured line's quad; `corner.z` is its half width in pixels; `pattern`: its
+/// dash pattern (pixels, zeros when plain); `dash`: where the pattern is at `a` (pixels), and
+/// 1 when it is anchored at both ends.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct LineVertex {
@@ -347,17 +425,20 @@ struct LineVertex {
     b: [f32; 3],
     corner: [f32; 3],
     color: [f32; 4],
+    pattern: [f32; 4],
     dash: [f32; 2],
 }
 
-/// A [`BoxOutline`] as the GPU takes it: the unit cube to camera space, its colour, half its
-/// width and its dash period (pixels, 0 when plain).
+/// A [`BoxOutline`] as the GPU takes it: the unit cube to camera space, its colour, its dash
+/// pattern (pixels, zeros when plain), then half its width, its corners' length (pixels, 0:
+/// whole edges), `shell_on_top` and `over` (1 or 0).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct BoxRaw {
     model: [[f32; 4]; 4],
     color: [f32; 4],
-    params: [f32; 2],
+    pattern: [f32; 4],
+    params: [f32; 4],
 }
 
 /// A corner of a fill's triangle, in camera coordinates.
@@ -512,12 +593,15 @@ pub struct Renderer {
     silhouettes_faint: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     boxes: wgpu::RenderPipeline,
+    /// The boxes' edges drawn over the scene ([`BoxOutline::shell_on_top`], `over`).
+    boxes_front: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
-    /// The hidden parts of the x-ray lines: where faces are nearer, blended, no depth written.
     /// The faint lines: depth tested, blended, no depth written.
     faint_lines: wgpu::RenderPipeline,
+    /// The hidden lines: where faces are nearer, blended, no depth written.
     hidden: wgpu::RenderPipeline,
-    fills: wgpu::RenderPipeline,
+    /// The fills by [`FillGroup`]: in the scene or over it, both sides or the front only.
+    fills: [wgpu::RenderPipeline; 4],
     globals: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
     bind_group: Option<wgpu::BindGroup>,
@@ -614,36 +698,37 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &sil_attrs,
         };
-        let line_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x4, 4 => Float32x2];
+        let line_attrs =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2];
         let line_layout = wgpu::VertexBufferLayout {
             array_stride: size_of::<LineVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &line_attrs,
         };
 
-        let box_attrs =
-            wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2];
+        let box_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4];
         let box_layout = wgpu::VertexBufferLayout {
             array_stride: size_of::<BoxRaw>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &box_attrs,
         };
 
-        let blended = |label: &str,
-                       vs: &str,
-                       fs: &str,
-                       buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
-                       depth: wgpu::DepthStencilState,
-                       write_mask: wgpu::ColorWrites,
-                       blend: Option<wgpu::BlendState>,
-                       unclipped_depth: bool| {
+        let culled = |label: &str,
+                      vs: &str,
+                      fs: &str,
+                      buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+                      depth: wgpu::DepthStencilState,
+                      write_mask: wgpu::ColorWrites,
+                      blend: Option<wgpu::BlendState>,
+                      unclipped_depth: bool,
+                      cull_mode: Option<wgpu::Face>| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), compilation_options: Default::default(), buffers },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
+                    cull_mode,
                     unclipped_depth,
                     ..Default::default()
                 },
@@ -659,6 +744,15 @@ impl Renderer {
                 cache: None,
             })
         };
+        let blended =
+            |label: &str,
+             vs: &str,
+             fs: &str,
+             buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+             depth: wgpu::DepthStencilState,
+             write_mask: wgpu::ColorWrites,
+             blend: Option<wgpu::BlendState>,
+             unclipped_depth: bool| { culled(label, vs, fs, buffers, depth, write_mask, blend, unclipped_depth, None) };
         let pipeline =
             |label: &str,
              vs: &str,
@@ -785,8 +879,27 @@ impl Renderer {
             None,
             unclipped,
         );
-        let boxes =
-            blended("boxes", "vs_box", "fs_line", &[Some(box_layout)], depth(true, nearer, Default::default()), all, None, unclipped);
+        let boxes = blended(
+            "boxes",
+            "vs_box",
+            "fs_line",
+            &[Some(box_layout.clone())],
+            depth(true, nearer, Default::default()),
+            all,
+            None,
+            unclipped,
+        );
+        // Over the scene: no depth test, none written.
+        let boxes_front = blended(
+            "boxes (front)",
+            "vs_box_front",
+            "fs_line",
+            &[Some(box_layout)],
+            depth(false, wgpu::CompareFunction::Always, Default::default()),
+            all,
+            None,
+            unclipped,
+        );
         // Hidden behind faces, blended over what they do not hide (no depth written).
         let faint_lines = blended(
             "faint lines",
@@ -825,17 +938,22 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &fill_attrs,
         };
-        // Hidden behind faces, without hiding what lies behind them (no depth written).
-        let fills = blended(
-            "fills",
-            "vs_fill",
-            "fs_fill",
-            &[Some(fill_layout)],
-            depth(false, nearer, Default::default()),
-            all,
-            Some(wgpu::BlendState::ALPHA_BLENDING),
-            false,
-        );
+        // In the scene, hidden behind faces, or over it; without hiding what lies behind them
+        // (no depth written). Both sides, or the front only.
+        let fills = FillGroup::ALL.map(|g| {
+            let compare = if g.over() { wgpu::CompareFunction::Always } else { nearer };
+            culled(
+                g.label(),
+                "vs_fill",
+                "fs_fill",
+                &[Some(fill_layout.clone())],
+                depth(false, compare, Default::default()),
+                all,
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+                false,
+                g.cull_back().then_some(wgpu::Face::Back),
+            )
+        });
 
         Renderer {
             faces,
@@ -851,6 +969,7 @@ impl Renderer {
             silhouettes_faint,
             lines,
             boxes,
+            boxes_front,
             overlay,
             faint_lines,
             hidden,
@@ -1110,20 +1229,17 @@ impl Renderer {
         }
         self.instances.write(device, queue, bytemuck::cast_slice(&raw));
 
-        // Lines: grid and axes, depth-tested lines and the x-ray lines plain, the faint lines,
-        // the x-ray lines dashed (their hidden parts), then the overlay.
+        // Lines: grid and axes, depth-tested lines, the faint lines, the hidden lines, then the
+        // overlay.
         let mut lv = Vec::new();
         let ppp = frame.pixels_per_point;
         push_scene_lines(&mut lv, frame);
-        for l in frame.xray {
-            push_line(&mut lv, &frame.view, &Line { dash: None, ..*l }, ppp);
-        }
         let tested = lv.len() as u32;
         for l in frame.faint_lines {
             push_line(&mut lv, &frame.view, l, ppp);
         }
         let faint = lv.len() as u32;
-        for l in frame.xray {
+        for l in frame.hidden_lines {
             push_line(&mut lv, &frame.view, l, ppp);
         }
         let hidden = lv.len() as u32;
@@ -1145,21 +1261,39 @@ impl Renderer {
             .map(|b| BoxRaw {
                 model: (frame.view * b.transform).as_mat4().to_cols_array_2d(),
                 color: b.color,
-                params: [b.width * ppp / 2.0, b.dash.map_or(0.0, |d| 2.0 * d * ppp)],
+                pattern: b.dash.map_or([0.0; 4], |d| d.pattern.map(|l| l * ppp)),
+                params: [
+                    b.width * ppp / 2.0,
+                    b.corners.map_or(0.0, |c| c * ppp),
+                    if b.shell_on_top { 1.0 } else { 0.0 },
+                    if b.over { 1.0 } else { 0.0 },
+                ],
             })
             .collect();
+        let fronts = frame.boxes.iter().any(|b| b.shell_on_top || b.over);
         bx.truncate(device.limits().max_buffer_size as usize / std::mem::size_of::<BoxRaw>());
         self.box_instances.write(device, queue, bytemuck::cast_slice(&bx));
-        // Fills: each polygon as a fan of triangles.
+        // Fills by group (each drawn by its pipeline), in their order within it: a polygon as a
+        // fan of triangles, triangles as they are.
         let mut fv = Vec::new();
-        for f in frame.fills {
-            let at = |p: DVec3| FillVertex { pos: frame.view.transform_point3(p).as_vec3().to_array(), color: f.color };
-            for i in 1..f.corners.len().saturating_sub(1) {
-                fv.extend([at(f.corners[0]), at(f.corners[i]), at(f.corners[i + 1])]);
+        let mut fill_ranges: [Range<u32>; 4] = Default::default();
+        for (k, group) in FillGroup::ALL.into_iter().enumerate() {
+            let start = fv.len() as u32;
+            for f in frame.fills.iter().filter(|f| FillGroup::of(f) == group) {
+                let at = |p: DVec3| FillVertex { pos: frame.view.transform_point3(p).as_vec3().to_array(), color: f.color };
+                if f.triangles {
+                    fv.extend(f.corners.chunks_exact(3).flat_map(|t| t.iter().map(|p| at(*p))));
+                } else {
+                    for i in 1..f.corners.len().saturating_sub(1) {
+                        fv.extend([at(f.corners[0]), at(f.corners[i]), at(f.corners[i + 1])]);
+                    }
+                }
             }
+            fill_ranges[k] = start..fv.len() as u32;
         }
         let max_triangles = device.limits().max_buffer_size as usize / std::mem::size_of::<FillVertex>() / 3;
         fv.truncate(max_triangles * 3);
+        let fill_ranges = fill_ranges.map(|r| r.start.min(fv.len() as u32)..r.end.min(fv.len() as u32));
         self.fill_vertices.write(device, queue, bytemuck::cast_slice(&fv));
 
         let (Some(target), Some(bind_group)) = (&self.target, &self.bind_group) else { return false };
@@ -1331,22 +1465,38 @@ impl Renderer {
             pass.set_vertex_buffer(0, lb.slice(..));
             pass.draw(tested..faint, 0..1);
         }
-        // Fills over the depth-tested lines (which they tint), under the overlay.
-        if let Some(fb) = &self.fill_vertices.buffer
-            && !fv.is_empty()
+        // Fills in the scene over the depth-tested lines (which they tint).
+        let draw_fills = |pass: &mut Counted<'_>, over: bool| {
+            let Some(fb) = &self.fill_vertices.buffer else { return };
+            for (g, r) in FillGroup::ALL.iter().zip(&fill_ranges) {
+                if g.over() == over && !r.is_empty() {
+                    pass.set_pipeline(&self.fills[*g as usize]);
+                    pass.set_vertex_buffer(0, fb.slice(..));
+                    pass.draw(r.clone(), 0..1);
+                }
+            }
+        };
+        draw_fills(&mut pass, false);
+        if let Some(lb) = &self.line_vertices.buffer
+            && hidden > faint
         {
-            pass.set_pipeline(&self.fills);
-            pass.set_vertex_buffer(0, fb.slice(..));
-            pass.draw(0..fv.len() as u32, 0..1);
+            pass.set_vertex_buffer(0, lb.slice(..));
+            pass.set_pipeline(&self.hidden);
+            pass.draw(faint..hidden, 0..1);
         }
+        // Then over everything: the boxes' fronts, the fills, the overlay's lines.
+        if let Some(bb) = &self.box_instances.buffer
+            && fronts
+        {
+            pass.set_pipeline(&self.boxes_front);
+            pass.set_vertex_buffer(0, bb.slice(..));
+            pass.draw(0..BOX_VERTICES, 0..bx.len() as u32);
+        }
+        draw_fills(&mut pass, true);
         if let Some(lb) = &self.line_vertices.buffer {
             let total = lv.len() as u32;
-            pass.set_vertex_buffer(0, lb.slice(..));
-            if hidden > faint {
-                pass.set_pipeline(&self.hidden);
-                pass.draw(faint..hidden, 0..1);
-            }
             if total > hidden {
+                pass.set_vertex_buffer(0, lb.slice(..));
                 pass.set_pipeline(&self.overlay);
                 pass.draw(hidden..total, 0..1);
             }
@@ -1499,23 +1649,31 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
         h.fs(&hl.face_tint);
         h.fs(&hl.edge_tint);
     }
-    for lines in [frame.lines, frame.faint_lines, frame.overlay, frame.xray] {
+    let dash = |h: &mut H, d: &Option<Dash>| match d {
+        Some(d) => {
+            h.fs(&d.pattern);
+            h.fs(&[d.phase]);
+            (1u8, d.anchored).hash(&mut h.0);
+        }
+        None => 0u8.hash(&mut h.0),
+    };
+    for lines in [frame.lines, frame.faint_lines, frame.overlay, frame.hidden_lines] {
         lines.len().hash(&mut h.0);
         for l in lines {
             h.v(l.a);
             h.v(l.b);
             h.fs(&l.color);
-            match l.dash {
-                Some(d) => h.fs(&[1.0, d.length, d.phase]),
-                None => 0u8.hash(&mut h.0),
-            }
+            h.fs(&[l.width]);
+            dash(&mut h, &l.dash);
         }
     }
     frame.boxes.len().hash(&mut h.0);
     for b in frame.boxes {
         h.m(&b.transform);
         h.fs(&b.color);
-        h.fs(&[b.width, b.dash.unwrap_or(0.0)]);
+        h.fs(&[b.width, b.corners.unwrap_or(0.0)]);
+        dash(&mut h, &b.dash);
+        (b.shell_on_top, b.over).hash(&mut h.0);
     }
     frame.fills.len().hash(&mut h.0);
     for f in frame.fills {
@@ -1524,6 +1682,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
             h.v(*c);
         }
         h.fs(&f.color);
+        (f.triangles, f.over, f.cull_back).hash(&mut h.0);
     }
     match frame.grid {
         Some(g) => {
@@ -1617,17 +1776,12 @@ fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, ppp: f32) {
     let half = l.width * ppp / 2.0;
     let a = view.transform_point3(l.a).as_vec3().to_array();
     let b = view.transform_point3(l.b).as_vec3().to_array();
-    let dash = l.dash.map_or([0.0, 0.0], |d| [2.0 * d.length * ppp, d.phase * ppp]);
-    out.extend(QUAD.map(|[end, side]| LineVertex { a, b, corner: [end, side, half], color: l.color, dash }));
+    let (pattern, dash) = match l.dash {
+        Some(d) => (d.pattern.map(|l| l * ppp), [d.phase * ppp, if d.anchored { 1.0 } else { 0.0 }]),
+        None => ([0.0; 4], [0.0; 2]),
+    };
+    out.extend(QUAD.map(|[end, side]| LineVertex { a, b, corner: [end, side, half], color: l.color, pattern, dash }));
 }
-
-/// The axis colours (linear), after SketchUp's, the green deepened (as
-/// `solidsketch_theme::AXIS_Y`, which these must match), the positive halves'; the negative ones
-/// are drawn at [`AXIS_NEGATIVE_ALPHA`].
-pub const AXIS_X: [f32; 4] = [0.85, 0.05, 0.05, 1.0];
-pub const AXIS_Y: [f32; 4] = [0.007, 0.262, 0.007, 1.0];
-pub const AXIS_Z: [f32; 4] = [0.05, 0.1, 0.85, 1.0];
-pub const AXIS_NEGATIVE_ALPHA: f32 = 0.35;
 
 fn push_scene_lines(out: &mut Vec<LineVertex>, frame: &Frame<'_>) {
     // The grid in the context's frame (composed in f64, so far frames stay exact).

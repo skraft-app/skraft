@@ -5,6 +5,7 @@
 
 mod bvh;
 pub mod camera;
+pub mod draw;
 mod editor;
 pub mod guides;
 pub mod infer;
@@ -27,6 +28,5 @@ pub use editor::{
 pub use infer::{Curve, EdgeRef, InferKind, Inference, LineKind};
 pub use scene::{DefinitionMesh, DisplayScene, Hit, Owner, PartMesh, Piece, Placement, RecipeMeshes, RecipeTool, SceneGuide};
 pub use tools::{
-    Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PointShape, PreviewLabel, PreviewLine, ToolInput, ToolKind,
-    ToolOption,
+    Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PointShape, PreviewLabel, ToolInput, ToolKind, ToolOption,
 };

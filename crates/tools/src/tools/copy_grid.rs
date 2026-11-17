@@ -24,9 +24,7 @@ use super::handle::{
 };
 use super::pick::Picker;
 use super::rotate::rotation_about;
-use super::{
-    Command, Cx, INK, Key, OptionValue, PointShape, Preview, PreviewLabel, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, copy_key,
-};
+use super::{Command, Cx, INK, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
 
@@ -359,9 +357,10 @@ impl Tool for CopyGridTool {
             self.picker.preview(&mut p);
             return p;
         };
-        draw_axes(cx, &mut p.scene_lines, &t, |_| false, None);
+        let draw = &mut cx.drawer(&mut p.drawing);
+        draw_axes(draw, &t, |_| false, None);
         let Some((end, k)) = self.end else {
-            draw_box(cx, &mut p.scene_lines, t.frame, t.lo, t.hi, INK);
+            draw_box(draw, t.frame, t.lo, t.hi, INK);
             return p;
         };
         let h = handle_axes(k);
@@ -374,7 +373,7 @@ impl Tool for CopyGridTool {
         let (a, b) = (d.dps, d.dpe);
         let corners = [a, DVec3::new(b.x, a.y, a.z), DVec3::new(b.x, b.y, a.z), DVec3::new(a.x, b.y, a.z)].map(world);
         for i in 0..4 {
-            draw_measure(cx, &mut p.lines, corners[i], corners[(i + 1) % 4], color);
+            draw_measure(cx, draw, corners[i], corners[(i + 1) % 4], color);
         }
         // The boxes at the grid's corners (the source's in ink), their centres and measure points.
         let border = [r[0], r[1]].map(|r| if matches!(r, Repeat::Divide(_)) { count(r) } else { 1 });
@@ -383,33 +382,23 @@ impl Tool for CopyGridTool {
         let dv = d.dpe - d.dps;
         for (x, y) in cells {
             let c = cell(&t, &h, &d, r, mirror, x, y);
-            draw_box(cx, &mut p.scene_lines, c * t.frame, t.lo, t.hi, if (x, y) == (0, 0) { INK } else { color });
-            p.marks.push(c.transform_point3(world(d.mps)));
+            draw_box(draw, c * t.frame, t.lo, t.hi, if (x, y) == (0, 0) { INK } else { color });
+            draw.mark(c.transform_point3(world(d.mps)));
             let dp = d.dps + DVec3::new(dv.x * x.min(1) as f64, dv.y * y.min(1) as f64, 0.0);
-            p.points.push(PreviewPoint { at: world(dp), radius: 4.0, fill: Some(WHITE), stroke: Some(color), shape: PointShape::Round });
+            draw.grip(world(dp), 4.0, Some(WHITE), Some(color), PointShape::Round);
         }
         // The sides' lengths, along the rectangle's sides from its low corner.
         let lo = a.min(b);
         let hi = a.max(b);
-        let size = hi - lo;
         for (i, (from, to)) in [(lo, DVec3::new(hi.x, lo.y, lo.z)), (lo, DVec3::new(lo.x, hi.y, lo.z))].into_iter().enumerate() {
-            let text = vcb::format(size[i], cx.units());
             let color = axis_color(axis_of(h.col(i)));
-            p.labels.push(PreviewLabel {
-                a: world(from),
-                b: world(to),
-                text,
-                color,
-                slot: Some(i),
-                hidden: size[i] <= 1e-9,
-                ..Default::default()
-            });
+            draw.length_always(world(from), world(to), color, Some(i));
         }
         // The mirror's badge past the corner copy (OCL's), in black.
         if mirror && count(r[0]) == 1 && count(r[1]) == 1 {
             let ve = t.frame.transform_vector3(h * d.ve);
             if let Some(dir) = ve.try_normalize() {
-                p.points.push(mirror_badge(cx, world(d.mpe), dir, ve.length(), BLACK));
+                mirror_badge(draw, world(d.mpe), dir, ve.length(), BLACK);
             }
         }
         p.copies = placements(&t, &h, &d, r, mirror);

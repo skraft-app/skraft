@@ -27,14 +27,12 @@ use super::handle::{
     stepped,
 };
 use super::pick::Picker;
-use super::{
-    Command, Cx, PointShape, Preview, PreviewLabel, PreviewLine, PreviewPoint, Tool, ToolInput, ToolKind, ToolOption, arrow_head, copy_key,
-    dashed,
-};
+use super::{Command, Cx, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
 use crate::camera::Ray;
+use crate::draw::{Ends, Pen};
 use crate::infer::{InferKind, Inference};
 use crate::scene::Owner;
-use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
+use crate::vcb::{Repeat, Vcb, VcbKind, VcbValue};
 
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const GREY: [f32; 4] = [0.35, 0.35, 0.35, 1.0];
@@ -364,46 +362,38 @@ impl Tool for DistributeTool {
         // What is distributed is drawn where it goes only: in place until then.
         p.ghost = Some(DAffine3::IDENTITY);
         p.inference = self.snap.clone();
+        let draw = &mut cx.drawer(&mut p.drawing);
         let State::End { start } = self.state else {
-            draw_axes(cx, &mut p.scene_lines, &t, |_| false, None);
-            draw_boxes(cx, &mut p.scene_lines, &t, &[], GREY);
-            p.marks.extend(self.cursor.map(|c| t.world(c.0)));
+            draw_axes(draw, &t, |_| false, None);
+            draw_boxes(draw, &t, &[], GREY);
+            if let Some(c) = self.cursor {
+                draw.mark(t.world(c.0));
+            }
             return p;
         };
         let from = t.world(start);
-        p.marks.push(from);
+        draw.mark(from);
         let Some((end, k)) = self.cursor else { return p };
         let params = self.params(start, end);
         let Some(s) = slots(&t, &params, measure_of(cx)) else { return p };
         let color = axis_color(k);
         let moves: Vec<DAffine3> = s.centers.iter().map(|m| t.translation(*m - t.center())).collect();
-        draw_axes(cx, &mut p.scene_lines, &t, |j| j == k, None);
-        draw_boxes(cx, &mut p.scene_lines, &t, &moves, color);
+        draw_axes(draw, &t, |j| j == k, None);
+        draw_boxes(draw, &t, &moves, color);
         let (a, b) = (t.world(s.lps), t.world(s.lpe));
         // From the points clicked to the measure line, which runs through the box's centre.
-        dashed(cx.camera, cx.size, &mut p.lines, from, a, GREY);
         let cursor = self.ray_hit.unwrap_or_else(|| self.snap.as_ref().map_or(t.world(end), |i| i.point));
-        dashed(cx.camera, cx.size, &mut p.lines, cursor, b, GREY);
+        draw.pen(Pen::new(GREY).over().dashed()).line(from, a).line(cursor, b);
         if let Some(hit) = self.ray_hit {
-            p.lines.push(PreviewLine { a: from, b: hit, color, bold: true });
-            p.lines.extend(arrow_head(cx.camera, cx.size, from, hit, color));
+            draw.pen(Pen::new(color).over().bold()).line(from, hit);
+            draw.pen(Pen::new(color).over()).arrow_heads(from, hit, Ends::End);
         }
         // The measure, dashed, seen through what lies between.
-        draw_measure(cx, &mut p.lines, a, b, color);
+        draw_measure(cx, draw, a, b, color);
         for at in [a, b] {
-            p.points.push(PreviewPoint { at, radius: 4.0, fill: Some(WHITE), stroke: Some(color), shape: PointShape::Round });
+            draw.grip(at, 4.0, Some(WHITE), Some(color), PointShape::Round);
         }
-        p.marks.push(t.world(t.center()));
-        let len = (b - a).length();
-        p.labels.push(PreviewLabel {
-            a,
-            b,
-            text: vcb::format(len, cx.units()),
-            color,
-            slot: Some(0),
-            hidden: len <= 1e-9,
-            ..Default::default()
-        });
+        draw.mark(t.world(t.center())).length_always(a, b, color, Some(0));
         p.ghost = moves.first().copied();
         p.copies = moves[1..].to_vec();
         p

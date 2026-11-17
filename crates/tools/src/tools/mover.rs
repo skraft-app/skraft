@@ -20,12 +20,10 @@ use glam::{DAffine3, DVec2, DVec3};
 use solidsketch_i18n::t;
 use solidsketch_model::{EntityPath, Id, Operation};
 
-use super::{
-    Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, PreviewLabel, PreviewLine, Tool, ToolInput, ToolKind, ToolOption,
-    guide_color,
-};
+use super::{Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption, guide_color};
+use crate::draw::{Drawing, Ends, Pen};
 use crate::infer::Inference;
-use crate::vcb::{self, PointRef, Vcb, VcbKind, VcbValue};
+use crate::vcb::{PointRef, Vcb, VcbKind, VcbValue};
 
 #[derive(Default)]
 pub struct MoveTool {
@@ -181,25 +179,24 @@ impl Tool for MoveTool {
                 self.picker.preview(&mut p);
                 p
             }
-            State::Start => Preview { marks: self.cursor.into_iter().collect(), inference: self.snap.clone(), ..Default::default() },
+            State::Start => {
+                let mut drawing = Drawing::default();
+                if let Some(c) = self.cursor {
+                    cx.drawer(&mut drawing).mark(c);
+                }
+                Preview { drawing, inference: self.snap.clone(), ..Default::default() }
+            }
             State::Moving { from, to } => {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
-                // Seen through what lies between: dashed behind faces; its length at its middle.
-                let xray = vec![PreviewLine { a: from, b: to, color, bold: false }];
-                // Not moved yet: only while the distance is typed.
-                let len = (to - from).length();
-                let text = vcb::format(len, cx.units());
-                let labels = vec![PreviewLabel { a: from, b: to, text, color, slot: Some(0), hidden: len <= 1e-9, ..Default::default() }];
-                Preview {
-                    // The head over everything: it stays readable at the cursor.
-                    lines: super::arrow_head(cx.camera, cx.size, from, to, color),
-                    xray,
-                    labels,
-                    marks: vec![from],
-                    ghost: Some(DAffine3::from_translation(to - from)),
-                    inference: self.snap.clone(),
-                    ..Default::default()
-                }
+                let mut drawing = Drawing::default();
+                let d = &mut cx.drawer(&mut drawing);
+                // Seen through what lies between: dashed behind faces; the head over everything,
+                // readable at the cursor; its length at its middle (not moved yet: only while
+                // the distance is typed).
+                d.pen(Pen::new(color).x_ray()).line(from, to);
+                d.pen(Pen::new(color).over()).arrow_heads(from, to, Ends::End);
+                d.length_always(from, to, color, Some(0)).mark(from);
+                Preview { drawing, ghost: Some(DAffine3::from_translation(to - from)), inference: self.snap.clone(), ..Default::default() }
             }
         }
     }

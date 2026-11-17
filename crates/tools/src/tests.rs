@@ -3,6 +3,7 @@
 use glam::{DVec2, DVec3};
 use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Primitive};
 
+use crate::draw::ThemeColor;
 use crate::*;
 
 /// An editor looking straight down (parallel), framing ±1 m.
@@ -207,10 +208,10 @@ fn shape_gauge_shows_offset_and_fillet() {
     let at = DVec3::new(100.0, 100.0, 0.0);
     let lines = |e: &mut Editor| {
         hover(e, at);
-        e.preview().lines
+        e.preview().drawing.lines
     };
-    let past = |l: &[PreviewLine]| l.iter().any(|l| l.a.x.min(l.b.x) < at.x - 1e-6);
-    let askew = |l: &[PreviewLine]| l.iter().any(|l| (l.a.x - l.b.x).abs() > 1e-6 && (l.a.y - l.b.y).abs() > 1e-6);
+    let past = |l: &[crate::draw::Line]| l.iter().any(|l| l.a.x.min(l.b.x) < at.x - 1e-6);
+    let askew = |l: &[crate::draw::Line]| l.iter().any(|l| (l.a.x - l.b.x).abs() > 1e-6 && (l.a.y - l.b.y).abs() > 1e-6);
     e.set_tool(ToolKind::Box);
     let plain = lines(&mut e);
     assert!(!past(&plain) && !askew(&plain));
@@ -477,7 +478,7 @@ fn once_drawn_the_plane_shows_under_the_cursor_again() {
     e.input(ToolInput::Vcb("150".into()));
     // The cursor is still where the second corner was: the small base starts there, on the top
     // of the new box, not where the first corner was.
-    let at = |p: DVec3| e.view().overlay.iter().any(|l| (l.a.truncate() - p.truncate()).length() < 1e-3);
+    let at = |p: DVec3| e.preview().drawing.lines.iter().any(|l| (l.a.truncate() - p.truncate()).length() < 1e-3);
     assert!(at(b) && !at(a));
 }
 
@@ -518,12 +519,12 @@ fn the_shape_at_the_cursor_hides_when_it_leaves_the_view() {
     for tool in [ToolKind::Box, ToolKind::Cylinder] {
         e.set_tool(tool);
         e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 100.0, 0.0)) });
-        assert!(!e.view().overlay.is_empty());
+        assert!(!e.preview().drawing.lines.is_empty());
         e.leave();
-        assert!(e.view().overlay.is_empty());
+        assert!(e.preview().drawing.lines.is_empty());
         // Back in the view: shown again.
         e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 100.0, 0.0)) });
-        assert!(!e.view().overlay.is_empty());
+        assert!(!e.preview().drawing.lines.is_empty());
     }
 }
 
@@ -1041,24 +1042,24 @@ fn a_selection_shows_its_content_box() {
     let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 200.0, 0.0), "80");
     // A part alone: its box too.
     e.select(vec![a]);
-    let segs = e.view().selection_boxes;
+    let segs = boxes_in(&e.view(), ThemeColor::Selected);
     let (lo, hi) = segs.iter().flat_map(|b| b.corners()).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(100.0, 100.0, 50.0)), "{lo} {hi}");
     e.select(vec![a, b]);
     e.make_assembly();
-    let segs = e.view().selection_boxes;
+    let segs = boxes_in(&e.view(), ThemeColor::Selected);
     assert!(!segs.is_empty());
     // Dashed, the box spans the content's bounds exactly.
     let (lo, hi) = segs.iter().flat_map(|b| b.corners()).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(400.0, 200.0, 80.0)), "{lo} {hi}");
     // The stretch tool draws its own box: the selection's is not drawn.
     e.set_tool(ToolKind::Stretch);
-    assert!(e.view().selection_boxes.is_empty());
+    assert!(boxes_in(&e.view(), ThemeColor::Selected).is_empty());
     e.set_tool(ToolKind::Select);
-    assert!(!e.view().selection_boxes.is_empty());
+    assert!(!boxes_in(&e.view(), ThemeColor::Selected).is_empty());
     e.select(vec![]);
-    assert!(e.view().selection_boxes.is_empty());
-    assert!(e.view().context_box.is_empty());
+    assert!(boxes_in(&e.view(), ThemeColor::Selected).is_empty());
+    assert!(boxes_in(&e.view(), ThemeColor::ContextBox).is_empty());
     // Inside the assembly: its box stays, a little larger than the content.
     let g = {
         e.select_all();
@@ -1066,8 +1067,11 @@ fn a_selection_shows_its_content_box() {
     };
     e.enter(g);
     let v = e.view();
-    assert!(v.selection_boxes.is_empty());
-    let (lo, hi) = v.context_box.iter().flat_map(|b| b.corners()).fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+    assert!(boxes_in(&v, ThemeColor::Selected).is_empty());
+    let (lo, hi) = boxes_in(&v, ThemeColor::ContextBox)
+        .iter()
+        .flat_map(|b| b.corners())
+        .fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
     let d = lo - DVec3::ZERO;
     assert!(d.x < 0.0 && (d.x - d.y).abs() < 1e-3 && (d.x - d.z).abs() < 1e-3, "{lo}");
     assert!(close(hi - DVec3::new(400.0, 200.0, 80.0), -d), "{lo} {hi}");
@@ -1173,7 +1177,7 @@ fn rotate_tool_by_clicks_and_typed_angle() {
     // The cursor a hair inside the top face (the corner itself is on three faces: which one a
     // ray exactly through it hits is a tie), the centre snapped to the corner.
     click(&mut e, DVec3::new(1.0, 1.0, 50.0));
-    assert!(e.view().overlay.len() > 40, "protractor drawn");
+    assert!(e.preview().drawing.lines.len() > 40, "protractor drawn");
     click(&mut e, DVec3::new(150.0, 0.0, 50.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 150.0, 50.0)) });
     assert!(e.view().highlights.iter().any(|h| h.mark == Mark::Ghost));
@@ -1215,8 +1219,8 @@ fn rotate_snaps_to_the_graduations_inside_the_protractor_only() {
     let r = e.camera.world_per_pixel(e.viewport_size(), DVec3::ZERO) * 70.0;
     let at = |deg: f64, d: f64| DVec3::new(deg.to_radians().cos(), deg.to_radians().sin(), 0.0) * d;
     let hover = |e: &mut Editor, p: DVec3| e.input(ToolInput::Hover { px: px(e, p) });
-    // The radius to the cursor: its last dash.
-    let radius_end = |e: &Editor| e.preview().lines.last().unwrap().b;
+    // The radius to the cursor: the last line drawn.
+    let radius_end = |e: &Editor| e.preview().drawing.lines.last().unwrap().b;
     click(&mut e, DVec3::ZERO);
 
     // The reference, inside: on the graduation nearest (the context's X), up to it.
@@ -1786,8 +1790,8 @@ fn a_part_opens_with_its_axes_the_rest_faded() {
     let related: Vec<_> = v.highlights.iter().filter(|h| h.mark == Mark::Related).collect();
     assert_eq!(related.len(), 1);
     // A dashed box around it, a few pixels off its faces (its top is at z = 50).
-    assert!(!v.context_box.is_empty());
-    let top = v.context_box.iter().flat_map(|b| b.corners().map(|c| c.z)).fold(f64::MIN, f64::max);
+    assert!(!boxes_in(&v, ThemeColor::ContextBox).is_empty());
+    let top = boxes_in(&v, ThemeColor::ContextBox).iter().flat_map(|b| b.corners().map(|c| c.z)).fold(f64::MIN, f64::max);
     assert!(top > 50.0 && top < 80.0, "{top}");
     assert!(related[0].transform.abs_diff_eq(e.document().resolve(&EntityPath::root(a)).unwrap().transform, 1e-9));
     // A click on something else, off its box, closes it, the occurrence left selected.
@@ -1825,7 +1829,7 @@ fn a_part_opens_with_its_axes_the_rest_faded() {
     click(&mut e, DVec3::new(-800.0, -800.0, 0.0));
     assert_eq!(e.open_part(), None);
     assert!(e.axes_transform().abs_diff_eq(DAffine3::IDENTITY, 1e-12));
-    assert!(e.view().context_box.is_empty());
+    assert!(boxes_in(&e.view(), ThemeColor::ContextBox).is_empty());
 
     // Undo: the pocket goes, the part stays open; then the copy goes, and the part closes.
     e.enter(b);
@@ -1888,7 +1892,7 @@ fn an_open_part_shows_its_blank_as_a_ghost_and_its_tools() {
     let r = e.scene().recipe().unwrap();
     assert!(close(r.tools[1].placement.translation, DVec3::new(150.0, 100.0, -5.0)));
     // Each body's bottom cap drawn bold: the board's rectangle at z 0, each hole's circle at z -5.
-    let bases = e.view().bases;
+    let bases: Vec<(DVec3, DVec3)> = bases_of(&e.view()).into_iter().map(|l| (l.a, l.b)).collect();
     let at_z = |z: f64| bases.iter().filter(|(a, b)| (a.z - z).abs() < 1e-6 && (b.z - z).abs() < 1e-6).collect::<Vec<_>>();
     assert_eq!(at_z(0.0).len(), 4, "{bases:?}");
     let holes = at_z(-5.0);
@@ -1908,7 +1912,7 @@ fn an_open_part_shows_its_blank_as_a_ghost_and_its_tools() {
     // Closed: the shape again.
     e.exit();
     assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
-    assert!(e.view().bases.is_empty());
+    assert!(bases_of(&e.view()).is_empty());
     assert!(e.scene().recipe().is_none());
 }
 
@@ -2225,10 +2229,10 @@ fn the_tape_measures_and_draws_guides() {
     hover(&mut e, DVec3::new(420.0, 120.0, 100.0));
     assert_eq!(e.vcb(), Some(("Décalage".into(), "120".into())));
     // The edge referred to, end to end, bolder.
-    let refs: Vec<_> = e.preview().lines.into_iter().filter(|l| l.color == crate::tools::MAGENTA).collect();
+    let refs: Vec<_> = e.preview().drawing.lines.into_iter().filter(|l| l.pen.color == crate::tools::MAGENTA.into()).collect();
     let (a, b) = (DVec3::new(300.0, 0.0, 100.0), DVec3::new(300.0, 200.0, 100.0));
     let [r] = refs[..] else { panic!("{refs:?}") };
-    assert!(r.bold && ((close(r.a, a) && close(r.b, b)) || (close(r.a, b) && close(r.b, a))), "{r:?}");
+    assert!(r.pen.width == crate::draw::BOLD && ((close(r.a, a) && close(r.b, b)) || (close(r.a, b) && close(r.b, a))), "{r:?}");
     // The offset runs from the point clicked, square to the edge, to the guide.
     let l = &e.labels("")[0];
     assert!(close(l.a, DVec3::new(300.0, 50.0, 100.0)) && close(l.b, DVec3::new(420.0, 50.0, 100.0)), "{} {}", l.a, l.b);
@@ -2237,7 +2241,7 @@ fn the_tape_measures_and_draws_guides() {
     click(&mut e, DVec3::new(420.0, 120.0, 100.0));
     let [GuideShape::Line { origin, dir }] = guides(&e)[..] else { panic!("{:?}", guides(&e)) };
     assert!((origin.x - 420.0).abs() < 1e-3 && (origin.z - 100.0).abs() < 1e-3 && dir.cross(DVec3::Y).length() < 1e-9, "{origin} {dir}");
-    assert!(!e.view().guides.is_empty(), "drawn");
+    assert!(!guides_in(&e.view(), ThemeColor::Guide).is_empty(), "drawn");
 
     // Typed: the offset towards the cursor's side.
     click(&mut e, DVec3::new(300.0, 50.0, 100.0));
@@ -2328,10 +2332,10 @@ fn the_tape_draws_the_kind_of_guide_chosen() {
     click(&mut e, c - DVec3::Y * 100.0);
     // The offset: from the point clicked along its radius, wherever the cursor is around.
     hover(&mut e, c + DVec3::X * 150.0);
-    let p = e.preview();
-    assert_eq!(p.xray.len(), 1);
-    let (a, b) = (p.xray[0].a, p.xray[0].b);
-    assert!(close(a, c - DVec3::Y * 100.0) && (b.x - c.x).abs() < 1e-3 && b.y < a.y - 1.0, "{:?}", p.xray);
+    let xray = x_rays(&e.preview());
+    assert_eq!(xray.len(), 1);
+    let (a, b) = (xray[0].a, xray[0].b);
+    assert!(close(a, c - DVec3::Y * 100.0) && (b.x - c.x).abs() < 1e-3 && b.y < a.y - 1.0, "{xray:?}");
     e.input(ToolInput::Vcb("0".into()));
     let GuideShape::Circle { center, radius, .. } = guides(&e)[4] else { panic!("{} {:?}", e.status(), guides(&e)) };
     assert!(close(center, c) && (radius - 100.0).abs() < 1e-6, "{radius}");
@@ -2429,8 +2433,15 @@ fn the_tape_draws_a_tangent_from_the_end_of_an_arc_and_marks_its_reference() {
     let magenta = |e: &Editor| {
         let p = e.preview();
         let on_arc = |q: DVec3| ((q - DVec3::new(300.0, 200.0, 50.0)).length() - 100.0).abs() < 1e-6 && (q.z - 50.0).abs() < 1e-9;
-        let arc = p.lines.iter().filter(|l| l.color == crate::tools::MAGENTA && l.bold).collect::<Vec<_>>();
-        !arc.is_empty() && arc.iter().all(|l| on_arc(l.a) && on_arc(l.b)) && !p.guides.iter().any(|(_, c)| *c == crate::tools::MAGENTA)
+        let arc = p
+            .drawing
+            .lines
+            .iter()
+            .filter(|l| l.pen.color == crate::tools::MAGENTA.into() && l.pen.width == crate::draw::BOLD)
+            .collect::<Vec<_>>();
+        let magenta_guide =
+            |l: &crate::draw::Line| l.pen.color == crate::tools::MAGENTA.into() && l.pen.stipple == crate::draw::Stipple::LongDashes;
+        !arc.is_empty() && arc.iter().all(|l| on_arc(l.a) && on_arc(l.b)) && !p.drawing.lines.iter().any(magenta_guide)
     };
     e.set_tool(ToolKind::Measure);
     e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
@@ -2487,14 +2498,14 @@ fn a_guide_drawn_in_an_open_part_is_the_part_s() {
     };
     assert!((origin.x - 325.0).abs() < 1e-3 && (origin.z - 50.0).abs() < 1e-3, "{origin}");
     let v = e.view();
-    assert!(!v.guides.is_empty() && v.faded_guides.is_empty());
+    assert!(!guides_in(&v, ThemeColor::Guide).is_empty() && guides_in(&v, ThemeColor::FadedGuide).is_empty());
     // Closed, the part's guide is outside the context: faded.
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
     e.set_tool(ToolKind::Select);
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
     assert_eq!(e.open_part(), None);
     let v = e.view();
-    assert!(v.guides.is_empty() && !v.faded_guides.is_empty());
+    assert!(guides_in(&v, ThemeColor::Guide).is_empty() && !guides_in(&v, ThemeColor::FadedGuide).is_empty());
 }
 
 fn hover(e: &mut Editor, p: DVec3) {
@@ -2514,8 +2525,10 @@ fn the_tape_starts_a_guide_from_a_guide() {
     e.set_tool(ToolKind::Measure);
     // The guide referred to, dashed where it is: its very strokes, in magenta.
     let marks_guide = |e: &Editor| {
-        let refs: Vec<_> = e.preview().guides.into_iter().filter(|(_, c)| *c == crate::tools::MAGENTA).map(|(s, _)| s).collect();
-        let drawn = e.view().guides;
+        let magenta_guide =
+            |l: &&crate::draw::Line| l.pen.color == crate::tools::MAGENTA.into() && l.pen.stipple == crate::draw::Stipple::LongDashes;
+        let refs: Vec<_> = e.preview().drawing.lines.iter().filter(magenta_guide).map(|l| (l.a, l.b, l.phase)).collect();
+        let drawn: Vec<_> = guides_in(&e.view(), ThemeColor::Guide).into_iter().map(|l| (l.a, l.b, l.phase)).collect();
         !refs.is_empty() && refs.iter().all(|s| drawn.contains(s))
     };
     // From the guide line: a parallel one.
@@ -2552,10 +2565,10 @@ fn guides_are_selected_moved_copied_and_erased() {
 
     // A click near a guide takes it; hovered then selected, drawn so.
     hover(&mut e, DVec3::new(100.0, -303.0, 0.0));
-    assert!(!e.view().hovered_guides.is_empty());
+    assert!(!guides_in(&e.view(), ThemeColor::Hover).is_empty());
     click(&mut e, DVec3::new(100.0, -303.0, 0.0));
     assert_eq!(e.selection(), &[g]);
-    assert!(!e.view().selected_guides.is_empty());
+    assert!(!guides_in(&e.view(), ThemeColor::Selected).is_empty());
     // Select all takes the guides too.
     e.select_all();
     assert_eq!(e.selection(), &[a, g, c]);
@@ -2601,7 +2614,7 @@ fn guides_are_selected_moved_copied_and_erased() {
     e.apply(Operation::SetSettings(s)).unwrap();
     assert_eq!(e.selection(), &[a]);
     let v = e.view();
-    assert!(v.guides.is_empty() && v.selected_guides.is_empty());
+    assert!(guides_in(&v, ThemeColor::Guide).is_empty() && guides_in(&v, ThemeColor::Selected).is_empty());
     e.set_tool(ToolKind::Box);
     hover(&mut e, DVec3::new(-400.0, 503.0, 0.0));
     assert_ne!(e.inference().map(|i| i.1), Some(crate::InferKind::OnGuide));
@@ -2652,6 +2665,32 @@ fn a_guide_from_a_level_edge_is_offset_level_in_the_void() {
     assert!(dir.cross(DVec3::X).length() < 1e-9);
 }
 
+/// The boxes the view draws in the theme's colour `c` (the selection's, the context's).
+fn boxes_in(v: &crate::View, c: ThemeColor) -> Vec<crate::OrientedBox> {
+    v.drawing.boxes.iter().filter(|b| b.pen.color == crate::draw::Color::Theme(c)).map(|b| b.bounds).collect()
+}
+
+/// The guides' strokes the view draws in the theme's colour `c`.
+fn guides_in(v: &crate::View, c: ThemeColor) -> Vec<crate::draw::Line> {
+    let guide = |l: &&crate::draw::Line| l.pen.color == crate::draw::Color::Theme(c) && l.pen.stipple == crate::draw::Stipple::LongDashes;
+    v.drawing.lines.iter().filter(guide).copied().collect()
+}
+
+/// The edges' theme colour, the open part's bases' and turned axes'.
+fn edge_color() -> crate::draw::Color {
+    crate::draw::Color::Theme(crate::draw::ThemeColor::Edge)
+}
+
+/// The open part's bodies' bottom caps the view draws: bold, in the edges' colour.
+fn bases_of(v: &crate::View) -> Vec<crate::draw::Line> {
+    v.drawing.lines.iter().filter(|l| l.pen.color == edge_color() && l.pen.width == crate::draw::BOLD).copied().collect()
+}
+
+/// The lines a preview draws seen through faces (dashed where hidden): a measure's.
+fn x_rays(p: &crate::tools::Preview) -> Vec<crate::draw::Line> {
+    p.drawing.lines.iter().filter(|l| l.pen.hidden.is_some()).copied().collect()
+}
+
 #[test]
 fn the_tape_draws_a_guide_from_an_axis() {
     use solidsketch_model::GuideShape;
@@ -2662,7 +2701,13 @@ fn the_tape_draws_a_guide_from_an_axis() {
     click(&mut e, DVec3::new(-300.0, 4.0, 0.0));
     hover(&mut e, DVec3::new(-300.0, 150.0, 0.0));
     // The axis referred to, across the view: in the scene, in its colour.
-    let refs: Vec<_> = e.preview().scene_lines.into_iter().filter(|l| l.color == crate::tools::RED).collect();
+    let refs: Vec<_> = e
+        .preview()
+        .drawing
+        .lines
+        .into_iter()
+        .filter(|l| l.pen.layer == crate::draw::Layer::Scene && l.pen.hidden.is_none() && l.pen.color == crate::tools::RED.into())
+        .collect();
     let [r] = refs[..] else { panic!("{refs:?}") };
     assert!(r.a.y.abs() < 1e-6 && r.b.y.abs() < 1e-6 && (r.b - r.a).cross(DVec3::X).length() < 1e-6 * (r.b - r.a).length(), "{r:?}");
     e.input(ToolInput::Vcb("100".into()));
@@ -2817,7 +2862,7 @@ fn stretch_tool_cutters_are_dragged_added_and_removed() {
     let (mut e, a) = drilled_board_editor(&[]);
     // The cutters' planes, by where they cross the board (seen from the top: a line each).
     let cutters = |e: &Editor| {
-        let mut xs: Vec<i64> = e.view().fills.iter().map(|f| f.corners[0].x.round() as i64).collect();
+        let mut xs: Vec<i64> = e.view().drawing.fills.iter().map(|f| f.corners[0].x.round() as i64).collect();
         xs.sort();
         xs
     };
@@ -2902,7 +2947,7 @@ fn stretch_tool_moves_an_interior_section() {
     let (mut e, a) = drilled_board_editor(&[100.0, 250.0, 500.0]);
     let on_axis = |x: f64| DVec3::new(x, 150.0, 18.0);
     let cutters = |e: &Editor| {
-        let mut xs: Vec<i64> = e.view().fills.iter().map(|f| f.corners[0].x.round() as i64).collect();
+        let mut xs: Vec<i64> = e.view().drawing.fills.iter().map(|f| f.corners[0].x.round() as i64).collect();
         xs.sort();
         xs
     };
@@ -2913,7 +2958,10 @@ fn stretch_tool_moves_an_interior_section() {
     click(&mut e, DVec3::new(200.0, 100.0, 18.0));
     e.set_copy(false);
     assert_eq!(cutters(&e), vec![200, 300]);
-    let bold = |e: &Editor| e.view().overlay.iter().filter(|l| l.bold).count();
+    let bold = |e: &Editor| {
+        let over_bold = |l: &&crate::draw::Line| l.pen.layer == crate::draw::Layer::Over && l.pen.width == crate::draw::BOLD;
+        e.view().drawing.lines.iter().filter(over_bold).count()
+    };
     e.input(ToolInput::Hover { px: px(&e, on_axis(400.0)) });
     assert_eq!(bold(&e), 0);
     e.input(ToolInput::Hover { px: px(&e, on_axis(230.0)) });
@@ -3023,7 +3071,7 @@ fn stretch_tool_draws_the_part_stretched_while_pulling() {
     click(&mut e, DVec3::new(600.0, 150.0, 18.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(800.0, 150.0, 18.0)) });
     assert_eq!((stretched(&e), drawn_plain(&e)), (2, 0));
-    assert!(e.view().fills.is_empty());
+    assert!(e.view().drawing.fills.is_empty());
     let mesh = &e.scene().definition_mesh(key).unwrap().parts[0].mesh;
     let max_x = mesh.positions.iter().map(|p| mesh.origin.x + p[0] as f64).fold(f64::MIN, f64::max);
     assert!((max_x - 800.0).abs() < 1e-3, "{max_x}");
@@ -3088,7 +3136,7 @@ fn a_stretch_stays_drawn_stretched_while_computed() {
     // While the kernel works: still drawn stretched, without the tool's grips or cutters.
     assert!(e.busy());
     assert_eq!((drawn(&e, key), drawn(&e, part)), (1, 0));
-    assert!(e.view().fills.is_empty() && e.overlay_points().is_empty());
+    assert!(e.view().drawing.fills.is_empty() && e.overlay_points().is_empty());
     // Done: drawn from the document, stretched.
     k.run_all();
     assert!(e.poll());
@@ -3433,7 +3481,7 @@ fn the_selection_drawn_follows_what_it_hangs_on() {
     let root = e.document().root();
     let selected =
         |e: &Editor| e.view().highlights.iter().filter(|h| h.mark == Mark::Selected).map(|h| h.transform.translation).collect::<Vec<_>>();
-    let box_lo = |e: &Editor| e.view().selection_boxes.iter().map(|b| b.frame.transform_point3(b.lo)).collect::<Vec<_>>();
+    let box_lo = |e: &Editor| boxes_in(&e.view(), ThemeColor::Selected).iter().map(|b| b.frame.transform_point3(b.lo)).collect::<Vec<_>>();
 
     e.select(vec![a]);
     assert_eq!(selected(&e).len(), 1);
@@ -3459,7 +3507,7 @@ fn the_selection_drawn_follows_what_it_hangs_on() {
     let ghosts: Vec<DVec3> = v.highlights.iter().filter(|h| h.mark == Mark::Ghost).map(|h| h.transform.translation).collect();
     assert_eq!(ghosts.len(), 2);
     assert!(ghosts.iter().any(|t| (t.y - 200.0).abs() < 1e-3), "{ghosts:?}");
-    assert!(v.selection_boxes.iter().all(|b| (b.frame.transform_point3(b.lo).y - 200.0).abs() < 1e-3));
+    assert!(boxes_in(&v, ThemeColor::Selected).iter().all(|b| (b.frame.transform_point3(b.lo).y - 200.0).abs() < 1e-3));
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
     // Inside an assembly: its occurrences are the entities, marked where they are.
     e.set_tool(ToolKind::Select);
@@ -3636,10 +3684,13 @@ fn turn_by_an_axis_and_a_half_profile() {
     }
     // While drawing, the mirror across the axis shows, dashed — closed: with the cursor off
     // the corners, its side back to the first corner too.
-    assert!(e.preview().lines.iter().any(|l| l.a.x < -50.0), "the mirror");
+    assert!(e.preview().drawing.lines.iter().any(|l| l.a.x < -50.0), "the mirror");
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 700.0, 0.0)) });
-    let closing = |l: &crate::tools::PreviewLine| l.a.x < -1.0 && l.a.x > -49.0 && l.a.y > 10.0 && l.a.y < 600.0;
-    assert!(e.preview().lines.iter().any(closing), "the mirror closed");
+    let closing = |l: &crate::draw::Line| {
+        let m = (l.a + l.b) / 2.0;
+        m.x < -1.0 && m.x > -49.0 && m.y > 10.0 && m.y < 600.0
+    };
+    assert!(e.preview().drawing.lines.iter().any(closing), "the mirror closed");
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 600.0, 0.0)) });
     click(&mut e, DVec3::ZERO);
     let id = drawn(&e);
@@ -3741,10 +3792,10 @@ fn turn_s_profile_infers_on_the_axis_and_its_origin() {
     click(&mut e, a);
     e.input(ToolInput::Hover { px: px(&e, b) });
     let p = e.preview();
-    assert!(p.labels.is_empty(), "no length: {:?}", p.labels.len());
-    assert_eq!(p.points.len(), 1, "the origin only");
+    assert!(p.drawing.lengths.is_empty(), "no length: {:?}", p.drawing.lengths.len());
+    assert_eq!(p.drawing.grips.len(), 1, "the origin only");
     click(&mut e, b);
-    assert_eq!(e.preview().points.len(), 1, "the origin only");
+    assert_eq!(e.preview().drawing.grips.len(), 1, "the origin only");
     // The profile's first point snaps to the axis's origin.
     e.input(ToolInput::Hover { px: px(&e, a + DVec3::new(6.0, -4.0, 0.0)) });
     let inf = e.preview().inference.expect("an inference");
@@ -3783,7 +3834,9 @@ fn a_turned_profile_is_edited_in_its_plane_facing_the_eye() {
     let path = EntityPath::root(id);
     // The half profile and its axis drawn bold and dashed while the part is open.
     let v = e.view();
-    assert!(!v.bases.is_empty() && v.base_axes.len() == 1, "{:?}", v.base_axes);
+    let axes: Vec<_> =
+        v.drawing.lines.iter().filter(|l| l.pen.color == edge_color() && l.pen.stipple != crate::draw::Stipple::Solid).collect();
+    assert!(!bases_of(&v).is_empty() && axes.len() == 1, "{axes:?}");
     // Seen from above, the half profile lies on the ground: its grips there, none across the
     // side on the axis.
     let shape_at = |e: &Editor, p: DVec3| e.overlay_points().into_iter().find(|g| (g.at - p).length() < 1e-3).map(|g| g.shape);
@@ -3871,7 +3924,7 @@ fn prism_follows_the_cursor_right_after_a_click() {
     e.set_tool(ToolKind::Prism);
     corners(&mut e, &[(0.0, 0.0), (300.0, 0.0)]);
     // No move since the click: the line from the new corner and the closing one are drawn.
-    let lines = e.preview().lines;
+    let lines = e.preview().drawing.lines;
     let at = |p: DVec3| lines.iter().any(|l| close(l.a, p) || close(l.b, p));
     assert!(at(DVec3::ZERO) && at(DVec3::new(300.0, 0.0, 0.0)), "{lines:?}");
     assert!(lines.len() > 2, "the side, the line to the cursor and the closing one: {}", lines.len());
@@ -3879,11 +3932,12 @@ fn prism_follows_the_cursor_right_after_a_click() {
     // From three corners, the cursor is on the corner just placed: the closing side is solid
     // from it to the first one, as the other sides.
     click(&mut e, DVec3::new(300.0, 200.0, 0.0));
-    let lines = e.preview().lines;
+    let lines = e.preview().drawing.lines;
     let (a, b) = (DVec3::new(300.0, 200.0, 0.0), DVec3::ZERO);
     let on =
         |p: DVec3| (p - a).cross(b - a).length() < 1e-3 * (b - a).length() && (p - a).dot(b - a) >= -1e-6 && (p - b).dot(a - b) >= -1e-6;
     let pieces = lines.iter().filter(|l| on(l.a) && on(l.b) && l.a.distance(l.b) > 1.0).count();
+    assert!(lines.iter().filter(|l| on(l.a) && on(l.b)).all(|l| l.pen.stipple == crate::draw::Stipple::Solid));
     assert_eq!(pieces, 1, "the closing side solid, in one piece");
 }
 
@@ -4439,11 +4493,11 @@ fn profile_corner_deleted_crossing_refused_disc_radius() {
 fn profile_fillet_grip_rounds_a_corner_and_makes_it_sharp_again() {
     use solidsketch_model::kernel::profile;
     let (mut e, id) = board_profile_editor();
-    let fillet_grips = |e: &Editor| e.preview().points.into_iter().filter(|p| p.radius == 4.0 && p.shape == PointShape::Round).count();
+    let fillet_grips = |e: &Editor| e.overlay_points().into_iter().filter(|p| p.radius == 4.0 && p.shape == PointShape::Round).count();
     assert_eq!(fillet_grips(&e), 0, "no fillet grip before a corner is hovered");
     // Hovering the far corner shows its fillet grip, just inside on the bisector.
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 300.0, 18.0)) });
-    let grip = e.preview().points.into_iter().find(|p| p.radius == 4.0 && p.shape == PointShape::Round).expect("a fillet grip").at;
+    let grip = e.overlay_points().into_iter().find(|p| p.radius == 4.0 && p.shape == PointShape::Round).expect("a fillet grip").at;
     assert!(grip.x < 600.0 && grip.y < 300.0 && ((600.0 - grip.x) - (300.0 - grip.y)).abs() < 1e-3, "{grip}");
     // Taken (the corner's hover kept), the radius typed: 20.
     click(&mut e, grip);
@@ -4478,7 +4532,7 @@ fn profile_fillet_grip_rounds_a_corner_and_makes_it_sharp_again() {
 fn profile_shows_where_it_lies_whatever_the_view() {
     let (e, _) = board_profile_editor();
     // No cursor yet: seen from above too, on the bottom cap (z = 0), where the profile lies.
-    let lines = e.preview().lines;
+    let lines = e.preview().drawing.lines;
     assert!(!lines.is_empty() && lines.iter().all(|l| l.a.z.abs() < 1e-9), "{:?}", lines.first());
 }
 
@@ -4754,13 +4808,14 @@ fn move_rotate_and_the_tape_write_their_measure_on_lines_seen_through_faces() {
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(-150.0, -300.0, 0.0)) });
     let p = e.preview();
-    assert_eq!(p.xray.len(), 1);
-    // An arrow: its head at the destination.
-    assert_eq!(p.lines.len(), 2);
+    assert_eq!(x_rays(&p).len(), 1);
+    // An arrow: its head at the destination, over the scene.
+    let heads: Vec<_> = p.drawing.lines.iter().filter(|l| l.pen.layer == crate::draw::Layer::Over).collect();
+    assert_eq!(heads.len(), 2);
     // (The start is on the box's top: the line runs at z = 20.)
-    assert!(p.lines.iter().all(|l| close(l.b.with_z(0.0), DVec3::new(-150.0, -300.0, 0.0)) && l.a.x < -150.0), "{:?}", p.lines);
-    assert_eq!(p.labels.len(), 1);
-    assert!(p.labels[0].text.starts_with("250"), "{}", p.labels[0].text);
+    assert!(heads.iter().all(|l| close(l.b.with_z(0.0), DVec3::new(-150.0, -300.0, 0.0)) && l.a.x < -150.0), "{heads:?}");
+    assert_eq!(p.drawing.lengths.len(), 1);
+    assert!(p.drawing.lengths[0].text.starts_with("250"), "{}", p.drawing.lengths[0].text);
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
 
     // Rotate: both radii dashed over everything, the angle between them.
@@ -4769,12 +4824,12 @@ fn move_rotate_and_the_tape_write_their_measure_on_lines_seen_through_faces() {
     click(&mut e, DVec3::new(400.0, 0.0, 0.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 400.0, 0.0)) });
     let p = e.preview();
-    assert!(p.xray.is_empty());
+    assert!(x_rays(&p).is_empty());
     for end in [DVec3::new(400.0, 0.0, 0.0), DVec3::new(0.0, 400.0, 0.0)] {
-        assert!(p.lines.iter().any(|l| close(l.b, end)), "{end}");
+        assert!(p.drawing.lines.iter().any(|l| close(l.b, end)), "{end}");
     }
-    assert_eq!(p.labels.len(), 1);
-    assert_eq!(p.labels[0].text, "90°");
+    assert_eq!(p.drawing.lengths.len(), 1);
+    assert_eq!(p.drawing.lengths[0].text, "90°");
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
 
@@ -4783,12 +4838,14 @@ fn move_rotate_and_the_tape_write_their_measure_on_lines_seen_through_faces() {
     click(&mut e, DVec3::new(-600.0, 400.0, 0.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(-200.0, 400.0, 0.0)) });
     let p = e.preview();
-    assert_eq!(p.xray.len(), 1);
+    assert_eq!(x_rays(&p).len(), 1);
     // A double arrow: a head at the cursor and one at the start.
+    let over = |l: &&crate::draw::Line| l.pen.layer == crate::draw::Layer::Over;
     for end in [DVec3::new(-200.0, 400.0, 0.0), DVec3::new(-600.0, 400.0, 0.0)] {
-        assert_eq!(p.lines.iter().filter(|l| close(l.b, end)).count(), 2, "{end}");
+        assert_eq!(p.drawing.lines.iter().filter(over).filter(|l| close(l.b, end)).count(), 2, "{end}");
     }
-    assert!(p.labels.iter().any(|l| l.text.starts_with("400")), "{:?}", p.labels);
+    let lengths = &p.drawing.lengths;
+    assert!(lengths.iter().any(|l| l.text.starts_with("400")), "{lengths:?}");
 }
 
 #[test]
@@ -4990,7 +5047,14 @@ fn copy_along_a_line_by_a_click_then_a_count_and_a_distance() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(500.0, 60.0, 0.0)) });
     let v = e.view();
     assert!(v.highlights.iter().any(|h| h.mark == Mark::Ghost), "the copy drawn as a ghost");
-    assert!(v.selection_boxes.is_empty(), "the tool draws its own boxes");
+    assert!(boxes_in(&v, ThemeColor::Selected).is_empty(), "the tool draws its own boxes");
+    // The source's box and the copy's, dashed, their fronts over the scene (OCL's
+    // `shell_on_top`), the copy's where it goes.
+    let boxes = &v.drawing.boxes;
+    assert_eq!(boxes.len(), 2);
+    assert!(boxes.iter().all(|b| b.shell_on_top && b.pen.stipple == crate::draw::Stipple::LongDashes));
+    let x0 = |b: &crate::draw::BoxEdges| b.bounds.frame.transform_point3(b.bounds.lo).x;
+    assert!((x0(&boxes[1]) - x0(&boxes[0]) - 400.0).abs() < 1e-3, "{} {}", x0(&boxes[0]), x0(&boxes[1]));
     assert_eq!(e.vcb().map(|v| v.1), Some("500".to_owned()));
     e.input(ToolInput::Click { px: px(&e, DVec3::new(500.0, 60.0, 0.0)), mods: Modifiers::default() });
     assert_eq!(occurrences(&e), 2);
@@ -5822,7 +5886,7 @@ fn rotate_picks_first() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 25.0, 18.0)) });
     assert!(e.status().contains("à faire pivoter"), "{}", e.status());
     // No protractor while picking.
-    assert!(e.view().overlay.len() < 40);
+    assert!(e.preview().drawing.lines.len() < 40);
     click(&mut e, DVec3::new(100.0, 25.0, 18.0));
     assert_eq!(e.selection(), [b1]);
     assert!(e.status().contains("centre de rotation"), "{}", e.status());
@@ -6105,22 +6169,19 @@ fn draw_in_makes_the_part_in_the_assembly_of_the_part_picked_with_its_material()
     let (mut e, [a, b, _, g, g2], oak) = draw_in_editor();
     let option = |e: &Editor, key: &str| e.tool_options().into_iter().find(|o| o.key == key).unwrap();
     // Over `a`: « Pipette » shows its material, its box drawn.
-    let (lines, scene) = (e.preview().lines.len(), e.preview().scene_lines.len());
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(20.0, 20.0, 50.0)) });
     let pick = option(&e, crate::tools::PICK_MATERIAL);
     assert_eq!(pick.swatch, Some([180, 140, 90]));
     assert_eq!(pick.label, "Pipette : Chêne");
-    // Its box (the assembly's, 25.4 larger): seen from the top, the edges of its faces turned
-    // to the eye over the scene, the back bottom one only in it, hidden behind faces (OCL's
-    // `shell_on_top`).
+    // Its box (the assembly's, 25.4 larger), as OCL's: dotted, and its corners bolder, the
+    // edges of its faces turned to the eye over the scene (`shell_on_top`, the renderer's).
     let preview = e.preview();
-    let grey = [0.25, 0.25, 0.25, 1.0];
-    let back_bottom = |l: &&crate::tools::PreviewLine| {
-        l.color == grey && [l.a, l.b].iter().all(|p| (p.z + 25.4).abs() < 1e-6 && (p.y - 125.4).abs() < 1e-6)
-    };
-    assert!(preview.lines.len() >= lines + 12, "the box over the scene");
-    assert!(!preview.lines.iter().any(|l| back_bottom(&l)), "its back bottom edge not over the scene");
-    assert!(preview.scene_lines.len() > scene && preview.scene_lines.iter().any(|l| back_bottom(&l)), "but in it");
+    let grey = crate::draw::Color::Rgba([0.25, 0.25, 0.25, 1.0]);
+    let boxes: Vec<_> = preview.drawing.boxes.iter().filter(|b| b.pen.color == grey).collect();
+    assert_eq!(boxes.len(), 2, "the box and its corners");
+    assert!(boxes.iter().all(|b| b.shell_on_top && (b.bounds.lo.z + 25.4).abs() < 1e-6));
+    assert_eq!(boxes[0].pen.stipple, crate::draw::Stipple::Dotted);
+    assert!(boxes[0].corners.is_none() && boxes[1].corners.is_some());
     // Over the void: nothing picked.
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(-500.0, -500.0, 0.0)) });
     assert_eq!(option(&e, crate::tools::PICK_MATERIAL).swatch, None);
