@@ -188,9 +188,13 @@ impl Editor {
         self.sync_scene();
     }
 
-    /// Closes the open part, else goes back to the parent context; the occurrence left is
-    /// selected.
+    /// Leaves the body open, else closes the group or part open, else goes back to the parent
+    /// context; what is left is selected.
     pub fn exit(&mut self) {
+        // A body open first (§2.11 « Edit levels »).
+        if self.leave_body() {
+            return;
+        }
         let left = match self.open_group.pop() {
             // Out of the group: back in its parent, the group selected.
             Some(id) => Some(id),

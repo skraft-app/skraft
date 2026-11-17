@@ -387,14 +387,10 @@ impl SolidSketchApp {
         handler.forget();
     }
 
-    /// Readies a document's editor: the tools' settings and the machinings' switch, the
-    /// user's.
+    /// Readies a document's editor: the tools' settings, the user's.
     fn setup(prefs: &Preferences) -> impl FnOnce(&mut Editor) + use<> {
-        let (tools, machinings) = (prefs.tool_options.clone(), prefs.show_machinings);
-        move |e: &mut Editor| {
-            e.set_tool_settings(tools);
-            e.set_machinings_switch(machinings);
-        }
+        let tools = prefs.tool_options.clone();
+        move |e: &mut Editor| e.set_tool_settings(tools)
     }
 
     /// Opens `doc` (read from `path`) and shows it: its tab if that file is open already, the
@@ -1023,39 +1019,14 @@ impl SolidSketchApp {
                 }
                 return;
             }
-            Action::ToggleMachinings => {
-                self.prefs.show_machinings = !self.prefs.show_machinings;
-                for d in self.docs.iter_mut() {
-                    d.editor.set_machinings_switch(self.prefs.show_machinings);
-                }
-                return;
-            }
-            // A body chosen in the outliner: its part opened, the bodies shown.
-            Action::SelectBody(path, body, add) => {
-                if !self.prefs.show_machinings {
-                    self.prefs.show_machinings = true;
-                    for d in self.docs.iter_mut() {
-                        d.editor.set_machinings_switch(true);
-                    }
-                }
-                if let Some(d) = self.docs.active_mut() {
-                    d.editor.toggle_body(&path, body, add);
-                }
-                return;
-            }
             _ => {}
         }
         let Some(doc) = self.docs.active_mut() else { return };
         let e = &mut doc.editor;
         match a {
-            Action::Command(_)
-            | Action::Tab(_)
-            | Action::Ribbon(_)
-            | Action::QuickPin(_)
-            | Action::QuickTool(_)
-            | Action::ToggleMachinings
-            | Action::SelectBody(..)
-            | Action::RemoteRetry => {}
+            Action::Command(_) | Action::Tab(_) | Action::Ribbon(_) | Action::QuickPin(_) | Action::QuickTool(_) | Action::RemoteRetry => {}
+            // A body chosen in the outliner: its part opened.
+            Action::SelectBody(path, body, add) => e.toggle_body(&path, body, add),
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
             Action::SelectModel => e.select_model(),
             Action::EditProfile(p, body) => e.edit_body_profile(&p, body),
@@ -1064,13 +1035,6 @@ impl SolidSketchApp {
                 let _ = e.apply(op);
             }
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
-            Action::ToggleProfile => {
-                if e.tool_kind() == ToolKind::Profile {
-                    e.set_tool(ToolKind::Select);
-                } else {
-                    e.edit_profile();
-                }
-            }
             Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),
             Action::BodySign(s) => e.set_body_sign(s),

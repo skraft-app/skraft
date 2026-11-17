@@ -103,8 +103,6 @@ pub struct Editor {
     /// The group of bodies open in the open part (§2.11 « Body groups »): the bodies leading
     /// to it, the part's own first; empty, the part itself.
     open_group: Vec<Id>,
-    /// The "Machinings" switch: an open part shows its blank as a ghost and its tools.
-    machinings_shown: bool,
     /// X-ray (for the session): everything see-through, hiding nothing from inferences.
     xray: bool,
     /// What a change to the open part reaches (§2.5): every occurrence, until said otherwise
@@ -240,7 +238,6 @@ impl Editor {
             context: Vec::new(),
             open_part: None,
             open_group: Vec::new(),
-            machinings_shown: false,
             xray: false,
             part_scope: Scope::All,
             body_sign: Sign::Negative,
@@ -334,58 +331,28 @@ impl Editor {
         &self.open_group
     }
 
-    /// Has the open part a profile to edit (§6 nonies, §2.11): the body selected's, else its
-    /// first profiled positive body's?
-    pub fn open_part_profile(&self) -> bool {
-        self.selected_profiled_body().is_some()
-            || self
-                .open_part_path()
-                .and_then(|p| self.document().resolve_container(&p).ok())
-                .is_some_and(|(_, part, _)| part.profiled().is_some())
-    }
-
-    /// The body of the open part selected alone, when it has a profile.
-    fn selected_profiled_body(&self) -> Option<Id> {
-        let [id] = self.selection[..] else { return None };
-        let (_, part, _) = self.document().resolve_container(&self.open_part_path()?).ok()?;
-        part.body(id).filter(|b| part.profile_of(b).is_some()).map(|b| b.id)
-    }
-
-    /// The Profile tool (the « Profil » button): on the body selected when it has a profile,
-    /// else on the open part's first profiled positive body.
-    pub fn edit_profile(&mut self) {
-        match self.selected_profiled_body() {
-            Some(body) => self.run(Command::EditProfile(body)),
-            None => self.set_tool(ToolKind::Profile),
-        }
-    }
-
     /// The body of the part (or group) open whose profile is edited (the tool « Profil »), if
-    /// any.
+    /// any: the body open, the deepest level of the editing (§2.11 « Edit levels »).
     pub fn profile_body(&self) -> Option<Id> {
         self.tool.profile_body(&self.cx())
+    }
+
+    /// Leaves the body open (its profile edited) for the part or group holding it, the body
+    /// selected: was one open?
+    fn leave_body(&mut self) -> bool {
+        if self.tool.kind() != ToolKind::Profile {
+            return false;
+        }
+        let body = self.profile_body();
+        self.set_tool(ToolKind::Select);
+        self.selection = body.into_iter().collect();
+        self.listed_hover = None;
+        true
     }
 
     /// The path of the open part's occurrence, into its group open (§2.11 « Body groups »).
     pub fn open_part_path(&self) -> Option<EntityPath> {
         self.open_part.map(|id| EntityPath::new(self.context.clone(), id).in_group(self.open_group.clone()))
-    }
-
-    /// The "Machinings" switch (a preference: it holds for every part opened).
-    pub fn machinings_switch(&self) -> bool {
-        self.machinings_shown
-    }
-
-    pub fn set_machinings_switch(&mut self, on: bool) {
-        if on != self.machinings_shown {
-            self.machinings_shown = on;
-            // The selection was machinings, or would become them.
-            if self.open_part.is_some() {
-                self.tool.reset();
-                self.selection.clear();
-            }
-            self.sync_scene();
-        }
     }
 
     /// How many occurrences of the open part the scene shows (through copies of assemblies
@@ -445,15 +412,15 @@ impl Editor {
         self.body_sign = sign;
     }
 
-    /// Are an open part's machinings shown now (its blank a ghost)?
+    /// Are an open part's bodies shown (blanks ghosts, machinings solids): is a part open?
     pub fn showing_machinings(&self) -> bool {
-        self.machinings_shown && self.open_part.is_some()
+        self.open_part.is_some()
     }
 
     /// Brings the display scene up to date (the document, the recipe shown) and asks for the
     /// meshes it lacks.
     pub(super) fn sync_scene(&mut self) {
-        self.scene.set_recipe(self.open_part_path(), self.machinings_shown);
+        self.scene.set_recipe(self.open_part_path());
         let active = self.context.iter().copied().chain(self.open_part).collect();
         self.scene.set_active(active, self.history.document().settings().display.hide_rest_of_model);
         self.scene.sync(self.history.document());
@@ -522,7 +489,19 @@ impl Editor {
         if let Some(p) = &self.pending {
             return format!("{} {}", solidsketch_i18n::ellipsis(t!("status.computing", op = p.op.label())), t!("status.computing_cancel"));
         }
-        self.message.clone().unwrap_or_else(|| self.tool.status())
+        self.message.clone().unwrap_or_else(|| match self.tab_hint() {
+            Some(tab) => format!("{} · {tab}", self.tool.status()),
+            None => self.tool.status(),
+        })
+    }
+
+    /// What Tab does now, for the status bar: it switches the tool's first choice to its next
+    /// value ([`Editor::next_choice`]) — said only while there is one, its name and that value.
+    fn tab_hint(&self) -> Option<String> {
+        let option = self.tool_options().into_iter().find(|o| !o.choices.is_empty())?;
+        let OptionValue::Choice(current) = &option.value else { return None };
+        let at = option.choices.iter().position(|c| c.value == current).map_or(0, |i| (i + 1) % option.choices.len());
+        Some(t!("status.tab", option = option.label, next = option.choices[at].label))
     }
 
     /// Is an operation waiting for the kernel (or queued)? Then only navigation works.
@@ -689,7 +668,8 @@ impl Editor {
         Some((option.key, len))
     }
 
-    /// Turns the active tool's first choice over to its next value (Tab).
+    /// Turns the active tool's first choice over to its next value (Tab; [`Editor::tab_hint`]
+    /// says it).
     fn next_choice(&mut self) {
         let Some(option) = self.tool_options().into_iter().find(|o| !o.choices.is_empty()) else { return };
         let OptionValue::Choice(current) = &option.value else { return };
@@ -888,7 +868,8 @@ impl Editor {
     }
 
     /// Feeds the active tool. Esc goes back one step of the tool; at its first step, it does
-    /// nothing more, but with Select, where it clears the selection (or closes the open part).
+    /// nothing more, but with Select, where it clears the selection (or closes the open part),
+    /// and in a body open (its profile edited), which it leaves.
     /// Delete erases the selection.
     pub fn input(&mut self, input: ToolInput) {
         // A click in the view, or Esc, chooses something else than the model.
@@ -996,6 +977,9 @@ impl Editor {
                     self.hand_back(false);
                 } else if self.aside.take().is_some() {
                     // The tool aside let go first.
+                } else if self.tool.kind() == ToolKind::Profile {
+                    // The body open left for its part (§2.11 « Edit levels »).
+                    self.exit();
                 } else if self.tool.kind() == ToolKind::Select {
                     if self.selection.is_empty() && self.open_part.is_some() {
                         self.exit();

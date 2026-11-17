@@ -166,7 +166,6 @@ fn an_open_part_s_bodies_hide_nothing() {
     let i = at(&e, DVec3::new(100.0, 100.0, 120.0));
     assert_eq!(i.kind, InferKind::OnFace, "{} {:?}", i.point, i.path);
     // Open, its bodies shown as ghosts: the corner is seen through the slab.
-    e.set_machinings_switch(true);
     e.enter(part);
     let i = at(&e, DVec3::new(100.0, 100.0, 120.0));
     assert_eq!(i.kind, InferKind::Endpoint, "{i:?}");

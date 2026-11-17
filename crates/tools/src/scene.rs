@@ -240,8 +240,6 @@ pub struct DisplayScene {
     /// The open occurrence whose recipe is shown, its meshes, and their placements in the
     /// world (the blank's, then each tool's).
     recipe_path: Option<EntityPath>,
-    /// Drawn and inferred on (else only meshed: the entity info reads its tools' sizes).
-    recipe_shown: bool,
     recipe: Option<RecipeMeshes>,
     recipe_places: Vec<(Placement, Id, Piece)>,
     /// X-ray: everything drawn see-through, hiding nothing from inferences.
@@ -395,7 +393,7 @@ impl DisplayScene {
 
         // Where the recipe shown stands: at its occurrence.
         self.recipe_places.clear();
-        if let (Some(r), Some(path), true) = (&self.recipe, &self.recipe_path, self.recipe_shown) {
+        if let (Some(r), Some(path), true) = (&self.recipe, &self.recipe_path, true) {
             let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
             if let Some(open) = self.placements.get(&r.part).and_then(|ps| ps.iter().find(|p| p.path == chain)).cloned() {
                 for b in &r.blanks {
@@ -605,12 +603,10 @@ impl DisplayScene {
         self.bounds = shown_bounds(&self.placements, &self.shown_under, self.show_hidden, entries);
     }
 
-    /// Meshes the recipe of the part the occurrence `path` places (its blank and tools) from
-    /// the next [`DisplayScene::sync`], or none; `shown`: drawn and inferred on instead of
-    /// the occurrence's shape.
-    pub fn set_recipe(&mut self, path: Option<EntityPath>, shown: bool) {
+    /// Meshes the recipe of the part the occurrence `path` places (its bodies) from the next
+    /// [`DisplayScene::sync`], or none: drawn and inferred on instead of the occurrence's shape.
+    pub fn set_recipe(&mut self, path: Option<EntityPath>) {
         self.recipe_path = path;
-        self.recipe_shown = shown;
     }
 
     /// The part open or the assembly being edited (`chain`, root first; empty: the model),
@@ -630,7 +626,7 @@ impl DisplayScene {
 
     /// Is the recipe drawn and inferred on?
     pub fn recipe_shown(&self) -> bool {
-        self.recipe_shown && self.recipe.is_some()
+        self.recipe.is_some()
     }
 
     /// The exact bounding box of `solid` in its own axes, once the kernel has given its

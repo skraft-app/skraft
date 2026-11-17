@@ -30,10 +30,6 @@ pub enum Action {
     ToolLength(&'static str, String),
     /// Paint with this material (none: remove paint): the paint tool starts.
     PaintWith(Option<Id>),
-    /// The "Machinings" switch of an open part (ARCHITECTURE.md §2.9), kept in the preferences.
-    ToggleMachinings,
-    /// The open part's profile edited, or not (the tool « Profil », §6 nonies, step 3).
-    ToggleProfile,
     /// What changes to the open part reach (§2.5).
     PartScope(Scope),
     /// Whether shapes drawn in the open part add material or take it away (§2.11).
@@ -151,15 +147,25 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView, column: bool) -> bool {
 }
 
 /// Whether the option bar has anything to show: the active tool's options, or an open part's
-/// switches.
+/// scope or « Matière ».
 pub fn has_tool_options(editor: &Editor) -> bool {
-    editor.open_part().is_some() || !editor.tool_options().is_empty()
+    shows_part_scope(editor) || shows_body_sign(editor) || !editor.tool_options().is_empty()
+}
+
+/// The open part's scope, only for a part placed more than once (§2.5): for one alone,
+/// « Celui-ci » and « Tous » are the same.
+fn shows_part_scope(editor: &Editor) -> bool {
+    editor.open_part().is_some() && editor.open_part_copies() > 1
+}
+
+/// The open part's « Matière », while a shape is drawn in it (§2.11).
+fn shows_body_sign(editor: &Editor) -> bool {
+    editor.open_part().is_some() && matches!(editor.tool_kind(), ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn)
 }
 
 /// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its choices, each a segmented
 /// control after its name, then its lone toggles together in an "Options" group, all drawn like
-/// the ribbon's buttons. An open part puts its scope first and its "Machinings" switch among
-/// the toggles (§2.9).
+/// the ribbon's buttons. An open part puts its scope first, then its « Matière » (§2.9, §2.11).
 pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let options = editor.tool_options();
     ui.horizontal(|ui| {
@@ -173,18 +179,20 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             // A group's name grey, a caption: its buttons are what the eye looks for.
             ui.label(egui::RichText::new(label).color(ui.visuals().weak_text_color())).on_hover_text(tip);
         };
-        if editor.open_part().is_some() {
+        if shows_part_scope(editor) {
             group(ui, &t!("tool.boolean.option.scope"), &t!("option_bar.part_scope_tip"));
-            let all = match editor.open_part_copies() {
-                n if n > 1 => t!("tool.boolean.option.all_count", count = n),
-                _ => t!("tool.boolean.option.all_one"),
-            };
+            let all = t!("tool.boolean.option.all_count", count = editor.open_part_copies());
             let scope = editor.part_scope();
             let scopes = [
                 (Scope::All, Segment::new(&all, &t!("tool.boolean.option.all_tip"), Some("scope_all"), scope == Scope::All)),
                 (
                     Scope::This,
-                    Segment::new(&t!("tool.boolean.option.this"), &t!("tool.boolean.option.this_tip"), Some("scope_this"), scope == Scope::This),
+                    Segment::new(
+                        &t!("tool.boolean.option.this"),
+                        &t!("tool.boolean.option.this_tip"),
+                        Some("scope_this"),
+                        scope == Scope::This,
+                    ),
                 ),
             ];
             let (values, segments): (Vec<_>, Vec<_>) = scopes.into_iter().unzip();
@@ -193,20 +201,19 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             }) {
                 actions.push(Action::PartScope(values[i]));
             }
-            // A shape drawn in it: a machining, or material added (§2.11).
-            if matches!(editor.tool_kind(), ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn) {
-                group(ui, &t!("option_bar.body_sign"), &t!("option_bar.body_sign_tip"));
-                let sign = editor.body_sign();
-                let signs = [
-                    (Sign::Negative, Segment::new(&t!("option_bar.remove"), &t!("option_bar.remove_tip"), None, sign == Sign::Negative)),
-                    (Sign::Positive, Segment::new(&t!("option_bar.add"), &t!("option_bar.add_tip"), None, sign == Sign::Positive)),
-                ];
-                let (values, segments): (Vec<_>, Vec<_>) = signs.into_iter().unzip();
-                if let Some(i) = segmented(ui, egui::Id::unique("option_bar_body_sign"), &segments, |i| {
-                    ["option:body_sign:negative", "option:body_sign:positive"][i].into()
-                }) {
-                    actions.push(Action::BodySign(values[i]));
-                }
+        }
+        if shows_body_sign(editor) {
+            group(ui, &t!("option_bar.body_sign"), &t!("option_bar.body_sign_tip"));
+            let sign = editor.body_sign();
+            let signs = [
+                (Sign::Negative, Segment::new(&t!("option_bar.remove"), &t!("option_bar.remove_tip"), None, sign == Sign::Negative)),
+                (Sign::Positive, Segment::new(&t!("option_bar.add"), &t!("option_bar.add_tip"), None, sign == Sign::Positive)),
+            ];
+            let (values, segments): (Vec<_>, Vec<_>) = signs.into_iter().unzip();
+            if let Some(i) = segmented(ui, egui::Id::unique("option_bar_body_sign"), &segments, |i| {
+                ["option:body_sign:negative", "option:body_sign:positive"][i].into()
+            }) {
+                actions.push(Action::BodySign(values[i]));
             }
         }
         for o in &options {
@@ -228,24 +235,12 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
         }
         let toggles: Vec<_> =
             options.iter().filter_map(|o| if let OptionValue::Toggle(on) = o.value { Some((o, on)) } else { None }).collect();
-        if toggles.is_empty() && editor.open_part().is_none() {
+        if toggles.is_empty() {
             return;
         }
         group(ui, &t!("option_bar.options"), &t!("option_bar.options_tip"));
         // Side by side like the ribbon's buttons.
         ui.spacing_mut().item_spacing.x = crate::ribbon::BUTTON_GAP;
-        if editor.open_part().is_some() {
-            let on = editor.machinings_switch();
-            if option_button(ui, "option:machinings", on, &t!("option_bar.machinings"), &t!("option_bar.machinings_tip"), None) {
-                actions.push(Action::ToggleMachinings);
-            }
-            if editor.open_part_profile() {
-                let on = editor.tool_kind() == ToolKind::Profile;
-                if option_button(ui, "option:profile", on, &t!("option_bar.profile"), &t!("option_bar.profile_tip"), None) {
-                    actions.push(Action::ToggleProfile);
-                }
-            }
-        }
         for (o, on) in toggles {
             if option_button(ui, &format!("option:{}", o.key), on, &o.label, &o.tip, o.icon) {
                 actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
@@ -1243,8 +1238,8 @@ fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &OutlinerRow, height: f3
 
 /// One body's line of the outliner, on the band of its part's bodies: its fold for a group, its
 /// nature's icon and name, its sign toggle at the right end; a click opens its part and selects
-/// the part's own body it lies in (Shift: added). Its part open on its siblings and « Corps »
-/// on, it is hovered and selected with the view (`over`: the body hovered here). The toggle
+/// the part's own body it lies in (Shift: added). Its part open on its siblings, it is hovered
+/// and selected with the view (`over`: the body hovered here). The toggle
 /// flips its sign — the selected bodies' too when it is one of them, in its part or group
 /// opened —, in every occurrence of the part unless it is open for this one alone
 /// (« Celui-ci »).

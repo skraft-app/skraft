@@ -131,9 +131,7 @@ impl Editor {
         let _ = self.start(op, after, false);
     }
 
-    /// The operation pasting `clip` in place, if it can be pasted here. Parts pasted into an
-    /// open part turn its « Corps » switch on: the bodies they become can be seen, selected
-    /// and carried.
+    /// The operation pasting `clip` in place, if it can be pasted here.
     fn paste_op(&mut self, clip: &Clip, reuse: bool) -> Option<Operation> {
         if !self.can_paste(clip) {
             return None;
@@ -146,15 +144,12 @@ impl Editor {
                 transform: self.context_transform().inverse(),
                 reuse,
             },
-            (Content::Entities(fragment), Some(target)) => {
-                self.set_machinings_switch(true);
-                Operation::PasteParts {
-                    target,
-                    fragment: fragment.clone(),
-                    transform: self.axes_transform().inverse(),
-                    scope: self.part_scope,
-                }
-            }
+            (Content::Entities(fragment), Some(target)) => Operation::PasteParts {
+                target,
+                fragment: fragment.clone(),
+                transform: self.axes_transform().inverse(),
+                scope: self.part_scope,
+            },
             (Content::Machinings(fragment), Some(target)) => {
                 Operation::PasteBodies { target, fragment: fragment.clone(), transform: DAffine3::IDENTITY, scope: self.part_scope }
             }

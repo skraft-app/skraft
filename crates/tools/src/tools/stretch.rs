@@ -1569,11 +1569,12 @@ impl Tool for StretchTool {
                 icon: Some("centered"),
             },
         ];
-        // The open part has its own scope, in the bar already.
-        if cx.open_part.is_none() {
-            let all = match target.as_ref().and_then(|t| t.single()).map(|p| cx.copies_shown(&p)) {
-                Some(n) if n > 1 => t!("tool.boolean.option.all_count", count = n),
-                Some(_) => t!("tool.boolean.option.all_one"),
+        // The open part has its own scope, in the bar already; a part placed once none: both
+        // choices are the same (§2.5).
+        let copies = target.as_ref().and_then(|t| t.single()).map(|p| cx.copies_shown(&p));
+        if cx.open_part.is_none() && copies.is_none_or(|n| n > 1) {
+            let all = match copies {
+                Some(n) => t!("tool.boolean.option.all_count", count = n),
                 None => t!("tool.boolean.option.all"),
             };
             options.push(ToolOption {

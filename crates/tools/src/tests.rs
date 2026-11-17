@@ -1615,6 +1615,15 @@ fn boolean_scope_option_counts_marks_and_cuts_one_or_all() {
     assert_eq!(part(doc, c), part(doc, a));
     assert_eq!(doc.resolve_part(&EntityPath::root(b)).unwrap().1.machinings().len(), 1);
     assert!(doc.resolve_part(&EntityPath::root(a)).unwrap().1.machinings().is_empty());
+    // The middle board, a part of its own now, placed once: no scope to choose; nothing aimed
+    // at, the scope back.
+    // The status bar says Tab only while it switches something.
+    hover(&mut e, DVec3::new(20.0, 320.0, 50.0));
+    assert!(e.tool_options().iter().all(|o| o.key != "scope"));
+    assert!(!e.status().contains("Tab"), "{}", e.status());
+    hover(&mut e, DVec3::new(-2000.0, -2000.0, 0.0));
+    assert_eq!(scope(&e).choices[0].label, "Tous les exemplaires");
+    assert!(e.status().ends_with(" · Tab : Portée → Tous les exemplaires"), "{}", e.status());
 
     // Back to all, by a click in the bar: the other two both get the cut.
     e.set_tool_option("scope", OptionValue::Choice("all".into()));
@@ -1802,7 +1811,7 @@ fn a_part_opens_with_its_axes_the_rest_faded() {
 }
 
 #[test]
-fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
+fn an_open_part_shows_its_blank_as_a_ghost_and_its_tools() {
     use glam::DAffine3;
     use solidsketch_model::Scope;
     let mut e = top_editor(Document::new());
@@ -1831,8 +1840,7 @@ fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
     .unwrap();
     let looks = |e: &Editor| e.view().batches.iter().flat_map(|(k, ps)| ps.iter().map(move |p| (*k, p.look))).collect::<Vec<_>>();
 
-    // Off, or no part open: shapes only.
-    e.set_machinings_switch(true);
+    // No part open: shapes only.
     assert!(!e.showing_machinings());
     assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
     e.enter(board);
@@ -1870,13 +1878,10 @@ fn the_machinings_switch_shows_the_blank_as_a_ghost_and_the_tools() {
     assert!(close(hovered[0].transform.translation, DVec3::new(150.0, 100.0, -5.0)));
     e.set_listed_hover(None);
 
-    // Switched off, or closed: the shape again.
-    e.set_machinings_switch(false);
-    assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
-    assert!(e.view().bases.is_empty());
-    e.set_machinings_switch(true);
+    // Closed: the shape again.
     e.exit();
     assert!(looks(&e).iter().all(|(_, l)| *l == Look::Shape));
+    assert!(e.view().bases.is_empty());
     assert!(e.scene().recipe().is_none());
 }
 
@@ -1907,7 +1912,6 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
         .unwrap();
     let machinings = |e: &Editor, o: Id| e.document().resolve_part(&EntityPath::root(o)).unwrap().1.machinings().clone();
     let hole = machinings(&e, board)[0].id;
-    e.set_machinings_switch(true);
     e.enter(board);
 
     // A click on the tool selects its machining; the void clears.
@@ -2004,7 +2008,6 @@ fn a_machining_moved_stays_drawn_where_it_goes_while_the_kernel_computes() {
         }
     };
     settle(&mut e);
-    e.set_machinings_switch(true);
     e.enter(board);
     settle(&mut e);
     let hole = e.document().resolve_part(&target).unwrap().1.machinings()[0].id;
@@ -2067,13 +2070,12 @@ fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
     let centre = DVec3::new(50.0, 100.0, 25.0);
     e.set_tool(ToolKind::Move);
 
-    // The part open, its machinings hidden: the shape only (the hole's rim, at z 18).
-    e.enter(board);
+    // Closed: the shape only (the hole's rim, at z 18).
     let (p, _) = hover(&mut e, centre).unwrap();
     assert!(p.z < 18.0 + 1e-6, "{p}");
 
-    // Shown: the tool's top circle, its centre inferred.
-    e.set_machinings_switch(true);
+    // The part open, its bodies shown: the tool's top circle, its centre inferred.
+    e.enter(board);
     e.set_tool(ToolKind::Move);
     let (p, kind) = hover(&mut e, centre).unwrap();
     assert_eq!(kind, InferKind::Center);
@@ -2123,9 +2125,9 @@ fn exact_sizes_of_tools_and_blanks() {
         "{:?}",
         e.scene().bounds_of(&blank)
     );
-    // The open part's tools, their machinings hidden.
+    // The open part's tools.
     e.enter(rod);
-    assert!(!e.showing_machinings());
+    assert!(e.showing_machinings());
     assert!(near(e.scene().bounds_of(&tool), DVec3::new(-4.0, -4.0, 0.0), DVec3::new(4.0, 4.0, 30.0)), "{:?}", e.scene().bounds_of(&tool));
 }
 
@@ -3542,7 +3544,6 @@ fn erase_tool_erases_the_open_part_s_machinings() {
     .unwrap();
     let machinings = |e: &Editor| e.document().resolve_part(&EntityPath::root(board)).unwrap().1.machinings().len();
     assert_eq!(machinings(&e), 1);
-    e.set_machinings_switch(true);
     e.enter(board);
     e.set_tool(ToolKind::Erase);
     hover(&mut e, DVec3::new(50.0, 100.0, 25.0));
@@ -3711,7 +3712,6 @@ fn turned_leg_editor() -> (Editor, Id) {
         click(&mut e, DVec3::new(x, y, 0.0));
     }
     let id = drawn(&e);
-    e.set_machinings_switch(true);
     e.enter(id);
     e.set_tool(ToolKind::Profile);
     (e, id)
@@ -4233,7 +4233,6 @@ fn board_profile_editor() -> (Editor, Id) {
     let mut e = top_editor(Document::new());
     let id = draw_box(&mut e, DVec3::ZERO, DVec3::new(600.0, 300.0, 0.0), "18");
     e.enter(id);
-    assert!(e.open_part_profile());
     e.set_tool(ToolKind::Profile);
     (e, id)
 }
@@ -4345,8 +4344,12 @@ fn profile_corner_deleted_crossing_refused_disc_radius() {
     assert_eq!(part.shape().topology_counts(), (5, 9, 6));
 
     // A cylinder's disc: a single grip, its radius — dragged, then typed, it stays a disc.
+    // Out of the body open (its profile), then of the part.
     e.exit();
-    assert_eq!(e.tool_kind(), ToolKind::Select, "the profile's tool goes with the part");
+    assert_eq!(e.tool_kind(), ToolKind::Select);
+    assert_eq!(e.open_part(), Some(id));
+    e.exit();
+    assert_eq!(e.open_part(), None);
     e.set_tool(ToolKind::Cylinder);
     click(&mut e, DVec3::new(-500.0, -500.0, 0.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(-400.0, -500.0, 0.0)) });
@@ -4494,7 +4497,6 @@ fn machinings_paste_into_an_open_part() {
     .unwrap();
 
     // Copied in the open part, its machinings shown.
-    e.set_machinings_switch(true);
     e.enter(a);
     let holes = e.document().resolve_part(&EntityPath::root(a)).unwrap().1.machinings().iter().map(|m| m.id).collect();
     e.select(holes);
@@ -4539,15 +4541,13 @@ fn a_part_pasted_into_an_open_part_becomes_a_group_of_its_bodies() {
     e.take_notices();
 
     // The drilled board copied, pasted into the other one: one positive body, a group of its
-    // blank and its hole, at its world place, selected and shown (« Corps » turned on); nothing
+    // blank and its hole, at its world place, selected and shown; nothing
     // lost, nothing to say.
     e.select(vec![a]);
     let clip = e.copy().unwrap();
     e.enter(b);
-    assert!(!e.machinings_switch());
     assert!(e.can_paste(&clip));
     e.paste_in_place(&clip, true);
-    assert!(e.machinings_switch());
     let (_, part, t) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
     assert_eq!(part.positives().count(), 2);
     let body = part.bodies.iter().find(|x| e.selection() == [x.id]).unwrap();
@@ -4580,7 +4580,6 @@ fn a_part_pasted_into_an_open_part_becomes_a_group_of_its_bodies() {
 fn bodies_pasted_out_of_an_open_part_make_a_new_part() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
-    e.set_machinings_switch(true);
     e.enter(a);
     let blank = e.document().resolve_part(&EntityPath::root(a)).unwrap().1.bodies[0].id;
     e.select(vec![blank]);
@@ -4780,7 +4779,6 @@ fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_
     let mut e = top_editor(Document::new());
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
     let path = EntityPath::root(board);
-    e.set_machinings_switch(true);
     e.enter(board);
     let blank = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
     // « Ajouter »: a block drawn on the board's top joins it (ARCHITECTURE.md §2.11).
@@ -4808,16 +4806,33 @@ fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_
     assert_eq!(e.tool_kind(), ToolKind::Profile);
     assert_eq!(e.open_part(), Some(board));
 
-    // « Profil » on the body selected: its profile; with none selected, the first one's.
-    e.set_tool(ToolKind::Select);
-    e.select(vec![block]);
-    assert!(e.open_part_profile());
-    e.edit_profile();
-    assert_eq!(e.tool_kind(), ToolKind::Profile);
-    assert!(e.selection().is_empty());
-    e.set_tool(ToolKind::Select);
-    e.edit_profile();
-    assert_eq!(e.tool_kind(), ToolKind::Profile);
+    // The body open, the deepest level (§2.11 « Edit levels »): its box is the context's; Esc
+    // leaves it for the part, the body selected; Esc again, nothing selected, closes the part.
+    assert_eq!(e.profile_body(), Some(block));
+    // The other bodies faded, the one open not.
+    let faded = |e: &Editor| {
+        let v = e.view();
+        let blanks: Vec<bool> = v.batches.iter().flat_map(|(_, p)| p).filter(|p| p.look == Look::Blank).map(|p| p.faded).collect();
+        (blanks.len(), blanks.iter().filter(|f| **f).count())
+    };
+    assert_eq!(faded(&e), (2, 1));
+    let esc = ToolInput::Key { key: Key::Escape, mods: Modifiers::default() };
+    e.input(esc.clone());
+    assert_eq!(faded(&e), (2, 0));
+    assert_eq!(e.tool_kind(), ToolKind::Select);
+    assert_eq!(e.open_part(), Some(board));
+    assert_eq!(e.selection(), &[block]);
+    // A click off the body's box leaves it too, a click inside does not.
+    e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(340.0, 100.0, 48.0)), mods: Modifiers::default() });
+    assert_eq!(e.profile_body(), Some(block));
+    click(&mut e, DVec3::new(100.0, 250.0, 18.0));
+    assert_eq!((e.tool_kind(), e.open_part()), (ToolKind::Select, Some(board)));
+    assert_eq!(e.selection(), &[block]);
+    // Another tool chosen leaves it as well.
+    e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(340.0, 100.0, 48.0)), mods: Modifiers::default() });
+    e.set_tool(ToolKind::Move);
+    assert_eq!(e.profile_body(), None);
+    assert_eq!(e.open_part(), Some(board));
 
     // The block erased; the blank, last positive body, too: the part is empty (§2.11 « Empty
     // parts »).
@@ -4856,7 +4871,6 @@ fn stretch_tool_stretches_the_bodies_selected_alone() {
         .unwrap()
         .bodies[0];
     let board_body = e.document().resolve_part(&path).unwrap().1.positives().next().unwrap().clone();
-    e.set_machinings_switch(true);
     e.enter(board);
     e.select(vec![block]);
     e.set_tool(ToolKind::Stretch);
@@ -5033,7 +5047,6 @@ fn copy_along_a_line_takes_the_bodies_of_the_open_part() {
     e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
         .unwrap();
     let hole = e.document().resolve_part(&target).unwrap().1.machinings()[0].id;
-    e.set_machinings_switch(true);
     e.enter(board);
     e.select(vec![hole]);
     e.set_tool(ToolKind::CopyLine);
@@ -5203,7 +5216,6 @@ fn the_quick_tools_card_shows_on_what_was_drawn_until_the_next_shape() {
 fn the_quick_tools_card_shows_on_a_body_drawn_in_the_open_part() {
     let mut e = top_editor(Document::new());
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
-    e.set_machinings_switch(true);
     e.enter(board);
     e.select(vec![]);
     e.set_tool(ToolKind::Box);
@@ -5571,7 +5583,6 @@ fn a_group_of_bodies_opens_like_a_part_and_closes_onto_its_parent() {
         holes.push(e.apply(op).unwrap().unwrap().bodies[0]);
     }
     e.enter(board);
-    e.set_machinings_switch(true);
     e.select(holes.clone());
     assert!(e.can_group_bodies());
     e.group_bodies();
@@ -5620,7 +5631,6 @@ fn machinings_inside_groups_show_with_their_group() {
     let a = add(&mut e, Primitive::Cylinder { origin: DVec3::new(150.0, 25.0, -5.0), radius: 4.0, height: 30.0 }, Sign::Negative);
     let b = add(&mut e, Primitive::Cylinder { origin: DVec3::new(150.0, 25.0, 12.0), radius: 8.0, height: 10.0 }, Sign::Negative);
     e.enter(board);
-    e.set_machinings_switch(true);
     // The block and its drill: a positive group; the counterbore: a negative one.
     e.select(vec![block, drill]);
     e.group_bodies();
