@@ -2390,10 +2390,12 @@ handed back in `smart_tool.rb`'s `onToolUserText`). Built on 2026-11-15, in four
   Alt / Esc, or a tool chosen. `start_quick_tool` takes it: what it was offered on becomes the
   selection.
 - **The card in the app, as built** (`apps/solidsketch/src/quick.rs`): an `egui::Area` centred on
-  `quick_card()`, kept inside the view, drawn after the docked cards; a window frame at 85 %
-  opacity, icon buttons 34 pt (icon 22, the name in the tip), then a narrow ▾ (the ribbon's
-  chevron) opening the list `quick::COMMANDS` with pins (as a ribbon group's menu, a click on a
-  row starts it too). `Action::QuickTool(id)` → `Editor::start_quick_tool`, `Action::QuickPin(id)`
+  `quick_card()`, kept inside the view, drawn after the docked cards; a window frame at 35 %
+  opacity at rest (`RESTING`; its border and shadow faded alike, the icons not) and 92 % under
+  the pointer (`HOVERED`, hover of the last frame kept in egui's temp data), icon buttons 34 pt
+  (icon 22, the name in the tip), then a narrow ▾ (the ribbon's chevron) opening the list
+  `quick::COMMANDS` with pins (as a ribbon group's menu, a click on a row starts it too; its note
+  wraps within the rows' width). `Action::QuickTool(id)` → `Editor::start_quick_tool`, `Action::QuickPin(id)`
   → `quick::toggle` on the preference `quick_tools: Option<Vec<String>>` (`None` = `DEFAULT`; back
   to the defaults, `None` again). The view under the card gets no hover (another layer): the
   creation tool hides what follows the cursor while it is over the card. Texts `quick_tools.*`.
