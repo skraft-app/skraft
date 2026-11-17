@@ -6,9 +6,16 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
+    solidsketch::crash::install();
     env_logger::init();
     solidsketch::opened::install();
-    eframe::run_native("SolidSketch", solidsketch::native_options(), Box::new(|cc| Ok(Box::new(solidsketch::SolidSketchApp::new(cc)))))
+    let run =
+        eframe::run_native("SolidSketch", solidsketch::native_options(), Box::new(|cc| Ok(Box::new(solidsketch::SolidSketchApp::new(cc)))));
+    // Without a console nobody would see why it ends.
+    if let Err(error) = &run {
+        solidsketch::crash::fatal(error);
+    }
+    run
 }
 
 #[cfg(target_arch = "wasm32")]

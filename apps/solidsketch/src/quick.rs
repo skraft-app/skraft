@@ -50,26 +50,30 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
     // Hovered on the last frame: the card is drawn before egui knows this frame's.
     let hovered_id = egui::Id::unique("quick_tools_hovered");
     let hovered = ctx.data(|d| d.get_temp::<bool>(hovered_id)).unwrap_or(false);
-    let response = egui::Area::new(egui::Id::unique("quick_tools")).fixed_pos(at).pivot(egui::Align2::CENTER_CENTER).constrain_to(view).show(ctx, |ui| {
-        let mut frame = egui::Frame::window(ui.style()).inner_margin(4.0);
-        // Translucent, as OCL's: the part stays visible behind it; nearly opaque under the
-        // pointer, to read and click.
-        let alpha = if hovered { HOVERED } else { RESTING };
-        frame.fill = frame.fill.gamma_multiply(alpha);
-        frame.stroke.color = frame.stroke.color.gamma_multiply(alpha);
-        frame.shadow.color = frame.shadow.color.gamma_multiply(alpha * alpha);
-        frame.show(ui, |ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            ui.horizontal(|ui| {
-                for &id in &pinned {
-                    if let Some(c) = views.iter().find(|v| v.id == id) {
-                        button(ui, c, actions);
+    let response = egui::Area::new(egui::Id::unique("quick_tools"))
+        .fixed_pos(at)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .constrain_to(view)
+        .show(ctx, |ui| {
+            let mut frame = egui::Frame::window(ui.style()).inner_margin(4.0);
+            // Translucent, as OCL's: the part stays visible behind it; nearly opaque under the
+            // pointer, to read and click.
+            let alpha = if hovered { HOVERED } else { RESTING };
+            frame.fill = frame.fill.gamma_multiply(alpha);
+            frame.stroke.color = frame.stroke.color.gamma_multiply(alpha);
+            frame.shadow.color = frame.shadow.color.gamma_multiply(alpha * alpha);
+            frame.show(ui, |ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.horizontal(|ui| {
+                    for &id in &pinned {
+                        if let Some(c) = views.iter().find(|v| v.id == id) {
+                            button(ui, c, actions);
+                        }
                     }
-                }
-                more(ui, &pinned, views, actions);
+                    more(ui, &pinned, views, actions);
+                });
             });
         });
-    });
     let now = response.response.contains_pointer();
     if now != hovered {
         ctx.data_mut(|d| d.insert_temp(hovered_id, now));
