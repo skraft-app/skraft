@@ -7,7 +7,8 @@
 //!   to measure from a corner). A plane locked there stays for the whole outline.
 //! - Then each click adds a corner, inferred with the lines through the last one; the arrows
 //!   lock an axis through it. The plane follows OCL's: through the first corner as the box's
-//!   second corner sets it, then through the first two and the cursor's point, set from three
+//!   second corner sets it (a second corner straight off it, along its normal, kept: the
+//!   plane through that side the eye faces, as an upright edge's), then through the first two and the cursor's point, set from three
 //!   corners on (or from the first arc). From three corners, the cursor snaps to a placed corner
 //!   near it, and a click there closes the outline (as a double-click, or Enter); from two, it
 //!   snaps to the foot of a placed corner on the line it draws (OCL's alignment).
@@ -671,6 +672,11 @@ impl PrismTool {
             // Set (an arc drawn already): brought onto it.
             _ if c.plane_set() => (Frame::new(a, c.n, None).flatten(q), c.n, Some(inf)),
             // One corner: the box's second corner's plane through it.
+            // One corner, the cursor's point on the plane's normal through it (up the blue axis
+            // from the ground): no plane through both from the box's rule, which would bring it
+            // back onto the first corner — kept, the side square to the plane, in the plane
+            // through it the eye faces (an upright edge's).
+            (1, None) if (q - a).length() >= MIN && (q - a - c.n * (q - a).dot(c.n)).length() < ON => (q, edge_plane(c.n, ray), Some(inf)),
             (1, None) => {
                 let f = Frame::new(c.along[0], c.n, c.dir);
                 let (g, p, snap) = second_plane(cx, px, &f, c.dir, inf);

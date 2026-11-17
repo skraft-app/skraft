@@ -3888,6 +3888,25 @@ fn prism_on_an_upright_face() {
 }
 
 #[test]
+fn prism_second_corner_straight_above_the_first() {
+    let mut e = top_editor(Document::new());
+    let area = crate::camera::ViewArea::full(e.viewport_size());
+    e.camera.set_standard_view(StandardView::Iso, glam::DMat3::IDENTITY, Some((DVec3::splat(-500.0), DVec3::splat(500.0))), area);
+    e.set_tool(ToolKind::Prism);
+    // On the ground, then up the blue axis: the second corner is taken (an upright side), the
+    // outline drawn in the upright plane the third corner gives.
+    click(&mut e, DVec3::ZERO);
+    click(&mut e, DVec3::new(0.0, 0.0, 300.0));
+    click(&mut e, DVec3::new(200.0, 0.0, 300.0));
+    click(&mut e, DVec3::new(200.0, 0.0, 0.0));
+    key(&mut e, Key::Enter);
+    assert!(e.status().contains("hauteur"), "{}", e.status());
+    e.input(ToolInput::Vcb("18".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    assert!((hi - lo - DVec3::new(200.0, 18.0, 300.0)).length() < 1e-6, "{lo} {hi}");
+}
+
+#[test]
 fn prism_offset_moves_the_outline_made() {
     let mut e = top_editor(Document::new());
     e.set_tool(ToolKind::Prism);
