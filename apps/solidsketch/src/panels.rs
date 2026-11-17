@@ -239,7 +239,10 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             group(ui, &t!("option_bar.body_sign"), &t!("option_bar.body_sign_tip"));
             let sign = editor.body_sign();
             let signs = [
-                (Sign::Negative, Segment::new(&t!("option_bar.remove"), &t!("option_bar.remove_tip"), Some("subtract"), sign == Sign::Negative)),
+                (
+                    Sign::Negative,
+                    Segment::new(&t!("option_bar.remove"), &t!("option_bar.remove_tip"), Some("subtract"), sign == Sign::Negative),
+                ),
                 (Sign::Positive, Segment::new(&t!("option_bar.add"), &t!("option_bar.add_tip"), Some("union"), sign == Sign::Positive)),
             ];
             let (values, segments): (Vec<_>, Vec<_>) = signs.into_iter().unzip();

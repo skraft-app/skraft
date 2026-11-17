@@ -269,44 +269,46 @@ fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[Command
         .style(crate::style::menu)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-        let ink = ui.visuals().text_color();
-        for &id in COMMANDS {
-            let Some((name, enabled, check, shortcut)) = row(id, views) else { continue };
-            let icon = if id == VIEWS { Some(icons::VIEWS) } else { icons::command(id) };
-            ui.horizontal(|ui| {
-                // A toggle's check box in a column every row keeps, then the icon and the label.
-                let check = crate::style::menu_check(check);
-                let mut b = match icon {
-                    Some(icon) => egui::Button::new((check, egui::Image::new(icon).fit_to_exact_size(vec2(16.0, 16.0)).tint(ink), name)),
-                    None => egui::Button::new((check, name)),
-                };
-                // Its shortcut on the right; none, an empty one still pushes the label to the
-                // left (else centred).
-                b = b.min_size(vec2(240.0, 22.0)).shortcut_text(shortcut.unwrap_or_default());
-                // A click on a row runs it, but the views' row: its menu is the button's.
-                if ui.add_enabled(enabled, b).clicked() && id != VIEWS {
-                    actions.push(Action::Command(id));
-                    ui.close();
-                }
-                let on = pinned.contains(&id);
-                let (icon, tint) = if on {
-                    (icons::PIN_FILLED, ui.visuals().selection.stroke.color)
-                } else {
-                    (icons::PIN, ui.visuals().weak_text_color().gamma_multiply(0.55))
-                };
-                let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
-                let tip = if on { t!("view_bar.unpin") } else { t!("view_bar.pin") };
-                if ui.add(pin).on_hover_text(tip).clicked() {
-                    actions.push(Action::ViewPin(id));
-                }
-            });
-        }
-        // The note wraps within the rows' width instead of widening the menu.
-        let width = ui.min_rect().width();
-        ui.separator();
-        ui.set_max_width(width);
-        ui.add(egui::Label::new(egui::RichText::new(t!("view_bar.menu_note")).small().weak()).wrap());
-    });
+            let ink = ui.visuals().text_color();
+            for &id in COMMANDS {
+                let Some((name, enabled, check, shortcut)) = row(id, views) else { continue };
+                let icon = if id == VIEWS { Some(icons::VIEWS) } else { icons::command(id) };
+                ui.horizontal(|ui| {
+                    // A toggle's check box in a column every row keeps, then the icon and the label.
+                    let check = crate::style::menu_check(check);
+                    let mut b = match icon {
+                        Some(icon) => {
+                            egui::Button::new((check, egui::Image::new(icon).fit_to_exact_size(vec2(16.0, 16.0)).tint(ink), name))
+                        }
+                        None => egui::Button::new((check, name)),
+                    };
+                    // Its shortcut on the right; none, an empty one still pushes the label to the
+                    // left (else centred).
+                    b = b.min_size(vec2(240.0, 22.0)).shortcut_text(shortcut.unwrap_or_default());
+                    // A click on a row runs it, but the views' row: its menu is the button's.
+                    if ui.add_enabled(enabled, b).clicked() && id != VIEWS {
+                        actions.push(Action::Command(id));
+                        ui.close();
+                    }
+                    let on = pinned.contains(&id);
+                    let (icon, tint) = if on {
+                        (icons::PIN_FILLED, ui.visuals().selection.stroke.color)
+                    } else {
+                        (icons::PIN, ui.visuals().weak_text_color().gamma_multiply(0.55))
+                    };
+                    let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
+                    let tip = if on { t!("view_bar.unpin") } else { t!("view_bar.pin") };
+                    if ui.add(pin).on_hover_text(tip).clicked() {
+                        actions.push(Action::ViewPin(id));
+                    }
+                });
+            }
+            // The note wraps within the rows' width instead of widening the menu.
+            let width = ui.min_rect().width();
+            ui.separator();
+            ui.set_max_width(width);
+            ui.add(egui::Label::new(egui::RichText::new(t!("view_bar.menu_note")).small().weak()).wrap());
+        });
     open
 }
 
@@ -338,5 +340,4 @@ mod tests {
         toggle(&mut pins, "view.grid");
         assert_eq!(pins, None, "the defaults again: nothing kept");
     }
-
 }
