@@ -2,11 +2,12 @@
 #
 # - Push a tag `v<version>` (the workspace version of Cargo.toml): installers + Release.
 #     git tag v0.1.0 && git push origin v0.1.0
-# - Actions tab → Release → « Run workflow » (or `gh workflow run release.yml`): the installers
-#   only, as the run's artifacts; with « release » ticked (`gh workflow run release.yml -f
-#   release=true`), also the Release v<version>, its tag created on the run's commit (an existing
-#   Release of that tag is updated).
-name: Release
+# - Actions tab → Build and Publish Releases → « Run workflow »
+#   (or `gh workflow run build-and-publish-releases.yml`): the installers only, as the run's
+#   artifacts; with « release » ticked
+#   (`gh workflow run build-and-publish-releases.yml -f release=true`), also the Release
+#   v<version>, its tag created on the run's commit (an existing Release of that tag is updated).
+name: Build and Publish Releases
 
 on:
   push:
