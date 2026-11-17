@@ -47,4 +47,3 @@ fn a_slanted_rotation_leaves_a_record_that_cannot_be_read_back() {
     let back = solidcore_convert::brep::to_kernel_body(&mut kernel(), &record, true);
     assert!(back.is_err(), "fixed upstream? the record reads back: drop `square_frames` (engine.rs)");
 }
-

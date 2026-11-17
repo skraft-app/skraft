@@ -100,7 +100,8 @@ pub(crate) mod read {
         let colors = Colors::read(&ex, structure.styles.as_slice());
 
         // Every body a product uses, read once, on all cores.
-        let mut wanted: Vec<(u64, Option<u64>)> = structure.nodes.iter().flat_map(|n| n.bodies.iter().map(|b| (b.entity, b.context))).collect();
+        let mut wanted: Vec<(u64, Option<u64>)> =
+            structure.nodes.iter().flat_map(|n| n.bodies.iter().map(|b| (b.entity, b.context))).collect();
         wanted.sort_unstable();
         wanted.dedup_by_key(|(id, _)| *id);
         let total = wanted.len() as u32;
@@ -236,7 +237,8 @@ pub(crate) mod read {
             };
             bare.sort_unstable();
             let mut k = crate::engine::kernel();
-            let (mut b, sent) = solidcore_convert::brep::to_kernel_with_bare_uses(&mut k, &sheet, true, &bare).map_err(|e| e.to_string())?;
+            let (mut b, sent) =
+                solidcore_convert::brep::to_kernel_with_bare_uses(&mut k, &sheet, true, &bare).map_err(|e| e.to_string())?;
             let (back, came) = solidcore_convert::brep::to_record(&mut k, &mut b).map_err(|e| e.to_string())?;
             let [back_face] = back.faces.as_slice() else { return Err("the kernel made several faces of one".into()) };
             // Each use found again by its edge (through the kernel's) and its direction.
@@ -255,7 +257,9 @@ pub(crate) mod read {
                     // (its ends stay at the vertices; the reader checks it lifts onto the edge).
                     if moved > MOVED_INTERVAL * span.max(1e-12) {
                         let e = &face.edges[u.edge as usize];
-                        let kind = |c: &solidcore_record::brep::Curve| format!("{c:?}").chars().take_while(|c| c.is_alphanumeric()).collect::<String>();
+                        let kind = |c: &solidcore_record::brep::Curve| {
+                            format!("{c:?}").chars().take_while(|c| c.is_alphanumeric()).collect::<String>()
+                        };
                         return Err(format!(
                             "the kernel moved an edge's interval: {want:?} → {got:?} ({}{}; back: {}{})",
                             kind(e.curve),

@@ -464,7 +464,9 @@ mod tests {
         for palette in Palette::ALL {
             for mode in [Mode::Light, Mode::Dark] {
                 let (th, t) = (Theme::of(palette, mode), UiTokens::of(palette, mode));
-                for (ink, what) in [(GUIDE_INK, "tools' ink"), (th.edge, "edges"), (th.guide, "guides"), (th.marker_outline, "markers' outline")] {
+                for (ink, what) in
+                    [(GUIDE_INK, "tools' ink"), (th.edge, "edges"), (th.guide, "guides"), (th.marker_outline, "markers' outline")]
+                {
                     assert!(contrast(ink, t.view) >= 4.0, "{palette:?} {mode:?} {what}");
                 }
                 assert!(contrast(t.view_text, t.view) >= 4.5, "{palette:?} {mode:?} the shown tab's text");

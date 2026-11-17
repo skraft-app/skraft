@@ -767,7 +767,13 @@ fn a_machining_swallowing_the_part_leaves_it_empty() {
     assert!(back.part(part).unwrap().shape().is_empty());
     // A machining added to the empty part: still empty.
     let drill = Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, -5.0), radius: 3.0, height: 30.0 };
-    let add = Operation::AddBody { target: target.clone(), primitive: drill, placement: DAffine3::IDENTITY, sign: Sign::Negative, scope: Scope::All };
+    let add = Operation::AddBody {
+        target: target.clone(),
+        primitive: drill,
+        placement: DAffine3::IDENTITY,
+        sign: Sign::Negative,
+        scope: Scope::All,
+    };
     h.apply(add).unwrap();
     assert!(h.document().part(part).unwrap().shape().is_empty());
     // The tool gone: the board back, drilled.

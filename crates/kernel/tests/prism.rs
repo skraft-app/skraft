@@ -30,4 +30,3 @@ fn a_prism_with_arcs_is_built() {
     let disc = solidsketch_kernel::profile::reversed(&disc);
     assert_eq!(Solid::new_prism(DVec3::ZERO, &disc, 10.0).unwrap().topology_counts(), (4, 6, 4));
 }
-

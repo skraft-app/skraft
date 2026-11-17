@@ -728,7 +728,11 @@ impl KernelService for Pool {
     fn submit(&mut self, id: JobId, job: Job) {
         let background = !job.tasks.is_empty() && job.tasks.iter().all(|t| matches!(t, Task::Display { .. }));
         let mut q = self.shared.lock();
-        if background { q.background.push_back((id, job)) } else { q.urgent.push_back((id, job)) }
+        if background {
+            q.background.push_back((id, job))
+        } else {
+            q.urgent.push_back((id, job))
+        }
         drop(q);
         self.shared.work.notify_one();
     }
@@ -1167,7 +1171,10 @@ mod tests {
         let empty = Arc::new(Solid::empty());
         let at = |x: f64| DAffine3::from_translation(DVec3::new(x, 25.0, -5.0));
         let recipe = |base: Option<u32>, positives: Vec<(u32, DAffine3)>, negatives: Vec<(u32, DAffine3)>| {
-            let job = Job { inputs: vec![board.clone(), drill.clone(), huge.clone(), empty.clone()], tasks: vec![Task::Recipe { base, positives, negatives }] };
+            let job = Job {
+                inputs: vec![board.clone(), drill.clone(), huge.clone(), empty.clone()],
+                tasks: vec![Task::Recipe { base, positives, negatives }],
+            };
             let mut out = run(&job).unwrap();
             let Some(Output::Recipe { solid, display, failed }) = out.pop() else { panic!("{out:?}") };
             assert!(display.is_ok());
@@ -1280,7 +1287,10 @@ mod tests {
     fn box_job() -> Job {
         Job {
             inputs: vec![],
-            tasks: vec![Task::Primitive { primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE }, placement: DAffine3::IDENTITY }],
+            tasks: vec![Task::Primitive {
+                primitive: Primitive::Box { origin: DVec3::ZERO, size: DVec3::ONE },
+                placement: DAffine3::IDENTITY,
+            }],
         }
     }
 
@@ -1302,9 +1312,12 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let woken = Arc::new(AtomicUsize::new(0));
         let w = woken.clone();
-        let mut p = Pool::with_threads(2, Some(Arc::new(move || {
-            w.fetch_add(1, Ordering::SeqCst);
-        })));
+        let mut p = Pool::with_threads(
+            2,
+            Some(Arc::new(move || {
+                w.fetch_add(1, Ordering::SeqCst);
+            })),
+        );
         p.submit(1, box_job());
         p.submit(2, box_job());
         let got = wait(&mut p, 2);
@@ -1350,5 +1363,4 @@ mod tests {
         let job = box_job();
         assert!(matches!(run_with(&job, &Context { report: &|_| {}, cancel: Some(token) }), Err(Error::Cancelled)));
     }
-
 }

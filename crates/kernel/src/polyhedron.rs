@@ -271,7 +271,9 @@ mod build {
                             }
                         };
                         used.push(key);
-                        oriented.push(x.add("ORIENTED_EDGE", vec![label(), Param::Derived, Param::Derived, Param::Ref(edge), flag(s == key.0)]));
+                        oriented.push(
+                            x.add("ORIENTED_EDGE", vec![label(), Param::Derived, Param::Derived, Param::Ref(edge), flag(s == key.0)]),
+                        );
                     }
                     let lp = x.add("EDGE_LOOP", vec![label(), refs(oriented)]);
                     bounds.push(x.add(if k == 0 { "FACE_OUTER_BOUND" } else { "FACE_BOUND" }, vec![label(), Param::Ref(lp), flag(true)]));

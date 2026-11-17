@@ -311,8 +311,11 @@ fn mesh_budget_excluded() {
         let reason: String = x.reason.chars().take(200).collect();
         eprintln!("  {:?}: {reason}", x.product);
     }
-    let mut sizes: Vec<(f64, String, usize)> =
-        step.products.iter().flat_map(|p| p.bodies.iter().map(move |b| (size(&b.solid), p.name.clone(), b.solid.record().faces.len()))).collect();
+    let mut sizes: Vec<(f64, String, usize)> = step
+        .products
+        .iter()
+        .flat_map(|p| p.bodies.iter().map(move |b| (size(&b.solid), p.name.clone(), b.solid.record().faces.len())))
+        .collect();
     sizes.sort_by(|a, b| b.0.total_cmp(&a.0));
     for (sz, name, faces) in sizes.iter().take(5) {
         eprintln!("  {sz:8.2} mm  {name:?}: {faces} faces");
