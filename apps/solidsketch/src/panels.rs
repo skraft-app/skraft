@@ -4,7 +4,9 @@
 
 use glam::{DAffine3, DVec3};
 use solidsketch_i18n::{t, tp};
-use solidsketch_model::{ComponentKind, Document, EntityPath, FastMap, GuideShape, Id, Occurrence, Operation, Scope, Sign, Units, measure};
+use solidsketch_model::{
+    ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, Occurrence, Operation, Scope, Sign, Units, measure,
+};
 use solidsketch_tools::{Editor, OptionValue, ToolKind};
 
 use crate::commands::Menu;
@@ -96,16 +98,32 @@ fn cut_label(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, width: f32) {
     });
 }
 
-/// The warning sign before an error to correct (a part in several pieces, a shortcut's
-/// conflict), in the error colour, as high as the text.
-/// An outliner row's fold toggle: the panels' chevron (as in their title bars), turning from
-/// right (folded) to down (open) as it opens.
-fn chevron_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
-    let color = ui.style().interact(response).fg_stroke.color;
-    // egui's toggle rect is small (its triangle's): the chevron, as wide as the title bars'.
-    icons::chevron(ui, response.rect.center(), 14.0, color, -(1.0 - openness) * std::f32::consts::FRAC_PI_2);
+/// An outliner row's fold toggle, one indent wide: the panels' chevron (as in their title bars),
+/// turning from right (folded) to down (open) as it opens; a click folds or unfolds the row (in
+/// `folds`, its document's). `salt` (the document's outliner) keeps its click and turn apart
+/// from another document's row of the same ids.
+fn fold_toggle(ui: &mut egui::Ui, salt: egui::Id, fold: Fold, folds: &mut FastSet<egui::Id>) {
+    let (_, rect) = ui.allocate_space(egui::vec2(ui.spacing().indent, ui.spacing().icon_width));
+    let id = salt.with(fold.key);
+    let response = ui.interact(rect, id, egui::Sense::click());
+    let mut open = fold.open;
+    if response.clicked() {
+        open = !open;
+        if open {
+            folds.insert(fold.key);
+        } else {
+            folds.remove(&fold.key);
+        }
+        ui.ctx().request_repaint();
+    }
+    let openness = ui.ctx().animate_bool_responsive(id, open);
+    let color = ui.style().interact(&response).fg_stroke.color;
+    let center = egui::pos2(rect.left() + ui.spacing().indent / 2.0, rect.center().y);
+    icons::chevron(ui, center, 14.0, color, -(1.0 - openness) * std::f32::consts::FRAC_PI_2);
 }
 
+/// The warning sign before an error to correct (a part in several pieces, a shortcut's
+/// conflict), in the error colour, as high as the text.
 pub fn warning(ui: &egui::Ui) -> egui::Image<'static> {
     let side = ui.text_style_height(&egui::TextStyle::Body);
     egui::Image::new(icons::WARNING).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().error_fg_color)
@@ -561,6 +579,23 @@ pub fn occurrence_label(doc: &Document, o: &Occurrence) -> String {
     if o.name.is_empty() { name.to_owned() } else { format!("{} <{name}>", o.name) }
 }
 
+/// A row's fold: its key in its document's [`OutlinerState`], open or not.
+#[derive(Clone, Copy)]
+struct Fold {
+    key: egui::Id,
+    open: bool,
+}
+
+/// What the outliner keeps of a document between frames, in the document itself (closed with
+/// it, never written to disk): the rows unfolded, the ids reborn, the active path last seen.
+#[derive(Default)]
+pub struct OutlinerState {
+    /// The keys of the rows unfolded (a row missing: folded).
+    open: FastSet<egui::Id>,
+    births: Births,
+    active: Option<ActivePath>,
+}
+
 /// One line of the outliner: an occurrence at some depth of the tree, or a body of the part it
 /// places.
 struct OutlinerRow<'d> {
@@ -568,7 +603,7 @@ struct OutlinerRow<'d> {
     path: Vec<Id>,
     occurrence: &'d Occurrence,
     /// Its folding state, for an assembly, a part, a group.
-    fold: Option<egui::collapsing_header::CollapsingState>,
+    fold: Option<Fold>,
     /// An assembly above it is hidden: it is not drawn either.
     hidden_above: bool,
     /// The body this line shows, of the part `occurrence` places: none for the occurrence's own.
@@ -712,7 +747,14 @@ fn tree_row<R>(
 /// The outliner, in `area`: the model (named `name`, its file's) on the first row, then the
 /// tree; only the rows in view are laid out (a model can hold tens of thousands of
 /// occurrences).
-pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Action>, area: egui::ScrollArea) {
+pub fn outliner(
+    ui: &mut egui::Ui,
+    editor: &Editor,
+    state: &mut OutlinerState,
+    name: &str,
+    actions: &mut Vec<Action>,
+    area: egui::ScrollArea,
+) {
     let doc = editor.document();
     let height = ui.spacing().interact_size.y;
     // Room above the first row and below the last for their backgrounds, which spill half the
@@ -725,11 +767,8 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
     let area = area.content_margin(margin);
     // The ids handed out again since the last frame reborn (an empty model too: undone
     // to it, then made again).
-    let key = ui.make_persistent_id("outliner_births");
-    let mut births = ui.ctx().data(|d| d.get_temp::<std::sync::Arc<Births>>(key)).unwrap_or_default();
-    if births.next_id != doc.next_id() {
-        std::sync::Arc::make_mut(&mut births).update(doc.next_id());
-        ui.ctx().data_mut(|d| d.insert_temp(key, births.clone()));
+    if state.births.next_id != doc.next_id() {
+        state.births.update(doc.next_id());
     }
     if doc.root_assembly().occurrences().is_empty() {
         area.show(ui, |ui| {
@@ -741,16 +780,15 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
     }
     // The active path gone up (or elsewhere): what was open below folded.
     let active = ActivePath::of(editor);
-    let key = ui.make_persistent_id("outliner_active");
-    let before = ui.ctx().data(|d| d.get_temp::<ActivePath>(key));
-    if before.as_ref() != Some(&active) {
-        if let Some(before) = &before {
-            before.fold_left(ui.ctx(), &births, &active);
-        }
-        ui.ctx().data_mut(|d| d.insert_temp(key, active.clone()));
+    if state.active.as_ref() != Some(&active)
+        && let Some(before) = state.active.replace(active.clone())
+    {
+        before.fold_left(&state.births, &mut state.open, &active);
     }
     let mut rows = Vec::new();
-    flatten(ui.ctx(), &births, editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
+    flatten(&state.births, &mut state.open, editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
+    let folds = &mut state.open;
+    let salt = ui.make_persistent_id("outliner_folds");
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
     let text = ui.visuals().text_color();
     let weak = ui.visuals().weak_text_color();
@@ -774,7 +812,7 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
                     continue;
                 }
                 Some(_) => {
-                    body_row(ui, editor, row, height, actions, &mut over_body);
+                    body_row(ui, editor, row, height, (salt, folds), actions, &mut over_body);
                     continue;
                 }
                 None => {}
@@ -818,10 +856,7 @@ pub fn outliner(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Ve
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.add_space(ui.spacing().indent * row.path.len() as f32);
                 match row.fold {
-                    Some(mut fold) => {
-                        fold.show_toggle_button(ui, chevron_icon);
-                        fold.store(ui.ctx());
-                    }
+                    Some(fold) => fold_toggle(ui, salt, fold, folds),
                     None => ui.add_space(ui.spacing().indent),
                 }
                 ui.spacing_mut().item_spacing.x = spacing;
@@ -940,12 +975,11 @@ impl ActivePath {
         Self { occurrences, groups, profile: editor.profile_body().filter(|_| part.is_some()) }
     }
 
-    /// `self` left for `now`: the rows unfolded along `self` beyond what both share, folded.
-    fn fold_left(&self, ctx: &egui::Context, births: &Births, now: &Self) {
-        let fold = |id: egui::Id| {
-            let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
-            state.set_open(false);
-            state.store(ctx);
+    /// `self` left for `now`: the rows unfolded along `self` beyond what both share, folded
+    /// (out of `folds`).
+    fn fold_left(&self, births: &Births, folds: &mut FastSet<egui::Id>, now: &Self) {
+        let mut fold = |id: egui::Id| {
+            folds.remove(&id);
         };
         let shared = self.occurrences.iter().zip(&now.occurrences).take_while(|(a, b)| a == b).count();
         for k in shared..self.occurrences.len() {
@@ -1011,8 +1045,8 @@ impl Births {
 /// an occurrence above `assembly` is hidden).
 #[allow(clippy::too_many_arguments)]
 fn flatten<'d>(
-    ctx: &egui::Context,
     births: &Births,
+    folds: &mut FastSet<egui::Id>,
     editor: &Editor,
     doc: &'d Document,
     assembly: Id,
@@ -1034,14 +1068,10 @@ fn flatten<'d>(
         }
         if let Ok(p) = doc.part(o.component) {
             // Its bodies under it, a single one too.
-            let id = births.occurrence_fold(path, o.id);
-            let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
+            let key = births.occurrence_fold(path, o.id);
             // Open while the part is.
-            if editor.context() == path.as_slice() && editor.open_part() == Some(o.id) {
-                fold.set_open(true);
-            }
-            let open = fold.is_open();
-            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
+            let open = unfold(folds, key, editor.context() == path.as_slice() && editor.open_part() == Some(o.id));
+            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None });
             if open {
                 let open_group = (editor.context() == path.as_slice() && editor.open_part() == Some(o.id)).then(|| editor.open_group());
                 let row = |fold, number, group, body, siblings, profile| OutlinerRow {
@@ -1054,7 +1084,7 @@ fn flatten<'d>(
                 let at = (path.as_slice(), o.id);
                 // The profile edited, in the group open: its body unfolded.
                 let open = Open { group: open_group.unwrap_or(&[]), profile: open_group.and(editor.profile_body()) };
-                body_rows(ctx, births, at, p, &p.bodies, &mut Vec::new(), open, &mut |r: BodyLine<'d>| {
+                body_rows(births, folds, at, p, &p.bodies, &mut Vec::new(), open, &mut |r: BodyLine<'d>| {
                     out.push(row(r.0, r.1, r.2, r.3, r.4, r.5))
                 });
             }
@@ -1064,19 +1094,27 @@ fn flatten<'d>(
             out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None });
             continue;
         }
-        let id = births.occurrence_fold(path, o.id);
-        let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
+        let key = births.occurrence_fold(path, o.id);
         // Open along the context being edited.
-        if editor.context().starts_with(&[path.as_slice(), &[o.id]].concat()) {
-            fold.set_open(true);
-        }
-        let open = fold.is_open();
-        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(fold), hidden_above, body: None });
+        let along = editor.context().len() > path.len() && editor.context().starts_with(path) && editor.context()[path.len()] == o.id;
+        let open = unfold(folds, key, along);
+        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None });
         if open {
             path.push(o.id);
-            flatten(ctx, births, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
+            flatten(births, folds, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
             path.pop();
         }
+    }
+}
+
+/// Whether the row of fold `key` is open: unfolded in `folds`, or `forced` (along the active
+/// path), then kept unfolded there (folded again as the active path leaves it, `fold_left`).
+fn unfold(folds: &mut FastSet<egui::Id>, key: egui::Id, forced: bool) -> bool {
+    if forced {
+        folds.insert(key);
+        true
+    } else {
+        folds.contains(&key)
     }
 }
 
@@ -1106,8 +1144,7 @@ fn holds_failure(p: &solidsketch_model::Part, bodies: &[solidsketch_model::Body]
 
 /// A body row's parts: its folding state (a group's, a profiled body's), its number, the groups
 /// it lies in, the body, its siblings, whether the row is the body's profile's.
-type BodyLine<'d> =
-    (Option<egui::collapsing_header::CollapsingState>, usize, Vec<Id>, &'d solidsketch_model::Body, &'d [solidsketch_model::Body], bool);
+type BodyLine<'d> = (Option<Fold>, usize, Vec<Id>, &'d solidsketch_model::Body, &'d [solidsketch_model::Body], bool);
 
 /// What is open in a part, its rows unfolded along it: the group open (the bodies leading to
 /// it), the body of that group whose profile is edited.
@@ -1123,8 +1160,8 @@ struct Open<'a> {
 /// unfolded.
 #[allow(clippy::too_many_arguments)]
 fn body_rows<'d>(
-    ctx: &egui::Context,
     births: &Births,
+    folds: &mut FastSet<egui::Id>,
     at: (&[Id], Id),
     p: &'d solidsketch_model::Part,
     bodies: &'d [solidsketch_model::Body],
@@ -1150,17 +1187,13 @@ fn body_rows<'d>(
             out((None, number, group.clone(), b, bodies, false));
             continue;
         }
-        let id = births.body_fold(at, group, b.id);
-        let mut fold = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, false);
+        let key = births.body_fold(at, group, b.id);
         // Along the group open, or its profile edited: unfolded.
         let edited = open.profile == Some(b.id) && open.group == group.as_slice();
         group.push(b.id);
-        if edited || open.group.starts_with(group) {
-            fold.set_open(true);
-        }
-        let opened = fold.is_open();
+        let opened = unfold(folds, key, edited || open.group.starts_with(group));
         group.pop();
-        out((Some(fold), number, group.clone(), b, bodies, false));
+        out((Some(Fold { key, open: opened }), number, group.clone(), b, bodies, false));
         if !opened {
             continue;
         }
@@ -1168,7 +1201,7 @@ fn body_rows<'d>(
             out((None, number, group.clone(), b, bodies, true));
         } else {
             group.push(b.id);
-            body_rows(ctx, births, at, p, children, group, open, out);
+            body_rows(births, folds, at, p, children, group, open, out);
             group.pop();
         }
     }
@@ -1211,7 +1244,16 @@ fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &OutlinerRow, height: f3
 /// flips its sign — the selected bodies' too when it is one of them, in its part or group
 /// opened —, in every occurrence of the part unless it is open for this one alone
 /// (« Celui-ci »).
-fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, actions: &mut Vec<Action>, over: &mut Option<Id>) {
+#[allow(clippy::too_many_arguments)]
+fn body_row(
+    ui: &mut egui::Ui,
+    editor: &Editor,
+    row: OutlinerRow,
+    height: f32,
+    folds: (egui::Id, &mut FastSet<egui::Id>),
+    actions: &mut Vec<Action>,
+    over: &mut Option<Id>,
+) {
     let Some(b) = &row.body else { return };
     let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
     let open = editor.open_part_path().as_ref() == Some(&path);
@@ -1244,10 +1286,7 @@ fn body_row(ui: &mut egui::Ui, editor: &Editor, row: OutlinerRow, height: f32, a
         // Under the part's icon: its level, plus one, plus the groups above.
         ui.add_space(ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32);
         match row.fold {
-            Some(mut fold) => {
-                fold.show_toggle_button(ui, chevron_icon);
-                fold.store(ui.ctx());
-            }
+            Some(fold) => fold_toggle(ui, folds.0, fold, folds.1),
             None => ui.add_space(ui.spacing().indent),
         }
         ui.spacing_mut().item_spacing.x = spacing;

@@ -882,10 +882,21 @@ Decided on 2026-11-09.
   kept per document in egui's memory). The fold arrows stay, to look into an assembly or a
   part without entering it.
 - **A new row opens folded** (2026-11-16): an undo takes the document's next id back, so the
-  next copy takes the id of the one undone and inherited its fold (egui keeps it by id). The
-  ids given back (`Document::next_id` going down) are reborn (`Births`, per document in egui's
-  memory): a row's fold is kept under its ids salted with their births, nothing salted while
-  no undo gave an id back. A step redone opens folded as well.
+  next copy takes the id of the one undone and inherited its fold (kept by id). The ids given
+  back (`Document::next_id` going down) are reborn (`Births`): a row's fold is kept under its
+  ids salted with their births, nothing salted while no undo gave an id back. A step redone
+  opens folded as well.
+- **The folds are the document's** (2026-11-17): the rows unfolded, the births and the active
+  path last seen are kept in the document (`panels::OutlinerState`, in `docs::Doc`), dropped
+  with it, never on disk. They were egui `CollapsingState`s, keyed by ids alone and persisted
+  (`app.ron`): every document numbers its things from 1, so a part made opened unfolded when
+  a part of the same id had been unfolded in another tab or an earlier session, and those
+  states piled up in egui's memory. A row's fold is written only when it changes (its
+  chevron clicked, the active path reaching or leaving it); a frame reads one hash set per
+  row. Likewise, at launch (`prune_egui_memory`), what egui keeps on disk and never drops:
+  its text fields' states (keyed by model ids for the renames and positions), the places of
+  every area ever shown (each tooltip's, each menu's: 750 in a month) but the windows the user
+  moves (preferences, journal); the app's other areas are placed every frame.
 - **The entity info shows the selection**, whatever it is (2026-11-16): an assembly or a part
   (its name, occurrence, material, dimensions, position…), a guide, and a part open, the body
   or group selected in it — its name as the navigator gives it (« Extrusion 3 »), blank or

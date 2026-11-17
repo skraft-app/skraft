@@ -91,6 +91,12 @@ impl Shown {
     }
 }
 
+/// The window's id, fixed: the title changes with the document and the language (its place
+/// kept at launch, `SolidSketchApp::new`).
+pub fn window_id() -> egui::Id {
+    egui::Id::unique("journal_window")
+}
+
 /// Shows the window, on the journal of the shown document (`None`: the start page); closed,
 /// `state` becomes `None`.
 pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<(String, &Journal)>) {
@@ -100,9 +106,8 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
         Some((name, _)) => t!("journal.title_of", name = name),
         None => t!("journal.title"),
     };
-    // A fixed id: the title changes with the document and the language.
     egui::Window::new(title)
-        .id(egui::Id::unique("journal_window"))
+        .id(window_id())
         .open(&mut open)
         .collapsible(false)
         .resizable(true)
