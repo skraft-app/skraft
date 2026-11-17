@@ -6,6 +6,8 @@ mod clipboard;
 mod commands;
 #[cfg(not(target_arch = "wasm32"))]
 mod control;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod crash;
 mod dock;
 mod docs;
 mod driving;
@@ -80,6 +82,12 @@ pub fn native_options() -> eframe::NativeOptions {
 fn wgpu_options() -> egui_wgpu::WgpuConfiguration {
     let mut options = egui_wgpu::WgpuConfiguration::default();
     if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_setup {
+        // On Windows, Direct3D 12 only: wgpu would take Vulkan where the driver has it, and
+        // Intel's Vulkan driver (igvk64.dll) crashes the app at launch. `WGPU_BACKEND` (vulkan,
+        // dx12, gl…) still chooses another.
+        if cfg!(windows) && wgpu::Backends::from_env().is_none() {
+            setup.instance_descriptor.backends = wgpu::Backends::DX12;
+        }
         let base = setup.device_descriptor.clone();
         setup.device_descriptor = std::sync::Arc::new(move |adapter| {
             let mut descriptor = base(adapter);

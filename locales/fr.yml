@@ -1116,6 +1116,12 @@ default_name:
   # The material made for a colour of an imported STEP file (hex like #CC9966).
   step_color: "Couleur %{hex}"
 
+# The dialog of a crash (the app ends), or of the window that cannot open.
+crash:
+  title: "SolidSketch s'est arrêté"
+  message: "SolidSketch a rencontré une erreur et doit se fermer.\n\n%{error}"
+  message_logged: "SolidSketch a rencontré une erreur et doit se fermer.\n\n%{error}\n\nLe détail est dans %{path}"
+
 error:
   # A typed value that cannot be read (the measurements box, the entity info).
   expr:
