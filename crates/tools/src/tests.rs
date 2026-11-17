@@ -3494,14 +3494,11 @@ fn erase_tool_erases_what_it_is_clicked_or_dragged_over() {
     let shift = Modifiers { toggle: true, copy: false };
     let there = |e: &Editor, id: Id| e.document().assembly(root).unwrap().occurrence(id).is_some();
     let ghosts = |e: &Editor| e.view().batches.iter().flat_map(|(_, p)| p).filter(|p| p.ghost).count();
-    // Started on a selection, it erases it at once, in one step, and stays an eraser
-    // (§6 septendecies).
+    // Started on a selection, it lets it go, erasing nothing (§6 septendecies).
     e.select(vec![a]);
     e.set_tool(ToolKind::Erase);
-    assert!(!there(&e, a) && e.selection().is_empty());
+    assert!(there(&e, a) && e.selection().is_empty());
     assert_eq!(e.tool_kind(), ToolKind::Erase);
-    e.undo();
-    assert!(there(&e, a));
     // Selected while it runs, the selection is left alone.
     e.select(vec![a]);
 

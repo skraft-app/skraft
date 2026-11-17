@@ -176,9 +176,9 @@ ribbon:
     inspect: "Inspecter"
   group:
     selection: "Sélection"
-    create: "Créer"
-    modify: "Modifier"
-    combine: "Combiner"
+    create: "Dessiner"
+    modify: "Manipuler"
+    combine: "Remodeler"
     appearance: "Apparence"
     components: "Composants"
     measure: "Mesurer"

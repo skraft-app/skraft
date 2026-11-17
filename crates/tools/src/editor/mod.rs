@@ -930,10 +930,10 @@ impl Editor {
         // Another tool gives up a paste carried.
         self.settle_carry(true);
         self.tool = tools::make(kind);
-        // Erase started on a selection erases it at once (SketchUp's), and stays an eraser
-        // (§6 septendecies).
+        // Erase lets the selection go when it starts: it erases what its clicks take, never
+        // the selection (§6 septendecies).
         if kind == ToolKind::Erase {
-            self.delete_selection();
+            self.clear_selection();
         }
         self.quick_return = None;
         self.aside = None;
