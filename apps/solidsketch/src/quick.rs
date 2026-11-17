@@ -20,6 +20,9 @@ const BUTTON: f32 = 34.0;
 const ICON: f32 = 22.0;
 /// The ▾ button's width.
 const MORE: f32 = 16.0;
+/// The card's background opacity, at rest and under the pointer.
+const RESTING: f32 = 0.35;
+const HOVERED: f32 = 0.92;
 
 /// The pinned commands, in the card's order: `pins` as the user left them (unknown ids
 /// ignored), else the defaults.
@@ -44,10 +47,17 @@ pub fn toggle(pins: &mut Option<Vec<String>>, id: &'static str) {
 /// The card, centred on `at` (screen points), kept inside `view`.
 pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<String>>, views: &[CommandView], actions: &mut Vec<Action>) {
     let pinned = pinned(pins);
-    egui::Area::new(egui::Id::unique("quick_tools")).fixed_pos(at).pivot(egui::Align2::CENTER_CENTER).constrain_to(view).show(ctx, |ui| {
+    // Hovered on the last frame: the card is drawn before egui knows this frame's.
+    let hovered_id = egui::Id::unique("quick_tools_hovered");
+    let hovered = ctx.data(|d| d.get_temp::<bool>(hovered_id)).unwrap_or(false);
+    let response = egui::Area::new(egui::Id::unique("quick_tools")).fixed_pos(at).pivot(egui::Align2::CENTER_CENTER).constrain_to(view).show(ctx, |ui| {
         let mut frame = egui::Frame::window(ui.style()).inner_margin(4.0);
-        // Translucent, as OCL's: the part stays visible behind it.
-        frame.fill = frame.fill.gamma_multiply(0.85);
+        // Translucent, as OCL's: the part stays visible behind it; nearly opaque under the
+        // pointer, to read and click.
+        let alpha = if hovered { HOVERED } else { RESTING };
+        frame.fill = frame.fill.gamma_multiply(alpha);
+        frame.stroke.color = frame.stroke.color.gamma_multiply(alpha);
+        frame.shadow.color = frame.shadow.color.gamma_multiply(alpha * alpha);
         frame.show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.horizontal(|ui| {
@@ -60,6 +70,11 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
             });
         });
     });
+    let now = response.response.contains_pointer();
+    if now != hovered {
+        ctx.data_mut(|d| d.insert_temp(hovered_id, now));
+        ctx.request_repaint();
+    }
 }
 
 /// A command's button: its icon, its name in the tip; right click unpins it.
@@ -128,7 +143,10 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
                 }
             });
         }
+        // The note wraps within the rows' width instead of widening the menu.
+        let width = ui.min_rect().width();
         ui.separator();
+        ui.set_max_width(width);
         ui.add(egui::Label::new(egui::RichText::new(t!("quick_tools.menu_note")).small().weak()).wrap());
     });
 }
