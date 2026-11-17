@@ -85,6 +85,10 @@ pub struct SolidSketchApp {
     /// The control channel, switched on and off while the app runs (desktop).
     #[cfg(not(target_arch = "wasm32"))]
     remote: crate::control::Remote,
+    /// This app in the registry of running apps, its channel's port kept up to date (desktop;
+    /// none if it could not be written).
+    #[cfg(not(target_arch = "wasm32"))]
+    registration: Option<solidsketch_control::instances::Registration>,
     /// The macOS menu bar (`None` if it could not be built: the ☰ menu then).
     #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
     native_menu: Option<NativeMenu>,
@@ -245,6 +249,13 @@ impl SolidSketchApp {
             }
             remote
         };
+        #[cfg(not(target_arch = "wasm32"))]
+        let registration = solidsketch_control::server::default_dir().and_then(|dir| {
+            let here = solidsketch_control::instances::Instance::here(env!("CARGO_PKG_VERSION"), crate::identity::build());
+            solidsketch_control::instances::Registration::register(&dir, here)
+                .inspect_err(|e| log::warn!("not in the registry of running apps: {e}"))
+                .ok()
+        });
         // Its native menu is added below, on macOS.
         #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(unused_mut))]
         let mut app = SolidSketchApp {
@@ -275,6 +286,8 @@ impl SolidSketchApp {
             driving: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             remote,
+            #[cfg(not(target_arch = "wasm32"))]
+            registration,
             #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
             native_menu: None,
             pending_keys: Vec::new(),
@@ -1434,11 +1447,14 @@ impl SolidSketchApp {
         crate::style::settings_section(ui, &t!("prefs.model.units"));
         crate::style::settings_grid(ui, "model_units", |ui| {
             ui.label(t!("prefs.model.lengths"));
-            egui::ComboBox::from_id_salt("length_unit").icon(crate::icons::combo_chevron).selected_text(s.units.length.name()).show_ui(ui, |ui| {
-                for u in LengthUnit::ALL {
-                    ui.selectable_value(&mut s.units.length, u, u.name());
-                }
-            });
+            egui::ComboBox::from_id_salt("length_unit").icon(crate::icons::combo_chevron).selected_text(s.units.length.name()).show_ui(
+                ui,
+                |ui| {
+                    for u in LengthUnit::ALL {
+                        ui.selectable_value(&mut s.units.length, u, u.name());
+                    }
+                },
+            );
             ui.end_row();
             ui.label(t!("prefs.model.decimals"));
             ui.add(egui::Slider::new(&mut s.units.decimals, 0..=6));
@@ -1723,7 +1739,8 @@ impl SolidSketchApp {
                             // Salted by the document: a field focused in one is not another's.
                             let doc_id = doc.id;
                             let name = doc.name();
-                            area.id_salt("entity_info").show(ui, |ui| ui.push_id(doc_id, |ui| panels::info(ui, &doc.editor, &name, actions)));
+                            area.id_salt("entity_info")
+                                .show(ui, |ui| ui.push_id(doc_id, |ui| panels::info(ui, &doc.editor, &name, actions)));
                         }
                         PanelId::Materials => {
                             let doc_id = doc.id;
@@ -1887,14 +1904,32 @@ impl SolidSketchApp {
             crate::handles::set_enabled(crate::web::used());
             crate::web::take()
         };
+        // What a call does is its client's (the journal says so), whatever this frame's input.
+        let origin = self.driving.origin();
         for asker in askers {
+            self.set_origin(&solidsketch_tools::journal::Origin::control(asker.call.client.as_deref()));
             self.serve(asker, ctx, frame);
         }
+        self.set_origin(&origin);
         self.answer_waits();
         // Frames go on while something waits: an idle window draws none.
         if self.driving.busy() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
+    }
+
+    /// Who causes what the documents go through from now on (their journals).
+    fn set_origin(&mut self, origin: &solidsketch_tools::journal::Origin) {
+        for d in self.docs.iter_mut() {
+            d.editor.set_origin(origin.clone());
+        }
+    }
+
+    /// The user acted other than through the window's events (the native menu bar, a file
+    /// the system opens): the journal notes what follows as theirs.
+    fn user_acted(&mut self) {
+        self.driving.user_acted();
+        self.set_origin(&solidsketch_tools::journal::Origin::User);
     }
 
     /// Takes one request: answered now, or once a later frame has what it waits for.
@@ -2115,8 +2150,13 @@ impl SolidSketchApp {
             "app.state" => {
                 call.params::<NoParams>()?;
                 let naming = self.naming.as_ref().map(|n| json!({ "document": n.doc, "part": n.naming.component.0, "name": n.text() }));
+                // Which app answers: several may run.
+                #[cfg(not(target_arch = "wasm32"))]
+                let instance = self.registration.as_ref().map(|r| json!(r.info()));
+                #[cfg(target_arch = "wasm32")]
+                let instance: Option<serde_json::Value> = None;
                 let Some(d) = self.docs.active() else {
-                    return ok(json!({ "document": null, "toasts": self.toasts.json(), "naming": naming }));
+                    return ok(json!({ "document": null, "toasts": self.toasts.json(), "naming": naming, "instance": instance }));
                 };
                 let e = &d.editor;
                 ok(json!({
@@ -2133,7 +2173,16 @@ impl SolidSketchApp {
                     "document": d.id,
                     "toasts": self.toasts.json(),
                     "naming": naming,
+                    "instance": instance,
                 }))
+            }
+            "app.instances" => {
+                call.params::<NoParams>()?;
+                #[cfg(not(target_arch = "wasm32"))]
+                let all = solidsketch_control::server::default_dir().map(|d| solidsketch_control::instances::list_json(&d));
+                #[cfg(target_arch = "wasm32")]
+                let all: Option<serde_json::Value> = None;
+                ok(all.unwrap_or_else(|| json!([])))
             }
             #[cfg(not(target_arch = "wasm32"))]
             "app.screenshot" => {
@@ -2187,7 +2236,16 @@ impl SolidSketchApp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             use crate::control::Status;
-            match self.remote.status() {
+            let status = self.remote.status();
+            if let Some(r) = &mut self.registration
+                && let Err(e) = r.set_port(match &status {
+                    Status::On { port, .. } => Some(*port),
+                    _ => None,
+                })
+            {
+                log::warn!("the registry of running apps: {e}");
+            }
+            match status {
                 Status::Off => None,
                 Status::On { port, served, flash, token_file } => {
                     if flash > 0.0 {
@@ -2207,7 +2265,10 @@ impl eframe::App for SolidSketchApp {
     /// The control channel stops with the app: its token and discovery files go.
     fn on_exit(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
-        let _ = self.remote.set(false);
+        {
+            let _ = self.remote.set(false);
+            self.registration = None;
+        }
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -2220,6 +2281,9 @@ impl eframe::App for SolidSketchApp {
         let ctx = ui.ctx().clone();
         crate::handles::frame_start();
         self.driving.frame_start();
+        // This frame's input: the user's, or a client's real events (`ui.*`).
+        let origin = self.driving.origin();
+        self.set_origin(&origin);
         self.apply_theme(&ctx);
         // What the kernel finished since the last frame (it wakes the UI when it does), for
         // every document: one in the background goes on computing.
@@ -2248,6 +2312,7 @@ impl eframe::App for SolidSketchApp {
         // just below with the dialogs'.
         #[cfg(not(target_arch = "wasm32"))]
         for path in crate::opened::take() {
+            self.user_acted();
             if let Err(e) = file::open_path(&path, &self.inbox) {
                 self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&path)), e));
             }
@@ -2294,9 +2359,11 @@ impl eframe::App for SolidSketchApp {
         self.serve_control(&ctx, frame);
 
         // Still the window's title where the OS shows it (Window menu, Mission Control).
+        // A dev build says which (several may run, one per worktree).
+        let app = crate::identity::build().map_or_else(|| "SolidSketch".to_owned(), |b| format!("SolidSketch [{}]", b.label()));
         let title = match self.docs.active() {
-            Some(d) => format!("SolidSketch — {}{}", d.name(), if d.modified() { " •" } else { "" }),
-            None => "SolidSketch".to_owned(),
+            Some(d) => format!("{app} — {}{}", d.name(), if d.modified() { " •" } else { "" }),
+            None => app,
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
 
@@ -2305,6 +2372,7 @@ impl eframe::App for SolidSketchApp {
         #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
         if let Some(menu) = &mut self.native_menu {
             for id in menu.update(&views, &self.keymap) {
+                self.user_acted();
                 self.native_command(id, &mut actions);
             }
         }
@@ -2316,6 +2384,10 @@ impl eframe::App for SolidSketchApp {
             integrated: crate::INTEGRATED_TITLEBAR,
             ground: self.docs.active().map(|_| (viewport::color(self.theme.ui.view), viewport::color(self.theme.ui.view_text))),
             remote: self.remote_mark(&ctx),
+            #[cfg(not(target_arch = "wasm32"))]
+            instance: self.registration.as_ref().map(|r| r.info()).filter(|i| i.build.is_some()),
+            #[cfg(target_arch = "wasm32")]
+            instance: None,
         };
         titlebar::show(ui, &bar, &views, &mut actions);
         // The start page has no status bar: the toasts stand above the window's bottom.
@@ -2521,12 +2593,15 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
     egui::Grid::new("general").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.general.language"));
         let before = prefs.locale.clone();
-        egui::ComboBox::from_id_salt("locale").icon(crate::icons::combo_chevron).selected_text(solidsketch_i18n::locale_name(&prefs.locale)).show_ui(ui, |ui| {
-            for l in solidsketch_i18n::available_locales() {
-                let name = solidsketch_i18n::locale_name(&l);
-                ui.selectable_value(&mut prefs.locale, l, name);
-            }
-        });
+        egui::ComboBox::from_id_salt("locale")
+            .icon(crate::icons::combo_chevron)
+            .selected_text(solidsketch_i18n::locale_name(&prefs.locale))
+            .show_ui(ui, |ui| {
+                for l in solidsketch_i18n::available_locales() {
+                    let name = solidsketch_i18n::locale_name(&l);
+                    ui.selectable_value(&mut prefs.locale, l, name);
+                }
+            });
         if prefs.locale != before {
             solidsketch_i18n::set_locale(&prefs.locale);
         }

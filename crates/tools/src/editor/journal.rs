@@ -8,6 +8,7 @@
 //! entry), the last [`FAILURES_LEN`] failures.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use glam::DVec2;
 use solidsketch_model::Operation;
@@ -72,12 +73,44 @@ pub enum JobKind {
     Mesh,
 }
 
-/// One entry: its number (from 1, never reused), its time since the editor started (ms).
+/// Who caused an entry: the person at the window, or a client of the control channel (an
+/// agent, a script: docs/ARCHITECTURE.md §7 septies), named by itself if it said (the
+/// `X-SolidSketch-Client` header).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Origin {
+    #[default]
+    User,
+    Control {
+        client: Option<Arc<str>>,
+    },
+}
+
+impl Origin {
+    pub fn control(client: Option<&str>) -> Self {
+        Origin::Control { client: client.map(Arc::from) }
+    }
+
+    pub fn is_control(&self) -> bool {
+        matches!(self, Origin::Control { .. })
+    }
+
+    /// The client's name, if it gave one.
+    pub fn client(&self) -> Option<&str> {
+        match self {
+            Origin::Control { client } => client.as_deref(),
+            Origin::User => None,
+        }
+    }
+}
+
+/// One entry: its number (from 1, never reused), its time since the editor started (ms), who
+/// caused it (an operation's outcome, computed later: who asked for it).
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub seq: u64,
     pub ms: f64,
     pub event: Event,
+    pub origin: Origin,
 }
 
 /// A kernel job that failed: what it was for, the job, the error.
@@ -131,6 +164,8 @@ pub struct Journal {
     recording: Option<Recording>,
     /// The view the recording's inputs were given in last.
     recorded_view: Option<(Camera, DVec2)>,
+    /// Who causes the entries logged now.
+    origin: Origin,
 }
 
 impl Default for Journal {
@@ -142,6 +177,7 @@ impl Default for Journal {
             failures: VecDeque::new(),
             recording: None,
             recorded_view: None,
+            origin: Origin::User,
         }
     }
 }
@@ -151,17 +187,28 @@ impl Journal {
         self.start.elapsed().as_secs_f64() * 1000.0
     }
 
+    /// Who causes the entries logged from now on.
+    pub fn origin(&self) -> &Origin {
+        &self.origin
+    }
+
+    pub(super) fn set_origin(&mut self, origin: Origin) {
+        self.origin = origin;
+    }
+
     pub(super) fn log(&mut self, event: Event) {
-        // A hover after a hover: the same entry, moved.
+        // A hover after a hover, from the same origin: the same entry, moved.
         if let Event::Input { input: input @ ToolInput::Hover { .. }, .. } = &event
-            && let Some(Entry { event: Event::Input { input: last @ ToolInput::Hover { .. }, count }, ms, .. }) = self.entries.back_mut()
+            && let Some(Entry { event: Event::Input { input: last @ ToolInput::Hover { .. }, count }, ms, origin, .. }) =
+                self.entries.back_mut()
+            && *origin == self.origin
         {
             *last = input.clone();
             *count += 1;
             *ms = self.start.elapsed().as_secs_f64() * 1000.0;
             return;
         }
-        let entry = Entry { seq: self.next, ms: self.now(), event };
+        let entry = Entry { seq: self.next, ms: self.now(), event, origin: self.origin.clone() };
         self.next += 1;
         if self.entries.len() == JOURNAL_LEN {
             self.entries.pop_front();
@@ -244,5 +291,23 @@ mod tests {
             j.log(Event::Redo);
         }
         assert_eq!(j.since(0).count(), JOURNAL_LEN);
+    }
+
+    #[test]
+    fn entries_say_who_caused_them_and_hovers_merge_only_from_one_origin() {
+        let mut j = Journal::default();
+        let hover = || Event::Input { input: ToolInput::Hover { px: DVec2::ZERO }, count: 1 };
+        j.log(hover());
+        j.set_origin(Origin::control(Some("mcp")));
+        j.log(hover());
+        j.log(hover());
+        j.set_origin(Origin::User);
+        j.log(Event::Undo);
+        let all: Vec<_> = j.since(0).collect();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].origin, Origin::User);
+        assert_eq!(all[1].origin.client(), Some("mcp"));
+        assert!(matches!(all[1].event, Event::Input { count: 2, .. }));
+        assert_eq!(all[2].origin, Origin::User);
     }
 }

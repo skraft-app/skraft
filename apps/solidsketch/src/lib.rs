@@ -12,11 +12,12 @@ mod driving;
 mod file;
 mod handles;
 mod icons;
+mod identity;
 mod journal_window;
 mod naming;
-mod nav_prefs;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;
+mod nav_prefs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opened;
 mod panels;

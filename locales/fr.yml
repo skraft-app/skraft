@@ -209,6 +209,22 @@ titlebar:
     journal: "$t(menu.edit.journal)"
     retry: "Réessayer"
     stop: "Arrêter le pilotage distant"
+  # A dev build's badge after the app's name: which build runs (several may, one per worktree).
+  instance:
+    title: "Build de développement « %{label} »"
+    worktree: "Worktree : %{path}"
+    commit: "Branche %{branch}, commit %{commit}"
+    dirty: "Avec des modifications non commitées"
+    built: "Compilé il y a %{ago}"
+    started: "Lancé il y a %{ago} (PID %{pid})"
+    session: "Lancé par la session Claude Code %{id}"
+    launcher: "Lancé par %{who}"
+    by_hand: "Lancé hors d'une session Claude Code"
+    port: "Pilotage distant sur le port %{port}"
+    seconds: "%{n} s"
+    minutes: "%{n} min"
+    hours: "%{n} h"
+    days: "%{n} j"
 
 # The file tabs in the title bar, one per open document.
 tabs:
@@ -279,6 +295,14 @@ journal:
     tools: "Outils"
     operations: "Opérations"
     jobs: "Calculs"
+  # Who caused an entry: the person at the window, or a client of the control channel (an
+  # agent, a script).
+  origin:
+    all: "Tous"
+    user: "Utilisateur"
+    pilot: "Pilote"
+    pilot_tip: "Fait par le pilotage distant"
+    pilot_named: "Fait par le pilotage distant : %{client}"
   copy: "$t(common.copy)"
   copy_tip: "Copie les événements affichés en JSON, une ligne chacun (comme journal.log)"
   empty: "Aucun événement."

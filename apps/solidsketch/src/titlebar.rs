@@ -45,6 +45,9 @@ pub struct Bar<'a> {
     pub ground: Option<(egui::Color32, egui::Color32)>,
     /// The control channel, while it is on (desktop).
     pub remote: Option<RemoteMark>,
+    /// This app, when a dev build (desktop): its badge after the name says which build it is,
+    /// several running at once.
+    pub instance: Option<&'a solidsketch_control::instances::Instance>,
 }
 
 /// The control channel's mark (docs/ARCHITECTURE.md §7 quater): green while it runs,
@@ -63,7 +66,7 @@ pub struct RemoteMark {
 }
 
 /// The running channel's mark: a green readable on the bar's dark ground, whatever the palette.
-const ACTIVE: egui::Color32 = egui::Color32::from_rgb(88, 204, 112);
+pub const ACTIVE: egui::Color32 = egui::Color32::from_rgb(88, 204, 112);
 /// The failed channel's mark: a red readable on the bar's dark ground.
 const ALERT: egui::Color32 = egui::Color32::from_rgb(240, 96, 88);
 
@@ -113,6 +116,9 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
         ui.add_space(TRAFFIC_LIGHTS - 8.0);
     }
     brand(ui);
+    if let Some(i) = bar.instance {
+        instance_badge(ui, i);
+    }
     ui.separator();
     file_menu(ui, views, actions);
     for id in ["edit.undo", "edit.redo"] {
@@ -266,6 +272,50 @@ fn brand(ui: &mut egui::Ui) {
     ui.painter().galley(rect.left_top(), name, egui::Color32::PLACEHOLDER);
     let at = egui::pos2(rect.right() - version.size().x, rect.top() - lift);
     ui.painter().galley(at, version, egui::Color32::PLACEHOLDER);
+}
+
+/// A dev build's badge: its worktree (its branch for the main checkout) and commit, `*` when
+/// changes not committed went in, on a colour of the worktree's own; the hover says all,
+/// who launched it among it.
+fn instance_badge(ui: &mut egui::Ui, i: &solidsketch_control::instances::Instance) {
+    let Some(b) = &i.build else { return };
+    let label = b.label();
+    let text = format!("{label} · {}{}", b.commit, if b.dirty { "*" } else { "" });
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(text, font, egui::Color32::from_gray(24));
+    let pad = egui::vec2(6.0, 2.0);
+    let (rect, r) = ui.allocate_exact_size(galley.size() + 2.0 * pad, egui::Sense::hover());
+    ui.painter().rect_filled(rect, 4.0, crate::identity::color(&label));
+    ui.painter().galley(rect.min + pad, galley, egui::Color32::PLACEHOLDER);
+    r.on_hover_ui(|ui| {
+        let now = solidsketch_control::instances::now();
+        ui.strong(t!("titlebar.instance.title", label = label));
+        ui.label(t!("titlebar.instance.worktree", path = b.worktree));
+        ui.label(t!("titlebar.instance.commit", branch = b.branch, commit = b.commit));
+        if b.dirty {
+            ui.label(t!("titlebar.instance.dirty"));
+        }
+        ui.label(t!("titlebar.instance.built", ago = ago(now.saturating_sub(b.built))));
+        ui.label(t!("titlebar.instance.started", ago = ago(now.saturating_sub(i.started)), pid = i.pid));
+        match (&i.claude_session, &i.launcher) {
+            (_, Some(who)) => ui.label(t!("titlebar.instance.launcher", who = who)),
+            (Some(s), None) => ui.label(t!("titlebar.instance.session", id = s.chars().take(8).collect::<String>())),
+            (None, None) => ui.label(t!("titlebar.instance.by_hand")),
+        };
+        if let Some(port) = i.port {
+            ui.label(t!("titlebar.instance.port", port = port));
+        }
+    });
+}
+
+/// A duration, `seconds` long, as the hover says it: in the largest unit that fits.
+fn ago(seconds: u64) -> String {
+    match seconds {
+        s if s < 60 => t!("titlebar.instance.seconds", n = s),
+        s if s < 3600 => t!("titlebar.instance.minutes", n = s / 60),
+        s if s < 86_400 => t!("titlebar.instance.hours", n = s / 3600),
+        s => t!("titlebar.instance.days", n = s / 86_400),
+    }
 }
 
 /// The baseline of a galley's first row, from its top.

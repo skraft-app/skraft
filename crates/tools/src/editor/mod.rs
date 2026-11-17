@@ -827,6 +827,12 @@ impl Editor {
         &self.journal
     }
 
+    /// Who causes what it goes through from now on (the journal's entries): the person at
+    /// the window, or a client of the control channel.
+    pub fn set_origin(&mut self, origin: journal::Origin) {
+        self.journal.set_origin(origin);
+    }
+
     /// Starts recording the inputs from the document and the view as they are now (again: from
     /// now), or stops: the recording, if one was under way.
     pub fn record(&mut self, on: bool) -> Option<journal::Recording> {

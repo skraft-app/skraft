@@ -11,7 +11,12 @@
 //! the port to `<dir>/current.port`, where a client finds the running app; both are removed
 //! when it stops. `<dir>` is `SolidSketch/control` in the user's data folder ([`default_dir`]).
 //! Every request sends `Authorization: Bearer <token>` and `X-SolidSketch: 1` (a page in a
-//! browser cannot send the latter without a preflight the server never answers).
+//! browser cannot send the latter without a preflight the server never answers); it may name
+//! its client with `X-SolidSketch-Client: <name>` (at most [`MAX_CLIENT`] characters), which
+//! the journal shows for what it caused.
+//!
+//! Several apps may run (one per worktree): each one says what it is in its own file of the
+//! registry ([`crate::instances`]), where a client finds the one it wants.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -26,6 +31,9 @@ use crate::params::WaitParams;
 use crate::{Answer, Call, Error, Outcome};
 
 const GUARD: &str = "x-solidsketch";
+const CLIENT: &str = "x-solidsketch-client";
+/// The longest client's name kept.
+pub const MAX_CLIENT: usize = 80;
 /// The largest body read (a batch of operations, later).
 const MAX_BODY: usize = 1 << 20;
 /// How long a request waits for the UI, but `app.wait` (its own timeout, and some slack).
@@ -254,6 +262,7 @@ fn read_request(stream: &TcpStream, token: &str) -> Result<Parsed, (u16, String)
     let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let (mut guarded, mut authorized) = (false, false);
     let mut length = 0usize;
+    let mut client = None;
     loop {
         let mut h = String::new();
         r.read_line(&mut h).map_err(|e| (400, e.to_string()))?;
@@ -267,22 +276,28 @@ fn read_request(stream: &TcpStream, token: &str) -> Result<Parsed, (u16, String)
                 GUARD => guarded = value == "1",
                 "authorization" => authorized = value.strip_prefix("Bearer ").is_some_and(|t| same(t.trim(), token)),
                 "content-length" => length = value.parse().unwrap_or(0),
+                CLIENT if !value.is_empty() => client = Some(value.chars().take(MAX_CLIENT).collect()),
                 _ => {}
             }
         }
     }
+    if length > MAX_BODY {
+        return Err((413, format!("a body of at most {MAX_BODY} bytes")));
+    }
+    // Read even when refused: a socket closed with bytes unread is reset, and the client
+    // gets the reset, not the answer.
+    let mut body = vec![0; length];
+    r.read_exact(&mut body).map_err(|e| (400, e.to_string()))?;
     if !guarded {
         return Err((403, format!("the {GUARD}: 1 header is required")));
     }
     if !authorized {
         return Err((401, "the token is required: Authorization: Bearer <the token file's content>".into()));
     }
-    if length > MAX_BODY {
-        return Err((413, format!("a body of at most {MAX_BODY} bytes")));
+    match parse(method, path, &String::from_utf8_lossy(&body))? {
+        Parsed::Call(call) => Ok(Parsed::Call(call.from_client(client))),
+        ping => Ok(ping),
     }
-    let mut body = vec![0; length];
-    r.read_exact(&mut body).map_err(|e| (400, e.to_string()))?;
-    parse(method, path, &String::from_utf8_lossy(&body))
 }
 
 /// Compares tokens in a time that does not tell how much of them matched.
@@ -330,7 +345,8 @@ pub fn discover(dir: &Path, port: Option<u16>) -> Result<(u16, String), String> 
     Ok((port, token))
 }
 
-/// Calls `call` on the app listening on `port` (the loopback interface), with its `token`.
+/// Calls `call` on the app listening on `port` (the loopback interface), with its `token`;
+/// `call.client` names the caller.
 pub fn call(port: u16, token: &str, call: &Call) -> Outcome {
     let body = json!({ "method": call.method, "params": call.params }).to_string();
     let unreachable = |e: std::io::Error| {
@@ -345,8 +361,12 @@ pub fn call(port: u16, token: &str, call: &Call) -> Outcome {
         _ => UI_TIMEOUT + Duration::from_secs(5),
     };
     let _ = stream.set_read_timeout(Some(timeout));
+    // One line: no line break smuggled into the headers.
+    let client = call.client.as_deref().map_or_else(String::new, |c| {
+        format!("X-SolidSketch-Client: {}\r\n", c.chars().filter(|c| !c.is_control()).take(MAX_CLIENT).collect::<String>())
+    });
     let head = format!(
-        "POST /call HTTP/1.1\r\nHost: 127.0.0.1\r\nX-SolidSketch: 1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST /call HTTP/1.1\r\nHost: 127.0.0.1\r\nX-SolidSketch: 1\r\nAuthorization: Bearer {token}\r\n{client}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes()).and_then(|_| stream.write_all(body.as_bytes())).map_err(unreachable)?;
@@ -411,7 +431,7 @@ mod tests {
             while answered < 2 {
                 for p in control.take() {
                     let outcome = match p.call.method.as_str() {
-                        "app.run" => Ok(Answer::Json(json!({ "ran": p.call.params["id"] }))),
+                        "app.run" => Ok(Answer::Json(json!({ "ran": p.call.params["id"], "client": p.call.client }))),
                         m => Err(Error::UnknownMethod(m.into())),
                     };
                     p.answer(outcome);
@@ -439,8 +459,15 @@ mod tests {
         // The one route.
         let old = post(port, &token, "/run", "tool.move");
         assert!(old.starts_with("HTTP/1.1 404"), "{old}");
-        let run = post(port, &token, "/call", "{\"method\":\"app.run\",\"params\":{\"id\":\"tool.move\"}}");
-        assert!(run.contains("\"result\":{\"ran\":\"tool.move\"}"), "{run}");
+        let body = "{\"method\":\"app.run\",\"params\":{\"id\":\"tool.move\"}}";
+        let run = send(
+            port,
+            &format!(
+                "POST /call HTTP/1.1\r\nX-SolidSketch: 1\r\nX-SolidSketch-Client: mcp · test\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        );
+        assert!(run.contains("\"ran\":\"tool.move\"") && run.contains("\"client\":\"mcp · test\""), "{run}");
         let unknown = post(port, &token, "/call", "{\"method\":\"tool.nope\"}");
         assert!(unknown.starts_with("HTTP/1.1 404") && unknown.contains("tool.nope"), "{unknown}");
         // Refused before the UI.
@@ -494,12 +521,12 @@ mod tests {
         assert_eq!((port, token.as_str()), (control.port, control.token()));
         let ui = std::thread::spawn(move || {
             let mut answered = 0;
-            while answered < 2 {
+            while answered < 3 {
                 for p in control.take() {
                     let outcome = match p.call.method.as_str() {
                         "app.screenshot" => Ok(Answer::Png(vec![137, 80, 78, 71])),
                         "model.geometry" => Err(Error::BadParams("model.geometry: unknown field `x`".into())),
-                        _ => Ok(Answer::Json(p.call.params.clone())),
+                        _ => Ok(Answer::Json(json!({ "params": p.call.params, "client": p.call.client }))),
                     };
                     p.answer(outcome);
                     answered += 1;
@@ -513,6 +540,9 @@ mod tests {
         assert!(
             matches!(call(port, &token, &Call::new("model.geometry", json!({ "x": 1 }))), Err(Error::BadParams(m)) if m.contains("`x`"))
         );
+        // The client named, its name on one line.
+        let named = Call::new("app.state", json!({ "a": 1 })).from_client(Some("mcp\r\nX-Evil: 1".into()));
+        assert_eq!(call(port, &token, &named), Ok(Answer::Json(json!({ "params": { "a": 1 }, "client": "mcpX-Evil: 1" }))));
         assert!(matches!(call(port, "00", &Call::new("app.state", Value::Null)), Err(Error::Failed(m)) if m.contains("token")));
         let control = ui.join().unwrap();
         drop(control);

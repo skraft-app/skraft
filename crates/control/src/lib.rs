@@ -13,6 +13,7 @@
 //! [`Editor`]: solidsketch_tools::Editor
 
 pub mod editor;
+pub mod instances;
 pub mod json;
 pub mod params;
 pub mod record;
@@ -22,16 +23,24 @@ pub mod server;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-/// A request: a method and its parameters (`null` or absent: none, as `{}`).
+/// A request: a method and its parameters (`null` or absent: none, as `{}`), and the client
+/// that sent it if it said (the `X-SolidSketch-Client` header: an agent, a script — the
+/// journal notes what it caused as its).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Call {
     pub method: String,
     pub params: Value,
+    pub client: Option<String>,
 }
 
 impl Call {
     pub fn new(method: impl Into<String>, params: Value) -> Self {
-        Call { method: method.into(), params }
+        Call { method: method.into(), params, client: None }
+    }
+
+    pub fn from_client(mut self, client: Option<String>) -> Self {
+        self.client = client;
+        self
     }
 
     /// The parameters, read as `T` (`null` as `{}`): a field unknown or of the wrong type is an
@@ -107,7 +116,18 @@ pub fn methods() -> Vec<Method> {
     vec![
         m("app.ping", "Is the app there?", true, schema::<NoParams>),
         m("app.methods", "The methods, with their parameters' JSON Schemas.", true, schema::<NoParams>),
-        m("app.state", "The active document: tool, context, selection, status, revision, busy, modified, path.", true, schema::<NoParams>),
+        m(
+            "app.state",
+            "The active document: tool, context, selection, status, revision, busy, modified, path; and which app answers (`instance`: its build, worktree, pid, who launched it).",
+            true,
+            schema::<NoParams>,
+        ),
+        m(
+            "app.instances",
+            "The SolidSketch apps running on this computer: pid, port of their control channel (if on), build (worktree, branch, commit), who launched them (a Claude Code session).",
+            true,
+            schema::<NoParams>,
+        ),
         m(
             "app.wait",
             "Returns once the active document's revision differs from `revision` and/or the editor is idle (no kernel job, no load): never guess a delay.",
