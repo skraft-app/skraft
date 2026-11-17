@@ -45,6 +45,12 @@ icon!(AXES, "axes");
 icon!(SILHOUETTES, "silhouettes");
 icon!(XRAY, "xray");
 icon!(VIEWS, "views");
+icon!(VIEW_TOP, "view_top");
+icon!(VIEW_FRONT, "view_front");
+icon!(VIEW_RIGHT, "view_right");
+icon!(VIEW_BACK, "view_back");
+icon!(VIEW_LEFT, "view_left");
+icon!(VIEW_ISO, "view_iso");
 icon!(SEARCH, "search");
 icon!(SETTINGS, "settings");
 icon!(REMOTE, "remote");
@@ -116,7 +122,12 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "view.materials" => MATERIALS,
         "view.section" => SECTION,
         "view.zoom_extents" => EXTENTS,
-        "view.top" | "view.front" | "view.right" | "view.back" | "view.left" | "view.iso" => VIEWS,
+        "view.top" => VIEW_TOP,
+        "view.front" => VIEW_FRONT,
+        "view.right" => VIEW_RIGHT,
+        "view.back" => VIEW_BACK,
+        "view.left" => VIEW_LEFT,
+        "view.iso" => VIEW_ISO,
         _ => return None,
     })
 }

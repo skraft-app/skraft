@@ -7,7 +7,7 @@ use solidsketch_i18n::t;
 
 use crate::dock::Dock;
 use crate::icons;
-use crate::panels::{self, Action, CommandView};
+use crate::panels::{Action, CommandView};
 
 /// The standard views' button: not a command of the registry, it opens their menu.
 pub const VIEWS: &str = "view.views";
@@ -230,8 +230,19 @@ fn views_button(ui: &mut egui::Ui, side: Dock, views: &[CommandView], actions: &
     let response = icon_button(ui, VIEWS, icons::VIEWS, open, true);
     let response = if open { response } else { response.on_hover_text(t!("view_bar.views")) };
     Popup::menu(&response).id(egui::Id::unique("view_bar_views_menu")).align(inward(side)).style(crate::style::menu).show(|ui| {
+        // Each view with its icon, as the ▾ menu's rows.
+        let ink = ui.visuals().text_color();
         for v in views.iter().filter(|v| STANDARD_VIEWS.contains(&v.id)) {
-            if panels::command_item(ui, v, false) {
+            let mut b = match icons::command(v.id) {
+                Some(icon) => egui::Button::new((egui::Image::new(icon).fit_to_exact_size(vec2(16.0, 16.0)).tint(ink), v.label.as_str())),
+                None => egui::Button::new(v.label.as_str()),
+            };
+            if let Some(s) = &v.shortcut {
+                b = b.shortcut_text(s.as_str());
+            }
+            let r = ui.add_enabled(v.enabled, b);
+            crate::handles::publish_enabled(|| format!("menu:{}", v.id), r.rect, v.enabled);
+            if r.clicked() {
                 actions.push(Action::Command(v.id));
             }
         }
