@@ -24,7 +24,7 @@ use super::handle::{
 };
 use super::pick::Picker;
 use super::rotate::rotation_about;
-use super::{Command, Cx, INK, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
 
@@ -360,7 +360,7 @@ impl Tool for CopyGridTool {
         let draw = &mut cx.drawer(&mut p.drawing);
         draw_axes(draw, &t, |_| false, None);
         let Some((end, k)) = self.end else {
-            draw_box(draw, t.frame, t.lo, t.hi, INK);
+            draw_box(draw, &t, t.frame);
             return p;
         };
         let h = handle_axes(k);
@@ -375,14 +375,14 @@ impl Tool for CopyGridTool {
         for i in 0..4 {
             draw_measure(cx, draw, corners[i], corners[(i + 1) % 4], color);
         }
-        // The boxes at the grid's corners (the source's in ink), their centres and measure points.
+        // The boxes at the grid's corners, their centres and measure points.
         let border = [r[0], r[1]].map(|r| if matches!(r, Repeat::Divide(_)) { count(r) } else { 1 });
         let mut cells: Vec<(u32, u32)> = vec![(0, 0), (border[0], 0), (0, border[1]), (border[0], border[1])];
         cells.dedup();
         let dv = d.dpe - d.dps;
         for (x, y) in cells {
             let c = cell(&t, &h, &d, r, mirror, x, y);
-            draw_box(draw, c * t.frame, t.lo, t.hi, if (x, y) == (0, 0) { INK } else { color });
+            draw_box(draw, &t, c * t.frame);
             draw.mark(c.transform_point3(world(d.mps)));
             let dp = d.dps + DVec3::new(dv.x * x.min(1) as f64, dv.y * y.min(1) as f64, 0.0);
             draw.grip(world(dp), 4.0, Some(WHITE), Some(color), PointShape::Round);
@@ -507,6 +507,7 @@ mod tests {
             frame: DAffine3::IDENTITY,
             lo: DVec3::ZERO,
             hi: DVec3::new(100.0, 40.0, 20.0),
+            filled: false,
         }
     }
 

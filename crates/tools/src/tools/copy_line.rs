@@ -309,14 +309,14 @@ impl Tool for CopyLineTool {
         let draw = &mut cx.drawer(&mut p.drawing);
         let Some((end, k)) = self.end else {
             draw_axes(draw, &t, |_| false, None);
-            draw_boxes(draw, &t, &[], [0.0; 4]);
+            draw_boxes(draw, &t, &[]);
             return p;
         };
         let d = line_def(&t, end, self.repeat, measure(cx, Measure::Outside));
         let copies = placements(&t, &d, self.repeat, cx.toggle(MIRROR));
         let color = axis_color(k);
         draw_axes(draw, &t, |j| j == k, None);
-        draw_boxes(draw, &t, &copies, color);
+        draw_boxes(draw, &t, &copies);
         // The measure, dashed, seen through what lies between, its length at its middle.
         let (a, b) = (t.world(d.dps), t.world(d.dpe));
         draw_measure(cx, draw, a, b, color);
@@ -437,6 +437,7 @@ mod tests {
             frame: DAffine3::IDENTITY,
             lo: DVec3::ZERO,
             hi: DVec3::new(100.0, 40.0, 20.0),
+            filled: false,
         }
     }
 
