@@ -28,7 +28,4 @@ allow = [
   "Unicode-3.0",
   # Weak copyleft, per file (dirs → option-ext), unmodified.
   "MPL-2.0",
-  # Fonts embedded by egui (epaint_default_fonts): they keep their own license.
-  "OFL-1.1",
-  "Ubuntu-font-1.0",
 ]

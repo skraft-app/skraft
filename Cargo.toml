@@ -49,7 +49,7 @@ log = "0.4"
 egui = "0.37"
 # `clipboard`: the system clipboard on the desktop (arboard), for text fields and the
 # token of copy and paste (docs/tools/copy-paste.md).
-eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "persistence", "clipboard"] }
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "persistence", "clipboard"] }
 egui-wgpu = "0.37"
 egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 rfd = "0.17"

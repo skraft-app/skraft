@@ -16,7 +16,7 @@ const PLEX_SANS: &[u8] = include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSa
 const PLEX_MONO: &[u8] = include_bytes!("../assets/fonts/ibm-plex-mono/IBMPlexMono-Regular.ttf");
 /// The arrows and the technical symbols (U+2190–21FF, U+2300–23FF) of DejaVu Sans
 /// (Bitstream Vera licence: `assets/fonts/dejavu-sans/LICENSE`): the macOS key symbols
-/// (⌘ ⌥ ⌃ ⌫ ⌦ ⏎ ⇥) that Plex and egui's fonts lack.
+/// (⌘ ⌥ ⌃ ⌫ ⌦ ⏎ ⇥) that Plex lacks.
 const KEY_SYMBOLS: &[u8] = include_bytes!("../assets/fonts/dejavu-sans/DejaVuSans-KeySymbols.ttf");
 /// The family headings are written in.
 const SEMIBOLD: &str = "plex-sans-semibold";
@@ -234,10 +234,10 @@ pub fn palette_card(ui: &mut egui::Ui, palette: Palette, mode: Mode, name: &str,
 }
 
 /// Plex Sans regular for the text, semibold for headings, Plex Mono for monospace, each
-/// followed by the key symbols, then egui's own fonts (symbols, emoji).
+/// followed by the key symbols; monospace then by Plex Sans, for the Greek Plex Mono lacks.
+/// None of egui's fonts (eframe's `default_fonts` off): they drew no text of the app.
 fn fonts() -> FontDefinitions {
-    let mut fonts = FontDefinitions::default();
-    let fallbacks = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    let mut fonts = FontDefinitions::empty();
     for (name, weight) in [("plex-sans", 400.0), (SEMIBOLD, 600.0)] {
         let mut data = FontData::from_static(PLEX_SANS);
         data.tweak.coords = egui::epaint::text::VariationCoords::new([(b"wght", weight)]);
@@ -245,11 +245,10 @@ fn fonts() -> FontDefinitions {
     }
     fonts.font_data.insert("plex-mono".to_owned(), Arc::new(FontData::from_static(PLEX_MONO)));
     fonts.font_data.insert("key-symbols".to_owned(), Arc::new(FontData::from_static(KEY_SYMBOLS)));
-    let family = |first: &str, rest: &[String]| [first, "key-symbols"].into_iter().map(str::to_owned).chain(rest.iter().cloned()).collect();
-    let mono = fonts.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
-    fonts.families.insert(FontFamily::Proportional, family("plex-sans", &fallbacks));
-    fonts.families.insert(FontFamily::Name(SEMIBOLD.into()), family(SEMIBOLD, &fallbacks));
-    fonts.families.insert(FontFamily::Monospace, family("plex-mono", &mono));
+    let family = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect();
+    fonts.families.insert(FontFamily::Proportional, family(&["plex-sans", "key-symbols"]));
+    fonts.families.insert(FontFamily::Name(SEMIBOLD.into()), family(&[SEMIBOLD, "key-symbols"]));
+    fonts.families.insert(FontFamily::Monospace, family(&["plex-mono", "key-symbols", "plex-sans"]));
     fonts
 }
 
@@ -332,10 +331,9 @@ mod tests {
     #[test]
     fn headings_are_semibold_plex() {
         let fonts = fonts();
-        assert_eq!(fonts.families[&FontFamily::Proportional][0], "plex-sans");
-        assert_eq!(fonts.families[&FontFamily::Monospace][0], "plex-mono");
-        assert!(fonts.families[&FontFamily::Monospace].len() > 1, "keeps egui's fallbacks");
-        assert!(fonts.families[&FontFamily::Name(SEMIBOLD.into())].len() > 1, "keeps egui's fallbacks");
+        assert_eq!(fonts.families[&FontFamily::Proportional], ["plex-sans", "key-symbols"]);
+        assert_eq!(fonts.families[&FontFamily::Name(SEMIBOLD.into())], [SEMIBOLD, "key-symbols"]);
+        assert_eq!(fonts.families[&FontFamily::Monospace], ["plex-mono", "key-symbols", "plex-sans"]);
         let mut style = egui::Style::default();
         apply(&mut style, &UiTokens::light());
         assert_eq!(style.text_styles[&TextStyle::Heading].family, FontFamily::Name(SEMIBOLD.into()));
@@ -351,6 +349,27 @@ mod tests {
             let font = egui::FontId::new(13.0, family.clone());
             let missing: String = ctx.fonts_mut(|f| "⌘⌥⇧⌃⌫⌦⏎↩⇥←↑→↓".chars().filter(|c| !f.has_glyph(&font, *c)).collect());
             assert!(missing.is_empty(), "{family:?} lacks {missing}");
+        }
+    }
+
+    /// Every character of the catalog and of the symbols the code writes has a glyph in every
+    /// family: without egui's fonts, nothing else would draw it.
+    #[test]
+    fn every_family_draws_the_app_texts() {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let catalog = include_str!("../../../locales/fr.yml");
+        let code = "«»°µ·×—–•…−‹›′″’€";
+        let greek = "αβγδεθλμπστφω";
+        let families = [FontFamily::Proportional, FontFamily::Monospace, FontFamily::Name(SEMIBOLD.into())];
+        for family in families {
+            let font = egui::FontId::new(13.0, family.clone());
+            let text = catalog.chars().chain(code.chars()).chain(greek.chars()).filter(|c| !c.is_control());
+            let mut missing: Vec<char> = ctx.fonts_mut(|f| text.filter(|c| !f.has_glyph(&font, *c)).collect());
+            missing.sort_unstable();
+            missing.dedup();
+            assert!(missing.is_empty(), "{family:?} lacks {missing:?}");
         }
     }
 }

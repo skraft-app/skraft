@@ -15,8 +15,6 @@ accepted = [
   "0BSD",
   "Unicode-3.0",
   "MPL-2.0",
-  "OFL-1.1",
-  "Ubuntu-font-1.0",
 ]
 # Only what the shipped app links (apps/skraft), for the platforms built.
 targets = [
