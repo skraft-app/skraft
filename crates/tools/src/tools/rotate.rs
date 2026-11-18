@@ -153,11 +153,6 @@ impl RotateTool {
         vec![Command::Apply(op), Command::Select(Vec::new())]
     }
 
-    /// Is the tool picking what it turns (§6 septendecies)?
-    fn picking(&self) -> bool {
-        matches!(self.state, State::Center) && !self.taken
-    }
-
     fn input_state(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         self.picker.shift_released(cx);
         let picking = matches!(self.state, State::Center) && !self.picker.taken(cx);
@@ -363,6 +358,11 @@ impl Tool for RotateTool {
 
     fn picks_first(&self) -> bool {
         true
+    }
+
+    /// Picking what it turns (§6 septendecies).
+    fn picking(&self) -> bool {
+        matches!(self.state, State::Center) && !self.taken
     }
 
     fn picks_parts(&self) -> bool {

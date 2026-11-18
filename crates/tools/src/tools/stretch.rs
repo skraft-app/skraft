@@ -1570,6 +1570,11 @@ impl Tool for StretchTool {
         true
     }
 
+    /// No target: a click picks a part (or the selection is being gathered).
+    fn picking(&self) -> bool {
+        matches!(self.state, State::Grips) && !self.aimed
+    }
+
     fn picks_parts(&self) -> bool {
         true
     }

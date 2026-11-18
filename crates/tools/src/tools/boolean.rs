@@ -115,6 +115,11 @@ impl Tool for BooleanTool {
         self.target.is_some()
     }
 
+    /// Both clicks pick a part: the target, then the tool.
+    fn picking(&self) -> bool {
+        true
+    }
+
     fn reset(&mut self) {
         self.target = None;
     }

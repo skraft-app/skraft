@@ -1032,6 +1032,11 @@ pub trait Tool {
     fn picks_first(&self) -> bool {
         false
     }
+    /// Is the tool at its pick step now (what it acts on not taken yet, or a click taking
+    /// another, a part clicked by a boolean)? The cursor is then the arrow, as Select's.
+    fn picking(&self) -> bool {
+        false
+    }
     /// Has its last step back dropped what it acts on (the copy tools' target)? Esc then lets
     /// the selection go too, the tool picking again (§6 septendecies).
     fn dropped(&self) -> bool {

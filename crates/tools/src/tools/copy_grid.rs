@@ -464,6 +464,11 @@ impl Tool for CopyGridTool {
         true
     }
 
+    /// Nothing aimed at: a click picks what to copy (also once copies are made).
+    fn picking(&self) -> bool {
+        !self.aimed
+    }
+
     fn picks_parts(&self) -> bool {
         true
     }

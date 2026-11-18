@@ -162,7 +162,9 @@ impl Viewport {
         self.input(ui, &response, rect, editor, nav);
 
         let cursor = match editor.tool_kind() {
-            _ if editor.busy() => egui::CursorIcon::Progress,     // the kernel is at work
+            _ if editor.busy() => egui::CursorIcon::Progress, // the kernel is at work
+            // Picking what the tool acts on: Select's arrow, the copy toggle's « + » included.
+            _ if editor.tool_picking() => egui::CursorIcon::Default,
             _ if editor.tool_copying() => egui::CursorIcon::Copy, // SketchUp's « + »
             // Primitives keep the arrow: the crosshair hides the snap point.
             ToolKind::Select | ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn => egui::CursorIcon::Default,
