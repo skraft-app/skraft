@@ -71,7 +71,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   Rotate, Erase, Paint painting occurrences, the copy tools, Distribute, the Stretch), no part
   open, and drawn in the context card beside the tool's ([Context
   card](../ui/interface.md#context-card)), its icons two squares in a dashed frame (the
-  context's children) or one square (a part); changing it lets the selection go; `Cx::parts`.
+  context's children) or one square tinted beside a faint one on the diagonal (a part among others); changing it lets the selection go; `Cx::parts`.
 - **Parts only**: the leaf part. Going up is OCL's tree drop-up (below).
 - **And the guides at any depth**: under « Parts », a guide near the cursor is taken before
   the solid under it, as under « Context », but at any depth under the active context — the
