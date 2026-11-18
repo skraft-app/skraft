@@ -92,7 +92,8 @@ pub enum Operation {
     /// Copies of occurrences of `context` (or its guides), one set per placement: each copy at
     /// `placement · T`, `T` the source's as it was; the sources themselves moved by `moved`
     /// (identity but for Distribute, which moves them to the first slot). Copy along a line or
-    /// a grid, Distribute (docs/tools/copy-array.md). Rigid placements only.
+    /// a grid, Distribute (docs/tools/copy-array.md). Rigid placements only (isometries:
+    /// a mirror is one, see `is_rigid`).
     Copies {
         context: Id,
         entities: Vec<Id>,
