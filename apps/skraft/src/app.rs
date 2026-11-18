@@ -1830,25 +1830,29 @@ impl SkraftApp {
         event
     }
 
+    /// The status bar: the tool's message, then the measurements box (VCB) at the right end.
+    /// The box is laid out first: a long message is cut short (…) before it, whole in its tip.
     fn status_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let Some(d) = self.docs.active_mut() else { return };
             let status = d.editor.status();
             self.driving.message(&status);
-            ui.label(status);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (label, value) = d.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
-                let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
-                let r = ui.add_enabled(d.editor.takes_typing(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
-                crate::handles::publish_enabled(|| "vcb".into(), r.rect, d.editor.takes_typing());
-                if r.changed() {
-                    d.vcb = text.clone();
-                }
-                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !d.vcb.is_empty() {
-                    let t = std::mem::take(&mut d.vcb);
-                    d.editor.input(ToolInput::Vcb(t));
-                }
-                ui.label(label);
+            // The box first (right to left): its field, then its label at its left.
+            let (label, value) = d.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
+            let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
+            let r = ui.add_enabled(d.editor.takes_typing(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
+            crate::handles::publish_enabled(|| "vcb".into(), r.rect, d.editor.takes_typing());
+            if r.changed() {
+                d.vcb = text.clone();
+            }
+            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !d.vcb.is_empty() {
+                let t = std::mem::take(&mut d.vcb);
+                d.editor.input(ToolInput::Vcb(t));
+            }
+            ui.label(label);
+            ui.add_space(ui.spacing().item_spacing.x * 2.0);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(status).truncate());
             });
         });
     }
