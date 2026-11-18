@@ -41,12 +41,29 @@ triangles, instances, lines, boxes, bytes uploaded) with the meshes' GPU memory.
 
 A token of each palette and mode (`UiTokens::view`, with `view_text` for the shown tab's text),
 not a setting of the document (unlike SketchUp, whose style is saved in the model), and not
-changeable. It stays light in the dark mode, only dimmed: the faces, the edges, the guides, the
-tools' inks (`GUIDE_INK`) and the axes are colours drawn for a light ground; a test holds their
-contrast with it (the y axis's green and the picked orange are deep ones, the markers' outline
-dark in both modes: a bright green or orange had the dimmed view's luminance and faded into it).
+changeable. Light in the light mode; in the dark one a dark grey, a little lighter than the
+panels (the translucent cards over it, [Application interface](../ui/interface.md#context-card),
+stay apart from it).
 
-**Why:** a truly dark view would first need those inks as tokens of the mode.
+What is drawn on the view takes the mode's **inks** (`Theme::inks`, `Inks::LIGHT` /
+`Inks::dark()`): the tools' preview lines, the axes' red, green and blue, a line along no axis,
+what a tool picked — deep in the light mode (the y axis's green and the picked orange deep ones:
+a bright green or orange had a light view's luminance and faded into it), light in the dark
+mode. The tools name them by the light mode's constants (`GUIDE_INK`, `AXIS_X`…, the `tools`
+crate's `INK`, `RED`…); the app turns each into the mode's where it resolves a drawing's
+colours (`Theme::ink`: a colour of one of those hues, of any opacity, becomes the mode's, its
+opacity kept; the viewport's lines, grips and crosses). The guides, the context box, the grid
+(`Theme::grid`, to `render::Style::grid`, mixed over the view a little, its tens more) and the
+selection's and hover's edges have a dark mode's value of their own. The lengths keep their
+light inks: they are written on a white label. The model keeps its colours in both modes — its
+faces, and its edges black, read against the faces (on the dark view the faces show the shape,
+the silhouettes against it no longer). A test holds the inks' contrast with the view of each
+palette and mode, the edges' with the faces.
+
+**Why:** with the light view kept in the dark mode, the translucent cards and the dark panels
+sat on a bright ground. The tools' inks map by hue rather than each tool naming a token: their
+colours go as plain RGBA through every drawing API (lengths, grips, previews) — one mapping
+where they are drawn covers them all.
 
 ### Interface tokens and palettes
 

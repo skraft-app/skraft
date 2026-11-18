@@ -2637,15 +2637,17 @@ impl SkraftApp {
                         ui.spacing_mut().item_spacing.x = margin;
                         let mut drawn = widths;
                         if has_context {
-                            let shown = crate::style::hover_card(ui, panels::option_card(ui.style()), options_id.with("context_hovered"), |ui| {
-                                panels::context_options(ui, &doc.editor, actions)
-                            });
+                            let shown =
+                                crate::style::hover_card(ui, panels::option_card(ui.style()), options_id.with("context_hovered"), |ui| {
+                                    panels::context_options(ui, &doc.editor, actions)
+                                });
                             drawn[0] = shown.response.rect.width();
                         }
                         if has_tool {
-                            let shown = crate::style::hover_card(ui, panels::option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
-                                panels::tool_options(ui, &doc.editor, actions)
-                            });
+                            let shown =
+                                crate::style::hover_card(ui, panels::option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
+                                    panels::tool_options(ui, &doc.editor, actions)
+                                });
                             drawn[1] = shown.response.rect.width();
                         }
                         if drawn != widths {
