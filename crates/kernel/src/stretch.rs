@@ -24,9 +24,9 @@
 
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
+use skraft_i18n::t;
 use solidcore_record::brep::blend::{BlendDefinition, BlendDefinitionRecord, NurbsCurveRecord, NurbsSurfaceRecord, SupportRecord};
 use solidcore_record::brep::{Brep as Record, Curve, Curve2, Edge, Face, Frame, Loop, Surface};
-use solidsketch_i18n::t;
 
 use crate::Solid;
 

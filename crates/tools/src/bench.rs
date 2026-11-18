@@ -1,10 +1,10 @@
 //! Timings of an editor with many occurrences (ignored; run with
-//! `cargo test -p solidsketch-tools --release bench -- --ignored --nocapture`).
+//! `cargo test -p skraft-tools --release bench -- --ignored --nocapture`).
 
 use std::time::Instant;
 
 use glam::{DVec2, DVec3};
-use solidsketch_model::Document;
+use skraft_model::Document;
 
 use crate::*;
 
@@ -19,7 +19,7 @@ fn time<T>(what: &str, f: impl FnOnce() -> T) -> T {
 #[ignore]
 fn bench_array() {
     let n: usize = std::env::var("BENCH_N").ok().and_then(|s| s.parse().ok()).unwrap_or(200);
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.set_parallel(true);
     let span = 100.0 * n as f64;
@@ -106,9 +106,9 @@ fn bench_array() {
 #[ignore]
 fn bench_stretch_one_among_many() {
     use glam::DAffine3;
-    use solidsketch_model::{Operation, Primitive};
+    use skraft_model::{Operation, Primitive};
     let n: u32 = std::env::var("BENCH_N").ok().and_then(|s| s.parse().ok()).unwrap_or(100);
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.set_parallel(true);
     let root = e.document().root();
@@ -197,8 +197,8 @@ fn bench_stretch_one_among_many() {
 #[ignore]
 fn bench_mixed_sizes() {
     use glam::DAffine3;
-    use solidsketch_model::{Operation, Primitive};
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    use skraft_model::{Operation, Primitive};
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     let root = e.document().root();
     let cube = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(20.0) };
@@ -244,7 +244,7 @@ fn bench_meshes_coming_in() {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use solidsketch_model::kernel::{Job, JobId, JobResult, KernelService, Solid};
+    use skraft_model::kernel::{Job, JobId, JobResult, KernelService, Solid};
 
     /// Holds the jobs; hands out `n` results when asked.
     #[derive(Clone, Default)]
@@ -256,7 +256,7 @@ fn bench_meshes_coming_in() {
         fn finish(&self, n: usize) -> usize {
             let mut jobs = self.jobs.borrow_mut();
             let take = n.min(jobs.len());
-            let done: Vec<_> = jobs.drain(..take).map(|(id, job)| (id, solidsketch_kernel::run(&job))).collect();
+            let done: Vec<_> = jobs.drain(..take).map(|(id, job)| (id, skraft_kernel::run(&job))).collect();
             self.ready.borrow_mut().extend(done);
             take
         }
@@ -291,7 +291,7 @@ fn bench_meshes_coming_in() {
     }
     let text = format!(
         r#"{{"format":"{}","version":1,"definitions":[{}],"root":{{"instances":[{}]}}}}"#,
-        solidsketch_model::SKETCHUP_FORMAT,
+        skraft_model::SKETCHUP_FORMAT,
         definitions.join(","),
         instances.join(",")
     );
@@ -325,8 +325,8 @@ fn bench_meshes_coming_in() {
 #[ignore]
 fn bench_small_edit() {
     use glam::DAffine3;
-    use solidsketch_model::kernel::Solid;
-    use solidsketch_model::{Operation, Primitive};
+    use skraft_model::kernel::Solid;
+    use skraft_model::{Operation, Primitive};
     let distinct = std::env::var("BENCH_DISTINCT").is_ok();
     let mut e = if distinct {
         let faces = r#"[{"normal":[0,0,-1],"loops":[[0,2,3,1]]},{"normal":[0,0,1],"loops":[[4,5,7,6]]},{"normal":[0,-1,0],"loops":[[0,1,5,4]]},{"normal":[0,1,0],"loops":[[2,6,7,3]]},{"normal":[-1,0,0],"loops":[[0,4,6,2]]},{"normal":[1,0,0],"loops":[[1,3,7,5]]}]"#;
@@ -351,14 +351,14 @@ fn bench_small_edit() {
         }
         let text = format!(
             r#"{{"format":"{}","version":1,"definitions":[{}],"root":{{"instances":[{}]}}}}"#,
-            solidsketch_model::SKETCHUP_FORMAT,
+            skraft_model::SKETCHUP_FORMAT,
             definitions.join(","),
             instances.join(",")
         );
         let (doc, _) = Document::from_sketchup(&text, &Solid::from_polyhedron).unwrap();
-        Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()))
+        Editor::new(doc, Box::new(skraft_kernel::Inline::default()))
     } else {
-        let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+        let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
         let root = e.document().root();
         let cube = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(20.0) };
         let a = e
@@ -414,8 +414,8 @@ fn bench_step_model() {
     use std::time::Duration;
 
     use glam::DAffine3;
-    use solidsketch_model::Operation;
-    use solidsketch_model::kernel::{Job, JobId, JobResult, KernelService, Output, Task};
+    use skraft_model::Operation;
+    use skraft_model::kernel::{Job, JobId, JobResult, KernelService, Output, Task};
 
     /// Holds the jobs until the bench runs them.
     #[derive(Clone, Default)]
@@ -439,7 +439,7 @@ fn bench_step_model() {
     let bytes = time("read the file", || std::fs::read(&path).unwrap());
     eprintln!("{:.1} MB", bytes.len() as f64 / 1e6);
     let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] };
-    let step = time("kernel: STEP read (B-reps)", || match solidsketch_kernel::run(&job).unwrap().pop() {
+    let step = time("kernel: STEP read (B-reps)", || match skraft_kernel::run(&job).unwrap().pop() {
         Some(Output::Step(s)) => *s,
         _ => panic!("no STEP output"),
     });
@@ -461,7 +461,7 @@ fn bench_step_model() {
         .iter()
         .map(|(_, job)| {
             let t = Instant::now();
-            std::hint::black_box(solidsketch_kernel::run(job).ok());
+            std::hint::black_box(skraft_kernel::run(job).ok());
             t.elapsed()
         })
         .collect();
@@ -474,8 +474,7 @@ fn bench_step_model() {
         each.last().map_or(0.0, |d| d.as_secs_f64() * 1e3),
         each.get(each.len() / 2).map_or(0.0, |d| d.as_secs_f64() * 1e3)
     );
-    let results =
-        time("meshing on every core", || solidsketch_kernel::parallel_map(&jobs, |(id, job)| (*id, solidsketch_kernel::run(job))));
+    let results = time("meshing on every core", || skraft_kernel::parallel_map(&jobs, |(id, job)| (*id, skraft_kernel::run(job))));
     kernel.ready.borrow_mut().extend(results);
     time("meshes taken in (poll)", || e.poll());
     let (mut unique, mut drawn) = (0usize, 0usize);
@@ -526,7 +525,7 @@ fn bench_step_model() {
 }
 
 /// A real model loaded as the desktop app loads it (`BENCH_STEP`: a STEP file's path): imported
-/// through the editor, the kernel a [`solidsketch_kernel::Pool`] on every core — when the file
+/// through the editor, the kernel a [`skraft_kernel::Pool`] on every core — when the file
 /// is read, when every preview is drawn, when the last final mesh is (§7 sexies). Then the
 /// same load cancelled once the previews are drawn: how long until an operation gets through.
 #[test]
@@ -535,7 +534,7 @@ fn bench_step_loading() {
     use std::time::Duration;
 
     use glam::DAffine3;
-    use solidsketch_model::{Operation, Primitive};
+    use skraft_model::{Operation, Primitive};
 
     let Ok(path) = std::env::var("BENCH_STEP") else {
         eprintln!("BENCH_STEP unset: nothing to do");
@@ -564,7 +563,7 @@ fn bench_step_loading() {
         (read.unwrap_or_default(), previewed.unwrap_or_default(), t.elapsed())
     };
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Pool::new(None)));
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Pool::new(None)));
     let (read, previewed, done) = load(&mut e, false);
     let l = e.document().placed_parts().len();
     eprintln!(
@@ -576,7 +575,7 @@ fn bench_step_loading() {
 
     // Cancelled once the previews are drawn: an operation right after it gets the kernel when
     // the jobs running stop.
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Pool::new(None)));
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Pool::new(None)));
     let (_, previewed, cancelled) = load(&mut e, true);
     let root = e.document().root();
     let t = Instant::now();

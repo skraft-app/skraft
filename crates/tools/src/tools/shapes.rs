@@ -53,9 +53,9 @@
 //! built in its own frame and placed.
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::kernel::profile::{self, Corner};
-use solidsketch_model::{EntityPath, Id, Primitive};
+use skraft_i18n::t;
+use skraft_model::kernel::profile::{self, Corner};
+use skraft_model::{EntityPath, Id, Primitive};
 
 use super::face::{self, Face};
 use super::{

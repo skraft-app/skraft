@@ -74,7 +74,7 @@ fn calls_in(path: &Path, text: &str) -> Vec<Call> {
             "tp" => true,
             _ => continue,
         };
-        if head > 0 && b[head - 1] == b':' && !code[..head].ends_with("solidsketch_i18n::") {
+        if head > 0 && b[head - 1] == b':' && !code[..head].ends_with("skraft_i18n::") {
             continue; // another crate's `t!`
         }
         let line = code[..bang].lines().count();

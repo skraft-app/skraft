@@ -19,8 +19,8 @@
 
 use super::DragClicks;
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::Operation;
+use skraft_i18n::t;
+use skraft_model::Operation;
 
 use super::handle::{
     Measure, Memo, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, measure, nearest_axis_on_screen,
@@ -498,7 +498,7 @@ impl Tool for DistributeTool {
 mod tests {
     use super::*;
     use crate::tools::Moved;
-    use solidsketch_model::Id;
+    use skraft_model::Id;
 
     /// A shelf 18 thick along X, its centre at x = 9.
     fn target() -> Target {

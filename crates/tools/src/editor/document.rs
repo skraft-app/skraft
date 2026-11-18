@@ -2,12 +2,12 @@
 //! abandoned; undo, redo, opening a file; the scene kept in step (docs/ARCHITECTURE.md §7 ter).
 
 use glam::{DAffine3, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::kernel::{Error as KernelError, Job, JobId, Output, Quality, Task};
+use skraft_i18n::t;
+use skraft_model::kernel::{Error as KernelError, Job, JobId, Output, Quality, Task};
 use web_time::Instant;
 
 use super::journal::{Event, JobKind, Step};
-use solidsketch_model::{Applied, Document, EntityPath, History, Operation, Outcome, Prepared, Primitive};
+use skraft_model::{Applied, Document, EntityPath, History, Operation, Outcome, Prepared, Primitive};
 
 use super::{Editor, NoticeKind};
 
@@ -272,7 +272,7 @@ impl Editor {
 
     /// Notes an operation's job back in the journal: its time, its error; a failure (an error,
     /// or bodies of a recipe skipped) with the job, to run again.
-    fn journal_job(&mut self, p: &Pending, result: &solidsketch_model::kernel::JobResult) {
+    fn journal_job(&mut self, p: &Pending, result: &skraft_model::kernel::JobResult) {
         let ms = p.at.elapsed().as_secs_f64() * 1000.0;
         let error = match result {
             Err(KernelError::Cancelled) => None,
@@ -335,7 +335,7 @@ impl Editor {
         let sphere = Primitive::Sphere { center: DVec3::ZERO, radius: 10.0 };
         self.kernel
             .submit(next, Job { inputs: Vec::new(), tasks: vec![Task::Primitive { primitive: sphere, placement: DAffine3::IDENTITY }] });
-        self.message = Some(solidsketch_i18n::ellipsis(t!("status.debug.crash_asked")));
+        self.message = Some(skraft_i18n::ellipsis(t!("status.debug.crash_asked")));
         // A kernel run inline has answered already.
         self.poll();
     }
@@ -345,14 +345,14 @@ impl Editor {
     /// one step to undo. The rest of the editor stays usable meanwhile.
     pub fn import_step(&mut self, name: String, bytes: Vec<u8>) {
         let id = self.job_id();
-        self.message = Some(solidsketch_i18n::ellipsis(t!("status.importing", file = name)));
+        self.message = Some(skraft_i18n::ellipsis(t!("status.importing", file = name)));
         // A load of its own (none under way: the app's window keeps another from starting).
         if self.load.is_none() {
             self.begin_load(super::LoadKind::Import { name: name.clone() });
         }
         if let Some(load) = &mut self.load {
             load.reading = Some(id);
-            load.view.reading = Some(solidsketch_model::kernel::Progress::Reading);
+            load.view.reading = Some(skraft_model::kernel::Progress::Reading);
         }
         self.importing.insert(id, name);
         self.kernel.submit(id, Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] });
@@ -366,7 +366,7 @@ impl Editor {
     }
 
     /// The kernel read the file `name`: its content inserted, or why not.
-    fn imported(&mut self, name: &str, result: solidsketch_model::kernel::JobResult) {
+    fn imported(&mut self, name: &str, result: skraft_model::kernel::JobResult) {
         // « Lecture de … » done: what came of it is a toast.
         self.message = None;
         if let Some(load) = &mut self.load {
@@ -388,7 +388,7 @@ impl Editor {
         };
         let (fragment, report) = Document::from_step(&step, name);
         if fragment.root_assembly().occurrences().is_empty() {
-            let detail = (report.excluded > 0).then(|| solidsketch_i18n::tp!("notice.import_excluded", report.excluded));
+            let detail = (report.excluded > 0).then(|| skraft_i18n::tp!("notice.import_excluded", report.excluded));
             self.notify(NoticeKind::Error, t!("notice.import_empty", file = name), detail);
             return;
         }
@@ -406,8 +406,8 @@ impl Editor {
         if !self.busy() {
             self.zoom_extents();
         }
-        let detail = (report.excluded > 0).then(|| solidsketch_i18n::tp!("notice.import_excluded", report.excluded));
-        self.notify(NoticeKind::Success, solidsketch_i18n::tp!("notice.imported", report.parts, file = name), detail);
+        let detail = (report.excluded > 0).then(|| skraft_i18n::tp!("notice.import_excluded", report.excluded));
+        self.notify(NoticeKind::Success, skraft_i18n::tp!("notice.imported", report.parts, file = name), detail);
     }
 
     /// Are meshes asked of the kernel still on their way (or meshes missing, not asked yet)?
@@ -553,7 +553,7 @@ impl Editor {
             None => ctx,
         };
         let guides_shown = doc.settings().display.guides;
-        let guide = |id: &solidsketch_model::Id| guides_shown && doc.component(guide_component).is_ok_and(|c| c.guide(*id).is_some());
+        let guide = |id: &skraft_model::Id| guides_shown && doc.component(guide_component).is_ok_and(|c| c.guide(*id).is_some());
         match open {
             // An open part: its machinings while shown, and its guides.
             Some((_, p, _)) => {

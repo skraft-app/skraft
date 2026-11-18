@@ -1,9 +1,9 @@
-# SolidSketch's texts in French: the reference catalog (docs/ARCHITECTURE.md §6 quater).
+# Skraft's texts in French: the reference catalog (docs/ARCHITECTURE.md §6 quater).
 #
 # A key is a path that follows where the text shows in the app. `%{name}` is a value the
 # code fills in; a key ending in `_plural` is the plural of the same key without it (for a
 # count, `%{count}`). Every other locale has exactly the same keys and placeholders: the
-# solidsketch-i18n tests check it, and that the code uses every key. `$t(key)` takes another
+# skraft-i18n tests check it, and that the code uses every key. `$t(key)` takes another
 # text in (see `common`). No text holds an ellipsis (…): the code adds it, the same for every
 # language.
 
@@ -91,7 +91,7 @@ menu:
     recent: "Fichier récent %{n}"
     # Closes the shown document's tab.
     close: "Fermer l'onglet"
-    # Off macOS (there it is the app menu's « Quitter SolidSketch »).
+    # Off macOS (there it is the app menu's « Quitter Skraft »).
     quit: "Quitter"
   edit:
     title: "Édition"
@@ -152,7 +152,7 @@ menu:
     title: "Outils"
   solids:
     title: "Solides"
-  # Only with `?debug` (web) or SOLIDSKETCH_DEBUG (desktop).
+  # Only with `?debug` (web) or SKRAFT_DEBUG (desktop).
   debug:
     title: "Débogage"
     crash_kernel: "Faire planter le noyau"
@@ -270,7 +270,7 @@ save_prompt:
 # Shown with no document open: at launch with nothing to open again, and when the last tab
 # closes.
 start:
-  title: "SolidSketch"
+  title: "Skraft"
   new: "Nouveau document"
   open: "Ouvrir un fichier"
   import: "Importer un fichier STEP"
@@ -605,7 +605,7 @@ panel:
     sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
     sign_negative: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire un brut"
 
-# The app's messages, in toasts at the bottom right (apps/solidsketch/src/toasts.rs): a title,
+# The app's messages, in toasts at the bottom right (apps/skraft/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).
 toast:
   saved: "%{file} enregistré"
@@ -639,7 +639,7 @@ notice:
   part_created: "Nouvelle pièce créée : %{name}"
   rename: "Renommer"
 
-# The dialog naming a part just made (§6 quattuordecies; apps/solidsketch/src/naming.rs).
+# The dialog naming a part just made (§6 quattuordecies; apps/skraft/src/naming.rs).
 naming:
   title: "Nom de la pièce"
   ok: "OK"
@@ -1155,9 +1155,9 @@ default_name:
 
 # The dialog of a crash (the app ends), or of the window that cannot open.
 crash:
-  title: "SolidSketch s'est arrêté"
-  message: "SolidSketch a rencontré une erreur et doit se fermer.\n\n%{error}"
-  message_logged: "SolidSketch a rencontré une erreur et doit se fermer.\n\n%{error}\n\nLe détail est dans %{path}"
+  title: "Skraft s'est arrêté"
+  message: "Skraft a rencontré une erreur et doit se fermer.\n\n%{error}"
+  message_logged: "Skraft a rencontré une erreur et doit se fermer.\n\n%{error}\n\nLe détail est dans %{path}"
 
 error:
   # A typed value that cannot be read (the measurements box, the entity info).
@@ -1206,7 +1206,7 @@ error:
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"
-    not_solidsketch: "pas un fichier SolidSketch (%{format})"
+    not_skraft: "pas un fichier Skraft (%{format})"
     too_new: "fichier en version %{version}, plus récente que celle de cette application (%{supported})"
     root_not_assembly: "la racine n'est pas un assemblage"
     bad_component_id: "identifiant de composant %{id} invalide"

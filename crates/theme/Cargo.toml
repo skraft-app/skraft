@@ -1,6 +1,6 @@
 [package]
-name = "solidsketch-theme"
-description = "SolidSketch: the colour and size tokens the viewport and the interface draw with, in a light and a dark theme (no UI toolkit)"
+name = "skraft-theme"
+description = "Skraft: the colour and size tokens the viewport and the interface draw with, in a light and a dark theme (no UI toolkit)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

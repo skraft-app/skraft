@@ -9,7 +9,7 @@
 //! That our results are right in spite of them is checked elsewhere (`engine.rs`'s tests,
 //! `part_model.rs`).
 //!
-//! `cargo test -p solidsketch-kernel --test solidcore_quirks`
+//! `cargo test -p skraft-kernel --test solidcore_quirks`
 
 use glam::{DAffine3, DQuat, DVec3};
 use solidcore::primitive::api_primitives as prim;

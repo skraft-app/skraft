@@ -7,8 +7,8 @@
 //! painted, at once when it is released (one step); Esc drops it.
 
 use super::DragClicks;
-use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, Id, Operation};
+use skraft_i18n::t;
+use skraft_model::{EntityPath, Id, Operation};
 
 use super::select::{marquee_hits, marquee_parts};
 use super::{Command, Cx, Marquee, OptionChoice, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption};

@@ -3,8 +3,8 @@
 use std::f64::consts::TAU;
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_kernel::SnapCurve;
-use solidsketch_model::EntityPath;
+use skraft_kernel::SnapCurve;
+use skraft_model::EntityPath;
 
 use super::curves::{PlacedArc, curve_ref, drawn, guide_arc, guide_arcs, kept_guides};
 use super::lines::Line;

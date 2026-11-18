@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::DAffine3;
-use solidsketch_i18n::t;
-use solidsketch_kernel::StepImport;
+use skraft_i18n::t;
+use skraft_kernel::StepImport;
 
 use crate::document::{Assembly, ComponentKind, Document, Id, Material, Occurrence};
 

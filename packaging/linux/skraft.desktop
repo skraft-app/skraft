@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Skraft
+Comment=3D CAD modelling with exact solids
+Exec=skraft %F
+Icon=skraft
+Categories=Graphics;3DGraphics;Engineering;
+MimeType=application/x-skraft;
+Terminal=false

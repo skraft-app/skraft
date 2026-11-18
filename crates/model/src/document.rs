@@ -10,10 +10,10 @@ use std::sync::{Arc, OnceLock};
 
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
-use solidsketch_i18n::t;
+use skraft_i18n::t;
 
 use crate::settings::Settings;
-use solidsketch_kernel::Solid;
+use skraft_kernel::Solid;
 
 use crate::{Error, FastMap, Result};
 

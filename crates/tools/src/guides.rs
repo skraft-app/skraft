@@ -6,7 +6,7 @@
 use std::f64::consts::TAU;
 
 use glam::{DVec2, DVec3};
-use solidsketch_model::GuideShape;
+use skraft_model::GuideShape;
 
 use crate::camera::Camera;
 

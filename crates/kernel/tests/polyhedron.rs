@@ -1,7 +1,7 @@
 //! `Solid::from_polyhedron`: planar-faced solids, as a SketchUp import gives them.
 
 use glam::DVec3;
-use solidsketch_kernel::{PolyFace, Polyhedron, Solid};
+use skraft_kernel::{PolyFace, Polyhedron, Solid};
 
 /// A box `lo..hi`: 8 vertices, 6 faces, loops given in any turning (the builder orients them).
 fn cuboid(lo: DVec3, hi: DVec3, offset: u32) -> (Vec<DVec3>, Vec<PolyFace>) {
@@ -34,7 +34,7 @@ fn a_box_builds_closed() {
     assert!((volume_of_bounds(&s) - DVec3::new(100.0, 50.0, 20.0)).length() < 1e-6);
     // It is a working solid: a boolean on it succeeds.
     let tool = Solid::new_box(DVec3::new(10.0, 10.0, -1.0), DVec3::new(10.0, 10.0, 30.0)).unwrap();
-    let cut = s.boolean(&tool, solidsketch_kernel::BooleanOp::Difference).unwrap();
+    let cut = s.boolean(&tool, skraft_kernel::BooleanOp::Difference).unwrap();
     assert!(cut.topology_counts().0 > 6);
 }
 

@@ -5,8 +5,8 @@
 use std::cell::RefCell;
 
 use glam::{DAffine3, DMat3, DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::{Body, EntityPath, Id, Occurrence, Part};
+use skraft_i18n::t;
+use skraft_model::{Body, EntityPath, Id, Occurrence, Part};
 
 use super::{BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, RED, ToolInput, ToolOption, copy_key};
 use crate::draw::{Drawer, Ends, Pen};
@@ -292,7 +292,7 @@ impl Target {
 
     /// The operation: the copies at the world transforms `placements`, the sources moved by
     /// `moved` (world).
-    pub fn operation(&self, moved: DAffine3, placements: &[DAffine3]) -> solidsketch_model::Operation {
+    pub fn operation(&self, moved: DAffine3, placements: &[DAffine3]) -> skraft_model::Operation {
         self.moved.copies(self.entities.clone(), moved, placements)
     }
 }
@@ -528,10 +528,10 @@ mod tests {
         let r = reflection(DVec3::new(100.0, 0.0, 0.0), DVec3::X);
         assert!((r.transform_point3(DVec3::new(90.0, 5.0, 7.0)) - DVec3::new(110.0, 5.0, 7.0)).length() < 1e-12);
         assert!(r.matrix3.determinant() < 0.0);
-        assert!(solidsketch_model_rigid(&r));
+        assert!(skraft_model_rigid(&r));
     }
 
-    fn solidsketch_model_rigid(t: &DAffine3) -> bool {
+    fn skraft_model_rigid(t: &DAffine3) -> bool {
         let m = t.matrix3;
         (m.transpose() * m).abs_diff_eq(DMat3::IDENTITY, 1e-12)
     }

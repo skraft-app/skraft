@@ -1,4 +1,4 @@
-//! SolidSketch's geometry engine: SolidCore behind a small, safe API.
+//! Skraft's geometry engine: SolidCore behind a small, safe API.
 //!
 //! A [`Solid`] is a SolidCore B-rep **record** (`solidcore_record::brep::Brep`): plain data,
 //! cloneable and serialisable, that the model can store, copy (undo) and save as is.
@@ -17,8 +17,8 @@
 
 use glam::{DVec2, DVec3};
 use serde::{Deserialize, Serialize};
+use skraft_i18n::t;
 use solidcore_record::brep::Brep as Record;
-use solidsketch_i18n::t;
 
 #[cfg(feature = "engine")]
 mod engine;

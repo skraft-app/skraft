@@ -1,20 +1,20 @@
 [package]
-name = "solidsketch-model"
-description = "SolidSketch: the document (definitions, solids, instances), its operations, undo history and file format"
+name = "skraft-model"
+description = "Skraft: the document (definitions, solids, instances), its operations, undo history and file format"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [features]
 # `Document::apply` / `History::apply`, running the kernel in place (tests, tools).
-engine = ["solidsketch-kernel/engine"]
+engine = ["skraft-kernel/engine"]
 
 [dependencies]
-solidsketch-i18n.workspace = true
-solidsketch-kernel.workspace = true
+skraft-i18n.workspace = true
+skraft-kernel.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-solidsketch-kernel = { workspace = true, features = ["engine"] }
+skraft-kernel = { workspace = true, features = ["engine"] }

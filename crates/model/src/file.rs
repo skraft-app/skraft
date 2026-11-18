@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::document::{ComponentKind, Document, Id};
 use crate::{Error, FileError, Result};
 
-/// The `format` field of every SolidSketch file.
-pub const FORMAT: &str = "solidsketch";
+/// The `format` field of every Skraft file.
+pub const FORMAT: &str = "skraft";
 /// The version this build writes, and the newest it reads.
 pub const VERSION: u32 = 1;
 
@@ -43,7 +43,7 @@ impl Document {
     pub fn from_json(text: &str) -> Result<Document> {
         let h: Header = serde_json::from_str(text).map_err(file_err)?;
         if h.format != FORMAT {
-            return Err(Error::File(FileError::NotSolidSketch(h.format)));
+            return Err(Error::File(FileError::NotSkraft(h.format)));
         }
         if h.version > VERSION {
             return Err(Error::File(FileError::TooNew(h.version)));

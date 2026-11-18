@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SolidSketch</title>
+  <title>Skraft</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #eceef0; }
@@ -11,16 +11,16 @@
   </style>
 </head>
 <body>
-  <canvas id="solidsketch"></canvas>
+  <canvas id="skraft"></canvas>
   <script type="module">
-    import init, { solidsketchCall } from "./pkg/solidsketch.js";
+    import init, { skraftCall } from "./pkg/skraft.js";
 
     // Chrome and Safari report mouse wheel notches in pixels (deltaMode 0), like trackpad
     // scrolling: eframe then hands them as MouseWheelUnit::Point, which the viewport takes for
     // a trackpad (orbit). Tell them apart with the non-standard wheelDeltaY: a trackpad gives
     // wheelDeltaY == -3 * deltaY, a wheel multiples of 120. Wheel events are re-dispatched in
     // lines (one per notch), as winit does natively, so the viewport zooms.
-    const canvas = document.getElementById("solidsketch");
+    const canvas = document.getElementById("skraft");
     const isWheelNotch = (e) => {
       if (e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || e.ctrlKey) return false; // ctrl: pinch
       const w = e.wheelDeltaY;
@@ -40,9 +40,9 @@
     }, { capture: true, passive: false });
 
     // The control protocol from the page (docs/ARCHITECTURE.md §7 septies): the app's methods,
-    // e.g. `await solidsketch.call("model.geometry", { selection: true })`, a promise of the
+    // e.g. `await skraft.call("model.geometry", { selection: true })`, a promise of the
     // result (an Uint8Array of PNG for a screenshot), rejected with an Error.
-    window.solidsketch = { call: (method, params) => solidsketchCall(method, params ?? null) };
+    window.skraft = { call: (method, params) => skraftCall(method, params ?? null) };
 
     init();
   </script>

@@ -1,18 +1,18 @@
 [package]
-name = "solidsketch-control"
-description = "SolidSketch: the control protocol (docs/ARCHITECTURE.md §7 septies) — its methods and their parameters, the handlers that need only an editor, and the loopback server with its token"
+name = "skraft-control"
+description = "Skraft: the control protocol (docs/ARCHITECTURE.md §7 septies) — its methods and their parameters, the handlers that need only an editor, and the loopback server with its token"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [features]
 # Volumes measured with the kernel (`model.geometry`); without it, none is given.
-engine = ["solidsketch-kernel/engine"]
+engine = ["skraft-kernel/engine"]
 
 [dependencies]
-solidsketch-model.workspace = true
-solidsketch-kernel.workspace = true
-solidsketch-tools.workspace = true
+skraft-model.workspace = true
+skraft-kernel.workspace = true
+skraft-tools.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -26,5 +26,5 @@ dirs = "6"
 getrandom = "0.3"
 
 [dev-dependencies]
-solidsketch-kernel = { workspace = true, features = ["engine"] }
-solidsketch-model = { workspace = true, features = ["engine"] }
+skraft-kernel = { workspace = true, features = ["engine"] }
+skraft-model = { workspace = true, features = ["engine"] }

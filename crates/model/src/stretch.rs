@@ -30,7 +30,7 @@
 use crate::{FastMap, FastSet};
 
 use glam::{DAffine3, DVec3};
-use solidsketch_kernel::Stretch;
+use skraft_kernel::Stretch;
 
 #[cfg(doc)]
 use crate::document::StretchMask;
@@ -185,7 +185,7 @@ impl Document {
         let mut lo = DVec3::ZERO;
         let mut hi = DVec3::ZERO;
         for k in 0..3 {
-            let s = Stretch::new(DVec3::AXES[k], Vec::new(), vec![0.0]).map_err(solidsketch_kernel::Error::from)?;
+            let s = Stretch::new(DVec3::AXES[k], Vec::new(), vec![0.0]).map_err(skraft_kernel::Error::from)?;
             let extent =
                 occs.iter().filter_map(|(o, t)| self.placed_extent(o.component, &s, t, 0)).reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)));
             let Some((a, b)) = extent else { return Ok(None) };
@@ -208,7 +208,7 @@ impl Document {
         cuts: &[f64],
     ) -> Result<Vec<Option<(f64, f64)>>> {
         let occs = self.stretched_occurrences(context, occurrences, frame)?;
-        let s = Stretch::new(axis, cuts.to_vec(), vec![0.0; cuts.len() + 1]).map_err(solidsketch_kernel::Error::from)?;
+        let s = Stretch::new(axis, cuts.to_vec(), vec![0.0; cuts.len() + 1]).map_err(skraft_kernel::Error::from)?;
         let mut spans = vec![None; cuts.len() + 1];
         self.collect_occurrence_spans(occs.iter().map(|(o, t)| (o.component, *t)), &s, 0.0, &mut spans, 0);
         Ok(spans)
@@ -225,7 +225,7 @@ impl Document {
         cuts: &[f64],
     ) -> Result<Vec<Option<(f64, f64)>>> {
         let (_, p, _) = self.resolve_container(target)?;
-        let s = Stretch::new(axis, cuts.to_vec(), vec![0.0; cuts.len() + 1]).map_err(solidsketch_kernel::Error::from)?;
+        let s = Stretch::new(axis, cuts.to_vec(), vec![0.0; cuts.len() + 1]).map_err(skraft_kernel::Error::from)?;
         let mut spans = vec![None; cuts.len() + 1];
         for b in p.bodies.iter().filter(|b| bodies.contains(&b.id)) {
             let t = frame.inverse() * b.placement;
@@ -377,7 +377,7 @@ impl Document {
         moves: &[f64],
         scope: Scope,
     ) -> Result<(Document, Vec<StretchedPart>)> {
-        let s = Stretch::new(axis, cuts.to_vec(), moves.to_vec()).map_err(solidsketch_kernel::Error::from)?;
+        let s = Stretch::new(axis, cuts.to_vec(), moves.to_vec()).map_err(skraft_kernel::Error::from)?;
         let mut doc = self.clone();
         let parts = doc.stretch_tree(context, occurrences, frame, &s, scope, &mut |_, _, _| Ok(()))?;
         Ok((doc, parts))

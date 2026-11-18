@@ -17,8 +17,8 @@ use super::DragClicks;
 use super::pick::Picker;
 use crate::scene::Owner;
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, Id, Operation};
+use skraft_i18n::t;
+use skraft_model::{EntityPath, Id, Operation};
 
 use super::{Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption, guide_color};
 use crate::draw::{Drawing, Ends, Pen};

@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>fr.lairdubois.solidsketch</string>
+    <string>app.skraft</string>
     <key>CFBundleName</key>
-    <string>SolidSketch</string>
+    <string>Skraft</string>
     <key>CFBundleDisplayName</key>
-    <string>SolidSketch</string>
+    <string>Skraft</string>
     <key>CFBundleExecutable</key>
-    <string>solidsketch</string>
+    <string>skraft</string>
     <key>CFBundleIconFile</key>
-    <string>SolidSketch</string>
+    <string>Skraft</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -24,21 +24,21 @@
     <string>public.app-category.graphics-design</string>
     <key>NSHighResolutionCapable</key>
     <true/>
-    <!-- The documents (.ssk): the app opens them, a double click in the Finder (src/opened.rs). -->
+    <!-- The documents (.skraft): the app opens them, a double click in the Finder (src/opened.rs). -->
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
             <key>CFBundleTypeName</key>
-            <string>SolidSketch Document</string>
+            <string>Skraft Document</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>CFBundleTypeIconFile</key>
-            <string>SolidSketch</string>
+            <string>Skraft</string>
             <key>LSHandlerRank</key>
             <string>Owner</string>
             <key>LSItemContentTypes</key>
             <array>
-                <string>fr.lairdubois.solidsketch.document</string>
+                <string>app.skraft.document</string>
             </array>
         </dict>
     </array>
@@ -46,11 +46,11 @@
     <array>
         <dict>
             <key>UTTypeIdentifier</key>
-            <string>fr.lairdubois.solidsketch.document</string>
+            <string>app.skraft.document</string>
             <key>UTTypeDescription</key>
-            <string>SolidSketch Document</string>
+            <string>Skraft Document</string>
             <key>UTTypeIconFile</key>
-            <string>SolidSketch</string>
+            <string>Skraft</string>
             <key>UTTypeConformsTo</key>
             <array>
                 <string>public.data</string>
@@ -60,10 +60,10 @@
             <dict>
                 <key>public.filename-extension</key>
                 <array>
-                    <string>ssk</string>
+                    <string>skraft</string>
                 </array>
                 <key>public.mime-type</key>
-                <string>application/x-solidsketch</string>
+                <string>application/x-skraft</string>
             </dict>
         </dict>
     </array>

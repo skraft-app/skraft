@@ -2972,6 +2972,161 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
+name = "skraft"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "dirs",
+ "eframe",
+ "egui",
+ "egui-wgpu",
+ "egui_extras",
+ "env_logger",
+ "glam",
+ "js-sys",
+ "libc",
+ "log",
+ "muda",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "png 0.17.16",
+ "pollster 0.4.0",
+ "raw-window-handle",
+ "rfd",
+ "serde",
+ "serde_json",
+ "skraft-control",
+ "skraft-i18n",
+ "skraft-kernel",
+ "skraft-model",
+ "skraft-render",
+ "skraft-theme",
+ "skraft-tools",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
+ "wgpu",
+ "windows-sys 0.61.2",
+ "winresource",
+]
+
+[[package]]
+name = "skraft-control"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "getrandom 0.3.4",
+ "glam",
+ "schemars",
+ "serde",
+ "serde_json",
+ "skraft-kernel",
+ "skraft-model",
+ "skraft-tools",
+]
+
+[[package]]
+name = "skraft-i18n"
+version = "0.1.0"
+dependencies = [
+ "rust-i18n",
+]
+
+[[package]]
+name = "skraft-import"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "skraft-kernel",
+ "skraft-model",
+]
+
+[[package]]
+name = "skraft-kernel"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "skraft-i18n",
+ "solidcore",
+ "solidcore-convert",
+ "solidcore-ops",
+ "solidcore-record",
+ "solidcore-step",
+ "solidcore-tess",
+]
+
+[[package]]
+name = "skraft-kernel-worker"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "skraft-kernel",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "skraft-mcp"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "serde_json",
+ "skraft-control",
+ "skraft-kernel",
+ "skraft-model",
+ "skraft-tools",
+]
+
+[[package]]
+name = "skraft-model"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "serde",
+ "serde_json",
+ "skraft-i18n",
+ "skraft-kernel",
+]
+
+[[package]]
+name = "skraft-render"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+ "png 0.17.16",
+ "pollster 0.4.0",
+ "skraft-kernel",
+ "wgpu",
+]
+
+[[package]]
+name = "skraft-theme"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "skraft-tools"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "serde",
+ "serde_json",
+ "skraft-i18n",
+ "skraft-kernel",
+ "skraft-model",
+ "skraft-theme",
+ "web-time",
+]
+
+[[package]]
 name = "skrifa"
 version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3111,161 +3266,6 @@ dependencies = [
  "solidcore-record",
  "spade",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "solidsketch"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "dirs",
- "eframe",
- "egui",
- "egui-wgpu",
- "egui_extras",
- "env_logger",
- "glam",
- "js-sys",
- "libc",
- "log",
- "muda",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "png 0.17.16",
- "pollster 0.4.0",
- "raw-window-handle",
- "rfd",
- "serde",
- "serde_json",
- "solidsketch-control",
- "solidsketch-i18n",
- "solidsketch-kernel",
- "solidsketch-model",
- "solidsketch-render",
- "solidsketch-theme",
- "solidsketch-tools",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "web-time",
- "wgpu",
- "windows-sys 0.61.2",
- "winresource",
-]
-
-[[package]]
-name = "solidsketch-control"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "getrandom 0.3.4",
- "glam",
- "schemars",
- "serde",
- "serde_json",
- "solidsketch-kernel",
- "solidsketch-model",
- "solidsketch-tools",
-]
-
-[[package]]
-name = "solidsketch-i18n"
-version = "0.1.0"
-dependencies = [
- "rust-i18n",
-]
-
-[[package]]
-name = "solidsketch-import"
-version = "0.1.0"
-dependencies = [
- "glam",
- "solidsketch-kernel",
- "solidsketch-model",
-]
-
-[[package]]
-name = "solidsketch-kernel"
-version = "0.1.0"
-dependencies = [
- "glam",
- "rmp-serde",
- "serde",
- "serde_json",
- "solidcore",
- "solidcore-convert",
- "solidcore-ops",
- "solidcore-record",
- "solidcore-step",
- "solidcore-tess",
- "solidsketch-i18n",
-]
-
-[[package]]
-name = "solidsketch-kernel-worker"
-version = "0.1.0"
-dependencies = [
- "js-sys",
- "solidsketch-kernel",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "solidsketch-mcp"
-version = "0.1.0"
-dependencies = [
- "glam",
- "serde_json",
- "solidsketch-control",
- "solidsketch-kernel",
- "solidsketch-model",
- "solidsketch-tools",
-]
-
-[[package]]
-name = "solidsketch-model"
-version = "0.1.0"
-dependencies = [
- "glam",
- "serde",
- "serde_json",
- "solidsketch-i18n",
- "solidsketch-kernel",
-]
-
-[[package]]
-name = "solidsketch-render"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "glam",
- "png 0.17.16",
- "pollster 0.4.0",
- "solidsketch-kernel",
- "wgpu",
-]
-
-[[package]]
-name = "solidsketch-theme"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "solidsketch-tools"
-version = "0.1.0"
-dependencies = [
- "glam",
- "serde",
- "serde_json",
- "solidsketch-i18n",
- "solidsketch-kernel",
- "solidsketch-model",
- "solidsketch-theme",
- "web-time",
 ]
 
 [[package]]

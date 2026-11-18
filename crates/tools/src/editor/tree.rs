@@ -6,7 +6,7 @@
 //! closes the list. The tap its release makes is not the tool's (no copy toggled).
 
 use glam::DVec2;
-use solidsketch_model::EntityPath;
+use skraft_model::EntityPath;
 
 use super::Editor;
 

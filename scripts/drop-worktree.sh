@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Removes a worktree made by scripts/new-worktree.sh, ../solidsketch-<name>, its build cache
+# Removes a worktree made by scripts/new-worktree.sh, ../skraft-<name>, its build cache
 # with it, then its branch:
 #
 #   scripts/drop-worktree.sh <name> [--unmerged]
 #
-#   name         the worktree's suffix: ../solidsketch-<name>
+#   name         the worktree's suffix: ../skraft-<name>
 #   --unmerged   its branch goes even if main does not hold it (work given up); without it, a
 #                branch not merged into main stops everything
 #

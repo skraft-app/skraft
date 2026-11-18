@@ -7,8 +7,8 @@
 //! runs, the selection is left alone. Under « Parts », it takes the parts at any depth.
 
 use glam::DVec2;
-use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, Id, Operation};
+use skraft_i18n::t;
+use skraft_model::{EntityPath, Id, Operation};
 
 use super::{Command, Cx, Preview, Tool, ToolInput, ToolKind};
 

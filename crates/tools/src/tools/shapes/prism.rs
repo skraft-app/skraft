@@ -47,7 +47,7 @@ use std::f64::consts::PI;
 use super::*;
 use crate::tools::PointShape;
 use crate::vcb::PointRef;
-use solidsketch_model::{GuideShape, Operation};
+use skraft_model::{GuideShape, Operation};
 
 /// The option: new corners go before the first one (OCL's `measure_reversed`, saved).
 const REVERSED: &str = "reversed";

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/i18n", "crates/theme", "crates/kernel", "crates/model", "crates/render", "crates/tools", "crates/control", "apps/solidsketch", "apps/kernel-worker", "apps/import", "apps/solidsketch-mcp"]
+members = ["crates/i18n", "crates/theme", "crates/kernel", "crates/model", "crates/render", "crates/tools", "crates/control", "apps/skraft", "apps/kernel-worker", "apps/import", "apps/skraft-mcp"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,14 +10,14 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # Internal
-solidsketch-i18n = { path = "crates/i18n" }
+skraft-i18n = { path = "crates/i18n" }
 # Without its `engine` (SolidCore) unless a crate asks for it: the web UI does not (§7 ter).
-solidsketch-kernel = { path = "crates/kernel", default-features = false }
-solidsketch-model = { path = "crates/model" }
-solidsketch-render = { path = "crates/render" }
-solidsketch-tools = { path = "crates/tools" }
-solidsketch-control = { path = "crates/control" }
-solidsketch-theme = { path = "crates/theme" }
+skraft-kernel = { path = "crates/kernel", default-features = false }
+skraft-model = { path = "crates/model" }
+skraft-render = { path = "crates/render" }
+skraft-tools = { path = "crates/tools" }
+skraft-control = { path = "crates/control" }
+skraft-theme = { path = "crates/theme" }
 
 # SolidCore (tangency-labs/solidcore, Apache-2.0): the B-rep kernel, its record (geometry as
 # data) and its mesher. Only `solidcore` is on crates.io; the others come from the mirror,

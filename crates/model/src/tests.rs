@@ -469,11 +469,11 @@ fn prepare_gathers_kernel_calls_and_commit_replays_them() {
     assert!(doc.prepare(&bad).is_err());
 }
 
-/// Opens a file given by `SOLIDSKETCH_OPEN` (a check of a real file, by hand):
-/// `SOLIDSKETCH_OPEN=path cargo test -p solidsketch-model open_given_file -- --nocapture`.
+/// Opens a file given by `SKRAFT_OPEN` (a check of a real file, by hand):
+/// `SKRAFT_OPEN=path cargo test -p skraft-model open_given_file -- --nocapture`.
 #[test]
 fn open_given_file() {
-    let Some(path) = std::env::var_os("SOLIDSKETCH_OPEN") else { return };
+    let Some(path) = std::env::var_os("SKRAFT_OPEN") else { return };
     let doc = Document::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
     for c in doc.components() {
         println!("{} {:?} named={} occurrences={}", c.id, c.name, c.named, doc.occurrence_count(c.id));
@@ -1708,7 +1708,7 @@ fn profile_of(doc: &Document, path: &EntityPath) -> Option<BodyProfile> {
 
 #[test]
 fn a_turned_body_keeps_its_half_profile() {
-    use solidsketch_kernel::profile::polygon;
+    use skraft_kernel::profile::polygon;
     let v = glam::DVec2::new;
     let mut h = History::new(Document::new());
     let root = h.document().root();
@@ -1728,7 +1728,7 @@ fn a_turned_body_keeps_its_half_profile() {
     // Its profile stands on its lowest height, turned.
     let b = profile_of(h.document(), &path).unwrap();
     assert!(b.is_turned() && b.extrusion().is_none());
-    assert_eq!(solidsketch_kernel::profile::bounds(&b.profile), Some((v(0.0, 0.0), v(20.0, 700.0))));
+    assert_eq!(skraft_kernel::profile::bounds(&b.profile), Some((v(0.0, 0.0), v(20.0, 700.0))));
     let world = |h: &History| {
         let (_, part, t) = h.document().resolve_part(&path).unwrap();
         let (lo, hi) = part.shape().bounds().unwrap();
@@ -1751,7 +1751,7 @@ fn a_turned_body_keeps_its_half_profile() {
     h.apply(stretch(h.document(), &path, DVec3::Z, vec![300.0], vec![0.0, 100.0], Scope::All)).unwrap();
     let b = profile_of(h.document(), &path).unwrap();
     assert!(b.is_turned());
-    assert_eq!(solidsketch_kernel::profile::bounds(&b.profile).unwrap().1, v(15.0, 800.0));
+    assert_eq!(skraft_kernel::profile::bounds(&b.profile).unwrap().1, v(15.0, 800.0));
     assert!((world(&h).1.x - 810.0).abs() < 1e-6, "{:?}", world(&h));
     // Across its axis (the part's X), cut through: refused.
     let e = h.apply(stretch(h.document(), &path, DVec3::X, vec![0.0], vec![0.0, 10.0], Scope::All)).unwrap_err();
@@ -1765,14 +1765,14 @@ fn a_turned_body_keeps_its_half_profile() {
 
 #[test]
 fn a_profile_is_kept_set_and_stretched() {
-    use solidsketch_kernel::profile::{Corner, polygon};
+    use skraft_kernel::profile::{Corner, polygon};
     let mut h = History::new(Document::new());
     let root = h.document().root();
     let board = add(&mut h, Primitive::Box { origin: DVec3::new(100.0, 0.0, 0.0), size: DVec3::new(600.0, 300.0, 18.0) });
     let path = EntityPath::root(board);
     // The box's rectangle, at the part's origin (its lowest corner).
     let b = profile_of(h.document(), &path).unwrap();
-    assert_eq!(solidsketch_kernel::profile::bounds(&b.profile), Some((glam::DVec2::ZERO, glam::DVec2::new(600.0, 300.0))));
+    assert_eq!(skraft_kernel::profile::bounds(&b.profile), Some((glam::DVec2::ZERO, glam::DVec2::new(600.0, 300.0))));
     assert_eq!(b.extrusion(), Some((0.0, 18.0)));
 
     // A copy of it, then the profile set for all: an L, thicker.
@@ -1809,7 +1809,7 @@ fn a_profile_is_kept_set_and_stretched() {
     let copy_path = EntityPath::root(copy);
     h.apply(stretch(h.document(), &copy_path, DVec3::X, vec![300.0], vec![0.0, 100.0], Scope::All)).unwrap();
     let b = profile_of(h.document(), &copy_path).unwrap();
-    assert_eq!(solidsketch_kernel::profile::bounds(&b.profile).unwrap().1, glam::DVec2::new(700.0, 300.0));
+    assert_eq!(skraft_kernel::profile::bounds(&b.profile).unwrap().1, glam::DVec2::new(700.0, 300.0));
 
     // A free part (an intersection's result) has no profile to set.
     let a = add(&mut h, cube(DVec3::new(-500.0, 0.0, 0.0), 20.0));

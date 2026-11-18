@@ -1,4 +1,4 @@
-// SolidSketch viewport: shaded faces, B-rep edges, silhouettes and coloured lines.
+// Skraft viewport: shaded faces, B-rep edges, silhouettes and coloured lines.
 
 // Everything is in camera coordinates (the CPU subtracts the camera in f64): the camera is
 // at the origin looking down -Z, and only the projection is left to the GPU.

@@ -1,7 +1,7 @@
 //! The control protocol (docs/ARCHITECTURE.md §7 septies): what an agent, a script or a test
 //! asks the app — a method and its JSON parameters, [`Call`] — and what it answers. One method
 //! set for every transport: the loopback HTTP server of the desktop ([`server`]), later the
-//! page's `window.solidsketch` (web) and an MCP server.
+//! page's `window.skraft` (web) and an MCP server.
 //!
 //! The methods' parameters are types here ([`params`]), read strictly (an unknown field or a
 //! wrong type is refused, naming it, and nothing runs); their JSON Schemas come from them
@@ -10,7 +10,7 @@
 //! headless session answer them alike; the window answers the others (documents, commands,
 //! screenshots).
 //!
-//! [`Editor`]: solidsketch_tools::Editor
+//! [`Editor`]: skraft_tools::Editor
 
 pub mod editor;
 pub mod instances;
@@ -24,7 +24,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// A request: a method and its parameters (`null` or absent: none, as `{}`), and the client
-/// that sent it if it said (the `X-SolidSketch-Client` header: an agent, a script — the
+/// that sent it if it said (the `X-Skraft-Client` header: an agent, a script — the
 /// journal notes what it caused as its).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Call {
@@ -124,7 +124,7 @@ pub fn methods() -> Vec<Method> {
         ),
         m(
             "app.instances",
-            "The SolidSketch apps running on this computer: pid, port of their control channel (if on), build (worktree, branch, commit), who launched them (a Claude Code session).",
+            "The Skraft apps running on this computer: pid, port of their control channel (if on), build (worktree, branch, commit), who launched them (a Claude Code session).",
             true,
             schema::<NoParams>,
         ),
@@ -188,7 +188,7 @@ pub fn methods() -> Vec<Method> {
         ),
         m(
             "journal.failures",
-            "The kernel's last failures (an operation's job failed or skipped bodies of a recipe, a mesh refused); with `seq`, one in full: its job (input solids, tasks), which solidsketch_kernel::run runs again.",
+            "The kernel's last failures (an operation's job failed or skipped bodies of a recipe, a mesh refused); with `seq`, one in full: its job (input solids, tasks), which skraft_kernel::run runs again.",
             true,
             schema::<FailuresParams>,
         ),

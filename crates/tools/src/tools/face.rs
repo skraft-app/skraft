@@ -4,8 +4,8 @@
 //! vertices and edges, docs/ARCHITECTURE.md §6 ter).
 
 use glam::{DAffine3, DVec3};
-use solidsketch_kernel::SnapCurve;
-use solidsketch_model::EntityPath;
+use skraft_kernel::SnapCurve;
+use skraft_model::EntityPath;
 
 use crate::infer::Inference;
 use crate::scene::{DisplayScene, Hit};

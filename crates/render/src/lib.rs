@@ -1,4 +1,4 @@
-//! SolidSketch's viewport renderer (docs/ARCHITECTURE.md §7 bis, §7 quater).
+//! Skraft's viewport renderer (docs/ARCHITECTURE.md §7 bis, §7 quater).
 //!
 //! The renderer knows meshes by key, never the document: the caller (the display scene in
 //! `tools`) uploads one mesh per definition — the concatenation of its direct solids, each a
@@ -31,7 +31,7 @@ use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{DMat3, DMat4, DVec3, Mat4, Vec3};
-use solidsketch_kernel::Mesh;
+use skraft_kernel::Mesh;
 use wgpu::util::DeviceExt;
 
 /// The format the viewport is drawn in: sRGB-encoded bytes, blended in linear.
@@ -674,7 +674,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(device: &wgpu::Device) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("solidsketch shader"),
+            label: Some("skraft shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
@@ -709,7 +709,7 @@ impl Renderer {
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("solidsketch"),
+            label: Some("skraft"),
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });

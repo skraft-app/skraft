@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use glam::{DMat3, DVec2, DVec3};
 use serde_json::{Value, json};
-use solidsketch_model::{Id, PlacedPart};
-use solidsketch_tools::{Editor, Key, Modifiers, Projection, StandardView, ToolInput, ToolKind};
+use skraft_model::{Id, PlacedPart};
+use skraft_tools::{Editor, Key, Modifiers, Projection, StandardView, ToolInput, ToolKind};
 
 use crate::json::{self, v3};
 use crate::params::{
@@ -162,12 +162,12 @@ fn part(e: &Editor, pp: &PlacedPart, p: &GeometryParams, volumes: &mut HashMap<u
 }
 
 #[cfg(any(test, feature = "engine"))]
-fn volume(solid: &solidsketch_model::kernel::Solid) -> Option<f64> {
+fn volume(solid: &skraft_model::kernel::Solid) -> Option<f64> {
     solid.volume().ok()
 }
 
 #[cfg(not(any(test, feature = "engine")))]
-fn volume(_: &solidsketch_model::kernel::Solid) -> Option<f64> {
+fn volume(_: &skraft_model::kernel::Solid) -> Option<f64> {
     None
 }
 
@@ -425,7 +425,7 @@ fn failures(e: &Editor, p: &FailuresParams) -> Outcome {
             .failures()
             .find(|f| f.seq == seq)
             .map(|f| Answer::Json(json::failure(f, true)))
-            .ok_or_else(|| Error::Failed(format!("no failure {seq} (kept: the last {})", solidsketch_tools::journal::FAILURES_LEN))),
+            .ok_or_else(|| Error::Failed(format!("no failure {seq} (kept: the last {})", skraft_tools::journal::FAILURES_LEN))),
         None => Ok(Answer::Json(json!({ "failures": j.failures().map(|f| json::failure(f, false)).collect::<Vec<_>>() }))),
     }
 }
@@ -451,7 +451,7 @@ fn record(e: &mut Editor, p: &RecordParams) -> Outcome {
                 "steps": r.steps.len(),
                 "test_file": format!("crates/tools/tests/{name}.rs"),
                 "test": crate::record::test_file(&r, &name, &reached),
-                "document_file": format!("crates/tools/tests/{name}.ssk"),
+                "document_file": format!("crates/tools/tests/{name}.skraft"),
                 "document": r.document,
             })))
         }
@@ -461,20 +461,20 @@ fn record(e: &mut Editor, p: &RecordParams) -> Outcome {
 #[cfg(test)]
 mod tests {
     use glam::{DVec2, DVec3};
-    use solidsketch_model::Document;
-    use solidsketch_tools::{StandardView, ToolInput, ToolKind};
+    use skraft_model::Document;
+    use skraft_tools::{StandardView, ToolInput, ToolKind};
 
     use super::*;
 
     fn editor() -> Editor {
-        let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+        let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
         e.set_viewport_size(DVec2::new(1000.0, 1000.0));
         e.set_parallel(true);
         e.camera.set_standard_view(
             StandardView::Top,
             glam::DMat3::IDENTITY,
             Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))),
-            solidsketch_tools::ViewArea::full(e.viewport_size()),
+            skraft_tools::ViewArea::full(e.viewport_size()),
         );
         e
     }
@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn a_kernel_failure_keeps_its_job_which_fails_again() {
-        use solidsketch_model::{Boolean, EntityPath, Operation, Primitive};
+        use skraft_model::{Boolean, EntityPath, Operation, Primitive};
         let mut e = editor();
         let root = e.document().root();
         let add = |e: &mut Editor, origin: f64, size: f64| {
@@ -682,9 +682,9 @@ mod tests {
         let full = json_of(&mut e, "journal.failures", json!({ "seq": seq }));
         assert!(full["operation"].is_object(), "{full}");
         // Its job, read back and run again: the same failure, headless.
-        let job: solidsketch_kernel::Job = serde_json::from_value(full["job"].clone()).unwrap();
+        let job: skraft_kernel::Job = serde_json::from_value(full["job"].clone()).unwrap();
         assert_eq!(job.inputs.len(), 2);
-        assert!(solidsketch_kernel::run(&job).is_err());
+        assert!(skraft_kernel::run(&job).is_err());
         assert!(call(&mut e, &Call::new("journal.failures", json!({ "seq": 999_999 }))).unwrap().is_err());
     }
 
@@ -703,10 +703,10 @@ mod tests {
         assert!(bad.is_err());
         let done = json_of(&mut e, "journal.record", json!({ "action": "stop", "name": "a_box" }));
         let test = done["test"].as_str().unwrap();
-        assert!(test.contains("fn a_box()") && test.contains("include_str!(\"a_box.ssk\")"), "{test}");
+        assert!(test.contains("fn a_box()") && test.contains("include_str!(\"a_box.skraft\")"), "{test}");
         assert!(test.contains("ToolInput::Vcb(\"18\".into())"), "{test}");
         assert!(test.contains("assert_eq!(e.history().revision(), 1"), "{test}");
-        assert!(solidsketch_model::Document::from_json(done["document"].as_str().unwrap()).is_ok());
+        assert!(skraft_model::Document::from_json(done["document"].as_str().unwrap()).is_ok());
         assert_eq!(json_of(&mut e, "journal.record", Value::Null)["recording"], false);
     }
 }

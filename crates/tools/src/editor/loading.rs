@@ -4,8 +4,8 @@
 
 use std::collections::HashSet;
 
-use solidsketch_i18n::t;
-use solidsketch_model::kernel::{JobId, Progress};
+use skraft_i18n::t;
+use skraft_model::kernel::{JobId, Progress};
 
 use super::Editor;
 

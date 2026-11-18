@@ -1,4 +1,4 @@
-//! The colour tokens SolidSketch draws with (docs/ARCHITECTURE.md §7 quater): named colours,
+//! The colour tokens Skraft draws with (docs/ARCHITECTURE.md §7 quater): named colours,
 //! in linear RGBA, in a light and a dark theme. No UI toolkit: `render` gets them through its
 //! frame, `tools` uses the axis colours, the app turns the rest — the interface's tokens
 //! ([`UiTokens`]) among them — into egui's visuals.

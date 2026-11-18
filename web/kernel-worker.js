@@ -3,7 +3,7 @@
 // { id, bytes } with the result, { id, crashed } when the kernel trapped (a panic: `{ panic }`
 // came just before), { fatal } when the kernel could not be loaded at all. A job cancelled is
 // stopped by the UI terminating this worker.
-import init, { run } from "./worker/solidsketch_kernel_worker.js";
+import init, { run } from "./worker/skraft_kernel_worker.js";
 
 const ready = init().then(() => true, (err) => {
   self.postMessage({ fatal: String(err) });

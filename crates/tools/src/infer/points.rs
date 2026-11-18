@@ -1,8 +1,8 @@
 //! The points of the geometry under the cursor (no lines), else the face, else the plane.
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_kernel::{SnapCurve, SnapEdge, Snaps};
-use solidsketch_model::{EntityPath, GuideShape};
+use skraft_kernel::{SnapCurve, SnapEdge, Snaps};
+use skraft_model::{EntityPath, GuideShape};
 
 use super::crossings::circle_meets_curve;
 use super::curves::{curve_ref, drawn, guide_arc, guide_arcs, guide_circle, kept_guides, on_curve};

@@ -1,6 +1,6 @@
 [package]
-name = "solidsketch-kernel-worker"
-description = "SolidSketch: the kernel in a web worker — runs the jobs the web UI posts (ARCHITECTURE.md §7 ter)"
+name = "skraft-kernel-worker"
+description = "Skraft: the kernel in a web worker — runs the jobs the web UI posts (ARCHITECTURE.md §7 ter)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,7 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-solidsketch-kernel = { workspace = true, features = ["engine"] }
+skraft-kernel = { workspace = true, features = ["engine"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

@@ -6,8 +6,8 @@
 use std::fmt::Write;
 
 use glam::DVec2;
-use solidsketch_tools::journal::{Recording, Step};
-use solidsketch_tools::{Camera, Key, OptionValue, Projection, ToolInput};
+use skraft_tools::journal::{Recording, Step};
+use skraft_tools::{Camera, Key, OptionValue, Projection, ToolInput};
 
 /// What the test reached when recorded.
 pub struct Reached {
@@ -15,25 +15,25 @@ pub struct Reached {
     pub parts: usize,
 }
 
-/// The test file (Rust) for `r`, named `name`; it reads the document from `<name>.ssk`
+/// The test file (Rust) for `r`, named `name`; it reads the document from `<name>.skraft`
 /// beside it.
 pub fn test_file(r: &Recording, name: &str, reached: &Reached) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
         "//! Recorded by the control protocol (`journal.record`, docs/ARCHITECTURE.md §7 septies): {} steps from\n\
-         //! `{name}.ssk`, played again with the kernel inline.\n",
+         //! `{name}.skraft`, played again with the kernel inline.\n",
         r.steps.len()
     );
     out.push_str("use glam::{DMat3, DVec2, DVec3};\n");
-    out.push_str("use solidsketch_model::Document;\n");
+    out.push_str("use skraft_model::Document;\n");
     out.push_str("#[allow(unused_imports)]\n");
-    out.push_str("use solidsketch_tools::{Camera, Editor, Key, Modifiers, OptionValue, Projection, ToolInput, ToolKind};\n\n");
+    out.push_str("use skraft_tools::{Camera, Editor, Key, Modifiers, OptionValue, Projection, ToolInput, ToolKind};\n\n");
     out.push_str("/// The view the inputs that follow were given in (their pixels are its).\n");
     out.push_str("fn view(e: &mut Editor, camera: Camera, size: DVec2) {\n    e.set_viewport_size(size);\n    e.camera = camera;\n}\n\n");
     let _ = writeln!(out, "#[test]\nfn {name}() {{");
-    let _ = writeln!(out, "    let doc = Document::from_json(include_str!(\"{name}.ssk\")).unwrap();");
-    out.push_str("    let mut e = Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()));\n");
+    let _ = writeln!(out, "    let doc = Document::from_json(include_str!(\"{name}.skraft\")).unwrap();");
+    out.push_str("    let mut e = Editor::new(doc, Box::new(skraft_kernel::Inline::default()));\n");
     let _ = writeln!(out, "    e.set_tool(ToolKind::from_id({:?}).unwrap());", r.tool.id());
     for step in &r.steps {
         let line = match step {
@@ -94,7 +94,7 @@ fn camera_code(c: &Camera) -> String {
     )
 }
 
-fn mods(m: &solidsketch_tools::Modifiers) -> String {
+fn mods(m: &skraft_tools::Modifiers) -> String {
     format!("Modifiers {{ toggle: {}, copy: {} }}", m.toggle, m.copy)
 }
 

@@ -5,8 +5,8 @@
 
 use super::DragClicks;
 use glam::{DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::{Operation, Section};
+use skraft_i18n::t;
+use skraft_model::{Operation, Section};
 
 use super::{Command, Cx, Preview, Tool, ToolInput, ToolKind};
 use crate::draw::{Drawing, Pen};

@@ -1,11 +1,11 @@
 //! What the parts / machinings model (docs/ARCHITECTURE.md §2) asks of SolidCore: mirrors in a
 //! placement, a blank minus many tools, and how a bad machining fails. Run with
-//! `cargo test -p solidsketch-kernel --test part_model -- --nocapture` to see the timings.
+//! `cargo test -p skraft-kernel --test part_model -- --nocapture` to see the timings.
 
 use std::time::Instant;
 
 use glam::{DAffine3, DMat3, DQuat, DVec3};
-use solidsketch_kernel::{BooleanOp, Error, Solid};
+use skraft_kernel::{BooleanOp, Error, Solid};
 
 /// Volume enclosed by the display mesh, positive when its triangles face outwards.
 fn mesh_volume(s: &Solid) -> f64 {

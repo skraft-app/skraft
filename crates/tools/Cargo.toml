@@ -1,21 +1,21 @@
 [package]
-name = "solidsketch-tools"
-description = "SolidSketch: camera, display scene (mesh caches, picking), selection, editing context and the interactive tools — testable without a UI or a GPU"
+name = "skraft-tools"
+description = "Skraft: camera, display scene (mesh caches, picking), selection, editing context and the interactive tools — testable without a UI or a GPU"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-solidsketch-i18n.workspace = true
-solidsketch-model.workspace = true
-solidsketch-kernel.workspace = true
-solidsketch-theme.workspace = true
+skraft-i18n.workspace = true
+skraft-model.workspace = true
+skraft-kernel.workspace = true
+skraft-theme.workspace = true
 glam.workspace = true
 serde.workspace = true
 # The journal's clock (src/editor/journal.rs), the web's too.
 web-time = "1.1"
 
 [dev-dependencies]
-solidsketch-model = { workspace = true, features = ["engine"] }
-solidsketch-kernel = { workspace = true, features = ["engine"] }
+skraft-model = { workspace = true, features = ["engine"] }
+skraft-kernel = { workspace = true, features = ["engine"] }
 serde_json.workspace = true

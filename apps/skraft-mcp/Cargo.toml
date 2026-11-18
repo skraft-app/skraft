@@ -1,0 +1,18 @@
+[package]
+name = "skraft-mcp"
+description = "Skraft: an MCP server (stdio) over the control protocol — the running app, or an editor of its own without a window (docs/ARCHITECTURE.md §7 septies)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "skraft-mcp"
+path = "src/main.rs"
+
+[dependencies]
+skraft-control = { workspace = true, features = ["engine"] }
+skraft-model = { workspace = true, features = ["engine"] }
+skraft-kernel = { workspace = true, features = ["engine"] }
+skraft-tools.workspace = true
+glam.workspace = true
+serde_json.workspace = true

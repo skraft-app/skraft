@@ -14,9 +14,9 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::kernel::{JobId, KernelService, Quality, Solid};
-use solidsketch_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope, Sign, measure};
+use skraft_i18n::t;
+use skraft_model::kernel::{JobId, KernelService, Quality, Solid};
+use skraft_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope, Sign, measure};
 
 use crate::camera::{Camera, ViewArea};
 use crate::infer::{EdgeRef, InferKind, Lock};
@@ -507,7 +507,7 @@ impl Editor {
 
     pub fn status(&self) -> String {
         if let Some(p) = &self.pending {
-            return format!("{} {}", solidsketch_i18n::ellipsis(t!("status.computing", op = p.op.label())), t!("status.computing_cancel"));
+            return format!("{} {}", skraft_i18n::ellipsis(t!("status.computing", op = p.op.label())), t!("status.computing_cancel"));
         }
         if self.tree.is_some() {
             return t!("status.tree");
@@ -1214,7 +1214,7 @@ impl Editor {
         if let Some(s) = wanted.as_ref().filter(|s| s.bodies.is_some()) {
             // Bodies of the open part, each from its recipe mesh, in its own axes (§2.11).
             let path = EntityPath::new(s.context.clone(), s.occurrences[0]).in_group(self.open_group.clone());
-            let stretch = solidsketch_model::kernel::Stretch::new(s.axis, s.cuts.clone(), s.moves.clone());
+            let stretch = skraft_model::kernel::Stretch::new(s.axis, s.cuts.clone(), s.moves.clone());
             let doc = self.document().clone();
             let recipe = self.scene.recipe().cloned();
             if let (Ok((_, part, _)), Ok(stretch), Some(r)) = (doc.resolve_container(&path), stretch, recipe) {

@@ -23,10 +23,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
-use solidsketch_kernel::{Display, Mesh, Quality, Snaps, Solid};
-use solidsketch_model::{
-    Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section, Sign,
-};
+use skraft_kernel::{Display, Mesh, Quality, Snaps, Solid};
+use skraft_model::{Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section, Sign};
 
 use crate::bvh::{Aabb, Bvh, ray_box_entry};
 use crate::camera::Ray;
@@ -1117,14 +1115,14 @@ fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64, clip: Option<(DVec3, DVec3
 }
 
 /// `mesh` stretched (ARCHITECTURE.md §6 sexies), by a continuous map along the axis: where a
-/// section holds matter wholly (`spans`, as [`solidsketch_kernel::Stretch::section_spans`]
+/// section holds matter wholly (`spans`, as [`skraft_kernel::Stretch::section_spans`]
 /// gives them) the section's move, in between a linear blend. The B-rep's vertices all lie in
 /// that matter, so they go where the stretch puts them; the mesh's other points lie on what
 /// crosses a cutter — planes and cylinders along the axis, which any increasing map along it
 /// keeps. The map being affine only between its knots, the triangles are first cut at them:
 /// none then turns over, however hard the compression (moving each vertex by its section, or
 /// a long triangle by a map bent under it, did).
-pub fn stretched_mesh(mesh: &Mesh, stretch: &solidsketch_kernel::Stretch, spans: &[Option<(f64, f64)>]) -> Mesh {
+pub fn stretched_mesh(mesh: &Mesh, stretch: &skraft_kernel::Stretch, spans: &[Option<(f64, f64)>]) -> Mesh {
     let a = stretch.axis();
     let knots: Vec<(f64, f64)> =
         spans.iter().zip(stretch.moves()).filter_map(|(s, m)| s.map(|(lo, hi)| [(lo, *m), (hi, *m)])).flatten().collect();
@@ -1217,15 +1215,8 @@ fn cut_at(mesh: &Mesh, a: DVec3, at: &[f64]) -> Mesh {
 /// Adds to `out` the machinings among `bodies` (children of a positive group of `p` placed by
 /// `at`, lying in its own body `top`), and those inside their positive groups in turn; a
 /// negative group is one machining (its result), what it spares inside never shown in red.
-fn nested_tools(
-    p: &solidsketch_model::Part,
-    bodies: &[solidsketch_model::Body],
-    at: DAffine3,
-    top: Id,
-    out: &mut Vec<RecipeTool>,
-    depth: usize,
-) {
-    if depth > solidsketch_model::MAX_DEPTH {
+fn nested_tools(p: &skraft_model::Part, bodies: &[skraft_model::Body], at: DAffine3, top: Id, out: &mut Vec<RecipeTool>, depth: usize) {
+    if depth > skraft_model::MAX_DEPTH {
         return;
     }
     for b in bodies {

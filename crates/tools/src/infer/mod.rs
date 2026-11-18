@@ -23,8 +23,8 @@ mod points;
 mod tests;
 
 use glam::{DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, GuideShape};
+use skraft_i18n::t;
+use skraft_model::{EntityPath, GuideShape};
 
 use crate::camera::{Camera, Projector, Ray};
 use crate::scene::{DisplayScene, Hit, Owner, ray_box};

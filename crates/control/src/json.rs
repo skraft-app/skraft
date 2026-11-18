@@ -3,11 +3,11 @@
 
 use glam::{DAffine3, DVec2, DVec3};
 use serde_json::{Value, json};
-use solidsketch_model::{EntityPath, Id};
-use solidsketch_tools::draw;
-use solidsketch_tools::journal::{Entry, Event, Failure, JobKind};
-use solidsketch_tools::tools::Preview;
-use solidsketch_tools::{Inference, Modifiers, ToolInput};
+use skraft_model::{EntityPath, Id};
+use skraft_tools::draw;
+use skraft_tools::journal::{Entry, Event, Failure, JobKind};
+use skraft_tools::tools::Preview;
+use skraft_tools::{Inference, Modifiers, ToolInput};
 
 pub fn v3(v: DVec3) -> Value {
     json!([v.x, v.y, v.z])
@@ -254,7 +254,7 @@ pub fn entry(e: &Entry) -> Value {
     v
 }
 
-/// A kernel failure: summed up, or in full (its job, which `solidsketch_kernel::run` runs
+/// A kernel failure: summed up, or in full (its job, which `skraft_kernel::run` runs
 /// again).
 pub fn failure(f: &Failure, full: bool) -> Value {
     let mut v = json!({

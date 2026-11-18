@@ -1,14 +1,14 @@
 //! Whole scenarios driven like the app does: pixels in, operations out.
 
 use glam::{DVec2, DVec3};
-use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Primitive};
+use skraft_model::{Boolean, Document, EntityPath, Id, Operation, Primitive};
 
 use crate::draw::ThemeColor;
 use crate::*;
 
 /// An editor looking straight down (parallel), framing ±1 m.
 fn top_editor(doc: Document) -> Editor {
-    let mut e = Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()));
+    let mut e = Editor::new(doc, Box::new(skraft_kernel::Inline::default()));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.set_parallel(true);
     e.camera.set_standard_view(
@@ -369,7 +369,7 @@ fn a_base_started_on_an_askew_edge_runs_along_it() {
 
 #[test]
 fn a_base_whose_second_corner_is_on_a_guide_runs_along_it() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let d = DVec3::new(30f64.to_radians().cos(), 30f64.to_radians().sin(), 0.0);
@@ -393,7 +393,7 @@ fn a_base_whose_second_corner_is_on_a_guide_runs_along_it() {
 
 #[test]
 fn a_base_started_on_a_guide_runs_along_it() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let d = DVec3::new(30f64.to_radians().cos(), 30f64.to_radians().sin(), 0.0);
@@ -418,7 +418,7 @@ fn a_base_started_on_a_guide_runs_along_it() {
 
 #[test]
 fn a_base_on_a_guide_circle_runs_along_its_tangent() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     e.apply(Operation::AddGuide { component: root, shape: GuideShape::Circle { center: DVec3::ZERO, normal: DVec3::Z, radius: 300.0 } })
@@ -449,7 +449,7 @@ fn a_base_on_a_guide_circle_runs_along_its_tangent() {
 
 #[test]
 fn a_cylinder_s_radius_reaches_a_guide_circle() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let g = DVec3::new(-600.0, 300.0, 0.0);
@@ -652,7 +652,7 @@ fn the_first_point_from_a_face_centre_a_whole_face_or_a_corner() {
 
 #[test]
 fn escape_goes_back_one_step() {
-    use solidsketch_i18n::t;
+    use skraft_i18n::t;
     let mut e = top_editor(Document::new());
     e.set_tool(ToolKind::Box);
     click(&mut e, DVec3::ZERO);
@@ -1248,7 +1248,7 @@ mod deferred {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use solidsketch_kernel::{Error, Job, JobId, JobResult, KernelService};
+    use skraft_kernel::{Error, Job, JobId, JobResult, KernelService};
 
     /// A kernel that answers only when the test says so.
     #[derive(Clone, Default)]
@@ -1264,7 +1264,7 @@ mod deferred {
 
         pub fn run_all(&self) {
             let jobs = std::mem::take(&mut *self.jobs.borrow_mut());
-            self.results.borrow_mut().extend(jobs.into_iter().map(|(id, job)| (id, solidsketch_kernel::run(&job))));
+            self.results.borrow_mut().extend(jobs.into_iter().map(|(id, job)| (id, skraft_kernel::run(&job))));
         }
 
         /// Runs the first `n` jobs queued (in the order they were submitted).
@@ -1274,7 +1274,7 @@ mod deferred {
                 let n = n.min(q.len());
                 q.drain(..n).collect()
             };
-            self.results.borrow_mut().extend(jobs.into_iter().map(|(id, job)| (id, solidsketch_kernel::run(&job))));
+            self.results.borrow_mut().extend(jobs.into_iter().map(|(id, job)| (id, skraft_kernel::run(&job))));
         }
 
         pub fn crash_all(&self) {
@@ -1526,7 +1526,7 @@ fn a_step_import_is_a_load_that_can_be_cancelled() {
     e.import_step("assembly.step".into(), bytes.clone());
     let loading = e.loading().cloned().unwrap();
     assert_eq!(loading.kind, LoadKind::Import { name: "assembly.step".into() });
-    assert_eq!(loading.reading, Some(solidsketch_kernel::Progress::Reading));
+    assert_eq!(loading.reading, Some(skraft_kernel::Progress::Reading));
     // Read and inserted: its meshes asked as part of the load.
     k.run_all();
     assert!(e.poll());
@@ -1580,7 +1580,7 @@ fn operations_without_kernel_are_immediate() {
 
 #[test]
 fn a_deliberate_kernel_crash_is_reported_and_the_next_job_runs() {
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
     e.crash_kernel();
     let s = e.status();
     assert!(s.contains("Plantage provoqué") && s.contains("plantage voulu"), "{s}");
@@ -1855,7 +1855,7 @@ fn a_part_opens_with_its_axes_the_rest_faded() {
 #[test]
 fn an_open_part_shows_its_blank_as_a_ghost_and_its_tools() {
     use glam::DAffine3;
-    use solidsketch_model::Scope;
+    use skraft_model::Scope;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
@@ -1931,7 +1931,7 @@ fn an_open_part_shows_its_blank_as_a_ghost_and_its_tools() {
 #[test]
 fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     use glam::DAffine3;
-    use solidsketch_model::Scope;
+    use skraft_model::Scope;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
@@ -2031,7 +2031,7 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
 #[test]
 fn a_machining_moved_stays_drawn_where_it_goes_while_the_kernel_computes() {
     use glam::DAffine3;
-    use solidsketch_model::Scope;
+    use skraft_model::Scope;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
@@ -2089,7 +2089,7 @@ fn a_machining_moved_stays_drawn_where_it_goes_while_the_kernel_computes() {
 #[test]
 fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
     use glam::DAffine3;
-    use solidsketch_model::Scope;
+    use skraft_model::Scope;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
@@ -2144,7 +2144,7 @@ fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
 #[test]
 fn exact_sizes_of_tools_and_blanks() {
     use glam::DAffine3;
-    use solidsketch_model::Scope;
+    use skraft_model::Scope;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let rod = e
@@ -2213,7 +2213,7 @@ fn the_tape_tells_the_edge_hovered() {
 
 #[test]
 fn the_tape_measures_and_draws_guides() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
@@ -2298,7 +2298,7 @@ fn the_tape_measures_and_draws_guides() {
 
 #[test]
 fn the_tape_draws_the_kind_of_guide_chosen() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
@@ -2374,7 +2374,7 @@ fn the_tape_draws_the_kind_of_guide_chosen() {
 
 #[test]
 fn at_a_crossing_the_other_modifier_picks_the_guide() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let add = |e: &mut Editor, shape| {
@@ -2425,7 +2425,7 @@ fn at_a_crossing_the_other_modifier_picks_the_guide() {
 
 #[test]
 fn the_tape_draws_a_tangent_from_the_end_of_an_arc_and_marks_its_reference() {
-    use solidsketch_model::{GuideShape, Scope};
+    use skraft_model::{GuideShape, Scope};
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let add = |e: &mut Editor, primitive| {
@@ -2492,7 +2492,7 @@ fn the_tape_draws_a_tangent_from_the_end_of_an_arc_and_marks_its_reference() {
 
 #[test]
 fn a_guide_drawn_in_an_open_part_is_the_part_s() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::new(100.0, 100.0, 0.0), DVec3::new(400.0, 300.0, 0.0), "50");
     e.input(ToolInput::DoubleClick { px: px(&e, DVec3::new(200.0, 200.0, 50.0)), mods: Modifiers::default() });
@@ -2527,7 +2527,7 @@ fn hover(e: &mut Editor, p: DVec3) {
 
 #[test]
 fn the_tape_starts_a_guide_from_a_guide() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let line = GuideShape::Line { origin: DVec3::new(0.0, -300.0, 0.0), dir: DVec3::X };
@@ -2562,7 +2562,7 @@ fn the_tape_starts_a_guide_from_a_guide() {
 
 #[test]
 fn guides_are_selected_moved_copied_and_erased() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 200.0, 0.0), "50");
@@ -2634,7 +2634,7 @@ fn guides_are_selected_moved_copied_and_erased() {
 
 #[test]
 fn an_open_part_s_guides_are_its_own_to_select() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 0.0), "50");
     let part = e.document().resolve(&EntityPath::root(a)).unwrap().component;
@@ -2655,7 +2655,7 @@ fn an_open_part_s_guides_are_its_own_to_select() {
 
 #[test]
 fn a_guide_from_a_level_edge_is_offset_level_in_the_void() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "100");
@@ -2705,7 +2705,7 @@ fn x_rays(p: &crate::tools::Preview) -> Vec<crate::draw::Line> {
 
 #[test]
 fn the_tape_draws_a_guide_from_an_axis() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     e.set_tool(ToolKind::Measure);
@@ -2810,7 +2810,7 @@ fn drilled_board_editor(xs: &[f64]) -> (Editor, Id) {
             .unwrap();
         let tool = EntityPath::root(out.created[0]);
         d = next
-            .apply(&Operation::Boolean { target: EntityPath::root(a), tool, op: Boolean::Difference, scope: solidsketch_model::Scope::All })
+            .apply(&Operation::Boolean { target: EntityPath::root(a), tool, op: Boolean::Difference, scope: skraft_model::Scope::All })
             .unwrap()
             .0;
     }
@@ -2938,7 +2938,7 @@ fn stretch_tool_shows_the_locks_at_once() {
     // The board's length locked: its padlock drawn as soon as the tool takes the board.
     let (mut e, a) = drilled_board_editor(&[]);
     let part = e.document().resolve(&EntityPath::root(a)).unwrap().component;
-    let behavior = solidsketch_model::Behavior { no_stretch: solidsketch_model::StretchMask(1), cutters: None };
+    let behavior = skraft_model::Behavior { no_stretch: skraft_model::StretchMask(1), cutters: None };
     e.apply(Operation::SetBehavior { component: part, behavior }).unwrap();
     let padlock = |e: &Editor| e.overlay_points().iter().any(|p| p.shape == crate::tools::PointShape::Padlock);
     // Started on the selection: before any input.
@@ -3114,7 +3114,7 @@ fn a_compressed_preview_turns_no_triangle_over() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 150.0, 18.0)) });
     // Each triangle faces the way of its vertices' normals (the surface's, which a stretch along
     // the axis keeps), as before.
-    let turned = |m: &solidsketch_model::kernel::Mesh| {
+    let turned = |m: &skraft_model::kernel::Mesh| {
         let p = |i: u32| DVec3::from_array(m.positions[i as usize].map(f64::from));
         let n = |i: u32| DVec3::from_array(m.normals[i as usize].map(f64::from));
         m.indices
@@ -3296,7 +3296,7 @@ fn stretch_tool_gathers_occurrences_while_shift_is_held() {
 
 #[test]
 fn stretch_tool_stretches_a_prism_with_fillets_along_its_height() {
-    use solidsketch_kernel::profile;
+    use skraft_kernel::profile;
     // A triangle with rounded corners, 50 high, seen from above: its top grip, overall 80.
     let mut e = top_editor(Document::new());
     let root = e.document().root();
@@ -3578,7 +3578,7 @@ fn meshes_taken_in_leave_the_scene_a_sync_would() {
 
 #[test]
 fn erase_tool_erases_what_it_is_clicked_or_dragged_over() {
-    use solidsketch_model::GuideShape;
+    use skraft_model::GuideShape;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
@@ -3640,7 +3640,7 @@ fn erase_tool_erases_what_it_is_clicked_or_dragged_over() {
 #[test]
 fn erase_tool_erases_the_open_part_s_machinings() {
     use glam::DAffine3;
-    use solidsketch_model::Scope;
+    use skraft_model::Scope;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
@@ -4362,7 +4362,7 @@ fn board_profile_editor() -> (Editor, Id) {
     (e, id)
 }
 
-fn blank_profile(e: &Editor, id: Id) -> solidsketch_model::BodyProfile {
+fn blank_profile(e: &Editor, id: Id) -> skraft_model::BodyProfile {
     let p = e.document().resolve_part(&EntityPath::root(id)).unwrap().1;
     p.profile_of(p.profiled().unwrap()).cloned().unwrap()
 }
@@ -4491,11 +4491,11 @@ fn profile_corner_deleted_crossing_refused_disc_radius() {
     click(&mut e, grip);
     assert!(e.vcb().is_some_and(|(l, _)| l == "Rayon"), "{:?}", e.vcb());
     click(&mut e, centre + (grip - centre) * 1.5);
-    let (_, r) = solidsketch_model::kernel::profile::circle(&blank_profile(&e, rod).profile).expect("a disc still");
+    let (_, r) = skraft_model::kernel::profile::circle(&blank_profile(&e, rod).profile).expect("a disc still");
     assert!((r - 150.0).abs() < 0.5, "{r}");
     click(&mut e, centre + (grip - centre) * 1.5);
     e.input(ToolInput::Vcb("80".into()));
-    let (_, r) = solidsketch_model::kernel::profile::circle(&blank_profile(&e, rod).profile).expect("a disc still");
+    let (_, r) = skraft_model::kernel::profile::circle(&blank_profile(&e, rod).profile).expect("a disc still");
     assert!((r - 80.0).abs() < 1e-9, "{r}");
     let (lo, hi) = mesh_bounds_of(&e, &EntityPath::root(rod));
     assert!(((hi - lo).x - 160.0).abs() < 1.0 && ((hi - lo).y - 160.0).abs() < 1.0, "{lo} {hi}");
@@ -4503,7 +4503,7 @@ fn profile_corner_deleted_crossing_refused_disc_radius() {
 
 #[test]
 fn profile_fillet_grip_rounds_a_corner_and_makes_it_sharp_again() {
-    use solidsketch_model::kernel::profile;
+    use skraft_model::kernel::profile;
     let (mut e, id) = board_profile_editor();
     let fillet_grips = |e: &Editor| e.overlay_points().into_iter().filter(|p| p.radius == 4.0 && p.shape == PointShape::Round).count();
     assert_eq!(fillet_grips(&e), 0, "no fillet grip before a corner is hovered");
@@ -4922,24 +4922,24 @@ fn standard_views_are_in_the_active_frame() {
 /// Parts seen as before §2.11 (a blank and its machinings), for these tests.
 pub(crate) trait PartExt {
     /// The first positive body's solid.
-    fn blank(&self) -> std::sync::Arc<solidsketch_model::kernel::Solid>;
+    fn blank(&self) -> std::sync::Arc<skraft_model::kernel::Solid>;
     /// The negative bodies.
-    fn machinings(&self) -> Vec<solidsketch_model::Body>;
+    fn machinings(&self) -> Vec<skraft_model::Body>;
 }
 
-impl PartExt for solidsketch_model::Part {
-    fn blank(&self) -> std::sync::Arc<solidsketch_model::kernel::Solid> {
+impl PartExt for skraft_model::Part {
+    fn blank(&self) -> std::sync::Arc<skraft_model::kernel::Solid> {
         self.solid_of(self.positives().next().unwrap()).clone()
     }
 
-    fn machinings(&self) -> Vec<solidsketch_model::Body> {
+    fn machinings(&self) -> Vec<skraft_model::Body> {
         self.negatives().cloned().collect()
     }
 }
 
 #[test]
 fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_part() {
-    use solidsketch_model::Sign;
+    use skraft_model::Sign;
     let mut e = top_editor(Document::new());
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
     let path = EntityPath::root(board);
@@ -5018,7 +5018,7 @@ fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_
 #[test]
 fn stretch_tool_stretches_the_bodies_selected_alone() {
     use glam::DAffine3;
-    use solidsketch_model::{Scope, Sign};
+    use skraft_model::{Scope, Sign};
     let mut e = top_editor(Document::new());
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
     let path = EntityPath::root(board);
@@ -5046,7 +5046,7 @@ fn stretch_tool_stretches_the_bodies_selected_alone() {
     e.input(ToolInput::Vcb("120".into()));
     let p = e.document().resolve_part(&path).unwrap().1;
     let b = p.body(block).unwrap();
-    assert_eq!(solidsketch_model::kernel::profile::bounds(&p.profile_of(b).unwrap().profile).unwrap().1, DVec2::new(120.0, 100.0));
+    assert_eq!(skraft_model::kernel::profile::bounds(&p.profile_of(b).unwrap().profile).unwrap().1, DVec2::new(120.0, 100.0));
     assert_eq!(p.positives().next().unwrap(), &board_body, "the board untouched");
     assert!((p.shape().bounds().unwrap().1.x - 420.0).abs() < 1e-6, "{}", e.status());
     assert_eq!(e.open_part(), Some(board));
@@ -5201,7 +5201,7 @@ fn shift_plus_minus_step_the_copies_count() {
 #[test]
 fn copy_along_a_line_takes_the_bodies_of_the_open_part() {
     use glam::DAffine3;
-    use solidsketch_model::Scope;
+    use skraft_model::Scope;
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 200.0, 0.0), "18");
@@ -5519,7 +5519,7 @@ fn drag_tool(e: &mut Editor, a: DVec3, b: DVec3) {
 
 #[test]
 fn a_drag_is_click_move_click_in_the_shape_tools() {
-    use solidsketch_i18n::t;
+    use skraft_i18n::t;
     let (copy_key, alt_key) = (crate::tools::copy_key(), crate::tools::alt_key());
     let mut e = top_editor(Document::new());
 
@@ -5741,7 +5741,7 @@ fn with_ask_name_the_dialog_opens_and_the_name_joins_the_creation() {
 
 #[test]
 fn a_group_of_bodies_opens_like_a_part_and_closes_onto_its_parent() {
-    use solidsketch_model::{Scope, Sign};
+    use skraft_model::{Scope, Sign};
     let mut e = top_editor(Document::new());
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
     let target = EntityPath::root(board);
@@ -5793,7 +5793,7 @@ fn a_group_of_bodies_opens_like_a_part_and_closes_onto_its_parent() {
 
 #[test]
 fn machinings_inside_groups_show_with_their_group() {
-    use solidsketch_model::{Scope, Sign};
+    use skraft_model::{Scope, Sign};
     let mut e = top_editor(Document::new());
     let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 50.0, 0.0), "18");
     let target = EntityPath::root(board);
@@ -5822,7 +5822,7 @@ fn machinings_inside_groups_show_with_their_group() {
 
 #[test]
 fn previous_and_next_view_go_through_the_views() {
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     assert!(!e.previous_view(), "nothing before the first view");
     let first = e.camera.clone();
@@ -6020,7 +6020,7 @@ fn parts_at_any_depth_move_in_their_assembly_all_copies_or_this_one() {
     e.undo();
 
     // « Only this one »: the copy reached made unique, the other stays; one undo step.
-    e.set_part_scope(solidsketch_model::Scope::This);
+    e.set_part_scope(skraft_model::Scope::This);
     click(&mut e, DVec3::new(50.0, 50.0, 50.0));
     click(&mut e, DVec3::new(50.0, 50.0, 50.0));
     e.input(ToolInput::Key { key: Key::Right, mods: none });
@@ -6260,7 +6260,7 @@ fn draw_in_makes_the_part_in_the_assembly_of_the_part_picked_with_its_material()
 #[test]
 fn draw_in_only_this_copy_makes_the_assembly_unique_first() {
     let (mut e, [_, _, _, g, g2], _) = draw_in_editor();
-    e.set_part_scope(solidsketch_model::Scope::This);
+    e.set_part_scope(skraft_model::Scope::This);
     box_on_a(&mut e);
     let doc = e.document();
     let (one, two) = (doc.resolve(&EntityPath::root(g)).unwrap().component, doc.resolve(&EntityPath::root(g2)).unwrap().component);
@@ -6342,7 +6342,7 @@ fn the_part_tools_share_their_settings_as_ocl() {
 /// An editor where `n` boxes were added then deleted, one after the other: its history holds
 /// each alone, in the state before its deletion.
 fn editor_with_deleted_boxes(n: usize) -> Editor {
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
     let root = e.document().root();
     for i in 0..n {
         let primitive = Primitive::Box { origin: DVec3::X * 50.0 * i as f64, size: DVec3::splat(10.0) };

@@ -2,15 +2,15 @@
 //!
 //! The tool says what it takes now ([`Vcb`]: lengths, an angle, a count of copies, and
 //! whether a point does too) with its current values; the editor reads what is typed with
-//! [`solidsketch_model::measure`] — expressions (`2m*(2+3)`, `min(@; 300)`), `@` for the current
+//! [`skraft_model::measure`] — expressions (`2m*(2+3)`, `min(@; 300)`), `@` for the current
 //! value, `;` lists with `=` to repeat, points `[x;y;z]` and `<dx;dy;dz>` — and gives the tool a
 //! [`VcbValue`]. Every list typed (lengths, counts, spacings, a point's coordinates) is read by
 //! [`measure::list`], values beyond those taken left out. A bare number is in the document's
 //! unit; `,` and `.` are both decimal points, unless `,` is the system's list separator.
 
 use glam::{DAffine3, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::{Units, measure};
+use skraft_i18n::t;
+use skraft_model::{Units, measure};
 
 /// What the measurements box takes now.
 #[derive(Clone, Debug, PartialEq)]
@@ -222,7 +222,7 @@ fn spacings(vcb: &Vcb, text: &str) -> Option<Vec<measure::Item>> {
 
 pub fn repeat(s: &str) -> Option<Repeat> {
     let t: String = s.trim().to_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
-    let n = |x: &str| x.parse::<u32>().ok().filter(|n| (1..=solidsketch_model::MAX_ARRAY).contains(n));
+    let n = |x: &str| x.parse::<u32>().ok().filter(|n| (1..=skraft_model::MAX_ARRAY).contains(n));
     let strip = |marks: &[char]| marks.iter().find_map(|m| t.strip_suffix(*m).or_else(|| t.strip_prefix(*m)));
     if let Some(x) = strip(&['x', '*']) {
         return n(x).map(Repeat::Times);
@@ -239,16 +239,16 @@ pub fn format(v: f64, units: &Units) -> String {
 pub fn format_angle(a: f64) -> String {
     let d = (a.to_degrees() * 10.0).round() / 10.0;
     // Below 1e-4° (under 2 µm at a metre, as precise as the lengths), float noise.
-    let approx = if (d - a.to_degrees()).abs() > 1e-4 { solidsketch_model::APPROX } else { "" };
+    let approx = if (d - a.to_degrees()).abs() > 1e-4 { skraft_model::APPROX } else { "" };
     let d = if d == 0.0 { 0.0 } else { d };
-    solidsketch_i18n::number(&format!("{approx}{d}°"))
+    skraft_i18n::number(&format!("{approx}{d}°"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use solidsketch_model::LengthUnit;
+    use skraft_model::LengthUnit;
 
     #[test]
     fn reads_for_the_tool() {
@@ -291,7 +291,7 @@ mod tests {
         assert_eq!(read(&distribute, "10=", &mm, &id), Ok(VcbValue::Spacings(vec![Some(10.0), Some(10.0)])));
         assert_eq!(read(&distribute, "40", &mm, &id), Ok(VcbValue::Lengths(vec![40.0])));
         // On a system writing `12.5`, `,` separates too, and lists are written with it.
-        solidsketch_i18n::with_separators('.', None, || {
+        skraft_i18n::with_separators('.', None, || {
             assert_eq!(read(&grid, "5x,3x", &mm, &id), Ok(VcbValue::Counts(vec![times(5), times(3)])));
             assert_eq!(read(&grid, "12.5,3", &mm, &id), Ok(VcbValue::Lengths(vec![12.5, 3.0])));
             assert_eq!(read(&grid, "60;4", &mm, &id), Ok(VcbValue::Lengths(vec![60.0, 4.0])), "`;` always");

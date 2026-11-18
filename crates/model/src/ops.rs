@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
-use solidsketch_i18n::t;
-use solidsketch_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
+use skraft_i18n::t;
+use skraft_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
 
 use std::collections::BTreeSet;
 
@@ -554,7 +554,7 @@ impl Document {
     pub fn apply(&self, op: &Operation) -> Result<(Document, Outcome)> {
         let applied = match self.prepare(op)? {
             Prepared::Done(a) => *a,
-            Prepared::Kernel(job) => self.commit(op, solidsketch_kernel::run(&job)?)?,
+            Prepared::Kernel(job) => self.commit(op, skraft_kernel::run(&job)?)?,
         };
         Ok((applied.document, applied.outcome))
     }
@@ -1186,7 +1186,7 @@ impl Document {
                 Ok(Outcome { bodies: created, ..Outcome::default() })
             }
             Operation::Stretch { context, occurrences, frame, axis, cuts, moves, scope, cutters } => {
-                let stretch = Stretch::new(*axis, cuts.clone(), moves.clone()).map_err(solidsketch_kernel::Error::from)?;
+                let stretch = Stretch::new(*axis, cuts.clone(), moves.clone()).map_err(skraft_kernel::Error::from)?;
                 let stretched = self
                     .stretch_tree(context, occurrences, frame, &stretch, *scope, &mut |doc, part, s| doc.stretch_part(part, s, solver))?;
                 if let (Some(cutters), [o]) = (cutters, &occurrences[..]) {
@@ -1205,7 +1205,7 @@ impl Document {
                 if !is_rigid(frame) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                let stretch = Stretch::new(*axis, cuts.clone(), moves.clone()).map_err(solidsketch_kernel::Error::from)?;
+                let stretch = Stretch::new(*axis, cuts.clone(), moves.clone()).map_err(skraft_kernel::Error::from)?;
                 // In the part's axes.
                 let stretch = stretch.in_frame(&frame.inverse());
                 let (part, guides, ids) = self.bodies_of(target, bodies, *scope)?;
@@ -1977,7 +1977,7 @@ impl Solver for Recorder {
     /// Refused here already when the record cannot be stretched: the operation is refused when
     /// prepared, not when the kernel answers.
     fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>> {
-        stretch.apply(solid).map_err(solidsketch_kernel::Error::from)?;
+        stretch.apply(solid).map_err(skraft_kernel::Error::from)?;
         let solid = self.input(solid);
         self.task(Task::Stretch { solid, stretch: stretch.clone() })
     }

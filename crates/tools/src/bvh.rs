@@ -350,7 +350,7 @@ mod tests {
 
     /// Build and queries over a few scenes where the index is tested: per ray and per region,
     /// how many items reach the caller and how long it takes (ignored; run with
-    /// `cargo test -p solidsketch-tools --release bench_bvh -- --ignored --nocapture`).
+    /// `cargo test -p skraft-tools --release bench_bvh -- --ignored --nocapture`).
     #[test]
     #[ignore]
     fn bench_bvh() {

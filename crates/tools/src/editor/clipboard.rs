@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
-use solidsketch_model::{BodyFragment, Document, GuideShape, Operation};
+use skraft_model::{BodyFragment, Document, GuideShape, Operation};
 
 use super::{After, Editor};
 use crate::ToolKind;

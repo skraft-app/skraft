@@ -1,17 +1,17 @@
 [package]
-name = "solidsketch-render"
-description = "SolidSketch: the wgpu viewport renderer (definition meshes drawn instanced, edges, grid, axes, highlights, previews), off-screen and UI-agnostic"
+name = "skraft-render"
+description = "Skraft: the wgpu viewport renderer (definition meshes drawn instanced, edges, grid, axes, highlights, previews), off-screen and UI-agnostic"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-solidsketch-kernel.workspace = true
+skraft-kernel.workspace = true
 wgpu.workspace = true
 glam.workspace = true
 bytemuck.workspace = true
 
 [dev-dependencies]
-solidsketch-kernel = { workspace = true, features = ["engine"] }
+skraft-kernel = { workspace = true, features = ["engine"] }
 pollster.workspace = true
 png = "0.17"

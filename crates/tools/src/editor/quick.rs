@@ -5,7 +5,7 @@
 //! app where [`Editor::quick_card`] says.
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_model::{EntityPath, Id, Operation, Outcome};
+use skraft_model::{EntityPath, Id, Operation, Outcome};
 
 use super::Editor;
 use crate::tools::{self, Command, Key, Tool, ToolInput, ToolKind, handle};
