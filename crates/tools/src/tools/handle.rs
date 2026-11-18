@@ -9,7 +9,7 @@ use skraft_i18n::t;
 use skraft_model::{Body, EntityPath, Id, Occurrence, Part};
 
 use super::{BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, RED, ToolInput, ToolOption, copy_key};
-use crate::draw::{Drawer, Ends, Pen};
+use crate::draw::{BoxStyle, Drawer, Ends, Pen};
 use crate::vcb::Repeat;
 
 /// Shift with `+` / `−` (OCL's SmartHandle): the count one more or one fewer, never below one,
@@ -201,13 +201,21 @@ pub(super) struct Target {
     /// The box, in `frame`.
     pub lo: DVec3,
     pub hi: DVec3,
+    /// What is copied is one part (or body) that is that box exactly: its box is not drawn.
+    pub filled: bool,
+}
+
+/// Is the solid `s`, placed in the target's axes by `t`, exactly the target's box: a box square
+/// to them (its box then read exact, not from its mesh)?
+fn fills(s: &skraft_kernel::Solid, t: DAffine3) -> bool {
+    square(&t.matrix3) && s.fills_its_box()
 }
 
 impl Target {
     /// The selection `ids`, in the axes `axes`; none without an occurrence (or a body) in it.
     pub fn of(cx: &Cx<'_>, ids: &[Id], axes: Axes) -> Option<Target> {
         let to_world = |in_context: DAffine3| (in_context, cx.context_transform * in_context);
-        let (frame, lo, hi) = if cx.machinings_shown() {
+        let (frame, lo, hi, filled) = if cx.machinings_shown() {
             let (_, part, part_to_world) = cx.doc.resolve_container(&cx.open_part_path()?).ok()?;
             let bodies: Vec<&Body> = ids.iter().filter_map(|id| part.body(*id)).collect();
             let in_part = match (axes, &bodies[..]) {
@@ -217,7 +225,8 @@ impl Target {
                 _ => DAffine3::IDENTITY,
             };
             let (lo, hi) = bodies_bounds(cx, &part, &bodies, in_part)?;
-            (part_to_world * in_part, lo, hi)
+            let filled = matches!(&bodies[..], [b] if fills(part.solid_of(b), in_part.inverse() * b.placement));
+            (part_to_world * in_part, lo, hi, filled)
         } else {
             if cx.open_part.is_some() {
                 return None;
@@ -231,10 +240,11 @@ impl Target {
                 _ => DAffine3::IDENTITY,
             };
             let (lo, hi) = occurrences_bounds(cx, cx.context, &occs, in_context)?;
+            let filled = matches!(&occs[..], [o] if cx.doc.part(o.component).is_ok_and(|p| fills(p.shape(), in_context.inverse() * o.transform)));
             let (_, frame) = to_world(in_context);
-            (frame, lo, hi)
+            (frame, lo, hi, filled)
         };
-        Some(Target { entities: ids.to_vec(), moved: cx.moved(), frame, lo, hi })
+        Some(Target { entities: ids.to_vec(), moved: cx.moved(), frame, lo, hi, filled })
     }
 
     /// The parts `paths` selected at any depth (« Parts », docs/tools/selection.md), in the
@@ -259,7 +269,16 @@ impl Target {
             b = Some(b.map_or((lo, hi), |(l, h)| (l.min(lo), h.max(hi))));
         }
         let (lo, hi) = b?;
-        Some(Target { entities: Vec::new(), moved, frame, lo, hi })
+        let filled = match paths {
+            [p] => (|| {
+                let o = cx.doc.resolve(p).ok()?;
+                let to_world = cx.doc.transform_of(&p.instances).ok()? * o.transform;
+                Some(fills(cx.doc.part(o.component).ok()?.shape(), frame.inverse() * to_world))
+            })()
+            .unwrap_or(false),
+            _ => false,
+        };
+        Some(Target { entities: Vec::new(), moved, frame, lo, hi, filled })
     }
 
     pub fn center(&self) -> DVec3 {
@@ -345,21 +364,23 @@ pub(super) fn draw_measure(cx: &Cx<'_>, d: &mut Drawer<'_>, a: DVec3, b: DVec3, 
     d.pen(Pen::new(color).over().dashed().bold_if(cx.axis_lock.is_some())).line(a, b);
 }
 
-/// The box `lo`–`hi` placed by `to_world`, dashed, in the scene, its front over it (OCL's
-/// `shell_on_top`).
-pub(super) fn draw_box(d: &mut Drawer<'_>, to_world: DAffine3, lo: DVec3, hi: DVec3, color: [f32; 4]) {
+/// The box of `target` placed by `to_world`, dotted in ink, in the scene (hidden behind faces: no front
+/// drawn over them, OCL's `shell_on_top`); none when what is copied fills it.
+pub(super) fn draw_box(d: &mut Drawer<'_>, target: &Target, to_world: DAffine3) {
+    if target.filled {
+        return;
+    }
     d.in_frame(to_world, |d| {
-        d.pen(Pen::new(color).dashed()).box_(lo, hi);
+        d.pen(Pen::new(super::INK).dotted()).box_styled(target.lo, target.hi, BoxStyle { corners: None, shell_on_top: false });
     });
 }
 
-/// The boxes of the copies at the world transforms `copies` (not too many), in `color`, and
-/// the source's in ink.
-pub(super) fn draw_boxes(d: &mut Drawer<'_>, target: &Target, copies: &[DAffine3], color: [f32; 4]) {
-    draw_box(d, target.frame, target.lo, target.hi, super::INK);
+/// The source's box and the copies' at the world transforms `copies` (not too many).
+pub(super) fn draw_boxes(d: &mut Drawer<'_>, target: &Target, copies: &[DAffine3]) {
+    draw_box(d, target, target.frame);
     if copies.len() <= MAX_BOXES {
         for c in copies {
-            draw_box(d, *c * target.frame, target.lo, target.hi, color);
+            draw_box(d, target, *c * target.frame);
         }
     }
 }

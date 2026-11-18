@@ -241,6 +241,24 @@ impl Solid {
         Some(it.fold((first, first), |(lo, hi), p| (lo.min(p), hi.max(p))))
     }
 
+    /// Is it exactly its axis-aligned box ([`Solid::vertex_bounds`]): one piece, six planar
+    /// faces square to its axes on the box's sides, its eight vertices the box's corners? Read
+    /// from the record (a box drawn around it adds nothing: docs/tools/copy-array.md).
+    pub fn fills_its_box(&self) -> bool {
+        let r = &self.record;
+        let Some((lo, hi)) = self.vertex_bounds() else { return false };
+        if r.faces.len() != 6 || r.vertices.len() != 8 || self.pieces() != 1 {
+            return false;
+        }
+        let tol = (hi - lo).max_element() * 1e-9 + r.tolerance;
+        let on_side = |x: f64, k: usize| (x - lo[k]).abs() <= tol || (x - hi[k]).abs() <= tol;
+        let corners = r.vertices.iter().all(|v| (0..3).all(|k| on_side(v.point[k], k)));
+        let planes: Vec<Plane> = self.planes().collect();
+        let sides = planes.len() == 6
+            && planes.iter().all(|p| (0..3).find(|k| (p.normal[*k].abs() - 1.0).abs() <= 1e-9).is_some_and(|k| on_side(p.point[k], k)));
+        corners && sides
+    }
+
     /// Does it hold nothing (no face)?
     pub fn is_empty(&self) -> bool {
         self.record.faces.is_empty()
