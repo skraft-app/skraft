@@ -41,3 +41,4 @@ state and link the records behind it.
 | 0032 | [Dashes laid on the segment, in model units, the guides' on screen](0032-dashes-laid-on-the-segment.md) | accepted (2026-11-18) |
 | 0033 | [The undo history is capped by memory](0033-history-memory-cap.md) | accepted (2026-11-18) |
 | 0034 | [Section caps: colour from the back faces, extent from a stencil](0034-section-caps-from-back-faces-and-stencil.md) | accepted (2026-11-18) |
+| 0035 | [Custom cursors through a winit fork](0035-custom-cursors-winit-fork.md) | accepted (2026-11-18) |

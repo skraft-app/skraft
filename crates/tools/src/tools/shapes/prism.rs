@@ -1159,6 +1159,11 @@ impl Tool for PrismTool {
         if self.turning { ToolKind::Turn } else { ToolKind::Prism }
     }
 
+    /// OCL's pencil, then its `STATE_PULL` (the prism's height).
+    fn cursor(&self, _cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if matches!(self.state, State::Height { .. }) { crate::tools::Cursor::Pull } else { crate::tools::Cursor::PencilPolygon })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         if !self.turning {
             return self.input_pulled(input, cx);

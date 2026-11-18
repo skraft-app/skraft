@@ -191,6 +191,8 @@ fn tool_state(e: &Editor) -> Answer {
         "busy": e.busy(),
         "revision": e.history().revision(),
         "copying": e.tool_copying(),
+        // The tool's own cursor at its step (docs/ui/cursors.md); null: the system's.
+        "cursor": e.tool_cursor().map(|c| format!("{c:?}")),
         "vcb": e.vcb().map(|(label, shown)| json!({ "label": label, "shown": shown })),
         "takes_typing": e.takes_typing(),
         "axis_lock": e.axis_lock(),

@@ -953,6 +953,70 @@ pub enum DragClicks {
     PressAndRelease,
 }
 
+/// A mouse cursor of the app, as OpenCutList's (`SmartCursorManager`): the tool's at its step,
+/// the app drawing it (docs/ui/cursors.md). None: the system's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Cursor {
+    /// The arrow (Select, a step that picks with no cursor of its own).
+    Select,
+    /// The pick step of a tool acting on parts (OCL's `STATE_SELECT`).
+    SelectPart,
+    /// Shift held while picking: adding or removing (`STATE_SELECT_MULTIPLE`).
+    SelectPlusMinus,
+    /// A selection rectangle dragged (`STATE_SELECT_RECT`).
+    SelectRect,
+    SelectCopyLine,
+    SelectCopyGrid,
+    SelectDistribute,
+    SelectStretch,
+    /// The booleans: the target (a), then the tool part (b).
+    SelectUniteA,
+    SelectUniteB,
+    SelectSubtractA,
+    SelectSubtractB,
+    SelectIntersectA,
+    SelectIntersectB,
+    /// Moving (Move), copying (Move with its copy toggle).
+    Move,
+    MoveCopy,
+    /// The shape tools' first steps, then their height (OCL's `STATE_PULL`).
+    PencilRectangle,
+    PencilCircle,
+    PencilPolygon,
+    Pull,
+    /// Paint: occurrences, faces.
+    PaintPart,
+    PaintFace,
+}
+
+impl Cursor {
+    /// Every cursor.
+    pub const ALL: [Cursor; 22] = [
+        Cursor::Select,
+        Cursor::SelectPart,
+        Cursor::SelectPlusMinus,
+        Cursor::SelectRect,
+        Cursor::SelectCopyLine,
+        Cursor::SelectCopyGrid,
+        Cursor::SelectDistribute,
+        Cursor::SelectStretch,
+        Cursor::SelectUniteA,
+        Cursor::SelectUniteB,
+        Cursor::SelectSubtractA,
+        Cursor::SelectSubtractB,
+        Cursor::SelectIntersectA,
+        Cursor::SelectIntersectB,
+        Cursor::Move,
+        Cursor::MoveCopy,
+        Cursor::PencilRectangle,
+        Cursor::PencilCircle,
+        Cursor::PencilPolygon,
+        Cursor::Pull,
+        Cursor::PaintPart,
+        Cursor::PaintFace,
+    ];
+}
+
 /// An interactive tool.
 pub trait Tool {
     fn kind(&self) -> ToolKind;
@@ -967,6 +1031,10 @@ pub trait Tool {
     /// Does the tool copy rather than move (the cursor shows a « + »)?
     fn copying(&self) -> bool {
         false
+    }
+    /// The cursor at the tool's step now (docs/ui/cursors.md); none: the system's.
+    fn cursor(&self, _cx: &Cx<'_>) -> Option<Cursor> {
+        None
     }
     /// Is an operation under way (Esc cancels it rather than clearing the selection)?
     fn busy(&self) -> bool;

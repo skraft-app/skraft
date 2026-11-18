@@ -90,6 +90,10 @@ impl Tool for PaintTool {
         ToolKind::Paint
     }
 
+    fn cursor(&self, _cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if self.faces { crate::tools::Cursor::PaintFace } else { crate::tools::Cursor::PaintPart })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         self.faces = faces(cx);
         match input {

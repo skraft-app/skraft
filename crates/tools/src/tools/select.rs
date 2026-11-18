@@ -69,6 +69,16 @@ impl Tool for SelectTool {
         ToolKind::Select
     }
 
+    fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if self.marquee.is_some() {
+            crate::tools::Cursor::SelectRect
+        } else if cx.shift_down {
+            crate::tools::Cursor::SelectPlusMinus
+        } else {
+            crate::tools::Cursor::Select
+        })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         match input {
             ToolInput::Hover { px } => {

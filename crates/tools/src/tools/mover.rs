@@ -161,6 +161,16 @@ impl Tool for MoveTool {
         ToolKind::Move
     }
 
+    fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if self.picking() {
+            self.picker.cursor(cx, crate::tools::Cursor::SelectPart)
+        } else if self.copy {
+            crate::tools::Cursor::MoveCopy
+        } else {
+            crate::tools::Cursor::Move
+        })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         let out = self.input_state(input, cx);
         self.taken = self.picker.taken(cx);

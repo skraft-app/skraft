@@ -230,6 +230,11 @@ impl Tool for RotateTool {
         ToolKind::Rotate
     }
 
+    /// Picking; then the system's crosshair (OCL has no rotate cursor).
+    fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        self.picking().then(|| self.picker.cursor(cx, crate::tools::Cursor::SelectPart))
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         let out = self.input_state(input, cx);
         self.taken = self.picker.taken(cx);

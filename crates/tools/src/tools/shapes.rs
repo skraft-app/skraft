@@ -877,6 +877,11 @@ impl Tool for BoxTool {
         ToolKind::Box
     }
 
+    /// OCL's pencil, then its `STATE_PULL`.
+    fn cursor(&self, _cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if matches!(self.state, BoxState::Height { .. }) { crate::tools::Cursor::Pull } else { crate::tools::Cursor::PencilRectangle })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         self.centered = cx.toggle(CENTERED);
         self.pull_centered = cx.toggle(PULL_CENTERED);
@@ -1245,6 +1250,11 @@ impl CylinderTool {
 impl Tool for CylinderTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Cylinder
+    }
+
+    /// OCL's pencil, then its `STATE_PULL`.
+    fn cursor(&self, _cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if matches!(self.state, CylState::Height { .. }) { crate::tools::Cursor::Pull } else { crate::tools::Cursor::PencilCircle })
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {

@@ -484,6 +484,11 @@ impl Editor {
         self.tool.copying()
     }
 
+    /// The active tool's cursor at its step now (docs/ui/cursors.md); none: the system's.
+    pub fn tool_cursor(&self) -> Option<crate::tools::Cursor> {
+        self.tool.cursor(&self.cx())
+    }
+
     /// Is the active tool at its pick step (the cursor is then the arrow)?
     pub fn tool_picking(&self) -> bool {
         self.tool.picking()

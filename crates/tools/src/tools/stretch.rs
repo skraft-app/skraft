@@ -1350,6 +1350,11 @@ impl Tool for StretchTool {
         ToolKind::Stretch
     }
 
+    /// OCL's `STATE_SELECT`, `STATE_STRETCH_START` and `STATE_STRETCH` alike.
+    fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if self.picking() { self.picker.cursor(cx, crate::tools::Cursor::SelectStretch) } else { crate::tools::Cursor::SelectStretch })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         // Shift released: the selection made is taken.
         self.picker.shift_released(cx);

@@ -290,6 +290,11 @@ impl Tool for DistributeTool {
         ToolKind::Distribute
     }
 
+    /// OCL's `STATE_SELECT`; then the arrow.
+    fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if self.picking() { self.picker.cursor(cx, crate::tools::Cursor::SelectDistribute) } else { crate::tools::Cursor::Select })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         if self.picker.shift_released(cx) {
             self.last = None;
