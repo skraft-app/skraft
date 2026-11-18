@@ -9,6 +9,9 @@
 #   v<version>, its tag created on the run's commit (an existing Release of that tag is updated).
 #   One box per OS, all ticked by default, picks the builds (`-f windows=false`…); a tag push
 #   builds them all.
+# - The Release's text is the version's CHANGELOG.md entry (scripts/release-notes.sh, written
+#   with `/changelog` in Claude Code): a release without one stops at the Plan job, before the
+#   builds.
 name: Build and Publish Releases
 
 on:
@@ -50,6 +53,15 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v7
+      - name: Check the CHANGELOG.md entry
+        if: github.event_name != 'workflow_dispatch' || inputs.release
+        run: |
+          if ! notes="$(scripts/release-notes.sh)"; then
+            echo "::error::CHANGELOG.md has no entry for $(scripts/version.sh): write it (/changelog) before releasing"
+            exit 1
+          fi
+          printf '%s\n' "$notes"
       - id: plan
         env:
           ALL: ${{ github.event_name != 'workflow_dispatch' }}
@@ -139,6 +151,8 @@ jobs:
       # The tag pushed, else the one a manual run creates.
       - id: version
         run: echo "tag=v$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
+      - name: Release notes
+        run: scripts/release-notes.sh > "$RUNNER_TEMP/release-notes.md"
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -149,4 +163,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Skraft ${{ steps.version.outputs.tag }}
           files: dist/*
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
