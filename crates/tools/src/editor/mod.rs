@@ -659,15 +659,20 @@ impl Editor {
         let mut options = self.tool.options(&self.cx());
         if self.tool.picks_parts() && self.open_part.is_none() {
             let parts = self.pick_parts();
-            let choice = |value: &'static str, label: String, tip: String| tools::OptionChoice { value, label, tip, icon: None };
+            let choice = |value: &'static str, label: String, tip: String, icon: &'static str| tools::OptionChoice {
+                value,
+                label,
+                tip,
+                icon: Some(icon),
+            };
             options.push(ToolOption {
                 key: tools::PICK_SCOPE,
                 label: t!("selection_scope.label"),
                 tip: t!("selection_scope.tip"),
                 value: OptionValue::Choice(if parts { tools::PICK_PARTS } else { tools::PICK_CONTEXT }.into()),
                 choices: vec![
-                    choice(tools::PICK_CONTEXT, t!("selection_scope.context"), t!("selection_scope.context_tip")),
-                    choice(tools::PICK_PARTS, t!("selection_scope.parts"), t!("selection_scope.parts_tip")),
+                    choice(tools::PICK_CONTEXT, t!("selection_scope.context"), t!("selection_scope.context_tip"), "select_context"),
+                    choice(tools::PICK_PARTS, t!("selection_scope.parts"), t!("selection_scope.parts_tip"), "select_parts"),
                 ],
                 saved: true,
                 icon: None,
