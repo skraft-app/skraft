@@ -28,6 +28,10 @@ former behaviour: a corner moving alone.
 - A parametric sketch: stored constraints, driving dimensions, a solver. Left for later, if
   needed; the candidate solver is ezpz (KittyCAD, Rust, MIT). SolveSpace's libslvs is GPLv3: out.
 
+  *Note (2026-11-18):* Skraft is GPL-3.0-or-later since, so libslvs's licence no longer rules it
+  out. What remains against it is technical: a C++ library to build for every target, the web
+  one (`wasm32-unknown-unknown`) included, where ezpz is plain Rust.
+
 ## Consequences
 
 - A rectangle stays a rectangle, a trapezoid keeps its angles, a disc stays round, a fillet stays
