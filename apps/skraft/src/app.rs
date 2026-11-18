@@ -2506,6 +2506,8 @@ impl eframe::App for SkraftApp {
             }
             self.stored_prefs = self.prefs.clone();
         }
+        // Last: every widget has said its cursor (docs/ui/cursors.md).
+        crate::cursors::apply(&ctx);
     }
 }
 

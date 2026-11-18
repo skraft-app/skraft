@@ -46,9 +46,28 @@ fn source(cursor: Cursor) -> (&'static [u8], &'static str, [u32; 2]) {
     }
 }
 
+/// The view's cursor for this frame (the tool's), shown by [`apply`] at the frame's end.
+pub fn ask(ctx: &egui::Context, cursor: Cursor) {
+    ctx.data_mut(|d| d.insert_temp(asked_id(), Some(cursor)));
+}
+
+/// At the frame's end, once every widget has said its `CursorIcon`: the cursor the view asked
+/// for, else `select` where egui leaves the system's arrow (`CursorIcon::Default`), else the
+/// system's icon (text, resize, hand…). **Why:** one pointer over the whole window, the view's
+/// and the interface's alike.
+pub fn apply(ctx: &egui::Context) {
+    let asked = ctx.data_mut(|d| d.remove_temp::<Option<Cursor>>(asked_id())).flatten();
+    let arrow = ctx.output(|o| o.cursor_icon == egui::CursorIcon::Default);
+    show(ctx, asked.or(arrow.then_some(Cursor::Select)));
+}
+
+fn asked_id() -> egui::Id {
+    egui::Id::unique("cursor_asked")
+}
+
 /// Shows `cursor` over the pointer from this frame on, or the system's `CursorIcon` (none).
-/// Both keep from frame to frame: call it every frame the view is hovered, and with none when not.
-pub fn show(ctx: &egui::Context, cursor: Option<Cursor>) {
+/// Both keep from frame to frame: [`apply`] sets one or the other every frame.
+fn show(ctx: &egui::Context, cursor: Option<Cursor>) {
     #[cfg(not(target_arch = "wasm32"))]
     ctx.set_cursor_image(cursor.map(|c| native::image(c, native::scale(ctx))));
     #[cfg(target_arch = "wasm32")]
