@@ -96,6 +96,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         axes: decor,
         axes_frame: DMat4::IDENTITY,
         pixels_per_point: 1.0,
+        model_per_point: 1.0,
     };
     draw(r, device, queue, size, &frame)
 }
@@ -173,6 +174,7 @@ fn concave_edges_are_not_buried() {
         axes: false,
         axes_frame: DMat4::IDENTITY,
         pixels_per_point: 2.0,
+        model_per_point: 1.0,
     };
     let px = draw(&mut r, &device, &queue, size, &frame);
     save(&px, size, "pocket");
@@ -229,6 +231,7 @@ fn a_mirrored_placement_shows_its_outside() {
             axes: false,
             axes_frame: DMat4::IDENTITY,
             pixels_per_point: 1.0,
+            model_per_point: 1.0,
         };
         draw(&mut r, &device, &queue, SIZE, &frame)
     };
@@ -268,6 +271,7 @@ fn shot(
         axes: false,
         axes_frame: DMat4::IDENTITY,
         pixels_per_point: 1.0,
+        model_per_point: 1.0,
     };
     let mut enc = device.create_command_encoder(&Default::default());
     let drew = r.render(device, queue, &mut enc, SIZE, &frame);
@@ -312,6 +316,7 @@ fn a_still_frame_is_not_drawn_again() {
         axes: false,
         axes_frame: DMat4::IDENTITY,
         pixels_per_point: 1.0,
+        model_per_point: 1.0,
     };
     assert!(!r.render(&device, &queue, &mut enc, SIZE, &frame), "the same frame again");
     // The target still holds the picture.
@@ -461,6 +466,7 @@ fn a_cap_wins_over_a_part_lying_on_it() {
             axes: false,
             axes_frame: DMat4::IDENTITY,
             pixels_per_point: 1.0,
+            model_per_point: 1.0,
         };
         let px = draw(&mut r, &device, &queue, SIZE, &frame);
         save(&px, SIZE, name);
@@ -577,6 +583,7 @@ fn a_ghost_shows_what_it_holds() {
             axes: false,
             axes_frame: DMat4::IDENTITY,
             pixels_per_point: 1.0,
+            model_per_point: 1.0,
         };
         draw(r, &device, &queue, SIZE, &frame)
     };
@@ -620,6 +627,7 @@ fn faint_edges_are_see_through() {
             axes: false,
             axes_frame: DMat4::IDENTITY,
             pixels_per_point: 1.0,
+            model_per_point: 1.0,
         };
         draw(r, &device, &queue, SIZE, &frame)
     };
@@ -634,8 +642,9 @@ fn faint_edges_are_see_through() {
     assert!(faint > solid + 70 && faint < 235, "{solid} → {faint}");
 }
 
-/// A dashed line: dashes and gaps as long as asked, the pattern where it is said to be at the
-/// line's start. Where the device clamps depth, past the parallel projection's depth range too.
+/// A dashed line on screen (a guide's): dashes and gaps as long as asked, the pattern where it
+/// is said to be at the line's start. Where the device clamps depth, past the parallel
+/// projection's depth range too.
 #[test]
 fn dashed_lines_are_dashed_on_screen() {
     let Some((device, queue)) = device() else {
@@ -653,7 +662,7 @@ fn dashed_lines_are_dashed_on_screen() {
         a: DVec3::new(-150.0, 0.0, -z),
         b: DVec3::new(150.0, 0.0, z),
         color: [0.0, 0.0, 0.0, 1.0],
-        dash: Some(Dash::even(5.0, 2.0)),
+        dash: Some(Dash::even(5.0, Lay::Screen(2.0))),
         width: LINE_WIDTH,
     };
     let frame = Frame {
@@ -673,9 +682,10 @@ fn dashed_lines_are_dashed_on_screen() {
         axes: false,
         axes_frame: DMat4::IDENTITY,
         pixels_per_point: 1.0,
+        model_per_point: 1.0,
     };
     let px = draw(&mut r, &device, &queue, size, &frame);
-    save(&px, size, "dashes");
+    save(&px, size, "dashes_on_screen");
     // The line starts 50 px left of the picture: at pixel x, the pattern is at 2 + 50 + x. It
     // runs between two rows of pixels: each takes half its ink.
     let ink = |x: u32| (19..=20).map(|y| pixel(&px, size[0], x, y)[0]).min().unwrap();
@@ -686,6 +696,77 @@ fn dashed_lines_are_dashed_on_screen() {
             assert!(ink(x) < 200, "no dash at {x} ({at}): {}", ink(x));
             dashes += 1;
         } else if (6.0..9.0).contains(&at) {
+            assert!(ink(x) > 230, "no gap at {x} ({at}): {}", ink(x));
+            gaps += 1;
+        }
+    }
+    assert!(dashes > 40 && gaps > 40, "{dashes} {gaps}");
+}
+
+/// A dashed line: its dashes laid on it in model units, from the phase asked at its start, the
+/// period the power of two nearest to the pattern's length at the view's focus. Where the
+/// device clamps depth, past the parallel projection's depth range too (the line then running
+/// steeply away: many model units a pixel).
+#[test]
+fn dashed_lines_are_laid_in_model_units() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    // Looking down -Z, a pixel a unit, the plane z = 0 at depth 10 in a 5–15 range.
+    let size = [200, 40];
+    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let clamped = device.features().contains(wgpu::Features::DEPTH_CLIP_CONTROL);
+    let z = if clamped { 1000.0 } else { 2.0 };
+    let line = Line {
+        a: DVec3::new(-150.0, 0.0, -z),
+        b: DVec3::new(150.0, 0.0, z),
+        color: [0.0, 0.0, 0.0, 1.0],
+        dash: Some(Dash::even(5.0, Lay::Model(2.0))),
+        width: LINE_WIDTH,
+    };
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &[],
+        highlights: &[],
+        lines: &[line],
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &[],
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+        // A point at the focus: the line's model units a pixel.
+        model_per_point: line.a.distance(line.b) / 300.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "dashes");
+    // The line starts 50 px left of the picture, `k` model units a pixel (as at the focus): at
+    // pixel x, the pattern is at 2 + (50 + x)·k, its period (model units) the power of two
+    // nearest to 10 k.
+    // It runs between two rows of pixels: each takes half its ink.
+    let k = line.a.distance(line.b) / 300.0;
+    let period = 2f64.powf((10.0 * k).log2().round());
+    let on_screen = period / k;
+    assert!(on_screen > 10.0 / 2f64.sqrt() && on_screen < 10.0 * 2f64.sqrt(), "{on_screen}");
+    let ink = |x: u32| (19..=20).map(|y| pixel(&px, size[0], x, y)[0]).min().unwrap();
+    let (mut dashes, mut gaps) = (0, 0);
+    for x in 5..195 {
+        // Where the pixel is in its period, on screen.
+        let at = (2.0 + (50.0 + x as f64 + 0.5) * k).rem_euclid(period) / k;
+        let half = on_screen / 2.0;
+        if (1.0..half - 1.0).contains(&at) {
+            assert!(ink(x) < 200, "no dash at {x} ({at}): {}", ink(x));
+            dashes += 1;
+        } else if (half + 1.0..on_screen - 1.0).contains(&at) {
             assert!(ink(x) > 230, "no gap at {x} ({at}): {}", ink(x));
             gaps += 1;
         }
@@ -707,7 +788,7 @@ fn box_outlines_are_dashed_from_their_corners() {
     let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
     let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
     let outline = BoxOutline {
-        dash: Some(Dash::even(5.0, 0.0)),
+        dash: Some(Dash::even(5.0, Lay::Model(0.0))),
         ..BoxOutline::new(
             DMat4::from_translation(DVec3::new(-80.0, -15.0, 0.0)) * DMat4::from_scale(DVec3::new(160.0, 30.0, 1.0)),
             [0.0, 0.0, 0.0, 1.0],
@@ -731,6 +812,7 @@ fn box_outlines_are_dashed_from_their_corners() {
         axes: false,
         axes_frame: DMat4::IDENTITY,
         pixels_per_point: 1.0,
+        model_per_point: 1.0,
     };
     let px = draw(&mut r, &device, &queue, size, &frame);
     save(&px, size, "box_outline");
@@ -779,6 +861,7 @@ fn fills_hide_behind_faces() {
             axes: false,
             axes_frame: DMat4::IDENTITY,
             pixels_per_point: 1.0,
+            model_per_point: 1.0,
         };
         draw(r, &device, &queue, SIZE, &frame)
     };
@@ -815,7 +898,7 @@ fn x_ray_lines_are_dashed_behind_faces() {
         dash: None,
         width: BOLD_WIDTH,
     };
-    let hidden = Line { dash: Some(Dash::even(4.0, 0.0)), ..line };
+    let hidden = Line { dash: Some(Dash::even(4.0, Lay::Model(0.0))), ..line };
     let frame = Frame {
         view,
         proj,
@@ -833,6 +916,7 @@ fn x_ray_lines_are_dashed_behind_faces() {
         axes: false,
         axes_frame: DMat4::IDENTITY,
         pixels_per_point: 1.0,
+        model_per_point: 1.0,
     };
     let px = draw(&mut r, &device, &queue, size, &frame);
     save(&px, size, "x_ray");
@@ -892,6 +976,7 @@ fn faint_lines_blend_over_faces() {
             axes: false,
             axes_frame: DMat4::IDENTITY,
             pixels_per_point: 1.0,
+            model_per_point: 1.0,
         };
         draw(r, &device, &queue, size, &frame)
     };
@@ -929,6 +1014,7 @@ fn flat_frame<'a>(batches: &'a [Batch], lines: &'a [Line], boxes: &'a [BoxOutlin
         axes: false,
         axes_frame: DMat4::IDENTITY,
         pixels_per_point: 1.0,
+        model_per_point: 1.0,
     }
 }
 
@@ -957,7 +1043,7 @@ fn dash_dot_lines_follow_their_pattern() {
         a: DVec3::new(-150.0, 0.0, 0.0),
         b: DVec3::new(150.0, 0.0, 0.0),
         color: [0.0, 0.0, 0.0, 1.0],
-        dash: Some(Dash { pattern: [8.0, 3.0, 2.0, 3.0], phase: 0.0, anchored: false }),
+        dash: Some(Dash { pattern: [8.0, 3.0, 2.0, 3.0], lay: Lay::Model(0.0) }),
         width: LINE_WIDTH,
     };
     let px = draw(&mut r, &device, &queue, [200, 40], &flat_frame(&[], &[line], &[], &[]));
@@ -994,7 +1080,7 @@ fn anchored_dashes_start_and_end_the_line() {
             a: DVec3::new(-83.3, 0.0, 0.0),
             b: DVec3::new(end, 0.0, 0.0),
             color: [0.0, 0.0, 0.0, 1.0],
-            dash: Some(Dash { anchored: true, ..Dash::even(5.0, 0.0) }),
+            dash: Some(Dash::even(5.0, Lay::Anchored)),
             width: LINE_WIDTH,
         };
         let px = draw(&mut r, &device, &queue, [200, 40], &flat_frame(&[], &[line], &[], &[]));
@@ -1123,4 +1209,149 @@ fn hatch_directions_spread_over_the_keys() {
         count[hatch_of(key) as usize] += 1;
     }
     assert!(count.iter().all(|&n| (70..=130).contains(&n)), "{count:?}");
+}
+
+/// Where the world point `p` falls in a picture of `size` drawn with `proj` from camera space
+/// (pixels, rows running down).
+fn on_picture(proj: Mat4, size: [u32; 2], p: DVec3) -> [f64; 2] {
+    let c = proj.as_dmat4() * p.extend(1.0);
+    [(c.x / c.w + 1.0) / 2.0 * size[0] as f64, (1.0 - c.y / c.w) / 2.0 * size[1] as f64]
+}
+
+/// The segment `a`..`b` (camera space) dashed `dash` / `gap` pixels, anchored with `tail` of a
+/// dash at `b` (a whole one for a line, half for a box's half edge): its dashes and gaps laid
+/// evenly on the segment itself — in perspective, shorter on screen as it runs away — their
+/// count set by its length on screen.
+fn assert_dashes_on_segment(px: &[u8], size: [u32; 2], proj: Mat4, a: DVec3, b: DVec3, dash: f64, gap: f64, tail: f64) {
+    let dist = |p: [f64; 2], q: [f64; 2]| ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2)).sqrt();
+    let len = dist(on_picture(proj, size, a), on_picture(proj, size, b));
+    let period = dash + gap;
+    let span = ((len - tail) / period).round().max(0.0) * period + tail;
+    let ink = |[x, y]: [f64; 2]| {
+        let (x, y) = (x as i64, y as i64);
+        (x - 1..=x + 1).flat_map(|x| (y - 1..=y + 1).map(move |y| pixel(px, size[0], x as u32, y as u32)[0])).min().unwrap()
+    };
+    let (mut u, mut on, mut checked) = (0.0, true, [0, 0]);
+    while u < span - 1e-9 {
+        let end = (u + if on { dash } else { gap }).min(span);
+        let at = |u: f64| on_picture(proj, size, a.lerp(b, u / span));
+        // Long enough on screen to look into its middle.
+        if dist(at(u), at(end)) >= 8.0 {
+            let mid = at((u + end) / 2.0);
+            let v = ink(mid);
+            if on {
+                assert!(v < 200, "no dash at {u:.1}..{end:.1} of {span:.1} ({mid:?}): {v}");
+            } else {
+                assert!(v > 230, "no gap at {u:.1}..{end:.1} of {span:.1} ({mid:?}): {v}");
+            }
+            checked[on as usize] += 1;
+        }
+        (u, on) = (end, !on);
+    }
+    assert!(checked[0] >= 2 && checked[1] >= 2, "{checked:?} gaps and dashes checked, {len:.0} px");
+}
+
+/// Seen in perspective, a line running away and a box's edge running away keep their dashes on
+/// themselves (not evenly on screen): they hold still on them as the view orbits.
+#[test]
+fn anchored_dashes_lie_on_the_line_in_perspective() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let size = [400, 400];
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, 1.0, 0.1);
+    // The camera at the origin looking down -Z.
+    fn frame<'a>(proj: Mat4, lines: &'a [Line], boxes: &'a [BoxOutline]) -> Frame<'a> {
+        Frame { view: DMat4::IDENTITY, proj, ..flat_frame(&[], lines, boxes, &[]) }
+    }
+    let line = Line {
+        a: DVec3::new(-1.0, -1.0, -4.0),
+        b: DVec3::new(2.0, -1.0, -20.0),
+        color: [0.0, 0.0, 0.0, 1.0],
+        dash: Some(Dash::even(12.0, Lay::Anchored)),
+        width: LINE_WIDTH,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame(proj, &[line], &[]));
+    save(&px, size, "anchored_perspective");
+    assert_dashes_on_segment(&px, size, proj, line.a, line.b, 12.0, 12.0, 12.0);
+
+    // A box 2 × 2 × 32 running away: its near half edge from (-1, -1, -4).
+    let outline = BoxOutline {
+        dash: Some(Dash::even(12.0, Lay::Model(0.0))),
+        ..BoxOutline::new(
+            DMat4::from_translation(DVec3::new(-1.0, -1.0, -36.0)) * DMat4::from_scale(DVec3::new(2.0, 2.0, 32.0)),
+            [0.0, 0.0, 0.0, 1.0],
+            LINE_WIDTH,
+        )
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame(proj, &[], &[outline]));
+    save(&px, size, "box_perspective");
+    assert_dashes_on_segment(&px, size, proj, DVec3::new(-1.0, -1.0, -4.0), DVec3::new(-1.0, -1.0, -20.0), 12.0, 12.0, 6.0);
+}
+
+/// A line dashed in model units, running away in perspective, seen from two views (an orbit):
+/// one period all along it (the power of two nearest to the pattern's length at the focus), at
+/// every point of it dash or gap as its phase there says — the same points of the line inked in
+/// both views; where the dashes are a few pixels long, a lighter line.
+#[test]
+fn model_dashes_hold_still_on_a_line_as_the_view_orbits() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let size = [400, 400];
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, 1.0, 0.1);
+    let (a, b, phase) = (DVec3::new(-1.0, -1.0, -4.0), DVec3::new(2.0, -1.0, -20.0), 3.7);
+    let line = Line { a, b, color: [0.0, 0.0, 0.0, 1.0], dash: Some(Dash::even(5.0, Lay::Model(phase))), width: LINE_WIDTH };
+    // 10 points at the focus: 0.5 model units, a period of 0.5.
+    const MPP: f64 = 0.05;
+    let period = 0.5;
+    let mut checked = 0;
+    for (i, view) in [DMat4::IDENTITY, DMat4::from_rotation_y(0.08) * DMat4::from_rotation_x(-0.05)].into_iter().enumerate() {
+        let frame = Frame { view, proj, model_per_point: MPP, ..flat_frame(&[], std::slice::from_ref(&line), &[], &[]) };
+        let px = draw(&mut r, &device, &queue, size, &frame);
+        save(&px, size, &format!("model_dashes_{i}"));
+        let mut faded = false;
+        let at = |t: f64| on_picture(proj, size, view.transform_point3(a.lerp(b, t)));
+        let len = a.distance(b);
+        for k in 1..2000 {
+            let t = k as f64 / 2000.0;
+            let [x, y] = at(t);
+            // Model units a pixel along the line there.
+            let [x1, y1] = at(t + 1e-4);
+            let per_px = len * 1e-4 / ((x1 - x).powi(2) + (y1 - y).powi(2)).sqrt();
+            let (xi, yi) = (x as i64, y as i64);
+            let ink = (xi - 1..=xi + 1)
+                .flat_map(|x| (yi - 1..=yi + 1).map(move |y| (x, y)))
+                .map(|(x, y)| pixel(&px, size[0], x as u32, y as u32)[0])
+                .min()
+                .unwrap();
+            if period / per_px < 3.0 {
+                // Faded: a lighter line, neither ink nor gap.
+                assert!(ink > 40 && ink < 230, "view {i}: not faded at {t}: {ink}");
+                faded = true;
+                continue;
+            }
+            if period / per_px < 6.0 {
+                continue; // fading
+            }
+            let u = (phase + t * len).rem_euclid(period);
+            // Away from the dash's ends by more than the pixels looked at.
+            let edge = u.min((u - period / 2.0).abs()).min(period - u) / per_px;
+            if edge < 2.5 || !(2.0..398.0).contains(&x) || !(2.0..398.0).contains(&y) {
+                continue;
+            }
+            if u < period / 2.0 {
+                assert!(ink < 200, "view {i}: no dash at {t} ({x:.1}, {y:.1}): {ink} u {u:.4} edge {edge:.2}");
+            } else {
+                assert!(ink > 230, "view {i}: no gap at {t} ({x:.1}, {y:.1}): {ink} u {u:.4} edge {edge:.2}");
+            }
+            checked += 1;
+        }
+        assert!(faded, "view {i}: never faded");
+    }
+    assert!(checked > 100, "{checked} points checked");
 }

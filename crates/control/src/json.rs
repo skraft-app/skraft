@@ -55,6 +55,9 @@ fn pen(p: &draw::Pen) -> Value {
     if p.stipple != draw::Stipple::Solid {
         out.insert("stipple".into(), debug(&p.stipple));
     }
+    if p.stipple != draw::Stipple::Solid && p.lay != draw::Lay::Model {
+        out.insert("lay".into(), debug(&p.lay));
+    }
     if p.layer != draw::Layer::Scene {
         out.insert("layer".into(), debug(&p.layer));
     }
