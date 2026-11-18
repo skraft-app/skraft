@@ -1055,6 +1055,10 @@ Decided on 2026-11-09.
   the guidance for the current step; what Tab does is not written in the tools' hints but
   added by the editor (`Editor::tab_hint`, since 2026-11-17): « · Tab : <choice> → <the value
   it gives> », only while the tool shows a choice — none for a part placed once (§2.5).
+  Tab and Shift+Tab never reach egui's keyboard navigation while no text field has the focus
+  (`App::raw_input_hook` takes them out for the tool, 2026-11-18): egui would focus the first
+  widget, then keep every key from the tool. In a text field they move between fields; a
+  shortcut being captured or a modal dialog gets them as they are.
   - **Tools describe their options, the app draws them**: `Tool::options` returns a list of
     `ToolOption` (key, label — which may depend on what is hovered, "×4" —, tooltip, value,
     choices), `Tool::set_option` receives a change. `tools` stays without an interface: a test
