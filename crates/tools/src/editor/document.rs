@@ -574,6 +574,8 @@ impl Editor {
         let context = &self.context;
         let closed = self.open_part.is_none();
         self.deep.retain(|p| closed && p.instances.starts_with(context) && doc.resolve(p).is_ok());
+        let shown = doc.settings().display.guides;
+        self.deep_guides.retain(|g| closed && shown && g.instances.starts_with(context) && doc.resolve_guide(g).is_ok());
         self.sync_scene();
     }
 }

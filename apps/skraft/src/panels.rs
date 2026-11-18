@@ -1600,15 +1600,17 @@ fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
 pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let units = &doc.settings().units;
-    // A part selected at any depth (« Parts », docs/tools/selection.md): shown as in its own assembly.
-    let (context, sel) = match editor.deep_selection() {
-        [] => (editor.context_definition(), editor.selection().to_vec()),
-        [p] => match doc.context_of(&p.instances) {
+    // A part or a guide of an assembly selected at any depth (« Parts », docs/tools/selection.md):
+    // shown as in its own assembly; several, or a part's guide, counted.
+    let (context, sel) = match (editor.deep_selection(), editor.deep_guides()) {
+        ([], []) => (editor.context_definition(), editor.selection().to_vec()),
+        ([p], []) => match doc.context_of(&p.instances) {
             Ok(c) => (c, vec![p.entity]),
             Err(_) => return,
         },
-        many => {
-            ui.label(tp!("panel.entity_info.selected", many.len()));
+        ([], [g]) if let Ok(c) = doc.context_of(&g.instances) => (c, vec![g.guide]),
+        (parts, guides) => {
+            ui.label(tp!("panel.entity_info.selected", parts.len() + guides.len()));
             return;
         }
     };

@@ -18,7 +18,7 @@ use super::pick::Picker;
 use crate::scene::Owner;
 use glam::{DAffine3, DVec2, DVec3};
 use skraft_i18n::t;
-use skraft_model::{EntityPath, Id, Operation};
+use skraft_model::{EntityPath, GuidePath, Id, Operation};
 
 use super::{Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption, guide_color};
 use crate::draw::{Drawing, Ends, Pen};
@@ -36,6 +36,8 @@ pub struct MoveTool {
     moving: Vec<Id>,
     /// The parts moved at any depth (« Parts », docs/tools/selection.md).
     moving_paths: Vec<EntityPath>,
+    /// The guides moved at any depth (« Parts »).
+    moving_guides: Vec<GuidePath>,
     cursor: Option<DVec3>,
     snap: Option<Inference>,
     /// The copy just made, which a typed count turns into an array.
@@ -69,7 +71,12 @@ impl MoveTool {
     /// then the original stays in place) and on the lines through `from`, held on the locked
     /// line if any, else on the horizontal plane through `from`.
     fn target(&self, cx: &Cx<'_>, px: DVec2, from: DVec3) -> (DVec3, Option<Inference>) {
-        let keep = |o: &Owner<'_>| self.copy || !(cx.is_moving(o, &self.moving) || cx.is_moving_deep(o, &self.moving_paths));
+        let keep = |o: &Owner<'_>| {
+            self.copy
+                || !(cx.is_moving(o, &self.moving)
+                    || cx.is_moving_deep(o, &self.moving_paths)
+                    || cx.is_moving_guide(o, &self.moving_guides))
+        };
         match cx.infer_from(px, keep, Some((from, axis(cx, 2))), from, cx.lock()) {
             Some(i) => (i.point, Some(i)),
             None => (from, None),
@@ -80,7 +87,8 @@ impl MoveTool {
         self.state = State::Start;
         let entities = std::mem::take(&mut self.moving);
         let paths = std::mem::take(&mut self.moving_paths);
-        let moved = if paths.is_empty() { cx.moved() } else { cx.moved_deep(&paths) };
+        let guides = std::mem::take(&mut self.moving_guides);
+        let moved = if paths.is_empty() && guides.is_empty() { cx.moved() } else { cx.moved_deep(&paths, &guides) };
         self.snap = None;
         if let Some(pasted) = self.pasted.take() {
             let op = cx.moved().paste(&pasted, DAffine3::from_translation(to - from));
@@ -136,6 +144,7 @@ impl MoveTool {
                 let Some(from) = cx.infer(*px, |_| true, None).map(|i| i.point) else { return vec![] };
                 self.moving = self.picker.selection(cx);
                 self.moving_paths = self.picker.deep(cx);
+                self.moving_guides = self.picker.deep_guides(cx);
                 self.state = State::Moving { from, to: from };
             }
             (ToolInput::Click { .. }, State::Moving { from, to }) => return self.finish(cx, from, to),
@@ -286,6 +295,7 @@ impl Tool for MoveTool {
         self.last = None;
         self.moving.clear();
         self.moving_paths.clear();
+        self.moving_guides.clear();
         self.snap = None;
         self.pasted = None;
     }

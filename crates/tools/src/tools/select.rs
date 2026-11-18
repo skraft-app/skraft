@@ -6,7 +6,7 @@
 
 use glam::{DVec2, DVec3};
 use skraft_i18n::t;
-use skraft_model::{EntityPath, FastMap, Id};
+use skraft_model::{EntityPath, FastMap, GuidePath, Id};
 
 use super::{Command, Cx, Marquee, Modifiers, Preview, Tool, ToolInput, ToolKind};
 use crate::camera::Projector;
@@ -20,15 +20,25 @@ pub struct SelectTool {
     marquee: Option<Marquee>,
     /// The part under the cursor, at any depth (« Parts »).
     hover_part: Option<EntityPath>,
+    /// The guide near the cursor, at any depth (« Parts »).
+    hover_guide: Option<GuidePath>,
 }
 
 impl SelectTool {
     fn click(&self, px: DVec2, mods: Modifiers, cx: &Cx<'_>) -> Vec<Command> {
-        // « Parts » (docs/tools/selection.md): the part under the cursor, at any depth.
+        // « Parts » (docs/tools/selection.md): a guide near the cursor, else the part under it,
+        // at any depth.
         if cx.parts {
+            if let Some(g) = cx.guide_at(px) {
+                return if mods.toggle {
+                    vec![Command::SelectPaths(cx.deep.to_vec(), toggled_paths(cx.deep_guides, &[g]))]
+                } else {
+                    vec![Command::SelectPaths(Vec::new(), vec![g])]
+                };
+            }
             return match cx.part_at(px) {
-                Some(p) if mods.toggle => vec![Command::SelectPaths(toggled_paths(cx.deep, &[p]))],
-                Some(p) => vec![Command::SelectPaths(vec![p])],
+                Some(p) if mods.toggle => vec![Command::SelectPaths(toggled_paths(cx.deep, &[p]), cx.deep_guides.to_vec())],
+                Some(p) => vec![Command::SelectPaths(vec![p], Vec::new())],
                 None if mods.toggle => vec![],
                 None => vec![Command::ClickOff(px)],
             };
@@ -74,7 +84,8 @@ impl Tool for SelectTool {
             ToolInput::Hover { px } => {
                 let free = self.marquee.is_none();
                 self.hover = if free && !cx.parts { cx.entity_at(*px) } else { None };
-                self.hover_part = if free && cx.parts { cx.part_at(*px) } else { None };
+                self.hover_guide = if free && cx.parts { cx.guide_at(*px) } else { None };
+                self.hover_part = if free && cx.parts && self.hover_guide.is_none() { cx.part_at(*px) } else { None };
                 vec![]
             }
             ToolInput::Click { px, mods } => self.click(*px, *mods, cx),
@@ -94,6 +105,7 @@ impl Tool for SelectTool {
             ToolInput::DragStart { px, .. } => {
                 self.hover = None;
                 self.hover_part = None;
+                self.hover_guide = None;
                 self.marquee = Some(Marquee::new(*px, *px));
                 vec![]
             }
@@ -102,6 +114,7 @@ impl Tool for SelectTool {
                     *m = Marquee::new(m.from, *px);
                     if cx.parts {
                         m.paths = marquee_parts(cx, m.from, m.to, m.crossing);
+                        m.guides = marquee_guides(cx, m.from, m.to, m.crossing);
                     } else {
                         m.hits = marquee_hits(cx, m.from, m.to, m.crossing);
                     }
@@ -117,7 +130,11 @@ impl Tool for SelectTool {
                 let m = Marquee::new(m.from, *px);
                 if cx.parts {
                     let paths = marquee_parts(cx, m.from, m.to, m.crossing);
-                    return vec![Command::SelectPaths(if mods.toggle { toggled_paths(cx.deep, &paths) } else { paths })];
+                    let guides = marquee_guides(cx, m.from, m.to, m.crossing);
+                    if mods.toggle {
+                        return vec![Command::SelectPaths(toggled_paths(cx.deep, &paths), toggled_paths(cx.deep_guides, &guides))];
+                    }
+                    return vec![Command::SelectPaths(paths, guides)];
                 }
                 let hits = marquee_hits(cx, m.from, m.to, m.crossing);
                 if mods.toggle { vec![Command::Select(toggled(cx.selection, &hits))] } else { vec![Command::Select(hits)] }
@@ -127,7 +144,13 @@ impl Tool for SelectTool {
     }
 
     fn preview(&self, _: &Cx<'_>) -> Preview {
-        Preview { hover: self.hover, hover_solid: self.hover_part.clone(), marquee: self.marquee.clone(), ..Default::default() }
+        Preview {
+            hover: self.hover,
+            hover_solid: self.hover_part.clone(),
+            hover_guide: self.hover_guide.clone(),
+            marquee: self.marquee.clone(),
+            ..Default::default()
+        }
     }
 
     fn status(&self) -> String {
@@ -149,6 +172,7 @@ impl Tool for SelectTool {
     fn reset(&mut self) {
         self.hover = None;
         self.hover_part = None;
+        self.hover_guide = None;
         self.marquee = None;
     }
 }
@@ -195,15 +219,33 @@ pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> 
         .collect();
     taken.sort_by_key(|(rank, _)| *rank);
     let mut out: Vec<Id> = taken.into_iter().map(|(_, id)| id).collect();
-    // The guides of the active context (docs/tools/tape-measure.md).
     let path = cx.guide_path();
-    for g in cx.scene.guides().iter().filter(|g| g.path == path) {
-        let (all, any) = crate::guides::in_rect(cx.camera, cx.size, &g.shape, rect);
-        if if crossing { any } else { all } {
-            out.push(g.id);
-        }
-    }
+    out.extend(guides_in(cx, a, b, crossing, |p| p == path.as_slice()).map(|g| g.id));
     out
+}
+
+/// The guides at any depth under the active context the rectangle `a`–`b` (pixels) takes
+/// (« Parts », docs/tools/selection.md), by their paths from the root.
+pub fn marquee_guides(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<GuidePath> {
+    guides_in(cx, a, b, crossing, |p| p.starts_with(cx.context)).map(|g| GuidePath::new(g.path.clone(), g.id)).collect()
+}
+
+/// The guides (docs/tools/tape-measure.md) whose path `keep` keeps that the rectangle `a`–`b`
+/// takes: those lying entirely inside it, or with `crossing`, those it touches.
+fn guides_in<'a>(
+    cx: &'a Cx<'_>,
+    a: DVec2,
+    b: DVec2,
+    crossing: bool,
+    keep: impl Fn(&[Id]) -> bool + 'a,
+) -> impl Iterator<Item = &'a crate::scene::SceneGuide> + 'a {
+    let rect = (a.min(b), a.max(b));
+    cx.scene.guides().iter().filter(move |g| {
+        keep(&g.path) && {
+            let (all, any) = crate::guides::in_rect(cx.camera, cx.size, &g.shape, rect);
+            if crossing { any } else { all }
+        }
+    })
 }
 
 /// The parts at any depth under the active context the rectangle `a`–`b` (pixels) takes
@@ -233,7 +275,7 @@ pub fn marquee_parts(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Ent
 }
 
 /// `selection` with each of `paths` removed if in it, else added.
-pub(crate) fn toggled_paths(selection: &[EntityPath], paths: &[EntityPath]) -> Vec<EntityPath> {
+pub(crate) fn toggled_paths<T: Clone + PartialEq>(selection: &[T], paths: &[T]) -> Vec<T> {
     let mut sel = selection.to_vec();
     for p in paths {
         match sel.iter().position(|s| s == p) {

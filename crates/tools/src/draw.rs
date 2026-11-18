@@ -55,6 +55,9 @@ pub enum ThemeColor {
     Guide,
     /// The guides of the other components, faded as their parts are.
     FadedGuide,
+    /// The guides of the components under the active context, half faded: within reach of a
+    /// click under « Parts » (docs/tools/selection.md).
+    HalfFadedGuide,
     /// What is under the cursor.
     Hover,
     /// What is selected.

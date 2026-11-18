@@ -12,7 +12,7 @@ use glam::DAffine3;
 use serde::{Deserialize, Serialize};
 
 use crate::document::{
-    Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Sign, is_identity, used_defs,
+    Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuidePath, GuideShape, Id, Sign, is_identity, used_defs,
 };
 use crate::{Error, Result};
 
@@ -66,25 +66,35 @@ impl Document {
         self.fragment(occurrences, guides, self.next_id)
     }
 
-    /// What copying the occurrences `paths` names — at any depth (« Parts »,
-    /// docs/tools/selection.md) — copies, as [`Document::entities_fragment`]: each in world
-    /// axes, side by side in the fragment's root; an id met twice (copies of one assembly
-    /// keep their occurrences' ids) drawn afresh.
-    pub fn paths_fragment(&self, paths: &[EntityPath]) -> Result<Document> {
+    /// What copying the occurrences `paths` names and the guides `guides` names — at any depth
+    /// (« Parts », docs/tools/selection.md) — copies, as [`Document::entities_fragment`]: each
+    /// in world axes, side by side in the fragment's root; an id met twice (copies of one
+    /// assembly keep their occurrences' ids) drawn afresh.
+    pub fn paths_fragment(&self, paths: &[EntityPath], guides: &[GuidePath]) -> Result<Document> {
         let mut next = self.next_id;
         let mut seen = BTreeSet::new();
+        let mut fresh = |id: Id| {
+            if seen.insert(id) {
+                return id;
+            }
+            next += 1;
+            Id(next - 1)
+        };
         let mut occurrences = Vec::new();
         for p in paths {
             let world = self.transform_of(&p.instances)?;
             let mut o = self.resolve(p)?.clone();
             o.transform = world * o.transform;
-            if !seen.insert(o.id) {
-                o.id = Id(next);
-                next += 1;
-            }
+            o.id = fresh(o.id);
             occurrences.push(o);
         }
-        self.fragment(occurrences, Vec::new(), next)
+        let mut shapes = Vec::new();
+        for g in guides {
+            let (_, world) = self.component_at(&g.instances)?;
+            let shape = self.resolve_guide(g)?.shape.transformed(&world);
+            shapes.push(Guide { id: fresh(g.guide), shape });
+        }
+        self.fragment(occurrences, shapes, next)
     }
 
     /// A fragment whose root holds `occurrences` and `guides` (in world axes), with the

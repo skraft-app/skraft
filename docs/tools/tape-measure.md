@@ -47,6 +47,9 @@ occurrences, with no kernel.
 - The axes are drawn the same way, across the view (their negative halves faded).
 - Those of the active context in the theme's `guide`, the others (outside it, or in another
   occurrence of the open part) faded as their parts are (`ThemeColor::FadedGuide`, blended).
+  Under the « Parts » selection scope, those at any depth under the active context are within
+  reach of a click: half faded (`ThemeColor::HalfFadedGuide`, half the fade;
+  [Selection](selection.md#selection-scope)).
 - The selected guides in the selection's colour, those hovered (or in the marquee) in the
   hover's; while moving, the selected ones are drawn where they go, and where they were only
   when copying.

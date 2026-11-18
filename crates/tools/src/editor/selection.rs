@@ -2,7 +2,7 @@
 //! a part (docs/model/opening-a-part.md), erase, make an assembly, explode, make a part on its own.
 
 use skraft_i18n::t;
-use skraft_model::{EntityPath, Id, Operation};
+use skraft_model::{EntityPath, GuidePath, Id, Operation};
 
 use super::{After, Editor};
 use crate::ToolKind;
@@ -12,20 +12,34 @@ impl Editor {
     /// Selects `ids`, entities of the active context: the parts selected at any depth let go.
     pub(super) fn set_selection(&mut self, ids: Vec<Id>) {
         self.deep.clear();
+        self.deep_guides.clear();
         self.selection = ids;
     }
 
     /// Nothing selected, at any depth.
     pub(super) fn clear_selection(&mut self) {
         self.deep.clear();
+        self.deep_guides.clear();
         self.selection.clear();
     }
 
     /// Selects the parts `paths` name, at any depth under the active context (« Parts »,
     /// docs/tools/selection.md): the ids' selection let go.
     pub fn select_paths(&mut self, paths: Vec<EntityPath>) {
+        self.select_parts_and_guides(paths, Vec::new());
+    }
+
+    /// Selects the parts `paths` and the guides `guides` name, at any depth under the active
+    /// context (« Parts », docs/tools/selection.md): the ids' selection let go.
+    pub(super) fn select_parts_and_guides(&mut self, paths: Vec<EntityPath>, guides: Vec<GuidePath>) {
         self.selection.clear();
         self.deep = paths;
+        self.deep_guides = guides;
+    }
+
+    /// The guides selected at any depth (« Parts »), by their paths from the root.
+    pub fn deep_guides(&self) -> &[GuidePath] {
+        &self.deep_guides
     }
 
     /// The parts selected at any depth (« Parts »), by their paths from the root; empty
@@ -36,7 +50,7 @@ impl Editor {
 
     /// Is anything selected, here or at any depth?
     pub fn anything_selected(&self) -> bool {
-        !self.selection.is_empty() || !self.deep.is_empty()
+        !self.selection.is_empty() || !self.deep.is_empty() || !self.deep_guides.is_empty()
     }
 
     /// Does the selection at any depth go through an assembly placed more than once (a change
@@ -44,6 +58,10 @@ impl Editor {
     pub fn deep_shared(&self) -> bool {
         let doc = self.document();
         self.deep.iter().any(|p| doc.shared_along(&p.instances))
+            || self
+                .deep_guides
+                .iter()
+                .any(|g| doc.component_at(&g.instances).is_ok_and(|(c, _)| doc.assembly(c).is_ok()) && doc.shared_along(&g.instances))
     }
 
     pub fn select(&mut self, ids: Vec<Id>) {
@@ -62,6 +80,7 @@ impl Editor {
         // Not those hidden, unless the hidden are shown.
         let show_hidden = self.document().settings().display.show_hidden;
         self.deep.clear();
+        self.deep_guides.clear();
         self.selection = self
             .document()
             .assembly(ctx)
@@ -251,9 +270,10 @@ impl Editor {
     }
 
     pub fn delete_selection(&mut self) {
-        if !self.deep.is_empty() && !self.busy() {
+        if (!self.deep.is_empty() || !self.deep_guides.is_empty()) && !self.busy() {
             let paths = std::mem::take(&mut self.deep);
-            let op = self.cx().erase_deep(&paths);
+            let guides = std::mem::take(&mut self.deep_guides);
+            let op = self.cx().erase_deep(&paths, &guides);
             let _ = self.start(op, After::Nothing, false);
             return;
         }

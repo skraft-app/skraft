@@ -60,9 +60,10 @@ impl Editor {
         }
         let doc = self.document();
         // Parts at any depth (« Parts », docs/tools/selection.md): each from its own assembly.
-        if !self.deep.is_empty() {
-            let f = doc.paths_fragment(&self.deep).ok()?;
-            let mut hull = Vec::new();
+        if !self.deep.is_empty() || !self.deep_guides.is_empty() {
+            let f = doc.paths_fragment(&self.deep, &self.deep_guides).ok()?;
+            let root = f.component(f.root()).ok()?;
+            let mut hull = guide_points(&root.guides.iter().map(|g| g.shape).collect::<Vec<_>>(), &DAffine3::IDENTITY);
             for p in &self.deep {
                 let Some(ctx) = ContextIndex::new(doc, &p.instances) else { continue };
                 let b = self.content_bounds(&ctx, p.entity, DAffine3::IDENTITY, 0.0);

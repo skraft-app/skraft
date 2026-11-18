@@ -688,6 +688,7 @@ fn theme_color(theme: &Theme, c: draw::Color) -> Rgba {
             draw::ThemeColor::Edge => theme.edge,
             draw::ThemeColor::Guide => theme.guide,
             draw::ThemeColor::FadedGuide => [theme.guide[0], theme.guide[1], theme.guide[2], theme.guide[3] * (1.0 - theme.fade)],
+            draw::ThemeColor::HalfFadedGuide => [theme.guide[0], theme.guide[1], theme.guide[2], theme.guide[3] * (1.0 - theme.fade * 0.5)],
             draw::ThemeColor::Hover => theme.hover.edge,
             draw::ThemeColor::Selected => theme.selected.edge,
             draw::ThemeColor::ContextBox => theme.context_box,
