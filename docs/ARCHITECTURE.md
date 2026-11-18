@@ -1914,10 +1914,13 @@ The pattern is a web browser's; the drawing is ours.
   and **quitting** (⌘Q, the window's close button: `close_requested` + `CancelClose`) ask for
   each modified document in turn, its tab selected; Cancel stops the whole batch. Web: the
   page asks before it is left (`beforeunload`) while a document is modified.
-- **Start page** (`active == None`): when the last tab closes, and at launch when there is
-  nothing to reopen. Buttons New, Open, Import STEP, and the recent files (desktop). No tab is
-  selected; the ribbon, the dock, the option bar and the status bar's measurements are hidden;
-  the commands that need a document are disabled (menus, palette, shortcuts).
+- **Start page** (`active == None`): when the last tab closes, at launch when there is
+  nothing to reopen (or the app quit on it), and on demand with documents open: a click on
+  the title bar's mark and name, or `view.home` (« Page d'accueil »), the tabs staying open.
+  Buttons New, Open, Import STEP, and the recent files (desktop). No tab is selected; the
+  ribbon, the dock, the option bar and the status bar's measurements are hidden; the
+  commands that need a document are disabled (menus, palette, shortcuts). From it, a tab, or
+  next/previous tab (the first/the last), shows a document again; closing a tab stays on it.
 - **Control channel** (§7 quater): the commands act on the active document; `docs.list` (name,
   path, modified, active), `docs.switch`, `docs.new`, `docs.close` (`force` skips the
   question) are added.
@@ -3298,7 +3301,8 @@ Decided on 2026-11-10, after SolidCraft (`ui-kit/src/window_chrome.rs`, `app_bar
 menu strip is gone: its room goes to one bar holding the document and the commands used most.
 
 - **Title bar** (`apps/skraft/src/titlebar.rs`, 34 pt): the app's mark (`assets/app-icon.svg`),
-  name and version (the workspace's, smaller and weak), the **File** menu (a text button: the registry's File commands), Undo / Redo, the
+  name and version (the workspace's, smaller and weak) — while a document is shown, one
+  button to the start page (`view.home`, §6 octies), else a place that moves the window —, the **File** menu (a text button: the registry's File commands), Undo / Redo, the
   file tabs (§6 octies), and at the right the
   command search (opens the palette, shows its shortcut; only its icon when the window is
   narrow) and the preferences. Until 2026-11-17 the standard views and the view's toggles

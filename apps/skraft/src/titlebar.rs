@@ -115,7 +115,7 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
     if bar.integrated && !ui.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
         ui.add_space(TRAFFIC_LIGHTS - 8.0);
     }
-    brand(ui);
+    brand(ui, find("view.home"), actions);
     if let Some(i) = bar.instance {
         instance_badge(ui, i, bar.session.as_deref());
     }
@@ -228,28 +228,50 @@ fn command_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, v: &Comma
     }
 }
 
-/// The app's mark, name and version. Not a control: its place moves the window like the bar's
+/// The app's mark, name and version: a button to the start page while a document is shown
+/// (`view.home`); on the start page not a control, its place moving the window like the bar's
 /// empty space.
-fn brand(ui: &mut egui::Ui) {
+fn brand(ui: &mut egui::Ui, home: Option<&CommandView>, actions: &mut Vec<Action>) {
     // The icon's tile fills 824 of its 1024 units: drawn larger so the tile is MARK wide.
     const MARK: f32 = 18.0;
     const TILE: f32 = 824.0 / 1024.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(MARK, MARK), egui::Sense::hover());
-    egui::Image::new(icons::APP).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
+    // Between the name and the version (the mark and the name: the items' spacing).
+    const GAP: f32 = 6.0;
+    // Around them, the veil's margin.
+    const PAD: egui::Vec2 = egui::vec2(4.0, 4.0);
     // The name in the headings' semibold at the text's size, then the version, smaller and
     // weak, on the name's baseline.
-    const GAP: f32 = 6.0;
     let mut font = egui::TextStyle::Heading.resolve(ui.style());
     font.size = egui::TextStyle::Body.resolve(ui.style()).size;
     let small = egui::TextStyle::Small.resolve(ui.style());
     let name = ui.painter().layout_no_wrap(APP_NAME.to_owned(), font, ui.visuals().strong_text_color());
     let version = ui.painter().layout_no_wrap(APP_VERSION.to_owned(), small, ui.visuals().weak_text_color());
-    let size = egui::vec2(name.size().x + GAP + version.size().x, name.size().y);
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let text = egui::vec2(name.size().x + GAP + version.size().x, name.size().y);
+    let spacing = ui.spacing().item_spacing.x;
+    let size = egui::vec2(MARK + spacing + text.x, MARK.max(text.y)) + 2.0 * PAD;
+    let home = home.filter(|v| v.enabled);
+    let sense = if home.is_some() { egui::Sense::click() } else { egui::Sense::hover() };
+    // Drawn back by PAD: the mark stays where it was without the veil.
+    ui.add_space(-PAD.x);
+    let behind = ui.painter().add(egui::Shape::Noop);
+    let (rect, r) = ui.allocate_exact_size(size, sense);
+    ui.add_space(-PAD.x);
+    let inner = rect.shrink2(PAD);
+    let mark = egui::Rect::from_min_size(egui::pos2(inner.left(), inner.center().y - MARK / 2.0), egui::Vec2::splat(MARK));
+    egui::Image::new(icons::APP).paint_at(ui, egui::Rect::from_center_size(mark.center(), egui::Vec2::splat(MARK / TILE)));
+    let top = inner.center().y - text.y / 2.0;
     let lift = baseline(&version) - baseline(&name);
-    ui.painter().galley(rect.left_top(), name, egui::Color32::PLACEHOLDER);
-    let at = egui::pos2(rect.right() - version.size().x, rect.top() - lift);
-    ui.painter().galley(at, version, egui::Color32::PLACEHOLDER);
+    let right = mark.right() + spacing + text.x;
+    ui.painter().galley(egui::pos2(mark.right() + spacing, top), name, egui::Color32::PLACEHOLDER);
+    ui.painter().galley(egui::pos2(right - version.size().x, top - lift), version, egui::Color32::PLACEHOLDER);
+    let Some(v) = home else { return };
+    if let Some(fill) = tabs::veil(ui, &r) {
+        ui.painter().set(behind, egui::Shape::rect_filled(rect, tabs::VEIL_RADIUS, fill));
+    }
+    crate::handles::publish(|| format!("titlebar:{}", v.id), rect);
+    if r.on_hover_text(v.tip()).clicked() {
+        actions.push(Action::Command(v.id));
+    }
 }
 
 /// A dev build's badge: its worktree (its branch for the main checkout) and commit, `*` when

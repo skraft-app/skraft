@@ -145,6 +145,8 @@ menu:
     left: "Gauche"
     iso: "Iso"
     zoom_extents: "Zoom étendu"
+    # The start page, the documents staying open in their tabs.
+    home: "Page d'accueil"
     # The file tabs, round the ends.
     next_tab: "Onglet suivant"
     previous_tab: "Onglet précédent"

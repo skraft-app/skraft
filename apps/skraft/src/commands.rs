@@ -121,8 +121,10 @@ pub const COMMANDS: &[Command] = &[
     c("view.left", || t!("menu.view.left"), M::View, Some("Cmd+5")),
     c("view.iso", || t!("menu.view.iso"), M::View, Some("Cmd+6")),
     g("view.zoom_extents", || t!("menu.view.zoom_extents"), M::View, Some("Shift+Z")),
+    // The start page, the documents staying open (also a click on the title bar's mark).
+    g("view.home", || t!("menu.view.home"), M::View, None),
     // Ctrl+Tab and Ctrl+Shift+Tab too, whatever these are given ([`crate::app`]).
-    g("view.next_tab", || t!("menu.view.next_tab"), M::View, None),
+    c("view.next_tab", || t!("menu.view.next_tab"), M::View, None),
     c("view.previous_tab", || t!("menu.view.previous_tab"), M::View, None),
     c("tool.select", || t!("tool.select.name"), M::Tools, Some("Space")),
     c("tool.erase", || t!("tool.erase.name"), M::Tools, Some("E")),
