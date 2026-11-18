@@ -76,6 +76,14 @@ pub fn semibold(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Name(SEMIBOLD.into()))
 }
 
+/// A window's title bar frame: the window's, filled with the title bar's ground whether the
+/// window is on top or not (egui fills only the top window's, the others take the window's
+/// ground and look white).
+pub fn window_title_frame(ctx: &egui::Context) -> egui::Frame {
+    let style = ctx.global_style();
+    egui::Frame::window(&style).fill(style.visuals.widgets.open.weak_bg_fill)
+}
+
 /// The width of a settings window's labels' column (points), the same in every section.
 const LABEL_WIDTH: f32 = 170.0;
 
@@ -280,7 +288,8 @@ fn apply(s: &mut egui::Style, t: &UiTokens) {
     w.hovered.weak_bg_fill = color(t.hover);
     w.hovered.bg_fill = color(t.hover);
     w.active.weak_bg_fill = color(t.accent_soft);
-    // egui fills a movable window's active title bar with the open state's.
+    // egui fills a movable window's title bar with the open state's when it is on top,
+    // [`window_title_frame`] when it is not.
     w.open.weak_bg_fill = color(t.panel_header);
     // Every state, so that hovering or pressing does not bring back other corners.
     for state in [&mut w.noninteractive, &mut w.inactive, &mut w.active, &mut w.open] {
