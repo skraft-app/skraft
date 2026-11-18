@@ -73,25 +73,39 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   card](../ui/interface.md#context-card)), its icons two squares in a dashed frame (the
   context's children) or one square (a part); changing it lets the selection go; `Cx::parts`.
 - **Parts only**: the leaf part. Going up is OCL's tree drop-up (below).
+- **And the guides at any depth**: under « Parts », a guide near the cursor is taken before
+  the solid under it, as under « Context », but at any depth under the active context — the
+  context's own, an assembly's, a part's (`Cx::guide_at`) — by Select, every tool's picking
+  phase (not the Stretch's: `Picker::keeping` takes no guides) and Erase; a rectangle takes the
+  guides it encloses or touches with the parts (`marquee_guides`). Shift adds or removes a
+  guide while keeping the parts, and a part while keeping the guides. Those within reach are
+  drawn **half faded** (`ThemeColor::HalfFadedGuide`), between the context's and the faded
+  others ([Tape measure and guides](tape-measure.md#display)). **Why:** « Parts » reaches the
+  parts at any depth; leaving their guides out forced opening each part to pick one.
 - Inside an open part, the selection stays the bodies' (no scope).
 - The navigator's click selects in its context, entering it, whatever the scope.
 
 ### The selection as paths
 
 - The context's selection stays ids of the active context (read in many places); « Parts »
-  keeps its own list of paths from the root (`EntityPath`, `Editor::deep`), the ids list then
-  empty. « Context » is the case where they all start with the active context.
-- `Editor::deep` is written only through `set_selection` / `clear_selection` / `select_paths`
-  (the ids' selection and the paths exclusive), pruned after each change (still there, under
-  the context, no part open); `Command::SelectPaths`. The paths may name assemblies (chosen in
+  keeps its own lists of paths from the root — the parts' (`EntityPath`, `Editor::deep`) and
+  the guides' (`GuidePath`: the occurrences to the guide's component, assembly or part, then
+  its id; `Editor::deep_guides`) —, the ids list then empty. « Context » is the case where
+  they all start with the active context.
+- `Editor::deep` and `deep_guides` are written only through `set_selection` /
+  `clear_selection` / `select_paths` / `select_parts_and_guides` (the ids' selection and the
+  paths exclusive), pruned after each change (still there, under the context, no part open,
+  guides shown); `Command::SelectPaths(paths, guides)`. The paths may name assemblies (chosen in
   the tree drop-up), pruned by `resolve`. Two selected paths leading to the same occurrence of
   the same definition are one.
 - **Picking**: `Cx::part_at` (the solid under the cursor, under the context), `marquee_parts`
   (window / crossing per part: the rectangle takes **parts at any depth**, enclosed or
   touched, as the click does); `Picker` and Select take paths under « Parts ».
 - **Drawing**: the highlight goes per path — the selection's marks and boxes per path, the
-  original hidden while moved, the eraser's and the rectangle's parts; the navigator lights the
-  rows of the paths; the entity info shows one part as in its assembly.
+  original hidden while moved, the eraser's and the rectangle's parts and guides
+  (`Preview::hover_guide`, `erasing_guides`, `Marquee::guides`); the navigator lights the rows
+  of the paths; the entity info shows one part, or one guide of an assembly, as in its
+  assembly.
 
 ### Operations at each parent
 
@@ -104,13 +118,21 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   (`MakeUnique`, ids kept) — and `Operation::Batch(ops)`, applied in order, outcomes put
   together, one history step; `Document::shared_along(instances)`. An operation `At` / `Batch`
   selects nothing it makes (its ids are not the context's).
-- `Moved::Deep { groups, unique }` (`Cx::moved_deep`): Move / Rotate (copies and `5x` arrays
-  too), Delete (`Cx::erase_deep`), Erase (click, sweep, Shift hides) at each parent; `unique` =
-  the editor's part scope « only this one » and a path shared.
+- `Moved::Deep { groups, unique }` (`Cx::moved_deep(paths, guides)`): Move / Rotate (copies
+  and `5x` arrays too), Delete (`Cx::erase_deep`), Erase (click, sweep, Shift hides) at each
+  parent; `unique` = the editor's part scope « only this one » and a path shared.
+- **Guides at each component**: an assembly's guides join its group, whose operation splits
+  them from the occurrences as at the context; a part's make a group of their own
+  (`DeepGroup::part`), whose operation is the one on its bodies at the part (`TransformBodies`,
+  `DuplicateBodies`, `ArrayBodies`, `CopyBodies`, `DeleteBodies`), the scope ignored (a part's
+  guides change no geometry, [Tape measure and guides](tape-measure.md)); hiding and painting
+  leave guides. A guide reached through two occurrences of its component is one: taken once
+  (unless made unique, an assembly's), else it would move twice.
 - **The copy tools and Distribute**: `Target::of_deep` — the box of the parts in the axes
   chosen (entity: the one part's; active: the model's; context: the active context's), each
-  group's bounds taken in its own assembly; their operation `Moved::Deep::copies`
-  (`Operation::Copies` at each parent); Distribute's inferences leave them out.
+  group's bounds taken in its own assembly (the guides selected with them copied along, not
+  in the box; guides alone have no box, as under « Context »); their operation `Moved::Deep::copies` (`Operation::Copies` at each parent);
+  Distribute's inferences leave them out.
 - **The Stretch**: parts at any depth **of one assembly** are its target (`Operation::Stretch`
   takes a context path); of several, the status says so (`tool.stretch.hint.one_assembly`) and
   a click picks again ([Stretch](stretch.md)).
@@ -119,8 +141,8 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   scope), a drag draws a rectangle whose take is painted when released, one step (the context's
   occurrences, or the parts at any depth); the level chosen in the tree drop-up is painted, not
   selected (`Tool::tree_pick`); painting faces, no scope, no list.
-- **The clipboard**: `Document::paths_fragment` (each occurrence in world axes, an id met twice
-  drawn afresh), the hull from each path; cut erases them as Delete does
+- **The clipboard**: `Document::paths_fragment` (each occurrence and guide in world axes, an id
+  met twice drawn afresh), the hull from each path and guide; cut erases them as Delete does
   ([Copy, cut and paste](copy-paste.md)).
 
 ### Making assemblies unique

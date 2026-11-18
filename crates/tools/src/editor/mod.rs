@@ -16,7 +16,7 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::kernel::{JobId, KernelService, Quality, Solid};
-use skraft_model::{Document, EntityPath, History, Id, Operation, Outcome, Scope, Sign, measure};
+use skraft_model::{Document, EntityPath, GuidePath, History, Id, Operation, Outcome, Scope, Sign, measure};
 
 use crate::camera::{Camera, ViewArea};
 use crate::infer::{EdgeRef, InferKind, Lock};
@@ -117,6 +117,9 @@ pub struct Editor {
     /// The parts selected at any depth under « Parts » (docs/tools/selection.md), by their
     /// paths from the root, all under the active context; `selection` then empty.
     deep: Vec<EntityPath>,
+    /// The guides selected at any depth under « Parts », with `deep`: paths from the root, all
+    /// under the active context.
+    deep_guides: Vec<GuidePath>,
     /// OCL's tree drop-up, while the copy modifier is held over a part (docs/tools/selection.md).
     tree: Option<tree::Tree>,
     /// The tree drop-up was opened since the copy modifier was pressed: the tap its release
@@ -254,6 +257,7 @@ impl Editor {
             listed_hover: None,
             model_selected: false,
             deep: Vec::new(),
+            deep_guides: Vec::new(),
             tree: None,
             tree_tap: false,
             outliner_hover: None,
@@ -625,6 +629,7 @@ impl Editor {
             body_sign: self.body_sign,
             selection: &self.selection,
             deep: &self.deep,
+            deep_guides: &self.deep_guides,
             parts: self.picks_parts_now(),
             axis_lock: self.axis_lock,
             face_lock: self.face_lock,
@@ -1141,14 +1146,14 @@ impl Editor {
             };
         }
         let acted = Self::acts(&commands);
-        let selection = (self.selection.clone(), self.deep.clone());
+        let selection = (self.selection.clone(), self.deep.clone(), self.deep_guides.clone());
         for c in commands {
             self.run(c);
         }
         // What a tool that picks first just took (or let go) is what it acts on from now: it
         // sees it at once, not at the next move of the cursor (docs/tools/selection.md).
         if self.tool.picks_first()
-            && (&self.selection, &self.deep) != (&selection.0, &selection.1)
+            && (&self.selection, &self.deep, &self.deep_guides) != (&selection.0, &selection.1, &selection.2)
             && let Some(px) = self.last_hover
         {
             let mut tool = std::mem::replace(&mut self.tool, tools::make(ToolKind::Select));
@@ -1366,7 +1371,7 @@ impl Editor {
                 }
                 self.set_selection(ids);
             }
-            Command::SelectPaths(paths) => self.select_paths(paths),
+            Command::SelectPaths(paths, guides) => self.select_parts_and_guides(paths, guides),
             Command::SetOption { key, value } => self.set_tool_option(key, value),
             Command::RememberHeight(h) => self.last_height = Some(h),
             Command::Enter(id) => self.enter(id),

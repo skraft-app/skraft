@@ -171,8 +171,12 @@ impl DistributeTool {
 
     /// The point inferred under `px`, what is distributed left out (drawn where it goes only).
     fn infer(cx: &Cx<'_>, t: &Target, px: DVec2) -> Option<Inference> {
-        cx.infer(px, |o: &Owner<'_>| !cx.is_moving(o, &t.entities) && !cx.is_moving_deep(o, cx.deep), None)
-            .filter(|i| i.kind != InferKind::OnPlane)
+        cx.infer(
+            px,
+            |o: &Owner<'_>| !cx.is_moving(o, &t.entities) && !cx.is_moving_deep(o, cx.deep) && !cx.is_moving_guide(o, cx.deep_guides),
+            None,
+        )
+        .filter(|i| i.kind != InferKind::OnPlane)
     }
 
     /// The start point under `px` (OCL's `_snap_handle_start`: the point inferred, else on the

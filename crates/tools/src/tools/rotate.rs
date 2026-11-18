@@ -16,7 +16,7 @@ use crate::scene::Owner;
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 use glam::{DAffine3, DQuat, DVec2, DVec3};
 use skraft_i18n::t;
-use skraft_model::{EntityPath, Id};
+use skraft_model::{EntityPath, GuidePath, Id};
 
 use super::{
     BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, guide_color,
@@ -38,6 +38,8 @@ pub struct RotateTool {
     moving: Vec<Id>,
     /// The parts moved at any depth (« Parts », docs/tools/selection.md).
     moving_paths: Vec<EntityPath>,
+    /// The guides moved at any depth (« Parts »).
+    moving_guides: Vec<GuidePath>,
     /// Where the protractor would go, and its axis, before the first click.
     cursor: Option<(DVec3, DVec3)>,
     snap: Option<Inference>,
@@ -112,7 +114,13 @@ impl RotateTool {
             return (Some((zero * a.cos() + v * a.sin(), r)), None);
         }
         let turning = matches!(self.state, State::Angle { .. });
-        let keep = |o: &Owner<'_>| self.copy || !(turning && (cx.is_moving(o, &self.moving) || cx.is_moving_deep(o, &self.moving_paths)));
+        let keep = |o: &Owner<'_>| {
+            self.copy
+                || !(turning
+                    && (cx.is_moving(o, &self.moving)
+                        || cx.is_moving_deep(o, &self.moving_paths)
+                        || cx.is_moving_guide(o, &self.moving_guides)))
+        };
         let inf = cx.infer_in_plane(px, keep, (center, axis), center).filter(|i| i.kind.is_feature());
         let d = match &inf {
             Some(i) => Some(in_plane(i.point)),
@@ -138,7 +146,8 @@ impl RotateTool {
         let world = rotation_about(center, axis, angle);
         let entities = std::mem::take(&mut self.moving);
         let paths = std::mem::take(&mut self.moving_paths);
-        let moved = if paths.is_empty() { cx.moved() } else { cx.moved_deep(&paths) };
+        let guides = std::mem::take(&mut self.moving_guides);
+        let moved = if paths.is_empty() && guides.is_empty() { cx.moved() } else { cx.moved_deep(&paths, &guides) };
         let copy = self.copy;
         self.reset();
         let op = if copy {
@@ -196,6 +205,7 @@ impl RotateTool {
                 let Some((center, axis, _)) = self.center_at(cx, *px) else { return vec![] };
                 self.moving = self.picker.selection(cx);
                 self.moving_paths = self.picker.deep(cx);
+                self.moving_guides = self.picker.deep_guides(cx);
                 self.state = State::Reference { center, axis, dir: None };
             }
             (ToolInput::Click { .. }, State::Reference { center, axis, dir }) => {
@@ -386,6 +396,7 @@ impl Tool for RotateTool {
         self.last = None;
         self.moving.clear();
         self.moving_paths.clear();
+        self.moving_guides.clear();
         self.snap = None;
     }
 }

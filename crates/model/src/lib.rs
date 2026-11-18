@@ -22,8 +22,8 @@ mod tests;
 
 pub use clipboard::BodyFragment;
 pub use document::{
-    Assembly, Behavior, Body, BodyDef, BodyGroup, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuideShape, Id,
-    MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, Sign, StretchMask, name_base,
+    Assembly, Behavior, Body, BodyDef, BodyGroup, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuidePath, GuideShape,
+    Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, Sign, StretchMask, name_base,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{FORMAT, VERSION};

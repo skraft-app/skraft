@@ -591,21 +591,32 @@ impl Editor {
         }
         // The guides: the active context's (the open part's occurrence, else the context) —
         // selected, hovered or not —, and the others faded.
+        // Under « Parts », those at any depth under the context too, half faded
+        // (docs/tools/selection.md).
         let active: Vec<Id> = self.context.iter().copied().chain(self.open_part).collect();
+        let parts = self.picks_parts_now();
         let marquee_hits: skraft_model::FastSet<Id> = preview.marquee.iter().flat_map(|m| m.hits.iter().copied()).collect();
-        let hovered = |id: Id| preview.hover == Some(id) || marquee_hits.contains(&id);
+        let at = |g: &crate::scene::SceneGuide| skraft_model::GuidePath::new(g.path.clone(), g.id);
+        let in_marquee = |g: &crate::scene::SceneGuide| preview.marquee.as_ref().is_some_and(|m| m.guides.contains(&at(g)));
         let guide = |c: ThemeColor| Pen::guide(Color::Theme(c));
         let faded = guide(ThemeColor::FadedGuide).blended();
         for g in self.scene.guides() {
-            if g.path != active {
+            let here = g.path == active;
+            let reached = parts && g.path.starts_with(&self.context);
+            if !here && !reached {
                 d.pen(faded).guide(&g.shape);
                 continue;
             }
-            let is_selected = selected.contains(&g.id);
+            let is_selected = (here && selected.contains(&g.id)) || self.deep_guides.contains(&at(g));
+            let hovered = (here && (preview.hover == Some(g.id) || marquee_hits.contains(&g.id)))
+                || preview.hover_guide.as_ref() == Some(&at(g))
+                || in_marquee(g);
+            let erased = (here && erasing.contains(&g.id)) || preview.erasing_guides.contains(&at(g));
+            let rest = if here { guide(ThemeColor::Guide) } else { guide(ThemeColor::HalfFadedGuide).blended() };
             if is_selected && let Some(t) = preview.ghost {
                 d.pen(guide(ThemeColor::Selected)).guide(&g.shape.transformed(&t));
                 if !hide_original {
-                    d.pen(guide(ThemeColor::Guide)).guide(&g.shape);
+                    d.pen(rest).guide(&g.shape);
                 }
                 continue;
             }
@@ -615,14 +626,14 @@ impl Editor {
                     d.pen(guide(ThemeColor::Selected)).guide(&g.shape.transformed(t));
                 }
             }
-            let pen = if erasing.contains(&g.id) {
+            let pen = if erased {
                 faded
             } else if is_selected {
                 guide(ThemeColor::Selected)
-            } else if hovered(g.id) {
+            } else if hovered {
                 guide(ThemeColor::Hover)
             } else {
-                guide(ThemeColor::Guide)
+                rest
             };
             d.pen(pen).guide(&g.shape);
         }

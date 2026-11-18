@@ -6011,6 +6011,105 @@ fn parts_are_selected_at_any_depth_without_entering() {
 }
 
 #[test]
+fn guides_are_selected_with_parts_at_any_depth() {
+    use skraft_model::{GuidePath, GuideShape};
+    let (mut e, [a, _, c, g, g2]) = drawers_editor();
+    let root = e.document().root();
+    let line = |y: f64, z: f64| GuideShape::Line { origin: DVec3::new(0.0, y, z), dir: DVec3::X };
+    let add = |e: &mut Editor, component: Id, shape| e.apply(Operation::AddGuide { component, shape }).unwrap().unwrap().guide.unwrap();
+    let assembly = e.document().resolve(&EntityPath::root(g)).unwrap().component;
+    let part = e.document().resolve(&EntityPath::new(vec![g], a)).unwrap().component;
+    // The model's at -300; the assembly's at -100 in its axes (200 in its copy); part a's at
+    // 80, above it (380 in the copy).
+    let model_guide = add(&mut e, root, line(-300.0, 0.0));
+    let assembly_guide = add(&mut e, assembly, line(-100.0, 0.0));
+    let part_guide = add(&mut e, part, line(80.0, 100.0));
+    let y_of = |e: &Editor, component: Id, id: Id| {
+        let GuideShape::Line { origin, .. } = e.document().component(component).unwrap().guide(id).unwrap().shape else { panic!() };
+        origin.y
+    };
+    let count = |e: &Editor, component: Id| e.document().component(component).unwrap().guides.len();
+    let none = Modifiers::default();
+    let shift = Modifiers { toggle: true, copy: false };
+    let shift_click = |e: &mut Editor, p: DVec3| {
+        e.input(ToolInput::Hover { px: px(e, p) });
+        e.input(ToolInput::Click { px: px(e, p), mods: shift });
+    };
+
+    // Under « Context », the deeper guides are faded; under « Parts », half faded.
+    assert!(guides_in(&e.view(), ThemeColor::HalfFadedGuide).is_empty());
+    parts_scope(&mut e);
+    assert_eq!(guides_in(&e.view(), ThemeColor::HalfFadedGuide).len(), 4, "the assembly's and the part's, in both copies");
+
+    // A click near a guide takes it, at any depth, hovered first; Shift adds guides and parts.
+    hover(&mut e, DVec3::new(100.0, 203.0, 0.0));
+    assert!(!guides_in(&e.view(), ThemeColor::Hover).is_empty());
+    click(&mut e, DVec3::new(100.0, 203.0, 0.0));
+    assert_eq!(e.deep_guides(), [GuidePath::new(vec![g2], assembly_guide)]);
+    assert!(e.selection().is_empty() && e.deep_selection().is_empty());
+    shift_click(&mut e, DVec3::new(100.0, -303.0, 0.0));
+    shift_click(&mut e, DVec3::new(100.0, 83.0, 100.0));
+    shift_click(&mut e, DVec3::new(650.0, 50.0, 50.0));
+    assert_eq!(
+        e.deep_guides(),
+        [GuidePath::new(vec![g2], assembly_guide), GuidePath::root(model_guide), GuidePath::new(vec![g, a], part_guide)]
+    );
+    assert_eq!(e.deep_selection(), [EntityPath::root(c)]);
+    assert!(!guides_in(&e.view(), ThemeColor::Selected).is_empty());
+    // Shift takes one out.
+    shift_click(&mut e, DVec3::new(100.0, -303.0, 0.0));
+    assert_eq!(e.deep_guides().len(), 2);
+    shift_click(&mut e, DVec3::new(100.0, -303.0, 0.0));
+
+    // Copied together: the three guides in the clip.
+    let clip = e.copy().expect("copied");
+    let crate::Content::Entities(f) = &clip.content else { panic!() };
+    assert_eq!(f.component(f.root()).unwrap().guides.len(), 3);
+
+    // Moved together 100 along green, each in its component (the assembly's and the part's in
+    // both copies), in one step.
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(650.0, 50.0, 50.0));
+    hover(&mut e, DVec3::new(650.0, 150.0, 50.0));
+    e.input(ToolInput::Vcb("100".into()));
+    assert!((y_of(&e, root, model_guide) + 200.0).abs() < 1e-6);
+    assert!(y_of(&e, assembly, assembly_guide).abs() < 1e-6);
+    assert!((y_of(&e, part, part_guide) - 180.0).abs() < 1e-6);
+    assert_eq!(bounds_of(&e, &EntityPath::root(c)).0.y.round(), 100.0);
+    e.undo();
+    assert!((y_of(&e, assembly, assembly_guide) + 100.0).abs() < 1e-6);
+
+    // The assembly's guide taken in both copies: moved once.
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(100.0, 203.0, 0.0));
+    shift_click(&mut e, DVec3::new(100.0, -97.0, 0.0));
+    assert_eq!(e.deep_guides().len(), 2);
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(100.0, -100.0, 0.0));
+    e.input(ToolInput::Key { key: Key::Left, mods: none });
+    hover(&mut e, DVec3::new(100.0, -20.0, 0.0));
+    e.input(ToolInput::Vcb("100".into()));
+    assert!(y_of(&e, assembly, assembly_guide).abs() < 1e-6, "{}", y_of(&e, assembly, assembly_guide));
+    e.undo();
+
+    // Deleted together, in one step.
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(100.0, 83.0, 100.0));
+    shift_click(&mut e, DVec3::new(100.0, -303.0, 0.0));
+    e.delete_selection();
+    assert_eq!((count(&e, root), count(&e, part)), (0, 0));
+    e.undo();
+    assert_eq!((count(&e, root), count(&e, part)), (1, 1));
+
+    // Erase: a click near a guide at any depth erases it.
+    e.select(vec![]);
+    e.set_tool(ToolKind::Erase);
+    hover(&mut e, DVec3::new(100.0, 203.0, 0.0));
+    click(&mut e, DVec3::new(100.0, 203.0, 0.0));
+    assert_eq!(count(&e, assembly), 0);
+}
+
+#[test]
 fn parts_at_any_depth_move_in_their_assembly_all_copies_or_this_one() {
     let (mut e, [a, _, c, g, g2]) = drawers_editor();
     let none = Modifiers::default();

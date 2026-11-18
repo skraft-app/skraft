@@ -666,6 +666,26 @@ pub struct Material {
     pub color: [u8; 3],
 }
 
+/// A guide in the scene (docs/tools/tape-measure.md): the occurrences from the root to the
+/// component it belongs to — an assembly, or a part placed by the last one —, then its id. Two
+/// occurrences of one component make two paths to the same guide.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct GuidePath {
+    /// Occurrence ids from the root, outermost first; empty for a guide of the model.
+    pub instances: Vec<Id>,
+    pub guide: Id,
+}
+
+impl GuidePath {
+    pub fn new(instances: Vec<Id>, guide: Id) -> Self {
+        GuidePath { instances, guide }
+    }
+
+    pub fn root(guide: Id) -> Self {
+        GuidePath::new(Vec::new(), guide)
+    }
+}
+
 /// An occurrence in the scene: the occurrences of assemblies leading to it from the root,
 /// then the occurrence itself. Two occurrences of one assembly make two paths to the same part.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -856,6 +876,20 @@ impl Document {
             at = o.component;
         }
         Ok(at)
+    }
+
+    /// The component `instances` leads into — an assembly, or the part its last occurrence
+    /// places — and its axes to the root's.
+    pub fn component_at(&self, instances: &[Id]) -> Result<(Id, DAffine3)> {
+        let Some((&last, parents)) = instances.split_last() else { return Ok((self.root, DAffine3::IDENTITY)) };
+        let o = self.assembly(self.context_of(parents)?)?.occurrence(last).ok_or(Error::NotFound(last))?;
+        Ok((o.component, self.transform_of(parents)? * o.transform))
+    }
+
+    /// The guide `path` names, in its component's axes.
+    pub fn resolve_guide(&self, path: &GuidePath) -> Result<&Guide> {
+        let (c, _) = self.component_at(&path.instances)?;
+        self.component(c)?.guide(path.guide).ok_or(Error::NotFound(path.guide))
     }
 
     /// From the axes of the assembly `instances` leads into to the root's.

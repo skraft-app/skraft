@@ -6,7 +6,7 @@ use std::cell::RefCell;
 
 use glam::{DAffine3, DMat3, DVec2, DVec3};
 use skraft_i18n::t;
-use skraft_model::{Body, EntityPath, Id, Occurrence, Part};
+use skraft_model::{Body, EntityPath, GuidePath, Id, Occurrence, Part};
 
 use super::{BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, RED, ToolInput, ToolOption, copy_key};
 use crate::draw::{Drawer, Ends, Pen};
@@ -238,12 +238,13 @@ impl Target {
     }
 
     /// The parts `paths` selected at any depth (« Parts », docs/tools/selection.md), in the
-    /// axes `axes`: each from its own assembly, their box in those axes.
+    /// axes `axes`: each from its own assembly, their box in those axes; the guides selected
+    /// at any depth with them go along, out of the box.
     pub fn of_deep(cx: &Cx<'_>, paths: &[EntityPath], axes: Axes) -> Option<Target> {
         if cx.open_part.is_some() || paths.is_empty() {
             return None;
         }
-        let moved = cx.moved_deep(paths);
+        let moved = cx.moved_deep(paths, cx.deep_guides);
         let Moved::Deep { groups, .. } = &moved else { return None };
         let frame = match (axes, paths) {
             (Axes::Entity, [p]) => cx.doc.transform_of(&p.instances).ok()? * cx.doc.resolve(p).ok()?.transform,
@@ -251,7 +252,7 @@ impl Target {
             _ => cx.context_transform,
         };
         let mut b: Option<(DVec3, DVec3)> = None;
-        for g in groups {
+        for g in groups.iter().filter(|g| g.part.is_none()) {
             let a = cx.doc.assembly(cx.doc.context_of(&g.parent).ok()?).ok()?;
             let occs: Vec<&Occurrence> = g.entities.iter().filter_map(|id| a.occurrence(*id)).collect();
             let in_parent = g.frame.inverse() * frame;
@@ -407,6 +408,7 @@ struct MemoKey {
     shown: bool,
     selection: Vec<Id>,
     deep: Vec<EntityPath>,
+    deep_guides: Vec<GuidePath>,
     axes: Axes,
 }
 
@@ -419,6 +421,7 @@ impl Memo {
             shown: cx.machinings_shown(),
             selection: cx.selection.to_vec(),
             deep: cx.deep.to_vec(),
+            deep_guides: cx.deep_guides.to_vec(),
             axes: axes(cx),
         };
         if let Some((k, t)) = &*self.0.borrow()

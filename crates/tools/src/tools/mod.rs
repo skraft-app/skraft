@@ -39,7 +39,7 @@ use std::collections::BTreeMap;
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
-use skraft_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope, Section, Sign, Units};
+use skraft_model::{Boolean, Document, EntityPath, GuidePath, Id, Operation, Primitive, Scope, Section, Sign, Units};
 
 use crate::camera::{Camera, Ray};
 use crate::infer::{self, EdgeRef, InferKind, Inference, LineKind, Lock, Query};
@@ -126,9 +126,9 @@ pub enum Command {
     Apply(Operation),
     /// Replaces the selection (entities of the active context).
     Select(Vec<Id>),
-    /// Replaces the selection by parts at any depth under the active context (« Parts »,
-    /// docs/tools/selection.md).
-    SelectPaths(Vec<EntityPath>),
+    /// Replaces the selection by parts and guides at any depth under the active context
+    /// (« Parts », docs/tools/selection.md).
+    SelectPaths(Vec<EntityPath>, Vec<GuidePath>),
     /// Enters the assembly the occurrence `Id` of the active context places, or opens its
     /// part.
     Enter(Id),
@@ -193,6 +193,8 @@ pub struct Preview {
     pub hover: Option<Id>,
     /// A solid anywhere in the scene under the cursor (tools that reach across contexts).
     pub hover_solid: Option<EntityPath>,
+    /// The guide at any depth under the cursor (« Parts », docs/tools/selection.md).
+    pub hover_guide: Option<GuidePath>,
     /// A solid already picked (the boolean tool's target).
     pub picked_solid: Option<EntityPath>,
     /// The selection drawn moved by this world transform (the move tool's ghost).
@@ -223,6 +225,8 @@ pub struct Preview {
     pub erasing: Vec<Id>,
     /// The parts at any depth the eraser would take (« Parts », docs/tools/selection.md).
     pub erasing_paths: Vec<EntityPath>,
+    /// The guides at any depth the eraser would take (« Parts »).
+    pub erasing_guides: Vec<GuidePath>,
 }
 
 /// A point a tool draws over everything (world; its radius in pixels), filled and / or ringed
@@ -351,11 +355,13 @@ pub struct Marquee {
     pub hits: Vec<Id>,
     /// The parts at any depth it would take now (« Parts », docs/tools/selection.md).
     pub paths: Vec<EntityPath>,
+    /// The guides at any depth it would take now (« Parts »).
+    pub guides: Vec<GuidePath>,
 }
 
 impl Marquee {
     pub fn new(from: DVec2, to: DVec2) -> Self {
-        Marquee { from, to, crossing: to.x < from.x, hits: Vec::new(), paths: Vec::new() }
+        Marquee { from, to, crossing: to.x < from.x, hits: Vec::new(), paths: Vec::new(), guides: Vec::new() }
     }
 }
 
@@ -507,6 +513,8 @@ pub struct Cx<'a> {
     pub selection: &'a [Id],
     /// The parts selected at any depth (« Parts », docs/tools/selection.md), by their paths from the root.
     pub deep: &'a [EntityPath],
+    /// The guides selected at any depth with them (« Parts »), by their paths from the root.
+    pub deep_guides: &'a [GuidePath],
     /// Does a click take parts at any depth (« Parts », no part open)?
     pub parts: bool,
     /// The context axis the arrow keys lock (→ 0 red, ← 1 green, ↑ 2 blue; ↓ frees it).
@@ -598,9 +606,24 @@ impl Cx<'_> {
     /// model), the nearest on screen.
     pub fn pick_guide(&self, px: DVec2) -> Option<Id> {
         let path = self.guide_path();
+        self.nearest_guide(px, |g| g.path == path).map(|g| g.id)
+    }
+
+    /// The guide at any depth under the active context near `px` (« Parts »,
+    /// docs/tools/selection.md), by its path from the root; none in an open part.
+    pub fn guide_at(&self, px: DVec2) -> Option<GuidePath> {
+        if self.open_part.is_some() {
+            return None;
+        }
+        self.nearest_guide(px, |g| g.path.starts_with(self.context)).map(|g| GuidePath::new(g.path.clone(), g.id))
+    }
+
+    /// The guide `keep` keeps near `px` (within [`GUIDE_PICK_PX`], not hidden by the model),
+    /// the nearest on screen.
+    fn nearest_guide(&self, px: DVec2, keep: impl Fn(&crate::scene::SceneGuide) -> bool) -> Option<&crate::scene::SceneGuide> {
         let ray = self.ray(px);
-        let mut best: Option<(f64, Id)> = None;
-        for g in self.scene.guides().iter().filter(|g| g.path == path) {
+        let mut best: Option<(f64, &crate::scene::SceneGuide)> = None;
+        for g in self.scene.guides().iter().filter(|g| keep(g)) {
             let Some((dist, p)) = crate::guides::distance(self.camera, self.size, &g.shape, px) else { continue };
             if dist > GUIDE_PICK_PX || best.is_some_and(|b| dist >= b.0) {
                 continue;
@@ -611,7 +634,7 @@ impl Cx<'_> {
             if self.scene.pick(&ray, |_| true).is_some_and(|h| h.t < depth - slack) {
                 continue;
             }
-            best = Some((dist, g.id));
+            best = Some((dist, g));
         }
         best.map(|b| b.1)
     }
@@ -656,36 +679,59 @@ impl Cx<'_> {
         }
     }
 
-    /// What moving the parts `paths` at any depth changes (« Parts », docs/tools/selection.md): grouped
-    /// per parent assembly, each in its axes; under « only this one », the assemblies along
-    /// made unique when they are placed more than once.
-    pub fn moved_deep(&self, paths: &[EntityPath]) -> Moved {
+    /// What moving the parts `paths` and the guides `guides` at any depth changes (« Parts »,
+    /// docs/tools/selection.md): grouped per parent assembly — a guide of an assembly with its
+    /// occurrences, a part's guides per part —, each in its axes; under « only this one », the
+    /// assemblies along made unique when they are placed more than once (not for a part's
+    /// guides, which ignore the scope: docs/tools/tape-measure.md). A guide reached twice (two
+    /// occurrences of its component) moves once, unless made unique.
+    pub fn moved_deep(&self, paths: &[EntityPath], guides: &[GuidePath]) -> Moved {
+        let unique = self.part_scope == Scope::This
+            && (paths.iter().any(|p| self.doc.shared_along(&p.instances))
+                || guides.iter().any(|g| !self.is_part_guide(g) && self.doc.shared_along(&g.instances)));
         let mut groups: Vec<DeepGroup> = Vec::new();
+        let mut add = |parent: &[Id], id: Id, part: Option<EntityPath>, frame: &dyn Fn() -> DAffine3| match groups
+            .iter_mut()
+            .find(|g| g.parent == parent)
+        {
+            Some(g) if !g.entities.contains(&id) => g.entities.push(id),
+            Some(_) => {}
+            None => groups.push(DeepGroup { parent: parent.to_vec(), frame: frame(), entities: vec![id], part }),
+        };
         for p in paths {
-            match groups.iter_mut().find(|g| g.parent == p.instances) {
-                Some(g) if !g.entities.contains(&p.entity) => g.entities.push(p.entity),
-                Some(_) => {}
-                None => groups.push(DeepGroup {
-                    parent: p.instances.clone(),
-                    frame: self.doc.transform_of(&p.instances).unwrap_or(DAffine3::IDENTITY),
-                    entities: vec![p.entity],
-                }),
-            }
+            add(&p.instances, p.entity, None, &|| self.doc.transform_of(&p.instances).unwrap_or(DAffine3::IDENTITY));
         }
-        let unique = self.part_scope == Scope::This && paths.iter().any(|p| self.doc.shared_along(&p.instances));
+        let mut seen: Vec<(Id, Id)> = Vec::new();
+        for g in guides {
+            let Ok((component, frame)) = self.doc.component_at(&g.instances) else { continue };
+            let part = self.is_part_guide(g);
+            // The same guide through another occurrence of its component: once.
+            if (part || !unique) && seen.contains(&(component, g.guide)) {
+                continue;
+            }
+            seen.push((component, g.guide));
+            let target = g.instances.split_last().filter(|_| part).map(|(&last, parents)| EntityPath::new(parents.to_vec(), last));
+            add(&g.instances, g.guide, target, &|| frame);
+        }
         Moved::Deep { groups, unique }
     }
 
-    /// The operation erasing the parts `paths` at any depth (« Parts », docs/tools/selection.md): one
-    /// at each parent assembly, in one step.
-    pub fn erase_deep(&self, paths: &[EntityPath]) -> Operation {
-        self.deep_op(paths, |entities| Operation::Delete { context: Id(0), entities })
+    /// Does the guide `g` belong to a part (else to an assembly)?
+    fn is_part_guide(&self, g: &GuidePath) -> bool {
+        self.doc.component_at(&g.instances).is_ok_and(|(c, _)| self.doc.part(c).is_ok())
+    }
+
+    /// The operation erasing the parts `paths` and the guides `guides` at any depth (« Parts »,
+    /// docs/tools/selection.md): one at each parent assembly (and part), in one step.
+    pub fn erase_deep(&self, paths: &[EntityPath], guides: &[GuidePath]) -> Operation {
+        let Moved::Deep { groups, unique } = self.moved_deep(paths, guides) else { unreachable!() };
+        Moved::at_each(&groups, unique, |_, entities| Operation::Delete { context: Id(0), entities })
     }
 
     /// `op` of the occurrences selected in each parent assembly of the parts `paths`, applied
     /// at it (« Parts », docs/tools/selection.md), in one step.
     pub fn deep_op(&self, paths: &[EntityPath], op: impl Fn(Vec<Id>) -> Operation) -> Operation {
-        let Moved::Deep { groups, unique } = self.moved_deep(paths) else { unreachable!() };
+        let Moved::Deep { groups, unique } = self.moved_deep(paths, &[]) else { unreachable!() };
         Moved::at_each(&groups, unique, |_, entities| op(entities))
     }
 
@@ -695,6 +741,11 @@ impl Cx<'_> {
         let chain = |p: &EntityPath| p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>();
         let under = chain(o.path);
         paths.iter().any(|p| under.starts_with(&chain(p)))
+    }
+
+    /// Is `o` one of the guides `guides` at any depth (« Parts »)?
+    pub fn is_moving_guide(&self, o: &Owner<'_>, guides: &[GuidePath]) -> bool {
+        matches!(o.piece, Piece::Guide(id) if guides.iter().any(|g| g.guide == id && g.instances == o.path.instances))
     }
 
     /// The operation making `primitive`, drawn in the axes and placed by `placement` there:
@@ -1102,8 +1153,27 @@ pub struct DeepGroup {
     pub parent: Vec<Id>,
     /// The assembly's axes to world.
     pub frame: DAffine3,
-    /// Its occurrences selected.
+    /// Its occurrences (and guides) selected.
     pub entities: Vec<Id>,
+    /// A part's guides instead: the part `parent` leads into, placed by this path; `frame` its
+    /// axes to world, `entities` its guides.
+    pub part: Option<EntityPath>,
+}
+
+/// `op` on occurrences of a context made on the bodies (here, guides) of the part `target`
+/// places, in its axes; none for an operation that has no such form.
+fn on_bodies(op: Operation, target: EntityPath) -> Option<Operation> {
+    let scope = Scope::All;
+    Some(match op {
+        Operation::Transform { entities, transform, .. } => Operation::TransformBodies { target, bodies: entities, transform, scope },
+        Operation::Duplicate { entities, transform, .. } => Operation::DuplicateBodies { target, bodies: entities, transform, scope },
+        Operation::Array { entities, step, count, .. } => Operation::ArrayBodies { target, bodies: entities, step, count, scope },
+        Operation::Copies { entities, moved, placements, .. } => {
+            Operation::CopyBodies { target, bodies: entities, moved, placements, scope }
+        }
+        Operation::Delete { entities, .. } => Operation::DeleteBodies { target, bodies: entities, scope },
+        _ => return None,
+    })
 }
 
 /// The world motion `world`, in the frame `frame` (to world).
@@ -1127,11 +1197,19 @@ impl Moved {
 
     /// Parts at any depth: `op` made at each group from its frame and occurrences, applied
     /// at its parent, all in one step.
+    /// A part's guides take the operation on its bodies instead, at the part (the scope
+    /// ignored); those that have none (hiding, painting) leave them.
     fn at_each(groups: &[DeepGroup], unique: bool, op: impl Fn(&DAffine3, Vec<Id>) -> Operation) -> Operation {
         Operation::Batch(
             groups
                 .iter()
-                .map(|g| Operation::At { parent: g.parent.clone(), unique, op: Box::new(op(&g.frame, g.entities.clone())) })
+                .filter_map(|g| {
+                    let o = op(&g.frame, g.entities.clone());
+                    match &g.part {
+                        Some(target) => on_bodies(o, target.clone()),
+                        None => Some(Operation::At { parent: g.parent.clone(), unique, op: Box::new(o) }),
+                    }
+                })
                 .collect(),
         )
     }
