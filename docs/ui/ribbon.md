@@ -24,7 +24,8 @@ opening onto the groups), as wide as its content and centered on the view; it ne
 workspace card nor passes the right margin, so a narrow window narrows it (then
 [Narrow window](#narrow-window) decides what gives way). The view is never resized
 ([Application interface](interface.md)); the dock's columns start under the ribbon; the **tool
-option bar** is a small card of its own, centered under the ribbon; zoom extents frames what is
+option bar** is a small card of its own under the ribbon, the context card left of it
+([Context card](interface.md#context-card)); zoom extents frames what is
 left below it. The render statistics card sits in the top right corner of the area the cards
 leave free (`Editor::free_area`), under the ribbon.
 

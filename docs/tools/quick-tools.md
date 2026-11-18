@@ -80,9 +80,9 @@ a tool chosen (`Editor::dismiss_quick_card`). `start_quick_tool` takes it: what 
 becomes the selection.
 
 In the app (`apps/skraft/src/quick.rs`): an `egui::Area` centred on `quick_card()`, kept inside
-the view, drawn after the docked cards; a window frame at 35 % opacity at rest (`RESTING`; its
-border and shadow faded alike, the icons not) and 92 % under the pointer (`HOVERED`, hover of the
-last frame kept in egui's temp data), icon buttons 34 pt (icon 22, the name in the tip), then a
+the view, drawn after the docked cards; a window frame at 35 % opacity at rest (its
+border and shadow faded alike, the icons not) and 92 % under the pointer (`style::translucent`,
+hover of the last frame kept in egui's temp data), icon buttons 34 pt (icon 22, the name in the tip), then a
 narrow ▾ (the ribbon's chevron) opening the list `quick::COMMANDS` with pins (as a ribbon group's
 menu, a click on a row starts it too; its note wraps within the rows' width).
 `Action::QuickTool(id)` → `Editor::start_quick_tool`, `Action::QuickPin(id)` → `quick::toggle` on

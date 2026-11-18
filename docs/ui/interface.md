@@ -15,8 +15,9 @@ tabs have pages of their own.
 - Title bar at the top ([Title bar and native menus](title-bar.md)), status bar at the bottom
   with the measurements box (VCB) on the right; in between, the **3D view takes the whole
   width** and the panels **float over it** (anchored cards): **the workspace card and the
-  ribbon across the top** ([Workspaces and ribbon](ribbon.md)), the tool option bar centered
-  under the ribbon, the view bar along the left or right edge ([View bar](view-bar.md));
+  ribbon across the top** ([Workspaces and ribbon](ribbon.md)), the context card and the tool
+  option bar under the ribbon ([Context card](#context-card)), the view bar along the left or
+  right edge ([View bar](view-bar.md));
   **Entity info**, **Materials** and **Outliner** are three cards docked in two columns, one
   per edge of the view (`dock.rs`), under the ribbon. A card's header (a title bar in the
   headers' fill, a line under it, its title semibold, its chevron at the right end) folds it
@@ -182,17 +183,37 @@ Decision record: [Document settings and user preferences](../decisions/0003-docu
 
 ## Tool option bar
 
-A small card of its own, centered under the ribbon, with the tool's options — exclusive choices,
-toggles and lengths; no tool name, and no card at all for a tool without options (nor open
-part). Every choice is visible and clickable there; a shortcut is only a complement (Tab cycles
-the tool's first choice, `Editor::next_choice`). The status bar keeps the guidance for the
-current step; what Tab does is not written in the tools' hints but added by the editor
+A small card of its own under the ribbon, with the tool's options — exclusive choices, toggles
+and lengths; no tool name, and no card at all for a tool without options. The choices that are
+not the tool's but the context's go to the context card beside it (below). Every choice is
+visible and clickable there; a shortcut is only a complement (Tab cycles the first choice,
+`Editor::next_choice`). The status bar keeps the guidance for the current step; what Tab does is not written in the tools' hints but added by the editor
 (`Editor::tab_hint`): « · Tab : <choice> → <the value it gives> », only while the tool shows a
 choice — none for a part placed once ([Data model](../model/data-model.md)). Tab and Shift+Tab
 never reach egui's keyboard navigation while no text field has the focus (`App::raw_input_hook`
 takes them out for the tool): egui would focus the first widget, then keep every key from the
 tool. In a text field they move between fields; a shortcut being captured or a modal dialog gets
 them as they are.
+
+### Context card
+
+The choices common to every tool that shows them, not the tool's own, are in a **card of their
+own, left of the tool's**: **« Sélection »**, what a pick takes ([Selection
+scope](../tools/selection.md#selection-scope), the tools that pick parts, no part open), then
+**« Portée »**, which copies a change reaches (the open part's scope, [Opening a
+part](../model/opening-a-part.md), or the parts selected at any depth through a shared
+assembly). The two cards are centered together under the ribbon, between the dock's columns
+(`App` lays them out, `panels::context_options` and `panels::tool_options` fill them, in `panels::option_card`: 3 pt
+above and below the buttons, as the view bar, 6 on the sides), each translucent at rest and
+nearly opaque under the pointer or while a field of it is typed in, as the view bar
+(`style::hover_card`). The open
+part's « Solide » stays in the tool's card: only the shape tools show it. **Why:** these choices
+are not the tool's — switching from Select to Move to Rotate keeps them —, a card apart says so,
+always first; mixed in the tool's options, they sat among them at a place of each tool's. The
+row centered as a whole, not split at the view's center (the context card ending there, the
+tool's starting there): that kept the context card still from one tool to the next but left
+nothing centered. Tab still cycles the first choice of all (`Editor::next_choice`): the selection's scope
+for a tool without a choice of its own.
 
 ### Tools describe their options
 
@@ -226,7 +247,12 @@ by side, drawn like the ribbon's buttons (no track, no outline around the group)
 one's mark — a selected ribbon button's fill and outline — sliding to the value chosen, easing
 out in 0.18 s (`panels::segmented`). Each choice comes after its name (no colon, grey like a
 caption), the groups apart by separators; the lone toggles come last, together in an
-**"Options"** group, without separators between them.
+**"Options"** group, without separators between them. The fills and outlines — the marks, a
+button hovered, the length fields' ground and outline — fade with their card while it is
+translucent (`style::fill_alpha`), their ink not; a toggle's swatch (« Pipette »'s material)
+keeps its colour. A rail around each choice and each toggle (the values of a choice in one
+hollow track, a toggle a rail of one cell) was tried (2026-11-18) and dropped for the ribbon's
+look.
 
 ### Length options
 

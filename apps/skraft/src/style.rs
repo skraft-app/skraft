@@ -21,6 +21,56 @@ const KEY_SYMBOLS: &[u8] = include_bytes!("../assets/fonts/dejavu-sans/DejaVuSan
 /// The family headings are written in.
 const SEMIBOLD: &str = "plex-sans-semibold";
 
+/// A floating card's background opacity at rest and under the pointer (the view bar, the quick
+/// tools, the option cards): the model stays visible behind it, nearly opaque to read and
+/// click.
+const RESTING: f32 = 0.35;
+const HOVERED: f32 = 0.92;
+
+/// A floating card's opacity: [`RESTING`], or [`HOVERED`] when `hovered`.
+pub fn card_alpha(hovered: bool) -> f32 {
+    if hovered { HOVERED } else { RESTING }
+}
+
+/// `frame` translucent at rest, nearly opaque when `hovered`.
+pub fn translucent(mut frame: egui::Frame, hovered: bool) -> egui::Frame {
+    let alpha = card_alpha(hovered);
+    frame.fill = frame.fill.gamma_multiply(alpha);
+    frame.stroke.color = frame.stroke.color.gamma_multiply(alpha);
+    frame.shadow.color = frame.shadow.color.gamma_multiply(alpha * alpha);
+    frame
+}
+
+/// `frame` shown [`translucent`], nearly opaque while hovered or while a field of it has the
+/// keyboard's focus (as of the last frame, kept under `id`: the card is drawn before egui knows
+/// this frame's hover). What `add` paints may follow it: [`fill_alpha`].
+pub fn hover_card<R>(ui: &mut egui::Ui, frame: egui::Frame, id: egui::Id, add: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
+    let hovered = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let alpha_id = fill_alpha_id();
+    ui.data_mut(|d| d.insert_temp(alpha_id, card_alpha(hovered)));
+    let shown = translucent(frame, hovered).show(ui, add);
+    ui.data_mut(|d| d.remove::<f32>(alpha_id));
+    let rect = shown.response.rect;
+    let ctx = ui.ctx();
+    let focused = ctx.memory(|m| m.focused()).and_then(|f| ctx.read_response(f)).is_some_and(|r| rect.contains_rect(r.rect));
+    let now = shown.response.contains_pointer() || focused;
+    if now != hovered {
+        ctx.data_mut(|d| d.insert_temp(id, now));
+        ctx.request_repaint();
+    }
+    shown
+}
+
+fn fill_alpha_id() -> egui::Id {
+    egui::Id::unique("hover_card_alpha")
+}
+
+/// The opacity of the card being drawn by [`hover_card`], 1 outside one: the fills of its
+/// widgets fade with it (the option bar's rails), their ink does not.
+pub fn fill_alpha(ui: &egui::Ui) -> f32 {
+    ui.data(|d| d.get_temp::<f32>(fill_alpha_id())).unwrap_or(1.0)
+}
+
 /// Plex Sans semibold at `size`: text painted bold (a heading's family).
 pub fn semibold(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Name(SEMIBOLD.into()))
