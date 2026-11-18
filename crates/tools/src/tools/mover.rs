@@ -102,11 +102,6 @@ impl MoveTool {
 }
 
 impl MoveTool {
-    /// Is the tool picking what it moves (§6 septendecies)?
-    fn picking(&self) -> bool {
-        matches!(self.state, State::Start) && self.pasted.is_none() && !self.taken
-    }
-
     fn input_state(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         self.picker.shift_released(cx);
         let picking = matches!(self.state, State::Start) && self.pasted.is_none() && !self.picker.taken(cx);
@@ -263,6 +258,11 @@ impl Tool for MoveTool {
 
     fn picks_first(&self) -> bool {
         true
+    }
+
+    /// Picking what it moves (§6 septendecies).
+    fn picking(&self) -> bool {
+        matches!(self.state, State::Start) && self.pasted.is_none() && !self.taken
     }
 
     fn picks_parts(&self) -> bool {

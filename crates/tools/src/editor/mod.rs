@@ -484,6 +484,11 @@ impl Editor {
         self.tool.copying()
     }
 
+    /// Is the active tool at its pick step (the cursor is then the arrow)?
+    pub fn tool_picking(&self) -> bool {
+        self.tool.picking()
+    }
+
     pub fn tool_kind(&self) -> ToolKind {
         self.tool.kind()
     }
