@@ -1373,6 +1373,7 @@ impl SkraftApp {
         // A fixed id: the title changes with the language.
         egui::Window::new(t!("prefs.title"))
             .id(prefs_window_id())
+            .title_frame(crate::style::window_title_frame(ctx))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)

@@ -110,6 +110,7 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
     };
     egui::Window::new(title)
         .id(window_id())
+        .title_frame(crate::style::window_title_frame(ctx))
         .open(&mut open)
         .collapsible(false)
         .resizable(true)
