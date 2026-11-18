@@ -84,11 +84,17 @@ where they are drawn covers them all.
 
 IBM Plex Sans (variable) and IBM Plex Mono (regular), SIL OFL (`apps/skraft/assets/fonts/`),
 embedded in the binary (≈ 670 kB): Sans regular for text, semibold for headings, Mono for
-monospace; then the **key symbols**, then egui's fonts (symbols, emoji). Neither Plex nor egui's
-fonts have the macOS key symbols (⌘ ⌥ ⌃ ⌫ ⌦ ⏎ ⇥): a subset of DejaVu Sans (Bitstream Vera
+monospace; each then the **key symbols**, and monospace last Plex Sans (Plex Mono has no
+Greek). Plex has no macOS key symbols (⌘ ⌥ ⌃ ⌫ ⌦ ⏎ ⇥): a subset of DejaVu Sans (Bitstream Vera
 licence, `assets/fonts/dejavu-sans/`, ≈ 18 kB), its arrows and technical symbols blocks only
 (U+2190–21FF, U+2300–23FF), fills them in. The arrow keys are written ← ↑ → ↓ (Plex's), not
 with egui's triangles (⏴), which no font here has.
+
+No other font: eframe's `default_fonts` is off. Its Ubuntu Light and Hack (≈ 670 kB) drew none
+of the app's texts, only characters Plex lacks in a typed or imported name (Latin Extended-B,
+polytonic Greek, Armenian, Georgian, mathematical symbols), which now show as empty boxes, as
+emoji already did. A test holds every family to every character of the catalog, of the
+symbols the code writes, and of Greek.
 
 ## Palette and materials
 
