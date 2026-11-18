@@ -626,6 +626,10 @@ impl Viewport {
             axes,
             axes_frame: DMat4::from(editor.axes_transform()),
             pixels_per_point,
+            model_per_point: {
+                let points = DVec2::new(size[0] as f64, size[1] as f64) / pixels_per_point as f64;
+                cam.world_per_pixel(points, cam.eye + cam.forward() * cam.focus)
+            },
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
         // A still view draws nothing: the target keeps its picture (§7 quater).
@@ -703,11 +707,17 @@ impl Translated<'_> {
     /// `drawing`'s lines, boxes and fills, each to the list of its layer; `color` resolves the
     /// theme's colours. (Its grips, marks and lengths are drawn by the app over the view.)
     fn push(self, drawing: &draw::Drawing, color: impl Fn(draw::Color) -> Rgba) {
-        let dash =
-            |stipple: draw::Stipple, anchored: bool, phase: f32| stipple.pattern().map(|pattern| render::Dash { pattern, phase, anchored });
+        let dash = |stipple: draw::Stipple, lay: draw::Lay, phase: f64| {
+            let lay = match lay {
+                draw::Lay::Model => render::Lay::Model(phase),
+                draw::Lay::Anchored => render::Lay::Anchored,
+                draw::Lay::Screen => render::Lay::Screen(phase as f32),
+            };
+            stipple.pattern().map(|pattern| render::Dash { pattern, lay })
+        };
         for l in &drawing.lines {
             let p = l.pen;
-            let line = render::Line { a: l.a, b: l.b, color: color(p.color), dash: dash(p.stipple, p.anchored, l.phase), width: p.width };
+            let line = render::Line { a: l.a, b: l.b, color: color(p.color), dash: dash(p.stipple, p.lay, l.phase), width: p.width };
             match (p.layer, p.blended) {
                 (draw::Layer::Over, _) => self.overlay.push(line),
                 (draw::Layer::Scene, true) => self.faint_lines.push(line),
@@ -717,7 +727,7 @@ impl Translated<'_> {
                 self.hidden_lines.push(render::Line {
                     color: h.color.map_or(line.color, &color),
                     width: h.width.unwrap_or(line.width),
-                    dash: dash(h.stipple, false, 0.0),
+                    dash: dash(h.stipple, if p.lay == draw::Lay::Screen { draw::Lay::Screen } else { draw::Lay::Model }, l.phase),
                     ..line
                 });
             }
@@ -727,7 +737,7 @@ impl Translated<'_> {
                 transform: box_transform(&b.bounds),
                 color: color(b.pen.color),
                 width: b.pen.width,
-                dash: dash(b.pen.stipple, false, 0.0),
+                dash: dash(b.pen.stipple, draw::Lay::Anchored, 0.0),
                 corners: b.corners,
                 shell_on_top: b.shell_on_top,
                 over: b.pen.layer == draw::Layer::Over,

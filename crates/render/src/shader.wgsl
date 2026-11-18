@@ -461,13 +461,27 @@ fn fs_edge_faint(in: EdgeOut) -> @location(0) vec4<f32> {
 struct LineOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) color: vec4<f32>,
-    // The dash pattern (px: dash, gap, dash, gap; all 0 for a plain line), and where the
-    // pattern is here (px along the line on screen, interpolated on screen).
+    // The dash pattern (dash, gap, dash, gap; all 0 for a plain line): model units when laid
+    // in them (its period a power of two), px otherwise.
     @location(1) @interpolate(flat) pattern: vec4<f32>,
+    // How far along the line on screen (px from `a`, interpolated on screen): for `reach`, and
+    // where a pattern on screen is (with its phase).
     @location(2) @interpolate(linear) along: f32,
     // Only so far from the line's start drawn (px; a box's corners), 0 for the whole line.
     @location(3) @interpolate(flat) reach: f32,
+    // Where a pattern laid on the line itself is (interpolated perspective-correct, so that its
+    // dashes stay where they are on it as the view orbits): anchored, px from `a` (the pattern
+    // stretched to fit); in model units, from the line's nearer end.
+    @location(4) @interpolate(perspective) laid: f32,
+    // How the pattern lies (`LAY_*`) and its phase: in model units, at the nearer end, high and
+    // low parts; on screen, px at `a`.
+    @location(5) @interpolate(flat) lay: vec3<f32>,
 };
+
+// How a dash pattern lies (`line_out`'s `dash.x`, then `LineOut::lay.z`).
+const LAY_MODEL: f32 = 0.0;
+const LAY_ANCHORED: f32 = 1.0;
+const LAY_SCREEN: f32 = 2.0;
 
 @vertex
 fn vs_line(
@@ -476,16 +490,21 @@ fn vs_line(
     @location(2) corner: vec3<f32>,
     @location(3) color: vec4<f32>,
     @location(4) pattern: vec4<f32>,
-    @location(5) dash: vec2<f32>,
+    // How its pattern lies (`LAY_*`), then (see `line_out`): in model units, the phase at the
+    // line's nearer end (high and low parts) and the line's length, negative when that end is
+    // `b`; anchored, 1 (a whole dash at `b`); on screen, the phase (px) at `a`.
+    @location(5) dash: vec4<f32>,
 ) -> LineOut {
-    return line_out(a, b, corner, color, pattern, dash.x, dash.y > 0.5, 0.0);
+    return line_out(a, b, corner, color, pattern, dash, 0.0);
 }
 
 // A box's outline (instanced): the edges of the unit cube placed by `m0..m3` (to camera
 // space), its dash `pattern` (px), `params`: half its width (px), how far from its corners its
 // edges are drawn (px, 0: whole), whether the edges of its faces turned to the eye are drawn
 // again over the scene, whether it is drawn wholly over the scene. 24 quads of 6 corners: each
-// edge as two halves run from its ends to its middle, so a dash starts at every corner.
+// edge as two halves run from its ends to its middle, each anchored with a dash at its corner
+// and half a dash at the middle, so a dash starts at every corner and one lies across the
+// middle.
 struct BoxIn {
     @builtin(vertex_index) vi: u32,
     @location(0) m0: vec4<f32>,
@@ -562,7 +581,7 @@ fn box_edge(in: BoxIn) -> LineOut {
     let model = mat4x4<f32>(in.m0, in.m1, in.m2, in.m3);
     let a = (model * vec4<f32>(pa, 1.0)).xyz;
     let b = (model * vec4<f32>(pb, 1.0)).xyz;
-    return line_out(a, b, vec3<f32>(quad[in.vi % 6u], in.params.x), in.color, in.pattern, 0.0, false, in.params.y);
+    return line_out(a, b, vec3<f32>(quad[in.vi % 6u], in.params.x), in.color, in.pattern, vec4<f32>(LAY_ANCHORED, 0.5, 0.0, 0.0), in.params.y);
 }
 
 fn cube_corner(i: u32) -> vec3<f32> {
@@ -593,61 +612,129 @@ fn face_exposed(model: mat4x4<f32>, k: u32, side: u32) -> bool {
     return nl > 0.0 && el > 0.0 && dot(n, eye) > 1e-9 * nl * el;
 }
 
-// A corner of a coloured segment's quad, `a` and `b` in camera space; its dash `pattern`
-// (px) at `phase` px at `a`, or, `anchored`, stretched a little so that a dash starts and ends
-// it on screen; drawn only `reach` px from `a` when not 0.
-fn line_out(a: vec3<f32>, b: vec3<f32>, corner: vec3<f32>, color: vec4<f32>, pattern: vec4<f32>, phase: f32, anchored: bool, reach: f32) -> LineOut {
+// A corner of a coloured segment's quad, `a` and `b` in camera space, drawn only `reach` px
+// from `a` when not 0. Its dash `pattern` lies as `dash.x` says (`LAY_*`):
+// - in model units (`pattern` too, its period a power of two), laid on the line itself, so
+//   that its dashes stay where they are on it as the view orbits; `dash.yz` its phase at the
+//   line's nearer end (high and low parts), `dash.w` the line's length, negative when that end
+//   is `b` (see `ink`);
+// - anchored (`pattern` in px), laid on the line too: a dash at `a`, `dash.y` of a dash at `b`
+//   (1: a line's last dash, ½: a box's half edge, its other half beyond), the pattern
+//   stretched a little so that a whole number of periods fits the line on screen;
+// - on screen (`pattern` in px), at `dash.y` px at `a`: dashes as long on screen everywhere,
+//   held still as the view pans, sliding along the line as it orbits (the guides').
+fn line_out(a: vec3<f32>, b: vec3<f32>, corner: vec3<f32>, color: vec4<f32>, pattern: vec4<f32>, dash: vec4<f32>, reach: f32) -> LineOut {
     var out: LineOut;
     let ca = g.proj * pulled(vec4<f32>(a, 1.0), corner.z);
     let cb = g.proj * pulled(vec4<f32>(b, 1.0), corner.z);
     out.clip = wide(ca, cb, corner.xy, corner.z);
     out.color = color;
-    var p = pattern;
-    var at = phase;
-    let period = dot(pattern, vec4<f32>(1.0));
-    if (anchored && period > 0.0) {
-        // Whole periods and a last dash: as long as the line.
-        let len = screen_length(ca, cb);
-        let k = max(round((len - pattern.x) / period), 0.0);
-        let span = k * period + pattern.x;
-        p = select(vec4<f32>(0.0), pattern * (len / span), span > 0.0 && len > 0.0);
-        at = 0.0;
-    }
-    out.pattern = p;
-    out.along = at + along_px(ca, cb, corner.xy, corner.z);
+    out.pattern = pattern;
     out.reach = reach;
+    out.along = along_px(ca, cb, corner.xy, corner.z);
+    out.lay = vec3<f32>(0.0, 0.0, dash.x);
+    out.laid = 0.0;
+    let period = dot(pattern, vec4<f32>(1.0));
+    if (period <= 0.0) {
+        return out;
+    }
+    if (dash.x == LAY_ANCHORED) {
+        // Whole periods and the tail: as long as the line (its number of periods set on
+        // screen, so it changes only as the line grows or shrinks there by a period).
+        let len = screen_length(ca, cb);
+        let tail = pattern.x * dash.y;
+        let k = max(round((len - tail) / period), 0.0);
+        let span = k * period + tail;
+        out.pattern = select(vec4<f32>(0.0), pattern * (len / span), span > 0.0 && len > 0.0);
+        // 0 at `a`, the length at `b`: the quad's half width past each end shrinks it by
+        // as much, which leaves the ends inked.
+        out.laid = select(0.0, len, corner.x > 0.5);
+    } else if (dash.x == LAY_SCREEN) {
+        out.lay.x = dash.y;
+    } else {
+        // From the nearer end, 0 there: small where a model unit is few pixels, so that the
+        // float keeps the dashes there; the end's phase is added in `ink`, exactly.
+        let at_a = min(dash.w, 0.0);
+        let at_b = max(dash.w, 0.0);
+        // The part in front of the eye.
+        let t = in_front_t(ca, cb);
+        out.laid = mix(at_a, at_b, select(t.x, t.y, corner.x > 0.5));
+        out.lay = vec3<f32>(dash.yz, LAY_MODEL);
+    }
     return out;
 }
 
-// Whether a line's fragment falls in a gap of its dashes, or past its reach.
-fn gap(in: LineOut) -> bool {
+// Where the part of a segment in front of the eye starts and ends along it (0: `a`, 1: `b`),
+// as `in_front` cuts it.
+fn in_front_t(ca: vec4<f32>, cb: vec4<f32>) -> vec2<f32> {
+    let near = 1e-4;
+    if (ca.w < near && cb.w >= near) {
+        return vec2<f32>((near - ca.w) / (cb.w - ca.w), 1.0);
+    }
+    if (cb.w < near && ca.w >= near) {
+        return vec2<f32>(0.0, 1.0 - (near - cb.w) / (ca.w - cb.w));
+    }
+    return vec2<f32>(0.0, 1.0);
+}
+
+// `x` modulo `2^n`, exactly (scaled by powers of two, a float loses nothing).
+fn wrap(x: f32, n: i32) -> f32 {
+    return x - floor(x * ldexp(1.0, -n)) * ldexp(1.0, n);
+}
+
+// The model units a pixel spans along the line (the laid distance's change from pixel to
+// pixel; taken before any branch, derivatives need every pixel of the quad).
+fn laid_per_px(in: LineOut) -> f32 {
+    return length(vec2<f32>(dpdx(in.laid), dpdy(in.laid)));
+}
+
+// How much of a line's fragment is inked: 0 in a gap of its dashes or past its reach, 1 on a
+// dash. In model units, where the period falls under a few pixels on screen (towards a
+// vanishing point), the dashes fade into a line inked as much as they ink it (their share of
+// the period), rather than shimmer.
+fn ink(in: LineOut, per_px: f32) -> f32 {
     if (in.reach > 0.0 && in.along > in.reach) {
-        return true;
+        return 0.0;
     }
     let period = dot(in.pattern, vec4<f32>(1.0));
     if (period <= 0.0) {
-        return false;
+        return 1.0;
     }
-    let t = in.along - floor(in.along / period) * period;
     let p = in.pattern;
-    return !(t < p.x || (t >= p.x + p.y && t < p.x + p.y + p.z));
+    var t: f32;
+    var fade = 1.0;
+    if (in.lay.z == LAY_MODEL) {
+        let n = i32(round(log2(period)));
+        t = wrap(wrap(in.lay.x, n) + wrap(in.lay.y, n) + in.laid, n);
+        if (per_px > 0.0) {
+            fade = smoothstep(3.0, 6.0, period / per_px);
+        }
+    } else {
+        let at = select(in.laid, in.lay.x + in.along, in.lay.z == LAY_SCREEN);
+        t = at - floor(at / period) * period;
+    }
+    let on = t < p.x || (t >= p.x + p.y && t < p.x + p.y + p.z);
+    let share = (p.x + p.z) / period;
+    return mix(share, select(0.0, 1.0, on), fade);
 }
 
 @fragment
 fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
-    if (gap(in)) {
+    let k = ink(in, laid_per_px(in));
+    if (k <= 0.0) {
         discard;
     }
-    return vec4<f32>(mix(g.background.rgb, in.color.rgb, in.color.a), 1.0);
+    return vec4<f32>(mix(g.background.rgb, in.color.rgb, in.color.a * k), 1.0);
 }
 
 // The overlay's lines: blended over what is drawn under them (their alpha is a true opacity).
 @fragment
 fn fs_overlay(in: LineOut) -> @location(0) vec4<f32> {
-    if (gap(in)) {
+    let k = ink(in, laid_per_px(in));
+    if (k <= 0.0) {
         discard;
     }
-    return in.color;
+    return vec4<f32>(in.color.rgb, in.color.a * k);
 }
 
 // ---- translucent fills (a tool's planes: in the scene, depth tested, or over it; blended) -----

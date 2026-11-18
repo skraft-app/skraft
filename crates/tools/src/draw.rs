@@ -115,6 +115,20 @@ impl Default for Hidden {
     }
 }
 
+/// How a stipple lies on a line (`render::Lay`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lay {
+    /// Laid on the line in model units, one period for the picture (set at the view's focus):
+    /// held still on the line as the view orbits, shorter on screen as it runs away; the line's
+    /// phase in model units.
+    Model,
+    /// Laid on the line, stretched a little so that a dash starts and another ends it.
+    Anchored,
+    /// On screen: as long on screen everywhere, held still as the view pans, sliding along the
+    /// line as it orbits (the guides'); the line's phase in points.
+    Screen,
+}
+
 /// How a line is drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pen {
@@ -122,8 +136,8 @@ pub struct Pen {
     /// Points.
     pub width: f32,
     pub stipple: Stipple,
-    /// The stipple stretched a little so that a dash starts and another ends the line.
-    pub anchored: bool,
+    /// How its stipple lies on the line.
+    pub lay: Lay,
     pub layer: Layer,
     /// In the scene, blended over what it does not hide at its alpha, no depth written (the
     /// guides of other components, which take the colour of the faces they lie on); otherwise
@@ -140,7 +154,7 @@ impl Pen {
             color: color.into(),
             width: NORMAL,
             stipple: Stipple::Solid,
-            anchored: false,
+            lay: Lay::Model,
             layer: Layer::Scene,
             blended: false,
             hidden: None,
@@ -164,12 +178,13 @@ impl Pen {
         Pen { stipple, ..self }
     }
 
-    /// A guide's: long dashes, held still on it as the view pans (at the phase of each of its
-    /// strokes, [`Drawer::guide`]).
+    /// A guide's: long dashes on screen, held still on it as the view pans (at the phase of each
+    /// of its strokes, [`Drawer::guide`]), sliding along it as the view orbits (they look better
+    /// as long on screen everywhere than laid on the guide, shorter as it runs away).
     /// Translucent (an alpha below one), blended: over a part it takes its colour.
     pub fn guide(color: impl Into<Color>) -> Self {
         let color = color.into();
-        let pen = Pen::new(color).stipple(Stipple::LongDashes);
+        let pen = Pen { lay: Lay::Screen, ..Pen::new(color).stipple(Stipple::LongDashes) };
         match color {
             Color::Rgba(c) if c[3] < 1.0 => pen.blended(),
             _ => pen,
@@ -178,7 +193,7 @@ impl Pen {
 
     /// Long dashes, a dash at both ends (a box's edges keep their corners drawn).
     pub fn dashed(self) -> Self {
-        Pen { stipple: Stipple::LongDashes, anchored: true, ..self }
+        Pen { stipple: Stipple::LongDashes, lay: Lay::Anchored, ..self }
     }
 
     pub fn dotted(self) -> Self {
@@ -186,7 +201,7 @@ impl Pen {
     }
 
     pub fn anchored(self) -> Self {
-        Pen { anchored: true, ..self }
+        Pen { lay: Lay::Anchored, ..self }
     }
 
     pub fn over(self) -> Self {
@@ -234,14 +249,15 @@ impl Brush {
 
 // ---- output -----------------------------------------------------------------------------------
 
-/// A segment (world), its pen, its stipple at `phase` points at `a` (when not anchored: the
-/// guides' dashes hold still on them as the view pans).
+/// A segment (world), its pen, its stipple at `phase` at `a`: model units when laid in them
+/// (a curve's dashes hold still on it as the view moves), points on screen (a guide's hold
+/// still as the view pans); ignored when anchored (`render::Dash`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Line {
     pub a: DVec3,
     pub b: DVec3,
     pub pen: Pen,
-    pub phase: f32,
+    pub phase: f64,
 }
 
 /// Filled triangles (world): a convex polygon (a fan of its `corners`), or, `triangles`, the
@@ -253,8 +269,9 @@ pub struct Fill {
     pub brush: Brush,
 }
 
-/// A box's edges, drawn instanced by the renderer: dashed from its corners (the pen's
-/// anchoring and hidden style ignored; `Layer::Over`: drawn wholly over the scene).
+/// A box's edges, drawn instanced by the renderer: dashed from its corners, each half edge
+/// anchored (the pen's anchoring and hidden style ignored; `Layer::Over`: drawn wholly over the
+/// scene).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoxEdges {
     pub bounds: OrientedBox,
@@ -405,8 +422,8 @@ impl<'a> Drawer<'a> {
         self.line_phased(a, b, 0.0)
     }
 
-    /// A line whose stipple is at `phase` points at `a`.
-    pub fn line_phased(&mut self, a: DVec3, b: DVec3, phase: f32) -> &mut Self {
+    /// A line whose stipple is at `phase` model units at `a`.
+    pub fn line_phased(&mut self, a: DVec3, b: DVec3, phase: f64) -> &mut Self {
         let (a, b) = (self.world(a), self.world(b));
         self.out.lines.push(Line { a, b, pen: self.pen, phase });
         self
@@ -418,7 +435,7 @@ impl<'a> Drawer<'a> {
     pub fn guide(&mut self, shape: &GuideShape) -> &mut Self {
         let pen = self.pen;
         let strokes = crate::guides::strokes(self.camera, self.size, shape);
-        self.out.lines.extend(strokes.into_iter().map(|s| Line { a: s.a, b: s.b, pen, phase: s.phase as f32 }));
+        self.out.lines.extend(strokes.into_iter().map(|s| Line { a: s.a, b: s.b, pen, phase: s.phase }));
         self
     }
 
@@ -450,32 +467,36 @@ impl<'a> Drawer<'a> {
     }
 
     /// A sampled curve through `points` (closed back to the first when `closed`): its stipple
-    /// runs on from chord to chord (each at the phase the previous left it), so that short
-    /// chords are dashed as one line.
+    /// runs on from chord to chord (each at the phase the previous left it: model units, or
+    /// points on screen), so that short chords are dashed as one line; anchored, laid in model
+    /// units.
     pub fn curve(&mut self, points: &[DVec3], closed: bool) -> &mut Self {
         let n = points.len();
         if n < 2 {
             return self;
         }
         let count = if closed && n > 2 { n } else { n - 1 };
-        let Some(pattern) = self.pen.stipple.pattern() else {
+        if self.pen.stipple.pattern().is_none() {
             for i in 0..count {
                 self.line(points[i], points[(i + 1) % n]);
             }
             return self;
-        };
-        let period: f32 = pattern.iter().sum();
+        }
         let pen = self.pen;
-        self.pen = Pen { anchored: false, ..pen };
-        let mut phase = 0.0f32;
+        let on_screen = pen.lay == Lay::Screen;
+        self.pen = Pen { lay: if on_screen { Lay::Screen } else { Lay::Model }, ..pen };
+        let mut phase = 0.0;
         for i in 0..count {
-            let (a, b) = (points[i], points[(i + 1) % n]);
-            self.line_phased(a, b, phase);
-            let on_screen = match (self.camera.project(self.world(a), self.size), self.camera.project(self.world(b), self.size)) {
-                (Some(pa), Some(pb)) => pa.distance(pb) as f32,
-                _ => 0.0,
+            let (a, b) = (self.world(points[i]), self.world(points[(i + 1) % n]));
+            self.line_phased(points[i], points[(i + 1) % n], phase);
+            phase += if on_screen {
+                match (self.camera.project(a, self.size), self.camera.project(b, self.size)) {
+                    (Some(pa), Some(pb)) => pa.distance(pb),
+                    _ => 0.0,
+                }
+            } else {
+                a.distance(b)
             };
-            phase = (phase + on_screen) % period;
         }
         self.pen = pen;
         self
@@ -896,9 +917,9 @@ mod tests {
             d.pen(Pen::new([0.0; 4]).dashed()).curve(&pts, false);
         });
         assert_eq!(d.lines.len(), 20);
-        assert!(d.lines.iter().all(|l| !l.pen.anchored));
+        assert!(d.lines.iter().all(|l| l.pen.lay == Lay::Model));
         assert_eq!(d.lines[0].phase, 0.0);
-        assert!(d.lines[1].phase > 0.0);
+        assert!((d.lines[1].phase - 5.0).abs() < 1e-9 && (d.lines[19].phase - 95.0).abs() < 1e-9);
     }
 
     #[test]

@@ -265,21 +265,37 @@ impl FillGroup {
     }
 }
 
-/// A line's dashes, on screen: `pattern` in points, dash, gap, dash, gap (zeros left out: a
-/// dash and a gap, `[l, l, 0, 0]`, is the plain dashed line), at `phase` points at the line's
-/// `a` (so that it can hold still on the line as the view moves); or, `anchored`, stretched a
-/// little so that a dash starts and another ends the line on screen (the phase then ignored).
+/// A line's dashes: `pattern` in points, dash, gap, dash, gap (zeros left out: a dash and a
+/// gap, `[l, l, 0, 0]`, is the plain dashed line), lying as `lay` says.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Dash {
     pub pattern: [f32; 4],
-    pub phase: f32,
-    pub anchored: bool,
+    pub lay: Lay,
+}
+
+/// How a dash pattern lies on its line.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Lay {
+    /// Laid on the line itself in model units, so that its dashes stay where they are on it as
+    /// the view orbits or pans: the pattern at this many model units at the line's `a`, its
+    /// period the power of two (model units) nearest to its length on screen at the view's
+    /// focus ([`Frame::model_per_point`]): one period for every line of the picture, the same
+    /// while the view orbits, doubled or halved as it zooms by a factor two; regular on the
+    /// line, so shorter on screen as it runs away (fading into a lighter line where they would
+    /// be a few pixels long).
+    Model(f64),
+    /// Laid on the line itself, stretched a little so that a dash starts and another ends the
+    /// line on screen. A box's half edges are always anchored.
+    Anchored,
+    /// On screen, at this many points at the line's `a`: as long on screen everywhere, held
+    /// still as the view pans, sliding along the line as it orbits (the guides').
+    Screen(f32),
 }
 
 impl Dash {
-    /// Dashes `length` points long, gaps as long, at `phase` points at `a`.
-    pub const fn even(length: f32, phase: f32) -> Self {
-        Dash { pattern: [length, length, 0.0, 0.0], phase, anchored: false }
+    /// Dashes `length` points long, gaps as long, lying as `lay` says.
+    pub const fn even(length: f32, lay: Lay) -> Self {
+        Dash { pattern: [length, length, 0.0, 0.0], lay }
     }
 }
 
@@ -377,6 +393,9 @@ pub struct Frame<'a> {
     /// Pixels per point of the screen: line widths are in points, so they look the same on
     /// any display.
     pub pixels_per_point: f32,
+    /// The model units a point spans at the view's focus (the orbit centre): sets the period of
+    /// the dashes laid in model units ([`Dash`]).
+    pub model_per_point: f64,
 }
 
 /// Line widths, in points.
@@ -437,7 +456,11 @@ struct LineVertex {
     corner: [f32; 3],
     color: [f32; 4],
     pattern: [f32; 4],
-    dash: [f32; 2],
+    /// How the pattern lies (the shader's `LAY_*`: in model units 0, anchored 1, on screen 2),
+    /// then in model units the phase at the nearer end (high and low parts) and the length,
+    /// negative when the nearer end is `b`; anchored, 1; on screen, the phase (px) at `a`
+    /// (`vs_line`).
+    dash: [f32; 4],
 }
 
 /// A [`BoxOutline`] as the GPU takes it: the unit cube to camera space, its colour, its dash
@@ -743,7 +766,7 @@ impl Renderer {
             attributes: &sil_attrs,
         };
         let line_attrs =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2];
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4];
         let line_layout = wgpu::VertexBufferLayout {
             array_stride: size_of::<LineVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -1294,15 +1317,15 @@ impl Renderer {
         push_scene_lines(&mut lv, frame);
         let tested = lv.len() as u32;
         for l in frame.faint_lines {
-            push_line(&mut lv, &frame.view, l, ppp);
+            push_line(&mut lv, &frame.view, l, ppp, frame.model_per_point);
         }
         let faint = lv.len() as u32;
         for l in frame.hidden_lines {
-            push_line(&mut lv, &frame.view, l, ppp);
+            push_line(&mut lv, &frame.view, l, ppp, frame.model_per_point);
         }
         let hidden = lv.len() as u32;
         for l in frame.overlay {
-            push_line(&mut lv, &frame.view, l, ppp);
+            push_line(&mut lv, &frame.view, l, ppp, frame.model_per_point);
         }
         // Past the device's buffer limit, the last lines are dropped (whole quads) rather than
         // the device lost.
@@ -1728,8 +1751,11 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     let dash = |h: &mut H, d: &Option<Dash>| match d {
         Some(d) => {
             h.fs(&d.pattern);
-            h.fs(&[d.phase]);
-            (1u8, d.anchored).hash(&mut h.0);
+            match d.lay {
+                Lay::Model(phase) => (1u8, phase.to_bits()).hash(&mut h.0),
+                Lay::Anchored => 2u8.hash(&mut h.0),
+                Lay::Screen(phase) => (3u8, phase.to_bits()).hash(&mut h.0),
+            }
         }
         None => 0u8.hash(&mut h.0),
     };
@@ -1770,6 +1796,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     frame.axes.hash(&mut h.0);
     h.m(&frame.axes_frame);
     h.fs(&[frame.pixels_per_point]);
+    frame.model_per_point.to_bits().hash(&mut h.0);
     h.0.finish()
 }
 
@@ -1847,15 +1874,33 @@ fn silhouette_edges(m: &Mesh) -> Vec<SilhouetteEdge> {
 }
 
 /// A world line, in camera coordinates (subtracted in `f64`), as wide as it says.
-/// `ppp`: pixels per point (dashes are in points).
-fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, ppp: f32) {
+/// `ppp`: pixels per point (dashes are in points); `mpp`: model units per point at the view's
+/// focus (dashes laid in model units).
+fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, ppp: f32, mpp: f64) {
     let half = l.width * ppp / 2.0;
-    let a = view.transform_point3(l.a).as_vec3().to_array();
-    let b = view.transform_point3(l.b).as_vec3().to_array();
+    let (a, b) = (view.transform_point3(l.a), view.transform_point3(l.b));
+    // `dash.x`: the shader's `LAY_*`.
     let (pattern, dash) = match l.dash {
-        Some(d) => (d.pattern.map(|l| l * ppp), [d.phase * ppp, if d.anchored { 1.0 } else { 0.0 }]),
-        None => ([0.0; 4], [0.0; 2]),
+        Some(Dash { pattern, lay: Lay::Anchored }) => (pattern.map(|l| l * ppp), [1.0, 1.0, 0.0, 0.0]),
+        Some(Dash { pattern, lay: Lay::Screen(phase) }) => (pattern.map(|l| l * ppp), [2.0, phase * ppp, 0.0, 0.0]),
+        Some(Dash { pattern, lay: Lay::Model(phase) }) => {
+            // The pattern in model units, its period the nearest power of two.
+            let points: f64 = pattern.iter().map(|l| *l as f64).sum();
+            let period = if points > 0.0 && mpp > 0.0 { (points * mpp).log2().round().clamp(-100.0, 100.0).exp2() } else { 0.0 };
+            let pattern = pattern.map(|l| if period > 0.0 { (l as f64 * period / points) as f32 } else { 0.0 });
+            // From the nearer end (the eye looks down -Z), where a model unit is the most
+            // pixels: the float keeps the dashes there; the shader adds its phase exactly (high
+            // and low parts).
+            let len = l.a.distance(l.b);
+            let from_b = b.z > a.z;
+            let at = if from_b { phase + len } else { phase };
+            let hi = at as f32;
+            let lo = (at - hi as f64) as f32;
+            (pattern, [0.0, hi, lo, if from_b { -len } else { len } as f32])
+        }
+        None => ([0.0; 4], [0.0; 4]),
     };
+    let (a, b) = (a.as_vec3().to_array(), b.as_vec3().to_array());
     out.extend(QUAD.map(|[end, side]| LineVertex { a, b, corner: [end, side, half], color: l.color, pattern, dash }));
 }
 
@@ -1878,17 +1923,19 @@ fn push_scene_lines(out: &mut Vec<LineVertex>, frame: &Frame<'_>) {
                 v,
                 &Line { a: DVec3::new(-ext, t, 0.0), b: DVec3::new(ext, t, 0.0), color: c, dash: None, width: GRID_WIDTH },
                 ppp,
+                frame.model_per_point,
             );
             push_line(
                 out,
                 v,
                 &Line { a: DVec3::new(t, -ext, 0.0), b: DVec3::new(t, ext, 0.0), color: c, dash: None, width: GRID_WIDTH },
                 ppp,
+                frame.model_per_point,
             );
         }
     }
     for l in frame.lines {
-        push_line(out, &frame.view, l, ppp);
+        push_line(out, &frame.view, l, ppp, frame.model_per_point);
     }
 }
 

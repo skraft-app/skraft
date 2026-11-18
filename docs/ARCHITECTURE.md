@@ -1350,10 +1350,12 @@ model, the file, the display and the tool; (2) inferences on guides; (3) managin
   the view's sides (a few pixels past them), kept off the eye in perspective, and an end
   running off to infinity stops within a quarter of a pixel of its vanishing point; seen end
   on in parallel (within 1 mrad: the standard views stop short of the zenith), it is not
-  drawn. A circle is a polyline. The renderer dashes them **on screen** (`render::Dash`):
+  drawn. A circle is a polyline. The renderer dashes them **on screen** (`render::Lay::Screen`):
   dashes and gaps of 6 points, the pattern anchored on the line's origin (when in front of
   the eye; else its first point drawn) and running on along a circle's chords, so it holds
-  still as the view pans. An infinite line is never inside a selection rectangle: only a
+  still as the view pans. As the view orbits, the dashes slide along the guide: laid on it in
+  model units instead (tried on 2026-11-18, §7 bis), they held still but shrank with the
+  perspective, and the user found guides looked better as long on screen everywhere. An infinite line is never inside a selection rectangle: only a
   crossing one takes it. The axes are drawn the same way, across the view (their negative
   halves faded). Those of the active context in the theme's `guide`,
   the others (outside it, or in another occurrence of the open part) in `guide_faded`. Step 3
@@ -2978,7 +2980,8 @@ Drawing                1 instanced draw per definition, with the N world matrice
 - **Scale** (decided on 2026-11-12, after a 200 × 200 array froze the app): what is drawn or
   listed per occurrence costs one GPU instance, never draw calls or CPU-built geometry. Runs of
   highlights of the same part are drawn in one instanced call; a box outline is one instance of
-  the unit cube (`Frame::boxes`), its edges dashed by the shader from every corner; the outliner
+  the unit cube (`Frame::boxes`), its edges dashed by the shader from every corner (each half
+  edge anchored, its dashes laid on it); the outliner
   only lays out the rows in view. Lookups over a selection or an assembly go through sets or an
   index (`ContextIndex`), never a search per occurrence. The renderer keeps every buffer within
   the device's limit (what does not fit is dropped, the device is not lost).
@@ -3054,10 +3057,40 @@ Drawing                1 instanced draw per definition, with the N world matrice
   widened on screen by the vertex shader, after clipping the segment in front of the eye. Widths
   are in points (`EDGE_WIDTH` 1.5; `LINE_WIDTH` 1.5; `GRID_WIDTH` 1) and multiplied by the
   screen's pixel density (`Frame::pixels_per_point`): the same apparent thickness everywhere.
-  A `Line` may be **dashed** (`Dash`: length and phase in points): the vertex shader passes
-  the distance along the segment on screen, interpolated linearly on screen, and the fragment
-  shader discards the gaps. Lines that run past a parallel projection's depth range (infinite
-  guides and axes) are clamped to it, not cut: the line pipeline uses `unclipped_depth` where
+  A `Line` may be **dashed** (`Dash`: a pattern in points, and how it lies, `Lay`); the
+  fragment shader discards the gaps. Laid on screen (dashes spread evenly on screen, as all
+  of them were from 2026-11-17), a line running away sees its dashes slide along it as the
+  view orbits (the "swimming" dashes; the CPU dashes, cut on the segment, did not have them).
+  So, since 2026-11-18, all but the guides' are **laid on the segment itself**: the vertex
+  shader passes a distance along it with perspective-correct interpolation (`LineOut::laid`).
+  Three ways:
+  - **anchored** (a tool's dashed lines; a box's half edges, always): a dash at both ends,
+    the number of periods set by the length on screen, the pattern stretched to fit; dashes
+    evenly spread on the segment, shorter on screen as it runs away; they jump when the count
+    of periods changes, a period's worth of zoom apart.
+  - **in model units** (curves, hidden parts, every other dashed line): the pattern at
+    `phase` model units at `a`, its period the power of two (model units) nearest to the
+    pattern's length **at the view's focus** (`Frame::model_per_point`, the orbit centre's
+    scale): one period for the whole picture, so the dashes are regular on the line, shorter
+    on screen as it runs away (as the anchored ones), unchanged as the view orbits or pans,
+    doubled or halved as it zooms, a factor two apart. Where they would be a few pixels long
+    (towards a vanishing point) they fade, from 6 to 3 pixels a period (the screen derivatives
+    of the laid distance), into a line inked as much as they ink it, rather than shimmer. A
+    period chosen pixel by pixel instead (tried on 2026-11-18, the nearest power of two to the
+    pattern's length there) kept the dashes about their length on screen, but a receding guide
+    then had dashes of every size, shrinking then doubling all along it: refused. The distance
+    is laid from the segment's nearer end (where a model unit is the most pixels, so the float
+    keeps the dashes there), the phase there passed in two parts (high, low; computed in
+    `f64`) and taken modulo the period exactly (powers of two: `wrap`), so a line far from its
+    phase's origin keeps its dashes.
+  - **on screen** (the guides, `Pen::guide`): the distance along the segment on screen,
+    interpolated linearly on screen, from a phase in points at `a`: dashes as long on screen
+    everywhere, held still as the view pans, sliding along the guide as it orbits. Laid in model
+    units, guides held still but their dashes shrank as they ran away: the user preferred them
+    swimming, as long on screen (2026-11-18).
+
+  Lines that run past a parallel projection's depth range (infinite guides and axes) are
+  clamped to it, not cut: the line pipeline uses `unclipped_depth` where
   the device has `DEPTH_CLIP_CONTROL` (`render::OPTIONAL_FEATURES`, which the app asks egui's
   device for).
   The quad has the depth of its centre line, while a pixel away a neighbouring face can be
@@ -3656,7 +3689,9 @@ on the CPU (up to a thousand pieces a segment) though the renderer dashes on the
 - **Stipples**: Kuix's five — solid, dotted, short dashes, long dashes, dash-dot-dash — made by
   the line shader (a pattern of up to four lengths, on / off, in points, and a phase), with an
   option anchoring a dash at both ends (the period adjusted a little on screen, as the CPU
-  dashes kept a box's corners drawn). No more dashes cut on the CPU.
+  dashes kept a box's corners drawn), or in model units at a phase (one period for the
+  picture, set at the view's focus), both laid on the line itself since 2026-11-18, or on
+  screen at a phase (the guides'); `Pen::lay`, §7 bis. No more dashes cut on the CPU.
 - **Boxes in front over the scene**: `shell_on_top` on by default, as Kuix — the copy tools',
   the handles', « Dessiner dans »'s container: the edges of the faces turned to the eye drawn
   over the scene, the back ones hidden. Off for the selection and context boxes (they wrap what
