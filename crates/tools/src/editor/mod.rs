@@ -40,7 +40,7 @@ use document::{After, Pending, Probe};
 pub use loading::{LoadEnd, LoadKind, Loading};
 pub use naming::Naming;
 pub use tree::{Tree, TreeRow};
-pub use view::{Look, Mark, OrientedBox, View, ViewHighlight, ViewPlacement};
+pub use view::{Look, Mark, OrientedBox, SectionCut, View, ViewHighlight, ViewPlacement};
 
 /// A message for the app's toasts (docs/ARCHITECTURE.md §6, Toasts): an operation that failed, a
 /// file imported… The status bar keeps the tools' hints.
@@ -140,6 +140,8 @@ pub struct Editor {
     pub(super) body_swaps: HashMap<Id, (Id, DAffine3)>,
     /// How the selection is drawn, worked out once for the frames that follow (§7 bis).
     selection_drawing: std::cell::RefCell<Option<view::SelectionDrawing>>,
+    /// The section's cut lines, kept while the plane and the meshes stay (§7 quater).
+    section_cuts: crate::section_cut::SectionCuts,
     /// Is anything hidden, at the history's revision ([`Editor::has_hidden`]: asked at every
     /// frame, found by a pass over every assembly).
     has_hidden: std::cell::Cell<Option<(u64, bool)>>,
@@ -260,6 +262,7 @@ impl Editor {
             stretch_swaps: HashMap::new(),
             body_swaps: HashMap::new(),
             selection_drawing: std::cell::RefCell::new(None),
+            section_cuts: Default::default(),
             has_hidden: std::cell::Cell::new(None),
             selection: Vec::new(),
             tool: tools::make(ToolKind::Select),

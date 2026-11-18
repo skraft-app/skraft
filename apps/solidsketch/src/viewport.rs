@@ -546,17 +546,7 @@ impl Viewport {
             .highlights
             .iter()
             .map(|h| {
-                let colors = match h.mark {
-                    Mark::Selected => theme.selected,
-                    Mark::Hover => theme.hover,
-                    Mark::HoverFaded => {
-                        solidsketch_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: then_fade(theme.hover.edge, fade) }
-                    }
-                    Mark::Picked => theme.picked,
-                    Mark::Ghost => theme.ghost,
-                    // The other copies a change reaches: the picked target's orange, lighter.
-                    Mark::Related => theme.related,
-                };
+                let colors = mark_colors(theme, h.mark, fade);
                 render::Highlight {
                     key: h.definition.0,
                     part: h.solid.0,
@@ -583,6 +573,24 @@ impl Viewport {
             fills: &mut fills,
         };
         out.push(&view.drawing, |c| theme_color(theme, c));
+        // The section's cut lines, bold in the edges' ink (§7 quater): a highlighted part's in
+        // its mark's edge colour, a faded part's faded.
+        let [er, eg, eb, _] = theme.edge;
+        lines.extend(view.section_cuts.iter().map(|c| render::Line {
+            a: c.a,
+            b: c.b,
+            color: match c.mark {
+                // Over the ink, as a highlight's edges.
+                Some(m) => {
+                    let [r, g, b, a] = mark_colors(theme, m, fade).edge;
+                    [er + (r - er) * a, eg + (g - eg) * a, eb + (b - eb) * a, 1.0]
+                }
+                None if c.faded => [er, eg, eb, 1.0 - theme.fade],
+                None => [er, eg, eb, 1.0],
+            },
+            dash: None,
+            width: render::BOLD_WIDTH,
+        }));
 
         let aspect = size[0] as f64 / size[1] as f64;
         let cam = &editor.camera;
@@ -595,6 +603,7 @@ impl Viewport {
             silhouettes: display.silhouettes,
             section: view.section.map(|s| render::Section { origin: s.origin, normal: s.normal }),
             cap_shade: theme.cap_shade,
+            hatch_opacity: theme.hatch_opacity,
             ghost_opacity: theme.ghost_opacity,
             ghost_edge_opacity: theme.ghost_edge_opacity,
         };
@@ -641,6 +650,22 @@ impl Viewport {
                 }
             }
         }
+    }
+}
+
+/// How a highlight's mark colours its faces and edges (`fade`: the tint of what lies outside
+/// the context being edited).
+fn mark_colors(theme: &Theme, mark: Mark, fade: render::Tint) -> solidsketch_theme::MarkColors {
+    match mark {
+        Mark::Selected => theme.selected,
+        Mark::Hover => theme.hover,
+        Mark::HoverFaded => {
+            solidsketch_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: then_fade(theme.hover.edge, fade) }
+        }
+        Mark::Picked => theme.picked,
+        Mark::Ghost => theme.ghost,
+        // The other copies a change reaches: the picked target's orange, lighter.
+        Mark::Related => theme.related,
     }
 }
 

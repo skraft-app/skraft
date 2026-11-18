@@ -13,6 +13,9 @@ struct Globals {
     edge: vec4<f32>,       // edges and silhouettes
     clip: vec4<f32>,       // the section plane: dot(xyz, p) + w > 0 is cut away
     section: vec4<f32>,    // x: section on; y: how much darker caps are; z: ghosts' opacity; w: faint edges' opacity
+    hatch_u: vec4<f32>,    // the plane's basis for the caps' hatches: dot(xyz, p) + w measures a point p of the plane (mm)
+    hatch_v: vec4<f32>,
+    hatch: vec4<f32>,      // x: spacing (px); y: half width (px); z: opacity
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -23,8 +26,8 @@ const NO_MATERIAL: u32 = 0xffffffffu;
 
 // One placement of a part's mesh: its transform to the camera (model-view), the inverse
 // transpose of its linear part for normals (n0.w: -1 when the placement mirrors, which turns
-// the triangles' winding over), a tint (rgb mixed in by a: 0 = untouched) and its palette
-// entry.
+// the triangles' winding over; n1.w: a ghost's opacity; n2.w: its caps' hatch, an index in `hatch_direction`), a
+// tint (rgb mixed in by a: 0 = untouched) and its palette entry.
 struct Instance {
     @location(4) m0: vec4<f32>,
     @location(5) m1: vec4<f32>,
@@ -53,6 +56,10 @@ struct FaceOut {
     @location(4) @interpolate(flat) colour: u32,
     // A ghost's opacity over the ghosts'.
     @location(5) @interpolate(flat) opacity: f32,
+    // Its section caps' hatch (an index in `hatch_direction`), and their pitch (as `hatch_measure`
+    // measures across them).
+    @location(6) @interpolate(flat) hatch: f32,
+    @location(7) @interpolate(flat) pitch: f32,
 };
 
 @vertex
@@ -67,6 +74,8 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
     out.tint = inst.tint;
     out.mirrored = inst.n0.w;
     out.opacity = inst.n1.w;
+    out.hatch = inst.n2.w;
+    out.pitch = hatch_pitch(inst.m3.xyz, inst.n2.w);
     // The face's own colour, else its placement's.
     out.colour = select(inst.material, paint, paint != NO_MATERIAL);
     return out;
@@ -82,20 +91,87 @@ fn front_colour(i: u32) -> vec3<f32> {
 // Without a section.
 @fragment
 fn fs_face(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec4<f32> {
-    return shade(in, facing, false);
+    return shade(in, facing, false, 0.0);
 }
 
-// With a section: what is cut away is discarded, and the backs seen through the cut are
-// painted as caps (§7 quater). Parts are closed, so where the nearest surface left is a back
-// face, the eye looks into the part through the plane: that pixel is the cap. Faces keep
-// their true depth (and its bias, which lets edges win); `fs_cap_mark` then `fs_cap_depth`
-// bring the caps' depth onto the plane.
+// With a section: what is cut away is discarded. The backs seen through the cut are painted
+// as caps (§7 quater): parts are closed, so where the nearest surface left is a back face, the
+// eye looks into the part through the plane. Where the stencil then marks a cap, `fs_cap`
+// paints it again, hatched, just behind the plane; these stay where it does not (the eye inside
+// a part, parts overlapping).
 @fragment
 fn fs_face_cut(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec4<f32> {
     if (cut(in.world)) {
         discard;
     }
-    return shade(in, facing, true);
+    return shade(in, facing, true, 0.0);
+}
+
+// The directions across a cap's hatches, in the plane's basis (`g.hatch_u`, `g.hatch_v`):
+// whole numbers, so that the anchor, snapped to 4 m in that basis, leaves the pattern as it is.
+// The lines run at 45° and 135° of `u`, then at about 27°, 63°, 117° and 153° (a part's
+// chosen by its definition, `hatch_of`).
+fn hatch_direction(hatch: f32) -> vec2<f32> {
+    var hatches = array<vec2<f32>, 6>(
+        vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(1.0, -2.0),
+        vec2<f32>(2.0, -1.0), vec2<f32>(2.0, 1.0), vec2<f32>(1.0, 2.0),
+    );
+    return hatches[min(u32(hatch), 5u)];
+}
+
+// Where the camera-space point `q` of the plane is across the hatches `hatch` (mm, scaled by
+// the length of their direction).
+fn hatch_measure(q: vec3<f32>, hatch: f32) -> f32 {
+    let k = hatch_direction(hatch);
+    return k.x * (dot(g.hatch_u.xyz, q) + g.hatch_u.w) + k.y * (dot(g.hatch_v.xyz, q) + g.hatch_v.w);
+}
+
+// The pitch of a placement's cap hatches (as `hatch_measure` measures across them): the power of
+// two that puts them 1 to 2 spacings apart (`g.hatch.x`) where its centre `o` (camera
+// coordinates) falls on the plane, the plane's slant there counted. One pitch for the whole cap:
+// a pattern drawn on the plane, closing up with the perspective, every other line coming or
+// going at once when the zoom crosses a level — not a pitch per pixel, which would end half
+// the lines across a cap seen at a slant.
+fn hatch_pitch(o: vec3<f32>, hatch: f32) -> f32 {
+    if (g.section.x < 0.5) {
+        return 0.0;
+    }
+    let n = g.clip.xyz;
+    let c = o - n * (dot(n, o) + g.clip.w);
+    // The size of a pixel at unit depth (perspective) or anywhere (parallel).
+    let pixel = 2.0 / (g.proj[1][1] * g.viewport.y);
+    var size = pixel;
+    var facing = abs(n.z);
+    if (g.proj[3][3] == 0.0) {
+        let dist = max(length(c), 1e-6);
+        size = dist * pixel;
+        facing = abs(dot(n, c)) / dist;
+    }
+    // Across the hatches, the measure grows by the length of their direction a millimetre; the
+    // slant stretches a pixel's footprint along one direction (its geometric mean taken).
+    let rate = length(hatch_direction(hatch)) * size / sqrt(max(facing, 0.05));
+    return exp2(ceil(log2(g.hatch.x * rate)));
+}
+
+// How much of a pixel a cap's hatches cover (0–1): `t` measures the pixel's point of the plane
+// across them (mm), `rate` how much it changes from one pixel to the next, `pitch` the
+// placement's (`hatch_pitch`). All in one ink; where they close up too much to be told apart
+// (far off, at a slant), their mean tone instead of a shimmer.
+fn hatch_cover(t: f32, rate: f32, pitch: f32) -> f32 {
+    if (!(rate > 0.0) || !(pitch > 0.0)) {
+        return 0.0;
+    }
+    let width = 2.0 * g.hatch.y + 1.0;
+    let spacing = pitch / rate;
+    let tone = min(2.0 * g.hatch.y / spacing, 1.0);
+    return mix(hatch_line(t, pitch, rate), tone, smoothstep(3.0 * width, 1.5 * width, spacing));
+}
+
+// How much of a pixel the nearest line at a multiple of `pitch` covers (antialiased).
+fn hatch_line(t: f32, pitch: f32, rate: f32) -> f32 {
+    let k = t / pitch;
+    let px = abs(k - round(k)) * pitch / rate;
+    return clamp(g.hatch.y + 0.5 - px, 0.0, 1.0);
 }
 
 // A ghost's faces (an open part's body, every part in X-ray): its fronts only, shaded,
@@ -106,7 +182,7 @@ fn fs_face_ghost(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(
     if (cut(in.world) || !is_front(in, facing)) {
         discard;
     }
-    return vec4<f32>(shade(in, facing, false).rgb, min(g.section.z + in.opacity, 1.0));
+    return vec4<f32>(shade(in, facing, false, 0.0).rgb, min(g.section.z + in.opacity, 1.0));
 }
 
 // A ghost highlighted: its fronts washed with the tint, at a part of the tint's weight — over
@@ -125,14 +201,15 @@ fn is_front(in: FaceOut, facing: bool) -> bool {
     return facing != (in.mirrored < 0.0);
 }
 
-fn shade(in: FaceOut, facing: bool, caps: bool) -> vec4<f32> {
+// `hatch`: how much a cap's hatches cover the pixel.
+fn shade(in: FaceOut, facing: bool, caps: bool, hatch: f32) -> vec4<f32> {
     var n = normalize(in.normal);
     let front = is_front(in, facing);
     var base = front_colour(in.colour);
     if (!front) {
         if (caps) {
-            // A section cap: the part's colour, flat and darker.
-            let cap = base * (1.0 - g.section.y);
+            // A section cap: the part's colour, flat and darker, hatched in the edges' ink.
+            let cap = mix(base * (1.0 - g.section.y), g.edge.rgb, hatch * g.hatch.z);
             return vec4<f32>(mix(cap, in.tint.rgb, in.tint.a), 1.0);
         }
         n = -n;
@@ -157,41 +234,45 @@ fn fs_cap_mark(in: FaceOut) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0);
 }
 
-// ---- section caps' depth (a full-screen triangle, where the stencil marks a cap) --------------
+// ---- section caps (the back faces again, where the stencil marks a cap) -----------------------
 
-@vertex
-fn vs_screen(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
-    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
-    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-}
+// How far behind the plane a cap is drawn, as a part of the way to its back face: the order of
+// the back faces is kept (the nearest, the cut part's, wins), any front face behind the plane
+// loses — even one lying on the back face (another part in contact, a dowel in its hole, the
+// two meshes crossing by their chords) — and so do the part's own far edges.
+const CAP_DEPTH: f32 = 1.0 / 64.0;
 
-struct CapDepth {
+struct CapOut {
     @location(0) colour: vec4<f32>,
     @builtin(frag_depth) depth: f32,
 };
 
-// Where the stencil count is odd and the plane is nearer than what is drawn, a cap: its depth
-// goes onto the plane, so what is behind it (the part's far edges) stays hidden.
+// A back face seen through the cut, where the stencil count is odd: the cap, hatched, anchored
+// on the plane, drawn just behind it.
 @fragment
-fn fs_cap_depth(@builtin(position) pos: vec4<f32>) -> CapDepth {
-    let size = g.viewport.xy;
-    let ndc = vec2<f32>(pos.x / size.x * 2.0 - 1.0, 1.0 - pos.y / size.y * 2.0);
-    // A camera-space point on this pixel's ray.
-    var p: vec3<f32>;
-    if (g.proj[3][3] == 0.0) {
-        // Perspective, at z = -1 (where w = 1).
-        p = vec3<f32>((ndc.x + g.proj[2][0]) / g.proj[0][0], (ndc.y + g.proj[2][1]) / g.proj[1][1], -1.0);
-    } else {
-        p = vec3<f32>((ndc.x - g.proj[3][0]) / g.proj[0][0], (ndc.y - g.proj[3][1]) / g.proj[1][1], 0.0);
+fn fs_cap(in: FaceOut, @builtin(front_facing) facing: bool) -> CapOut {
+    // The point of the plane this pixel sees, and how far it moves from one pixel to the next:
+    // derivatives, so taken before any branch.
+    let q = on_plane(in.world);
+    let dx = dpdx(q.xyz);
+    let dy = dpdy(q.xyz);
+    if (cut(in.world) || is_front(in, facing)) {
+        discard;
     }
-    let q = on_plane(p);
+    var out: CapOut;
     if (q.w == 0.0) {
-        discard; // the plane seen edge on: the cap keeps its face's depth
+        // The plane seen edge on: the back face as it is.
+        out.colour = shade(in, facing, true, 0.0);
+        out.depth = in.clip.z;
+        return out;
     }
+    let k = hatch_direction(in.hatch);
+    let d = k.x * g.hatch_u.xyz + k.y * g.hatch_v.xyz;
+    let rate = length(vec2<f32>(dot(d, dx), dot(d, dy)));
+    out.colour = shade(in, facing, true, hatch_cover(hatch_measure(q.xyz, in.hatch), rate, in.pitch));
     let c = g.proj * vec4<f32>(q.xyz, 1.0);
-    var out: CapDepth;
-    out.colour = vec4<f32>(0.0);
-    out.depth = clamp(c.z / c.w, 0.0, 1.0);
+    let plane = clamp(c.z / c.w, 0.0, 1.0);
+    out.depth = plane - (plane - in.clip.z) * CAP_DEPTH;
     return out;
 }
 

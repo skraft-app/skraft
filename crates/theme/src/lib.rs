@@ -275,6 +275,8 @@ pub struct Theme {
     pub fade: f32,
     /// How much darker than its part a section cap is (0: the same colour).
     pub cap_shade: f32,
+    /// How opaque a section cap's hatches are, in the edges' ink.
+    pub hatch_opacity: f32,
     /// How opaque an open part's blank is while its machinings show (§2.9).
     pub ghost_opacity: f32,
     /// How opaque the edges of what the eraser would take are (its faces: `ghost_opacity`).
@@ -345,6 +347,7 @@ impl Theme {
             edge: [0.02, 0.02, 0.03, 1.0],
             fade: 0.7,
             cap_shade: 0.25,
+            hatch_opacity: 0.5,
             ghost_opacity: 0.15,
             ghost_edge_opacity: 0.35,
             machining: srgb(215, 75, 60),

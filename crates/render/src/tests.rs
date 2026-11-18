@@ -408,6 +408,107 @@ fn a_section_cuts_and_caps() {
     // The cut part is smaller on screen: fewer non-background pixels.
     let covered = |px: &[u8]| px.chunks(4).filter(|p| p[..3] != [255, 255, 255]).count();
     assert!(covered(&cut) < covered(&plain), "nothing was cut away");
+
+    // The cap is hatched: along a row and a column across it, darker lines on the green, a few
+    // points apart (whatever their direction); without hatches, flat.
+    let row = |px: &[u8]| (140..180).map(|x| pixel(px, SIZE[0], x, 100)[1] as i32).collect::<Vec<_>>();
+    let column = |px: &[u8]| (80..120).map(|y| pixel(px, SIZE[0], 160, y)[1] as i32).collect::<Vec<_>>();
+    let spread = |r: Vec<i32>| r.iter().max().unwrap() - r.iter().min().unwrap();
+    let lines = |r: &[i32]| r.windows(2).filter(|w| w[1] < w[0] - 20).count();
+    let (hatched, down) = (row(&cut), column(&cut));
+    let crossed = lines(&hatched) + lines(&down);
+    assert!((3..=12).contains(&crossed), "{crossed} hatches across 40 px both ways: {hatched:?} {down:?}");
+    let (flat, _) = shot(&mut r, &device, &queue, view, p, Style { hatch_opacity: 0.0, ..style });
+    assert!(spread(row(&flat)) <= 2 && spread(column(&flat)) <= 2, "{:?} {:?}", row(&flat), column(&flat));
+}
+
+#[test]
+fn a_cap_wins_over_a_part_lying_on_it() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    // A green block standing on a red one (in contact at z = 0), cut at z = 5: looking down
+    // through the cut, the green block's cap, not the red block's top under it — nor when the
+    // red top rises a little into the green block (two curved meshes crossing by their chords).
+    let green = Solid::new_box(DVec3::new(-5.0, -5.0, 0.0), DVec3::new(10.0, 10.0, 10.0)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &green, face_paint: &[] }]);
+    let palette = [[0.05, 0.6, 0.05, 1.0], [0.7, 0.05, 0.05, 1.0]];
+    let placed = |material: u32| vec![Placement { material, ..Placement::new(DMat4::IDENTITY) }];
+    // The red block drawn last: ties of the depth test go its way.
+    let batches = [Batch::new(1, placed(0)), Batch::new(2, placed(1))];
+    let section = Some(Section { origin: DVec3::new(0.0, 0.0, 5.0), normal: DVec3::Z });
+    let style = Style { palette: &palette, section, hatch_opacity: 0.0, ..Style::default() };
+    let cases = [(0.0, DVec3::new(3.0, -8.0, 40.0), "section_contact"), (0.0, DVec3::new(30.0, -45.0, 25.0), "section_contact_side")];
+    for (rise, eye, name) in cases.into_iter().chain([(0.05, DVec3::new(3.0, -8.0, 40.0), "section_overlap")]) {
+        let red = Solid::new_box(DVec3::new(-10.0, -10.0, -10.0), DVec3::new(20.0, 20.0, 10.0 + rise)).unwrap().mesh().unwrap();
+        r.set_mesh(&device, 2, rise.to_bits(), &[Part { id: 2, mesh: &red, face_paint: &[] }]);
+        let frame = Frame {
+            view: DMat4::look_at_rh(eye, DVec3::new(0.0, 0.0, 5.0), DVec3::Z),
+            proj: Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0),
+            background: [1.0, 1.0, 1.0],
+            style,
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            faint_lines: &[],
+            boxes: &[],
+            overlay: &[],
+            hidden_lines: &[],
+            fills: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 1.0,
+        };
+        let px = draw(&mut r, &device, &queue, SIZE, &frame);
+        save(&px, SIZE, name);
+        // Across the green cap, every pixel green.
+        let reds = (0..SIZE[0])
+            .flat_map(|x| (0..SIZE[1]).map(move |y| (x, y)))
+            .filter(|&(x, y)| {
+                let c = pixel(&px, SIZE[0], x, y);
+                c[0] as i32 > c[1] as i32 + 60 && x.abs_diff(SIZE[0] / 2) < 6 && y.abs_diff(SIZE[1] / 2) < 4
+            })
+            .count();
+        assert_eq!(reds, 0, "{name}: {reds} red pixels in the green cap");
+    }
+}
+
+#[test]
+fn hatches_run_across_a_cap_seen_at_a_slant() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    // A wide slab running away from the eye, cut flat at z = 0, seen low: one pitch for its
+    // whole cap, so its hatches run from the near end to the far one — as many crossing a row
+    // near the eye as one far off (a pitch per pixel ended half of them on the way).
+    let slab = Solid::new_box(DVec3::new(-100.0, 0.0, -5.0), DVec3::new(200.0, 300.0, 10.0)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &slab, face_paint: &[] }]);
+    let palette = [[0.05, 0.6, 0.05, 1.0]];
+    let p = Placement { material: 0, ..Placement::new(DMat4::IDENTITY) };
+    let section = Some(Section { origin: DVec3::ZERO, normal: DVec3::Z });
+    let style = Style { palette: &palette, section, cap_shade: 0.0, ..Style::default() };
+    let view = DMat4::look_at_rh(DVec3::new(0.0, -60.0, 40.0), DVec3::new(0.0, 150.0, 0.0), DVec3::Z);
+    let (px, _) = shot(&mut r, &device, &queue, view, p, style);
+    save(&px, SIZE, "section_slant");
+    // The rows the cap crosses (green), and the hatches crossing each, its middle half.
+    let green = |c: [u8; 4]| c[1] as i32 > c[0] as i32 + 40;
+    let rows: Vec<u32> = (0..SIZE[1]).filter(|&y| (0..SIZE[0]).filter(|&x| green(pixel(&px, SIZE[0], x, y))).count() > 20).collect();
+    assert!(rows.len() > 40, "the cap spans {} rows", rows.len());
+    let lines = |y: u32| {
+        let xs: Vec<u32> = (0..SIZE[0]).filter(|&x| green(pixel(&px, SIZE[0], x, y))).collect();
+        let (lo, hi) = (xs[0], xs[xs.len() - 1]);
+        let (lo, hi) = (lo + (hi - lo) / 4, hi - (hi - lo) / 4);
+        let top = (lo..=hi).map(|x| pixel(&px, SIZE[0], x, y)[1]).max().unwrap();
+        let dark: Vec<bool> = (lo..=hi).map(|x| pixel(&px, SIZE[0], x, y)[1] + 20 < top).collect();
+        dark.windows(2).filter(|w| !w[0] && w[1]).count()
+    };
+    let (far, near) = (lines(rows[rows.len() / 5]), lines(rows[rows.len() * 4 / 5]));
+    assert!(near >= 1 && far >= 1 && near.abs_diff(far) <= 1, "{near} hatches near the eye, {far} far off");
 }
 
 #[test]
@@ -1011,4 +1112,15 @@ fn fills_over_the_scene_and_their_backs() {
     assert!(reddish(100, 20), "the fill over the scene is hidden by the slab");
     assert!(reddish(30, 22), "the front of the triangle is not drawn");
     assert!(!reddish(170, 22), "the back of the triangle is drawn");
+}
+
+#[test]
+fn hatch_directions_spread_over_the_keys() {
+    // Ids go by fours in a document (part, body definition, body, occurrence): every direction
+    // still comes, about as often.
+    let mut count = [0usize; HATCH_DIRECTIONS as usize];
+    for key in (4..4 * 600).step_by(4) {
+        count[hatch_of(key) as usize] += 1;
+    }
+    assert!(count.iter().all(|&n| (70..=130).contains(&n)), "{count:?}");
 }

@@ -95,6 +95,20 @@ pub struct View {
     pub marquee: Option<Marquee>,
     /// The section to draw: a tool's preview, else the document's active one.
     pub section: Option<Section>,
+    /// Its cut lines (§7 quater): those of the placements drawn opaque, then those of the
+    /// highlights drawn over them, marked.
+    pub section_cuts: Vec<SectionCut>,
+}
+
+/// A segment of a section's cut line, in the world.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SectionCut {
+    pub a: DVec3,
+    pub b: DVec3,
+    /// Its part is outside the context being edited (drawn faded).
+    pub faded: bool,
+    /// Its part is highlighted so: drawn in the mark's edge colour.
+    pub mark: Option<Mark>,
 }
 
 /// How the selection is drawn where it is — its solids marked, its occurrences' boxes —, and
@@ -738,7 +752,35 @@ impl Editor {
         v.inference = preview.inference.map(|i| (i.point, i.kind));
         v.marquee = preview.marquee;
         v.section = preview.section.or_else(|| doc.settings().display.active_section());
+        if let Some(s) = v.section {
+            v.section_cuts = self.section_cuts_of(&v, &s);
+        }
         v
+    }
+
+    /// The cut lines of `section` through what `v` draws opaque (§7 quater): the placements',
+    /// then the highlights' (their own solid only), marked.
+    fn section_cuts_of(&self, v: &View, section: &Section) -> Vec<SectionCut> {
+        let cuts = &self.section_cuts;
+        cuts.next_frame();
+        let mut out = Vec::new();
+        let mut push = |t: &DAffine3, segments: &[[DVec3; 2]], faded: bool, mark: Option<Mark>| {
+            out.extend(segments.iter().map(|[a, b]| SectionCut { a: t.transform_point3(*a), b: t.transform_point3(*b), faded, mark }));
+        };
+        for (def, places) in &v.batches {
+            for p in places.iter().filter(|p| !p.ghost) {
+                for (_, segments) in cuts.cut(&self.scene, *def, &p.transform, section).iter().flat_map(|c| c.iter()) {
+                    push(&p.transform, segments, p.faded, None);
+                }
+            }
+        }
+        for h in v.highlights.iter().filter(|h| !h.ghost) {
+            let Some(cut) = cuts.cut(&self.scene, h.definition, &h.transform, section) else { continue };
+            for (_, segments) in cut.iter().filter(|(solid, _)| *solid == h.solid) {
+                push(&h.transform, segments, false, Some(h.mark));
+            }
+        }
+        out
     }
 }
 

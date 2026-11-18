@@ -3163,13 +3163,50 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   flat and darker in its part's colour (a colour per part), at its **true depth** with the
   faces' usual bias (edges keep winning). Then, while a section is on: (1) the faces left are
   drawn again without depth test nor colour, each fragment flipping the stencil's low bit —
-  an odd count means the ray meets the plane inside a part; (2) a full-screen triangle, where
-  the bit is set and the plane is nearer than what is drawn, writes the plane's depth along
-  the pixel's ray (no colour), so what lies behind the cap (the part's far edges) is hidden.
-  (Writing the plane's depth on every back face instead, without knowing whether the ray is
-  inside the part there, painted every kept part behind the plane as a cap and hid its
-  edges.) The depth buffer is `Depth32FloatStencil8` when the device has it, else
-  `Depth24PlusStencil8`. Hatches later.
+  an odd count means the ray meets the plane inside a part; (2) where the bit is set, the
+  **back faces are drawn again** (`fs_cap`, front faces discarded), at a depth brought just
+  behind the plane — 1/64 of the way from the plane to the face, so their order is kept: the
+  nearest back face, the cut part's, wins, and the cap gets its colour and hatch. Any front
+  face behind the plane loses, even one lying on that back face: a part in contact (a board
+  standing on another), a dowel in its hole — whose two meshes cross by their chords, so the
+  depth test between true depths would settle it facet by facet (stripes). What lies behind
+  the cap (the part's far edges) is hidden too. (Writing the plane's depth on every back face,
+  without the stencil, painted every kept part behind the plane as a cap and hid its edges;
+  a full-screen pass writing only the plane's depth left the colour to the faces' depth test,
+  which a part in contact won.) Where the count is even (the eye inside a part, parts
+  overlapping), the back faces keep their first, flat, unhatched colour. The depth buffer is
+  `Depth32FloatStencil8` when the device has it, else `Depth24PlusStencil8`.
+- **Hatches on the caps**, in the caps' fragment shader: the cap pixel's point on the plane
+  (`on_plane`, along its ray) is measured across one of **six directions** — lines at 45°,
+  135°, and about 27°, 63°, 117°, 153° — the part's definition chooses (a hash of its mesh's
+  key, carried by its instances: one part, one hatch, as on a drawing; two neighbours alike
+  one time in six), so a part keeps its hatch through a move and under a highlight. The
+  directions are whole combinations of a basis `u`, `v` of the plane (world Z × the normal,
+  else world X): `u ± v`, `2u ± v`, `u ± 2v`; the basis anchored at a point of the plane near
+  the eye snapped to 4 m in it (`f32` precision; whole combinations, so the pattern is
+  unchanged), computed in `f64`. **Anchored on the
+  plane** (they do not slide when orbiting or panning), their **pitch follows the zoom by
+  powers of two**, **one per placement** (`hatch_pitch`, in the vertex shader): the one that
+  puts 8 to 16 points between lines where the placement's centre falls on the plane, its slant
+  there counted. So a cap shows a pattern drawn on the plane, closing up with the perspective;
+  a pitch per pixel ended half the lines across a cap seen at a slant, where the level
+  changed. Every other line comes or goes at once when the zoom crosses a level (no fading
+  in: the user wants one ink for all the lines); where lines close up too much to be told
+  apart (far off, at a slant), their mean tone instead. Antialiased from the pixel's
+  footprint (derivatives of the plane point, taken before any branch), 1 point wide, in the
+  edges' ink at `hatch_opacity` (theme) over
+  the cap's colour, before the highlight's tint.
+- **Cut lines**: the outline of each cut, bold (`BOLD_WIDTH`) in the edges' ink, depth-tested
+  as the tools' lines (pulled towards the eye). Cut on the CPU from the **display meshes**,
+  so they meet the caps exactly (`tools::section_cut`): each placement drawn opaque (not a
+  ghost) whose part's bounds straddle the plane has its triangles sliced by the plane taken
+  into its definition's axes (a vertex on the plane counts with the side kept, so an edge on
+  the plane gives one segment). Kept by (definition, mesh revision, plane in its axes) from
+  one frame to the next while used: a still plane costs nothing, a moving one (the Section
+  plane tool) re-cuts only what it crosses. In `View::section_cuts`, each with its
+  placement's fading, or the mark of the highlight drawn over it (its cut lines in the
+  highlight's edge colour, after the others). The app makes them lines. No setting: hatches
+  and cut lines show with every section.
 - **Picking and inferences** ignore what is cut away.
 - **Section plane tool**: click a face → the plane lies on it, normal outwards; move the
   cursor to sink it along the normal, a second click (or a typed depth) places it.
