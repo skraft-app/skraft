@@ -375,7 +375,7 @@ impl Part {
         self.failed.contains(&id) || self.defs.iter().any(|d| d.group.as_ref().is_some_and(|g| g.failed.contains(&id)))
     }
 
-    /// How many separate lumps of material the shape holds: a part is one piece of wood, more
+    /// How many separate lumps of material the shape holds: a part is one piece, more
     /// is an error the user has to correct (docs/model/bodies.md).
     pub fn pieces(&self) -> usize {
         self.shape().pieces()
@@ -657,7 +657,8 @@ pub struct Occurrence {
     pub hidden: bool,
 }
 
-/// A material: a name and a colour (docs/render/look.md). Wood species, panels… come later.
+/// A material: a name and a colour (docs/render/look.md). Kinds of material (wood species,
+/// sheets, metals…) come later.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     pub name: String,

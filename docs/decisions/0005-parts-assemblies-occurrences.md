@@ -8,7 +8,7 @@
 The v0 prototype was built on a SketchUp-like model: groups and components (create from the
 selection, explode, enter / leave editing, make unique, multiple instances), with loose
 geometry. Skraft's parts are meant to be cut-list parts, as in OpenCutList: counted without
-guessing, copies of one part recognised as such, a part's type and grain known.
+guessing, copies of one part recognised as such, a part's type and main direction known.
 
 ## Decision
 

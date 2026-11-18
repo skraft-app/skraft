@@ -2,10 +2,10 @@
 //! (docs/io/step-import.md), which [`Operation::Insert`](crate::Operation::Insert) then
 //! places in the model.
 //!
-//! A product with one body and nothing else is a part; a product with several bodies, or
-//! bodies and products, is an assembly holding one part per body (a woodworker's component
-//! of several boards is several parts); a product of products is an assembly. A body's
-//! colour becomes a material (one per colour) on the occurrences placing its part.
+//! A product with one body and nothing else is a part; a product with several bodies, or bodies and
+//! products, is an assembly holding one part per body (a component made of several solids — a
+//! cabinet of boards, a frame of tubes — is several parts); a product of products is an assembly. A
+//! body's colour becomes a material (one per colour) on the occurrences placing its part.
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -112,7 +112,7 @@ Everything pastes anywhere (`Editor::can_paste`: nothing computing, the tool idl
   **one new part** holding every body pasted, their placements kept — **its axes are the
   part's copied from** (the fragment's `world`), so the occurrence is placed by it, then brought
   into the context. **Signs kept**; with no positive among them, they all become positive (a
-  hole's shape becomes a part: a dowel). Positives apart make a part « in N pieces », as
+  hole's shape becomes a part: a pin). Positives apart make a part « in N pieces », as
   anywhere. The definitions are copied (they belong to their part); the guides copied become the
   new part's. Named as a new part.
 - Guides follow the content they were copied with.

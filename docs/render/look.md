@@ -134,14 +134,14 @@ in its part's colour (a colour per part), at its **true depth** with the faces' 
    and hatch.
 
 Any front face behind the plane loses, even one lying on that back face: a part in contact (a
-board standing on another), a dowel in its hole — whose two meshes cross by their chords, so
+part standing on another), a pin in its hole — whose two meshes cross by their chords, so
 the depth test between true depths would settle it facet by facet (stripes). What lies behind
 the cap (the part's far edges) is hidden too. Where the count is even (the eye inside a part,
 parts overlapping), the back faces keep their first, flat, unhatched colour. The depth buffer is
 `Depth32FloatStencil8` when the device has it, else `Depth24PlusStencil8`.
 
 **Why:** the stencil gives the cap its extent and the back faces its depth order, so a part in
-contact or a dowel in its hole cannot win over the cap, nor the kept parts behind the plane be
+contact or a pin in its hole cannot win over the cap, nor the kept parts behind the plane be
 painted as caps.
 
 Decision record: [Section caps from back faces and a stencil](../decisions/0034-section-caps-from-back-faces-and-stencil.md).

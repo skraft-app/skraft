@@ -1733,8 +1733,8 @@ fn placed_counts(doc: &Document, assembly: Id, memo: &mut FastMap<Id, (usize, us
     counts
 }
 
-/// What is wrong with a part of `pieces` lumps of material, if anything: a part is one piece of
-/// wood, in several or none (empty, docs/model/bodies.md#empty-parts) an error to correct.
+/// What is wrong with a part of `pieces` lumps of material, if anything: a part is one piece,
+/// in several or none (empty, docs/model/bodies.md#empty-parts) an error to correct.
 fn pieces_error(pieces: usize) -> Option<String> {
     match pieces {
         0 => Some(t!("panel.entity_info.empty")),

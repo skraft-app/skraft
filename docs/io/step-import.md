@@ -48,10 +48,10 @@ have to be matched).
 
 ## Model
 
-`Document::from_step` (`crates/model/src/step.rs`): a product with one body is a part; with
-several bodies, or bodies and products, an assembly holding one part per body (a woodworker's
-component of several boards is several parts); a product of products an assembly. Names come
-from the products (then the bodies), all `named`.
+`Document::from_step` (`crates/model/src/step.rs`): a product with one body is a part; with several
+bodies, or bodies and products, an assembly holding one part per body (a component made of several
+solids — a cabinet of boards, a frame of tubes — is several parts); a product of products an
+assembly. Names come from the products (then the bodies), all `named`.
 
 ## Insertion
 

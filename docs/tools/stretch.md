@@ -5,13 +5,13 @@ code: [crates/tools/src/tools/stretch.rs, crates/model/src/stretch.rs, crates/mo
 
 # Stretch
 
-The Stretch tool lengthens or shortens parts, assemblies and bodies along one of their axes
-without deforming what should keep its size: a tenon at each end of a rail keeps its length
-while the rail grows. It is OpenCutList's Smart Reshape stretch (`tool/smart_reshape_tool.rb`,
-`SmartReshapeStretchActionHandler`; the analysis in
+The Stretch tool lengthens or shortens parts, assemblies and bodies along one of their axes without
+deforming what should keep its size: the tenon at each end of a rail, the holes at each end of a
+bracket keep their length while the part grows. It is OpenCutList's Smart Reshape stretch
+(`tool/smart_reshape_tool.rb`, `SmartReshapeStretchActionHandler`; the analysis in
 `worker/common/common_stretch_split_worker.rb` and `model/stretch/`, the application in
-`common_stretch_apply_worker.rb`), ported as faithfully as the app allows. It works on the
-recipe (bodies, components), and on the B-rep record only to rewrite a solid across a cutter.
+`common_stretch_apply_worker.rb`), ported as faithfully as the app allows. It works on the recipe
+(bodies, components), and on the B-rep record only to rewrite a solid across a cutter.
 
 Decision records: [Stretch after OpenCutList's Smart Reshape](../decisions/0008-stretch-after-ocl-smart-reshape.md),
 [Stretch rewrites the B-rep record](../decisions/0009-stretch-rewrites-brep-record.md),

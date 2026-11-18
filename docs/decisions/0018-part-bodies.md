@@ -32,7 +32,7 @@ one step further, the blank and the machinings become one notion: a placed solid
 - **The cut list reads the final**: the dimensions are the exact box of the final B-rep in the
   part's axes; the exact outline for exports and nesting is read from the final B-rep too; a
   profile is an editing parameter of its body only.
-- **One piece of wood**: a final in several lumps is in error, with no cut-list dimensions.
+- **One piece**: a final in several lumps is in error, with no cut-list dimensions.
 - **Booleans between parts**: the union gives the target all the tool part's bodies, positive
   and negative, with a warning when the tool's negatives remove material from the target; the
   difference adds the tool's final shape as one negative `Brep` body; the intersection makes a

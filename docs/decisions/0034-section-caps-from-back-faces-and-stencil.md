@@ -7,8 +7,8 @@
 
 The section view cuts the model by one plane in the fragment shader. Parts are closed B-reps,
 so through the cut only their back faces show. The cut must look closed (a cap in the part's
-colour, hatched as on a drawing) and stay right where parts touch: a board standing on another,
-a dowel in its hole — whose two meshes cross by their chords, so a depth test between true
+colour, hatched as on a drawing) and stay right where parts touch: a part standing on another,
+a pin in its hole — whose two meshes cross by their chords, so a depth test between true
 depths settles it facet by facet (stripes).
 
 ## Decision

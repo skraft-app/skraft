@@ -37,7 +37,7 @@ Decision record: [A part is positive and negative bodies](../decisions/0018-part
   unplaced: `Part::is_plain`, no kernel), `failed` the bodies whose boolean failed, `faces`
   the materials of single faces of the shape ([Look](../render/look.md)). The shape and
   `failed` are a cache saved with the file: the bodies are the source.
-- `Solid::pieces` counts the record's bounded regions that are not voids (« One piece of wood »
+- `Solid::pieces` counts the record's bounded regions that are not voids (« One piece »
   below).
 - The operations on bodies: `AddBody { sign }`, `DeleteBodies`, `TransformBodies`,
   `DuplicateBodies`, `ArrayBodies`, `CopyBodies`, `PasteBodies`, `SetProfile { body }`,
@@ -96,13 +96,13 @@ a 14 nm skin).
 ## The cut list reads the final
 
 The part's dimensions are the exact box of the **final** B-rep in the **part's** axes, the
-grain along their red axis ([A part's axes](data-model.md#a-parts-axes)); the entity info shows
+length along their red axis ([A part's axes](data-model.md#a-parts-axes)); the entity info shows
 them. A machining that shortens or narrows the part changes its dimensions. The exact outline
 for the DXF / SVG exports and nesting is to be read from the final B-rep too (its faces across
 the part's Z, as OpenCutList does), not from the profiles: **a profile is an editing parameter
 of its body**, it carries nothing for the cut list.
 
-## One piece of wood
+## One piece
 
 The final must be a single lump. It is not when a positive touches no other, or when negatives
 split the part (a groove right through). The part is then **in error**:
@@ -209,7 +209,7 @@ their shape as occurrences share their component: copies made by Move or Rotate 
 an array, or a paste into the part copied from share it, and a change to the shape (its
 profile, a stretch) shows in every one.
 
-- **The sign is the body's**, not the definition's: one shape can be a dowel (positive) here
+- **The sign is the body's**, not the definition's: one shape can be a pin (positive) here
   and its hole (negative) there; the sign toggle flips the body clicked.
 - **Definitions belong to their part** (not to the document): copies, an array, a paste into
   the part copied from share a definition (`copies_of_bodies` gives another part copies of the
@@ -237,7 +237,7 @@ history — the same fixed formula at every level.
 BodyDef = Leaf  { id, solid, profile, source }   — a shape, in its own axes
         | Group { id, children: Vec<Body> }      — (∪ positive children) − (∪ negative children)
 Body    = { id, def, sign, placement }           — a placed, signed occurrence
-Part    = the root group (+ grain, cut list)
+Part    = the root group (+ its axes, cut-list dimensions)
 ```
 
 In the code: `BodyDef { group: Option<BodyGroup> }`, `BodyGroup { children, failed }`

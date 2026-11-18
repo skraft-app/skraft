@@ -5,7 +5,8 @@
 
 ## Context
 
-Parts are cut-list parts: lengthening a rail must keep its tenons, its grooves must follow.
+Parts are cut-list parts: lengthening one must keep its details' sizes (a rail's tenons, a
+bracket's holes), its grooves must follow.
 A reshaping tool was needed; push/pull was the other candidate.
 
 ## Decision
@@ -16,7 +17,7 @@ A reshaping tool was needed; push/pull was the other candidate.
   `common_stretch_apply_worker.rb`): a grip on each face of the box, cutters splitting the
   target into sections, each section translated by its share of the move, the matter across a
   cutter lengthened or shortened.
-- It comes **before push/pull**: more useful in woodworking, and safer on the kernel side.
+- It comes **before push/pull**: more useful for parts made to size, and safer on the kernel side.
 - The tool was rebuilt the same day on OCL's own interaction (its states, `_snap_*` and
   `_preview_*`), then extended to OCL's interior handles, to assemblies and to several
   occurrences of one context (OCL's `active_selection_path` + `active_selection_instances`,

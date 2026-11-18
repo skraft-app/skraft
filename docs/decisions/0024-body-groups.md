@@ -28,7 +28,7 @@ screws) had no form of its own.
   difference as a **negative sub-group**, their bodies kept and editable; the intersection
   stays a new part with one positive `Brep` leaf.
 - Definitions stay local to their part (groups included); cycles are forbidden.
-- One piece of wood is checked at the root only; failures are reported by the body's path.
+- One piece is checked at the root only; failures are reported by the body's path.
 - The tree shows in the outliner, under its part; a group is opened as a component is.
 
 ## Alternatives considered

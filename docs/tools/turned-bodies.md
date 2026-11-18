@@ -86,8 +86,8 @@ cutters moving the half profile's heights (exact). **Across the axis it is refus
 (`Refusal::TurnedAcross`: across the axis, or across an arc); the diameter is changed by the
 Profile tool only. The Stretch tool locks for good (`Target::fixed`, a padlock that does not
 unlock, said in the status bar) the axes a turned body spans whole across its axis — any cutter
-would cut it —, without saving that lock in the part's cutters; a turned dowel inside a longer
-board leaves the board's axes free, a cutter through the dowel then refused by the model.
+would cut it —, without saving that lock in the part's cutters; a turned pin inside a longer
+part leaves the part's axes free, a cutter through the pin then refused by the model.
 
 ## Cut list
 

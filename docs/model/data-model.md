@@ -54,7 +54,8 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
 - **Purge**: a part with no occurrence disappears, unless the user named it (it then stays in
   the model's library).
 - Not yet: **properties** (exclusion from the cut list…) on any component, and the part's
-  **type** (solid wood, sheet good, dimensional, edge, veneer, hardware…) — not a component
+  **type** — the kind of stock it comes from (for wood, OpenCutList's solid wood, sheet good,
+  dimensional, edge, veneer, hardware…; other materials have their own) — not a component
   property: it will come from the **material** applied to the occurrence, as in OpenCutList
   (`MaterialAttributes.type`). A material is a name and a colour today.
 
@@ -77,15 +78,14 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
 
 ## A part's axes
 
-- The part's frame is the one its bodies are placed in: the length runs along the red axis,
-  and **the grain is always the length** (no separate property). The cut-list dimensions are
-  read on the bounding box of the part's **final** B-rep in this frame
-  ([The cut list reads the final](bodies.md#the-cut-list-reads-the-final)) — its **exact**
-  box, which only the kernel computes (`Solid::bounds`): the record's vertices miss curved
-  faces (a cylinder has one vertex per circle, a torus none). The worker gives it with each
-  display (`Display::bounds`), the scene keeps it per solid (`DisplayScene::bounds_of`), for
-  the shapes and the open part's bodies. It is SolidCore's tight box (its loose one should the
-  tight one fail).
+- The part's frame is the one its bodies are placed in: the length — **the part's main direction**
+  (the grain, for wood; no separate property) — runs along the red axis. The cut-list dimensions are
+  read on the bounding box of the part's **final** B-rep in this frame ([The cut list reads the
+  final](bodies.md#the-cut-list-reads-the-final)) — its **exact** box, which only the kernel
+  computes (`Solid::bounds`): the record's vertices miss curved faces (a cylinder has one vertex per
+  circle, a torus none). The worker gives it with each display (`Display::bounds`), the scene keeps
+  it per solid (`DisplayScene::bounds_of`), for the shapes and the open part's bodies. It is
+  SolidCore's tight box (its loose one should the tight one fail).
 - Tools working on a part use its axes; elsewhere, the context's.
 - The part's axes are independent of its bodies
   ([Bodies placed in the part's axes](bodies.md#bodies-placed-in-the-parts-axes)). Not yet: an
