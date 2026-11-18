@@ -2223,6 +2223,12 @@ fn the_tape_measures_and_draws_guides() {
     let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
     e.set_tool(ToolKind::Measure);
     assert!(e.vcb().is_none());
+    // The saved kind of guide, said at once (no input yet).
+    e.set_tool_option("guide", OptionValue::Choice("line".into()));
+    e.set_tool(ToolKind::Select);
+    e.set_tool(ToolKind::Measure);
+    assert!(e.status().starts_with("Cliquer une arête pour un guide parallèle"), "{}", e.status());
+    e.set_tool_option("guide", OptionValue::Choice("auto".into()));
 
     // From a corner to the opposite one: the length, and nothing added.
     click(&mut e, DVec3::new(0.0, 0.0, 100.0));
@@ -2290,10 +2296,19 @@ fn the_tape_measures_and_draws_guides() {
     e.undo();
     assert_eq!(guides(&e).len(), 2);
 
-    // The copy modifier turns guides off: an edge is then measured from.
+    // The copy modifier sets no guide: an edge is then measured from.
     e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
     click(&mut e, DVec3::new(300.0, 50.0, 100.0));
     assert_eq!(e.vcb().map(|v| v.0), Some("Longueur".into()));
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    // Tapped again: back to the last kind chosen (Line here), an edge starts its guide.
+    e.set_tool_option("guide", OptionValue::Choice("line".into()));
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    assert_eq!(e.tool_options().iter().find(|o| o.key == "guide").map(|o| o.value.clone()), Some(OptionValue::Choice("none".into())));
+    e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
+    assert_eq!(e.tool_options().iter().find(|o| o.key == "guide").map(|o| o.value.clone()), Some(OptionValue::Choice("line".into())));
+    click(&mut e, DVec3::new(300.0, 50.0, 100.0));
+    assert_eq!(e.vcb().map(|v| v.0), Some("Décalage".into()), "{}", e.status());
 }
 
 #[test]
@@ -2473,8 +2488,7 @@ fn the_tape_draws_a_tangent_from_the_end_of_an_arc_and_marks_its_reference() {
     assert!(close(origin, end) && dir.cross(DVec3::Y).length() < 1e-6, "{origin} {dir}");
 
     // In Auto, the end is measured from: nothing marked; the other modifier gives its guides.
-    e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
-    e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
+    e.set_tool_option("guide", OptionValue::Choice("auto".into()));
     hover(&mut e, end);
     assert!(!magenta(&e));
     click(&mut e, end);
