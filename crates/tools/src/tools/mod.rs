@@ -1296,7 +1296,9 @@ fn with_copying(hint: String, copying: bool) -> String {
     if copying { format!("{hint} {}", t!("tool.copying")) } else { hint }
 }
 
-/// Neutral colour of construction lines (the theme's tokens, docs/render/look.md).
+// The tools' inks, named by the light mode's: the app draws each in the mode's
+// (`Theme::ink`, docs/render/look.md#view-background).
+/// Neutral colour of construction lines.
 pub const INK: [f32; 4] = skraft_theme::GUIDE_INK;
 /// Axis colours (SketchUp's red, green, blue).
 pub const RED: [f32; 4] = skraft_theme::AXIS_X;

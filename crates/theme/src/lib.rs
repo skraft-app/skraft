@@ -4,7 +4,8 @@
 //! ([`UiTokens`]) among them — into egui's visuals.
 //!
 //! The 3D view's background is a token of the palette ([`UiTokens::view`]), not a setting of
-//! the document: a file never sets how the app looks.
+//! the document: a file never sets how the app looks. Light in the light mode, dark in the dark
+//! one: what is drawn on it takes the mode's inks ([`Theme::ink`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +53,40 @@ pub struct MarkColors {
     pub edge: Rgba,
 }
 
+/// The inks the tools draw with over the view (docs/render/look.md#view-background): their
+/// preview lines, the axes' colours, a line along no axis, what a tool picked. The tools name
+/// them by the light mode's ([`GUIDE_INK`], [`AXIS_X`]…); [`Theme::ink`] gives the mode's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Inks {
+    pub tool: Rgba,
+    pub axis_x: Rgba,
+    pub axis_y: Rgba,
+    pub axis_z: Rgba,
+    pub free_line: Rgba,
+    pub pick: Rgba,
+}
+
+impl Inks {
+    /// For a light ground: deep enough to be read on it.
+    pub const LIGHT: Inks = Inks { tool: GUIDE_INK, axis_x: AXIS_X, axis_y: AXIS_Y, axis_z: AXIS_Z, free_line: FREE_LINE, pick: PICK };
+
+    /// For a dark ground: the same hues, light.
+    pub fn dark() -> Inks {
+        Inks {
+            tool: srgb(226, 228, 233),
+            axis_x: srgb(255, 92, 82),
+            axis_y: srgb(84, 214, 96),
+            axis_z: srgb(98, 150, 255),
+            free_line: srgb(242, 104, 232),
+            pick: srgb(255, 146, 52),
+        }
+    }
+
+    fn all(&self) -> [Rgba; 6] {
+        [self.tool, self.axis_x, self.axis_y, self.axis_z, self.free_line, self.pick]
+    }
+}
+
 /// The interface's tokens: the colours and sizes of panels and widgets, of one [`Palette`] in
 /// one [`Mode`].
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -81,8 +116,8 @@ pub struct UiTokens {
     /// The title bar: dark in both modes (as SolidCraft's application bar), its text light.
     pub title_bar: TitleBarTokens,
     /// The 3D view's background, and the text drawn on it (the shown file tab, which opens onto
-    /// the view). Light in both modes, dimmed in the dark one: the model's colours, the
-    /// tools' inks and the axes are drawn for a light ground.
+    /// the view): light in the light mode, a dark grey a little lighter than the panels in the
+    /// dark one (the tools' inks then the mode's, [`Theme::ink`]).
     pub view: Rgba,
     pub view_text: Rgba,
 }
@@ -159,7 +194,8 @@ impl UiTokens {
                 lit: srgb(54, 61, 74),
                 ..Self::light().title_bar
             },
-            view: srgb(198, 203, 211),
+            view: srgb(52, 57, 66),
+            view_text: srgb(222, 226, 232),
             ..Self::light()
         }
     }
@@ -205,8 +241,8 @@ impl UiTokens {
                 lit: srgb(66, 59, 52),
                 ..Self::warm_light().title_bar
             },
-            view: srgb(206, 200, 190),
-            view_text: Self::warm_light().view_text,
+            view: srgb(60, 55, 50),
+            view_text: srgb(236, 230, 221),
             ..Self::light()
         }
     }
@@ -252,8 +288,8 @@ impl UiTokens {
                 lit: srgb(47, 54, 59),
                 ..Self::graphite_light().title_bar
             },
-            view: srgb(196, 202, 207),
-            view_text: Self::graphite_light().view_text,
+            view: srgb(44, 48, 52),
+            view_text: srgb(227, 231, 234),
             ..Self::light()
         }
     }
@@ -271,6 +307,8 @@ pub struct Theme {
     pub face_back: Rgba,
     /// B-rep edges and silhouettes.
     pub edge: Rgba,
+    /// The grid's lines, mixed over the view (a little of it, more for its tens).
+    pub grid: Rgba,
     /// How much of the background covers what is outside the context being edited.
     pub fade: f32,
     /// How much darker than its part a section cap is (0: the same colour).
@@ -314,11 +352,13 @@ pub struct Theme {
     pub tooltip_fill: Rgba,
     pub tooltip_text: Rgba,
     pub tooltip_border: Rgba,
+    /// The tools' inks over the view, for its ground.
+    pub inks: Inks,
 }
 
 /// The axes' colours, the same in every theme (red, green, blue: x, y, z).
 pub const AXIS_X: Rgba = [0.85, 0.05, 0.05, 1.0];
-/// A deep green: a bright one has the dimmed view's luminance and fades into it.
+/// A deep green: a bright one has the light view's luminance and fades into it.
 pub const AXIS_Y: Rgba = [0.007, 0.262, 0.007, 1.0];
 pub const AXIS_Z: Rgba = [0.05, 0.1, 0.85, 1.0];
 /// A line along no axis (parallel, perpendicular, tangent…).
@@ -345,6 +385,7 @@ impl Theme {
             face_front: [0.92, 0.91, 0.87, 1.0],
             face_back: [0.55, 0.60, 0.72, 1.0],
             edge: [0.02, 0.02, 0.03, 1.0],
+            grid: [0.3, 0.3, 0.3, 1.0],
             fade: 0.7,
             cap_shade: 0.25,
             hatch_opacity: 0.5,
@@ -373,22 +414,47 @@ impl Theme {
             tooltip_fill: srgb(255, 250, 215),
             tooltip_text: srgb(20, 20, 20),
             tooltip_border: srgb(120, 120, 120),
+            inks: Inks::LIGHT,
         }
     }
 
-    /// The dark theme: the interface and what is drawn over the model. The model keeps its
-    /// faces' colours, the view a light ground ([`UiTokens::view`], dimmed).
+    /// The dark theme: the interface and what is drawn over the model, on a dark view
+    /// ([`UiTokens::view`]). The model keeps its faces' colours and its black edges (read
+    /// against its faces); what is drawn on the view itself takes light inks.
     pub fn dark() -> Self {
         Theme {
             mode: Mode::Dark,
             ui: UiTokens::dark(),
-            selected: MarkColors { face: [0.1, 0.3, 1.0, 0.0], edge: [0.05, 0.21, 1.0, 1.0] },
+            selected: MarkColors { face: [0.1, 0.3, 1.0, 0.0], edge: srgb(70, 140, 255) },
+            hover: MarkColors { face: [0.07, 0.25, 1.0, 0.2], edge: [0.12, 0.3, 1.0, 0.85] },
+            ghost: MarkColors { face: [0.1, 0.25, 1.0, 0.4], edge: srgb(70, 140, 255) },
+            context_box: srgb(170, 172, 180),
+            grid: srgb(128, 133, 143),
+            guide: srgb(170, 172, 192),
+            marker_outline: srgb(20, 20, 20),
+            inks: Inks::dark(),
             marquee_fill: srgba(90, 140, 255, 35),
             marquee_stroke: srgb(120, 160, 255),
             tooltip_fill: srgb(45, 46, 52),
             tooltip_text: srgb(235, 235, 235),
             tooltip_border: srgb(110, 110, 120),
             ..Self::light()
+        }
+    }
+}
+
+impl Theme {
+    /// `c` in this theme's inks: a tool's ink named by the light mode's ([`GUIDE_INK`],
+    /// [`AXIS_X`]…, of any opacity) becomes the mode's, its opacity kept; any other colour is
+    /// itself.
+    pub fn ink(&self, c: Rgba) -> Rgba {
+        let light = Inks::LIGHT.all();
+        match light.iter().position(|l| l[..3] == c[..3]) {
+            Some(i) => {
+                let [r, g, b, _] = self.inks.all()[i];
+                [r, g, b, c[3]]
+            }
+            None => c,
         }
     }
 }
@@ -467,23 +533,44 @@ mod tests {
         for palette in Palette::ALL {
             for mode in [Mode::Light, Mode::Dark] {
                 let (th, t) = (Theme::of(palette, mode), UiTokens::of(palette, mode));
-                for (ink, what) in
-                    [(GUIDE_INK, "tools' ink"), (th.edge, "edges"), (th.guide, "guides"), (th.marker_outline, "markers' outline")]
-                {
-                    assert!(contrast(ink, t.view) >= 4.0, "{palette:?} {mode:?} {what}");
+                let i = th.inks;
+                for (ink, what) in [(i.tool, "tools' ink"), (th.guide, "guides")] {
+                    assert!(contrast(ink, t.view) >= 4.0, "{palette:?} {mode:?} {what}: {:.2}", contrast(ink, t.view));
+                }
+                // The edges and the markers' outline are read against the faces; on the light
+                // view against it too (the silhouettes), the dark one showing the model by its
+                // faces.
+                for (ink, what) in [(th.edge, "edges"), (th.marker_outline, "markers' outline")] {
+                    assert!(contrast(ink, th.face_front) >= 4.0, "{palette:?} {mode:?} {what} on the faces");
+                    if mode == Mode::Light {
+                        assert!(contrast(ink, t.view) >= 4.0, "{palette:?} {mode:?} {what}");
+                    }
                 }
                 assert!(contrast(t.view_text, t.view) >= 4.5, "{palette:?} {mode:?} the shown tab's text");
                 // The axes and the tools' coloured lines: saturated, thin, told apart by their hue
                 // too, but never of the view's luminance.
-                for (ink, what) in [(AXIS_X, "x axis"), (AXIS_Y, "y axis"), (AXIS_Z, "z axis"), (FREE_LINE, "free line"), (PICK, "pick")] {
+                for (ink, what) in
+                    [(i.axis_x, "x axis"), (i.axis_y, "y axis"), (i.axis_z, "z axis"), (i.free_line, "free line"), (i.pick, "pick")]
+                {
                     assert!(contrast(ink, t.view) >= 2.0, "{palette:?} {mode:?} {what}: {:.2}", contrast(ink, t.view));
                 }
                 // The view is not the panels: the cards floating over it stand out.
                 assert!(contrast(t.view, t.panel) >= 1.02, "{palette:?} {mode:?} view against the panels");
             }
             let (light, dark) = (UiTokens::of(palette, Mode::Light), UiTokens::of(palette, Mode::Dark));
-            assert!(luminance(dark.view) < luminance(light.view), "{palette:?}: dimmed in the dark mode");
+            assert!(luminance(dark.view) < 0.05 && luminance(light.view) > 0.5, "{palette:?}: a dark view in the dark mode");
         }
+    }
+
+    #[test]
+    fn a_tool_ink_takes_the_mode_s() {
+        let (light, dark) = (Theme::light(), Theme::dark());
+        assert_eq!(light.ink(AXIS_Y), AXIS_Y);
+        let faint = [AXIS_Y[0], AXIS_Y[1], AXIS_Y[2], 0.35];
+        let [r, g, b, _] = Inks::dark().axis_y;
+        assert_eq!(dark.ink(faint), [r, g, b, 0.35], "its opacity kept");
+        let other = [0.5, 0.5, 0.5, 1.0];
+        assert_eq!(dark.ink(other), other, "not a tool's ink");
     }
 
     #[test]

@@ -200,8 +200,8 @@ impl Viewport {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
             ui.painter().image(id, rect, uv, egui::Color32::WHITE);
         }
-        paint_overlay_points(ui.painter(), rect, editor);
-        paint_marks(ui.painter(), rect, editor);
+        paint_overlay_points(ui.painter(), rect, editor, theme);
+        paint_marks(ui.painter(), rect, editor, theme);
         let mut clear = Vec::new();
         if let Some(cursor) = response.hover_pos() {
             clear.push(egui::Rect::from_center_size(cursor, egui::vec2(CURSOR_CLEAR, CURSOR_CLEAR)));
@@ -601,6 +601,7 @@ impl Viewport {
             face_front: rgb(theme.face_front),
             face_back: rgb(theme.face_back),
             edge: rgb(theme.edge),
+            grid: rgb(theme.grid),
             palette: &palette,
             silhouettes: display.silhouettes,
             section: view.section.map(|s| render::Section { origin: s.origin, normal: s.normal }),
@@ -681,7 +682,8 @@ fn box_transform(b: &skraft_tools::OrientedBox) -> DMat4 {
 /// A colour of a drawing in the theme shown (linear RGBA).
 fn theme_color(theme: &Theme, c: draw::Color) -> Rgba {
     match c {
-        draw::Color::Rgba(c) => c,
+        // A tool's ink, the mode's (docs/render/look.md#view-background).
+        draw::Color::Rgba(c) => theme.ink(c),
         draw::Color::Theme(t) => match t {
             draw::ThemeColor::Edge => theme.edge,
             draw::ThemeColor::Guide => theme.guide,
@@ -797,7 +799,8 @@ fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &skraft_tools::Ma
 const BAR_LENGTHEN: f32 = 4.0;
 
 /// The points a tool draws over everything (grips).
-fn paint_overlay_points(painter: &egui::Painter, rect: egui::Rect, editor: &Editor) {
+fn paint_overlay_points(painter: &egui::Painter, rect: egui::Rect, editor: &Editor, theme: &Theme) {
+    let color = |c: Rgba| color(theme.ink(c));
     let size = editor.viewport_size();
     let screen = |p: DVec3| editor.camera.project(p, size).map(|at| rect.min + egui::vec2(at.x as f32, at.y as f32));
     for p in editor.overlay_points() {
@@ -875,8 +878,8 @@ fn paint_mirror(painter: &egui::Painter, at: egui::Pos2, r: f32, fill: egui::Col
 const MARK_ARM: f32 = 6.0;
 
 /// The points a tool marks (a centre, a start): a `+` on the screen.
-fn paint_marks(painter: &egui::Painter, rect: egui::Rect, editor: &Editor) {
-    let stroke = egui::Stroke::new(1.5, color(skraft_theme::GUIDE_INK));
+fn paint_marks(painter: &egui::Painter, rect: egui::Rect, editor: &Editor, theme: &Theme) {
+    let stroke = egui::Stroke::new(1.5, color(theme.inks.tool));
     for p in editor.marks() {
         let Some(at) = editor.camera.project(p, editor.viewport_size()) else { continue };
         let at = rect.min + egui::vec2(at.x as f32, at.y as f32);

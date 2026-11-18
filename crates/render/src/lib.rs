@@ -328,6 +328,8 @@ pub struct Style<'a> {
     pub face_back: [f32; 3],
     /// Edges and silhouettes.
     pub edge: [f32; 3],
+    /// The grid's lines (mixed over the background, its tens more than the others).
+    pub grid: [f32; 3],
     /// The colours faces and placements refer to (linear RGB; alpha unused).
     pub palette: &'a [[f32; 4]],
     /// Draw the outline of curved faces.
@@ -349,6 +351,7 @@ impl Default for Style<'_> {
             face_front: [0.92, 0.91, 0.87],
             face_back: [0.55, 0.60, 0.72],
             edge: [0.02, 0.02, 0.03],
+            grid: [0.3, 0.3, 0.3],
             palette: &[],
             silhouettes: true,
             section: None,
@@ -1717,6 +1720,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     h.fs(&s.face_front);
     h.fs(&s.face_back);
     h.fs(&s.edge);
+    h.fs(&s.grid);
     h.fs(&[s.cap_shade, s.hatch_opacity, s.ghost_opacity, s.ghost_edge_opacity]);
     s.palette.len().hash(&mut h.0);
     for c in s.palette {
@@ -1917,7 +1921,8 @@ fn push_scene_lines(out: &mut Vec<LineVertex>, frame: &Frame<'_>) {
             }
             let t = i as f64 * g.spacing;
             let alpha = if i % 10 == 0 { 0.30 } else { 0.12 };
-            let c = [0.3, 0.3, 0.3, alpha];
+            let [r, g, b] = frame.style.grid;
+            let c = [r, g, b, alpha];
             push_line(
                 out,
                 v,
