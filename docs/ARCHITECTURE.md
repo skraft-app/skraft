@@ -12,7 +12,7 @@ Named SolidSketch until 2026-11-18 (a name already taken): crates `solidsketch-*
 folders. No compatibility is kept with them (file format v1 until the first release).
 
 Decisions made on 2026-11-09, and on 2026-11-10 for the parts / assemblies model (§2),
-**partly implemented**: what is left is listed in §2.8 and in `docs/REVIEW.md`.
+**partly implemented**: what is left is listed in §2.8.
 
 ## 1. Paradigm: direct modelling, open to parametric
 
@@ -205,7 +205,7 @@ version 1 until it is (§8).
 
 ### 2.9 Opening a part: its axes and its machinings
 
-Decided on 2026-11-10; built in steps (REVIEW, "Work: opening a part").
+Decided on 2026-11-10; built in steps.
 
 - **Double-clicking a part's occurrence opens the part**, as double-clicking an assembly's
   enters it: the editor keeps the assembly context and adds the occurrence open in it
@@ -275,7 +275,7 @@ Discussed on 2026-11-11 and set aside: nothing here is decided nor built.
   holes follow. Rule: **anchor only on the blank** (its 6 faces and 12 edges, named stably),
   **never on a face of the final B-rep**. Since machinings only remove material and their order
   does not matter, there is no history to replay: this sidesteps persistent face naming, the
-  blocker of parametric modelling (REVIEW, risk 5). A free blank (imported B-rep, boolean
+  blocker of parametric modelling. A free blank (imported B-rep, boolean
   result, curved part) stays direct, its machinings placed in the part's axes as today.
 - **Machining types** (hole, groove, mortise…) are the procedural generators of the tools
   (§2.4).
@@ -1466,7 +1466,7 @@ model, the file, the display and the tool; (2) inferences on guides; (3) managin
 Decided on 2026-11-11, after OpenCutList's Smart Reshape stretch
 (`tool/smart_reshape_tool.rb`, `SmartReshapeStretchActionHandler`; the analysis in
 `worker/common/common_stretch_split_worker.rb` and `model/stretch/`, the application in
-`common_stretch_apply_worker.rb`). Not built yet (REVIEW, "Work: stretch"). Comes **before
+`common_stretch_apply_worker.rb`). Not built yet. Comes **before
 push/pull** (§10): more useful in woodworking, and safer on the kernel side.
 
 **What it does** (as in OCL): the part's box has a grip on each of its 6 faces; pulling one
@@ -3145,7 +3145,7 @@ wasm) only kills the worker.
 
 ## 7 quater. Taken from SolidCraft: rendering and interface
 
-Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIEW.md`.
+Decided on 2026-11-10 (questions / answers).
 
 ### Still image
 
@@ -3889,7 +3889,7 @@ to undo.
 - `solidcore` is on crates.io, but `solidcore-record`, `-convert` and `-tess` are not: all four
   come from the git mirror `tangency-labs/solidcore`, **pinned to one commit**. Its known bugs
   are reproduced on SolidCore alone in `crates/kernel/tests/solidcore_quirks.rs`, each test
-  asserting the bug is still there: run first on an upgrade (REVIEW, "Work: SolidCore").
+  asserting the bug is still there: run first on an upgrade.
 - wasm: an 8 MiB stack (`.cargo/config.toml`) — SolidCore recurses legitimately and wasm has no
   guard page. Kernel panics cannot be caught in wasm (`panic = abort`): they are confined to the
   kernel's Web Worker (§7 ter).
@@ -3903,7 +3903,7 @@ to undo.
    move/rotate, undo/redo; native + wasm build.
 2. **Groups & components**: create from the selection, explode, enter/leave editing, make
    unique, multiple instances. *(Done, on the former model; replaced by §2.)*
-2 bis. **Parts, assemblies, machinings** (§2): see the plan in `docs/REVIEW.md`.
+2 bis. **Parts, assemblies, machinings** (§2).
 3. **Booleans**: union, difference, intersection, across contexts too (§4).
 3 bis. **Stretch** (§6 sexies): one part first, in its axes.
 4. **Push/pull**: picking a B-rep face, offset (the kernel's `offset_faces`, or extrusion +

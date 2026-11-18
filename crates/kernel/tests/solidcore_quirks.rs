@@ -1,7 +1,6 @@
 //! SolidCore's known bugs, reproduced on SolidCore itself — **without** our workarounds. Each
 //! test asserts that the bug is **still there**: when one fails after a SolidCore upgrade, the
-//! bug is fixed upstream; drop its workaround, then the test, and tick its line in
-//! docs/REVIEW.md ("Work: SolidCore").
+//! bug is fixed upstream; drop its workaround, then the test.
 //!
 //! Checked at: tangency-labs/solidcore `85b73de` (2026-11-17), the `rev` pinned
 //! in the workspace's Cargo.toml. Update this line with each upgrade.
@@ -102,6 +101,6 @@ fn a_circle_edge_a_hair_short_of_one_turn_cannot_be_written_back() {
     let back = solidcore_convert::brep::to_record(&mut k, &mut b);
     assert!(
         sliver > 0.0 && sliver < 1e-11 && back.is_err_and(|e| e.to_string().contains("knot multiplicity")),
-        "fixed upstream? the disc's edge has no sliver arc or its body is written back: tick docs/REVIEW.md"
+        "fixed upstream? the disc's edge has no sliver arc or its body is written back: drop its workaround and this test"
     );
 }

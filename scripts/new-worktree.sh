@@ -88,7 +88,12 @@ else
   echo "main has no target/ yet: nothing to clone, the first build compiles everything"
 fi
 
-# 4. Ready to build?
+# 4. The private working notes (ignored by git): one live file, main's, shared by every worktree.
+if [ -e "$main/docs/REVIEW.md" ]; then
+  ln -s "$main/docs/REVIEW.md" "$dest/docs/REVIEW.md"
+fi
+
+# 5. Ready to build?
 if $build; then
   (cd "$dest" && cargo build --workspace)
 fi
