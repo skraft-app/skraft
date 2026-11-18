@@ -184,7 +184,11 @@ Decision record: [Document settings and user preferences](../decisions/0003-docu
 ## Tool option bar
 
 A small card of its own under the ribbon, with the tool's options — exclusive choices, toggles
-and lengths; no tool name, and no card at all for a tool without options. The choices that are
+and lengths; no tool name, and no card at all for a tool without options. Its buttons and
+fields are 26 pt high (`style::BAR_BUTTON`), as the view bar's and the quick tools' card's
+buttons: the floating bars over the view all as thick. Every widget hovered or pressed
+— buttons first — is outlined in the colour of a text field's focus (the theme's hovered and
+active strokes, `style.rs`); a focused field's thicker outline takes over. The choices that are
 not the tool's but the context's go to the context card beside it (below). Every choice is
 visible and clickable there; a shortcut is only a complement (Tab cycles the first choice,
 `Editor::next_choice`). The status bar keeps the guidance for the current step; what Tab does is not written in the tools' hints but added by the editor

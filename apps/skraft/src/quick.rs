@@ -15,9 +15,9 @@ pub const COMMANDS: &[&str] =
 /// Pinned by default: OCL's copy tools.
 pub const DEFAULT: &[&str] = &["tool.copy_line", "tool.copy_grid", "tool.distribute"];
 
-/// A button's side and its icon's.
-const BUTTON: f32 = 34.0;
-const ICON: f32 = 22.0;
+// A button's side and its icon's, and the card's frame: the view bar's, the floating bars of the
+// view all as thick (docs/tools/quick-tools.md).
+use crate::view_bar::{BUTTON, ICON};
 /// The ▾ button's width.
 const MORE: f32 = 16.0;
 
@@ -50,7 +50,7 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
         .show(ctx, |ui| {
             // Translucent, as OCL's: the part stays visible behind it; nearly opaque under the
             // pointer, to read and click.
-            crate::style::translucent(egui::Frame::window(ui.style()).inner_margin(4.0), hovered).show(ui, |ui| {
+            crate::style::translucent(crate::view_bar::frame(ui.style()), hovered).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 ui.horizontal(|ui| {
                     let items: Vec<_> =
