@@ -734,7 +734,7 @@ fn count(n: u64) -> String {
 }
 
 /// A size in bytes, in the largest unit that keeps it above 1.
-fn bytes(n: u64) -> String {
+pub(crate) fn bytes(n: u64) -> String {
     match n {
         n if n >= 1 << 20 => t!("render_stats.mebibytes", n = format!("{:.1}", n as f64 / (1u64 << 20) as f64)),
         n if n >= 1 << 10 => t!("render_stats.kibibytes", n = format!("{:.1}", n as f64 / (1u64 << 10) as f64)),

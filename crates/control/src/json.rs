@@ -245,6 +245,7 @@ pub fn entry(e: &Entry) -> Value {
         } }),
         Event::Undo => json!("undo"),
         Event::Redo => json!("redo"),
+        Event::Forgotten { steps, bytes } => json!({ "forgotten": { "steps": steps, "bytes": bytes } }),
     };
     let mut v = json!({ "seq": e.seq, "ms": e.ms, "event": event, "origin": if e.origin.is_control() { "control" } else { "user" } });
     if let Some(c) = e.origin.client() {

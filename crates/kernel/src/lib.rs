@@ -29,6 +29,7 @@ mod shared;
 mod snaps;
 mod step;
 mod stretch;
+mod weight;
 
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]
 pub use engine::Pool;

@@ -36,6 +36,7 @@ mod tree;
 mod view;
 
 pub use clipboard::{Clip, Content};
+pub use document::cap_histories;
 use document::{After, Pending, Probe};
 pub use loading::{LoadEnd, LoadKind, Loading};
 pub use naming::Naming;

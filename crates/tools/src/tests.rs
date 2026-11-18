@@ -6324,3 +6324,59 @@ fn the_part_tools_share_their_settings_as_ocl() {
     assert!(e.tool_options().iter().any(|o| o.key == crate::tools::ASK_NAME && o.value == OptionValue::Toggle(true)));
     assert!(e.tool_options().iter().any(|o| o.key == "offset" && o.value == OptionValue::Length(3.0)));
 }
+
+// ---- the undo histories' memory (ARCHITECTURE.md §5 « Memory cap ») ---------------------------
+
+/// An editor where `n` boxes were added then deleted, one after the other: its history holds
+/// each alone, in the state before its deletion.
+fn editor_with_deleted_boxes(n: usize) -> Editor {
+    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    let root = e.document().root();
+    for i in 0..n {
+        let primitive = Primitive::Box { origin: DVec3::X * 50.0 * i as f64, size: DVec3::splat(10.0) };
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
+        let id = e.document().assembly(root).unwrap().occurrences().last().unwrap().id;
+        e.apply(Operation::Delete { context: root, entities: vec![id] }).unwrap();
+    }
+    e
+}
+
+#[test]
+fn the_history_weighs_its_meshes_and_forgets_them_with_its_states() {
+    let mut e = editor_with_deleted_boxes(3);
+    assert_eq!(e.scene().kept_solids(), 3, "the deleted boxes' meshes, kept for undo");
+    let held = e.history_bytes();
+    let first = e.history().document().clone();
+    e.undo();
+    let solid = e.document().components().find_map(|c| c.as_part()).unwrap().shape().clone();
+    let one_box = e.scene().solid_bytes(&solid);
+    assert!(one_box > solid.approx_bytes(), "its mesh counts");
+    e.redo();
+    assert_eq!(e.document(), &first);
+    assert!(held > 3 * one_box && held < 4 * one_box, "{held} bytes held, {one_box} per box");
+    // Everything it can: the last step to undo stays, with its box.
+    let freed = e.forget_history(u64::MAX);
+    assert_eq!(held - freed, e.history_bytes());
+    assert_eq!(e.scene().kept_solids(), 1, "the meshes of the boxes forgotten are dropped");
+    let last = e.journal().since(0).last().map(|entry| entry.event.clone());
+    assert!(matches!(last, Some(journal::Event::Forgotten { steps: 5, bytes }) if bytes == freed), "{last:?}");
+    e.undo();
+    assert_eq!(e.document().components().count(), 1, "the last box back, with its mesh");
+    assert_eq!(e.scene().kept_solids(), 1);
+    assert!(!e.history().can_undo());
+}
+
+#[test]
+fn the_histories_are_capped_together_the_first_ones_first() {
+    let (mut a, mut b) = (editor_with_deleted_boxes(2), editor_with_deleted_boxes(2));
+    let (held_a, held_b) = (a.history_bytes(), b.history_bytes());
+    assert_eq!(cap_histories(&mut [&mut a, &mut b], held_a + held_b), held_a + held_b, "within the budget: nothing forgotten");
+    let held = cap_histories(&mut [&mut a, &mut b], held_a + held_b - 1);
+    assert_eq!((a.history().forgotten(), b.history().forgotten()), (1, 0), "the first editor's oldest state");
+    assert_eq!(held, a.history_bytes() + b.history_bytes());
+    assert!(held < held_a + held_b);
+    // Nothing more to forget in the first: the second's turn.
+    cap_histories(&mut [&mut a, &mut b], 0);
+    assert!(!a.history().can_forget() && !b.history().can_forget());
+    assert!(a.history().can_undo() && b.history().can_undo());
+}

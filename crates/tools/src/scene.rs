@@ -636,6 +636,24 @@ impl DisplayScene {
         matches!(c.state, State::Ready | State::Preview).then_some(c.part.bounds).flatten()
     }
 
+    /// Roughly the bytes `solid` holds: its record, and the mesh and snaps kept for it here
+    /// (the undo history's weight, docs/ARCHITECTURE.md §5 « Memory cap »).
+    pub fn solid_bytes(&self, solid: &Arc<Solid>) -> u64 {
+        let kept = self.solids.get(&(Arc::as_ptr(solid) as usize));
+        solid.approx_bytes() + kept.map_or(0, |c| c.part.mesh.approx_bytes() + c.part.snaps.approx_bytes())
+    }
+
+    /// Drops the meshes of the solids nothing but this cache holds any more (states of the
+    /// history forgotten), as [`DisplayScene::sync`] does.
+    pub fn prune(&mut self) {
+        self.solids.retain(|_, c| Arc::strong_count(&c.solid) > 1);
+    }
+
+    /// How many solids have a mesh kept, drawn or not.
+    pub fn kept_solids(&self) -> usize {
+        self.solids.len()
+    }
+
     /// The geometry inferences see, once per occurrence: every shape, but the open part's
     /// while its recipe is shown — its blank and its tools instead.
     pub fn inferable(&self) -> impl Iterator<Item = (&Placement, &PartMesh, Piece)> {

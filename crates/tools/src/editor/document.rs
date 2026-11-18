@@ -475,6 +475,39 @@ impl Editor {
         }
     }
 
+    /// What the undo history holds besides the current document, estimated (docs/
+    /// ARCHITECTURE.md §5 « Memory cap »): the states' own B-reps and the meshes the scene keeps
+    /// for them. Weighs the pairs of states new since the last call, the meshes they hold being
+    /// in by then.
+    pub fn history_bytes(&mut self) -> u64 {
+        let scene = &self.scene;
+        self.history.weigh(&|s| scene.solid_bytes(s));
+        self.history.held_bytes()
+    }
+
+    /// Forgets the states of the history farthest from the current one until `bytes` are freed
+    /// (as weighed), or only the last step to undo is left; the meshes of their solids go with
+    /// them. Nothing while an operation computes: an array replacing a copy may bring the copy
+    /// back by a redo. What was freed.
+    pub fn forget_history(&mut self, bytes: u64) -> u64 {
+        if self.busy() {
+            return 0;
+        }
+        self.history_bytes();
+        let (mut freed, mut steps) = (0, 0);
+        while freed < bytes
+            && let Some(f) = self.history.forget()
+        {
+            freed += f;
+            steps += 1;
+        }
+        if steps > 0 {
+            self.journal.log(Event::Forgotten { steps, bytes: freed });
+            self.scene.prune();
+        }
+        freed
+    }
+
     /// Replaces the document (a file opened).
     pub fn open(&mut self, doc: Document) {
         self.history = History::new(doc);
@@ -543,4 +576,19 @@ impl Editor {
         self.deep.retain(|p| closed && p.instances.starts_with(context) && doc.resolve(p).is_ok());
         self.sync_scene();
     }
+}
+
+/// Keeps what the undo histories of `editors` hold together under `budget` bytes (docs/
+/// ARCHITECTURE.md §5 « Memory cap »): forgets the states of the first ones first — the caller
+/// orders them, the documents shown least recently first. Each keeps its last step to undo; an
+/// editor computing an operation is left alone this time. The bytes the histories hold after.
+pub fn cap_histories(editors: &mut [&mut Editor], budget: u64) -> u64 {
+    let mut held: u64 = editors.iter_mut().map(|e| e.history_bytes()).sum();
+    for e in editors.iter_mut() {
+        if held <= budget {
+            break;
+        }
+        held -= e.forget_history(held - budget).min(held);
+    }
+    held
 }

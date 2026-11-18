@@ -23,6 +23,10 @@ use crate::commands::RECENT_FILES;
 /// The control channel's port by default.
 pub const DEFAULT_REMOTE_PORT: u16 = 7858;
 
+/// The memory the undo histories of the documents open may hold together by default, in MiB
+/// (docs/ARCHITECTURE.md §5 « Memory cap »): less in the browser, whose tab has less.
+pub const DEFAULT_HISTORY_MEMORY: u32 = if cfg!(target_arch = "wasm32") { 512 } else { 1024 };
+
 /// The version this build writes.
 pub const VERSION: u32 = 1;
 
@@ -69,6 +73,10 @@ pub struct Preferences {
     pub remote_control: bool,
     /// Its port, on 127.0.0.1.
     pub remote_port: u16,
+    /// The memory the undo histories of the documents open may hold together, in MiB (their
+    /// states' B-reps and meshes, besides the current documents): beyond, their oldest steps
+    /// are forgotten (docs/ARCHITECTURE.md §5 « Memory cap »).
+    pub history_memory: u32,
 }
 
 impl Default for Preferences {
@@ -94,6 +102,7 @@ impl Default for Preferences {
             view_bar_side: crate::dock::Dock::Left,
             remote_control: false,
             remote_port: DEFAULT_REMOTE_PORT,
+            history_memory: DEFAULT_HISTORY_MEMORY,
         }
     }
 }

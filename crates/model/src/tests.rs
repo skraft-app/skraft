@@ -2105,6 +2105,61 @@ fn the_history_tells_which_states_it_holds() {
     assert!(!h.holds(copied));
 }
 
+// ---- the history's memory (ARCHITECTURE.md §5 « Memory cap ») ------------------------------
+
+fn record_bytes(s: &Arc<kernel::Solid>) -> u64 {
+    s.approx_bytes()
+}
+
+#[test]
+fn the_history_weighs_what_its_states_hold_alone() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    h.weigh(&record_bytes);
+    let cube_bytes = h.document().components().find_map(|c| c.as_part()).unwrap().shape().approx_bytes();
+    assert!(cube_bytes > 1000, "a cube's record: {cube_bytes} bytes");
+    assert!(h.held_bytes() < cube_bytes, "the cube is in the current state: not held by the history");
+    h.apply(Operation::Delete { context: root, entities: vec![a] }).unwrap();
+    h.weigh(&record_bytes);
+    assert!(h.held_bytes() > cube_bytes, "deleted, the state before holds it alone");
+    // Two settings changes in a row merge: the pair weighed again.
+    let mut s = h.document().settings().clone();
+    s.display.grid = !s.display.grid;
+    h.apply(Operation::SetSettings(s.clone())).unwrap();
+    s.display.axes = !s.display.axes;
+    h.apply(Operation::SetSettings(s)).unwrap();
+    h.weigh(&record_bytes);
+    assert_eq!(h.held_bytes(), h.reweighed(&record_bytes));
+    // The weights follow undo and redo.
+    for undo in [true, true, true, false, true, false, false] {
+        assert!(if undo { h.undo() } else { h.redo() });
+        assert_eq!(h.held_bytes(), h.reweighed(&record_bytes), "after {}", if undo { "undo" } else { "redo" });
+    }
+}
+
+#[test]
+fn forgetting_drops_the_farthest_state_and_keeps_one_step_to_undo() {
+    let mut h = History::new(Document::new());
+    for i in 0..4 {
+        add(&mut h, cube(DVec3::X * 20.0 * i as f64, 10.0));
+    }
+    h.weigh(&record_bytes);
+    h.undo();
+    // States 0 to 2 before, 4 to redo: the oldest is the farthest.
+    let held = h.held_bytes();
+    let freed = h.forget().unwrap();
+    assert!(!h.holds(0) && h.holds(1));
+    assert_eq!(h.held_bytes(), held - freed);
+    assert_eq!(h.held_bytes(), h.reweighed(&record_bytes));
+    assert!(h.forget().is_some() && !h.holds(1), "two before, one to redo: the one before");
+    assert!(h.forget().is_some() && !h.can_redo(), "one each way: the one to redo");
+    assert!(h.can_undo() && !h.can_forget() && h.forget().is_none(), "the last step to undo stays");
+    assert_eq!((h.forgotten(), h.journal().count()), (3, 1));
+    assert!(h.undo());
+    assert_eq!(h.document().components().count(), 2);
+}
+
 // ---- bodies: positive and negative solids (ARCHITECTURE.md §2.11) ---------------------------
 
 /// The bounds of the part `target` places, in its own axes.

@@ -64,6 +64,13 @@ pub enum Event {
     },
     Undo,
     Redo,
+    /// The oldest states of the undo history (or the last ones to redo) forgotten to keep the
+    /// memory the histories hold under the budget (docs/ARCHITECTURE.md §5 « Memory cap »):
+    /// how many, what they held (bytes, estimated).
+    Forgotten {
+        steps: u32,
+        bytes: u64,
+    },
 }
 
 /// What a kernel job was for.
