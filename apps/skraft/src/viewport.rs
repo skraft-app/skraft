@@ -172,7 +172,6 @@ impl Viewport {
         } else {
             egui::CursorIcon::Crosshair
         };
-        let mut shown = None;
         if response.hovered() {
             let navigating = match self.gesture.as_ref().map(|g| g.action) {
                 Some(Some(NavAction::Orbit | NavAction::Pan)) => Some(egui::CursorIcon::Grabbing),
@@ -180,10 +179,11 @@ impl Viewport {
                 _ => None,
             };
             // Navigating: the system's hand or magnifier.
-            shown = own.filter(|_| navigating.is_none());
+            if let Some(own) = own.filter(|_| navigating.is_none()) {
+                crate::cursors::ask(ui.ctx(), own);
+            }
             ui.ctx().set_cursor_icon(navigating.unwrap_or(cursor));
         }
-        crate::cursors::show(ui.ctx(), shown);
 
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];

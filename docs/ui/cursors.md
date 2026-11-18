@@ -6,10 +6,16 @@ code: [apps/skraft/src/cursors.rs, apps/skraft/src/viewport.rs, apps/skraft/asse
 # Mouse cursors
 
 Over the view, the cursor is the active tool's at its step, as OpenCutList's: its SVG cursors
-(`img/cursor-*.svg`, 32 × 32 points) and hotspots (`SmartCursorManager.create_cursor`), each
-tool choosing as its `get_state_cursor` / `get_action_cursor` does. **Why:** the cursor tells
-which tool is at work and what the next click does (the target or the tool part of a boolean,
-the height of a box), without reading the status bar.
+(`img/cursor-*.svg`, 32 × 32 points, their dark blue `#0e416c` made black) and hotspots
+(`SmartCursorManager.create_cursor`), each tool choosing as its `get_state_cursor` /
+`get_action_cursor` does. **Why:** the cursor tells which tool is at work and what the next
+click does (the target or the tool part of a boolean, the height of a box), without reading the
+status bar.
+
+Over the rest of the window (title bar, ribbon, panels, menus, toasts), `select` stands for the
+system's arrow: one pointer over the whole window. The system's other icons stay where a widget
+asks for them: the text cursor in a field, the resize arrows on a panel's or window's edge, the
+hand on a link-like button or a grip.
 
 Decision record: [Custom cursors through a winit fork](../decisions/0035-custom-cursors-winit-fork.md).
 
@@ -36,15 +42,20 @@ Decision record: [Custom cursors through a winit fork](../decisions/0035-custom-
 | Paint | `paint-part` (occurrences), `paint-face-1` (faces) |
 | Erase, Section, Measure, Profile | the system's crosshair (OCL has none) |
 
-The system's icons stay when the kernel is at work (progress), while navigating (the hand while
-orbiting or panning, the magnifier while zooming) and off the view.
+The system's icons stay over the view when the kernel is at work (progress) and while navigating
+(the hand while orbiting or panning, the magnifier while zooming).
 
 ## Handing it to the system
+
+- **One decision per frame**, at the end of `SkraftApp::ui` (`cursors::apply`), once every
+  widget has said its `CursorIcon` (egui resets it to `Default` each frame): the view's cursor,
+  which it asks for while hovered (`cursors::ask`), else `select` where the icon is still
+  `Default`, else the system's icon.
 
 - **Native**: egui's `Context::set_cursor_image` (`CustomCursorImage`, straight RGBA), which
   eframe gives winit (`CustomCursor::from_rgba`). The SVG is rasterised by resvg once per cursor
   and scale, cached: the same `Arc` every frame, which egui-winit dedupes by pointer (no upload
-  each frame). The image is sticky between frames: the view sets it, or clears it, every frame.
+  each frame). The image is sticky between frames: `apply` sets it, or clears it, every frame.
   Windows and Linux take it in physical pixels, at the window's scale.
 - **macOS**: winit 0.30.13 sizes the cursor's image in points as many as its pixels (blurry
   on Retina) and puts straight RGBA into a premultiplied bitmap (antialiased edges nearly
