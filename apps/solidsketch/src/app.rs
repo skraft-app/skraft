@@ -97,6 +97,8 @@ pub struct SolidSketchApp {
     native_menu: Option<NativeMenu>,
     /// Keys given back to egui on the next frame ([`Self::native_command`]).
     pending_keys: Vec<egui::Event>,
+    /// Tab and Shift+Tab taken from egui this frame, for the tool ([`Self::raw_input_hook`]).
+    tabs: Vec<egui::Event>,
     /// The documents loading, and since when (egui's time): the window comes after
     /// [`LOAD_WINDOW_AFTER`].
     loads_seen: std::collections::HashMap<DocId, f64>,
@@ -321,6 +323,7 @@ impl SolidSketchApp {
             #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
             native_menu: None,
             pending_keys: Vec::new(),
+            tabs: Vec::new(),
             loads_seen: std::collections::HashMap::new(),
             clipboard: None,
             copies: 0,
@@ -1122,7 +1125,8 @@ impl SolidSketchApp {
     /// and only if no key, click or scroll, nor another modifier pressed, came in between: Ctrl+Z
     /// and the like are left alone, and so is the copy modifier held while Shift is tapped.
     fn modifier_taps(&mut self, ctx: &egui::Context) {
-        let (mods, events) = ctx.input(|i| (i.modifiers, i.events.iter().any(interrupts_tap)));
+        // The Tabs taken from egui for the tool interrupt a tap too (Shift+Tab is no Shift tap).
+        let (mods, events) = ctx.input(|i| (i.modifiers, i.events.iter().chain(&self.tabs).any(interrupts_tap)));
         let other_key = if ctx.os() == egui::os::OperatingSystem::Mac { mods.mac_cmd } else { mods.alt };
         let down = [viewport::modifiers(ctx, mods).copy, mods.shift, other_key];
         let pressed: Vec<bool> = down.iter().zip(&self.taps).map(|(d, t)| *d && !t.down).collect();
@@ -1140,13 +1144,20 @@ impl SolidSketchApp {
 
     /// Keyboard: the tool's keys, the measurements box fed from anywhere (SketchUp), then the
     /// commands' shortcuts.
+    /// Do the keys go to the shown document's tool and the shortcuts ([`Self::keyboard`]), no
+    /// modal dialog (closing, naming a part) taking them?
+    fn keys_to_tools(&self) -> bool {
+        self.closing.as_ref().is_none_or(|c| c.asking.is_none()) && self.naming.is_none()
+    }
+
     fn keyboard(&mut self, ctx: &egui::Context) {
         self.modifier_taps(ctx);
+        let tabs = std::mem::take(&mut self.tabs);
         if ctx.egui_wants_keyboard_input() || self.capturing.is_some() || self.palette.is_some() {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
-        for ev in events {
+        for ev in tabs.into_iter().chain(events) {
             if let Some(id) = self.key_event(ctx, ev) {
                 self.act(Action::Command(id));
             }
@@ -2287,10 +2298,26 @@ impl eframe::App for SolidSketchApp {
         }
     }
 
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         raw_input.events.append(&mut self.pending_keys);
         // Real input asked over the control channel: one frame's events (§7 septies).
         self.driving.feed(raw_input);
+        // Tab and Shift+Tab are the tools' (the booleans' scope, Stretch…) while no text field
+        // has the focus: egui would give the focus to the first widget (or the last) instead —
+        // its keyboard navigation — and from then on keep every key from the tool. In a text
+        // field, they go from field to field; a shortcut being captured, or a modal dialog,
+        // takes them as they are.
+        if self.keys_to_tools() && !ctx.text_edit_focused() && self.capturing.is_none() {
+            let tabs = &mut self.tabs;
+            raw_input.events.retain(|e| {
+                let tab =
+                    matches!(e, egui::Event::Key { key: egui::Key::Tab, modifiers, .. } if !modifiers.any() || modifiers.shift_only());
+                if tab {
+                    tabs.push(e.clone());
+                }
+                !tab
+            });
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -2371,7 +2398,7 @@ impl eframe::App for SolidSketchApp {
                 }
             }
         }
-        if self.closing.as_ref().is_none_or(|c| c.asking.is_none()) && self.naming.is_none() {
+        if self.keys_to_tools() {
             self.keyboard(&ctx);
         }
         self.serve_control(&ctx, frame);
