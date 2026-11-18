@@ -70,8 +70,8 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   tool's options by `Editor::tool_options` for a tool whose `Tool::picks_parts` (Select, Move,
   Rotate, Erase, Paint painting occurrences, the copy tools, Distribute, the Stretch), no part
   open, and drawn in the context card beside the tool's ([Context
-  card](../ui/interface.md#context-card)), its icons the assembly whole or one part of it
-  tinted; changing it lets the selection go; `Cx::parts`.
+  card](../ui/interface.md#context-card)), its icons two squares in a dashed frame (the
+  context's children) or one square (a part); changing it lets the selection go; `Cx::parts`.
 - **Parts only**: the leaf part. Going up is OCL's tree drop-up (below).
 - Inside an open part, the selection stays the bodies' (no scope).
 - The navigator's click selects in its context, entering it, whatever the scope.
