@@ -26,6 +26,8 @@ pub struct Doc {
     pub vcb: String,
     /// Its outliner's rows unfolded, and what they are kept by.
     pub outliner: crate::panels::OutlinerState,
+    /// When it was last shown ([`Docs::cap_histories`]'s tick).
+    shown_at: u64,
 }
 
 impl Doc {
@@ -55,6 +57,8 @@ pub struct Docs {
     active: Option<usize>,
     next_id: DocId,
     kernel: SharedKernel,
+    /// Counts the calls of [`Docs::cap_histories`].
+    tick: u64,
 }
 
 /// No room for another document ([`MAX_OPEN`]).
@@ -63,7 +67,7 @@ pub struct Full;
 
 impl Docs {
     pub fn new(kernel: SharedKernel) -> Self {
-        Docs { list: Vec::new(), active: None, next_id: 1, kernel }
+        Docs { list: Vec::new(), active: None, next_id: 1, kernel, tick: 0 }
     }
 
     pub fn len(&self) -> usize {
@@ -129,7 +133,7 @@ impl Docs {
         setup(&mut editor);
         let id = self.next_id;
         self.next_id += 1;
-        let doc = Doc { id, editor, path, saved_at: 0, vcb: String::new(), outliner: Default::default() };
+        let doc = Doc { id, editor, path, saved_at: 0, vcb: String::new(), outliner: Default::default(), shown_at: 0 };
         Ok(match replaced {
             Some(i) => (id, Some(std::mem::replace(&mut self.list[i], doc).id)),
             None => {
@@ -138,6 +142,20 @@ impl Docs {
                 (id, None)
             }
         })
+    }
+
+    /// Keeps what the undo histories hold together under `budget` bytes (docs/ARCHITECTURE.md §5
+    /// « Memory cap »), forgetting first in the documents shown least recently: called every
+    /// frame, it marks the one shown. The bytes they hold after.
+    pub fn cap_histories(&mut self, budget: u64) -> u64 {
+        self.tick += 1;
+        if let Some(d) = self.active.and_then(|a| self.list.get_mut(a)) {
+            d.shown_at = self.tick;
+        }
+        let mut docs: Vec<&mut Doc> = self.list.iter_mut().collect();
+        docs.sort_by_key(|d| d.shown_at);
+        let mut editors: Vec<&mut Editor> = docs.into_iter().map(|d| &mut d.editor).collect();
+        solidsketch_tools::cap_histories(&mut editors, budget)
     }
 
     pub fn select(&mut self, i: usize) {

@@ -387,7 +387,11 @@ fn bench_small_edit() {
         let doc = e.document().clone();
         time(&format!("move one: document only {k}"), || doc.apply(&op(k)).unwrap());
         time(&format!("move one: editor (scene synced) {k}"), || e.apply(op(k)).unwrap());
+        // What the app does every frame after it (docs/ARCHITECTURE.md §5 « Memory cap »).
+        time(&format!("move one: history weighed {k}"), || e.history_bytes());
     }
+    time("history weighed, nothing new", || e.history_bytes());
+    time("history: forget one state", || e.forget_history(1));
     if std::env::var("BENCH_LOOP").is_ok() {
         let t = Instant::now();
         let mut k = 0;

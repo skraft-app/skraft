@@ -2306,6 +2306,8 @@ impl eframe::App for SolidSketchApp {
         for d in self.docs.iter_mut() {
             d.editor.poll();
         }
+        // Their undo histories kept within the memory allowed, the meshes just come weighed.
+        self.docs.cap_histories(u64::from(self.prefs.history_memory) << 20);
         self.take_notices(&ctx);
         // A file whose opening was cancelled is closed (an import cancelled is undone already).
         let cancelled: Vec<DocId> = self
@@ -2625,7 +2627,8 @@ impl SolidSketchApp {
     }
 }
 
-/// The language: every text changes at once.
+/// The language (every text changes at once), reopening the documents, the undo histories'
+/// memory.
 fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
     egui::Grid::new("general").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.general.language"));
@@ -2648,6 +2651,10 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
             ui.checkbox(&mut prefs.reopen_documents, "");
             ui.end_row();
         }
+        ui.label(t!("prefs.general.history_memory")).on_hover_text(t!("prefs.general.history_memory_tip"));
+        let unit = format!(" {}", t!("prefs.general.history_memory_unit"));
+        ui.add(egui::DragValue::new(&mut prefs.history_memory).range(64..=65536).speed(16.0).suffix(unit));
+        ui.end_row();
     });
 }
 

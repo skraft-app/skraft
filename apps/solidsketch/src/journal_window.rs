@@ -85,7 +85,9 @@ impl Shown {
             Event::Input { input: ToolInput::Hover { .. }, .. } => self.inputs && self.hovers,
             Event::Input { .. } => self.inputs,
             Event::Tool(_) | Event::Option { .. } => self.tools,
-            Event::Applied { .. } | Event::Welded { .. } | Event::Failed { .. } | Event::Undo | Event::Redo => self.operations,
+            Event::Applied { .. } | Event::Welded { .. } | Event::Failed { .. } | Event::Undo | Event::Redo | Event::Forgotten { .. } => {
+                self.operations
+            }
             Event::Job { .. } => self.jobs,
         }
     }
@@ -287,6 +289,11 @@ fn describe(e: &Event) -> (String, String, bool) {
         }
         Event::Undo => (t!("journal.event.undo"), String::new(), false),
         Event::Redo => (t!("journal.event.redo"), String::new(), false),
+        Event::Forgotten { steps, bytes } => (
+            t!("journal.event.forgotten"),
+            tp!("journal.forgotten", *steps as usize, steps = steps, bytes = crate::viewport::bytes(*bytes)),
+            false,
+        ),
     }
 }
 

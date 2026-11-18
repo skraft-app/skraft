@@ -23,7 +23,7 @@ pub use camera::{Camera, Projection, Ray, StandardView, ViewArea};
 pub use editor::journal;
 pub use editor::{
     Clip, Content, Editor, LoadEnd, LoadKind, Loading, Look, Mark, Naming, Notice, NoticeAction, NoticeKind, OrientedBox, Tree, TreeRow,
-    View, ViewHighlight, ViewPlacement,
+    View, ViewHighlight, ViewPlacement, cap_histories,
 };
 pub use infer::{Curve, EdgeRef, InferKind, Inference, LineKind};
 pub use scene::{DefinitionMesh, DisplayScene, Hit, Owner, PartMesh, Piece, Placement, RecipeMeshes, RecipeTool, SceneGuide};
