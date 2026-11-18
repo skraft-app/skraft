@@ -66,7 +66,7 @@ and [Body groups](bodies.md#body-groups).
   they change through `Cx::moved` (`Moved`: occurrences of the context, or bodies of the open
   part, each in its frame), copies and arrays through `LastCopy`.
 - **The scope** of every change to the open part (drawing, editing bodies) is a choice of
-  the option bar while it is open, its first choice: « Tous les exemplaires ×N » /
+  the context card while it is open ([Context card](../ui/interface.md#context-card)): « Tous les exemplaires ×N » /
   « Celui-ci », **back to « all » at each opening**. **Why:** a change to one occurrence only
   makes it a separate part: better chosen each time. The `Related` marks follow it. Shown only
   for a part placed more than once (`Editor::open_part_copies`, hidden occurrences and copies

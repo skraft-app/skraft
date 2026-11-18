@@ -7,7 +7,7 @@ use skraft_i18n::{t, tp};
 use skraft_model::{
     ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, Nature, Occurrence, Operation, Scope, Sign, Units, measure,
 };
-use skraft_tools::{Editor, OptionValue, ToolKind};
+use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
 
 use crate::commands::Menu;
 use crate::icons;
@@ -157,10 +157,29 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView, column: bool) -> bool {
     r.clicked()
 }
 
-/// Whether the option bar has anything to show: the active tool's options, or an open part's
-/// scope or « Solide ».
+/// The frame of the option bar's cards (docs/ui/interface.md#context-card): as tight above and
+/// below its buttons as the view bar around its own, a little more room on the sides for the
+/// groups' names.
+pub fn option_card(style: &egui::Style) -> egui::Frame {
+    egui::Frame::window(style).inner_margin(egui::Margin::symmetric(6, 3))
+}
+
+/// Whether the context card has anything to show (docs/ui/interface.md#context-card): the
+/// selection's scope of a tool that picks parts, or the open part's scope.
+pub fn has_context_options(editor: &Editor) -> bool {
+    shows_part_scope(editor) || editor.tool_options().iter().any(is_context_option)
+}
+
+/// Whether the tool's card has anything to show: the active tool's own options, or an open
+/// part's « Solide ».
 pub fn has_tool_options(editor: &Editor) -> bool {
-    shows_part_scope(editor) || shows_body_sign(editor) || !editor.tool_options().is_empty()
+    shows_body_sign(editor) || editor.tool_options().iter().any(|o| !is_context_option(o))
+}
+
+/// An option of the context's, not the tool's: the selection's scope, which the editor adds to
+/// every tool that picks parts (docs/tools/selection.md#selection-scope).
+fn is_context_option(o: &ToolOption) -> bool {
+    o.key == skraft_tools::tools::PICK_SCOPE
 }
 
 /// The open part's scope, only for a part placed more than once (docs/model/data-model.md): for one alone,
@@ -192,24 +211,29 @@ fn shows_body_sign(editor: &Editor) -> bool {
     editor.open_part().is_some() && matches!(editor.tool_kind(), ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn)
 }
 
-/// The active tool's option bar (docs/ui/interface.md): its choices, each a segmented
-/// control after its name, then its lone toggles together in an "Options" group, all drawn like
-/// the ribbon's buttons. An open part puts its scope first, then its « Solide » (docs/model/opening-a-part.md, docs/model/bodies.md).
-pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
+/// A group's name before its buttons, after a separator but for the first of its card: grey, a
+/// caption — its buttons are what the eye looks for.
+fn option_group(ui: &mut egui::Ui, first: &mut bool, label: &str, tip: &str) {
+    if !std::mem::take(first) {
+        ui.separator();
+    }
+    ui.label(egui::RichText::new(label).color(ui.visuals().weak_text_color())).on_hover_text(tip);
+}
+
+/// The context card (docs/ui/interface.md#context-card), left of the tool's: what a pick takes
+/// (the selection's scope, docs/tools/selection.md), then which copies a change reaches (the
+/// open part's scope, docs/model/opening-a-part.md) — the same for every tool that shows them.
+pub fn context_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let options = editor.tool_options();
     ui.horizontal(|ui| {
         // The row as high as its buttons from the start: the first label is centered on them.
         ui.set_min_height(OPTION_HEIGHT);
         let mut first = true;
-        let mut group = |ui: &mut egui::Ui, label: &str, tip: &str| {
-            if !std::mem::take(&mut first) {
-                ui.separator();
-            }
-            // A group's name grey, a caption: its buttons are what the eye looks for.
-            ui.label(egui::RichText::new(label).color(ui.visuals().weak_text_color())).on_hover_text(tip);
-        };
+        for o in options.iter().filter(|o| is_context_option(o)) {
+            choice_option(ui, &mut first, o, actions);
+        }
         if shows_part_scope(editor) {
-            group(ui, &t!("tool.boolean.option.scope"), &t!("option_bar.part_scope_tip"));
+            option_group(ui, &mut first, &t!("tool.boolean.option.scope"), &t!("option_bar.part_scope_tip"));
             let all = if deep_scope(editor) {
                 t!("tool.boolean.option.all")
             } else {
@@ -235,8 +259,19 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                 actions.push(Action::PartScope(values[i]));
             }
         }
+    });
+}
+
+/// The active tool's card (docs/ui/interface.md): its choices, each a segmented control after
+/// its name, then its lone toggles together in an "Options" group, all drawn like the ribbon's
+/// buttons. An open part puts its « Solide » first (docs/model/bodies.md).
+pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
+    let options: Vec<_> = editor.tool_options().into_iter().filter(|o| !is_context_option(o)).collect();
+    ui.horizontal(|ui| {
+        ui.set_min_height(OPTION_HEIGHT);
+        let mut first = true;
         if shows_body_sign(editor) {
-            group(ui, &t!("option_bar.body_sign"), &t!("option_bar.body_sign_tip"));
+            option_group(ui, &mut first, &t!("option_bar.body_sign"), &t!("option_bar.body_sign_tip"));
             let sign = editor.body_sign();
             let signs = [
                 (
@@ -254,27 +289,20 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
         }
         for o in &options {
             let OptionValue::Length(v) = o.value else { continue };
-            group(ui, &o.label, &o.tip);
+            option_group(ui, &mut first, &o.label, &o.tip);
             if let Some(text) = length_option(ui, o.key, &o.tip, v, &editor.document().settings().units) {
                 actions.push(Action::ToolLength(o.key, text));
             }
         }
         for o in &options {
-            let OptionValue::Choice(current) = &o.value else { continue };
-            group(ui, &o.label, &o.tip);
-            let segments: Vec<_> = o.choices.iter().map(|c| Segment::new(&c.label, &c.tip, c.icon, current == c.value)).collect();
-            if let Some(c) =
-                segmented(ui, egui::Id::unique(("option_bar", o.key)), &segments, |i| format!("option:{}:{}", o.key, o.choices[i].value))
-            {
-                actions.push(Action::ToolOption(o.key, OptionValue::Choice(o.choices[c].value.to_owned())));
-            }
+            choice_option(ui, &mut first, o, actions);
         }
         let toggles: Vec<_> =
             options.iter().filter_map(|o| if let OptionValue::Toggle(on) = o.value { Some((o, on)) } else { None }).collect();
         if toggles.is_empty() {
             return;
         }
-        group(ui, &t!("option_bar.options"), &t!("option_bar.options_tip"));
+        option_group(ui, &mut first, &t!("option_bar.options"), &t!("option_bar.options_tip"));
         // Side by side like the ribbon's buttons.
         ui.spacing_mut().item_spacing.x = crate::ribbon::BUTTON_GAP;
         for (o, on) in toggles {
@@ -283,6 +311,18 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
             }
         }
     });
+}
+
+/// A choice option: its name, then its values as a segmented control (nothing for another kind).
+fn choice_option(ui: &mut egui::Ui, first: &mut bool, o: &ToolOption, actions: &mut Vec<Action>) {
+    let OptionValue::Choice(current) = &o.value else { return };
+    option_group(ui, first, &o.label, &o.tip);
+    let segments: Vec<_> = o.choices.iter().map(|c| Segment::new(&c.label, &c.tip, c.icon, current == c.value)).collect();
+    if let Some(c) =
+        segmented(ui, egui::Id::unique(("option_bar", o.key)), &segments, |i| format!("option:{}:{}", o.key, o.choices[i].value))
+    {
+        actions.push(Action::ToolOption(o.key, OptionValue::Choice(o.choices[c].value.to_owned())));
+    }
 }
 
 /// The height of the option bar's buttons; an icon's button is a square of it.
@@ -405,8 +445,11 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
     let mut text: String = focused.then(|| ui.data(|d| d.get_temp(id))).flatten().unwrap_or_else(|| shown.to_owned());
     let hovered = ui.ctx().read_response(field_id).is_some_and(|r| r.hovered());
     let visuals = ui.visuals();
-    let border = visuals.widgets.noninteractive.bg_stroke;
-    let stroke = field_stroke(visuals, focused, f.lit, hovered);
+    // Faded with its card while it is translucent (the option bar's, docs/ui/interface.md#look),
+    // its text not.
+    let alpha = crate::style::fill_alpha(ui);
+    let border = faded(visuals.widgets.noninteractive.bg_stroke, alpha);
+    let stroke = faded(field_stroke(visuals, focused, f.lit, hovered), alpha);
     let radius = visuals.widgets.inactive.corner_radius;
     let addon = f.addon.map(|_| OPTION_HEIGHT).unwrap_or(0.0);
     let mut corners = radius;
@@ -415,7 +458,7 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
     }
     // The margin keeps room for the thicker outline: focusing does not move the text.
     let frame = egui::Frame::new()
-        .fill(visuals.extreme_bg_color)
+        .fill(visuals.extreme_bg_color.gamma_multiply(alpha))
         .stroke(stroke)
         .corner_radius(corners)
         .inner_margin(egui::Margin::symmetric(6, 2) - egui::Margin::from(stroke.width));
@@ -433,7 +476,7 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
                 let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(OPTION_HEIGHT), egui::Sense::hover());
                 let p = ui.painter();
                 let rect_corners = egui::CornerRadius { nw: radius.nw, sw: radius.sw, ne: 0, se: 0 };
-                p.rect(rect, rect_corners, ground.lerp_to_gamma(ink, 0.04), border, egui::StrokeKind::Inside);
+                p.rect(rect, rect_corners, ground.lerp_to_gamma(ink, 0.04).gamma_multiply(alpha), border, egui::StrokeKind::Inside);
                 let font = egui::TextStyle::Button.resolve(ui.style());
                 p.text(rect.center(), egui::Align2::CENTER_CENTER, letter, font, color);
             }
@@ -481,7 +524,8 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
 }
 
 /// A toggle of the option bar, drawn like a ribbon button: no frame until hovered, the
-/// selection's fill and outline when on. True when clicked.
+/// selection's fill and outline when on — faded with its card while it is translucent
+/// (`style::fill_alpha`, docs/ui/interface.md#look), its ink not. True when clicked.
 fn option_button(
     ui: &mut egui::Ui,
     handle: &str,
@@ -496,12 +540,15 @@ fn option_button(
     crate::handles::publish(|| handle.to_owned(), rect);
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
     let visuals = ui.style().interact_selectable(&response, selected);
-    // On, filled with its colour (« Pipette »'s material, docs/tools/draw-options.md), as OCL's button.
+    let alpha = crate::style::fill_alpha(ui);
+    let stroke = faded(visuals.bg_stroke, alpha);
+    // On, filled with its colour (« Pipette »'s material, docs/tools/draw-options.md), as OCL's
+    // button: the toggle's value, not faded.
     let swatch = swatch.filter(|_| selected).map(|[r, g, b]| egui::Color32::from_rgb(r, g, b));
     if let Some(fill) = swatch {
-        ui.painter().rect(rect, visuals.corner_radius, fill, visuals.bg_stroke, egui::StrokeKind::Inside);
+        ui.painter().rect(rect, visuals.corner_radius, fill, stroke, egui::StrokeKind::Inside);
     } else if selected || response.hovered() {
-        ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, egui::StrokeKind::Inside);
+        ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill.gamma_multiply(alpha), stroke, egui::StrokeKind::Inside);
     }
     let ink = match swatch {
         Some(fill) => ink_on(fill),
@@ -510,6 +557,12 @@ fn option_button(
     };
     face.paint(ui, rect, ink);
     response.on_hover_text(face_tip(&face, label, tip)).clicked()
+}
+
+/// `stroke` faded by `alpha`.
+fn faded(mut stroke: egui::Stroke, alpha: f32) -> egui::Stroke {
+    stroke.color = stroke.color.gamma_multiply(alpha);
+    stroke
 }
 
 /// The ink readable on `fill`: black on a light colour, white on a dark one (OCL's
@@ -543,6 +596,8 @@ fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment], handle: impl
     let widths: Vec<f32> = faces.iter().map(|f| f.width(OPTION_HEIGHT)).collect();
     let (row, _) = ui.allocate_exact_size(egui::vec2(widths.iter().sum(), OPTION_HEIGHT), egui::Sense::hover());
     let radius = ui.visuals().widgets.inactive.corner_radius;
+    // The marks faded with their card while it is translucent (docs/ui/interface.md#look).
+    let alpha = crate::style::fill_alpha(ui);
 
     // The segments' places along the row, from its left.
     let lefts: Vec<f32> = widths.iter().scan(0.0, |x, w| Some(std::mem::replace(x, *x + w))).collect();
@@ -557,7 +612,7 @@ fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment], handle: impl
             response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, s.selected, &s.label));
             if response.hovered() && !s.selected {
                 let visuals = ui.style().interact(&response);
-                ui.painter().rect_filled(place(i), radius, visuals.weak_bg_fill);
+                ui.painter().rect_filled(place(i), radius, visuals.weak_bg_fill.gamma_multiply(alpha));
             }
             response
         })
@@ -567,7 +622,13 @@ fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment], handle: impl
         let (left, right) = slide(ui, id.with("slide"), (lefts[c], lefts[c] + widths[c]));
         let mark = egui::Rect::from_x_y_ranges(row.left() + left..=row.left() + right, row.y_range());
         let selected = ui.style().interact_selectable(&responses[c], true);
-        ui.painter().rect(mark, radius, selected.weak_bg_fill, selected.bg_stroke, egui::StrokeKind::Inside);
+        ui.painter().rect(
+            mark,
+            radius,
+            selected.weak_bg_fill.gamma_multiply(alpha),
+            faded(selected.bg_stroke, alpha),
+            egui::StrokeKind::Inside,
+        );
     }
 
     let mut clicked = None;

@@ -39,9 +39,6 @@ const ICON: f32 = 18.0;
 const MORE: f32 = 16.0;
 /// The grip's height, at the bar's head.
 const GRIP: f32 = 10.0;
-/// The bar's background opacity, at rest and under the pointer (the quick tools' card's).
-const RESTING: f32 = 0.35;
-const HOVERED: f32 = 0.92;
 
 pub fn pinned(pins: &Option<Vec<String>>) -> Vec<&'static str> {
     crate::pins::pinned(COMMANDS, DEFAULT, pins)
@@ -108,12 +105,7 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
     let hovered = ctx.data(|d| d.get_temp::<bool>(hovered_id)).unwrap_or(false);
     let mut menu_open = false;
     let response = egui::Area::new(egui::Id::unique("view_bar")).fixed_pos(at).constrain_to(view).show(ctx, |ui| {
-        let mut frame = frame(ui.style());
-        let alpha = if hovered { HOVERED } else { RESTING };
-        frame.fill = frame.fill.gamma_multiply(alpha);
-        frame.stroke.color = frame.stroke.color.gamma_multiply(alpha);
-        frame.shadow.color = frame.shadow.color.gamma_multiply(alpha * alpha);
-        frame.show(ui, |ui| {
+        crate::style::translucent(frame(ui.style()), hovered).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.vertical(|ui| {
                 let g = grip(ui);

@@ -20,9 +20,6 @@ const BUTTON: f32 = 34.0;
 const ICON: f32 = 22.0;
 /// The ▾ button's width.
 const MORE: f32 = 16.0;
-/// The card's background opacity, at rest and under the pointer.
-const RESTING: f32 = 0.35;
-const HOVERED: f32 = 0.92;
 
 /// The pinned commands, in the user's order: `pins` as they left them (unknown ids ignored),
 /// else the defaults.
@@ -51,14 +48,9 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
         .pivot(egui::Align2::CENTER_CENTER)
         .constrain_to(view)
         .show(ctx, |ui| {
-            let mut frame = egui::Frame::window(ui.style()).inner_margin(4.0);
             // Translucent, as OCL's: the part stays visible behind it; nearly opaque under the
             // pointer, to read and click.
-            let alpha = if hovered { HOVERED } else { RESTING };
-            frame.fill = frame.fill.gamma_multiply(alpha);
-            frame.stroke.color = frame.stroke.color.gamma_multiply(alpha);
-            frame.shadow.color = frame.shadow.color.gamma_multiply(alpha * alpha);
-            frame.show(ui, |ui| {
+            crate::style::translucent(egui::Frame::window(ui.style()).inner_margin(4.0), hovered).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 ui.horizontal(|ui| {
                     let items: Vec<_> =

@@ -2610,24 +2610,49 @@ impl SkraftApp {
 
         let free = self.side_panels(ctx, view, below_ribbon, margin, actions);
         let (free_left, free_right) = (free.min, free.max);
-        // The active tool's options: a card centered under the ribbon, between the columns, its
-        // width known before drawing it (as last measured: a pass whose width changed is
-        // discarded, so the card is never shown misplaced while it settles). No option, no card.
+        // Over the view under the ribbon, centered together between the columns: the context card
+        // (what a pick takes, which copies a change reaches), then the active tool's card
+        // (docs/ui/interface.md#context-card), each translucent but under the pointer or typed
+        // in; no option, no card. The row's widths are known
+        // before drawing it (as last measured: a pass whose widths changed is discarded, so the
+        // cards are never shown misplaced while they settle).
         let options_id = egui::Id::unique("tool_options");
-        let width_id = options_id.with("width");
+        let widths_id = options_id.with("widths");
         let mut free_top = below_ribbon;
         let Some(doc) = self.docs.active_mut() else { return };
-        if panels::has_tool_options(&doc.editor) {
-            let content_width = ctx.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
-            let options_width = content_width + card(&ctx.global_style()).total_margin().sum().x;
-            let options_left = (view.center().x - options_width / 2.0).min(free_right - options_width).max(free_left);
+        let (has_context, has_tool) = (panels::has_context_options(&doc.editor), panels::has_tool_options(&doc.editor));
+        if has_context || has_tool {
+            let widths = ctx.data(|d| d.get_temp::<[f32; 2]>(widths_id)).unwrap_or_default();
+            let context_width = if has_context { widths[0] } else { 0.0 };
+            let tool_width = if has_tool { widths[1] } else { 0.0 };
+            let gap = if has_context && has_tool { margin } else { 0.0 };
+            let row_width = context_width + gap + tool_width;
+            let options_left = (view.center().x - row_width / 2.0).min(free_right - row_width).max(free_left);
             let options = egui::Area::new(options_id)
                 .fixed_pos(egui::pos2(options_left, below_ribbon))
                 .constrain_to(view)
                 .show(ctx, |ui| {
-                    card(ui.style()).show(ui, |ui| {
-                        ui.set_width(content_width);
-                        centered_row(ui, width_id, |ui| panels::tool_options(ui, &doc.editor, actions));
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = margin;
+                        let mut drawn = widths;
+                        if has_context {
+                            let shown = crate::style::hover_card(ui, panels::option_card(ui.style()), options_id.with("context_hovered"), |ui| {
+                                panels::context_options(ui, &doc.editor, actions)
+                            });
+                            drawn[0] = shown.response.rect.width();
+                        }
+                        if has_tool {
+                            let shown = crate::style::hover_card(ui, panels::option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
+                                panels::tool_options(ui, &doc.editor, actions)
+                            });
+                            drawn[1] = shown.response.rect.width();
+                        }
+                        if drawn != widths {
+                            ui.data_mut(|d| d.insert_temp(widths_id, drawn));
+                            // Past egui's passes for this frame, the discard is refused: the next frame then.
+                            ui.ctx().request_discard("tool option cards resized");
+                            ui.ctx().request_repaint();
+                        }
                     });
                 })
                 .response
@@ -2864,23 +2889,6 @@ fn reveal(path: &str) {
     if let Err(e) = result {
         log::warn!("cannot show {path}: {e}");
     }
-}
-
-/// A row centered in `ui`: egui lays a row out from the left, so it is shifted by half the room
-/// it leaves, from its width as last measured (kept under `width_id`). A new width discards
-/// the pass: the next one, laid out with it, is the one shown.
-fn centered_row(ui: &mut egui::Ui, width_id: egui::Id, add_contents: impl FnOnce(&mut egui::Ui)) {
-    let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
-    ui.horizontal(|ui| {
-        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-        let used = ui.scope(add_contents).response.rect.width();
-        if used != width {
-            ui.data_mut(|d| d.insert_temp(width_id, used));
-            // Past egui's passes for this frame, the discard is refused: the next frame then.
-            ui.ctx().request_discard("tool bar row resized");
-            ui.ctx().request_repaint();
-        }
-    });
 }
 
 #[cfg(test)]
