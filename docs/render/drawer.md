@@ -53,10 +53,11 @@ lengths' helpers written on it). A primitive may draw both its outline and its f
 ## Style
 
 - **`Pen`** (lines): `color` — linear RGBA, or a theme colour named (`Color::Theme(ThemeColor)`:
-  `Edge`, `Guide`, `FadedGuide`, `Hover`, `Selected`, `ContextBox`), resolved by the app with the
-  current palette and mode —; `width` in points (`NORMAL` 1.5, `BOLD` 3); `stipple`; `lay` (how
-  the stipple lies, `Lay`); `layer`; `blended` (drawn over what it does not hide at its alpha, no
-  depth written: the faded guides); `hidden` (its hidden part drawn again). Helpers: `bold`,
+  `Edge`, `Guide`, `FadedGuide`, `HalfFadedGuide`, `Hover`, `Selected`, `ContextBox`), resolved
+  by the app with the current palette and mode —; `width` in points (`NORMAL` 1.5, `BOLD` 3);
+  `stipple`; `lay` (how the stipple lies, `Lay`); `layer`; `blended` (drawn over what it does
+  not hide at its alpha, no depth written: the faded and half faded guides); `hidden` (its
+  hidden part drawn again). Helpers: `bold`,
   `bold_if`, `dashed` (long dashes, anchored), `dotted`, `anchored`, `over`, `blended`,
   `hidden`, `x_ray` (plain where seen, long dashes where hidden), `Pen::guide` (long dashes laid
   on screen, blended when translucent).
@@ -128,6 +129,7 @@ cost.
   (`ThemeColor::Edge`); the dashed line from a tracked point to the inference; the selection's
   boxes (`ThemeColor::Selected`, dashed, wholly in the scene: `Drawer::oriented_boxes`, `place`d
   by a move's ghost) and the context's (`ThemeColor::ContextBox`); the guides (`Drawer::guide`
-  with `Pen::guide`) in `Guide`, `Hover`, `Selected` or `FadedGuide` (blended), the tools'
-  previewed guides likewise; the context's axes when shown (or a part open), their negative
-  halves at 0.35.
+  with `Pen::guide`) in `Guide`, `Hover`, `Selected`, `FadedGuide` or `HalfFadedGuide` (both
+  blended; half faded: within reach of a click under « Parts »,
+  [Selection](../tools/selection.md#selection-scope)), the tools' previewed guides likewise;
+  the context's axes when shown (or a part open), their negative halves at 0.35.
