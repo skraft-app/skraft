@@ -1,5 +1,5 @@
 //! The user-visible texts of Skraft: one YAML catalog per locale in `/locales` (`fr.yml`
-//! is the reference), compiled in by rust-i18n. See docs/ARCHITECTURE.md §6 quater.
+//! is the reference), compiled in by rust-i18n. See docs/ui/texts.md.
 //!
 //! A key is a dotted path that follows where the text shows in the app: `menu.file.open`,
 //! `tool.move.hint.start`, `error.expr.zero_division`. A text takes named values (`%{name}`);

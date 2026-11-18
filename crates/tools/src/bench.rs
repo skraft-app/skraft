@@ -387,7 +387,7 @@ fn bench_small_edit() {
         let doc = e.document().clone();
         time(&format!("move one: document only {k}"), || doc.apply(&op(k)).unwrap());
         time(&format!("move one: editor (scene synced) {k}"), || e.apply(op(k)).unwrap());
-        // What the app does every frame after it (docs/ARCHITECTURE.md §5 « Memory cap »).
+        // What the app does every frame after it (docs/model/undo.md#memory-cap).
         time(&format!("move one: history weighed {k}"), || e.history_bytes());
     }
     time("history weighed, nothing new", || e.history_bytes());
@@ -526,7 +526,7 @@ fn bench_step_model() {
 
 /// A real model loaded as the desktop app loads it (`BENCH_STEP`: a STEP file's path): imported
 /// through the editor, the kernel a [`skraft_kernel::Pool`] on every core — when the file
-/// is read, when every preview is drawn, when the last final mesh is (§7 sexies). Then the
+/// is read, when every preview is drawn, when the last final mesh is (docs/ui/loading.md). Then the
 /// same load cancelled once the previews are drawn: how long until an operation gets through.
 #[test]
 #[ignore]

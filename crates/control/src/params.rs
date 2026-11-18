@@ -1,4 +1,4 @@
-//! The methods' parameters (docs/ARCHITECTURE.md §7 septies): strict (an unknown field is an
+//! The methods' parameters (docs/control-protocol.md): strict (an unknown field is an
 //! error), every field optional with a default.
 
 use schemars::JsonSchema;

@@ -1,4 +1,4 @@
-//! The loopback HTTP server of the desktop (docs/ARCHITECTURE.md §7 septies): it admits a
+//! The loopback HTTP server of the desktop (docs/control-protocol.md): it admits a
 //! request by its token and hands it to the UI thread, which answers at its next frame.
 //!
 //! One route: `POST /call` with `{"method": "…", "params": {…}}` as body, any method. The

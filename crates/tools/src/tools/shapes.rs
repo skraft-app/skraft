@@ -34,8 +34,8 @@
 //!
 //! The drawing plane follows what the cursor aims at, after OpenCutList's smart draw tool:
 //! - the first click: the plane of the face under it, through the point inferred there
-//!   (§6 ter); on an edge, the face it bounds, else the ground, else the upright plane
-//!   through it; with nothing, the ground of the axes (the open part's, ARCHITECTURE.md §2.9,
+//!   (docs/tools/inferences.md); on an edge, the face it bounds, else the ground, else the upright plane
+//!   through it; with nothing, the ground of the axes (the open part's, docs/model/opening-a-part.md,
 //!   else the context's). A guide line is taken as an edge, a guide circle as its tangent
 //!   there (off a face, in its plane). On a straight edge or a guide askew to the axes, the
 //!   base's sides run along it;
@@ -331,10 +331,10 @@ struct First {
     from_corner: bool,
     measure: Option<Measure>,
     /// The part under the cursor, kept by the first click: where « Dessiner dans » draws, the
-    /// material « Pipette » takes (§6 duodevicies).
+    /// material « Pipette » takes (docs/tools/draw-options.md).
     picked: Option<EntityPath>,
     /// The assembly « Dessiner dans » draws in, for `picked`: its occurrences from the root
-    /// and its box in its axes (§6 duodevicies).
+    /// and its box in its axes (docs/tools/draw-options.md).
     container: Option<(Vec<Id>, DVec3, DVec3)>,
 }
 
@@ -660,7 +660,7 @@ pub fn synced_with(key: &str) -> &'static [ToolKind] {
 
 /// The part creation tools' last options (none in an open part, a body made there is no new
 /// part): « Dessiner dans », « Pipette » (its button filled with the material it takes, named
-/// in its tip, §6 duodevicies), « Nommage des pièces ».
+/// in its tip, docs/tools/draw-options.md), « Nommage des pièces ».
 fn part_options(cx: &Cx<'_>, first: &First) -> Vec<ToolOption> {
     if cx.open_part.is_some() {
         return Vec::new();
@@ -704,7 +704,7 @@ fn container_box(d: &mut Drawer<'_>, frame: DAffine3, lo: DVec3, hi: DVec3) {
 }
 
 /// The creation tools' last option, OCL's `ask_name`: the part's name asked as soon as it is
-/// made, else offered by a toast's button (§6 quattuordecies). None in an open part: a body
+/// made, else offered by a toast's button (docs/tools/quick-tools.md). None in an open part: a body
 /// made there is no new part.
 fn ask_name_option(cx: &Cx<'_>) -> Option<ToolOption> {
     cx.open_part.is_none().then(|| {
@@ -852,7 +852,7 @@ impl BoxTool {
         } else {
             (DVec3::new(d.x.min(0.0) - off, d.y.min(0.0) - off, z0), f.placement())
         };
-        // Filleted, a prism: the rectangle with a radius on each corner (§6 nonies).
+        // Filleted, a prism: the rectangle with a radius on each corner (docs/tools/prism.md).
         let primitive = match filleted(size.x, size.y, r) {
             Some(profile) => Primitive::Prism { origin, profile, height: size.z },
             None => Primitive::Box { origin, size },
@@ -964,7 +964,7 @@ impl Tool for BoxTool {
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut drawing = Drawing::default();
         let d = &mut cx.axes_drawer(&mut drawing);
-        // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
+        // The assembly « Dessiner dans » draws in, at every step (docs/tools/draw-options.md).
         self.first.container_preview(cx, d);
         // The corners of the base from `f.o` to the local `(x, y)`, at height `z`.
         let corners = |f: &Frame, x: f64, y: f64, z: f64| [(0.0, 0.0), (x, 0.0), (x, y), (0.0, y)].map(|(x, y)| f.at(DVec3::new(x, y, z)));
@@ -1332,7 +1332,7 @@ impl Tool for CylinderTool {
         let off = cx.length(OFFSET);
         let mut drawing = Drawing::default();
         let d = &mut cx.axes_drawer(&mut drawing);
-        // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
+        // The assembly « Dessiner dans » draws in, at every step (docs/tools/draw-options.md).
         self.first.container_preview(cx, d);
         let mut inference = self.snap.clone();
         match self.state {

@@ -1,8 +1,8 @@
 //! The camera: SketchUp navigation (the frame of the last standard view keeps its Z up),
 //! perspective or parallel, in `f64`.
 //!
-//! It gives the renderer a `f64` view and a **reversed-depth** projection (ARCHITECTURE.md
-//! §7 bis), and the tools a picking [`Ray`] per pixel.
+//! It gives the renderer a `f64` view and a **reversed-depth** projection (docs/render/display.md
+//! ), and the tools a picking [`Ray`] per pixel.
 
 use glam::{DMat3, DMat4, DVec2, DVec3, Mat4};
 
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn ray_through_projected_point() {
         // Near the origin and 100 km away: a point projected then cast back lands on itself,
-        // to the precision of f64 (the control protocol clicks world points, §7 septies).
+        // to the precision of f64 (the control protocol clicks world points, docs/control-protocol.md).
         for far in [DVec3::ZERO, DVec3::new(1.0e8, -3.0e7, 2.0e5)] {
             for parallel in [false, true] {
                 let mut c = Camera::default();

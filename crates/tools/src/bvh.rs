@@ -1,4 +1,4 @@
-//! A bounding volume hierarchy over world boxes (ARCHITECTURE.md §7 bis): what lets the scene
+//! A bounding volume hierarchy over world boxes (docs/render/display.md): what lets the scene
 //! answer a ray or a region without testing every placement.
 //!
 //! Built whole from its items' boxes (a linear BVH): the boxes ordered along a Morton curve

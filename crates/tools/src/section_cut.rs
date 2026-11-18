@@ -1,4 +1,4 @@
-//! Section cut lines (docs/ARCHITECTURE.md §7 quater): the outline of what the section plane
+//! Section cut lines (docs/render/look.md): the outline of what the section plane
 //! cuts, from the display meshes — so they meet the caps the renderer draws from the same
 //! triangles.
 

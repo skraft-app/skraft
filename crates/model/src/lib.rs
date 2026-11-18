@@ -1,6 +1,6 @@
 //! Skraft's document: components — parts (positive and negative bodies) and assemblies —
 //! placed by occurrences, the operations that change it, its undo history and its file
-//! format. See docs/ARCHITECTURE.md §2–§5 and §8.
+//! format. See docs/model/data-model.md–docs/model/undo.md and docs/io/file-format.md.
 
 mod clipboard;
 mod document;
@@ -79,7 +79,7 @@ pub enum Refusal {
     RootPlaced,
     /// A part is not combined with itself.
     SelfBoolean,
-    /// A face index past the part's faces (§7 quater).
+    /// A face index past the part's faces (docs/render/look.md).
     NoSuchFace,
     /// A change to bodies names none.
     NoBodies,
@@ -95,8 +95,7 @@ pub enum Refusal {
     NothingPasted,
     /// A negative group holding a negative body flattened: it would add material.
     UngroupNegative,
-    /// A turned body stretched across its axis, or across an arc of its half profile (§6
-    /// undecies).
+    /// A turned body stretched across its axis, or across an arc of its half profile (docs/tools/turned-bodies.md).
     TurnedAcross,
     /// Only an operation on occurrences of a context is applied at a path.
     NotAtPath,

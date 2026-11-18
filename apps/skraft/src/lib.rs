@@ -1,5 +1,5 @@
 //! Skraft, the application: egui panels around a viewport drawn by `skraft-render`,
-//! driven by the `skraft-tools` editor. Native and web (docs/ARCHITECTURE.md §6 bis).
+//! driven by the `skraft-tools` editor. Native and web (docs/ui/interface.md).
 
 mod app;
 mod clipboard;
@@ -43,12 +43,12 @@ mod worker;
 
 pub use app::SkraftApp;
 
-/// The bar is the window's title bar: on the macOS desktop (docs/ARCHITECTURE.md §7 quinquies).
+/// The bar is the window's title bar: on the macOS desktop (docs/ui/title-bar.md).
 pub(crate) const INTEGRATED_TITLEBAR: bool = cfg!(all(target_os = "macos", not(target_arch = "wasm32")));
 
 /// Only the app moves the window (macOS desktop): AppKit would move it from any drag in the top
 /// of the window, where its hidden title bar still is — over the file tabs, which are dragged
-/// along the bar to reorder them (docs/ARCHITECTURE.md §6 octies). The bar's empty space, and a
+/// along the bar to reorder them (docs/ui/file-tabs.md). The bar's empty space, and a
 /// tab dragged up or down, still move it: `ViewportCommand::StartDrag` (AppKit's
 /// `performWindowDragWithEvent:`) works on a window that is not movable by the user.
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]

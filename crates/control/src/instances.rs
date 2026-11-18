@@ -1,5 +1,5 @@
-//! The registry of the Skraft apps running on this computer (docs/ARCHITECTURE.md
-//! §7 septies): several may run at once — one per worktree, launched by the user or by an
+//! The registry of the Skraft apps running on this computer (docs/control-protocol.md
+//! ): several may run at once — one per worktree, launched by the user or by an
 //! agent's session — and a client must find the one it means, not merely the last started.
 //!
 //! Each app writes `<dir>/instances/<pid>.json` (an [`Instance`]: its pid, its control

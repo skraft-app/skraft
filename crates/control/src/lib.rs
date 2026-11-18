@@ -1,7 +1,7 @@
-//! The control protocol (docs/ARCHITECTURE.md §7 septies): what an agent, a script or a test
+//! The control protocol (docs/control-protocol.md): what an agent, a script or a test
 //! asks the app — a method and its JSON parameters, [`Call`] — and what it answers. One method
-//! set for every transport: the loopback HTTP server of the desktop ([`server`]), later the
-//! page's `window.skraft` (web) and an MCP server.
+//! set for every transport: the loopback HTTP server of the desktop ([`server`]), the page's
+//! `window.skraft` (web) and the MCP server (`apps/skraft-mcp`).
 //!
 //! The methods' parameters are types here ([`params`]), read strictly (an unknown field or a
 //! wrong type is refused, naming it, and nothing runs); their JSON Schemas come from them

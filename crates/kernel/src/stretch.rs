@@ -1,4 +1,4 @@
-//! Stretching a solid along an axis (docs/ARCHITECTURE.md §6 sexies), by rewriting its record:
+//! Stretching a solid along an axis (docs/tools/stretch.md), by rewriting its record:
 //! no kernel call, so it runs anywhere (the web UI too).
 //!
 //! **Cutters** — planes across the axis — split space into **sections**, each translated along

@@ -1,4 +1,4 @@
-//! The colour tokens Skraft draws with (docs/ARCHITECTURE.md §7 quater): named colours,
+//! The colour tokens Skraft draws with (docs/render/look.md): named colours,
 //! in linear RGBA, in a light and a dark theme. No UI toolkit: `render` gets them through its
 //! frame, `tools` uses the axis colours, the app turns the rest — the interface's tokens
 //! ([`UiTokens`]) among them — into egui's visuals.
@@ -20,7 +20,7 @@ pub enum Choice {
     Dark,
 }
 
-/// The interface's colours (§7 quater), each in a light and a dark variant: the theme
+/// The interface's colours (docs/render/look.md), each in a light and a dark variant: the theme
 /// [`Choice`] picks the variant.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Palette {
@@ -277,7 +277,7 @@ pub struct Theme {
     pub cap_shade: f32,
     /// How opaque a section cap's hatches are, in the edges' ink.
     pub hatch_opacity: f32,
-    /// How opaque an open part's blank is while its machinings show (§2.9).
+    /// How opaque an open part's blank is while its machinings show (docs/model/opening-a-part.md).
     pub ghost_opacity: f32,
     /// How opaque the edges of what the eraser would take are (its faces: `ghost_opacity`).
     pub ghost_edge_opacity: f32,
@@ -297,12 +297,12 @@ pub struct Theme {
     pub related: MarkColors,
     /// The dashed box around the assembly being edited.
     pub context_box: Rgba,
-    /// Construction guides (§6 quinquies); those outside the active context are faded like
+    /// Construction guides (docs/tools/tape-measure.md); those outside the active context are faded like
     /// the parts.
     pub guide: Rgba,
     pub marquee_fill: Rgba,
     pub marquee_stroke: Rgba,
-    /// Inference markers (§6 ter).
+    /// Inference markers (docs/tools/inferences.md).
     pub endpoint: Rgba,
     pub midpoint: Rgba,
     pub center: Rgba,

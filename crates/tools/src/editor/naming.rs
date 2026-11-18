@@ -1,4 +1,4 @@
-//! Naming a part just made (docs/ARCHITECTURE.md §6 quattuordecies), after OpenCutList's Smart
+//! Naming a part just made (docs/tools/quick-tools.md), after OpenCutList's Smart
 //! Draw `fn_ask_name`: once a creation tool has made a part, the app's naming dialog opens at
 //! once (the tool's option « Nommage des pièces ») or a success toast offers a « Renommer »
 //! button that opens it. The dialog is the app's; the editor says when, checks the name and
@@ -23,7 +23,7 @@ pub struct Naming {
 
 impl Editor {
     /// After a creation tool's operation: the part it made (`AddPrimitive`, one occurrence of
-    /// a new part in the context, or in the assembly `made_in` leads to, §6 duodevicies) asked
+    /// a new part in the context, or in the assembly `made_in` leads to, docs/tools/draw-options.md) asked
     /// its name, or offered to be named by a toast.
     pub(super) fn offer_naming(&mut self, outcome: &Outcome, made_in: Option<&[Id]>, ask: bool) {
         let doc = self.document();

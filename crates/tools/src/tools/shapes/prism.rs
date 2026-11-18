@@ -1,5 +1,5 @@
-//! Prism: click the corners of an outline, close it, then pull its height (docs/
-//! ARCHITECTURE.md §6 nonies), after OpenCutList's `SmartDrawPolygonActionHandler`. The part
+//! Prism: click the corners of an outline, close it, then pull its height
+//! (docs/tools/prism.md), after OpenCutList's `SmartDrawPolygonActionHandler`. The part
 //! made is a prism, its profile kept in its blank's recipe.
 //!
 //! - The first point is the box's (the plane aimed at, the arrows locking it, the copy modifier
@@ -27,7 +27,7 @@
 //!   recorded as radii on them ([`profile::with_fillets`], made arcs by [`profile::rounded`]):
 //!   the outline drawn is dashed then, the one made solid.
 //!
-//! **Turning** (the « Tournage » tool, §6 undecies, [`PrismTool::turning`]): the axis first —
+//! **Turning** (the « Tournage » tool, docs/tools/turned-bodies.md, [`PrismTool::turning`]): the axis first —
 //! two points, inferred as a line's (a typed length for the second; only its origin is
 //! marked, no length shown) —, then the half profile, its points inferred on the axis and
 //! its origin too ([`Tool::infer_line`]),
@@ -452,7 +452,7 @@ fn off_axis_at(cx: &Cx<'_>, px: DVec2, ax: &Axis, from: DVec3) -> Option<Inferen
 }
 
 impl PrismTool {
-    /// The « Tournage » tool: the outline turned about an axis (§6 undecies).
+    /// The « Tournage » tool: the outline turned about an axis (docs/tools/turned-bodies.md).
     pub fn turning() -> PrismTool {
         PrismTool { turning: true, ..PrismTool::default() }
     }
@@ -1182,7 +1182,7 @@ impl Tool for PrismTool {
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut drawing = Drawing::default();
         let d = &mut cx.axes_drawer(&mut drawing);
-        // The assembly « Dessiner dans » draws in, at every step (§6 duodevicies).
+        // The assembly « Dessiner dans » draws in, at every step (docs/tools/draw-options.md).
         self.first.container_preview(cx, d);
         let mut inference = self.snap.clone();
         let mut tip = None;

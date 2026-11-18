@@ -1,4 +1,4 @@
-//! The user's preferences (docs/ARCHITECTURE.md §6 bis): navigation, and the settings new
+//! The user's preferences (docs/ui/interface.md): navigation, and the settings new
 //! models start with. A versioned JSON file of our own in the OS's configuration folder
 //! (`~/Library/Application Support/Skraft/preferences.json` on macOS); in the browser,
 //! `localStorage`.
@@ -24,7 +24,7 @@ use crate::commands::RECENT_FILES;
 pub const DEFAULT_REMOTE_PORT: u16 = 7858;
 
 /// The memory the undo histories of the documents open may hold together by default, in MiB
-/// (docs/ARCHITECTURE.md §5 « Memory cap »): less in the browser, whose tab has less.
+/// (docs/model/undo.md#memory-cap): less in the browser, whose tab has less.
 pub const DEFAULT_HISTORY_MEMORY: u32 = if cfg!(target_arch = "wasm32") { 512 } else { 1024 };
 
 /// The version this build writes.
@@ -41,7 +41,7 @@ pub struct Preferences {
     pub tool_options: BTreeMap<String, OptionValues>,
     /// The language of the app, a locale of /locales (`fr`).
     pub locale: String,
-    /// The interface's theme (§7 quater): the system's, light or dark.
+    /// The interface's theme (docs/render/look.md): the system's, light or dark.
     pub theme: Choice,
     /// The interface's colours, in the variant the theme picks.
     pub palette: Palette,
@@ -52,30 +52,30 @@ pub struct Preferences {
     /// The last files opened or saved, the latest first (desktop: the browser gives no path to
     /// open again).
     pub recent_files: Vec<String>,
-    /// Open again at launch the saved documents open when the app quit (desktop, docs/
-    /// ARCHITECTURE.md §6 octies)…
+    /// Open again at launch the saved documents open when the app quit (desktop,
+    /// docs/ui/file-tabs.md)…
     pub reopen_documents: bool,
     /// …which are these, in tab order, and the one shown among them.
     pub open_files: Vec<String>,
     pub shown_file: Option<usize>,
     /// The side panels: their columns, order, sizes, folded or closed.
     pub panels: Layout,
-    /// The workspace and tab shown, the ribbon's pins and labels (ARCHITECTURE.md §6 septies).
+    /// The workspace and tab shown, the ribbon's pins and labels (docs/ui/ribbon.md).
     pub ribbon: crate::ribbon::Prefs,
-    /// The commands the quick tools' card shows (ARCHITECTURE.md §6 terdecies); absent: the
+    /// The commands the quick tools' card shows (docs/tools/quick-tools.md); absent: the
     /// defaults.
     pub quick_tools: Option<Vec<String>>,
-    /// The commands the view bar shows (ARCHITECTURE.md §6 sexdecies); absent: the defaults.
+    /// The commands the view bar shows (docs/ui/view-bar.md); absent: the defaults.
     pub view_bar: Option<Vec<String>>,
     /// The side of the view the view bar is docked to.
     pub view_bar_side: crate::dock::Dock,
-    /// The control channel (docs/ARCHITECTURE.md §7 quater) is on at launch (desktop).
+    /// The control channel (docs/ui/commands.md) is on at launch (desktop).
     pub remote_control: bool,
     /// Its port, on 127.0.0.1.
     pub remote_port: u16,
     /// The memory the undo histories of the documents open may hold together, in MiB (their
     /// states' B-reps and meshes, besides the current documents): beyond, their oldest steps
-    /// are forgotten (docs/ARCHITECTURE.md §5 « Memory cap »).
+    /// are forgotten (docs/model/undo.md#memory-cap).
     pub history_memory: u32,
 }
 
@@ -121,7 +121,7 @@ pub struct Navigation {
     pub zoom_speed: f64,
     /// Zoom towards the cursor (else towards the centre of the view).
     pub zoom_to_cursor: bool,
-    /// Which buttons and gestures do what (§6 quindecies): a preset, maybe edited. The wheel's
+    /// Which buttons and gestures do what (docs/ui/navigation-styles.md): a preset, maybe edited. The wheel's
     /// direction is the style's.
     pub style: NavStyle,
 }

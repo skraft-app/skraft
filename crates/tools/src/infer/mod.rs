@@ -1,4 +1,4 @@
-//! Inferences (docs/ARCHITECTURE.md §6 ter): the point a tool takes under the cursor.
+//! Inferences (docs/tools/inferences.md): the point a tool takes under the cursor.
 //!
 //! Candidates come from the solids' exact snap features ([`Snaps`]), placed in the world by
 //! each occurrence: endpoints, midpoints and centres; then — when the tool has a start point —
@@ -55,7 +55,7 @@ pub enum LineKind {
     Tangent,
     /// Along the radius of the last arc hovered, where it was hovered.
     Radial,
-    /// A guide line of the document (§6 quinquies).
+    /// A guide line of the document (docs/tools/tape-measure.md).
     Guide,
     /// The axis `k` of the context's axes, as drawn: through their origin.
     ModelAxis(usize),

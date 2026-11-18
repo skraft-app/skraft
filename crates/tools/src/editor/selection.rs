@@ -1,5 +1,5 @@
 //! Selection and the context being edited: select, enter and leave assemblies, open and close
-//! a part (ARCHITECTURE.md §2.9), erase, make an assembly, explode, make a part on its own.
+//! a part (docs/model/opening-a-part.md), erase, make an assembly, explode, make a part on its own.
 
 use skraft_i18n::t;
 use skraft_model::{EntityPath, Id, Operation};
@@ -22,7 +22,7 @@ impl Editor {
     }
 
     /// Selects the parts `paths` name, at any depth under the active context (« Parts »,
-    /// ARCHITECTURE.md §6 septendecies): the ids' selection let go.
+    /// docs/tools/selection.md): the ids' selection let go.
     pub fn select_paths(&mut self, paths: Vec<EntityPath>) {
         self.selection.clear();
         self.deep = paths;
@@ -40,7 +40,7 @@ impl Editor {
     }
 
     /// Does the selection at any depth go through an assembly placed more than once (a change
-    /// to it reaches the other copies, unless made unique: the scope, §6 septendecies)?
+    /// to it reaches the other copies, unless made unique: the scope, docs/tools/selection.md)?
     pub fn deep_shared(&self) -> bool {
         let doc = self.document();
         self.deep.iter().any(|p| doc.shared_along(&p.instances))
@@ -70,7 +70,7 @@ impl Editor {
         self.selection.extend(guides);
     }
 
-    /// The component guides are drawn in now (§6 quinquies): the open part's, else the
+    /// The component guides are drawn in now (docs/tools/tape-measure.md): the open part's, else the
     /// context's.
     pub fn guide_component(&self) -> Id {
         let doc = self.document();
@@ -145,7 +145,7 @@ impl Editor {
     }
 
     /// The outliner's click on the body `body` of the part — or group of bodies — `path`
-    /// leads to (§2.11 « Body groups »): the part, then the group, opened first when they are
+    /// leads to (docs/model/bodies.md#body-groups): the part, then the group, opened first when they are
     /// not; the body then taken out of the selection when selected, else selected alone — added
     /// to it with `add` (Shift).
     pub fn toggle_body(&mut self, path: &EntityPath, body: Id, add: bool) {
@@ -194,7 +194,7 @@ impl Editor {
     /// Edits the assembly the occurrence `id` of the active context places, or opens the part
     /// it places.
     pub fn enter(&mut self, id: Id) {
-        // In an open part: a group of its bodies opened (§2.11 « Body groups »).
+        // In an open part: a group of its bodies opened (docs/model/bodies.md#body-groups).
         if self.open_part.is_some() {
             let Some(path) = self.open_part_path() else { return };
             let Ok((_, p, _)) = self.document().resolve_container(&path) else { return };
@@ -229,7 +229,7 @@ impl Editor {
     /// Leaves the body open, else closes the group or part open, else goes back to the parent
     /// context; what is left is selected.
     pub fn exit(&mut self) {
-        // A body open first (§2.11 « Edit levels »).
+        // A body open first (docs/model/bodies.md#edit-levels).
         if self.leave_body() {
             return;
         }
@@ -240,7 +240,7 @@ impl Editor {
         };
         if let Some(id) = left {
             self.tool.reset();
-            // The profile's editing goes with the part (§6 nonies, step 3).
+            // The profile's editing goes with the part (docs/tools/prism.md, step 3).
             if self.tool.kind() == ToolKind::Profile {
                 self.set_tool(ToolKind::Select);
             }
@@ -372,7 +372,7 @@ impl Editor {
         Some((target, bodies))
     }
 
-    /// Can the selection be grouped: bodies of the open part (§2.11 « Body groups »)?
+    /// Can the selection be grouped: bodies of the open part (docs/model/bodies.md#body-groups)?
     pub fn can_group_bodies(&self) -> bool {
         self.selected_bodies().is_some_and(|(_, b)| !b.is_empty())
     }
@@ -409,7 +409,7 @@ impl Editor {
         if self.busy() {
             return;
         }
-        // In an open part: its bodies selected, each given its own definition (§2.11).
+        // In an open part: its bodies selected, each given its own definition (docs/model/bodies.md).
         if let Some(target) = self.open_part_path() {
             let Ok((_, p, _)) = self.document().resolve_container(&target) else { return };
             let bodies: Vec<Id> = self.selection.iter().copied().filter(|id| p.body(*id).is_some()).collect();

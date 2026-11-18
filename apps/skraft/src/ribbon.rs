@@ -1,7 +1,7 @@
-//! The workspace switcher and the ribbon (docs/ARCHITECTURE.md §6 septies).
+//! The workspace switcher and the ribbon (docs/ui/ribbon.md).
 //!
 //! The ribbon is data: [`WORKSPACES`] → tabs → groups → command ids of the registry
-//! (§7 quater), each group with its default pins. A group shows its pinned commands as buttons;
+//! (docs/ui/commands.md), each group with its default pins. A group shows its pinned commands as buttons;
 //! its label (▾) opens its menu, which lists every command of the group with a pin. The user's
 //! pins, the tab shown per workspace and the labels' switch are a preference ([`Prefs`]).
 //! When the ribbon is too narrow, [`fit`] decides what gives way. Drawing only reads: what the
@@ -52,7 +52,7 @@ const fn group(id: &'static str, label: fn() -> String, commands: &'static [&'st
 const MODIFY_ASSEMBLY: &[&str] = &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"];
 const STANDARD_VIEWS: &[&str] = &["view.zoom_extents", "view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
 
-/// Every workspace. Cut list and Drawing are planned (§6 septies): not listed until they exist.
+/// Every workspace. Cut list and Drawing are planned (docs/ui/ribbon.md): not listed until they exist.
 pub const WORKSPACES: &[Workspace] = &[Workspace {
     id: "modelling",
     label: || t!("ribbon.workspace.modelling"),
@@ -393,7 +393,7 @@ pub fn workspace_card(ui: &mut egui::Ui, v: &View, height: f32, actions: &mut Ve
     });
 }
 
-/// The tab row, as the file tabs of the title bar (§7 quinquies): a band across the card's top
+/// The tab row, as the file tabs of the title bar (docs/ui/title-bar.md): a band across the card's top
 /// in the headers' fill, the tabs centered on it, the shown one in the card's fill opening onto
 /// the groups under it.
 /// The row's height; the tabs rise above it into the card's margin, by [`TAB_RISE`].

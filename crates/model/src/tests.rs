@@ -210,7 +210,7 @@ fn a_difference_machines_the_part_for_all_its_occurrences() {
     assert!(doc.resolve(&EntityPath::root(g)).is_err() || doc.assembly(doc.context_of(&[g]).unwrap()).unwrap().occurrences().is_empty());
     assert_eq!(doc.components().filter(|c| c.is_part()).count(), 1, "{:?}", doc.components().map(|c| &c.name).collect::<Vec<_>>());
 
-    // A union gives the target the tool's bodies (§2.11): its blank stays, the hole too.
+    // A union gives the target the tool's bodies (docs/model/bodies.md): its blank stays, the hole too.
     let other = add(&mut h, Primitive::Box { origin: DVec3::new(1590.0, 0.0, 0.0), size: DVec3::new(20.0, 300.0, 100.0) });
     h.apply(Operation::Boolean { target, tool: EntityPath::root(other), op: Boolean::Union, scope: Scope::All }).unwrap();
     let p = h.document().part(part).unwrap();
@@ -757,7 +757,7 @@ fn a_machining_swallowing_the_part_leaves_it_empty() {
     let mut h = History::new(doc);
 
     // Moving the hole computes the part from the blank: the huge tool leaves nothing, no
-    // failure (§2.11 « Empty parts »).
+    // failure (docs/model/bodies.md#empty-parts).
     h.apply(Operation::TransformBodies {
         target: target.clone(),
         bodies: vec![hole],
@@ -1699,7 +1699,7 @@ fn placements_are_counted_over_the_distinct_assemblies() {
     assert!(slow.values().any(|n| *n >= 6), "{slow:?}");
 }
 
-// ---- Blank profiles (ARCHITECTURE.md §6 nonies, step 3) --------------------------------------
+// ---- Blank profiles (docs/tools/prism.md, step 3) --------------------------------------
 
 fn profile_of(doc: &Document, path: &EntityPath) -> Option<BodyProfile> {
     let p = doc.resolve_part(path).unwrap().1;
@@ -1824,7 +1824,7 @@ fn a_profile_is_kept_set_and_stretched() {
     assert!(h.apply(Operation::SetProfile { target: common, body: only, profile: any, scope: Scope::All }).is_err());
 }
 
-// ---- copy and paste (§6 decies) ---------------------------------------------------------
+// ---- copy and paste (docs/tools/copy-paste.md) ---------------------------------------------------------
 
 /// A paste needing no kernel, applied.
 fn paste(h: &mut History, context: Id, fragment: &Arc<Document>, transform: DAffine3, reuse: bool) -> Outcome {
@@ -2105,7 +2105,7 @@ fn the_history_tells_which_states_it_holds() {
     assert!(!h.holds(copied));
 }
 
-// ---- the history's memory (ARCHITECTURE.md §5 « Memory cap ») ------------------------------
+// ---- the history's memory (docs/model/undo.md#memory-cap) ------------------------------
 
 fn record_bytes(s: &Arc<kernel::Solid>) -> u64 {
     s.approx_bytes()
@@ -2160,7 +2160,7 @@ fn forgetting_drops_the_farthest_state_and_keeps_one_step_to_undo() {
     assert_eq!(h.document().components().count(), 2);
 }
 
-// ---- bodies: positive and negative solids (ARCHITECTURE.md §2.11) ---------------------------
+// ---- bodies: positive and negative solids (docs/model/bodies.md) ---------------------------
 
 /// The bounds of the part `target` places, in its own axes.
 fn part_bounds(doc: &Document, target: &EntityPath) -> (DVec3, DVec3) {
@@ -2193,7 +2193,7 @@ fn a_positive_body_joins_the_part_and_every_negative_cuts_it() {
     assert_eq!(p.body(tenon).unwrap().sign, Sign::Positive);
     assert!(p.profile_of(p.body(tenon).unwrap()).is_some(), "drawn, it keeps its profile");
     assert_eq!(p.pieces(), 1);
-    // The part's size is its final shape's (§2.11): the tenon counts.
+    // The part's size is its final shape's (docs/model/bodies.md): the tenon counts.
     let (lo, hi) = part_bounds(h.document(), &target);
     assert!((hi.x - lo.x - 230.0).abs() < 1e-6, "{lo} {hi}");
 
@@ -2210,7 +2210,7 @@ fn a_positive_body_joins_the_part_and_every_negative_cuts_it() {
     assert!(h.document().part(part).unwrap().failed.is_empty());
 
     // Deleting the blank keeps the tenon; deleting the last positive leaves the part empty
-    // (§2.11 « Empty parts »): no piece, its machinings kept.
+    // (docs/model/bodies.md#empty-parts): no piece, its machinings kept.
     let blank = h.document().part(part).unwrap().positives().next().unwrap().id;
     h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![blank], scope: Scope::All }).unwrap();
     h.apply(Operation::DeleteBodies { target: target.clone(), bodies: vec![tenon], scope: Scope::All }).unwrap();
@@ -2241,7 +2241,7 @@ fn a_body_s_sign_is_toggled() {
     assert_eq!(p.bodies.iter().map(|b| b.id).collect::<Vec<_>>(), vec![blank, hole]);
     assert_eq!(faces(h.document(), part), full);
     // A sign already held changes nothing; the last blank made a machining leaves the part
-    // empty (§2.11 « Empty parts »), saved and read back as it is; made a blank again, the part
+    // empty (docs/model/bodies.md#empty-parts), saved and read back as it is; made a blank again, the part
     // as it was.
     h.apply(set(vec![hole], Sign::Negative)).unwrap();
     h.apply(set(vec![blank, hole], Sign::Negative)).unwrap();
@@ -2855,7 +2855,7 @@ fn bodies_are_copied_along_placements_sharing_their_definition() {
 }
 
 impl Part {
-    /// The first positive body's solid: a part's blank before §2.11.
+    /// The first positive body's solid: a part's blank before docs/model/bodies.md.
     fn blank(&self) -> Arc<kernel::Solid> {
         self.solid_of(self.positives().next().unwrap()).clone()
     }
@@ -2876,7 +2876,7 @@ impl Outcome {
     }
 }
 
-// ---- plane welding (§2.11) -------------------------------------------------------------------
+// ---- plane welding (docs/model/bodies.md) -------------------------------------------------------------------
 
 /// A board 600 × 300 × 18 at the origin, as a part; its occurrence.
 fn weld_board(h: &mut History) -> Id {
@@ -3017,7 +3017,7 @@ fn an_amended_step_undoes_as_one() {
     assert!(!h.amend(Document::new()), "not with steps undone");
 }
 
-// ---- editing inside groups (§2.11 « Body groups ») -----------------------------------------------
+// ---- editing inside groups (docs/model/bodies.md#body-groups) -----------------------------------------------
 
 #[test]
 fn bodies_are_edited_inside_a_group_for_every_copy() {
@@ -3069,7 +3069,7 @@ fn bodies_are_edited_inside_a_group_for_every_copy() {
     let both = 200.0 * 50.0 * 18.0 + 2.0 * (30.0 * 30.0 * 20.0 - hole(14.0));
     assert!((volume(h.document(), part) - both).abs() < 1e-3, "{}", volume(h.document(), part));
     // Its last positive deleted: the group is empty, and failed in the part — every copy of it
-    // —, the board alone left (§2.11 « Empty parts »).
+    // —, the board alone left (docs/model/bodies.md#empty-parts).
     let (_, g, _) = h.document().resolve_container(&inside).unwrap();
     let block = g.positives().next().unwrap().id;
     h.apply(Operation::DeleteBodies { target: inside.clone(), bodies: vec![block], scope: Scope::All }).unwrap();

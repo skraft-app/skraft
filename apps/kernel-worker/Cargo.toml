@@ -1,6 +1,6 @@
 [package]
 name = "skraft-kernel-worker"
-description = "Skraft: the kernel in a web worker — runs the jobs the web UI posts (ARCHITECTURE.md §7 ter)"
+description = "Skraft: the kernel in a web worker — runs the jobs the web UI posts (docs/model/kernel.md)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

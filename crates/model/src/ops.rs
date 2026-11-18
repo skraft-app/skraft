@@ -1,16 +1,16 @@
-//! Operations: every change to a document (docs/ARCHITECTURE.md §1).
+//! Operations: every change to a document (docs/README.md).
 //!
 //! An operation is plain, serialisable data. Applying it never changes the document it is
 //! called on: it gives a new one that shares everything the operation left alone.
 //!
-//! The kernel runs elsewhere (docs/ARCHITECTURE.md §7 ter), so an operation applies in two
+//! The kernel runs elsewhere (docs/model/kernel.md), so an operation applies in two
 //! steps: [`Document::prepare`] validates it and gathers the kernel calls it needs into a
 //! [`Job`] — or, needing none, is already done; [`Document::commit`] applies it with the job's
 //! outputs. Both run the same code (`apply_in_place`) over a [`Solver`]: one records the calls,
 //! the other hands out their results in order.
 //!
 //! Moving, copying, arraying and grouping never need the kernel: they only change occurrences
-//! (§2.2, §2.5). Building a part and cutting it do.
+//! (docs/model/data-model.md, docs/model/data-model.md). Building a part and cutting it do.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,7 +31,7 @@ use crate::settings::Settings;
 use crate::stretch::BodyStretch;
 use crate::{Error, FastMap, FastSet, Refusal, Result};
 
-/// What a change to a part touches (ARCHITECTURE.md §2.5).
+/// What a change to a part touches (docs/model/data-model.md).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Scope {
     /// The part itself: every occurrence of it shows the change.
@@ -65,14 +65,14 @@ fn identity() -> DAffine3 {
 }
 
 /// Every change to a document. `context` is always the id of the assembly being edited, and
-/// `entities` occurrences of it — or its guides (§6 quinquies), which removing, moving,
+/// `entities` occurrences of it — or its guides (docs/tools/tape-measure.md), which removing, moving,
 /// copying and grouping take too, as the operations on bodies take the part's.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Operation {
     /// A new part built from a primitive, and its first occurrence in `context`: its positive
     /// body in the part's own axes, the occurrence placed by the rigid `placement` (a box drawn on a
-    /// wall, §6 ter; identity for an axis-aligned one) and where the primitive stood. The
-    /// occurrence painted with `material` (« Pipette », §6 duodevicies).
+    /// wall, docs/tools/inferences.md; identity for an axis-aligned one) and where the primitive stood. The
+    /// occurrence painted with `material` (« Pipette », docs/tools/draw-options.md).
     AddPrimitive {
         context: Id,
         primitive: Primitive,
@@ -82,7 +82,7 @@ pub enum Operation {
         material: Option<Id>,
     },
     /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
-    /// Rigid only: a scale changes a part, not its place (§2.2).
+    /// Rigid only: a scale changes a part, not its place (docs/model/data-model.md).
     Transform { context: Id, entities: Vec<Id>, transform: DAffine3 },
     /// Copies occurrences of `context`, moved by `transform`: more copies of the same parts.
     Duplicate { context: Id, entities: Vec<Id>, transform: DAffine3 },
@@ -92,7 +92,7 @@ pub enum Operation {
     /// Copies of occurrences of `context` (or its guides), one set per placement: each copy at
     /// `placement · T`, `T` the source's as it was; the sources themselves moved by `moved`
     /// (identity but for Distribute, which moves them to the first slot). Copy along a line or
-    /// a grid, Distribute (ARCHITECTURE.md §6 duodecies). Rigid placements only.
+    /// a grid, Distribute (docs/tools/copy-array.md). Rigid placements only.
     Copies {
         context: Id,
         entities: Vec<Id>,
@@ -106,12 +106,12 @@ pub enum Operation {
     RenameOccurrence { context: Id, occurrence: Id, name: String },
     /// Names a part or an assembly; a named component is kept while unused.
     RenameComponent { component: Id, name: String },
-    /// Names the body definition `def` of the part `part` (§2.11 « Body names »): every body
+    /// Names the body definition `def` of the part `part` (docs/model/bodies.md#body-names): every body
     /// of it, copies included, shows the name; empty to clear (named automatically again,
     /// by its nature: « Extrusion#2 »). Names given need not be unique. No scope: the shape is left alone.
     RenameBodyDef { part: Id, def: Id, name: String },
     /// Names the body `body` of the part `part` (its own, or a group's) by itself, as an
-    /// occurrence (« Haut <Trou#1> », §2.11 « Body names »); trimmed, empty to clear.
+    /// occurrence (« Haut <Trou#1> », docs/model/bodies.md#body-names); trimmed, empty to clear.
     RenameBody { part: Id, body: Id, name: String },
     /// Moves occurrences of `context` into a new assembly, placed by one new occurrence.
     MakeAssembly { context: Id, entities: Vec<Id>, name: Option<String> },
@@ -123,9 +123,9 @@ pub enum Operation {
     /// Places one more occurrence of a component in `context`.
     PlaceOccurrence { context: Id, component: Id, transform: DAffine3 },
     /// `target op tool`, on the target's part, the tool brought into its axes
-    /// (ARCHITECTURE.md §4): on every occurrence of the part, or only the one picked
-    /// (`scope`, §2.5). A difference adds the tool's shape as a negative body; a union gives
-    /// the target all the tool's bodies (§2.11); an intersection makes a new part of one
+    /// (docs/model/kernel.md): on every occurrence of the part, or only the one picked
+    /// (`scope`, docs/model/data-model.md). A difference adds the tool's shape as a negative body; a union gives
+    /// the target all the tool's bodies (docs/model/bodies.md); an intersection makes a new part of one
     /// positive body. The tool's occurrence leaves the model.
     Boolean {
         target: EntityPath,
@@ -135,7 +135,7 @@ pub enum Operation {
         scope: Scope,
     },
     /// A primitive added to the part `target` places, as a new body of `sign` (drawn in an
-    /// open part, ARCHITECTURE.md §2.9, §2.11 — a negative one is a machining): built in its
+    /// open part, docs/model/opening-a-part.md, docs/model/bodies.md — a negative one is a machining): built in its
     /// own axes, placed by the rigid `placement` in the part's, as [`Operation::AddPrimitive`]
     /// places a part in its context.
     AddBody {
@@ -156,14 +156,14 @@ pub enum Operation {
         scope: Scope,
     },
     /// Gives each of the bodies of the part `target` places that shares its definition a copy of
-    /// its own (§2.11): a change to its shape no longer shows in the others.
+    /// its own (docs/model/bodies.md): a change to its shape no longer shows in the others.
     MakeBodiesUnique {
         target: EntityPath,
         bodies: Vec<Id>,
         #[serde(default)]
         scope: Scope,
     },
-    /// Groups bodies of the part `target` places (§2.11 « Body groups »): one body of a new
+    /// Groups bodies of the part `target` places (docs/model/bodies.md#body-groups): one body of a new
     /// group definition takes their place, the group's axes the part's. Their negatives then
     /// cut their positives only. Negatives alone make a negative group of positive children
     /// (a compound machining); otherwise the group is positive, the signs kept.
@@ -233,7 +233,7 @@ pub enum Operation {
     },
     /// Stretches what the occurrences `occurrences` of the assembly `context` leads into place
     /// — parts or assemblies — along `axis`, in the axes `frame` places in the context's (its
-    /// own, the context's or the model's, ARCHITECTURE.md §6 sexies): the cutters at `cuts`
+    /// own, the context's or the model's, docs/tools/stretch.md): the cutters at `cuts`
     /// (increasing positions along the axis, as `axis · p`) split them into sections, section
     /// `i` moved by `moves[i]` along the axis. What lies in one section is moved; a part across
     /// a cutter has each body in one section moved with it, each one across a cutter stretched
@@ -256,7 +256,7 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cutters: Option<Box<[Vec<f64>; 3]>>,
     },
-    /// Stretches bodies of the part `target` places, each in its own axes (§2.11, §6 sexies),
+    /// Stretches bodies of the part `target` places, each in its own axes (docs/model/bodies.md, docs/tools/stretch.md),
     /// and its guides among `bodies`: along `axis`, in the axes `frame` places in the part's,
     /// the cutters at `cuts` splitting them into sections moved by `moves` (as
     /// [`Operation::Stretch`]). A body in one section is moved, one across a cutter stretched
@@ -271,7 +271,7 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
-    /// Gives the body `body` of the part `target` places a new profile (§6 nonies, §2.11), in
+    /// Gives the body `body` of the part `target` places a new profile (docs/tools/prism.md, docs/model/bodies.md), in
     /// the body's axes: its solid is built again from it, then the part; under the scope,
     /// "only this one" making it a separate part. The body must have a profile already.
     SetProfile {
@@ -281,13 +281,13 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
-    /// Sets how `component` is stretched: its locked axes and its cutters (ARCHITECTURE.md
-    /// §6 sexies). Every occurrence shows it; no scope. Changes in a row to one component undo
+    /// Sets how `component` is stretched: its locked axes and its cutters (docs/tools/stretch.md
+    /// ). Every occurrence shows it; no scope. Changes in a row to one component undo
     /// in one go.
     SetBehavior { component: Id, behavior: Behavior },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
-    /// A new material (§7 quater).
+    /// A new material (docs/render/look.md).
     AddMaterial { name: String, color: [u8; 3] },
     /// Renames or recolours a material.
     EditMaterial { material: Id, name: String, color: [u8; 3] },
@@ -295,7 +295,7 @@ pub enum Operation {
     DeleteMaterial { material: Id },
     /// Paints occurrences of `context` (`None`: their material is removed).
     PaintOccurrences { context: Id, entities: Vec<Id>, material: Option<Id> },
-    /// Hides occurrences of `context`, or shows them again (ARCHITECTURE.md §6). An assembly's occurrence
+    /// Hides occurrences of `context`, or shows them again (docs/tools/interaction.md). An assembly's occurrence
     /// is hidden in every occurrence of the assembly.
     SetHidden { context: Id, entities: Vec<Id>, hidden: bool },
     /// Shows every occurrence hidden, in every assembly.
@@ -304,18 +304,18 @@ pub enum Operation {
     /// part shows it; `None`: they take the occurrence's material again).
     PaintFaces { part: Id, faces: Vec<u32>, material: Option<Id> },
     /// A construction guide added to `component` (a part or an assembly), in its axes
-    /// (ARCHITECTURE.md §6 quinquies). Every occurrence shows it; no scope.
+    /// (docs/tools/tape-measure.md). Every occurrence shows it; no scope.
     AddGuide { component: Id, shape: GuideShape },
     /// Places the content of another document in `context` (an imported file,
-    /// ARCHITECTURE.md §8 ter): its components and materials copied, ids drawn afresh. What
+    /// docs/io/step-import.md): its components and materials copied, ids drawn afresh. What
     /// its root holds comes as one occurrence placed by the rigid `transform`: the root's
     /// single occurrence itself, else a new assembly named as the root.
     Insert { context: Id, fragment: Arc<Document>, transform: DAffine3 },
-    /// Places what was copied ([`Document::entities_fragment`], §6 decies) in `context`, moved
+    /// Places what was copied ([`Document::entities_fragment`], docs/tools/copy-paste.md) in `context`, moved
     /// by the rigid `transform` from the fragment's world axes into the context's: its
     /// occurrences each on their own, its guides in the context. With `reuse` (pasting into
     /// the document it was copied from, whose ids still name the same things), the components
-    /// still here are used as they are — the copies are occurrences of the same parts (§2.5);
+    /// still here are used as they are — the copies are occurrences of the same parts (docs/model/data-model.md);
     /// the others are grafted as from another document ([`Operation::Insert`]).
     Paste { context: Id, fragment: Arc<Document>, transform: DAffine3, reuse: bool },
     /// Adds to the part `target` places the bodies and guides copied from an open part
@@ -332,7 +332,7 @@ pub enum Operation {
     /// Adds to the part `target` places the parts copied ([`Document::entities_fragment`], in
     /// world axes) as bodies ([`Document::parts_as_bodies`]): one positive body per part, a
     /// group of its bodies unless it is its single body, moved by the rigid `transform` from
-    /// world axes into the part's (§6 decies, across the part's boundary).
+    /// world axes into the part's (docs/tools/copy-paste.md, across the part's boundary).
     PasteParts {
         target: EntityPath,
         fragment: Arc<Document>,
@@ -346,14 +346,14 @@ pub enum Operation {
     /// no body is positive: then they all are.
     PasteAsPart { context: Id, fragment: Arc<BodyFragment>, transform: DAffine3 },
     /// `op` on the assembly the occurrences `parent` lead to from the root: its `context` is
-    /// that assembly's definition as it is when applied (ARCHITECTURE.md §6 septendecies, parts
+    /// that assembly's definition as it is when applied (docs/tools/selection.md, parts
     /// picked at any depth). With `unique`, each assembly along `parent` placed more than once
     /// first gets a definition of its own (outermost first), as « make unique » does: only the
     /// copy reached by `parent` changes. Takes the operations on occurrences of a context
     /// ([`Operation::Transform`], [`Operation::Duplicate`], [`Operation::Array`],
     /// [`Operation::Copies`], [`Operation::Delete`], [`Operation::SetHidden`],
     /// [`Operation::PaintOccurrences`]), and the one making a part there
-    /// ([`Operation::AddPrimitive`], « Dessiner dans », §6 duodevicies).
+    /// ([`Operation::AddPrimitive`], « Dessiner dans », docs/tools/draw-options.md).
     At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
     /// Several operations in one step, applied in order: their outcomes put together.
     Batch(Vec<Operation>),
@@ -432,7 +432,7 @@ impl Operation {
         }
     }
 
-    /// The part (or group of bodies, §2.11 « Body groups ») an operation on bodies changes,
+    /// The part (or group of bodies, docs/model/bodies.md#body-groups) an operation on bodies changes,
     /// and what it reaches; none for the other operations.
     fn body_target_mut(&mut self) -> Option<(&mut EntityPath, Scope)> {
         match self {
@@ -481,16 +481,16 @@ pub struct Outcome {
     pub material: Option<Id>,
     /// The guide created, in the operation's component.
     pub guide: Option<Id>,
-    /// The parts a stretch changed, and how (§6 sexies).
+    /// The parts a stretch changed, and how (docs/tools/stretch.md).
     pub stretched: Vec<crate::StretchedPart>,
     /// Done, but the user should know something about it (the status bar says it).
     pub warning: Option<Warning>,
-    /// The faces put onto others after it (§2.11's welding), for the journal.
+    /// The faces put onto others after it (docs/model/bodies.md's welding), for the journal.
     pub welds: Vec<crate::Weld>,
 }
 
 /// What an operation done has to say. None for now: a union's tool, and a part pasted into a
-/// part, now come as groups (§2.11 « Body groups »), with nothing lost to tell.
+/// part, now come as groups (docs/model/bodies.md#body-groups), with nothing lost to tell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Warning {}
 
@@ -739,7 +739,7 @@ impl Document {
                 if bodies.iter().all(|b| b.sign == Sign::Negative) {
                     bodies.iter_mut().for_each(|b| b.sign = Sign::Positive);
                 }
-                // A single body named: the new part takes its name (§2.11 « Body names »).
+                // A single body named: the new part takes its name (docs/model/bodies.md#body-names).
                 let base = match &bodies[..] {
                     [b] => defs.iter().find(|d| d.id == b.def).filter(|d| d.named).map(|d| d.name.clone()),
                     _ => None,
@@ -784,7 +784,7 @@ impl Document {
                 }
                 let (local, at) = primitive.at_origin();
                 let solid = solver.primitive(&local)?;
-                // The shapes drawn keep their profile (§6 nonies, step 3).
+                // The shapes drawn keep their profile (docs/tools/prism.md, step 3).
                 let def = BodyDef { profile: crate::BodyProfile::of(&local), ..BodyDef::new(self.fresh_id(), solid) };
                 let body = Body::new(self.fresh_id(), def.id, Sign::Positive, DAffine3::IDENTITY);
                 let part = Part::of_body(def, body);
@@ -1050,7 +1050,7 @@ impl Document {
                 let solid = solver.primitive(&local)?;
                 let id = self.fresh_id();
                 let placement = *placement * DAffine3::from_translation(at);
-                // Drawn, it keeps its profile (§6 nonies).
+                // Drawn, it keeps its profile (docs/tools/prism.md).
                 let def = BodyDef { profile: crate::BodyProfile::of(&local), ..BodyDef::new(self.fresh_id(), solid) };
                 let p = self.part_mut(part)?;
                 p.bodies.push(Body::new(id, def.id, *sign, placement));
@@ -1059,7 +1059,7 @@ impl Document {
                 Ok(Outcome { bodies: vec![id], ..Outcome::default() })
             }
             Operation::DeleteBodies { target, bodies, scope } => {
-                // The last positive ones too: the part is then empty, an error shown (§2.11
+                // The last positive ones too: the part is then empty, an error shown (docs/model/bodies.md
                 // « Empty parts »).
                 let (part, guides, bodies) = &self.bodies_of(target, bodies, *scope)?;
                 self.component_mut(*part)?.guides.retain(|g| !guides.contains(&g.id));
@@ -1107,7 +1107,7 @@ impl Document {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
                 let p = self.part(part)?;
                 let flipped: Vec<Id> = p.bodies.iter().filter(|b| bodies.contains(&b.id) && b.sign != *sign).map(|b| b.id).collect();
-                // The last positive ones too: the part is then empty (§2.11 « Empty parts »).
+                // The last positive ones too: the part is then empty (docs/model/bodies.md#empty-parts).
                 if flipped.is_empty() {
                     return Ok(Outcome::default());
                 }
@@ -1248,8 +1248,8 @@ impl Document {
         }
     }
 
-    /// Stretches `part` (§6 sexies): each body moved when in one section, stretched in its own
-    /// axes across a cutter (its profile kept when it stays one, §6 nonies), and its guides;
+    /// Stretches `part` (docs/tools/stretch.md): each body moved when in one section, stretched in its own
+    /// axes across a cutter (its profile kept when it stays one, docs/tools/prism.md), and its guides;
     /// then computes it again.
     fn stretch_part(&mut self, part: Id, stretch: &Stretch, solver: &mut dyn Solver) -> Result<()> {
         self.stretch_bodies(part, None, stretch, solver)?;
@@ -1258,9 +1258,9 @@ impl Document {
     }
 
     /// Stretches the bodies `ids` of `part` (all of them: `None`) by `stretch`, in the part's
-    /// axes (§2.11, after §6 sexies' components): a body lying in one section is moved; one
+    /// axes (docs/model/bodies.md, after docs/tools/stretch.md' components): a body lying in one section is moved; one
     /// across a cutter changes its definition, the stretch taken in its own axes (its profile
-    /// kept when it stays one, §6 nonies). Bodies of one definition stretched alike keep one;
+    /// kept when it stays one, docs/tools/prism.md). Bodies of one definition stretched alike keep one;
     /// the change most of them take is made to it in place — the bodies not reached show it
     /// too —, the others go to copies; all of them do when a body reached keeps the shape (only
     /// moved). The part is not computed again.
@@ -1299,7 +1299,7 @@ impl Document {
 
     /// The definition `def` (of the definitions `defs`) stretched by `local`, in its axes, under
     /// its id; and the definitions it now needs that `defs` lacks. A leaf has its solid
-    /// stretched (its profile kept when it stays one, §6 nonies); a group has its children
+    /// stretched (its profile kept when it stays one, docs/tools/prism.md); a group has its children
     /// stretched in turn — each in one section moved, each across a cutter given a definition
     /// of its own, stretched in its axes — then is computed again.
     fn stretched_def(
@@ -1311,7 +1311,7 @@ impl Document {
     ) -> Result<(BodyDef, Vec<BodyDef>)> {
         let Some(g) = &def.group else {
             let profile = def.profile.as_ref().and_then(|f| f.stretched(local));
-            // A turned body: along its axis only, rebuilt from its half profile (§6 undecies).
+            // A turned body: along its axis only, rebuilt from its half profile (docs/tools/turned-bodies.md).
             let solid = match (&def.profile, &profile) {
                 (Some(f), None) if f.is_turned() => return Err(Error::Invalid(Refusal::TurnedAcross)),
                 (_, Some(f)) if f.is_turned() => solver.primitive(&f.primitive())?,
@@ -1346,8 +1346,7 @@ impl Document {
 
     /// The part `target` places, `ids` (at least one) split into its guides and its bodies,
     /// every one in it; made its own first under the scope "only this one" when bodies change
-    /// (they and the guides keep their ids, §2.6) — guides alone ignore the scope (§6
-    /// quinquies).
+    /// (they and the guides keep their ids, docs/model/data-model.md) — guides alone ignore the scope (docs/tools/tape-measure.md).
     fn bodies_of(&mut self, target: &EntityPath, ids: &[Id], scope: Scope) -> Result<(Id, Vec<Id>, Vec<Id>)> {
         if ids.is_empty() {
             return Err(Error::Invalid(Refusal::NoBodies));
@@ -1592,13 +1591,13 @@ impl Document {
         Ok(created)
     }
 
-    /// Computes `part`'s shape again from its bodies (§2.4, §2.11): `(∪ positives) − (∪
+    /// Computes `part`'s shape again from its bodies (docs/model/data-model.md, docs/model/bodies.md): `(∪ positives) − (∪
     /// negatives)`. When `added` is given (bodies just added) and all of one sign, the part as
     /// it is is kept: added negatives cut it, added positives are cut by every negative then
     /// joined to it (`(A ∪ B) − N = (A − N) ∪ (B − N)`); else everything is computed again. A
     /// plain part (a single positive body, unplaced) is its body, a part without bodies empty:
     /// no kernel. Without material (no positive, a machining swallowing it) the shape is empty
-    /// (§2.11 « Empty parts »): the kernel says so.
+    /// (docs/model/bodies.md#empty-parts): the kernel says so.
     pub(crate) fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
         let p = self.part(part)?;
         if p.is_plain() || p.bodies.is_empty() {
@@ -1651,7 +1650,7 @@ impl Document {
         let p = p.clone();
         let (tool_part, q, t_tool) = self.resolve_part(tool)?;
         let q = q.clone();
-        // A tool the user named names the body it becomes (§2.11 « Body names »).
+        // A tool the user named names the body it becomes (docs/model/bodies.md#body-names).
         let named = self.component(tool_part).ok().filter(|c| c.named).map(|c| c.name.clone());
         let tool_ctx = self.context_of(&tool.instances)?;
         // Its occurrence's name, the body's own.
@@ -1662,7 +1661,7 @@ impl Document {
             // The tool's shape, a negative body of the target, cut from it as it is. A tool
             // that is its single positive body (a shape drawn) is taken whole, its profile
             // with it: still editable; any other comes as a negative group of copies of its
-            // bodies, its shape the group's (§2.11 « Body groups »).
+            // bodies, its shape the group's (docs/model/bodies.md#body-groups).
             Boolean::Difference => {
                 let moved = if is_identity(&relative) { None } else { Some(relative) };
                 let result = solver.boolean(p.shape(), q.shape(), moved, op.into())?;
@@ -1678,7 +1677,7 @@ impl Document {
                 *self.part_mut(part)? = next;
             }
             // The tool joins the target as a positive body: its single body, or a group of
-            // copies of its bodies, its machinings cutting that group only (§2.11 « Body
+            // copies of its bodies, its machinings cutting that group only (docs/model/bodies.md « Body
             // groups »). Added as it is: cut by the target's machinings, joined to its shape.
             Boolean::Union => {
                 let (defs, mut body) = self.tool_as_body(&q, &relative, named);
@@ -1703,7 +1702,7 @@ impl Document {
     }
 
     /// `op`, an operation on the bodies of the part `path` places (no group in it), applied
-    /// inside its group of bodies `group` (§2.11 « Body groups »): the group's definition is
+    /// inside its group of bodies `group` (docs/model/bodies.md#body-groups): the group's definition is
     /// put in the part's place as a part of its own — its children the bodies, its result the
     /// shape —, `op` applied to it as to any part (in the group's axes), then the definition
     /// takes the result: every copy of the group shows it. The groups above it, then the part,
@@ -1806,10 +1805,10 @@ impl Document {
         (defs, body)
     }
 
-    /// Makes what `path` names its own (§2.5, scope "only this one"): top down, every
+    /// Makes what `path` names its own (docs/model/data-model.md, scope "only this one"): top down, every
     /// component on the way shown by other occurrences too gets a copy of its own, the
     /// occurrence repointed to it. The copies keep their occurrences' ids (unique within an
-    /// assembly, §2.6): `path` stays valid, and names the same thing.
+    /// assembly, docs/model/data-model.md): `path` stays valid, and names the same thing.
     pub(crate) fn separate(&mut self, path: &EntityPath) -> Result<()> {
         let mut at = self.root;
         for &i in path.instances.iter().chain(std::iter::once(&path.entity)) {
@@ -1889,7 +1888,7 @@ fn check_copies(moved: &DAffine3, placements: &[DAffine3]) -> Result<()> {
     Ok(())
 }
 
-/// A move, a rotation and maybe a mirror: unit, square axes (§2.2).
+/// A move, a rotation and maybe a mirror: unit, square axes (docs/model/data-model.md).
 pub(crate) fn is_rigid(t: &DAffine3) -> bool {
     let m = t.matrix3;
     let unit = |v: DVec3| (v.length_squared() - 1.0).abs() < 1e-9;

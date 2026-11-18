@@ -1,11 +1,11 @@
-//! Planar profiles: the outline of a [`crate::Primitive::Prism`] (docs/ARCHITECTURE.md
-//! §6 nonies) or the half profile of a [`crate::Primitive::Revolution`] (§6 undecies), a closed loop of lines and arcs in its XY plane. Each [`Corner`] carries the
+//! Planar profiles: the outline of a [`crate::Primitive::Prism`] (docs/tools/prism.md
+//! ) or the half profile of a [`crate::Primitive::Revolution`] (docs/tools/turned-bodies.md), a closed loop of lines and arcs in its XY plane. Each [`Corner`] carries the
 //! bulge of the side leaving it, as DXF's LWPOLYLINE: the sides' ends are shared, so the
 //! outline cannot open. Here: the sides, the area, the clean-up, the checks the drawing tool
 //! makes before the kernel does, the box, the offset, the fillets, and points along it for
 //! the previews.
 //!
-//! A corner may also carry a fillet radius (§6 nonies, « The shape kept while editing »): the
+//! A corner may also carry a fillet radius (docs/tools/prism.md#the-shape-kept-while-editing): the
 //! outline keeps the sharp corner and [`rounded`] computes the arcs wherever its shape is
 //! needed, so a fillet follows every edit and stays tangent. The functions here work on the
 //! outline they are given, fillets left alone; call [`rounded`] first for the shape.
@@ -394,7 +394,7 @@ pub fn is_simple(p: &[Corner]) -> bool {
     true
 }
 
-/// Can the half profile `p` be turned about its Y axis (a revolution's, §6 undecies): a simple
+/// Can the half profile `p` be turned about its Y axis (a revolution's, docs/tools/turned-bodies.md): a simple
 /// outline, its fillets made arcs, all on the side of positive X (touching the axis or not)?
 pub fn is_turnable(p: &[Corner]) -> bool {
     let r = rounded(p);
@@ -561,7 +561,7 @@ fn lines_meet(a: DVec2, u: DVec2, b: DVec2, v: DVec2) -> Option<DVec2> {
 }
 
 /// The outline `p` with some of its straight sides translated, each keeping its direction
-/// (§6 nonies, « The shape kept while editing »): `shifts`, the sides (by the index of the
+/// (docs/tools/prism.md#the-shape-kept-while-editing): `shifts`, the sides (by the index of the
 /// corner they leave) and their moves. A corner between a moved side and a straight side left in
 /// place slides along the latter; between two moved sides, it is where they meet; next to an
 /// arc, it moves with its straight side (the arc's end follows). Fillets and bulges are kept.
@@ -632,7 +632,7 @@ fn angle_to(u: DVec2, v: DVec2) -> f64 {
 }
 
 /// `moved` — `base` with some corners moved, the same corners in the same order — with its arcs
-/// fitted again as they lay in `base` (§6 nonies, « The shape kept while editing »), read
+/// fitted again as they lay in `base` (docs/tools/prism.md#the-shape-kept-while-editing), read
 /// there, no solver:
 /// - a half circle tangent to two parallel straight sides (a rounded end, a slot's end) stays
 ///   tangent to both: the end that did not move slides along its side to face the other, the
@@ -825,7 +825,7 @@ pub fn rounded(p: &[Corner]) -> Vec<Corner> {
 }
 
 /// `p` with each arc tangent to two straight sides that are not parallel — a fillet, however it
-/// was drawn — made the radius of the sharp corner where those sides meet (§6 nonies: a fillet
+/// was drawn — made the radius of the sharp corner where those sides meet (docs/tools/prism.md: a fillet
 /// is a radius). [`rounded`] gives the same outline back.
 pub fn recognized(p: &[Corner]) -> Vec<Corner> {
     let mut out = cleaned(p);

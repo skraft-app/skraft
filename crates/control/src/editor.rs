@@ -1,4 +1,4 @@
-//! The methods an [`Editor`] answers alone (docs/ARCHITECTURE.md §7 septies): the model and
+//! The methods an [`Editor`] answers alone (docs/control-protocol.md): the model and
 //! the active tool. The window answers them through here, and so will a headless session.
 
 use std::collections::HashMap;

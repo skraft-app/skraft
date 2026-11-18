@@ -1,4 +1,4 @@
-//! What this app is, for whoever has several running (docs/ARCHITECTURE.md §7 septies): its
+//! What this app is, for whoever has several running (docs/control-protocol.md): its
 //! build — the git worktree, branch and commit the build script found, dev builds only — and,
 //! on the desktop, its file in the registry of running apps
 //! (`skraft_control::instances`), which a client of the control channel reads to find the

@@ -1,17 +1,17 @@
-//! The display scene (ARCHITECTURE.md §7 bis): the document flattened for drawing and picking.
+//! The display scene (docs/render/display.md): the document flattened for drawing and picking.
 //!
 //! - Level 1: one display mesh per solid, cached by the solid's `Arc` (an unchanged solid is
 //!   never tessellated again, across undo and redo too: a mesh is kept while anything — the
 //!   undo history — holds its solid). Meshes come from the kernel's service
-//!   (docs/ARCHITECTURE.md §7 ter): with an operation's result, or asked for by the editor for
+//!   (docs/model/kernel.md): with an operation's result, or asked for by the editor for
 //!   solids that have none ([`DisplayScene::take_missing`]); until then a solid is drawn as the
 //!   outline of its bounding box.
-//! - Level 2: per part (docs/ARCHITECTURE.md §2), its shape's mesh and a revision that changes
+//! - Level 2: per part (docs/model/data-model.md), its shape's mesh and a revision that changes
 //!   when the shape (or its mesh) does: the renderer re-uploads the part's mesh only then.
 //!   Assemblies have no geometry of their own.
 //! - Placements: every occurrence of every part in the scene, with its occurrence path and
 //!   world transform; a part is drawn once, instanced at all of them.
-//! - The recipe of one open part (ARCHITECTURE.md §2.9, §2.11), when its machinings are shown:
+//! - The recipe of one open part (docs/model/opening-a-part.md, docs/model/bodies.md), when its machinings are shown:
 //!   its positive bodies (the blank) and its negative ones (the tools), meshed like shapes,
 //!   under keys of their own ([`RecipeMeshes`]); one mesh per distinct solid, a copied body
 //!   sharing its original's. Drawn by the
@@ -35,7 +35,7 @@ pub struct PartMesh {
     /// The part.
     pub solid: Id,
     pub mesh: Arc<Mesh>,
-    /// What tools infer on (§6 ter), from the same tessellation.
+    /// What tools infer on (docs/tools/inferences.md), from the same tessellation.
     pub snaps: Arc<Snaps>,
     pub bounds: Option<(DVec3, DVec3)>,
 }
@@ -47,7 +47,7 @@ pub struct DefinitionMesh {
     /// Changes with the mesh and with the faces' materials.
     pub revision: u64,
     pub parts: Vec<PartMesh>,
-    /// The materials of single faces (by face index), over the occurrences' (§7 quater).
+    /// The materials of single faces (by face index), over the occurrences' (docs/render/look.md).
     pub faces: BTreeMap<u32, Id>,
 }
 
@@ -128,8 +128,8 @@ impl Cached {
 /// document's counter).
 const RECIPE_KEY: u64 = 1 << 63;
 const TOOL_KEY: u64 = 1 << 62;
-/// The key of the first mesh a tool previews in a part's stead (a part stretched, ARCHITECTURE.md
-/// §6 sexies); the others follow it ([`preview_key`]).
+/// The key of the first mesh a tool previews in a part's stead (a part stretched, docs/tools/stretch.md
+/// ); the others follow it ([`preview_key`]).
 pub const PREVIEW_KEY: Id = Id(1 << 61);
 
 /// The key of the `i`-th mesh a tool previews.
@@ -143,11 +143,11 @@ pub fn preview_key(i: usize) -> Id {
 pub enum Piece {
     #[default]
     Shape,
-    /// A positive body of the open part (§2.11).
+    /// A positive body of the open part (docs/model/bodies.md).
     Blank(Id),
     /// A negative body of the open part: a machining's tool.
     Tool(Id),
-    /// A guide (§6 quinquies); its owner's path names its component's occurrences then the
+    /// A guide (docs/tools/tape-measure.md); its owner's path names its component's occurrences then the
     /// guide's id.
     Guide(Id),
 }
@@ -172,7 +172,7 @@ pub struct RecipeTool {
 }
 
 /// The meshes of the recipe shown, in the axes of what is open — the part, or a group of its
-/// bodies (§2.11 « Body groups »): its positive bodies (`blanks`) and its negative ones
+/// bodies (docs/model/bodies.md#body-groups): its positive bodies (`blanks`) and its negative ones
 /// (`tools`, the machinings).
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecipeMeshes {
@@ -182,7 +182,7 @@ pub struct RecipeMeshes {
     pub blanks: Vec<RecipeTool>,
     pub tools: Vec<RecipeTool>,
     /// The machinings inside its positive groups, at any depth through positive groups
-    /// (§2.11 « Body groups »), placed in its axes; `body` the group of its own they lie in.
+    /// (docs/model/bodies.md#body-groups), placed in its axes; `body` the group of its own they lie in.
     /// Drawn as faint ghosts, never picked: the group is.
     pub nested: Vec<RecipeTool>,
 }
@@ -204,7 +204,7 @@ impl RecipeMeshes {
     }
 }
 
-/// A guide placed in the world (ARCHITECTURE.md §6 quinquies): drawn and inferred on.
+/// A guide placed in the world (docs/tools/tape-measure.md): drawn and inferred on.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SceneGuide {
     /// The occurrences from the root to its component (empty: the model's).
@@ -635,7 +635,7 @@ impl DisplayScene {
     }
 
     /// Roughly the bytes `solid` holds: its record, and the mesh and snaps kept for it here
-    /// (the undo history's weight, docs/ARCHITECTURE.md §5 « Memory cap »).
+    /// (the undo history's weight, docs/model/undo.md#memory-cap).
     pub fn solid_bytes(&self, solid: &Arc<Solid>) -> u64 {
         let kept = self.solids.get(&(Arc::as_ptr(solid) as usize));
         solid.approx_bytes() + kept.map_or(0, |c| c.part.mesh.approx_bytes() + c.part.snaps.approx_bytes())
@@ -794,7 +794,7 @@ impl DisplayScene {
     }
 
     /// Is `piece` drawn see-through, hiding nothing from inferences: anything in X-ray, else
-    /// an open part's body shown as a ghost (a blank, a machining that did not fail, §2.11)?
+    /// an open part's body shown as a ghost (a blank, a machining that did not fail, docs/model/bodies.md)?
     pub fn see_through(&self, piece: Piece) -> bool {
         match (piece, &self.recipe) {
             _ if self.xray => true,
@@ -1114,7 +1114,7 @@ fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64, clip: Option<(DVec3, DVec3
     best
 }
 
-/// `mesh` stretched (ARCHITECTURE.md §6 sexies), by a continuous map along the axis: where a
+/// `mesh` stretched (docs/tools/stretch.md), by a continuous map along the axis: where a
 /// section holds matter wholly (`spans`, as [`skraft_kernel::Stretch::section_spans`]
 /// gives them) the section's move, in between a linear blend. The B-rep's vertices all lie in
 /// that matter, so they go where the stretch puts them; the mesh's other points lie on what

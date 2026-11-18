@@ -1,4 +1,4 @@
-//! Stretching a part or an assembly (docs/ARCHITECTURE.md §6 sexies), after OpenCutList's
+//! Stretching a part or an assembly (docs/tools/stretch.md), after OpenCutList's
 //! split and apply workers (`common_stretch_split_worker.rb`, `common_stretch_apply_worker.rb`).
 //!
 //! The stretch is given in the axes of the component the target occurrence places. Walking
@@ -20,7 +20,7 @@
 //! first piece's move: wherever the cutters fall between the same pieces, and for a copy turned
 //! half round or mirrored, the same change. Two occurrences taking the same keep one component
 //! — the one that differs only by a move along the axis moved by it; otherwise each change is a
-//! component of its own (§2.5). Under
+//! component of its own (docs/model/data-model.md). Under
 //! "all occurrences" the change most occurrences take is made in place (the occurrences
 //! elsewhere show it), the others go to copies — all of them when the tree also reaches the
 //! component unchanged (an occurrence only moved, or below one: OCL's `make_unique_c`); under
@@ -112,7 +112,7 @@ struct Walk<'a> {
 impl Document {
     /// Is `component` locked along the axis of `s` (in its axes, [`StretchMask::locks_along`])?
     /// Then it is a block: never stretched, moved with the section holding its origin
-    /// (ARCHITECTURE.md §6 sexies).
+    /// (docs/tools/stretch.md).
     fn blocked(&self, component: Id, s: &Stretch) -> bool {
         self.component(component).is_ok_and(|c| c.behavior.no_stretch.locks_along(s.axis()))
     }
@@ -576,7 +576,7 @@ impl Document {
     }
 
     /// A copy of the component `c` as it is in `before` (ids of its occurrences, bodies and
-    /// guides kept, §2.6, and its behavior), under a name of its own.
+    /// guides kept, docs/model/data-model.md, and its behavior), under a name of its own.
     fn copy_from(&mut self, before: &Document, c: Id) -> Result<Id> {
         let src = before.component(c)?.clone();
         let copy = self.insert_component(&src.name, src.named, src.kind);
@@ -652,7 +652,7 @@ impl Walk<'_> {
     }
 }
 
-/// How a stretch splits the bodies of a part (§2.11, after the components' rules above): the
+/// How a stretch splits the bodies of a part (docs/model/bodies.md, after the components' rules above): the
 /// bodies only moved, and the changes of definitions.
 #[derive(Clone, Debug, Default)]
 pub struct BodyStretch {

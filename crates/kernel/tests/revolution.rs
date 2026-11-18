@@ -1,4 +1,4 @@
-//! Turned bodies (docs/ARCHITECTURE.md §6 undecies): a half profile turned a whole turn about
+//! Turned bodies (docs/tools/turned-bodies.md): a half profile turned a whole turn about
 //! Z, built by SolidCore's rotational sweep.
 #![cfg(feature = "engine")]
 

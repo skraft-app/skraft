@@ -1,4 +1,4 @@
-//! Named handles (docs/ARCHITECTURE.md §7 septies, after SolidCraft's `ui-registry`): widgets
+//! Named handles (docs/control-protocol.md, after SolidCraft's `ui-registry`): widgets
 //! publish where they were drawn, under a stable name (`ribbon:tool.box`, `tab:0`,
 //! `viewport`…), so a script clicks a name, not a pixel (`ui.handles`, `ui.click` with
 //! `handle`).

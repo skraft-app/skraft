@@ -169,7 +169,7 @@ fn typed_expressions_lists_and_points() {
     e.input(ToolInput::Vcb("[10;20;100]".into()));
     let (lo, _) = bounds_of(&e, &EntityPath::root(id));
     assert!(close(lo, DVec3::new(10.0, 20.0, 0.0)), "{lo}");
-    // Moved, let go (§6 septendecies): picked again, then the start.
+    // Moved, let go (docs/tools/selection.md): picked again, then the start.
     click(&mut e, DVec3::new(10.0, 20.0, 100.0));
     click(&mut e, DVec3::new(10.0, 20.0, 100.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(40.0, 20.0, 100.0)) });
@@ -272,7 +272,7 @@ fn shape_offset_moves_the_outline() {
     assert!(e.status().starts_with("Décalage — « 2° »"), "{}", e.status());
     assert_eq!(offset(&e), Some(OptionValue::Length(-100.0)));
 
-    // The cylinder shares it (as OCL's, §6 duodevicies); its radius grows by it, in Diameter
+    // The cylinder shares it (as OCL's, docs/tools/draw-options.md); its radius grows by it, in Diameter
     // mode too.
     e.set_tool(ToolKind::Cylinder);
     assert_eq!(offset(&e), Some(OptionValue::Length(-100.0)));
@@ -763,7 +763,7 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
     tap(&mut e);
     tap(&mut e);
     assert!(!e.tool_copying());
-    // Moved, the selection is let go (§6 septendecies): a click picks, the next starts.
+    // Moved, the selection is let go (docs/tools/selection.md): a click picks, the next starts.
     assert!(e.selection().is_empty());
     let at = px(&e, DVec3::new(300.0, 50.0, 50.0));
     e.input(ToolInput::Hover { px: at });
@@ -1171,7 +1171,7 @@ fn rotate_tool_by_clicks_and_typed_angle() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "50");
     e.set_tool(ToolKind::Rotate);
-    // The box just drawn is selected: it is what turns (§6 septendecies).
+    // The box just drawn is selected: it is what turns (docs/tools/selection.md).
     assert_eq!(e.selection(), &[a]);
     // Centre on the box's top face (axis: its normal, Z), reference along +X, then 90° typed.
     // The cursor a hair inside the top face (the corner itself is on three faces: which one a
@@ -1242,7 +1242,7 @@ fn rotate_snaps_to_the_graduations_inside_the_protractor_only() {
     assert!(close(radius_end(&e), DVec3::new(0.0, r * 3.0 * 0.5f64.to_radians().cos(), 0.0)), "{}", radius_end(&e));
 }
 
-// ---- the kernel off the UI thread (ARCHITECTURE.md §7 ter) ----------------------------------
+// ---- the kernel off the UI thread (docs/model/kernel.md) ----------------------------------
 
 mod deferred {
     use std::cell::RefCell;
@@ -1471,7 +1471,7 @@ fn opened_solids_are_outlined_until_meshed_and_undo_does_not_remesh() {
     assert!(!e.scene().definition_meshes().next().unwrap().parts[0].mesh.indices.is_empty());
 }
 
-/// An opened file is a load (ARCHITECTURE.md §7 sexies): every solid's preview asked before
+/// An opened file is a load (docs/ui/loading.md): every solid's preview asked before
 /// any final mesh, drawn as it comes, the load counting both until the last final mesh; or
 /// cancelled, its jobs stopped.
 #[test]
@@ -1588,7 +1588,7 @@ fn a_deliberate_kernel_crash_is_reported_and_the_next_job_runs() {
     assert!(!e.busy());
 }
 
-// ---- the tool's option bar (ARCHITECTURE.md §6 bis) and the scope of a change (§2.5) --------
+// ---- the tool's option bar (docs/ui/interface.md) and the scope of a change (docs/model/data-model.md) --------
 
 #[test]
 fn boolean_scope_option_counts_marks_and_cuts_one_or_all() {
@@ -1968,7 +1968,7 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     assert!(e.selection().is_empty());
     assert_eq!(e.open_part(), Some(board), "a click inside its box keeps the part open");
 
-    // Move, nothing selected: the tool picked by a first click (§6 septendecies), the start by
+    // Move, nothing selected: the tool picked by a first click (docs/tools/selection.md), the start by
     // the next; 100 along red. While moving, the tool is a ghost where it goes, not drawn
     // where it was.
     e.set_tool(ToolKind::Move);
@@ -2012,7 +2012,7 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     // Erased under "only this one": this occurrence gets a part of its own, the other keeps
     // the holes.
     e.set_tool(ToolKind::Select);
-    // All: the blank (a positive body, §2.11) and the holes; the holes alone erased.
+    // All: the blank (a positive body, docs/model/bodies.md) and the holes; the holes alone erased.
     e.select_all();
     assert_eq!(e.selection().len(), 5);
     e.select(machinings(&e, board).iter().map(|m| m.id).collect());
@@ -2124,7 +2124,7 @@ fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
     assert!(p.z < 18.0 + 1e-6, "{p}");
 
     // The part open, its bodies shown: the tool's top circle, its centre inferred.
-    // Picked first (§6 septendecies).
+    // Picked first (docs/tools/selection.md).
     e.enter(board);
     e.set_tool(ToolKind::Move);
     let at = px(&e, centre);
@@ -3590,7 +3590,7 @@ fn erase_tool_erases_what_it_is_clicked_or_dragged_over() {
     let shift = Modifiers { toggle: true, copy: false };
     let there = |e: &Editor, id: Id| e.document().assembly(root).unwrap().occurrence(id).is_some();
     let ghosts = |e: &Editor| e.view().batches.iter().flat_map(|(_, p)| p).filter(|p| p.ghost).count();
-    // Started on a selection, it lets it go, erasing nothing (§6 septendecies).
+    // Started on a selection, it lets it go, erasing nothing (docs/tools/selection.md).
     e.select(vec![a]);
     e.set_tool(ToolKind::Erase);
     assert!(there(&e, a) && e.selection().is_empty());
@@ -3672,7 +3672,7 @@ fn erase_tool_erases_the_open_part_s_machinings() {
     assert_eq!(e.open_part(), Some(board));
 }
 
-// ---- Turn tool (docs/ARCHITECTURE.md §6 undecies) --------------------------------------------------
+// ---- Turn tool (docs/tools/turned-bodies.md) --------------------------------------------------
 
 /// The world bounds (exact) of the part an occurrence path names.
 fn exact_bounds_of(e: &Editor, path: &EntityPath) -> (DVec3, DVec3) {
@@ -3901,7 +3901,7 @@ fn a_turned_part_stretches_only_along_its_axis() {
     assert!(e.document().component(part).unwrap().behavior.is_default(), "the lock is not saved");
 }
 
-// ---- Prism tool (docs/ARCHITECTURE.md §6 nonies) ---------------------------------------------------
+// ---- Prism tool (docs/tools/prism.md) ---------------------------------------------------
 
 fn key(e: &mut Editor, key: Key) {
     e.input(ToolInput::Key { key, mods: Modifiers::default() });
@@ -4351,7 +4351,7 @@ fn profile_fillets_follow_a_moved_corner() {
     assert!(hi.x > 165.0 && hi.x < 170.0, "{hi}");
 }
 
-// ---- Profile (ARCHITECTURE.md §6 nonies, step 3) ------------------------------------------------
+// ---- Profile (docs/tools/prism.md, step 3) ------------------------------------------------
 
 /// A board 600 × 300 × 18 drawn at the origin, its part open, the profile tool out.
 fn board_profile_editor() -> (Editor, Id) {
@@ -4548,7 +4548,7 @@ fn profile_shows_where_it_lies_whatever_the_view() {
     assert!(!lines.is_empty() && lines.iter().all(|l| l.a.z.abs() < 1e-9), "{:?}", lines.first());
 }
 
-// ---- copy and paste (§6 decies) ---------------------------------------------------------
+// ---- copy and paste (docs/tools/copy-paste.md) ---------------------------------------------------------
 
 #[test]
 fn copy_and_paste_in_place_within_and_across_documents() {
@@ -4919,7 +4919,7 @@ fn standard_views_are_in_the_active_frame() {
     assert!(e.camera.frame == glam::DMat3::IDENTITY && e.camera.up().y > 0.99);
 }
 
-/// Parts seen as before §2.11 (a blank and its machinings), for these tests.
+/// Parts seen as before docs/model/bodies.md (a blank and its machinings), for these tests.
 pub(crate) trait PartExt {
     /// The first positive body's solid.
     fn blank(&self) -> std::sync::Arc<skraft_model::kernel::Solid>;
@@ -4945,7 +4945,7 @@ fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_
     let path = EntityPath::root(board);
     e.enter(board);
     let blank = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
-    // « Ajouter »: a block drawn on the board's top joins it (ARCHITECTURE.md §2.11).
+    // « Ajouter »: a block drawn on the board's top joins it (docs/model/bodies.md).
     assert_eq!(e.body_sign(), Sign::Negative);
     e.set_body_sign(Sign::Positive);
     e.set_tool(ToolKind::Box);
@@ -4970,7 +4970,7 @@ fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_
     assert_eq!(e.tool_kind(), ToolKind::Profile);
     assert_eq!(e.open_part(), Some(board));
 
-    // The body open, the deepest level (§2.11 « Edit levels »): its box is the context's; Esc
+    // The body open, the deepest level (docs/model/bodies.md#edit-levels): its box is the context's; Esc
     // leaves it for the part, the body selected; Esc again, nothing selected, closes the part.
     assert_eq!(e.profile_body(), Some(block));
     // The other bodies faded, the one open not.
@@ -4998,7 +4998,7 @@ fn positive_bodies_are_drawn_picked_erased_and_their_profile_edited_in_the_open_
     assert_eq!(e.profile_body(), None);
     assert_eq!(e.open_part(), Some(board));
 
-    // The block erased; the blank, last positive body, too: the part is empty (§2.11 « Empty
+    // The block erased; the blank, last positive body, too: the part is empty (docs/model/bodies.md « Empty
     // parts »).
     e.set_tool(ToolKind::Select);
     e.select(vec![block]);
@@ -5580,7 +5580,7 @@ fn a_drag_moves_from_the_press_to_the_release() {
     e.set_tool(ToolKind::Move);
     let mods = Modifiers::default();
 
-    // Nothing taken, a drag is a selection rectangle (§6 septendecies): from the void over half
+    // Nothing taken, a drag is a selection rectangle (docs/tools/selection.md): from the void over half
     // the box, left to right, it encloses nothing.
     let (pa, pb) = (px(&e, DVec3::new(-600.0, -600.0, 0.0)), px(&e, DVec3::new(50.0, 50.0, 50.0)));
     e.input(ToolInput::DragStart { px: pa, mods });
@@ -5882,7 +5882,7 @@ fn move_picks_first_by_a_click_a_rectangle_or_shift_clicks() {
     e.select(vec![]);
     e.set_tool(ToolKind::Move);
 
-    // Nothing selected: the tool picks (§6 septendecies); a click takes one, the next starts.
+    // Nothing selected: the tool picks (docs/tools/selection.md); a click takes one, the next starts.
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 25.0, 18.0)) });
     assert!(e.status().contains("à déplacer"), "{}", e.status());
     assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Hover).count(), 1);
@@ -6185,7 +6185,7 @@ fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
     assert!(e.deep_selection().is_empty());
 }
 
-/// « Dessiner dans » and « Pipette » (§6 duodevicies): the drawers' first part `a` (in the
+/// « Dessiner dans » and « Pipette » (docs/tools/draw-options.md): the drawers' first part `a` (in the
 /// assembly `g`, placed twice) painted oak; the box tool with both options on.
 fn draw_in_editor() -> (Editor, [Id; 5], Id) {
     let (mut e, ids) = drawers_editor();
@@ -6337,7 +6337,7 @@ fn the_part_tools_share_their_settings_as_ocl() {
     assert!(e.tool_options().iter().any(|o| o.key == "offset" && o.value == OptionValue::Length(3.0)));
 }
 
-// ---- the undo histories' memory (ARCHITECTURE.md §5 « Memory cap ») ---------------------------
+// ---- the undo histories' memory (docs/model/undo.md#memory-cap) ---------------------------
 
 /// An editor where `n` boxes were added then deleted, one after the other: its history holds
 /// each alone, in the state before its deletion.

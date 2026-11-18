@@ -1,8 +1,8 @@
 //! The application window: title bar (top), workspace card and ribbon across the top of the
-//! view (§6 septies), the tool option bar centered under them, entity info, materials and
+//! view (docs/ui/ribbon.md), the tool option bar centered under them, entity info, materials and
 //! outliner (cards docked left or right, under the ribbon), status bar with the measurements
-//! box (bottom), viewport (centre). Every action goes through the command registry (docs/ARCHITECTURE.md §7 quater):
-//! menus (native on macOS, ☰ elsewhere), title bar, tool bar, keyboard (SketchUp's shortcuts,
+//! box (bottom), viewport (centre). Every action goes through the command registry (docs/ui/commands.md):
+//! the native menu (macOS, File only), title bar, ribbon, view bar, keyboard (SketchUp's shortcuts,
 //! changeable), the command palette and the control channel.
 
 use skraft_i18n::{ellipsis, t};
@@ -37,7 +37,7 @@ struct PanelDrag {
 
 pub struct SkraftApp {
     ctx: egui::Context,
-    /// The documents open, one per file tab (docs/ARCHITECTURE.md §6 octies); none shown: the
+    /// The documents open, one per file tab (docs/ui/file-tabs.md); none shown: the
     /// start page.
     docs: Docs,
     /// The document shown at the last frame: the tools' settings go to a newly shown one.
@@ -54,7 +54,7 @@ pub struct SkraftApp {
     /// The app's messages (a file not opened, « Enregistré »…); the status bar keeps the
     /// tools' hints.
     toasts: Toasts,
-    /// The dialog naming a part just made (§6 quattuordecies).
+    /// The dialog naming a part just made (docs/tools/quick-tools.md).
     naming: Option<crate::naming::Dialog>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
@@ -80,7 +80,7 @@ pub struct SkraftApp {
     taps: [Tap; 3],
     /// Shows the Débogage menu ([`debug_menu_wanted`]).
     debug_menu: bool,
-    /// The control protocol's requests waiting for a frame, real inputs, messages (§7 septies).
+    /// The control protocol's requests waiting for a frame, real inputs, messages (docs/control-protocol.md).
     driving: crate::driving::Driving,
     /// The control channel, switched on and off while the app runs (desktop).
     #[cfg(not(target_arch = "wasm32"))]
@@ -102,7 +102,7 @@ pub struct SkraftApp {
     /// The documents loading, and since when (egui's time): the window comes after
     /// [`LOAD_WINDOW_AFTER`].
     loads_seen: std::collections::HashMap<DocId, f64>,
-    /// What was copied, for every document (docs/ARCHITECTURE.md §6 decies), and how many
+    /// What was copied, for every document (docs/tools/copy-paste.md), and how many
     /// copies were made (each names its token).
     clipboard: Option<Clipboard>,
     copies: u64,
@@ -111,7 +111,7 @@ pub struct SkraftApp {
 /// How long a load lasts before its window shows (seconds).
 const LOAD_WINDOW_AFTER: f64 = 0.3;
 
-/// Closing documents one after the other (docs/ARCHITECTURE.md §6 octies): each modified one
+/// Closing documents one after the other (docs/ui/file-tabs.md): each modified one
 /// is shown and asked about (Save, Don't save, Cancel) before it closes. Quitting asks the same
 /// about every modified document, but closes none: Cancel leaves them all open.
 struct Closing {
@@ -169,7 +169,7 @@ enum PrefsTab {
     Debug,
 }
 
-/// Where the kernel runs (docs/ARCHITECTURE.md §7 ter): its own thread on the desktop, a web
+/// Where the kernel runs (docs/model/kernel.md): its own thread on the desktop, a web
 /// worker in the browser. Either wakes the UI when a result is ready.
 fn kernel_service(ctx: &egui::Context) -> Box<dyn KernelService> {
     #[cfg(not(target_arch = "wasm32"))]
@@ -250,7 +250,7 @@ impl SkraftApp {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         crate::style::install_fonts(&cc.egui_ctx);
         prune_egui_memory(&cc.egui_ctx);
-        // The page's command API asks for a frame when called (§7 septies).
+        // The page's command API asks for a frame when called (docs/control-protocol.md).
         #[cfg(target_arch = "wasm32")]
         crate::web::set_context(cc.egui_ctx.clone());
         let (prefs, error) = Preferences::load();
@@ -423,8 +423,8 @@ impl SkraftApp {
         }
     }
 
-    /// Closes the documents `ids`, asking about the modified ones (docs/ARCHITECTURE.md §6
-    /// octies). Nothing while tabs are being closed already.
+    /// Closes the documents `ids`, asking about the modified ones (docs/ui/file-tabs.md).
+    /// Nothing while tabs are being closed already.
     fn close_documents(&mut self, ids: Vec<DocId>) {
         if self.closing.is_none() {
             self.closing = Some(Closing { queue: ids, quit: false, asking: None, saving: None });
@@ -526,7 +526,7 @@ impl SkraftApp {
         self.advance_closing();
     }
 
-    /// The dialog naming a part just made (§6 quattuordecies): opened by an editor (its tool's
+    /// The dialog naming a part just made (docs/tools/quick-tools.md): opened by an editor (its tool's
     /// « Nommage des pièces ») or by a toast's « Renommer »; gone with its document or its part.
     fn naming_dialog(&mut self, ctx: &egui::Context) {
         for d in self.docs.iter_mut() {
@@ -597,7 +597,7 @@ impl SkraftApp {
         }
     }
 
-    /// The window over a document being loaded (docs/ARCHITECTURE.md §7 sexies): the file
+    /// The window over a document being loaded (docs/ui/loading.md): the file
     /// read, its preview meshes, its final meshes, each with how far it is, until the last final
     /// mesh; « Annuler » (or Esc) stops it all. Shown once a load has lasted [`LOAD_WINDOW_AFTER`]
     /// (a small file would only flash it).
@@ -663,7 +663,7 @@ impl SkraftApp {
         }
     }
 
-    /// The tabs' actions (docs/ARCHITECTURE.md §6 octies).
+    /// The tabs' actions (docs/ui/file-tabs.md).
     fn tab_action(&mut self, a: TabAction) {
         let id = |docs: &Docs, i: usize| docs.get(i).map(|d| d.id);
         match a {
@@ -1143,7 +1143,7 @@ impl SkraftApp {
         let down = [viewport::modifiers(ctx, mods).copy, mods.shift, other_key];
         let pressed: Vec<bool> = down.iter().zip(&self.taps).map(|(d, t)| *d && !t.down).collect();
         for (k, key) in [Key::Copy, Key::Shift, Key::Alt].into_iter().enumerate() {
-            // A modifier pressed during a navigation gesture is the gesture's (§6 quindecies).
+            // A modifier pressed during a navigation gesture is the gesture's (docs/ui/navigation-styles.md).
             let other = events || self.viewport.navigating() || pressed.iter().enumerate().any(|(j, p)| j != k && *p);
             if self.taps[k].feed(down[k], other)
                 && !ctx.egui_wants_keyboard_input()
@@ -1181,7 +1181,7 @@ impl SkraftApp {
     fn key_event(&mut self, ctx: &egui::Context, ev: egui::Event) -> Option<&'static str> {
         // The clipboard's keys come as these (desktop and web alike), not as shortcuts; done
         // only when they can be, without a word otherwise. ⌘V pastes only while the system
-        // clipboard still holds the app's token (§6 decies).
+        // clipboard still holds the app's token (docs/tools/copy-paste.md).
         let clipboard = match &ev {
             egui::Event::Cut => Some("edit.cut"),
             egui::Event::Copy => Some("edit.copy"),
@@ -1223,7 +1223,7 @@ impl SkraftApp {
             return None;
         };
         use egui::Key as K;
-        // The tabs' fixed keys, whatever the shortcuts (docs/ARCHITECTURE.md §6 octies): Ctrl+Tab
+        // The tabs' fixed keys, whatever the shortcuts (docs/ui/file-tabs.md): Ctrl+Tab
         // (Ctrl on macOS too) and ⌘T / Ctrl+T beside ⌘N.
         if key == K::Tab && modifiers.ctrl {
             return Some(if modifiers.shift { "view.previous_tab" } else { "view.next_tab" });
@@ -1857,7 +1857,7 @@ impl SkraftApp {
         });
     }
 
-    /// The start page (docs/ARCHITECTURE.md §6 octies): no document open.
+    /// The start page (docs/ui/file-tabs.md): no document open.
     fn start_page(&self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         ui.vertical_centered(|ui| {
             ui.add_space((ui.available_height() * 0.22).max(24.0));
@@ -1895,7 +1895,7 @@ impl SkraftApp {
         });
     }
 
-    /// The theme the preferences ask for, followed by egui (§7 quater).
+    /// The theme the preferences ask for, followed by egui (docs/render/look.md).
     fn apply_theme(&mut self, ctx: &egui::Context) {
         ctx.set_theme(match self.prefs.theme {
             Choice::System => egui::ThemePreference::System,
@@ -2311,7 +2311,7 @@ impl eframe::App for SkraftApp {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         raw_input.events.append(&mut self.pending_keys);
-        // Real input asked over the control channel: one frame's events (§7 septies).
+        // Real input asked over the control channel: one frame's events (docs/control-protocol.md).
         self.driving.feed(raw_input);
         // Tab and Shift+Tab are the tools' (the booleans' scope, Stretch…) while no text field
         // has the focus: egui would give the focus to the first widget (or the last) instead —
@@ -2577,7 +2577,7 @@ impl SkraftApp {
             .rect;
         let margin = 8.0;
         let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(panels::CARD_MARGIN);
-        // The workspace card and the ribbon across the top (ARCHITECTURE.md §6 septies); the
+        // The workspace card and the ribbon across the top (docs/ui/ribbon.md); the
         // docked cards below them.
         let ribbon_view = ribbon::View { prefs: &self.prefs.ribbon, views };
         // As wide as its content, centered on the view; never over the workspace card nor past
@@ -2634,7 +2634,7 @@ impl SkraftApp {
                 .rect;
             free_top = options.bottom() + margin;
         }
-        // The view bar (§6 sexdecies): over the left or right edge, under the workspace card or
+        // The view bar (docs/ui/view-bar.md): over the left or right edge, under the workspace card or
         // the ribbon, beside that side's column; what zoom extents frames stops at it.
         let bar_width = crate::view_bar::width(&ctx.global_style());
         let left_x = if free_left > view.left() { free_left } else { view.left() + margin };
@@ -2646,12 +2646,12 @@ impl SkraftApp {
             crate::dock::Dock::Left => (left_x + bar_width + margin, free_right),
             crate::dock::Dock::Right => (free_left, right_x - margin),
         };
-        // OCL's tree drop-up, at the cursor where it was opened (§6 septendecies).
+        // OCL's tree drop-up, at the cursor where it was opened (docs/tools/selection.md).
         if let Some(tree) = doc.editor.tree() {
             let at = view.min + egui::vec2(tree.at.x as f32, tree.at.y as f32);
             crate::tree::drop_up(ctx, view, at, tree, actions);
         }
-        // The quick tools' card, at the centre of what was just made (§6 terdecies).
+        // The quick tools' card, at the centre of what was just made (docs/tools/quick-tools.md).
         if let Some(at) = doc.editor.quick_card() {
             let at = view.min + egui::vec2(at.x as f32, at.y as f32);
             crate::quick::card(ctx, view, at, &self.prefs.quick_tools, views, actions);

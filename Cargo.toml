@@ -13,7 +13,7 @@ publish = false
 [workspace.dependencies]
 # Internal
 skraft-i18n = { path = "crates/i18n" }
-# Without its `engine` (SolidCore) unless a crate asks for it: the web UI does not (§7 ter).
+# Without its `engine` (SolidCore) unless a crate asks for it: the web UI does not (docs/model/kernel.md).
 skraft-kernel = { path = "crates/kernel", default-features = false }
 skraft-model = { path = "crates/model" }
 skraft-render = { path = "crates/render" }
@@ -39,7 +39,7 @@ solidcore-step = { git = "https://github.com/tangency-labs/solidcore", rev = "85
 glam = { version = "0.30", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-# Messages to and from the kernel's web worker (ARCHITECTURE.md §7 ter).
+# Messages to and from the kernel's web worker (docs/model/kernel.md).
 rmp-serde = "1"
 thiserror = "2"
 # The texts of the app, from /locales (crates/i18n).
@@ -48,7 +48,7 @@ log = "0.4"
 
 egui = "0.37"
 # `clipboard`: the system clipboard on the desktop (arboard), for text fields and the
-# token of copy and paste (docs/ARCHITECTURE.md §6 decies).
+# token of copy and paste (docs/tools/copy-paste.md).
 eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "persistence", "clipboard"] }
 egui-wgpu = "0.37"
 egui_extras = { version = "0.37", default-features = false, features = ["svg"] }

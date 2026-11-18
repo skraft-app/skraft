@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Calls a method of a running app's control channel (docs/ARCHITECTURE.md §7 septies):
+# Calls a method of a running app's control channel (docs/control-protocol.md):
 #
 #   scripts/control.sh model.geometry '{"selection": true}'
 #   scripts/control.sh app.wait '{"idle": true}'

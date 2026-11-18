@@ -1,5 +1,5 @@
 //! The document: components — parts and assemblies — placed by occurrences
-//! (docs/ARCHITECTURE.md §2).
+//! (docs/model/data-model.md).
 //!
 //! The document is immutable piece by piece: components and solids sit behind `Arc`, so a
 //! clone shares everything and an operation copies only what it changes (`Arc::make_mut`).
@@ -19,7 +19,7 @@ use crate::{Error, FastMap, Result};
 
 /// A stable identifier, from one counter: unique across a document for components, within
 /// their assembly for occurrences and within their part for bodies (a copy of a component
-/// keeps them, docs/ARCHITECTURE.md §2.6).
+/// keeps them, docs/model/data-model.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Id(pub u64);
@@ -30,7 +30,7 @@ impl std::fmt::Display for Id {
     }
 }
 
-/// A shared, named definition: a part or an assembly (§2.1).
+/// A shared, named definition: a part or an assembly (docs/model/data-model.md).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Component {
     pub id: Id,
@@ -40,15 +40,15 @@ pub struct Component {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub named: bool,
     pub kind: ComponentKind,
-    /// Construction guides, in the component's axes (ARCHITECTURE.md §6 quinquies).
+    /// Construction guides, in the component's axes (docs/tools/tape-measure.md).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guides: Vec<Guide>,
-    /// How it is stretched: its cutters and locked axes (ARCHITECTURE.md §6 sexies).
+    /// How it is stretched: its cutters and locked axes (docs/tools/stretch.md).
     #[serde(default, skip_serializing_if = "Behavior::is_default")]
     pub behavior: Behavior,
 }
 
-/// How a component behaves when stretched (ARCHITECTURE.md §6 sexies, after SketchUp's
+/// How a component behaves when stretched (docs/tools/stretch.md, after SketchUp's
 /// `Behavior`): the axes it never stretches along, and where its cutters stand. Both follow
 /// the component: its copies keep them.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -149,7 +149,7 @@ impl Component {
     }
 }
 
-/// A construction guide of a component (§6 quinquies): drawn and inferred, never cut.
+/// A construction guide of a component (docs/tools/tape-measure.md): drawn and inferred, never cut.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Guide {
     pub id: Id,
@@ -190,7 +190,7 @@ impl GuideShape {
 }
 
 /// A part: the union of its positive bodies minus the union of its negative ones, every body
-/// placed in the part's own axes (docs/ARCHITECTURE.md §2.3, §2.4, §2.11). A body is an
+/// placed in the part's own axes (docs/model/data-model.md, docs/model/data-model.md, docs/model/bodies.md). A body is an
 /// occurrence of one of the part's body definitions: copies share theirs, a change to its shape
 /// shows in every one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -203,10 +203,10 @@ pub struct Part {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) shape: Option<Arc<Solid>>,
     /// The bodies whose boolean failed when the shape was computed: skipped, the others
-    /// computed (§2.4). Part of the same cache.
+    /// computed (docs/model/data-model.md). Part of the same cache.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub(crate) failed: BTreeSet<Id>,
-    /// The material of single faces of the shape, by their index in its record (§7 quater):
+    /// The material of single faces of the shape, by their index in its record (docs/render/look.md):
     /// over the occurrence's. A boolean renumbers faces: an index may then name another
     /// face, or none (ignored).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -225,7 +225,7 @@ impl Part {
         Part { defs: vec![def], bodies: vec![body], shape: None, failed: BTreeSet::new(), faces: BTreeMap::new() }
     }
 
-    /// Settles the automatic names of its body definitions (§2.11 « Body names »): each its
+    /// Settles the automatic names of its body definitions (docs/model/bodies.md#body-names): each its
     /// nature's, numbered from #1, unique in the part — one of another nature (an extrusion
     /// stretched askew is a free solid now), or taken by an earlier definition (a copy made
     /// unique), or none yet, numbered anew. Whether one changed.
@@ -376,7 +376,7 @@ impl Part {
     }
 
     /// How many separate lumps of material the shape holds: a part is one piece of wood, more
-    /// is an error the user has to correct (§2.11).
+    /// is an error the user has to correct (docs/model/bodies.md).
     pub fn pieces(&self) -> usize {
         self.shape().pieces()
     }
@@ -401,7 +401,7 @@ pub(crate) fn is_identity(t: &DAffine3) -> bool {
     t.abs_diff_eq(DAffine3::IDENTITY, 1e-12)
 }
 
-/// Whether a body adds material to its part or takes it away (§2.11).
+/// Whether a body adds material to its part or takes it away (docs/model/bodies.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Sign {
@@ -409,13 +409,13 @@ pub enum Sign {
     Negative,
 }
 
-/// The shape of bodies of a part (§2.11): `solid`, in its own axes — a body's. A leaf holds its
-/// shape (a free one, or built from its profile); a group (§2.11 « Body groups ») holds bodies,
+/// The shape of bodies of a part (docs/model/bodies.md): `solid`, in its own axes — a body's. A leaf holds its
+/// shape (a free one, or built from its profile); a group (docs/model/bodies.md#body-groups) holds bodies,
 /// `solid` then only their result cached: `(∪ positive children) − (∪ negative children)`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BodyDef {
     pub id: Id,
-    /// Its name (§2.11 « Body names »), every body of it showing it: given by the user
+    /// Its name (docs/model/bodies.md#body-names), every body of it showing it: given by the user
     /// (`named`), kept when its shape changes (a stretch, a boolean, a new profile) and by its
     /// copies; else automatic, its nature's numbered among its part's (« Extrusion#2 »),
     /// settled after each operation ([`Part::settle_names`]).
@@ -425,7 +425,7 @@ pub struct BodyDef {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub named: bool,
     pub solid: Arc<Solid>,
-    /// The profile `solid` is built from (§6 nonies), in its axes: the solid is then its
+    /// The profile `solid` is built from (docs/tools/prism.md), in its axes: the solid is then its
     /// cache. None for a free shape (imported, a boolean's result, stretched askew) and a group.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<crate::BodyProfile>,
@@ -475,7 +475,7 @@ impl BodyDef {
     }
 }
 
-/// What a body definition is (§2.11 « Body names »): a group, a body of a profile extruded or
+/// What a body definition is (docs/model/bodies.md#body-names): a group, a body of a profile extruded or
 /// turned, else a free solid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Nature {
@@ -510,7 +510,7 @@ pub(crate) fn numbered_name(base: &str, first: u32, taken: impl Fn(&str) -> bool
     (first..).map(|i| format!("{base}#{i}")).find(|n| !taken(n)).unwrap_or_default()
 }
 
-/// The content of a group of bodies (§2.11 « Body groups »): its bodies, each an occurrence of a
+/// The content of a group of bodies (docs/model/bodies.md#body-groups): its bodies, each an occurrence of a
 /// definition of the same part, placed in the group's axes. Its negatives cut its positives
 /// only. Body ids are unique in the whole part, groups included.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -522,11 +522,11 @@ pub struct BodyGroup {
 }
 
 /// A solid of a part: an occurrence of the definition `def`, placed by `placement` in the part's
-/// axes, adding material or taking it away (`sign`; a negative body is a machining, §2.4).
+/// axes, adding material or taking it away (`sign`; a negative body is a machining, docs/model/data-model.md).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Body {
     pub id: Id,
-    /// Its own name, as an occurrence's (« Haut <Trou charnière#1> », §2.11 « Body names »):
+    /// Its own name, as an occurrence's (« Haut <Trou charnière#1> », docs/model/bodies.md#body-names):
     /// empty for none; kept by its copies.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
@@ -542,7 +542,7 @@ impl Body {
 }
 
 /// Where a body comes from. Only local ones for now; linked ones (machinings of fixed
-/// hardware) will come (§2.4).
+/// hardware) will come (docs/model/data-model.md).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BodySource {
@@ -637,7 +637,7 @@ impl std::fmt::Debug for Assembly {
     }
 }
 
-/// A component placed: one copy of a part or an assembly (§2.2).
+/// A component placed: one copy of a part or an assembly (docs/model/data-model.md).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Occurrence {
     pub id: Id,
@@ -651,13 +651,13 @@ pub struct Occurrence {
     /// The copy's material (its faces without one of their own take it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<Id>,
-    /// Hidden by the user (ARCHITECTURE.md §6): neither drawn, picked, inferred on nor framed, nor is
+    /// Hidden by the user (docs/tools/interaction.md): neither drawn, picked, inferred on nor framed, nor is
     /// anything under it — but while it is being edited, or with the hidden shown.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
 }
 
-/// A material: a name and a colour (§7 quater). Wood species, panels… come later.
+/// A material: a name and a colour (docs/render/look.md). Wood species, panels… come later.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     pub name: String,
@@ -672,7 +672,7 @@ pub struct EntityPath {
     /// Occurrence ids from the root, outermost first; empty for an occurrence of the root.
     pub instances: Vec<Id>,
     pub entity: Id,
-    /// In the part `entity` places, the group of bodies open (§2.11 « Body groups »): the
+    /// In the part `entity` places, the group of bodies open (docs/model/bodies.md#body-groups): the
     /// bodies leading to it, the part's own first, each a group's. Empty: the part itself. Only
     /// the operations on bodies, and [`Document::resolve_container`], read it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -883,7 +883,7 @@ impl Document {
     }
 
     /// What `path` leads into: the part it places — its id, the part, part to world — or,
-    /// when it names a group of bodies (`path.group`), that group seen as a part (§2.11 « Body
+    /// when it names a group of bodies (`path.group`), that group seen as a part (docs/model/bodies.md « Body
     /// groups »): its children as the bodies, its result as the shape, every definition of
     /// the part, and group to world.
     pub fn resolve_container(&self, path: &EntityPath) -> Result<(Id, std::borrow::Cow<'_, Part>, DAffine3)> {
@@ -1153,7 +1153,7 @@ impl Document {
 
     /// A name not used by another component, from `base` (its number dropped: a copy of
     /// « Caisson#2 » is « Caisson#3 »): given by the user (`named`), `base` if free, else
-    /// `base#2`, `base#3`, …; automatic, always numbered from `base#1`, as SketchUp's (§2.1).
+    /// `base#2`, `base#3`, …; automatic, always numbered from `base#1`, as SketchUp's (docs/model/data-model.md).
     pub(crate) fn unique_name(&self, base: &str, named: bool) -> String {
         let taken = |n: &str| self.components.values().any(|c| c.name == n);
         if named && !taken(base) {
@@ -1183,7 +1183,7 @@ impl Document {
         }
     }
 
-    /// Drops the components no occurrence uses that the user did not name (§2.1), and so on
+    /// Drops the components no occurrence uses that the user did not name (docs/model/data-model.md), and so on
     /// down: an unnamed assembly dropped may leave its parts unused.
     pub(crate) fn purge(&mut self) {
         loop {
@@ -1210,7 +1210,7 @@ impl Document {
     /// for the caller to place.
     ///
     /// With `reuse` (the fragment was copied from this document, whose ids still name the same
-    /// things, §6 decies), the components and materials still here are used as they are; only
+    /// things, docs/tools/copy-paste.md), the components and materials still here are used as they are; only
     /// the others are copied.
     pub(crate) fn graft(&mut self, fragment: &Document, reuse: bool) -> Result<Vec<Occurrence>> {
         // Decided before anything is added: a fresh id may be one of the fragment's.

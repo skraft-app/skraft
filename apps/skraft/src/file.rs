@@ -11,7 +11,7 @@ use crate::docs::DocId;
 
 pub const EXTENSION: &str = "skraft";
 
-/// The extensions of the files the app imports (ARCHITECTURE.md §8 ter).
+/// The extensions of the files the app imports (docs/io/step-import.md).
 pub const IMPORT_EXTENSIONS: &[&str] = &["step", "stp", "STEP", "STP"];
 
 /// What a file dialog ended with. Dialogs never block: a modal one (rfd's `FileDialog`) runs a

@@ -1,4 +1,4 @@
-//! OpenCutList's tree drop-up (docs/ARCHITECTURE.md §6 septendecies): the path of the part under
+//! OpenCutList's tree drop-up (docs/tools/selection.md): the path of the part under
 //! the cursor, from the model down to the part, listed while the copy modifier is held — its
 //! bottom right corner on the cursor; a row hovered is drawn hovered in the view, a row
 //! clicked selected. The editor keeps the list ([`skraft_tools::Tree`]); this draws it.

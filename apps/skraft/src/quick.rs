@@ -1,4 +1,4 @@
-//! The quick tools' card (docs/ARCHITECTURE.md §6 terdecies): after a creation, a row of
+//! The quick tools' card (docs/tools/quick-tools.md): after a creation, a row of
 //! buttons at the centre of what was made, each starting a tool on it; the user pins the
 //! commands it shows, as the ribbon's.
 
@@ -63,7 +63,7 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
                 ui.horizontal(|ui| {
                     let items: Vec<_> =
                         pinned.iter().filter_map(|&id| views.iter().find(|v| v.id == id)).filter_map(|c| button(ui, c, actions)).collect();
-                    // A button dragged along the row moves it (§6 terdecies).
+                    // A button dragged along the row moves it (docs/tools/quick-tools.md).
                     if let Some((id, before)) = crate::pins::reorder(ui, egui::Id::unique("quick_tools_drag"), false, &items) {
                         actions.push(Action::QuickMove(id, before));
                     }

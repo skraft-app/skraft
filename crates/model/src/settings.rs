@@ -1,4 +1,4 @@
-//! The settings a document carries in its file (docs/ARCHITECTURE.md §8): how it is displayed
+//! The settings a document carries in its file (docs/io/file-format.md): how it is displayed
 //! and the units it is measured in. The app's preferences give the values of new documents.
 //!
 //! Every field has a default, so a file written before a setting existed still loads.
@@ -20,13 +20,13 @@ pub struct Settings {
 pub struct Display {
     pub grid: bool,
     pub axes: bool,
-    /// The outline of curved faces (§7 quater).
+    /// The outline of curved faces (docs/render/look.md).
     pub silhouettes: bool,
     /// The section plane, if one was placed; shown while `section_active`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<Section>,
     pub section_active: bool,
-    /// The construction guides (§6 quinquies): drawn, inferred on and picked only when shown.
+    /// The construction guides (docs/tools/tape-measure.md): drawn, inferred on and picked only when shown.
     pub guides: bool,
     /// While a part is open or an assembly edited, the rest of the model is hidden (neither
     /// drawn, picked nor inferred on) instead of faded.
@@ -34,7 +34,7 @@ pub struct Display {
     /// The occurrences hidden by the user are drawn faded, picked and inferred on, as if
     /// shown (to find them, show them again).
     pub show_hidden: bool,
-    /// X-ray (§7 bis): every part drawn see-through, its edges all seen, and points behind
+    /// X-ray (docs/render/look.md#x-ray): every part drawn see-through, its edges all seen, and points behind
     /// faces inferred on.
     pub xray: bool,
 }
@@ -63,7 +63,7 @@ impl Display {
 }
 
 /// A section plane, in the model's (root) axes: what lies on the side `normal` points to is
-/// cut away from the view (§7 quater).
+/// cut away from the view (docs/render/look.md).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Section {
     pub origin: DVec3,

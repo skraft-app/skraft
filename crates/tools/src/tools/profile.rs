@@ -1,10 +1,10 @@
-//! Profile: edits the profile of a body of the open part (docs/ARCHITECTURE.md §6 nonies,
-//! §2.11), in that body's axes: the one double-clicked (in Select or here, while the bodies
+//! Profile: edits the profile of a body of the open part (docs/tools/prism.md,
+//! docs/model/bodies.md), in that body's axes: the one double-clicked (in Select or here, while the bodies
 //! show), else its first profiled positive body.
 //! The outline is drawn where the profile lies — an extrusion's bottom cap (its `z0`), a turned
 //! body's XZ plane — whatever the view, with grips — its corners, its arcs' middles,
 //! its straight sides' middles (to insert a corner). The thickness is the Stretch tool's (along
-//! the body's Z, §2.11). A grip is taken by a click and dropped by another (SketchUp's Move; a drag works too), Esc
+//! the body's Z, docs/model/bodies.md). A grip is taken by a click and dropped by another (SketchUp's Move; a drag works too), Esc
 //! dropping the gesture; each gesture is one `Operation::SetProfile`, under the open part's
 //! scope.
 //!
@@ -30,7 +30,7 @@
 //!
 //! An outline that would cross itself is refused, said in the status bar.
 //!
-//! A turned body's half profile (§6 undecies) is edited the same way in its XZ plane, with two
+//! A turned body's half profile (docs/tools/turned-bodies.md) is edited the same way in its XZ plane, with two
 //! rules: a corner or a side
 //! is stopped on the axis, never beyond it; a corner on the axis slides along it, and a side
 //! lying on the axis stays there (no grip across it unless free). An arc bulging across the
@@ -479,7 +479,7 @@ impl ProfileTool {
             }
             (ToolInput::Click { px, .. }, State::Idle | State::Over(_)) => match self.grip_under(cx, &b, *px) {
                 Some(g) => self.take(&b, g, false),
-                // Off the part: as Select's click off (§2.9).
+                // Off the part: as Select's click off (docs/model/opening-a-part.md).
                 None => return vec![Command::ClickOff(*px)],
             },
             (ToolInput::DragStart { px, .. }, State::Idle | State::Over(_)) => {

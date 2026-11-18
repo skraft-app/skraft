@@ -1,4 +1,4 @@
-//! Navigation styles (docs/ARCHITECTURE.md §6 quindecies): which mouse buttons, modifiers and
+//! Navigation styles (docs/ui/navigation-styles.md): which mouse buttons, modifiers and
 //! trackpad gestures move the camera, after the habits of another program. The keyboard and the
 //! tools' modifiers are never part of a style; the left button alone belongs to the tools.
 
@@ -32,7 +32,7 @@ impl Preset {
         }
     }
 
-    /// The style as the program has it (§6 quindecies, *The presets*).
+    /// The style as the program has it (docs/ui/navigation-styles.md, *The presets*).
     pub fn style(self) -> NavStyle {
         use Button::*;
         use NavAction::*;

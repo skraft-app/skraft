@@ -1,4 +1,4 @@
-//! A recording of the editor's inputs written as a test (docs/ARCHITECTURE.md §7 septies): a
+//! A recording of the editor's inputs written as a test (docs/control-protocol.md): a
 //! file of `crates/tools/tests` that opens the document recorded, sets the view the inputs were
 //! given in, plays them again on an editor with the kernel inline, then checks the revision and
 //! the parts reached. What it then shows is the test's to check: the file says where.
@@ -21,7 +21,7 @@ pub fn test_file(r: &Recording, name: &str, reached: &Reached) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "//! Recorded by the control protocol (`journal.record`, docs/ARCHITECTURE.md §7 septies): {} steps from\n\
+        "//! Recorded by the control protocol (`journal.record`, docs/control-protocol.md): {} steps from\n\
          //! `{name}.skraft`, played again with the kernel inline.\n",
         r.steps.len()
     );

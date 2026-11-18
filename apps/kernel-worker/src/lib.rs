@@ -1,4 +1,4 @@
-//! The kernel's web worker (docs/ARCHITECTURE.md §7 ter): `web/kernel-worker.js` loads this
+//! The kernel's web worker (docs/model/kernel.md): `web/kernel-worker.js` loads this
 //! module and hands it each job the UI posts, as MessagePack bytes; the result goes back the
 //! same way. Only the kernel is here: no UI, no GPU.
 //!

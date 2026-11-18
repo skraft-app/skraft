@@ -1,4 +1,4 @@
-//! `skraft-mcp`: Skraft as an MCP server, over stdio (docs/ARCHITECTURE.md §7 septies).
+//! `skraft-mcp`: Skraft as an MCP server, over stdio (docs/control-protocol.md).
 //!
 //! ```text
 //! skraft-mcp                  the running app if its control channel answers, else headless

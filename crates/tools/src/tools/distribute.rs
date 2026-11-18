@@ -1,4 +1,4 @@
-//! Distribute (ARCHITECTURE.md §6 duodecies), OpenCutList's `SmartHandleDistributeActionHandler`
+//! Distribute (docs/tools/copy-array.md), OpenCutList's `SmartHandleDistributeActionHandler`
 //! as faithfully as the app allows.
 //!
 //! - **Pick** as the copy tools ([`Picker`]).

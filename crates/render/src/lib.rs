@@ -1,4 +1,4 @@
-//! Skraft's viewport renderer (docs/ARCHITECTURE.md §7 bis, §7 quater).
+//! Skraft's viewport renderer (docs/render/display.md, docs/render/look.md).
 //!
 //! The renderer knows meshes by key, never the document: the caller (the display scene in
 //! `tools`) uploads one mesh per definition — the concatenation of its direct solids, each a
@@ -9,18 +9,18 @@
 //! texture), so it is independent of the UI and testable without a window. A frame that would
 //! draw the same picture as the last one draws nothing: the target keeps it.
 //!
-//! Precision (ARCHITECTURE.md §7 bis): the GPU only sees `f32`, so everything is drawn
+//! Precision (docs/render/display.md): the GPU only sees `f32`, so everything is drawn
 //! **relative to the camera**. Placements, the view and lines are `f64`; each placement's
 //! `view × world × recentre` is computed on the CPU in `f64` and only then made `f32`, and each
 //! definition's mesh is stored around its own centre. Depth is **reversed** (1 near, 0 far) in
 //! a float depth buffer (with a stencil, for section caps): [`Frame::proj`] must map near to
 //! 1, e.g. `Mat4::perspective_infinite_reverse_rh`.
 //!
-//! Colours (§7 quater): faces take a colour from the frame's **palette** — the face's own
+//! Colours (docs/render/look.md): faces take a colour from the frame's **palette** — the face's own
 //! (baked in the mesh, [`Part::face_paint`]), else its placement's ([`Placement::material`]),
 //! else [`Style::face_front`]. Changing a palette colour re-uploads no vertex.
 //!
-//! A **ghost** batch (an open part's blank, ARCHITECTURE.md §2.9) has its edges drawn like any
+//! A **ghost** batch (an open part's blank, docs/model/opening-a-part.md) has its edges drawn like any
 //! other, but its faces only after everything opaque: their fronts, blended at
 //! [`Style::ghost_opacity`], depth tested without writing depth. With
 //! [`Batch::faint_edges`], its edges and silhouettes are drawn so too, at
@@ -39,7 +39,7 @@ pub const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSr
 /// The format [`Renderer::target`] is viewed with: the same bytes, without sRGB decoding,
 /// which is what egui's renderer expects of a native texture.
 pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
-/// Depth with a stencil (section caps, §7 quater): 32-bit float when the device has it — reversed
+/// Depth with a stencil (section caps, docs/render/look.md): 32-bit float when the device has it — reversed
 /// depth needs it to stay precise far away — else whatever the device picks for 24 bits (on
 /// Apple Silicon, 32-bit float anyway).
 fn depth_format(device: &wgpu::Device) -> wgpu::TextureFormat {
@@ -114,7 +114,7 @@ pub struct Highlight {
     pub edge_tint: Tint,
     /// The placement's palette entry (its faces keep their colour under the tint).
     pub material: u32,
-    /// A ghost's (an open part's body, §2.11): its faces washed with the face tint over the
+    /// A ghost's (an open part's body, docs/model/bodies.md): its faces washed with the face tint over the
     /// ghost's own, see-through; its edges as any highlight's.
     pub ghost: bool,
 }
@@ -313,7 +313,7 @@ pub struct Grid {
 }
 
 /// The section plane, in world coordinates: what is on the side `normal` points to is cut
-/// away (§7 quater).
+/// away (docs/render/look.md).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Section {
     pub origin: DVec3,
@@ -404,7 +404,7 @@ pub const LINE_WIDTH: f32 = 1.5;
 /// A line drawn bolder (the curve a tool refers to).
 pub const BOLD_WIDTH: f32 = 3.0;
 /// The space between a section cap's hatches (points): from this to twice as much, as the
-/// zoom goes (§7 quater).
+/// zoom goes (docs/render/look.md).
 pub const HATCH_SPACING: f32 = 8.0;
 /// A hatch's width (points).
 pub const HATCH_WIDTH: f32 = 1.0;
@@ -1684,7 +1684,7 @@ struct HighlightRun {
     edges: Range<u32>,
 }
 
-/// Everything that makes the picture of `frame` (§7 quater): equal fingerprints, equal
+/// Everything that makes the picture of `frame` (docs/render/look.md): equal fingerprints, equal
 /// pictures. `generation` stands for what is uploaded (meshes, target).
 fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     struct H(std::collections::hash_map::DefaultHasher);
@@ -1811,7 +1811,7 @@ struct SilhouetteEdge {
 }
 
 /// The mesh edges shared by two triangles at an angle that are not B-rep edges (those are
-/// drawn anyway): where a curved surface can turn away from the eye (§7 quater). Vertices are
+/// drawn anyway): where a curved surface can turn away from the eye (docs/render/look.md). Vertices are
 /// welded by position: the mesher may split them along seams.
 fn silhouette_edges(m: &Mesh) -> Vec<SilhouetteEdge> {
     use std::collections::HashMap;

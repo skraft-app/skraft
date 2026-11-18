@@ -1,6 +1,6 @@
-//! A body's profile, kept in the part's recipe (docs/ARCHITECTURE.md §6 nonies, §2.11): the
+//! A body's profile, kept in the part's recipe (docs/tools/prism.md, docs/model/bodies.md): the
 //! outline in the body's XY plane, extruded from `z0` by `height` along its Z — or a half
-//! profile in its XZ plane turned a whole turn about its Z (§6 undecies). The body's solid is
+//! profile in its XZ plane turned a whole turn about its Z (docs/tools/turned-bodies.md). The body's solid is
 //! built from it and stays its cache. Its fillets are radii on its sharp corners
 //! ([`profile::rounded`] makes them arcs).
 
@@ -115,7 +115,7 @@ impl BodyProfile {
         }
     }
 
-    /// The profile stretched as its body is (§6 sexies, in the body's axes), when it stays one.
+    /// The profile stretched as its body is (docs/tools/stretch.md, in the body's axes), when it stays one.
     /// An extrusion: along Z, its caps follow their sections; along an axis in its plane, each
     /// corner moves with its section (its fillet's radius kept), an arc wholly in one section
     /// rigidly — a fillet's too. A revolution: along Z (its profile's Y), the same; across its

@@ -1,6 +1,6 @@
 [package]
 name = "skraft-control"
-description = "Skraft: the control protocol (docs/ARCHITECTURE.md §7 septies) — its methods and their parameters, the handlers that need only an editor, and the loopback server with its token"
+description = "Skraft: the control protocol (docs/control-protocol.md) — its methods and their parameters, the handlers that need only an editor, and the loopback server with its token"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

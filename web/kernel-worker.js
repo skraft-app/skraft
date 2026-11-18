@@ -1,4 +1,4 @@
-// The kernel's web worker (docs/ARCHITECTURE.md §7 ter): runs the jobs the UI posts, one at a
+// The kernel's web worker (docs/model/kernel.md): runs the jobs the UI posts, one at a
 // time, in the order they come. In: { id, bytes }. Out: { id, progress } while a job runs,
 // { id, bytes } with the result, { id, crashed } when the kernel trapped (a panic: `{ panic }`
 // came just before), { fatal } when the kernel could not be loaded at all. A job cancelled is

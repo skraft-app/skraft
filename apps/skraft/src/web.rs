@@ -1,4 +1,4 @@
-//! The page's command API (docs/ARCHITECTURE.md §7 septies): the control protocol's methods
+//! The page's command API (docs/control-protocol.md): the control protocol's methods
 //! reached from JavaScript in the tab, `window.skraft.call(method, params)` — a promise of
 //! the method's result (an `Uint8Array` of PNG for a screenshot), rejected with an `Error`.
 //!

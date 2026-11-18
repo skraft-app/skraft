@@ -1,4 +1,4 @@
-//! Loading a model (docs/ARCHITECTURE.md §7 sexies): a file opened, or a STEP file
+//! Loading a model (docs/ui/loading.md): a file opened, or a STEP file
 //! imported, is read, then shown at once by coarse preview meshes, then by the final ones. The
 //! app shows a window over it all, with how far each stage is and a button that stops it.
 

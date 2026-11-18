@@ -1,6 +1,6 @@
 //! Side panels: the entity info, the materials and the outliner, the tool option bar and the
-//! menu items, all drawn from the command registry's state (docs/ARCHITECTURE.md
-//! §7 quater).
+//! menu items, all drawn from the command registry's state
+//! (docs/ui/commands.md).
 
 use glam::{DAffine3, DVec3};
 use skraft_i18n::{t, tp};
@@ -20,7 +20,7 @@ pub enum Action {
     RemoteRetry,
     /// An outliner's click: selects or deselects, Shift (`true`) adding to the selection.
     SelectPath(EntityPath, bool),
-    /// A row of the tree drop-up hovered (none: left), or clicked (§6 septendecies).
+    /// A row of the tree drop-up hovered (none: left), or clicked (docs/tools/selection.md).
     TreeHover(Option<usize>),
     TreePick(usize),
     /// The outliner's first row, the model, clicked: every assembly and part edited left,
@@ -33,14 +33,14 @@ pub enum Action {
     ToolLength(&'static str, String),
     /// Paint with this material (none: remove paint): the paint tool starts.
     PaintWith(Option<Id>),
-    /// What changes to the open part reach (§2.5).
+    /// What changes to the open part reach (docs/model/data-model.md).
     PartScope(Scope),
-    /// Whether shapes drawn in the open part add material or take it away (§2.11).
+    /// Whether shapes drawn in the open part add material or take it away (docs/model/bodies.md).
     BodySign(Sign),
     /// The body of the open part hovered in the outliner, if any (its part open on it, the
     /// bodies shown).
     HoverMachining(Option<Id>),
-    /// A body of a part chosen in the outliner (§2.11 « Body groups »): the part, and the group
+    /// A body of a part chosen in the outliner (docs/model/bodies.md#body-groups): the part, and the group
     /// the path names, opened; the body selected or deselected, Shift (`true`) adding it.
     SelectBody(EntityPath, Id, bool),
     /// A body's « Profil » row chosen in the outliner: its part (and group) opened, its profile
@@ -50,13 +50,13 @@ pub enum Action {
     HoverOutliner(Option<EntityPath>),
     /// Hide the occurrence (true) or show it again: the outliner's eye.
     SetHidden(EntityPath, bool),
-    /// The ribbon's own state: tab, workspace, pins, labels (docs/ARCHITECTURE.md §6 septies).
+    /// The ribbon's own state: tab, workspace, pins, labels (docs/ui/ribbon.md).
     Ribbon(crate::ribbon::Change),
-    /// A tool started from the quick tools' card, on what was just made (§6 terdecies).
+    /// A tool started from the quick tools' card, on what was just made (docs/tools/quick-tools.md).
     QuickTool(&'static str),
     /// A command of the quick tools' card pinned, or unpinned.
     QuickPin(&'static str),
-    /// A command of the view bar pinned, or unpinned (§6 sexdecies).
+    /// A command of the view bar pinned, or unpinned (docs/ui/view-bar.md).
     ViewPin(&'static str),
     /// A pinned command dragged before another (none: at the end), in the view bar or in the
     /// quick tools' card.
@@ -64,7 +64,7 @@ pub enum Action {
     /// The view bar's grip dragged to the other side.
     ViewBarSide(crate::dock::Dock),
     QuickMove(&'static str, Option<&'static str>),
-    /// On the file tabs (docs/ARCHITECTURE.md §6 octies).
+    /// On the file tabs (docs/ui/file-tabs.md).
     Tab(crate::tabs::TabAction),
 }
 
@@ -163,14 +163,14 @@ pub fn has_tool_options(editor: &Editor) -> bool {
     shows_part_scope(editor) || shows_body_sign(editor) || !editor.tool_options().is_empty()
 }
 
-/// The open part's scope, only for a part placed more than once (§2.5): for one alone,
+/// The open part's scope, only for a part placed more than once (docs/model/data-model.md): for one alone,
 /// « Celui-ci » and « Tous » are the same.
 fn shows_part_scope(editor: &Editor) -> bool {
     (editor.open_part().is_some() && editor.open_part_copies() > 1) || deep_scope(editor)
 }
 
 /// Parts selected at any depth through an assembly placed more than once, by a tool that
-/// changes them (« Parts », §6 septendecies): « only this one » makes the assemblies along unique.
+/// changes them (« Parts », docs/tools/selection.md): « only this one » makes the assemblies along unique.
 fn deep_scope(editor: &Editor) -> bool {
     editor.open_part().is_none()
         && matches!(
@@ -187,14 +187,14 @@ fn deep_scope(editor: &Editor) -> bool {
         && editor.deep_shared()
 }
 
-/// The open part's « Solide », while a shape is drawn in it (§2.11).
+/// The open part's « Solide », while a shape is drawn in it (docs/model/bodies.md).
 fn shows_body_sign(editor: &Editor) -> bool {
     editor.open_part().is_some() && matches!(editor.tool_kind(), ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn)
 }
 
-/// The active tool's option bar (docs/ARCHITECTURE.md §6 bis): its choices, each a segmented
+/// The active tool's option bar (docs/ui/interface.md): its choices, each a segmented
 /// control after its name, then its lone toggles together in an "Options" group, all drawn like
-/// the ribbon's buttons. An open part puts its scope first, then its « Solide » (§2.9, §2.11).
+/// the ribbon's buttons. An open part puts its scope first, then its « Solide » (docs/model/opening-a-part.md, docs/model/bodies.md).
 pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let options = editor.tool_options();
     ui.horizontal(|ui| {
@@ -369,10 +369,10 @@ struct Field<'a> {
     /// A click away applies what was typed (Entity Info), else puts the value back (the tool
     /// options, applied by Enter only).
     blur_applies: bool,
-    /// An empty text applies too (a body's name cleared, §2.11 « Body names »), else it puts the
+    /// An empty text applies too (a body's name cleared, docs/model/bodies.md#body-names), else it puts the
     /// value back.
     empty_applies: bool,
-    /// Its name among the named handles (docs/ARCHITECTURE.md §7 septies), if published.
+    /// Its name among the named handles (docs/control-protocol.md), if published.
     handle: Option<String>,
 }
 
@@ -473,7 +473,7 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
         return (applied && (f.empty_applies || !text.trim().is_empty()) && !unchanged).then(|| text.trim().to_owned());
     }
     // egui's focus, not `Response::has_focus`: that one is also false while the window is not
-    // the system's focused one, and the text typed then (control channel, §7 septies) was lost.
+    // the system's focused one, and the text typed then (control channel, docs/control-protocol.md) was lost.
     if ui.memory(|m| m.has_focus(r.id)) {
         ui.data_mut(|d| d.insert_temp(id, text));
     }
@@ -496,7 +496,7 @@ fn option_button(
     crate::handles::publish(|| handle.to_owned(), rect);
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
     let visuals = ui.style().interact_selectable(&response, selected);
-    // On, filled with its colour (« Pipette »'s material, §6 duodevicies), as OCL's button.
+    // On, filled with its colour (« Pipette »'s material, docs/tools/draw-options.md), as OCL's button.
     let swatch = swatch.filter(|_| selected).map(|[r, g, b]| egui::Color32::from_rgb(r, g, b));
     if let Some(fill) = swatch {
         ui.painter().rect(rect, visuals.corner_radius, fill, visuals.bg_stroke, egui::StrokeKind::Inside);
@@ -537,7 +537,7 @@ impl Segment {
 /// A choice as a segmented control: its values side by side, drawn like ribbon buttons, the
 /// chosen one's mark (a selected ribbon button's fill and outline) sliding to the value chosen.
 /// The index of a value clicked other than the chosen one.
-/// Each segment is published as the handle `handle(index)` (§7 septies).
+/// Each segment is published as the handle `handle(index)` (docs/control-protocol.md).
 fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment], handle: impl Fn(usize) -> String) -> Option<usize> {
     let faces: Vec<Face> = segments.iter().map(|s| Face::new(ui, &s.label, s.icon)).collect();
     let widths: Vec<f32> = faces.iter().map(|f| f.width(OPTION_HEIGHT)).collect();
@@ -681,7 +681,7 @@ struct OutlinerRow<'d> {
     body: Option<BodyRow<'d>>,
 }
 
-/// A body in the outliner, under its part (§2.11 « Body groups »).
+/// A body in the outliner, under its part (docs/model/bodies.md#body-groups).
 struct BodyRow<'d> {
     part: &'d skraft_model::Part,
     body: &'d skraft_model::Body,
@@ -693,7 +693,7 @@ struct BodyRow<'d> {
     profile: bool,
 }
 
-/// The icon of a body's nature (§2.11 « Body names »).
+/// The icon of a body's nature (docs/model/bodies.md#body-names).
 fn nature_icon(nature: Nature) -> egui::ImageSource<'static> {
     match nature {
         Nature::Extrusion => icons::EXTRUSION,
@@ -713,7 +713,7 @@ fn weak_share(v: &egui::Visuals) -> f32 {
     if span > 0.0 { (d(text, weak) / span).clamp(0.0, 1.0) } else { 0.0 }
 }
 
-/// What the interface calls the body `b` of `p`: its definition's name (§2.11 « Body names »),
+/// What the interface calls the body `b` of `p`: its definition's name (docs/model/bodies.md#body-names),
 /// automatic or not.
 fn body_label(p: &skraft_model::Part, b: &skraft_model::Body) -> String {
     p.def_of(b).name.clone()
@@ -873,7 +873,7 @@ pub fn outliner(
             } else {
                 text
             };
-            // A part in several pieces, or empty: an error to correct (§2.11). A body failed
+            // A part in several pieces, or empty: an error to correct (docs/model/bodies.md). A body failed
             // in it, at any depth, or a part in error in an assembly: ⚠ too, its name as it is
             // (the error is below, seen once unfolded).
             let part = doc.part(o.component).ok();
@@ -1326,11 +1326,11 @@ fn body_row(
     };
     let failed = b.part.is_failed(b.body.id);
     // A group failed (empty, or its boolean failing): ⚠ as a part in error, an error to correct
-    // (§2.11 « Empty parts »); one holding a body failed, at any depth: ⚠ too, its name as it is.
+    // (docs/model/bodies.md#empty-parts); one holding a body failed, at any depth: ⚠ too, its name as it is.
     let def = b.part.def_of(b.body);
     let inner = def.is_group() && !failed && holds_failure(b.part, def.children(), 0);
     let warned = (failed && def.is_group()) || inner;
-    // A name edited in place (§2.11 « Body names »), from a double-click, or F2 while it is the
+    // A name edited in place (docs/model/bodies.md#body-names), from a double-click, or F2 while it is the
     // one body selected: the body's own, shown first, where it has one and the double-click is
     // on it (F2: where it has one), else its definition's (« Haut <Trou#1> »), as an
     // occurrence's row.
@@ -1450,7 +1450,7 @@ fn start_rename(
     renamed
 }
 
-/// A row's name (a body's, a component's) edited in place in its navigator row (§2.11 « Body names »), under the key
+/// A row's name (a body's, a component's) edited in place in its navigator row (docs/model/bodies.md#body-names), under the key
 /// `id`: the name `current` wholly selected as it opens, to be typed over. Enter or a click away
 /// gives the text typed — empty: the name cleared —, Esc nothing: `Some` once done, `Some(None)`
 /// when nothing changes; None while it is edited.
@@ -1534,12 +1534,12 @@ fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
 }
 
 /// What is selected: an occurrence (a part, an assembly), a guide; a part open, a body or a
-/// group of its bodies, in it or in the group open (§2.11) — nothing shown for the part itself,
+/// group of its bodies, in it or in the group open (docs/model/bodies.md) — nothing shown for the part itself,
 /// the selection empty.
 pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let units = &doc.settings().units;
-    // A part selected at any depth (« Parts », §6 septendecies): shown as in its own assembly.
+    // A part selected at any depth (« Parts », docs/tools/selection.md): shown as in its own assembly.
     let (context, sel) = match editor.deep_selection() {
         [] => (editor.context_definition(), editor.selection().to_vec()),
         [p] => match doc.context_of(&p.instances) {
@@ -1623,7 +1623,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                 ui.end_row();
                 if let ComponentKind::Part(p) = &c.kind {
                     // In the part's own axes: length, width, thickness as the part lies; the
-                    // final shape's exact box, once the kernel has given it (§2.11). None for a
+                    // final shape's exact box, once the kernel has given it (docs/model/bodies.md). None for a
                     // part in several pieces, or empty: an error to correct.
                     if let Some(error) = pieces_error(p.pieces()) {
                         ui.label(t!("panel.entity_info.dimensions"));
@@ -1734,7 +1734,7 @@ fn placed_counts(doc: &Document, assembly: Id, memo: &mut FastMap<Id, (usize, us
 }
 
 /// What is wrong with a part of `pieces` lumps of material, if anything: a part is one piece of
-/// wood, in several or none (empty, §2.11 « Empty parts ») an error to correct.
+/// wood, in several or none (empty, docs/model/bodies.md#empty-parts) an error to correct.
 fn pieces_error(pieces: usize) -> Option<String> {
     match pieces {
         0 => Some(t!("panel.entity_info.empty")),
@@ -1776,7 +1776,7 @@ fn profile_info(ui: &mut egui::Ui, p: &skraft_model::Part, k: usize) {
     });
 }
 
-/// The body `k` of `p` (the open part, or the group open in it, §2.11): a body or a group, its
+/// The body `k` of `p` (the open part, or the group open in it, docs/model/bodies.md): a body or a group, its
 /// name as the outliner gives it — its definition's, edited here —, blank or machining (its
 /// sign toggled in the outliner), failed or not, its solid's size, how many bodies share its
 /// definition.
@@ -1892,7 +1892,7 @@ fn material_choice(ui: &mut egui::Ui, doc: &Document, salt: (&str, Id), current:
     .inner
 }
 
-/// The Matières panel (§7 quater): the document's materials — colour, name, delete — and the
+/// The Matières panel (docs/render/look.md): the document's materials — colour, name, delete — and the
 /// one the paint tool paints with; picking one starts the paint tool.
 pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) {
     let doc = editor.document();

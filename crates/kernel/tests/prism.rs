@@ -1,4 +1,4 @@
-//! Prisms of outlines with arcs (docs/ARCHITECTURE.md §6 nonies), built by SolidCore.
+//! Prisms of outlines with arcs (docs/tools/prism.md), built by SolidCore.
 #![cfg(feature = "engine")]
 
 use glam::{DVec2, DVec3};

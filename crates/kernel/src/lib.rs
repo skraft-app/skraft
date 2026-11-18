@@ -3,7 +3,7 @@
 //! A [`Solid`] is a SolidCore B-rep **record** (`solidcore_record::brep::Brep`): plain data,
 //! cloneable and serialisable, that the model can store, copy (undo) and save as is.
 //!
-//! The kernel runs **off the UI thread** (docs/ARCHITECTURE.md §7 ter): the model describes
+//! The kernel runs **off the UI thread** (docs/model/kernel.md): the model describes
 //! what it needs as a [`Job`] (records in, [`Task`]s), a [`KernelService`] runs it — on a
 //! thread, in a web worker, or inline for tests — and hands back the records produced with
 //! their display meshes. Without the `engine` feature this crate is only those types (and
@@ -144,7 +144,7 @@ pub enum Primitive {
     /// The outline `profile` (its corners in the XY plane through `origin`, relative to it, with
     /// the bulge of the side leaving each and their fillets: [`profile`], a simple outline either
     /// way round)
-    /// extruded along +Z by `height` (docs/ARCHITECTURE.md §6 nonies).
+    /// extruded along +Z by `height` (docs/tools/prism.md).
     Prism {
         origin: DVec3,
         profile: Vec<profile::Corner>,
@@ -152,7 +152,7 @@ pub enum Primitive {
     },
     /// The half profile `profile` (its corners `(x, z)` in the XZ plane through `origin`,
     /// relative to it, `x` the radius, never negative: [`profile::is_turnable`]) turned a whole
-    /// turn about the Z axis through `origin` (docs/ARCHITECTURE.md §6 undecies).
+    /// turn about the Z axis through `origin` (docs/tools/turned-bodies.md).
     Revolution {
         origin: DVec3,
         profile: Vec<profile::Corner>,
@@ -161,8 +161,8 @@ pub enum Primitive {
 
 impl Primitive {
     /// The same primitive at the origin of its own axes, and where that origin was: a part's
-    /// blank is built in the part's axes and placed by its occurrence (docs/ARCHITECTURE.md
-    /// §2.2). A box's origin is its lowest corner (its extents made positive), a cylinder's or
+    /// blank is built in the part's axes and placed by its occurrence (docs/model/data-model.md
+    /// ). A box's origin is its lowest corner (its extents made positive), a cylinder's or
     /// a cone's the centre of its base, a sphere's or a torus's its centre, a prism's the lowest
     /// corner of its profile's box, on its base, a revolution's its axis at the lowest height of
     /// its profile.
@@ -208,7 +208,7 @@ impl Solid {
     }
 
     /// A body with nothing in it: a stand-in while the kernel has not answered, or what is left
-    /// of a part without material (docs/ARCHITECTURE.md §2.11 « Empty parts »).
+    /// of a part without material (docs/model/bodies.md#empty-parts).
     pub fn empty() -> Self {
         Solid {
             record: Record {
@@ -261,7 +261,7 @@ impl Solid {
 ///
 /// Positions are `f32` **relative to `origin`** (the centre of the mesh's bounds, in `f64`), so
 /// a solid far from the model's origin keeps its precision: the renderer folds `origin` into
-/// the placement it computes in `f64` (docs/ARCHITECTURE.md §7 bis).
+/// the placement it computes in `f64` (docs/render/display.md).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Mesh {
     pub origin: DVec3,
@@ -279,7 +279,7 @@ pub struct Mesh {
 
 impl Mesh {
     /// The twelve edges of the box `lo..hi`, no faces: what stands for a solid whose mesh is
-    /// on its way (docs/ARCHITECTURE.md §7 ter).
+    /// on its way (docs/model/kernel.md).
     pub fn outline(lo: DVec3, hi: DVec3) -> Self {
         let origin = (lo + hi) * 0.5;
         let corner = |i: usize| {

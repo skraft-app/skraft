@@ -1,4 +1,4 @@
-//! Picking what a tool acts on, before it acts (ARCHITECTURE.md §6 septendecies « Select first »),
+//! Picking what a tool acts on, before it acts (docs/tools/selection.md#select-first),
 //! as OpenCutList's `SmartSelectActionHandler`: the selection when there is one; else a click
 //! takes the entity under the cursor, Shift clicks add or remove (the set taken once Shift is
 //! released), a rectangle takes what it encloses (left to right) or touches (right to left).
@@ -31,7 +31,7 @@ pub(super) struct Picker {
     pub marquee: Option<Marquee>,
     /// What a click would take.
     pub hovered: Option<Id>,
-    /// The part a click would take at any depth (« Parts », §6 septendecies).
+    /// The part a click would take at any depth (« Parts », docs/tools/selection.md).
     pub hovered_part: Option<EntityPath>,
     /// What was taken is let go (the copies made, Esc): the selection, still drawn, is not the
     /// target until something is picked again (the copy tools' OCL restart).
@@ -163,7 +163,7 @@ impl Picker {
         (vec![], false)
     }
 
-    /// [`Picker::input`] under « Parts » (§6 septendecies): parts at any depth.
+    /// [`Picker::input`] under « Parts » (docs/tools/selection.md): parts at any depth.
     fn input_parts(&mut self, input: &ToolInput, cx: &Cx<'_>) -> (Vec<Command>, bool) {
         match input {
             ToolInput::Hover { px } => self.hovered_part = cx.part_at(*px),

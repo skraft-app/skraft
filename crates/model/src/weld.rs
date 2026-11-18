@@ -1,4 +1,4 @@
-//! Plane welding (docs/ARCHITECTURE.md §2.11): after an operation, a planar face of a body it
+//! Plane welding (docs/model/bodies.md): after an operation, a planar face of a body it
 //! changed that lies a hair off a planar face of a body it left alone — closer than [`WELD`],
 //! parallel — is put on it exactly, its body stretched by that hair (its profile kept). Faces a
 //! few 1e-5 mm apart come from values read on the `f32` display mesh or from sums of rounded
@@ -11,9 +11,9 @@
 //! After each operation, two parallel faces of bodies of a part are on one plane or [`WELD`]
 //! apart at least, between bodies the operation left alone and those it changed.
 //!
-//! Only extruded bodies (their profile, §6 nonies) move: their caps along their axis, their
+//! Only extruded bodies (their profile, docs/tools/prism.md) move: their caps along their axis, their
 //! straight sides across it. Any body with planar faces is a reference. Through groups of
-//! bodies (§2.11 « Body groups »), the leaves are welded, placed in the part's axes, onto
+//! bodies (docs/model/bodies.md#body-groups), the leaves are welded, placed in the part's axes, onto
 //! leaves anywhere in the part; a leaf in a group shown by copies never moves (its faces lie
 //! elsewhere in each), a reference still.
 
@@ -91,7 +91,7 @@ impl Document {
     }
 
     /// [`Document::weld`] for the part `id`, `old` as it was: through its groups of bodies
-    /// (§2.11 « Body groups »), on its leaves placed in its axes.
+    /// (docs/model/bodies.md#body-groups), on its leaves placed in its axes.
     fn weld_part(&mut self, id: Id, old: &Part, solver: &mut dyn Solver) -> Result<Vec<Weld>> {
         let p = self.part(id)?.clone();
         let now = leaves(&p);
@@ -180,7 +180,7 @@ impl Document {
     }
 }
 
-/// A body of a part that is no group, reached through its groups (§2.11 « Body groups »).
+/// A body of a part that is no group, reached through its groups (docs/model/bodies.md#body-groups).
 struct Leaf {
     /// The bodies leading to it, its own last.
     path: Vec<Id>,

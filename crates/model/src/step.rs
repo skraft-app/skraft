@@ -1,5 +1,5 @@
 //! A STEP file read by the kernel ([`StepImport`]) as a document fragment
-//! (docs/ARCHITECTURE.md §8 ter), which [`Operation::Insert`](crate::Operation::Insert) then
+//! (docs/io/step-import.md), which [`Operation::Insert`](crate::Operation::Insert) then
 //! places in the model.
 //!
 //! A product with one body and nothing else is a part; a product with several bodies, or

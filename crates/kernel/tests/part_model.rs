@@ -1,4 +1,4 @@
-//! What the parts / machinings model (docs/ARCHITECTURE.md §2) asks of SolidCore: mirrors in a
+//! What the parts / machinings model (docs/model/data-model.md) asks of SolidCore: mirrors in a
 //! placement, a blank minus many tools, and how a bad machining fails. Run with
 //! `cargo test -p skraft-kernel --test part_model -- --nocapture` to see the timings.
 

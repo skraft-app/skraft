@@ -1,6 +1,6 @@
 [package]
 name = "skraft-mcp"
-description = "Skraft: an MCP server (stdio) over the control protocol — the running app, or an editor of its own without a window (docs/ARCHITECTURE.md §7 septies)"
+description = "Skraft: an MCP server (stdio) over the control protocol — the running app, or an editor of its own without a window (docs/control-protocol.md)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

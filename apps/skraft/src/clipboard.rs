@@ -1,4 +1,4 @@
-//! The app's clipboard (docs/ARCHITECTURE.md §6 decies): one for every document, holding
+//! The app's clipboard (docs/tools/copy-paste.md): one for every document, holding
 //! what was copied in memory; the system clipboard only gets a token naming it. Copying
 //! anything else anywhere replaces the token: ⌘V then no longer pastes the app's content.
 

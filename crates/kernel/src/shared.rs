@@ -1,4 +1,4 @@
-//! One kernel service for several documents (docs/ARCHITECTURE.md §6 octies): each document's
+//! One kernel service for several documents (docs/ui/file-tabs.md): each document's
 //! editor gets a [`KernelHandle`], itself a [`KernelService`], over one [`SharedKernel`] — one
 //! thread on the desktop, one web worker (one SolidCore wasm) in the browser.
 //!

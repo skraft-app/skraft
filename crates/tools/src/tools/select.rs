@@ -1,5 +1,5 @@
 //! Select: click, Shift+click, double-click to enter an assembly or open a part
-//! (ARCHITECTURE.md §2.9), a click off its grey box to leave it. In an open part showing its
+//! (docs/model/opening-a-part.md), a click off its grey box to leave it. In an open part showing its
 //! machinings, clicks take its machinings' tools. Dragging draws a selection rectangle (SketchUp):
 //! left to right it takes the entities it encloses entirely (window), right to left those it
 //! touches (crossing); Shift toggles them instead of replacing the selection.
@@ -24,7 +24,7 @@ pub struct SelectTool {
 
 impl SelectTool {
     fn click(&self, px: DVec2, mods: Modifiers, cx: &Cx<'_>) -> Vec<Command> {
-        // « Parts » (§6 septendecies): the part under the cursor, at any depth.
+        // « Parts » (docs/tools/selection.md): the part under the cursor, at any depth.
         if cx.parts {
             return match cx.part_at(px) {
                 Some(p) if mods.toggle => vec![Command::SelectPaths(toggled_paths(cx.deep, &[p]))],
@@ -81,10 +81,10 @@ impl Tool for SelectTool {
             // Its first click has already left the context when off its box: a double-click
             // only enters (one level left per double-click, as per click).
             // On a body of the open part with a profile, while they show: its profile edited
-            // (§2.11).
+            // (docs/model/bodies.md).
             ToolInput::DoubleClick { px, .. } => match cx.profiled_body_at(*px) {
                 Some(body) => vec![Command::EditProfile(body)],
-                // On a group of bodies: opened (§2.11 « Body groups »).
+                // On a group of bodies: opened (docs/model/bodies.md#body-groups).
                 None if let Some(group) = cx.group_body_at(*px) => vec![Command::Enter(group)],
                 None => match cx.pick(*px).and_then(|h| cx.selectable(&h.path)) {
                     Some(id) => vec![Command::Enter(id)],
@@ -195,7 +195,7 @@ pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> 
         .collect();
     taken.sort_by_key(|(rank, _)| *rank);
     let mut out: Vec<Id> = taken.into_iter().map(|(_, id)| id).collect();
-    // The guides of the active context (§6 quinquies).
+    // The guides of the active context (docs/tools/tape-measure.md).
     let path = cx.guide_path();
     for g in cx.scene.guides().iter().filter(|g| g.path == path) {
         let (all, any) = crate::guides::in_rect(cx.camera, cx.size, &g.shape, rect);
@@ -207,7 +207,7 @@ pub fn marquee_hits(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<Id> 
 }
 
 /// The parts at any depth under the active context the rectangle `a`–`b` (pixels) takes
-/// (« Parts », §6 septendecies): those lying entirely inside it, or with `crossing`, those it
+/// (« Parts », docs/tools/selection.md): those lying entirely inside it, or with `crossing`, those it
 /// touches. In the order of the scene.
 pub fn marquee_parts(cx: &Cx<'_>, a: DVec2, b: DVec2, crossing: bool) -> Vec<EntityPath> {
     let rect = (a.min(b), a.max(b));

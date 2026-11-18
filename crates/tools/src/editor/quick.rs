@@ -1,4 +1,4 @@
-//! The quick tools after a creation (docs/ARCHITECTURE.md §6 terdecies): a tool started from
+//! The quick tools after a creation (docs/tools/quick-tools.md): a tool started from
 //! the card hands back to the creation tool once its action is done; the tool that handed back
 //! is kept aside, and what is typed before the next shape starts goes to it (OCL's
 //! `callback_action_handler` and `previous_action_handler`). The card itself is shown by the
@@ -25,7 +25,7 @@ pub(super) struct Card {
     /// The occurrences made in the context, or the bodies in the open part.
     made: Vec<Id>,
     /// The assembly they were made in instead of the context (« Dessiner dans »,
-    /// §6 duodevicies), by its occurrences from the root: selected there, at any depth.
+    /// docs/tools/draw-options.md), by its occurrences from the root: selected there, at any depth.
     made_in: Option<Vec<Id>>,
     /// The centre of their box (world): where the card is drawn.
     anchor: DVec3,
@@ -121,7 +121,7 @@ impl Editor {
         let to = self.tool.kind();
         let card = self.card.take().filter(|c| self.card_valid(c));
         let selection = self.selection.clone();
-        // Selected first: the tool starts on it (§6 septendecies).
+        // Selected first: the tool starts on it (docs/tools/selection.md).
         if let Some(c) = &card {
             match &c.made_in {
                 Some(parent) => self.select_paths(c.made.iter().map(|&entity| EntityPath::new(parent.clone(), entity)).collect()),

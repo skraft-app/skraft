@@ -1,5 +1,5 @@
-//! The title bar (docs/ARCHITECTURE.md §7 quinquies): one band at the top of the window with
-//! the app's mark and name, the File menu, undo and redo, the file tabs (§6 octies,
+//! The title bar (docs/ui/title-bar.md): one band at the top of the window with
+//! the app's mark and name, the File menu, undo and redo, the file tabs (docs/ui/file-tabs.md,
 //! [`crate::tabs`]), the command search and the preferences, every button a command of the
 //! registry. The other menus are not in the bar: their commands are in the ribbon, the view bar
 //! ([`crate::view_bar`]), the command search and the shortcuts (as SolidCraft's bar).
@@ -7,7 +7,7 @@
 //! On the macOS desktop it is the window's title bar: the OS bar is hidden, the content runs
 //! under it ([`native_options`](crate::native_options)), room is left for the traffic lights,
 //! and its empty space moves the window (a double-click zooms it); the native menu bar
-//! ([`crate::native_menu`]) has every menu. Elsewhere (web, Windows, Linux) the OS frame is kept.
+//! ([`crate::native_menu`]) holds the File menu only. Elsewhere (web, Windows, Linux) the OS frame is kept.
 
 use skraft_i18n::{ellipsis, t};
 
@@ -53,7 +53,7 @@ pub struct Bar<'a> {
     pub session: Option<String>,
 }
 
-/// The control channel's mark (docs/ARCHITECTURE.md §7 quater): green while it runs,
+/// The control channel's mark (docs/ui/commands.md): green while it runs,
 /// flashing at each request; in red when it could not start. Its menu: the address, copy a
 /// test command, stop (or try again).
 pub struct RemoteMark {
@@ -64,7 +64,7 @@ pub struct RemoteMark {
     pub flash: f32,
     /// Why it is not running, though asked for.
     pub error: Option<String>,
-    /// Its token file (docs/ARCHITECTURE.md §7 septies), which the test command reads.
+    /// Its token file (docs/control-protocol.md), which the test command reads.
     pub token_file: Option<std::path::PathBuf>,
 }
 

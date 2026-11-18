@@ -1,15 +1,15 @@
-//! Move: click a start point, then a destination, both inferred (§6 ter): the destination
+//! Move: click a start point, then a destination, both inferred (docs/tools/inferences.md): the destination
 //! follows the red, green and blue axes from the start, and edges' parallels; the arrow keys
 //! lock an axis (→ red X, ← green Y, ↑ blue Z, ↓ unlock) and Shift holds the line inferred. A
 //! tap of the copy modifier (Option on macOS, Ctrl elsewhere), before or while moving, toggles
 //! copying; right after a copy, `5x` makes an array of 5 at the same step and `/5` spreads 5
 //! copies over the same distance. A typed distance finishes the move along the current
 //! direction (`@/2`: half the way so far), a typed point at it (`[x;y;z]` in the context's
-//! axes, `<dx;dy;dz>` from the start). What is moved is picked first (§6 septendecies, [`Picker`]):
+//! axes, `<dx;dy;dz>` from the start). What is moved is picked first (docs/tools/selection.md, [`Picker`]):
 //! the selection, else a click, Shift clicks or a rectangle; once moved, the selection is let
 //! go and the tool picks again.
 //!
-//! Paste at the cursor (§6 decies) carries what was just pasted in place with this tool, held
+//! Paste at the cursor (docs/tools/copy-paste.md) carries what was just pasted in place with this tool, held
 //! by a corner ([`MoveTool::carrying`]): the click puts the paste, moved, in the paste's
 //! place in the history (one step), without copying.
 
@@ -34,7 +34,7 @@ pub struct MoveTool {
     copy: bool,
     /// The entities moved (the selection taken).
     moving: Vec<Id>,
-    /// The parts moved at any depth (« Parts », §6 septendecies).
+    /// The parts moved at any depth (« Parts », docs/tools/selection.md).
     moving_paths: Vec<EntityPath>,
     cursor: Option<DVec3>,
     snap: Option<Inference>,
@@ -112,7 +112,7 @@ impl MoveTool {
                 let Some(last) = &mut self.last else { return vec![] };
                 return last.retype(*r);
             }
-            // Picking (§6 septendecies): what moves becomes the selection.
+            // Picking (docs/tools/selection.md): what moves becomes the selection.
             _ if picking => {
                 self.snap = None;
                 self.cursor = None;
@@ -260,7 +260,7 @@ impl Tool for MoveTool {
         true
     }
 
-    /// Picking what it moves (§6 septendecies).
+    /// Picking what it moves (docs/tools/selection.md).
     fn picking(&self) -> bool {
         matches!(self.state, State::Start) && self.pasted.is_none() && !self.taken
     }

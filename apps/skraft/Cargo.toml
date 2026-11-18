@@ -30,7 +30,7 @@ wgpu.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# The control protocol (ARCHITECTURE.md §7 septies): its methods, the editor's answers.
+# The control protocol (docs/control-protocol.md): its methods, the editor's answers.
 skraft-control.workspace = true
 # A clock on the web too (the render statistics overlay); already eframe's.
 web-time = "1.1"
@@ -38,9 +38,9 @@ web-time = "1.1"
 png = "0.17"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# The kernel runs on a thread of the app; on the web, in its own worker (ARCHITECTURE.md §7 ter).
+# The kernel runs on a thread of the app; on the web, in its own worker (docs/model/kernel.md).
 skraft-kernel = { workspace = true, features = ["engine"] }
-# The control protocol and its server (ARCHITECTURE.md §7 septies); volumes by the kernel.
+# The control protocol and its server (docs/control-protocol.md); volumes by the kernel.
 skraft-control = { workspace = true, features = ["engine"] }
 rfd.workspace = true
 # Runs the asynchronous file dialogs on a thread (src/file.rs).

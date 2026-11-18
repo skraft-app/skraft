@@ -37,7 +37,7 @@ const BUTTONS: [(Button, egui::PointerButton); 4] = [
     (Button::Forward, egui::PointerButton::Extra2),
 ];
 
-/// A navigation gesture under way (§6 quindecies).
+/// A navigation gesture under way (docs/ui/navigation-styles.md).
 struct Gesture {
     button: Button,
     egui: egui::PointerButton,
@@ -113,7 +113,7 @@ impl Viewport {
         Viewport::default()
     }
 
-    /// Shows document `doc` (docs/ARCHITECTURE.md §6 octies): its palette entries and its
+    /// Shows document `doc` (docs/ui/file-tabs.md): its palette entries and its
     /// meshes, the other documents' kept for when they are shown again.
     fn show_document(&mut self, doc: u64) {
         if doc != self.document {
@@ -284,7 +284,7 @@ impl Viewport {
         let (mods, events, time, zoom) = ui.input(|i| (i.modifiers, i.events.clone(), i.time, i.zoom_delta()));
         let nav_mods = Mods { shift: mods.shift, ctrl: mods.ctrl, alt: mods.alt, cmd: mac && mods.mac_cmd };
 
-        // The style's gestures (§6 quindecies). A drag starts past egui's threshold: a right
+        // The style's gestures (docs/ui/navigation-styles.md). A drag starts past egui's threshold: a right
         // button released before it is a click, kept for a context menu.
         if self.gesture.is_none() {
             for (b, eb) in BUTTONS {
@@ -347,7 +347,7 @@ impl Viewport {
         // Priority to the button: during a gesture the tool keeps the modifiers it had; one
         // pressed then stays hidden from it until released.
         let tool_mods = self.tool_modifiers(mods, mac);
-        // Shift held locks the line inferred (§6 ter); a point hovered a while is tracked: the
+        // Shift held locks the line inferred (docs/tools/inferences.md); a point hovered a while is tracked: the
         // editor needs the time, every frame while it waits.
         editor.set_shift(tool_mods.shift);
         editor.set_copy(modifiers(ctx, tool_mods).copy);
@@ -427,7 +427,7 @@ impl Viewport {
         }
     }
 
-    /// The modifiers the tool sees (§6 quindecies, priority to the button): the ones it had
+    /// The modifiers the tool sees (docs/ui/navigation-styles.md, priority to the button): the ones it had
     /// when a navigation gesture began, as long as it lasts; after it, a modifier pressed
     /// during it stays hidden until released.
     fn tool_modifiers(&mut self, mods: egui::Modifiers, mac: bool) -> egui::Modifiers {
@@ -460,7 +460,7 @@ impl Viewport {
         self.gesture.is_some()
     }
 
-    /// The palette entry of `material`, given on first use (§7 quater).
+    /// The palette entry of `material`, given on first use (docs/render/look.md).
     fn slot(&mut self, material: Option<Id>) -> u32 {
         let Some(m) = material else { return render::NO_MATERIAL };
         let next = self.slots.len() as u32;
@@ -479,7 +479,7 @@ impl Viewport {
         for (id, [r, g, b]) in &materials {
             palette[self.slots[id] as usize] = skraft_theme::srgb(*r, *g, *b);
         }
-        // Then the colours of an open part's tools (§2.9).
+        // Then the colours of an open part's tools (docs/model/opening-a-part.md).
         let tool_slot = palette.len() as u32;
         palette.push(theme.machining);
         palette.push(theme.machining_failed);
@@ -510,7 +510,7 @@ impl Viewport {
         renderer.retain_meshes(|k| scene.definition_mesh(skraft_model::Id(k)).is_some());
 
         let display = &doc.settings().display;
-        // The palette's, not the document's (docs/ARCHITECTURE.md §7 quater).
+        // The palette's, not the document's (docs/render/look.md).
         let [r, g, b, _] = theme.ui.view;
         let background = [r, g, b];
         let start = web_time::Instant::now();
@@ -560,12 +560,12 @@ impl Viewport {
                 }
             })
             .collect();
-        // An open part always shows its axes (ARCHITECTURE.md §2.9): the grid leaves out its
+        // An open part always shows its axes (docs/model/opening-a-part.md): the grid leaves out its
         // lines along them.
         let axes = display.axes || editor.open_part().is_some();
         let (mut lines, mut faint_lines, mut overlay, mut hidden_lines, mut boxes, mut fills) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        // Everything drawn over the model, through the drawer (§7 octies).
+        // Everything drawn over the model, through the drawer (docs/render/drawer.md).
         let out = Translated {
             lines: &mut lines,
             faint_lines: &mut faint_lines,
@@ -575,7 +575,7 @@ impl Viewport {
             fills: &mut fills,
         };
         out.push(&view.drawing, |c| theme_color(theme, c));
-        // The section's cut lines, bold in the edges' ink (§7 quater): a highlighted part's in
+        // The section's cut lines, bold in the edges' ink (docs/render/look.md): a highlighted part's in
         // its mark's edge colour, a faded part's faded.
         let [er, eg, eb, _] = theme.edge;
         lines.extend(view.section_cuts.iter().map(|c| render::Line {
@@ -632,7 +632,7 @@ impl Viewport {
             },
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
-        // A still view draws nothing: the target keeps its picture (§7 quater).
+        // A still view draws nothing: the target keeps its picture (docs/render/look.md).
         self.timing.redrawn = renderer.render(device, &state.queue, &mut encoder, size, &frame);
         if self.timing.redrawn {
             state.queue.submit([encoder.finish()]);
@@ -955,7 +955,7 @@ fn place(size: egui::Vec2, a: egui::Pos2, b: egui::Pos2, clear: &[egui::Rect]) -
         .unwrap_or_else(|| at(a + d * 0.5))
 }
 
-/// The inferred point's marker, coloured by kind, and its tooltip by the cursor (§6 ter).
+/// The inferred point's marker, coloured by kind, and its tooltip by the cursor (docs/tools/inferences.md).
 /// What it draws (screen), for the lengths to keep clear of.
 fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2, editor: &Editor, theme: &Theme) -> Vec<egui::Rect> {
     use egui::{Color32, Stroke, pos2, vec2};
