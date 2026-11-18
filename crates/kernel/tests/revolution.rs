@@ -63,8 +63,24 @@ fn a_profile_across_the_axis_is_refused() {
     let r = polygon(&[v(-5.0, 0.0), v(20.0, 0.0), v(20.0, 100.0), v(-5.0, 100.0)]);
     assert!(Solid::new_revolution(DVec3::ZERO, &r).is_err());
     // An arc bulging across the axis, its corners on it.
-    let r = [Corner::new(v(0.0, 0.0)), Corner::new(v(20.0, 0.0)), Corner::new(v(20.0, 10.0)), Corner::arc(v(0.0, 10.0), -0.5)];
+    let r = [Corner::new(v(0.0, 0.0)), Corner::new(v(20.0, 0.0)), Corner::new(v(20.0, 10.0)), Corner::arc(v(0.0, 10.0), 0.5)];
     assert!(Solid::new_revolution(DVec3::ZERO, &r).is_err());
+}
+
+#[test]
+fn an_arc_between_two_points_of_the_axis_bulging_inwards_turns() {
+    // Its corners on the axis, its centre behind it: a spindle torus's outer piece (SolidCore
+    // refused it up to `f02d13e`). A cylinder less the turned lens, x(z) = −3.75 + √(6.25² − (z − 5)²).
+    let r = [Corner::new(v(0.0, 0.0)), Corner::new(v(20.0, 0.0)), Corner::new(v(20.0, 10.0)), Corner::arc(v(0.0, 10.0), -0.5)];
+    let n = 100_000;
+    let lens: f64 = (0..n)
+        .map(|i| {
+            let z = (i as f64 + 0.5) / n as f64 * 10.0;
+            let x = -3.75 + (6.25f64.powi(2) - (z - 5.0).powi(2)).sqrt();
+            PI * x * x * 10.0 / n as f64
+        })
+        .sum();
+    assert!(close(Solid::new_revolution(DVec3::ZERO, &r).unwrap().volume().unwrap(), PI * 400.0 * 10.0 - lens));
 }
 
 #[test]

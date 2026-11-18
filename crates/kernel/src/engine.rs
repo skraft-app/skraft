@@ -232,23 +232,7 @@ impl Solid {
                 Quality::Preview => solidcore_tess::preview::tolerance(size, 1),
                 Quality::Final => solidcore_tess::MeshTolerance::display_of(size),
             };
-            let (mut plan, stats) = solidcore_tess::plan(&self.record, &tol, size).map_err(|e| Error::Mesh(e.to_string()))?;
-            // Faces the planner refined to its bound without reaching the tolerance (SolidCore
-            // on some splines, docs/REVIEW.md "Work: SolidCore"): tens of thousands of
-            // triangles each, no closer for them. The body planned again at the sag they did
-            // reach, the facet angle still keeping small radii round.
-            let reached = stats
-                .over_tolerance
-                .iter()
-                .filter(|o| o.caps.iter().any(|c| matches!(c, solidcore_tess::Cap::Refine)))
-                .map(|o| o.sag)
-                .fold(0.0, f64::max);
-            if quality == Quality::Final
-                && reached > tol.chord
-                && let Ok((again, _)) = solidcore_tess::plan(&self.record, &solidcore_tess::MeshTolerance::display(reached * 1.25), size)
-            {
-                plan = again;
-            }
+            let (plan, _) = solidcore_tess::plan(&self.record, &tol, size).map_err(|e| Error::Mesh(e.to_string()))?;
             let (m, _refused) = plan.evaluate();
             let visible: Vec<bool> = (0..m.edges.len()).map(|i| edge_drawn(&self.record, &m, i)).collect();
             let polylines: Vec<Vec<DVec3>> = m.edges.iter().map(|e| e.iter().map(|p| DVec3::new(p.x, p.y, p.z)).collect()).collect();
