@@ -158,6 +158,8 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
         "centered",
         "scope_all",
         "scope_this",
+        "select_context",
+        "select_parts",
         "rectangle_centered",
         "measure_radius",
         "measure_diameter",
