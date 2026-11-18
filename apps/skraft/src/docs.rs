@@ -164,14 +164,20 @@ impl Docs {
         }
     }
 
-    /// Shows the next tab (or the previous one), round the ends.
+    /// Shows the start page, the documents staying open.
+    pub fn home(&mut self) {
+        self.active = None;
+    }
+
+    /// Shows the next tab (or the previous one), round the ends; from the start page, the
+    /// first (or the last).
     pub fn cycle(&mut self, forward: bool) {
         let n = self.list.len();
-        if let Some(i) = self.active
-            && n > 1
-        {
-            self.active = Some(if forward { (i + 1) % n } else { (i + n - 1) % n });
-        }
+        self.active = match self.active {
+            Some(i) if n > 1 => Some(if forward { (i + 1) % n } else { (i + n - 1) % n }),
+            None if n > 0 => Some(if forward { 0 } else { n - 1 }),
+            a => a,
+        };
     }
 
     /// Closes tab `i`, without asking. The tab after it is shown if it was (the one before it
@@ -277,6 +283,22 @@ mod tests {
         assert_eq!(d.active().unwrap().id, x);
         d.close(0);
         assert!(d.active().is_none() && d.len() == 0, "the start page");
+    }
+
+    #[test]
+    fn the_start_page_keeps_the_tabs() {
+        let mut d = docs();
+        let ids: Vec<DocId> = (0..3).map(|k| open(&mut d, Some(&format!("/{k}"))).0).collect();
+        d.home();
+        assert!(d.active().is_none() && d.len() == 3);
+        // Closing a tab from the start page stays on it.
+        d.close(1);
+        assert!(d.active().is_none() && d.len() == 2);
+        d.cycle(true);
+        assert_eq!(d.active().unwrap().id, ids[0], "forward: the first tab");
+        d.home();
+        d.cycle(false);
+        assert_eq!(d.active().unwrap().id, ids[2], "backward: the last tab");
     }
 
     #[test]

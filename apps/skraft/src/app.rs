@@ -367,8 +367,14 @@ impl SkraftApp {
                 }
             }
         }
-        if let Some(i) = shown.and_then(|k| tabs.get(k).copied().flatten()) {
-            self.docs.select(i);
+        // None shown: the app quit on the start page.
+        match shown {
+            Some(k) => {
+                if let Some(i) = tabs.get(k).copied().flatten() {
+                    self.docs.select(i);
+                }
+            }
+            None => self.docs.home(),
         }
     }
 
@@ -737,6 +743,7 @@ impl SkraftApp {
             return match id {
                 "file.new" | "file.open" | "file.import" | "app.command_palette" | "app.preferences" | "view.render_stats" => true,
                 "app.journal" => true,
+                "view.next_tab" | "view.previous_tab" => self.docs.len() > 0,
                 "app.quit" | "app.remote_control" => !cfg!(target_arch = "wasm32"),
                 _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
                 _ => PanelId::from_command(id).is_some(),
@@ -758,6 +765,7 @@ impl SkraftApp {
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "debug.crash_kernel" => self.debug_menu,
             "view.next_tab" | "view.previous_tab" => self.docs.len() > 1,
+            "view.home" => true,
             "app.quit" | "app.remote_control" => !cfg!(target_arch = "wasm32"),
             _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
             _ => commands::find(id).is_some(),
@@ -868,6 +876,10 @@ impl SkraftApp {
             }
             "view.next_tab" | "view.previous_tab" => {
                 self.docs.cycle(id == "view.next_tab");
+                true
+            }
+            "view.home" => {
+                self.docs.home();
                 true
             }
             "app.command_palette" => {
