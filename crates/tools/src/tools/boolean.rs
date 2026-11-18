@@ -44,6 +44,19 @@ impl Tool for BooleanTool {
         ToolKind::Boolean(self.op)
     }
 
+    /// The target (OCL's `STATE_SELECT_SRC`), then the tool part (`STATE_SELECT_CUT`).
+    fn cursor(&self, _cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        let first = self.target.is_none();
+        Some(match self.op {
+            Boolean::Union if first => crate::tools::Cursor::SelectUniteA,
+            Boolean::Union => crate::tools::Cursor::SelectUniteB,
+            Boolean::Difference if first => crate::tools::Cursor::SelectSubtractA,
+            Boolean::Difference => crate::tools::Cursor::SelectSubtractB,
+            Boolean::Intersection if first => crate::tools::Cursor::SelectIntersectA,
+            Boolean::Intersection => crate::tools::Cursor::SelectIntersectB,
+        })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         match input {
             ToolInput::Hover { px } => self.hover = cx.pick(*px).map(|h| h.path),

@@ -4,6 +4,7 @@
 mod app;
 mod clipboard;
 mod commands;
+mod cursors;
 #[cfg(not(target_arch = "wasm32"))]
 mod control;
 #[cfg(not(target_arch = "wasm32"))]

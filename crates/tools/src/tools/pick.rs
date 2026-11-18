@@ -9,7 +9,7 @@ use skraft_i18n::t;
 use skraft_model::{EntityPath, GuidePath, Id};
 
 use super::select::{marquee_guides, marquee_hits, marquee_parts, toggled, toggled_paths};
-use super::{Command, Cx, Marquee, Preview, ToolInput};
+use super::{Command, Cursor, Cx, Marquee, Preview, ToolInput};
 
 /// The least a rectangle is dragged to be one (pixels).
 const MIN_MARQUEE: f64 = 3.0;
@@ -270,6 +270,18 @@ impl Picker {
             Some(_) => t!("tool.select.hint.window"),
             None if self.gathering => gather,
             None => pick,
+        }
+    }
+
+    /// The cursor while picking, as OCL's `SmartSelectActionHandler` (docs/ui/cursors.md): the
+    /// rectangle's while one is dragged, « ± » with Shift held, else the tool's `pick`.
+    pub fn cursor(&self, cx: &Cx<'_>, pick: Cursor) -> Cursor {
+        if self.marquee.is_some() {
+            Cursor::SelectRect
+        } else if self.gathering || cx.shift_down {
+            Cursor::SelectPlusMinus
+        } else {
+            pick
         }
     }
 

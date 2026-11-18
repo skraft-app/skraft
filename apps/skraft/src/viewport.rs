@@ -10,7 +10,7 @@ use skraft_render as render;
 use skraft_theme::{Rgba, Theme};
 use skraft_tools::draw;
 use skraft_tools::navigation::{Button, Mods, NavAction, Trigger};
-use skraft_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput, ToolKind};
+use skraft_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput};
 
 use crate::prefs::Navigation;
 
@@ -161,25 +161,29 @@ impl Viewport {
         editor.set_viewport_size(DVec2::new(rect.width() as f64, rect.height() as f64));
         self.input(ui, &response, rect, editor, nav);
 
-        let cursor = match editor.tool_kind() {
-            _ if editor.busy() => egui::CursorIcon::Progress, // the kernel is at work
-            // Picking what the tool acts on: Select's arrow, the copy toggle's « + » included.
-            _ if editor.tool_picking() => egui::CursorIcon::Default,
-            _ if editor.tool_copying() => egui::CursorIcon::Copy, // SketchUp's « + »
-            // Primitives keep the arrow: the crosshair hides the snap point.
-            ToolKind::Select | ToolKind::Box | ToolKind::Cylinder | ToolKind::Prism | ToolKind::Turn => egui::CursorIcon::Default,
-            ToolKind::Move => egui::CursorIcon::Move,
-            ToolKind::Paint => egui::CursorIcon::PointingHand,
-            _ => egui::CursorIcon::Crosshair,
+        // The tool's own cursor at its step (docs/ui/cursors.md), else the system's icon.
+        let own = if editor.busy() { None } else { editor.tool_cursor() };
+        let cursor = if editor.busy() {
+            egui::CursorIcon::Progress // the kernel is at work
+        } else if editor.tool_picking() {
+            egui::CursorIcon::Default
+        } else if editor.tool_copying() {
+            egui::CursorIcon::Copy // SketchUp's « + »
+        } else {
+            egui::CursorIcon::Crosshair
         };
+        let mut shown = None;
         if response.hovered() {
-            let cursor = match self.gesture.as_ref().map(|g| g.action) {
-                Some(Some(NavAction::Orbit | NavAction::Pan)) => egui::CursorIcon::Grabbing,
-                Some(Some(NavAction::ZoomDrag | NavAction::ZoomWindow)) => egui::CursorIcon::ZoomIn,
-                _ => cursor,
+            let navigating = match self.gesture.as_ref().map(|g| g.action) {
+                Some(Some(NavAction::Orbit | NavAction::Pan)) => Some(egui::CursorIcon::Grabbing),
+                Some(Some(NavAction::ZoomDrag | NavAction::ZoomWindow)) => Some(egui::CursorIcon::ZoomIn),
+                _ => None,
             };
-            ui.ctx().set_cursor_icon(cursor);
+            // Navigating: the system's hand or magnifier.
+            shown = own.filter(|_| navigating.is_none());
+            ui.ctx().set_cursor_icon(navigating.unwrap_or(cursor));
         }
+        crate::cursors::show(ui.ctx(), shown);
 
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];

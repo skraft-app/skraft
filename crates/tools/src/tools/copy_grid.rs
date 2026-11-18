@@ -288,6 +288,11 @@ impl Tool for CopyGridTool {
         ToolKind::CopyGrid
     }
 
+    /// OCL's `STATE_SELECT` and `STATE_HANDLE` alike.
+    fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if self.picking() { self.picker.cursor(cx, crate::tools::Cursor::SelectCopyGrid) } else { crate::tools::Cursor::SelectCopyGrid })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         if self.picker.shift_released(cx) {
             self.last = None;

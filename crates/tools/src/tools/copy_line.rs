@@ -234,6 +234,11 @@ impl Tool for CopyLineTool {
         ToolKind::CopyLine
     }
 
+    /// OCL's `STATE_SELECT` and `STATE_HANDLE` alike.
+    fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if self.picking() { self.picker.cursor(cx, crate::tools::Cursor::SelectCopyLine) } else { crate::tools::Cursor::SelectCopyLine })
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         // Shift released: the selection made is taken.
         if self.picker.shift_released(cx) {

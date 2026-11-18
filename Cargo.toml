@@ -74,3 +74,8 @@ debug = false
 [profile.release]
 opt-level = 3
 lto = "thin"
+
+[patch.crates-io]
+# winit 0.30.13 with the app's cursors right on macOS (docs/ui/cursors.md): a custom cursor's
+# bitmap taken at @2x (Retina) and premultiplied. Branch `skraft` of the fork, one commit.
+winit = { git = "https://github.com/skraft-app/winit", rev = "0cb567f5a7bf32e062c8f020686eec86240a8f59" }
