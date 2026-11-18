@@ -4,6 +4,7 @@ description = "Skraft: camera, display scene (mesh caches, picking), selection, 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [dependencies]
 skraft-i18n.workspace = true

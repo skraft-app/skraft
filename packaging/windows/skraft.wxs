@@ -1,9 +1,9 @@
 <!--
   The Windows installer (WiX 5, scripts/package-windows.sh): Skraft in Program Files, a
   Start menu shortcut, an entry in Apps & features, the .skraft documents opened with it (a
-  double click starts the app with the file as its argument, src/opened.rs). A newer version
-  replaces the installed one.
-  Variables: Version (x.y.z), ExeFile, IconFile.
+  double click starts the app with the file as its argument, src/opened.rs), its license and
+  the third-party notices beside it. A newer version replaces the installed one.
+  Variables: Version (x.y.z), ExeFile, IconFile, LicenseFile, NoticesFile.
   The UpgradeCode identifies the product across versions: never change it.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
@@ -26,6 +26,12 @@
               <Verb Id="open" TargetFile="SkraftExe" Argument="&quot;%1&quot;" />
             </Extension>
           </ProgId>
+        </Component>
+        <Component>
+          <File Id="License" Source="$(LicenseFile)" Name="LICENSE.txt" KeyPath="yes" />
+        </Component>
+        <Component>
+          <File Id="Notices" Source="$(NoticesFile)" Name="THIRD-PARTY-LICENSES.txt" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>

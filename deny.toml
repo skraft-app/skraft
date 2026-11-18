@@ -1,0 +1,34 @@
+# cargo-deny: `cargo deny check licenses` (CI: .github/workflows/licenses.yml).
+#
+# Skraft is GPL-3.0-or-later: every dependency's license must be one it can be distributed
+# with. A license is added to `allow` only once checked compatible with the GPLv3 (the FSF's
+# list: https://www.gnu.org/licenses/license-list.html), and to about.toml's `accepted` too
+# (the third-party notices the installers ship). Never GPL-2.0-only alone, nor anything
+# non-free.
+
+[graph]
+all-features = true
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+  # Skraft itself.
+  "GPL-3.0-or-later",
+  # Permissive.
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "BSL-1.0",
+  "Unlicense",
+  "0BSD",
+  "Unicode-3.0",
+  # Weak copyleft, per file (dirs → option-ext), unmodified.
+  "MPL-2.0",
+  # Fonts embedded by egui (epaint_default_fonts): they keep their own license.
+  "OFL-1.1",
+  "Ubuntu-font-1.0",
+]

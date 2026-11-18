@@ -4,6 +4,7 @@ description = "Skraft: the colour and size tokens the viewport and the interface
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [dependencies]
 serde.workspace = true

@@ -4,6 +4,7 @@ description = "Skraft: a 3D CAD prototype modelling with exact solids, groups an
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [[bin]]
 name = "skraft"

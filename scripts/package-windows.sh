@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Packages a release build for Windows into dist/release/: Skraft-<version>-windows-<arch>.msi
-# (WiX 5, packaging/windows/skraft.wxs) and the bare executable zipped (no install).
-# Runs in Git Bash on Windows, the WiX tool installed (dotnet tool install --global wix --version 5.0.2).
+# (WiX 5, packaging/windows/skraft.wxs) and the bare executable zipped (no install), each with
+# LICENSE.txt and THIRD-PARTY-LICENSES.txt.
+# Runs in Git Bash on Windows, the WiX tool installed (dotnet tool install --global wix --version 5.0.2)
+# and cargo-about (scripts/third-party-licenses.sh).
 #   scripts/package-windows.sh x86_64-pc-windows-msvc   (after cargo build --release --target …)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -12,16 +14,23 @@ case "$arch" in x86_64) wix_arch=x64 ;; aarch64) wix_arch=arm64 ;; *) echo "unkn
 exe="target/$target/release/skraft.exe"
 [ -f "$exe" ] || { echo "no $exe: build it first" >&2; exit 1; }
 
+# A path for wix.exe: Git Bash's /tmp/… means nothing to it.
+native() { if command -v cygpath > /dev/null; then cygpath -w "$1"; else echo "$1"; fi; }
+
+work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+cp LICENSE "$work/LICENSE.txt"
+scripts/third-party-licenses.sh "$work/THIRD-PARTY-LICENSES.txt" > /dev/null
+
 mkdir -p dist/release
 name="Skraft-$version-windows-$arch"
 wix build packaging/windows/skraft.wxs -arch "$wix_arch" \
   -d Version="$version" -d ExeFile="$exe" -d IconFile=apps/skraft/assets/app-icon.ico \
+  -d LicenseFile="$(native "$work/LICENSE.txt")" -d NoticesFile="$(native "$work/THIRD-PARTY-LICENSES.txt")" \
   -o "dist/release/$name.msi"
 rm -f "dist/release/$name.msi.wixpdb" "dist/release/$name.wixpdb"
 
 # The portable executable.
-work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 cp "$exe" "$work/Skraft.exe"
 rm -f "dist/release/$name.zip"
-(cd "$work" && 7z a -tzip -bso0 "$OLDPWD/dist/release/$name.zip" Skraft.exe)
+(cd "$work" && 7z a -tzip -bso0 "$OLDPWD/dist/release/$name.zip" Skraft.exe LICENSE.txt THIRD-PARTY-LICENSES.txt)
 ls dist/release

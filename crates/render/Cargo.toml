@@ -4,6 +4,7 @@ description = "Skraft: the wgpu viewport renderer (definition meshes drawn insta
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [dependencies]
 skraft-kernel.workspace = true

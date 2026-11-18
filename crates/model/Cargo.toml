@@ -4,6 +4,7 @@ description = "Skraft: the document (definitions, solids, instances), its operat
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [features]
 # `Document::apply` / `History::apply`, running the kernel in place (tests, tools).

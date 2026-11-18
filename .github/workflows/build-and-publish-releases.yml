@@ -9,6 +9,8 @@
 #   v<version>, its tag created on the run's commit (an existing Release of that tag is updated).
 #   One box per OS, all ticked by default, picks the builds (`-f windows=false`…); a tag push
 #   builds them all.
+# - Before building: every dependency's license must be allowed by deny.toml (Skraft is
+#   GPL-3.0-or-later); each installer ships LICENSE and THIRD-PARTY-LICENSES.txt (cargo-about).
 # - The Release's text is the version's CHANGELOG.md entry (scripts/release-notes.sh, written
 #   with `/changelog` in Claude Code): a release without one stops at the Plan job, before the
 #   builds.
@@ -54,6 +56,11 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.21.0
+      - name: Check the dependencies' licenses
+        run: cargo deny --locked check licenses
       - name: Check the CHANGELOG.md entry
         if: github.event_name != 'workflow_dispatch' || inputs.release
         run: |
@@ -126,6 +133,11 @@ jobs:
       - name: WiX
         if: runner.os == 'Windows'
         run: dotnet tool install --global wix --version 5.0.2
+
+      # The third-party notices (scripts/third-party-licenses.sh).
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.3
 
       - name: Build
         run: cargo build --release --locked -p skraft --target ${{ matrix.target }}
