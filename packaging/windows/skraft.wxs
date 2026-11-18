@@ -1,0 +1,33 @@
+<!--
+  The Windows installer (WiX 5, scripts/package-windows.sh): Skraft in Program Files, a
+  Start menu shortcut, an entry in Apps & features, the .skraft documents opened with it (a
+  double click starts the app with the file as its argument, src/opened.rs). A newer version
+  replaces the installed one.
+  Variables: Version (x.y.z), ExeFile, IconFile.
+  The UpgradeCode identifies the product across versions: never change it.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Skraft" Manufacturer="L'Air du Bois" Version="$(Version)" UpgradeCode="056EB52C-EBAB-4A03-BC5D-A5CD57A747C7" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Skraft is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Skraft">
+        <Component>
+          <File Id="SkraftExe" Source="$(ExeFile)" Name="skraft.exe" KeyPath="yes">
+            <Shortcut Name="Skraft" Directory="ProgramMenuFolder" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" Advertise="no" />
+          </File>
+          <ProgId Id="Skraft.Document" Description="Skraft Document" Icon="SkraftExe" IconIndex="0" Advertise="no">
+            <Extension Id="skraft" ContentType="application/x-skraft">
+              <Verb Id="open" TargetFile="SkraftExe" Argument="&quot;%1&quot;" />
+            </Extension>
+          </ProgId>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>

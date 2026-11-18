@@ -1,7 +1,7 @@
 //! Inference tests.
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_model::{Document, EntityPath, Id, Operation, Primitive};
+use skraft_model::{Document, EntityPath, Id, Operation, Primitive};
 
 use super::*;
 use crate::tests::PartExt;
@@ -13,7 +13,7 @@ fn top_editor(at: DVec3) -> Editor {
 }
 
 fn view_editor(view: StandardView, at: DVec3) -> Editor {
-    let mut e = Editor::new(Document::new(), Box::new(solidsketch_kernel::Inline::default()));
+    let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
     e.set_parallel(true);
     let b = (at - DVec3::splat(1000.0), at + DVec3::splat(1000.0));
@@ -151,7 +151,7 @@ fn hidden_features_are_not_inferred() {
 
 #[test]
 fn an_open_part_s_bodies_hide_nothing() {
-    use solidsketch_model::{Scope, Sign};
+    use skraft_model::{Scope, Sign};
     let mut e = top_editor(DVec3::ZERO);
     // A part: a slab, and under it a small block, two positive bodies.
     let part = add_box(&mut e, DVec3::new(0.0, 0.0, 100.0), DVec3::new(400.0, 400.0, 20.0));
@@ -608,11 +608,11 @@ fn a_line_does_not_cross_an_edge_at_its_own_origin() {
 }
 
 /// Timing, not a check (review finding 7): hovers swept over large scenes, iso perspective.
-/// `cargo test --release -p solidsketch-tools infer_timing -- --ignored --nocapture`
+/// `cargo test --release -p skraft-tools infer_timing -- --ignored --nocapture`
 #[test]
 #[ignore]
 fn infer_timing() {
-    use solidsketch_model::{Boolean, Scope};
+    use skraft_model::{Boolean, Scope};
     use std::time::Instant;
 
     let iso = |e: &mut Editor| {

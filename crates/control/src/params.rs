@@ -284,7 +284,7 @@ pub struct LogParams {
 #[serde(deny_unknown_fields)]
 pub struct FailuresParams {
     /// One failure in full, by its `seq`: its job with its input solids (B-rep records) and
-    /// tasks, which `solidsketch_kernel::run` runs again. Without it, every failure summed up.
+    /// tasks, which `skraft_kernel::run` runs again. Without it, every failure summed up.
     pub seq: Option<u64>,
 }
 
@@ -309,7 +309,7 @@ pub struct RecordParams {
     #[serde(default)]
     pub action: RecordAction,
     /// `stop`: the test's name, a Rust identifier (default `recorded`); its file is
-    /// `crates/tools/tests/<name>.rs`, the document beside it as `<name>.ssk`.
+    /// `crates/tools/tests/<name>.rs`, the document beside it as `<name>.skraft`.
     pub name: Option<String>,
 }
 

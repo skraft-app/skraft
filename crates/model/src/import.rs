@@ -19,14 +19,14 @@ use std::time::{Duration, Instant};
 
 use glam::{DAffine3, DMat3, DVec3};
 use serde::Deserialize;
-use solidsketch_i18n::t;
+use skraft_i18n::t;
 
 use crate::document::{Assembly, Behavior, ComponentKind, Document, Id, Material, Occurrence, StretchMask};
 use crate::{Error, FileError, Result};
-use solidsketch_kernel::{PolyFace, Polyhedron, Solid};
+use skraft_kernel::{PolyFace, Polyhedron, Solid};
 
 /// The `format` field of an export.
-pub const SKETCHUP_FORMAT: &str = "solidsketch-sketchup-export";
+pub const SKETCHUP_FORMAT: &str = "skraft-sketchup-export";
 /// The export version this build reads.
 pub const SKETCHUP_VERSION: u32 = 1;
 /// How many of the slowest builds the report keeps.
@@ -226,7 +226,7 @@ type Built = std::result::Result<(Solid, usize, Duration), (String, usize, Durat
 /// needs).
 fn build_all<F>(export: &Export, requests: &[PartRequest], build: &F) -> Vec<Built>
 where
-    F: Fn(&Polyhedron) -> solidsketch_kernel::Result<Solid> + Sync,
+    F: Fn(&Polyhedron) -> skraft_kernel::Result<Solid> + Sync,
 {
     let next = AtomicUsize::new(0);
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(requests.len().max(1));
@@ -235,7 +235,7 @@ where
         let workers: Vec<_> = (0..threads)
             .filter_map(|_| {
                 std::thread::Builder::new()
-                    .stack_size(solidsketch_kernel::KERNEL_STACK)
+                    .stack_size(skraft_kernel::KERNEL_STACK)
                     .spawn_scoped(s, || {
                         let mut mine = Vec::new();
                         loop {
@@ -268,13 +268,13 @@ impl Document {
     /// `build`. Definitions whose faces make no closed solid are left out and reported.
     pub fn from_sketchup<F>(text: &str, build: &F) -> Result<(Document, ImportReport)>
     where
-        F: Fn(&Polyhedron) -> solidsketch_kernel::Result<Solid> + Sync,
+        F: Fn(&Polyhedron) -> skraft_kernel::Result<Solid> + Sync,
     {
         let unreadable = |e: String| Error::File(FileError::Unreadable(e));
         let t0 = Instant::now();
         let export: Export = serde_json::from_str(text).map_err(|e| unreadable(e.to_string()))?;
         if export.format != SKETCHUP_FORMAT {
-            return Err(Error::File(FileError::NotSolidSketch(export.format)));
+            return Err(Error::File(FileError::NotSkraft(export.format)));
         }
         if export.version > SKETCHUP_VERSION {
             return Err(Error::File(FileError::TooNew(export.version)));

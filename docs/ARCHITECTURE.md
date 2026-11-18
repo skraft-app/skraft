@@ -1,4 +1,4 @@
-# SolidSketch — architecture
+# Skraft — architecture
 
 A prototype of a solid-based 3D CAD tool, 100 % Rust, native and WebAssembly. Geometry engine:
 [SolidCore](https://github.com/tangency-labs/solidcore) (exact B-rep, a Rust port of SMLib), the
@@ -6,6 +6,10 @@ one behind [SolidCraft](https://github.com/tangency-labs/solidcraft). Modelling 
 SketchUp, designed for woodworking: **parts** (machined B-reps) and **assemblies**, both
 **components**, in a tree. Long-term goal: a cut list and a cutting diagram like
 [OpenCutList](https://github.com/lairdubois/lairdubois-opencutlist-sketchup-extension).
+
+Named SolidSketch until 2026-11-18 (a name already taken): crates `solidsketch-*`, documents
+`.ssk` with `"format": "solidsketch"`, folders `SolidSketch` under the user's config and data
+folders. No compatibility is kept with them (file format v1 until the first release).
 
 Decisions made on 2026-11-09, and on 2026-11-10 for the parts / assemblies model (§2),
 **partly implemented**: what is left is listed in §2.8 and in `docs/REVIEW.md`.
@@ -701,7 +705,7 @@ enters an assembly, Esc (or a click off the level's grey box) one up:
   as the machinings are; how the « Machinings » view shows them (ghost positives, solid
   negatives?) and where the profile grips go when several positives have one.
 - The rule naming the « main » lump (the first positive's, above) is a proposal.
-- The profiled machinings (worktree `solidsketch-profile-machining`, uncommitted) are set
+- The profiled machinings (worktree `skraft-profile-machining`, uncommitted) are set
   aside (2026-11-14): they are negative bodies with a `Profile` source, to build on this model.
 - Generators: a carcass (an assembly of parts, one per wall of an initial solid) is not a part
   and stays outside this model — a generator of assemblies whose parts are made of bodies, to
@@ -999,7 +1003,7 @@ Decided on 2026-11-09.
   `model.geometry` gives the topology).
 - **Toasts** (2026-11-16, `toasts.rs`), after OpenCutList's notifications
   (`SmartTool#notify`): the app's messages — a file not opened or not saved, the preferences
-  or the control channel failing, a command that cannot run, « modele.ssk enregistré » — and
+  or the control channel failing, a command that cannot run, « modele.skraft enregistré » — and
   the editor's notices (`Editor::take_notices`: an operation failed, with the kernel's or the
   model's words; a display failed; a STEP file imported, empty, failed, cancelled; an
   operation abandoned) stack at the bottom center, above the status bar, which keeps the
@@ -1034,11 +1038,11 @@ Decided on 2026-11-09.
     a single step. Not the view's background: a token of the palette (§7 quater, decided on
     2026-11-13 — a file never sets how the app looks). Lengths stay stored in mm: the unit only serves for input
     (a bare number is in the document's unit) and display;
-  - **user preferences** (`apps/solidsketch/src/prefs.rs`): language (§6 quater), navigation
+  - **user preferences** (`apps/skraft/src/prefs.rs`): language (§6 quater), navigation
     (orbit speed and direction, mouse and trackpad separately; zoom speed and target; the
     navigation style, §6 quindecies), the tools' settings and the settings of new models. A versioned JSON file of our
     own, `preferences.json` in the OS's configuration folder
-    (`~/Library/Application Support/SolidSketch/` on macOS), `localStorage` in the browser;
+    (`~/Library/Application Support/Skraft/` on macOS), `localStorage` in the browser;
     rewritten as soon as a preference changes.
   - `#[serde(default)]` everywhere: an older or partial file loads, a new setting needs no
     migration.
@@ -1268,7 +1272,7 @@ Decided on 2026-11-09.
 ## 6 quater. Texts and languages
 
 Every text the user sees is in a YAML catalog, one file per locale in `/locales` (`fr.yml`
-is the reference; English comes next). The `solidsketch-i18n` crate compiles them in with
+is the reference; English comes next). The `skraft-i18n` crate compiles them in with
 rust-i18n and is the only way to them: `t!("menu.file.open")`, `t!("status.save_failed",
 error = e)`. The code holds no user-visible string.
 
@@ -1281,7 +1285,7 @@ error = e)`. The code holds no user-visible string.
 - **Shared terms**: `common.*` holds generic terms (Undo, Erase, Copy, Grid…), named by meaning
   (`common.undo`, not after the French « Annuler », which is also a dialog's Cancel). A text
   takes one in with **`$t(key)`** — `menu.edit.undo_op: "$t(common.undo) %{op}"` — resolved at
-  lookup (`solidsketch_i18n::resolve`), nested references too, before the placeholders are
+  lookup (`skraft_i18n::resolve`), nested references too, before the placeholders are
   filled. Any key can be referred to; a term is taken as is (no change of case), so one used
   inside a sentence is written in the sentence. Each locale chooses its own references.
 - **Tool names** (`tool.<tool>.name`, also the commands' and ribbon buttons' labels): a verb in
@@ -1291,7 +1295,7 @@ error = e)`. The code holds no user-visible string.
   Cut; « Profil »).
 - **Values** are named, `%{name}`, and few: a sentence is one key, but a label built from
   parts stays built by the code ("Edge × red axis" is `infer.edge`, "×", `infer.line.axis`).
-- **No ellipsis** (…) in a catalog: the code adds it (`solidsketch_i18n::ellipsis`), the same
+- **No ellipsis** (…) in a catalog: the code adds it (`skraft_i18n::ellipsis`), the same
   for every language — "Open…" is `menu.file.open` + `…`. A sentence it would cut in the middle
   is two keys (`status.computing`, `status.computing_cancel`). A test checks it.
 - **Plurals**: a key and its `_plural` form (OpenCutList's convention), picked by `tp!(key,
@@ -1300,13 +1304,13 @@ error = e)`. The code holds no user-visible string.
 - **Errors** are typed (`model::Error`, `Refusal`, `FileError`, `ExprError`, `kernel::Error`):
   their `Display` looks up one key per kind. SolidCore's own messages stay in English inside.
 - **Platform**: hints and shortcuts name keys as the platform does (Option / Ctrl, `⇧⌘Z` /
-  `Ctrl+Shift+Z`); the app tells `solidsketch-i18n` whether it runs on a Mac (`ctx.os()`, right
+  `Ctrl+Shift+Z`); the app tells `skraft-i18n` whether it runs on a Mac (`ctx.os()`, right
   in the browser too).
 - **Numbers** follow the system's regional settings, not the texts' language (decided on
   2026-11-17): at start the app reads its decimal separator, and its list separator where it
   has one (`src/separators.rs`: macOS `NSLocale`, Windows `GetLocaleInfoEx` `LOCALE_SDECIMAL`
   / `LOCALE_SLIST`, Linux the numeric locale by `localeconv` on its own thread's locale, the
-  browser `Intl.NumberFormat`) and gives them to `solidsketch-i18n` (`set_separators`).
+  browser `Intl.NumberFormat`) and gives them to `skraft-i18n` (`set_separators`).
   Without a list separator (all but Windows) it follows from the decimal one: `;` after `,`,
   `,` after `.`; only `;` or `,`, never the decimal one. Until then, headless and in the tests,
   `,` and `;` (`with_separators` sets others on one thread, for the tests). Numbers are
@@ -1835,7 +1839,7 @@ another product.
   and quick-card menus, the Matière picker, combo boxes (`icons::combo_chevron`).
 - The render statistics card sits in the top right corner of the area the cards leave free
   (`Editor::free_area`), under the ribbon.
-- **Code**: `apps/solidsketch/src/ribbon.rs` (description, `Prefs`, `fit`, drawing, tests);
+- **Code**: `apps/skraft/src/ribbon.rs` (description, `Prefs`, `fit`, drawing, tests);
   the old tool bar (`panels::toolbar`) is gone.
 - **Texts**: `ribbon.*` keys of the catalog (workspaces, tabs, groups, menus' notes), without
   ellipsis (§6 quater).
@@ -1858,7 +1862,7 @@ The pattern is a web browser's; the drawing is ours.
 - **Global, not per document** (preferences, as today): the dock's layout, the workspace and
   ribbon tab, the tools' settings, theme, navigation. The model's settings stay in the
   document.
-- **Code**: `apps/solidsketch/src/docs.rs` (`Doc`, `Docs`: open, close, move, cycle — tested
+- **Code**: `apps/skraft/src/docs.rs` (`Doc`, `Docs`: open, close, move, cycle — tested
   without display), `tabs.rs` (the strip, `layout` and `drop_place` tested), the closing and
   quitting in `app.rs` (`Closing`, `advance_closing`, `save_prompt`); `kernel::SharedKernel` /
   `KernelHandle` (`crates/kernel/src/shared.rs`); `Renderer::set_document` / `drop_document`.
@@ -2163,13 +2167,13 @@ guides of an open part included.
   (⇧⌘V), in the Edit group (palette, shortcuts, control channel); enabled when the selection
   can be copied (`Editor::can_copy`: something selected, nothing computing, the tool at its
   first step), or when the clipboard fits the target (`Editor::can_paste`).
-- **Keys** (step 2, `apps/solidsketch/src/clipboard.rs`, `app.rs`): ⌘X, ⌘C and ⌘V reach the
+- **Keys** (step 2, `apps/skraft/src/clipboard.rs`, `app.rs`): ⌘X, ⌘C and ⌘V reach the
   app as egui's `Event::Cut` / `Event::Copy` / `Event::Paste(text)` — egui-winit sends no key
   for them; the web sends the key *and* the clipboard event, so the keys are ignored — and
   are fixed whatever the shortcuts, done only when enabled, silently otherwise. A text field
   being edited keeps them (egui wants the keyboard). `Event::Paste` pastes only when its text
   is the token; from the menu or the palette, the app's clipboard is trusted (the system
-  clipboard is not read). The token is `solidsketch-clipboard:<run nonce>:<copy count>`.
+  clipboard is not read). The token is `skraft-clipboard:<run nonce>:<copy count>`.
   eframe's `clipboard` feature is on (arboard on the desktop): before, the desktop used only
   egui's in-process clipboard, text fields included.
 - **The app's clipboard** (`Clipboard`): the `Clip` (`Clip::Entities(Arc<Document>)` or
@@ -2427,7 +2431,7 @@ handed back in `smart_tool.rb`'s `onToolUserText`). Built on 2026-11-15, in four
   hands back.
 - **The commands**: a fixed list of tools that make sense on a part just made — Copy along a
   line, Copy along a grid, Distribute, Move, Rotate, Stretch, Paint. Pinned by default: the
-  three copy tools (OCL's, less Move along line and Paneling, which SolidSketch has not).
+  three copy tools (OCL's, less Move along line and Paneling, which Skraft has not).
 - **Choosing them, as the ribbon's pins** (§6 septies): a last ▾ button opens the list of
   the commands, each row with a pin; right click on a button: Unpin. Order is the list's;
   since 2026-11-17 the user's, a button dragged along the row (§6 sexdecies), a pin added at
@@ -2466,7 +2470,7 @@ handed back in `smart_tool.rb`'s `onToolUserText`). Built on 2026-11-15, in four
   hidden while the kernel works or the tool is busy, and let go when the tool gets busy, on
   Alt / Esc, or a tool chosen. `start_quick_tool` takes it: what it was offered on becomes the
   selection.
-- **The card in the app, as built** (`apps/solidsketch/src/quick.rs`): an `egui::Area` centred on
+- **The card in the app, as built** (`apps/skraft/src/quick.rs`): an `egui::Area` centred on
   `quick_card()`, kept inside the view, drawn after the docked cards; a window frame at 35 %
   opacity at rest (`RESTING`; its border and shadow faded alike, the icons not) and 92 % under
   the pointer (`HOVERED`, hover of the last frame kept in egui's temp data), icon buttons 34 pt
@@ -2511,9 +2515,9 @@ notification « Nouvelle pièce créée : {{ name }} » offers a « Renommer » 
 
 Decided on 2026-11-16 (questions / answers). Not every CAD program moves the camera with the same
 buttons: SketchUp orbits with the middle button, Fusion 360 pans with it, Onshape and Rhino orbit
-with the right one. SolidSketch lets you pick the habits of the program you come from, as
+with the right one. Skraft lets you pick the habits of the program you come from, as
 FreeCAD's « navigation styles » do. You start from a preset and can change each gesture. The
-keyboard and the tools' modifiers stay SolidSketch's own.
+keyboard and the tools' modifiers stay Skraft's own.
 
 ### What a style covers, what it does not
 
@@ -2631,7 +2635,7 @@ pub enum NavAction { Orbit, Pan, ZoomDrag, ZoomWindow, Recentre, ZoomExtents, Pr
 
 ### Interface
 
-The Preferences' *Navigation* tab (`apps/solidsketch/src/nav_prefs.rs`), redrawn on 2026-11-16
+The Preferences' *Navigation* tab (`apps/skraft/src/nav_prefs.rs`), redrawn on 2026-11-16
 after a first try as a plain table: one column of labels, the same width (170 pt) in every
 section, each section a semibold title and a thin line (`style::settings_section`,
 `settings_grid`, the Model tab's too); the tab scrolls down to the screen's bottom.
@@ -2674,7 +2678,7 @@ section, each section a semibold title and a thin line (`style::settings_section
   any camera move: gesture, standard view, zoom extents, projection, recentre, a wheel or pinch
   burst; `previous_view`, `next_view`). The view a move ends on is recorded lazily, at the next
   move or at « previous view ». A new or replaced document starts with no history.
-- `apps/solidsketch/src/viewport.rs`: a gesture state (`Gesture`: its button, the press point,
+- `apps/skraft/src/viewport.rs`: a gesture state (`Gesture`: its button, the press point,
   the pointer, its action, the modifiers the tool had) resolved at every frame; the tool's
   modifiers (`Viewport::tool_modifiers`); the zoom window's dashed rectangle; the cursor (a hand
   for orbit and pan, a magnifier for the zooms). `Viewport::navigating` tells the modifier taps
@@ -2721,7 +2725,7 @@ file tabs.
   `display.hide_rest_of_model`, §7 bis X-ray): saved with it, one per tab, undone as the
   other display settings.
 - **Zoom extents** frames what is left free right of the bar.
-- **As built** (2026-11-17, `apps/solidsketch/src/view_bar.rs`): an `egui::Area` at
+- **As built** (2026-11-17, `apps/skraft/src/view_bar.rs`): an `egui::Area` at
   (`free_left` or the view's left margin, under the ribbon), a window frame at 35 % / 92 %
   (the hover of the last frame, or one of its menus open), buttons 30 pt (icon 18), the
   selection's fill behind a lit one; the views button is the pseudo-command `view.views`
@@ -2859,7 +2863,7 @@ something pick it first; then **A**, a selection scope that takes parts at any d
     drop-up is painted, not selected (`Tool::tree_pick`); painting faces, no scope, no list;
   - the clipboard: `Document::paths_fragment` (each occurrence in world axes, an id met twice
     drawn afresh), the hull from each path; cut erases them as Delete does;
-  - **OCL's tree drop-up** (`editor/tree.rs`, `apps/solidsketch/src/tree.rs`): under
+  - **OCL's tree drop-up** (`editor/tree.rs`, `apps/skraft/src/tree.rs`): under
     « Parts », while the tool picks (Select, Erase, Paint always; the others with nothing
     taken), the copy modifier pressed over a part of an assembly lists its path — the list's
     bottom right corner on the cursor —, the model's level first, the levels above the active context disabled; a row hovered is drawn hovered
@@ -2868,7 +2872,7 @@ something pick it first; then **A**, a selection scope that takes parts at any d
     makes is swallowed (no copy, no mirror toggled). Over a part of the active context itself,
     no list: the key keeps its meaning. The status says it (« Option maintenu : élément
     parent », « Choisir un élément dans la liste »).
-  - **one name writer** (`apps/solidsketch/src/instance_name.rs`), for the navigator's rows and
+  - **one name writer** (`apps/skraft/src/instance_name.rs`), for the navigator's rows and
     the drop-up: the instance's own name in semibold, then its definition's between faint
     angle brackets, own name or not (an automatic one in italics, greyed);
   - **one picking step**: the copy tools' « armed » state is the `Picker`'s (`aims`, `drop`,
@@ -2930,14 +2934,14 @@ Decided on 2026-11-17 (questions / answers), after OpenCutList's Smart Draw tool
 
 | Crate | Role | Depends on |
 |---|---|---|
-| `crates/i18n` — `solidsketch-i18n` | The texts (§6 quater): the `/locales` catalogs compiled in, `t!` / `tp!`, the current locale, plurals, decimal separator, platform key names. | `rust-i18n` |
-| `crates/theme` — `solidsketch-theme` | The colour tokens (§7 quater) of the viewport and the interface, light and dark themes, sRGB ↔ linear. No UI toolkit. | `serde` |
-| `crates/kernel` — `solidsketch-kernel` | `Solid` (record), primitives, booleans, transformation, face offset, display mesh (`Mesh`: positions, normals, indices, B-rep face per triangle, edges). Runs each call on a fresh `Kernel` and catches its panics. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `glam`, `i18n` |
-| `crates/model` — `solidsketch-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, versioned JSON file, reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
-| `crates/render` — `solidsketch-render` | wgpu pipelines (shaded faces, edges, grid, axes, highlight, previews), GPU cache of meshes per part, drawing of a list of `DrawItem { mesh, transform, style }` with a view-projection matrix. Knows neither egui nor the document. Usable off screen. | `kernel` (for `Mesh`), `wgpu`, `glam` |
-| `crates/tools` — `solidsketch-tools` | Camera (orbit/pan/zoom, ray from the screen), display scene (the document flattened into placed solids + mesh cache), picking by ray (CPU, triangle → B-rep face), the tools' state machines, typed dimensions, inferences. Testable without UI or GPU. | `model`, `kernel`, `i18n`, `glam` |
-| `crates/control` — `solidsketch-control` | The control protocol (§7 septies): methods and their parameters (with their JSON Schemas), the handlers that need only an `Editor` (`model.*`, `tool.*`), the loopback HTTP server with its per-start token and discovery files (desktop). No UI toolkit. | `model`, `tools`, `kernel`, `serde_json`, `schemars` |
-| `apps/solidsketch` | eframe: tool bar, outliner, entity info, status bar + VCB, viewport (`render`'s off-screen target shown as an egui texture), kernel service (native thread or Web Worker), translation of egui events into tool events, opening/saving. Native and wasm. | all of the above, `eframe`, `egui-wgpu` |
+| `crates/i18n` — `skraft-i18n` | The texts (§6 quater): the `/locales` catalogs compiled in, `t!` / `tp!`, the current locale, plurals, decimal separator, platform key names. | `rust-i18n` |
+| `crates/theme` — `skraft-theme` | The colour tokens (§7 quater) of the viewport and the interface, light and dark themes, sRGB ↔ linear. No UI toolkit. | `serde` |
+| `crates/kernel` — `skraft-kernel` | `Solid` (record), primitives, booleans, transformation, face offset, display mesh (`Mesh`: positions, normals, indices, B-rep face per triangle, edges). Runs each call on a fresh `Kernel` and catches its panics. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `glam`, `i18n` |
+| `crates/model` — `skraft-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, versioned JSON file, reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
+| `crates/render` — `skraft-render` | wgpu pipelines (shaded faces, edges, grid, axes, highlight, previews), GPU cache of meshes per part, drawing of a list of `DrawItem { mesh, transform, style }` with a view-projection matrix. Knows neither egui nor the document. Usable off screen. | `kernel` (for `Mesh`), `wgpu`, `glam` |
+| `crates/tools` — `skraft-tools` | Camera (orbit/pan/zoom, ray from the screen), display scene (the document flattened into placed solids + mesh cache), picking by ray (CPU, triangle → B-rep face), the tools' state machines, typed dimensions, inferences. Testable without UI or GPU. | `model`, `kernel`, `i18n`, `glam` |
+| `crates/control` — `skraft-control` | The control protocol (§7 septies): methods and their parameters (with their JSON Schemas), the handlers that need only an `Editor` (`model.*`, `tool.*`), the loopback HTTP server with its per-start token and discovery files (desktop). No UI toolkit. | `model`, `tools`, `kernel`, `serde_json`, `schemars` |
+| `apps/skraft` | eframe: tool bar, outliner, entity info, status bar + VCB, viewport (`render`'s off-screen target shown as an egui texture), kernel service (native thread or Web Worker), translation of egui events into tool events, opening/saving. Native and wasm. | all of the above, `eframe`, `egui-wgpu` |
 
 ## 7 bis. Display: the definition as the rendering unit
 
@@ -3101,7 +3105,7 @@ wasm) only kills the worker.
   status bar), it is restarted and the other tasks in flight are sent to it again.
 - **Testing the recovery**: **Debug › Crash the kernel** menu (task `Task::Panic`, followed by a
   normal task that must succeed). The menu is turned on at launch, in any build: `?debug` in the
-  page's address, `SOLIDSKETCH_DEBUG` in the environment on the desktop.
+  page's address, `SKRAFT_DEBUG` in the environment on the desktop.
 
 ## 7 quater. Taken from SolidCraft: rendering and interface
 
@@ -3144,13 +3148,13 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   *Warm* (warm greys, amber, the default), *Graphite* (cool, deeper greys, teal). A palette
   changes the interface only: the model's and the overlays' tokens stay the theme's. A test
   holds every variant to text ≥ 7:1 and dim text ≥ 3:1 on its grounds.
-- `apps/solidsketch/src/style.rs` turns a palette's tokens into egui's visuals and spacing for
+- `apps/skraft/src/style.rs` turns a palette's tokens into egui's visuals and spacing for
   **both** egui styles (light and dark) when it is chosen (at start-up, then on a change);
   egui switches with its theme, nothing is restyled per frame. *Preferences › Interface*
   shows each palette as a card drawn in its colours (the variant shown now); a click applies
   it at once.
 - **Fonts**: IBM Plex Sans (variable) and IBM Plex Mono (regular), SIL OFL
-  (`apps/solidsketch/assets/fonts/`), embedded in the binary (≈ 670 kB): Sans regular for
+  (`apps/skraft/assets/fonts/`), embedded in the binary (≈ 670 kB): Sans regular for
   text, semibold for headings, Mono for monospace; then the **key symbols**, then egui's
   fonts (symbols, emoji). Neither Plex nor egui's fonts have the macOS key symbols (⌘ ⌥ ⌃ ⌫ ⌦
   ⏎ ⇥): a subset of DejaVu Sans (Bitstream Vera licence, `assets/fonts/dejavu-sans/`, ≈ 18 kB),
@@ -3254,7 +3258,7 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
 
 ### Command registry and external driving
 
-- `apps/solidsketch/src/commands.rs`: every command has a **stable id** (`edit.undo`,
+- `apps/skraft/src/commands.rs`: every command has a **stable id** (`edit.undo`,
   `tool.move`, `view.top`…), a label (a catalog text), its menu and a default shortcut. The
   app says whether it is enabled (or checked) and runs it. Menus, tool bar and keyboard come
   from it (the active tool's own keys — Esc, arrows, Tab, Delete, typed values — stay apart).
@@ -3262,11 +3266,11 @@ Decided on 2026-11-10 (questions / answers), after the comparison in `docs/REVIE
   = none), *Shortcuts* tab of the preferences (conflicts flagged). **Command palette**:
   Cmd/Ctrl+K, searches labels and ids (accents ignored), Enter runs.
 - **External driving** (desktop): an HTTP server on the **loopback** interface
-  (127.0.0.1, port: preference `remote_port`, default 7858; `SOLIDSKETCH_CONTROL_PORT` for
+  (127.0.0.1, port: preference `remote_port`, default 7858; `SKRAFT_CONTROL_PORT` for
   one launch), **off by default**. A new port (typed, or dragged and released, in the
   preferences) restarts it only if it is on and the port changed. Switched on and off
   while the app runs — command `app.remote_control` (checked while on), the *Débogage* (debug) tab of
-  the preferences — and remembered (preference `remote_control`); `SOLIDSKETCH_CONTROL=1`
+  the preferences — and remembered (preference `remote_control`); `SKRAFT_CONTROL=1`
   starts it for one launch without changing the preference. Stopping it frees the port (the
   listener's thread ends; requests on their way get a 503); a script may stop it with
   `POST /run app.remote_control` (its answer still comes). While on, the **title bar** shows
@@ -3293,7 +3297,7 @@ over the ghosts' rides with its placement (`render::Placement::opacity`: a machi
 Decided on 2026-11-10, after SolidCraft (`ui-kit/src/window_chrome.rs`, `app_bar.rs`). The
 menu strip is gone: its room goes to one bar holding the document and the commands used most.
 
-- **Title bar** (`apps/solidsketch/src/titlebar.rs`, 34 pt): the app's mark (`assets/app-icon.svg`),
+- **Title bar** (`apps/skraft/src/titlebar.rs`, 34 pt): the app's mark (`assets/app-icon.svg`),
   name and version (the workspace's, smaller and weak), the **File** menu (a text button: the registry's File commands), Undo / Redo, the
   file tabs (§6 octies), and at the right the
   command search (opens the palette, shows its shortcut; only its icon when the window is
@@ -3353,7 +3357,7 @@ window that says how far it is and can stop it.
 - **A load** (`Editor::loading`): a file opened (from `Editor::new`) or a STEP file imported,
   until its last final mesh: the file read (an import), previews done / asked, finals done /
   asked. `LoadEnd` (taken once by the app) says how it ended.
-- **The window** (`apps/solidsketch`, `loading_window`): a modal over the active document once
+- **The window** (`apps/skraft`, `loading_window`): a modal over the active document once
   its load has lasted 0.3 s (a small file would only flash it): its title (« Ouverture de… »,
   « Import de… »), a row per stage with its bar, « Annuler » (or Esc). It stays **until the last
   final mesh**. A document loading behind another tab shows it when brought forward.
@@ -3426,14 +3430,14 @@ grips), so a script clicks a name, not a pixel.
   `POST /call` with `{method, params}` as body, the only route (the first routes, `GET
   /state`…, are gone: nothing used them but scripts). Off by default, as now.
 - **Token**: at each start the server makes a random 256-bit token and writes it, as one line
-  of hex, to `control/<port>.token` in the app's data folder (`dirs::data_dir()/SolidSketch`;
+  of hex, to `control/<port>.token` in the app's data folder (`dirs::data_dir()/Skraft`;
   folder `0700`, file `0600`; on Windows, the user alone), and the port to
   `control/current.port`; both removed when the server stops. Every request sends
-  `Authorization: Bearer <token>`; `X-SolidSketch: 1` stays (CSRF guard). A client finds the
-  running app by these two files. `SOLIDSKETCH_CONTROL_TOKEN` gives a token for a launch
+  `Authorization: Bearer <token>`; `X-Skraft: 1` stays (CSRF guard). A client finds the
+  running app by these two files. `SKRAFT_CONTROL_TOKEN` gives a token for a launch
   (tests, a sandbox).
 - **Web**: no listener (a page cannot open one). The same methods are exposed to the page as
-  `window.solidsketch.call(method, params)`, a promise (`wasm-bindgen`), handled on the UI
+  `window.skraft.call(method, params)`, a promise (`wasm-bindgen`), handled on the UI
   thread between frames like the desktop's. No token: any script of the page already has the
   app's power; it reaches nothing outside the tab. Per method: files are the browser's (the
   document comes and goes as JSON text, `docs.open` takes text, not a path); `screenshot`
@@ -3441,7 +3445,7 @@ grips), so a script clicks a name, not a pixel.
   answers like the threads). What drives it: an agent able to run JavaScript in the tab
   (Claude in Chrome), a Playwright test, the console. Later, the page may register the same
   tools with the browser (WebMCP, `navigator.modelContext`, once browsers ship it).
-- **MCP** (`apps/solidsketch-mcp`, stdio): a thin server mapping MCP tools onto the
+- **MCP** (`apps/skraft-mcp`, stdio): a thin server mapping MCP tools onto the
   methods, through a `Backend` trait with two implementations — **`Remote`**, the running
   desktop app found by `control/current.port` and its token (to watch the agent work), and
   **`Headless`**, an `Editor` and a kernel in the process, no window, used when no app runs
@@ -3454,12 +3458,12 @@ Agents' sessions each launch the app from their own worktree, beside the user's:
 which, and which one a client talks to, must be plain; and the journal must tell the user's
 doing from the pilot's.
 
-- **Identity of a dev build**: the app's build script (`apps/solidsketch/build.rs`, `dev`
+- **Identity of a dev build**: the app's build script (`apps/skraft/build.rs`, `dev`
   profile only) stamps the git worktree, branch, short commit, `dirty` (tracked changes not
-  committed) and build time (`SOLIDSKETCH_GIT_*`, `SOLIDSKETCH_BUILT`; run again on HEAD, the
-  index, the branch's ref or any source changed). `apps/solidsketch/src/identity.rs` reads
+  committed) and build time (`SKRAFT_GIT_*`, `SKRAFT_BUILT`; run again on HEAD, the
+  index, the branch's ref or any source changed). `apps/skraft/src/identity.rs` reads
   them (none in a release). Shown only in dev builds: a **badge** after the app's name in the
-  title bar — the worktree's short name (`solidsketch-prism-z` → `prism-z`; the branch for the
+  title bar — the worktree's short name (`skraft-prism-z` → `prism-z`; the branch for the
   main checkout) and the commit, `*` when dirty, on a hue hashed from the name (FNV-1a, the
   same at every launch) — or, launched by a Claude Code session named after a colour (red,
   orange, yellow, green, cyan, blue, purple, pink, or French rouge, jaune, vert, bleu, violet,
@@ -3467,20 +3471,20 @@ doing from the pilot's.
   (`sessionId`, `name`; else the file of that `sessionId`) every 2 s by a thread
   (`identity::Session`), so a `/rename` shows at once — its hover gives the worktree, branch,
   commit, build and launch times, pid, who launched it (the session's name too), the channel's
-  port; the window's title is `SolidSketch [name] — document`.
-- **Registry of running apps** (`solidsketch_control::instances`): every app (desktop) writes
+  port; the window's title is `Skraft [name] — document`.
+- **Registry of running apps** (`skraft_control::instances`): every app (desktop) writes
   `control/instances/<pid>.json` — pid, start, version, executable, its channel's port while
   on (kept up to date), its build, `claude_session` (`CLAUDE_CODE_SESSION_ID`, inherited from
-  the Claude Code session that launched it), `launcher` (`SOLIDSKETCH_LAUNCHER`, free text) —
+  the Claude Code session that launched it), `launcher` (`SKRAFT_LAUNCHER`, free text) —
   and holds a lock on `<pid>.lock` while it runs (`File::try_lock`); the OS frees the lock
   with a crashed process, so `instances::list` tells live apps from leftovers and removes
   those. Method `app.instances` lists them; `app.state` gives `instance`, the app answering.
 - **Which app a client calls** (`instances::choose`): among the apps whose channel is on, the
   one its own Claude Code session launched, else one built from the worktree it runs in
-  (path components), else the last started (`current.port`). `solidsketch-mcp` (`Remote`,
+  (path components), else the last started (`current.port`). `skraft-mcp` (`Remote`,
   no `--connect`) and `scripts/control.sh` (which also has `control.sh instances`) both do.
-- **Who did what**: a request may name its client, `X-SolidSketch-Client: <name>` (80
-  characters, one line; `Call::client`). `solidsketch-mcp` sends `mcp · session <8> ·
+- **Who did what**: a request may name its client, `X-Skraft-Client: <name>` (80
+  characters, one line; `Call::client`). `skraft-mcp` sends `mcp · session <8> ·
   <worktree>`, `control.sh` the same with its name. Each journal entry has an **origin**
   (`journal::Origin`: `User`, or `Control { client }`): the app sets it on every document's
   editor for each call it serves, and for each frame from the events it feeds — a frame fed
@@ -3495,13 +3499,13 @@ doing from the pilot's.
 
 ### Crates
 
-- `crates/control` — `solidsketch-control`: the requests and replies (types, schemas), the
+- `crates/control` — `skraft-control`: the requests and replies (types, schemas), the
   dispatch of a request to a handler, the token and discovery files, the loopback server and a
   client. No UI toolkit. The handlers that need only an `Editor` (`model.*`, `tool.*`,
   `view.*`) live beside it so that both the app and the headless backend call them.
-- `apps/solidsketch/src/control.rs`: what the window adds — documents, registry commands,
-  `ui.*`, screenshots, the title bar's mark — and the web's `window.solidsketch`.
-- `apps/solidsketch-mcp`: the MCP server and its two backends.
+- `apps/skraft/src/control.rs`: what the window adds — documents, registry commands,
+  `ui.*`, screenshots, the title bar's mark — and the web's `window.skraft`.
+- `apps/skraft-mcp`: the MCP server and its two backends.
 
 ### Order
 
@@ -3533,23 +3537,23 @@ doing from the pilot's.
    and tasks, serialisable): an operation's job that failed, a recipe that skipped bodies
    (`Output::Recipe::failed`), a mesh refused. `journal.log` (`since`, `limit`),
    `journal.failures` (`seq`: one in full; its `job` read back and given to
-   `solidsketch_kernel::run` fails again, headless). **Recording**: `journal.record`
+   `skraft_kernel::run` fails again, headless). **Recording**: `journal.record`
    `start` keeps the document (its JSON) and the tool, then each call from outside —
    `input`, `set_tool`, `set_tool_option`, Shift / copy / Alt changed, undo, redo — with the
    camera and viewport they were given in when they changed (hovers in a row: the last);
    `Editor::depth` leaves out what the editor calls itself (its own hovers, a tool it goes
    back to), so playing them again does not do it twice. `stop` writes a test of
-   `crates/tools/tests/<name>.rs` (the document beside it as `<name>.ssk`): the
+   `crates/tools/tests/<name>.rs` (the document beside it as `<name>.skraft`): the
    editor with the kernel inline, the view set, each input after a `poll` (a frame), the
    revision and the parts reached checked. Recorded in the app (a box, then a cylinder on
    it), the test passes and builds the same geometry. Not recorded: what panels do besides
    (the outliner's selection, entering a component from it).
-   **In the app** (2026-11-16): the **journal window** (`apps/solidsketch/src/journal_window.rs`,
+   **In the app** (2026-11-16): the **journal window** (`apps/skraft/src/journal_window.rs`,
    command `app.journal`: the control channel's mark's menu, the command palette) reads the
    shown tab's journal directly, channel on or off: its events (filtered by kind — inputs,
    hovers, left out at first, tools, operations, jobs — following the last; failed ones in
    red; copied as JSON lines, as `journal.log` gives them), its kernel failures (each copied
-   in full with its job, as `journal.failures` `seq` gives it: `solidsketch_control::json` is
+   in full with its job, as `journal.failures` `seq` gives it: `skraft_control::json` is
    public for this), and a recording under way. Its two tabs are drawn as the ribbon's
    (`ribbon::tab_strip`), their band joining the window's title bar.
 4. **Built** (2026-11-15, same branch). **Real input**: `ui.click` (`double`), `ui.move`,
@@ -3557,12 +3561,12 @@ doing from the pilot's.
    `ui.scroll` — each at `where`: a window point (`pos`), a handle's centre (`handle`) or a
    world point's pixel in the viewport (`at`), with `button` and `mods` (`shift`, `ctrl`,
    `alt`, `command`). They are egui events queued one frame at a time
-   (`apps/solidsketch/src/driving.rs`; `raw_input_hook` feeds them, the modifiers as
+   (`apps/skraft/src/driving.rs`; `raw_input_hook` feeds them, the modifiers as
    `ModifiersChanged` events, egui 0.37 having no modifiers in `RawInput`) and answered at the
    frame after the last one, once the widgets took them in; the window need not have the
    focus. Being egui points (`f32`), a box clicked this way measures 599.99993: `tool.input`
    stays the exact path, `ui.*` the real interface's. **Named handles**
-   (`apps/solidsketch/src/handles.rs`, after SolidCraft's `ui-registry`): widgets publish
+   (`apps/skraft/src/handles.rs`, after SolidCraft's `ui-registry`): widgets publish
    their rect per frame, double-buffered, kept only while the channel is on (nothing made
    otherwise) — `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<group>`,
    `titlebar:<command>`, `titlebar:file`, `titlebar:views`, `menu:<command>` (menu items),
@@ -3573,8 +3577,8 @@ doing from the pilot's.
    `request_screenshot`), PNG. `ui.messages` (`clear`): the status bar's texts as they
    changed, the last 200, with their time. Not yet published: the outliner's rows, entity
    info's fields, the palette, the preferences.
-   **Web**: `window.solidsketch.call(method, params)` (`apps/solidsketch/src/web.rs`, a
-   `wasm_bindgen` export `solidsketchCall`, set on `window` by `web/index.html`), a promise of
+   **Web**: `window.skraft.call(method, params)` (`apps/skraft/src/web.rs`, a
+   `wasm_bindgen` export `skraftCall`, set on `window` by `web/index.html`), a promise of
    the result (`Uint8Array` of PNG for a screenshot), rejected with an `Error`; at most 256
    calls waiting. Every method of the desktop, served by the same code (`driving::Asker`:
    a call and where its answer goes, whatever carried it); `app.screenshot` is the window's
@@ -3582,7 +3586,7 @@ doing from the pilot's.
    once the page has called. Checked in headless Chrome (Playwright): a box by `tool.input`
    (computed in the Web Worker), `app.wait`, `model.geometry`, a real click on
    `ribbon:tool.cylinder`, the screenshot, a refusal.
-5. **Built** (2026-11-15, same branch): `apps/solidsketch-mcp`, an MCP server over stdio
+5. **Built** (2026-11-15, same branch): `apps/skraft-mcp`, an MCP server over stdio
    (JSON-RPC 2.0, one message per line; revisions 2025-06-18, 2025-03-26, 2024-11-05:
    `initialize`, `ping`, `tools/list`, `tools/call`). **Hand-written** (`src/mcp.rs`, ~200
    lines, `serde_json` only), not `rmcp`: the subset is small, and the SDK would bring tokio
@@ -3594,14 +3598,14 @@ doing from the pilot's.
    unknown tool a JSON-RPC error. `initialize` gives instructions: units, `tool_input` at
    world points, `app_wait` after a change, the reading tools. **Backends**
    (`src/backend.rs`): `Remote` — the running app, its port and token read again at every
-   call (`solidsketch_control::server::discover` and `call`, a client of the loopback
+   call (`skraft_control::server::discover` and `call`, a client of the loopback
    server), so an app started or started again later is found; `Headless` — an `Editor` of
    its own (the kernel inline, a viewport of 1280 × 800), on an empty document or `--in
    FILE`, serving every headless method plus `app.state` and `app.wait` (answered at once:
    the kernel ran inline), the window's refused, said why. Without option the server takes
    the app if its channel answers, else headless; `--remote`, `--connect PORT`,
    `--headless`, `--in FILE` choose. The log goes to stderr. In Claude Code:
-   `claude mcp add solidsketch -- <repository>/target/debug/solidsketch-mcp`. Checked from
+   `claude mcp add skraft -- <repository>/target/debug/skraft-mcp`. Checked from
    a client over stdio, headless (12 tools, a box by `tool_input`, its geometry exact, a
    refusal) and on the app (25 tools, the same, a real click on `ribbon:tool.move`, a
    screenshot as an image).
@@ -3735,17 +3739,17 @@ on the CPU (up to a thousand pieces a segment) though the renderer dashes on the
 
 ## 8. File
 
-Versioned JSON (`{"format": "solidsketch", "version": 1, …}`): serde serialisation of the
+Versioned JSON (`{"format": "skraft", "version": 1, …}`): serde serialisation of the
 document, B-reps included (SolidCore's record format), and its settings (`settings`, missing
 from the first files: default values). In the browser: download and file upload.
 
-**Extension `.ssk`**, MIME type `application/x-solidsketch`. The installers associate it with
-the app (`packaging/`): an exported UTI `fr.lairdubois.solidsketch.document` and a document
+**Extension `.skraft`**, MIME type `application/x-skraft`. The installers associate it with
+the app (`packaging/`): an exported UTI `fr.lairdubois.skraft.document` and a document
 type on macOS, a ProgId on Windows, a shared-mime-info type and the `.desktop` entry's
 `MimeType` on Linux. A file double-clicked reaches the app as an argument (Windows, Linux: a
 new instance) or as an Apple Event « open documents » (macOS, launched or running: winit does
 not handle it, the app installs its own handler when it will finish launching); either way it
-waits in a queue (`apps/solidsketch/src/opened.rs`) and opens in a tab of its own at the next
+waits in a queue (`apps/skraft/src/opened.rs`) and opens in a tab of its own at the next
 frame.
 
 Components, occurrences, the parts' recipes (blank + machinings, with their `source`), the
@@ -3765,7 +3769,7 @@ instancing), mesh formats (OBJ, STL, glTF) lose faces or structure; SketchUp its
 structure one to one, which a performance comparison needs.
 
 - **Export inside SketchUp**: `scripts/sketchup/export.rb` (run in the Ruby console or through
-  the Claude Bridge) writes JSON `solidsketch-sketchup-export` v1: per definition its visible
+  the Claude Bridge) writes JSON `skraft-sketchup-export` v1: per definition its visible
   faces (shared vertices in mm, loops by index, outer first, normal) and instances (definition,
   name, 4×4 transform with its translation in mm, material), the model's own entities as
   `root`. Hidden entities and hidden tags left out.
@@ -3792,7 +3796,7 @@ structure one to one, which a performance comparison needs.
   comparison at equal geometry). Recognising `ArcCurve`s and smooth faces to rebuild exact
   cylinders may come later.
 - **Not carried**: face materials, tags, hidden geometry, attributes (OCL's included).
-- **Entry point**: `solidsketch-import export.json [out.ssk]` (`apps/import`), which
+- **Entry point**: `skraft-import export.json [out.skraft]` (`apps/import`), which
   prints counts and timings; the file then opens in the app like any other. An import from the
   app's menu may come later.
 
@@ -3835,7 +3839,7 @@ to undo.
   the operation's data; its components and materials copied with fresh ids (a material equal
   to one already there is reused), names made unique. The fragment's single top occurrence
   is placed itself; several are gathered in an assembly named after the file. Generic: the
-  SketchUp import, or inserting a `.ssk` file, may use it later.
+  SketchUp import, or inserting a `.skraft` file, may use it later.
 - **Not yet**: face colours, placing the import at the cursor (it lands at the context's
   origin), cancelling a long read.
 

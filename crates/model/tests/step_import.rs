@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
-use solidsketch_model::kernel::{Job, Output, StepImport, Task, run};
-use solidsketch_model::{Document, Operation, Outcome, Prepared};
+use skraft_model::kernel::{Job, Output, StepImport, Task, run};
+use skraft_model::{Document, Operation, Outcome, Prepared};
 
 /// Applies an operation that needs no kernel.
 fn apply(doc: &Document, op: &Operation) -> (Document, Outcome) {

@@ -5,7 +5,7 @@
 
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
-use solidsketch_i18n::t;
+use skraft_i18n::t;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -173,7 +173,7 @@ impl Units {
     /// rounded.
     pub fn number(&self, mm: f64) -> String {
         let approx = if self.is_rounded(mm) { APPROX } else { "" };
-        solidsketch_i18n::number(&format!("{approx}{}", self.rounded(mm)))
+        skraft_i18n::number(&format!("{approx}{}", self.rounded(mm)))
     }
 
     /// The number to the precision of the lengths shown (for editing it), never marked
@@ -183,7 +183,7 @@ impl Units {
         let p = 10f64.powi(PRECISION_DIGITS + self.length.mm().log10().ceil() as i32);
         let r = (mm / self.length.mm() * p).round() / p;
         let r = if r == 0.0 { 0.0 } else { r }; // no "-0"
-        solidsketch_i18n::number(&r.to_string())
+        skraft_i18n::number(&r.to_string())
     }
 
     /// `mm` in these units, to these decimals.

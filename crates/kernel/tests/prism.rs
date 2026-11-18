@@ -2,8 +2,8 @@
 #![cfg(feature = "engine")]
 
 use glam::{DVec2, DVec3};
-use solidsketch_kernel::Solid;
-use solidsketch_kernel::profile::{Corner, polygon, with_fillets};
+use skraft_kernel::Solid;
+use skraft_kernel::profile::{Corner, polygon, with_fillets};
 
 #[test]
 fn a_prism_with_arcs_is_built() {
@@ -14,7 +14,7 @@ fn a_prism_with_arcs_is_built() {
     // 4 sides, 2 caps; 12 edges; 8 vertices.
     assert_eq!(s.topology_counts(), (6, 12, 8));
     // Clockwise, the same.
-    let back = solidsketch_kernel::profile::reversed(&tomb);
+    let back = skraft_kernel::profile::reversed(&tomb);
     assert_eq!(Solid::new_prism(DVec3::ZERO, &back, 10.0).unwrap().topology_counts(), (6, 12, 8));
 
     // A board with rounded corners, its fillets as radii on the sharp corners.
@@ -27,6 +27,6 @@ fn a_prism_with_arcs_is_built() {
     // A disc as two half circles, either way round: a cylinder of two faces.
     let disc = [Corner::arc(v(-5.0, 0.0), 1.0), Corner::arc(v(5.0, 0.0), 1.0)];
     assert_eq!(Solid::new_prism(DVec3::ZERO, &disc, 10.0).unwrap().topology_counts(), (4, 6, 4));
-    let disc = solidsketch_kernel::profile::reversed(&disc);
+    let disc = skraft_kernel::profile::reversed(&disc);
     assert_eq!(Solid::new_prism(DVec3::ZERO, &disc, 10.0).unwrap().topology_counts(), (4, 6, 4));
 }

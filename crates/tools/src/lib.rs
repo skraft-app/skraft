@@ -1,4 +1,4 @@
-//! SolidSketch's interaction layer: the camera, the display scene (mesh caches, placements,
+//! Skraft's interaction layer: the camera, the display scene (mesh caches, placements,
 //! picking), the editing context and selection, and the interactive tools, all gathered in an
 //! [`Editor`]. No UI and no GPU here: the app forwards input and draws the [`View`].
 //! See docs/ARCHITECTURE.md §6, §7, §7 bis.

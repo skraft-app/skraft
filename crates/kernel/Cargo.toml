@@ -1,6 +1,6 @@
 [package]
-name = "solidsketch-kernel"
-description = "SolidSketch: SolidCore behind a small, safe, record-based API (primitives, booleans, transforms, display meshes), run as jobs off the UI thread"
+name = "skraft-kernel"
+description = "Skraft: SolidCore behind a small, safe, record-based API (primitives, booleans, transforms, display meshes), run as jobs off the UI thread"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,7 +12,7 @@ default = ["engine"]
 engine = ["dep:solidcore", "dep:solidcore-convert", "dep:solidcore-tess", "dep:solidcore-ops", "dep:solidcore-step"]
 
 [dependencies]
-solidsketch-i18n.workspace = true
+skraft-i18n.workspace = true
 solidcore = { workspace = true, optional = true }
 solidcore-record.workspace = true
 solidcore-convert = { workspace = true, optional = true }

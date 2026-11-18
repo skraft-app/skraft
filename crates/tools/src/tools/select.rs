@@ -5,8 +5,8 @@
 //! touches (crossing); Shift toggles them instead of replacing the selection.
 
 use glam::{DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, FastMap, Id};
+use skraft_i18n::t;
+use skraft_model::{EntityPath, FastMap, Id};
 
 use super::{Command, Cx, Marquee, Modifiers, Preview, Tool, ToolInput, ToolKind};
 use crate::camera::Projector;
@@ -258,7 +258,7 @@ fn screen_box(proj: &Projector, (lo, hi): &(DVec3, DVec3)) -> Option<(DVec2, DVe
     out
 }
 
-fn part_touches(proj: &Projector, m: &solidsketch_kernel::Mesh, world: &dyn Fn(&[f32; 3]) -> DVec3, rect: (DVec2, DVec2)) -> bool {
+fn part_touches(proj: &Projector, m: &skraft_kernel::Mesh, world: &dyn Fn(&[f32; 3]) -> DVec3, rect: (DVec2, DVec2)) -> bool {
     let screen: Vec<Option<DVec2>> = m.positions.iter().map(|p| proj.project(world(p))).collect();
     // Triangles; a stand-in (a box outline) has edges only.
     if m.indices.is_empty() {
@@ -316,7 +316,7 @@ fn in_triangle(p: DVec2, a: DVec2, b: DVec2, c: DVec2) -> bool {
 #[cfg(test)]
 mod tests {
     use glam::{DAffine3, DVec2, DVec3};
-    use solidsketch_model::{Document, Id, Operation, Primitive};
+    use skraft_model::{Document, Id, Operation, Primitive};
 
     use super::*;
     use crate::{Editor, StandardView, ViewArea};
@@ -373,7 +373,7 @@ mod tests {
             .apply(&Operation::Duplicate { context: root, entities: vec![outer], transform: DAffine3::from_translation(DVec3::Z * 150.0) })
             .unwrap()
             .0;
-        let mut e = Editor::new(doc, Box::new(solidsketch_kernel::Inline::default()));
+        let mut e = Editor::new(doc, Box::new(skraft_kernel::Inline::default()));
         e.set_viewport_size(DVec2::new(800.0, 600.0));
         let scene = (DVec3::ZERO, DVec3::new(900.0, 900.0, 250.0));
         let mut seed = 7u64;

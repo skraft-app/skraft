@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use solidsketch_i18n::t;
+use skraft_i18n::t;
 
 /// A unit mark after a number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,9 +237,9 @@ fn tokenize(text: &str, literal: &dyn Fn(&Literal) -> Result<Value>, variable: &
 }
 
 /// Is `ch` a decimal point: `.`, and `,` unless it is the system's list separator
-/// ([`solidsketch_i18n::list_separator`]: `,` then separates values, `10,5` is two).
+/// ([`skraft_i18n::list_separator`]: `,` then separates values, `10,5` is two).
 fn decimal_point(ch: char) -> bool {
-    ch == '.' || (ch == ',' && solidsketch_i18n::list_separator() != ',')
+    ch == '.' || (ch == ',' && skraft_i18n::list_separator() != ',')
 }
 
 /// The literal at `i`, if a number starts there, and where it ends.
@@ -597,7 +597,7 @@ mod tests {
         assert_eq!(eval("floor(5; 12; 15)"), Err(ExprError::NoMatchingValue("floor")));
         assert_eq!(eval("min(8,12)"), Err(ExprError::CommaSeparator("min")));
         // On a system writing `12.5`, `,` separates.
-        solidsketch_i18n::with_separators('.', None, || {
+        skraft_i18n::with_separators('.', None, || {
             assert_eq!(n("min(8,12)"), 8.0);
             assert!(eval("2,5").is_err(), "not a decimal point");
             assert_eq!(n("min(10.5, 20)"), 10.5);

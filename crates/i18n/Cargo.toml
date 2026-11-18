@@ -1,6 +1,6 @@
 [package]
-name = "solidsketch-i18n"
-description = "SolidSketch: the user-visible texts (one YAML catalog per locale in /locales), the current locale, plurals and number formatting"
+name = "skraft-i18n"
+description = "Skraft: the user-visible texts (one YAML catalog per locale in /locales), the current locale, plurals and number formatting"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

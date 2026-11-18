@@ -5,8 +5,8 @@
 use std::f64::consts::PI;
 
 use glam::{DVec2, DVec3};
-use solidsketch_kernel::profile::{Corner, polygon, reversed, with_fillets};
-use solidsketch_kernel::{Primitive, Solid};
+use skraft_kernel::profile::{Corner, polygon, reversed, with_fillets};
+use skraft_kernel::{Primitive, Solid};
 
 fn v(x: f64, z: f64) -> DVec2 {
     DVec2::new(x, z)

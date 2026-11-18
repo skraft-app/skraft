@@ -1,8 +1,8 @@
 //! Converts a SketchUp export (the JSON `scripts/sketchup/export.rb` writes) to a
-//! `.ssk` file, and says what it did:
+//! `.skraft` file, and says what it did:
 //!
 //! ```sh
-//! cargo run --release -p solidsketch-import -- model.json [model.ssk]
+//! cargo run --release -p skraft-import -- model.json [model.skraft]
 //! ```
 //!
 //! A developer tool (its output in English): the app will import from its own menu later.
@@ -11,16 +11,16 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use solidsketch_kernel::Solid;
-use solidsketch_model::Document;
+use skraft_kernel::Solid;
+use skraft_model::Document;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(input) = args.first().map(PathBuf::from) else {
-        eprintln!("usage: solidsketch-import <export.json> [<out.ssk>]");
+        eprintln!("usage: skraft-import <export.json> [<out.skraft>]");
         return ExitCode::FAILURE;
     };
-    let output = args.get(1).map(PathBuf::from).unwrap_or_else(|| input.with_extension("ssk"));
+    let output = args.get(1).map(PathBuf::from).unwrap_or_else(|| input.with_extension("skraft"));
     let is_step =
         input.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("step") || e.eq_ignore_ascii_case("stp"));
     if is_step {
@@ -90,8 +90,8 @@ fn main() -> ExitCode {
 /// A STEP file read as the app reads it (the kernel's `Task::ImportStep`, then
 /// `Document::from_step` and `Operation::Insert` into an empty model), saved, and reported.
 fn step(input: &std::path::Path, output: &std::path::Path) -> ExitCode {
-    use solidsketch_kernel::{Job, Output, Task};
-    use solidsketch_model::{Operation, Prepared};
+    use skraft_kernel::{Job, Output, Task};
+    use skraft_model::{Operation, Prepared};
 
     let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
     let bytes = match std::fs::read(input) {
@@ -103,7 +103,7 @@ fn step(input: &std::path::Path, output: &std::path::Path) -> ExitCode {
     };
     let t = Instant::now();
     let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] };
-    let step = match solidsketch_kernel::run(&job).map(|mut o| o.pop()) {
+    let step = match skraft_kernel::run(&job).map(|mut o| o.pop()) {
         Ok(Some(Output::Step(s))) => s,
         Ok(_) => {
             eprintln!("unexpected kernel output");
@@ -158,7 +158,7 @@ fn step(input: &std::path::Path, output: &std::path::Path) -> ExitCode {
     );
     println!("  read + build {:>8.1} ms   insert {:>6.1} ms   ({:.1} MB)", ms(read), ms(insert), json.len() as f64 / 1e6);
     println!("  tree:");
-    fn tree(step: &solidsketch_kernel::StepImport, product: usize, name: &str, depth: usize, budget: &mut usize) {
+    fn tree(step: &skraft_kernel::StepImport, product: usize, name: &str, depth: usize, budget: &mut usize) {
         if *budget == 0 || depth > 12 {
             return;
         }

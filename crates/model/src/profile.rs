@@ -8,8 +8,8 @@ use std::f64::consts::FRAC_PI_2;
 
 use glam::{DVec2, DVec3};
 use serde::{Deserialize, Serialize};
-use solidsketch_kernel::profile::{self, Corner, Side};
-use solidsketch_kernel::{Primitive, Stretch};
+use skraft_kernel::profile::{self, Corner, Side};
+use skraft_kernel::{Primitive, Stretch};
 
 /// The profile a body is made of: its corners — `(x, y)` in the body's XY plane for an
 /// extrusion, `(x, z)` in its XZ plane for a revolution (`x` the radius) — and how it is swept.

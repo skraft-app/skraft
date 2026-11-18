@@ -17,8 +17,8 @@
 
 use super::DragClicks;
 use glam::{DAffine3, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::Operation;
+use skraft_i18n::t;
+use skraft_model::Operation;
 
 use super::handle::{
     MIRROR, Measure, Memo, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure,
@@ -423,7 +423,7 @@ impl Tool for CopyLineTool {
 mod tests {
     use super::*;
     use crate::tools::Moved;
-    use solidsketch_model::Id;
+    use skraft_model::Id;
 
     fn target() -> Target {
         Target {

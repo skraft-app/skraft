@@ -11,8 +11,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use glam::DVec2;
-use solidsketch_model::Operation;
-use solidsketch_model::kernel::Job;
+use skraft_model::Operation;
+use skraft_model::kernel::Job;
 use web_time::Instant;
 
 use crate::camera::Camera;
@@ -82,7 +82,7 @@ pub enum JobKind {
 
 /// Who caused an entry: the person at the window, or a client of the control channel (an
 /// agent, a script: docs/ARCHITECTURE.md §7 septies), named by itself if it said (the
-/// `X-SolidSketch-Client` header).
+/// `X-Skraft-Client` header).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Origin {
     #[default]

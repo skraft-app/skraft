@@ -5,8 +5,8 @@
 use std::f64::consts::TAU;
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_kernel::SnapCurve;
-use solidsketch_model::{EntityPath, GuideShape};
+use skraft_kernel::SnapCurve;
+use skraft_model::{EntityPath, GuideShape};
 
 use super::{Curve, EdgeRef, Query};
 use crate::camera::{Projector, Ray};

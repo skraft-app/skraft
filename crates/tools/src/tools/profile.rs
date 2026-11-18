@@ -37,9 +37,9 @@
 //! axis is refused.
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::kernel::profile::{self, Corner, Side};
-use solidsketch_model::{BodyProfile, EntityPath, Id, Operation};
+use skraft_i18n::t;
+use skraft_model::kernel::profile::{self, Corner, Side};
+use skraft_model::{BodyProfile, EntityPath, Id, Operation};
 
 use super::{Command, Cx, INK, Key, MAGENTA, OptionValue, PICK, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
 use crate::draw::{Drawer, Drawing, Pen};

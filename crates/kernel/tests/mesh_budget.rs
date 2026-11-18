@@ -1,11 +1,11 @@
 //! How many triangles a real model's display costs, and where they come from (ignored; run
-//! with `BENCH_STEP=<file.step> cargo test -p solidsketch-kernel --release --test mesh_budget
+//! with `BENCH_STEP=<file.step> cargo test -p skraft-kernel --release --test mesh_budget
 //! -- --ignored --nocapture`).
 
 use std::collections::BTreeMap;
 
+use skraft_kernel::{Job, Output, Solid, StepImport, Task, run};
 use solidcore_tess::MeshTolerance;
-use solidsketch_kernel::{Job, Output, Solid, StepImport, Task, run};
 
 fn read(path: &str) -> StepImport {
     let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes: std::fs::read(path).unwrap() }] };
@@ -120,7 +120,7 @@ fn mesh_budget_retry() {
     let step = read(&path);
     let bodies: Vec<&Solid> = step.products.iter().flat_map(|p| p.bodies.iter().map(|b| &b.solid)).collect();
     let t = std::time::Instant::now();
-    let rows = solidsketch_kernel::parallel_map(&bodies, |s| {
+    let rows = skraft_kernel::parallel_map(&bodies, |s| {
         let sz = size(s);
         let tol = MeshTolerance::display_of(sz);
         let Ok((plan, stats)) = solidcore_tess::plan(s.record(), &tol, sz) else { return (0, 0, 0, false) };
@@ -277,7 +277,7 @@ fn mesh_budget_missing() {
         let sz = size(s);
         let faces = s.record().faces.len();
         biggest.push((sz, format!("{product:?} / {body:?}: {faces} faces")));
-        for q in [solidsketch_kernel::Quality::Preview, solidsketch_kernel::Quality::Final] {
+        for q in [skraft_kernel::Quality::Preview, skraft_kernel::Quality::Final] {
             match s.display_at(q) {
                 Ok(d) if d.mesh.indices.is_empty() => missing.push((sz, format!("{q:?} empty: {product:?} / {body:?} ({faces} faces)"))),
                 Ok(_) => {}

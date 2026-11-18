@@ -1,11 +1,11 @@
-# Exports the open SketchUp model for SolidSketch (crates/model/src/import.rs): visible faces
+# Exports the open SketchUp model for Skraft (crates/model/src/import.rs): visible faces
 # and component instances, definition by definition, lengths in mm.
 #
 # Run inside SketchUp (Ruby console, or the Claude Bridge `/eval`):
 #   load '/path/to/scripts/sketchup/export.rb'
-#   SolidSketchExport.run('/path/to/model.json')
+#   SkraftExport.run('/path/to/model.json')
 #
-# Format (`solidsketch-sketchup-export`, version 1):
+# Format (`skraft-sketchup-export`, version 1):
 #   materials   : [{ name, color: [r, g, b] }]
 #   definitions : [{ name, group, no_scale_mask, vertices, faces, instances }]
 #   root        : { vertices, faces, instances }      — the model's own entities
@@ -18,9 +18,9 @@
 
 require 'json'
 
-module SolidSketchExport
+module SkraftExport
 
-  FORMAT = 'solidsketch-sketchup-export'.freeze
+  FORMAT = 'skraft-sketchup-export'.freeze
   VERSION = 1
   MM = 25.4
 

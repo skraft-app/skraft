@@ -1,4 +1,4 @@
-//! SolidSketch's document: components — parts (positive and negative bodies) and assemblies —
+//! Skraft's document: components — parts (positive and negative bodies) and assemblies —
 //! placed by occurrences, the operations that change it, its undo history and its file
 //! format. See docs/ARCHITECTURE.md §2–§5 and §8.
 
@@ -32,9 +32,9 @@ pub use import::{ImportReport, SKETCHUP_FORMAT, SKETCHUP_VERSION};
 pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope, Warning};
 pub use profile::BodyProfile;
 pub use settings::{APPROX, Display, LengthUnit, Section, Settings, Units};
-use solidsketch_i18n::t;
-pub use solidsketch_kernel as kernel;
-pub use solidsketch_kernel::Primitive;
+use skraft_i18n::t;
+pub use skraft_kernel as kernel;
+pub use skraft_kernel::Primitive;
 pub use step::StepReport;
 pub use stretch::StretchedPart;
 pub use stretch::{BodyStretch, DefChange};
@@ -107,8 +107,8 @@ pub enum Refusal {
 pub enum FileError {
     /// Not JSON, or not the document's shape: the parser's message.
     Unreadable(String),
-    /// Another `format` than SolidSketch's.
-    NotSolidSketch(String),
+    /// Another `format` than Skraft's.
+    NotSkraft(String),
     TooNew(u32),
     RootNotAssembly,
     BadComponentId(Id),
@@ -181,7 +181,7 @@ impl std::fmt::Display for FileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&match self {
             FileError::Unreadable(e) => t!("error.file.unreadable", error = e),
-            FileError::NotSolidSketch(format) => t!("error.file.not_solidsketch", format = format),
+            FileError::NotSkraft(format) => t!("error.file.not_skraft", format = format),
             FileError::TooNew(version) => t!("error.file.too_new", version = version, supported = file::VERSION),
             FileError::RootNotAssembly => t!("error.file.root_not_assembly"),
             FileError::BadComponentId(id) => t!("error.file.bad_component_id", id = id),

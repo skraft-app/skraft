@@ -5,7 +5,7 @@
 //! - `;` separates values (`600;400`), an empty one keeps its current value (`;400`), `=`
 //!   repeats one (`600=` is `600;600`, `50==;20` is `50;50;50;20`), as [`list`] reads them —
 //!   every list typed goes through it. `,` separates them too on a system writing `12.5`
-//!   (its list separator, [`solidsketch_i18n::list_separator`]); otherwise `,` and `.` are
+//!   (its list separator, [`skraft_i18n::list_separator`]); otherwise `,` and `.` are
 //!   both decimal points. A list only splits outside parentheses, so `min(@; 300);400` is
 //!   two values. Values beyond those a field takes are left out;
 //! - `[x;y;z]` is a point in absolute coordinates, `<dx;dy;dz>` a point relative to another;
@@ -104,11 +104,11 @@ pub struct Item {
 
 /// The values of a typed list — every one goes through it, as OpenCutList's
 /// `_split_user_text`: split on `;`, and on the system's list separator when it is `,`
-/// ([`solidsketch_i18n::list_separator`]), outside parentheses and brackets; trimmed; `=`
+/// ([`skraft_i18n::list_separator`]), outside parentheses and brackets; trimmed; `=`
 /// after a value repeats it (`50=;-12` → `50`, `50`, `-12`; `50==` → three `50`). An item of
 /// `=` alone is no repeat (it does not read). Never empty: `""` is one empty value.
 pub fn list(text: &str) -> Vec<Item> {
-    let comma = solidsketch_i18n::list_separator() == ',';
+    let comma = skraft_i18n::list_separator() == ',';
     let mut typed = Vec::new();
     let mut depth = 0i32;
     let mut item = String::new();
@@ -138,7 +138,7 @@ pub fn list(text: &str) -> Vec<Item> {
 
 /// What [`list`] gives, written back: its values joined by the list separator.
 pub fn join<S: AsRef<str>>(values: impl IntoIterator<Item = S>) -> String {
-    let separator = format!("{} ", solidsketch_i18n::list_separator());
+    let separator = format!("{} ", skraft_i18n::list_separator());
     values.into_iter().map(|v| v.as_ref().to_owned()).collect::<Vec<_>>().join(&separator)
 }
 
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn lists_on_a_system_writing_12_point_5() {
-        solidsketch_i18n::with_separators('.', None, || {
+        skraft_i18n::with_separators('.', None, || {
             assert_eq!(values("10,5"), ["10", "5"]);
             assert_eq!(values("10;5, 2="), ["10", "5", "2", "2"]);
             assert_eq!(values("min(@, 300),400"), ["min(@, 300)", "400"]);
@@ -253,7 +253,7 @@ mod tests {
             assert_eq!(point("[1,2,3]", &mm(), target, target), Some(Ok(DVec3::new(1.0, 2.0, 3.0))));
         });
         // A system's list separator other than `,` (Windows': `;` with `.`): `,` is a decimal point.
-        solidsketch_i18n::with_separators('.', Some(';'), || assert_eq!(values("10,5;2"), ["10,5", "2"]));
+        skraft_i18n::with_separators('.', Some(';'), || assert_eq!(values("10,5;2"), ["10,5", "2"]));
     }
 
     #[test]

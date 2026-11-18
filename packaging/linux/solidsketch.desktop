@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=SolidSketch
-Comment=3D CAD modelling with exact solids
-Exec=solidsketch %F
-Icon=solidsketch
-Categories=Graphics;3DGraphics;Engineering;
-MimeType=application/x-solidsketch;
-Terminal=false

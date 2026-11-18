@@ -8,7 +8,7 @@
 use std::f64::consts::TAU;
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_model::{GuideShape, Units};
+use skraft_model::{GuideShape, Units};
 
 use crate::OrientedBox;
 use crate::camera::Camera;

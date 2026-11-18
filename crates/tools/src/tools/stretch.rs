@@ -49,9 +49,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::kernel::Solid;
-use solidsketch_model::{Behavior, EntityPath, Id, Operation, Scope};
+use skraft_i18n::t;
+use skraft_model::kernel::Solid;
+use skraft_model::{Behavior, EntityPath, Id, Operation, Scope};
 
 use super::handle::square;
 use super::pick::Picker;
@@ -217,7 +217,7 @@ fn placed_box(cx: &Cx<'_>, shape: &Arc<Solid>, t: DAffine3) -> Option<(DVec3, DV
 
 /// The turned bodies of `part` (those of `only`, if given), placed in the axes by `t`: their
 /// box and their axis.
-fn turned_bodies(cx: &Cx<'_>, part: &solidsketch_model::Part, t: DAffine3, only: Option<&[Id]>) -> Vec<(DVec3, DVec3, DVec3)> {
+fn turned_bodies(cx: &Cx<'_>, part: &skraft_model::Part, t: DAffine3, only: Option<&[Id]>) -> Vec<(DVec3, DVec3, DVec3)> {
     part.bodies
         .iter()
         .filter(|b| only.is_none_or(|o| o.contains(&b.id)) && part.profile_of(b).is_some_and(|f| f.is_turned()))

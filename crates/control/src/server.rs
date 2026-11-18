@@ -6,13 +6,13 @@
 //! "error": "…"}` with a status: 400 bad parameters, 404 no such method, 422 refused, 503
 //! unavailable. `app.ping` is answered here, without the UI.
 //!
-//! **Token**: each start makes a random 256-bit token (or takes `SOLIDSKETCH_CONTROL_TOKEN`)
+//! **Token**: each start makes a random 256-bit token (or takes `SKRAFT_CONTROL_TOKEN`)
 //! and writes it, as one line of hex, to `<dir>/<port>.token`, readable by the user alone, and
 //! the port to `<dir>/current.port`, where a client finds the running app; both are removed
-//! when it stops. `<dir>` is `SolidSketch/control` in the user's data folder ([`default_dir`]).
-//! Every request sends `Authorization: Bearer <token>` and `X-SolidSketch: 1` (a page in a
+//! when it stops. `<dir>` is `Skraft/control` in the user's data folder ([`default_dir`]).
+//! Every request sends `Authorization: Bearer <token>` and `X-Skraft: 1` (a page in a
 //! browser cannot send the latter without a preflight the server never answers); it may name
-//! its client with `X-SolidSketch-Client: <name>` (at most [`MAX_CLIENT`] characters), which
+//! its client with `X-Skraft-Client: <name>` (at most [`MAX_CLIENT`] characters), which
 //! the journal shows for what it caused.
 //!
 //! Several apps may run (one per worktree): each one says what it is in its own file of the
@@ -30,8 +30,8 @@ use serde_json::{Value, json};
 use crate::params::WaitParams;
 use crate::{Answer, Call, Error, Outcome};
 
-const GUARD: &str = "x-solidsketch";
-const CLIENT: &str = "x-solidsketch-client";
+const GUARD: &str = "x-skraft";
+const CLIENT: &str = "x-skraft-client";
 /// The longest client's name kept.
 pub const MAX_CLIENT: usize = 80;
 /// The largest body read (a batch of operations, later).
@@ -39,11 +39,11 @@ const MAX_BODY: usize = 1 << 20;
 /// How long a request waits for the UI, but `app.wait` (its own timeout, and some slack).
 const UI_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// The folder of the token and discovery files: `SolidSketch/control` in the user's data
+/// The folder of the token and discovery files: `Skraft/control` in the user's data
 /// folder (`~/Library/Application Support` on macOS, `~/.local/share` on Linux, `%APPDATA%`
 /// on Windows).
 pub fn default_dir() -> Option<PathBuf> {
-    Some(dirs::data_dir()?.join("SolidSketch").join("control"))
+    Some(dirs::data_dir()?.join("Skraft").join("control"))
 }
 
 /// The token file of the server on `port`.
@@ -87,7 +87,7 @@ impl Control {
     pub fn start(port: u16, dir: Option<&Path>, wake: impl Fn() + Send + Sync + 'static) -> Result<Control, String> {
         let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("127.0.0.1:{port} : {e}"))?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-        let token = match std::env::var("SOLIDSKETCH_CONTROL_TOKEN") {
+        let token = match std::env::var("SKRAFT_CONTROL_TOKEN") {
             Ok(t) if !t.trim().is_empty() => t.trim().to_owned(),
             _ => new_token()?,
         };
@@ -327,16 +327,16 @@ fn parse(method: &str, path: &str, body: &str) -> Result<Parsed, (u16, String)> 
 // ---- client ------------------------------------------------------------------------------------
 
 /// Where a running app's channel is: its port and token, from the discovery and token files in
-/// `dir` (or `port` given; `SOLIDSKETCH_CONTROL_TOKEN` for the token).
+/// `dir` (or `port` given; `SKRAFT_CONTROL_TOKEN` for the token).
 pub fn discover(dir: &Path, port: Option<u16>) -> Result<(u16, String), String> {
     let port = match port {
         Some(p) => p,
         None => std::fs::read_to_string(port_path(dir))
             .ok()
             .and_then(|t| t.trim().parse().ok())
-            .ok_or_else(|| format!("no running SolidSketch with its control channel on (no {})", port_path(dir).display()))?,
+            .ok_or_else(|| format!("no running Skraft with its control channel on (no {})", port_path(dir).display()))?,
     };
-    let token = match std::env::var("SOLIDSKETCH_CONTROL_TOKEN") {
+    let token = match std::env::var("SKRAFT_CONTROL_TOKEN") {
         Ok(t) if !t.trim().is_empty() => t.trim().to_owned(),
         _ => std::fs::read_to_string(token_path(dir, port))
             .map(|t| t.trim().to_owned())
@@ -351,7 +351,7 @@ pub fn call(port: u16, token: &str, call: &Call) -> Outcome {
     let body = json!({ "method": call.method, "params": call.params }).to_string();
     let unreachable = |e: std::io::Error| {
         Error::Unavailable(format!(
-            "no SolidSketch app answers at 127.0.0.1:{port} ({e}): start it with its control channel on (title bar, or SOLIDSKETCH_CONTROL=1)"
+            "no Skraft app answers at 127.0.0.1:{port} ({e}): start it with its control channel on (title bar, or SKRAFT_CONTROL=1)"
         ))
     };
     let mut stream =
@@ -363,10 +363,10 @@ pub fn call(port: u16, token: &str, call: &Call) -> Outcome {
     let _ = stream.set_read_timeout(Some(timeout));
     // One line: no line break smuggled into the headers.
     let client = call.client.as_deref().map_or_else(String::new, |c| {
-        format!("X-SolidSketch-Client: {}\r\n", c.chars().filter(|c| !c.is_control()).take(MAX_CLIENT).collect::<String>())
+        format!("X-Skraft-Client: {}\r\n", c.chars().filter(|c| !c.is_control()).take(MAX_CLIENT).collect::<String>())
     });
     let head = format!(
-        "POST /call HTTP/1.1\r\nHost: 127.0.0.1\r\nX-SolidSketch: 1\r\nAuthorization: Bearer {token}\r\n{client}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST /call HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Skraft: 1\r\nAuthorization: Bearer {token}\r\n{client}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes()).and_then(|_| stream.write_all(body.as_bytes())).map_err(unreachable)?;
@@ -407,7 +407,7 @@ mod tests {
         send(
             port,
             &format!(
-                "POST {path} HTTP/1.1\r\nX-SolidSketch: 1\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{body}",
+                "POST {path} HTTP/1.1\r\nX-Skraft: 1\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{body}",
                 body.len()
             ),
         )
@@ -415,7 +415,7 @@ mod tests {
 
     /// A folder of its own under the system's temporary one.
     fn temp_dir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("solidsketch-control-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("skraft-control-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }
@@ -444,16 +444,13 @@ mod tests {
         let unguarded =
             send(port, &format!("POST /call HTTP/1.1\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{ping}", ping.len()));
         assert!(unguarded.starts_with("HTTP/1.1 403"), "{unguarded}");
-        let no_token = send(port, &format!("POST /call HTTP/1.1\r\nX-SolidSketch: 1\r\nContent-Length: {}\r\n\r\n{ping}", ping.len()));
+        let no_token = send(port, &format!("POST /call HTTP/1.1\r\nX-Skraft: 1\r\nContent-Length: {}\r\n\r\n{ping}", ping.len()));
         assert!(no_token.starts_with("HTTP/1.1 401"), "{no_token}");
         let wrong = post(port, "00", "/call", ping);
         assert!(wrong.starts_with("HTTP/1.1 401"), "{wrong}");
         let pong = send(
             port,
-            &format!(
-                "POST /call HTTP/1.1\r\nx-solidsketch: 1\r\nauthorization: Bearer {token}\r\ncontent-length: {}\r\n\r\n{ping}",
-                ping.len()
-            ),
+            &format!("POST /call HTTP/1.1\r\nx-skraft: 1\r\nauthorization: Bearer {token}\r\ncontent-length: {}\r\n\r\n{ping}", ping.len()),
         );
         assert!(pong.contains("\"ok\":true"), "{pong}");
         // The one route.
@@ -463,7 +460,7 @@ mod tests {
         let run = send(
             port,
             &format!(
-                "POST /call HTTP/1.1\r\nX-SolidSketch: 1\r\nX-SolidSketch-Client: mcp · test\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{body}",
+                "POST /call HTTP/1.1\r\nX-Skraft: 1\r\nX-Skraft-Client: mcp · test\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{body}",
                 body.len()
             ),
         );

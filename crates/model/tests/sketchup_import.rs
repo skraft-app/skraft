@@ -2,8 +2,8 @@
 
 use glam::{DAffine3, DMat3, DVec3};
 use serde_json::{Value, json};
-use solidsketch_model::kernel::Solid;
-use solidsketch_model::{Document, ImportReport};
+use skraft_model::kernel::Solid;
+use skraft_model::{Document, ImportReport};
 
 /// The vertices and faces of a box `0..size`, as the exporter writes them.
 fn cuboid(size: [f64; 3]) -> Value {
@@ -57,7 +57,7 @@ fn cabinet() -> Value {
         ],
     });
     json!({
-        "format": "solidsketch-sketchup-export",
+        "format": "skraft-sketchup-export",
         "version": 1,
         "materials": [{ "name": "Chêne", "color": [180, 140, 90] }],
         "definitions": [board, cab, open],
@@ -114,7 +114,7 @@ fn faces_beside_instances_make_a_part_in_the_assembly() {
     );
     let leg = with(cuboid([10.0, 10.0, 50.0]), json!({ "name": "Pied" }));
     let export = json!({
-        "format": "solidsketch-sketchup-export",
+        "format": "skraft-sketchup-export",
         "version": 1,
         "definitions": [mixed, leg],
         "root": with(cuboid([5.0, 5.0, 5.0]), json!({ "instances": [instance(0, DAffine3::IDENTITY, "", None)] })),

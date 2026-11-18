@@ -15,8 +15,8 @@ use crate::infer::Inference;
 use crate::scene::Owner;
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 use glam::{DAffine3, DQuat, DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, Id};
+use skraft_i18n::t;
+use skraft_model::{EntityPath, Id};
 
 use super::{
     BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, guide_color,

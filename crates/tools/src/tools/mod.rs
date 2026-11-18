@@ -38,8 +38,8 @@ use std::collections::BTreeMap;
 
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
-use solidsketch_i18n::t;
-use solidsketch_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope, Section, Sign, Units};
+use skraft_i18n::t;
+use skraft_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope, Section, Sign, Units};
 
 use crate::camera::{Camera, Ray};
 use crate::infer::{self, EdgeRef, InferKind, Inference, LineKind, Lock, Query};
@@ -1278,12 +1278,12 @@ pub const GUIDE_PICK_PX: f64 = 5.0;
 
 /// The copy modifier's name for hints (SketchUp: Option on macOS, Ctrl elsewhere).
 pub fn copy_key() -> String {
-    if solidsketch_i18n::mac() { t!("key.option") } else { t!("key.ctrl") }
+    if skraft_i18n::mac() { t!("key.option") } else { t!("key.ctrl") }
 }
 
 /// The other modifier's name for hints (Command on macOS, Alt elsewhere).
 pub fn alt_key() -> String {
-    if solidsketch_i18n::mac() { t!("key.command") } else { t!("key.alt") }
+    if skraft_i18n::mac() { t!("key.command") } else { t!("key.alt") }
 }
 
 /// `hint`, said to be copying when it is.
@@ -1292,12 +1292,12 @@ fn with_copying(hint: String, copying: bool) -> String {
 }
 
 /// Neutral colour of construction lines (the theme's tokens, §7 quater).
-pub const INK: [f32; 4] = solidsketch_theme::GUIDE_INK;
+pub const INK: [f32; 4] = skraft_theme::GUIDE_INK;
 /// Axis colours (SketchUp's red, green, blue).
-pub const RED: [f32; 4] = solidsketch_theme::AXIS_X;
-pub const GREEN: [f32; 4] = solidsketch_theme::AXIS_Y;
-pub const BLUE: [f32; 4] = solidsketch_theme::AXIS_Z;
+pub const RED: [f32; 4] = skraft_theme::AXIS_X;
+pub const GREEN: [f32; 4] = skraft_theme::AXIS_Y;
+pub const BLUE: [f32; 4] = skraft_theme::AXIS_Z;
 /// Parallel and perpendicular guides (SketchUp's magenta).
-pub const MAGENTA: [f32; 4] = solidsketch_theme::FREE_LINE;
+pub const MAGENTA: [f32; 4] = skraft_theme::FREE_LINE;
 /// The highlight colour of picked things.
-pub const PICK: [f32; 4] = solidsketch_theme::PICK;
+pub const PICK: [f32; 4] = skraft_theme::PICK;

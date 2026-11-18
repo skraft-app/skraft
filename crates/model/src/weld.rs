@@ -20,8 +20,8 @@
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec2, DVec3};
-use solidsketch_kernel::Stretch;
-use solidsketch_kernel::profile::{self, Side};
+use skraft_kernel::Stretch;
+use skraft_kernel::profile::{self, Side};
 
 use crate::document::{Body, BodyDef, ComponentKind, Document, Id, Part};
 use crate::ops::Solver;

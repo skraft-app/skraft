@@ -4,7 +4,7 @@
 use std::f64::consts::{FRAC_PI_2, PI};
 
 use glam::{DAffine3, DMat3, DVec3};
-use solidsketch_kernel::{BooleanOp, Solid, Stretch, StretchError};
+use skraft_kernel::{BooleanOp, Solid, Stretch, StretchError};
 
 /// Volume enclosed by the display mesh, positive when its triangles face outwards.
 fn mesh_volume(s: &Solid) -> f64 {
@@ -107,7 +107,7 @@ fn a_cylinder_stretches_along_its_axis() {
 
 #[test]
 fn a_prism_with_arcs_stretches_along_its_height() {
-    use solidsketch_kernel::profile::{polygon, with_fillets};
+    use skraft_kernel::profile::{polygon, with_fillets};
     // A board with rounded corners: SolidCore writes its fillets' sides as NURBS nets extruded
     // along Z, not as cylinders.
     let corners = polygon(&[glam::DVec2::ZERO, glam::DVec2::new(600.0, 0.0), glam::DVec2::new(600.0, 300.0), glam::DVec2::new(0.0, 300.0)]);
@@ -217,7 +217,7 @@ fn malformed_stretches_are_refused() {
 
 #[test]
 fn a_stretch_crosses_to_the_worker_and_back() {
-    use solidsketch_kernel::{Job, Task, decode, encode};
+    use skraft_kernel::{Job, Task, decode, encode};
     let job = Job { inputs: vec![board().into()], tasks: vec![Task::Stretch { solid: 0, stretch: x_stretch(&[300.0], &[0.0, 10.0]) }] };
     let back: Job = decode(&encode(&job).unwrap()).unwrap();
     assert_eq!(back.tasks, job.tasks);
@@ -231,8 +231,8 @@ fn a_stretch_crosses_to_the_worker_and_back() {
     let bad = encode(&Raw { axis: DVec3::X, cuts: vec![1.0], moves: vec![0.0] }).unwrap();
     assert!(decode::<Stretch>(&bad).is_err());
     // Run: the board 10 longer.
-    let out = solidsketch_kernel::run(&job).unwrap();
-    let [solidsketch_kernel::Output::Solid { solid, display }] = &out[..] else { panic!("{out:?}") };
+    let out = skraft_kernel::run(&job).unwrap();
+    let [skraft_kernel::Output::Solid { solid, display }] = &out[..] else { panic!("{out:?}") };
     assert!(display.is_ok());
     assert_close(bounds(solid).1.x, 610.0, 1e-9);
 }

@@ -1,7 +1,7 @@
 //! Reading a STEP file through the kernel (`Task::ImportStep`): bodies, structure, colours.
 
 use glam::DVec3;
-use solidsketch_kernel::{Job, Output, StepImport, Task, run};
+use skraft_kernel::{Job, Output, StepImport, Task, run};
 
 fn import(bytes: &[u8]) -> StepImport {
     let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes: bytes.to_vec() }] };
@@ -65,8 +65,8 @@ fn garbage_is_an_error() {
 #[test]
 fn the_task_crosses_to_the_worker_as_bytes() {
     let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes: vec![1, 2, 3, 250] }] };
-    let encoded = solidsketch_kernel::encode(&job).unwrap();
+    let encoded = skraft_kernel::encode(&job).unwrap();
     assert!(encoded.len() < 64, "{} bytes", encoded.len());
-    let back: Job = solidsketch_kernel::decode(&encoded).unwrap();
+    let back: Job = skraft_kernel::decode(&encoded).unwrap();
     assert_eq!(back.tasks, job.tasks);
 }

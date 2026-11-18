@@ -4,8 +4,8 @@
 //! clicked (§2.5).
 
 use super::DragClicks;
-use solidsketch_i18n::t;
-use solidsketch_model::{Boolean, EntityPath, Operation, Scope};
+use skraft_i18n::t;
+use skraft_model::{Boolean, EntityPath, Operation, Scope};
 
 use super::{Command, Cx, OptionChoice, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption};
 

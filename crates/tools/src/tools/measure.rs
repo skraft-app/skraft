@@ -8,8 +8,8 @@
 
 use super::DragClicks;
 use glam::{DVec2, DVec3};
-use solidsketch_i18n::t;
-use solidsketch_model::{GuideShape, Operation};
+use skraft_i18n::t;
+use skraft_model::{GuideShape, Operation};
 
 use super::{
     BLUE, Command, Cx, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, alt_key,

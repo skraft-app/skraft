@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Creates a worktree beside the repository, ../solidsketch-<name>, on a new branch from main,
+# Creates a worktree beside the repository, ../skraft-<name>, on a new branch from main,
 # with main's build cache cloned so its first build compiles our crates only, not the
 # dependencies:
 #
 #   scripts/new-worktree.sh <name> [branch] [--build]
 #
-#   name      the worktree's suffix (letters, digits, -): ../solidsketch-<name>
+#   name      the worktree's suffix (letters, digits, -): ../skraft-<name>
 #   branch    the branch to make from main (default: feature/<name>); an existing one is
 #             checked out as it is
 #   --build   then `cargo build --workspace` in it, so it is ready

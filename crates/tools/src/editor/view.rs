@@ -2,7 +2,7 @@
 //! lines and the inferred point.
 
 use glam::{DAffine3, DVec3};
-use solidsketch_model::{EntityPath, Id, Section};
+use skraft_model::{EntityPath, Id, Section};
 
 use super::Editor;
 use crate::draw::{BoxStyle, Color, Drawer, Pen, Stipple, ThemeColor};
@@ -119,9 +119,9 @@ pub(crate) struct SelectionDrawing {
     key: DrawingKey,
     marks: Vec<ViewHighlight>,
     boxes: Vec<OrientedBox>,
-    set: solidsketch_model::FastSet<Id>,
+    set: skraft_model::FastSet<Id>,
     /// The occurrence chains of the parts selected at any depth (§6 septendecies).
-    deep: solidsketch_model::FastSet<Vec<Id>>,
+    deep: skraft_model::FastSet<Vec<Id>>,
 }
 
 /// What the selection's drawing hangs on: the scene's generation, the context, the selection,
@@ -130,7 +130,7 @@ type DrawingKey = (u64, Vec<Id>, Vec<Id>, bool, bool, Vec<EntityPath>);
 
 /// Is the placement `path` (occurrences from the root, its part's included) under one of
 /// `chains` (occurrence chains), below the first `depth` (the active context's)?
-fn under_any(chains: &solidsketch_model::FastSet<Vec<Id>>, path: &[Id], depth: usize) -> bool {
+fn under_any(chains: &skraft_model::FastSet<Vec<Id>>, path: &[Id], depth: usize) -> bool {
     !chains.is_empty() && (depth + 1..=path.len()).any(|k| chains.contains(&path[..k]))
 }
 
@@ -290,7 +290,7 @@ impl Editor {
         }
         // Each occurrence's parts, found once for its marks and its box. The box, in the
         // occurrence's axes, is its component's: worked out once per component.
-        let mut component_bounds: solidsketch_model::FastMap<Id, Option<(DVec3, DVec3)>> = Default::default();
+        let mut component_bounds: skraft_model::FastMap<Id, Option<(DVec3, DVec3)>> = Default::default();
         if let Some(index) = (!self.selection.is_empty()).then(|| ContextIndex::new(doc, &self.context)).flatten() {
             let mut under = Vec::new();
             // Neighbours often share their component: the last one's bounds first.
@@ -393,8 +393,8 @@ impl Editor {
         };
         // What the eraser would take: the context's occurrences (and the solids under them)
         // or the open part's machinings, drawn as ghosts, in batches of their own.
-        let erasing: solidsketch_model::FastSet<Id> = preview.erasing.iter().copied().collect();
-        let erasing_deep: solidsketch_model::FastSet<Vec<Id>> =
+        let erasing: skraft_model::FastSet<Id> = preview.erasing.iter().copied().collect();
+        let erasing_deep: skraft_model::FastSet<Vec<Id>> =
             preview.erasing_paths.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
         let erased = |p: &crate::scene::Placement| {
             (!erasing.is_empty()
@@ -507,7 +507,7 @@ impl Editor {
             for rb in r.bodies().filter(|b| !stretched(b.body) && !(hide_original && selected.contains(&b.body)) && !faded(b.body)) {
                 let Some(profile) = part.body(rb.body).and_then(|b| part.profile_of(b)) else { continue };
                 let outline = profile.outline();
-                let pts = solidsketch_model::kernel::profile::sample(&outline, BASE_STEP);
+                let pts = skraft_model::kernel::profile::sample(&outline, BASE_STEP);
                 let place = t * rb.placement;
                 // An extrusion's bottom cap; a turned body's half profile in its XZ plane, and
                 // its axis along it.
@@ -519,7 +519,7 @@ impl Editor {
                 let d = &mut Drawer::new(&self.camera, self.size, &doc.settings().units, &mut v.drawing);
                 d.pen(edge.bold()).curve(&pts.iter().map(|q| at(*q)).collect::<Vec<_>>(), true);
                 if profile.is_turned()
-                    && let Some((lo, hi)) = solidsketch_model::kernel::profile::bounds(&outline)
+                    && let Some((lo, hi)) = skraft_model::kernel::profile::bounds(&outline)
                 {
                     let over = (hi.y - lo.y) * 0.1;
                     let (a, b) = (place.transform_point3(DVec3::Z * (lo.y - over)), place.transform_point3(DVec3::Z * (hi.y + over)));
@@ -592,7 +592,7 @@ impl Editor {
         // The guides: the active context's (the open part's occurrence, else the context) —
         // selected, hovered or not —, and the others faded.
         let active: Vec<Id> = self.context.iter().copied().chain(self.open_part).collect();
-        let marquee_hits: solidsketch_model::FastSet<Id> = preview.marquee.iter().flat_map(|m| m.hits.iter().copied()).collect();
+        let marquee_hits: skraft_model::FastSet<Id> = preview.marquee.iter().flat_map(|m| m.hits.iter().copied()).collect();
         let hovered = |id: Id| preview.hover == Some(id) || marquee_hits.contains(&id);
         let guide = |c: ThemeColor| Pen::guide(Color::Theme(c));
         let faded = guide(ThemeColor::FadedGuide).blended();
@@ -681,7 +681,7 @@ impl Editor {
         }
         // The other occurrences a change reaches, the one aimed at excepted: those of the open
         // part (§2.9), else of the part a tool aims at.
-        let open_reaches_all = open.as_ref().filter(|_| self.part_scope == solidsketch_model::Scope::All);
+        let open_reaches_all = open.as_ref().filter(|_| self.part_scope == skraft_model::Scope::All);
         if let Some(aimed) = open_reaches_all.or(preview.propagate.as_ref())
             && let Ok((part, _, _)) = doc.resolve_part(aimed)
             && let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part)

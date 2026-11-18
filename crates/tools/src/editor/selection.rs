@@ -1,8 +1,8 @@
 //! Selection and the context being edited: select, enter and leave assemblies, open and close
 //! a part (ARCHITECTURE.md §2.9), erase, make an assembly, explode, make a part on its own.
 
-use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, Id, Operation};
+use skraft_i18n::t;
+use skraft_model::{EntityPath, Id, Operation};
 
 use super::{After, Editor};
 use crate::ToolKind;
@@ -215,8 +215,8 @@ impl Editor {
             self.context.push(id);
         } else if is_part {
             self.open_part = Some(id);
-            self.part_scope = solidsketch_model::Scope::All;
-            self.body_sign = solidsketch_model::Sign::Negative;
+            self.part_scope = skraft_model::Scope::All;
+            self.body_sign = skraft_model::Sign::Negative;
         } else {
             return;
         }

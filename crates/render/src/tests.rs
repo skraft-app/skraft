@@ -1,7 +1,7 @@
 //! Off-screen rendering: needs a GPU adapter (Metal on macOS); skipped when there is none.
 
 use glam::{DMat4, DVec3, Mat4};
-use solidsketch_kernel::Solid;
+use skraft_kernel::Solid;
 
 use super::*;
 
@@ -49,7 +49,7 @@ fn pixel(px: &[u8], w: u32, x: u32, y: u32) -> [u8; 4] {
 }
 
 fn save(px: &[u8], size: [u32; 2], name: &str) {
-    let Ok(dir) = std::env::var("SOLIDSKETCH_SNAPSHOTS") else { return };
+    let Ok(dir) = std::env::var("SKRAFT_SNAPSHOTS") else { return };
     let f = std::fs::File::create(format!("{dir}/{name}.png")).unwrap();
     let mut e = png::Encoder::new(std::io::BufWriter::new(f), size[0], size[1]);
     e.set_color(png::ColorType::Rgba);
@@ -146,7 +146,7 @@ fn concave_edges_are_not_buried() {
         eprintln!("no GPU adapter: skipped");
         return;
     };
-    use solidsketch_kernel::BooleanOp;
+    use skraft_kernel::BooleanOp;
     let block = Solid::new_box(DVec3::ZERO, DVec3::new(40.0, 40.0, 20.0)).unwrap();
     let pocket = Solid::new_box(DVec3::new(10.0, 10.0, 5.0), DVec3::new(20.0, 20.0, 20.0)).unwrap();
     let mesh = block.boolean(&pocket, BooleanOp::Difference).unwrap().mesh().unwrap();

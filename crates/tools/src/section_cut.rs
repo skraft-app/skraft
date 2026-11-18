@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
-use solidsketch_kernel::Mesh;
-use solidsketch_model::{FastMap, Id, Section};
+use skraft_kernel::Mesh;
+use skraft_model::{FastMap, Id, Section};
 
 use crate::scene::DisplayScene;
 

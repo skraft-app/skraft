@@ -4,8 +4,8 @@
 //! button that opens it. The dialog is the app's; the editor says when, checks the name and
 //! names the part — within the creation's step when the dialog opened by itself.
 
-use solidsketch_i18n::t;
-use solidsketch_model::{Id, Operation, Outcome, Prepared};
+use skraft_i18n::t;
+use skraft_model::{Id, Operation, Outcome, Prepared};
 
 use super::journal::Event;
 use super::{Editor, Notice, NoticeAction, NoticeKind};

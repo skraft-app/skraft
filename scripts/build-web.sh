@@ -27,7 +27,7 @@ package() {
   echo "$source" > "$stamp"
 }
 
-package solidsketch apps/solidsketch solidsketch pkg
-package solidsketch-kernel-worker apps/kernel-worker solidsketch_kernel_worker worker
+package skraft apps/skraft skraft pkg
+package skraft-kernel-worker apps/kernel-worker skraft_kernel_worker worker
 cp web/index.html web/kernel-worker.js web/favicon.svg dist/web/
 echo "dist/web prêt : python3 -m http.server 8080 -d dist/web  →  http://localhost:8080"

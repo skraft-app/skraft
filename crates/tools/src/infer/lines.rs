@@ -2,7 +2,7 @@
 //! the guide lines; where the cursor falls on one, where two of them cross.
 
 use glam::{DVec2, DVec3};
-use solidsketch_model::GuideShape;
+use skraft_model::GuideShape;
 
 use super::{APERTURE_PX, CROSSING_PX, Curve, EdgeRef, LineKind, Query};
 use crate::camera::{Camera, Projector, Ray};

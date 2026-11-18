@@ -1,4 +1,4 @@
-//! The registry of the SolidSketch apps running on this computer (docs/ARCHITECTURE.md
+//! The registry of the Skraft apps running on this computer (docs/ARCHITECTURE.md
 //! §7 septies): several may run at once — one per worktree, launched by the user or by an
 //! agent's session — and a client must find the one it means, not merely the last started.
 //!
@@ -14,7 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-/// What a build was made from (dev builds only: `solidsketch`'s build script).
+/// What a build was made from (dev builds only: `skraft`'s build script).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Build {
     /// The checkout's folder (a git worktree).
@@ -29,18 +29,18 @@ pub struct Build {
 }
 
 impl Build {
-    /// Its short name: the worktree's (`solidsketch-prism-z` is `prism-z`), the branch's for
+    /// Its short name: the worktree's (`skraft-prism-z` is `prism-z`), the branch's for
     /// the main checkout.
     pub fn label(&self) -> String {
         worktree_label(Path::new(&self.worktree)).unwrap_or_else(|| self.branch.clone())
     }
 }
 
-/// The short name of the worktree folder `path`: its name without `solidsketch-`; none for the
-/// main checkout (`solidsketch`).
+/// The short name of the worktree folder `path`: its name without `skraft-`; none for the
+/// main checkout (`skraft`).
 pub fn worktree_label(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_str()?;
-    name.strip_prefix("solidsketch-").filter(|s| !s.is_empty()).map(str::to_owned)
+    name.strip_prefix("skraft-").filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
 /// A running app.
@@ -58,7 +58,7 @@ pub struct Instance {
     pub build: Option<Build>,
     /// The Claude Code session that launched it (`CLAUDE_CODE_SESSION_ID`).
     pub claude_session: Option<String>,
-    /// Who launched it, as they said (`SOLIDSKETCH_LAUNCHER`).
+    /// Who launched it, as they said (`SKRAFT_LAUNCHER`).
     pub launcher: Option<String>,
 }
 
@@ -74,7 +74,7 @@ impl Instance {
             port: None,
             build,
             claude_session: env("CLAUDE_CODE_SESSION_ID"),
-            launcher: env("SOLIDSKETCH_LAUNCHER"),
+            launcher: env("SKRAFT_LAUNCHER"),
         }
     }
 
@@ -194,7 +194,7 @@ pub fn list_json(dir: &Path) -> serde_json::Value {
     serde_json::to_value(list(dir)).unwrap_or_default()
 }
 
-/// A client's name for the `X-SolidSketch-Client` header: `tool`, the Claude Code session it
+/// A client's name for the `X-Skraft-Client` header: `tool`, the Claude Code session it
 /// runs in (its id's first 8 characters), the worktree it runs from.
 pub fn client_name(tool: &str) -> String {
     let mut name = tool.to_owned();
@@ -219,7 +219,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("solidsketch-instances-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("skraft-instances-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn an_app_is_listed_while_it_lives_and_leftovers_go() {
         let dir = temp_dir("list");
-        let mut r = Registration::register(&dir, instance(4_000_001, 10, None, None, "/w/solidsketch")).unwrap();
+        let mut r = Registration::register(&dir, instance(4_000_001, 10, None, None, "/w/skraft")).unwrap();
         r.set_port(Some(7868)).unwrap();
         assert_eq!(list(&dir).iter().map(|i| (i.pid, i.port)).collect::<Vec<_>>(), [(4_000_001, Some(7868))]);
         // A crashed app's files: no lock held.
@@ -258,24 +258,24 @@ mod tests {
     #[test]
     fn a_client_finds_its_session_s_app_then_its_worktree_s() {
         let all = vec![
-            instance(3, 30, Some(7003), None, "/w/solidsketch"),
-            instance(2, 20, Some(7002), Some("s-1"), "/w/solidsketch-prism-z"),
-            instance(1, 10, None, Some("s-2"), "/w/solidsketch-x"),
+            instance(3, 30, Some(7003), None, "/w/skraft"),
+            instance(2, 20, Some(7002), Some("s-1"), "/w/skraft-prism-z"),
+            instance(1, 10, None, Some("s-2"), "/w/skraft-x"),
         ];
         let port = |s, cwd: &str| choose(&all, s, Some(Path::new(cwd))).map(|i| i.pid);
-        assert_eq!(port(Some("s-1"), "/w/solidsketch"), Some(2));
+        assert_eq!(port(Some("s-1"), "/w/skraft"), Some(2));
         // Its session's app has its channel off: the worktree's.
-        assert_eq!(port(Some("s-2"), "/w/solidsketch-prism-z/crates"), Some(2));
-        // `solidsketch` is not a parent of `solidsketch-x` (by components).
-        assert_eq!(port(None, "/w/solidsketch-x"), None);
-        assert_eq!(port(None, "/w/solidsketch/apps"), Some(3));
+        assert_eq!(port(Some("s-2"), "/w/skraft-prism-z/crates"), Some(2));
+        // `skraft` is not a parent of `skraft-x` (by components).
+        assert_eq!(port(None, "/w/skraft-x"), None);
+        assert_eq!(port(None, "/w/skraft/apps"), Some(3));
     }
 
     #[test]
     fn labels() {
-        assert_eq!(worktree_label(Path::new("/w/solidsketch-prism-z")).as_deref(), Some("prism-z"));
-        assert_eq!(worktree_label(Path::new("/w/solidsketch")), None);
-        assert_eq!(instance(1, 0, None, None, "/w/solidsketch").label(), "main");
-        assert_eq!(instance(1, 0, None, None, "/w/solidsketch-prism-z").label(), "prism-z");
+        assert_eq!(worktree_label(Path::new("/w/skraft-prism-z")).as_deref(), Some("prism-z"));
+        assert_eq!(worktree_label(Path::new("/w/skraft")), None);
+        assert_eq!(instance(1, 0, None, None, "/w/skraft").label(), "main");
+        assert_eq!(instance(1, 0, None, None, "/w/skraft-prism-z").label(), "prism-z");
     }
 }

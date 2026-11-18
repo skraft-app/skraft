@@ -7,7 +7,7 @@
 
 #[cfg(target_arch = "wasm32")]
 mod web {
-    use solidsketch_kernel::{Job, decode, encode};
+    use skraft_kernel::{Job, decode, encode};
     use wasm_bindgen::JsCast;
     use wasm_bindgen::prelude::*;
 
@@ -33,7 +33,7 @@ mod web {
         let job: Job = decode(bytes).map_err(|e| JsError::new(&format!("job: {e}")))?;
         // Only the id is held (JS values are not `Sync`): the worker's scope is looked up at
         // each report.
-        let report = move |p: solidsketch_kernel::Progress| {
+        let report = move |p: skraft_kernel::Progress| {
             let Ok(scope) = js_sys::global().dyn_into::<web_sys::DedicatedWorkerGlobalScope>() else { return };
             let Ok(bytes) = encode(&p) else { return };
             let o = js_sys::Object::new();
@@ -41,7 +41,7 @@ mod web {
             let _ = js_sys::Reflect::set(&o, &"progress".into(), &js_sys::Uint8Array::from(bytes.as_slice()));
             let _ = scope.post_message(&o);
         };
-        let cx = solidsketch_kernel::Context { report: &report, cancel: None };
-        encode(&solidsketch_kernel::run_with(&job, &cx)).map_err(|e| JsError::new(&format!("result: {e}")))
+        let cx = skraft_kernel::Context { report: &report, cancel: None };
+        encode(&skraft_kernel::run_with(&job, &cx)).map_err(|e| JsError::new(&format!("result: {e}")))
     }
 }

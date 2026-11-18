@@ -1,15 +1,15 @@
 [package]
-name = "solidsketch-import"
-description = "SolidSketch: converts a SketchUp export (scripts/sketchup/export.rb) to a .ssk file"
+name = "skraft-import"
+description = "Skraft: converts a SketchUp export (scripts/sketchup/export.rb) to a .skraft file"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "solidsketch-import"
+name = "skraft-import"
 path = "src/main.rs"
 
 [dependencies]
 glam.workspace = true
-solidsketch-model.workspace = true
-solidsketch-kernel = { workspace = true, features = ["engine"] }
+skraft-model.workspace = true
+skraft-kernel = { workspace = true, features = ["engine"] }

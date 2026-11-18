@@ -1,4 +1,4 @@
-//! The user-visible texts of SolidSketch: one YAML catalog per locale in `/locales` (`fr.yml`
+//! The user-visible texts of Skraft: one YAML catalog per locale in `/locales` (`fr.yml`
 //! is the reference), compiled in by rust-i18n. See docs/ARCHITECTURE.md §6 quater.
 //!
 //! A key is a dotted path that follows where the text shows in the app: `menu.file.open`,

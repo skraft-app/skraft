@@ -5,8 +5,8 @@
 //! What is taken becomes the selection. Move, Rotate, the copy tools and the Stretch share it.
 
 use glam::DVec2;
-use solidsketch_i18n::t;
-use solidsketch_model::{EntityPath, Id};
+use skraft_i18n::t;
+use skraft_model::{EntityPath, Id};
 
 use super::select::{marquee_hits, marquee_parts, toggled, toggled_paths};
 use super::{Command, Cx, Marquee, Preview, ToolInput};
