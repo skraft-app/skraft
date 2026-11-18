@@ -1,7 +1,7 @@
 //! The tape measure (docs/tools/tape-measure.md): click a point, the length to the point
-//! hovered shows on the segment and in the measurements box. With the option "Create guides"
-//! on, it draws a guide instead, of the kind the option "Guide" says: Auto — parallel to a
-//! straight edge, concentric to an arc; Line — parallel to a straight edge, tangent to an arc,
+//! hovered shows on the segment and in the measurements box. Unless the option "Guide" is
+//! None, it draws a guide instead, of the kind it says: Auto — parallel to a straight edge,
+//! concentric to an arc, else a measure; Line — parallel to a straight edge, tangent to an arc,
 //! else through two points; Circle — concentric to an arc, else centred on the point clicked.
 //! Where curves cross, each gives its guide, and the fallback one more: the other modifier
 //! turns them over after the first click.
@@ -20,10 +20,9 @@ use crate::guides;
 use crate::infer::{Curve, EdgeRef, InferKind, Inference};
 use crate::vcb::{self, Vcb, VcbKind, VcbValue};
 
-/// The saved option: an edge starts a guide (on unless turned off).
-const GUIDES: &str = "guides";
-/// The saved choice: the kind of guide drawn (Auto unless set).
+/// The saved choice: the kind of guide drawn (Auto unless set), or none.
 const SHAPE: &str = "guide";
+const NONE: &str = "none";
 const AUTO: &str = "auto";
 const LINE: &str = "line";
 const CIRCLE: &str = "circle";
@@ -36,6 +35,8 @@ const SIDE: f64 = 1e-3;
 /// The kind of guide the tape draws (the option "Guide").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shape {
+    /// No guide: a measure from anything.
+    None,
     /// What the edge clicked gives: a line from a straight edge, a circle from an arc; from
     /// anything else, a measure.
     Auto,
@@ -71,10 +72,11 @@ pub struct MeasureTool {
     state: State,
     /// The point under the cursor.
     hover: Option<Inference>,
-    /// The option "Create guides", as last read.
-    guides: bool,
     /// The option "Guide", as last read.
     shape: Shape,
+    /// The last kind of guide (not None) chosen while the tool runs, Auto at first: what the
+    /// copy modifier turns None back to.
+    last: Shape,
     /// The first click, kept to start over when an option changes in between.
     first: Option<Inference>,
     /// What the first click may start, each with the curve it refers to (see
@@ -92,8 +94,8 @@ impl Default for MeasureTool {
         MeasureTool {
             state: State::Idle,
             hover: None,
-            guides: true,
             shape: Shape::Auto,
+            last: Shape::Auto,
             first: None,
             starts: Vec::new(),
             pick: 0,
@@ -103,18 +105,23 @@ impl Default for MeasureTool {
     }
 }
 
-/// Does an edge start a guide (the saved option, on by default)?
-fn guides_on(cx: &Cx<'_>) -> bool {
-    !matches!(cx.options.get(GUIDES), Some(OptionValue::Toggle(false)))
-}
-
 /// The kind of guide (the saved choice, Auto by default).
 fn shape_of(cx: &Cx<'_>) -> Shape {
     shape_from(cx.choice(SHAPE).unwrap_or(AUTO))
 }
 
+fn shape_value(shape: Shape) -> &'static str {
+    match shape {
+        Shape::None => NONE,
+        Shape::Auto => AUTO,
+        Shape::Line => LINE,
+        Shape::Circle => CIRCLE,
+    }
+}
+
 fn shape_from(value: &str) -> Shape {
     match value {
+        NONE => Shape::None,
         LINE => Shape::Line,
         CIRCLE => Shape::Circle,
         _ => Shape::Auto,
@@ -122,6 +129,14 @@ fn shape_from(value: &str) -> Shape {
 }
 
 impl MeasureTool {
+    /// Takes the kind of guide `shape`, the last one when it is not None.
+    fn set_shape(&mut self, shape: Shape) {
+        self.shape = shape;
+        if shape != Shape::None {
+            self.last = shape;
+        }
+    }
+
     /// The point the cursor gives at `px`, lines inferred from the first point.
     fn infer(&self, cx: &Cx<'_>, px: DVec2) -> Option<Inference> {
         match self.state {
@@ -149,7 +164,7 @@ impl MeasureTool {
     /// (`Cx::reference`), else — and always in Auto, which measures from a point — the fallback.
     fn starts(&self, cx: &Cx<'_>, inf: &Inference) -> (Vec<Start>, usize) {
         let at = inf.point;
-        if !self.guides {
+        if self.shape == Shape::None {
             return (vec![(None, State::Measure { from: at })], 0);
         }
         // On an edge, a guide or an axis as drawn: a guide offset from it.
@@ -171,7 +186,7 @@ impl MeasureTool {
         };
         let mut starts: Vec<Start> = guides.into_iter().map(|(e, s)| (Some(e), s)).collect();
         let fallback = match self.shape {
-            Shape::Auto => State::Measure { from: at },
+            Shape::None | Shape::Auto => State::Measure { from: at },
             Shape::Line => State::Through { from: at },
             // Centred on the point clicked, in the face clicked, else level.
             Shape::Circle => {
@@ -371,8 +386,7 @@ impl Tool for MeasureTool {
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        self.guides = guides_on(cx);
-        self.shape = shape_of(cx);
+        self.set_shape(shape_of(cx));
         if std::mem::take(&mut self.restart)
             && self.state != State::Idle
             && let Some(first) = self.first.clone()
@@ -422,9 +436,10 @@ impl Tool for MeasureTool {
                 self.state = self.starts[self.pick].1;
                 self.hover = self.px.and_then(|px| self.infer(cx, px));
             }
-            // The copy modifier tapped: guides or not (SketchUp's Ctrl).
+            // The copy modifier tapped: guides or not (SketchUp's Ctrl), back to the last kind.
             ToolInput::Key { key: Key::Copy, .. } => {
-                return vec![Command::SetOption { key: GUIDES, value: OptionValue::Toggle(!self.guides) }];
+                let shape = if self.shape == Shape::None { self.last } else { Shape::None };
+                return vec![Command::SetOption { key: SHAPE, value: OptionValue::Choice(shape_value(shape).into()) }];
             }
             _ => {}
         }
@@ -495,8 +510,8 @@ impl Tool for MeasureTool {
 
     fn status(&self) -> String {
         let hint = match self.state {
-            State::Idle if !self.guides => t!("tool.measure.hint.first_measure_only", copy_key = copy_key()),
             State::Idle => match self.shape {
+                Shape::None => t!("tool.measure.hint.first_measure_only", copy_key = copy_key()),
                 Shape::Auto => t!("tool.measure.hint.first", copy_key = copy_key()),
                 Shape::Line => t!("tool.measure.hint.first_line", copy_key = copy_key()),
                 Shape::Circle => t!("tool.measure.hint.first_circle", copy_key = copy_key()),
@@ -536,43 +551,26 @@ impl Tool for MeasureTool {
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
         let choice = |value, label, tip| OptionChoice { value, label, tip, icon: None };
-        let shape = match shape_of(cx) {
-            Shape::Auto => AUTO,
-            Shape::Line => LINE,
-            Shape::Circle => CIRCLE,
-        };
-        vec![
-            ToolOption {
-                key: GUIDES,
-                label: t!("tool.measure.option.guides"),
-                tip: t!("tool.measure.option.guides_tip", copy_key = copy_key()),
-                value: OptionValue::Toggle(guides_on(cx)),
-                choices: Vec::new(),
-                saved: true,
-                icon: None,
-                swatch: None,
-            },
-            ToolOption {
-                key: SHAPE,
-                label: t!("tool.measure.option.shape"),
-                tip: t!("tool.measure.option.shape_tip"),
-                value: OptionValue::Choice(shape.into()),
-                choices: vec![
-                    choice(AUTO, t!("tool.measure.option.auto"), t!("tool.measure.option.auto_tip")),
-                    choice(LINE, t!("tool.measure.option.line"), t!("tool.measure.option.line_tip")),
-                    choice(CIRCLE, t!("tool.measure.option.circle"), t!("tool.measure.option.circle_tip")),
-                ],
-                saved: true,
-                icon: None,
-                swatch: None,
-            },
-        ]
+        vec![ToolOption {
+            key: SHAPE,
+            label: t!("tool.measure.option.shape"),
+            tip: t!("tool.measure.option.shape_tip", copy_key = copy_key()),
+            value: OptionValue::Choice(shape_value(shape_of(cx)).into()),
+            choices: vec![
+                choice(NONE, t!("tool.measure.option.none"), t!("tool.measure.option.none_tip")),
+                choice(AUTO, t!("tool.measure.option.auto"), t!("tool.measure.option.auto_tip")),
+                choice(LINE, t!("tool.measure.option.line"), t!("tool.measure.option.line_tip")),
+                choice(CIRCLE, t!("tool.measure.option.circle"), t!("tool.measure.option.circle_tip")),
+            ],
+            saved: true,
+            icon: None,
+            swatch: None,
+        }]
     }
 
     fn set_option(&mut self, key: &str, value: &OptionValue) {
         match (key, value) {
-            (GUIDES, OptionValue::Toggle(on)) => self.guides = *on,
-            (SHAPE, OptionValue::Choice(v)) => self.shape = shape_from(v),
+            (SHAPE, OptionValue::Choice(v)) => self.set_shape(shape_from(v)),
             _ => return,
         }
         // Changed in between: what the first click starts again, at the next input (the

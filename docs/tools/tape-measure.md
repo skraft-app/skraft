@@ -59,11 +59,12 @@ occurrences, with no kernel.
 
 ### Guide kinds
 
-The first click takes the inferred point. With the saved option **"Create guides"** on (the
-default; a tap of the copy modifier turns it over, as SketchUp's Ctrl), it starts a guide of
-the kind the saved choice **"Guide"** says (Tab turns it over, also between the two clicks —
-the first click is kept and starts again):
+The first click takes the inferred point and starts a guide of the kind the saved choice
+**"Guide"** says (Tab turns it over, also between the two clicks — the first click is kept and
+starts again; a tap of the copy modifier, as SketchUp's Ctrl, sets None, and from None the last
+kind chosen while the tool runs, Auto at first):
 
+- **None**: no guide, a measure from anything (below);
 - **Auto** (the default): **on an edge** (`OnEdge`, not an endpoint nor a midpoint),
   **parallel** to a straight edge — the line through the point hovered, along the edge; the
   length shown is the distance between the two lines — or **concentric** to an arc or a circle
@@ -119,7 +120,7 @@ circle shrunk to nothing adds nothing (said in the status bar).
 
 ### Measuring
 
-**Anywhere else** in Auto, or with the option off, it measures: the length from the first point
+**Anywhere else** in Auto, and from anything in None, it measures: the length from the first point
 to the point hovered, written on the dashed segment between them (`PreviewLabel`) and in the
 measurements box; the second click ends the measure. A length typed then does nothing (no
 scaling of the model, meaningless for cut-list parts).

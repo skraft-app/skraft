@@ -892,10 +892,10 @@ tool:
       offset: "Décalage"
       radius: "Rayon"
     option:
-      guides: "Créer des guides"
-      guides_tip: "Partir d'une arête, d'un arc ou d'un point trace un guide, du type choisi (%{copy_key} pour basculer)"
       shape: "Guide"
-      shape_tip: "Le type de guide tracé (Tab pour changer)"
+      shape_tip: "Le type de guide tracé en partant d'une arête, d'un arc ou d'un point (Tab pour changer, %{copy_key} : aucun ou le dernier choisi)"
+      none: "Aucun"
+      none_tip: "Mesurer seulement, d'où que l'on parte"
       auto: "Auto"
       auto_tip: "Selon ce qui est cliqué : parallèle à une arête, concentrique à un arc ; ailleurs, une mesure"
       line: "Ligne"

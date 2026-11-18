@@ -949,6 +949,10 @@ impl Editor {
         // Another tool gives up a paste carried.
         self.settle_carry(true);
         self.tool = tools::make(kind);
+        // Its saved options, read at once: what its status says before any input.
+        for option in self.tool.options(&self.cx()) {
+            self.tool.set_option(option.key, &option.value);
+        }
         // Erase lets the selection go when it starts: it erases what its clicks take, never
         // the selection (docs/tools/selection.md).
         if kind == ToolKind::Erase {
