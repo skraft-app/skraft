@@ -43,7 +43,7 @@ Each tab a list of groups, each group a list of commands of the registry
   « Manipuler » (Move, Rotate, the copy tools: in line, in a grid, distribute), Reshape
   « Remodeler » (Stretch, Union, Difference, Intersection), Appearance (Paint);
 - **Assemble** « Assembler »: Components (Make assembly, Explode, Make unique, Group bodies,
-  Ungroup bodies), Manipulate (Move, Rotate, the copy tools);
+  Ungroup bodies) — the manipulating tools stay in Build only;
 - **Inspect** « Inspecter »: Measure (Tape measure, Delete guides; Tape measure pinned), Section
   (Section plane, Clear section; Section plane pinned), View (Zoom extents, the standard views;
   Zoom extents pinned).
