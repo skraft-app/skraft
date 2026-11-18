@@ -1,4 +1,4 @@
-//! The journal window (docs/ARCHITECTURE.md §7 septies): what the shown document's editor
+//! The journal window (docs/control-protocol.md): what the shown document's editor
 //! went through — its journal and the kernel's failures — as `journal.log` and
 //! `journal.failures` give them to the control channel, read in the app. Opened from the
 //! control channel's mark or the command palette (`app.journal`). What a client of the channel

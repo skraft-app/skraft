@@ -1,4 +1,4 @@
-//! The documents open, one per file tab (docs/ARCHITECTURE.md §6 octies): each with its own
+//! The documents open, one per file tab (docs/ui/file-tabs.md): each with its own
 //! editor (history, scene, camera, selection, tool), its file and what is typed for it. Every
 //! document is kept alike, shown or not; `active` is the one shown (`None`: the start page).
 //! The editors share one kernel service ([`SharedKernel`]), each through a handle of its own.
@@ -144,7 +144,7 @@ impl Docs {
         })
     }
 
-    /// Keeps what the undo histories hold together under `budget` bytes (docs/ARCHITECTURE.md §5
+    /// Keeps what the undo histories hold together under `budget` bytes (docs/model/undo.md
     /// « Memory cap »), forgetting first in the documents shown least recently: called every
     /// frame, it marks the one shown. The bytes they hold after.
     pub fn cap_histories(&mut self, budget: u64) -> u64 {

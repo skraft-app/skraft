@@ -1,5 +1,5 @@
 //! OpenCutList's tree drop-up (`SmartSelectActionHandler`, `STATE_SELECT_TREE`;
-//! docs/ARCHITECTURE.md §6 septendecies): under « Parts », the copy modifier (Option on macOS,
+//! docs/tools/selection.md): under « Parts », the copy modifier (Option on macOS,
 //! Ctrl elsewhere) held over a part while a tool picks lists its path from the root — the
 //! levels above the active context disabled —; a row hovered is drawn hovered in the view, a
 //! row clicked is selected (the part, or one of the assemblies holding it); the key released
@@ -19,7 +19,7 @@ pub struct TreeRow {
     pub name: String,
     /// Its component's name.
     pub component: String,
-    /// That name is automatic (§2.1 « Automatic names »).
+    /// That name is automatic (docs/model/bodies.md#automatic-names).
     pub auto: bool,
     /// How deep it is (0: in the model).
     pub depth: usize,

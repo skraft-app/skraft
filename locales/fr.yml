@@ -1,4 +1,4 @@
-# Skraft's texts in French: the reference catalog (docs/ARCHITECTURE.md §6 quater).
+# Skraft's texts in French: the reference catalog (docs/ui/texts.md).
 #
 # A key is a path that follows where the text shows in the app. `%{name}` is a value the
 # code fills in; a key ending in `_plural` is the plural of the same key without it (for a
@@ -107,7 +107,7 @@ menu:
     make_assembly: "$t(common.make_assembly)"
     explode: "$t(common.explode)"
     make_unique: "$t(common.make_unique)"
-    # In an open part (§2.11 « Body groups »).
+    # In an open part (docs/model/bodies.md#body-groups).
     group_bodies: "Grouper les corps"
     ungroup_bodies: "Dégrouper"
     delete_guides: "Supprimer les guides"
@@ -167,7 +167,7 @@ toolbar:
   boolean_hint: "cible, puis outil"
   perspective: "Perspective / parallèle"
 
-# The workspace card and the ribbon (docs/ARCHITECTURE.md §6 septies).
+# The workspace card and the ribbon (docs/ui/ribbon.md).
 ribbon:
   workspace:
     tip: "Espace de travail"
@@ -199,7 +199,7 @@ quick_tools:
   pin: "Afficher dans les outils rapides"
   unpin: "Retirer des outils rapides"
   menu_note: "La punaise montre l'outil dans les outils rapides, proposés après chaque création, ou l'en retire."
-# The view bar, over the left edge of the view (docs/ARCHITECTURE.md §6 sexdecies).
+# The view bar, over the left edge of the view (docs/ui/view-bar.md).
 view_bar:
   views: "Vues standard"
   choose: "Choisir les commandes de la barre de vue"
@@ -251,7 +251,7 @@ tabs:
   reveal: "Afficher dans le dossier"
 
 # Asked before a modified document's tab closes, or before quitting with one (%{name}).
-# The window over a file being opened or imported (docs/ARCHITECTURE.md §7 quinquies).
+# The window over a file being opened or imported (docs/ui/title-bar.md).
 loading:
   open: "Ouverture de « %{name} »"
   import: "Import de « %{name} »"
@@ -379,7 +379,7 @@ render_stats:
   mebibytes: "%{n} Mo"
 
 
-# The selection's scope (ARCHITECTURE.md §6 septendecies), in the bar of the tools that take it.
+# The selection's scope (docs/tools/selection.md), in the bar of the tools that take it.
 selection_scope:
   label: "Sélection"
   tip: "Ce qu'un clic prend : un élément du contexte actif, ou une pièce à toute profondeur (Tab : basculer)"
@@ -393,7 +393,7 @@ option_bar:
   options_tip: "Les options à activer ou désactiver"
   # The tip of a value drawn as an icon: its name, then what it does.
   icon_tip: "%{label} — %{tip}"
-  # What a shape drawn in an open part does (ARCHITECTURE.md §2.11).
+  # What a shape drawn in an open part does (docs/model/bodies.md).
   body_sign: "Solide"
   body_sign_tip: "Ce que fait une forme dessinée dans la pièce ouverte (revient à « Enlever » à chaque ouverture)"
   remove: "Enlever"
@@ -449,7 +449,7 @@ prefs:
     restore_tip: "Applique à ce modèle les réglages des nouveaux modèles"
     are_defaults: "Ce sont les réglages des nouveaux modèles."
   navigation:
-    # The Navigation tab (ARCHITECTURE §6 quindecies): another CAD program's mouse habits.
+    # The Navigation tab (docs/ui/navigation-styles.md): another CAD program's mouse habits.
     section:
       style: "Style de navigation"
       mouse: "Souris"
@@ -540,7 +540,7 @@ panel:
     # The model itself: nothing selected at its level (the navigator's first row).
     type_model: "$t(common.model)"
     type_guide: "Guide"
-    # A body of the open part (§2.11), or a group of its bodies.
+    # A body of the open part (docs/model/bodies.md), or a group of its bodies.
     type_body: "Corps"
     type_group: "Groupe de corps"
     # A body's profile, edited (the tool « Profil »): its body, its corners.
@@ -563,7 +563,7 @@ panel:
     copies: "Copies"
     dimensions: "$t(common.dimensions)"
     pieces: "en %{count} morceaux, à corriger"
-    # A part without material (no blank, or a machining swallowing it), §2.11.
+    # A part without material (no blank, or a machining swallowing it), docs/model/bodies.md.
     empty: "vide, à corriger"
     position: "Position"
     material: "$t(common.material)"
@@ -590,10 +590,10 @@ panel:
     # The eye of a row.
     hide: "$t(common.hide)"
     show: "$t(common.show)"
-    # A part in several pieces (ARCHITECTURE.md §2.11).
+    # A part in several pieces (docs/model/bodies.md).
     pieces: "Pièce en %{count} morceaux : à corriger"
     empty_part: "Pièce vide : à corriger"
-    # A group of bodies failed in its part (§2.11 « Empty parts »).
+    # A group of bodies failed in its part (docs/model/bodies.md#empty-parts).
     empty_group: "Groupe vide : à corriger"
     failed_group: "Groupe en échec : à corriger"
     # A part or group holding a body failed, at any depth.
@@ -637,11 +637,11 @@ notice:
   import_empty: "%{file} : aucun solide à importer"
   import_failed: "Import de %{file} impossible"
   import_cancelled: "Import de %{file} annulé"
-  # A creation tool made a part (§6 quattuordecies); the toast's button names it.
+  # A creation tool made a part (docs/tools/quick-tools.md); the toast's button names it.
   part_created: "Nouvelle pièce créée : %{name}"
   rename: "Renommer"
 
-# The dialog naming a part just made (§6 quattuordecies; apps/skraft/src/naming.rs).
+# The dialog naming a part just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
 naming:
   title: "Nom de la pièce"
   ok: "OK"
@@ -651,7 +651,7 @@ naming:
 # The status bar: the measurements box and the editor's messages.
 status:
   measurements: "Mesures"
-  # The tree drop-up open (OCL's, §6 septendecies): the path of the part hovered, listed.
+  # The tree drop-up open (OCL's, docs/tools/selection.md): the path of the part hovered, listed.
   tree: "Choisir un élément dans la liste"
   # Under « Pièces », what the copy modifier held does while picking.
   tree_key: "%{key} maintenu : élément parent"
@@ -927,7 +927,7 @@ tool:
     say:
       crossed: "Le contour se croiserait, ou n'aurait plus d'aire : non appliqué"
       fillet_too_big: "Congé trop grand pour les côtés du coin : non appliqué"
-    # The copy modifier tapped: a corner moved alone, a corner inserted in a side (§6 nonies).
+    # The copy modifier tapped: a corner moved alone, a corner inserted in a side (docs/tools/prism.md).
     free: "Libre"
     freely: "(libre)"
     option:
@@ -978,7 +978,7 @@ tool:
       entity_tip: "Étirer le long des axes de la pièce ou de l'assemblage (ceux du contexte pour plusieurs exemplaires)"
       scope_tip: "Ce que l'étirement modifie (%{alt_key} : basculer)"
       this_tip: "Seulement les exemplaires étirés : ils deviennent une pièce à part (et leur assemblage, s'il est copié)"
-  # What the copy tools share (OpenCutList's Smart Handle, §6 duodecies).
+  # What the copy tools share (OpenCutList's Smart Handle, docs/tools/copy-array.md).
   handle:
     hint:
       # Shift held after a Shift click (OpenCutList's multiple selection).
@@ -1086,17 +1086,17 @@ operation:
   # A shape drawn in an open part: cut from it.
   add_machining: "Usinage"
   add_body: "Brut"
-  # Bodies made blanks, or machinings (§2.11).
+  # Bodies made blanks, or machinings (docs/model/bodies.md).
   set_sign_positive: "Changer en brut"
   set_sign_negative: "Changer en usinage"
-  # Bodies grouped, a group flattened (§2.11 « Body groups »).
+  # Bodies grouped, a group flattened (docs/model/bodies.md#body-groups).
   group: "Grouper"
   ungroup: "Dégrouper"
   add_guide: "Guide"
   transform: "$t(common.move)"
   duplicate: "$t(common.copy)"
   array: "Réseau"
-  # Copy along a line or a grid (§6 duodecies).
+  # Copy along a line or a grid (docs/tools/copy-array.md).
   copies: "Copies"
   distribute: "Répartir"
   delete: "$t(common.erase)"
@@ -1134,7 +1134,7 @@ unit:
   foot: "Pieds"
 
 # The names new components and body definitions get (then the user's to change): the code
-# numbers them, « Pièce#1 » (ARCHITECTURE.md §2.1, §2.11 « Body names »).
+# numbers them, « Pièce#1 » (docs/model/data-model.md, docs/model/bodies.md#body-names).
 default_name:
   model: "$t(common.model)"
   assembly: "$t(common.assembly)"
@@ -1232,7 +1232,7 @@ error:
     panic: "%{call} : panique du noyau : %{message}"
     crashed: "le noyau s'est arrêté : %{why}"
     cancelled: "annulé"
-  # A stretch that cannot be applied (docs/ARCHITECTURE.md §6 sexies).
+  # A stretch that cannot be applied (docs/tools/stretch.md).
   stretch:
     invalid: "étirement mal défini"
     edge_across: "une arête qui n'est pas droite dans le sens de l'étirement traverse une coupe"

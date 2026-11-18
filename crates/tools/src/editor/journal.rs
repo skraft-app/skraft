@@ -1,4 +1,4 @@
-//! What the editor went through, for whoever debugs it (docs/ARCHITECTURE.md §7 septies): a
+//! What the editor went through, for whoever debugs it (docs/control-protocol.md): a
 //! journal of its inputs, tools, operations and kernel jobs; the kernel's failures, each with
 //! the job that failed (its input solids and tasks: run again by `kernel::run`, it makes a
 //! headless test); and a recording of the inputs from a document and a camera, which a test
@@ -42,7 +42,7 @@ pub enum Event {
         op: String,
         revision: u64,
     },
-    /// A face put onto another after the operation before (docs/ARCHITECTURE.md §2.11's
+    /// A face put onto another after the operation before (docs/model/bodies.md's
     /// welding): a face of the body `body` of the part `part` moved by `distance` (mm) onto one
     /// of the body `reference`.
     Welded {
@@ -65,7 +65,7 @@ pub enum Event {
     Undo,
     Redo,
     /// The oldest states of the undo history (or the last ones to redo) forgotten to keep the
-    /// memory the histories hold under the budget (docs/ARCHITECTURE.md §5 « Memory cap »):
+    /// memory the histories hold under the budget (docs/model/undo.md#memory-cap):
     /// how many, what they held (bytes, estimated).
     Forgotten {
         steps: u32,
@@ -81,7 +81,7 @@ pub enum JobKind {
 }
 
 /// Who caused an entry: the person at the window, or a client of the control channel (an
-/// agent, a script: docs/ARCHITECTURE.md §7 septies), named by itself if it said (the
+/// agent, a script: docs/control-protocol.md), named by itself if it said (the
 /// `X-Skraft-Client` header).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Origin {

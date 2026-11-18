@@ -1,4 +1,4 @@
-//! The kernel in a web worker (docs/ARCHITECTURE.md §7 ter): the browser's [`KernelService`].
+//! The kernel in a web worker (docs/model/kernel.md): the browser's [`KernelService`].
 //!
 //! Jobs go to `kernel-worker.js` (which runs the `skraft-kernel-worker` wasm) as
 //! MessagePack bytes in a transferred `ArrayBuffer`; results come back the same way and wait

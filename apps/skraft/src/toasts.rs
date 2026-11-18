@@ -1,11 +1,11 @@
-//! Toasts (docs/ARCHITECTURE.md §6, Toasts): the app's messages — a file not opened or not
+//! Toasts (docs/ui/interface.md#toasts): the app's messages — a file not opened or not
 //! saved, an operation the kernel failed, a file imported, « Enregistré »… — stacked at the
 //! bottom center of the window, above the status bar, which keeps the tools' hints. As
 //! OpenCutList's notifications (`SmartTool#notify`): a click closes one; an info or a success
 //! goes by itself, a bar at its bottom emptying towards the left as it runs out (the pointer
 //! over it stops it, full again); an error stays. A toast may offer an action (a button at its
 //! right end, as OpenCutList's « Ouvrir » after an export), run by its click: « Renommer » on
-//! « Nouvelle pièce créée » (§6 quattuordecies), gone with the part.
+//! « Nouvelle pièce créée » (docs/tools/quick-tools.md), gone with the part.
 //! The same message again counts (×2).
 
 use skraft_i18n::t;

@@ -70,7 +70,7 @@ fn pen(p: &draw::Pen) -> Value {
     Value::Object(out)
 }
 
-/// What a tool or the editor draws through the drawer (ARCHITECTURE.md §7 octies). Empty
+/// What a tool or the editor draws through the drawer (docs/render/drawer.md). Empty
 /// lists are left out.
 pub fn drawing(d: &draw::Drawing) -> Value {
     let mut out = serde_json::Map::new();

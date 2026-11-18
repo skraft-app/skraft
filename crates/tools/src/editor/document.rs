@@ -1,5 +1,5 @@
 //! The document side of the editor: operations started, run by the kernel, finished or
-//! abandoned; undo, redo, opening a file; the scene kept in step (docs/ARCHITECTURE.md §7 ter).
+//! abandoned; undo, redo, opening a file; the scene kept in step (docs/model/kernel.md).
 
 use glam::{DAffine3, DVec3};
 use skraft_i18n::t;
@@ -20,14 +20,14 @@ pub(super) enum After {
     /// Gather what it created; the whole gathered is selected once the queue is empty.
     Collect,
     /// A paste done in place: select what it made, then carry it from this point (world) at
-    /// the cursor (§6 decies).
+    /// the cursor (docs/tools/copy-paste.md).
     Carry(DVec3),
-    /// Nothing selected once it lands (a tool picking again, §6 septendecies): the selection kept
+    /// Nothing selected once it lands (a tool picking again, docs/tools/selection.md): the selection kept
     /// until then, its ghost held while the kernel computes.
     LetGo,
     /// A drawing tool's: nothing selected, the quick tools' card offered on what it made
-    /// (§6 terdecies); a new part's name asked (`Some(true)`) or offered by a toast
-    /// (`Some(false)`, §6 quattuordecies).
+    /// (docs/tools/quick-tools.md); a new part's name asked (`Some(true)`) or offered by a toast
+    /// (`Some(false)`, docs/tools/quick-tools.md).
     Card {
         ask_name: Option<bool>,
     },
@@ -107,7 +107,7 @@ impl Editor {
     pub(super) fn finish(&mut self, op: Operation, applied: Applied, after: After) -> Outcome {
         let Applied { document, outcome, displays } = applied;
         let carried = matches!(after, After::Carry(_)).then(|| op.clone());
-        // A part made in another assembly (« Dessiner dans », §6 duodevicies): its path there.
+        // A part made in another assembly (« Dessiner dans », docs/tools/draw-options.md): its path there.
         let made_in = match &op {
             Operation::At { parent, op, .. } if matches!(**op, Operation::AddPrimitive { .. }) => Some(parent.clone()),
             _ => None,
@@ -126,7 +126,7 @@ impl Editor {
             }
             self.scene.insert(&solid, display);
         }
-        // A paste carried at the cursor says it once, put down (§6 decies).
+        // A paste carried at the cursor says it once, put down (docs/tools/copy-paste.md).
         if let Some(w) = outcome.warning.filter(|_| !matches!(after, After::Carry(_))) {
             self.notify(NoticeKind::Warning, w.to_string(), None);
         }
@@ -323,7 +323,7 @@ impl Editor {
     }
 
     /// The debug menu: makes the kernel panic on purpose, a job queued right behind, to check that a
-    /// crash is recovered from (docs/ARCHITECTURE.md §7 ter): natively the panic is caught; in
+    /// crash is recovered from (docs/model/kernel.md): natively the panic is caught; in
     /// the browser the worker is replaced and the job behind sent to the new one. The status
     /// bar says how both went.
     pub fn crash_kernel(&mut self) {
@@ -340,8 +340,8 @@ impl Editor {
         self.poll();
     }
 
-    /// Imports a STEP file (`name`, its `bytes`) into the active context (ARCHITECTURE.md §8
-    /// ter): the kernel reads it, then its content is inserted as one occurrence, selected —
+    /// Imports a STEP file (`name`, its `bytes`) into the active context (docs/io/step-import.md):
+    /// the kernel reads it, then its content is inserted as one occurrence, selected —
     /// one step to undo. The rest of the editor stays usable meanwhile.
     pub fn import_step(&mut self, name: String, bytes: Vec<u8>) {
         let id = self.job_id();
@@ -475,8 +475,8 @@ impl Editor {
         }
     }
 
-    /// What the undo history holds besides the current document, estimated (docs/
-    /// ARCHITECTURE.md §5 « Memory cap »): the states' own B-reps and the meshes the scene keeps
+    /// What the undo history holds besides the current document, estimated
+    /// (docs/model/undo.md#memory-cap): the states' own B-reps and the meshes the scene keeps
     /// for them. Weighs the pairs of states new since the last call, the meshes they hold being
     /// in by then.
     pub fn history_bytes(&mut self) -> u64 {
@@ -569,7 +569,7 @@ impl Editor {
                 }
             }
         }
-        // What is selected at any depth (§6 septendecies: parts, or an assembly chosen in the tree
+        // What is selected at any depth (docs/tools/selection.md: parts, or an assembly chosen in the tree
         // drop-up) that is still there, under the context and no part open.
         let context = &self.context;
         let closed = self.open_part.is_none();
@@ -578,8 +578,8 @@ impl Editor {
     }
 }
 
-/// Keeps what the undo histories of `editors` hold together under `budget` bytes (docs/
-/// ARCHITECTURE.md §5 « Memory cap »): forgets the states of the first ones first — the caller
+/// Keeps what the undo histories of `editors` hold together under `budget` bytes
+/// (docs/model/undo.md#memory-cap): forgets the states of the first ones first — the caller
 /// orders them, the documents shown least recently first. Each keeps its last step to undo; an
 /// editor computing an operation is left alone this time. The bytes the histories hold after.
 pub fn cap_histories(editors: &mut [&mut Editor], budget: u64) -> u64 {

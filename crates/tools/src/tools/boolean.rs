@@ -1,7 +1,7 @@
 //! Union / Subtract / Intersect: click the target part, then the tool part, in any contexts
-//! (ARCHITECTURE.md §4: the target is changed in its own axes, the tool is consumed). The
+//! (docs/model/kernel.md: the target is changed in its own axes, the tool is consumed). The
 //! scope option says whether every occurrence of the target's part changes, or only the one
-//! clicked (§2.5).
+//! clicked (docs/model/data-model.md).
 
 use super::DragClicks;
 use skraft_i18n::t;
@@ -72,7 +72,7 @@ impl Tool for BooleanTool {
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
         let aimed = self.target.as_ref().or(self.hover.as_ref());
-        // No scope for a part placed once: both choices are the same (§2.5).
+        // No scope for a part placed once: both choices are the same (docs/model/data-model.md).
         let all = match aimed.map(|p| cx.copies_shown(p)) {
             Some(n) if n > 1 => t!("tool.boolean.option.all_count", count = n),
             Some(_) => return Vec::new(),

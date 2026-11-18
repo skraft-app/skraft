@@ -2,7 +2,7 @@
 //! the selection and the active tool. The app forwards input to it and draws what [`View`]
 //! says; everything here runs without a UI or a GPU.
 //!
-//! The kernel runs behind a [`KernelService`] (docs/ARCHITECTURE.md §7 ter): an operation that
+//! The kernel runs behind a [`KernelService`] (docs/model/kernel.md): an operation that
 //! needs it is *pending* until [`Editor::poll`] gets its result. Meanwhile only navigation and
 //! hovering work; Esc abandons it. Meshes the scene lacks are asked for the same way.
 //!
@@ -43,7 +43,7 @@ pub use naming::Naming;
 pub use tree::{Tree, TreeRow};
 pub use view::{Look, Mark, OrientedBox, SectionCut, View, ViewHighlight, ViewPlacement};
 
-/// A message for the app's toasts (docs/ARCHITECTURE.md §6, Toasts): an operation that failed, a
+/// A message for the app's toasts (docs/ui/interface.md#toasts): an operation that failed, a
 /// file imported… The status bar keeps the tools' hints.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notice {
@@ -58,7 +58,7 @@ pub struct Notice {
 /// A notice's button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoticeAction {
-    /// Opens the naming dialog on this part, just made (§6 quattuordecies,
+    /// Opens the naming dialog on this part, just made (docs/tools/quick-tools.md,
     /// [`Editor::naming_of`]).
     Rename(Id),
 }
@@ -85,11 +85,11 @@ pub struct Editor {
     collected: Vec<Id>,
     /// Meshes asked for, by job: the solid, and how fine.
     meshing: HashMap<JobId, (Arc<Solid>, Quality)>,
-    /// The load under way (§7 sexies): a file opened or imported, until its last mesh.
+    /// The load under way (docs/ui/loading.md): a file opened or imported, until its last mesh.
     load: Option<loading::Load>,
     /// How the last load ended, until the app takes it.
     load_end: Option<LoadEnd>,
-    /// Files being read by the kernel (STEP), by job: their names (ARCHITECTURE.md §8 ter).
+    /// Files being read by the kernel (STEP), by job: their names (docs/io/step-import.md).
     importing: HashMap<JobId, String>,
     /// The jobs of [`Editor::crash_kernel`] still out, and what came back of them.
     probes: HashMap<JobId, Probe>,
@@ -101,23 +101,23 @@ pub struct Editor {
     size: DVec2,
     /// Occurrence path of the context being edited.
     context: Vec<Id>,
-    /// The part open in the context, by its occurrence there (ARCHITECTURE.md §2.9).
+    /// The part open in the context, by its occurrence there (docs/model/opening-a-part.md).
     open_part: Option<Id>,
-    /// The group of bodies open in the open part (§2.11 « Body groups »): the bodies leading
+    /// The group of bodies open in the open part (docs/model/bodies.md#body-groups): the bodies leading
     /// to it, the part's own first; empty, the part itself.
     open_group: Vec<Id>,
-    /// What a change to the open part reaches (§2.5): every occurrence, until said otherwise
+    /// What a change to the open part reaches (docs/model/data-model.md): every occurrence, until said otherwise
     /// for this opening.
     part_scope: Scope,
     /// Whether a shape drawn in the open part takes material away (a machining) or adds it
-    /// (§2.11): taking away, until said otherwise for this opening.
+    /// (docs/model/bodies.md): taking away, until said otherwise for this opening.
     body_sign: Sign,
     /// The machining hovered in the entity info's list (drawn hovered in the view).
     listed_hover: Option<Id>,
-    /// The parts selected at any depth under « Parts » (ARCHITECTURE.md §6 septendecies), by their
+    /// The parts selected at any depth under « Parts » (docs/tools/selection.md), by their
     /// paths from the root, all under the active context; `selection` then empty.
     deep: Vec<EntityPath>,
-    /// OCL's tree drop-up, while the copy modifier is held over a part (§6 septendecies).
+    /// OCL's tree drop-up, while the copy modifier is held over a part (docs/tools/selection.md).
     tree: Option<tree::Tree>,
     /// The tree drop-up was opened since the copy modifier was pressed: the tap its release
     /// makes is not the tool's.
@@ -136,12 +136,12 @@ pub struct Editor {
     held: Option<(JobId, Preview)>,
     /// The occurrences a stretch previewed draws otherwise, by path: the mesh, the transform.
     stretch_swaps: HashMap<EntityPath, (Id, DAffine3)>,
-    /// The bodies of the open part a stretch previewed draws otherwise (§2.11): the mesh, the
+    /// The bodies of the open part a stretch previewed draws otherwise (docs/model/bodies.md): the mesh, the
     /// placement in the part's axes.
     pub(super) body_swaps: HashMap<Id, (Id, DAffine3)>,
-    /// How the selection is drawn, worked out once for the frames that follow (§7 bis).
+    /// How the selection is drawn, worked out once for the frames that follow (docs/render/display.md).
     selection_drawing: std::cell::RefCell<Option<view::SelectionDrawing>>,
-    /// The section's cut lines, kept while the plane and the meshes stay (§7 quater).
+    /// The section's cut lines, kept while the plane and the meshes stay (docs/render/look.md).
     section_cuts: crate::section_cut::SectionCuts,
     /// Is anything hidden, at the history's revision ([`Editor::has_hidden`]: asked at every
     /// frame, found by a pass over every assembly).
@@ -149,7 +149,7 @@ pub struct Editor {
     selection: Vec<Id>,
     tool: Box<dyn Tool>,
     pivot: Option<DVec3>,
-    /// The views gone through, for previous / next view (§6 quindecies), and the one shown.
+    /// The views gone through, for previous / next view (docs/ui/navigation-styles.md), and the one shown.
     views: Vec<Camera>,
     view_index: usize,
     message: Option<String>,
@@ -157,7 +157,7 @@ pub struct Editor {
     notices: Vec<Notice>,
     /// The part of the viewport no panel covers, if not all of it (pixels).
     free: Option<(DVec2, DVec2)>,
-    /// Inference locks (§6 ter): the arrow keys' axis, and the line Shift holds.
+    /// Inference locks (docs/tools/inferences.md): the arrow keys' axis, and the line Shift holds.
     axis_lock: Option<usize>,
     /// The normal ↓ locks for the shape tools (world): the face's under the cursor.
     face_lock: Option<DVec3>,
@@ -169,7 +169,7 @@ pub struct Editor {
     shift_lock: Option<Lock>,
     /// The height (whole) of the last shape drawn: the next can take it again.
     last_height: Option<f64>,
-    /// Points tracked (§6 ter, step 3): hovered [`TRACK_AFTER`] seconds; the latest
+    /// Points tracked (docs/tools/inferences.md, step 3): hovered [`TRACK_AFTER`] seconds; the latest
     /// [`MAX_TRACKED`].
     tracked: Vec<DVec3>,
     /// The point under the cursor and since when (seconds).
@@ -180,24 +180,24 @@ pub struct Editor {
     reference: Option<EdgeRef>,
     /// Where the cursor last was: the tool follows it again when a lock changes.
     last_hover: Option<DVec2>,
-    /// The tools' saved settings (the option bar's, ARCHITECTURE.md §6 bis), by tool id.
+    /// The tools' saved settings (the option bar's, docs/ui/interface.md), by tool id.
     tool_settings: BTreeMap<String, OptionValues>,
-    /// The material the paint tool paints with (§7 quater).
+    /// The material the paint tool paints with (docs/render/look.md).
     paint: Option<Id>,
-    /// A paste carried at the cursor (§6 decies).
+    /// A paste carried at the cursor (docs/tools/copy-paste.md).
     carry: Option<clipboard::Carry>,
     /// The tool to go back to, once the tool the quick tools started has done its action
-    /// (§6 terdecies).
+    /// (docs/tools/quick-tools.md).
     quick_return: Option<quick::Return>,
     /// The tool that handed back to it: what is typed before the next shape goes to it.
     aside: Option<Box<dyn Tool>>,
     /// The quick tools' card, offered on what a creation tool just made.
     card: Option<quick::Card>,
-    /// The naming dialog the app is to open, on a part just made (§6 quattuordecies).
+    /// The naming dialog the app is to open, on a part just made (docs/tools/quick-tools.md).
     naming: Option<Naming>,
-    /// A drag the editor turns into clicks for the tool (§6, [`Tool::drag_clicks`]).
+    /// A drag the editor turns into clicks for the tool (docs/tools/interaction.md, [`Tool::drag_clicks`]).
     drag_click: Option<DragClick>,
-    /// What it went through: journal, kernel failures, recording (§7 septies).
+    /// What it went through: journal, kernel failures, recording (docs/control-protocol.md).
     journal: journal::Journal,
     /// How deep in the editor's own calls: a public method it calls itself is not the outside's
     /// (not recorded).
@@ -334,19 +334,19 @@ impl Editor {
         self.document().transform_of(&self.context).unwrap_or(DAffine3::IDENTITY)
     }
 
-    /// The part open in the context, by its occurrence there (ARCHITECTURE.md §2.9).
+    /// The part open in the context, by its occurrence there (docs/model/opening-a-part.md).
     pub fn open_part(&self) -> Option<Id> {
         self.open_part
     }
 
-    /// The group of bodies open in the open part: the bodies leading to it (§2.11 « Body
+    /// The group of bodies open in the open part: the bodies leading to it (docs/model/bodies.md « Body
     /// groups »); empty, the part itself.
     pub fn open_group(&self) -> &[Id] {
         &self.open_group
     }
 
     /// The body of the part (or group) open whose profile is edited (the tool « Profil »), if
-    /// any: the body open, the deepest level of the editing (§2.11 « Edit levels »).
+    /// any: the body open, the deepest level of the editing (docs/model/bodies.md#edit-levels).
     pub fn profile_body(&self) -> Option<Id> {
         self.tool.profile_body(&self.cx())
     }
@@ -364,7 +364,7 @@ impl Editor {
         true
     }
 
-    /// The path of the open part's occurrence, into its group open (§2.11 « Body groups »).
+    /// The path of the open part's occurrence, into its group open (docs/model/bodies.md#body-groups).
     pub fn open_part_path(&self) -> Option<EntityPath> {
         self.open_part.map(|id| EntityPath::new(self.context.clone(), id).in_group(self.open_group.clone()))
     }
@@ -398,7 +398,7 @@ impl Editor {
     }
 
     /// X-ray: every part drawn see-through, its edges all seen, and nothing hiding a point
-    /// from inferences (the document's setting `display.xray`, §6 sexdecies).
+    /// from inferences (the document's setting `display.xray`, docs/ui/view-bar.md).
     pub fn xray(&self) -> bool {
         self.history.document().settings().display.xray
     }
@@ -421,7 +421,7 @@ impl Editor {
         self.part_scope = scope;
     }
 
-    /// Whether a shape drawn in the open part adds material or takes it away (§2.11).
+    /// Whether a shape drawn in the open part adds material or takes it away (docs/model/bodies.md).
     pub fn body_sign(&self) -> Sign {
         self.body_sign
     }
@@ -456,7 +456,7 @@ impl Editor {
     }
 
     /// The axes of what is open in the context's: the open part's, or its group open's
-    /// (§2.11 « Body groups »); identity without one.
+    /// (docs/model/bodies.md#body-groups); identity without one.
     fn axes_in_context(&self) -> DAffine3 {
         let doc = self.document();
         let group = self
@@ -469,7 +469,7 @@ impl Editor {
     }
 
     /// The frame tools draw and infer in, to world: the open part's axes, else the context's
-    /// (§2.3). The axes drawn are these.
+    /// (docs/model/data-model.md). The axes drawn are these.
     pub fn axes_transform(&self) -> DAffine3 {
         self.context_transform() * self.axes_in_context()
     }
@@ -522,7 +522,7 @@ impl Editor {
             if let Some(tab) = self.tab_hint() {
                 s = format!("{s} · {tab}");
             }
-            // Under « Parts », the tree drop-up (§6 septendecies).
+            // Under « Parts », the tree drop-up (docs/tools/selection.md).
             if self.tree_allowed() {
                 s = format!("{s} · {}", t!("status.tree_key", key = tools::copy_key()));
             }
@@ -654,7 +654,7 @@ impl Editor {
     // ---- the tool's options (the option bar) -------------------------------------------------
 
     /// The active tool's options, as the bar shows them now: the selection's scope last
-    /// (§6 septendecies), for a tool that takes parts at any depth, no part open.
+    /// (docs/tools/selection.md), for a tool that takes parts at any depth, no part open.
     pub fn tool_options(&self) -> Vec<ToolOption> {
         let mut options = self.tool.options(&self.cx());
         if self.tool.picks_parts() && self.open_part.is_none() {
@@ -677,7 +677,7 @@ impl Editor {
         options
     }
 
-    /// Is the selection's scope « Parts » (§6 septendecies)?
+    /// Is the selection's scope « Parts » (docs/tools/selection.md)?
     pub fn pick_parts(&self) -> bool {
         self.tool_settings
             .get(tools::SELECTION_SETTINGS)
@@ -711,7 +711,7 @@ impl Editor {
             return;
         }
         if option.saved {
-            // Shared by the part creation tools that have it, as OCL's (§6 duodevicies).
+            // Shared by the part creation tools that have it, as OCL's (docs/tools/draw-options.md).
             let kind = self.tool.kind();
             for k in std::iter::once(kind).chain(tools::synced_with(key).iter().copied().filter(|k| *k != kind)) {
                 self.tool_settings.entry(k.id().to_owned()).or_default().insert(key.to_owned(), value.clone());
@@ -889,7 +889,7 @@ impl Editor {
         }
     }
 
-    // ---- journal (§7 septies) ------------------------------------------------------------------
+    // ---- journal (docs/control-protocol.md) ------------------------------------------------------------------
 
     /// What it went through: the journal, the kernel's failures, the recording under way.
     pub fn journal(&self) -> &journal::Journal {
@@ -945,7 +945,7 @@ impl Editor {
         self.settle_carry(true);
         self.tool = tools::make(kind);
         // Erase lets the selection go when it starts: it erases what its clicks take, never
-        // the selection (§6 septendecies).
+        // the selection (docs/tools/selection.md).
         if kind == ToolKind::Erase {
             self.clear_selection();
         }
@@ -1068,7 +1068,7 @@ impl Editor {
                 if self.tool.busy() {
                     self.tool.back();
                     // Back at its first step, a tool the quick tools started hands back; one
-                    // that picks first lets the selection go, and picks again (§6 septendecies).
+                    // that picks first lets the selection go, and picks again (docs/tools/selection.md).
                     if !self.tool.busy() {
                         if self.quick_return.is_none() && self.tool.dropped() {
                             self.clear_selection();
@@ -1081,11 +1081,11 @@ impl Editor {
                 } else if self.aside.take().is_some() {
                     // The tool aside let go first.
                 } else if self.tool.picks_first() && self.anything_selected() {
-                    // What the tool would act on let go: it picks again (§6 septendecies).
+                    // What the tool would act on let go: it picks again (docs/tools/selection.md).
                     self.clear_selection();
                     self.rehover();
                 } else if self.tool.kind() == ToolKind::Profile {
-                    // The body open left for its part (§2.11 « Edit levels »).
+                    // The body open left for its part (docs/model/bodies.md#edit-levels).
                     self.exit();
                 } else if self.tool.kind() == ToolKind::Select {
                     if self.selection.is_empty() && self.open_part.is_some() {
@@ -1137,7 +1137,7 @@ impl Editor {
             self.run(c);
         }
         // What a tool that picks first just took (or let go) is what it acts on from now: it
-        // sees it at once, not at the next move of the cursor (§6 septendecies).
+        // sees it at once, not at the next move of the cursor (docs/tools/selection.md).
         if self.tool.picks_first()
             && (&self.selection, &self.deep) != (&selection.0, &selection.1)
             && let Some(px) = self.last_hover
@@ -1169,7 +1169,7 @@ impl Editor {
         self.update_preview_mesh();
     }
 
-    /// A drag as clicks, for a tool that asks for it (§6, OpenCutList's SmartDraw): the press
+    /// A drag as clicks, for a tool that asks for it (docs/tools/interaction.md, OpenCutList's SmartDraw): the press
     /// clicks at the tool's first step, the cursor hovers, the release clicks (not when nearer
     /// than [`DRAG_CLICK_MIN`] to a press that clicked, nor when that press left the tool at its
     /// first step). None: the input goes as it is.
@@ -1204,7 +1204,7 @@ impl Editor {
         }
     }
 
-    /// What the tool previews stretched, in the scene (§6 sexies): the document as the stretch
+    /// What the tool previews stretched, in the scene (docs/tools/stretch.md): the document as the stretch
     /// would leave it, sketched without its geometry; each part it stretches meshed from its
     /// display mesh, each vertex moved by its section; and, per occurrence it changes, what to
     /// draw instead (`stretch_swaps`). Dropped when the tool shows none.
@@ -1217,7 +1217,7 @@ impl Editor {
         let mut swaps = HashMap::new();
         let mut body_swaps = HashMap::new();
         if let Some(s) = wanted.as_ref().filter(|s| s.bodies.is_some()) {
-            // Bodies of the open part, each from its recipe mesh, in its own axes (§2.11).
+            // Bodies of the open part, each from its recipe mesh, in its own axes (docs/model/bodies.md).
             let path = EntityPath::new(s.context.clone(), s.occurrences[0]).in_group(self.open_group.clone());
             let stretch = skraft_model::kernel::Stretch::new(s.axis, s.cuts.clone(), s.moves.clone());
             let doc = self.document().clone();
@@ -1225,7 +1225,7 @@ impl Editor {
             if let (Ok((_, part, _)), Ok(stretch), Some(r)) = (doc.resolve_container(&path), stretch, recipe) {
                 let stretch = stretch.in_frame(&s.frame.inverse());
                 // As the operation splits them: moved, or a definition changed — shown by the
-                // copies it reaches, and made in place, by those it does not (§2.11).
+                // copies it reaches, and made in place, by those it does not (docs/model/bodies.md).
                 let plan = part.body_stretch(s.bodies.as_deref(), &stretch);
                 for (id, t) in &plan.moved {
                     if let Some(rb) = r.body(*id) {
@@ -1312,17 +1312,17 @@ impl Editor {
                 let held = stretching.then(|| self.stretch_meshed.clone()).flatten();
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.
-                // What a drawing tool makes is offered the quick tools' card (§6 terdecies); a
-                // part made, its name asked or offered (§6 quattuordecies).
+                // What a drawing tool makes is offered the quick tools' card (docs/tools/quick-tools.md); a
+                // part made, its name asked or offered (docs/tools/quick-tools.md).
                 let after = match op {
                     Operation::AddPrimitive { .. } => After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) },
-                    // A part made in another assembly (« Dessiner dans », §6 duodevicies).
+                    // A part made in another assembly (« Dessiner dans », docs/tools/draw-options.md).
                     Operation::At { op: ref made, .. } if matches!(**made, Operation::AddPrimitive { .. }) => {
                         After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) }
                     }
                     Operation::AddBody { .. } => After::Card { ask_name: None },
                     Operation::Boolean { .. } | Operation::SetProfile { .. } => After::Nothing,
-                    // At any depth (§6 septendecies): what it makes is not in the active context.
+                    // At any depth (docs/tools/selection.md): what it makes is not in the active context.
                     Operation::At { .. } | Operation::Batch(_) => After::Nothing,
                     _ => After::Select,
                 };
@@ -1341,7 +1341,7 @@ impl Editor {
             }
             Command::Select(ids) => {
                 // Let go right after an operation still computed (a tool picking again,
-                // §6 septendecies): once it lands, what it moved drawn where it goes until then.
+                // docs/tools/selection.md): once it lands, what it moved drawn where it goes until then.
                 if ids.is_empty() {
                     let pending = self.pending.as_mut().map(|p| &mut p.after);
                     let mut waiting = false;

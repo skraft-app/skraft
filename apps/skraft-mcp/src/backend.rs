@@ -1,4 +1,4 @@
-//! Where the MCP server's tool calls go (docs/ARCHITECTURE.md §7 septies): the running app,
+//! Where the MCP server's tool calls go (docs/control-protocol.md): the running app,
 //! over its control channel ([`Remote`]), or an editor of the server's own, without a window
 //! ([`Headless`]).
 

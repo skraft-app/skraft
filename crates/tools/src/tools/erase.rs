@@ -3,7 +3,7 @@
 //! are shown, else an occurrence —; a drag erases everything it passes over, at once when it is
 //! released (one operation), and Esc drops it. With Shift held, the occurrences taken are
 //! hidden instead (guides and machinings are left). What would go is drawn as a ghost.
-//! Started on a selection, it erases it at once (the editor, §6 septendecies); selected while it
+//! Started on a selection, it erases it at once (the editor, docs/tools/selection.md); selected while it
 //! runs, the selection is left alone. Under « Parts », it takes the parts at any depth.
 
 use glam::DVec2;

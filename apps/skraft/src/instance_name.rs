@@ -1,8 +1,8 @@
 //! The name of an instance — an occurrence, a body —, written the same wherever it shows (the
-//! navigator's rows, the tree drop-up, docs/ARCHITECTURE.md §6 septendecies): its own name, if it
+//! navigator's rows, the tree drop-up, docs/tools/selection.md): its own name, if it
 //! has one, in semibold, then its definition's between angle brackets (« Gauche <Pied> »,
 //! « <Pied> »). The brackets faint, well apart from the names; the definition's name, automatic
-//! (§2.1, §2.11 « Automatic names »), in italics and greyed.
+//! (docs/model/data-model.md, docs/model/bodies.md#automatic-names), in italics and greyed.
 
 use egui::Color32;
 use egui::text::{LayoutJob, TextFormat};

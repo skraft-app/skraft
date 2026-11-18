@@ -1,4 +1,4 @@
-//! Interactive tools (ARCHITECTURE.md §6): each is a state machine fed with pointer and key
+//! Interactive tools (docs/tools/interaction.md): each is a state machine fed with pointer and key
 //! input; it previews without touching the document and, when done, emits an `Operation`.
 
 mod boolean;
@@ -127,12 +127,12 @@ pub enum Command {
     /// Replaces the selection (entities of the active context).
     Select(Vec<Id>),
     /// Replaces the selection by parts at any depth under the active context (« Parts »,
-    /// ARCHITECTURE.md §6 septendecies).
+    /// docs/tools/selection.md).
     SelectPaths(Vec<EntityPath>),
     /// Enters the assembly the occurrence `Id` of the active context places, or opens its
     /// part.
     Enter(Id),
-    /// Edits the profile of the open part's body `Id` (its double-click, §2.11): the Profile
+    /// Edits the profile of the open part's body `Id` (its double-click, docs/model/bodies.md): the Profile
     /// tool on it.
     EditProfile(Id),
     /// Closes the open part, else leaves the active context for its parent.
@@ -198,7 +198,7 @@ pub struct Preview {
     /// The selection drawn moved by this world transform (the move tool's ghost).
     pub ghost: Option<DAffine3>,
     /// The selection drawn copied at each of these world transforms, the original staying (the
-    /// copy tools' ghosts, §6 duodecies).
+    /// copy tools' ghosts, docs/tools/copy-array.md).
     pub copies: Vec<DAffine3>,
     /// The point the tool infers under the cursor (marker and tooltip).
     pub inference: Option<Inference>,
@@ -207,21 +207,21 @@ pub struct Preview {
     /// The selection rectangle being dragged.
     pub marquee: Option<Marquee>,
     /// The occurrence a change is aimed at, when it reaches every occurrence of its part: the
-    /// others are marked too (ARCHITECTURE.md §2.5).
+    /// others are marked too (docs/model/data-model.md).
     pub propagate: Option<EntityPath>,
-    /// A section being placed, drawn instead of the document's (§7 quater).
+    /// A section being placed, drawn instead of the document's (docs/render/look.md).
     pub section: Option<Section>,
-    /// A part drawn stretched (§6 sexies).
+    /// A part drawn stretched (docs/tools/stretch.md).
     pub stretch: Option<StretchPreview>,
     /// The selected occurrences drawn as any others: the tool shows what it took its own way
     /// (the stretch tool's grips and cutters, whose colours the selection's would blur).
     pub hide_selection: bool,
-    /// What the tool draws, through a [`crate::draw::Drawer`] (§7 octies): its lines, fills,
+    /// What the tool draws, through a [`crate::draw::Drawer`] (docs/render/drawer.md): its lines, fills,
     /// boxes, grips, marks and lengths.
     pub drawing: crate::draw::Drawing,
     /// Entities of the active context drawn as ghosts: what the eraser would take.
     pub erasing: Vec<Id>,
-    /// The parts at any depth the eraser would take (« Parts », §6 septendecies).
+    /// The parts at any depth the eraser would take (« Parts », docs/tools/selection.md).
     pub erasing_paths: Vec<EntityPath>,
 }
 
@@ -252,7 +252,7 @@ pub enum PointShape {
     /// A closed padlock: something locked, a click unlocks it (the stretch's locked axes).
     Padlock,
     /// The mirror's badge (OpenCutList's): a square in `fill`, two triangles facing a dashed
-    /// axis in `stroke` (the copy tools' mirror, §6 duodecies).
+    /// axis in `stroke` (the copy tools' mirror, docs/tools/copy-array.md).
     Mirror,
 }
 
@@ -264,7 +264,7 @@ pub struct StretchPreview {
     pub context: Vec<Id>,
     pub occurrences: Vec<Id>,
     /// Bodies of the part the one occurrence places, stretched alone (`frame` then in the
-    /// part's axes, §2.11).
+    /// part's axes, docs/model/bodies.md).
     pub bodies: Option<Vec<Id>>,
     pub frame: DAffine3,
     pub all: bool,
@@ -273,7 +273,7 @@ pub struct StretchPreview {
     pub moves: Vec<f64>,
 }
 
-// ---- options (ARCHITECTURE.md §6 bis, the tool's option bar) ---------------------------------
+// ---- options (docs/ui/interface.md, the tool's option bar) ---------------------------------
 
 /// The value of a tool option.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -283,7 +283,7 @@ pub enum OptionValue {
     Choice(String),
     Toggle(bool),
     /// A length (mm), shown in the document's units and typed in place (or `<length>x` in the
-    /// measurements box, ARCHITECTURE.md §6 bis).
+    /// measurements box, docs/ui/interface.md).
     Length(f64),
 }
 
@@ -313,21 +313,21 @@ pub struct ToolOption {
     /// A toggle's icon, by name, which the app draws instead of the label (then in the tip).
     pub icon: Option<&'static str>,
     /// A colour (sRGB) filling the toggle's button while it is on: « Pipette »'s material
-    /// (§6 duodevicies).
+    /// (docs/tools/draw-options.md).
     pub swatch: Option<[u8; 3]>,
 }
 
 /// The creation tools' toggle « Nommage des pièces » (OCL's `ask_name`): the part's name asked
-/// as soon as it is made (§6 quattuordecies).
+/// as soon as it is made (docs/tools/quick-tools.md).
 pub const ASK_NAME: &str = "ask_name";
 
 /// The part creation tools' toggles « Dessiner dans » and « Pipette » (OCL's `draw_in` and
-/// `pick_material`, ARCHITECTURE.md §6 duodevicies): the part made goes into the assembly of
+/// `pick_material`, docs/tools/draw-options.md): the part made goes into the assembly of
 /// the part picked before the first click, takes its material.
 pub const DRAW_IN: &str = "draw_in";
 pub const PICK_MATERIAL: &str = "pick_material";
 
-/// The selection's scope (ARCHITECTURE.md §6 septendecies), shared by Select and every tool's
+/// The selection's scope (docs/tools/selection.md), shared by Select and every tool's
 /// picking: what a click takes, the active context's child or the part at any depth. Saved
 /// once for all the tools, under [`SELECTION_SETTINGS`].
 pub const PICK_SCOPE: &str = "pick_scope";
@@ -349,7 +349,7 @@ pub struct Marquee {
     pub crossing: bool,
     /// The entities of the active context it would take now.
     pub hits: Vec<Id>,
-    /// The parts at any depth it would take now (« Parts », §6 septendecies).
+    /// The parts at any depth it would take now (« Parts », docs/tools/selection.md).
     pub paths: Vec<EntityPath>,
 }
 
@@ -365,30 +365,30 @@ pub enum ToolKind {
     Select,
     Box,
     Cylinder,
-    /// Draws an outline, then pulls it into a prism (§6 nonies).
+    /// Draws an outline, then pulls it into a prism (docs/tools/prism.md).
     Prism,
-    /// Sets an axis, draws a half profile, then turns it about the axis (§6 undecies).
+    /// Sets an axis, draws a half profile, then turns it about the axis (docs/tools/turned-bodies.md).
     Turn,
     Move,
     Rotate,
     Boolean(Boolean),
     /// Erases (or hides) what it is clicked or dragged over.
     Erase,
-    /// Paints occurrences or faces (§7 quater).
+    /// Paints occurrences or faces (docs/render/look.md).
     Paint,
-    /// Places the section plane (§7 quater).
+    /// Places the section plane (docs/render/look.md).
     Section,
-    /// Measures, and draws guides (§6 quinquies).
+    /// Measures, and draws guides (docs/tools/tape-measure.md).
     Measure,
-    /// Stretches a part along one of its axes (§6 sexies).
+    /// Stretches a part along one of its axes (docs/tools/stretch.md).
     Stretch,
-    /// Copies along a line (§6 duodecies).
+    /// Copies along a line (docs/tools/copy-array.md).
     CopyLine,
-    /// Copies along a grid (§6 duodecies).
+    /// Copies along a grid (docs/tools/copy-array.md).
     CopyGrid,
-    /// Spreads copies between two points (§6 duodecies).
+    /// Spreads copies between two points (docs/tools/copy-array.md).
     Distribute,
-    /// Edits the profile of a body of the open part (§6 nonies, §2.11).
+    /// Edits the profile of a body of the open part (docs/tools/prism.md, docs/model/bodies.md).
     Profile,
 }
 
@@ -487,25 +487,25 @@ pub struct Cx<'a> {
     pub context_def: Id,
     /// Definition to world, for the context: operations are expressed in it.
     pub context_transform: DAffine3,
-    /// The part open in the context, by its occurrence there (ARCHITECTURE.md §2.9).
+    /// The part open in the context, by its occurrence there (docs/model/opening-a-part.md).
     pub open_part: Option<Id>,
-    /// The group of bodies open in the open part (§2.11 « Body groups »): the bodies leading
+    /// The group of bodies open in the open part (docs/model/bodies.md#body-groups): the bodies leading
     /// to it; empty, the part itself.
     pub open_group: &'a [Id],
     /// The open part's axes in the context's (identity without one): its guides' frame.
     pub part_in_context: DAffine3,
     /// The axes of what is open in the context's — the open part's, or its group's (identity
-    /// without one): tools draw and infer in these axes (§2.3), see [`Cx::axes`].
+    /// without one): tools draw and infer in these axes (docs/model/data-model.md), see [`Cx::axes`].
     pub axes_in_context: DAffine3,
     /// The open part's recipe, while its machinings are shown: the selection is machinings
-    /// then, and the tools act on them (§2.9).
+    /// then, and the tools act on them (docs/model/opening-a-part.md).
     pub recipe: Option<&'a RecipeMeshes>,
-    /// What a change to the open part reaches (§2.5).
+    /// What a change to the open part reaches (docs/model/data-model.md).
     pub part_scope: Scope,
-    /// Whether a shape drawn in the open part adds material or takes it away (§2.11).
+    /// Whether a shape drawn in the open part adds material or takes it away (docs/model/bodies.md).
     pub body_sign: Sign,
     pub selection: &'a [Id],
-    /// The parts selected at any depth (« Parts », §6 septendecies), by their paths from the root.
+    /// The parts selected at any depth (« Parts », docs/tools/selection.md), by their paths from the root.
     pub deep: &'a [EntityPath],
     /// Does a click take parts at any depth (« Parts », no part open)?
     pub parts: bool,
@@ -531,7 +531,7 @@ pub struct Cx<'a> {
     pub options: &'a OptionValues,
     /// The material the paint tool paints with (none: it removes paint).
     pub material: Option<Id>,
-    /// The occurrences the tool's preview draws otherwise — stretched or moved (§6 sexies) —
+    /// The occurrences the tool's preview draws otherwise — stretched or moved (docs/tools/stretch.md) —
     /// by path: not where they are drawn, so not to infer on.
     pub previewed: &'a std::collections::HashMap<EntityPath, (Id, DAffine3)>,
     /// A line the tool draws itself and infers on ([`Tool::infer_line`]), in the axes.
@@ -581,7 +581,7 @@ impl Cx<'_> {
     }
 
     /// The group of bodies of the open part (or group) under `px`, while they are shown: what a
-    /// double-click opens (§2.11 « Body groups »).
+    /// double-click opens (docs/model/bodies.md#body-groups).
     pub fn group_body_at(&self, px: DVec2) -> Option<Id> {
         let id = self.pick_body(px)?;
         let (_, part, _) = self.doc.resolve_container(&self.open_part_path()?).ok()?;
@@ -589,7 +589,7 @@ impl Cx<'_> {
     }
 
     /// The occurrences from the root to the component guides are drawn in now: the open
-    /// part's, else the context's (§6 quinquies).
+    /// part's, else the context's (docs/tools/tape-measure.md).
     pub fn guide_path(&self) -> Vec<Id> {
         self.context.iter().copied().chain(self.open_part).collect()
     }
@@ -624,7 +624,7 @@ impl Cx<'_> {
             .or_else(|| if self.machinings_shown() { self.pick_body(px) } else { self.pick(px).and_then(|h| self.selectable(&h.path)) })
     }
 
-    /// The part under `px` at any depth under the active context (« Parts », §6 septendecies), by
+    /// The part under `px` at any depth under the active context (« Parts », docs/tools/selection.md), by
     /// its path from the root; none in an open part.
     pub fn part_at(&self, px: DVec2) -> Option<EntityPath> {
         if self.open_part.is_some() {
@@ -656,7 +656,7 @@ impl Cx<'_> {
         }
     }
 
-    /// What moving the parts `paths` at any depth changes (« Parts », §6 septendecies): grouped
+    /// What moving the parts `paths` at any depth changes (« Parts », docs/tools/selection.md): grouped
     /// per parent assembly, each in its axes; under « only this one », the assemblies along
     /// made unique when they are placed more than once.
     pub fn moved_deep(&self, paths: &[EntityPath]) -> Moved {
@@ -676,14 +676,14 @@ impl Cx<'_> {
         Moved::Deep { groups, unique }
     }
 
-    /// The operation erasing the parts `paths` at any depth (« Parts », §6 septendecies): one
+    /// The operation erasing the parts `paths` at any depth (« Parts », docs/tools/selection.md): one
     /// at each parent assembly, in one step.
     pub fn erase_deep(&self, paths: &[EntityPath]) -> Operation {
         self.deep_op(paths, |entities| Operation::Delete { context: Id(0), entities })
     }
 
     /// `op` of the occurrences selected in each parent assembly of the parts `paths`, applied
-    /// at it (« Parts », §6 septendecies), in one step.
+    /// at it (« Parts », docs/tools/selection.md), in one step.
     pub fn deep_op(&self, paths: &[EntityPath], op: impl Fn(Vec<Id>) -> Operation) -> Operation {
         let Moved::Deep { groups, unique } = self.moved_deep(paths) else { unreachable!() };
         Moved::at_each(&groups, unique, |_, entities| op(entities))
@@ -698,8 +698,8 @@ impl Cx<'_> {
     }
 
     /// The operation making `primitive`, drawn in the axes and placed by `placement` there:
-    /// in an open part, a body of it — a machining, or material added, as the bar says (§2.9,
-    /// §2.11); else a new part of the context.
+    /// in an open part, a body of it — a machining, or material added, as the bar says (docs/model/opening-a-part.md,
+    /// docs/model/bodies.md); else a new part of the context.
     pub fn add_primitive(&self, primitive: Primitive, placement: DAffine3) -> Operation {
         match self.open_part_path() {
             Some(target) => Operation::AddBody { target, primitive, placement, sign: self.body_sign, scope: self.part_scope },
@@ -712,7 +712,7 @@ impl Cx<'_> {
         }
     }
 
-    /// The part a creation tool's first click picks (§6 duodevicies): the one under `px`, at
+    /// The part a creation tool's first click picks (docs/tools/draw-options.md): the one under `px`, at
     /// any depth under the context, while « Dessiner dans » or « Pipette » is on.
     pub fn creation_pick(&self, px: DVec2) -> Option<EntityPath> {
         (self.toggle(DRAW_IN) || self.toggle(PICK_MATERIAL)).then(|| self.part_at(px).map(|p| p.part_path())).flatten()
@@ -740,7 +740,7 @@ impl Cx<'_> {
     }
 
     /// The operation a part creation tool applies (as [`Cx::add_primitive`]), « Dessiner dans »
-    /// and « Pipette » taken from the part `picked` before the first click (§6 duodevicies):
+    /// and « Pipette » taken from the part `picked` before the first click (docs/tools/draw-options.md):
     /// in another assembly than the context, placed in its axes, its copies made unique first
     /// under « only this one » when it is placed more than once (as parts moved at any depth).
     pub fn add_part(&self, primitive: Primitive, placement: DAffine3, picked: Option<&EntityPath>) -> Operation {
@@ -760,7 +760,7 @@ impl Cx<'_> {
         }
     }
 
-    /// The component a guide drawn now belongs to (§6 quinquies) — the open part, else the
+    /// The component a guide drawn now belongs to (docs/tools/tape-measure.md) — the open part, else the
     /// context — and its axes to world.
     pub fn guide_owner(&self) -> (Id, DAffine3) {
         let part = self.open_part_path().and_then(|p| self.doc.resolve(&p).ok()).map(|o| o.component);
@@ -808,7 +808,7 @@ impl Cx<'_> {
             })
     }
 
-    /// A drawer into `out` for this view (§7 octies), in the world's axes.
+    /// A drawer into `out` for this view (docs/render/drawer.md), in the world's axes.
     pub fn drawer<'d>(&'d self, out: &'d mut crate::draw::Drawing) -> crate::draw::Drawer<'d> {
         crate::draw::Drawer::new(self.camera, self.size, self.units(), out)
     }
@@ -843,7 +843,7 @@ impl Cx<'_> {
         (self.to_world(DVec3::ZERO), self.axis(2))
     }
 
-    /// The point inferred under `px` (§6 ter), on the solids `keep` accepts; `plane` (world
+    /// The point inferred under `px` (docs/tools/inferences.md), on the solids `keep` accepts; `plane` (world
     /// point and normal) when nothing is under the cursor, by default the context's ground.
     pub fn infer(&self, px: DVec2, keep: impl Fn(&Owner<'_>) -> bool, plane: Option<(DVec3, DVec3)>) -> Option<Inference> {
         self.query(px, &keep, plane, None, false, None)
@@ -941,7 +941,7 @@ pub fn guide_color(kind: InferKind) -> [f32; 4] {
     }
 }
 
-/// What a drag of the primary button is to a tool (§6, OpenCutList's SmartDraw).
+/// What a drag of the primary button is to a tool (docs/tools/interaction.md, OpenCutList's SmartDraw).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DragClicks {
     /// A drag: [`ToolInput::DragStart`], [`ToolInput::Drag`], [`ToolInput::DragEnd`].
@@ -974,7 +974,7 @@ pub trait Tool {
     fn profile_body(&self, _cx: &Cx<'_>) -> Option<Id> {
         None
     }
-    /// The options the bar shows (ARCHITECTURE.md §6 bis), labels as they read now.
+    /// The options the bar shows (docs/ui/interface.md), labels as they read now.
     fn options(&self, _cx: &Cx<'_>) -> Vec<ToolOption> {
         Vec::new()
     }
@@ -1017,17 +1017,17 @@ pub trait Tool {
     fn length_suffix(&self, _suffix: char) -> Option<&'static str> {
         None
     }
-    /// The commands for the level `path` chosen in the tree drop-up (§6 septendecies), if the tool
+    /// The commands for the level `path` chosen in the tree drop-up (docs/tools/selection.md), if the tool
     /// takes it its own way (Paint paints it); none: it is selected.
     fn tree_pick(&self, _path: &EntityPath, _cx: &Cx<'_>) -> Option<Vec<Command>> {
         None
     }
-    /// Does the tool take parts at any depth under « Parts » (ARCHITECTURE.md §6 septendecies)?
+    /// Does the tool take parts at any depth under « Parts » (docs/tools/selection.md)?
     /// Its bar then shows the selection's scope.
     fn picks_parts(&self) -> bool {
         false
     }
-    /// Does the tool pick what it acts on first (ARCHITECTURE.md §6 septendecies)? Esc at its
+    /// Does the tool pick what it acts on first (docs/tools/selection.md)? Esc at its
     /// first step then lets the selection go, the tool picking again.
     fn picks_first(&self) -> bool {
         false
@@ -1038,7 +1038,7 @@ pub trait Tool {
         false
     }
     /// Has its last step back dropped what it acts on (the copy tools' target)? Esc then lets
-    /// the selection go too, the tool picking again (§6 septendecies).
+    /// the selection go too, the tool picking again (docs/tools/selection.md).
     fn dropped(&self) -> bool {
         false
     }
@@ -1073,7 +1073,7 @@ impl Motion {
 }
 
 /// What the move and rotate tools change: occurrences of the context, or machinings of the
-/// open part (§2.9); each in its own frame (to world), which operations are expressed in.
+/// open part (docs/model/opening-a-part.md); each in its own frame (to world), which operations are expressed in.
 #[derive(Clone, Debug)]
 pub enum Moved {
     Occurrences {
@@ -1085,7 +1085,7 @@ pub enum Moved {
         scope: Scope,
         frame: DAffine3,
     },
-    /// Parts at any depth (« Parts », ARCHITECTURE.md §6 septendecies), per parent assembly; with
+    /// Parts at any depth (« Parts », docs/tools/selection.md), per parent assembly; with
     /// `unique`, the assemblies along each parent's path made unique first (« only this
     /// one »). The entities given to the methods are left out: the groups hold them. One
     /// operation at each parent, in one step.
@@ -1095,7 +1095,7 @@ pub enum Moved {
     },
 }
 
-/// The parts selected at any depth in one assembly (§6 septendecies).
+/// The parts selected at any depth in one assembly (docs/tools/selection.md).
 #[derive(Clone, Debug)]
 pub struct DeepGroup {
     /// The occurrences from the root to the assembly.
@@ -1154,7 +1154,7 @@ impl Moved {
         }
     }
 
-    /// A paste (§6 decies) placed `world` further: its transformation, from what was copied
+    /// A paste (docs/tools/copy-paste.md) placed `world` further: its transformation, from what was copied
     /// to the frame, moved by `world` in the frame. Any other operation is kept as it is.
     pub fn paste(&self, op: &Operation, world: DAffine3) -> Operation {
         let local = self.local(world);
@@ -1191,7 +1191,7 @@ impl Moved {
     }
 
     /// Copies at the world transforms `placements`, the sources moved by `moved` (world): the
-    /// copy tools' operation (§6 duodecies).
+    /// copy tools' operation (docs/tools/copy-array.md).
     pub fn copies(&self, entities: Vec<Id>, moved: DAffine3, placements: &[DAffine3]) -> Operation {
         let moved = self.local(moved);
         let placements = placements.iter().map(|w| self.local(*w)).collect();
@@ -1296,7 +1296,7 @@ fn with_copying(hint: String, copying: bool) -> String {
     if copying { format!("{hint} {}", t!("tool.copying")) } else { hint }
 }
 
-/// Neutral colour of construction lines (the theme's tokens, §7 quater).
+/// Neutral colour of construction lines (the theme's tokens, docs/render/look.md).
 pub const INK: [f32; 4] = skraft_theme::GUIDE_INK;
 /// Axis colours (SketchUp's red, green, blue).
 pub const RED: [f32; 4] = skraft_theme::AXIS_X;

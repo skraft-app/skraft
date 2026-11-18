@@ -1,4 +1,4 @@
-//! The command registry (docs/ARCHITECTURE.md §7 quater): every action of the menus, the tool
+//! The command registry (docs/ui/commands.md): every action of the menus, the tool
 //! bar and the keyboard, by a stable id (`edit.undo`, `tool.move`, `view.top`…), with its
 //! label, its menu and its default shortcut. The app says whether a command is enabled (or
 //! checked) and runs it ([`crate::app`]); the command palette, the shortcut preferences and
@@ -68,7 +68,7 @@ pub const COMMANDS: &[Command] = &[
     c("file.import", || ellipsis(t!("menu.file.import")), M::File, Some("Cmd+I")),
     c("file.save", || t!("menu.file.save"), M::File, Some("Cmd+S")),
     c("file.save_as", || ellipsis(t!("menu.file.save_as")), M::File, Some("Cmd+Shift+S")),
-    // The shown document's tab (docs/ARCHITECTURE.md §6 octies).
+    // The shown document's tab (docs/ui/file-tabs.md).
     c("file.close", || t!("menu.file.close"), M::File, Some("Cmd+W")),
     // The last files opened or saved ([`recent_slot`]): hidden while their slot is empty.
     g("file.recent.1", || t!("menu.file.recent", n = 1), M::File, None),
@@ -89,7 +89,7 @@ pub const COMMANDS: &[Command] = &[
     g("edit.make_assembly", || t!("menu.edit.make_assembly"), M::Edit, Some("G")),
     c("edit.explode", || t!("menu.edit.explode"), M::Edit, None),
     c("edit.make_unique", || t!("menu.edit.make_unique"), M::Edit, None),
-    // In an open part: its bodies selected grouped, its groups flattened (§2.11 « Body groups »).
+    // In an open part: its bodies selected grouped, its groups flattened (docs/model/bodies.md#body-groups).
     c("edit.group_bodies", || t!("menu.edit.group_bodies"), M::Edit, None),
     c("edit.ungroup_bodies", || t!("menu.edit.ungroup_bodies"), M::Edit, None),
     c("edit.delete_guides", || t!("menu.edit.delete_guides"), M::Edit, None),
@@ -97,7 +97,7 @@ pub const COMMANDS: &[Command] = &[
     c("app.preferences", || ellipsis(t!("menu.edit.preferences")), M::Edit, Some("Cmd+Comma")),
     // The control channel, on or off (desktop).
     c("app.remote_control", || t!("menu.edit.remote_control"), M::Edit, None),
-    // The journal window: what the shown document's editor went through (§7 septies).
+    // The journal window: what the shown document's editor went through (docs/control-protocol.md).
     c("app.journal", || t!("menu.edit.journal"), M::Edit, None),
     c("view.parallel", || t!("menu.view.parallel"), M::View, None),
     c("view.grid", || t!("menu.view.grid"), M::View, None),

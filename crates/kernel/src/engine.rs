@@ -127,7 +127,7 @@ impl Solid {
         create("torus", |k| prim::create_torus(k, p3(center), major_radius, minor_radius))
     }
 
-    /// This solid stretched (docs/ARCHITECTURE.md §6 sexies): its record rewritten, then read
+    /// This solid stretched (docs/tools/stretch.md): its record rewritten, then read
     /// back by the kernel, which checks it.
     pub fn stretched(&self, stretch: &Stretch) -> Result<Self> {
         let record = stretch.apply(self)?.record().clone();
@@ -221,7 +221,7 @@ impl Solid {
     /// [`Solid::display`] at `quality`: a preview is meshed at a hundredth of the body
     /// (`solidcore_tess::preview`), in a fraction of the time.
     pub fn display_at(&self, quality: Quality) -> Result<Display> {
-        // Nothing to draw nor to infer on (an empty part, §2.11).
+        // Nothing to draw nor to infer on (an empty part, docs/model/bodies.md).
         if self.is_empty() {
             return Ok(Display::default());
         }
@@ -312,7 +312,7 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
             Task::Boolean { target, tool, tool_transform, op } => {
                 let (target, tool) = (input(*target)?, input(*tool)?);
                 let r = match (op, target.is_empty(), tool.is_empty()) {
-                    // A difference never fails for want of material (§2.11 « Empty parts »):
+                    // A difference never fails for want of material (docs/model/bodies.md#empty-parts):
                     // nothing cut from nothing, nothing cut by nothing, a tool swallowing the
                     // whole target leaving nothing.
                     (BooleanOp::Difference, true, _) => Solid::empty(),
@@ -378,7 +378,7 @@ fn recipe(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(
         .chain(negatives.iter().map(|(s, t)| (*s, t, BooleanOp::Difference)))
         .collect();
     let no_positive = || Error::Convert { call: "recipe".into(), message: "no positive body".into() };
-    // Empty bodies (a group with nothing left, §2.11 « Empty parts ») are reported as failed
+    // Empty bodies (a group with nothing left, docs/model/bodies.md#empty-parts) are reported as failed
     // and left out; without a positive holding material the result is the base, or nothing.
     let base = base.filter(|b| !b.is_empty());
     let empty: Vec<u32> = steps.iter().enumerate().filter(|(_, (s, _, _))| s.is_empty()).map(|(k, _)| k as u32).collect();
@@ -437,7 +437,7 @@ fn recipe_session(
             (Some(s), BooleanOp::Union) => b::boolean_union(&mut k, s, placed).map_err(|e| kernel_err(call, e))?,
             (Some(s), _) => {
                 let cut = b::boolean_difference(&mut k, s, placed).map_err(|e| kernel_err(call, e))?;
-                // A tool swallowing the whole shape: nothing left to cut, the base alone (§2.11
+                // A tool swallowing the whole shape: nothing left to cut, the base alone (docs/model/bodies.md
                 // « Empty parts »).
                 if num_faces(&cut) == 0 {
                     at.set(None);
@@ -502,7 +502,7 @@ fn recipe_stepwise(
         }
         match placed(s, t).and_then(|n| shape.boolean(&n, BooleanOp::Difference)) {
             Ok(s) => shape = s,
-            // A tool swallowing the whole shape: the base alone, or nothing (§2.11).
+            // A tool swallowing the whole shape: the base alone, or nothing (docs/model/bodies.md).
             Err(Error::Empty(_)) => {
                 failed.sort_unstable();
                 return Ok((base.cloned().unwrap_or_else(Solid::empty), failed));
@@ -1236,7 +1236,7 @@ mod tests {
         assert!(failed.is_empty());
         assert_eq!(solid.pieces(), 1);
         assert_eq!(solid.record().faces.len(), l.record().faces.len());
-        // Nothing positive: nothing (§2.11 « Empty parts »).
+        // Nothing positive: nothing (docs/model/bodies.md#empty-parts).
         let nothing = Job { inputs: vec![board.clone()], tasks: vec![Task::Recipe { base: None, positives: vec![], negatives: vec![] }] };
         assert!(matches!(run(&nothing).unwrap().as_slice(), [Output::Recipe { solid, .. }] if solid.is_empty()));
     }

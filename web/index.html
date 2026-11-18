@@ -39,7 +39,7 @@
       }));
     }, { capture: true, passive: false });
 
-    // The control protocol from the page (docs/ARCHITECTURE.md §7 septies): the app's methods,
+    // The control protocol from the page (docs/control-protocol.md): the app's methods,
     // e.g. `await skraft.call("model.geometry", { selection: true })`, a promise of the
     // result (an Uint8Array of PNG for a screenshot), rejected with an Error.
     window.skraft = { call: (method, params) => skraftCall(method, params ?? null) };

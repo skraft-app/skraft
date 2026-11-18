@@ -15,8 +15,8 @@ const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const INSTRUCTIONS: &str = "\
 Skraft: a direct-modelling 3D CAD app for woodworking (parts are solids; OpenCutList-like \
-cut list dimensions). Every tool is a method of its control protocol (docs/ARCHITECTURE.md \
-§7 septies of the Skraft repository).
+cut list dimensions). Every tool is a method of its control protocol (docs/control-protocol.md \
+of the Skraft repository).
 - Units: millimetres; world Z up. A part's `dims` are its length, width, thickness (largest first).
 - Drive tools with `tool_input` at world points (`at`: exact) — e.g. the box tool: `{\"tool\": \
 \"box\"}`, two `click`s at the base's corners, then `{\"vcb\": \"18\"}` for its height.

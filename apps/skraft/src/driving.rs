@@ -1,4 +1,4 @@
-//! The app's side of the control protocol (docs/ARCHITECTURE.md §7 septies), whatever carries
+//! The app's side of the control protocol (docs/control-protocol.md), whatever carries
 //! the requests — the desktop's loopback server, the page's `window.skraft`: who asked
 //! ([`Asker`]), what waits for a later frame (`app.wait`, a real input taken in, a window's
 //! screenshot), the real egui events fed one frame at a time (`ui.*`), the status bar's

@@ -1,4 +1,4 @@
-//! Stretch (ARCHITECTURE.md §6 sexies), OpenCutList's Smart Reshape stretch
+//! Stretch (docs/tools/stretch.md), OpenCutList's Smart Reshape stretch
 //! (`SmartReshapeStretchActionHandler`) as faithfully as the app allows.
 //!
 //! - **Pick** (OCL's `SmartSelectActionHandler`): what to stretch — the open part, the
@@ -8,7 +8,7 @@
 //!   encloses, right to left: what it touches).
 //! - **Axes** (OCL's option): the occurrence's own (entity; the context's for several), the
 //!   context's, or the model's (active). Several share one box in them.
-//! - **Bodies** (ARCHITECTURE.md §2.11): in an open part showing its bodies, the bodies
+//! - **Bodies** (docs/model/bodies.md): in an open part showing its bodies, the bodies
 //!   selected are stretched alone (`Operation::StretchBodies`), along the body's own axes
 //!   (one), the part's (several, or « context »), or the model's; their cutters kept for the
 //!   session. With none selected, the open part whole, as before.
@@ -179,9 +179,9 @@ struct Target {
     context: Vec<Id>,
     occurrences: Vec<Id>,
     /// Bodies of the part the one occurrence places (open, its bodies shown): they alone are
-    /// stretched, `in_context` then placing the stretch's axes in the part's (§2.11).
+    /// stretched, `in_context` then placing the stretch's axes in the part's (docs/model/bodies.md).
     bodies: Option<Vec<Id>>,
-    /// The group of bodies open they lie in (§2.11 « Body groups »), the stretch then in its axes.
+    /// The group of bodies open they lie in (docs/model/bodies.md#body-groups), the stretch then in its axes.
     group: Vec<Id>,
     /// Where its cutters are kept.
     keep: Keep,
@@ -191,7 +191,7 @@ struct Target {
     lo: DVec3,
     hi: DVec3,
     /// The axes locked for good: a turned body across them spans the whole box, so any cutter
-    /// would cut it across its axis (§6 undecies).
+    /// would cut it across its axis (docs/tools/turned-bodies.md).
     fixed: [bool; 3],
 }
 
@@ -267,7 +267,7 @@ impl Target {
         Some(Target { context, occurrences, bodies: None, group: Vec::new(), keep, in_context, frame, lo, hi, fixed })
     }
 
-    /// The bodies `ids` of the part `path` places (§2.11): along the body's own axes (one, and
+    /// The bodies `ids` of the part `path` places (docs/model/bodies.md): along the body's own axes (one, and
     /// the option « entity »), the model's (« active »), else the part's.
     fn of_bodies(cx: &Cx<'_>, path: &EntityPath, ids: Vec<Id>, axes: Axes) -> Option<Target> {
         let (_, part, to_world) = cx.doc.resolve_container(path).ok()?;
@@ -576,7 +576,7 @@ pub struct StretchTool {
     state: State,
     /// The occurrence clicked, when nothing is open nor selected.
     picked: Option<EntityPath>,
-    /// Picking what to stretch, when nothing is taken (§6 septendecies): occurrences of the
+    /// Picking what to stretch, when nothing is taken (docs/tools/selection.md): occurrences of the
     /// context, not its guides.
     picker: Picker,
     /// The active axis (0 red, 1 green, 2 blue): the last grip hovered's.
@@ -661,7 +661,7 @@ impl StretchTool {
         let (context, occurrences, bodies) = if let Some(id) = cx.open_part {
             (cx.context.to_vec(), vec![id], self.selected_bodies(cx))
         } else if !cx.deep.is_empty() {
-            // Parts at any depth (« Parts », §6 septendecies): those of one assembly.
+            // Parts at any depth (« Parts », docs/tools/selection.md): those of one assembly.
             let (parent, ids) = Self::one_assembly(cx)?;
             (parent, ids, None)
         } else {
@@ -703,7 +703,7 @@ impl StretchTool {
         cx.deep.iter().all(|p| p.instances == *parent).then(|| (parent.clone(), cx.deep.iter().map(|p| p.entity).collect()))
     }
 
-    /// The bodies of the open part selected, while they show (§2.11); none when none is.
+    /// The bodies of the open part selected, while they show (docs/model/bodies.md); none when none is.
     fn selected_bodies(&self, cx: &Cx<'_>) -> Option<Vec<Id>> {
         let r = cx.recipe?;
         let ids: Vec<Id> = cx.selection.iter().copied().filter(|id| r.body(*id).is_some()).collect();
@@ -1521,7 +1521,7 @@ impl Tool for StretchTool {
             },
         ];
         // The open part has its own scope, in the bar already; a part placed once none: both
-        // choices are the same (§2.5).
+        // choices are the same (docs/model/data-model.md).
         let copies = target.as_ref().and_then(|t| t.single()).map(|p| cx.copies_shown(&p));
         if cx.open_part.is_none() && copies.is_none_or(|n| n > 1) {
             let all = match copies {

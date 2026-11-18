@@ -9,7 +9,7 @@ publish.workspace = true
 [features]
 default = ["engine"]
 # The kernel itself (SolidCore). Without it: only the types (solids, meshes, jobs) and the
-# record — what the web UI needs, the kernel running in its worker (ARCHITECTURE.md §7 ter).
+# record — what the web UI needs, the kernel running in its worker (docs/model/kernel.md).
 engine = ["dep:solidcore", "dep:solidcore-convert", "dep:solidcore-tess", "dep:solidcore-ops", "dep:solidcore-step"]
 
 [dependencies]

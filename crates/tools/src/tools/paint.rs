@@ -1,7 +1,7 @@
-//! Paint (SketchUp's paint bucket, §7 quater): a click paints the occurrence under the
+//! Paint (SketchUp's paint bucket, docs/render/look.md): a click paints the occurrence under the
 //! cursor — the whole selection when it is in it — or a single face of its part, with the
 //! current material (none: the paint is removed). The option says which. Under « Parts »
-//! (§6 septendecies), the part under the cursor at any depth, in its assembly — the parts selected
+//! (docs/tools/selection.md), the part under the cursor at any depth, in its assembly — the parts selected
 //! when it is one of them —, and the level chosen in the tree drop-up. Painting occurrences, a
 //! drag draws a rectangle: what it encloses (left to right) or touches (right to left) is
 //! painted, at once when it is released (one step); Esc drops it.
@@ -192,7 +192,7 @@ impl Tool for PaintTool {
         !self.faces
     }
 
-    /// The level chosen in the tree drop-up is painted, not selected (§6 septendecies).
+    /// The level chosen in the tree drop-up is painted, not selected (docs/tools/selection.md).
     fn tree_pick(&self, path: &EntityPath, cx: &Cx<'_>) -> Option<Vec<Command>> {
         Some(vec![Command::Apply(Self::paint_paths(std::slice::from_ref(path), cx))])
     }

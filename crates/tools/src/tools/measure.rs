@@ -1,4 +1,4 @@
-//! The tape measure (docs/ARCHITECTURE.md §6 quinquies): click a point, the length to the point
+//! The tape measure (docs/tools/tape-measure.md): click a point, the length to the point
 //! hovered shows on the segment and in the measurements box. With the option "Create guides"
 //! on, it draws a guide instead, of the kind the option "Guide" says: Auto — parallel to a
 //! straight edge, concentric to an arc; Line — parallel to a straight edge, tangent to an arc,

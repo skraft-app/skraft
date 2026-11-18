@@ -1,4 +1,4 @@
-//! The side panels' docking (docs/ARCHITECTURE.md §6 bis): two columns, one per edge of the view,
+//! The side panels' docking (docs/ui/interface.md): two columns, one per edge of the view,
 //! each a stack of cards. A card keeps the height the user gave it, except the last unfolded one
 //! of its column that may fill ([`PanelId::fills`]: not the entity info), which fills the height
 //! left. Pure layout: the drawing is in `app`.
@@ -22,7 +22,7 @@ pub enum PanelId {
 impl PanelId {
     pub const ALL: [PanelId; 3] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Outliner];
 
-    /// Its command in the View menu, which shows or closes it.
+    /// Its command (`view.*`), which shows or closes it.
     pub fn command(self) -> &'static str {
         match self {
             PanelId::EntityInfo => "view.entity_info",

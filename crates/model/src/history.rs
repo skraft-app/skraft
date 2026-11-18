@@ -1,5 +1,5 @@
-//! Undo and redo by shared snapshots (docs/ARCHITECTURE.md §5), with the journal of the
-//! operations applied, and what the states kept weigh (§5 « Memory cap »).
+//! Undo and redo by shared snapshots (docs/model/undo.md), with the journal of the
+//! operations applied, and what the states kept weigh (docs/model/undo.md#memory-cap).
 
 use std::cmp::Ordering;
 use std::mem::size_of;
@@ -98,7 +98,7 @@ impl History {
 
     /// Makes `next` the current document within the last step, which keeps its operation (its
     /// undo label): a change that rides on it, as a part's name asked as soon as it is made
-    /// (§6 quattuordecies). A new revision. False, nothing done, without a step to join or with
+    /// (docs/tools/quick-tools.md). A new revision. False, nothing done, without a step to join or with
     /// steps undone.
     pub fn amend(&mut self, next: Document) -> bool {
         let Some(last) = self.past.last_mut().filter(|_| self.future.is_empty()) else { return false };
@@ -147,7 +147,7 @@ impl History {
 
     /// Is the state of `revision` still in this history (before, current or undone)? Ids only
     /// grow from a state to the next: while it is here, an id it had still names the same
-    /// thing (§6 decies).
+    /// thing (docs/tools/copy-paste.md).
     pub fn holds(&self, revision: u64) -> bool {
         self.revision == revision || self.past.iter().chain(&self.future).any(|s| s.revision == revision)
     }

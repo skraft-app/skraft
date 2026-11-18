@@ -1,4 +1,4 @@
-//! The view bar (docs/ARCHITECTURE.md §6 sexdecies): a column of buttons over the left edge of
+//! The view bar (docs/ui/view-bar.md): a column of buttons over the left edge of
 //! the view, the camera's and the display's commands; the user pins those it shows, as the
 //! ribbon's and the quick tools'.
 

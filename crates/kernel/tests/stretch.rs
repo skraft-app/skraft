@@ -1,4 +1,4 @@
-//! The stretch of a solid by rewriting its record (docs/ARCHITECTURE.md §6 sexies): each result
+//! The stretch of a solid by rewriting its record (docs/tools/stretch.md): each result
 //! is read back by the kernel, measured, and used in a boolean.
 
 use std::f64::consts::{FRAC_PI_2, PI};

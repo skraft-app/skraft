@@ -1,4 +1,4 @@
-//! The dialog naming a part just made (docs/ARCHITECTURE.md §6 quattuordecies), OpenCutList's
+//! The dialog naming a part just made (docs/tools/quick-tools.md), OpenCutList's
 //! `UI.inputbox` after a Smart Draw creation: opened by itself (the creation tool's option
 //! « Nommage des pièces », [`skraft_tools::Editor::take_naming`]) or by the « Renommer »
 //! button of the toast « Nouvelle pièce créée ». One field, the part's name, filled with it and

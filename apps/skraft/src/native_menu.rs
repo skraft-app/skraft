@@ -1,4 +1,4 @@
-//! The macOS menu bar (docs/ARCHITECTURE.md §7 quinquies), built with `muda` from the command
+//! The macOS menu bar (docs/ui/title-bar.md), built with `muda` from the command
 //! registry: the app menu (About, Preferences, Services, Hide, Quit), the File menu, then the
 //! system's Window menu — as the title bar, which has only File: the other commands are in the
 //! ribbon, the command search and the shortcuts (the app's keymap, ⌘ ones included). A chosen
@@ -217,7 +217,7 @@ fn build(views: &[CommandView], keymap: &Keymap) -> muda::Result<(Bar, Vec<(&'st
     app.append(&PredefinedMenuItem::show_all(Some(&t!("menu.app.show_all"))))?;
     app.append(&sep())?;
     // Not AppKit's Quit, which ends the app at once: the app's, which asks about the modified
-    // documents first (docs/ARCHITECTURE.md §6 octies).
+    // documents first (docs/ui/file-tabs.md).
     if let Some(v) = views.iter().find(|v| v.id == "app.quit") {
         append(&app, &item(v))?;
     }

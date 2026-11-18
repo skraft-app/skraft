@@ -1,4 +1,4 @@
-//! What the copy tools share (ARCHITECTURE.md §6 duodecies), after OpenCutList's Smart Handle
+//! What the copy tools share (docs/tools/copy-array.md), after OpenCutList's Smart Handle
 //! (`SmartHandleActionHandler`): picking what to copy, its box in the chosen axes, the measure,
 //! the mirror, and drawing boxes and axes. The bounds are the Stretch's too.
 
@@ -129,7 +129,7 @@ pub(crate) fn occurrences_bounds(cx: &Cx<'_>, context: &[Id], occs: &[&Occurrenc
     b.get()
 }
 
-/// The bounds, in the axes `in_part` places in the part's, of its bodies `bodies` (§2.11): a
+/// The bounds, in the axes `in_part` places in the part's, of its bodies `bodies` (docs/model/bodies.md): a
 /// body's exact box when square to the axes, else its mesh's vertices.
 pub(crate) fn bodies_bounds(cx: &Cx<'_>, part: &Part, bodies: &[&Body], in_part: DAffine3) -> Option<(DVec3, DVec3)> {
     let to_target = in_part.inverse();
@@ -237,7 +237,7 @@ impl Target {
         Some(Target { entities: ids.to_vec(), moved: cx.moved(), frame, lo, hi })
     }
 
-    /// The parts `paths` selected at any depth (« Parts », ARCHITECTURE.md §6 septendecies), in the
+    /// The parts `paths` selected at any depth (« Parts », docs/tools/selection.md), in the
     /// axes `axes`: each from its own assembly, their box in those axes.
     pub fn of_deep(cx: &Cx<'_>, paths: &[EntityPath], axes: Axes) -> Option<Target> {
         if cx.open_part.is_some() || paths.is_empty() {

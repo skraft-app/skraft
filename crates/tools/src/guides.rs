@@ -1,4 +1,4 @@
-//! Drawing guides (docs/ARCHITECTURE.md §6 quinquies): an infinite line drawn across the whole
+//! Drawing guides (docs/tools/tape-measure.md): an infinite line drawn across the whole
 //! view (to its vanishing point in perspective), a circle as a polyline. Both are handed to
 //! the renderer as [`Stroke`]s it dashes on screen, dashes of [`DASH_PX`] anchored on the
 //! guide (a line's origin, a circle's first point), so they hold still as the view pans.

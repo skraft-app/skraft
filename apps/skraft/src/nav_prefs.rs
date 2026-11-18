@@ -1,4 +1,4 @@
-//! The Preferences' Navigation tab (docs/ARCHITECTURE.md §6 quindecies): the navigation style
+//! The Preferences' Navigation tab (docs/ui/navigation-styles.md): the navigation style
 //! (a preset, maybe edited), a drawing of the mouse whose buttons lead to their gestures, the
 //! gestures of the button picked, the trackpad, the speeds. One column of labels, the same
 //! width in every section.

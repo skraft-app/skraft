@@ -1,4 +1,4 @@
-//! Section plane (§7 quater): click a face, the plane lies on it; move the cursor to sink it
+//! Section plane (docs/render/look.md): click a face, the plane lies on it; move the cursor to sink it
 //! into the model along the face's normal (or type the depth); click again to place it. What
 //! lies outside of it — towards the face's outside — is cut away from the view. The cut shows
 //! while the plane is being placed.

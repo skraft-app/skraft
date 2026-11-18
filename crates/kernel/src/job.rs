@@ -1,4 +1,4 @@
-//! What crosses to the kernel and back (docs/ARCHITECTURE.md §7 ter): a [`Job`] of pure tasks,
+//! What crosses to the kernel and back (docs/model/kernel.md): a [`Job`] of pure tasks,
 //! records in, records and display meshes out, and the [`KernelService`] that runs it.
 
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub enum Task {
     /// `inputs[target] op inputs[tool]`, the tool first moved by `tool_transform` into the
     /// target's coordinates.
     Boolean { target: u32, tool: u32, tool_transform: Option<DAffine3>, op: BooleanOp },
-    /// A part's recipe (docs/ARCHITECTURE.md §2.4, §2.11): the union of the `positives`, minus
+    /// A part's recipe (docs/model/data-model.md, docs/model/bodies.md): the union of the `positives`, minus
     /// each of the `negatives` — every one `inputs[k]` placed by its transform —, then joined
     /// to `inputs[base]` when given (a positive body added to a part as it is). A boolean that
     /// fails is skipped and reported (by its index in `positives` then `negatives`, one list),
@@ -47,7 +47,7 @@ pub enum Task {
         positives: Vec<(u32, DAffine3)>,
         negatives: Vec<(u32, DAffine3)>,
     },
-    /// `inputs[solid]` stretched (docs/ARCHITECTURE.md §6 sexies), read back by the kernel.
+    /// `inputs[solid]` stretched (docs/tools/stretch.md), read back by the kernel.
     Stretch { solid: u32, stretch: Stretch },
     /// The display mesh and snap features of `inputs[solid]`, at `quality`.
     Display {
@@ -56,7 +56,7 @@ pub enum Task {
         quality: Quality,
     },
     /// Reads a STEP file (its bytes): bodies built, product structure, colours
-    /// (docs/ARCHITECTURE.md §8 ter). Produces no solid of the job's: an [`Output::Step`].
+    /// (docs/io/step-import.md). Produces no solid of the job's: an [`Output::Step`].
     ImportStep {
         #[serde(with = "serde_bytes_compat")]
         bytes: Vec<u8>,
@@ -76,7 +76,7 @@ pub enum Quality {
     Final,
 }
 
-/// How far a long task is (docs/ARCHITECTURE.md §7 sexies), reported while it runs.
+/// How far a long task is (docs/ui/loading.md), reported while it runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Progress {
     /// A STEP file being parsed and its structure read.

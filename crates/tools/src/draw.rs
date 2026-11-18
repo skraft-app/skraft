@@ -1,4 +1,4 @@
-//! Drawing over the model (docs/ARCHITECTURE.md §7 octies): one [`Drawer`] for everything the
+//! Drawing over the model (docs/render/drawer.md): one [`Drawer`] for everything the
 //! tools and the editor draw — lines, fills, boxes, grips, marks, lengths —, after
 //! OpenCutList's Kuix 3D motifs (`lib/kuix/entity/3d/motif3d.rb`). Immediate: what is drawn is
 //! worked out again at each view, with the camera (what is measured in pixels: arrow heads,

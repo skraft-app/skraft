@@ -95,7 +95,7 @@ fn fs_face(in: FaceOut, @builtin(front_facing) facing: bool) -> @location(0) vec
 }
 
 // With a section: what is cut away is discarded. The backs seen through the cut are painted
-// as caps (§7 quater): parts are closed, so where the nearest surface left is a back face, the
+// as caps (docs/render/look.md): parts are closed, so where the nearest surface left is a back face, the
 // eye looks into the part through the plane. Where the stencil then marks a cap, `fs_cap`
 // paints it again, hatched, just behind the plane; these stay where it does not (the eye inside
 // a part, parts overlapping).

@@ -1,7 +1,7 @@
 //! What the shape tools read of the scene's geometry, in the world: a planar face (its plane,
 //! centroid, corners, sides, whether it is a disc) and the straight edge an inference is on.
 //! From the display mesh (each triangle knows its B-rep face) and the snap features (exact
-//! vertices and edges, docs/ARCHITECTURE.md §6 ter).
+//! vertices and edges, docs/tools/inferences.md).
 
 use glam::{DAffine3, DVec3};
 use skraft_kernel::SnapCurve;

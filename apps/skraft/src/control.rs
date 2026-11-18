@@ -1,4 +1,4 @@
-//! The control channel (docs/ARCHITECTURE.md §7 quater, §7 septies), desktop only: the
+//! The control channel (docs/ui/commands.md, docs/control-protocol.md), desktop only: the
 //! server of `skraft-control` (loopback HTTP, a token per start) as the app holds it,
 //! switched on and off while it runs — to drive and inspect the running app from a script or
 //! an agent, like the Claude Bridge does SketchUp.

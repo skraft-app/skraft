@@ -1,6 +1,6 @@
 //! Navigation: orbit and pan about a pivot, zoom (wheel, drag, window), standard views, and
 //! the views gone through (previous / next). Which gesture does what is the app's navigation
-//! style (docs/ARCHITECTURE.md §6 quindecies); the editor only moves the camera.
+//! style (docs/ui/navigation-styles.md); the editor only moves the camera.
 
 use glam::{DAffine3, DVec2, DVec3};
 
@@ -101,7 +101,7 @@ impl Editor {
     pub fn standard_view(&mut self, v: StandardView) {
         self.view_changing();
         let b = self.scene.bounds().or(Some((DVec3::splat(-1000.0), DVec3::splat(1000.0))));
-        // In the active frame (§2.3): the open part's axes, else the context's.
+        // In the active frame (docs/model/data-model.md): the open part's axes, else the context's.
         self.camera.set_standard_view(v, self.axes_transform().matrix3, b, self.view_area());
     }
 

@@ -1,6 +1,6 @@
 //! Importing a STEP file (AP203 / AP214 / AP242): its bodies built as exact solids, its
 //! product structure — products, the products they contain, where — and the colour of each
-//! body, as plain data the model turns into components (docs/ARCHITECTURE.md §8 ter).
+//! body, as plain data the model turns into components (docs/io/step-import.md).
 //!
 //! The kernel does the whole reading ([`Task::ImportStep`](crate::Task::ImportStep)), off the UI
 //! thread, with SolidCore's STEP readers: the file is parsed once (`solidcore_record`'s Part 21

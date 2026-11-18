@@ -1,4 +1,4 @@
-//! Copy and paste (docs/ARCHITECTURE.md §6 decies): what a selection copies, as a fragment
+//! Copy and paste (docs/tools/copy-paste.md): what a selection copies, as a fragment
 //! that [`Operation::Paste`](crate::Operation::Paste) or
 //! [`Operation::PasteBodies`](crate::Operation::PasteBodies) places again.
 //!
@@ -24,7 +24,7 @@ pub struct BodyFragment {
     pub bodies: Vec<Body>,
     pub guides: Vec<GuideShape>,
     /// The world transformation of the part copied from: pasted out of a part, the new part
-    /// takes its axes (§6 decies, across the part's boundary).
+    /// takes its axes (docs/tools/copy-paste.md, across the part's boundary).
     #[serde(default = "identity", skip_serializing_if = "is_identity")]
     pub world: DAffine3,
 }
@@ -49,7 +49,7 @@ impl Document {
     /// What copying `ids` — occurrences and guides of the assembly `instances` leads into —
     /// copies: a document whose root holds those occurrences and guides, in **world** axes,
     /// with the components they use and the materials they are painted with, under their ids
-    /// here (pasting into this document again uses them, §6 decies).
+    /// here (pasting into this document again uses them, docs/tools/copy-paste.md).
     pub fn entities_fragment(&self, instances: &[Id], ids: &[Id]) -> Result<Document> {
         let context = self.context_of(instances)?;
         let world = self.transform_of(instances)?;
@@ -67,7 +67,7 @@ impl Document {
     }
 
     /// What copying the occurrences `paths` names — at any depth (« Parts »,
-    /// ARCHITECTURE.md §6 septendecies) — copies, as [`Document::entities_fragment`]: each in world
+    /// docs/tools/selection.md) — copies, as [`Document::entities_fragment`]: each in world
     /// axes, side by side in the fragment's root; an id met twice (copies of one assembly
     /// keep their occurrences' ids) drawn afresh.
     pub fn paths_fragment(&self, paths: &[EntityPath]) -> Result<Document> {
@@ -131,13 +131,13 @@ impl Document {
     /// What copying `ids` — bodies and guides of the part `target` places — copies, in the
     /// part's axes.
     pub fn bodies_fragment(&self, target: &EntityPath, ids: &[Id]) -> Result<BodyFragment> {
-        // In an open group, its bodies (§2.11 « Body groups »), in its axes.
+        // In an open group, its bodies (docs/model/bodies.md#body-groups), in its axes.
         let (part, p, world) = self.resolve_container(target)?;
         let (guides, bodies) = self.split_guides(part, ids)?;
         let bodies: Vec<Body> = bodies.iter().map(|id| p.body(*id).cloned().ok_or(Error::NotFound(*id))).collect::<Result<_>>()?;
         let used = used_defs(&p.defs, &bodies);
         let defs = p.defs.iter().filter(|d| used.contains(&d.id)).cloned().collect();
-        // The part's guides, in the axes of what is open (a group's, §2.11 « Body groups »).
+        // The part's guides, in the axes of what is open (a group's, docs/model/bodies.md#body-groups).
         let into = self.resolve_part(target)?.2.inverse() * world;
         let into = into.inverse();
         let guides = self.component(part)?.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.shape.transformed(&into)).collect();
@@ -147,18 +147,18 @@ impl Document {
     /// This document — an entities' fragment ([`Document::entities_fragment`]) — as the bodies
     /// it pastes into an open part, in world axes: one positive body per part placed, at any
     /// depth (hidden occurrences left out). A part that is its single positive body gives it
-    /// whole, its profile with it; any other comes as a group of its bodies (§2.11 « Body
+    /// whole, its profile with it; any other comes as a group of its bodies (docs/model/bodies.md « Body
     /// groups »), its shape the group's, under the part's id: copies of a part share it.
     pub fn parts_as_bodies(&self) -> Result<BodyFragment> {
         let mut out = BodyFragment::default();
         let root = self.component(self.root)?;
         out.guides = root.guides.iter().map(|g| g.shape).collect();
-        // A part's occurrence's name: the body's own (§2.11 « Body names »).
+        // A part's occurrence's name: the body's own (docs/model/bodies.md#body-names).
         let mut stack: Vec<(Id, DAffine3, &str)> = vec![(self.root, DAffine3::IDENTITY, "")];
         while let Some((id, t, occurrence)) = stack.pop() {
             let c = self.component(id)?;
             // A part the user named names the body it becomes, unless that one has a name
-            // (§2.11 « Body names »).
+            // (docs/model/bodies.md#body-names).
             let named = c.named.then(|| c.name.clone());
             match &c.kind {
                 ComponentKind::Assembly(a) => {

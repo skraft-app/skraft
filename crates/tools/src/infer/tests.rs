@@ -189,7 +189,7 @@ fn in_x_ray_nothing_hides() {
     assert!(e.view().batches.iter().all(|(_, ps)| ps.iter().all(|p| p.ghost)));
     e.set_xray(false);
     assert_eq!(at(&e, DVec3::new(100.0, 100.0, 120.0)).kind, InferKind::OnFace);
-    // The document's setting (§6 sexdecies): undone as the others.
+    // The document's setting (docs/ui/view-bar.md): undone as the others.
     e.set_xray(true);
     assert!(e.document().settings().display.xray);
     e.undo();
@@ -223,7 +223,7 @@ fn move_puts_a_corner_on_a_corner() {
     add_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(100.0, 100.0, 50.0));
     e.select(vec![]);
     e.set_tool(ToolKind::Move);
-    // Nothing selected: a click picks the box (§6 septendecies); then the cursor just off it
+    // Nothing selected: a click picks the box (docs/tools/selection.md); then the cursor just off it
     // takes its corner.
     let p = px(&e, DVec3::new(50.0, 50.0, 50.0));
     e.input(ToolInput::Hover { px: p });
@@ -575,7 +575,7 @@ fn a_point_hovered_a_while_is_tracked() {
 fn two_points_tracked_at_most() {
     let mut e = top_editor(DVec3::ZERO);
     let a = add_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 50.0));
-    // Taken: the start point is inferred (§6 septendecies).
+    // Taken: the start point is inferred (docs/tools/selection.md).
     e.select(vec![a]);
     e.set_tool(ToolKind::Move);
     let corners = [DVec3::new(0.0, 0.0, 50.0), DVec3::new(400.0, 0.0, 50.0), DVec3::new(400.0, 400.0, 50.0)];

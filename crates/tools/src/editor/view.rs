@@ -21,7 +21,7 @@ pub enum Mark {
     Picked,
     /// The selection where the move tool would put it.
     Ghost,
-    /// Another occurrence of the part a change is aimed at: it changes too (§2.5).
+    /// Another occurrence of the part a change is aimed at: it changes too (docs/model/data-model.md).
     Related,
 }
 
@@ -31,7 +31,7 @@ pub enum Look {
     /// A part's shape.
     #[default]
     Shape,
-    /// An open part's blank, its machinings shown (ARCHITECTURE.md §2.9).
+    /// An open part's blank, its machinings shown (docs/model/opening-a-part.md).
     Blank,
     /// One of its machinings' tools.
     Tool,
@@ -65,7 +65,7 @@ pub struct ViewHighlight {
     pub mark: Mark,
     /// The material the part takes there.
     pub material: Option<Id>,
-    /// An open part's blank, drawn as a ghost: highlighted see-through (§2.11).
+    /// An open part's blank, drawn as a ghost: highlighted see-through (docs/model/bodies.md).
     pub ghost: bool,
 }
 
@@ -74,15 +74,15 @@ pub struct ViewHighlight {
 pub struct View {
     pub batches: Vec<(Id, Vec<ViewPlacement>)>,
     pub highlights: Vec<ViewHighlight>,
-    /// What the tool and the editor draw through a [`crate::draw::Drawer`] (§7 octies). The
+    /// What the tool and the editor draw through a [`crate::draw::Drawer`] (docs/render/drawer.md). The
     /// editor's, in the scene but where said:
     /// - the open part's profiled bodies' bottom caps, the cap the profile is drawn on, bold in
-    ///   the edges' colour, so that a see-through body shows which way it stands (§2.11); its
-    ///   turned bodies' axes along their half profiles, dashed (§6 undecies);
+    ///   the edges' colour, so that a see-through body shows which way it stands (docs/model/bodies.md); its
+    ///   turned bodies' axes along their half profiles, dashed (docs/tools/turned-bodies.md);
     /// - the bounding boxes of the selected occurrences (parts and assemblies), in their own
     ///   axes, dashed in the selection's colour; the same box for the part open or the assembly
     ///   being edited, grown by a few pixels, in the context box's (none at the model's level);
-    /// - the guides (§6 quinquies): the active context's, selected (where they are or where a
+    /// - the guides (docs/tools/tape-measure.md): the active context's, selected (where they are or where a
     ///   move puts them), hovered (or taken by the selection rectangle) or not; those of the
     ///   other components and of the open part's other occurrences faded, blended;
     /// - the context's axes, as far as the view shows them, their negative halves fainter,
@@ -95,7 +95,7 @@ pub struct View {
     pub marquee: Option<Marquee>,
     /// The section to draw: a tool's preview, else the document's active one.
     pub section: Option<Section>,
-    /// Its cut lines (§7 quater): those of the placements drawn opaque, then those of the
+    /// Its cut lines (docs/render/look.md): those of the placements drawn opaque, then those of the
     /// highlights drawn over them, marked.
     pub section_cuts: Vec<SectionCut>,
 }
@@ -120,7 +120,7 @@ pub(crate) struct SelectionDrawing {
     marks: Vec<ViewHighlight>,
     boxes: Vec<OrientedBox>,
     set: skraft_model::FastSet<Id>,
-    /// The occurrence chains of the parts selected at any depth (§6 septendecies).
+    /// The occurrence chains of the parts selected at any depth (docs/tools/selection.md).
     deep: skraft_model::FastSet<Vec<Id>>,
 }
 
@@ -320,7 +320,7 @@ impl Editor {
                 }
             }
         }
-        // The parts selected at any depth (« Parts », §6 septendecies): each from its own assembly.
+        // The parts selected at any depth (« Parts », docs/tools/selection.md): each from its own assembly.
         for p in &self.deep {
             let Some(index) = ContextIndex::new(doc, &p.instances) else { continue };
             let Some(o) = index.occurrence(p.entity) else { continue };
@@ -354,7 +354,7 @@ impl Editor {
         let hide_original = preview.ghost.is_some() && !self.tool_copying();
         let depth = self.context.len();
         let open = self.open_part_path();
-        // What a tool previews stretched (§6 sexies): each occurrence it changes drawn from its
+        // What a tool previews stretched (docs/tools/stretch.md): each occurrence it changes drawn from its
         // preview mesh, or where it moves (`stretch_swaps`).
         let swaps = if preview.stretch.is_some() { Some(&self.stretch_swaps) } else { None };
         let swap = |p: &crate::scene::Placement| swaps.and_then(|s| s.get(&p.entity_path())).copied();
@@ -442,11 +442,11 @@ impl Editor {
                 .placements()
                 .find(|(p, _)| *p == r.part)
                 .and_then(|(_, places)| places.iter().find(|p| p.entity_path() == *o).and_then(|p| p.material));
-            // A body stretched is drawn as previewed (§2.11).
+            // A body stretched is drawn as previewed (docs/model/bodies.md).
             let body_swaps = if preview.stretch.is_some() { Some(&self.body_swaps) } else { None };
             let drawn = |b: &crate::scene::RecipeTool| body_swaps.and_then(|s| s.get(&b.body)).copied().unwrap_or((b.key, b.placement));
             // A body open (its profile edited): the others faded, as what lies outside any
-            // context (§2.11 « Edit levels »).
+            // context (docs/model/bodies.md#edit-levels).
             let open_body = self.profile_body();
             let faded = |id: Id| open_body.is_some_and(|o| o != id);
             // A positive body moved without a copy is drawn only where it goes, as a tool.
@@ -465,7 +465,7 @@ impl Editor {
             let (mut tools, mut tool_ghosts, mut tool_faint): (Batches, Batches, Batches) = (Vec::new(), Vec::new(), Vec::new());
             // A tool moved without a copy is drawn only where it goes.
             for tool in r.tools.iter().filter(|tool| !(hide_original && selected.contains(&tool.body))) {
-                // A ghost, a little more opaque than a blank; one that failed opaque (§2.11).
+                // A ghost, a little more opaque than a blank; one that failed opaque (docs/model/bodies.md).
                 let look = if tool.failed { Look::FailedTool } else { Look::Tool };
                 let faint = erasing.contains(&tool.body);
                 let ghost = faint || !tool.failed || self.xray();
@@ -480,7 +480,7 @@ impl Editor {
                 };
                 push_to(out, key, p);
             }
-            // The machinings inside groups: faint ghosts, with their group (§2.11 « Body groups »).
+            // The machinings inside groups: faint ghosts, with their group (docs/model/bodies.md#body-groups).
             for tool in r
                 .nested
                 .iter()
@@ -666,11 +666,11 @@ impl Editor {
         for h in preview.marquee.iter().flat_map(|m| &m.hits).filter(|h| !selected.contains(h)) {
             mark(&mut v.highlights, &self.context, *h, Mark::Hover, DAffine3::IDENTITY);
         }
-        // The row hovered in the tree drop-up (§6 septendecies).
+        // The row hovered in the tree drop-up (docs/tools/selection.md).
         if let Some(p) = self.tree_hovered() {
             mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
         }
-        // The parts at any depth it would take (« Parts », §6 septendecies).
+        // The parts at any depth it would take (« Parts », docs/tools/selection.md).
         for p in preview.marquee.iter().flat_map(|m| &m.paths).filter(|p| !self.deep.contains(p)) {
             mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
         }
@@ -680,7 +680,7 @@ impl Editor {
             }
         }
         // The other occurrences a change reaches, the one aimed at excepted: those of the open
-        // part (§2.9), else of the part a tool aims at.
+        // part (docs/model/opening-a-part.md), else of the part a tool aims at.
         let open_reaches_all = open.as_ref().filter(|_| self.part_scope == skraft_model::Scope::All);
         if let Some(aimed) = open_reaches_all.or(preview.propagate.as_ref())
             && let Ok((part, _, _)) = doc.resolve_part(aimed)
@@ -723,7 +723,7 @@ impl Editor {
             }
         }
         v.drawing.append(preview.drawing);
-        // The axes, across the view, when shown (an open part always shows its axes, §2.9):
+        // The axes, across the view, when shown (an open part always shows its axes, docs/model/opening-a-part.md):
         // their negative halves fainter.
         if doc.settings().display.axes || self.open_part.is_some() {
             let frame = self.axes_transform();
@@ -758,7 +758,7 @@ impl Editor {
         v
     }
 
-    /// The cut lines of `section` through what `v` draws opaque (§7 quater): the placements',
+    /// The cut lines of `section` through what `v` draws opaque (docs/render/look.md): the placements',
     /// then the highlights' (their own solid only), marked.
     fn section_cuts_of(&self, v: &View, section: &Section) -> Vec<SectionCut> {
         let cuts = &self.section_cuts;

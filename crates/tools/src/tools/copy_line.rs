@@ -1,4 +1,4 @@
-//! Copy along a line (ARCHITECTURE.md §6 duodecies), OpenCutList's
+//! Copy along a line (docs/tools/copy-array.md), OpenCutList's
 //! `SmartHandleCopyLineActionHandler` as faithfully as the app allows.
 //!
 //! - **Pick** (OCL's `SmartSelectActionHandler`): the selection when the tool starts, else a

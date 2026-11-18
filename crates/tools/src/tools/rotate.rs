@@ -5,7 +5,7 @@
 //! parallels, features), and the radii reach the cursor. The angle can be
 //! typed in degrees (`360/7`, `@/2`: half the angle so far). A tap of the copy modifier (Option on macOS, Ctrl elsewhere) toggles
 //! copying; right after a copy, `6x` makes a circular array of 6 at the same angle and `/6`
-//! spreads 6 copies over it. What turns is picked first (§6 septendecies, [`Picker`]): the
+//! spreads 6 copies over it. What turns is picked first (docs/tools/selection.md, [`Picker`]): the
 //! selection, else a click, Shift clicks or a rectangle; once turned, the selection is let go
 //! and the tool picks again.
 
@@ -36,7 +36,7 @@ pub struct RotateTool {
     state: State,
     copy: bool,
     moving: Vec<Id>,
-    /// The parts moved at any depth (« Parts », §6 septendecies).
+    /// The parts moved at any depth (« Parts », docs/tools/selection.md).
     moving_paths: Vec<EntityPath>,
     /// Where the protractor would go, and its axis, before the first click.
     cursor: Option<(DVec3, DVec3)>,
@@ -162,7 +162,7 @@ impl RotateTool {
                 let Some(last) = &mut self.last else { return vec![] };
                 return last.retype(*r);
             }
-            // Picking (§6 septendecies): what turns becomes the selection.
+            // Picking (docs/tools/selection.md): what turns becomes the selection.
             _ if picking => {
                 self.snap = None;
                 self.cursor = None;
@@ -360,7 +360,7 @@ impl Tool for RotateTool {
         true
     }
 
-    /// Picking what it turns (§6 septendecies).
+    /// Picking what it turns (docs/tools/selection.md).
     fn picking(&self) -> bool {
         matches!(self.state, State::Center) && !self.taken
     }

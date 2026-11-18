@@ -1,4 +1,4 @@
-//! What the tools can infer on a solid (docs/ARCHITECTURE.md §6 ter): its visible vertices,
+//! What the tools can infer on a solid (docs/tools/inferences.md): its visible vertices,
 //! its visible edges as exact curves where the record names them (segments, circular arcs),
 //! and its planar faces' exact planes. Everything in the solid's coordinates, `f64`.
 //!

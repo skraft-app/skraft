@@ -81,7 +81,7 @@ pub fn combo_chevron(ui: &egui::Ui, rect: egui::Rect, visuals: &egui::style::Wid
     chevron(ui, rect.center(), rect.height().min(14.0), visuals.fg_stroke.color, 0.0);
 }
 
-/// A command's icon on the ribbon (docs/ARCHITECTURE.md §6 septies); none for a command the
+/// A command's icon on the ribbon (docs/ui/ribbon.md); none for a command the
 /// ribbon does not show.
 pub fn command(id: &str) -> Option<ImageSource<'static>> {
     Some(match id {
@@ -135,7 +135,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
 /// A tool option's icon (assets/icons/options), by the name the tool gives it
 /// ([`skraft_tools::OptionChoice::icon`]); none for an unknown name (its label is shown).
 pub fn option(name: &str) -> Option<ImageSource<'static>> {
-    // The booleans' icons, shared with the open part's « Solide » (§2.11).
+    // The booleans' icons, shared with the open part's « Solide » (docs/model/bodies.md).
     match name {
         "union" => return Some(UNION),
         "subtract" => return Some(SUBTRACT),

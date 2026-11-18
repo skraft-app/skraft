@@ -25,9 +25,9 @@ pub struct Vcb {
     /// are given only if typed, and not shown.
     pub optional: usize,
     /// How many counts (`5x`, `/5`, separated by `;`) are taken too, instead of the lengths
-    /// (the copy tools, §6 duodecies).
+    /// (the copy tools, docs/tools/copy-array.md).
     pub counts: usize,
-    /// A list of spacings is taken too (Distribute, §6 duodecies): two lengths or more, `;`
+    /// A list of spacings is taken too (Distribute, docs/tools/copy-array.md): two lengths or more, `;`
     /// between them, empty slots left unset.
     pub spacings: bool,
 }

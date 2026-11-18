@@ -1,4 +1,4 @@
-//! The file tabs in the title bar (docs/ARCHITECTURE.md §6 octies): one per open document,
+//! The file tabs in the title bar (docs/ui/file-tabs.md): one per open document,
 //! the shown one lit, a bullet after a modified one's name. Click selects, × or a middle click
 //! closes, a drag reorders, right click opens the tab's menu; `+` opens a new document and »
 //! lists every tab when they do not all fit ([`layout`], a pure function of the width).

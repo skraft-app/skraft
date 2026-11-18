@@ -1,4 +1,4 @@
-//! The file format: versioned JSON of the document (docs/ARCHITECTURE.md §8).
+//! The file format: versioned JSON of the document (docs/io/file-format.md).
 //!
 //! Version 1: the app is not published yet, the format changes without a new version and
 //! without reading older files.
@@ -56,7 +56,7 @@ impl Document {
 
     /// The structural invariants a file must keep: the root an assembly, known components, no
     /// cycle, ids below `next_id` — unique in the document for components, within their
-    /// assembly for occurrences and within their part for bodies and their definitions (§2.6),
+    /// assembly for occurrences and within their part for bodies and their definitions (docs/model/data-model.md),
     /// every body's definition there, guides within their
     /// component and apart from its occurrences or bodies —, a positive body in every part, its
     /// shape there exactly when it is not plain ([`Part::is_plain`]), and only its bodies
@@ -108,7 +108,7 @@ impl Document {
                         }
                     }
                     // A group: its failures among its children, no group holding itself, at any
-                    // depth. Without a positive child it is empty, as a part may be (§2.11
+                    // depth. Without a positive child it is empty, as a part may be (docs/model/bodies.md
                     // « Empty parts »).
                     for d in &p.defs {
                         let Some(g) = &d.group else { continue };

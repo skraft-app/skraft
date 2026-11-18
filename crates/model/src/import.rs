@@ -1,4 +1,4 @@
-//! Importing a SketchUp model (docs/ARCHITECTURE.md §8 bis), from the JSON that
+//! Importing a SketchUp model (docs/io/sketchup-import.md), from the JSON that
 //! `scripts/sketchup/export.rb` writes inside SketchUp.
 //!
 //! Each SketchUp definition becomes a component: its faces a **part** (a planar-faced exact
@@ -6,7 +6,7 @@
 //! becomes an assembly whose first occurrence is the part of its faces. Instances become
 //! occurrences, their transformation split into the rigid T of the occurrence and a scale
 //! (or a shear) **baked into the geometry**: a definition placed at another scale gives
-//! another component, as a scaled part is another part here (§2.2). Curves stay the
+//! another component, as a scaled part is another part here (docs/model/data-model.md). Curves stay the
 //! segments SketchUp draws: a hole of 24 segments is 24 planar faces.
 //!
 //! The solids are built by a function the caller gives (the kernel's

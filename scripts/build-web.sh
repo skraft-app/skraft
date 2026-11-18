@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the browser version into dist/web (serve that folder, e.g. `python3 -m http.server -d dist/web`):
 # the UI's wasm in pkg/, the kernel's in worker/ with the script that runs it in a web worker
-# (docs/ARCHITECTURE.md §7 ter).
+# (docs/model/kernel.md).
 #
 # wasm-pack runs wasm-bindgen and wasm-opt every time, even on an unchanged build, and wasm-opt
 # takes a while. So cargo builds first (a no-op when nothing changed), and wasm-pack runs only

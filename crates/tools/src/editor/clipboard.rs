@@ -1,4 +1,4 @@
-//! Copy, cut and paste (docs/ARCHITECTURE.md §6 decies): the selection copied as a fragment,
+//! Copy, cut and paste (docs/tools/copy-paste.md): the selection copied as a fragment,
 //! pasted again into this document or another, in place or at the cursor. The clipboard
 //! itself is the app's (one for every document); the editor makes and places what it holds.
 
@@ -38,7 +38,7 @@ pub enum Content {
     Machinings(Arc<BodyFragment>),
 }
 
-/// A paste carried at the cursor (§6 decies): given up, it is undone.
+/// A paste carried at the cursor (docs/tools/copy-paste.md): given up, it is undone.
 pub(super) struct Carry {
     /// The history's revision with the paste done in place.
     revision: u64,
@@ -59,7 +59,7 @@ impl Editor {
             return None;
         }
         let doc = self.document();
-        // Parts at any depth (« Parts », §6 septendecies): each from its own assembly.
+        // Parts at any depth (« Parts », docs/tools/selection.md): each from its own assembly.
         if !self.deep.is_empty() {
             let f = doc.paths_fragment(&self.deep).ok()?;
             let mut hull = Vec::new();
@@ -104,7 +104,7 @@ impl Editor {
     }
 
     /// Can `clip` be pasted here now? Anywhere: occurrences pasted into an open part become
-    /// bodies of it, bodies pasted out of one a new part (§6 decies, across the part's
+    /// bodies of it, bodies pasted out of one a new part (docs/tools/copy-paste.md, across the part's
     /// boundary).
     pub fn can_paste(&self, _clip: &Clip) -> bool {
         self.idle()

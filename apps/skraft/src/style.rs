@@ -1,4 +1,4 @@
-//! The interface's look (docs/ARCHITECTURE.md §7 quater): the theme's interface tokens turned
+//! The interface's look (docs/render/look.md): the theme's interface tokens turned
 //! into egui's visuals and spacing, for the light and the dark style, and the bundled fonts.
 //! Both styles of a palette are installed together, when it is chosen; egui switches between
 //! them when its theme changes.
@@ -67,7 +67,7 @@ fn title_bar_id(theme: egui::Theme) -> egui::Id {
 }
 
 /// Turns `style` into the title bar's: its dark ground, light text, separators and lit fill
-/// (docs/ARCHITECTURE.md §7 quinquies). The popups it opens (menus, tips) keep the window's
+/// (docs/ui/title-bar.md). The popups it opens (menus, tips) keep the window's
 /// style.
 pub fn title_bar(ctx: &egui::Context, style: &mut egui::Style) {
     let Some(t) = ctx.data(|d| d.get_temp::<TitleBarTokens>(title_bar_id(ctx.theme()))) else { return };

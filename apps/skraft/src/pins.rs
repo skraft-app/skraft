@@ -1,5 +1,5 @@
-//! The pinned commands of the quick tools' card (§6 terdecies) and of the view bar
-//! (§6 sexdecies): which ones and in what order, as the user left them; and moving one of
+//! The pinned commands of the quick tools' card (docs/tools/quick-tools.md) and of the view bar
+//! (docs/ui/view-bar.md): which ones and in what order, as the user left them; and moving one of
 //! their buttons by a drag, a line showing where it will go.
 
 use egui::{ImageSource, Rect, Response, vec2};

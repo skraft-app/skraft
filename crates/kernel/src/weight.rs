@@ -1,5 +1,5 @@
 //! What a solid, a mesh and snaps weigh in memory, roughly: the undo history's budget
-//! (docs/ARCHITECTURE.md §5 « Memory cap ») adds up what its past states hold alone.
+//! (docs/model/undo.md#memory-cap) adds up what its past states hold alone.
 //!
 //! An estimate: the structs' sizes and their vectors' lengths, not the allocator's overhead nor
 //! spare capacity. Walking a record is linear in its size, far cheaper than meshing it.

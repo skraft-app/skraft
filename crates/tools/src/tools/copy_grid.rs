@@ -1,4 +1,4 @@
-//! Copy along a grid (ARCHITECTURE.md §6 duodecies), OpenCutList's
+//! Copy along a grid (docs/tools/copy-array.md), OpenCutList's
 //! `SmartHandleCopyGridActionHandler` as faithfully as the app allows.
 //!
 //! - **Pick** as the line ([`Picker`]).
