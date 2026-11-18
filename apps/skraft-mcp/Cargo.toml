@@ -4,6 +4,7 @@ description = "Skraft: an MCP server (stdio) over the control protocol — the r
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [[bin]]
 name = "skraft-mcp"

@@ -1,0 +1,26 @@
+# Checks that every dependency's license can ship with Skraft (GPL-3.0-or-later): deny.toml's
+# `allow` list, on each push to main or pull request that touches the dependencies or the
+# list. The release workflow runs the same check before building.
+name: Licenses
+
+on:
+  push:
+    branches: [main]
+    paths: ["**/Cargo.toml", "Cargo.lock", "deny.toml", "about.toml", ".github/workflows/licenses.yml"]
+  pull_request:
+    paths: ["**/Cargo.toml", "Cargo.lock", "deny.toml", "about.toml", ".github/workflows/licenses.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  licenses:
+    name: cargo deny check licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.21.0
+      - run: cargo deny --locked check licenses

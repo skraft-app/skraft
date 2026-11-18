@@ -4,6 +4,7 @@ description = "Skraft: the control protocol (docs/ARCHITECTURE.md ยง7 septies) โ
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [features]
 # Volumes measured with the kernel (`model.geometry`); without it, none is given.

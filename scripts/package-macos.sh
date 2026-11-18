@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Packages a release build for macOS into dist/release/Skraft-<version>-macos-<arch>.dmg:
-# Skraft.app (ad-hoc signed, not notarized) and a link to /Applications to drop it on.
+# Skraft.app (ad-hoc signed, not notarized; LICENSE.txt and THIRD-PARTY-LICENSES.txt in its
+# Resources, the latter from cargo-about: scripts/third-party-licenses.sh) and a link to
+# /Applications to drop it on.
 #   scripts/package-macos.sh aarch64-apple-darwin   (after cargo build --release --target …)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,6 +17,8 @@ app="$work/dmg/Skraft.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$exe" "$app/Contents/MacOS/skraft"
 sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+cp LICENSE "$app/Contents/Resources/LICENSE.txt"
+scripts/third-party-licenses.sh "$app/Contents/Resources/THIRD-PARTY-LICENSES.txt" > /dev/null
 
 # The icon set from the 1024 px icon.
 iconset="$work/Skraft.iconset"; mkdir "$iconset"

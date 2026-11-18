@@ -4,6 +4,7 @@ description = "Skraft: the kernel in a web worker — runs the jobs the web UI p
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]

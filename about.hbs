@@ -1,0 +1,22 @@
+Skraft — third-party licenses
+=============================
+
+Skraft is free software under the GNU General Public License, version 3 or later (LICENSE).
+It is built with the following open-source crates and fonts, under their own licenses.
+
+{{#each overview}}
+- {{{name}}} ({{count}} crate{{#if (gt count 1)}}s{{/if}})
+{{/each}}
+
+{{#each licenses}}
+--------------------------------------------------------------------------------
+{{{name}}}
+
+Used by:
+{{#each used_by}}
+- {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}} ({{{crate.repository}}}){{/if}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

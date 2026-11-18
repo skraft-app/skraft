@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Packages a release build for Linux into dist/release/Skraft-<version>-linux-<arch>.AppImage
-# (linuxdeploy, downloaded into target/tools on first use).
+# (linuxdeploy, downloaded into target/tools on first use), LICENSE and THIRD-PARTY-LICENSES.txt
+# in its usr/share/doc/skraft (the latter from cargo-about: scripts/third-party-licenses.sh).
 #   scripts/package-linux.sh x86_64-unknown-linux-gnu   (after cargo build --release --target …)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,6 +24,9 @@ cp apps/skraft/assets/app-icon.svg "$work/skraft.svg"
 # The .skraft documents' MIME type, for the desktop integration (appimaged, AppImageLauncher).
 mkdir -p "$work/AppDir/usr/share/mime/packages"
 cp packaging/linux/skraft.xml "$work/AppDir/usr/share/mime/packages/"
+mkdir -p "$work/AppDir/usr/share/doc/skraft"
+cp LICENSE "$work/AppDir/usr/share/doc/skraft/"
+scripts/third-party-licenses.sh "$work/AppDir/usr/share/doc/skraft/THIRD-PARTY-LICENSES.txt" > /dev/null
 mkdir -p dist/release
 out="$(pwd)/dist/release/Skraft-$version-linux-$arch.AppImage"
 rm -f "$out"
