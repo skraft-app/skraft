@@ -1761,9 +1761,21 @@ fn section_tool_places_a_plane_and_picking_ignores_what_it_cuts() {
     assert_eq!(hit.path, EntityPath::root(a));
     assert!(hit.point.z < 70.0 + 1e-6, "hit at {}", hit.point);
 
+    // Its cut line: the box's outline at 70, once round; selected, drawn again marked.
+    let length = |cuts: &[crate::SectionCut]| cuts.iter().map(|c| c.a.distance(c.b)).sum::<f64>();
+    e.select(vec![]);
+    let cuts = e.view().section_cuts;
+    assert!(cuts.iter().all(|c| (c.a.z - 70.0).abs() < 1e-3 && (c.b.z - 70.0).abs() < 1e-3 && c.mark.is_none()), "{cuts:?}");
+    assert!((length(&cuts) - 400.0).abs() < 1e-3, "{}", length(&cuts));
+    e.select(vec![a]);
+    let cuts = e.view().section_cuts;
+    let marked: Vec<_> = cuts.iter().filter(|c| c.mark == Some(Mark::Selected)).copied().collect();
+    assert!((length(&marked) - 400.0).abs() < 1e-3, "{}", length(&marked));
+
     // Undo removes it.
     e.undo();
     assert!(e.document().settings().display.active_section().is_none());
+    assert!(e.view().section_cuts.is_empty());
 }
 
 #[test]

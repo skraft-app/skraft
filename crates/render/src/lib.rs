@@ -319,6 +319,8 @@ pub struct Style<'a> {
     pub section: Option<Section>,
     /// How much darker than its part a section cap is (0–1).
     pub cap_shade: f32,
+    /// How opaque the hatches over a section cap are, in the edges' ink (0–1).
+    pub hatch_opacity: f32,
     /// How opaque a ghost batch's faces are (0–1).
     pub ghost_opacity: f32,
     /// How opaque the edges of a batch with [`Batch::faint_edges`] are (0–1).
@@ -335,6 +337,7 @@ impl Default for Style<'_> {
             silhouettes: true,
             section: None,
             cap_shade: 0.25,
+            hatch_opacity: 0.5,
             ghost_opacity: 0.15,
             ghost_edge_opacity: 0.35,
         }
@@ -381,6 +384,14 @@ pub const EDGE_WIDTH: f32 = 1.5;
 pub const LINE_WIDTH: f32 = 1.5;
 /// A line drawn bolder (the curve a tool refers to).
 pub const BOLD_WIDTH: f32 = 3.0;
+/// The space between a section cap's hatches (points): from this to twice as much, as the
+/// zoom goes (§7 quater).
+pub const HATCH_SPACING: f32 = 8.0;
+/// A hatch's width (points).
+pub const HATCH_WIDTH: f32 = 1.0;
+/// How far apart the points a section's hatches are anchored at may be (mm, in the plane's
+/// basis): near the eye, for precision; a power of two, so that the pattern does not change.
+const HATCH_ANCHOR_STEP: f64 = 4096.0;
 pub const GRID_WIDTH: f32 = 1.0;
 
 #[repr(C)]
@@ -466,8 +477,9 @@ struct InstanceRaw {
 
 impl InstanceRaw {
     /// `model_view`: from the mesh's (recentred) coordinates to the camera's, in `f64`;
-    /// `opacity`: a ghost's, over the ghosts' (carried in the normal matrix's spare `w`).
-    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32) -> Self {
+    /// `opacity`: a ghost's, over the ghosts' (carried in the normal matrix's spare `w`);
+    /// `key`: its mesh's, which chooses its section caps' hatch ([`hatch_of`]).
+    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32, key: u64) -> Self {
         let linear = DMat3::from_mat4(*model_view);
         let n = linear.inverse().transpose();
         let c = |v: DVec3, w: f64| [v.x as f32, v.y as f32, v.z as f32, w as f32];
@@ -475,7 +487,7 @@ impl InstanceRaw {
         let mirrored = if linear.determinant() < 0.0 { -1.0 } else { 1.0 };
         InstanceRaw {
             model: model_view.as_mat4().to_cols_array_2d(),
-            normal: [c(n.x_axis, mirrored), c(n.y_axis, opacity as f64), c(n.z_axis, 0.0)],
+            normal: [c(n.x_axis, mirrored), c(n.y_axis, opacity as f64), c(n.z_axis, hatch_of(key))],
             tint,
             material,
         }
@@ -499,6 +511,38 @@ struct Globals {
     clip: [f32; 4],
     /// x: section on (1) or off (0); y: how much darker the caps are.
     section: [f32; 4],
+    /// The basis of the plane the caps' hatches are measured in, in camera coordinates, and
+    /// `w` such that `xyz · p + w` measures a point `p` of the plane along it (mm).
+    hatch_u: [f32; 4],
+    hatch_v: [f32; 4],
+    /// The hatches' spacing and half width (pixels), their opacity.
+    hatch: [f32; 4],
+}
+
+/// How many directions the section caps' hatches take (the shader's `hatch_direction`).
+const HATCH_DIRECTIONS: u64 = 6;
+
+/// The hatch of a mesh's section caps: one of [`HATCH_DIRECTIONS`], from its key (one part,
+/// one hatch; neighbours seldom alike).
+fn hatch_of(key: u64) -> f64 {
+    // splitmix64's finaliser: neighbouring keys spread.
+    let mut z = key.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    ((z ^ (z >> 31)) % HATCH_DIRECTIONS) as f64
+}
+
+/// The basis `u`, `v` of a section's plane its hatches are measured in (`u` across world Z,
+/// else along world X), and the point of the plane they are measured from: near `eye`,
+/// snapped to [`HATCH_ANCHOR_STEP`] in that basis.
+fn hatch_frame(section: &Section, eye: DVec3) -> (DVec3, DVec3, DVec3) {
+    let n = section.normal.normalize();
+    let u = if n.z.abs() < 0.999 { DVec3::Z.cross(n).normalize() } else { (DVec3::X - n * n.x).normalize() };
+    let v = n.cross(u);
+    let to_eye = eye - section.origin;
+    let snap = |x: f64| (x / HATCH_ANCHOR_STEP).floor() * HATCH_ANCHOR_STEP;
+    let anchor = section.origin + u * snap(to_eye.dot(u)) + v * snap(to_eye.dot(v));
+    (u, v, anchor)
 }
 
 struct PartRange {
@@ -582,9 +626,9 @@ pub struct Renderer {
     /// A ghost highlighted: a wash of its tint over its faces, as see-through.
     faces_ghost_mark: wgpu::RenderPipeline,
     /// Then the caps marked in the stencil (the parity of the faces left along each ray), and
-    /// their depth brought onto the plane.
+    /// drawn there from the back faces, just behind the plane.
     cap_mark: wgpu::RenderPipeline,
-    cap_depth: wgpu::RenderPipeline,
+    caps: wgpu::RenderPipeline,
     depth_format: wgpu::TextureFormat,
     edges: wgpu::RenderPipeline,
     silhouettes: wgpu::RenderPipeline,
@@ -768,7 +812,7 @@ impl Renderer {
             stencil: Default::default(),
             bias,
         };
-        // The stencil of the caps: its low bit flipped by `cap_mark`, tested by `cap_depth`.
+        // The stencil of the caps: its low bit flipped by `cap_mark`, tested by `caps`.
         let stencil = |compare: wgpu::CompareFunction, pass_op: wgpu::StencilOperation| {
             let face = wgpu::StencilFaceState { compare, fail_op: Keep, depth_fail_op: Keep, pass_op };
             wgpu::StencilState { front: face, back: face, read_mask: 1, write_mask: 1 }
@@ -821,20 +865,22 @@ impl Renderer {
             "caps (mark)",
             "vs_face",
             "fs_cap_mark",
-            &[Some(face_layout), Some(instance_layout.clone())],
+            &[Some(face_layout.clone()), Some(instance_layout.clone())],
             wgpu::DepthStencilState {
                 stencil: stencil(wgpu::CompareFunction::Always, wgpu::StencilOperation::Invert),
                 ..depth(false, wgpu::CompareFunction::Always, Default::default())
             },
             wgpu::ColorWrites::empty(),
         );
-        let cap_depth = pipeline(
-            "caps (depth)",
-            "vs_screen",
-            "fs_cap_depth",
-            &[],
+        // Where the stencil marks a cap, the back faces again, at a depth just behind the plane
+        // (their order kept): the nearest one, the cut part's, wins over any front face.
+        let caps = pipeline(
+            "caps",
+            "vs_face",
+            "fs_cap",
+            &[Some(face_layout), Some(instance_layout.clone())],
             wgpu::DepthStencilState { stencil: stencil(wgpu::CompareFunction::Equal, Keep), ..depth(true, nearer, Default::default()) },
-            wgpu::ColorWrites::empty(),
+            all,
         );
         let edges = pipeline(
             "edges",
@@ -961,7 +1007,7 @@ impl Renderer {
             faces_ghost,
             faces_ghost_mark,
             cap_mark,
-            cap_depth,
+            caps,
             depth_format,
             edges,
             silhouettes,
@@ -1160,14 +1206,22 @@ impl Renderer {
         };
         let rgb = |c: [f32; 3]| [c[0], c[1], c[2], 1.0];
         // The section plane, in camera coordinates (in f64: the camera may be far away).
-        let (clip, section_on) = match style.section {
+        // Its hatches' directions, measured from a point near the eye.
+        let (clip, section_on, hatch_u, hatch_v) = match style.section {
             Some(s) if s.normal.length_squared() > 0.0 => {
                 let n = frame.view.transform_vector3(s.normal.normalize()).normalize();
                 let o = frame.view.transform_point3(s.origin);
-                ([n.x as f32, n.y as f32, n.z as f32, -n.dot(o) as f32], 1.0)
+                let (u, v, anchor) = hatch_frame(&s, frame.view.inverse().transform_point3(DVec3::ZERO));
+                let anchor = frame.view.transform_point3(anchor);
+                let measure = |d: DVec3| {
+                    let d = frame.view.transform_vector3(d);
+                    [d.x as f32, d.y as f32, d.z as f32, -d.dot(anchor) as f32]
+                };
+                ([n.x as f32, n.y as f32, n.z as f32, -n.dot(o) as f32], 1.0, measure(u), measure(v))
             }
-            _ => ([0.0; 4], 0.0),
+            _ => ([0.0; 4], 0.0, [0.0; 4], [0.0; 4]),
         };
+        let ppp = frame.pixels_per_point;
         queue.write_buffer(
             &self.globals,
             0,
@@ -1182,6 +1236,9 @@ impl Renderer {
                 edge: rgb(style.edge),
                 clip,
                 section: [section_on, style.cap_shade, style.ghost_opacity, style.ghost_edge_opacity],
+                hatch_u,
+                hatch_v,
+                hatch: [HATCH_SPACING * ppp, HATCH_WIDTH * ppp / 2.0, style.hatch_opacity, 0.0],
             }),
         );
         // The palette: never empty (a binding needs a buffer).
@@ -1206,7 +1263,9 @@ impl Renderer {
         let mut batch_ranges = Vec::with_capacity(frame.batches.len());
         for b in frame.batches {
             let start = raw.len() as u32;
-            raw.extend(b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material, p.opacity)));
+            raw.extend(
+                b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material, p.opacity, b.key)),
+            );
             batch_ranges.push(start..raw.len() as u32);
         }
         // Highlights by runs of the same part, each run drawn in one call (a selection can
@@ -1216,9 +1275,9 @@ impl Renderer {
         for chunk in frame.highlights.chunk_by(|a, b| a.key == b.key && a.part == b.part && a.ghost == b.ghost) {
             let mvs: Vec<DMat4> = chunk.iter().map(|h| model_view(&h.transform, h.key)).collect();
             let faces = raw.len() as u32;
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, h.material, 0.0)));
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, h.material, 0.0, h.key)));
             let edges = raw.len() as u32;
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0)));
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key)));
             runs.push(HighlightRun {
                 key: chunk[0].key,
                 part: chunk[0].part,
@@ -1232,7 +1291,6 @@ impl Renderer {
         // Lines: grid and axes, depth-tested lines, the faint lines, the hidden lines, then the
         // overlay.
         let mut lv = Vec::new();
-        let ppp = frame.pixels_per_point;
         push_scene_lines(&mut lv, frame);
         let tested = lv.len() as u32;
         for l in frame.faint_lines {
@@ -1345,8 +1403,10 @@ impl Renderer {
             }
             if section_on > 0.0 {
                 // The caps: where the faces left along the ray are odd in number, the ray
-                // meets the plane inside a part; there, the depth goes onto the plane, so
-                // what lies behind the cap stays hidden.
+                // meets the plane inside a part; there, the back faces drawn again just behind
+                // the plane, so that the cut part's wins over another part's front face lying
+                // on it (parts in contact, a dowel in its hole) and what lies behind the cap
+                // stays hidden.
                 pass.set_stencil_reference(1);
                 pass.set_pipeline(&self.cap_mark);
                 for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.ghost) {
@@ -1357,8 +1417,24 @@ impl Renderer {
                         pass.draw_indexed(0..m.index_count, 0, r.clone());
                     }
                 }
-                pass.set_pipeline(&self.cap_depth);
-                pass.draw(0..3, 0..1);
+                pass.set_pipeline(&self.caps);
+                for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.ghost) {
+                    let Some(m) = self.meshes.get(&b.key) else { continue };
+                    if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
+                        pass.set_vertex_buffer(0, v.slice(..));
+                        pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..m.index_count, 0, r.clone());
+                    }
+                }
+                // The highlighted ones over them, tinted (at the same depth).
+                for run in runs.iter().filter(|r| !r.ghost) {
+                    let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
+                    if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
+                        pass.set_vertex_buffer(0, v.slice(..));
+                        pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(part.indices.clone(), 0, run.faces.clone());
+                    }
+                }
             }
             // Edges, then silhouettes (same ink, same instances).
             pass.set_pipeline(&self.edges);
@@ -1618,7 +1694,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     h.fs(&s.face_front);
     h.fs(&s.face_back);
     h.fs(&s.edge);
-    h.fs(&[s.cap_shade, s.ghost_opacity, s.ghost_edge_opacity]);
+    h.fs(&[s.cap_shade, s.hatch_opacity, s.ghost_opacity, s.ghost_edge_opacity]);
     s.palette.len().hash(&mut h.0);
     for c in s.palette {
         h.fs(c);
