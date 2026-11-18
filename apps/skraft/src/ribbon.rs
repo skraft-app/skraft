@@ -49,7 +49,6 @@ const fn group(id: &'static str, label: fn() -> String, commands: &'static [&'st
     Group { id, label, commands, pinned }
 }
 
-const MODIFY_ASSEMBLY: &[&str] = &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"];
 const STANDARD_VIEWS: &[&str] = &["view.zoom_extents", "view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
 
 /// Every workspace. Cut list and Drawing are planned (docs/ui/ribbon.md): not listed until they exist.
@@ -94,7 +93,6 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
                     &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies"],
                     &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies"],
                 ),
-                group("modify", || t!("ribbon.group.modify"), MODIFY_ASSEMBLY, MODIFY_ASSEMBLY),
             ],
         },
         Tab {

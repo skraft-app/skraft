@@ -369,7 +369,7 @@ impl Tool for DistributeTool {
         let draw = &mut cx.drawer(&mut p.drawing);
         let State::End { start } = self.state else {
             draw_axes(draw, &t, |_| false, None);
-            draw_boxes(draw, &t, &[], GREY);
+            draw_boxes(draw, &t, &[]);
             if let Some(c) = self.cursor {
                 draw.mark(t.world(c.0));
             }
@@ -383,7 +383,7 @@ impl Tool for DistributeTool {
         let color = axis_color(k);
         let moves: Vec<DAffine3> = s.centers.iter().map(|m| t.translation(*m - t.center())).collect();
         draw_axes(draw, &t, |j| j == k, None);
-        draw_boxes(draw, &t, &moves, color);
+        draw_boxes(draw, &t, &moves);
         let (a, b) = (t.world(s.lps), t.world(s.lpe));
         // From the points clicked to the measure line, which runs through the box's centre.
         let cursor = self.ray_hit.unwrap_or_else(|| self.snap.as_ref().map_or(t.world(end), |i| i.point));
@@ -517,6 +517,7 @@ mod tests {
             frame: DAffine3::IDENTITY,
             lo: DVec3::ZERO,
             hi: DVec3::new(18.0, 300.0, 20.0),
+            filled: false,
         }
     }
 

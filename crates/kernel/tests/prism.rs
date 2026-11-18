@@ -30,3 +30,21 @@ fn a_prism_with_arcs_is_built() {
     let disc = skraft_kernel::profile::reversed(&disc);
     assert_eq!(Solid::new_prism(DVec3::ZERO, &disc, 10.0).unwrap().topology_counts(), (4, 6, 4));
 }
+
+#[test]
+fn only_a_box_fills_its_box() {
+    let v = DVec2::new;
+    let b = Solid::new_box(DVec3::new(5.0, -3.0, 2.0), DVec3::new(600.0, 300.0, 18.0)).unwrap();
+    assert!(b.fills_its_box());
+    // A square prism is a box too.
+    let square = polygon(&[v(0.0, 0.0), v(40.0, 0.0), v(40.0, 20.0), v(0.0, 20.0)]);
+    assert!(Solid::new_prism(DVec3::ZERO, &square, 10.0).unwrap().fills_its_box());
+    // Not a box: rounded corners, a slanted side (six faces, eight vertices), a cylinder.
+    assert!(!Solid::new_prism(DVec3::ZERO, &with_fillets(&square, 2.0), 10.0).unwrap().fills_its_box());
+    let slanted = polygon(&[v(0.0, 0.0), v(40.0, 0.0), v(30.0, 20.0), v(0.0, 20.0)]);
+    assert!(!Solid::new_prism(DVec3::ZERO, &slanted, 10.0).unwrap().fills_its_box());
+    assert!(!Solid::new_cylinder(DVec3::ZERO, 10.0, 30.0).unwrap().fills_its_box());
+    // A box turned off its axes no longer fills its axis-aligned box.
+    let turned = b.transformed(&glam::DAffine3::from_rotation_z(0.3)).unwrap();
+    assert!(!turned.fills_its_box());
+}

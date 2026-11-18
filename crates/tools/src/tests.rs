@@ -5104,13 +5104,8 @@ fn copy_along_a_line_by_a_click_then_a_count_and_a_distance() {
     let v = e.view();
     assert!(v.highlights.iter().any(|h| h.mark == Mark::Ghost), "the copy drawn as a ghost");
     assert!(boxes_in(&v, ThemeColor::Selected).is_empty(), "the tool draws its own boxes");
-    // The source's box and the copy's, dashed, their fronts over the scene (OCL's
-    // `shell_on_top`), the copy's where it goes.
-    let boxes = &v.drawing.boxes;
-    assert_eq!(boxes.len(), 2);
-    assert!(boxes.iter().all(|b| b.shell_on_top && b.pen.stipple == crate::draw::Stipple::LongDashes));
-    let x0 = |b: &crate::draw::BoxEdges| b.bounds.frame.transform_point3(b.bounds.lo).x;
-    assert!((x0(&boxes[1]) - x0(&boxes[0]) - 400.0).abs() < 1e-3, "{} {}", x0(&boxes[0]), x0(&boxes[1]));
+    // A box fills its box: none drawn.
+    assert!(v.drawing.boxes.is_empty(), "a box part's box adds nothing");
     assert_eq!(e.vcb().map(|v| v.1), Some("500".to_owned()));
     e.input(ToolInput::Click { px: px(&e, DVec3::new(500.0, 60.0, 0.0)), mods: Modifiers::default() });
     assert_eq!(occurrences(&e), 2);
@@ -6504,4 +6499,38 @@ fn the_histories_are_capped_together_the_first_ones_first() {
     cap_histories(&mut [&mut a, &mut b], 0);
     assert!(!a.history().can_forget() && !b.history().can_forget());
     assert!(a.history().can_undo() && b.history().can_undo());
+}
+
+#[test]
+fn the_copy_tools_draw_dotted_boxes_but_around_a_box() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Cylinder);
+    click(&mut e, DVec3::new(100.0, 100.0, 0.0));
+    e.input(ToolInput::Vcb("50".into()));
+    e.input(ToolInput::Vcb("30".into()));
+    let cylinder = drawn(&e);
+    e.set_tool(ToolKind::Select);
+    e.select(vec![cylinder]);
+    // The source's box and the copy's, dotted, in the scene: no front drawn over it (OCL's
+    // `shell_on_top` off), the copy's where it goes.
+    e.set_tool(ToolKind::CopyLine);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 110.0, 0.0)) });
+    let v = e.view();
+    let boxes = &v.drawing.boxes;
+    assert_eq!(boxes.len(), 2);
+    assert!(boxes.iter().all(|b| !b.shell_on_top && b.pen.stipple == crate::draw::Stipple::Dotted && b.pen.color == crate::tools::INK.into()));
+    let x0 = |b: &crate::draw::BoxEdges| b.bounds.frame.transform_point3(b.bounds.lo).x;
+    assert!(x0(&boxes[1]) - x0(&boxes[0]) > 100.0, "{} {}", x0(&boxes[0]), x0(&boxes[1]));
+
+    // A box alone: none; a box with the cylinder: their box is not filled, drawn.
+    let board = draw_box(&mut e, DVec3::new(0.0, 300.0, 0.0), DVec3::new(100.0, 400.0, 0.0), "18");
+    e.select(vec![board]);
+    e.set_tool(ToolKind::CopyLine);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 350.0, 0.0)) });
+    assert!(e.view().drawing.boxes.is_empty(), "one box: none");
+    e.set_tool(ToolKind::Select);
+    e.select(vec![cylinder, board]);
+    e.set_tool(ToolKind::CopyLine);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 350.0, 0.0)) });
+    assert_eq!(e.view().drawing.boxes.len(), 2, "a cylinder and a box: their box");
 }
