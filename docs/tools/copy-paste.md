@@ -15,7 +15,8 @@ receives a token naming it.
 Whatever can be selected. Out of an open part: the context's occurrences (parts and assemblies,
 their materials, their components' guides) and the context's guides; parts picked at any depth
 (the « Parts » scope, [Select first, and a selection scope](selection.md)) each from its own
-assembly (`Document::paths_fragment`). In an open part: its bodies (« machinings ») and its
+assembly, and the guides picked at any depth with them, each in world axes
+(`Document::paths_fragment`). In an open part: its bodies (« machinings ») and its
 guides. **Cut** = copy, then the existing erase (one undo step for the erase).
 
 ## Fragments

@@ -131,7 +131,8 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
 - **The copy tools and Distribute**: `Target::of_deep` — the box of the parts in the axes
   chosen (entity: the one part's; active: the model's; context: the active context's), each
   group's bounds taken in its own assembly (the guides selected with them copied along, not
-  in the box; guides alone have no box, as under « Context »); their operation `Moved::Deep::copies` (`Operation::Copies` at each parent);
+  in the box; guides alone have no box, as under « Context »); their operation
+  `Moved::Deep::copies` (`Operation::Copies` at each parent);
   Distribute's inferences leave them out.
 - **The Stretch**: parts at any depth **of one assembly** are its target (`Operation::Stretch`
   takes a context path); of several, the status says so (`tool.stretch.hint.one_assembly`) and

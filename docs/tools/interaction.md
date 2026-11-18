@@ -92,7 +92,9 @@ occurrence of the assembly (its definition is shared).
 
 « Effacer », E, after SketchUp's. It takes what a click of Select takes — a guide near the
 cursor, else a machining of the open part while they are shown, else the active context's
-occurrence under it — and nothing outside the context.
+occurrence under it — and nothing outside the context; under the « Parts » scope, a guide
+near the cursor at any depth under the context, else the part under it
+([Selection](selection.md#selection-scope)).
 
 - A click erases at once; a drag gathers everything it passes over (sampled every 4 px between
   two cursor positions, so a quick stroke misses nothing) and erases it on release, in one

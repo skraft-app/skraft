@@ -23,7 +23,8 @@ them between its copy actions); Distribute's measure defaults to « between the 
 preset.
 
 **Targets**: the active context's occurrences (parts and assemblies, with the context's guides
-selected), and in an open part its bodies — as Move and Rotate copy.
+selected), or under « Parts » the parts at any depth (the guides picked with them copied along,
+out of the box), and in an open part its bodies — as Move and Rotate copy.
 
 ## Operations
 

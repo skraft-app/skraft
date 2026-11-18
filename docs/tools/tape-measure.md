@@ -164,14 +164,18 @@ the first click. `EdgeRef::Arc` carries the arc's centre and radius for this.
   tool's click and hover and for what Move and Rotate take with nothing selected. The marquee
   takes a guide like a solid: a window one lying wholly inside it (a circle), a crossing one
   any of it touches. Select all takes them. In an open part, its guides are selectable, its
-  machinings shown or not; the part's guides are not, from outside it.
+  machinings shown or not; from outside it, the part's guides are only under the « Parts »
+  selection scope, which takes the guides at any depth under the active context — an
+  assembly's, a part's — beside the parts (`Cx::guide_at`, `GuidePath`;
+  [Selection](selection.md#selection-scope)).
 - **Operations**: no guide-specific ones beyond `AddGuide`. `Delete`, `Transform`,
   `Duplicate`, `Array` and `MakeAssembly` take guide ids of their context among their entities
   (the guides go into the new assembly; guides alone make none; `PaintOccurrences` leaves them
   out). The new assembly's axes have their origin at the low corner of its content's bounds
   (in the context's axes): the content and its guides are brought into them, the new
   occurrence placed there, so nothing moves in the context. The operations on machinings take
-  the part's guides — with guides alone, no kernel and no separate part, whatever the scope. In
+  the part's guides — with guides alone, no kernel and no separate part, whatever the scope
+  (so do a part's guides picked from outside it under « Parts »). In
   an open part, Move, Rotate and Delete always aim at the part (`Cx::moved`), its machinings
   shown or not.
 - Edit › "Delete guides" (`edit.delete_guides`) erases those of the active context, shown or
