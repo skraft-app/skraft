@@ -62,7 +62,7 @@ other display settings. `Editor::set_xray` applies a `SetSettings`; the scene ta
 
 `apps/skraft/src/view_bar.rs`: an `egui::Area` at (`free_left` or the view's left margin, under
 the ribbon), a window frame at 35 % / 92 % (`style::translucent`: the hover of the last
-frame, or one of its menus open), buttons 30 pt (icon 18), the selection's fill behind a lit one; the
+frame, or one of its menus open), buttons 26 pt (icon 18), as the option bar's and the quick tools' card's (`style::BAR_BUTTON`), the selection's fill behind a lit one; the
 views button is the pseudo-command `view.views` (its menu opens towards the view,
 `RectAlign::RIGHT_START` on the left, `LEFT_START` on the right), the ▾ menu as the quick
 tools' (`pins.rs`: `pinned` / `toggle` / `move_to` and the drag, `pins::reorder`, shared;

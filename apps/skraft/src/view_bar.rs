@@ -32,9 +32,9 @@ pub const COMMANDS: &[&str] = &[
 /// Pinned by default.
 pub const DEFAULT: &[&str] = &[VIEWS, "view.zoom_extents", "view.parallel", "view.xray", "view.hide_rest_of_model", "view.section"];
 
-/// A button's side and its icon's.
-const BUTTON: f32 = 30.0;
-const ICON: f32 = 18.0;
+/// A button's side and its icon's: the floating bars' (the option bar's, the quick tools' card's).
+pub const BUTTON: f32 = crate::style::BAR_BUTTON;
+pub const ICON: f32 = crate::style::BAR_ICON;
 /// The ▾ button's height.
 const MORE: f32 = 16.0;
 /// The grip's height, at the bar's head.
@@ -57,7 +57,8 @@ pub fn width(style: &egui::Style) -> f32 {
     BUTTON + frame(style).total_margin().sum().x
 }
 
-fn frame(style: &egui::Style) -> egui::Frame {
+/// The bar's card; the quick tools' card is the same.
+pub fn frame(style: &egui::Style) -> egui::Frame {
     egui::Frame::window(style).inner_margin(3.0)
 }
 

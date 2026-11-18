@@ -21,8 +21,10 @@ After OpenCutList's floating tools of the Smart Draw tool (`tool/smart_draw_tool
   tool on what was just made. Started otherwise (ribbon, shortcut), the tools behave as usual: no
   return slot.
 - **Where**: a row of buttons centred on the centre of the new part's box (or body's), projected
-  on screen, following the view as it orbits or zooms (OCL's anchor); the buttons drawn as
-  the ribbon's (our icons, the name in the tip), on a translucent card.
+  on screen, following the view as it orbits or zooms (OCL's anchor); the buttons and the card
+  of the view bar's size ([View bar](../ui/view-bar.md): `view_bar::BUTTON`, `ICON`, `frame`),
+  the floating bars over the view all as thick as the option bar (`style::BAR_BUTTON`) (our icons, the name in the tip), on a
+  translucent card.
 - **When it goes**: at the first click (or typed value) of the next shape, on Command (Alt
   elsewhere, OCL's), Esc, a change of tool or of active context, an undo, and when the tool it started
   hands back.

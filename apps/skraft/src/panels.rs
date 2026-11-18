@@ -326,8 +326,8 @@ fn choice_option(ui: &mut egui::Ui, first: &mut bool, o: &ToolOption, actions: &
 }
 
 /// The height of the option bar's buttons; an icon's button is a square of it.
-const OPTION_HEIGHT: f32 = 26.0;
-const OPTION_ICON: f32 = 18.0;
+const OPTION_HEIGHT: f32 = crate::style::BAR_BUTTON;
+const OPTION_ICON: f32 = crate::style::BAR_ICON;
 /// The side margins of a text button.
 const OPTION_PAD: f32 = 8.0;
 /// How long a segmented control's mark takes to slide to the value chosen, in seconds.

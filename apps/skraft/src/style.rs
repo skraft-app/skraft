@@ -27,6 +27,12 @@ const SEMIBOLD: &str = "plex-sans-semibold";
 const RESTING: f32 = 0.35;
 const HOVERED: f32 = 0.92;
 
+/// The floating bars' buttons (the option bar, the view bar, the quick tools' card): the side
+/// of an icon's (the height of the option bar's fields and controls) and its icon's, the bars all
+/// as thick (docs/ui/interface.md).
+pub const BAR_BUTTON: f32 = 26.0;
+pub const BAR_ICON: f32 = 18.0;
+
 /// A floating card's opacity: [`RESTING`], or [`HOVERED`] when `hovered`.
 pub fn card_alpha(hovered: bool) -> f32 {
     if hovered { HOVERED } else { RESTING }
@@ -288,6 +294,11 @@ fn apply(s: &mut egui::Style, t: &UiTokens) {
     w.hovered.weak_bg_fill = color(t.hover);
     w.hovered.bg_fill = color(t.hover);
     w.active.weak_bg_fill = color(t.accent_soft);
+    // A widget hovered or pressed outlined in the colour of a text field's focus (egui's width
+    // kept): every button, the bars' and the ribbon's painting their state's stroke; a focused
+    // field's thicker outline takes over its hover's.
+    w.hovered.bg_stroke.color = color(t.accent);
+    w.active.bg_stroke.color = color(t.accent);
     // egui fills a movable window's title bar with the open state's when it is on top,
     // [`window_title_frame`] when it is not.
     w.open.weak_bg_fill = color(t.panel_header);
@@ -313,6 +324,7 @@ mod tests {
                 assert_eq!(v.text_color(), color(t.text));
                 assert_eq!(v.weak_text_color(), color(t.text_dim));
                 assert_eq!(v.selection.stroke.color, color(t.accent));
+                assert_eq!(v.widgets.hovered.bg_stroke.color, color(t.accent));
             }
         }
     }
