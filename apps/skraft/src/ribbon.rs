@@ -1,4 +1,4 @@
-//! The workspace switcher and the ribbon (docs/ui/ribbon.md).
+//! The ribbon and its workspace switcher, at its left end (docs/ui/ribbon.md).
 //!
 //! The ribbon is data: [`WORKSPACES`] → tabs → groups → command ids of the registry
 //! (docs/ui/commands.md), each group with its default pins. A group shows its pinned commands as buttons;
@@ -147,7 +147,8 @@ pub struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { workspace: WORKSPACES[0].id.to_owned(), tabs: BTreeMap::new(), pins: BTreeMap::new(), labels: true }
+        // Compact by default: the names are in the tips.
+        Prefs { workspace: WORKSPACES[0].id.to_owned(), tabs: BTreeMap::new(), pins: BTreeMap::new(), labels: false }
     }
 }
 
@@ -347,8 +348,8 @@ const BUTTON_MIN_WIDTH: f32 = 50.0;
 const BUTTON_MAX_WIDTH: f32 = 74.0;
 const COMPACT_WIDTH: f32 = 34.0;
 const ICON: f32 = 24.0;
-/// The workspace card's width.
-pub const WORKSPACE_WIDTH: f32 = 92.0;
+/// The workspace cell's width, at the ribbon's left end.
+const WORKSPACE_WIDTH: f32 = 92.0;
 
 fn label_font() -> FontId {
     FontId::proportional(11.5)
@@ -366,10 +367,11 @@ impl View<'_> {
     }
 }
 
-/// The workspace card: the workspace's icon and name; a click lists the workspaces.
-pub fn workspace_card(ui: &mut egui::Ui, v: &View, height: f32, actions: &mut Vec<Action>) {
+/// The workspace cell, at the ribbon's left end, over its whole height: the workspace's icon and
+/// name; a click lists the workspaces.
+fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, actions: &mut Vec<Action>) {
     let current = v.prefs.workspace();
-    let (rect, response) = ui.allocate_exact_size(vec2(WORKSPACE_WIDTH, height), Sense::click());
+    let response = ui.interact(rect, egui::Id::unique("ribbon_workspace"), Sense::click());
     let visuals = ui.style().interact(&response);
     if response.hovered() {
         ui.painter().rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
@@ -397,6 +399,8 @@ pub fn workspace_card(ui: &mut egui::Ui, v: &View, height: f32, actions: &mut Ve
 /// The row's height; the tabs rise above it into the card's margin, by [`TAB_RISE`].
 const TAB_ROW_HEIGHT: f32 = 20.0;
 const TAB_RISE: f32 = 3.0;
+/// Between the tab row and the groups.
+const TAB_GAP_BELOW: f32 = 4.0;
 /// A tab's room around its label, and between two tabs.
 const TAB_PAD: f32 = 12.0;
 const TAB_GAP: f32 = 2.0;
@@ -410,16 +414,25 @@ fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui:
     let labels: Vec<String> = w.tabs.iter().map(|t| (t.label)()).collect();
     let shown = w.tabs.iter().position(|t| t.id == tab.id);
     let ids: Vec<_> = w.tabs.iter().map(|t| egui::Id::unique(("ribbon_tab", t.id))).collect();
-    if let Some(k) = tab_strip(ui, &labels, &ids, shown, width, inset, true, &[]) {
+    if let Some(k) = tab_strip(ui, &labels, &ids, shown, width, inset, Corners::RoundRight, &[]) {
         actions.push(Action::Ribbon(Change::Tab(w.tabs[k].id)));
     }
 }
 
+/// Which top corners of a [`tab_strip`]'s band follow its card's: none (the band under a title
+/// bar), both, or the right one only (the ribbon's, its left end at the workspace cell).
+#[derive(Clone, Copy, PartialEq)]
+pub enum Corners {
+    Square,
+    Round,
+    RoundRight,
+}
+
 /// A row of tabs as the ribbon's (also the journal window's): a faint band, the shown tab
 /// open onto the content below, the others greyed until hovered. `ids`: each tab's; `inset`:
-/// the margin of the card (or window) the band spans to reach its edges; `round_top`: the
-/// band's top corners follow the card's; `handles`: each tab's name for the control protocol,
-/// if given. The tab clicked, if any (not the shown one).
+/// the margin of the card (or window) the band spans to reach its edges; `corners`: the
+/// band's top corners that follow the card's; `handles`: each tab's name for the control
+/// protocol, if given. The tab clicked, if any (not the shown one).
 #[allow(clippy::too_many_arguments)]
 pub fn tab_strip(
     ui: &mut egui::Ui,
@@ -428,15 +441,20 @@ pub fn tab_strip(
     shown: Option<usize>,
     width: f32,
     inset: egui::Margin,
-    round_top: bool,
+    corners: Corners,
     handles: &[&'static str],
 ) -> Option<usize> {
     let (row, _) = ui.allocate_exact_size(vec2(width, TAB_ROW_HEIGHT), Sense::hover());
     let visuals = ui.visuals().clone();
     let band =
         Rect::from_min_max(pos2(row.left() - inset.leftf(), row.top() - inset.topf()), pos2(row.right() + inset.rightf(), row.bottom()));
-    let r = if round_top { visuals.window_corner_radius } else { egui::CornerRadius::ZERO };
-    ui.painter().rect_filled(band, egui::CornerRadius { nw: r.nw, ne: r.ne, sw: 0, se: 0 }, visuals.faint_bg_color);
+    let r = visuals.window_corner_radius;
+    let (nw, ne) = match corners {
+        Corners::Square => (0, 0),
+        Corners::Round => (r.nw, r.ne),
+        Corners::RoundRight => (0, r.ne),
+    };
+    ui.painter().rect_filled(band, egui::CornerRadius { nw, ne, sw: 0, se: 0 }, visuals.faint_bg_color);
 
     // Centered on the card; from its left edge when narrower than the tabs.
     let mut x = (row.center().x - tab_labels_width(ui.painter(), labels) / 2.0).max(row.left() + crate::tabs::TAB_RADIUS);
@@ -542,8 +560,9 @@ fn measure(painter: &egui::Painter, v: &View) -> (Vec<Laid>, Vec<GroupSize>) {
     (laid, sizes)
 }
 
-/// The ribbon card's content width with nothing given up: every pinned button at its preferred
-/// width, and the tab row. The card is never wider (it is narrower when the window is).
+/// The ribbon card's content width with nothing given up: the workspace cell, every pinned
+/// button at its preferred width, and the tab row. The card is never wider (it is narrower
+/// when the window is).
 pub fn natural_width(ctx: &egui::Context, v: &View) -> f32 {
     let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
     let (_, sizes) = measure(&painter, v);
@@ -552,18 +571,43 @@ pub fn natural_width(ctx: &egui::Context, v: &View) -> f32 {
     let groups = used(&plans, &sizes, collapsed);
     let w = v.prefs.workspace();
     let tabs = if w.tabs.len() > 1 { tab_row_width(&painter, w) } else { 0.0 };
-    groups.max(tabs).ceil()
+    (WORKSPACE_WIDTH + GROUP_GAP + groups.max(tabs)).ceil()
 }
 
-/// The ribbon card's content, `width` wide: the tab row over the groups.
-/// `inset`: the card's inner margin.
+/// The ribbon card's content, `width` wide: the workspace cell at the left, over the whole
+/// height, then the tab row over the groups. `inset`: the card's inner margin.
 pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
+    let w = v.prefs.workspace();
+    let labels = v.prefs.labels;
+    let button_h = if labels { BUTTON_HEIGHT } else { COMPACT_HEIGHT };
+    let tabs = w.tabs.len() > 1;
+    let spacing = ui.spacing().item_spacing.y;
+    let height = if tabs { TAB_ROW_HEIGHT + spacing + TAB_GAP_BELOW } else { 0.0 } + button_h + LABEL_GAP + GROUP_LABEL_HEIGHT;
+    ui.set_width(width);
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        let (cell, _) = ui.allocate_exact_size(vec2(WORKSPACE_WIDTH, height), Sense::hover());
+        workspace_cell(ui, v, cell, actions);
+        ui.add_space(GROUP_GAP);
+        let content = (width - WORKSPACE_WIDTH - GROUP_GAP).max(0.0);
+        // The tab band from the separator, which is drawn over it, across the whole card.
+        let band = egui::Margin { left: (GROUP_GAP / 2.0) as i8, ..inset };
+        ui.vertical(|ui| groups(ui, v, content, tabs.then_some(band), actions));
+        let sx = cell.right() + GROUP_GAP - band.leftf();
+        let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+        ui.painter().vline(sx, cell.top() - inset.topf()..=cell.bottom() + inset.bottomf(), stroke);
+    });
+}
+
+/// The tab row (`inset`: the card's inner margin, beside the workspace cell; none: a
+/// single tab) over the groups, `width` wide.
+fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: Option<egui::Margin>, actions: &mut Vec<Action>) {
     let w = v.prefs.workspace();
     let tab = v.prefs.tab();
     ui.set_width(width);
-    if w.tabs.len() > 1 {
+    if let Some(inset) = inset {
         tab_row(ui, w, tab, width, inset, actions);
-        ui.add_space(4.0);
+        ui.add_space(TAB_GAP_BELOW);
     }
 
     let labels = v.prefs.labels;
@@ -882,7 +926,7 @@ mod tests {
         assert_eq!(p.tab().id, "build");
         let w = p.workspace();
         assert_eq!(p.pinned(&key(w, None, &w.fixed), &w.fixed), ["tool.select"]);
-        assert!(p.labels);
+        assert!(!p.labels);
     }
 
     fn groups() -> Vec<GroupSize> {

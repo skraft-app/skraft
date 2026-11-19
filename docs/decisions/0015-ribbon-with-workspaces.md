@@ -14,13 +14,18 @@ CommandManager, Fusion).
 
 ## Decision
 
-- A workspace card and a ribbon card float across the top of the view; the view is never
-  resized. The tool option bar becomes a small card of its own, centered under the ribbon.
+- A ribbon card floats across the top of the view, the workspace switcher at its left end;
+  the view is never resized. The tool option bar becomes a small card of its own, centered
+  under the ribbon. At first the workspace was a card of its own left of the ribbon, the docked
+  columns under both: moved into the ribbon on 2026-11-19, so that the ribbon fits between the
+  columns and they take the view's whole height (the ribbon going back above them when it
+  does not fit there).
 - Workspaces → tabs → groups → command ids of the registry, as a `const` description in the app
   checked by a test against the registry; the ribbon draws it, state and labels from the
   registry's `CommandView`s.
 - A group shows its pinned commands; its menu lists every command with a pin. The pins, the tab
-  per workspace and the labels' switch are user preferences.
+  per workspace and the labels' switch are user preferences; the labels off by default
+  (2026-11-19: the compact ribbon fits between the columns).
 - A narrow window is handled by a pure function of the width (`fit`), after SolidCraft's:
   buttons narrow, groups collapse into their menu, the last groups go into a » menu.
 - The pattern is free to use; the drawing is ours: our icons, palette, names and proportions —

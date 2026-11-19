@@ -62,11 +62,22 @@ pub fn frame(style: &egui::Style) -> egui::Frame {
     egui::Frame::window(style).inner_margin(3.0)
 }
 
-/// Where the bar goes: the side it is docked to, and the top left corner of each slot (left,
-/// right), as the side panels' two columns.
+/// Where the bar goes: the side it is docked to, the left edge of each slot (left, right), as
+/// the side panels' two columns, and its height's place: centered on `center`, within
+/// `heights`.
 pub struct Place {
     pub side: Dock,
-    pub slots: [egui::Pos2; 2],
+    pub xs: [f32; 2],
+    pub heights: egui::Rangef,
+    pub center: f32,
+}
+
+impl Place {
+    /// The top left corner of the slot of `side` for a bar `height` tall.
+    fn slot(&self, side: Dock, height: f32) -> egui::Pos2 {
+        let top = (self.center - height / 2.0).min(self.heights.max - height).max(self.heights.min);
+        egui::pos2(self.xs[slot(side)], top)
+    }
 }
 
 fn slot(side: Dock) -> usize {
@@ -84,7 +95,11 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
     let grab_id = egui::Id::unique("view_bar_grab");
     let grab = ctx.data(|d| d.get_temp::<egui::Vec2>(grab_id));
     let pointer = ctx.pointer_latest_pos();
-    let home = place.slots[slot(place.side)];
+    // Its size as last drawn: centered before this frame's is known (a frame whose height
+    // changed is discarded below).
+    let size_id = grab_id.with("size");
+    let size = ctx.data(|d| d.get_temp::<egui::Vec2>(size_id));
+    let home = place.slot(place.side, size.map_or(0.0, |s| s.y));
     let at = match (grab, pointer) {
         (Some(g), Some(p)) => p - g,
         _ => home,
@@ -92,8 +107,8 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
     let target = pointer.map_or(place.side, |p| if p.x < view.center().x { Dock::Left } else { Dock::Right });
     if grab.is_some() {
         // The slot it goes to, as a docked card's empty column.
-        let size = ctx.data(|d| d.get_temp::<egui::Vec2>(grab_id.with("size"))).unwrap_or(vec2(BUTTON, BUTTON));
-        let r = Rect::from_min_size(place.slots[slot(target)], size);
+        let size = size.unwrap_or(vec2(BUTTON, BUTTON));
+        let r = Rect::from_min_size(place.slot(target, size.y), size);
         let accent = ctx.global_style().visuals.selection.bg_fill;
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, grab_id.with("drop")));
         painter.rect(r, 6.0, accent.gamma_multiply(0.25), egui::Stroke::new(1.5, accent), StrokeKind::Inside);
@@ -139,7 +154,13 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
             });
         });
     });
-    ctx.data_mut(|d| d.insert_temp(grab_id.with("size"), response.response.rect.size()));
+    let drawn = response.response.rect.size();
+    if size != Some(drawn) {
+        ctx.data_mut(|d| d.insert_temp(size_id, drawn));
+        // Placed for another height: drawn again (past egui's passes, at the next frame).
+        ctx.request_discard("view bar resized");
+        ctx.request_repaint();
+    }
     let now = response.response.contains_pointer() || menu_open;
     if now != hovered {
         ctx.data_mut(|d| d.insert_temp(hovered_id, now));
