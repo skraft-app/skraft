@@ -3208,7 +3208,7 @@ dependencies = [
 [[package]]
 name = "solidcore"
 version = "1.0.1"
-source = "git+https://github.com/tangency-labs/solidcore?rev=85b73ded2ff679c4688845a914fb7c56d9ff3508#85b73ded2ff679c4688845a914fb7c56d9ff3508"
+source = "git+https://github.com/tangency-labs/solidcore?rev=793d09e8f1e1089fda739f228b20223068c9e14c#793d09e8f1e1089fda739f228b20223068c9e14c"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -3217,7 +3217,7 @@ dependencies = [
 [[package]]
 name = "solidcore-convert"
 version = "0.1.0"
-source = "git+https://github.com/tangency-labs/solidcore?rev=85b73ded2ff679c4688845a914fb7c56d9ff3508#85b73ded2ff679c4688845a914fb7c56d9ff3508"
+source = "git+https://github.com/tangency-labs/solidcore?rev=793d09e8f1e1089fda739f228b20223068c9e14c#793d09e8f1e1089fda739f228b20223068c9e14c"
 dependencies = [
  "solidcore",
  "solidcore-record",
@@ -3226,7 +3226,7 @@ dependencies = [
 [[package]]
 name = "solidcore-ops"
 version = "0.1.0"
-source = "git+https://github.com/tangency-labs/solidcore?rev=85b73ded2ff679c4688845a914fb7c56d9ff3508#85b73ded2ff679c4688845a914fb7c56d9ff3508"
+source = "git+https://github.com/tangency-labs/solidcore?rev=793d09e8f1e1089fda739f228b20223068c9e14c#793d09e8f1e1089fda739f228b20223068c9e14c"
 dependencies = [
  "solidcore",
  "solidcore-convert",
@@ -3236,7 +3236,7 @@ dependencies = [
 [[package]]
 name = "solidcore-record"
 version = "0.1.0"
-source = "git+https://github.com/tangency-labs/solidcore?rev=85b73ded2ff679c4688845a914fb7c56d9ff3508#85b73ded2ff679c4688845a914fb7c56d9ff3508"
+source = "git+https://github.com/tangency-labs/solidcore?rev=793d09e8f1e1089fda739f228b20223068c9e14c#793d09e8f1e1089fda739f228b20223068c9e14c"
 dependencies = [
  "serde",
  "serde_json",
@@ -3246,7 +3246,7 @@ dependencies = [
 [[package]]
 name = "solidcore-step"
 version = "0.1.0"
-source = "git+https://github.com/tangency-labs/solidcore?rev=85b73ded2ff679c4688845a914fb7c56d9ff3508#85b73ded2ff679c4688845a914fb7c56d9ff3508"
+source = "git+https://github.com/tangency-labs/solidcore?rev=793d09e8f1e1089fda739f228b20223068c9e14c#793d09e8f1e1089fda739f228b20223068c9e14c"
 dependencies = [
  "solidcore",
  "solidcore-convert",
@@ -3257,7 +3257,7 @@ dependencies = [
 [[package]]
 name = "solidcore-tess"
 version = "0.1.0"
-source = "git+https://github.com/tangency-labs/solidcore?rev=85b73ded2ff679c4688845a914fb7c56d9ff3508#85b73ded2ff679c4688845a914fb7c56d9ff3508"
+source = "git+https://github.com/tangency-labs/solidcore?rev=793d09e8f1e1089fda739f228b20223068c9e14c#793d09e8f1e1089fda739f228b20223068c9e14c"
 dependencies = [
  "rayon",
  "serde",
