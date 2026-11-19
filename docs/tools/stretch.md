@@ -229,6 +229,10 @@ OCL's `STATE_STRETCH_START`:
   follows the cursor and a click adds it; the other modifier held (Command on macOS, Alt
   elsewhere), a click removes the one under the cursor; none left, the axis is locked
   (« Behavior » above; one in the middle again where cutters are kept for the session).
+- The box dotted in ink, in the scene (hidden behind faces), as the copy tools'
+  ([Copy along a line, a grid, distribute](copy-array.md) « Preview »; OCL's
+  `_preview_stretch_start`): one for the target, however many occurrences; none when it is one
+  part (or body) that is its box exactly (`Solid::fills_its_box`, square to the axes).
 - A click on a grip starts the stretch, or press, drag and release.
 
 ### Interior handles
@@ -251,8 +255,9 @@ limit holds both ways (`move_range`). After it, the axis stays active to chain.
 
 OCL's `STATE_STRETCH`:
 
-- The target alone, drawn stretched (no box, no cutters), the measure line dashed with its ends
-  and its length — from the opposite face for the overall dimension, from the grip for the
+- The target drawn stretched (no cutters), its box dotted where it was — a part that is its box
+  too, its edges no longer on it (a deviation from OCL, which draws none) —, the measure line
+  dashed with its ends and its length — from the opposite face for the overall dimension, from the grip for the
   offset.
 - The cursor within 40 px of the start snaps back to it; else an inferred point that tells a
   place along the axis — a point, an edge across it, a face facing it, not the opposite face's

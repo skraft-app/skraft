@@ -2943,6 +2943,38 @@ fn stretched(e: &Editor, a: Id) -> ((f64, f64), Vec<f64>) {
 }
 
 #[test]
+fn stretch_tool_draws_its_box_dotted_but_around_a_box() {
+    let dotted = |e: &Editor| -> Vec<(DVec3, DVec3)> {
+        let v = e.view();
+        v.drawing
+            .boxes
+            .iter()
+            .filter(|b| !b.shell_on_top && b.pen.stipple == crate::draw::Stipple::Dotted && b.pen.color == crate::tools::INK.into())
+            .map(|b| (b.bounds.frame.transform_point3(b.bounds.lo), b.bounds.frame.transform_point3(b.bounds.hi)))
+            .collect()
+    };
+    // A drilled board: its box dotted in the scene at the grips (OCL's `_preview_stretch_start`),
+    // kept where it was while stretching.
+    let (mut e, _) = drilled_board_editor(&[100.0]);
+    let full = (DVec3::ZERO, DVec3::new(600.0, 300.0, 18.0));
+    let near = |b: &[(DVec3, DVec3)]| matches!(b, [(lo, hi)] if close(*lo, full.0) && close(*hi, full.1));
+    assert!(near(&dotted(&e)), "{:?}", dotted(&e));
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(800.0, 150.0, 18.0)) });
+    assert!(near(&dotted(&e)), "stretching: {:?}", dotted(&e));
+
+    // A part that is its box: none at the grips; while stretching, where it was.
+    let mut e = top_editor(Document::new());
+    let board = draw_box(&mut e, DVec3::ZERO, DVec3::new(600.0, 300.0, 0.0), "18");
+    e.select(vec![board]);
+    e.set_tool(ToolKind::Stretch);
+    assert!(dotted(&e).is_empty(), "{:?}", dotted(&e));
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(800.0, 150.0, 18.0)) });
+    assert!(near(&dotted(&e)), "stretching: {:?}", dotted(&e));
+}
+
+#[test]
 fn stretch_tool_pulls_a_grip() {
     let (mut e, a) = drilled_board_editor(&[100.0, 250.0, 500.0]);
     // The grip at the centre of the end face, taken near it on screen: the overall length

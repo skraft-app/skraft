@@ -53,7 +53,7 @@ use skraft_i18n::t;
 use skraft_model::kernel::Solid;
 use skraft_model::{Behavior, EntityPath, Id, Operation, Scope};
 
-use super::handle::square;
+use super::handle::{dotted_box, fills, square};
 use super::pick::Picker;
 use super::{
     BLUE, Command, Cx, GREEN, Key, OptionChoice, OptionValue, PointShape, Preview, RED, StretchPreview, Tool, ToolInput, ToolKind,
@@ -192,7 +192,9 @@ struct Target {
     hi: DVec3,
     /// The axes locked for good: a turned body across them spans the whole box, so any cutter
     /// would cut it across its axis (docs/tools/turned-bodies.md).
-    fixed: [bool; 3],
+    fixed: [bool; 3],    /// One part (or body) that is its box exactly, square to the axes: no dotted box drawn
+    /// before the stretch (it would only redraw its edges).
+    filled: bool,
 }
 
 /// The axes of a box `lo..hi` a turned body spans whole across its axis: `turned`, each such
@@ -264,7 +266,8 @@ impl Target {
             .flatten()
             .collect();
         let fixed = fixed_axes(&turned, lo, hi);
-        Some(Target { context, occurrences, bodies: None, group: Vec::new(), keep, in_context, frame, lo, hi, fixed })
+        let filled = matches!(&occs[..], [o] if cx.doc.part(o.component).is_ok_and(|p| fills(p.shape(), to_target * o.transform)));
+        Some(Target { context, occurrences, bodies: None, group: Vec::new(), keep, in_context, frame, lo, hi, fixed, filled })
     }
 
     /// The bodies `ids` of the part `path` places (docs/model/bodies.md): along the body's own axes (one, and
@@ -285,9 +288,10 @@ impl Target {
         let frame = to_world * in_part;
         let (lo, hi) = super::handle::bodies_bounds(cx, &part, &bodies, in_part)?;
         let fixed = fixed_axes(&turned_bodies(cx, &part, in_part.inverse(), Some(&ids)), lo, hi);
+        let filled = matches!(&bodies[..], [b] if fills(part.solid_of(b), in_part.inverse() * b.placement));
         let (context, occurrences) = (path.instances.clone(), vec![path.entity]);
         let group = path.group.clone();
-        Some(Target { context, occurrences, bodies: Some(ids), group, keep, in_context: in_part, frame, lo, hi, fixed })
+        Some(Target { context, occurrences, bodies: Some(ids), group, keep, in_context: in_part, frame, lo, hi, fixed, filled })
     }
 
     /// The path of the part (or group) whose bodies are stretched.
@@ -1388,6 +1392,12 @@ impl Tool for StretchTool {
         // would only blur them (the Z cutters share its blue).
         p.hide_selection = true;
         let draw = &mut cx.drawer(&mut p.drawing);
+        // Its box dotted, as the copy tools' (OCL's `_preview_stretch_start`); kept where it was
+        // while stretching, the stretch then measured against it — a part that is its box too,
+        // no longer on its edges.
+        if !target.filled || matches!(self.state, State::Stretch { .. }) {
+            dotted_box(draw, target.lo, target.hi, target.frame);
+        }
         match &self.state {
             // Taken before any input (the tool started on a selection, or the document changed
             // since): drawn with the cutters and locks kept for it.
