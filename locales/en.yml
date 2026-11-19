@@ -476,12 +476,6 @@ prefs:
 search:
   hint: "Search"
   clear: "Clear the search"
-  parts: "Parts"
-  assemblies: "Assemblies"
-  all_materials: "All"
-  material_tip: "Show only what carries this material"
-  # The material menu while the document has none: greyed.
-  no_materials: "No materials in the document"
   # Nothing matches the search.
   no_match: "No match"
 
@@ -545,7 +539,12 @@ panel:
     on_path: "Being edited"
     # A part open: the library waits for it to be closed.
     disabled: "Close the part to place or manage components"
-    empty: "No components"
+    # The card's tabs, with how many components each shows (under a search, those it lets
+    # through).
+    parts_tab: "Parts (%{count})"
+    assemblies_tab: "Assemblies (%{count})"
+    no_parts: "No parts"
+    no_assemblies: "No assemblies"
     # The card view: a grid of thumbnails, or a list.
     as_grid: "Thumbnails"
     as_list: "List"

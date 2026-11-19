@@ -28,8 +28,9 @@ select instances, replace selected. Decided on 2026-11-19 (questions / answers).
   nothing). Asked on 2026-11-19, once the card showed only the named ones.
 - **Managing**: purge the unused, select the occurrences, rename, delete
   (with all its occurrences), replace the selected occurrences.
-- **One search module** for this card and the navigator: name (case and diacritics ignored),
-  nature, material; the navigator's tree filtered to the matching rows and the rows above them.
+- **One search module** for this card and the navigator, by name (case and diacritics
+  ignored); the navigator's tree filtered to the matching rows and the rows above them. The
+  card's parts and assemblies **in a tab each**, their counts those the search lets through.
 
 ## Alternatives considered
 
@@ -54,6 +55,10 @@ select instances, replace selected. Decided on 2026-11-19 (questions / answers).
 - **Separate searches**, the navigator's a « go to the row » without filtering: two ways to
   look for the same names.
 - **Dimensions as a criterion** (« ep:18 »): needs a syntax; left for the cut list.
+- **Nature toggles and a material menu** in the card (its first version): the toggles did a
+  tab's job with more clicks; a component has no material of its own (its occurrences', several
+  and inherited down the assemblies), so the menu answered a question about placements, not
+  definitions — dropped on 2026-11-19.
 
 ## Consequences
 

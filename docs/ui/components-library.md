@@ -7,8 +7,8 @@ code: [apps/skraft/src/library.rs, apps/skraft/src/search.rs, crates/tools/src/s
 
 The document's parts and assemblies, as definitions: a docked card « Composants » shows them
 (thumbnails or a list), places one more occurrence of one at the cursor, and manages them
-(purge, select their occurrences, rename, delete, replace). A search row, shared with the
-navigator, filters both. After SketchUp's Components window, « In Model ».
+(purge, select their occurrences, rename, delete, replace), the parts and the assemblies in a
+tab each. A search field, shared with the navigator, filters both. After SketchUp's Components window, « In Model ».
 **Why:** a component is a definition shared by its occurrences
 ([Data model](../model/data-model.md#components-parts-and-assemblies)); the navigator shows the
 occurrences, nothing showed the definitions. A definition left without occurrence stays, named
@@ -33,14 +33,24 @@ Decision [0038](../decisions/0038-components-library-card.md).
   boolean's tool) stays until purged, but an empty assembly, which holds nothing
   (`Document::drop_unused_empty_assemblies`, after every operation). The second is hidden
   when empty.
+- **Two tabs**, « Pièces (n) » and « Assemblages (n) », the ribbon's (`ribbon::tab_strip`),
+  their band going on from the card's title bar, of the same colour, without the line that
+  parts a title bar from the other cards' content, then the search row; each tab's
+  count is what it shows (under a search, what the search lets through, so a match in the
+  other tab is seen). The tab shown is the document's (`LibraryState.tab`, never on disk), the
+  parts' at first. Handles `components:parts`, `components:assemblies`. « Aucune pièce »,
+  « Aucun assemblage » in a tab with nothing. **Why:** a part and an assembly are not looked
+  for the same way, and toggles filtering by nature did the same with more clicks (asked on
+  2026-11-19).
 - **Order**: by name, in natural order (« Pièce#2 » before « Pièce#10 », case ignored:
-  `library::natural_cmp`), parts and assemblies together. The rows are made again only when
+  `library::natural_cmp`). The rows are made again only when
   the document changes (its history's revision, `library::LibraryState`, kept in the
   document), and only those in view are laid out.
 - Each row publishes its handle `components:<id>`, the purge button `components:purge`
   ([Control protocol](../control-protocol.md)).
-- **Grid or list**: a toggle at the right of the card's first row (`icons::TILES`,
-  `icons::LIST`; handles `components:grid`, `components:list`). Grid: square tiles of
+- **Grid or list**: at the right of the search row, the option bar's segmented control
+  (`panels::segmented_sized`, at the row's height, the mark sliding to the value chosen;
+  `icons::TILES`, `icons::LIST`; handles `components:grid`, `components:list`). Grid: square tiles of
   thumbnails (`thumbnails::TILE`, 64 pt) wrapped in rows, the name under each (small, elided),
   « ×n » on a pill over the top right corner, the chosen one outlined in the selection's
   colour; laid out whole, only the tiles in view drawn and their thumbnails asked for. List:
@@ -152,44 +162,37 @@ Decision [0038](../decisions/0038-components-library-card.md).
 
 ## Search
 
-- **One module for the « Composants » card and the navigator**: the matcher in `tools`
-  (`skraft_tools::search`: `Filter`, `Matcher`, `fold`, `materials_shown`; no UI, tested), the
-  search widgets in the app (`search::field`, `search::filters`), at the top of both cards'
-  contents, under their header; the list under them takes the height left.
-- **The field**: a magnifier, the hint « Rechercher », a ✕ inside its right end to clear it,
-  Esc in it clears it too. In the navigator, over the whole width, as far from the title bar
-  as the other cards' content (`SEARCH_PAD`); in the « Composants » card, left of the grid /
-  list toggle. Handles `components:search`, `outliner:search`.
-- **The « Composants » card's filters**, on the line under its field: the **nature** toggles
-  (`icons::BOX` parts, `icons::COMPONENT` assemblies) then the **material** menu. Handles
-  `components:parts`, `:assemblies`, `:material`. **The navigator has none: it searches by
-  name only** (natures and material there set aside, asked on 2026-11-19).
+- **One module for the « Composants » card and the navigator**, **by name only**: the matcher
+  in `tools` (`skraft_tools::search`: `Matcher`, `fold`; no UI, tested), the search field in
+  the app (`search::field`), at the top of both cards' contents, under their header (in the
+  card, under its tabs); the list under them takes the height left.
+- **The field**: a magnifier, the hint « Rechercher », a ✕ inside its right end to clear it
+  (drawn on the field's centre line, the buttons' pointer over it, not the text cursor), Esc in
+  it clears it too. The line is the field's height (`search::line_height`), its items
+  `search::GAP` apart (6 pt), the field as far from what is above it (the navigator's title
+  bar line, the card's tabs) and from the list under it. In the navigator, over the whole
+  width; in the
+  « Composants » card, left of the grid / list toggle. Handles `components:search`,
+  `outliner:search`.
 - **Name**: a substring of the name, case and diacritics ignored (« etag » finds
   « Étagère#2 »): both folded to lower case, the diacritics of Latin letters dropped by a table
   (`search::fold`, no Unicode normalisation crate), the ligatures spelt out (« œ » → « oe »),
   automatic names too. In the navigator a row matches by its component's name or its
   occurrence's name (a body's by its definition's or its own).
-- **Nature** (the card): toggles « Pièces », « Assemblages », both lit by default; at least one
-  stays lit.
-- **Material** (the card): a menu of the document's materials after the materials' icon
-  (`icons::MATERIALS`, saying what it filters by), « Toutes » by default, a swatch before each
-  name; greyed while the document has no material (« Aucune matière dans le document »). A
-  component matches by the materials it shows anywhere in the model
-  (`search::materials_shown`: every material reaching it from above — an occurrence's own, else
-  one inherited from an assembly's occurrence —, propagated down the definitions once, and a
-  part's faces').
-- The criteria are and-ed. **What the filter does**: the « Composants » card shows only what
-  matches (the sections kept; « Rien ne correspond » when nothing does), its rows made again
-  when the document or the search changes. The navigator shows the rows that match and the
-  rows above them (`panels::Filtered`, which can take natures and a material too, unused there):
-  those that do not match themselves attenuated; no fold arrows meanwhile — what holds a match
-  is shown open, the rest closed —, the folds left as they are ([Folds](interface.md#folds)),
-  the active path not restricting the rows. Whether a definition holds a match is found once
-  per definition (and material reaching it), kept for
-  the document's revision and the search (`OutlinerState`), so a search costs the
-  definitions, not the placements. Emptied, everything is as before.
-- **The searches are the document's**: kept per card in the document (`LibraryState.filter`,
-  `OutlinerState.filter`, in `docs::Doc`), never on disk.
+- **What the search does**: the « Composants » card shows only what matches, in both tabs
+  (the sections kept; the tabs' counts those it lets through; « Rien ne correspond » in a tab
+  where nothing does), its rows made again when the document or the search changes. The
+  navigator shows the rows that match and the rows above them (`panels::Filtered`): those that
+  do not match themselves attenuated; no fold arrows meanwhile — what holds a match is shown
+  open, the rest closed —, the folds left as they are ([Folds](interface.md#folds)), the
+  active path not restricting the rows. Whether a definition holds a match is found once per
+  definition, kept for the document's revision and the search (`OutlinerState`), so a search
+  costs the definitions, not the placements. Emptied, everything is as before.
+- **No material criterion**: a component has no material of its own — its occurrences carry
+  them, inherited down the assemblies, a part's faces others —, so « what is in oak » is not a
+  question about definitions (asked on 2026-11-19, the card's material menu dropped).
+- **The searches are the document's**: kept per card in the document (`LibraryState.search`,
+  `OutlinerState.search`, in `docs::Doc`), never on disk.
 
 ## Commands and driving
 
