@@ -644,7 +644,7 @@ fn infer_timing() {
         let board = add_box(&mut e, DVec3::ZERO, DVec3::new(2000.0, 1000.0, 18.0));
         let drill = add(&mut e, Primitive::Cylinder { origin: DVec3::new(50.0, 50.0, -5.0), radius: 4.0, height: 30.0 });
         let target = EntityPath::root(board);
-        e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+        e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
             .unwrap();
         let _ = root;
         for i in 0..k {

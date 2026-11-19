@@ -31,6 +31,7 @@ mod prefs;
 mod quick;
 mod ribbon;
 mod separators;
+mod steps;
 mod style;
 mod tabs;
 mod titlebar;

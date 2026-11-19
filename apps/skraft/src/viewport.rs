@@ -679,6 +679,7 @@ fn mark_colors(theme: &Theme, mark: Mark, fade: render::Tint) -> skraft_theme::M
         Mark::Hover => theme.hover,
         Mark::HoverFaded => skraft_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: then_fade(theme.hover.edge, fade) },
         Mark::Picked => theme.picked,
+        Mark::PickedTool => theme.picked_tool,
         Mark::Ghost => theme.ghost,
         // The other copies a change reaches: the picked target's orange, lighter.
         Mark::Related => theme.related,

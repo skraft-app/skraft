@@ -164,8 +164,13 @@ toolbar:
   with_shortcut: "%{label} (%{shortcut})"
   with_hint: "%{tip} · %{hint}"
   copy_hint: "%{copy_key} : copier · flèches : axe"
-  boolean_hint: "cible, puis outil"
+  boolean_hint: "pièces A, puis pièces outils B"
   perspective: "Perspective / parallèle"
+
+# The steps bar and its validation buttons (docs/ui/interface.md#steps-bar).
+steps:
+  cancel: "Annuler (Échap)"
+  validate: "Valider (Entrée)"
 
 # The workspace card and the ribbon (docs/ui/ribbon.md).
 ribbon:
@@ -861,9 +866,29 @@ tool:
       name: "Intersecter"
       verb: "intersecter"
     hint:
-      target: "Cliquer la pièce à modifier (%{verb})"
-      tool: "Cliquer la pièce outil (elle sera consommée) pour %{verb}"
+      # A union's single target (A).
+      target: "Cliquer la pièce A à modifier (%{verb})"
+      targets: "Cliquer la pièce A à modifier (%{verb}) · Maj : sélection multiple"
+      # Shift clicked, or several picked (OpenCutList's multiple selection).
+      targets_gather: "Sélection multiple : cliquer une pièce A pour l'ajouter ou la retirer · Entrée : valider"
+      tools: "Cliquer la pièce outil B pour %{verb} · Maj : sélection multiple"
+      tools_gather: "Sélection multiple : cliquer une pièce outil B pour l'ajouter ou la retirer · Entrée : %{verb}"
+    # The steps bar's sentence of each step (docs/ui/interface.md#steps-bar).
+    step:
+      target: "Choisir la pièce A à modifier"
+      targets: "Choisir les pièces A à modifier"
+      tools: "Choisir les pièces outils B"
+    # Shift let go while gathering.
+    say:
+      validate_a: "Valider (Entrée) pour passer à la sélection de B"
+      validate_b: "Valider (Entrée) pour appliquer l'opération"
     option:
+      keep_targets: "Conserver A"
+      keep_targets_tip: "Conserver les pièces A et placer le résultat dans une nouvelle pièce"
+      keep_tools: "Conserver B"
+      keep_tools_tip: "Conserver les pièces outils B après l'opération"
+      drop_unused: "Supprimer les inutilisées"
+      drop_unused_tip: "Supprimer les pièces outils qui n'ont plus d'exemplaire après l'opération, même nommées"
       scope: "Portée"
       scope_tip: "Ce que l'opération modifie (Tab pour changer)"
       all: "Tous les exemplaires"
@@ -1221,6 +1246,9 @@ error:
     not_exploded: "seul un assemblage s'éclate"
     root_placed: "le modèle ne se place pas"
     self_boolean: "une pièce ne se combine pas avec elle-même"
+    no_operand: "il faut au moins une cible et un outil"
+    union_targets: "une union joint ses outils à une seule cible"
+    nothing_reached: "aucun outil n'atteint une cible"
     no_such_face: "pas de telle face"
     no_bodies: "aucun corps désigné"
     ungroup_negative: "un usinage composé qui épargne de la matière ne se dégroupe pas"

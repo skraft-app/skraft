@@ -177,6 +177,7 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
         "ask_name",
         "draw_in",
         "pick_material",
+        "drop_unused",
     )
 }
 

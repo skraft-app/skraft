@@ -119,7 +119,8 @@ file not opened or not saved, the preferences or the control channel failing, a 
 cannot run, too many documents open, « modele.skraft enregistré » — and the editor's notices
 (`Editor::take_notices`: an operation failed, with the kernel's or the model's words; a display
 failed; a STEP file imported, empty, failed, cancelled; an operation abandoned) stack at the
-bottom center, above the status bar, which keeps the tools' hints.
+bottom center, above the status bar — and above the [steps bar](#steps-bar) when it shows —,
+the status bar keeping the tools' hints.
 
 - Four levels: info (neutral), success (green), warning (amber, an operation's
   `Outcome::warning`, the warning sign at its left), error (red), each a border of its colour on
@@ -137,6 +138,27 @@ bottom center, above the status bar, which keeps the tools' hints.
 - The same message again counts (×2); six at most, the oldest timed one dropped first.
   `app.state` lists them (`toasts`); handles `toast.<i>` and `toast.<i>.action`. An editor
   nobody takes notices from (headless) keeps its last 32.
+
+## Steps bar
+
+`steps.rs`, after OpenCutList's `SmartTool#set_steps_bar` and `#show_validation`: what the
+active tool tells — any tool, through two methods of `Tool` (none by default) —, the steps at
+the bottom centre of the view, under the toasts, the validation at the top centre, under the
+tool's options:
+
+- **`Tool::steps`** (`Steps { count, index, text }`): the steps' numbers, linked, the current one
+  filled, those passed in the text's colour, the next ones dimmed; below, the step's main
+  sentence framed (the status bar keeps the hint with its keys). `count` 0: the sentence alone.
+  The block stays at the view's centre, whatever the side panels' widths; the sentence keeps to
+  its own lines (`\n`), measured, unless wider than the room about the centre that neither panel
+  covers (twice the distance to the nearer one): then wrapped to it.
+- **`Tool::awaits_validation`**: two buttons, ✗ red and ✓ green (OCL's motifs; the colours of
+  the error and success toasts, swapped under the pointer), which give the tool **Esc** and
+  **Enter** (`Action::ToolKey`, through `Editor::input`: the journal and the recordings see the
+  key). Hidden while the kernel computes (`Editor::tool_awaits_validation`).
+- Shown by the solid tools ([Solid tools](../tools/solid-tools.md)): A then B; the validation
+  while a set gathers. `tool.state` gives both (`steps`, `awaits_validation`); handles
+  `validation:cancel`, `validation:ok`.
 
 ## Icons
 
@@ -232,7 +254,7 @@ test changes an option like a click does.
   preferences (`tool_options`), read by the tool from its `Cx`; and the **gesture's state**
   (copy, for Move and Rotate), which the tool holds itself and which is not remembered.
 - The options are each tool's (its page lists them): the booleans' scope (all occurrences /
-  this one), copy (Move, Rotate), the axes (Stretch, the copy tools), the shapes' offset and
+  this one) and what they keep ([Solid tools](../tools/solid-tools.md)), copy (Move, Rotate), the axes (Stretch, the copy tools), the shapes' offset and
   fillet, among others.
 
 ### Option icons

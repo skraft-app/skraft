@@ -204,8 +204,10 @@ pub struct Preview {
     pub hover_solid: Option<EntityPath>,
     /// The guide at any depth under the cursor (« Parts », docs/tools/selection.md).
     pub hover_guide: Option<GuidePath>,
-    /// A solid already picked (the boolean tool's target).
-    pub picked_solid: Option<EntityPath>,
+    /// The solids picked (the solid tools' targets, A).
+    pub picked_solids: Vec<EntityPath>,
+    /// The solids picked as tools (the solid tools' B), drawn lighter.
+    pub picked_tools: Vec<EntityPath>,
     /// The selection drawn moved by this world transform (the move tool's ghost).
     pub ghost: Option<DAffine3>,
     /// The selection drawn copied at each of these world transforms, the original staying (the
@@ -331,6 +333,17 @@ pub struct OptionChoice {
     pub tip: String,
     /// The name of its icon, which the app draws instead of the label (then in the tip).
     pub icon: Option<&'static str>,
+}
+
+/// The steps a tool goes through, as the steps bar at the bottom of the view shows them
+/// (docs/ui/interface.md#steps-bar, OpenCutList's `SmartTool#set_steps_bar`): `count` numbers,
+/// the one at `index` (from 0) the current, then what to do at it; no number when `count` is 0.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Steps {
+    pub count: usize,
+    pub index: usize,
+    /// The step's main sentence, without the keys (the status bar keeps them).
+    pub text: String,
 }
 
 /// An option of the active tool, as the bar shows it.
@@ -1214,6 +1227,15 @@ pub trait Tool {
     /// Has its last step back dropped what it acts on (the copy tools' target)? Esc then lets
     /// the selection go too, the tool picking again (docs/tools/selection.md).
     fn dropped(&self) -> bool {
+        false
+    }
+    /// Its steps, for the steps bar (none: no bar).
+    fn steps(&self) -> Option<Steps> {
+        None
+    }
+    /// Does it wait for a validation now (Enter goes on, Esc steps back)? The validation
+    /// buttons then show (docs/ui/interface.md#steps-bar, OpenCutList's `show_validation`).
+    fn awaits_validation(&self) -> bool {
         false
     }
     /// One step back (Esc while busy); by default, back to the first.

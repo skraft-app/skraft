@@ -1969,7 +1969,7 @@ fn an_open_part_shows_its_blank_as_a_ghost_and_its_tools() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
         .unwrap();
     let (part, p, _) = e.document().resolve_part(&target).unwrap();
     let hole = p.machinings()[0].id;
@@ -2051,7 +2051,7 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
         .unwrap();
     let machinings = |e: &Editor, o: Id| e.document().resolve_part(&EntityPath::root(o)).unwrap().1.machinings().clone();
     let hole = machinings(&e, board)[0].id;
@@ -2145,7 +2145,7 @@ fn a_machining_moved_stays_drawn_where_it_goes_while_the_kernel_computes() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
         .unwrap();
     let (mut e, k) = deferred_editor(e.document().clone());
     let settle = |e: &mut Editor| {
@@ -2203,12 +2203,7 @@ fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
         .unwrap()
         .unwrap()
         .created[0];
-    e.apply(Operation::Boolean {
-        target: EntityPath::root(board),
-        tool: EntityPath::root(drill),
-        op: Boolean::Difference,
-        scope: Scope::All,
-    })
+    e.apply(Operation::boolean(EntityPath::root(board), EntityPath::root(drill), Boolean::Difference, Scope::All))
     .unwrap();
     let hover = |e: &mut Editor, p: DVec3| {
         let at = px(e, p);
@@ -2267,7 +2262,7 @@ fn exact_sizes_of_tools_and_blanks() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(rod);
-    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
         .unwrap();
     let (_, p, _) = e.document().resolve_part(&target).unwrap();
     let (blank, tool) = (p.blank().clone(), p.solid_of(&p.machinings()[0]).clone());
@@ -2552,7 +2547,7 @@ fn the_tape_draws_a_tangent_from_the_end_of_an_arc_and_marks_its_reference() {
     let board = add(&mut e, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(300.0, 200.0, 50.0) });
     let drill = add(&mut e, Primitive::Cylinder { origin: DVec3::new(300.0, 200.0, -10.0), radius: 100.0, height: 70.0 });
     let target = EntityPath::root(board);
-    e.apply(Operation::Boolean { target, tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All }).unwrap();
+    e.apply(Operation::boolean(target, EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     e.select(vec![]);
     let guides = |e: &Editor| e.document().component(root).unwrap().guides.iter().map(|g| g.shape).collect::<Vec<_>>();
     // The arc referred to, as drawn: its own points, bolder, and no guide in its stead.
@@ -2923,7 +2918,7 @@ fn drilled_board_editor(xs: &[f64]) -> (Editor, Id) {
             .unwrap();
         let tool = EntityPath::root(out.created[0]);
         d = next
-            .apply(&Operation::Boolean { target: EntityPath::root(a), tool, op: Boolean::Difference, scope: skraft_model::Scope::All })
+            .apply(&Operation::boolean(EntityPath::root(a), tool, Boolean::Difference, skraft_model::Scope::All))
             .unwrap()
             .0;
     }
@@ -3799,12 +3794,7 @@ fn erase_tool_erases_the_open_part_s_machinings() {
         .unwrap()
         .unwrap()
         .created[0];
-    e.apply(Operation::Boolean {
-        target: EntityPath::root(board),
-        tool: EntityPath::root(drill),
-        op: Boolean::Difference,
-        scope: Scope::All,
-    })
+    e.apply(Operation::boolean(EntityPath::root(board), EntityPath::root(drill), Boolean::Difference, Scope::All))
     .unwrap();
     let machinings = |e: &Editor| e.document().resolve_part(&EntityPath::root(board)).unwrap().1.machinings().len();
     assert_eq!(machinings(&e), 1);
@@ -4761,12 +4751,7 @@ fn machinings_paste_into_an_open_part() {
         .unwrap()
         .unwrap();
     let tool = hole.created[0];
-    e.apply(Operation::Boolean {
-        target: EntityPath::root(a),
-        tool: EntityPath::root(tool),
-        op: Boolean::Difference,
-        scope: Default::default(),
-    })
+    e.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(tool), Boolean::Difference, Default::default()))
     .unwrap();
 
     // Copied in the open part, its machinings shown.
@@ -4837,12 +4822,7 @@ fn a_part_pasted_into_an_open_part_becomes_a_group_of_its_bodies() {
         .apply(Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY, material: None })
         .unwrap()
         .unwrap();
-    e.apply(Operation::Boolean {
-        target: EntityPath::root(a),
-        tool: EntityPath::root(tool.created[0]),
-        op: Boolean::Difference,
-        scope: Default::default(),
-    })
+    e.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(tool.created[0]), Boolean::Difference, Default::default()))
     .unwrap();
     e.take_notices();
 
@@ -5358,7 +5338,7 @@ fn copy_along_a_line_takes_the_bodies_of_the_open_part() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::All })
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
         .unwrap();
     let hole = e.document().resolve_part(&target).unwrap().1.machinings()[0].id;
     e.enter(board);
@@ -6863,4 +6843,95 @@ fn the_copy_tools_draw_dotted_boxes_but_around_a_box() {
     e.set_tool(ToolKind::CopyLine);
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(600.0, 350.0, 0.0)) });
     assert_eq!(e.view().drawing.boxes.len(), 2, "a cylinder and a box: their box");
+}
+
+/// The solid tools gather several targets and tools, as OpenCutList's (docs/tools/solid-tools.md).
+#[test]
+fn solid_tools_gather_targets_and_tools_with_shift() {
+    let mut e = top_editor(Document::new());
+    let left = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 200.0, 0.0), "50");
+    let right = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(500.0, 200.0, 0.0), "50");
+    let root = e.document().root();
+    let drill = |e: &mut Editor, x: f64| {
+        let op = Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(x, 100.0, -10.0), radius: 10.0, height: 80.0 },
+            placement: glam::DAffine3::IDENTITY,
+            material: None,
+        };
+        e.apply(op).unwrap().unwrap().created[0]
+    };
+    let (d1, d2) = (drill(&mut e, 100.0), drill(&mut e, 400.0));
+    let shift = Modifiers { toggle: true, ..Modifiers::default() };
+    let shift_click = |e: &mut Editor, p: DVec3| {
+        let at = px(e, p);
+        e.input(ToolInput::Hover { px: at });
+        e.input(ToolInput::Click { px: at, mods: shift });
+    };
+    let marks = |e: &Editor, m: Mark| e.view().highlights.iter().filter(|h| h.mark == m).count();
+    let enter = |e: &mut Editor| e.input(ToolInput::Key { key: Key::Enter, mods: Modifiers::default() });
+
+    e.set_tool(ToolKind::Boolean(Boolean::Difference));
+    // « Conserver B » is shared by the three tools.
+    e.set_tool_option("keep_tools", OptionValue::Toggle(true));
+    e.set_tool(ToolKind::Boolean(Boolean::Union));
+    assert!(e.tool_options().iter().any(|o| o.key == "keep_tools" && o.value == OptionValue::Toggle(true)));
+    e.set_tool_option("keep_tools", OptionValue::Toggle(false));
+
+    e.set_tool(ToolKind::Boolean(Boolean::Difference));
+    shift_click(&mut e, DVec3::new(20.0, 20.0, 50.0));
+    // A plain click now adds to the set gathering, Enter goes on.
+    click(&mut e, DVec3::new(320.0, 20.0, 50.0));
+    assert_eq!(marks(&e, Mark::Picked), 2, "{}", e.status());
+    assert!(e.status().starts_with("Sélection multiple"), "{}", e.status());
+    enter(&mut e);
+    shift_click(&mut e, DVec3::new(100.0, 100.0, 70.0));
+    // A target is not a tool.
+    click(&mut e, DVec3::new(20.0, 20.0, 50.0));
+    assert_eq!(marks(&e, Mark::PickedTool), 1);
+    click(&mut e, DVec3::new(400.0, 100.0, 70.0));
+    assert_eq!(marks(&e, Mark::PickedTool), 2);
+    // Esc lets the tools go, then the targets.
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!((marks(&e, Mark::Picked), marks(&e, Mark::PickedTool)), (2, 0));
+    shift_click(&mut e, DVec3::new(100.0, 100.0, 70.0));
+    click(&mut e, DVec3::new(400.0, 100.0, 70.0));
+    enter(&mut e);
+    let doc = e.document();
+    assert!(doc.root_assembly().occurrence(d1).is_none() && doc.root_assembly().occurrence(d2).is_none(), "{}", e.status());
+    for o in [left, right] {
+        assert_eq!(doc.resolve_part(&EntityPath::root(o)).unwrap().1.machinings().len(), 1);
+    }
+    assert_eq!(marks(&e, Mark::Picked), 0, "back to the targets");
+
+    // A union takes one target: a click goes on to the tools.
+    e.set_tool(ToolKind::Boolean(Boolean::Union));
+    shift_click(&mut e, DVec3::new(20.0, 20.0, 50.0));
+    assert!(e.status().contains("pièce outil B"), "{}", e.status());
+}
+
+/// The solid tools' steps bar, and their validation while a set gathers (docs/ui/interface.md#steps-bar).
+#[test]
+fn solid_tools_tell_their_step_and_wait_for_validation() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 200.0, 0.0), "50");
+    draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(500.0, 200.0, 0.0), "50");
+    let shift = Modifiers { toggle: true, ..Modifiers::default() };
+    e.set_tool(ToolKind::Boolean(Boolean::Difference));
+    let step = |e: &Editor| e.tool_steps().map(|s| (s.count, s.index));
+    assert_eq!(step(&e), Some((2, 0)));
+    assert!(!e.tool_awaits_validation());
+    let at = px(&e, DVec3::new(20.0, 20.0, 50.0));
+    e.input(ToolInput::Hover { px: at });
+    e.input(ToolInput::Click { px: at, mods: shift });
+    assert!(e.tool_awaits_validation(), "a Shift click: the set waits");
+    // ✓ is Enter: on to the tools.
+    e.input(ToolInput::Key { key: Key::Enter, mods: Modifiers::default() });
+    assert_eq!(step(&e), Some((2, 1)));
+    assert!(!e.tool_awaits_validation(), "no tool yet");
+    // ✗ is Esc: back to A.
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!(step(&e), Some((2, 0)));
+    e.set_tool(ToolKind::Move);
+    assert_eq!(e.tool_steps(), None);
 }

@@ -28,7 +28,8 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
 - **Erase and Paint keep the click that acts** (eraser, bucket): Erase lets the selection go
   when it starts (it never erases it; Delete does), then erases what it clicks; Paint still
   paints the whole selection when the click is in it.
-- **Booleans ignore the selection**: always the two clicks (target, then tool part).
+- **Booleans ignore the selection**: they pick their targets, then their tools
+  ([Solid tools](solid-tools.md)).
 - Not concerned: the shape tools, Measure, Section, Profile.
 
 ### The picking module

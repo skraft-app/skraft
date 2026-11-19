@@ -121,7 +121,8 @@ a name, not a pixel: `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<
 `option:<key>` (a toggle or a length field), `option:<key>:<value>` (a choice's segment;
 `part_scope`, `body_sign`, `machinings`, `profile`), `tab:<i>`, `tab_close:<i>`, `tab_new`,
 `quick:<command>`, `quick:more`, `view_bar:<handle>`, `tree:<k>` (the tree drop-up's rows),
-`naming.field`, `naming.ok`, `naming.cancel`, `toast.<i>`, `toast.<i>.action`, `vcb`,
+`naming.field`, `naming.ok`, `naming.cancel`, `toast.<i>`, `toast.<i>.action`,
+`validation:cancel`, `validation:ok` (the steps bar's buttons), `vcb`,
 `viewport`. `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
 whole window (egui's `request_screenshot`), PNG. `ui.messages` (`clear`): the status bar's
 texts as they changed, the last 200, with their time.

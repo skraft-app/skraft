@@ -72,6 +72,8 @@ pub struct SkraftApp {
     /// The ribbon's bottom this frame (`None`: no document shown): the command palette opens
     /// below it.
     ribbon_bottom: Option<f32>,
+    /// The top of the steps bar and the validation this frame, if shown: the toasts stand above.
+    steps_top: Option<f32>,
     theme: Theme,
     /// The palette egui's styles were installed for (`None`: not yet).
     styled: Option<UiPalette>,
@@ -312,6 +314,7 @@ impl SkraftApp {
             capturing: None,
             palette: None,
             ribbon_bottom: None,
+            steps_top: None,
             theme: Theme::light(),
             styled: None,
             taps: Default::default(),
@@ -1075,6 +1078,7 @@ impl SkraftApp {
             Action::Apply(op) => {
                 let _ = e.apply(op);
             }
+            Action::ToolKey(key) => e.input(skraft_tools::ToolInput::Key { key, mods: Default::default() }),
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
             Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),
@@ -2488,6 +2492,7 @@ impl eframe::App for SkraftApp {
             None => ctx.content_rect().bottom(),
         };
         self.ribbon_bottom = None;
+        self.steps_top = None;
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);
         } else {
@@ -2507,7 +2512,7 @@ impl eframe::App for SkraftApp {
             }
             Act::Reveal(_) => true,
         });
-        for act in self.toasts.show(&ctx, status_top) {
+        for act in self.toasts.show(&ctx, self.steps_top.unwrap_or(status_top)) {
             match act {
                 #[cfg(not(target_arch = "wasm32"))]
                 Act::Reveal(path) => reveal(&path),
@@ -2717,6 +2722,13 @@ impl SkraftApp {
         if let Some(tree) = doc.editor.tree() {
             let at = view.min + egui::vec2(tree.at.x as f32, tree.at.y as f32);
             crate::tree::drop_up(ctx, view, at, tree, actions);
+        }
+        // The steps bar at the bottom centre of the view, the validation at the top under the
+        // tool's options (docs/ui/interface.md#steps-bar).
+        let steps = doc.editor.tool_steps();
+        self.steps_top = crate::steps::bar(ctx, view.center().x, (free_left, free_right), view.bottom(), steps.as_ref());
+        if doc.editor.tool_awaits_validation() {
+            crate::steps::validation(ctx, view.center().x, free_top, actions);
         }
         // The quick tools' card, at the centre of what was just made (docs/tools/quick-tools.md).
         if let Some(at) = doc.editor.quick_card() {

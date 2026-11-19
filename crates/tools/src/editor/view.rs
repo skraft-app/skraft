@@ -17,8 +17,10 @@ pub enum Mark {
     Hover,
     /// Hovered (in the outliner) outside the context being edited: hovered, still faded.
     HoverFaded,
-    /// Picked by a tool (the boolean's target).
+    /// Picked by a tool (the solid tools' targets).
     Picked,
+    /// Picked by a solid tool as a tool (its B), lighter.
+    PickedTool,
     /// The selection where the move tool would put it.
     Ghost,
     /// Another occurrence of the part a change is aimed at: it changes too (docs/model/data-model.md).
@@ -705,10 +707,9 @@ impl Editor {
         for p in preview.marquee.iter().flat_map(|m| &m.paths).filter(|p| !self.deep.contains(p)) {
             mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
         }
-        for (path, m) in [(&preview.hover_solid, Mark::Hover), (&preview.picked_solid, Mark::Picked)] {
-            if let Some(p) = path {
-                mark(&mut v.highlights, &p.instances, p.entity, m, DAffine3::IDENTITY);
-            }
+        let picked = preview.picked_solids.iter().map(|p| (p, Mark::Picked)).chain(preview.picked_tools.iter().map(|p| (p, Mark::PickedTool)));
+        for (p, m) in preview.hover_solid.iter().map(|p| (p, Mark::Hover)).chain(picked) {
+            mark(&mut v.highlights, &p.instances, p.entity, m, DAffine3::IDENTITY);
         }
         // The other occurrences a change reaches, the one aimed at excepted: those of the open
         // part (docs/model/opening-a-part.md), else of the part a tool aims at.
