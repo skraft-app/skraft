@@ -32,10 +32,11 @@ user-visible string. Not yet: `fr.yml` is the only locale.
   filled. Any key can be referred to; a term is taken as is (no change of case), so one used
   inside a sentence is written in the sentence. Each locale chooses its own references.
 - **Tool names** (`tool.<tool>.name`, also the commands' and ribbon buttons' labels): a verb in
-  the infinitive whenever the tool is an action — « Sélectionner », « Effacer », « Dessiner une
-  boîte », « Tourner », « Copier en ligne », « Unir », « Mesurer » — a
-  noun only where no verb fits without ambiguity (« Plan de coupe »: « Couper » is the clipboard's
-  Cut; « Profil »).
+  the infinitive whenever the tool is an action — « Sélectionner », « Effacer », « Copier en
+  ligne », « Unir », « Mesurer » — a noun only where no verb fits without ambiguity (« Plan de
+  coupe »: « Couper » is the clipboard's Cut; « Profil »). The drawing tools are named by what
+  they make — « Boîte », « Cylindre », « Prisme », « Tournage » — their ribbon group,
+  « Dessiner », giving the verb.
 - **Values** are named, `%{name}`, and few: a sentence is one key, but a label built from
   parts stays built by the code ("Edge × red axis" is `infer.edge`, "×", `infer.line.axis`).
 - **No ellipsis** (…) in a catalog: the code adds it (`skraft_i18n::ellipsis`), the same

@@ -31,7 +31,8 @@ kernel in a web worker), `apps/import` (a SketchUp export, `scripts/sketchup/exp
 - **Docs and code comments in English.** User-facing texts only in the catalog,
   `locales/fr.yml` (the reference) — never literal strings in the code. No `…` in the catalog:
   the code appends it.
-- **Action tools are named by an infinitive verb** (« Dessiner une boîte », « Copier en ligne »).
+- **Action tools are named by an infinitive verb** (« Copier en ligne », « Unir »); the drawing
+  tools by what they make (« Boîte », « Prisme »), their « Dessiner » group giving the verb.
 - **A tool ported from OpenCutList copies its interaction** (states, picking, previews, keys),
   not only its algorithm.
 - **Performance is part of the design**: measure (bench, timing tests) and optimise where it

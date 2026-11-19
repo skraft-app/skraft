@@ -6,7 +6,7 @@ code: [crates/model/src/profile.rs, crates/kernel/src/engine.rs, crates/kernel/s
 # Turned bodies (revolution)
 
 A turned leg, a dowel, a knob, a ring: a body made by turning a half profile a whole turn about
-an axis. It is drawn by the « Tourner » tool, edited by the Profile tool as an extrusion's
+an axis. It is drawn by the « Tournage » tool, edited by the Profile tool as an extrusion's
 outline is, and stretched along its axis only. SolidCore turns a planar profile of lines and arcs
 (`solidcore_ops::sweep::revolve`); the kernel also reads surfaces of revolution
 (`Surface::PlacedRevolution`, STEP import; non-rigid for the stretch).
@@ -33,7 +33,7 @@ Decision record: [A turned body is a half profile turned about the body's Z](../
 
 ## The Turn tool
 
-« Tourner » (`tool.turn`, `ToolKind::Turn`, L, icon `turn`, ribbon group Draw after the prism):
+« Tournage » (`tool.turn`, `ToolKind::Turn`, L, icon `turn`, ribbon group Draw after the prism):
 a separate tool for the user, the Prism's code in a turning mode (`PrismTool::turning`).
 
 - **The axis** first, two points, inferred as a line's (a typed length for the second); only its

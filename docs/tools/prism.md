@@ -5,7 +5,7 @@ code: [crates/tools/src/tools/shapes/prism.rs, crates/tools/src/tools/profile.rs
 
 # Prism tool and profiled blanks
 
-The Prism tool « Dessiner un prisme » draws a closed outline of lines and arcs and pulls it into a
+The « Prisme » tool draws a closed outline of lines and arcs and pulls it into a
 prism, after OpenCutList's `SmartDrawPolygonActionHandler` (`tool/smart_draw_tool.rb`). The
 outline is kept as the profile of the body it makes, and edited later in the open part by the
 Profile tool, which keeps the outline's shape (directions, fillets, tangencies) without a
@@ -50,7 +50,7 @@ it for the previews.
 
 ## The Prism tool
 
-« Dessiner un prisme » (`tool.prism`, P, ribbon group Draw after the cylinder: what it makes is
+« Prisme » (`tool.prism`, P, ribbon group Draw after the cylinder: what it makes is
 a prism, the polygon only its outline). Its states are OCL's: the first point, the points, the
 height.
 
