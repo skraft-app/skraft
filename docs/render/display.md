@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/scene.rs, crates/tools/src/bvh.rs, crates/tools/src/editor/view.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/fast_hash.rs, apps/skraft/src/viewport.rs]
+code: [crates/tools/src/scene.rs, crates/tools/src/bvh.rs, crates/tools/src/editor/view.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/fast_hash.rs, apps/skraft/src/viewport.rs, apps/skraft/src/lib.rs]
 ---
 
 # Display
@@ -137,6 +137,16 @@ Not yet: reaching the other solid of a tie (cycling, a list under the cursor).
 - `render` draws into **its own off-screen target** (MSAA ×4 colour + depth, resolved into a
   texture): the app shows it as an egui image. Rendering is thus independent of egui and
   testable without a window.
+
+## Web
+
+On the web, **WebGPU only**: wgpu is built without its WebGL backend (eframe's
+`wgpu_no_default_features`, egui-wgpu without its default `wgpu/webgl`), and a browser without
+`navigator.gpu` gets a message in place of the app (`apps/skraft/src/lib.rs`, `start`), as does
+a start that fails (no adapter).
+**Why:** the shader reads its palette and texture entries from storage buffers, which WebGL2
+does not have, so the app could not draw there anyway; the backend only weighed on the UI's
+wasm (naga's WGSL → GLSL translation, wgpu-core, the GLES hal: ~1.7 MB of code).
 
 ## Precision
 

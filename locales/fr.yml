@@ -1431,6 +1431,10 @@ error:
     face_across: "une face qui n'est ni plane ni cylindrique dans le sens de l'étirement traverse une coupe"
     unsupported: "une face traversant une coupe a une forme que l'étirement ne sait pas modifier"
     collapsed: "compression trop forte : la matière disparaîtrait"
+  # The web version cannot run (docs/render/display.md#web): shown in place of the app.
+  web:
+    webgpu: "Skraft a besoin de WebGPU, que ce navigateur n'offre pas ou a désactivé. Ouvrez-le dans un navigateur récent qui le prend en charge."
+    start: "Skraft ne démarre pas : %{error}"
   # The web worker the kernel runs in (browser).
   worker:
     send: "envoi : %{error}"

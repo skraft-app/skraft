@@ -121,10 +121,45 @@ pub fn start() {
             .and_then(|d| d.get_element_by_id("skraft"))
             .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
             .expect("no <canvas id=\"skraft\">");
+        // WebGPU only, no WebGL (docs/render/display.md#web): without it, a message in place
+        // of the app. The preferences are not read yet: the texts in the system's language.
+        if !has_webgpu() {
+            log::error!("Skraft needs WebGPU: navigator.gpu is missing");
+            language::apply(None);
+            show_failure(&canvas, &skraft_i18n::t!("error.web.webgpu"));
+            return;
+        }
         let options = eframe::WebOptions { wgpu_options: wgpu_options(), ..Default::default() };
-        let result = eframe::WebRunner::new().start(canvas, options, Box::new(|cc| Ok(Box::new(SkraftApp::new(cc))))).await;
+        let result = eframe::WebRunner::new().start(canvas.clone(), options, Box::new(|cc| Ok(Box::new(SkraftApp::new(cc))))).await;
         if let Err(e) = result {
             log::error!("Skraft failed to start: {e:?}");
+            language::apply(None);
+            show_failure(&canvas, &skraft_i18n::t!("error.web.start", error = format!("{e:?}")));
         }
     });
+}
+
+/// Whether the browser offers WebGPU (`navigator.gpu`). It may still give no adapter: the start
+/// then fails, and says so.
+#[cfg(target_arch = "wasm32")]
+fn has_webgpu() -> bool {
+    let Some(window) = web_sys::window() else { return false };
+    js_sys::Reflect::get(&window, &"navigator".into())
+        .and_then(|navigator| js_sys::Reflect::get(&navigator, &"gpu".into()))
+        .is_ok_and(|gpu| !gpu.is_undefined() && !gpu.is_null())
+}
+
+/// `text` in place of the app's canvas, centred on the page.
+#[cfg(target_arch = "wasm32")]
+fn show_failure(canvas: &web_sys::HtmlCanvasElement, text: &str) {
+    let (Some(document), Some(parent)) = (canvas.owner_document(), canvas.parent_node()) else { return };
+    let Ok(message) = document.create_element("div") else { return };
+    message.set_text_content(Some(text));
+    let _ = message.set_attribute(
+        "style",
+        "position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; \
+         padding: 24px; box-sizing: border-box; text-align: center; \
+         font: 16px/1.5 system-ui, sans-serif; color: #2b2f33;",
+    );
+    let _ = parent.replace_child(&message, canvas);
 }
