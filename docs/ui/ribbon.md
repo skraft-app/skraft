@@ -5,7 +5,7 @@ code: [apps/skraft/src/ribbon.rs, apps/skraft/src/icons.rs, apps/skraft/src/pref
 
 # Workspaces and ribbon
 
-The workspace switcher and the ribbon: the tools and commands of the app, grouped by tab and
+The ribbon and its workspace switcher: the tools and commands of the app, grouped by tab and
 group, across the top of the view. The ribbon follows the workspace / tabbed-toolbar pattern of
 CAD tools (CATIA and FreeCAD workbenches, SolidWorks' CommandManager, Fusion), after
 SolidCraft's ribbon (`ui-kit/src/ribbon.rs`, `ui-egui/src/toolbar_custom.rs`). The pattern is
@@ -16,18 +16,28 @@ Decision record: [A ribbon with workspaces](../decisions/0015-ribbon-with-worksp
 
 ## Layout
 
-Two floating cards across the top of the view, under the title bar: the **workspace card** at
-the left (the workspace's icon and name, ▾ opens the list of workspaces;
-`ribbon::WORKSPACE_WIDTH` 92 pt) and the **ribbon card** (a row of tabs over a row of groups; the
-tabs drawn as the title bar's file tabs: centered on a band in the headers' fill, the shown one
-opening onto the groups), as wide as its content and centered on the view; it never covers the
-workspace card nor passes the right margin, so a narrow window narrows it (then
-[Narrow window](#narrow-window) decides what gives way). The view is never resized
-([Application interface](interface.md)); the dock's columns start under the ribbon; the **tool
-option bar** is a small card of its own under the ribbon, the context card left of it
-([Context card](interface.md#context-card)); zoom extents frames what is
-left below it. The render statistics card sits in the top right corner of the area the cards
-leave free (`Editor::free_area`), under the ribbon.
+One floating card across the top of the view, under the title bar: at its left end the
+**workspace cell**, over the card's whole height (the workspace's icon and name, ▾ opens the
+list of workspaces; `WORKSPACE_WIDTH` 92 pt), parted from the rest by a line across the card;
+then a row of tabs over a row of groups (the tabs drawn as the title bar's file tabs: centered on
+a band in the headers' fill, the band starting from the workspace cell's line, the shown tab
+opening onto the groups). The card is as wide as its content and centered on the view, within
+its span:
+
+- **between the docked cards' columns** when it fits there whole (its natural width,
+  `ribbon::natural_width`): the columns then take the view's whole height;
+- **else above them**, over the view's width less its margins, the columns starting under it; a
+  window narrower than the ribbon narrows it ([Narrow window](#narrow-window) decides what gives
+  way).
+
+The choice depends on the widths only (the window's, the columns' shown), not on earlier frames:
+no flicker; a column's edge dragged may move it from one to the other. The view is never resized
+([Application interface](interface.md)); the **tool option bar** is a small card of its own
+under the ribbon, the context card left of it ([Context card](interface.md#context-card)); zoom
+extents frames what is left below it. The render statistics card sits in the top right corner of
+the area the cards leave free (`Editor::free_area`), under the ribbon.
+**Why:** a workspace card of its own left of the ribbon made the top row wider than the space
+between the columns, which had to start under it.
 
 ## Workspaces
 
@@ -76,10 +86,11 @@ ignored).
 
 ## Labels
 
-A button shows its icon (24 pt) over a short label (two lines at most; buttons 62 pt high, 50 to
-74 pt wide); the preference *Ribbon labels* (« Libellés du ruban », Interface tab) turns them
-off for a compact ribbon (34 × 34 pt buttons), the name then in the tip. A group's label is
-under its buttons in both cases.
+By default a button shows its icon alone (34 × 34 pt), its name in the tip: the compact ribbon
+fits between the columns on a laptop's screen. The preference *Ribbon labels* (« Libellés du
+ruban », Interface tab, and the ribbon's right-click menu) puts a short label under each icon
+(24 pt; two lines at most; buttons 62 pt high, 50 to 74 pt wide). A group's label is under its
+buttons in both cases.
 
 ## Narrow window
 
@@ -101,7 +112,9 @@ the Matière picker, combo boxes (`icons::combo_chevron`).
 ## Code and texts
 
 - `apps/skraft/src/ribbon.rs` (description, `Prefs`, `fit`, drawing, tests); `ribbon::tab_strip`
-  also draws the Preferences' and the journal window's tabs.
+  also draws the Preferences', the journal window's and the « Composants » card's tabs, its
+  band's top corners following the card's or not (`Corners`); `App::document_ui` places the
+  card (`App::columns` gives the columns' span).
 - Texts: `ribbon.*` keys of the catalog (workspaces, tabs, groups, menus' notes), without
   ellipsis ([Texts and languages](texts.md)).
 - File tabs in the title bar (several documents open, as SolidCraft):

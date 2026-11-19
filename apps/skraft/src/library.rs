@@ -13,6 +13,7 @@ use skraft_tools::search::Matcher;
 use crate::icons;
 use crate::thumbnails::Thumbnails;
 use crate::panels::{Action, rename_field, tree_row, weak_share};
+use crate::ribbon::Corners;
 
 /// What the card keeps of a document between frames, in the document itself (never on disk):
 /// its search, its tab, its rows — made again when the document (its history's revision) or
@@ -215,7 +216,7 @@ pub fn components(ui: &mut egui::Ui, editor: &Editor, state: &mut LibraryState, 
         Tab::Assemblies => 1,
     };
     let handles = ["components:parts", "components:assemblies"];
-    match crate::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, false, &handles) {
+    match crate::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &handles) {
         Some(0) => state.tab = Tab::Parts,
         Some(_) => state.tab = Tab::Assemblies,
         None => {}

@@ -14,13 +14,15 @@ tabs have pages of their own.
 
 - Title bar at the top ([Title bar and native menus](title-bar.md)), status bar at the bottom
   with the measurements box (VCB) on the right; in between, the **3D view takes the whole
-  width** and the panels **float over it** (anchored cards): **the workspace card and the
-  ribbon across the top** ([Workspaces and ribbon](ribbon.md)), the context card and the tool
-  option bar under the ribbon ([Context card](#context-card)), the view bar along the left or
-  right edge ([View bar](view-bar.md));
+  width** and the panels **float over it** (anchored cards): **the ribbon at the top**, the
+  workspace switcher at its left end, between the docked columns or above them when it does not
+  fit there ([Workspaces and ribbon](ribbon.md#layout)), the context card and the tool option bar
+  under the ribbon ([Context card](#context-card)), the view bar along the left or right edge,
+  centered on the view's height ([View bar](view-bar.md));
   **Entity info**, **Materials**, **Outliner** and **Components**
   ([Components library](components-library.md), closed at first) are four cards docked in two columns, one
-  per edge of the view (`dock.rs`), under the ribbon. A card's header (a title bar in the
+  per edge of the view (`dock.rs`), over the view's whole height — under the ribbon when it is
+  above them. A card's header (a title bar in the
   headers' fill, a line under it, its title semibold, its chevron at the right end) folds it
   (click) or moves it (drag: it follows the pointer and drops into the column of the nearer
   edge, where a bar shows the insertion point); the commands `view.entity_info`,

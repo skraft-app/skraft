@@ -1455,7 +1455,7 @@ impl SkraftApp {
                 let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
                 // The window as wide as its tabs at least (it takes its content's width).
                 let width = ui.available_width().max(crate::ribbon::tab_strip_width(ui.painter(), &labels));
-                if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, false, &[]) {
+                if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, crate::ribbon::Corners::Square, &[]) {
                     tab = tabs[k].0;
                 }
                 ui.add_space(4.0);
@@ -1657,27 +1657,41 @@ impl SkraftApp {
         started && self.prefs.panels.reveal(PanelId::Materials)
     }
 
+    /// The docked cards' columns: each one's left edge and width (left, right), the view's span
+    /// the shown ones leave free (x) — a dragged card still holding its room in its column —,
+    /// and a column's widest.
+    fn columns(&self, view: egui::Rect, margin: f32) -> ([(f32, f32); 2], egui::Rangef, f32) {
+        let max_width = (view.width() * 0.4).max(dock::COLUMN_MIN_WIDTH);
+        let column = |side: Dock| {
+            let width = self.prefs.panels.column(side).width.clamp(dock::COLUMN_MIN_WIDTH, max_width);
+            match side {
+                Dock::Left => (view.left() + margin, width),
+                Dock::Right => (view.right() - margin - width, width),
+            }
+        };
+        let columns = [column(Dock::Left), column(Dock::Right)];
+        let left = if self.prefs.panels.occupied(Dock::Left, None) { columns[0].0 + columns[0].1 + margin } else { view.left() };
+        let right = if self.prefs.panels.occupied(Dock::Right, None) { columns[1].0 - margin } else { view.right() };
+        (columns, egui::Rangef::new(left, right), max_width)
+    }
+
     /// The side panels, as cards in their columns ([`dock`]), the one dragged by its header
     /// following the pointer. Gives the view's span left free between the columns (x).
-    /// The docked cards, in columns from `top` (under the ribbon) to the bottom of the view.
+    /// The docked cards, in columns from `top` (the view's top, or under the ribbon when it is
+    /// above them) to the bottom of the view.
     fn side_panels(&mut self, ctx: &egui::Context, view: egui::Rect, top: f32, margin: f32, actions: &mut Vec<Action>) -> egui::Rangef {
         let style = ctx.global_style();
         let frame = egui::Frame::window(&style).inner_margin(panels::CARD_MARGIN).total_margin().sum();
         let header = style.spacing.interact_size.y;
         let metrics = dock::Metrics { header: header + frame.y, min_height: header + frame.y + 2.0 * HEAD_PAD + 60.0, gap: margin };
-        let max_width = (view.width() * 0.4).max(dock::COLUMN_MIN_WIDTH);
+        let (xs, free, max_width) = self.columns(view, margin);
         let pointer = ctx.pointer_latest_pos();
         let dragged = self.panel_drag.map(|d| d.id);
         let room = view.bottom() - margin - top;
         let mut event = None;
         let mut outliner_shown = false;
         let mut columns = Vec::new();
-        for side in [Dock::Left, Dock::Right] {
-            let width = self.prefs.panels.column(side).width.clamp(dock::COLUMN_MIN_WIDTH, max_width);
-            let x = match side {
-                Dock::Left => view.left() + margin,
-                Dock::Right => view.right() - margin - width,
-            };
+        for (side, (x, width)) in [Dock::Left, Dock::Right].into_iter().zip(xs) {
             let placed = dock::place(self.prefs.panels.column(side), top, room, metrics, dragged);
             for p in &placed {
                 let rect = egui::Rect::from_min_size(egui::pos2(x, p.top), egui::vec2(width, p.height));
@@ -1738,10 +1752,7 @@ impl SkraftApp {
                 }
             }
         }
-        // A dragged card still holds its room in its column for the rest of the layout.
-        let left = if self.prefs.panels.occupied(Dock::Left, None) { columns[0].1 + columns[0].2 + margin } else { view.left() };
-        let right = if self.prefs.panels.occupied(Dock::Right, None) { columns[1].1 - margin } else { view.right() };
-        egui::Rangef::new(left, right)
+        free
     }
 
     /// One side panel in `rect`: its header (click: fold, drag: move it) and its content, and
@@ -2707,16 +2718,24 @@ impl SkraftApp {
             .rect;
         let margin = 8.0;
         let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(panels::CARD_MARGIN);
-        // The workspace card and the ribbon across the top (docs/ui/ribbon.md); the
-        // docked cards below them.
+        // The ribbon at the top (docs/ui/ribbon.md#layout): between the docked cards' columns,
+        // which then take the view's whole height, when it fits there whole; else above them,
+        // over the view's width, the columns under it.
         let ribbon_view = ribbon::View { prefs: &self.prefs.ribbon, views };
-        // As wide as its content, centered on the view; never over the workspace card nor past
-        // the right margin: a narrower window narrows it ([`ribbon::fit`] then gives way).
         let frame_x = card(&ctx.global_style()).total_margin().sum().x;
-        let min_left = view.left() + margin + ribbon::WORKSPACE_WIDTH + frame_x + margin;
-        let max_right = view.right() - margin;
-        let ribbon_width = ribbon::natural_width(ctx, &ribbon_view).min((max_right - min_left - frame_x).max(0.0));
-        let ribbon_left = (view.center().x - (ribbon_width + frame_x) / 2.0).min(max_right - ribbon_width - frame_x).max(min_left);
+        let natural = ribbon::natural_width(ctx, &ribbon_view);
+        let (_, free, _) = self.columns(view, margin);
+        let inside = |x: f32| x > view.left() && x < view.right();
+        let between = egui::Rangef::new(
+            if inside(free.min) { free.min } else { view.left() + margin },
+            if inside(free.max) { free.max } else { view.right() - margin },
+        );
+        let above = natural + frame_x > between.span();
+        let span = if above { egui::Rangef::new(view.left() + margin, view.right() - margin) } else { between };
+        // As wide as its content, centered on the view within its span: a window narrower than
+        // that narrows it ([`ribbon::fit`] then gives way).
+        let ribbon_width = natural.min((span.span() - frame_x).max(0.0));
+        let ribbon_left = (view.center().x - (ribbon_width + frame_x) / 2.0).min(span.max - ribbon_width - frame_x).max(span.min);
         let ribbon_area = egui::Area::new(egui::Id::unique("ribbon"))
             .fixed_pos(egui::pos2(ribbon_left, view.top() + margin))
             .constrain_to(view)
@@ -2730,15 +2749,11 @@ impl SkraftApp {
             .style(crate::style::menu)
             .show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, actions));
         let ribbon_rect = ribbon_area.response.rect;
-        let inner_height = ribbon_rect.height() - card(&ctx.global_style()).total_margin().sum().y;
-        egui::Area::new(egui::Id::unique("workspace"))
-            .fixed_pos(egui::pos2(view.left() + margin, view.top() + margin))
-            .constrain_to(view)
-            .show(ctx, |ui| card(ui.style()).show(ui, |ui| ribbon::workspace_card(ui, &ribbon_view, inner_height, actions)));
         let below_ribbon = ribbon_rect.bottom() + margin;
         self.ribbon_bottom = Some(ribbon_rect.bottom());
 
-        let free = self.side_panels(ctx, view, below_ribbon, margin, actions);
+        let columns_top = if above { below_ribbon } else { view.top() + margin };
+        let free = self.side_panels(ctx, view, columns_top, margin, actions);
         let (free_left, free_right) = (free.min, free.max);
         // Over the view under the ribbon, centered together between the columns: the context card
         // (what a pick takes, which copies a change reaches), then the active tool's card
@@ -2791,13 +2806,15 @@ impl SkraftApp {
                 .rect;
             free_top = options.bottom() + margin;
         }
-        // The view bar (docs/ui/view-bar.md): over the left or right edge, under the workspace card or
-        // the ribbon, beside that side's column; what zoom extents frames stops at it.
+        // The view bar (docs/ui/view-bar.md): over the left or right edge, beside that side's
+        // column, centered on the view's height but never over the ribbon; what zoom extents
+        // frames stops at it.
         let bar_width = crate::view_bar::width(&ctx.global_style());
         let left_x = if free_left > view.left() { free_left } else { view.left() + margin };
         let right_x = if free_right < view.right() { free_right } else { view.right() - margin } - bar_width;
         let side = self.prefs.view_bar_side;
-        let place = crate::view_bar::Place { side, slots: [egui::pos2(left_x, below_ribbon), egui::pos2(right_x, below_ribbon)] };
+        let heights = egui::Rangef::new(below_ribbon, view.bottom() - margin);
+        let place = crate::view_bar::Place { side, xs: [left_x, right_x], heights, center: view.center().y };
         crate::view_bar::bar(ctx, view, &place, &self.prefs.view_bar, views, actions);
         let (free_left, free_right) = match side {
             crate::dock::Dock::Left => (left_x + bar_width + margin, free_right),

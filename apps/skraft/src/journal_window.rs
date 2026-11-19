@@ -9,6 +9,8 @@ use skraft_i18n::{t, tp};
 use skraft_tools::journal::{Entry, Event, Failure, JobKind, Journal, Origin};
 use skraft_tools::{Modifiers, ToolInput};
 
+use crate::ribbon::Corners;
+
 /// The width of the entries' kind column (« Début de glisser » fits).
 const KIND_WIDTH: f32 = 120.0;
 /// The pilot's mark before an entry it caused.
@@ -133,7 +135,7 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
             // Up to the title bar's line: the window's margin and a spacing above the content.
             let m = ui.style().spacing.window_margin;
             let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
-            match crate::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, false, &[]) {
+            match crate::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &[]) {
                 Some(0) => w.tab = Tab::Log,
                 Some(_) => w.tab = Tab::Failures,
                 None => {}
