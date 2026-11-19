@@ -207,7 +207,7 @@ pub(super) struct Target {
 
 /// Is the solid `s`, placed in the target's axes by `t`, exactly the target's box: a box square
 /// to them (its box then read exact, not from its mesh)?
-fn fills(s: &skraft_kernel::Solid, t: DAffine3) -> bool {
+pub(super) fn fills(s: &skraft_kernel::Solid, t: DAffine3) -> bool {
     square(&t.matrix3) && s.fills_its_box()
 }
 
@@ -368,11 +368,16 @@ pub(super) fn draw_measure(cx: &Cx<'_>, d: &mut Drawer<'_>, a: DVec3, b: DVec3, 
 /// The box of `target` placed by `to_world`, dotted in ink, in the scene (hidden behind faces: no front
 /// drawn over them, OCL's `shell_on_top`); none when what is copied fills it.
 pub(super) fn draw_box(d: &mut Drawer<'_>, target: &Target, to_world: DAffine3) {
-    if target.filled {
-        return;
+    if !target.filled {
+        dotted_box(d, target.lo, target.hi, to_world);
     }
+}
+
+/// The box `lo..hi` placed by `to_world`, dotted in ink, in the scene (the copy tools' and the
+/// stretch's, docs/tools/copy-array.md « Preview »).
+pub(super) fn dotted_box(d: &mut Drawer<'_>, lo: DVec3, hi: DVec3, to_world: DAffine3) {
     d.in_frame(to_world, |d| {
-        d.pen(Pen::new(super::INK).dotted()).box_styled(target.lo, target.hi, BoxStyle { corners: None, shell_on_top: false });
+        d.pen(Pen::new(super::INK).dotted()).box_styled(lo, hi, BoxStyle { corners: None, shell_on_top: false });
     });
 }
 
