@@ -27,6 +27,9 @@ pub enum Action {
     /// nothing selected.
     SelectModel,
     Apply(Operation),
+    /// A key for the active tool, from a button (the validation's ✓ Enter, ✗ Esc,
+    /// docs/ui/interface.md#steps-bar).
+    ToolKey(skraft_tools::Key),
     /// An option of the active tool changed in its bar.
     ToolOption(&'static str, OptionValue),
     /// A length option of the active tool typed in its field of the bar.

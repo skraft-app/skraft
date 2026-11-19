@@ -126,7 +126,7 @@ impl Document {
 
     /// The extent of `component` along `s`'s axis, in its axes (conservative for curved faces);
     /// `None` when it holds nothing.
-    fn extent_along(&self, component: Id, s: &Stretch, depth: usize) -> Option<(f64, f64)> {
+    pub(crate) fn extent_along(&self, component: Id, s: &Stretch, depth: usize) -> Option<(f64, f64)> {
         if depth > MAX_DEPTH {
             return None;
         }
@@ -141,7 +141,7 @@ impl Document {
     }
 
     /// The extent of `component` placed by `t` in the axes `s` is given in, along its axis.
-    fn placed_extent(&self, component: Id, s: &Stretch, t: &DAffine3, depth: usize) -> Option<(f64, f64)> {
+    pub(crate) fn placed_extent(&self, component: Id, s: &Stretch, t: &DAffine3, depth: usize) -> Option<(f64, f64)> {
         let shift = s.axis().dot(t.translation);
         let (lo, hi) = self.extent_along(component, &s.in_frame(t), depth)?;
         Some((lo + shift, hi + shift))

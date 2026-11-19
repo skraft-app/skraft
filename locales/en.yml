@@ -136,8 +136,13 @@ toolbar:
   with_shortcut: "%{label} (%{shortcut})"
   with_hint: "%{tip} · %{hint}"
   copy_hint: "%{copy_key}: copy · arrows: axis"
-  boolean_hint: "target, then tool"
+  boolean_hint: "parts A, then tool parts B"
   perspective: "Perspective / Parallel"
+
+# The steps bar and its validation buttons (docs/ui/interface.md#steps-bar).
+steps:
+  cancel: "Cancel (Esc)"
+  validate: "Confirm (Enter)"
 
 ribbon:
   workspace:
@@ -750,9 +755,29 @@ tool:
       name: "Intersect"
       verb: "intersect"
     hint:
-      target: "Click the part to change (%{verb})"
-      tool: "Click the tool part (it will be consumed) to %{verb}"
+      # A union's single target (A).
+      target: "Click the part A to change (%{verb})"
+      targets: "Click the part A to change (%{verb}) · Shift: multiple selection"
+      # Shift clicked, or several picked (OpenCutList's multiple selection).
+      targets_gather: "Multiple selection: click a part A to add or remove it · Enter: confirm"
+      tools: "Click the tool part B to %{verb} · Shift: multiple selection"
+      tools_gather: "Multiple selection: click a tool part B to add or remove it · Enter: %{verb}"
+    # The steps bar's sentence of each step (docs/ui/interface.md#steps-bar).
+    step:
+      target: "Choose the part A to change"
+      targets: "Choose the parts A to change"
+      tools: "Choose the tool parts B"
+    # Shift let go while gathering.
+    say:
+      validate_a: "Confirm (Enter) to proceed to the selection of B"
+      validate_b: "Confirm (Enter) to apply the operation"
     option:
+      keep_targets: "Keep A"
+      keep_targets_tip: "Keep the parts A and put the result in a new part"
+      keep_tools: "Keep B"
+      keep_tools_tip: "Keep the tool parts B after the operation"
+      drop_unused: "Delete Unused"
+      drop_unused_tip: "Delete the tool parts left without instances after the operation, even named"
       scope: "Scope"
       scope_tip: "What the operation changes (Tab to change)"
       all: "All Instances"
@@ -1065,6 +1090,9 @@ error:
     not_exploded: "only an assembly can be exploded"
     root_placed: "the model cannot be placed"
     self_boolean: "a part cannot be combined with itself"
+    no_operand: "at least one target and one tool are needed"
+    union_targets: "a union joins its tools to a single target"
+    nothing_reached: "no tool reaches a target"
     no_such_face: "no such face"
     no_bodies: "no bodies given"
     ungroup_negative: "a compound machining that spares material cannot be ungrouped"

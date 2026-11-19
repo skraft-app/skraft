@@ -31,10 +31,11 @@ or the way an operation reaches it.
   bodies kept and editable; **intersection**: a new part of one positive body, the common
   volume. A tool that is its single positive body comes as that body (its profile with it),
   any other as a group of copies of its bodies ([Body groups](bodies.md#body-groups)).
-  `Operation::Boolean { target, tool, op, scope }`.
+  `Operation::Boolean { targets, tools, op, scope, … }`: several targets and tools, each target
+  with the tools reaching it ([Solid tools](../tools/solid-tools.md)).
 - The change affects all occurrences of the target part or only this one ([Copies and propagation](data-model.md#copies-and-propagation)).
-- No "keep the tool" option: the tool occurrence always leaves the model (it lives on in the
-  target's bodies); the other occurrences of its part stay.
+- The tool occurrence leaves the model (it lives on in the target's bodies) unless kept
+  (« Conserver B »); the other occurrences of its part stay.
 
 ## Asynchronous kernel
 

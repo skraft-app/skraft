@@ -152,7 +152,8 @@ pub fn preview(p: &Preview) -> Value {
     };
     put("hover", json!(p.hover.map(|i| i.0)), p.hover.is_none());
     put("hover_solid", p.hover_solid.as_ref().map_or(Value::Null, path), p.hover_solid.is_none());
-    put("picked_solid", p.picked_solid.as_ref().map_or(Value::Null, path), p.picked_solid.is_none());
+    put("picked_solids", Value::Array(p.picked_solids.iter().map(path).collect()), p.picked_solids.is_empty());
+    put("picked_tools", Value::Array(p.picked_tools.iter().map(path).collect()), p.picked_tools.is_empty());
     put("ghost", p.ghost.as_ref().map_or(Value::Null, affine), p.ghost.is_none());
     put("copies", Value::Array(p.copies.iter().map(affine).collect()), p.copies.is_empty());
     put("tip", json!(p.tip), p.tip.is_none());

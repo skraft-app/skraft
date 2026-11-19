@@ -313,7 +313,7 @@ impl Toasts {
 
 /// A toast's text colour, fill and border: its level's colour for the border and the title, a
 /// pale wash of it for the fill (a dark one in a dark theme).
-fn colors(v: &egui::Visuals, level: Level, dark: bool) -> (egui::Color32, egui::Color32, egui::Color32) {
+pub(crate) fn colors(v: &egui::Visuals, level: Level, dark: bool) -> (egui::Color32, egui::Color32, egui::Color32) {
     use egui::Color32 as C;
     let base = v.window_fill;
     let hue = match (level, dark) {

@@ -647,13 +647,15 @@ fn toggle(key: &'static str, label: String, tip: String, on: bool, saved: bool, 
 /// The part creation tools a setting of one of them is shared with, after OpenCutList's
 /// `get_action_option_sync_actions` (Rectangle, Circle, Polygon): the offset and the centred
 /// height with the tools that have them, « Dessiner dans », « Pipette » and « Nommage des
-/// pièces » with all four; none for the others.
+/// pièces » with all four; the solid tools' « Conserver A », « Conserver B » and broom with
+/// the three of them (docs/tools/solid-tools.md); none for the others.
 pub fn synced_with(key: &str) -> &'static [ToolKind] {
     const DRAWN: &[ToolKind] = &[ToolKind::Box, ToolKind::Cylinder, ToolKind::Prism];
     const ALL: &[ToolKind] = &[ToolKind::Box, ToolKind::Cylinder, ToolKind::Prism, ToolKind::Turn];
     match key {
         OFFSET | PULL_CENTERED => DRAWN,
         DRAW_IN | PICK_MATERIAL | ASK_NAME => ALL,
+        super::boolean::KEEP_TARGETS | super::boolean::KEEP_TOOLS | super::boolean::DROP_UNUSED => super::boolean::SOLID_TOOLS,
         _ => &[],
     }
 }

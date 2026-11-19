@@ -60,6 +60,10 @@ impl From<Boolean> for BooleanOp {
     }
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 fn identity() -> DAffine3 {
     DAffine3::IDENTITY
 }
@@ -123,17 +127,25 @@ pub enum Operation {
     MakeUnique { context: Id, occurrence: Id },
     /// Places one more occurrence of a component in `context`.
     PlaceOccurrence { context: Id, component: Id, transform: DAffine3 },
-    /// `target op tool`, on the target's part, the tool brought into its axes
-    /// (docs/model/kernel.md): on every occurrence of the part, or only the one picked
-    /// (`scope`, docs/model/data-model.md). A difference adds the tool's shape as a negative body; a union gives
-    /// the target all the tool's bodies (docs/model/bodies.md); an intersection makes a new part of one
-    /// positive body. The tool's occurrence leaves the model.
+    /// `target op (∪ tools)` on each target's part, the tools brought into its axes
+    /// (docs/model/kernel.md#booleans-across-contexts): on every occurrence of the part, or only the one picked
+    /// (`scope`, docs/model/data-model.md). A difference adds each tool reaching the target as a negative
+    /// body; a union (one target) gives it all the tools' bodies (docs/model/bodies.md); an intersection
+    /// makes each target a new part of one positive body. The tools' occurrences leave the model
+    /// unless `keep_tools`; `keep_targets` puts each result in a new part beside its target, left
+    /// as it was; `drop_unused` drops the tools' parts left without occurrence, even named.
     Boolean {
-        target: EntityPath,
-        tool: EntityPath,
+        targets: Vec<EntityPath>,
+        tools: Vec<EntityPath>,
         op: Boolean,
         #[serde(default)]
         scope: Scope,
+        #[serde(default, skip_serializing_if = "is_false")]
+        keep_targets: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        keep_tools: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        drop_unused: bool,
     },
     /// A primitive added to the part `target` places, as a new body of `sign` (drawn in an
     /// open part, docs/model/opening-a-part.md, docs/model/bodies.md — a negative one is a machining): built in its
@@ -361,6 +373,11 @@ pub enum Operation {
 }
 
 impl Operation {
+    /// `target op tool`, the scope's, nothing kept: the boolean of one target and one tool.
+    pub fn boolean(target: EntityPath, tool: EntityPath, op: Boolean, scope: Scope) -> Operation {
+        Operation::Boolean { targets: vec![target], tools: vec![tool], op, scope, keep_targets: false, keep_tools: false, drop_unused: false }
+    }
+
     /// A short label for menus and the undo history.
     pub fn label(&self) -> String {
         match self {
@@ -1033,11 +1050,9 @@ impl Document {
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
-            Operation::Boolean { target, tool, op, scope } => {
-                if *scope == Scope::This {
-                    self.separate(target)?;
-                }
-                self.boolean(target, tool, *op, solver)
+            Operation::Boolean { targets, tools, op, scope, keep_targets, keep_tools, drop_unused } => {
+                let keep = crate::boolean::Keep { targets: *keep_targets, tools: *keep_tools, drop_unused: *drop_unused };
+                self.booleans(targets, tools, *op, *scope, keep, solver)
             }
             Operation::AddBody { target, primitive, placement, sign, scope } => {
                 if !is_rigid(placement) {
@@ -1644,65 +1659,6 @@ impl Document {
         Ok(())
     }
 
-    fn boolean(&mut self, target: &EntityPath, tool: &EntityPath, op: Boolean, solver: &mut dyn Solver) -> Result<Outcome> {
-        if target == tool {
-            return Err(Error::Invalid(Refusal::SelfBoolean));
-        }
-        let (part, p, t_target) = self.resolve_part(target)?;
-        let p = p.clone();
-        let (tool_part, q, t_tool) = self.resolve_part(tool)?;
-        let q = q.clone();
-        // A tool the user named names the body it becomes (docs/model/bodies.md#body-names).
-        let named = self.component(tool_part).ok().filter(|c| c.named).map(|c| c.name.clone());
-        let tool_ctx = self.context_of(&tool.instances)?;
-        // Its occurrence's name, the body's own.
-        let tool_name = self.assembly(tool_ctx)?.occurrence(tool.entity).map(|o| o.name.clone()).unwrap_or_default();
-        // The tool, in the target part's axes.
-        let relative = t_target.inverse() * t_tool;
-        match op {
-            // The tool's shape, a negative body of the target, cut from it as it is. A tool
-            // that is its single positive body (a shape drawn) is taken whole, its profile
-            // with it: still editable; any other comes as a negative group of copies of its
-            // bodies, its shape the group's (docs/model/bodies.md#body-groups).
-            Boolean::Difference => {
-                let moved = if is_identity(&relative) { None } else { Some(relative) };
-                let result = solver.boolean(p.shape(), q.shape(), moved, op.into())?;
-                let (defs, mut body) = self.tool_as_body(&q, &relative, named);
-                body.sign = Sign::Negative;
-                if !tool_name.is_empty() {
-                    body.name = tool_name;
-                }
-                let mut next = p;
-                next.defs.extend(defs);
-                next.bodies.push(body);
-                next.shape = Some(result);
-                *self.part_mut(part)? = next;
-            }
-            // The tool joins the target as a positive body: its single body, or a group of
-            // copies of its bodies, its machinings cutting that group only (docs/model/bodies.md « Body
-            // groups »). Added as it is: cut by the target's machinings, joined to its shape.
-            Boolean::Union => {
-                let (defs, mut body) = self.tool_as_body(&q, &relative, named);
-                if !tool_name.is_empty() {
-                    body.name = tool_name;
-                }
-                let id = body.id;
-                let p = self.part_mut(part)?;
-                p.defs.extend(defs);
-                p.bodies.push(body);
-                self.recompute(part, Some(&[id]), solver)?;
-            }
-            // A new part of one positive body: the common volume.
-            Boolean::Intersection => {
-                let moved = if is_identity(&relative) { None } else { Some(relative) };
-                let result = solver.boolean(p.shape(), q.shape(), moved, op.into())?;
-                *self.part_mut(part)? = self.plain_part(result);
-            }
-        }
-        self.assembly_mut(tool_ctx)?.occurrences_mut().retain(|o| o.id != tool.entity);
-        Ok(Outcome { created: vec![target.entity], ..Outcome::default() })
-    }
-
     /// `op`, an operation on the bodies of the part `path` places (no group in it), applied
     /// inside its group of bodies `group` (docs/model/bodies.md#body-groups): the group's definition is
     /// put in the part's place as a part of its own — its children the bodies, its result the
@@ -1784,7 +1740,7 @@ impl Document {
     /// (its profile kept), else a group of copies of its bodies, the group's result `q`'s shape.
     /// `named`: the name of `q`'s part, given by the user, for the body's definition unless it
     /// has one.
-    fn tool_as_body(&mut self, q: &Part, relative: &DAffine3, named: Option<String>) -> (Vec<BodyDef>, Body) {
+    pub(crate) fn tool_as_body(&mut self, q: &Part, relative: &DAffine3, named: Option<String>) -> (Vec<BodyDef>, Body) {
         if q.is_plain() {
             let (mut defs, mut bodies) = self.copies_of_bodies(&q.defs, &q.bodies, relative);
             let body = bodies.remove(0);

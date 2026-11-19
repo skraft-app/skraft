@@ -52,7 +52,8 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   (« Pièce#1 », « Pièce#2 »); one given, taken as it is, a copy of it « Caisson#2 », a copy of
   « Caisson#2 » the first number free ([Automatic names](bodies.md#automatic-names)).
 - **Purge**: a part with no occurrence disappears, unless the user named it (it then stays in
-  the model's library).
+  the document, with no way yet to list or place it; the solid tools' broom deletes a consumed
+  tool part even named, [Solid tools](../tools/solid-tools.md)).
 - **Empty assemblies**: an assembly with neither occurrences nor guides — or holding only
   empty ones — is taken away, its occurrences deleted wherever it is placed, as SketchUp
   deletes an empty group (`Document::dropping_empty_assemblies`, a batch of `Delete`;

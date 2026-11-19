@@ -498,6 +498,17 @@ impl Editor {
         self.tool.cursor(&self.cx())
     }
 
+    /// The active tool's steps, for the steps bar.
+    pub fn tool_steps(&self) -> Option<crate::tools::Steps> {
+        self.tool.steps()
+    }
+
+    /// Does the active tool wait for a validation (the ✓ / ✗ buttons, which give it Enter and
+    /// Esc)? Not while the kernel computes: only Esc is taken then.
+    pub fn tool_awaits_validation(&self) -> bool {
+        !self.busy() && self.tool.awaits_validation()
+    }
+
     /// Is the active tool at its pick step (the cursor is then the arrow)?
     pub fn tool_picking(&self) -> bool {
         self.tool.picking()

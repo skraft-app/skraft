@@ -188,7 +188,9 @@ components.
 ## Booleans between parts
 
 The tool is brought into the target's axes by the relative transformation, the tool
-occurrence leaves the model, under the scope ([Booleans across contexts](kernel.md#booleans-across-contexts)).
+occurrence leaves the model unless kept, under the scope ([Booleans across contexts](kernel.md#booleans-across-contexts));
+several targets and tools in one operation, each target with the tools reaching it
+([Solid tools](../tools/solid-tools.md)).
 A tool that is its single positive body, unplaced (a shape drawn), comes as a copy of that
 body, its profile with it — still editable; any other comes as a group of copies of its bodies
 (`tool_as_body`, its shape the group's: no more kernel work).
@@ -197,8 +199,10 @@ body, its profile with it — still editable; any other comes as a group of copi
   structure kept, its negatives reaching that sub-group only; a through-hole meant to drill
   the target too is had by flattening the group (« Dégrouper »).
 - **Difference**: the tool part's root comes **as a negative sub-group** (its bodies kept,
-  still editable).
-- **Intersection**: a new part with one positive leaf, a free shape (the common volume).
+  still editable); each tool reaching the target is one more negative body, all cut at once
+  (`recompute` with the bodies added: one recipe, a failing tool marked as any machining).
+- **Intersection**: a new part with one positive leaf, a free shape (the common volume with
+  the union of the tools reaching it).
   **No ∩ node**, nor any ordered operation. **Why:** that would turn the tree into a feature
   history (persistent naming).
 

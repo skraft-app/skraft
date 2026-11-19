@@ -2,6 +2,7 @@
 //! placed by occurrences, the operations that change it, its undo history and its file
 //! format. See docs/model/data-model.md–docs/model/undo.md and docs/io/file-format.md.
 
+mod boolean;
 mod clipboard;
 mod document;
 pub mod expr;
@@ -79,6 +80,12 @@ pub enum Refusal {
     RootPlaced,
     /// A part is not combined with itself.
     SelfBoolean,
+    /// A boolean names no target or no tool.
+    NoOperand,
+    /// A union joins its tools to one target.
+    UnionTargets,
+    /// No tool of a difference or an intersection reaches a target.
+    NothingReached,
     /// A face index past the part's faces (docs/render/look.md).
     NoSuchFace,
     /// A change to bodies names none.
@@ -162,6 +169,9 @@ impl std::fmt::Display for Refusal {
             Refusal::NotExploded => t!("error.model.not_exploded"),
             Refusal::RootPlaced => t!("error.model.root_placed"),
             Refusal::SelfBoolean => t!("error.model.self_boolean"),
+            Refusal::NoOperand => t!("error.model.no_operand"),
+            Refusal::UnionTargets => t!("error.model.union_targets"),
+            Refusal::NothingReached => t!("error.model.nothing_reached"),
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
             Refusal::NoBodies => t!("error.model.no_bodies"),
             Refusal::BadGuide => t!("error.model.bad_guide"),

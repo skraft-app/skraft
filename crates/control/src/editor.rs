@@ -198,6 +198,9 @@ fn tool_state(e: &Editor) -> Answer {
         "axis_lock": e.axis_lock(),
         "face_lock": e.face_lock().map(v3),
         "options": options,
+        // The steps bar and the validation buttons (docs/ui/interface.md#steps-bar).
+        "steps": e.tool_steps().map(|s| json!({ "count": s.count, "index": s.index, "text": s.text })),
+        "awaits_validation": e.tool_awaits_validation(),
         "selection": json::ids(e.selection()),
         "inference": preview.inference.as_ref().map(json::inference),
         "preview": json::preview(&preview),
@@ -667,14 +670,9 @@ mod tests {
                 .created[0]
         };
         let small = add(&mut e, 0.0, 10.0);
-        let far = add(&mut e, 100.0, 10.0);
-        // The common volume of two boxes apart: nothing, the kernel fails.
-        let op = Operation::Boolean {
-            target: EntityPath::root(small),
-            tool: EntityPath::root(far),
-            op: Boolean::Intersection,
-            scope: Default::default(),
-        };
+        let corner = add(&mut e, 10.0, 10.0);
+        // The common volume of two boxes touching at a corner: nothing, the kernel fails.
+        let op = Operation::boolean(EntityPath::root(small), EntityPath::root(corner), Boolean::Intersection, Default::default());
         assert!(e.apply(op).is_err());
         let all = json_of(&mut e, "journal.failures", Value::Null);
         let failures = all["failures"].as_array().unwrap();
