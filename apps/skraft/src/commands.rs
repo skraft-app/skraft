@@ -138,6 +138,7 @@ pub const COMMANDS: &[Command] = &[
     c("tool.copy_grid", || t!("tool.copy_grid.name"), M::Tools, None),
     c("tool.distribute", || t!("tool.distribute.name"), M::Tools, None),
     g("tool.paint", || t!("tool.paint.name"), M::Tools, Some("B")),
+    c("tool.sample", || t!("tool.sample.name"), M::Tools, None),
     c("tool.section", || t!("tool.section.name"), M::Tools, None),
     c("tool.measure", || t!("tool.measure.name"), M::Tools, Some("T")),
     c("tool.union", || t!("tool.boolean.union.name"), M::Solids, None),

@@ -54,6 +54,10 @@ const SAMPLES: u32 = 4;
 /// No palette entry: the colour comes from the next level (placement, then the default).
 pub const NO_MATERIAL: u32 = u32::MAX;
 
+/// Set in an instance's palette entry: its faces take it over their own paint (a face the
+/// paint tool would paint, [`Highlight::face`]). The shader's `FORCED`.
+const FORCED: u32 = 1 << 30;
+
 /// One solid of a definition's mesh.
 pub struct Part<'a> {
     /// The caller's id for it (the solid's id).
@@ -117,6 +121,9 @@ pub struct Highlight {
     /// A ghost's (an open part's body, docs/model/bodies.md): its faces washed with the face tint over the
     /// ghost's own, see-through; its edges as any highlight's.
     pub ghost: bool,
+    /// Only this B-rep face of the part (its index in the record), in `material` over its own
+    /// paint, without its edges: the face the paint tool would paint (docs/render/look.md).
+    pub face: Option<u32>,
 }
 
 /// A world-space segment, coloured (`rgb` linear; `a` mixed over the background, or, in the
@@ -574,6 +581,9 @@ fn hatch_frame(section: &Section, eye: DVec3) -> (DVec3, DVec3, DVec3) {
 struct PartRange {
     id: u64,
     indices: Range<u32>,
+    /// Each B-rep face's runs of triangles in `indices` (by face index): a face highlighted
+    /// draws only those.
+    faces: Vec<(u32, Range<u32>)>,
     edges: Range<u32>,
     silhouettes: Range<u32>,
 }
@@ -1124,8 +1134,17 @@ impl Renderer {
             let mut paint_of: Vec<Option<u32>> = vec![None; p.mesh.positions.len()];
             let mut extra: Vec<Vertex> = Vec::new();
             let mut tri_indices = Vec::with_capacity(p.mesh.indices.len());
+            let mut faces: Vec<(u32, Range<u32>)> = Vec::new();
             for (t, tri) in p.mesh.indices.chunks_exact(3).enumerate() {
-                let face = p.mesh.tri_face.get(t).copied().unwrap_or(u32::MAX) as usize;
+                let face = p.mesh.tri_face.get(t).copied().unwrap_or(u32::MAX);
+                // Its triangle's place in the whole index buffer, added to its face's last run
+                // when it follows it (the mesher writes a face's triangles together).
+                let first = i0 + tri_indices.len() as u32;
+                match faces.last_mut() {
+                    Some((f, run)) if *f == face && run.end == first => run.end = first + 3,
+                    _ => faces.push((face, first..first + 3)),
+                }
+                let face = face as usize;
                 let paint = p.face_paint.get(face).copied().unwrap_or(NO_MATERIAL);
                 for &i in tri {
                     let slot = &mut paint_of[i as usize];
@@ -1160,9 +1179,11 @@ impl Renderer {
                 let (a, b) = (at(&s.a), at(&s.b));
                 silhouettes.extend(QUAD.map(|corner| SilhouetteVertex { a, b, corner, n1: s.n1, n2: s.n2 }));
             }
+            faces.sort_by_key(|(f, _)| *f);
             ranges.push(PartRange {
                 id: p.id,
                 indices: i0..indices.len() as u32,
+                faces,
                 edges: e0..edges.len() as u32,
                 silhouettes: s0..silhouettes.len() as u32,
             });
@@ -1298,16 +1319,25 @@ impl Renderer {
         // hold tens of thousands): its face instances, then its edge instances. Runs keep the
         // highlights' order.
         let mut runs: Vec<HighlightRun> = Vec::new();
-        for chunk in frame.highlights.chunk_by(|a, b| a.key == b.key && a.part == b.part && a.ghost == b.ghost) {
+        for chunk in frame.highlights.chunk_by(|a, b| a.key == b.key && a.part == b.part && a.ghost == b.ghost && a.face == b.face) {
             let mvs: Vec<DMat4> = chunk.iter().map(|h| model_view(&h.transform, h.key)).collect();
             let faces = raw.len() as u32;
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, h.material, 0.0, h.key)));
+            // A single face takes its highlight's colour over its own paint.
+            let face_material = |h: &Highlight| match h.face {
+                None => h.material,
+                // No material: an entry past the palette (the default colour), not NO_MATERIAL,
+                // which has every bit.
+                Some(_) if h.material == NO_MATERIAL => FORCED | (NO_MATERIAL >> 2),
+                Some(_) => FORCED | h.material,
+            };
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, face_material(h), 0.0, h.key)));
             let edges = raw.len() as u32;
             raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key)));
             runs.push(HighlightRun {
                 key: chunk[0].key,
                 part: chunk[0].part,
                 ghost: chunk[0].ghost,
+                face: chunk[0].face,
                 faces: faces..edges,
                 edges: edges..raw.len() as u32,
             });
@@ -1424,7 +1454,9 @@ impl Renderer {
                 if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
                     pass.set_vertex_buffer(0, v.slice(..));
                     pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(part.indices.clone(), 0, run.faces.clone());
+                    for r in run.indices(part) {
+                        pass.draw_indexed(r, 0, run.faces.clone());
+                    }
                 }
             }
             if section_on > 0.0 {
@@ -1458,7 +1490,9 @@ impl Renderer {
                     if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
                         pass.set_vertex_buffer(0, v.slice(..));
                         pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
-                        pass.draw_indexed(part.indices.clone(), 0, run.faces.clone());
+                        for r in run.indices(part) {
+                            pass.draw_indexed(r, 0, run.faces.clone());
+                        }
                     }
                 }
             }
@@ -1471,7 +1505,7 @@ impl Renderer {
                     pass.draw(0..m.edge_vertex_count, r.clone());
                 }
             }
-            for run in &runs {
+            for run in runs.iter().filter(|r| r.face.is_none()) {
                 let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                 if let Some(e) = &m.edges {
                     pass.set_vertex_buffer(0, e.slice(..));
@@ -1487,7 +1521,7 @@ impl Renderer {
                         pass.draw(0..m.silhouette_vertex_count, r.clone());
                     }
                 }
-                for run in &runs {
+                for run in runs.iter().filter(|r| r.face.is_none()) {
                     let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                     if let Some(s) = &m.silhouettes {
                         pass.set_vertex_buffer(0, s.slice(..));
@@ -1517,7 +1551,9 @@ impl Renderer {
                 if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
                     pass.set_vertex_buffer(0, v.slice(..));
                     pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(part.indices.clone(), 0, run.faces.clone());
+                    for r in run.indices(part) {
+                        pass.draw_indexed(r, 0, run.faces.clone());
+                    }
                 }
             }
         }
@@ -1682,9 +1718,24 @@ struct HighlightRun {
     part: u64,
     /// Its faces drawn with the ghosts'.
     ghost: bool,
+    /// Only this B-rep face, without edges ([`Highlight::face`]).
+    face: Option<u32>,
     /// Tinted by their faces' tint, then by their edges'.
     faces: Range<u32>,
     edges: Range<u32>,
+}
+
+impl HighlightRun {
+    /// The index ranges it draws of `part`: all of it, or its face's runs of triangles.
+    fn indices<'a>(&self, part: &'a PartRange) -> Box<dyn Iterator<Item = Range<u32>> + 'a> {
+        match self.face {
+            None => Box::new(std::iter::once(part.indices.clone())),
+            Some(face) => {
+                let from = part.faces.partition_point(|(f, _)| *f < face);
+                Box::new(part.faces[from..].iter().take_while(move |(f, _)| *f == face).map(|(_, r)| r.clone()))
+            }
+        }
+    }
 }
 
 /// Everything that makes the picture of `frame` (docs/render/look.md): equal fingerprints, equal
@@ -1747,7 +1798,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     }
     frame.highlights.len().hash(&mut h.0);
     for hl in frame.highlights {
-        (hl.key, hl.part, hl.material, hl.ghost).hash(&mut h.0);
+        (hl.key, hl.part, hl.material, hl.ghost, hl.face).hash(&mut h.0);
         h.m(&hl.transform);
         h.fs(&hl.face_tint);
         h.fs(&hl.edge_tint);

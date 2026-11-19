@@ -28,7 +28,7 @@ state and link the records behind it.
 | 0019 | [Profile edits keep the shape by sides and stored radii, without a solver](0019-profile-edits-keep-shape-without-solver.md) | accepted (2026-11-14) |
 | 0020 | [One control protocol, several transports](0020-control-protocol-one-method-set.md) | accepted (2026-11-15) |
 | 0021 | [Copies as a list of placements computed by the tool](0021-copies-as-placement-lists.md) | accepted (2026-11-15) |
-| 0022 | [Quick tools hand back through a one-level return slot](0022-quick-tool-return-slot.md) | accepted (2026-11-15) |
+| 0022 | [Quick tools hand back through a one-level return slot](0022-quick-tool-return-slot.md) | superseded by 0036 (2026-11-19) |
 | 0023 | [A turned body is a half profile turned a whole turn about the body's Z](0023-turned-body-half-profile-about-body-z.md) | accepted (2026-11-15) |
 | 0024 | [Body definitions may be groups: a CSG tree without history](0024-body-groups.md) | accepted (2026-11-16) |
 | 0025 | [A part may be empty](0025-empty-parts.md) | accepted (2026-11-16) |
@@ -42,3 +42,4 @@ state and link the records behind it.
 | 0033 | [The undo history is capped by memory](0033-history-memory-cap.md) | accepted (2026-11-18) |
 | 0034 | [Section caps: colour from the back faces, extent from a stencil](0034-section-caps-from-back-faces-and-stencil.md) | accepted (2026-11-18) |
 | 0035 | [Custom cursors through a winit fork](0035-custom-cursors-winit-fork.md) | accepted (2026-11-18) |
+| 0036 | [A tool stack: a tool over another suspends it, as it is](0036-tool-stack.md) | accepted (2026-11-19) |

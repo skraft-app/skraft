@@ -8,17 +8,9 @@ use glam::{DAffine3, DVec2, DVec3};
 use skraft_model::{EntityPath, Id, Operation, Outcome};
 
 use super::Editor;
-use crate::tools::{self, Command, Key, Tool, ToolInput, ToolKind, handle};
+use super::stack::Over;
+use crate::tools::{Command, Key, Tool, ToolInput, ToolKind, handle};
 use crate::vcb;
-
-/// The tool a quick tool hands back to, and what to put back if it is given up.
-pub(super) struct Return {
-    to: ToolKind,
-    /// The card it was started from, offered again if nothing was done.
-    card: Option<Card>,
-    /// The selection before it started.
-    selection: Vec<Id>,
-}
 
 /// What a creation tool just made, the quick tools' card offered on it.
 pub(super) struct Card {
@@ -114,11 +106,11 @@ impl Editor {
     }
 
     /// Starts `kind` on what the card was offered on (else on the selection), as the quick
-    /// tools' card does: once its action is done (its first operation applied), or given up
-    /// (Esc back at its first step), the tool `self` runs now comes back. Given up, the card
-    /// and the selection are put back as they were; done, the card is not offered again.
+    /// tools' card does, over the tool `self` runs now (the tool stack,
+    /// docs/tools/interaction.md#tool-stack): once its action is done (its first operation
+    /// applied), or given up (Esc back at its first step), that tool comes back. Given up, the
+    /// card and the selection are put back as they were; done, the card is not offered again.
     pub fn start_quick_tool(&mut self, kind: ToolKind) {
-        let to = self.tool.kind();
         let card = self.card.take().filter(|c| self.card_valid(c));
         let selection = self.selection.clone();
         // Selected first: the tool starts on it (docs/tools/selection.md).
@@ -128,13 +120,13 @@ impl Editor {
                 None => self.set_selection(c.made.clone()),
             }
         }
-        self.set_tool(kind);
-        self.quick_return = Some(Return { to, card, selection });
+        self.aside = None;
+        self.push_tool(kind, Over::Quick { card, selection });
     }
 
     /// Is the active tool one the quick tools started (it will hand back)?
     pub fn quick_tool_running(&self) -> bool {
-        self.quick_return.is_some()
+        self.quick_on_top()
     }
 
     /// Is a tool kept aside, taking what is typed before the next shape starts?
@@ -142,17 +134,12 @@ impl Editor {
         self.aside.as_ref().map(|t| t.kind())
     }
 
-    /// Back to the creation tool; the tool that ran kept aside when it did something.
+    /// A quick tool running: back to the creation tool; the tool that ran kept aside when it
+    /// did something.
     pub(super) fn hand_back(&mut self, done: bool) {
-        let Some(r) = self.quick_return.take() else { return };
-        let ran = std::mem::replace(&mut self.tool, tools::make(r.to));
-        self.aside = done.then_some(ran);
-        if !done {
-            self.card = r.card;
-            self.set_selection(r.selection);
+        if self.quick_on_top() {
+            self.pop_tool(done);
         }
-        self.clear_locks();
-        self.reference = None;
     }
 
     /// Does `commands` do the action a quick tool is started for (an operation applied, not a

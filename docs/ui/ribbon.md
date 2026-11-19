@@ -41,7 +41,7 @@ Each tab a list of groups, each group a list of commands of the registry
 
 - **Build** « Construire »: Draw « Dessiner » (Box, Cylinder, Prism, Turn), Manipulate
   « Manipuler » (Move, Rotate, the copy tools: in line, in a grid, distribute), Reshape
-  « Remodeler » (Stretch, Union, Difference, Intersection), Appearance (Paint);
+  « Remodeler » (Stretch, Union, Difference, Intersection), Appearance (Paint, « Prélever »);
 - **Assemble** « Assembler »: Components (Make assembly, Explode, Make unique, Group bodies,
   Ungroup bodies) — the manipulating tools stay in Build only;
 - **Inspect** « Inspecter »: Measure (Tape measure, Delete guides; Tape measure pinned), Section
@@ -58,7 +58,9 @@ Each tab a list of groups, each group a list of commands of the registry
 A `const` description in the app (`ribbon::WORKSPACES`: workspaces → tabs → groups → command
 ids, with each group's default pins), checked by a test against the registry (every id exists,
 no group is empty). The ribbon draws it; state, labels, tips and enabled/checked come from the
-registry's `CommandView`s, as for the menus.
+registry's `CommandView`s, as for the menus. The active tool's button is filled; a tool
+waiting under it (the [tool stack](../tools/interaction.md#tool-stack), `CommandView::waiting`)
+shows its frame alone, lighter.
 
 ## Pins
 

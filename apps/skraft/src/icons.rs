@@ -33,6 +33,7 @@ icon!(EXTENTS, "extents");
 icon!(PERSPECTIVE, "perspective");
 icon!(ERASE, "erase");
 icon!(PAINT, "paint");
+icon!(SAMPLE, "sample");
 icon!(SECTION, "section");
 icon!(MEASURE, "measure");
 icon!(STRETCH, "stretch");
@@ -98,6 +99,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "tool.copy_grid" => COPY_GRID,
         "tool.distribute" => DISTRIBUTE,
         "tool.paint" => PAINT,
+        "tool.sample" => SAMPLE,
         "tool.section" => SECTION,
         "tool.measure" => MEASURE,
         "tool.union" => UNION,

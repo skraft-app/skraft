@@ -1,6 +1,6 @@
 # Quick tools hand back through a one-level return slot
 
-- Status: accepted (2026-11-15)
+- Status: superseded by [0036](0036-tool-stack.md) (2026-11-19): the return slot became a case of the tool stack
 - Design: [Quick tools after a creation, naming a part just made](../tools/quick-tools.md#the-return)
 
 ## Context

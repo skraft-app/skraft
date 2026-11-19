@@ -14,6 +14,7 @@ mod paint;
 mod pick;
 pub(crate) mod profile;
 mod rotate;
+mod sample;
 mod section;
 mod select;
 mod shapes;
@@ -29,6 +30,7 @@ pub use mover::MoveTool;
 pub use paint::PaintTool;
 pub use profile::ProfileTool;
 pub use rotate::RotateTool;
+pub use sample::SampleTool;
 pub use section::SectionTool;
 pub use select::SelectTool;
 pub use shapes::{BoxTool, CylinderTool, PrismTool, synced_with};
@@ -154,6 +156,13 @@ pub enum Command {
     /// Drops the arrow keys' and Shift's locks (a step of the gesture done: the prism tool's
     /// corner placed); the points tracked stay. The tool is then given the cursor again.
     ClearLocks,
+    /// The material the paint tool paints with from now on (none: the paint removed).
+    PaintWith(Option<Id>),
+    /// Holds the tool `ToolKind` over the active one, which waits under it as it is, for as long
+    /// as the other modifier is held (the tool stack, docs/tools/interaction.md#tool-stack).
+    Hold(ToolKind),
+    /// Starts the tool `ToolKind`, as choosing it does.
+    Start(ToolKind),
     /// Undoes the last step, which must be `previous`, and applies `op` instead (a copy
     /// turned into an array by a typed `5x`).
     Replace {
@@ -204,7 +213,8 @@ pub struct Preview {
     pub copies: Vec<DAffine3>,
     /// The point the tool infers under the cursor (marker and tooltip).
     pub inference: Option<Inference>,
-    /// More lines for the inference's tooltip (the tape: the length of the edge hovered).
+    /// More lines for the inference's tooltip (the tape: the length of the edge hovered); with
+    /// no inference, the tooltip by the cursor (the pipette: the material under it).
     pub tip: Option<String>,
     /// The selection rectangle being dragged.
     pub marquee: Option<Marquee>,
@@ -227,6 +237,28 @@ pub struct Preview {
     pub erasing_paths: Vec<EntityPath>,
     /// The guides at any depth the eraser would take (« Parts »).
     pub erasing_guides: Vec<GuidePath>,
+    /// What the paint tool would paint, drawn in the colour it would take (docs/render/look.md).
+    pub paint: Option<PaintPreview>,
+}
+
+/// What the paint tool would paint, and with what (docs/render/look.md).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PaintPreview {
+    /// The material it paints with (none: the paint removed).
+    pub material: Option<Id>,
+    pub target: PaintTarget,
+}
+
+/// What a click of the paint tool paints.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PaintTarget {
+    /// Occurrences of the active context.
+    Occurrences(Vec<Id>),
+    /// Parts or assemblies at any depth under it, each in its own assembly (« Parts »).
+    Paths(Vec<EntityPath>),
+    /// One face of a part, by the path of the occurrence it is seen on: every occurrence of the
+    /// part shows it.
+    Face { path: EntityPath, face: u32 },
 }
 
 /// A point a tool draws over everything (world; its radius in pixels), filled and / or ringed
@@ -382,6 +414,8 @@ pub enum ToolKind {
     Erase,
     /// Paints occurrences or faces (docs/render/look.md).
     Paint,
+    /// Takes the material under the cursor for the paint tool (« Prélever », docs/render/look.md).
+    Sample,
     /// Places the section plane (docs/render/look.md).
     Section,
     /// Measures, and draws guides (docs/tools/tape-measure.md).
@@ -400,7 +434,7 @@ pub enum ToolKind {
 
 impl ToolKind {
     /// Every tool.
-    pub const ALL: [ToolKind; 19] = [
+    pub const ALL: [ToolKind; 20] = [
         ToolKind::Select,
         ToolKind::Box,
         ToolKind::Cylinder,
@@ -413,6 +447,7 @@ impl ToolKind {
         ToolKind::Boolean(Boolean::Intersection),
         ToolKind::Erase,
         ToolKind::Paint,
+        ToolKind::Sample,
         ToolKind::Section,
         ToolKind::Measure,
         ToolKind::Stretch,
@@ -442,6 +477,7 @@ impl ToolKind {
             ToolKind::Boolean(Boolean::Intersection) => "intersection",
             ToolKind::Erase => "erase",
             ToolKind::Paint => "paint",
+            ToolKind::Sample => "sample",
             ToolKind::Section => "section",
             ToolKind::Measure => "measure",
             ToolKind::Stretch => "stretch",
@@ -467,6 +503,7 @@ impl ToolKind {
             ToolKind::Boolean(Boolean::Intersection) => t!("tool.boolean.intersection.name"),
             ToolKind::Erase => t!("tool.erase.name"),
             ToolKind::Paint => t!("tool.paint.name"),
+            ToolKind::Sample => t!("tool.sample.name"),
             ToolKind::Section => t!("tool.section.name"),
             ToolKind::Measure => t!("tool.measure.name"),
             ToolKind::Stretch => t!("tool.stretch.name"),
@@ -527,6 +564,9 @@ pub struct Cx<'a> {
     pub copy_down: bool,
     /// The other modifier held (Command on macOS, Alt elsewhere).
     pub alt_down: bool,
+    /// The active tool is held over another for as long as the other modifier is (the tool
+    /// stack, docs/tools/interaction.md#tool-stack): it hands back when the key is released.
+    pub held: bool,
     /// The height (whole) of the last shape drawn, if any.
     pub last_height: Option<f64>,
     /// The line Shift holds.
@@ -780,14 +820,27 @@ impl Cx<'_> {
     /// else the one it inherits from its assemblies (as the view paints it).
     pub fn picked_material(&self, picked: Option<&EntityPath>) -> Option<Id> {
         let p = picked.filter(|_| self.open_part.is_none() && self.toggle(PICK_MATERIAL))?;
+        self.occurrence_material(p)
+    }
+
+    /// The material the occurrence `path` (from the root) paints its parts with: its own, else
+    /// the one it inherits from its assemblies.
+    pub fn occurrence_material(&self, path: &EntityPath) -> Option<Id> {
         let mut at = self.doc.root();
         let mut material = None;
-        for &i in p.instances.iter().chain([&p.entity]) {
+        for &i in path.instances.iter().chain([&path.entity]) {
             let o = self.doc.assembly(at).ok()?.occurrence(i)?;
             material = o.material.or(material);
             at = o.component;
         }
         material.filter(|m| self.doc.material(*m).is_ok())
+    }
+
+    /// The material shown on `face` of the part `path` leads to (the paint tool's pipette):
+    /// the face's own, else its occurrence's (docs/render/look.md).
+    pub fn material_shown(&self, path: &EntityPath, face: u32) -> Option<Id> {
+        let own = self.doc.resolve_part(path).ok().and_then(|(_, part, _)| part.faces.get(&face).copied());
+        own.filter(|m| self.doc.material(*m).is_ok()).or_else(|| self.occurrence_material(&path.part_path()))
     }
 
     /// The operation a part creation tool applies (as [`Cx::add_primitive`]), « Dessiner dans »
@@ -1035,14 +1088,15 @@ pub enum Cursor {
     PencilCircle,
     PencilPolygon,
     Pull,
-    /// Paint: occurrences, faces.
+    /// Paint: occurrences, faces; its pipette (docs/render/look.md).
     PaintPart,
     PaintFace,
+    Picker,
 }
 
 impl Cursor {
     /// Every cursor.
-    pub const ALL: [Cursor; 22] = [
+    pub const ALL: [Cursor; 23] = [
         Cursor::Select,
         Cursor::SelectPart,
         Cursor::SelectPlusMinus,
@@ -1065,6 +1119,7 @@ impl Cursor {
         Cursor::Pull,
         Cursor::PaintPart,
         Cursor::PaintFace,
+        Cursor::Picker,
     ];
 }
 
@@ -1414,6 +1469,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Boolean(op) => Box::new(BooleanTool::new(op)),
         ToolKind::Erase => Box::new(EraseTool::default()),
         ToolKind::Paint => Box::new(PaintTool::default()),
+        ToolKind::Sample => Box::new(SampleTool::default()),
         ToolKind::Section => Box::new(SectionTool::default()),
         ToolKind::Measure => Box::new(MeasureTool::default()),
         ToolKind::Stretch => Box::new(StretchTool::default()),

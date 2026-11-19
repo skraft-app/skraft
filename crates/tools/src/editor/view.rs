@@ -23,6 +23,9 @@ pub enum Mark {
     Ghost,
     /// Another occurrence of the part a change is aimed at: it changes too (docs/model/data-model.md).
     Related,
+    /// What the paint tool would paint, in the colour it would take: no tint, hovered edges
+    /// (docs/render/look.md).
+    Painted,
 }
 
 /// How a placement is drawn.
@@ -67,6 +70,9 @@ pub struct ViewHighlight {
     pub material: Option<Id>,
     /// An open part's blank, drawn as a ghost: highlighted see-through (docs/model/bodies.md).
     pub ghost: bool,
+    /// Only this face of the solid (its index in the record), in `material` over its own
+    /// paint, without edges: the face the paint tool would paint.
+    pub face: Option<u32>,
 }
 
 /// What the viewport draws this frame (meshes come from [`Editor::scene`]).
@@ -269,6 +275,7 @@ impl Editor {
                         mark: Mark::Selected,
                         material: None,
                         ghost: key.4 || r.is_ghost(*id),
+                        face: None,
                     });
                 }
             }
@@ -284,6 +291,7 @@ impl Editor {
                         mark: Mark::Related,
                         material: None,
                         ghost: key.4 || r.is_ghost(b.body),
+                        face: None,
                     });
                 }
             }
@@ -316,6 +324,7 @@ impl Editor {
                         mark: Mark::Selected,
                         material: u.material,
                         ghost: key.4,
+                        face: None,
                     }));
                 }
             }
@@ -337,6 +346,7 @@ impl Editor {
                 mark: Mark::Selected,
                 material: u.material,
                 ghost: key.4,
+                face: None,
             }));
         }
         let set = self.selection.iter().copied().collect();
@@ -539,7 +549,15 @@ impl Editor {
         let mark = |out: &mut Vec<ViewHighlight>, ctx: &[Id], id: Id, m: Mark, extra: DAffine3| {
             if recipe.is_some() {
                 if let Some((key, t, ghost)) = tool_at(id) {
-                    out.push(ViewHighlight { definition: key, solid: key, transform: extra * t, mark: m, material: None, ghost });
+                    out.push(ViewHighlight {
+                        definition: key,
+                        solid: key,
+                        transform: extra * t,
+                        mark: m,
+                        material: None,
+                        ghost,
+                        face: None,
+                    });
                 }
                 return;
             }
@@ -556,6 +574,7 @@ impl Editor {
                     mark: m,
                     material: u.material,
                     ghost: self.xray(),
+                    face: None,
                 });
             }
         };
@@ -670,6 +689,7 @@ impl Editor {
                     mark: if faded { Mark::HoverFaded } else { Mark::Hover },
                     material: u.material,
                     ghost: self.xray(),
+                    face: None,
                 });
             }
         }
@@ -707,8 +727,14 @@ impl Editor {
                     mark: Mark::Related,
                     material: p.material,
                     ghost: self.xray(),
+                    face: None,
                 });
             }
+        }
+        // What the paint tool would paint, in the colour it would take, over its marks (not in an
+        // open part: its bodies are not painted).
+        if let Some(paint) = preview.paint.as_ref().filter(|_| recipe.is_none()) {
+            self.paint_marks(paint, &mut v.highlights);
         }
         // The selection alone moves: not the other copies of its bodies' definitions (`Related`).
         for g in preview.ghost.iter().chain(&preview.copies) {
@@ -785,13 +811,57 @@ impl Editor {
                 }
             }
         }
-        for h in v.highlights.iter().filter(|h| !h.ghost) {
+        // A single face's (the paint tool's) leaves the part's cut as it is.
+        for h in v.highlights.iter().filter(|h| !h.ghost && h.face.is_none()) {
             let Some(cut) = cuts.cut(&self.scene, h.definition, &h.transform, section) else { continue };
             for (_, segments) in cut.iter().filter(|(solid, _)| *solid == h.solid) {
                 push(&h.transform, segments, false, Some(h.mark));
             }
         }
         out
+    }
+
+    /// The highlights of what the paint tool would paint, in the colour it would take
+    /// (docs/render/look.md): the parts under the occurrences painted, each in the material it would
+    /// then take (what is painted below them keeps its own, a painted face its paint); a face
+    /// alone, on every occurrence of its part shown.
+    fn paint_marks(&self, paint: &tools::PaintPreview, out: &mut Vec<ViewHighlight>) {
+        let doc = self.document();
+        let xray = self.xray();
+        let mut mark = |index: Option<ContextIndex<'_>>, id: Id| {
+            for u in index.map(|i| i.solids_under_painted(id, paint.material)).into_iter().flatten() {
+                let (definition, solid, transform, material) = (u.part, u.part, u.transform, u.material);
+                out.push(ViewHighlight { definition, solid, transform, mark: Mark::Painted, material, ghost: xray, face: None });
+            }
+        };
+        match &paint.target {
+            tools::PaintTarget::Occurrences(ids) => {
+                for id in ids {
+                    mark(ContextIndex::new(doc, &self.context), *id);
+                }
+            }
+            tools::PaintTarget::Paths(paths) => {
+                for p in paths {
+                    mark(ContextIndex::new(doc, &p.instances), p.entity);
+                }
+            }
+            tools::PaintTarget::Face { path, face } => {
+                let Ok((part, _, _)) = doc.resolve_part(path) else { return };
+                let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part) else { return };
+                for p in places.iter().filter(|p| self.scene.is_shown(p)) {
+                    out.push(ViewHighlight {
+                        definition: part,
+                        solid: part,
+                        transform: p.transform,
+                        mark: Mark::Painted,
+                        // Unpainted, it takes its occurrence's again.
+                        material: paint.material.or(p.material),
+                        ghost: xray,
+                        face: Some(*face),
+                    });
+                }
+            }
+        }
     }
 }
 

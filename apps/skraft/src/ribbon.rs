@@ -80,7 +80,7 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
                     &["tool.stretch", "tool.union", "tool.difference", "tool.intersection"],
                     &["tool.stretch", "tool.union", "tool.difference", "tool.intersection"],
                 ),
-                group("appearance", || t!("ribbon.group.appearance"), &["tool.paint"], &["tool.paint"]),
+                group("appearance", || t!("ribbon.group.appearance"), &["tool.paint", "tool.sample"], &["tool.paint", "tool.sample"]),
             ],
         },
         Tab {
@@ -683,6 +683,11 @@ fn command_button(
     let visuals = ui.style().interact_selectable(&response, selected);
     if selected || (c.enabled && response.hovered()) {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
+    } else if c.waiting {
+        // Waiting under the active tool, which hands back to it: its frame alone, lighter.
+        let waiting = ui.style().interact_selectable(&response, true);
+        let stroke = egui::Stroke::new(1.0, ui.visuals().selection.stroke.color.gamma_multiply(0.6));
+        ui.painter().rect_stroke(rect, waiting.corner_radius, stroke, StrokeKind::Inside);
     }
     let mut ink = if selected { visuals.text_color() } else { ui.visuals().text_color() };
     if !c.enabled {

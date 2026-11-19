@@ -102,6 +102,8 @@ pub struct SkraftApp {
     /// The documents loading, and since when (egui's time): the window comes after
     /// [`LOAD_WINDOW_AFTER`].
     loads_seen: std::collections::HashMap<DocId, f64>,
+    /// The paint tool was active at the last look ([`Self::reveal_materials`]).
+    painting: bool,
     /// What was copied, for every document (docs/tools/copy-paste.md), and how many
     /// copies were made (each names its token).
     clipboard: Option<Clipboard>,
@@ -196,6 +198,7 @@ pub(crate) fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.move" => ToolKind::Move,
         "tool.rotate" => ToolKind::Rotate,
         "tool.paint" => ToolKind::Paint,
+        "tool.sample" => ToolKind::Sample,
         "tool.section" => ToolKind::Section,
         "tool.measure" => ToolKind::Measure,
         "tool.stretch" => ToolKind::Stretch,
@@ -325,6 +328,7 @@ impl SkraftApp {
             pending_keys: Vec::new(),
             tabs: Vec::new(),
             loads_seen: std::collections::HashMap::new(),
+            painting: false,
             clipboard: None,
             copies: 0,
         };
@@ -772,6 +776,12 @@ impl SkraftApp {
         }
     }
 
+    /// Is `id` a tool waiting under the active one (the tool stack, docs/tools/interaction.md#tool-stack)?
+    fn waiting(&self, id: &str) -> bool {
+        let Some(kind) = tool_of(id) else { return false };
+        self.docs.active().is_some_and(|d| d.editor.suspended_tools().contains(&kind))
+    }
+
     /// A toggle's state, or which tool is on.
     fn checked(&self, id: &str) -> Option<bool> {
         match id {
@@ -831,6 +841,7 @@ impl SkraftApp {
                 group: c.group,
                 enabled: self.enabled(c.id),
                 checked: self.checked(c.id),
+                waiting: self.waiting(c.id),
                 shortcut: self.keymap.get(c.id).map(|s| s.display(mac)),
             })
             .collect()
@@ -1594,6 +1605,17 @@ impl SkraftApp {
         if let Some(id) = reset {
             self.prefs.shortcuts.remove(id);
         }
+    }
+
+    /// The paint tool or « Prélever » just started (whatever started it: the ribbon, its key,
+    /// the palette, a material picked, a client): the Matières panel shown and unfolded, to see
+    /// what it paints with (docs/render/look.md); left as it is when the tool ends. Says whether
+    /// it did.
+    fn reveal_materials(&mut self) -> bool {
+        let painting = self.docs.active().is_some_and(|d| matches!(d.editor.tool_kind(), ToolKind::Paint | ToolKind::Sample));
+        let started = painting && !self.painting;
+        self.painting = painting;
+        started && self.prefs.panels.reveal(PanelId::Materials)
     }
 
     /// The side panels, as cards in their columns ([`dock`]), the one dragged by its header
@@ -2414,6 +2436,7 @@ impl eframe::App for SkraftApp {
             self.keyboard(&ctx);
         }
         self.serve_control(&ctx, frame);
+        self.reveal_materials();
 
         // Still the window's title where the OS shows it (Window menu, Mission Control).
         // A dev build says which (several may run, one per worktree).
@@ -2492,6 +2515,10 @@ impl eframe::App for SkraftApp {
         self.naming_dialog(&ctx);
         for a in actions {
             self.act(a);
+        }
+        // The paint tool started by them: its panel at the next frame.
+        if self.reveal_materials() {
+            ctx.request_repaint();
         }
         // What the frame's actions made the editors say: shown at the next frame.
         self.take_notices(&ctx);

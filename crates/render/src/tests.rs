@@ -78,6 +78,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         edge_tint: [0.1, 0.3, 0.9, 1.0],
         material: NO_MATERIAL,
         ghost: false,
+        face: None,
     }];
     let frame = Frame {
         view,
@@ -365,6 +366,74 @@ fn faces_take_their_colour_from_the_palette() {
     let (px, _) = shot(&mut r, &device, &queue, front_view(), Placement::new(DMat4::IDENTITY), Style::default());
     let c = at_centre(&px);
     assert!(c[0].abs_diff(c[2]) < 60, "{c:?} is not the warm white");
+}
+
+/// One face of the cube highlighted alone, in a colour forced over its own paint (the face the
+/// paint tool would paint): only that face changes.
+#[test]
+fn a_face_highlight_forces_its_colour_on_that_face_only() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    let palette = [[0.8, 0.05, 0.05, 1.0], [0.05, 0.05, 0.8, 1.0]];
+    let style = Style { palette: &palette, ..Style::default() };
+    // Every face painted red.
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[0; 6] }]);
+    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
+    let mut shoot = |material: u32, face: Option<u32>| {
+        let hl =
+            Highlight { key: 1, part: 1, transform: DMat4::IDENTITY, face_tint: NO_TINT, edge_tint: NO_TINT, material, ghost: false, face };
+        let highlights = [hl];
+        let frame = Frame {
+            view: front_view(),
+            proj,
+            background: [1.0, 1.0, 1.0],
+            style,
+            batches: &batches,
+            highlights: &highlights,
+            lines: &[],
+            faint_lines: &[],
+            boxes: &[],
+            overlay: &[],
+            hidden_lines: &[],
+            fills: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 1.0,
+            model_per_point: 1.0,
+        };
+        let mut enc = device.create_command_encoder(&Default::default());
+        r.render(&device, &queue, &mut enc, SIZE, &frame);
+        queue.submit([enc.finish()]);
+        draw(&mut r, &device, &queue, SIZE, &frame)
+    };
+    let over = |a: u8, b: u8| a as i32 > b as i32 + 60;
+    let red = |c: [u8; 4]| over(c[0], c[1]) && over(c[0], c[2]);
+    let blue = |c: [u8; 4]| over(c[2], c[0]) && over(c[2], c[1]);
+    // The whole part highlighted in blue: its faces' own red wins.
+    let px = shoot(1, None);
+    assert!(red(pixel(&px, SIZE[0], 160, 100)), "a part's highlight keeps its faces' paint");
+    // Each face alone in blue: the one under the centre turns blue, the others leave it red.
+    let mut turned = Vec::new();
+    for face in 0..6 {
+        let px = shoot(1, Some(face));
+        let c = pixel(&px, SIZE[0], 160, 100);
+        if blue(c) {
+            turned.push(face);
+            save(&px, SIZE, "face_forced");
+        } else {
+            assert!(red(c), "face {face}: {c:?}");
+        }
+    }
+    assert_eq!(turned.len(), 1, "one face under the centre: {turned:?}");
+    // That face forced to no material: the default colour, not its red.
+    let c = pixel(&shoot(NO_MATERIAL, Some(turned[0])), SIZE[0], 160, 100);
+    assert!(!red(c) && c[0].abs_diff(c[2]) < 60, "{c:?} is not the warm white");
 }
 
 #[test]

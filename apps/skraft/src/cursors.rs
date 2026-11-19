@@ -43,6 +43,7 @@ fn source(cursor: Cursor) -> (&'static [u8], &'static str, [u32; 2]) {
         Cursor::Pull => svg!("pull", 16, 3),
         Cursor::PaintPart => svg!("paint-part", 2, 15),
         Cursor::PaintFace => svg!("paint-face-1", 2, 15),
+        Cursor::Picker => svg!("picker", 0, 0),
     }
 }
 
@@ -59,6 +60,30 @@ pub fn apply(ctx: &egui::Context) {
     let asked = ctx.data_mut(|d| d.remove_temp::<Option<Cursor>>(asked_id())).flatten();
     let arrow = ctx.output(|o| o.cursor_icon == egui::CursorIcon::Default);
     show(ctx, asked.or(arrow.then_some(Cursor::Select)));
+}
+
+/// Where `cursor`'s drawing lies about its hotspot (points): the bounds of its visible pixels,
+/// worked out once. What is written by the pointer (a tooltip) keeps out of it.
+pub fn footprint(cursor: Cursor) -> egui::Rect {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<Cursor, egui::Rect>>> = OnceLock::new();
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
+    *cache.entry(cursor).or_insert_with(|| {
+        const SCALE: u32 = 2;
+        let (rgba, side) = rasterise(cursor, SCALE);
+        let (mut lo, mut hi) = ([side, side], [0, 0]);
+        for (i, p) in rgba.chunks_exact(4).enumerate() {
+            if p[3] > 0 {
+                let (x, y) = (i as u32 % side, i as u32 / side);
+                lo = [lo[0].min(x), lo[1].min(y)];
+                hi = [hi[0].max(x + 1), hi[1].max(y + 1)];
+            }
+        }
+        let [hx, hy] = source(cursor).2.map(|v| v as f32);
+        let at = |[x, y]: [u32; 2]| egui::pos2(x as f32 / SCALE as f32 - hx, y as f32 / SCALE as f32 - hy);
+        egui::Rect::from_min_max(at(lo), at(hi))
+    })
 }
 
 fn asked_id() -> egui::Id {
@@ -221,5 +246,17 @@ mod tests {
             assert!(rgba.chunks_exact(4).any(|p| p[3] > 0), "{cursor:?} is empty");
             assert!(source(cursor).2.iter().all(|&v| v < SIZE), "{cursor:?}'s hotspot");
         }
+    }
+
+    /// A cursor's footprint is its drawing about its hotspot: the pipette's, whose tip is the
+    /// hotspot, lies right of it and below.
+    #[test]
+    fn a_footprint_lies_about_the_hotspot() {
+        let picker = footprint(Cursor::Picker);
+        assert!(picker.min.x >= -0.5 && picker.min.y >= -0.5, "{picker:?}");
+        assert!(picker.max.x > 20.0 && picker.max.y > 20.0, "{picker:?}");
+        // The pencils' tip at the bottom left: drawn above it.
+        let pencil = footprint(Cursor::PencilRectangle);
+        assert!(pencil.max.y < 2.0 && pencil.min.y < -20.0, "{pencil:?}");
     }
 }

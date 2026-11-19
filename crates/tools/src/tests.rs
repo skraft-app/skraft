@@ -1743,6 +1743,105 @@ fn paint_tool_paints_occurrences_the_selection_and_faces() {
     assert_eq!(dm.faces.values().copied().collect::<Vec<_>>(), [oak]);
 }
 
+/// The paint tool shows what a click would paint in the colour it would take, and its pipette
+/// takes the material shown under the cursor (docs/render/look.md).
+#[test]
+fn paint_tool_previews_its_colour_and_picks_with_its_pipette() {
+    use skraft_i18n::t;
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    // Never painted.
+    draw_box(&mut e, DVec3::new(600.0, 0.0, 0.0), DVec3::new(700.0, 100.0, 0.0), "50");
+    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap();
+    e.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap();
+    let ids: Vec<Id> = e.document().materials().map(|(id, _)| id).collect();
+    let (oak, walnut) = (ids[0], ids[1]);
+    let (top_a, top_b, top_c) = (DVec3::new(50.0, 50.0, 50.0), DVec3::new(350.0, 50.0, 50.0), DVec3::new(650.0, 50.0, 50.0));
+    let painted = |e: &Editor| {
+        let mut marks: Vec<(Option<Id>, Option<u32>)> =
+            e.view().highlights.iter().filter(|h| h.mark == Mark::Painted).map(|h| (h.material, h.face)).collect();
+        marks.sort();
+        marks
+    };
+    e.set_tool(ToolKind::Paint);
+    e.set_paint_material(Some(walnut));
+    click(&mut e, top_b);
+    e.set_paint_material(Some(oak));
+
+    // Hovered, an occurrence shows the colour it would take; none, the colour it would have.
+    hover(&mut e, top_a);
+    assert_eq!(painted(&e), [(Some(oak), None)]);
+    e.set_paint_material(None);
+    hover(&mut e, top_b);
+    assert_eq!(painted(&e), [(None, None)], "unpainted: the default colour");
+    e.set_paint_material(Some(oak));
+
+    // A face: alone, in the colour it would take, over the part's.
+    e.set_tool_option("target", OptionValue::Choice("face".into()));
+    hover(&mut e, top_b);
+    let marks = painted(&e);
+    assert!(matches!(marks.as_slice(), [(Some(m), Some(_))] if *m == oak), "{marks:?}");
+    click(&mut e, top_b);
+    e.set_paint_material(None);
+    hover(&mut e, top_b);
+    let marks = painted(&e);
+    assert!(matches!(marks.as_slice(), [(Some(m), Some(_))] if *m == walnut), "unpainted, the occurrence's: {marks:?}");
+
+    // « Prélever » on its own: its tooltip names the material under the cursor — the face's
+    // own, else the occurrence's, else none —; a click takes it, then the paint tool starts.
+    e.set_tool(ToolKind::Sample);
+    assert_eq!(e.tool_cursor(), Some(Cursor::Picker));
+    hover(&mut e, top_b);
+    assert_eq!(e.inference_tip().as_deref(), Some("Chêne"));
+    assert!(painted(&e).is_empty(), "it paints nothing");
+    hover(&mut e, top_c);
+    assert_eq!(e.inference_tip(), Some(t!("panel.materials.none")));
+    click(&mut e, top_b);
+    assert_eq!((e.paint_material(), e.tool_kind()), (Some(oak), ToolKind::Paint));
+
+    // Held over the paint tool by the other modifier (the tool stack): each click takes, the
+    // paint tool waiting under it as it was, back when the key is released.
+    e.set_tool_option("target", OptionValue::Choice("occurrence".into()));
+    e.set_alt(true);
+    assert_eq!((e.tool_kind(), e.suspended_tools()), (ToolKind::Sample, vec![ToolKind::Paint]));
+    assert_eq!(e.tool_cursor(), Some(Cursor::Picker));
+    click(&mut e, top_c);
+    assert_eq!(e.paint_material(), None);
+    e.apply(Operation::PaintOccurrences { context: e.document().root(), entities: vec![a], material: Some(walnut) }).unwrap();
+    click(&mut e, top_a);
+    assert_eq!((e.paint_material(), e.tool_kind()), (Some(walnut), ToolKind::Sample), "held: it takes again");
+    e.set_alt(false);
+    assert_eq!((e.tool_kind(), e.suspended_tools()), (ToolKind::Paint, vec![]));
+    assert_eq!(e.tool_cursor(), Some(Cursor::PaintPart));
+    // Esc hands back too.
+    e.set_alt(true);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!((e.tool_kind(), e.suspended_tools()), (ToolKind::Paint, vec![]));
+    e.set_alt(false);
+    assert_eq!(e.tool_kind(), ToolKind::Paint);
+    // Choosing a tool empties the stack.
+    e.set_alt(true);
+    e.set_tool(ToolKind::Select);
+    assert!(e.suspended_tools().is_empty());
+    e.set_alt(false);
+    assert_eq!(e.tool_kind(), ToolKind::Select);
+    e.set_tool(ToolKind::Paint);
+
+    // An assembly: its parts in the colour they would inherit, a part painted keeping its own.
+    let root = e.document().root();
+    e.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: None }).unwrap();
+    let asm = e.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().unwrap().created[0];
+    e.select(vec![]);
+    e.set_paint_material(Some(oak));
+    hover(&mut e, top_a);
+    assert_eq!(painted(&e), [(Some(oak), None), (Some(walnut), None)], "b keeps its walnut");
+    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Painted).count(), 2);
+    click(&mut e, top_a);
+    let occurrence = |e: &Editor| e.document().assembly(root).unwrap().occurrence(asm).unwrap().material;
+    assert_eq!(occurrence(&e), Some(oak));
+}
+
 #[test]
 fn section_tool_places_a_plane_and_picking_ignores_what_it_cuts() {
     let mut e = top_editor(Document::new());

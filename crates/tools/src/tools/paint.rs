@@ -1,27 +1,28 @@
-//! Paint (SketchUp's paint bucket, docs/render/look.md): a click paints the occurrence under the
-//! cursor — the whole selection when it is in it — or a single face of its part, with the
-//! current material (none: the paint is removed). The option says which. Under « Parts »
-//! (docs/tools/selection.md), the part under the cursor at any depth, in its assembly — the parts selected
-//! when it is one of them —, and the level chosen in the tree drop-up. Painting occurrences, a
-//! drag draws a rectangle: what it encloses (left to right) or touches (right to left) is
-//! painted, at once when it is released (one step); Esc drops it.
+//! Paint (SketchUp's paint bucket, OpenCutList's Smart Paint, docs/render/look.md): a click paints
+//! the occurrence under the cursor — the whole selection when it is in it — or a single face of
+//! its part, with the current material (none: the paint is removed). The option says which. Under
+//! « Parts » (docs/tools/selection.md), the part under the cursor at any depth, in its assembly —
+//! the parts selected when it is one of them —, and the level chosen in the tree drop-up.
+//! Painting occurrences, a drag draws a rectangle: what it encloses (left to right) or touches
+//! (right to left) is painted, at once when it is released (one step); Esc drops it. What a click
+//! would paint is drawn in the colour it would take. The other modifier held (Command on macOS,
+//! Alt elsewhere) holds « Prélever » over it (`sample.rs`, the tool stack,
+//! docs/tools/interaction.md#tool-stack).
 
 use super::DragClicks;
 use skraft_i18n::t;
 use skraft_model::{EntityPath, Id, Operation};
 
 use super::select::{marquee_hits, marquee_parts};
-use super::{Command, Cx, Marquee, OptionChoice, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption};
+use super::{
+    Command, Cx, Marquee, OptionChoice, OptionValue, PaintPreview, PaintTarget, Preview, Tool, ToolInput, ToolKind, ToolOption, alt_key,
+};
 use crate::scene::Hit;
 
 /// The target option's key and values.
 pub const TARGET: &str = "target";
 const OCCURRENCE: &str = "occurrence";
 const FACE: &str = "face";
-
-fn faces(cx: &Cx<'_>) -> bool {
-    cx.choice(TARGET) == Some(FACE)
-}
 
 /// A drag shorter than this (pixels, both ways) is a click.
 const MIN_MARQUEE: f64 = 3.0;
@@ -33,6 +34,9 @@ pub struct PaintTool {
     marquee: Option<Marquee>,
     /// Painting faces, as the option said at the last input.
     faces: bool,
+    /// The other modifier held at the last input: pressed, it holds « Prélever »; still held
+    /// once that hands back (Esc), it does not again.
+    alt: bool,
 }
 
 impl PaintTool {
@@ -57,31 +61,42 @@ impl PaintTool {
         (ids, Vec::new())
     }
 
-    /// The rectangle `from`–`to` released: what it takes painted, in one step.
-    fn paint_rectangle(from: glam::DVec2, to: glam::DVec2, cx: &Cx<'_>) -> Vec<Command> {
-        let (ids, paths) = Self::hits(&Marquee::new(from, to), cx);
-        if !paths.is_empty() {
-            return vec![Command::Apply(Self::paint_paths(&paths, cx))];
+    /// What the rectangle `m` (its hits worked out) paints, if anything.
+    fn rectangle_target(m: &Marquee) -> Option<PaintTarget> {
+        if !m.paths.is_empty() {
+            Some(PaintTarget::Paths(m.paths.clone()))
+        } else if !m.hits.is_empty() {
+            Some(PaintTarget::Occurrences(m.hits.clone()))
+        } else {
+            None
         }
-        if ids.is_empty() {
-            return vec![];
-        }
-        vec![Command::Apply(Operation::PaintOccurrences { context: cx.context_def, entities: ids, material: cx.material })]
     }
 
-    fn paint(&self, hit: &Hit, cx: &Cx<'_>) -> Result<Operation, String> {
-        if faces(cx) {
-            let (part, _, _) = cx.doc.resolve_part(&hit.path).map_err(|e| e.to_string())?;
-            return Ok(Operation::PaintFaces { part, faces: vec![hit.face], material: cx.material });
+    /// What a click on `hit` paints.
+    fn target(&self, hit: &Hit, cx: &Cx<'_>) -> Result<PaintTarget, String> {
+        if self.faces {
+            return Ok(PaintTarget::Face { path: hit.path.clone(), face: hit.face });
         }
         if cx.parts {
             let path = Self::part(hit, cx).ok_or_else(|| t!("tool.paint.outside"))?;
             let paths = if cx.deep.contains(&path) { cx.deep.to_vec() } else { vec![path] };
-            return Ok(Self::paint_paths(&paths, cx));
+            return Ok(PaintTarget::Paths(paths));
         }
         let id = cx.selectable(&hit.path).ok_or_else(|| t!("tool.paint.outside"))?;
-        let entities = if cx.selection.contains(&id) { cx.selection.to_vec() } else { vec![id] };
-        Ok(Operation::PaintOccurrences { context: cx.context_def, entities, material: cx.material })
+        Ok(PaintTarget::Occurrences(if cx.selection.contains(&id) { cx.selection.to_vec() } else { vec![id] }))
+    }
+
+    /// The operation painting `target` with the current material.
+    fn paint(target: PaintTarget, cx: &Cx<'_>) -> Result<Operation, String> {
+        let material = cx.material;
+        Ok(match target {
+            PaintTarget::Occurrences(entities) => Operation::PaintOccurrences { context: cx.context_def, entities, material },
+            PaintTarget::Paths(paths) => Self::paint_paths(&paths, cx),
+            PaintTarget::Face { path, face } => {
+                let (part, _, _) = cx.doc.resolve_part(&path).map_err(|e| e.to_string())?;
+                Operation::PaintFaces { part, faces: vec![face], material }
+            }
+        })
     }
 }
 
@@ -95,7 +110,15 @@ impl Tool for PaintTool {
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        self.faces = faces(cx);
+        self.faces = cx.choice(TARGET) == Some(FACE);
+        // The other modifier pressed: « Prélever » over it, until released (not while a
+        // rectangle is dragged).
+        let pressed = cx.alt_down && !self.alt;
+        self.alt = cx.alt_down;
+        if pressed && self.marquee.is_none() {
+            self.hover = None;
+            return vec![Command::Hold(ToolKind::Sample)];
+        }
         match input {
             ToolInput::Hover { px } => self.hover = if self.marquee.is_some() { None } else { cx.pick(*px) },
             ToolInput::DragStart { px, .. } => {
@@ -115,11 +138,17 @@ impl Tool for PaintTool {
                 if (*px - m.from).abs().max_element() < MIN_MARQUEE {
                     return self.input(&ToolInput::Click { px: *px, mods: *mods }, cx);
                 }
-                return Self::paint_rectangle(m.from, *px, cx);
+                let mut m = Marquee::new(m.from, *px);
+                (m.hits, m.paths) = Self::hits(&m, cx);
+                return match Self::rectangle_target(&m).map(|t| Self::paint(t, cx)) {
+                    Some(Ok(op)) => vec![Command::Apply(op)],
+                    Some(Err(why)) => vec![Command::Say(why)],
+                    None => vec![],
+                };
             }
             ToolInput::Click { px, .. } => {
                 let Some(hit) = cx.pick(*px) else { return vec![] };
-                return match self.paint(&hit, cx) {
+                return match self.target(&hit, cx).and_then(|t| Self::paint(t, cx)) {
                     Ok(op) => vec![Command::Apply(op)],
                     Err(why) => vec![Command::Say(why)],
                 };
@@ -130,36 +159,34 @@ impl Tool for PaintTool {
     }
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
+        let paint = |target| Some(PaintPreview { material: cx.material, target });
         if let Some(m) = &self.marquee {
-            return Preview { marquee: Some(m.clone()), ..Default::default() };
+            return Preview { marquee: Some(m.clone()), paint: Self::rectangle_target(m).and_then(paint), ..Default::default() };
         }
         let Some(hit) = &self.hover else { return Preview::default() };
-        if faces(cx) {
+        let paint = self.target(hit, cx).ok().and_then(paint);
+        if self.faces {
             // A face belongs to the part: every occurrence of it changes.
             let path: EntityPath = hit.path.clone();
-            return Preview { hover_solid: Some(path.clone()), propagate: Some(path), ..Default::default() };
+            return Preview { hover_solid: Some(path.clone()), propagate: Some(path), paint, ..Default::default() };
         }
         if cx.parts {
-            return Preview { hover_solid: Self::part(hit, cx), ..Default::default() };
+            return Preview { hover_solid: Self::part(hit, cx), paint, ..Default::default() };
         }
-        Preview { hover: cx.selectable(&hit.path), ..Default::default() }
+        Preview { hover: cx.selectable(&hit.path), paint, ..Default::default() }
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
-        let value = if faces(cx) { FACE } else { OCCURRENCE };
+        let value = if cx.choice(TARGET) == Some(FACE) { FACE } else { OCCURRENCE };
+        let choice = |value, label, tip| OptionChoice { value, label, tip, icon: None };
         vec![ToolOption {
             key: TARGET,
             label: t!("tool.paint.option.target"),
             tip: t!("tool.paint.option.target_tip"),
             value: OptionValue::Choice(value.into()),
             choices: vec![
-                OptionChoice {
-                    value: OCCURRENCE,
-                    label: t!("tool.paint.option.occurrence"),
-                    tip: t!("tool.paint.option.occurrence_tip"),
-                    icon: None,
-                },
-                OptionChoice { value: FACE, label: t!("tool.paint.option.face"), tip: t!("tool.paint.option.face_tip"), icon: None },
+                choice(OCCURRENCE, t!("tool.paint.option.occurrence"), t!("tool.paint.option.occurrence_tip")),
+                choice(FACE, t!("tool.paint.option.face"), t!("tool.paint.option.face_tip")),
             ],
             saved: true,
             icon: None,
@@ -177,8 +204,8 @@ impl Tool for PaintTool {
         match &self.marquee {
             Some(m) if m.crossing => t!("tool.select.hint.crossing"),
             Some(_) => t!("tool.select.hint.window"),
-            None if self.faces => t!("tool.paint.hint"),
-            None => t!("tool.paint.hint_rectangle"),
+            None if self.faces => t!("tool.paint.hint", alt_key = alt_key()),
+            None => t!("tool.paint.hint_rectangle", alt_key = alt_key()),
         }
     }
 

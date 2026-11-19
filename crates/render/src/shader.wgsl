@@ -23,6 +23,8 @@ struct Globals {
 @group(0) @binding(1) var<storage, read> palette: array<vec4<f32>>;
 
 const NO_MATERIAL: u32 = 0xffffffffu;
+// Set in an instance's palette entry: it wins over its faces' own paint (lib.rs's `FORCED`).
+const FORCED: u32 = 0x40000000u;
 
 // One placement of a part's mesh: its transform to the camera (model-view), the inverse
 // transpose of its linear part for normals (n0.w: -1 when the placement mirrors, which turns
@@ -76,8 +78,10 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
     out.opacity = inst.n1.w;
     out.hatch = inst.n2.w;
     out.pitch = hatch_pitch(inst.m3.xyz, inst.n2.w);
-    // The face's own colour, else its placement's.
-    out.colour = select(inst.material, paint, paint != NO_MATERIAL);
+    // The face's own colour, else its placement's; the placement's when forced (no entry left
+    // under the flag is the default colour).
+    let forced = inst.material != NO_MATERIAL && (inst.material & FORCED) != 0u;
+    out.colour = select(select(inst.material, paint, paint != NO_MATERIAL), inst.material & ~FORCED, forced);
     return out;
 }
 
