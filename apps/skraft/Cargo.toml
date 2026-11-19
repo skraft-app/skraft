@@ -38,6 +38,9 @@ skraft-control.workspace = true
 web-time = "1.1"
 # Screenshots of the control protocol (src/driving.rs), on the web too.
 png = "0.17"
+# The system's preferred languages, for the texts when the preferences leave the language to
+# it (src/language.rs).
+sys-locale = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The kernel runs on a thread of the app; on the web, in its own worker (docs/model/kernel.md).
@@ -82,3 +85,5 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Storage", "Location", "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent", "BeforeUnloadEvent", "Event", "Node", "HtmlHeadElement"] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
+# The browser's languages (`navigator.languages`).
+sys-locale = { version = "0.3", features = ["js"] }

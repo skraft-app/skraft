@@ -39,8 +39,9 @@ pub struct Preferences {
     pub new_model: Settings,
     /// The tools' settings from their option bar (the booleans' scope…), by tool id.
     pub tool_options: BTreeMap<String, OptionValues>,
-    /// The language of the app, a locale of /locales (`fr`).
-    pub locale: String,
+    /// The language of the app, a locale of /locales (`fr`); none: the system's
+    /// (src/language.rs).
+    pub locale: Option<String>,
     /// The interface's theme (docs/render/look.md): the system's, light or dark.
     pub theme: Choice,
     /// The interface's colours, in the variant the theme picks.
@@ -86,7 +87,7 @@ impl Default for Preferences {
             navigation: Navigation::default(),
             new_model: Settings::default(),
             tool_options: BTreeMap::new(),
-            locale: skraft_i18n::DEFAULT_LOCALE.to_owned(),
+            locale: None,
             theme: Choice::System,
             palette: Palette::Warm,
             shortcuts: BTreeMap::new(),

@@ -18,6 +18,7 @@ mod icons;
 mod identity;
 mod instance_name;
 mod journal_window;
+mod language;
 mod naming;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;

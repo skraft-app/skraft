@@ -257,7 +257,7 @@ impl SkraftApp {
         // The texts name keys as the platform does (in the browser too).
         skraft_i18n::set_mac(cc.egui_ctx.os() == egui::os::OperatingSystem::Mac);
         crate::separators::read();
-        skraft_i18n::set_locale(&prefs.locale);
+        crate::language::apply(prefs.locale.as_deref());
         let docs = Docs::new(SharedKernel::new(kernel_service(&cc.egui_ctx)));
         let mut toasts = Toasts::default();
         if let Some(e) = error {
@@ -2701,17 +2701,20 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
     egui::Grid::new("general").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.general.language"));
         let before = prefs.locale.clone();
+        let system = t!("prefs.general.language_system", language = skraft_i18n::locale_name(crate::language::system()));
         egui::ComboBox::from_id_salt("locale")
             .icon(crate::icons::combo_chevron)
-            .selected_text(skraft_i18n::locale_name(&prefs.locale))
+            .selected_text(prefs.locale.as_deref().map_or_else(|| system.clone(), skraft_i18n::locale_name))
             .show_ui(ui, |ui| {
+                ui.selectable_value(&mut prefs.locale, None, system);
+                ui.separator();
                 for l in skraft_i18n::available_locales() {
                     let name = skraft_i18n::locale_name(&l);
-                    ui.selectable_value(&mut prefs.locale, l, name);
+                    ui.selectable_value(&mut prefs.locale, Some(l), name);
                 }
             });
         if prefs.locale != before {
-            skraft_i18n::set_locale(&prefs.locale);
+            crate::language::apply(prefs.locale.as_deref());
         }
         ui.end_row();
         if !cfg!(target_arch = "wasm32") {
