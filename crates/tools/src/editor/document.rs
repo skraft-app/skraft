@@ -142,7 +142,7 @@ impl Editor {
             self.scene.insert(&solid, display);
         }
         // A paste carried at the cursor says it once, put down (docs/tools/copy-paste.md).
-        if let Some(w) = outcome.warning.filter(|_| !matches!(after, After::Carry(_))) {
+        if let Some(w) = outcome.warning.clone().filter(|_| !matches!(after, After::Carry(_))) {
             self.notify(NoticeKind::Warning, w.to_string(), None);
         }
         match after {

@@ -45,3 +45,6 @@ state and link the records behind it.
 | 0036 | [A tool stack: a tool over another suspends it, as it is](0036-tool-stack.md) | accepted (2026-11-19) |
 | 0037 | [Solid tools take sets of targets and tools, as OpenCutList's](0037-solid-tools-sets-of-parts.md) | accepted (2026-11-19) |
 | 0038 | [The document's components in a card of their own, placed at the cursor by their origin](0038-components-library-card.md) | accepted (2026-11-19) |
+| 0039 | [The .skraft file is a ZIP of JSON entries](0039-file-format-zip-of-json-entries.md) | accepted (2026-11-19) |
+| 0040 | [Typed properties, their schema optional](0040-typed-properties-schema-optional.md) | accepted (2026-11-19) |
+| 0041 | [Textures by box projection, materials alone in a .skraftmat](0041-textures-and-materials-files.md) | accepted (2026-11-19) |

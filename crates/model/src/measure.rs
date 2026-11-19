@@ -65,6 +65,26 @@ pub fn angle(text: &str, current: f64) -> Result<f64> {
     result(v, Quantity::Angle)
 }
 
+/// A plain number — a count, a price, an area or a volume in the unit's square or cube —, `@`
+/// being `current`; no unit after it. Empty, `current`.
+pub fn number(text: &str, current: f64) -> Result<f64> {
+    if text.trim().is_empty() {
+        return Ok(current);
+    }
+    let v = expr::evaluate(
+        text,
+        &|l: &Literal| match l.unit {
+            None => Ok(Value::bare(l.number)),
+            Some(_) => Err(ExprError::WrongUnit(l.text.clone())),
+        },
+        &|name: &str| variable(name, current),
+    )?;
+    if !v.number.is_finite() {
+        return Err(ExprError::ZeroDivision);
+    }
+    Ok(v.number)
+}
+
 /// `;`-separated lengths (mm), one per current value (see [`length`] for each); those not
 /// typed keep their current value, those beyond are left out.
 pub fn lengths(text: &str, units: &Units, current: &[f64]) -> Result<Vec<f64>> {

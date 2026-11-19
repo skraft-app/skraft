@@ -20,13 +20,15 @@ use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 use skraft_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::clipboard::BodyFragment;
+use crate::assets::Asset;
 use crate::document::{
-    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign,
+    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign, Texture,
     is_identity,
 };
+use crate::props::{PropDef, PropTarget, Props, Value};
 use crate::settings::Settings;
 use crate::stretch::BodyStretch;
 use crate::{Error, FastMap, FastSet, Refusal, Result};
@@ -316,6 +318,24 @@ pub enum Operation {
     EditMaterial { material: Id, name: String, color: [u8; 3] },
     /// Removes a material: what was painted with it is not any more.
     DeleteMaterial { material: Id },
+    /// Gives `material` the texture `texture` (none: its colour alone, docs/render/look.md#textures),
+    /// its image among the document's — `image` added to them first, when given.
+    SetTexture {
+        material: Id,
+        texture: Option<Texture>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<Asset>,
+    },
+    /// Adds the materials of another document — a `.skraftmat` ([`Document::materials_fragment`])
+    /// —, their images and properties' definitions: one equal to a material here is that one.
+    ImportMaterials { fragment: Arc<Document> },
+    /// Sets properties of the entity `target` (docs/model/properties.md): each key to its
+    /// value, or removes it (`None`). Changes in a row to the same keys of one entity undo in
+    /// one go.
+    SetProps { target: PropTarget, props: BTreeMap<String, Option<Value>> },
+    /// Defines the property `key` — the kind of its values, its label, choices, default and
+    /// where it applies —, or removes its definition (`None`: its values are kept).
+    SetPropDef { key: String, def: Option<PropDef> },
     /// Paints occurrences of `context` (`None`: their material is removed).
     PaintOccurrences { context: Id, entities: Vec<Id>, material: Option<Id> },
     /// Hides occurrences of `context`, or shows them again (docs/tools/interaction.md). An assembly's occurrence
@@ -420,6 +440,10 @@ impl Operation {
             Operation::AddMaterial { .. } => t!("operation.add_material"),
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
+            Operation::SetProps { .. } => t!("operation.set_props"),
+            Operation::SetTexture { .. } => t!("operation.set_texture"),
+            Operation::ImportMaterials { .. } => t!("operation.import_materials"),
+            Operation::SetPropDef { .. } => t!("operation.set_prop_def"),
             Operation::PaintOccurrences { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
             Operation::SetHidden { hidden: true, .. } => t!("operation.hide"),
             Operation::SetHidden { hidden: false, .. } => t!("operation.show"),
@@ -494,6 +518,9 @@ impl Operation {
             (Operation::SetSettings(_), Operation::SetSettings(_)) => true,
             (Operation::EditMaterial { material: a, .. }, Operation::EditMaterial { material: b, .. }) => a == b,
             (Operation::SetBehavior { component: a, .. }, Operation::SetBehavior { component: b, .. }) => a == b,
+            (Operation::SetProps { target: a, props: pa }, Operation::SetProps { target: b, props: pb }) => {
+                a == b && pa.keys().eq(pb.keys())
+            }
             _ => false,
         }
     }
@@ -522,14 +549,29 @@ pub struct Outcome {
     pub welds: Vec<crate::Weld>,
 }
 
-/// What an operation done has to say. None for now: a union's tool, and a part pasted into a
-/// part, now come as groups (docs/model/bodies.md#body-groups), with nothing lost to tell.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Warning {}
+/// What an operation done has to say.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Warning {
+    /// Properties pasted or imported renamed, old → new: here, their key was defined otherwise
+    /// (docs/model/properties.md).
+    PropsRenamed(Vec<(String, String)>),
+}
+
+impl Warning {
+    /// The warning of keys `renamed`, if any.
+    fn renamed(renamed: BTreeMap<String, String>) -> Option<Warning> {
+        (!renamed.is_empty()).then(|| Warning::PropsRenamed(renamed.into_iter().collect()))
+    }
+}
 
 impl std::fmt::Display for Warning {
-    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {}
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Warning::PropsRenamed(keys) => {
+                let keys: Vec<String> = keys.iter().map(|(old, new)| format!("{old} → {new}")).collect();
+                f.write_str(&t!("warning.props_renamed", keys = keys.join(", ")))
+            }
+        }
     }
 }
 
@@ -608,12 +650,41 @@ impl Document {
             }
             Operation::AddMaterial { name, color } => {
                 let id = self.fresh_id();
-                self.materials.insert(id, Material { name: name.clone(), color: *color });
+                self.materials.insert(id, Material::new(name.clone(), *color));
                 Ok(Outcome { material: Some(id), ..Outcome::default() })
             }
             Operation::EditMaterial { material, name, color } => {
                 let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
-                *m = Material { name: name.clone(), color: *color };
+                (m.name, m.color) = (name.clone(), *color);
+                Ok(Outcome::default())
+            }
+            Operation::SetProps { target, props } => {
+                self.set_props(target, props)?;
+                Ok(Outcome::default())
+            }
+            Operation::SetTexture { material, texture, image } => {
+                self.material(*material)?;
+                if let Some(a) = image {
+                    self.assets.insert(a.id(), a.clone());
+                }
+                if let Some(t) = texture
+                    && (!t.is_valid() || !self.assets.contains_key(&t.image))
+                {
+                    return Err(Error::Invalid(Refusal::BadTexture));
+                }
+                self.materials.get_mut(material).ok_or(Error::NotFound(*material))?.texture = texture.clone();
+                self.prune_assets();
+                Ok(Outcome::default())
+            }
+            Operation::ImportMaterials { fragment } => {
+                if fragment.materials.is_empty() {
+                    return Err(Error::Invalid(Refusal::NothingPasted));
+                }
+                let (_, renamed) = self.graft(&fragment.materials_fragment(&[])?, false)?;
+                Ok(Outcome { warning: Warning::renamed(renamed), ..Outcome::default() })
+            }
+            Operation::SetPropDef { key, def } => {
+                self.set_prop_def(key, def.as_ref())?;
                 Ok(Outcome::default())
             }
             Operation::DeleteMaterial { material } => {
@@ -640,6 +711,7 @@ impl Document {
                         }
                     }
                 }
+                self.prune_assets();
                 Ok(Outcome::default())
             }
             Operation::PaintOccurrences { context, entities, material } => {
@@ -708,7 +780,7 @@ impl Document {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::PlacementNotRigid));
                 }
-                let mut top = self.graft(fragment, false)?;
+                let (mut top, renamed) = self.graft(fragment, false)?;
                 let placed = match top.len() {
                     0 => return Err(Error::Invalid(Refusal::EmptyAssembly)),
                     1 => {
@@ -726,21 +798,22 @@ impl Document {
                             transform: *transform,
                             material: None,
                             hidden: false,
+                            props: Props::default(),
                         }
                     }
                 };
                 let id = placed.id;
                 self.assembly_mut(*context)?.occurrences_mut().push(placed);
-                Ok(Outcome { created: vec![id], ..Outcome::default() })
+                Ok(Outcome { created: vec![id], warning: Warning::renamed(renamed), ..Outcome::default() })
             }
             Operation::Paste { context, fragment, transform, reuse } => {
                 self.assembly(*context)?;
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
-                let shapes: Vec<GuideShape> = fragment.component(fragment.root)?.guides.iter().map(|g| g.shape).collect();
-                let top = self.graft(fragment, *reuse)?;
-                if top.is_empty() && shapes.is_empty() {
+                let sources: Vec<Guide> = fragment.component(fragment.root)?.guides.clone();
+                let (top, renamed) = self.graft(fragment, *reuse)?;
+                if top.is_empty() && sources.is_empty() {
                     return Err(Error::Invalid(Refusal::NothingPasted));
                 }
                 // Reused, an assembly may be the context or hold it.
@@ -750,15 +823,21 @@ impl Document {
                 let mut created: Vec<Id> = top.iter().map(|o| o.id).collect();
                 let placed = top.into_iter().map(|o| Occurrence { transform: *transform * o.transform, ..o });
                 self.assembly_mut(*context)?.occurrences_mut().extend(placed);
-                let guides: Vec<Guide> = shapes.iter().map(|s| Guide { id: self.fresh_id(), shape: s.transformed(transform) }).collect();
+                let guides: Vec<Guide> = sources.iter().map(|g| g.moved(self.fresh_id(), transform)).collect();
                 created.extend(guides.iter().map(|g| g.id));
                 self.component_mut(*context)?.guides.extend(guides);
-                Ok(Outcome { created, ..Outcome::default() })
+                Ok(Outcome { created, warning: Warning::renamed(renamed), ..Outcome::default() })
             }
-            Operation::PasteBodies { target, fragment, transform, scope } => self.paste_bodies(target, fragment, transform, *scope, solver),
+            Operation::PasteBodies { target, fragment, transform, scope } => {
+                let (fragment, renamed) = self.adopt_fragment_props(fragment);
+                let outcome = self.paste_bodies(target, &fragment, transform, *scope, solver)?;
+                Ok(Outcome { warning: Warning::renamed(renamed), ..outcome })
+            }
             Operation::PasteParts { target, fragment, transform, scope } => {
                 let parts = fragment.parts_as_bodies()?;
-                self.paste_bodies(target, &parts, transform, *scope, solver)
+                let (parts, renamed) = self.adopt_fragment_props(&parts);
+                let outcome = self.paste_bodies(target, &parts, transform, *scope, solver)?;
+                Ok(Outcome { warning: Warning::renamed(renamed), ..outcome })
             }
             Operation::PasteAsPart { context, fragment, transform } => {
                 self.assembly(*context)?;
@@ -768,6 +847,7 @@ impl Document {
                 if fragment.bodies.is_empty() {
                     return Err(Error::Invalid(Refusal::NothingPasted));
                 }
+                let (fragment, renamed) = self.adopt_fragment_props(fragment);
                 let (defs, mut bodies) = self.copies_of_bodies(&fragment.defs, &fragment.bodies, &DAffine3::IDENTITY);
                 if bodies.iter().all(|b| b.sign == Sign::Negative) {
                     bodies.iter_mut().for_each(|b| b.sign = Sign::Positive);
@@ -785,7 +865,7 @@ impl Document {
                 };
                 let part = Part { defs, bodies, shape: None, failed: Default::default(), faces: Default::default() };
                 let part = self.insert_component(&base, false, ComponentKind::Part(part));
-                self.component_mut(part)?.guides = fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: *s }).collect();
+                self.component_mut(part)?.guides = fragment.guides.iter().map(|g| Guide { id: self.fresh_id(), ..g.clone() }).collect();
                 self.recompute(part, None, solver)?;
                 let id = self.fresh_id();
                 self.assembly_mut(*context)?.occurrences_mut().push(Occurrence {
@@ -795,8 +875,9 @@ impl Document {
                     transform: *transform * fragment.world,
                     material: None,
                     hidden: false,
+                    props: Props::default(),
                 });
-                Ok(Outcome { created: vec![id], ..Outcome::default() })
+                Ok(Outcome { created: vec![id], warning: Warning::renamed(renamed), ..Outcome::default() })
             }
             Operation::AddGuide { component, shape } => {
                 self.component(*component)?;
@@ -804,7 +885,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::BadGuide));
                 }
                 let id = self.fresh_id();
-                self.component_mut(*component)?.guides.push(Guide { id, shape: *shape });
+                self.component_mut(*component)?.guides.push(Guide { id, shape: *shape, props: Props::default() });
                 Ok(Outcome { guide: Some(id), ..Outcome::default() })
             }
             Operation::AddPrimitive { context, primitive, placement, material } => {
@@ -831,6 +912,7 @@ impl Document {
                     transform,
                     material: *material,
                     hidden: false,
+                    props: Props::default(),
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
@@ -961,7 +1043,7 @@ impl Document {
                     .guides
                     .iter()
                     .filter(|g| guides.contains(&g.id))
-                    .map(|g| Guide { id: g.id, shape: g.shape.transformed(&to_axes) })
+                    .map(|g| g.moved(g.id, &to_axes))
                     .collect();
                 self.component_mut(*context)?.guides.retain(|g| !guides.contains(&g.id));
                 self.component_mut(assembly)?.guides = taken;
@@ -981,6 +1063,7 @@ impl Document {
                         transform: DAffine3::from_translation(corner),
                         material: None,
                         hidden: false,
+                        props: Props::default(),
                     },
                 );
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
@@ -998,7 +1081,7 @@ impl Document {
                 // Its guides stay where they were, in the context.
                 let guides = self.component(o.component)?.guides.clone();
                 let guides: Vec<Guide> =
-                    guides.iter().map(|g| Guide { id: self.fresh_id(), shape: g.shape.transformed(&o.transform) }).collect();
+                    guides.iter().map(|g| g.moved(self.fresh_id(), &o.transform)).collect();
                 self.component_mut(*context)?.guides.extend(guides);
                 let ctx = self.assembly_mut(*context)?;
                 let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
@@ -1061,6 +1144,7 @@ impl Document {
                     transform: *transform,
                     material: None,
                     hidden: false,
+                    props: Props::default(),
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
@@ -1467,7 +1551,7 @@ impl Document {
         let mut copies = Vec::with_capacity(sources.len() * steps.len());
         for t in steps {
             for g in &sources {
-                copies.push(Guide { id: self.fresh_id(), shape: g.shape.transformed(t) });
+                copies.push(g.moved(self.fresh_id(), t));
             }
         }
         let created = copies.iter().map(|g| g.id).collect();
@@ -1517,7 +1601,7 @@ impl Document {
             p.bodies.extend(copies);
             self.recompute(part, Some(&created), solver)?;
         }
-        let guides: Vec<Guide> = fragment.guides.iter().map(|s| Guide { id: self.fresh_id(), shape: s.transformed(transform) }).collect();
+        let guides: Vec<Guide> = fragment.guides.iter().map(|g| g.moved(self.fresh_id(), transform)).collect();
         created.extend(guides.iter().map(|g| g.id));
         self.component_mut(part)?.guides.extend(guides);
         Ok(Outcome { bodies: created, ..Outcome::default() })
@@ -1639,7 +1723,7 @@ impl Document {
                 let id = if shared { self.fresh_id() } else { c.id };
                 // A negative group holds positives only (above): each one a machining.
                 let sign = if b.sign == Sign::Negative { Sign::Negative } else { c.sign };
-                bodies.push(Body { id, name: c.name.clone(), def: c.def, sign, placement: b.placement * c.placement });
+                bodies.push(Body { id, name: c.name.clone(), def: c.def, sign, placement: b.placement * c.placement, props: c.props.clone() });
                 created.push(id);
             }
         }
@@ -1743,7 +1827,7 @@ impl Document {
         // bodies in them), then back in the part's: those it left alone as they were, exactly.
         let guides = self.component(part)?.guides.clone();
         let into = placed.inverse();
-        let inside: Vec<Guide> = guides.iter().map(|g| Guide { id: g.id, shape: g.shape.transformed(&into) }).collect();
+        let inside: Vec<Guide> = guides.iter().map(|g| g.moved(g.id, &into)).collect();
         self.component_mut(part)?.guides = inside.clone();
         let outcome = self.apply_in_place(op, solver)?;
         let back: Vec<Guide> = self
@@ -1752,7 +1836,7 @@ impl Document {
             .iter()
             .map(|g| match inside.iter().position(|i| i.id == g.id && i.shape == g.shape) {
                 Some(k) => guides[k].clone(),
-                None => Guide { id: g.id, shape: g.shape.transformed(&placed) },
+                None => g.moved(g.id, &placed),
             })
             .collect();
         self.component_mut(part)?.guides = back;

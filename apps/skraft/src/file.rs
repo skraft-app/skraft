@@ -1,4 +1,4 @@
-//! Opening and saving `.skraft` files (versioned JSON), importing STEP files: file
+//! Opening and saving `.skraft` files (docs/io/file-format.md), importing STEP files: file
 //! dialogs on the desktop, a file picker and a download in the browser.
 
 use std::sync::{Arc, Mutex};
@@ -10,6 +10,10 @@ use skraft_model::Document;
 use crate::docs::DocId;
 
 pub const EXTENSION: &str = "skraft";
+/// Materials alone (docs/io/file-format.md): exported, imported into a model.
+pub const MATERIALS_EXTENSION: &str = "skraftmat";
+/// The images a texture takes (docs/render/look.md#textures).
+pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"];
 
 /// The extensions of the files the app imports (docs/io/step-import.md).
 pub const IMPORT_EXTENSIONS: &[&str] = &["step", "stp", "STEP", "STP"];
@@ -20,10 +24,16 @@ pub const IMPORT_EXTENSIONS: &[&str] = &["step", "stp", "STEP", "STP"];
 /// kernel's thread waking the UI, say. So they run asynchronously (a sheet on macOS) and their
 /// outcome lands here, collected by the app on its next frame.
 pub enum Outcome {
-    /// A file read: its name and text.
-    Opened { name: String, text: String },
+    /// A file read: its name and bytes.
+    Opened { name: String, bytes: Vec<u8> },
     /// A file to import read: its name (without folders) and bytes.
     Imported { name: String, bytes: Vec<u8> },
+    /// An image picked for the texture of `material`, in document `doc`.
+    TextureImage { doc: DocId, material: skraft_model::Id, bytes: Vec<u8> },
+    /// A file written that is not a document's (materials exported): where.
+    Written { path: String },
+    /// Writing it failed (the message is ready to show).
+    WriteFailed { error: String },
     /// Document `doc` written to `path`, as it was at history `revision`.
     Saved { doc: DocId, path: String, revision: u64 },
     /// Writing document `doc` failed (the message is ready to show).
@@ -62,29 +72,29 @@ fn spawn(fut: impl std::future::Future<Output = ()> + 'static) {
     wasm_bindgen_futures::spawn_local(fut);
 }
 
-/// Asks for a file to open; its text arrives in `inbox`.
+/// Asks for a file to open; its bytes arrive in `inbox`.
 pub fn open(inbox: &Inbox, ctx: &egui::Context) {
     let inbox = inbox.clone();
     let ctx = ctx.clone();
     spawn(async move {
-        let picked = rfd::AsyncFileDialog::new().add_filter("Skraft", &[EXTENSION, "json"]).pick_file().await;
+        let picked = rfd::AsyncFileDialog::new().add_filter("Skraft", &[EXTENSION]).pick_file().await;
         if let Some(f) = picked {
             #[cfg(not(target_arch = "wasm32"))]
             let name = f.path().display().to_string();
             #[cfg(target_arch = "wasm32")]
             let name = f.file_name();
             let bytes = f.read().await;
-            inbox.put(Outcome::Opened { name, text: String::from_utf8_lossy(&bytes).into_owned() });
+            inbox.put(Outcome::Opened { name, bytes });
             ctx.request_repaint();
         }
     });
 }
 
-/// Reads the file at `path` (a recent file, desktop); its text arrives in `inbox`.
+/// Reads the file at `path` (a recent file, desktop); its bytes arrive in `inbox`.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn open_path(path: &str, inbox: &Inbox) -> std::io::Result<()> {
-    let text = std::fs::read(path)?;
-    inbox.put(Outcome::Opened { name: path.to_owned(), text: String::from_utf8_lossy(&text).into_owned() });
+    let bytes = std::fs::read(path)?;
+    inbox.put(Outcome::Opened { name: path.to_owned(), bytes });
     Ok(())
 }
 
@@ -103,17 +113,79 @@ pub fn import(inbox: &Inbox, ctx: &egui::Context) {
     });
 }
 
+/// Asks for an image for the texture of `material` (document `doc`); its bytes arrive in `inbox`.
+pub fn pick_texture(doc: DocId, material: skraft_model::Id, inbox: &Inbox, ctx: &egui::Context) {
+    let inbox = inbox.clone();
+    let ctx = ctx.clone();
+    spawn(async move {
+        let picked = rfd::AsyncFileDialog::new().add_filter("Image", IMAGE_EXTENSIONS).pick_file().await;
+        if let Some(f) = picked {
+            let bytes = f.read().await;
+            inbox.put(Outcome::TextureImage { doc, material, bytes });
+            ctx.request_repaint();
+        }
+    });
+}
+
+/// Asks for a `.skraftmat` to import into the shown document: it arrives as a file opened.
+pub fn import_materials(inbox: &Inbox, ctx: &egui::Context) {
+    let inbox = inbox.clone();
+    let ctx = ctx.clone();
+    spawn(async move {
+        let picked = rfd::AsyncFileDialog::new().add_filter("Skraft", &[MATERIALS_EXTENSION]).pick_file().await;
+        if let Some(f) = picked {
+            #[cfg(not(target_arch = "wasm32"))]
+            let name = f.path().display().to_string();
+            #[cfg(target_arch = "wasm32")]
+            let name = f.file_name();
+            let bytes = f.read().await;
+            inbox.put(Outcome::Opened { name, bytes });
+            ctx.request_repaint();
+        }
+    });
+}
+
+/// Writes `bytes` — materials exported (`.skraftmat`) — where the user says, `name` offered;
+/// in the browser, a download.
+pub fn export_materials(bytes: Vec<u8>, name: &str, inbox: &Inbox, ctx: &egui::Context) {
+    let name = format!("{name}.{MATERIALS_EXTENSION}");
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let inbox = inbox.clone();
+        let ctx = ctx.clone();
+        spawn(async move {
+            let picked = rfd::AsyncFileDialog::new().add_filter("Skraft", &[MATERIALS_EXTENSION]).set_file_name(name).save_file().await;
+            if let Some(f) = picked {
+                let path = f.path().to_path_buf();
+                inbox.put(match std::fs::write(&path, &bytes) {
+                    Ok(()) => Outcome::Written { path: path.display().to_string() },
+                    Err(e) => Outcome::WriteFailed { error: t!("error.io", path = path.display(), error = e) },
+                });
+                ctx.request_repaint();
+            }
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = ctx;
+        inbox.put(match download(&name, &bytes) {
+            Ok(()) => Outcome::Written { path: name },
+            Err(e) => Outcome::WriteFailed { error: format!("{e:?}") },
+        });
+    }
+}
+
 /// Saves `document` (document `doc`, at history `revision`): to `path` if given (desktop),
 /// else asking where (`name`: the name offered). The outcome arrives in `inbox`, with `doc`:
 /// another tab may be shown by then.
 pub fn save(doc: DocId, document: &Document, revision: u64, path: Option<&str>, name: &str, inbox: &Inbox, ctx: &egui::Context) {
-    let text = match document.to_json() {
+    let bytes = match document.to_file() {
         Ok(t) => t,
         Err(e) => return inbox.put(Outcome::SaveFailed { doc, error: e.to_string() }),
     };
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let write = move |path: std::path::PathBuf| match std::fs::write(&path, text) {
+        let write = move |path: std::path::PathBuf| match std::fs::write(&path, &bytes) {
             Ok(()) => Outcome::Saved { doc, path: path.display().to_string(), revision },
             Err(e) => Outcome::SaveFailed { doc, error: t!("error.io", path = path.display(), error = e) },
         };
@@ -139,21 +211,21 @@ pub fn save(doc: DocId, document: &Document, revision: u64, path: Option<&str>, 
         let _ = ctx;
         let fallback = format!("{name}.{EXTENSION}");
         let name = path.and_then(|p| p.rsplit('/').next()).unwrap_or(&fallback).to_owned();
-        inbox.put(match download(&name, &text) {
+        inbox.put(match download(&name, &bytes) {
             Ok(()) => Outcome::Saved { doc, path: name, revision },
             Err(e) => Outcome::SaveFailed { doc, error: format!("{e:?}") },
         });
     }
 }
 
-/// Offers `text` as a file download.
+/// Offers `bytes` as a file download.
 #[cfg(target_arch = "wasm32")]
-fn download(name: &str, text: &str) -> Result<(), wasm_bindgen::JsValue> {
+fn download(name: &str, bytes: &[u8]) -> Result<(), wasm_bindgen::JsValue> {
     use wasm_bindgen::JsCast;
-    let parts = js_sys::Array::of1(&wasm_bindgen::JsValue::from_str(text));
+    let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
     let props = web_sys::BlobPropertyBag::new();
-    props.set_type("application/json");
-    let blob = web_sys::Blob::new_with_str_sequence_and_options(&parts, &props)?;
+    props.set_type("application/x-skraft");
+    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &props)?;
     let url = web_sys::Url::create_object_url_with_blob(&blob)?;
     let doc = web_sys::window().and_then(|w| w.document()).ok_or("no document")?;
     let a: web_sys::HtmlAnchorElement = doc.create_element("a")?.dyn_into()?;

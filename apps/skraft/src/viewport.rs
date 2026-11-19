@@ -71,6 +71,12 @@ pub struct Viewport {
     /// while they are not shown.
     document: u64,
     parked_slots: HashMap<u64, HashMap<Id, u32>>,
+    /// Each definition's grain — the axis of its mesh along its part's length, a texture's
+    /// (docs/render/look.md#textures) — by document and definition, with the mesh's revision.
+    grains: HashMap<(u64, u64), (u64, u8)>,
+    /// The textures' images decoded at the layers' size, by image id (none: unreadable);
+    /// an image's id is its content's hash, the same in every document.
+    images: HashMap<String, Option<Vec<u8>>>,
     /// The size of the last frame drawn (pixels).
     size: [u32; 2],
     /// What the render statistics overlay shows.
@@ -81,8 +87,9 @@ pub struct Viewport {
     pub dragged_in: bool,
     /// The components' thumbnails (docs/ui/components-library.md#thumbnails), drawn by its renderer.
     pub thumbnails: crate::thumbnails::Thumbnails,
-    /// The palette of the last frame, the thumbnails' too.
+    /// The palette of the last frame and its entries' textures, the thumbnails' too.
     palette: Vec<[f32; 4]>,
+    textures: Vec<[f32; 4]>,
 }
 
 /// Measured on every frame, for the render statistics overlay.
@@ -108,6 +115,31 @@ fn then_fade(a: render::Tint, b: render::Tint) -> render::Tint {
     }
     let mix = |i: usize| (a[i] * a[3] * (1.0 - b[3]) + b[i] * b[3]) / k;
     [mix(0), mix(1), mix(2), k]
+}
+
+/// A texture's image decoded, at the size of the renderer's layers (`render::TEXTURE_SIZE`
+/// square, sRGB RGBA): none when it does not read.
+fn decode_texture(bytes: &[u8]) -> Option<Vec<u8>> {
+    let image = image::load_from_memory(bytes).ok()?;
+    let side = render::TEXTURE_SIZE;
+    Some(image.resize_exact(side, side, image::imageops::FilterType::Triangle).to_rgba8().into_raw())
+}
+
+/// The axis of a definition's mesh along its part's length: its longest extent (x first on a
+/// tie).
+fn grain_of(dm: &skraft_tools::DefinitionMesh) -> u8 {
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for p in &dm.parts {
+        let o = p.mesh.origin.as_vec3().to_array();
+        for v in &p.mesh.positions {
+            for k in 0..3 {
+                lo[k] = lo[k].min(v[k] + o[k]);
+                hi[k] = hi[k].max(v[k] + o[k]);
+            }
+        }
+    }
+    let size = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+    (0..3).fold(0u8, |best, k| if size[k] > size[best as usize] { k as u8 } else { best })
 }
 
 /// What the copy modifier is on this platform (SketchUp: Option on macOS, Ctrl elsewhere).
@@ -535,6 +567,26 @@ impl Viewport {
         for (id, [r, g, b]) in &materials {
             palette[self.slots[id] as usize] = skraft_theme::srgb(*r, *g, *b);
         }
+        // The textures (docs/render/look.md#textures): one layer per image used, its entry beside
+        // its material's colour.
+        let mut layers: Vec<String> = doc.materials().filter_map(|(_, m)| m.texture.as_ref().map(|t| t.image.clone())).collect();
+        layers.sort();
+        layers.dedup();
+        for id in &layers {
+            if !self.images.contains_key(id) {
+                let decoded = doc.asset(id).and_then(|a| decode_texture(&a.bytes));
+                self.images.insert(id.clone(), decoded);
+            }
+        }
+        layers.retain(|id| self.images.get(id).is_some_and(|i| i.is_some()));
+        let mut textures = vec![render::NO_TEXTURE; palette.len()];
+        for (id, m) in doc.materials() {
+            if let Some(t) = &m.texture
+                && let Some(layer) = layers.iter().position(|l| *l == t.image)
+            {
+                textures[self.slots[&id] as usize] = render::texture_entry(layer as u32, t.size, t.rotation);
+            }
+        }
         // Then the colours of an open part's tools (docs/model/opening-a-part.md).
         let tool_slot = palette.len() as u32;
         palette.push(theme.machining);
@@ -563,6 +615,20 @@ impl Viewport {
                 dm.parts.iter().map(|p| render::Part { id: p.solid.0, mesh: &p.mesh, face_paint: paint }).collect();
             renderer.set_mesh(device, dm.definition.0, dm.revision, &parts);
         }
+        let layer_images: Vec<(u64, &[u8])> = layers
+            .iter()
+            .filter_map(|id| self.images.get(id).and_then(|i| i.as_deref()).map(|rgba| (u64::from_str_radix(&id[..16], 16).unwrap_or(0), rgba)))
+            .collect();
+        renderer.set_textures(device, &state.queue, &layer_images);
+        // The grain of each definition: its mesh's longest axis, measured again when it changes.
+        for dm in scene.definition_meshes() {
+            let key = (document, dm.definition.0);
+            if self.grains.get(&key).is_none_or(|(revision, _)| *revision != dm.revision) {
+                self.grains.insert(key, (dm.revision, grain_of(dm)));
+            }
+        }
+        let grains = &self.grains;
+        let grain = |def: u64| grains.get(&(document, def)).map_or(0, |(_, g)| *g);
         renderer.retain_meshes(|k| scene.definition_mesh(skraft_model::Id(k)).is_some());
 
         let display = &doc.settings().display;
@@ -598,6 +664,7 @@ impl Viewport {
                     .collect(),
                 ghost: places.iter().any(|p| p.ghost),
                 faint_edges: places.iter().any(|p| p.faint_edges),
+                grain: grain(def.0),
             })
             .collect();
         let highlights: Vec<render::Highlight> = view
@@ -614,6 +681,7 @@ impl Viewport {
                     material: slot(h.material),
                     ghost: h.ghost,
                     face: h.face,
+                    grain: grain(h.definition.0),
                 }
             })
             .collect();
@@ -660,6 +728,7 @@ impl Viewport {
             edge: rgb(theme.edge),
             grid: rgb(theme.grid),
             palette: &palette,
+            textures: &textures,
             silhouettes: display.silhouettes,
             section: view.section.map(|s| render::Section { origin: s.origin, normal: s.normal }),
             cap_shade: theme.cap_shade,
@@ -668,6 +737,7 @@ impl Viewport {
             ghost_edge_opacity: theme.ghost_edge_opacity,
         };
         self.palette.clone_from(&palette);
+        self.textures.clone_from(&textures);
         let frame = render::Frame {
             view: cam.view(),
             proj: cam.proj(aspect, scene.bounds()),
@@ -780,7 +850,8 @@ impl Viewport {
                         .iter()
                         .map(|(t, m)| render::Placement { material: slot(*m), ..render::Placement::new(DMat4::from(*t)) })
                         .collect();
-                    render::Batch::new(p.0, placements)
+                    let grain = self.grains.get(&(self.document, p.0)).map_or(0, |(_, g)| *g);
+                    render::Batch { grain, ..render::Batch::new(p.0, placements) }
                 })
                 .collect();
             if batches.is_empty() {
@@ -799,6 +870,7 @@ impl Viewport {
                     edge: rgb(theme.edge),
                     grid: rgb(theme.grid),
                     palette: &self.palette,
+                    textures: &self.textures,
                     silhouettes: true,
                     section: None,
                     ..render::Style::default()

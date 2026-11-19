@@ -1,20 +1,61 @@
-//! The file format: versioned JSON of the document (docs/io/file-format.md).
+//! The file format (docs/io/file-format.md): a ZIP holding a manifest, the document's structure
+//! as readable JSON, its B-reps and its images, one entry each, named by their content.
 //!
 //! Version 1: the app is not published yet, the format changes without a new version and
 //! without reading older files.
 
+use std::collections::BTreeMap;
+use std::io::{Cursor, Read, Write};
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
+use skraft_kernel::Solid;
+use zip::write::SimpleFileOptions;
 
 use crate::document::{ComponentKind, Document, Id};
-use crate::{Error, FileError, Result};
+use crate::{Error, FastMap, FastSet, FileError, Result};
 
 /// The `format` field of every Skraft file.
 pub const FORMAT: &str = "skraft";
 /// The version this build writes, and the newest it reads.
 pub const VERSION: u32 = 1;
 
+/// The manifest: what the file is, read first.
+const MANIFEST: &str = "manifest.json";
+/// The document, its solids by the names of their entries.
+const DOCUMENT: &str = "document.json";
+/// The B-reps the document is made of, `<name>.json`…
+const BREPS: &str = "breps/";
+/// …and those computed from them, kept to open without computing them again: the parts'
+/// shapes, the profiled bodies' and the groups' solids.
+const CACHE: &str = "cache/";
+/// The images of the materials' textures, `<name>.<png|jpg>` (docs/render/look.md#textures).
+const TEXTURES: &str = "textures/";
+
+#[derive(Serialize, Deserialize)]
+struct Manifest {
+    format: String,
+    version: u32,
+    content: Content,
+    /// The app that wrote it (« Skraft 0.1.0 »), for information.
+    #[serde(default)]
+    generator: String,
+}
+
+/// What a file holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Content {
+    /// A model, opened in a tab (`.skraft`).
+    Model,
+    /// Materials alone, imported into a model (`.skraftmat`): a document without geometry
+    /// ([`Document::materials_fragment`]).
+    Materials,
+}
+
+/// The document as one JSON ([`Document::to_json`]).
 #[derive(Serialize)]
-struct FileOut<'a> {
+struct JsonOut<'a> {
     format: &'a str,
     version: u32,
     document: &'a Document,
@@ -27,7 +68,7 @@ struct Header {
 }
 
 #[derive(Deserialize)]
-struct FileIn<D> {
+struct JsonIn<D> {
     document: D,
 }
 
@@ -35,23 +76,181 @@ fn file_err(e: impl std::fmt::Display) -> Error {
     Error::File(FileError::Unreadable(e.to_string()))
 }
 
+/// Pretty JSON with its arrays of plain values on one line (`"transform": [1.0, 0.0, …]`, not
+/// a line per number): what the indentation leaves of them once their spaces are dropped,
+/// strings left as they are.
+fn readable(pretty: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(pretty.len());
+    let (mut i, mut in_string) = (0, false);
+    while i < pretty.len() {
+        let b = pretty[i];
+        if in_string {
+            out.push(b);
+            match b {
+                b'\\' => {
+                    out.extend(pretty.get(i + 1));
+                    i += 1;
+                }
+                b'"' => in_string = false,
+                _ => {}
+            }
+        } else if b == b'"' {
+            in_string = true;
+            out.push(b);
+        } else if b == b'[' {
+            // Its plain values: up to its end, before any string, array or object.
+            let inner = pretty[i + 1..].iter().position(|c| matches!(c, b']' | b'[' | b'{' | b'"'));
+            match inner {
+                Some(n) if pretty[i + 1 + n] == b']' && pretty[i + 1..i + 1 + n].iter().any(|c| !c.is_ascii_whitespace()) => {
+                    out.push(b'[');
+                    let values = pretty[i + 1..i + 1 + n].split(|c| *c == b',').map(|v| v.trim_ascii());
+                    for (k, v) in values.enumerate() {
+                        if k > 0 {
+                            out.extend_from_slice(b", ");
+                        }
+                        out.extend_from_slice(v);
+                    }
+                    out.push(b']');
+                    i += n + 1;
+                }
+                _ => out.push(b),
+            }
+        } else {
+            out.push(b);
+        }
+        i += 1;
+    }
+    out
+}
+
+fn check_header(format: &str, version: u32) -> Result<()> {
+    if format != FORMAT {
+        return Err(Error::File(FileError::NotSkraft(format.to_owned())));
+    }
+    if version > VERSION {
+        return Err(Error::File(FileError::TooNew(version)));
+    }
+    Ok(())
+}
+
 impl Document {
-    pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string(&FileOut { format: FORMAT, version: VERSION, document: self }).map_err(file_err)
+    /// The document as a `.skraft` file. The same document gives the same bytes (no dates).
+    pub fn to_file(&self) -> Result<Vec<u8>> {
+        self.write(Content::Model)
     }
 
+    /// The materials `ids` (all when empty) as a `.skraftmat` file: their textures' images,
+    /// the definitions of the properties with them.
+    pub fn materials_file(&self, ids: &[Id]) -> Result<Vec<u8>> {
+        self.materials_fragment(ids)?.write(Content::Materials)
+    }
+
+    fn write(&self, content: Content) -> Result<Vec<u8>> {
+        let scope = solids::writing(self.source_solids());
+        let document = readable(&serde_json::to_vec_pretty(self).map_err(file_err)?);
+        let entries = scope.finish();
+        let manifest = Manifest {
+            format: FORMAT.to_owned(),
+            version: VERSION,
+            content,
+            generator: format!("Skraft {}", env!("CARGO_PKG_VERSION")),
+        };
+        let manifest = serde_json::to_vec_pretty(&manifest).map_err(file_err)?;
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let mut put = |name: &str, bytes: &[u8]| -> Result<()> {
+            zip.start_file(name, options).map_err(file_err)?;
+            zip.write_all(bytes).map_err(file_err)
+        };
+        put(MANIFEST, &manifest)?;
+        put(DOCUMENT, &document)?;
+        for (dir, map) in [(BREPS, &entries.sources), (CACHE, &entries.caches)] {
+            for (name, json) in map {
+                put(&format!("{dir}{name}.json"), json)?;
+            }
+        }
+        // Stored as they are: a PNG or a JPEG is compressed already.
+        let stored = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        for (name, bytes) in &entries.images {
+            zip.start_file(format!("{TEXTURES}{name}"), stored).map_err(file_err)?;
+            zip.write_all(bytes).map_err(file_err)?;
+        }
+        Ok(zip.finish().map_err(file_err)?.into_inner())
+    }
+
+    /// The model of a `.skraft` file (a `.skraftmat` is refused: [`Document::read_file`]).
+    pub fn from_file(bytes: &[u8]) -> Result<Document> {
+        match Document::read_file(bytes)? {
+            (doc, Content::Model) => Ok(doc),
+            (_, Content::Materials) => Err(Error::File(FileError::MaterialsOnly)),
+        }
+    }
+
+    /// The document of a `.skraft` or `.skraftmat` file, and what it holds.
+    pub fn read_file(bytes: &[u8]) -> Result<(Document, Content)> {
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| Error::File(FileError::NotZip))?;
+        let paths: Vec<String> =
+            zip.file_names().map(|n| n.map(|n| n.into_owned())).collect::<std::result::Result<_, _>>().map_err(file_err)?;
+        let mut read = |name: &str| -> Result<Vec<u8>> {
+            let mut entry = zip.by_name(name).map_err(|_| Error::File(FileError::MissingEntry(name.to_owned())))?;
+            let mut out = Vec::with_capacity(entry.size() as usize);
+            entry.read_to_end(&mut out).map_err(|e| file_err(format!("{name}: {e}")))?;
+            Ok(out)
+        };
+        let manifest: Manifest = serde_json::from_slice(&read(MANIFEST)?).map_err(|e| file_err(format!("{MANIFEST}: {e}")))?;
+        check_header(&manifest.format, manifest.version)?;
+        let document = read(DOCUMENT)?;
+        let mut solids = FastMap::default();
+        let mut images = FastMap::default();
+        for path in paths {
+            if let Some(name) = path.strip_prefix(TEXTURES).and_then(|n| n.rsplit_once('.')).map(|(id, _)| id.to_owned()) {
+                images.insert(name, Arc::<[u8]>::from(read(&path)?));
+                continue;
+            }
+            let name = [BREPS, CACHE].iter().find_map(|dir| path.strip_prefix(dir)).and_then(|n| n.strip_suffix(".json"));
+            let Some(name) = name.map(str::to_owned) else { continue };
+            let solid: Solid = serde_json::from_slice(&read(&path)?).map_err(|e| file_err(format!("{path}: {e}")))?;
+            solids.insert(name, Arc::new(solid));
+        }
+        let scope = solids::reading(solids, images);
+        let doc = serde_json::from_slice::<Document>(&document).map_err(|e| file_err(format!("{DOCUMENT}: {e}")));
+        drop(scope);
+        Ok((doc?.settled()?, manifest.content))
+    }
+
+    /// The document as one JSON, its B-reps inline: what a recording of the journal starts
+    /// from (docs/control-protocol.md), and the tests'.
+    pub fn to_json(&self) -> Result<String> {
+        serde_json::to_string(&JsonOut { format: FORMAT, version: VERSION, document: self }).map_err(file_err)
+    }
+
+    /// The document of [`Document::to_json`]'s text.
     pub fn from_json(text: &str) -> Result<Document> {
         let h: Header = serde_json::from_str(text).map_err(file_err)?;
-        if h.format != FORMAT {
-            return Err(Error::File(FileError::NotSkraft(h.format)));
+        check_header(&h.format, h.version)?;
+        serde_json::from_str::<JsonIn<Document>>(text).map_err(file_err)?.document.settled()
+    }
+
+    /// A document just read: checked, its automatic names settled.
+    fn settled(mut self) -> Result<Document> {
+        self.check()?;
+        self.check_props()?;
+        self.settle_names(None);
+        Ok(self)
+    }
+
+    /// The solids the document is made of, by address: its leaf bodies' that no profile builds.
+    /// The others are computed from them (parts' shapes, profiled bodies', groups'): caches.
+    fn source_solids(&self) -> FastSet<*const Solid> {
+        let mut out = FastSet::default();
+        for c in self.components.values() {
+            if let ComponentKind::Part(p) = &c.kind {
+                for d in p.defs.iter().filter(|d| d.profile.is_none() && d.group.is_none()) {
+                    out.insert(Arc::as_ptr(&d.solid));
+                }
+            }
         }
-        if h.version > VERSION {
-            return Err(Error::File(FileError::TooNew(h.version)));
-        }
-        let mut doc = serde_json::from_str::<FileIn<Document>>(text).map_err(file_err)?.document;
-        doc.check()?;
-        doc.settle_names(None);
-        Ok(doc)
+        out
     }
 
     /// The structural invariants a file must keep: the root an assembly, known components, no
@@ -71,9 +270,12 @@ impl Document {
             Ok(())
         };
         let below = |id: Id| if id.0 < self.next_id { Ok(()) } else { Err(Error::File(FileError::BadOccurrenceId(id))) };
-        for id in self.materials.keys() {
+        for (id, m) in &self.materials {
             if id.0 >= self.next_id {
                 return Err(Error::File(FileError::BadMaterialId(*id)));
+            }
+            if m.texture.as_ref().is_some_and(|t| !t.is_valid() || !self.assets.contains_key(&t.image)) {
+                return Err(Error::File(FileError::BadTexture(*id)));
             }
         }
         let material = |m: &Option<Id>| match m {
@@ -144,5 +346,259 @@ impl Document {
             }
         }
         Ok(())
+    }
+}
+
+/// `#[serde(with)]` for a field of a solid: [`solids`].
+pub(crate) mod solid {
+    pub(crate) use super::solids::{de as deserialize, ser as serialize};
+}
+
+/// `#[serde(with)]` for a field of an optional solid: [`solids`].
+pub(crate) mod solid_opt {
+    use std::sync::Arc;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use skraft_kernel::Solid;
+
+    struct Out<'a>(&'a Arc<Solid>);
+
+    impl Serialize for Out<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            super::solids::ser(self.0, s)
+        }
+    }
+
+    struct In(Arc<Solid>);
+
+    impl<'de> Deserialize<'de> for In {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            super::solids::de(d).map(In)
+        }
+    }
+
+    pub(crate) fn serialize<S: Serializer>(solid: &Option<Arc<Solid>>, s: S) -> Result<S::Ok, S::Error> {
+        solid.as_ref().map(Out).serialize(s)
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Arc<Solid>>, D::Error> {
+        Ok(Option::<In>::deserialize(d)?.map(|i| i.0))
+    }
+}
+
+/// How the document's solids serialise: inline, as their record — or, while a file is written
+/// or read ([`writing`], [`reading`]), as the name of their entry, 128 bits of the BLAKE3 hash
+/// of their record's JSON: the same solid twice, one entry. The state lives in a thread-local
+/// for the time of one `serde_json` call, serde passing nothing down to a field's serialiser.
+pub(crate) mod solids {
+    use std::cell::RefCell;
+    use std::fmt;
+
+    use serde::de::{self, MapAccess, SeqAccess, Visitor};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::{Arc, BTreeMap, FastMap, FastSet, Solid};
+
+    /// An entry's name: hexadecimal digits of the hash.
+    const NAME_LEN: usize = 32;
+
+    enum State {
+        Writing(Entries),
+        /// The solids and the images (their bytes) by their entries' names.
+        Reading(FastMap<String, Arc<Solid>>, FastMap<String, Arc<[u8]>>),
+    }
+
+    thread_local! {
+        static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+    }
+
+    /// The entries of a file being written: the records' JSON by name.
+    #[derive(Default)]
+    pub(super) struct Entries {
+        /// The solids the document is made of, by address; the others are caches.
+        made_of: FastSet<*const Solid>,
+        /// The names given, by address: a solid shared, hashed once.
+        names: FastMap<*const Solid, String>,
+        pub(super) sources: BTreeMap<String, Vec<u8>>,
+        /// Only those not among the sources: a cache equal to a source is that source.
+        pub(super) caches: BTreeMap<String, Vec<u8>>,
+        /// The images, by their entries' names (`<id>.<ext>`).
+        pub(super) images: BTreeMap<String, Arc<[u8]>>,
+    }
+
+    impl Entries {
+        fn name(&mut self, solid: &Arc<Solid>) -> serde_json::Result<String> {
+            let at = Arc::as_ptr(solid);
+            if let Some(name) = self.names.get(&at) {
+                return Ok(name.clone());
+            }
+            let json = serde_json::to_vec(&**solid)?;
+            let name = blake3::hash(&json).to_hex()[..NAME_LEN].to_owned();
+            if self.made_of.contains(&at) {
+                self.caches.remove(&name);
+                self.sources.insert(name.clone(), json);
+            } else if !self.sources.contains_key(&name) {
+                self.caches.insert(name.clone(), json);
+            }
+            self.names.insert(at, name.clone());
+            Ok(name)
+        }
+    }
+
+    /// The solids written as entries until [`Writing::finish`]; `made_of`: those the
+    /// document is made of, by address.
+    pub(super) fn writing(made_of: FastSet<*const Solid>) -> Writing {
+        STATE.set(Some(State::Writing(Entries { made_of, ..Entries::default() })));
+        Writing
+    }
+
+    pub(super) struct Writing;
+
+    impl Writing {
+        /// The entries written since.
+        pub(super) fn finish(self) -> Entries {
+            match STATE.take() {
+                Some(State::Writing(e)) => e,
+                _ => Entries::default(),
+            }
+        }
+    }
+
+    impl Drop for Writing {
+        fn drop(&mut self) {
+            STATE.set(None);
+        }
+    }
+
+    /// The solids and the images read by their entries' names, from `solids` and `images`,
+    /// until dropped.
+    pub(super) fn reading(solids: FastMap<String, Arc<Solid>>, images: FastMap<String, Arc<[u8]>>) -> Reading {
+        STATE.set(Some(State::Reading(solids, images)));
+        Reading
+    }
+
+    /// `#[serde(with)]` for the document's images ([`crate::Asset`]): inline, each its kind and
+    /// its bytes in base64; while a file is written or read, its kind, its bytes an entry
+    /// `textures/<id>.<ext>`.
+    pub(crate) mod images {
+        use super::*;
+        use crate::assets::{Asset, ImageKind};
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Stored {
+            Entry(ImageKind),
+            Inline(Asset),
+        }
+
+        pub(crate) fn serialize<S: Serializer>(assets: &BTreeMap<String, Asset>, s: S) -> Result<S::Ok, S::Error> {
+            let writing = STATE.with_borrow_mut(|state| match state {
+                Some(State::Writing(entries)) => {
+                    for (id, a) in assets {
+                        entries.images.insert(format!("{id}.{}", a.kind.extension()), a.bytes.clone());
+                    }
+                    true
+                }
+                _ => false,
+            });
+            match writing {
+                true => s.collect_map(assets.iter().map(|(id, a)| (id, a.kind))),
+                false => assets.serialize(s),
+            }
+        }
+
+        pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, Asset>, D::Error> {
+            let stored = BTreeMap::<String, Stored>::deserialize(d)?;
+            stored
+                .into_iter()
+                .map(|(id, s)| {
+                    let asset = match s {
+                        Stored::Inline(a) => a,
+                        Stored::Entry(kind) => {
+                            let bytes = STATE.with_borrow(|state| match state {
+                                Some(State::Reading(_, images)) => images.get(&id).cloned(),
+                                _ => None,
+                            });
+                            let bytes = bytes.ok_or_else(|| de::Error::custom(format!("image {id} missing")))?;
+                            Asset::new(bytes).filter(|a| a.kind == kind).ok_or_else(|| de::Error::custom(format!("image {id} unreadable")))?
+                        }
+                    };
+                    Ok((id, asset))
+                })
+                .collect()
+        }
+    }
+
+    pub(super) struct Reading;
+
+    impl Drop for Reading {
+        fn drop(&mut self) {
+            STATE.set(None);
+        }
+    }
+
+    pub(crate) fn ser<S: Serializer>(solid: &Arc<Solid>, s: S) -> Result<S::Ok, S::Error> {
+        let name = STATE.with_borrow_mut(|state| match state {
+            Some(State::Writing(entries)) => Some(entries.name(solid)),
+            _ => None,
+        });
+        match name {
+            Some(name) => s.serialize_str(&name.map_err(serde::ser::Error::custom)?),
+            None => solid.serialize(s),
+        }
+    }
+
+    pub(crate) fn de<'de, D: Deserializer<'de>>(d: D) -> Result<Arc<Solid>, D::Error> {
+        d.deserialize_any(SolidVisitor)
+    }
+
+    /// A record inline, or an entry's name while reading a file.
+    struct SolidVisitor;
+
+    impl<'de> Visitor<'de> for SolidVisitor {
+        type Value = Arc<Solid>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a B-rep record or the name of its entry")
+        }
+
+        fn visit_str<E: de::Error>(self, name: &str) -> Result<Arc<Solid>, E> {
+            STATE
+                .with_borrow(|state| match state {
+                    Some(State::Reading(solids, _)) => solids.get(name).cloned(),
+                    _ => None,
+                })
+                .ok_or_else(|| E::custom(format!("B-rep {name} missing")))
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Arc<Solid>, A::Error> {
+            Solid::deserialize(de::value::MapAccessDeserializer::new(map)).map(Arc::new)
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Arc<Solid>, A::Error> {
+            Solid::deserialize(de::value::SeqAccessDeserializer::new(seq)).map(Arc::new)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn readable_keeps_plain_arrays_on_one_line_and_strings_as_they_are() {
+        let value = serde_json::json!({
+            "t": [1.0, -2.5e-7, 3],
+            "name": "a [1, 2] \"b\\\" [",
+            "list": [[1, 2], {"p": [0, 0]}, "s"],
+            "none": [],
+            "flags": [true, null],
+        });
+        let pretty = serde_json::to_vec_pretty(&value).unwrap();
+        let out = String::from_utf8(super::readable(&pretty)).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&out).unwrap(), value);
+        assert!(out.contains(r#""t": [1.0, -2.5e-7, 3]"#), "{out}");
+        assert!(out.contains(r#""p": [0, 0]"#), "{out}");
+        assert!(out.contains(r#""flags": [true, null]"#), "{out}");
+        assert!(out.contains(r#""name": "a [1, 2] \"b\\\" [""#), "{out}");
+        assert!(out.contains("\"none\": []"), "{out}");
     }
 }

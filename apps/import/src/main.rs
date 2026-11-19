@@ -44,21 +44,21 @@ fn main() -> ExitCode {
         }
     };
     let t = Instant::now();
-    let json = match doc.to_json() {
-        Ok(j) => j,
+    let file = match doc.to_file() {
+        Ok(f) => f,
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::FAILURE;
         }
     };
-    if let Err(e) = std::fs::write(&output, &json) {
+    if let Err(e) = std::fs::write(&output, &file) {
         eprintln!("{}: {e}", output.display());
         return ExitCode::FAILURE;
     }
     let write = t.elapsed();
     // What opening the file costs before any display: reading the document back.
     let t = Instant::now();
-    let reopened = Document::from_json(&json).map(|d| d.placed_parts().len());
+    let reopened = Document::from_file(&file).map(|d| d.placed_parts().len());
     let reopen = t.elapsed();
 
     let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
@@ -66,7 +66,7 @@ fn main() -> ExitCode {
     println!("  parts {:>8}   assemblies {:>6}   occurrences {:>8}", report.parts, report.assemblies, report.occurrences);
     println!("  placed parts {:>8}   faces {:>10}", report.placed_parts, report.faces);
     println!("  read {:>9.1} ms   parse {:>9.1} ms   build {:>9.1} ms", ms(read), ms(report.parse), ms(report.build));
-    println!("  assemble {:>5.1} ms   write {:>9.1} ms   ({:.1} MB)", ms(report.assemble), ms(write), json.len() as f64 / 1e6);
+    println!("  assemble {:>5.1} ms   write {:>9.1} ms   ({:.1} MB)", ms(report.assemble), ms(write), file.len() as f64 / 1e6);
     match reopened {
         Ok(n) => println!("  reopen {:>7.1} ms   ({n} placed parts)", ms(reopen)),
         Err(e) => println!("  reopen failed: {e}"),
@@ -129,14 +129,14 @@ fn step(input: &std::path::Path, output: &std::path::Path) -> ExitCode {
         }
     };
     let insert = t.elapsed();
-    let json = match doc.to_json() {
-        Ok(j) => j,
+    let file = match doc.to_file() {
+        Ok(f) => f,
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::FAILURE;
         }
     };
-    if let Err(e) = std::fs::write(output, &json) {
+    if let Err(e) = std::fs::write(output, &file) {
         eprintln!("{}: {e}", output.display());
         return ExitCode::FAILURE;
     }
@@ -156,7 +156,7 @@ fn step(input: &std::path::Path, output: &std::path::Path) -> ExitCode {
         faces,
         doc.materials().count()
     );
-    println!("  read + build {:>8.1} ms   insert {:>6.1} ms   ({:.1} MB)", ms(read), ms(insert), json.len() as f64 / 1e6);
+    println!("  read + build {:>8.1} ms   insert {:>6.1} ms   ({:.1} MB)", ms(read), ms(insert), file.len() as f64 / 1e6);
     println!("  tree:");
     fn tree(step: &skraft_kernel::StepImport, product: usize, name: &str, depth: usize, budget: &mut usize) {
         if *budget == 0 || depth > 12 {

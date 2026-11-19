@@ -5,12 +5,15 @@
 use glam::{DAffine3, DVec3};
 use skraft_i18n::{t, tp};
 use skraft_model::{
-    ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, Nature, Occurrence, Operation, Scope, Sign, Units, measure,
+    ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, Nature, Occurrence, Operation, PropTarget, Scope, Sign, Units,
+    measure,
 };
 use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
 
 use crate::commands::Menu;
 use crate::icons;
+
+mod props;
 
 /// What a panel asks the app to do (applied after drawing, so the panels only read).
 pub enum Action {
@@ -47,6 +50,12 @@ pub enum Action {
     ToolLength(&'static str, String),
     /// Paint with this material (none: remove paint): the paint tool starts.
     PaintWith(Option<Id>),
+    /// Pick an image for this material's texture (docs/render/look.md#textures).
+    PickTexture(Id),
+    /// Export the document's materials (`.skraftmat`): one, or all (`None`); import some
+    /// (docs/io/file-format.md).
+    ExportMaterials(Option<Id>),
+    ImportMaterials,
     /// What changes to the open part reach (docs/model/data-model.md).
     PartScope(Scope),
     /// Whether shapes drawn in the open part add material or take it away (docs/model/bodies.md).
@@ -1820,7 +1829,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                 if let Some(k) = p.bodies.iter().position(|b| b.id == *id) {
                     body_info(ui, editor, part, &p, k, actions);
                 } else if let Some(g) = doc.component(open.component).ok().and_then(|c| c.guide(*id)) {
-                    guide_info(ui, g, units);
+                    guide_info(ui, doc, open.component, g, actions);
                 }
             }
             many => {
@@ -1832,7 +1841,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
     match sel {
         [] => {
             if editor.model_chosen() {
-                model_info(ui, doc, name);
+                model_info(ui, doc, name, actions);
             } else if editor.context().is_empty() {
                 ui.weak(t!("panel.entity_info.no_selection"));
             } else {
@@ -1843,7 +1852,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
         }
         [id] if doc.component(context).is_ok_and(|c| c.guide(*id).is_some()) => {
             let Some(g) = doc.component(context).ok().and_then(|c| c.guide(*id)) else { return };
-            guide_info(ui, g, units);
+            guide_info(ui, doc, context, g, actions);
         }
         [id] => {
             let Some(o) = asm.occurrence(*id) else { return };
@@ -1929,6 +1938,10 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                 }
                 ui.end_row();
             });
+            // The part's (or assembly's), then the occurrence's own (docs/model/properties.md).
+            props::section(ui, doc, &PropTarget::Component(c.id), t!("panel.properties.title"), actions);
+            let occurrence = PropTarget::Occurrence { context, occurrence: o.id };
+            props::section(ui, doc, &occurrence, t!("panel.properties.occurrence_title"), actions);
         }
         many => {
             ui.label(tp!("panel.entity_info.selected", many.len()));
@@ -1986,8 +1999,9 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
 }
 
 /// The model, chosen (the navigator's first row clicked): its name (`name`, its file's), its
-/// parts and assemblies as placed, its materials.
-fn model_info(ui: &mut egui::Ui, doc: &Document, name: &str) {
+/// parts and assemblies as placed, its materials; its properties and the definitions of all
+/// (docs/model/properties.md).
+fn model_info(ui: &mut egui::Ui, doc: &Document, name: &str, actions: &mut Vec<Action>) {
     let (parts, assemblies) = placed_counts(doc, doc.root(), &mut FastMap::default(), 0);
     let field = (ui.available_width() - 90.0).max(60.0);
     egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
@@ -2007,6 +2021,8 @@ fn model_info(ui: &mut egui::Ui, doc: &Document, name: &str) {
         ui.label(doc.materials().count().to_string());
         ui.end_row();
     });
+    props::section(ui, doc, &PropTarget::Component(doc.root()), t!("panel.properties.title"), actions);
+    props::definitions(ui, doc, actions);
 }
 
 /// How many parts and assemblies `assembly` places, one per occurrence at any depth; each
@@ -2044,8 +2060,9 @@ fn pieces_error(pieces: usize) -> Option<String> {
     }
 }
 
-/// A guide: its shape (a circle's radius).
-fn guide_info(ui: &mut egui::Ui, g: &skraft_model::Guide, units: &Units) {
+/// A guide of `component`: its shape (a circle's radius), its properties.
+fn guide_info(ui: &mut egui::Ui, doc: &Document, component: Id, g: &skraft_model::Guide, actions: &mut Vec<Action>) {
+    let units = &doc.settings().units;
     egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
         ui.label(t!("panel.entity_info.type"));
         ui.label(t!("panel.entity_info.type_guide"));
@@ -2057,6 +2074,7 @@ fn guide_info(ui: &mut egui::Ui, g: &skraft_model::Guide, units: &Units) {
         });
         ui.end_row();
     });
+    props::section(ui, doc, &PropTarget::Guide { component, guide: g.id }, t!("panel.properties.title"), actions);
 }
 
 /// The profile of the body `k` of `p` (the open part, or the group open in it), being edited:
@@ -2127,6 +2145,10 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             ui.end_row();
         }
     });
+    // Its definition's (every copy's), then its own (docs/model/properties.md).
+    let doc = editor.document();
+    props::section(ui, doc, &PropTarget::BodyDef { part, def: def.id }, t!("panel.properties.title"), actions);
+    props::section(ui, doc, &PropTarget::Body { part, body: b.id }, t!("panel.properties.occurrence_title"), actions);
 }
 
 // ---- materials ---------------------------------------------------------------------------------
@@ -2220,26 +2242,166 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
             if ui.color_edit_button_srgb(&mut c).on_hover_text(t!("panel.materials.color_tip")).changed() {
                 actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
             }
-            // Room left for the delete button, as high as the field (`OPTION_HEIGHT`) and square.
-            let width = (ui.available_width() - OPTION_HEIGHT - ui.spacing().item_spacing.x).max(60.0);
+            // Room left for the texture and delete buttons, as high as the field
+            // (`OPTION_HEIGHT`) and square.
+            let width = (ui.available_width() - 2.0 * (OPTION_HEIGHT + ui.spacing().item_spacing.x)).max(60.0);
             if let Some(name) = text_field(ui, (id, 2), &m.name, width) {
                 actions.push(Action::Apply(Operation::EditMaterial { material: id, name, color: m.color }));
             }
-            let delete = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ui.visuals().text_color());
             // As high as the name's field beside it.
             let h = OPTION_HEIGHT;
+            let ink = ui.visuals().text_color();
+            // Its texture's thumbnail, else the texture icon: a click picks an image.
+            let thumb = m.texture.as_ref().and_then(|t| thumbnail(ui.ctx(), doc, &t.image));
+            let clicked = match &thumb {
+                Some(tex) => {
+                    // Its middle, square: the whole image under the pointer.
+                    let [w, t] = tex.size().map(|v| v.max(1) as f32);
+                    let (du, dv) = ((1.0 - (t / w).min(1.0)) / 2.0, (1.0 - (w / t).min(1.0)) / 2.0);
+                    let uv = egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv));
+                    let img = egui::Image::new(tex).uv(uv).maintain_aspect_ratio(false).fit_to_exact_size(egui::vec2(h, h)).corner_radius(3.0);
+                    let r = ui.add(egui::Button::image(img).frame(false).min_size(egui::vec2(h, h)));
+                    r.on_hover_ui(|ui| {
+                        ui.label(t!("panel.materials.texture_change_tip"));
+                        ui.add(egui::Image::new(tex).max_size(egui::vec2(THUMB_PREVIEW, THUMB_PREVIEW)).corner_radius(4.0));
+                    })
+                    .clicked()
+                }
+                None => {
+                    let texture = egui::Image::new(icons::TEXTURE).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink);
+                    let tip = if m.texture.is_some() { t!("panel.materials.texture_change_tip") } else { t!("panel.materials.texture_tip") };
+                    ui.add(egui::Button::image(texture).selected(m.texture.is_some()).min_size(egui::vec2(h, h))).on_hover_text(tip).clicked()
+                }
+            };
+            if clicked {
+                actions.push(Action::PickTexture(id));
+            }
+            let delete = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ink);
             if ui.add(egui::Button::image(delete).min_size(egui::vec2(h, h))).on_hover_text(t!("panel.materials.delete_tip")).clicked() {
                 actions.push(Action::Apply(Operation::DeleteMaterial { material: id }));
             }
         });
+        if let Some(texture) = &m.texture {
+            texture_row(ui, doc, id, texture, actions);
+        }
     }
-    let add = egui::Image::new(icons::ADD).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ui.visuals().text_color());
-    if ui.add(egui::Button::image_and_text(add, t!("panel.materials.new"))).clicked() {
-        let count = doc.materials().count();
-        let taken = |n: &str| doc.materials().any(|(_, m)| m.name == n);
-        let name = (count + 1..).map(|k| t!("default_name.material", number = k)).find(|n| !taken(n)).unwrap_or_default();
-        actions.push(Action::Apply(Operation::AddMaterial { name, color: NEW_COLORS[count % NEW_COLORS.len()] }));
+    let ink = ui.visuals().text_color();
+    let icon = |i: egui::ImageSource<'static>| egui::Image::new(i).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink);
+    ui.horizontal_wrapped(|ui| {
+        if ui.add(egui::Button::image_and_text(icon(icons::ADD), t!("panel.materials.new"))).clicked() {
+            let count = doc.materials().count();
+            let taken = |n: &str| doc.materials().any(|(_, m)| m.name == n);
+            let name = (count + 1..).map(|k| t!("default_name.material", number = k)).find(|n| !taken(n)).unwrap_or_default();
+            actions.push(Action::Apply(Operation::AddMaterial { name, color: NEW_COLORS[count % NEW_COLORS.len()] }));
+        }
+        let none = doc.materials().next().is_none();
+        // A menu: all of them, or one.
+        let export = ui.add_enabled(!none, egui::Button::image(icon(icons::EXPORT)).min_size(egui::vec2(OPTION_HEIGHT, OPTION_HEIGHT)));
+        let export = export.on_hover_text(t!("panel.materials.export_tip"));
+        egui::Popup::menu(&export).id(ui.make_persistent_id("export_materials")).style(crate::style::menu).show(|ui| {
+            ui.set_min_width(160.0);
+            if ui.button(t!("panel.materials.export_all")).clicked() {
+                actions.push(Action::ExportMaterials(None));
+            }
+            ui.separator();
+            for (id, m) in doc.materials() {
+                let thumb = m.texture.as_ref().and_then(|t| thumbnail(ui.ctx(), doc, &t.image));
+                let r = ui.horizontal(|ui| {
+                    match &thumb {
+                        Some(tex) => {
+                            ui.add(egui::Image::new(tex).maintain_aspect_ratio(false).fit_to_exact_size(egui::vec2(12.0, 12.0)).corner_radius(2.0));
+                        }
+                        None => swatch(ui, Some(m.color), 12.0),
+                    }
+                    ui.button(&m.name).clicked()
+                });
+                if r.inner {
+                    actions.push(Action::ExportMaterials(Some(id)));
+                }
+            }
+        });
+        let import = ui.add(egui::Button::image(icon(icons::IMPORT)).min_size(egui::vec2(OPTION_HEIGHT, OPTION_HEIGHT)));
+        if import.on_hover_text(t!("panel.materials.import_tip")).clicked() {
+            actions.push(Action::ImportMaterials);
+        }
+    });
+}
+
+/// A texture's thumbnail's side (texels), and its preview's (points) under the pointer.
+const THUMB_SIZE: u32 = 128;
+const THUMB_PREVIEW: f32 = 160.0;
+
+/// The thumbnail of the image `id` of `doc`, made once (kept in egui's temporary memory by
+/// image id: the same image, the same thumbnail in every document); none when it does not
+/// read.
+fn thumbnail(ctx: &egui::Context, doc: &Document, id: &str) -> Option<egui::TextureHandle> {
+    let key = egui::Id::unique(("texture_thumbnail", id));
+    if let Some(made) = ctx.data(|d| d.get_temp::<Option<egui::TextureHandle>>(key)) {
+        return made;
     }
+    let made = doc.asset(id).and_then(|a| image::load_from_memory(&a.bytes).ok()).map(|img| {
+        let img = img.thumbnail(THUMB_SIZE, THUMB_SIZE).to_rgba8();
+        let size = [img.width() as usize, img.height() as usize];
+        ctx.load_texture(format!("thumbnail {id}"), egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()), egui::TextureOptions::LINEAR)
+    });
+    ctx.data_mut(|d| d.insert_temp(key, made.clone()));
+    made
+}
+
+/// A material's texture, under its row: its real size (width along the grain × height) and
+/// its rotation, typed as the measurements box reads them; a button to remove it.
+fn texture_row(ui: &mut egui::Ui, doc: &Document, id: Id, texture: &skraft_model::Texture, actions: &mut Vec<Action>) {
+    let units = &doc.settings().units;
+    let set = |t: skraft_model::Texture| Action::Apply(Operation::SetTexture { material: id, texture: Some(t), image: None });
+    fn field(width: f32, tip: &str) -> Field<'_> {
+        Field {
+            tip: Some(tip),
+            width,
+            align: egui::Align2::RIGHT_CENTER,
+            lit: false,
+            addon: None,
+            blur_applies: true,
+            empty_applies: false,
+            handle: None,
+        }
+    }
+    ui.horizontal(|ui| {
+        // Under the name, past the brush and the colour.
+        ui.add_space(2.0 * OPTION_HEIGHT);
+        let room = ui.available_width() - OPTION_HEIGHT - 4.0 * ui.spacing().item_spacing.x - 12.0;
+        let (size_w, angle_w) = ((room * 0.36).max(48.0), (room * 0.28).max(40.0));
+        let size_tips = [t!("panel.materials.texture_width_tip"), t!("panel.materials.texture_height_tip")];
+        for (k, tip) in size_tips.iter().enumerate() {
+            let v = texture.size[k];
+            let (shown, exact) = (units.format(v), format!("{}{}", units.exact_number(v), units.suffix()));
+            let fid = ui.make_persistent_id(("texture_size", id, k));
+            if let Some(text) = ui.vertical(|ui| framed_field(ui, fid, &shown, &exact, field(size_w, tip))).inner
+                && let Ok(mm) = measure::length(&text, units, v)
+                && mm > 0.0
+            {
+                let mut t = texture.clone();
+                t.size[k] = mm;
+                actions.push(set(t));
+            }
+            if k == 0 {
+                ui.label("×");
+            }
+        }
+        let deg = texture.rotation.to_degrees();
+        let shown = format!("{}°", skraft_i18n::number(&format!("{}", (deg * 100.0).round() / 100.0)));
+        let tip = t!("panel.materials.texture_rotation_tip");
+        let fid = ui.make_persistent_id(("texture_rotation", id));
+        if let Some(text) = ui.vertical(|ui| framed_field(ui, fid, &shown, &shown, field(angle_w, &tip))).inner
+            && let Ok(d) = measure::angle(&text, deg)
+        {
+            actions.push(set(skraft_model::Texture { rotation: d.to_radians(), ..texture.clone() }));
+        }
+        let close = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ui.visuals().text_color());
+        let h = OPTION_HEIGHT;
+        if ui.add(egui::Button::image(close).min_size(egui::vec2(h, h))).on_hover_text(t!("panel.materials.texture_remove_tip")).clicked() {
+            actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None }));
+        }
+    });
 }
 
 #[cfg(test)]

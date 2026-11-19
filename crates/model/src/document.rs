@@ -10,6 +10,8 @@ use std::sync::{Arc, OnceLock};
 
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
+
+use crate::props::{PropDef, Props};
 use skraft_i18n::t;
 
 use crate::settings::Settings;
@@ -47,6 +49,9 @@ pub struct Component {
     /// How it is stretched: its cutters and locked axes (docs/tools/stretch.md).
     #[serde(default, skip_serializing_if = "Behavior::is_default")]
     pub behavior: Behavior,
+    /// Its typed properties (docs/model/properties.md).
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
 }
 
 /// How a component behaves when stretched (docs/tools/stretch.md, after SketchUp's
@@ -155,6 +160,16 @@ impl Component {
 pub struct Guide {
     pub id: Id,
     pub shape: GuideShape,
+    /// Its typed properties (docs/model/properties.md).
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
+}
+
+impl Guide {
+    /// A copy of it, `id`, its shape moved by `t`: its properties go along.
+    pub fn moved(&self, id: Id, t: &DAffine3) -> Guide {
+        Guide { id, shape: self.shape.transformed(t), props: self.props.clone() }
+    }
 }
 
 /// A guide's geometry, in its component's axes.
@@ -201,7 +216,7 @@ pub struct Part {
     pub bodies: Vec<Body>,
     /// The part as last computed from its bodies; absent when it is its single positive body,
     /// unplaced (no kernel). A cache saved with the file: the bodies are the source.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::file::solid_opt")]
     pub(crate) shape: Option<Arc<Solid>>,
     /// The bodies whose boolean failed when the shape was computed: skipped, the others
     /// computed (docs/model/data-model.md). Part of the same cache.
@@ -431,6 +446,7 @@ pub struct BodyDef {
     /// The name given by the user, not automatic.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub named: bool,
+    #[serde(with = "crate::file::solid")]
     pub solid: Arc<Solid>,
     /// The profile `solid` is built from (docs/tools/prism.md), in its axes: the solid is then its
     /// cache. None for a free shape (imported, a boolean's result, stretched askew) and a group.
@@ -441,12 +457,15 @@ pub struct BodyDef {
     /// The bodies a group is made of, placed in its axes; none for a leaf.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<BodyGroup>,
+    /// Its typed properties (docs/model/properties.md).
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
 }
 
 impl BodyDef {
     /// A free shape (no profile), local.
     pub fn new(id: Id, solid: Arc<Solid>) -> Self {
-        BodyDef { id, name: String::new(), named: false, solid, profile: None, source: BodySource::Local, group: None }
+        BodyDef { id, name: String::new(), named: false, solid, profile: None, source: BodySource::Local, group: None, props: Props::default() }
     }
 
     /// A group of `children`, `solid` their result, `failed` those whose boolean failed.
@@ -540,11 +559,14 @@ pub struct Body {
     pub def: Id,
     pub sign: Sign,
     pub placement: DAffine3,
+    /// Its typed properties (docs/model/properties.md).
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
 }
 
 impl Body {
     pub fn new(id: Id, def: Id, sign: Sign, placement: DAffine3) -> Self {
-        Body { id, name: String::new(), def, sign, placement }
+        Body { id, name: String::new(), def, sign, placement, props: Props::default() }
     }
 }
 
@@ -662,15 +684,55 @@ pub struct Occurrence {
     /// anything under it — but while it is being edited, or with the hidden shown.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    /// Its typed properties (docs/model/properties.md).
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
 }
 
-/// A material: a name and a colour (docs/render/look.md). Kinds of material (wood species,
-/// sheets, metals…) come later.
+/// A material: a name, a colour, maybe a texture (docs/render/look.md). Kinds of material
+/// (wood species, sheets, metals…) come later.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     pub name: String,
-    /// sRGB.
+    /// sRGB; under a texture, what is shown until its image is loaded.
     pub color: [u8; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<Texture>,
+    /// Its typed properties (docs/model/properties.md).
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
+}
+
+impl Material {
+    /// A material of `color`, named `name`, without texture nor properties.
+    pub fn new(name: String, color: [u8; 3]) -> Self {
+        Material { name, color, texture: None, props: Props::default() }
+    }
+}
+
+/// A material's texture (docs/render/look.md#textures): an image of the document's assets, laid
+/// on the faces at its real size by a projection in the part's axes, its width along the
+/// part's length (a wood's grain).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Texture {
+    /// Its image: its id among the document's assets ([`crate::Asset::id`]).
+    pub image: String,
+    /// Its real size (mm): the image's width, along the grain, then its height.
+    pub size: [f64; 2],
+    /// Turned in the face's plane (radians).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rotation: f64,
+}
+
+fn is_zero(x: &f64) -> bool {
+    *x == 0.0
+}
+
+impl Texture {
+    /// Well formed: a size positive and finite, a rotation finite.
+    pub fn is_valid(&self) -> bool {
+        self.size.iter().all(|s| s.is_finite() && *s > 0.0) && self.rotation.is_finite()
+    }
 }
 
 /// A guide in the scene (docs/tools/tape-measure.md): the occurrences from the root to the
@@ -786,6 +848,14 @@ pub struct Document {
     /// The materials parts and occurrences are painted with, by id (ids from `next_id`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) materials: BTreeMap<Id, Material>,
+    /// The definitions of the properties (docs/model/properties.md), by key: optional, a key
+    /// without one keeps its values as they are.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) prop_defs: BTreeMap<String, PropDef>,
+    /// The images of the materials' textures, by id ([`crate::Asset::id`]): only those a
+    /// material uses ([`Document::prune_assets`]).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", with = "crate::file::solids::images")]
+    pub(crate) assets: BTreeMap<String, crate::Asset>,
 }
 
 impl Default for Document {
@@ -805,8 +875,8 @@ impl Document {
         let root = Id(1);
         let kind = ComponentKind::Assembly(Assembly::default());
         let c =
-            Component { id: root, name: t!("default_name.model"), named: true, kind, guides: Vec::new(), behavior: Behavior::default() };
-        Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings, materials: BTreeMap::new() }
+            Component { id: root, name: t!("default_name.model"), named: true, kind, guides: Vec::new(), behavior: Behavior::default(), props: Props::default() };
+        Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings, materials: BTreeMap::new(), prop_defs: BTreeMap::new(), assets: BTreeMap::new() }
     }
 
     pub fn settings(&self) -> &Settings {
@@ -820,6 +890,44 @@ impl Document {
 
     pub fn material(&self, id: Id) -> Result<&Material> {
         self.materials.get(&id).ok_or(Error::NotFound(id))
+    }
+
+    /// The image `id` of the materials' textures.
+    pub fn asset(&self, id: &str) -> Option<&crate::Asset> {
+        self.assets.get(id)
+    }
+
+    pub(crate) fn with_assets_pruned(mut self) -> Self {
+        self.prune_assets();
+        self
+    }
+
+    /// Drops the images no material uses any more.
+    pub(crate) fn prune_assets(&mut self) {
+        let used: BTreeSet<&str> = self.materials.values().filter_map(|m| m.texture.as_ref()).map(|t| t.image.as_str()).collect();
+        if self.assets.keys().any(|id| !used.contains(id.as_str())) {
+            let used: BTreeSet<String> = used.into_iter().map(str::to_owned).collect();
+            self.assets.retain(|id, _| used.contains(id));
+        }
+    }
+
+    /// A document of the materials `ids` alone (all when empty), without geometry: their
+    /// textures' images, every definition of properties (a `.skraftmat`, docs/io/file-format.md).
+    pub fn materials_fragment(&self, ids: &[Id]) -> Result<Document> {
+        let mut out = Document::new();
+        for (id, m) in &self.materials {
+            if ids.is_empty() || ids.contains(id) {
+                let k = out.fresh_id();
+                out.materials.insert(k, m.clone());
+            }
+        }
+        for id in ids {
+            self.material(*id)?;
+        }
+        out.prop_defs = self.prop_defs.clone();
+        out.assets = self.assets.clone();
+        out.prune_assets();
+        Ok(out)
     }
 
     pub fn root(&self) -> Id {
@@ -1280,17 +1388,17 @@ impl Document {
     pub(crate) fn insert_component(&mut self, base: &str, named: bool, kind: ComponentKind) -> Id {
         let id = self.fresh_id();
         let name = self.unique_name(base, named);
-        self.components.insert(id, Arc::new(Component { id, name, named, kind, guides: Vec::new(), behavior: Behavior::default() }));
+        self.components.insert(id, Arc::new(Component { id, name, named, kind, guides: Vec::new(), behavior: Behavior::default(), props: Props::default() }));
         id
     }
 
     /// Adds a copy of the component `src` (its recipe or its occurrences, its guides — ids
-    /// kept — and its behavior), under a name of its own.
+    /// kept —, its behavior and its properties), under a name of its own.
     pub(crate) fn copy_component(&mut self, src: Id) -> Result<Id> {
         let src = self.component(src)?.clone();
         let copy = self.insert_component(&src.name, src.named, src.kind);
         let c = self.component_mut(copy)?;
-        (c.guides, c.behavior) = (src.guides, src.behavior);
+        (c.guides, c.behavior, c.props) = (src.guides, src.behavior, src.props);
         Ok(copy)
     }
 
@@ -1355,13 +1463,28 @@ impl Document {
     /// With `reuse` (the fragment was copied from this document, whose ids still name the same
     /// things, docs/tools/copy-paste.md), the components and materials still here are used as they are; only
     /// the others are copied.
-    pub(crate) fn graft(&mut self, fragment: &Document, reuse: bool) -> Result<Vec<Occurrence>> {
+    pub(crate) fn graft(&mut self, fragment: &Document, reuse: bool) -> Result<(Vec<Occurrence>, BTreeMap<String, String>)> {
+        // Its properties' definitions taken in, its keys renamed where they would contradict
+        // ours (docs/model/properties.md).
+        let renamed = self.adopt_prop_defs(&fragment.prop_defs, fragment.each_props());
+        let owned;
+        let fragment = match renamed.is_empty() {
+            true => fragment,
+            false => {
+                owned = fragment.with_props_renamed(&renamed);
+                &owned
+            }
+        };
         // Decided before anything is added: a fresh id may be one of the fragment's.
         let here: crate::FastSet<Id> = if reuse {
             fragment.materials.keys().filter(|id| self.materials.contains_key(id)).copied().collect()
         } else {
             crate::FastSet::default()
         };
+        // The images first: the same id, the same bytes.
+        for (id, a) in &fragment.assets {
+            self.assets.entry(id.clone()).or_insert_with(|| a.clone());
+        }
         let mut materials: HashMap<Id, Id> = HashMap::new();
         for (id, m) in &fragment.materials {
             let same = if here.contains(id) { Some(*id) } else { self.materials.iter().find(|(_, here)| *here == m).map(|(k, _)| *k) };
@@ -1400,6 +1523,7 @@ impl Document {
                     Ok(Occurrence {
                         id: doc.fresh_id(),
                         name: o.name.clone(),
+                        props: o.props.clone(),
                         component,
                         transform: o.transform,
                         material,
@@ -1415,11 +1539,21 @@ impl Document {
                 ComponentKind::Assembly(a) => ComponentKind::Assembly(Assembly::new(occurrences(self, &a.occurrences)?)),
                 ComponentKind::Part(p) => {
                     let mut p = p.clone();
+                    // Its body definitions' ids drawn afresh too: the fragment's may be past
+                    // this document's counter, or taken by the ids drawn for its bodies.
+                    let defs: HashMap<Id, Id> = p.defs.iter().map(|d| (d.id, self.fresh_id())).collect();
+                    for d in &mut p.defs {
+                        d.id = defs[&d.id];
+                        if let Some(g) = &mut d.group {
+                            g.children.iter_mut().for_each(|b| b.def = defs.get(&b.def).copied().unwrap_or(b.def));
+                        }
+                    }
                     let mut bodies: HashMap<Id, Id> = HashMap::new();
                     for b in &mut p.bodies {
                         let id = self.fresh_id();
                         bodies.insert(b.id, id);
                         b.id = id;
+                        b.def = defs.get(&b.def).copied().unwrap_or(b.def);
                     }
                     p.failed = p.failed.iter().filter_map(|id| bodies.get(id).copied()).collect();
                     for g in p.defs.iter_mut().filter_map(|d| d.group.as_mut()) {
@@ -1435,12 +1569,12 @@ impl Document {
                     ComponentKind::Part(p)
                 }
             };
-            let guides = c.guides.iter().map(|g| Guide { id: self.fresh_id(), shape: g.shape }).collect();
+            let guides = c.guides.iter().map(|g| Guide { id: self.fresh_id(), ..g.clone() }).collect();
             let name = self.unique_name(&c.name, c.named);
             self.components
-                .insert(*new, Arc::new(Component { id: *new, name, named: c.named, kind, guides, behavior: c.behavior.clone() }));
+                .insert(*new, Arc::new(Component { id: *new, name, named: c.named, kind, guides, behavior: c.behavior.clone(), props: c.props.clone() }));
         }
-        occurrences(self, &fragment.root_assembly().occurrences)
+        Ok((occurrences(self, &fragment.root_assembly().occurrences)?, renamed))
     }
 }
 

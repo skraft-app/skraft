@@ -576,12 +576,12 @@ impl Document {
     }
 
     /// A copy of the component `c` as it is in `before` (ids of its occurrences, bodies and
-    /// guides kept, docs/model/data-model.md, and its behavior), under a name of its own.
+    /// guides kept, docs/model/data-model.md, its behavior and its properties), under a name of its own.
     fn copy_from(&mut self, before: &Document, c: Id) -> Result<Id> {
         let src = before.component(c)?.clone();
         let copy = self.insert_component(&src.name, src.named, src.kind);
         let c = self.component_mut(copy)?;
-        (c.guides, c.behavior) = (src.guides, src.behavior);
+        (c.guides, c.behavior, c.props) = (src.guides, src.behavior, src.props);
         Ok(copy)
     }
 

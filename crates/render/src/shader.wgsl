@@ -21,6 +21,13 @@ struct Globals {
 @group(0) @binding(0) var<uniform> g: Globals;
 // The colours faces and placements refer to (linear RGB).
 @group(0) @binding(1) var<storage, read> palette: array<vec4<f32>>;
+// Each palette entry's texture (docs/render/look.md#textures): x its layer (< 0: none), y and z
+// the inverse of its width and height (mm), w its rotation (radians).
+@group(0) @binding(2) var<storage, read> textures: array<vec4<f32>>;
+@group(0) @binding(3) var texture_layers: texture_2d_array<f32>;
+@group(0) @binding(4) var texture_sampler: sampler;
+// A layer's side (texels), lib.rs's `TEXTURE_SIZE`.
+const TEXTURE_SIZE: f32 = 1024.0;
 
 const NO_MATERIAL: u32 = 0xffffffffu;
 // Set in an instance's palette entry: it wins over its faces' own paint (lib.rs's `FORCED`).
@@ -40,6 +47,8 @@ struct Instance {
     @location(10) n2: vec4<f32>,
     @location(11) tint: vec4<f32>,
     @location(12) material: u32,
+    // The axis of its mesh along its part's length (0, 1, 2: x, y, z), a texture's grain.
+    @location(14) grain: u32,
 };
 
 // Is the camera-space point `p` cut away by the section?
@@ -62,6 +71,10 @@ struct FaceOut {
     // measures across them).
     @location(6) @interpolate(flat) hatch: f32,
     @location(7) @interpolate(flat) pitch: f32,
+    // In the mesh's own axes: a texture's projection (`textured`).
+    @location(8) local: vec3<f32>,
+    @location(9) local_normal: vec3<f32>,
+    @location(10) @interpolate(flat) grain: u32,
 };
 
 @vertex
@@ -78,11 +91,59 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
     out.opacity = inst.n1.w;
     out.hatch = inst.n2.w;
     out.pitch = hatch_pitch(inst.m3.xyz, inst.n2.w);
+    out.local = pos;
+    out.local_normal = normal;
+    out.grain = inst.grain;
     // The face's own colour, else its placement's; the placement's when forced (no entry left
     // under the flag is the default colour).
     let forced = inst.material != NO_MATERIAL && (inst.material & FORCED) != 0u;
     out.colour = select(select(inst.material, paint, paint != NO_MATERIAL), inst.material & ~FORCED, forced);
     return out;
+}
+
+// The colour of a front face of palette entry `i` with a texture: its image projected on the
+// face in the mesh's axes along the axis it most faces (a box projection), its width along the
+// part's length (`in.grain`) — across it on the end grain —, at its real size, turned by its
+// rotation. Its mip level from the size of a pixel on the face (distance and slant), not from
+// derivatives: they would need a uniform control flow. Without a texture, `base`.
+fn textured(in: FaceOut, base: vec3<f32>) -> vec3<f32> {
+    let i = in.colour;
+    if (i == NO_MATERIAL || i >= arrayLength(&textures)) {
+        return base;
+    }
+    let t = textures[i];
+    if (t.x < 0.0) {
+        return base;
+    }
+    let a = abs(in.local_normal);
+    var facing = 2u;
+    if (a.x >= a.y && a.x >= a.z) {
+        facing = 0u;
+    } else if (a.y >= a.z) {
+        facing = 1u;
+    }
+    let grain = min(in.grain, 2u);
+    var u_axis = grain;
+    var v_axis = 3u - grain - facing;
+    if (facing == grain) {
+        u_axis = (grain + 1u) % 3u;
+        v_axis = (grain + 2u) % 3u;
+    }
+    let p = in.local;
+    let flat_uv = vec2<f32>(p[u_axis] * t.y, p[v_axis] * t.z);
+    let c = cos(t.w);
+    let s = sin(t.w);
+    let uv = vec2<f32>(c * flat_uv.x - s * flat_uv.y, s * flat_uv.x + c * flat_uv.y);
+    // A pixel's footprint on the face (mm), in texels.
+    let pixel = 2.0 / (g.proj[1][1] * g.viewport.y);
+    var size = pixel;
+    if (g.proj[3][3] == 0.0) {
+        size = length(in.world) * pixel;
+    }
+    let slant = max(abs(dot(normalize(in.normal), normalize(-in.world))), 0.2);
+    let texels = size / slant * max(t.y, t.z) * TEXTURE_SIZE;
+    let lod = max(log2(max(texels, 1e-6)), 0.0);
+    return textureSampleLevel(texture_layers, texture_sampler, uv, i32(t.x), lod).rgb;
 }
 
 fn front_colour(i: u32) -> vec3<f32> {
@@ -218,6 +279,8 @@ fn shade(in: FaceOut, facing: bool, caps: bool, hatch: f32) -> vec4<f32> {
         }
         n = -n;
         base = g.face_back.rgb;
+    } else {
+        base = textured(in, base);
     }
     let view = normalize(-in.world);
     let head = max(dot(n, view), 0.0);

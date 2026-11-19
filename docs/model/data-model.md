@@ -19,15 +19,19 @@ Document
 ├─ root       : Id of the root assembly (the model, never counted itself)
 ├─ next_id
 ├─ settings   : display style and units, saved with the model
-└─ materials  : Id → Material { name, color }
+├─ materials  : Id → Material { name, color, props }
+└─ prop_defs  : key → PropDef — the properties' definitions (Properties)
 
-Component { id, name, named, kind, guides, behavior }
+Component { id, name, named, kind, guides, behavior, props }
   guides   : construction lines and circles in the component's axes (Tape measure and guides)
   behavior : how it is stretched — its cutters and locked axes (Stretch)
   kind     = Part     { defs, bodies, shape, failed, faces }             — a part (Bodies)
            | Assembly { occurrences: Vec<Occurrence> }                   — an assembly
-Occurrence { id, name, component: Id, transform: T, material, hidden }  — an occurrence
+Occurrence { id, name, component: Id, transform: T, material, hidden, props }  — an occurrence
 ```
+
+Guides, body definitions and bodies have `props` too: typed values by key
+([Properties](properties.md)).
 
 Guides: [Tape measure and guides](../tools/tape-measure.md); `behavior`: [Stretch](../tools/stretch.md);
 a part's content: [Bodies](bodies.md).

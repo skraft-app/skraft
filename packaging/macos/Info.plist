@@ -24,7 +24,8 @@
     <string>public.app-category.graphics-design</string>
     <key>NSHighResolutionCapable</key>
     <true/>
-    <!-- The documents (.skraft): the app opens them, a double click in the Finder (src/opened.rs). -->
+    <!-- The documents (.skraft) and the materials alone (.skraftmat, imported into the model
+         shown): the app opens them, a double click in the Finder (src/opened.rs). -->
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
@@ -39,6 +40,20 @@
             <key>LSItemContentTypes</key>
             <array>
                 <string>app.skraft.document</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Skraft Materials</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleTypeIconFile</key>
+            <string>Skraft</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>app.skraft.materials</string>
             </array>
         </dict>
     </array>
@@ -64,6 +79,28 @@
                 </array>
                 <key>public.mime-type</key>
                 <string>application/x-skraft</string>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>app.skraft.materials</string>
+            <key>UTTypeDescription</key>
+            <string>Skraft Materials</string>
+            <key>UTTypeIconFile</key>
+            <string>Skraft</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>skraftmat</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/x-skraft-materials</string>
             </dict>
         </dict>
     </array>

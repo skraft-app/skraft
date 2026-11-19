@@ -116,6 +116,27 @@ share it —; the model when its navigator row is clicked; nothing selected, « 
 sélection ». No bodies count nor topology row: the navigator lists the bodies, `model.geometry`
 gives the topology.
 
+### Properties
+
+Under those rows, the entity's **properties** ([Properties](../model/properties.md),
+`panels/props.rs`): « Propriétés » for a part or an assembly, a body's definition, a guide, the
+model; « Propriétés de l'exemplaire » for the occurrence, or the body, selected. A row per
+definition applying to the entity, in its keys' order — its value, else its default greyed —,
+then the values without a definition, their key greyed (the tooltip says so); a value set has a
+button to remove it. The editor follows the kind: a check box, a choice (framed as the
+material's), a colour button, else a framed field typed as the measurements box reads (`@`,
+expressions, the document's units; a money's currency after its amount, `12 €`, `@*2 usd`).
+Nothing shown when the entity has no value and no definition applies to it.
+
+**The definitions** are the model's: its entity info (its navigator row clicked) lists them
+under « Définitions des propriétés », one fold each — name, kind (text, integer, number,
+yes / no, length, area, volume, angle, mass, price, colour, choice, multiple choice, list of
+lengths), choices (`;`-separated, for a choice), default, the entities it applies to (all
+checked: all), its key (read only) — and a delete button (the values stay). « Nouvelle
+propriété » adds `user.property_<n>`, a text. Rows are laid at widths fixed from the card's
+room (`Rows`), not in a `Grid`: a label wider than planned would widen the card at every
+relayout.
+
 ## Toasts
 
 `toasts.rs`, after OpenCutList's notifications (`SmartTool#notify`): the app's messages — a

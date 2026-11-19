@@ -74,7 +74,8 @@ impl Editor {
         match self.open_part_path() {
             Some(path) => {
                 let f = doc.bodies_fragment(&path, &self.selection).ok()?;
-                let mut hull = guide_points(&f.guides, &DAffine3::IDENTITY);
+                let shapes: Vec<_> = f.guides.iter().map(|g| g.shape).collect();
+                let mut hull = guide_points(&shapes, &DAffine3::IDENTITY);
                 for m in &f.bodies {
                     let Some(d) = f.defs.iter().find(|d| d.id == m.def) else { continue };
                     let b = self.scene.bounds_of(&d.solid).or_else(|| d.solid.vertex_bounds());

@@ -265,6 +265,89 @@ fn file_round_trip() {
     assert!(Document::from_json(&json.replacen("\"version\":1", "\"version\":99", 1)).is_err());
 }
 
+/// A file's entries, by path.
+fn unzip(file: &[u8]) -> std::collections::BTreeMap<String, Vec<u8>> {
+    use std::io::Read;
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(file)).unwrap();
+    (0..zip.len())
+        .map(|i| {
+            let mut e = zip.by_index(i).unwrap();
+            let mut out = Vec::new();
+            e.read_to_end(&mut out).unwrap();
+            (e.name().unwrap().into_owned(), out)
+        })
+        .collect()
+}
+
+fn rezip(entries: &std::collections::BTreeMap<String, Vec<u8>>) -> Vec<u8> {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in entries {
+        zip.start_file(name.as_str(), zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+#[test]
+fn a_file_is_a_zip_of_the_structure_and_its_b_reps() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(100.0, 50.0, 18.0) });
+    let b = add(&mut h, Primitive::Cylinder { origin: DVec3::new(50.0, 25.0, 10.0), radius: 4.0, height: 20.0 });
+    let c = add(&mut h, Primitive::Sphere { center: DVec3::new(300.0, 0.0, 0.0), radius: 10.0 });
+    h.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(b), Boolean::Difference, Scope::All)).unwrap();
+    h.apply(Operation::Duplicate { context: root, entities: vec![a, c], transform: DAffine3::from_translation(DVec3::Y * 500.0) }).unwrap();
+    let doc = h.document();
+    let file = doc.to_file().unwrap();
+    assert_eq!(Document::from_file(&file).unwrap(), *doc);
+    // The same document, the same bytes.
+    assert_eq!(doc.to_file().unwrap(), file);
+
+    let entries = unzip(&file);
+    let (manifest, document) = (&entries["manifest.json"], std::str::from_utf8(&entries["document.json"]).unwrap());
+    let manifest: serde_json::Value = serde_json::from_slice(manifest).unwrap();
+    assert_eq!(
+        (manifest["format"].as_str(), manifest["version"].as_u64(), manifest["content"].as_str()),
+        (Some("skraft"), Some(1), Some("model"))
+    );
+    // The structure only, readable: no record inline.
+    assert!(!document.contains("\"faces\""), "{document}");
+    let names: Vec<_> = entries.keys().collect();
+    let in_dir = |dir: &str| entries.keys().filter(|k| k.starts_with(dir)).count();
+    // Each solid once (the copies share theirs), named in the document: the board and the
+    // cylinder (profiled), the drilled board's shape, the sphere.
+    assert_eq!(in_dir("breps/") + in_dir("cache/"), 4, "{names:?}");
+    assert!(in_dir("cache/") >= 3, "{names:?}");
+    for name in entries.keys().filter_map(|k| k.strip_prefix("breps/").or(k.strip_prefix("cache/"))) {
+        assert!(document.contains(&format!("\"{}\"", name.strip_suffix(".json").unwrap())), "{name}");
+    }
+
+    // Refused: not a ZIP (an older file, JSON), another format, a newer version, an entry missing.
+    assert!(matches!(Document::from_file(doc.to_json().unwrap().as_bytes()), Err(Error::File(FileError::NotZip))));
+    let with = |name: &str, bytes: Option<Vec<u8>>| {
+        let mut e = entries.clone();
+        match bytes {
+            Some(b) => e.insert(name.to_owned(), b),
+            None => e.remove(name),
+        };
+        Document::from_file(&rezip(&e))
+    };
+    let manifest_with = |field: &str, value: serde_json::Value| {
+        let mut m = manifest.clone();
+        m[field] = value;
+        with("manifest.json", Some(serde_json::to_vec(&m).unwrap()))
+    };
+    assert!(matches!(manifest_with("format", "other".into()), Err(Error::File(FileError::NotSkraft(f))) if f == "other"));
+    assert!(matches!(manifest_with("version", 99.into()), Err(Error::File(FileError::TooNew(99)))));
+    assert!(matches!(with("document.json", None), Err(Error::File(FileError::MissingEntry(e))) if e == "document.json"));
+    let some_cache = entries.keys().find(|k| k.starts_with("cache/")).unwrap().clone();
+    let missing = with(&some_cache, None);
+    assert!(matches!(&missing, Err(Error::File(FileError::Unreadable(e))) if e.contains("missing")), "{missing:?}");
+    // Zipped again as it was, it reads.
+    assert_eq!(Document::from_file(&rezip(&entries)).unwrap(), *doc);
+}
+
 #[test]
 fn guides_belong_to_their_component() {
     let mut h = History::new(Document::new());
@@ -476,17 +559,17 @@ fn prepare_gathers_kernel_calls_and_commit_replays_them() {
 }
 
 /// Opens a file given by `SKRAFT_OPEN` (a check of a real file, by hand):
-/// `SKRAFT_OPEN=path cargo test -p skraft-model open_given_file -- --nocapture`.
+/// `SKRAFT_OPEN=path cargo test --workspace open_given_file -- --nocapture`.
 #[test]
 fn open_given_file() {
     let Some(path) = std::env::var_os("SKRAFT_OPEN") else { return };
-    let doc = Document::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let doc = Document::from_file(&std::fs::read(path).unwrap()).unwrap();
     for c in doc.components() {
         println!("{} {:?} named={} occurrences={}", c.id, c.name, c.named, doc.occurrence_count(c.id));
     }
     println!("{} parts placed", doc.placed_parts().len());
     // And it saves again.
-    assert_eq!(Document::from_json(&doc.to_json().unwrap()).unwrap(), doc);
+    assert_eq!(Document::from_file(&doc.to_file().unwrap()).unwrap(), doc);
 }
 
 #[test]
@@ -1633,7 +1716,7 @@ fn placed_changes_skip_only_what_is_shared() {
 
 /// An occurrence of `component`, for the assembly's own tests.
 fn bare_occurrence(id: u64, component: Id) -> Occurrence {
-    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, material: None, hidden: false }
+    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, material: None, hidden: false, props: Props::default() }
 }
 
 #[test]
@@ -3163,7 +3246,7 @@ fn guides_move_with_bodies_inside_a_placed_group_in_its_axes() {
     // Copied from inside the group: in its axes; pasted at the part's level, back where the
     // group puts it (the fragment's world, the group's).
     let fragment = h.document().bodies_fragment(&inside, &[ids[0]]).unwrap();
-    match fragment.guides[..] {
+    match fragment.guides.iter().map(|g| g.shape).collect::<Vec<_>>()[..] {
         [GuideShape::Line { origin, .. }] => assert!(close(origin, DVec3::new(-10.0, 10.0, 20.0)), "{origin}"),
         _ => panic!("{:?}", fragment.guides),
     }
@@ -3667,4 +3750,272 @@ fn replacing_occurrences_keeps_their_placement_name_material_and_visibility() {
     let doc = h.document();
     assert!(doc.component(pa).is_ok() && !doc.counts_in_model().contains_key(&pa), "A unused, kept");
     assert_eq!(doc.counts_in_model()[&pb], 7, "3 in each assembly + the root's");
+}
+
+// ---- properties (docs/model/properties.md) -------------------------------------------------------------
+
+fn set_props(target: PropTarget, props: &[(&str, Option<Value>)]) -> Operation {
+    Operation::SetProps { target, props: props.iter().map(|(k, v)| (k.to_string(), v.clone())).collect() }
+}
+
+#[test]
+fn properties_are_typed_kept_by_copies_and_saved() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let part = occ(h.document(), &EntityPath::root(a)).component;
+    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [200, 160, 100] }).unwrap().material.unwrap();
+    let guide = h.apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin: DVec3::ONE, dir: DVec3::X } }).unwrap().guide.unwrap();
+    let (def, body) = {
+        let p = h.document().part(part).unwrap();
+        (p.defs[0].id, p.bodies[0].id)
+    };
+    let price = Value::Money { amount: 12.5, currency: "EUR".into() };
+    let targets = [
+        (PropTarget::Component(root), EntityKind::Model),
+        (PropTarget::Component(part), EntityKind::Part),
+        (PropTarget::Occurrence { context: root, occurrence: a }, EntityKind::Occurrence),
+        (PropTarget::BodyDef { part, def }, EntityKind::BodyDef),
+        (PropTarget::Body { part, body }, EntityKind::Body),
+        (PropTarget::Material(oak), EntityKind::Material),
+        (PropTarget::Guide { component: root, guide }, EntityKind::Guide),
+    ];
+    for (target, kind) in &targets {
+        h.apply(set_props(target.clone(), &[("user.prix", Some(price.clone())), ("user.note", Some(Value::Text("à poncer".into())))]))
+            .unwrap();
+        assert_eq!(h.document().prop_kind(target).unwrap(), *kind);
+        assert_eq!(h.document().props(target).unwrap().get("user.prix"), Some(&price));
+    }
+    // Removed, kept apart.
+    let occurrence = PropTarget::Occurrence { context: root, occurrence: a };
+    h.apply(set_props(occurrence.clone(), &[("user.note", None)])).unwrap();
+    assert_eq!(h.document().props(&occurrence).unwrap().len(), 1);
+    // Changes in a row to the same keys undo in one go.
+    let thickness = |t: f64| set_props(PropTarget::Component(part), &[("user.epaisseur", Some(Value::Length(t)))]);
+    h.apply(thickness(18.0)).unwrap();
+    h.apply(thickness(19.0)).unwrap();
+    h.undo();
+    assert!(h.document().props(&PropTarget::Component(part)).unwrap().get("user.epaisseur").is_none());
+
+    // A copy keeps its occurrence's and its part's; made unique, the part's go along.
+    let copy = h
+        .apply(Operation::Duplicate { context: root, entities: vec![a], transform: DAffine3::from_translation(DVec3::X * 50.0) })
+        .unwrap()
+        .created[0];
+    let copy_target = PropTarget::Occurrence { context: root, occurrence: copy };
+    assert_eq!(h.document().props(&copy_target).unwrap(), h.document().props(&occurrence).unwrap());
+    h.apply(Operation::MakeUnique { context: root, occurrence: copy }).unwrap();
+    let unique = occ(h.document(), &EntityPath::root(copy)).component;
+    assert_ne!(unique, part);
+    assert_eq!(h.document().props(&PropTarget::Component(unique)).unwrap().get("user.prix"), Some(&price));
+
+    // Saved and read again, each value with its kind.
+    let doc = h.document();
+    let file = doc.to_file().unwrap();
+    assert_eq!(Document::from_file(&file).unwrap(), *doc);
+    let document = String::from_utf8(unzip(&file)["document.json"].clone()).unwrap();
+    assert!(document.contains(r#""user.prix": {"#) && document.contains(r#""currency": "EUR""#), "{document}");
+
+    // Refused: a key without its namespace, a number not finite, an unknown entity.
+    let bad = |op| matches!(h.document().prepare(&op), Err(Error::Invalid(Refusal::BadPropKey | Refusal::BadPropValue)));
+    assert!(bad(set_props(PropTarget::Component(part), &[("prix", Some(Value::Int(1)))])));
+    assert!(bad(set_props(PropTarget::Component(part), &[("User.prix", Some(Value::Int(1)))])));
+    assert!(bad(set_props(PropTarget::Component(part), &[("user.long", Some(Value::Length(f64::INFINITY)))])));
+    assert!(bad(set_props(PropTarget::Component(part), &[("user.l", Some(Value::List(vec![Value::Int(1), Value::Text("a".into())])))])));
+    assert!(h.document().prepare(&set_props(PropTarget::Material(Id(999)), &[("user.x", Some(Value::Int(1)))])).is_err());
+}
+
+#[test]
+fn property_definitions_check_their_values() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let part = PropTarget::Component(occ(h.document(), &EntityPath::root(a)).component);
+    let occurrence = PropTarget::Occurrence { context: root, occurrence: a };
+    let species = PropDef {
+        label: "Essence".into(),
+        choices: vec!["Chêne".into(), "Hêtre".into()],
+        applies_to: [EntityKind::Part, EntityKind::Material].into(),
+        ..PropDef::new(ValueKind::Choice)
+    };
+    let define = |def: Option<PropDef>| Operation::SetPropDef { key: "user.essence".into(), def };
+    h.apply(define(Some(species.clone()))).unwrap();
+    let choice = |c: &str| Some(Value::Choice(c.into()));
+    h.apply(set_props(part.clone(), &[("user.essence", choice("Chêne"))])).unwrap();
+    let refused = |h: &History, op: Operation, r: Refusal| matches!(h.document().prepare(&op), Err(Error::Invalid(x)) if x == r);
+    // Not one of its choices, another kind, an entity it does not apply to.
+    assert!(refused(&h, set_props(part.clone(), &[("user.essence", choice("Pin"))]), Refusal::BadPropValue));
+    assert!(refused(&h, set_props(part.clone(), &[("user.essence", Some(Value::Text("Chêne".into())))]), Refusal::BadPropValue));
+    assert!(refused(&h, set_props(occurrence.clone(), &[("user.essence", choice("Chêne"))]), Refusal::BadPropValue));
+    // A definition its values do not fit, or not well formed.
+    assert!(refused(&h, define(Some(PropDef::new(ValueKind::Length))), Refusal::PropDefContradicted));
+    let no_choices = PropDef { choices: Vec::new(), ..species.clone() };
+    assert!(refused(&h, define(Some(no_choices)), Refusal::BadPropDef));
+    let bad_default = PropDef { default: choice("Pin"), ..species.clone() };
+    assert!(refused(&h, define(Some(bad_default)), Refusal::BadPropDef));
+    assert!(matches!(
+        h.document().prepare(&Operation::SetPropDef { key: "essence".into(), def: Some(species.clone()) }),
+        Err(Error::Invalid(Refusal::BadPropKey))
+    ));
+    // A list of its choices.
+    let several = PropDef { kind: ValueKind::List(Box::new(ValueKind::Choice)), applies_to: Default::default(), ..species.clone() };
+    h.apply(Operation::SetPropDef { key: "user.essences".into(), def: Some(several) }).unwrap();
+    let list = |l: &[&str]| Some(Value::List(l.iter().map(|c| Value::Choice(c.to_string())).collect()));
+    h.apply(set_props(occurrence.clone(), &[("user.essences", list(&["Chêne", "Hêtre"]))])).unwrap();
+    assert!(refused(&h, set_props(occurrence.clone(), &[("user.essences", list(&["Chêne", "Pin"]))]), Refusal::BadPropValue));
+
+    // A file whose value contradicts its definition is refused.
+    let json = h.document().to_json().unwrap();
+    assert_eq!(Document::from_json(&json).unwrap(), *h.document());
+    let tampered = json.replacen(r#"{"choice":"Chêne"}"#, r#"{"choice":"Pin"}"#, 1);
+    assert_ne!(tampered, json);
+    assert!(matches!(Document::from_json(&tampered), Err(Error::File(FileError::BadProp(k))) if k.starts_with("user.essence")));
+
+    // Its definition removed, its values stay, any kind welcome again.
+    h.apply(define(None)).unwrap();
+    assert_eq!(h.document().props(&part).unwrap().get("user.essence"), choice("Chêne").as_ref());
+    h.apply(set_props(part, &[("user.essence", Some(Value::Text("Pin".into())))])).unwrap();
+}
+
+#[test]
+fn pasting_renames_properties_defined_otherwise() {
+    // The source: « user.x » a length, on a part and its occurrence.
+    let mut src = History::new(Document::new());
+    let root = src.document().root();
+    let a = add(&mut src, cube(DVec3::ZERO, 10.0));
+    let part = occ(src.document(), &EntityPath::root(a)).component;
+    src.apply(Operation::SetPropDef { key: "user.x".into(), def: Some(PropDef::new(ValueKind::Length)) }).unwrap();
+    src.apply(set_props(PropTarget::Component(part), &[("user.x", Some(Value::Length(18.0))), ("user.raw", Some(Value::Int(3)))]))
+        .unwrap();
+    let fragment = Arc::new(src.document().entities_fragment(&[], &[a]).unwrap());
+
+    // Pasted where it was copied from: nothing renamed.
+    let outcome = paste(&mut src, root, &fragment, DAffine3::IDENTITY, true);
+    assert_eq!(outcome.warning, None);
+
+    // Elsewhere, « user.x » a text and « user.raw » a length: both renamed, their definitions with them.
+    let mut dst = History::new(Document::new());
+    let root = dst.document().root();
+    for (key, kind) in [("user.x", ValueKind::Text), ("user.raw", ValueKind::Length)] {
+        dst.apply(Operation::SetPropDef { key: key.into(), def: Some(PropDef::new(kind)) }).unwrap();
+    }
+    let outcome = paste(&mut dst, root, &fragment, DAffine3::IDENTITY, false);
+    assert_eq!(
+        outcome.warning,
+        Some(Warning::PropsRenamed(vec![("user.raw".into(), "user.raw_2".into()), ("user.x".into(), "user.x_2".into())]))
+    );
+    let pasted = occ(dst.document(), &EntityPath::root(outcome.created[0])).component;
+    let props = dst.document().props(&PropTarget::Component(pasted)).unwrap();
+    assert_eq!(props.get("user.x_2"), Some(&Value::Length(18.0)));
+    assert_eq!(props.get("user.raw_2"), Some(&Value::Int(3)));
+    assert_eq!(dst.document().prop_defs()["user.x_2"].kind, ValueKind::Length);
+    assert_eq!(dst.document().prop_defs()["user.x"].kind, ValueKind::Text);
+    assert!(!dst.document().prop_defs().contains_key("user.raw_2"));
+    // What it reads checks.
+    let doc = dst.document();
+    assert_eq!(Document::from_file(&doc.to_file().unwrap()).unwrap(), *doc);
+}
+
+// ---- textures and materials files (docs/render/look.md#textures, docs/io/file-format.md) -------------
+
+/// Bytes a PNG starts with, then `seed`: an image as far as the model goes (it does not decode).
+fn png(seed: u8) -> Asset {
+    Asset::new([&b"\x89PNG\r\n\x1a\n"[..], &[seed; 64]].concat()).unwrap()
+}
+
+fn texture(image: &Asset) -> Texture {
+    Texture { image: image.id(), size: [600.0, 300.0], rotation: 0.0 }
+}
+
+#[test]
+fn textures_are_stored_once_and_saved() {
+    let mut h = History::new(Document::new());
+    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    let walnut = h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap().material.unwrap();
+    let image = png(1);
+    h.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()) }).unwrap();
+    // The same image for another: no bytes again.
+    h.apply(Operation::SetTexture { material: walnut, texture: Some(texture(&image)), image: None }).unwrap();
+    assert_eq!(h.document().asset(&image.id()), Some(&image));
+
+    let doc = h.document();
+    let file = doc.to_file().unwrap();
+    assert_eq!(Document::from_file(&file).unwrap(), *doc);
+    let entries = unzip(&file);
+    let images: Vec<_> = entries.keys().filter(|k| k.starts_with("textures/")).collect();
+    assert_eq!(images, [&format!("textures/{}.png", image.id())]);
+    assert_eq!(&entries[images[0]][..], &image.bytes[..]);
+    let document = String::from_utf8(entries["document.json"].clone()).unwrap();
+    assert!(document.contains(&format!(r#""{}": "png""#, image.id())), "{document}");
+    // Inline in the one JSON.
+    assert_eq!(Document::from_json(&doc.to_json().unwrap()).unwrap(), *doc);
+    // Its image missing, refused.
+    let mut without = entries.clone();
+    without.remove(images[0]);
+    assert!(Document::from_file(&rezip(&without)).is_err());
+
+    // Refused: an image the document does not have, a size not positive.
+    let other = png(2);
+    let refused = |op| matches!(h.document().prepare(&op), Err(Error::Invalid(Refusal::BadTexture)));
+    assert!(refused(Operation::SetTexture { material: oak, texture: Some(texture(&other)), image: None }));
+    let flat = Texture { size: [0.0, 300.0], ..texture(&image) };
+    assert!(refused(Operation::SetTexture { material: oak, texture: Some(flat), image: None }));
+    assert!(Asset::new(b"GIF89a....".to_vec()).is_none());
+    assert_eq!(Asset::new(b"\xFF\xD8\xFF\xE0rest".to_vec()).unwrap().kind, ImageKind::Jpeg);
+
+    // Used by none, the image goes.
+    h.apply(Operation::SetTexture { material: oak, texture: None, image: None }).unwrap();
+    assert!(h.document().asset(&image.id()).is_some());
+    h.apply(Operation::DeleteMaterial { material: walnut }).unwrap();
+    assert!(h.document().asset(&image.id()).is_none());
+    assert!(!unzip(&h.document().to_file().unwrap()).keys().any(|k| k.starts_with("textures/")));
+}
+
+#[test]
+fn materials_files_export_and_import() {
+    let mut src = History::new(Document::new());
+    let root = src.document().root();
+    let oak = src.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    src.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap();
+    let image = png(7);
+    src.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()) }).unwrap();
+    src.apply(Operation::SetPropDef { key: "user.densite".into(), def: Some(PropDef::new(ValueKind::Real)) }).unwrap();
+    src.apply(set_props(PropTarget::Material(oak), &[("user.densite", Some(Value::Real(0.7)))])).unwrap();
+    let a = add(&mut src, cube(DVec3::ZERO, 10.0));
+    src.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
+
+    // Oak alone: a document without geometry, its image and the definitions with it.
+    let file = src.document().materials_file(&[oak]).unwrap();
+    let (mats, content) = Document::read_file(&file).unwrap();
+    assert_eq!(content, Content::Materials);
+    assert_eq!(mats.materials().map(|(_, m)| m.name.as_str()).collect::<Vec<_>>(), ["Chêne"]);
+    assert_eq!(mats.asset(&image.id()), Some(&image));
+    assert!(mats.prop_defs().contains_key("user.densite"));
+    assert_eq!(mats.components().count(), 0, "no component but its root");
+    assert!(matches!(Document::from_file(&file), Err(Error::File(FileError::MaterialsOnly))));
+    assert!(src.document().materials_file(&[Id(999)]).is_err());
+
+    // Imported elsewhere: the material, its texture, its image, its properties; once.
+    let mut dst = History::new(Document::new());
+    let fragment = Arc::new(mats);
+    dst.apply(Operation::ImportMaterials { fragment: fragment.clone() }).unwrap();
+    dst.apply(Operation::ImportMaterials { fragment: fragment.clone() }).unwrap();
+    let imported: Vec<_> = dst.document().materials().map(|(_, m)| m.clone()).collect();
+    assert_eq!(imported.len(), 1);
+    assert_eq!(imported[0].texture, Some(texture(&image)));
+    assert_eq!(imported[0].props.get("user.densite"), Some(&Value::Real(0.7)));
+    assert_eq!(dst.document().asset(&image.id()), Some(&image));
+    let doc = dst.document();
+    assert_eq!(Document::from_file(&doc.to_file().unwrap()).unwrap(), *doc);
+    assert!(dst.document().prepare(&Operation::ImportMaterials { fragment: Arc::new(Document::new()) }).is_err());
+
+    // A part painted with it, pasted into another document: the image goes along.
+    let copied = Arc::new(src.document().entities_fragment(&[], &[a]).unwrap());
+    assert!(copied.asset(&image.id()).is_some());
+    let mut other = History::new(Document::new());
+    let root = other.document().root();
+    paste(&mut other, root, &copied, DAffine3::IDENTITY, false);
+    assert_eq!(other.document().asset(&image.id()), Some(&image));
+    let doc = other.document();
+    assert_eq!(Document::from_file(&doc.to_file().unwrap()).unwrap(), *doc);
 }

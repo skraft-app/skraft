@@ -5,7 +5,7 @@
 //! the native menu (macOS, File only), title bar, ribbon, view bar, keyboard (SketchUp's shortcuts,
 //! changeable), the command palette and the control channel.
 
-use skraft_i18n::{ellipsis, t};
+use skraft_i18n::{ellipsis, t, tp};
 use skraft_model::kernel::{KernelService, Progress, SharedKernel};
 use skraft_model::{Boolean, Document, LengthUnit, Operation, Settings};
 use skraft_theme::{Choice, Mode, Palette as UiPalette, Theme};
@@ -362,7 +362,7 @@ impl SkraftApp {
         let (files, shown) = (self.prefs.open_files.clone(), self.prefs.shown_file);
         let mut tabs = Vec::new();
         for path in &files {
-            match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| Document::from_json(&t).map_err(|e| e.to_string()))
+            match std::fs::read(path).map_err(|e| e.to_string()).and_then(|b| Document::from_file(&b).map_err(|e| e.to_string()))
             {
                 Ok(doc) => {
                     self.open_document(doc, Some(path.clone()));
@@ -1104,6 +1104,25 @@ impl SkraftApp {
             Action::HoverOutliner(p) => {
                 if e.set_outliner_hover(p) {
                     self.ctx.request_repaint();
+                }
+            }
+            Action::PickTexture(m) => file::pick_texture(doc.id, m, &self.inbox, &self.ctx),
+            Action::ImportMaterials => file::import_materials(&self.inbox, &self.ctx),
+            Action::ExportMaterials(one) => {
+                let document = doc.editor.document();
+                // One: its name; all: the model's.
+                let name = match one.and_then(|id| document.material(id).ok()) {
+                    Some(m) => m.name.clone(),
+                    None => {
+                        let name = doc.name();
+                        let stem = std::path::Path::new(&name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                        t!("panel.materials.export_name", model = stem)
+                    }
+                };
+                let ids: Vec<skraft_model::Id> = one.into_iter().collect();
+                match document.materials_file(&ids) {
+                    Ok(bytes) => file::export_materials(bytes, &name, &self.inbox, &self.ctx),
+                    Err(err) => self.toasts.push(Note::error(t!("toast.export_failed"), err)),
                 }
             }
             Action::PaintWith(m) => {
@@ -2436,13 +2455,48 @@ impl eframe::App for SkraftApp {
         // What the file dialogs ended with (they never block the event loop).
         for outcome in self.inbox.take() {
             match outcome {
-                file::Outcome::Opened { name, text } => match Document::from_json(&text) {
-                    Ok(doc) => {
+                file::Outcome::Opened { name, bytes } => match Document::read_file(&bytes) {
+                    Ok((doc, skraft_model::Content::Model)) => {
                         self.add_recent_file(&name);
                         self.open_document(doc, Some(name));
                     }
+                    // Materials alone: into the shown document; from the start page, a new one.
+                    Ok((materials, skraft_model::Content::Materials)) => {
+                        if self.docs.active().is_none() {
+                            self.new_document();
+                        }
+                        let count = materials.materials().count();
+                        if let Some(d) = self.docs.active_mut() {
+                            let op = skraft_model::Operation::ImportMaterials { fragment: std::sync::Arc::new(materials) };
+                            if d.editor.apply(op).is_ok() {
+                                self.toasts.push(Note::success(tp!("toast.materials_imported", count, file = file_name(&name))));
+                            }
+                        }
+                    }
                     Err(e) => self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&name)), e)),
                 },
+                file::Outcome::TextureImage { doc, material, bytes } => {
+                    let Some(d) = self.docs.by_id_mut(doc) else { continue };
+                    let Some(image) = skraft_model::Asset::new(bytes) else {
+                        self.toasts.push(Note::error(t!("toast.texture_failed"), t!("toast.texture_not_image")));
+                        continue;
+                    };
+                    // Its size kept when it had one; else 600 mm wide, its height as the image's.
+                    let current = d.editor.document().material(material).ok().and_then(|m| m.texture.clone());
+                    let size = match current {
+                        Some(t) => t.size,
+                        None => {
+                            let (w, h) = image_size(&image.bytes).unwrap_or((1, 1));
+                            [600.0, 600.0 * h as f64 / w.max(1) as f64]
+                        }
+                    };
+                    let rotation = d.editor.document().material(material).ok().and_then(|m| m.texture.as_ref()).map_or(0.0, |t| t.rotation);
+                    let texture = skraft_model::Texture { image: image.id(), size, rotation };
+                    let op = skraft_model::Operation::SetTexture { material, texture: Some(texture), image: Some(image) };
+                    let _ = d.editor.apply(op);
+                }
+                file::Outcome::Written { path } => self.toasts.push(Note::success(t!("toast.written", file = file_name(&path)))),
+                file::Outcome::WriteFailed { error } => self.toasts.push(Note::error(t!("toast.export_failed"), error)),
                 file::Outcome::Saved { doc, path, revision } => {
                     self.add_recent_file(&path);
                     if let Some(d) = self.docs.by_id_mut(doc) {
@@ -2804,6 +2858,11 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
 }
 
 /// A section's name in the command palette: its menu's, small and dimmed. Its rect.
+/// An image's size in pixels, read from its header.
+fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()
+}
+
 fn palette_header(ui: &mut egui::Ui, menu: Menu) -> egui::Rect {
     const PAD: f32 = 8.0;
     let mut font = egui::TextStyle::Small.resolve(ui.style());

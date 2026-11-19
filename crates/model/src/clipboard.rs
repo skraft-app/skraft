@@ -12,8 +12,9 @@ use glam::DAffine3;
 use serde::{Deserialize, Serialize};
 
 use crate::document::{
-    Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuidePath, GuideShape, Id, Sign, is_identity, used_defs,
+    Assembly, Body, BodyDef, Component, ComponentKind, Document, EntityPath, Guide, GuidePath, Id, Sign, is_identity, used_defs,
 };
+use crate::props::{EntityKind, PropDef, Props};
 use crate::{Error, Result};
 
 /// Bodies and guides copied from an open part, in the part's axes, with the definitions of
@@ -22,22 +23,48 @@ use crate::{Error, Result};
 pub struct BodyFragment {
     pub defs: Vec<BodyDef>,
     pub bodies: Vec<Body>,
-    pub guides: Vec<GuideShape>,
+    /// Their ids those of the guides copied (fresh ones drawn when pasted).
+    pub guides: Vec<Guide>,
     /// The world transformation of the part copied from: pasted out of a part, the new part
     /// takes its axes (docs/tools/copy-paste.md, across the part's boundary).
     #[serde(default = "identity", skip_serializing_if = "is_identity")]
     pub world: DAffine3,
+    /// The definitions of the properties of the document copied from (docs/model/properties.md).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub prop_defs: BTreeMap<String, PropDef>,
 }
 
 impl Default for BodyFragment {
     fn default() -> Self {
-        BodyFragment { defs: Vec::new(), bodies: Vec::new(), guides: Vec::new(), world: DAffine3::IDENTITY }
+        BodyFragment { defs: Vec::new(), bodies: Vec::new(), guides: Vec::new(), world: DAffine3::IDENTITY, prop_defs: BTreeMap::new() }
     }
 }
 
 impl BodyFragment {
     pub fn is_empty(&self) -> bool {
         self.bodies.is_empty() && self.guides.is_empty()
+    }
+
+    /// Every properties it holds, with the kind of their entity.
+    pub(crate) fn each_props(&self) -> impl Iterator<Item = (EntityKind, &Props)> {
+        let defs = self.defs.iter().map(|d| (EntityKind::BodyDef, &d.props));
+        let children = self.defs.iter().flat_map(|d| d.children()).chain(&self.bodies).map(|b| (EntityKind::Body, &b.props));
+        defs.chain(children).chain(self.guides.iter().map(|g| (EntityKind::Guide, &g.props)))
+    }
+
+    /// The same, the keys of `renamed` (old → new) renamed.
+    pub(crate) fn with_props_renamed(&self, renamed: &BTreeMap<String, String>) -> BodyFragment {
+        let mut out = self.clone();
+        for d in &mut out.defs {
+            d.props = d.props.renamed(renamed);
+            if let Some(g) = &mut d.group {
+                g.children.iter_mut().for_each(|b| b.props = b.props.renamed(renamed));
+            }
+        }
+        out.bodies.iter_mut().for_each(|b| b.props = b.props.renamed(renamed));
+        out.guides.iter_mut().for_each(|g| g.props = g.props.renamed(renamed));
+        out.prop_defs = self.prop_defs.iter().map(|(k, d)| (renamed.get(k).unwrap_or(k).clone(), d.clone())).collect();
+        out
     }
 }
 
@@ -61,7 +88,7 @@ impl Document {
             .guides
             .iter()
             .filter(|g| guides.contains(&g.id))
-            .map(|g| Guide { id: g.id, shape: g.shape.transformed(&world) })
+            .map(|g| g.moved(g.id, &world))
             .collect();
         self.fragment(occurrences, guides, self.next_id)
     }
@@ -91,8 +118,8 @@ impl Document {
         let mut shapes = Vec::new();
         for g in guides {
             let (_, world) = self.component_at(&g.instances)?;
-            let shape = self.resolve_guide(g)?.shape.transformed(&world);
-            shapes.push(Guide { id: fresh(g.guide), shape });
+            let guide = self.resolve_guide(g)?;
+            shapes.push(Guide { id: fresh(g.guide), shape: guide.shape.transformed(&world), props: guide.props.clone() });
         }
         self.fragment(occurrences, shapes, next)
     }
@@ -126,6 +153,7 @@ impl Document {
             kind: ComponentKind::Assembly(Assembly::new(occurrences)),
             guides,
             behavior: Default::default(),
+            props: Default::default(),
         };
         let mut all: BTreeMap<Id, Arc<Component>> = components.iter().map(|id| (*id, self.components[id].clone())).collect();
         all.insert(self.root, Arc::new(top));
@@ -135,7 +163,11 @@ impl Document {
             next_id,
             settings: self.settings.clone(),
             materials: materials.iter().filter_map(|id| self.materials.get(id).map(|m| (*id, m.clone()))).collect(),
-        })
+            // All of them, few: the properties of what was copied keep their definitions.
+            prop_defs: self.prop_defs.clone(),
+            assets: self.assets.clone(),
+        }
+        .with_assets_pruned())
     }
 
     /// What copying `ids` — bodies and guides of the part `target` places — copies, in the
@@ -150,8 +182,8 @@ impl Document {
         // The part's guides, in the axes of what is open (a group's, docs/model/bodies.md#body-groups).
         let into = self.resolve_part(target)?.2.inverse() * world;
         let into = into.inverse();
-        let guides = self.component(part)?.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.shape.transformed(&into)).collect();
-        Ok(BodyFragment { defs, bodies, guides, world })
+        let guides = self.component(part)?.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.moved(g.id, &into)).collect();
+        Ok(BodyFragment { defs, bodies, guides, world, prop_defs: self.prop_defs.clone() })
     }
 
     /// This document — an entities' fragment ([`Document::entities_fragment`]) — as the bodies
@@ -160,9 +192,9 @@ impl Document {
     /// whole, its profile with it; any other comes as a group of its bodies (docs/model/bodies.md « Body
     /// groups »), its shape the group's, under the part's id: copies of a part share it.
     pub fn parts_as_bodies(&self) -> Result<BodyFragment> {
-        let mut out = BodyFragment::default();
+        let mut out = BodyFragment { prop_defs: self.prop_defs.clone(), ..BodyFragment::default() };
         let root = self.component(self.root)?;
-        out.guides = root.guides.iter().map(|g| g.shape).collect();
+        out.guides = root.guides.clone();
         // A part's occurrence's name: the body's own (docs/model/bodies.md#body-names).
         let mut stack: Vec<(Id, DAffine3, &str)> = vec![(self.root, DAffine3::IDENTITY, "")];
         while let Some((id, t, occurrence)) = stack.pop() {

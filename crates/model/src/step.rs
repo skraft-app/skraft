@@ -41,7 +41,7 @@ impl Document {
                 *materials.entry(c).or_insert_with(|| {
                     let id = doc.fresh_id();
                     let hex = format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
-                    doc.materials.insert(id, Material { name: t!("default_name.step_color", hex = hex), color: c });
+                    doc.materials.insert(id, Material::new(t!("default_name.step_color", hex = hex), c));
                     id
                 })
             })
@@ -85,6 +85,7 @@ impl Document {
                     transform: DAffine3::IDENTITY,
                     material,
                     hidden: false,
+                    props: Default::default(),
                 });
             }
             for c in &p.children {
@@ -97,6 +98,7 @@ impl Document {
                         transform: c.transform,
                         material: *material,
                         hidden: false,
+                        props: Default::default(),
                     });
                 }
             }
@@ -122,6 +124,7 @@ impl Document {
                     transform: r.transform,
                     material: *material,
                     hidden: false,
+                    props: Default::default(),
                 });
             }
         }
