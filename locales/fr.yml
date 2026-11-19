@@ -577,6 +577,27 @@ panel:
     materials: "$t(common.materials)"
     selected: "%{count} sélectionné"
     selected_plural: "%{count} sélectionnés"
+  # The entity info's properties (docs/model/properties.md): an entity's values, the
+  # model's definitions.
+  properties:
+    title: "Propriétés"
+    occurrence_title: "Propriétés de l'exemplaire"
+    definitions: "Définitions des propriétés"
+    none: "Aucune propriété définie : les ajouter ici, elles apparaissent ensuite sur les entités concernées"
+    new: "Nouvelle propriété"
+    new_label: "Propriété %{n}"
+    label: "Nom"
+    kind: "Type"
+    choices: "Choix"
+    choices_tip: "Les choix, séparés par des points-virgules"
+    choice: "Choix %{n}"
+    default: "Par défaut"
+    applies_to: "S'applique à"
+    key: "Clé"
+    delete: "Supprimer la définition"
+    delete_tip: "Les valeurs déjà données restent, telles quelles"
+    clear_tip: "Retirer la valeur"
+    raw_tip: "Sans définition : la valeur est gardée telle quelle"
   materials:
     title: "$t(common.materials)"
     none: "Aucune"
@@ -585,6 +606,16 @@ panel:
     unpaint_tip: "Dépeindre : le pot de peinture retire la matière"
     color_tip: "Couleur"
     delete_tip: "Supprimer (ce qui en est peint ne l'est plus)"
+    texture_tip: "Choisir une image de texture (PNG, JPEG)"
+    texture_change_tip: "Changer l'image de la texture"
+    texture_width_tip: "Largeur réelle de l'image, le long du fil"
+    texture_height_tip: "Hauteur réelle de l'image"
+    texture_rotation_tip: "Rotation de la texture"
+    texture_remove_tip: "Retirer la texture (la couleur reste)"
+    export_tip: "Exporter les matières, toutes ou une seule (.skraftmat)"
+    export_all: "Toutes les matières"
+    import_tip: "Importer des matières (.skraftmat)"
+    export_name: "Matières %{model}"
   outliner:
     title: "Navigateur"
     # The first row, the model itself (named as its file): a click leaves every assembly and
@@ -614,6 +645,12 @@ panel:
 # and for an error what went wrong under it (the system's or the kernel's words).
 toast:
   saved: "%{file} enregistré"
+  export_failed: "Impossible d'exporter les matières"
+  materials_imported: "%{count} matière importée de %{file}"
+  materials_imported_plural: "%{count} matières importées de %{file}"
+  texture_failed: "Texture non appliquée"
+  texture_not_image: "une image PNG ou JPEG est attendue"
+  written: "%{file} enregistré"
   save_failed: "Impossible d'enregistrer %{file}"
   open_failed: "Impossible d'ouvrir %{file}"
   # MAX_OPEN documents are open (%{max}).
@@ -1138,6 +1175,10 @@ operation:
   add_material: "Nouvelle matière"
   edit_material: "Modifier la matière"
   delete_material: "Supprimer la matière"
+  set_props: "Modifier les propriétés"
+  set_prop_def: "Définir une propriété"
+  set_texture: "Texture de la matière"
+  import_materials: "Importer des matières"
   paint: "$t(common.paint)"
   stretch: "Étirer"
   stretch_behavior: "Plans de coupe"
@@ -1187,6 +1228,43 @@ crash:
   message: "Skraft a rencontré une erreur et doit se fermer.\n\n%{error}"
   message_logged: "Skraft a rencontré une erreur et doit se fermer.\n\n%{error}\n\nLe détail est dans %{path}"
 
+# What an operation done has to say (shown as a notice).
+# Typed properties (docs/model/properties.md): a yes/no value as shown and typed.
+property:
+  # A definition's kind of values (%{kind}: a list's element's).
+  kind:
+    bool: "Oui / non"
+    int: "Entier"
+    real: "Nombre"
+    text: "Texte"
+    length: "Longueur"
+    area: "Surface"
+    volume: "Volume"
+    angle: "Angle"
+    mass: "Masse"
+    money: "Prix"
+    color: "Couleur"
+    choice: "Choix"
+    list_choice: "Choix multiples"
+    list_length: "Liste de longueurs"
+    list: "Liste (%{kind})"
+  # The entities a definition applies to.
+  entity:
+    model: "Modèle"
+    part: "Pièce"
+    assembly: "Assemblage"
+    occurrence: "Exemplaire"
+    body_def: "Corps"
+    body: "Exemplaire de corps"
+    material: "Matière"
+    guide: "Guide"
+  yes: "Oui"
+  no: "Non"
+
+warning:
+  # Pasted or imported properties whose key is defined otherwise here (%{keys}: « old → new », …).
+  props_renamed: "propriétés renommées, définies autrement ici : %{keys}"
+
 error:
   # A typed value that cannot be read (the measurements box, the entity info).
   expr:
@@ -1231,10 +1309,17 @@ error:
     bad_behavior: "plans de coupe ou axes bloqués invalides"
     bad_profile: "profil qui se croise, sans épaisseur, ou brut sans profil"
     nothing_pasted: "rien à coller"
+    bad_prop_key: "clé de propriété invalide (espace.nom attendu)"
+    bad_prop_value: "valeur de propriété invalide, ou contraire à sa définition"
+    bad_prop_def: "définition de propriété invalide"
+    prop_def_contradicted: "des valeurs existantes ne correspondent pas à cette définition"
+    bad_texture: "texture sans image, ou de taille nulle"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"
     not_skraft: "pas un fichier Skraft (%{format})"
+    not_zip: "pas un fichier Skraft (une archive ZIP est attendue)"
+    missing_entry: "entrée %{entry} manquante"
     too_new: "fichier en version %{version}, plus récente que celle de cette application (%{supported})"
     root_not_assembly: "la racine n'est pas un assemblage"
     bad_component_id: "identifiant de composant %{id} invalide"
@@ -1247,6 +1332,9 @@ error:
     duplicate_occurrence: "exemplaire %{occurrence} en double dans %{assembly}"
     bad_material_id: "identifiant de matière %{id} invalide"
     unknown_material: "matière %{id} inconnue"
+    bad_prop: "propriété %{key} invalide"
+    bad_texture: "matière %{id} : texture invalide"
+    materials_only: "des matières seules : à importer dans un modèle (Matières)"
   # Reading or writing a file of the disk (a document, the preferences).
   io: "%{path} : %{error}"
   # The kernel failing (its own messages, from SolidCore, stay in English).

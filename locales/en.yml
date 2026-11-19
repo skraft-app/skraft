@@ -502,6 +502,27 @@ panel:
     materials: "$t(common.materials)"
     selected: "%{count} selected"
     selected_plural: "%{count} selected"
+  # The entity info's properties (docs/model/properties.md): an entity's values, the
+  # model's definitions.
+  properties:
+    title: "Properties"
+    occurrence_title: "Instance Properties"
+    definitions: "Property Definitions"
+    none: "No property defined: add them here, then they show on the entities they apply to"
+    new: "New Property"
+    new_label: "Property %{n}"
+    label: "Name"
+    kind: "Type"
+    choices: "Choices"
+    choices_tip: "The choices, separated by semicolons"
+    choice: "Choice %{n}"
+    default: "Default"
+    applies_to: "Applies to"
+    key: "Key"
+    delete: "Delete Definition"
+    delete_tip: "The values already given stay, as they are"
+    clear_tip: "Remove the value"
+    raw_tip: "No definition: the value is kept as it is"
   materials:
     title: "$t(common.materials)"
     none: "None"
@@ -510,6 +531,16 @@ panel:
     unpaint_tip: "Unpaint: the paint bucket removes the material"
     color_tip: "Color"
     delete_tip: "Delete (what is painted with it no longer is)"
+    texture_tip: "Choose a texture image (PNG, JPEG)"
+    texture_change_tip: "Change the texture's image"
+    texture_width_tip: "Real width of the image, along the grain"
+    texture_height_tip: "Real height of the image"
+    texture_rotation_tip: "Texture rotation"
+    texture_remove_tip: "Remove the texture (the color stays)"
+    export_tip: "Export the materials, all or one (.skraftmat)"
+    export_all: "All Materials"
+    import_tip: "Import materials (.skraftmat)"
+    export_name: "Materials %{model}"
   outliner:
     title: "Outliner"
     model_tip: "Click to go back to the model's level"
@@ -529,6 +560,12 @@ panel:
 
 toast:
   saved: "%{file} saved"
+  export_failed: "Could not export the materials"
+  materials_imported: "%{count} material imported from %{file}"
+  materials_imported_plural: "%{count} materials imported from %{file}"
+  texture_failed: "Texture not applied"
+  texture_not_image: "a PNG or JPEG image is expected"
+  written: "%{file} saved"
   save_failed: "Could not save %{file}"
   open_failed: "Could not open %{file}"
   too_many_documents: "No more than %{max} open documents: close one first"
@@ -998,6 +1035,10 @@ operation:
   add_material: "New Material"
   edit_material: "Edit Material"
   delete_material: "Delete Material"
+  set_props: "Edit Properties"
+  set_prop_def: "Define Property"
+  set_texture: "Material Texture"
+  import_materials: "Import Materials"
   paint: "$t(common.paint)"
   stretch: "Stretch"
   stretch_behavior: "Cutting Planes"
@@ -1033,6 +1074,43 @@ crash:
   title: "Skraft Quit Unexpectedly"
   message: "Skraft ran into an error and must close.\n\n%{error}"
   message_logged: "Skraft ran into an error and must close.\n\n%{error}\n\nThe details are in %{path}"
+
+# What an operation done has to say (shown as a notice).
+# Typed properties (docs/model/properties.md): a yes/no value as shown and typed.
+property:
+  # A definition's kind of values (%{kind}: a list's element's).
+  kind:
+    bool: "Yes / No"
+    int: "Integer"
+    real: "Number"
+    text: "Text"
+    length: "Length"
+    area: "Area"
+    volume: "Volume"
+    angle: "Angle"
+    mass: "Mass"
+    money: "Price"
+    color: "Color"
+    choice: "Choice"
+    list_choice: "Multiple Choice"
+    list_length: "List of Lengths"
+    list: "List (%{kind})"
+  # The entities a definition applies to.
+  entity:
+    model: "Model"
+    part: "Part"
+    assembly: "Assembly"
+    occurrence: "Instance"
+    body_def: "Body"
+    body: "Body Instance"
+    material: "Material"
+    guide: "Guide"
+  yes: "Yes"
+  no: "No"
+
+warning:
+  # Pasted or imported properties whose key is defined otherwise here (%{keys}: « old → new », …).
+  props_renamed: "properties renamed, defined otherwise here: %{keys}"
 
 error:
   expr:
@@ -1075,9 +1153,16 @@ error:
     bad_behavior: "invalid cutting planes or locked axes"
     bad_profile: "profile crossing itself or without thickness, or blank without a profile"
     nothing_pasted: "nothing to paste"
+    bad_prop_key: "invalid property key (namespace.name expected)"
+    bad_prop_value: "invalid property value, or contrary to its definition"
+    bad_prop_def: "invalid property definition"
+    prop_def_contradicted: "existing values do not match this definition"
+    bad_texture: "texture without its image, or of no size"
   file:
     unreadable: "unreadable file: %{error}"
     not_skraft: "not a Skraft file (%{format})"
+    not_zip: "not a Skraft file (a ZIP archive is expected)"
+    missing_entry: "entry %{entry} missing"
     too_new: "file in version %{version}, newer than this app's (%{supported})"
     root_not_assembly: "the root is not an assembly"
     bad_component_id: "invalid component id %{id}"
@@ -1090,6 +1175,9 @@ error:
     duplicate_occurrence: "instance %{occurrence} twice in %{assembly}"
     bad_material_id: "invalid material id %{id}"
     unknown_material: "unknown material %{id}"
+    bad_prop: "invalid property %{key}"
+    bad_texture: "material %{id}: invalid texture"
+    materials_only: "materials alone: import them into a model (Materials)"
   io: "%{path}: %{error}"
   kernel:
     failed: "%{call}: %{message}"

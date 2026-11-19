@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/theme/src/lib.rs, apps/skraft/src/style.rs, apps/skraft/src/viewport.rs, crates/tools/src/section_cut.rs, crates/tools/src/tools/paint.rs, crates/tools/src/tools/sample.rs, crates/tools/src/editor/view.rs, crates/tools/src/tools/section.rs, crates/model/src/settings.rs]
+code: [crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/assets.rs, crates/theme/src/lib.rs, apps/skraft/src/style.rs, apps/skraft/src/viewport.rs, crates/tools/src/section_cut.rs, crates/tools/src/tools/paint.rs, crates/tools/src/tools/sample.rs, crates/tools/src/editor/view.rs, crates/tools/src/tools/section.rs, crates/model/src/settings.rs]
 ---
 
 # Rendering and look
@@ -98,7 +98,8 @@ symbols the code writes, and of Greek.
 
 ## Palette and materials
 
-- **Model**: `Document.materials: Id → Material { name, color }` (sRGB);
+- **Model**: `Document.materials: Id → Material { name, color, texture, props }` (sRGB; a
+  texture: [Textures](#textures); properties: [Properties](../model/properties.md));
   `Occurrence.material: Option<Id>` (the copy's material, as in OpenCutList; an assembly's
   occurrence paints the parts below it that have none); `Part.faces: BTreeMap<u32, Id>`, the
   material of single **faces** of the part's final B-rep (so of all its occurrences).
@@ -106,8 +107,9 @@ symbols the code writes, and of Greek.
   **Accepted limit**: a face is named by its index in the record, which a boolean renumbers;
   an index past the solid's faces is ignored.
 - **Operations**: `AddMaterial`, `EditMaterial` (name, colour; dragging a colour merges into one
-  step), `DeleteMaterial` (unpaints what used it), `PaintOccurrences`, `PaintFaces`. None calls
-  the kernel. A file painting with an unknown material is refused.
+  step), `DeleteMaterial` (unpaints what used it), `PaintOccurrences`, `PaintFaces`,
+  `SetTexture`, `ImportMaterials`. None calls the kernel. A file painting with an unknown
+  material is refused.
 - **Rendering**: a **palette** (a storage buffer of linear RGBA); each instance carries a
   palette index, each vertex the index of its painted face (or none). Changing a material's
   colour rewrites only the palette; painting an occurrence only the instances (rewritten each
@@ -138,10 +140,53 @@ symbols the code writes, and of Greek.
   tooltip names that material, its cursor is OCL's `picker`. Chosen on its own, it then starts
   the paint tool with it; held over the paint tool, each click takes, until the key is released
   (or Esc).
-- **Interface**: the **Matières** panel (list, colour, name, add, delete, the current
-  material — picking one starts the paint tool); the occurrence's material in the entity info.
+- **Interface**: the **Matières** panel (list, colour, name, texture, add, delete, the current
+  material — picking one starts the paint tool; export and import of `.skraftmat`); the
+  occurrence's material in the entity info.
   The paint tool or « Prélever » started, whatever started it, shows the panel, unfolded (closed or folded,
   it would hide what the tool paints with); it stays so when the tool ends.
+
+## Textures
+
+A material may have a **texture**: an image laid on the faces at its real size.
+
+- **Model**: `Material.texture: Option<Texture { image, size, rotation }>` — `image` the id of
+  one of the document's images (`Document.assets: id → Asset { kind, bytes }`, a PNG or a
+  JPEG as it came, its id 128 bits of the BLAKE3 hash of its bytes: the same image, stored
+  once), `size` its real width (along the grain) and height in mm, `rotation` in its plane.
+  `SetTexture { material, texture, image }` sets it, the image added first when given; the
+  images no material uses are dropped (`Document::prune_assets`). Pastes and imports bring the
+  images of their materials. The colour stays: it shows until the image is loaded, and in the
+  panel's swatch.
+- **Mapping**: nothing per face nor per vertex — a **box projection in the part's axes**, in
+  the shader (`textured`): a face takes the image on the plane of the two axes it least faces,
+  the image's width along the part's **length** (its mesh's longest axis, `Batch::grain`,
+  measured by the viewport when the mesh changes), across it on the end grain; at its real
+  size, turned by its rotation, centred on the part's mesh. Back faces and section caps keep
+  their colours.
+- **Rendering**: the images decoded by the app (`image`, PNG and JPEG) and resized to
+  `TEXTURE_SIZE`² (1024) texels, one layer each of a `texture_2d_array`
+  (`Renderer::set_textures`, uploaded again when the images used change), every mip level
+  made on the CPU (means of four texels in linear light); each palette entry's texture beside
+  its colour (`Style::textures`: layer, inverse size, rotation). The mip level comes from the
+  size of a pixel on the face — its distance and slant, as the hatches' pitch — sampled with
+  `textureSampleLevel`: no derivatives, which would need a uniform control flow after the
+  section's `discard`.
+- **Interface**: in the **Matières** panel, a texture button per material (an image picked,
+  PNG or JPEG: 600 mm wide, its height as the image's, or the size it had), showing the
+  texture's thumbnail once it has one — its middle, square; the whole image under the pointer
+  (made once per image, 128 texels, kept in egui's temporary memory by image id); a textured
+  material shows a second row — width × height, typed as lengths, its rotation in degrees, a
+  button to remove it (its colour stays).
+
+### Why
+
+- **A box projection, not UVs**: the parts are solids from the kernel, whose meshes carry no
+  coordinates for an image; a cut-list part's faces are planes along its axes, where a box
+  projection in its axes is what a board shows, its grain along its length (as OpenCutList
+  sets a part's grain along its length).
+- **One layer size**: one array, one binding, every texture in one draw; the images keep their
+  real size through `Texture::size`, not through their pixels.
 
 ## Silhouettes
 

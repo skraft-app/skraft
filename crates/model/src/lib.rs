@@ -2,6 +2,7 @@
 //! placed by occurrences, the operations that change it, its undo history and its file
 //! format. See docs/model/data-model.md–docs/model/undo.md and docs/io/file-format.md.
 
+mod assets;
 mod clipboard;
 mod document;
 pub mod expr;
@@ -12,6 +13,7 @@ mod import;
 pub mod measure;
 mod ops;
 mod profile;
+pub mod props;
 mod settings;
 mod step;
 mod stretch;
@@ -20,17 +22,19 @@ mod weld;
 #[cfg(test)]
 mod tests;
 
+pub use assets::{Asset, ImageKind};
 pub use clipboard::BodyFragment;
 pub use document::{
     Assembly, Behavior, Body, BodyDef, BodyGroup, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuidePath, GuideShape,
-    Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, Sign, StretchMask, name_base,
+    Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, Sign, StretchMask, Texture, name_base,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
-pub use file::{FORMAT, VERSION};
+pub use file::{Content, FORMAT, VERSION};
 pub use history::History;
 pub use import::{ImportReport, SKETCHUP_FORMAT, SKETCHUP_VERSION};
 pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope, Warning};
 pub use profile::BodyProfile;
+pub use props::{EntityKind, PropDef, PropTarget, Props, Value, ValueKind};
 pub use settings::{APPROX, Display, LengthUnit, Section, Settings, Units};
 use skraft_i18n::t;
 pub use skraft_kernel as kernel;
@@ -99,6 +103,16 @@ pub enum Refusal {
     TurnedAcross,
     /// Only an operation on occurrences of a context is applied at a path.
     NotAtPath,
+    /// A property's key not `<namespace>.<name>` (docs/model/properties.md).
+    BadPropKey,
+    /// A property's value not well formed, or not as its definition says.
+    BadPropValue,
+    /// A property's definition not well formed.
+    BadPropDef,
+    /// A property's definition that values of it do not fit.
+    PropDefContradicted,
+    /// A texture without its image, or of a size not positive (docs/render/look.md#textures).
+    BadTexture,
 }
 
 /// A file that cannot be opened.
@@ -106,6 +120,10 @@ pub enum Refusal {
 pub enum FileError {
     /// Not JSON, or not the document's shape: the parser's message.
     Unreadable(String),
+    /// Not a ZIP (docs/io/file-format.md).
+    NotZip,
+    /// An entry the file must have, missing (its path in the ZIP).
+    MissingEntry(String),
     /// Another `format` than Skraft's.
     NotSkraft(String),
     TooNew(u32),
@@ -131,6 +149,13 @@ pub enum FileError {
     UnknownMaterial(Id),
     /// A component's behavior not well formed.
     BadBehavior(Id),
+    /// A property, or its definition, not well formed, or a value not as its definition says
+    /// (its key).
+    BadProp(String),
+    /// A material's texture without its image, or not well formed.
+    BadTexture(Id),
+    /// Materials alone (a `.skraftmat`): imported into a model, not opened as one.
+    MaterialsOnly,
 }
 
 impl std::fmt::Display for Error {
@@ -172,6 +197,11 @@ impl std::fmt::Display for Refusal {
             Refusal::TurnedAcross => t!("error.model.turned_across"),
             Refusal::UngroupNegative => t!("error.model.ungroup_negative"),
             Refusal::NotAtPath => t!("error.model.not_at_path"),
+            Refusal::BadPropKey => t!("error.model.bad_prop_key"),
+            Refusal::BadPropValue => t!("error.model.bad_prop_value"),
+            Refusal::BadPropDef => t!("error.model.bad_prop_def"),
+            Refusal::PropDefContradicted => t!("error.model.prop_def_contradicted"),
+            Refusal::BadTexture => t!("error.model.bad_texture"),
         })
     }
 }
@@ -180,6 +210,8 @@ impl std::fmt::Display for FileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&match self {
             FileError::Unreadable(e) => t!("error.file.unreadable", error = e),
+            FileError::NotZip => t!("error.file.not_zip"),
+            FileError::MissingEntry(entry) => t!("error.file.missing_entry", entry = entry),
             FileError::NotSkraft(format) => t!("error.file.not_skraft", format = format),
             FileError::TooNew(version) => t!("error.file.too_new", version = version, supported = file::VERSION),
             FileError::RootNotAssembly => t!("error.file.root_not_assembly"),
@@ -192,6 +224,9 @@ impl std::fmt::Display for FileError {
             FileError::BadMaterialId(id) => t!("error.file.bad_material_id", id = id),
             FileError::UnknownMaterial(id) => t!("error.file.unknown_material", id = id),
             FileError::BadBehavior(id) => t!("error.file.bad_behavior", id = id),
+            FileError::BadProp(key) => t!("error.file.bad_prop", key = key),
+            FileError::BadTexture(id) => t!("error.file.bad_texture", id = id),
+            FileError::MaterialsOnly => t!("error.file.materials_only"),
             FileError::DuplicateOccurrence { occurrence, assembly } => {
                 t!("error.file.duplicate_occurrence", occurrence = occurrence, assembly = assembly)
             }

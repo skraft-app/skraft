@@ -4,8 +4,14 @@
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-skraft">
     <comment>Skraft document</comment>
-    <sub-class-of type="application/json"/>
+    <sub-class-of type="application/zip"/>
     <icon name="skraft"/>
     <glob pattern="*.skraft"/>
+  </mime-type>
+  <mime-type type="application/x-skraft-materials">
+    <comment>Skraft materials</comment>
+    <sub-class-of type="application/zip"/>
+    <icon name="skraft"/>
+    <glob pattern="*.skraftmat"/>
   </mime-type>
 </mime-info>

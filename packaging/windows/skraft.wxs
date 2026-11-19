@@ -26,6 +26,11 @@
               <Verb Id="open" TargetFile="SkraftExe" Argument="&quot;%1&quot;" />
             </Extension>
           </ProgId>
+          <ProgId Id="Skraft.Materials" Description="Skraft Materials" Icon="SkraftExe" IconIndex="0" Advertise="no">
+            <Extension Id="skraftmat" ContentType="application/x-skraft-materials">
+              <Verb Id="open" TargetFile="SkraftExe" Argument="&quot;%1&quot;" />
+            </Extension>
+          </ProgId>
         </Component>
         <Component>
           <File Id="License" Source="$(LicenseFile)" Name="LICENSE.txt" KeyPath="yes" />

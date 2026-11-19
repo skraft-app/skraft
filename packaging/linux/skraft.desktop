@@ -5,5 +5,5 @@ Comment=3D CAD modelling with exact solids
 Exec=skraft %F
 Icon=skraft
 Categories=Graphics;3DGraphics;Engineering;
-MimeType=application/x-skraft;
+MimeType=application/x-skraft;application/x-skraft-materials;
 Terminal=false

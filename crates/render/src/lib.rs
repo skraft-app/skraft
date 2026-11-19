@@ -54,6 +54,21 @@ const SAMPLES: u32 = 4;
 /// No palette entry: the colour comes from the next level (placement, then the default).
 pub const NO_MATERIAL: u32 = u32::MAX;
 
+/// A texture layer's side (texels): the caller gives every image at this size
+/// ([`Renderer::set_textures`]). The shader's `TEXTURE_SIZE`.
+pub const TEXTURE_SIZE: u32 = 1024;
+/// The mip levels of a layer, down to one texel.
+const TEXTURE_MIPS: u32 = TEXTURE_SIZE.ilog2() + 1;
+
+/// A palette entry without texture ([`Style::textures`]).
+pub const NO_TEXTURE: [f32; 4] = [-1.0, 0.0, 0.0, 0.0];
+
+/// A palette entry's texture ([`Style::textures`]): the layer of its image
+/// ([`Renderer::set_textures`]), its real size (mm), its rotation (radians).
+pub fn texture_entry(layer: u32, size: [f64; 2], rotation: f64) -> [f32; 4] {
+    [layer as f32, (1.0 / size[0]) as f32, (1.0 / size[1]) as f32, rotation as f32]
+}
+
 /// Set in an instance's palette entry: its faces take it over their own paint (a face the
 /// paint tool would paint, [`Highlight::face`]). The shader's `FORCED`.
 const FORCED: u32 = 1 << 30;
@@ -81,11 +96,14 @@ pub struct Batch {
     pub ghost: bool,
     /// Edges and silhouettes see-through too, drawn with the ghosts' faces.
     pub faint_edges: bool,
+    /// The axis of the mesh along its part's length (0, 1, 2: x, y, z): a texture's grain
+    /// (docs/render/look.md#textures).
+    pub grain: u8,
 }
 
 impl Batch {
     pub fn new(key: u64, placements: Vec<Placement>) -> Self {
-        Batch { key, placements, ghost: false, faint_edges: false }
+        Batch { key, placements, ghost: false, faint_edges: false, grain: 0 }
     }
 }
 
@@ -124,6 +142,8 @@ pub struct Highlight {
     /// Only this B-rep face of the part (its index in the record), in `material` over its own
     /// paint, without its edges: the face the paint tool would paint (docs/render/look.md).
     pub face: Option<u32>,
+    /// Its batch's [`Batch::grain`].
+    pub grain: u8,
 }
 
 /// A world-space segment, coloured (`rgb` linear; `a` mixed over the background, or, in the
@@ -339,6 +359,9 @@ pub struct Style<'a> {
     pub grid: [f32; 3],
     /// The colours faces and placements refer to (linear RGB; alpha unused).
     pub palette: &'a [[f32; 4]],
+    /// Each palette entry's texture ([`texture_entry`], [`NO_TEXTURE`]); entries past its end
+    /// have none.
+    pub textures: &'a [[f32; 4]],
     /// Draw the outline of curved faces.
     pub silhouettes: bool,
     pub section: Option<Section>,
@@ -360,6 +383,7 @@ impl Default for Style<'_> {
             edge: [0.02, 0.02, 0.03],
             grid: [0.3, 0.3, 0.3],
             palette: &[],
+            textures: &[],
             silhouettes: true,
             section: None,
             cap_shade: 0.25,
@@ -506,13 +530,14 @@ struct InstanceRaw {
     normal: [[f32; 4]; 3],
     tint: [f32; 4],
     material: u32,
+    grain: u32,
 }
 
 impl InstanceRaw {
     /// `model_view`: from the mesh's (recentred) coordinates to the camera's, in `f64`;
     /// `opacity`: a ghost's, over the ghosts' (carried in the normal matrix's spare `w`);
     /// `key`: its mesh's, which chooses its section caps' hatch ([`hatch_of`]).
-    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32, key: u64) -> Self {
+    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32, key: u64, grain: u8) -> Self {
         let linear = DMat3::from_mat4(*model_view);
         let n = linear.inverse().transpose();
         let c = |v: DVec3, w: f64| [v.x as f32, v.y as f32, v.z as f32, w as f32];
@@ -523,6 +548,7 @@ impl InstanceRaw {
             normal: [c(n.x_axis, mirrored), c(n.y_axis, opacity as f64), c(n.z_axis, hatch_of(key))],
             tint,
             material,
+            grain: grain as u32,
         }
     }
 }
@@ -613,6 +639,63 @@ struct Target {
     display_view: wgpu::TextureView,
 }
 
+/// The textures' images, a layer each in one array ([`Renderer::set_textures`]).
+struct TextureLayers {
+    keys: Vec<u64>,
+    view: wgpu::TextureView,
+}
+
+impl TextureLayers {
+    /// An array of `count` layers (one at least: a binding needs a texture), every mip level.
+    fn create(device: &wgpu::Device, count: u32) -> (wgpu::Texture, wgpu::TextureView) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("texture layers"),
+            size: wgpu::Extent3d { width: TEXTURE_SIZE, height: TEXTURE_SIZE, depth_or_array_layers: count.max(1) },
+            mip_level_count: TEXTURE_MIPS,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        (texture, view)
+    }
+
+    fn empty(device: &wgpu::Device) -> Self {
+        TextureLayers { keys: Vec::new(), view: TextureLayers::create(device, 1).1 }
+    }
+}
+
+/// The next mip level of a square sRGB image `side` texels wide: each texel the mean of four,
+/// averaged in linear light.
+fn mip_down(rgba: &[u8], side: u32) -> Vec<u8> {
+    let half = (side / 2).max(1);
+    let to_linear = |c: u8| (c as f32 / 255.0).powf(2.2);
+    let to_srgb = |l: f32| (l.max(0.0).powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+    let mut out = vec![0u8; (half * half * 4) as usize];
+    for y in 0..half {
+        for x in 0..half {
+            for c in 0..4 {
+                let at = |dx: u32, dy: u32| {
+                    let (sx, sy) = ((2 * x + dx).min(side - 1), (2 * y + dy).min(side - 1));
+                    rgba[((sy * side + sx) * 4 + c) as usize]
+                };
+                let px = [at(0, 0), at(1, 0), at(0, 1), at(1, 1)];
+                out[((y * half + x) * 4 + c) as usize] = if c == 3 {
+                    (px.iter().map(|v| *v as u32).sum::<u32>() / 4) as u8
+                } else {
+                    to_srgb(px.iter().map(|v| to_linear(*v)).sum::<f32>() / 4.0)
+                };
+            }
+        }
+    }
+    out
+}
+
 /// A growable buffer rewritten each frame.
 struct Dynamic {
     label: &'static str,
@@ -686,6 +769,11 @@ pub struct Renderer {
     layout: wgpu::BindGroupLayout,
     bind_group: Option<wgpu::BindGroup>,
     palette: Dynamic,
+    /// The palette entries' textures ([`Style::textures`]).
+    texture_entries: Dynamic,
+    /// The images of the textures, one layer each ([`Renderer::set_textures`]), and their keys.
+    layers: TextureLayers,
+    sampler: wgpu::Sampler,
     /// The shown document's meshes, by key.
     meshes: std::collections::HashMap<u64, GpuMesh>,
     /// The documents not shown: their meshes wait here, so switching back uploads nothing
@@ -742,6 +830,32 @@ impl Renderer {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -753,7 +867,7 @@ impl Renderer {
         let instance_attrs = wgpu::vertex_attr_array![
             4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4,
             8 => Float32x4, 9 => Float32x4, 10 => Float32x4, 11 => Float32x4,
-            12 => Uint32
+            12 => Uint32, 14 => Uint32
         ];
         let instance_layout = wgpu::VertexBufferLayout {
             array_stride: size_of::<InstanceRaw>() as u64,
@@ -1060,6 +1174,17 @@ impl Renderer {
             layout: bgl,
             bind_group: None,
             palette: Dynamic::new("palette", wgpu::BufferUsages::STORAGE),
+            texture_entries: Dynamic::new("texture entries", wgpu::BufferUsages::STORAGE),
+            layers: TextureLayers::empty(device),
+            sampler: device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("textures"),
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                ..Default::default()
+            }),
             meshes: Default::default(),
             document: 0,
             parked: Default::default(),
@@ -1223,6 +1348,44 @@ impl Renderer {
         self.target.as_ref().map(|t| (&t.display_view, self.target_generation))
     }
 
+    /// The textures' images, in layers ([`texture_entry`]): each `(key, rgba)`, sRGB RGBA bytes
+    /// of [`TEXTURE_SIZE`]² texels. Uploaded again, its mip levels made, only when the keys
+    /// change.
+    pub fn set_textures(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, layers: &[(u64, &[u8])]) {
+        let keys: Vec<u64> = layers.iter().map(|(k, _)| *k).collect();
+        if keys == self.layers.keys {
+            return;
+        }
+        let (texture, view) = TextureLayers::create(device, layers.len() as u32);
+        for (layer, (_, rgba)) in layers.iter().enumerate() {
+            if rgba.len() != (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize {
+                continue;
+            }
+            let mut level = rgba.to_vec();
+            let mut side = TEXTURE_SIZE;
+            for mip in 0..TEXTURE_MIPS {
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: mip,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: layer as u32 },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &level,
+                    wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(side * 4), rows_per_image: Some(side) },
+                    wgpu::Extent3d { width: side, height: side, depth_or_array_layers: 1 },
+                );
+                if side > 1 {
+                    level = mip_down(&level, side);
+                    side /= 2;
+                }
+            }
+        }
+        self.layers = TextureLayers { keys, view };
+        self.bind_group = None;
+        self.generation += 1;
+    }
+
     /// The resolved target texture (to copy it out, e.g. for a screenshot).
     pub fn target_texture(&self) -> Option<&wgpu::Texture> {
         self.target.as_ref().map(|t| &t.resolved)
@@ -1288,16 +1451,25 @@ impl Renderer {
                 hatch: [HATCH_SPACING * ppp, HATCH_WIDTH * ppp / 2.0, style.hatch_opacity, 0.0],
             }),
         );
-        // The palette: never empty (a binding needs a buffer).
+        // The palette and its textures: never empty (a binding needs a buffer).
         let palette: Vec<[f32; 4]> = if style.palette.is_empty() { vec![[0.0; 4]] } else { style.palette.to_vec() };
-        if self.palette.write(device, queue, bytemuck::cast_slice(&palette)) || self.bind_group.is_none() {
-            let Some(pb) = &self.palette.buffer else { return false };
+        // One per palette entry: the buffer is larger than what is written, and what lies past
+        // it would read as the first layer.
+        let mut textures: Vec<[f32; 4]> = style.textures.to_vec();
+        textures.resize(palette.len(), NO_TEXTURE);
+        let new_palette = self.palette.write(device, queue, bytemuck::cast_slice(&palette));
+        let new_textures = self.texture_entries.write(device, queue, bytemuck::cast_slice(&textures));
+        if new_palette || new_textures || self.bind_group.is_none() {
+            let (Some(pb), Some(tb)) = (&self.palette.buffer, &self.texture_entries.buffer) else { return false };
             self.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("globals"),
                 layout: &self.layout,
                 entries: &[
                     wgpu::BindGroupEntry { binding: 0, resource: self.globals.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 1, resource: pb.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: tb.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.layers.view) },
+                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.sampler) },
                 ],
             }));
         }
@@ -1311,7 +1483,9 @@ impl Renderer {
         for b in frame.batches {
             let start = raw.len() as u32;
             raw.extend(
-                b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material, p.opacity, b.key)),
+                b.placements
+                    .iter()
+                    .map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material, p.opacity, b.key, b.grain)),
             );
             batch_ranges.push(start..raw.len() as u32);
         }
@@ -1330,9 +1504,9 @@ impl Renderer {
                 Some(_) if h.material == NO_MATERIAL => FORCED | (NO_MATERIAL >> 2),
                 Some(_) => FORCED | h.material,
             };
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, face_material(h), 0.0, h.key)));
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, face_material(h), 0.0, h.key, h.grain)));
             let edges = raw.len() as u32;
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key)));
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key, h.grain)));
             runs.push(HighlightRun {
                 key: chunk[0].key,
                 part: chunk[0].part,
@@ -1776,6 +1950,10 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     s.palette.len().hash(&mut h.0);
     for c in s.palette {
         h.fs(c);
+    }
+    s.textures.len().hash(&mut h.0);
+    for t in s.textures {
+        h.fs(t);
     }
     s.silhouettes.hash(&mut h.0);
     match s.section {

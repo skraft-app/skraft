@@ -101,8 +101,8 @@ impl Headless {
     pub fn new(path: Option<PathBuf>) -> Result<Self, String> {
         let doc = match &path {
             Some(p) => {
-                let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
-                Document::from_json(&text).map_err(|e| format!("{}: {e}", p.display()))?
+                let bytes = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
+                Document::from_file(&bytes).map_err(|e| format!("{}: {e}", p.display()))?
             }
             None => Document::new(),
         };
@@ -219,9 +219,9 @@ mod tests {
             "tool.input",
             json!({ "inputs": [{ "tool": "box" }, { "click": { "at": [0, 0, 0] } }, { "click": { "at": [100, 100, 0] } }, { "vcb": "10" }] }),
         );
-        let text = b.editor.document().to_json().unwrap();
+        let file = b.editor.document().to_file().unwrap();
         let path = std::env::temp_dir().join(format!("skraft-mcp-{}.skraft", std::process::id()));
-        std::fs::write(&path, text).unwrap();
+        std::fs::write(&path, file).unwrap();
         let mut opened = Headless::new(Some(path.clone())).unwrap();
         assert_eq!(json_of(&mut opened, "model.geometry", json!({ "volume": false }))["total"], 1);
         assert!(opened.describe().contains(&path.display().to_string()));

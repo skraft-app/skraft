@@ -79,6 +79,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         material: NO_MATERIAL,
         ghost: false,
         face: None,
+        grain: 0,
     }];
     let frame = Frame {
         view,
@@ -386,7 +387,7 @@ fn a_face_highlight_forces_its_colour_on_that_face_only() {
     let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
     let mut shoot = |material: u32, face: Option<u32>| {
         let hl =
-            Highlight { key: 1, part: 1, transform: DMat4::IDENTITY, face_tint: NO_TINT, edge_tint: NO_TINT, material, ghost: false, face };
+            Highlight { key: 1, part: 1, transform: DMat4::IDENTITY, face_tint: NO_TINT, edge_tint: NO_TINT, material, ghost: false, face, grain: 0 };
         let highlights = [hl];
         let frame = Frame {
             view: front_view(),
@@ -1423,4 +1424,38 @@ fn model_dashes_hold_still_on_a_line_as_the_view_orbits() {
         assert!(faded, "view {i}: never faded");
     }
     assert!(checked > 100, "{checked} points checked");
+}
+
+#[test]
+fn a_texture_is_laid_on_the_faces_at_its_real_size() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    // Black and white stripes across the image's width, 2 mm wide: 5 periods across a face.
+    let side = TEXTURE_SIZE as usize;
+    let mut stripes = vec![0u8; side * side * 4];
+    for (i, px) in stripes.chunks_mut(4).enumerate() {
+        let v = if (i % side) < side / 2 { 0 } else { 255 };
+        px.copy_from_slice(&[v, v, v, 255]);
+    }
+    r.set_textures(&device, &queue, &[(7, &stripes)]);
+    let palette = [[0.8, 0.05, 0.05, 1.0]];
+    let textures = [texture_entry(0, [2.0, 2.0], 0.0)];
+    let p = Placement { material: 0, ..Placement::new(DMat4::IDENTITY) };
+    let (px, _) = shot(&mut r, &device, &queue, front_view(), p, Style { palette: &palette, textures: &textures, ..Style::default() });
+    save(&px, SIZE, "texture_stripes");
+    // Along a row across the face: dark and light, never the material's red.
+    let row: Vec<[u8; 4]> = (130..190).map(|x| pixel(&px, SIZE[0], x, 100)).collect();
+    assert!(row.iter().any(|c| c[0] < 60), "no dark stripe: {row:?}");
+    assert!(row.iter().any(|c| c[0] > 150 && c[1] > 150), "no light stripe: {row:?}");
+    assert!(row.iter().all(|c| (c[0] as i32) < c[1] as i32 + 60), "red shows: {row:?}");
+
+    // Without its texture: the red again.
+    let (px, _) = shot(&mut r, &device, &queue, front_view(), p, Style { palette: &palette, textures: &[NO_TEXTURE], ..Style::default() });
+    let c = pixel(&px, SIZE[0], 160, 100);
+    assert!(c[0] > c[1] + 60 && c[0] > c[2] + 60, "{c:?} is not red");
 }

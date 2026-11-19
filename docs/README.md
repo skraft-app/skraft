@@ -47,7 +47,7 @@ decision replaced. What is not built yet is not described here.
 ## Map
 
 **Model** — [Data model](model/data-model.md) · [Bodies](model/bodies.md) ·
-[Opening a part](model/opening-a-part.md) · [The kernel](model/kernel.md) ·
+[Opening a part](model/opening-a-part.md) · [Properties](model/properties.md) · [The kernel](model/kernel.md) ·
 [Undo / redo](model/undo.md)
 
 **Tools** — [Interaction](tools/interaction.md) · [Inferences](tools/inferences.md) ·
@@ -96,7 +96,7 @@ decision replaced. What is not built yet is not described here.
 | `crates/i18n` — `skraft-i18n` | The texts ([Texts and languages](ui/texts.md)): the `/locales` catalogs compiled in, `t!` / `tp!`, the current locale, plurals, decimal separator, platform key names. | `rust-i18n` |
 | `crates/theme` — `skraft-theme` | The colour tokens ([Rendering and look](render/look.md)) of the viewport and the interface, light and dark themes, sRGB ↔ linear. No UI toolkit. | `serde` |
 | `crates/kernel` — `skraft-kernel` | `Solid` (record), primitives, booleans, transformation, face offset, display mesh (`Mesh`: positions, normals, indices, B-rep face per triangle, edges). Runs each call on a fresh `Kernel` and catches its panics. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `glam`, `i18n` |
-| `crates/model` — `skraft-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, the JSON file, reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
+| `crates/model` — `skraft-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, the file (a ZIP of JSON), reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
 | `crates/render` — `skraft-render` | wgpu pipelines (shaded faces, edges, grid, axes, highlight, previews), GPU cache of meshes per definition, instanced drawing with a view-projection matrix. Knows neither egui nor the document. Usable off screen. | `kernel` (for `Mesh`), `wgpu`, `glam` |
 | `crates/tools` — `skraft-tools` | Camera (orbit/pan/zoom, ray from the screen), display scene (the document flattened into placed solids + mesh cache), picking by ray (CPU, triangle → B-rep face), the tools' state machines, typed dimensions, inferences. Testable without UI or GPU. | `model`, `kernel`, `i18n`, `glam` |
 | `crates/control` — `skraft-control` | The control protocol ([Control protocol](control-protocol.md)): methods and their parameters (with their JSON Schemas), the handlers that need only an `Editor` (`model.*`, `tool.*`), the loopback HTTP server with its per-start token and discovery files (desktop). No UI toolkit. | `model`, `tools`, `kernel`, `serde_json`, `schemars` |

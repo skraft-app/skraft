@@ -41,6 +41,14 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 # Messages to and from the kernel's web worker (docs/model/kernel.md).
 rmp-serde = "1"
+# The `.skraft` container (docs/io/file-format.md): a ZIP, Deflate in Rust (miniz_oxide, wasm too).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+# The content hashes naming its entries (B-reps, textures).
+blake3 = "1"
+# A texture's image inline in the document's one JSON (`Document::to_json`).
+base64 = "0.22"
+# Decoding the textures' images for the viewport (PNG, JPEG; in Rust, the web too).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 thiserror = "2"
 # The texts of the app, from /locales (crates/i18n).
 rust-i18n = "4"

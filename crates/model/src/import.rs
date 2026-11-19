@@ -295,7 +295,7 @@ impl Document {
             .iter()
             .map(|m| {
                 let id = doc.fresh_id();
-                doc.materials.insert(id, Material { name: m.name.clone(), color: m.color });
+                doc.materials.insert(id, Material::new(m.name.clone(), m.color));
                 id
             })
             .collect();
@@ -365,7 +365,7 @@ impl Document {
                 for (component, transform, name, material) in occurrences {
                     let id = doc.fresh_id();
                     let material = material.and_then(|m| materials.get(m).copied());
-                    list.push(Occurrence { id, name, component, transform, material, hidden: false });
+                    list.push(Occurrence { id, name, component, transform, material, hidden: false, props: Default::default() });
                 }
                 let assembly = Assembly::new(list);
                 report.assemblies += 1;
@@ -385,13 +385,14 @@ impl Document {
                 transform: DAffine3::IDENTITY,
                 material: None,
                 hidden: false,
+                props: Default::default(),
             });
         }
         for c in &root_node.children {
             match component_of[c.node] {
                 Some(component) => {
                     let material = c.material.and_then(|m| materials.get(m).copied());
-                    top.push(Occurrence { id: Id(0), name: c.name.clone(), component, transform: c.transform, material, hidden: false });
+                    top.push(Occurrence { id: Id(0), name: c.name.clone(), component, transform: c.transform, material, hidden: false, props: Default::default() });
                 }
                 None => report.dropped_instances += 1,
             }
