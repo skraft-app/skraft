@@ -491,13 +491,14 @@ fn item(
     if cx.disabled {
         return;
     }
-    // Renamed in place: from the menu, or F2 while it is the one chosen — not by a
-    // double-click, the first click choosing (and placing) it. A component's name is never
+    // Renamed in place: from the menu, by a double-click on its row or tile (the first click
+    // only chooses it), or F2 while it is the one chosen. A component's name is never
     // empty, and unique (one taken refused, the failure told).
     let key = egui::Id::unique(crate::panels::RENAMING);
+    let f2 = || cx.chosen == Some(id) && ui.memory(|m| m.focused().is_none()) && ui.input(|i| i.key_pressed(egui::Key::F2));
     if renamed.is_some() {
         ui.data_mut(|d| d.remove::<egui::Id>(key));
-    } else if !renaming && cx.chosen == Some(id) && ui.memory(|m| m.focused().is_none()) && ui.input(|i| i.key_pressed(egui::Key::F2)) {
+    } else if !renaming && (response.double_clicked() || f2()) {
         ui.data_mut(|d| d.insert_temp(key, rename));
     }
     if let Some(Some(name)) = renamed
@@ -505,14 +506,14 @@ fn item(
     {
         actions.push(Action::Apply(skraft_model::Operation::RenameComponent { component: id, name }));
     }
-    // A click, or a drag out of the card, carries one more occurrence of it at the cursor
-    // (chosen meanwhile); an assembly along the active path is only chosen (it would hold
+    // A click chooses it; a drag out of the card carries one more occurrence of it at the
+    // cursor (chosen meanwhile), but of an assembly along the active path (it would hold
     // itself).
     let place = cx.editor.can_place_component(id);
     if response.drag_started_by(egui::PointerButton::Primary) && place {
-        actions.push(Action::PlaceComponent(id, true));
+        actions.push(Action::PlaceComponent(id));
     } else if response.clicked() {
-        actions.push(if place { Action::PlaceComponent(id, false) } else { Action::ChooseComponent(id) });
+        actions.push(Action::ChooseComponent(id));
     }
     if response.dragged_by(egui::PointerButton::Primary) && place {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
