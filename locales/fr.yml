@@ -178,9 +178,9 @@ ribbon:
     inspect: "Inspecter"
   group:
     selection: "Sélection"
-    create: "Dessiner"
-    modify: "Manipuler"
-    combine: "Remodeler"
+    draw: "Dessiner"
+    handle: "Manipuler"
+    reshape: "Remodeler"
     appearance: "Apparence"
     components: "Composants"
     measure: "Mesurer"
@@ -721,7 +721,7 @@ tool:
       ask_name: "Nommage des pièces"
       ask_name_tip: "Saisir le nom de chaque pièce dès qu'elle est faite (sinon, le bouton Renommer de la notification)"
   box:
-    name: "Dessiner une boîte"
+    name: "Boîte"
     hint:
       first: "Cliquer le premier coin de la base · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
       base: "Cliquer le coin opposé, ou taper longueur;largeur (;hauteur) · flèches : bloquer le plan · %{copy_key} : centré · Échap : revenir"
@@ -737,7 +737,7 @@ tool:
       centered: "Centré"
       centered_tip: "Le premier clic est le centre de la base (%{copy_key} : basculer)"
   cylinder:
-    name: "Dessiner un cylindre"
+    name: "Cylindre"
     hint:
       center: "Cliquer le centre de la base · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : disque entier · %{alt_key} : depuis un coin"
       radius: "Cliquer le rayon, ou taper rayon (;hauteur)"
@@ -757,7 +757,7 @@ tool:
       diameter: "Diamètre"
       diameter_tip: "D'un bord à l'autre, par le centre"
   prism:
-    name: "Dessiner un prisme"
+    name: "Prisme"
     hint:
       first: "Cliquer le premier point · flèches : plan rouge, vert, bleu · ↓ : plan de la face · %{copy_key} maintenu : centre de la face, + Maj : face entière · %{alt_key} : depuis un coin"
       corners: "Cliquer le point suivant, ou taper une longueur · clic sur un point posé, double-clic ou Entrée : fermer · flèches : bloquer un axe · Maj : guide · %{copy_key} : inverser · Échap : retirer le dernier point"
@@ -788,7 +788,7 @@ tool:
       arc: "Arc 2 points"
       arc_tip: "Un arc libre : cliquer son extrémité, puis son bombé"
   turn:
-    name: "Tourner"
+    name: "Tournage"
     hint:
       axis_start: "Cliquer le premier point de l'axe de rotation · flèches : bloquer un axe"
       axis_end: "Cliquer le second point de l'axe, ou taper sa longueur · flèches : bloquer un axe · Échap : reprendre le premier point"

@@ -33,7 +33,7 @@ Decision record: [A turned body is a half profile turned about the body's Z](../
 
 ## The Turn tool
 
-« Tourner » (`tool.turn`, `ToolKind::Turn`, L, icon `turn`, ribbon group Create after the prism):
+« Tourner » (`tool.turn`, `ToolKind::Turn`, L, icon `turn`, ribbon group Draw after the prism):
 a separate tool for the user, the Prism's code in a turning mode (`PrismTool::turning`).
 
 - **The axis** first, two points, inferred as a line's (a typed length for the second); only its

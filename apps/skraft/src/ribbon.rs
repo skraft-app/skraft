@@ -63,20 +63,20 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
             label: || t!("ribbon.tab.build"),
             groups: &[
                 group(
-                    "create",
-                    || t!("ribbon.group.create"),
+                    "draw",
+                    || t!("ribbon.group.draw"),
                     &["tool.box", "tool.cylinder", "tool.prism", "tool.turn"],
                     &["tool.box", "tool.cylinder", "tool.prism", "tool.turn"],
                 ),
                 group(
-                    "modify",
-                    || t!("ribbon.group.modify"),
+                    "handle",
+                    || t!("ribbon.group.handle"),
                     &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
                     &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
                 ),
                 group(
-                    "combine",
-                    || t!("ribbon.group.combine"),
+                    "reshape",
+                    || t!("ribbon.group.reshape"),
                     &["tool.stretch", "tool.union", "tool.difference", "tool.intersection"],
                     &["tool.stretch", "tool.union", "tool.difference", "tool.intersection"],
                 ),

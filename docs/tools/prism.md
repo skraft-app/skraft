@@ -50,7 +50,7 @@ it for the previews.
 
 ## The Prism tool
 
-« Dessiner un prisme » (`tool.prism`, P, ribbon group Create after the cylinder: what it makes is
+« Dessiner un prisme » (`tool.prism`, P, ribbon group Draw after the cylinder: what it makes is
 a prism, the polygon only its outline). Its states are OCL's: the first point, the points, the
 height.
 

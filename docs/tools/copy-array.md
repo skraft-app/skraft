@@ -17,7 +17,7 @@ Three commands — `tool.copy_line` (« Copier en ligne »), `tool.copy_grid` (�
 and `tool.distribute` (« Répartir ») — sharing one module, `tools/handle.rs` (picking, box and its
 centre, axes option, snapping on the nearest axis, arrow locks, counts typed, measure, preview);
 the tools are `tools/copy_line.rs`, `tools/copy_grid.rs`, `tools/distribute.rs`. OCL has them as
-actions of one tool; here a command is a tool. In the ribbon's **Modify** group of Build and
+actions of one tool; here a command is a tool. In the ribbon's **Handle** group of Build and
 Assemble, after Rotate; **no default shortcut**. Each tool keeps its own options (OCL shares
 them between its copy actions); Distribute's measure defaults to « between the parts », as OCL's
 preset.
