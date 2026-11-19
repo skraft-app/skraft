@@ -56,13 +56,17 @@ log = "0.4"
 
 egui = "0.37"
 # `clipboard`: the system clipboard on the desktop (arboard), for text fields and the
-# token of copy and paste (docs/tools/copy-paste.md).
-eframe = { version = "0.37", default-features = false, features = ["wgpu", "persistence", "clipboard"] }
-egui-wgpu = "0.37"
+# token of copy and paste (docs/tools/copy-paste.md). `wgpu_no_default_features`, not `wgpu`:
+# egui-wgpu's default features bring wgpu's WebGL backend, of no use (docs/render/display.md,
+# WebGPU only on the web).
+eframe = { version = "0.37", default-features = false, features = ["wgpu_no_default_features", "persistence", "clipboard"] }
+# egui-wgpu's default features but `wgpu/webgl` (and `wgpu/default`, the `wgpu` entry's).
+egui-wgpu = { version = "0.37", default-features = false, features = ["fragile-send-sync-non-atomic-wasm", "macos-window-resize-jitter-fix"] }
 egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 rfd = "0.17"
 bytemuck = { version = "1", features = ["derive"] }
-# The wgpu egui-wgpu 0.37 is built on.
+# The wgpu egui-wgpu 0.37 is built on. Its default features: Metal, DX12, Vulkan, GLES natively,
+# WebGPU on the web — no WebGL (docs/render/display.md).
 wgpu = "30"
 pollster = "0.4"
 

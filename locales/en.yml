@@ -1271,6 +1271,9 @@ error:
     face_across: "a face neither planar nor cylindrical along the stretch crosses a cut"
     unsupported: "a face crossing a cut has a shape the stretch cannot change"
     collapsed: "compression too strong: the material would vanish"
+  web:
+    webgpu: "Skraft needs WebGPU, which this browser does not offer or has turned off. Open it in a recent browser that supports it."
+    start: "Skraft does not start: %{error}"
   worker:
     send: "send: %{error}"
     start: "the kernel worker does not start (%{error})"
