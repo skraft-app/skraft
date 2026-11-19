@@ -13,9 +13,29 @@ takes under the cursor) have their own page: [Inferences](inferences.md).
 ## Active tool and preview
 
 An **active tool** (`ToolKind`: Select, Box, Cylinder, Prism, Turn, Move, Rotate, the
-booleans, Erase, Paint, Section, Measure, Stretch, the copy tools, Profile) receives the
-viewport's events (hover, click, drag, keys) and produces, at the end, an `Operation`. During
-the interaction it exposes a **preview** (ghost geometry) without touching the document.
+booleans, Erase, Paint, Sample, Section, Measure, Stretch, the copy tools, Profile) receives
+the viewport's events (hover, click, drag, keys) and produces, at the end, an `Operation`.
+During the interaction it exposes a **preview** (ghost geometry) without touching the document.
+
+## Tool stack
+
+As SketchUp's `push_tool` / `pop_tool`: a tool may run **over** the active one, which waits
+under it **as it is** (its step, its hover, its options) and comes back when the one over it
+hands back (`editor/stack.rs`, `Editor::stack`, each entry with what it waits for, `Over`):
+
+- **Held** (`Over::Held`): the paint tool holds « Prélever » (`Command::Hold`) when the other
+  modifier (Command on macOS, Alt elsewhere) is pressed; released, or Esc, and the paint tool is
+  back. The paint tool holds it on the press only, not while the key stays down after Esc.
+  The tool held knows it (`Cx::held`).
+- **Quick tools** (`Over::Quick`): a tool started from the quick tools' card runs over the
+  creation tool and hands back once its action is done, or given up
+  ([Quick tools](quick-tools.md#the-return)).
+- Esc with the tool over at its first step hands back too. **Choosing a tool** (ribbon, key,
+  command, `Command::Start`) empties the stack.
+- The ribbon marks the tools waiting under the active one with their frame alone
+  (`Editor::suspended_tools`, `CommandView::waiting`).
+
+Decision record: [A tool stack](../decisions/0036-tool-stack.md)
 
 ## Navigation
 
@@ -123,7 +143,8 @@ radius, the next corner, the axis's end).
   button is released. Esc during the drag, or another tool, drops the release.
 - The same for the tools with points to place: Move (SketchUp's drag-move: from the press to
   the release), Rotate (centre, then reference), Measure, Section (face, then depth), the
-  booleans (target, then tool); Paint takes the release as its click; Copy along a line or a
+  booleans (target, then tool); Paint painting faces, and « Prélever », take the release as
+  their click (Paint painting occurrences draws a rectangle); Copy along a line or a
   grid and Distribute keep their selection rectangle while picking, then take a drag as clicks
   (Distribute: start at the press, end at the release; the copies: placed at the release).
   Select, Eraser, Stretch and Profile keep their own drags.

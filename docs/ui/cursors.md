@@ -39,11 +39,19 @@ Decision record: [Custom cursors through a winit fork](../decisions/0035-custom-
 | Booleans | `select-unite-a` / `subtract-a` / `intersect-a` for the target, then `…-b` for the tool part |
 | Box, Cylinder, Prism | `pencil-rectangle`, `pencil-circle`, `pencil-polygon`; `pull` for the height (OCL's `STATE_PULL`) |
 | Turn | `pencil-polygon` |
-| Paint | `paint-part` (occurrences), `paint-face-1` (faces) |
+| Paint | `paint-part` (occurrences), `paint-face-1` (faces), `picker` (« Prélever ») |
 | Erase, Section, Measure, Profile | the system's crosshair (OCL has none) |
 
 The system's icons stay over the view when the kernel is at work (progress) and while navigating
 (the hand while orbiting or panning, the magnifier while zooming).
+
+**What is written by the pointer keeps off the cursor's drawing**: each cursor's footprint
+(`cursors::footprint`, the bounds of its visible pixels about its hotspot, worked out once from
+its rasterised image) places the view's tooltip — the inference's, « Prélever »'s material —
+under it (above it near the view's bottom, moved left at its right edge, `viewport::tip_place`)
+and is what the lengths keep clear of. A hotspot is anywhere in the 32 × 32 image (a pencil's
+tip at its bottom left, the pipette's at its top left), so a fixed offset from the pointer
+would put the tooltip under some cursors. The system's cursors count as a 24-point square.
 
 ## Handing it to the system
 

@@ -154,6 +154,14 @@ impl Layout {
         }
     }
 
+    /// Shows `id`, unfolded. Says whether it was closed or folded.
+    pub fn reveal(&mut self, id: PanelId) -> bool {
+        let Some(c) = self.card_mut(id) else { return false };
+        let hidden = !c.shown || c.folded;
+        (c.shown, c.folded) = (true, false);
+        hidden
+    }
+
     /// Moves `id` into the column at `dock`, above `before` (at the bottom if `None`).
     pub fn move_card(&mut self, id: PanelId, dock: Dock, before: Option<PanelId>) {
         if before == Some(id) {
@@ -253,6 +261,17 @@ mod tests {
 
     fn card(id: PanelId, height: f32) -> Card {
         Card { id, height, shown: true, folded: false }
+    }
+
+    #[test]
+    fn reveal_shows_a_card_unfolded_and_says_whether_it_did() {
+        let mut l = Layout::default();
+        assert!(!l.reveal(PanelId::Materials), "shown already");
+        l.toggle(PanelId::Materials);
+        assert!(l.reveal(PanelId::Materials) && l.is_shown(PanelId::Materials));
+        l.card_mut(PanelId::Materials).unwrap().folded = true;
+        assert!(l.reveal(PanelId::Materials));
+        assert!(!l.card(PanelId::Materials).unwrap().folded);
     }
 
     #[test]

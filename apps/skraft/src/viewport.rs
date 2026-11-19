@@ -172,6 +172,8 @@ impl Viewport {
         } else {
             egui::CursorIcon::Crosshair
         };
+        // The cursor shown over the view: the tool's own, else the system's.
+        let mut shown = None;
         if response.hovered() {
             let navigating = match self.gesture.as_ref().map(|g| g.action) {
                 Some(Some(NavAction::Orbit | NavAction::Pan)) => Some(egui::CursorIcon::Grabbing),
@@ -179,11 +181,15 @@ impl Viewport {
                 _ => None,
             };
             // Navigating: the system's hand or magnifier.
-            if let Some(own) = own.filter(|_| navigating.is_none()) {
+            shown = own.filter(|_| navigating.is_none());
+            if let Some(own) = shown {
                 crate::cursors::ask(ui.ctx(), own);
             }
             ui.ctx().set_cursor_icon(navigating.unwrap_or(cursor));
         }
+        // What it draws about the pointer: the system's, a square about its hotspot.
+        let footprint =
+            shown.map_or(egui::Rect::from_center_size(egui::Pos2::ZERO, egui::Vec2::splat(CURSOR_CLEAR)), crate::cursors::footprint);
 
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
@@ -208,8 +214,8 @@ impl Viewport {
         paint_marks(ui.painter(), rect, editor, theme);
         let mut clear = Vec::new();
         if let Some(cursor) = response.hover_pos() {
-            clear.push(egui::Rect::from_center_size(cursor, egui::vec2(CURSOR_CLEAR, CURSOR_CLEAR)));
-            clear.extend(paint_inference(ui.painter(), rect, cursor, editor, theme));
+            clear.push(footprint.translate(cursor.to_vec2()));
+            clear.extend(paint_inference(ui.painter(), rect, cursor, footprint, editor, theme));
         }
         if let Some(m) = editor.marquee() {
             paint_marquee(ui.painter(), rect, &m, theme);
@@ -561,6 +567,7 @@ impl Viewport {
                     edge_tint: colors.edge,
                     material: slot(h.material),
                     ghost: h.ghost,
+                    face: h.face,
                 }
             })
             .collect();
@@ -675,6 +682,8 @@ fn mark_colors(theme: &Theme, mark: Mark, fade: render::Tint) -> skraft_theme::M
         Mark::Ghost => theme.ghost,
         // The other copies a change reaches: the picked target's orange, lighter.
         Mark::Related => theme.related,
+        // In the colour the paint would give: no tint over it.
+        Mark::Painted => skraft_theme::MarkColors { face: [0.0; 4], edge: theme.hover.edge },
     }
 }
 
@@ -893,8 +902,11 @@ fn paint_marks(painter: &egui::Painter, rect: egui::Rect, editor: &Editor, theme
     }
 }
 
-/// The square around the cursor (points) the lengths keep clear of.
+/// The square around the system's cursor (points) the lengths and the tooltip keep clear of
+/// (the app's own say where they draw, `cursors::footprint`).
 const CURSOR_CLEAR: f32 = 24.0;
+/// Between the cursor's drawing and its tooltip (points).
+const TIP_GAP: f32 = 4.0;
 /// The square around a cross or a marker (points) the lengths keep clear of.
 const MARK_CLEAR: f32 = 16.0;
 /// The room (points) a length being typed into leaves for its caret after the text.
@@ -965,8 +977,15 @@ fn place(size: egui::Vec2, a: egui::Pos2, b: egui::Pos2, clear: &[egui::Rect]) -
 
 /// The inferred point's marker, coloured by kind, and its tooltip by the cursor (docs/tools/inferences.md).
 /// What it draws (screen), for the lengths to keep clear of.
-fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2, editor: &Editor, theme: &Theme) -> Vec<egui::Rect> {
-    use egui::{Color32, Stroke, pos2, vec2};
+fn paint_inference(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    cursor: egui::Pos2,
+    footprint: egui::Rect,
+    editor: &Editor,
+    theme: &Theme,
+) -> Vec<egui::Rect> {
+    use egui::{Color32, Stroke, vec2};
     let mut drawn = Vec::new();
     let mut mark = |at: egui::Pos2| drawn.push(egui::Rect::from_center_size(at, vec2(MARK_CLEAR, MARK_CLEAR)));
     // Tracked points: a small ring each.
@@ -977,7 +996,13 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
             mark(at);
         }
     }
-    let Some((point, kind)) = editor.inference() else { return drawn };
+    let Some((point, kind)) = editor.inference() else {
+        // A tool's tooltip of its own (the pipette's material).
+        if let Some(tip) = editor.inference_tip() {
+            drawn.push(cursor_tip(painter, rect, cursor, footprint, tip, theme));
+        }
+        return drawn;
+    };
     let Some(at) = editor.camera.project(point, editor.viewport_size()) else { return drawn };
     let at = rect.min + vec2(at.x as f32, at.y as f32);
     if kind != InferKind::OnPlane {
@@ -1035,14 +1060,39 @@ fn paint_inference(painter: &egui::Painter, rect: egui::Rect, cursor: egui::Pos2
     if label.is_empty() {
         return drawn;
     }
+    drawn.push(cursor_tip(painter, rect, cursor, footprint, label, theme));
+    drawn
+}
+
+/// The tooltip `label` by the cursor, off its drawing (`footprint`, about the pointer); its
+/// frame (screen).
+fn cursor_tip(
+    painter: &egui::Painter,
+    view: egui::Rect,
+    cursor: egui::Pos2,
+    footprint: egui::Rect,
+    label: String,
+    theme: &Theme,
+) -> egui::Rect {
+    use egui::{Stroke, vec2};
+    const PAD: egui::Vec2 = vec2(5.0, 2.0);
     let text = color(theme.tooltip_text);
     let galley = painter.layout_no_wrap(label, egui::FontId::proportional(12.0), text);
-    let pos = pos2(cursor.x + 14.0, cursor.y + 16.0);
-    let bg = egui::Rect::from_min_size(pos, galley.size()).expand2(vec2(5.0, 2.0));
+    let bg = tip_place(view, cursor, footprint, galley.size() + 2.0 * PAD);
     painter.rect(bg, 3.0, color(theme.tooltip_fill), Stroke::new(1.0, color(theme.tooltip_border)), egui::StrokeKind::Inside);
-    painter.galley(pos, galley, text);
-    drawn.push(bg);
-    drawn
+    painter.galley(bg.min + PAD, galley, text);
+    bg
+}
+
+/// Where a tooltip of `size` goes by the pointer at `cursor`: under the cursor's drawing
+/// (`footprint`, about the pointer), from a little right of the pointer — above it when the
+/// view's bottom is too near —, moved left to stay in the view.
+fn tip_place(view: egui::Rect, cursor: egui::Pos2, footprint: egui::Rect, size: egui::Vec2) -> egui::Rect {
+    let drawn = footprint.translate(cursor.to_vec2());
+    let below = drawn.bottom() + TIP_GAP;
+    let y = if below + size.y > view.bottom() { drawn.top() - TIP_GAP - size.y } else { below };
+    let x = (cursor.x + 9.0).min(view.right() - size.x).max(view.left());
+    egui::Rect::from_min_size(egui::pos2(x, y), size)
 }
 
 /// A grid whose spacing follows the zoom (powers of ten, 100 lines).
@@ -1090,7 +1140,27 @@ impl Viewport {
 
 #[cfg(test)]
 mod tests {
-    use super::place;
+
+    /// A tooltip goes under the cursor's drawing, above it at the view's bottom, and stays in
+    /// the view.
+    #[test]
+    fn a_tooltip_keeps_off_the_cursor() {
+        let view = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        // The pipette's drawing: right of the pointer and 26 points below it.
+        let footprint = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(26.0, 26.0));
+        let size = egui::vec2(80.0, 20.0);
+        let at = egui::pos2(100.0, 100.0);
+        let tip = tip_place(view, at, footprint, size);
+        assert!(tip.top() >= 126.0 && !tip.intersects(footprint.translate(at.to_vec2())), "{tip:?}");
+        // Near the bottom: above the drawing.
+        let low = egui::pos2(100.0, 590.0);
+        let tip = tip_place(view, low, footprint, size);
+        assert!(tip.bottom() <= 590.0, "{tip:?}");
+        // Near the right edge: moved left, inside.
+        let tip = tip_place(view, egui::pos2(790.0, 100.0), footprint, size);
+        assert!(tip.right() <= 800.0, "{tip:?}");
+    }
+    use super::{place, tip_place};
     use egui::{Rect, pos2, vec2};
 
     #[test]

@@ -1004,8 +1004,21 @@ impl<'d> ContextIndex<'d> {
         out
     }
 
+    /// [`ContextIndex::solids_under`] as they would be drawn with `entity` painted with
+    /// `material` (none: unpainted): what is painted below it keeps its own.
+    pub fn solids_under_painted(&self, entity: Id, material: Option<Id>) -> Vec<Under> {
+        let mut out = Vec::new();
+        self.walk_under(entity, Some(material), &mut out);
+        out
+    }
+
     /// [`ContextIndex::solids_under`], added to `out` (one buffer for many occurrences).
     pub fn solids_under_into(&self, entity: Id, out: &mut Vec<Under>) {
+        self.walk_under(entity, None, out);
+    }
+
+    /// The parts under `entity`, its own material replaced by `painted` when given.
+    fn walk_under(&self, entity: Id, painted: Option<Option<Id>>, out: &mut Vec<Under>) {
         fn walk(doc: &Document, show_hidden: bool, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
             if depth > MAX_DEPTH {
                 return;
@@ -1021,7 +1034,8 @@ impl<'d> ContextIndex<'d> {
             }
         }
         if let Some(o) = self.occurrence(entity) {
-            walk(self.doc, self.show_hidden, o.component, self.transform * o.transform, o.material.or(self.inherited), out, 0);
+            let own = painted.unwrap_or(o.material);
+            walk(self.doc, self.show_hidden, o.component, self.transform * o.transform, own.or(self.inherited), out, 0);
         }
     }
 }

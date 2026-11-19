@@ -42,8 +42,9 @@ After OpenCutList's floating tools of the Smart Draw tool (`tool/smart_draw_tool
 
 ### The return
 
-As OCL's: the editor keeps the creation tool as a **return slot** (not a stack: one level). The
-tool started from the card hands back to the creation tool as soon as its action is done (the
+As OCL's: the tool started from the card runs **over** the creation tool, which waits under it
+as it is (the [tool stack](interaction.md#tool-stack), `Over::Quick`). The tool started from the
+card hands back to the creation tool as soon as its action is done (the
 copies' click, Distribute's second click), or on Esc without doing anything. Back in the creation
 tool, the tool that handed back is kept **aside**: what is typed before the first click of the
 next shape goes to it, so `x5` or a distance redoes the copies (`Command::Replace`, one undo
@@ -51,22 +52,23 @@ step), as OCL's draw tool hands its text to `previous_action_handler`. The card 
 after such a return; given up (Esc, nothing done), the card and the selection are back as they
 were (a deviation: OCL drops its card on any return).
 
-Decision record: [Quick tools hand back through a one-level return slot](../decisions/0022-quick-tool-return-slot.md)
+Decision records: [Quick tools hand back through a one-level return slot](../decisions/0022-quick-tool-return-slot.md),
+superseded by [A tool stack](../decisions/0036-tool-stack.md)
 
 As built (`editor/quick.rs`):
 
-- `Editor::start_quick_tool(kind)` remembers the active tool (`quick_return`); the tool started
+- `Editor::start_quick_tool(kind)` pushes `kind` over the active tool (`Over::Quick`); the tool started
   hands back **after the first input whose commands apply an operation** (`Command::Apply`, but a
   `SetBehavior` — the stretch's cutters kept —, or `Command::Replace`).
   **Why**: no tool tells when it is done; the editor sees it act (copy tools at their click or
   typed distance, Move and Rotate at their last click, Stretch at its last click or drag's end,
   Paint at its first click).
 - Esc that leaves it at its first step (or at it already) hands back without anything aside, the
-  card it was started from offered again and the selection as it was (`quick::Return`).
+  card it was started from offered again and the selection as it was (kept in `Over::Quick`).
 - The tool aside takes what is typed while the creation tool is at its first step (before its own
   options' `<length>x`), and the measurements box shows its value; it is let go when the creation
   tool gets busy (the next shape's first click), on Esc, or when a tool is chosen. Choosing a tool
-  drops the return slot too.
+  empties the stack too.
 
 ### The card
 

@@ -78,6 +78,8 @@ pub struct CommandView {
     pub enabled: bool,
     /// A toggle's state, or whether a tool is the active one.
     pub checked: Option<bool>,
+    /// A tool waiting under the active one, which hands back to it (the tool stack).
+    pub waiting: bool,
     /// As shown on this platform.
     pub shortcut: Option<String>,
 }

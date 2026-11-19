@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/theme/src/lib.rs, apps/skraft/src/style.rs, apps/skraft/src/viewport.rs, crates/tools/src/section_cut.rs, crates/tools/src/tools/paint.rs, crates/tools/src/tools/section.rs, crates/model/src/settings.rs]
+code: [crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/theme/src/lib.rs, apps/skraft/src/style.rs, apps/skraft/src/viewport.rs, crates/tools/src/section_cut.rs, crates/tools/src/tools/paint.rs, crates/tools/src/tools/sample.rs, crates/tools/src/editor/view.rs, crates/tools/src/tools/section.rs, crates/model/src/settings.rs]
 ---
 
 # Rendering and look
@@ -112,17 +112,36 @@ symbols the code writes, and of Greek.
   palette index, each vertex the index of its painted face (or none). Changing a material's
   colour rewrites only the palette; painting an occurrence only the instances (rewritten each
   frame); painting a face re-uploads that one part's mesh. The app gives each material a
-  palette slot for the session, never reused, so baked face indices stay valid.
-- **Paint tool** (`tool.paint`, B, as SketchUp's paint bucket): a click paints with the current
-  material (none: the paint is removed). Its option « Peindre » (Tab switches): « L'exemplaire »
-  — the occurrence clicked, or the whole selection when it is in it — or « La face » — the face
-  clicked, on every occurrence of its part. Under the « Parts » scope
-  ([Selection](../tools/selection.md)), the part under the cursor at any depth, in its assembly
-  (the parts selected when it is one of them), and the level chosen in the tree drop-up.
-  Painting occurrences, a drag draws a rectangle: what it encloses (left to right) or touches
-  (right to left) is painted when it is released (one step); Esc drops it.
+  palette slot for the session, never reused, so baked face indices stay valid. A highlight
+  may stand for a single face (`Highlight::face`): only that face's triangles (each part keeps
+  its faces' runs of triangles in the index buffer, `PartRange::faces`), without edges, its
+  colour forced over the face's own paint (the instance's palette entry flagged `FORCED`).
+- **Paint tool** (`tool.paint`, B, as SketchUp's paint bucket and OpenCutList's Smart Paint): a
+  click paints with the current material (none: the paint is removed). Its option « Peindre »
+  (Tab turns it over): « L'exemplaire » — the occurrence clicked, or the whole selection when
+  it is in it — or « La face » — the face clicked, on every occurrence of its part. Under the « Parts » scope ([Selection](../tools/selection.md)), the part under
+  the cursor at any depth, in its assembly (the parts selected when it is one of them), and
+  the level chosen in the tree drop-up. Painting occurrences, a drag draws a rectangle: what it
+  encloses (left to right) or touches (right to left) is painted when it is released (one
+  step); Esc drops it.
+  - **Preview** (OCL's `_preview_instances`): what a click (or the rectangle) would paint is
+    drawn in the colour it would take (`Preview::paint`, `Mark::Painted`: no tint, hovered
+    edges): each part under the occurrences painted in the material it would then inherit — a
+    part painted below them keeps its own, a painted face its paint —, the default colour when
+    the paint is removed; a face alone, on every occurrence of its part, in the material (none:
+    its occurrence's). Not in an open part.
+  - The other modifier held (Command on macOS, Alt elsewhere) holds « Prélever » over it
+    ([tool stack](../tools/interaction.md#tool-stack)).
+- **« Prélever »** (`tool.sample`, SketchUp's Sample Paint, OCL's `ACTION_PICK`; ribbon
+  « Apparence », no key): a click takes the material shown under the cursor — the face's own,
+  else its occurrence's (its own or its assemblies'), else none — as the paint tool's; its
+  tooltip names that material, its cursor is OCL's `picker`. Chosen on its own, it then starts
+  the paint tool with it; held over the paint tool, each click takes, until the key is released
+  (or Esc).
 - **Interface**: the **Matières** panel (list, colour, name, add, delete, the current
   material — picking one starts the paint tool); the occurrence's material in the entity info.
+  The paint tool or « Prélever » started, whatever started it, shows the panel, unfolded (closed or folded,
+  it would hide what the tool paints with); it stays so when the tool ends.
 
 ## Silhouettes
 

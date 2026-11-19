@@ -32,6 +32,7 @@ mod naming;
 mod navigation;
 mod quick;
 mod selection;
+mod stack;
 mod tree;
 mod view;
 
@@ -189,9 +190,9 @@ pub struct Editor {
     paint: Option<Id>,
     /// A paste carried at the cursor (docs/tools/copy-paste.md).
     carry: Option<clipboard::Carry>,
-    /// The tool to go back to, once the tool the quick tools started has done its action
-    /// (docs/tools/quick-tools.md).
-    quick_return: Option<quick::Return>,
+    /// The tools waiting under the active one, the nearest last (the tool stack,
+    /// docs/tools/interaction.md#tool-stack).
+    stack: Vec<stack::Suspended>,
     /// The tool that handed back to it: what is typed before the next shape goes to it.
     aside: Option<Box<dyn Tool>>,
     /// The quick tools' card, offered on what a creation tool just made.
@@ -292,7 +293,7 @@ impl Editor {
             tool_settings: BTreeMap::new(),
             paint: None,
             carry: None,
-            quick_return: None,
+            stack: Vec::new(),
             aside: None,
             card: None,
             naming: None,
@@ -641,6 +642,7 @@ impl Editor {
             shift_down: self.shift,
             copy_down: self.copy,
             alt_down: self.alt,
+            held: self.tool_held(),
             last_height: self.last_height,
             shift_lock: self.shift_lock,
             tracked: &self.tracked,
@@ -841,6 +843,10 @@ impl Editor {
                 self.journal.record(journal::Step::Alt(down), &self.camera, self.size);
             }
             self.alt = down;
+            // Released: the tool it held hands back (docs/tools/interaction.md#tool-stack).
+            if !down && self.tool_held() {
+                self.pop_tool(true);
+            }
             self.rehover();
         }
     }
@@ -968,7 +974,7 @@ impl Editor {
         if kind == ToolKind::Erase {
             self.clear_selection();
         }
-        self.quick_return = None;
+        self.stack.clear();
         self.aside = None;
         self.card = None;
         self.message = None;
@@ -1089,14 +1095,16 @@ impl Editor {
                     // Back at its first step, a tool the quick tools started hands back; one
                     // that picks first lets the selection go, and picks again (docs/tools/selection.md).
                     if !self.tool.busy() {
-                        if self.quick_return.is_none() && self.tool.dropped() {
+                        if !self.quick_on_top() && self.tool.dropped() {
                             self.clear_selection();
                         }
                         self.hand_back(false);
                     }
                     self.rehover();
-                } else if self.quick_return.is_some() {
-                    self.hand_back(false);
+                } else if !self.stack.is_empty() {
+                    // At its first step, a tool over another hands back (docs/tools/interaction.md#tool-stack).
+                    self.pop_tool(false);
+                    self.rehover();
                 } else if self.aside.take().is_some() {
                     // The tool aside let go first.
                 } else if self.tool.picks_first() && self.anything_selected() {
@@ -1391,6 +1399,15 @@ impl Editor {
                 _ => self.clear_selection(),
             },
             Command::Say(s) => self.message = Some(s),
+            Command::PaintWith(m) => self.paint = m,
+            Command::Hold(kind) => {
+                self.push_tool(kind, stack::Over::Held);
+                self.rehover();
+            }
+            Command::Start(kind) => {
+                self.switch_tool(kind);
+                self.rehover();
+            }
             Command::ClearLocks => {
                 self.axis_lock = None;
                 self.face_lock = None;

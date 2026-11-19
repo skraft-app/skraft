@@ -858,9 +858,9 @@ tool:
       this_tip: "Seulement l'exemplaire cliqué : il devient une pièce à part (et son assemblage, s'il est copié)"
   paint:
     name: "$t(common.paint)"
-    hint: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre)"
+    hint: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre) · %{alt_key} maintenu : prélever"
     # Painting occurrences: a drag draws a rectangle too.
-    hint_rectangle: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre) · Glisser : rectangle (→ contenu, ← touché)"
+    hint_rectangle: "Cliquer pour peindre avec la matière choisie (panneau Matières ; aucune : dépeindre) · Glisser : rectangle (→ contenu, ← touché) · %{alt_key} maintenu : prélever"
     outside: "Hors de l'élément en cours d'édition"
     option:
       target: "$t(common.paint)"
@@ -869,6 +869,14 @@ tool:
       occurrence_tip: "L'exemplaire cliqué, ou toute la sélection s'il en fait partie"
       face: "La face"
       face_tip: "La face cliquée, sur tous les exemplaires de sa pièce"
+  # Takes the material shown under the cursor as the one the paint tool paints with (a
+  # pipette).
+  sample:
+    name: "Prélever"
+    # Started on its own: the paint tool starts with what it took.
+    hint: "Cliquer pour prendre la matière sous le curseur, puis peindre avec"
+    # Held over the paint tool by the modifier: back to it when released.
+    hint_held: "Cliquer pour prendre la matière sous le curseur · relâcher %{alt_key} : revenir à Peindre"
   section:
     name: "Plan de coupe"
     hint:
