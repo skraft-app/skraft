@@ -410,7 +410,7 @@ fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui:
     let labels: Vec<String> = w.tabs.iter().map(|t| (t.label)()).collect();
     let shown = w.tabs.iter().position(|t| t.id == tab.id);
     let ids: Vec<_> = w.tabs.iter().map(|t| egui::Id::unique(("ribbon_tab", t.id))).collect();
-    if let Some(k) = tab_strip(ui, &labels, &ids, shown, width, inset, true) {
+    if let Some(k) = tab_strip(ui, &labels, &ids, shown, width, inset, true, &[]) {
         actions.push(Action::Ribbon(Change::Tab(w.tabs[k].id)));
     }
 }
@@ -418,7 +418,9 @@ fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui:
 /// A row of tabs as the ribbon's (also the journal window's): a faint band, the shown tab
 /// open onto the content below, the others greyed until hovered. `ids`: each tab's; `inset`:
 /// the margin of the card (or window) the band spans to reach its edges; `round_top`: the
-/// band's top corners follow the card's. The tab clicked, if any (not the shown one).
+/// band's top corners follow the card's; `handles`: each tab's name for the control protocol,
+/// if given. The tab clicked, if any (not the shown one).
+#[allow(clippy::too_many_arguments)]
 pub fn tab_strip(
     ui: &mut egui::Ui,
     labels: &[String],
@@ -427,6 +429,7 @@ pub fn tab_strip(
     width: f32,
     inset: egui::Margin,
     round_top: bool,
+    handles: &[&'static str],
 ) -> Option<usize> {
     let (row, _) = ui.allocate_exact_size(vec2(width, TAB_ROW_HEIGHT), Sense::hover());
     let visuals = ui.visuals().clone();
@@ -445,6 +448,9 @@ pub fn tab_strip(
         let galley = ui.painter().layout_no_wrap(label.clone(), font.clone(), Color32::WHITE);
         let rect = Rect::from_min_size(pos2(x, row.top() - TAB_RISE), vec2(galley.size().x + 2.0 * TAB_PAD, TAB_ROW_HEIGHT + TAB_RISE));
         x = rect.right() + TAB_GAP;
+        if let Some(&name) = handles.get(k) {
+            crate::handles::publish(|| name.into(), rect);
+        }
         if shown == Some(k) {
             open = Some((label, rect));
             continue;

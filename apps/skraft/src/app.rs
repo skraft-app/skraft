@@ -1455,7 +1455,7 @@ impl SkraftApp {
                 let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
                 // The window as wide as its tabs at least (it takes its content's width).
                 let width = ui.available_width().max(crate::ribbon::tab_strip_width(ui.painter(), &labels));
-                if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, false) {
+                if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, false, &[]) {
                     tab = tabs[k].0;
                 }
                 ui.add_space(4.0);
@@ -1776,7 +1776,9 @@ impl SkraftApp {
                     let head = ui.interact(head_rect, egui::Id::unique(("panel_head", id)), egui::Sense::click_and_drag());
                     let painter = ui.painter();
                     // The title bar: a band of its own colour across the card's top, a line
-                    // under it parting it from the content (the whole card once folded).
+                    // under it parting it from the content (the whole card once folded); none
+                    // above the « Composants » card's tabs, whose band of the same colour goes
+                    // on from it.
                     let stroke = ui.visuals().window_stroke;
                     let card = rect.shrink(stroke.width);
                     let bottom = if folded { card.bottom() } else { head_rect.bottom() + HEAD_PAD };
@@ -1784,7 +1786,7 @@ impl SkraftApp {
                     let r = ui.visuals().window_corner_radius;
                     let corners = if folded { r } else { egui::CornerRadius { sw: 0, se: 0, ..r } };
                     painter.rect_filled(band, corners, ui.visuals().faint_bg_color);
-                    if !folded {
+                    if !folded && id != PanelId::Components {
                         painter.hline(band.x_range(), band.bottom(), stroke);
                     }
                     let color = ui.visuals().strong_text_color();
@@ -1827,6 +1829,8 @@ impl SkraftApp {
                     let pad = if id == PanelId::Outliner { HEAD_PAD / 2.0 } else { 2.0 * HEAD_PAD };
                     ui.add_space(pad);
                     let body = (inner.y - header - pad - 2.0 * ui.spacing().item_spacing.y).max(0.0);
+                    // The bottom of the line under the title bar.
+                    let title_line = band.bottom() + stroke.width / 2.0;
                     // The floating scroll bar out in the card's right margin, a pixel short of its
                     // border, and no wider than that margin once hovered: over the content it hid
                     // the rows' right end (the navigator's eyes, signs).
@@ -1854,6 +1858,8 @@ impl SkraftApp {
                                 thumbnails: &mut self.viewport.thumbnails,
                                 list: self.prefs.components_list,
                                 height: body,
+                                band_top: head_rect.bottom() + HEAD_PAD,
+                                margin: panels::CARD_MARGIN,
                             };
                             ui.push_id(doc_id, |ui| crate::library::components(ui, editor, state, look, actions, area.id_salt("components")));
                         }
@@ -1862,7 +1868,7 @@ impl SkraftApp {
                             // Salted by the document: its rows' clicks apart from another's.
                             let (doc_id, name) = (doc.id, doc.name());
                             let (editor, state) = (&doc.editor, &mut doc.outliner);
-                            ui.push_id(doc_id, |ui| panels::outliner(ui, editor, state, &name, actions, area.id_salt("outliner"), body));
+                            ui.push_id(doc_id, |ui| panels::outliner(ui, editor, state, &name, actions, area.id_salt("outliner"), (body, title_line)));
                         }
                     }
                 });

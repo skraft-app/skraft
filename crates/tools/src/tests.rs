@@ -7064,26 +7064,3 @@ fn library_places_a_component_carried_by_its_origin() {
     e.select_model();
     assert_eq!(root, e.document().root());
 }
-
-/// What each component shows (docs/ui/components-library.md#search): inherited from the
-/// assemblies above, or its own occurrence's.
-#[test]
-fn search_finds_the_materials_a_component_shows() {
-    let (mut e, [a, _, c, g, _]) = drawers_editor();
-    let root = e.document().root();
-    let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
-    let pine = e.apply(Operation::AddMaterial { name: "Pin".into(), color: [220, 200, 150] }).unwrap().unwrap().material.unwrap();
-    // One copy of the assembly in oak: its parts show oak; A painted pine in it, pine too.
-    e.apply(Operation::PaintOccurrences { context: root, entities: vec![g], material: Some(oak) }).unwrap();
-    let paint = Operation::PaintOccurrences { context: Id(0), entities: vec![a], material: Some(pine) };
-    e.apply(Operation::At { parent: vec![g], unique: false, op: Box::new(paint) }).unwrap();
-    let doc = e.document();
-    let component = |p: EntityPath| doc.resolve(&p).unwrap().component;
-    let (pa, pc, asm) = (component(EntityPath::new(vec![g], a)), component(EntityPath::root(c)), component(EntityPath::root(g)));
-    let shown = crate::search::materials_shown(doc);
-    assert!(shown[&asm].contains(&oak));
-    assert!(shown[&pa].contains(&pine) && !shown[&pa].contains(&oak), "its own over the assembly's");
-    let pb = doc.assembly(asm).unwrap().occurrences().iter().map(|o| o.component).find(|p| *p != pa).unwrap();
-    assert!(shown[&pb].contains(&oak), "inherited");
-    assert!(!shown.contains_key(&pc), "C shows none");
-}

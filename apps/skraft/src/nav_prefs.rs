@@ -353,7 +353,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
         ui.set_min_width(crate::ribbon::tab_strip_width(ui.painter(), &labels));
         let ids: Vec<egui::Id> = tabs.iter().map(|b| egui::Id::unique(("nav_button_tab", *b))).collect();
         let shown = tabs.iter().position(|b| b == picked);
-        if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, ui.available_width(), margin, true) {
+        if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, ui.available_width(), margin, true, &[]) {
             *picked = tabs[k];
         }
         ui.add_space(6.0);

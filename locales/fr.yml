@@ -543,12 +543,6 @@ prefs:
 search:
   hint: "Rechercher"
   clear: "Effacer la recherche"
-  parts: "Pièces"
-  assemblies: "Assemblages"
-  all_materials: "Toutes"
-  material_tip: "Ne montrer que ce qui porte cette matière"
-  # The material menu while the document has none: greyed.
-  no_materials: "Aucune matière dans le document"
   # Nothing matches the search.
   no_match: "Rien ne correspond"
 
@@ -620,7 +614,12 @@ panel:
     on_path: "En cours d'édition"
     # A part open: the library waits for it to be closed.
     disabled: "Fermer la pièce pour placer ou gérer les composants"
-    empty: "Aucun composant"
+    # The card's tabs, with how many components each shows (under a search, those it lets
+    # through).
+    parts_tab: "Pièces (%{count})"
+    assemblies_tab: "Assemblages (%{count})"
+    no_parts: "Aucune pièce"
+    no_assemblies: "Aucun assemblage"
     # The card view: a grid of thumbnails, or a list.
     as_grid: "Vignettes"
     as_list: "Liste"

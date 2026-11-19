@@ -365,8 +365,8 @@ enum Face {
 }
 
 impl Face {
-    fn new(ui: &egui::Ui, label: &str, icon: Option<&str>) -> Self {
-        match icon.and_then(icons::option) {
+    fn new(ui: &egui::Ui, label: &str, icon: Option<egui::ImageSource<'static>>) -> Self {
+        match icon {
             Some(icon) => Face::Icon(icon),
             None => Face::Text(ui.painter().layout_no_wrap(
                 label.to_owned(),
@@ -384,11 +384,12 @@ impl Face {
         }
     }
 
-    fn paint(&self, ui: &egui::Ui, rect: egui::Rect, ink: egui::Color32) {
+    /// Painted in `rect`, an icon `icon` points wide.
+    fn paint(&self, ui: &egui::Ui, rect: egui::Rect, icon: f32, ink: egui::Color32) {
         match self {
-            Face::Icon(icon) => egui::Image::new(icon.clone())
-                .tint(ink)
-                .paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(OPTION_ICON))),
+            Face::Icon(image) => {
+                egui::Image::new(image.clone()).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(icon)))
+            }
             Face::Text(g) => ui.painter().galley(rect.center() - g.size() / 2.0, g.clone(), ink),
         }
     }
@@ -397,6 +398,7 @@ impl Face {
 /// The tip of a button: an icon's adds its label.
 fn face_tip(face: &Face, label: &str, tip: &str) -> String {
     match face {
+        Face::Icon(_) if tip.is_empty() => label.to_owned(),
         Face::Icon(_) => t!("option_bar.icon_tip", label = label, tip = tip),
         Face::Text(_) => tip.to_owned(),
     }
@@ -560,7 +562,7 @@ fn option_button(
     icon: Option<&str>,
     swatch: Option<[u8; 3]>,
 ) -> bool {
-    let face = Face::new(ui, label, icon);
+    let face = Face::new(ui, label, icon.and_then(icons::option));
     let (rect, response) = ui.allocate_exact_size(egui::vec2(face.width(OPTION_HEIGHT), OPTION_HEIGHT), egui::Sense::click());
     crate::handles::publish(|| handle.to_owned(), rect);
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
@@ -580,7 +582,7 @@ fn option_button(
         None if selected => visuals.text_color(),
         None => ui.visuals().text_color(),
     };
-    face.paint(ui, rect, ink);
+    face.paint(ui, rect, OPTION_ICON, ink);
     response.on_hover_text(face_tip(&face, label, tip)).clicked()
 }
 
@@ -599,16 +601,22 @@ fn ink_on(fill: egui::Color32) -> egui::Color32 {
 }
 
 /// A value of a choice in its segmented control.
-struct Segment {
+pub struct Segment {
     label: String,
     tip: String,
-    icon: Option<&'static str>,
+    icon: Option<egui::ImageSource<'static>>,
     selected: bool,
 }
 
 impl Segment {
+    /// `icon`: an option's icon by its name (`icons::option`).
     fn new(label: &str, tip: &str, icon: Option<&'static str>, selected: bool) -> Self {
-        Segment { label: label.to_owned(), tip: tip.to_owned(), icon, selected }
+        Segment { label: label.to_owned(), tip: tip.to_owned(), icon: icon.and_then(icons::option), selected }
+    }
+
+    /// A value shown by `icon`, `label` in its tip.
+    pub fn image(label: &str, tip: &str, icon: egui::ImageSource<'static>, selected: bool) -> Self {
+        Segment { label: label.to_owned(), tip: tip.to_owned(), icon: Some(icon), selected }
     }
 }
 
@@ -617,16 +625,28 @@ impl Segment {
 /// The index of a value clicked other than the chosen one.
 /// Each segment is published as the handle `handle(index)` (docs/control-protocol.md).
 fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment], handle: impl Fn(usize) -> String) -> Option<usize> {
-    let faces: Vec<Face> = segments.iter().map(|s| Face::new(ui, &s.label, s.icon)).collect();
-    let widths: Vec<f32> = faces.iter().map(|f| f.width(OPTION_HEIGHT)).collect();
-    let (row, _) = ui.allocate_exact_size(egui::vec2(widths.iter().sum(), OPTION_HEIGHT), egui::Sense::hover());
+    segmented_sized(ui, id, segments, (OPTION_HEIGHT, OPTION_ICON), handle)
+}
+
+/// A [`segmented`] control `size.0` points high, its icons `size.1` wide (an icon's segment a
+/// square): the option bar's elsewhere (the « Composants » card's grid / list toggle).
+pub fn segmented_sized(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    segments: &[Segment],
+    (height, icon): (f32, f32),
+    handle: impl Fn(usize) -> String,
+) -> Option<usize> {
+    let faces: Vec<Face> = segments.iter().map(|s| Face::new(ui, &s.label, s.icon.clone())).collect();
+    let widths: Vec<f32> = faces.iter().map(|f| f.width(height)).collect();
+    let (row, _) = ui.allocate_exact_size(egui::vec2(widths.iter().sum(), height), egui::Sense::hover());
     let radius = ui.visuals().widgets.inactive.corner_radius;
     // The marks faded with their card while it is translucent (docs/ui/interface.md#look).
     let alpha = crate::style::fill_alpha(ui);
 
     // The segments' places along the row, from its left.
     let lefts: Vec<f32> = widths.iter().scan(0.0, |x, w| Some(std::mem::replace(x, *x + w))).collect();
-    let place = |i: usize| egui::Rect::from_min_size(row.min + egui::vec2(lefts[i], 0.0), egui::vec2(widths[i], OPTION_HEIGHT));
+    let place = |i: usize| egui::Rect::from_min_size(row.min + egui::vec2(lefts[i], 0.0), egui::vec2(widths[i], height));
 
     let responses: Vec<egui::Response> = segments
         .iter()
@@ -659,7 +679,7 @@ fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment], handle: impl
     let mut clicked = None;
     for (i, (s, response)) in segments.iter().zip(responses).enumerate() {
         let ink = if s.selected { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
-        faces[i].paint(ui, place(i), ink);
+        faces[i].paint(ui, place(i), icon, ink);
         if response.on_hover_text(face_tip(&faces[i], &s.label, &s.tip)).clicked() && !s.selected {
             clicked = Some(i);
         }
@@ -752,15 +772,14 @@ pub struct OutlinerState {
     births: Births,
     active: Option<ActivePath>,
     /// Its search (docs/ui/components-library.md#search), and whether a definition holds a
-    /// row it lets through, by definition and the material reaching it — kept for the
-    /// document's revision and the search it was found for.
-    pub filter: skraft_tools::search::Filter,
-    holds: Option<(u64, skraft_tools::search::Filter, Holds)>,
+    /// row it lets through, by definition — kept for the document's revision and the search
+    /// it was found for.
+    pub search: String,
+    holds: Option<(u64, String, Holds)>,
 }
 
-/// Whether a definition holds a row a search lets through, by definition and the material
-/// reaching it.
-type Holds = FastMap<(Id, Option<Id>), bool>;
+/// Whether a definition holds a row a search lets through, by definition.
+type Holds = FastMap<Id, bool>;
 
 /// One line of the outliner: an occurrence at some depth of the tree, or a body of the part it
 /// places.
@@ -826,10 +845,6 @@ impl BodyRow<'_> {
     }
 }
 
-/// The room above the navigator's search field: its rows close under the title bar, the field as
-/// far from it as the other cards' content.
-const SEARCH_PAD: f32 = 6.0;
-
 /// The margin inside a panel's card, around its content (its border just outside).
 pub const CARD_MARGIN: f32 = 6.0;
 
@@ -886,7 +901,8 @@ pub(crate) fn tree_row<R>(
     (response, inner)
 }
 
-/// The outliner, in `area`: the model (named `name`, its file's) on the first row, then the
+/// The outliner, in `area`: the search field `search::GAP` under `line` (the bottom of the
+/// card's title bar line), the model (named `name`, its file's) on the first row, then the
 /// tree; only the rows in view are laid out (a model can hold tens of thousands of
 /// occurrences).
 pub fn outliner(
@@ -896,15 +912,17 @@ pub fn outliner(
     name: &str,
     actions: &mut Vec<Action>,
     area: egui::ScrollArea,
-    body: f32,
+    (body, line): (f32, f32),
 ) {
     let doc = editor.document();
-    // The search field over the whole width, by name only (docs/ui/components-library.md#search), away
-    // from the title bar as the other cards' content; the tree in the height left under it.
+    // The search field over the whole width, by name only (docs/ui/components-library.md#search),
+    // as far from the title bar as the « Composants » card's from its tabs; the tree in the
+    // height left under it, its first row as far again (the item spacing and the scroll
+    // area's top margin below).
     let top = ui.cursor().top();
-    ui.add_space(SEARCH_PAD);
+    ui.add_space((line + crate::search::GAP - ui.cursor().top()).max(0.0));
     let salt = ui.make_persistent_id("outliner_search");
-    crate::search::field(ui, salt, "outliner", &mut state.filter.text, |_| {});
+    crate::search::field(ui, salt, "outliner", &mut state.search, |_, _| {});
     let left = (body - (ui.cursor().top() - top)).max(0.0);
     let area = area.max_height(left).min_scrolled_height(left);
     let height = ui.spacing().interact_size.y;
@@ -937,21 +955,21 @@ pub fn outliner(
         before.fold_left(&state.births, &mut state.open, &active);
     }
     let mut rows = Vec::new();
-    if state.filter.is_active() {
+    let matcher = skraft_tools::search::Matcher::new(&state.search);
+    if matcher.is_active() {
         // Under a search: every row it lets through and the rows above them, whatever is
         // folded (the folds left as they are).
         let revision = editor.history().revision();
-        if state.holds.as_ref().is_none_or(|(r, f, _)| *r != revision || *f != state.filter) {
-            state.holds = Some((revision, state.filter.clone(), FastMap::default()));
+        if state.holds.as_ref().is_none_or(|(r, f, _)| *r != revision || *f != state.search) {
+            state.holds = Some((revision, state.search.clone(), FastMap::default()));
         }
-        let matcher = state.filter.matcher();
         let Some((_, _, holds)) = state.holds.as_mut() else { return };
         let mut f = Filtered { matcher: &matcher, holds, doc };
-        f.rows(doc.root(), None, &mut Vec::new(), &mut rows, false, 0);
+        f.rows(doc.root(), &mut Vec::new(), &mut rows, false, 0);
     } else {
         flatten(&state.births, &mut state.open, editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
     }
-    if rows.is_empty() && state.filter.is_active() {
+    if rows.is_empty() && matcher.is_active() {
         area.show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.weak(t!("search.no_match"));
@@ -1296,34 +1314,26 @@ fn flatten<'d>(
 }
 
 /// The navigator's rows under a search (docs/ui/components-library.md#search): the rows it lets
-/// through — an occurrence by its name or its component's, its nature, the material it shows
-/// (its own or one inherited from above, or for a part a face's); a body by its name or its
+/// through — an occurrence by its name or its component's, a body by its name or its
 /// definition's —, and the rows above them, attenuated when they do not pass themselves. No
 /// folds: what holds a match is shown open, the rest closed.
 struct Filtered<'a, 'd> {
     matcher: &'a skraft_tools::search::Matcher,
-    /// Does a definition hold a row that passes, the material reaching it being this?
+    /// Does a definition hold a row that passes?
     holds: &'a mut Holds,
     doc: &'d Document,
 }
 
 impl<'d> Filtered<'_, 'd> {
-    /// Does the occurrence `o` (the material above it `inherited`) pass itself?
-    fn occurrence(&self, o: &Occurrence, inherited: Option<Id>) -> bool {
-        use skraft_tools::search::Nature;
+    /// Does the occurrence `o` pass itself?
+    fn occurrence(&self, o: &Occurrence) -> bool {
         let Ok(c) = self.doc.component(o.component) else { return false };
-        let shown = o.material.or(inherited);
-        match &c.kind {
-            ComponentKind::Part(p) => {
-                self.matcher.matches(Nature::Part, [o.name.as_str(), c.name.as_str()], shown.into_iter().chain(p.faces.values().copied()))
-            }
-            ComponentKind::Assembly(_) => self.matcher.matches(Nature::Assembly, [o.name.as_str(), c.name.as_str()], shown),
-        }
+        self.matcher.name([o.name.as_str(), c.name.as_str()])
     }
 
-    /// Does the body `b` of `p` pass? (A body shows no material: none passes a material asked.)
+    /// Does the body `b` of `p` pass?
     fn body(&self, p: &skraft_model::Part, b: &skraft_model::Body) -> bool {
-        self.matcher.matches(skraft_tools::search::Nature::Body, [b.name.as_str(), p.def_of(b).name.as_str()], [])
+        self.matcher.name([b.name.as_str(), p.def_of(b).name.as_str()])
     }
 
     /// Does one of `bodies`, or a body in their groups, pass?
@@ -1332,36 +1342,32 @@ impl<'d> Filtered<'_, 'd> {
             && bodies.iter().any(|b| self.body(p, b) || self.holds_body(p, p.def_of(b).children(), depth + 1))
     }
 
-    /// Does the definition `c` (`inherited` reaching it) hold a row that passes?
-    fn holds(&mut self, c: Id, inherited: Option<Id>, depth: usize) -> bool {
-        if let Some(h) = self.holds.get(&(c, inherited)) {
+    /// Does the definition `c` hold a row that passes?
+    fn holds(&mut self, c: Id, depth: usize) -> bool {
+        if let Some(h) = self.holds.get(&c) {
             return *h;
         }
         let h = match self.doc.component(c).map(|c| &c.kind) {
-            Ok(ComponentKind::Part(p)) => self.matcher.nature(skraft_tools::search::Nature::Body)
-                && self.matcher.material().is_none()
-                && self.holds_body(p, &p.bodies, 0),
-            Ok(ComponentKind::Assembly(a)) if depth <= skraft_model::MAX_DEPTH => a
-                .occurrences()
-                .iter()
-                .any(|o| self.occurrence(o, inherited) || self.holds(o.component, o.material.or(inherited), depth + 1)),
+            Ok(ComponentKind::Part(p)) => self.holds_body(p, &p.bodies, 0),
+            Ok(ComponentKind::Assembly(a)) if depth <= skraft_model::MAX_DEPTH => {
+                a.occurrences().iter().any(|o| self.occurrence(o) || self.holds(o.component, depth + 1))
+            }
             _ => false,
         };
-        self.holds.insert((c, inherited), h);
+        self.holds.insert(c, h);
         h
     }
 
-    /// The rows of the assembly `assembly` (`inherited` reaching it) under `path`.
-    fn rows(&mut self, assembly: Id, inherited: Option<Id>, path: &mut Vec<Id>, out: &mut Vec<OutlinerRow<'d>>, hidden_above: bool, depth: usize) {
+    /// The rows of the assembly `assembly` under `path`.
+    fn rows(&mut self, assembly: Id, path: &mut Vec<Id>, out: &mut Vec<OutlinerRow<'d>>, hidden_above: bool, depth: usize) {
         let doc = self.doc;
         let Ok(a) = doc.assembly(assembly) else { return };
         if depth > skraft_model::MAX_DEPTH {
             return;
         }
         for o in a.occurrences() {
-            let me = self.occurrence(o, inherited);
-            let shown = o.material.or(inherited);
-            let below = self.holds(o.component, shown, depth + 1);
+            let me = self.occurrence(o);
+            let below = self.holds(o.component, depth + 1);
             if !me && !below {
                 continue;
             }
@@ -1373,7 +1379,7 @@ impl<'d> Filtered<'_, 'd> {
                 self.body_rows(p, &p.bodies, &mut Vec::new(), path, o, hidden_above, out);
             } else {
                 path.push(o.id);
-                self.rows(o.component, shown, path, out, hidden_above || o.hidden, depth + 1);
+                self.rows(o.component, path, out, hidden_above || o.hidden, depth + 1);
                 path.pop();
             }
         }
@@ -2448,13 +2454,13 @@ mod tests {
         top
     }
 
-    /// The navigator's rows under `filter`: (depth, occurrence, body, dimmed).
-    fn filtered(e: &Editor, filter: skraft_tools::search::Filter) -> Vec<(usize, Id, Option<Id>, bool)> {
+    /// The navigator's rows under the search `text`: (depth, occurrence, body, dimmed).
+    fn filtered(e: &Editor, text: &str) -> Vec<(usize, Id, Option<Id>, bool)> {
         let doc = e.document();
-        let matcher = filter.matcher();
+        let matcher = skraft_tools::search::Matcher::new(text);
         let mut holds = FastMap::default();
         let mut rows = Vec::new();
-        Filtered { matcher: &matcher, holds: &mut holds, doc }.rows(doc.root(), None, &mut Vec::new(), &mut rows, false, 0);
+        Filtered { matcher: &matcher, holds: &mut holds, doc }.rows(doc.root(), &mut Vec::new(), &mut rows, false, 0);
         rows.iter().map(|r| (r.path.len(), r.occurrence.id, r.body.as_ref().map(|b| b.body.id), r.dim)).collect()
     }
 
@@ -2462,10 +2468,9 @@ mod tests {
     fn a_search_keeps_what_matches_and_the_rows_above_it() {
         use glam::DVec3;
         use skraft_model::Primitive;
-        use skraft_tools::search::Filter;
         let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
         let root = e.document().root();
-        let mut add = |e: &mut Editor, x: f64| {
+        let add = |e: &mut Editor, x: f64| {
             let p = Primitive::Box { origin: DVec3::new(x, 0.0, 0.0), size: DVec3::splat(10.0) };
             e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None }).unwrap().unwrap().created[0]
         };
@@ -2475,22 +2480,14 @@ mod tests {
         e.apply(Operation::RenameComponent { component: pa, name: "Étagère".into() }).unwrap();
 
         // A part deep in the assembly: the assembly above it, attenuated, then it.
-        let rows = filtered(&e, Filter { text: "etag".into(), ..Filter::default() });
+        let rows = filtered(&e, "etag");
         assert_eq!(rows, vec![(0, g, None, true), (1, a, None, false)]);
-        // Assemblies only: the assembly, nothing under it.
-        let rows = filtered(&e, Filter { parts: false, bodies: false, ..Filter::default() });
-        assert_eq!(rows, vec![(0, g, None, false)]);
-        // A material: what shows it, inherited from the assembly painted.
-        let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
-        e.apply(Operation::PaintOccurrences { context: root, entities: vec![g], material: Some(oak) }).unwrap();
-        let rows = filtered(&e, Filter { material: Some(oak), assemblies: false, ..Filter::default() });
-        assert_eq!(rows.iter().filter(|r| !r.3).map(|r| r.1).collect::<Vec<_>>(), vec![a, b], "C shows no oak: {rows:?}");
-        assert!(rows.iter().all(|r| r.1 != c));
+        assert!(rows.iter().all(|r| r.1 != b && r.1 != c));
         // Bodies: under their part, by their definition's name.
         let pc = e.document().resolve(&EntityPath::root(c)).unwrap().component;
         let part = e.document().part(pc).unwrap();
         let body = part.def_of(&part.bodies[0]).name.clone();
-        let rows = filtered(&e, Filter { text: body, parts: false, assemblies: false, ..Filter::default() });
+        let rows = filtered(&e, &body);
         assert!(rows.iter().any(|r| r.2.is_some() && !r.3), "{rows:?}");
         assert!(rows.iter().filter(|r| r.2.is_none()).all(|r| r.3), "the parts and assembly above, attenuated");
     }
