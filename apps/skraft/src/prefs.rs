@@ -50,6 +50,8 @@ pub struct Preferences {
     pub shortcuts: BTreeMap<String, String>,
     /// The render statistics overlay, in a corner of the view.
     pub show_render_stats: bool,
+    /// The « Composants » card as a list, not a grid of thumbnails (docs/ui/components-library.md).
+    pub components_list: bool,
     /// The last files opened or saved, the latest first (desktop: the browser gives no path to
     /// open again).
     pub recent_files: Vec<String>,
@@ -92,6 +94,7 @@ impl Default for Preferences {
             palette: Palette::Warm,
             shortcuts: BTreeMap::new(),
             show_render_stats: false,
+            components_list: false,
             recent_files: Vec::new(),
             reopen_documents: true,
             open_files: Vec::new(),

@@ -208,6 +208,10 @@ pub struct Preview {
     pub picked_solid: Option<EntityPath>,
     /// The selection drawn moved by this world transform (the move tool's ghost).
     pub ghost: Option<DAffine3>,
+    /// The selection carried, off the view: drawn neither where it is nor moved (a component
+    /// placed from the library while the pointer is not over the view,
+    /// docs/ui/components-library.md#placing).
+    pub away: bool,
     /// The selection drawn copied at each of these world transforms, the original staying (the
     /// copy tools' ghosts, docs/tools/copy-array.md).
     pub copies: Vec<DAffine3>,
@@ -1371,6 +1375,10 @@ impl Moved {
             }
             Operation::PasteAsPart { context, fragment, transform } => {
                 Operation::PasteAsPart { context, fragment, transform: local * transform }
+            }
+            // A component placed from the library (docs/ui/components-library.md#placing).
+            Operation::PlaceOccurrence { context, component, transform } => {
+                Operation::PlaceOccurrence { context, component, transform: local * transform }
             }
             other => other,
         }

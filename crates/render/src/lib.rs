@@ -613,6 +613,40 @@ struct Target {
     display_view: wgpu::TextureView,
 }
 
+/// A picture of its own, apart from the viewport's (a component's thumbnail,
+/// docs/ui/components-library.md#thumbnails): its resolved texture only, drawn by
+/// [`Renderer::render_picture`] with the multisampled colour and depth the renderer keeps for
+/// pictures of its size.
+pub struct Picture {
+    size: [u32; 2],
+    resolved: wgpu::Texture,
+    resolved_view: wgpu::TextureView,
+    display_view: wgpu::TextureView,
+}
+
+impl Picture {
+    pub fn size(&self) -> [u32; 2] {
+        self.size
+    }
+
+    /// As [`Renderer::target`]'s: a [`DISPLAY_FORMAT`] view for egui.
+    pub fn display_view(&self) -> &wgpu::TextureView {
+        &self.display_view
+    }
+
+    /// The texture (to copy it out).
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.resolved
+    }
+}
+
+/// The multisampled colour and depth pictures of one size are drawn with.
+struct PictureScratch {
+    size: [u32; 2],
+    msaa: wgpu::TextureView,
+    depth: wgpu::TextureView,
+}
+
 /// A growable buffer rewritten each frame.
 struct Dynamic {
     label: &'static str,
@@ -705,6 +739,8 @@ pub struct Renderer {
     drawn: Option<u64>,
     /// What the picture in the target cost.
     stats: Stats,
+    /// The multisampled colour and depth [`Picture`]s are drawn with.
+    picture_scratch: Option<PictureScratch>,
 }
 
 impl Renderer {
@@ -1072,6 +1108,7 @@ impl Renderer {
             target_generation: 0,
             drawn: None,
             stats: Stats::default(),
+            picture_scratch: None,
         }
     }
 
@@ -1665,6 +1702,67 @@ impl Renderer {
         let all = || std::iter::once(&self.meshes).chain(self.parked.values()).flat_map(|m| m.values());
         let bytes = all().flat_map(|m| [&m.vertices, &m.indices, &m.edges, &m.silhouettes]).flatten().map(|b| b.size()).sum();
         (all().count(), bytes)
+    }
+
+    /// A new [`Picture`] of `size` pixels, to draw with [`Self::render_picture`].
+    pub fn new_picture(&self, device: &wgpu::Device, size: [u32; 2]) -> Picture {
+        let size = [size[0].max(1), size[1].max(1)];
+        let resolved = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("picture"),
+            size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TARGET_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[DISPLAY_FORMAT],
+        });
+        Picture {
+            size,
+            resolved_view: resolved.create_view(&Default::default()),
+            display_view: resolved.create_view(&wgpu::TextureViewDescriptor { format: Some(DISPLAY_FORMAT), ..Default::default() }),
+            resolved,
+        }
+    }
+
+    /// Draws `frame` into `picture`, submitted at once (its own encoder: the buffers it writes
+    /// are the viewport's too, so a picture is never encoded with the viewport's frame). The
+    /// viewport's target, the fingerprint of its picture and its statistics are left as they
+    /// were: a still view stays still.
+    pub fn render_picture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &Frame<'_>, picture: &Picture) {
+        let size = picture.size;
+        if self.picture_scratch.as_ref().is_none_or(|s| s.size != size) {
+            let texture = |label: &str, format| {
+                device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: Some(label),
+                        size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: SAMPLES,
+                        dimension: wgpu::TextureDimension::D2,
+                        format,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        view_formats: &[],
+                    })
+                    .create_view(&Default::default())
+            };
+            self.picture_scratch =
+                Some(PictureScratch { size, msaa: texture("picture msaa", TARGET_FORMAT), depth: texture("picture depth", self.depth_format) });
+        }
+        let Some(scratch) = &self.picture_scratch else { return };
+        let target = Target {
+            size,
+            msaa: scratch.msaa.clone(),
+            depth: scratch.depth.clone(),
+            resolved: picture.resolved.clone(),
+            resolved_view: picture.resolved_view.clone(),
+            display_view: picture.display_view.clone(),
+        };
+        let kept = (self.target.replace(target), self.drawn.take(), self.stats, self.generation, self.target_generation);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("picture") });
+        self.render(device, queue, &mut encoder, size, frame);
+        queue.submit([encoder.finish()]);
+        (self.target, self.drawn, self.stats, self.generation, self.target_generation) = kept;
     }
 
     fn ensure_target(&mut self, device: &wgpu::Device, size: [u32; 2]) {

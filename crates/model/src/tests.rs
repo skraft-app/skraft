@@ -106,7 +106,7 @@ fn mirrors_place_but_scales_are_refused() {
 }
 
 #[test]
-fn unnamed_parts_go_with_their_last_occurrence() {
+fn unused_parts_stay_until_purged() {
     let mut h = History::new(Document::new());
     let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
@@ -116,12 +116,16 @@ fn unnamed_parts_go_with_their_last_occurrence() {
     h.apply(Operation::RenameComponent { component: pb, name: "Pied".into() }).unwrap();
     assert!(h.apply(Operation::RenameComponent { component: pa, name: "Pied".into() }).is_err(), "names are unique");
     h.apply(Operation::Delete { context: root, entities: vec![a, b] }).unwrap();
-    assert!(h.document().component(pa).is_err());
-    let kept = h.document().component(pb).unwrap();
-    assert!(kept.named, "a named part stays in the library");
-    // …and can be placed again.
+    // Named or not, a part placed nowhere stays, unused (docs/ui/components-library.md)…
+    let counts = h.document().counts_in_model();
+    assert!(h.document().component(pa).is_ok() && h.document().component(pb).is_ok());
+    assert!(!counts.contains_key(&pa) && !counts.contains_key(&pb));
+    // …can be placed again…
     let out = h.apply(Operation::PlaceOccurrence { context: root, component: pb, transform: DAffine3::IDENTITY }).unwrap();
     assert_eq!(occ(h.document(), &EntityPath::root(out.created[0])).component, pb);
+    // …until purged.
+    h.apply(Operation::PurgeUnused).unwrap();
+    assert!(h.document().component(pa).is_err() && h.document().component(pb).is_ok());
 }
 
 #[test]
@@ -158,11 +162,11 @@ fn assemblies_make_explode_and_share() {
     assert_eq!(h.document().component(own).unwrap().name, "Assemblage#2");
     assert_eq!(h.document().components().filter(|c| c.is_part()).count(), 2);
 
-    // Exploding puts its occurrences in place, the assembly's transform composed; the unnamed
-    // assembly goes.
+    // Exploding puts its occurrences in place, the assembly's transform composed; the
+    // assembly stays, unused.
     let out = h.apply(Operation::Explode { context: root, occurrence: g }).unwrap();
     assert_eq!(out.created.len(), 2);
-    assert!(h.document().component(own).is_err());
+    assert!(h.document().component(own).is_ok() && !h.document().counts_in_model().contains_key(&own));
     let xs: Vec<f64> = out.created.iter().map(|id| world_bounds(h.document(), &EntityPath::root(*id)).0.x).collect();
     assert!(xs.iter().zip([100.0, 120.0]).all(|(x, e)| (x - e).abs() < 1e-9), "{xs:?}");
     // A part's occurrence is not exploded.
@@ -205,10 +209,12 @@ fn a_difference_machines_the_part_for_all_its_occurrences() {
     // The drill, in the board's axes: 100, 50 from its corner, its base 6 up.
     assert!(close(p.machinings()[0].placement.translation, DVec3::new(100.0, 50.0, 6.0)), "{}", p.machinings()[0].placement.translation);
     assert!(p.shape().topology_counts().0 > blank.topology_counts().0);
-    // Both occurrences show the hole; the drill left the model, its assembly and part with it.
+    // Both occurrences show the hole; the drill left the model (its assembly emptied: the
+    // editor takes it away), its part unused.
     assert_eq!(doc.resolve_part(&EntityPath::root(copy)).unwrap().0, part);
     assert!(doc.resolve(&EntityPath::root(g)).is_err() || doc.assembly(doc.context_of(&[g]).unwrap()).unwrap().occurrences().is_empty());
-    assert_eq!(doc.components().filter(|c| c.is_part()).count(), 1, "{:?}", doc.components().map(|c| &c.name).collect::<Vec<_>>());
+    let counts = doc.counts_in_model();
+    assert_eq!(doc.components().filter(|c| c.is_part() && counts.contains_key(&c.id)).count(), 1);
 
     // A union gives the target the tool's bodies (docs/model/bodies.md): its blank stays, the hole too.
     let other = add(&mut h, Primitive::Box { origin: DVec3::new(1590.0, 0.0, 0.0), size: DVec3::new(20.0, 300.0, 100.0) });
@@ -528,7 +534,7 @@ fn only_this_one_makes_the_way_to_it_unique() {
     let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(1300.0, 150.0, 10.0), radius: 4.0, height: 20.0 });
     h.apply(Operation::Boolean { target: target.clone(), tool: EntityPath::root(drill), op: Boolean::Difference, scope: Scope::This })
         .unwrap();
-    assert_eq!(h.document().components().count(), n);
+    assert_eq!(h.document().components().count(), n + 1, "the drill's part unused, nothing else copied");
     assert_eq!(h.document().resolve_part(&target).unwrap().1.machinings().len(), 2);
 
     // All occurrences: the first cabinet's shelf and the loose one both get the hole.
@@ -1939,8 +1945,9 @@ fn a_part_gone_since_the_copy_is_grafted_back() {
     let part = occ(h.document(), &EntityPath::root(a)).component;
     let fragment = Arc::new(h.document().entities_fragment(&[], &[a]).unwrap());
 
-    // Cut: the unnamed part goes with its last occurrence.
+    // Cut, then purged: the part is gone.
     h.apply(Operation::Delete { context: root, entities: vec![a] }).unwrap();
+    h.apply(Operation::PurgeUnused).unwrap();
     assert!(h.document().component(part).is_err());
     let out = paste(&mut h, root, &fragment, DAffine3::IDENTITY, true);
     let back = occ(h.document(), &EntityPath::root(out.created[0])).component;
@@ -2120,7 +2127,8 @@ fn the_history_weighs_what_its_states_hold_alone() {
     let cube_bytes = h.document().components().find_map(|c| c.as_part()).unwrap().shape().approx_bytes();
     assert!(cube_bytes > 1000, "a cube's record: {cube_bytes} bytes");
     assert!(h.held_bytes() < cube_bytes, "the cube is in the current state: not held by the history");
-    h.apply(Operation::Delete { context: root, entities: vec![a] }).unwrap();
+    let cube = h.document().resolve(&EntityPath::root(a)).unwrap().component;
+    h.apply(Operation::DeleteComponent { component: cube }).unwrap();
     h.weigh(&record_bytes);
     assert!(h.held_bytes() > cube_bytes, "deleted, the state before holds it alone");
     // Two settings changes in a row merge: the pair weighed again.
@@ -3441,4 +3449,121 @@ fn operations_at_a_path_reach_one_copy_when_made_unique_and_batch_in_one_step() 
     // Only operations on occurrences of a context go at a path.
     let renamed = Box::new(Operation::RenameComponent { component: root, name: "x".into() });
     assert!(h.apply(Operation::At { parent: vec![g], unique: false, op: renamed }).is_err());
+}
+
+/// A document with two parts A and B, an assembly holding A twice and B once, placed twice at
+/// the root, and A once more at the root: (root occurrence of A, the assembly's two
+/// occurrences, the assembly, part A, part B).
+fn library() -> (History, Id, Vec<Id>, Id, Id, Id) {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let a2 = h.apply(Operation::Duplicate { context: root, entities: vec![a], transform: DAffine3::from_translation(DVec3::X * 20.0) })
+        .unwrap()
+        .created[0];
+    let b = add(&mut h, cube(DVec3::new(0.0, 40.0, 0.0), 5.0));
+    let g = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, a2, b], name: None }).unwrap().created[0];
+    let g2 = h.apply(Operation::Duplicate { context: root, entities: vec![g], transform: DAffine3::from_translation(DVec3::Y * 100.0) })
+        .unwrap()
+        .created[0];
+    let doc = h.document();
+    let asm = occ(doc, &EntityPath::root(g)).component;
+    let (pa, pb) = (occ(doc, &EntityPath::new(vec![g], a)).component, occ(doc, &EntityPath::new(vec![g], b)).component);
+    let a3 = h.apply(Operation::PlaceOccurrence { context: root, component: pa, transform: DAffine3::IDENTITY }).unwrap().created[0];
+    (h, a3, vec![g, g2], asm, pa, pb)
+}
+
+#[test]
+fn counts_in_the_model_multiply_down_the_assemblies() {
+    let (mut h, _, _, asm, pa, pb) = library();
+    let counts = h.document().counts_in_model();
+    assert_eq!((counts[&asm], counts[&pa], counts[&pb]), (2, 5, 2), "A: 2 × 2 in the assemblies + 1 at the root");
+    assert_eq!(counts[&h.document().root()], 1);
+
+    // A part placed nowhere is not in the model, nor what an unused assembly holds.
+    let root = h.document().root();
+    h.apply(Operation::RenameComponent { component: asm, name: "Caisson".into() }).unwrap();
+    let placed: Vec<Id> = h.document().root_assembly().occurrences().iter().filter(|o| o.component == asm).map(|o| o.id).collect();
+    h.apply(Operation::Delete { context: root, entities: placed }).unwrap();
+    let counts = h.document().counts_in_model();
+    assert!(h.document().component(asm).is_ok(), "kept while unused");
+    assert!(!counts.contains_key(&asm) && !counts.contains_key(&pb));
+    assert_eq!(counts[&pa], 1, "the root's occurrence of A");
+}
+
+#[test]
+fn purging_drops_what_the_model_does_not_place_the_named_too() {
+    let (mut h, a3, _, asm, pa, pb) = library();
+    let root = h.document().root();
+    h.apply(Operation::RenameComponent { component: asm, name: "Caisson".into() }).unwrap();
+    h.apply(Operation::RenameComponent { component: pb, name: "Fond".into() }).unwrap();
+    let placed: Vec<Id> = h.document().root_assembly().occurrences().iter().filter(|o| o.component == asm).map(|o| o.id).collect();
+    h.apply(Operation::Delete { context: root, entities: placed }).unwrap();
+    assert!(h.document().component(asm).is_ok() && h.document().component(pb).is_ok());
+
+    h.apply(Operation::PurgeUnused).unwrap();
+    let doc = h.document();
+    assert!(doc.component(asm).is_err() && doc.component(pb).is_err(), "the named assembly and the named part in it");
+    assert!(doc.component(pa).is_ok(), "A is still placed at the root");
+    assert_eq!(occ(doc, &EntityPath::root(a3)).component, pa);
+    assert!(h.undo());
+    assert!(h.document().component(asm).is_ok() && h.document().component(pb).is_ok());
+}
+
+#[test]
+fn deleting_a_component_takes_all_its_occurrences() {
+    let (mut h, a3, groups, asm, pa, pb) = library();
+    let root = h.document().root();
+    assert!(matches!(h.apply(Operation::DeleteComponent { component: root }), Err(Error::Invalid(Refusal::RootDeleted))));
+
+    h.apply(Operation::DeleteComponent { component: pa }).unwrap();
+    let doc = h.document();
+    assert!(doc.component(pa).is_err());
+    assert!(doc.resolve(&EntityPath::root(a3)).is_err(), "the root's occurrence too");
+    assert_eq!(doc.assembly(asm).unwrap().occurrences().len(), 1, "B left in the assembly");
+    assert_eq!(doc.counts_in_model()[&pb], 2);
+    assert!(h.undo());
+    assert_eq!(h.document().counts_in_model()[&pa], 5);
+
+    // An assembly: its occurrences go, its parts stay (B unused now).
+    h.apply(Operation::DeleteComponent { component: asm }).unwrap();
+    let doc = h.document();
+    assert!(groups.iter().all(|g| doc.resolve(&EntityPath::root(*g)).is_err()));
+    assert!(doc.component(asm).is_err() && doc.component(pb).is_ok());
+    assert!(!doc.counts_in_model().contains_key(&pb));
+    assert_eq!(doc.counts_in_model()[&pa], 1);
+}
+
+#[test]
+fn replacing_occurrences_keeps_their_placement_name_material_and_visibility() {
+    let (mut h, a3, groups, asm, pa, pb) = library();
+    let root = h.document().root();
+    let m = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a3], material: Some(m) }).unwrap();
+    h.apply(Operation::RenameOccurrence { context: root, occurrence: a3, name: "Gauche".into() }).unwrap();
+    h.apply(Operation::SetHidden { context: root, entities: vec![a3], hidden: true }).unwrap();
+    let before = occ(h.document(), &EntityPath::root(a3));
+
+    h.apply(Operation::ReplaceOccurrences { context: root, entities: vec![a3], component: pb }).unwrap();
+    let after = occ(h.document(), &EntityPath::root(a3));
+    assert_eq!(after.component, pb);
+    assert_eq!(Occurrence { component: before.component, ..after }, before, "all but its component kept");
+    assert!(h.document().component(pa).is_ok(), "A still in the assemblies");
+
+    // No assembly into itself; the model is not placed.
+    let b_in_g = h.document().assembly(asm).unwrap().occurrences().iter().find(|o| o.component == pb).unwrap().id;
+    assert!(matches!(
+        h.apply(Operation::ReplaceOccurrences { context: asm, entities: vec![b_in_g], component: asm }),
+        Err(Error::Cycle)
+    ));
+    assert!(h.apply(Operation::ReplaceOccurrences { context: root, entities: vec![a3], component: root }).is_err());
+
+    // At depth, through the assembly placed twice: both copies change (`unique` off), and the
+    // part A left unused stays.
+    let in_g: Vec<Id> = h.document().assembly(asm).unwrap().occurrences().iter().filter(|o| o.component == pa).map(|o| o.id).collect();
+    let op = Operation::ReplaceOccurrences { context: root, entities: in_g, component: pb };
+    h.apply(Operation::At { parent: vec![groups[0]], unique: false, op: Box::new(op) }).unwrap();
+    let doc = h.document();
+    assert!(doc.component(pa).is_ok() && !doc.counts_in_model().contains_key(&pa), "A unused, kept");
+    assert_eq!(doc.counts_in_model()[&pb], 7, "3 in each assembly + the root's");
 }

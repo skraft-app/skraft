@@ -9,6 +9,14 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub struct NoParams {}
 
+/// `components.*`: a part or an assembly of the document (docs/ui/components-library.md).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentParams {
+    /// The component's id (`model.components` lists them).
+    pub component: u64,
+}
+
 /// `app.run`.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

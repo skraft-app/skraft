@@ -51,8 +51,16 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   (`Document::unique_name`): an automatic one (not `named`) numbered from #1 as SketchUp's
   (« Pièce#1 », « Pièce#2 »); one given, taken as it is, a copy of it « Caisson#2 », a copy of
   « Caisson#2 » the first number free ([Automatic names](bodies.md#automatic-names)).
-- **Purge**: a part with no occurrence disappears, unless the user named it (it then stays in
-  the model's library).
+- **Unused definitions stay**: a part or an assembly left without occurrence (erased,
+  exploded, replaced, a boolean's tool) stays in the document, named or not, shown in the
+  « Composants » card's « Inutilisés » ([Components library](../ui/components-library.md)) and
+  placed again from there, until « Purger les inutilisés » (`Operation::PurgeUnused`) drops
+  every component not in the model. But an empty assembly placed nowhere, which holds
+  nothing, goes after every operation (`Document::drop_unused_empty_assemblies`). An import
+  purges what it brought and does not place (`Document::purge`).
+- **Count in the model**: `Document::counts_in_model`, how many times each component is placed
+  under the root at any depth (an assembly's count multiplying those below it); a component
+  placed nowhere under the root is absent from it.
 - **Empty assemblies**: an assembly with neither occurrences nor guides — or holding only
   empty ones — is taken away, its occurrences deleted wherever it is placed, as SketchUp
   deletes an empty group (`Document::dropping_empty_assemblies`, a batch of `Delete`;

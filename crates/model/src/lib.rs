@@ -77,6 +77,7 @@ pub enum Refusal {
     /// Only an assembly is exploded.
     NotExploded,
     RootPlaced,
+    RootDeleted,
     /// A part is not combined with itself.
     SelfBoolean,
     /// A face index past the part's faces (docs/render/look.md).
@@ -161,6 +162,7 @@ impl std::fmt::Display for Refusal {
             Refusal::EmptyAssembly => t!("error.model.empty_assembly"),
             Refusal::NotExploded => t!("error.model.not_exploded"),
             Refusal::RootPlaced => t!("error.model.root_placed"),
+            Refusal::RootDeleted => t!("error.model.root_deleted"),
             Refusal::SelfBoolean => t!("error.model.self_boolean"),
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
             Refusal::NoBodies => t!("error.model.no_bodies"),

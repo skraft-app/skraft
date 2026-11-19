@@ -75,6 +75,14 @@ pub struct Viewport {
     size: [u32; 2],
     /// What the render statistics overlay shows.
     timing: Timing,
+    /// A component dragged from the « Composants » card is carried (docs/ui/components-library.md#placing):
+    /// the card's row holds the drag, the view follows the pointer and puts it down where the
+    /// button is released.
+    pub dragged_in: bool,
+    /// The components' thumbnails (docs/ui/components-library.md#thumbnails), drawn by its renderer.
+    pub thumbnails: crate::thumbnails::Thumbnails,
+    /// The palette of the last frame, the thumbnails' too.
+    palette: Vec<[f32; 4]>,
 }
 
 /// Measured on every frame, for the render statistics overlay.
@@ -138,6 +146,7 @@ impl Viewport {
         if let Some(r) = &mut self.renderer {
             r.drop_document(doc);
         }
+        self.thumbnails.drop_document(doc);
     }
 
     /// Draws document `doc`, edited by `editor`, and feeds it the view's input; `typed` is the
@@ -199,6 +208,7 @@ impl Viewport {
         };
         let start = web_time::Instant::now();
         self.render(state, size, ppp, editor, theme);
+        self.render_thumbnails(ui.ctx(), state, ppp, editor, theme);
         self.timing.render_ms = start.elapsed().as_secs_f64() * 1e3 - self.timing.view_ms;
         let now = ui.input(|i| i.time);
         self.timing.interval = self.timing.frames.back().map_or(0.0, |t| now - t);
@@ -365,6 +375,9 @@ impl Viewport {
         if editor.tick(time) {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
+        if self.dragged_in {
+            return self.dragged_in_input(ctx, rect, editor, modifiers(ctx, tool_mods));
+        }
         let hover = response.hover_pos();
 
         // Hover: tools follow the cursor; off the view or over a panel, they hide what follows it.
@@ -434,6 +447,39 @@ impl Viewport {
         if (zoom - 1.0).abs() > 1e-4 {
             burst(editor, &mut self.last_zoom);
             editor.zoom(zoom_at(p), (zoom as f64).ln() / (1.0f64 / 0.85).ln() * nav.zoom_rate());
+        }
+    }
+
+    /// A component dragged in from the « Composants » card (docs/ui/components-library.md#placing): no
+    /// widget of the view is hovered while the card's row holds the drag, so the pointer is
+    /// followed here over the view (not over a card floating on it); released there, it is put
+    /// down — a click —, elsewhere given up (Esc).
+    fn dragged_in_input(&mut self, ctx: &egui::Context, rect: egui::Rect, editor: &mut Editor, mods: Modifiers) {
+        let local = |p: egui::Pos2| DVec2::new((p.x - rect.min.x) as f64, (p.y - rect.min.y) as f64);
+        let (pos, down) = ctx.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down()));
+        // Not over a card floating on the view; a tooltip following the pointer does not count.
+        let over = pos.filter(|p| {
+            rect.contains(*p) && ctx.layer_id_at(*p).is_none_or(|l| matches!(l.order, egui::Order::Background | egui::Order::Tooltip))
+        });
+        if !editor.carrying() {
+            self.dragged_in = false;
+            return;
+        }
+        match over {
+            Some(p) if self.last_hover != Some(p) => {
+                self.last_hover = Some(p);
+                editor.input(ToolInput::Hover { px: local(p) });
+            }
+            None if self.last_hover.take().is_some() => editor.leave(),
+            _ => {}
+        }
+        if down {
+            return;
+        }
+        self.dragged_in = false;
+        match over {
+            Some(p) => editor.input(ToolInput::Click { px: local(p), mods }),
+            None => editor.input(ToolInput::Key { key: skraft_tools::Key::Escape, mods: Modifiers::default() }),
         }
     }
 
@@ -621,6 +667,7 @@ impl Viewport {
             ghost_opacity: theme.ghost_opacity,
             ghost_edge_opacity: theme.ghost_edge_opacity,
         };
+        self.palette.clone_from(&palette);
         let frame = render::Frame {
             view: cam.view(),
             proj: cam.proj(aspect, scene.bounds()),
@@ -669,6 +716,158 @@ impl Viewport {
             }
         }
     }
+}
+
+impl Viewport {
+    /// Draws the thumbnails the « Composants » card asked for (docs/ui/components-library.md#thumbnails),
+    /// the shown document's, within [`THUMBNAIL_BUDGET_MS`]: the others the next frame. Each a
+    /// parallel iso view of the component's meshes framed on their box, in the view's colours
+    /// and with its palette, registered as an egui texture; those evicted freed.
+    fn render_thumbnails(&mut self, ctx: &egui::Context, state: &egui_wgpu::RenderState, ppp: f32, editor: &Editor, theme: &Theme) {
+        let freed = self.thumbnails.evict();
+        if !freed.is_empty() {
+            let mut egui_renderer = state.renderer.write();
+            for t in freed {
+                egui_renderer.free_texture(&t);
+            }
+        }
+        if !self.thumbnails.pending() {
+            return;
+        }
+        let Some(renderer) = self.renderer.as_mut() else { return };
+        let side = ((crate::thumbnails::TILE * ppp).round() as u32).clamp(16, 512);
+        let size = [side, side];
+        let scene = editor.scene();
+        let start = web_time::Instant::now();
+        let mut rest = Vec::new();
+        for w in self.thumbnails.take_wanted() {
+            if w.doc != self.document {
+                continue;
+            }
+            if start.elapsed().as_secs_f64() * 1e3 > THUMBNAIL_BUDGET_MS {
+                rest.push(w);
+                continue;
+            }
+            // Its box, in its axes: its meshes' boxes at their placements.
+            let mut bounds: Option<(DVec3, DVec3)> = None;
+            for (p, places) in &w.content.parts {
+                let Some(dm) = scene.definition_mesh(*p) else { continue };
+                for pm in &dm.parts {
+                    let Some((lo, hi)) = pm.bounds else { continue };
+                    for (t, _) in places {
+                        for i in 0..8 {
+                            let c = DVec3::new(
+                                if i & 1 == 0 { lo.x } else { hi.x },
+                                if i & 2 == 0 { lo.y } else { hi.y },
+                                if i & 4 == 0 { lo.z } else { hi.z },
+                            );
+                            let c = t.transform_point3(c);
+                            bounds = Some(bounds.map_or((c, c), |(a, b)| (a.min(c), b.max(c))));
+                        }
+                    }
+                }
+            }
+            let Some(bounds) = bounds else { continue };
+            let slots = &self.slots;
+            let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
+            let batches: Vec<render::Batch> = w
+                .content
+                .parts
+                .iter()
+                .filter(|(p, _)| renderer.has_mesh(p.0, scene.definition_mesh(*p).map_or(u64::MAX, |d| d.revision)))
+                .map(|(p, places)| {
+                    let placements = places
+                        .iter()
+                        .map(|(t, m)| render::Placement { material: slot(*m), ..render::Placement::new(DMat4::from(*t)) })
+                        .collect();
+                    render::Batch::new(p.0, placements)
+                })
+                .collect();
+            if batches.is_empty() {
+                continue;
+            }
+            let (view, proj) = thumbnail_camera(bounds);
+            let rgb = |c: Rgba| [c[0], c[1], c[2]];
+            let [r, g, b, _] = theme.ui.view;
+            let frame = render::Frame {
+                view,
+                proj,
+                background: [r, g, b],
+                style: render::Style {
+                    face_front: rgb(theme.face_front),
+                    face_back: rgb(theme.face_back),
+                    edge: rgb(theme.edge),
+                    grid: rgb(theme.grid),
+                    palette: &self.palette,
+                    silhouettes: true,
+                    section: None,
+                    ..render::Style::default()
+                },
+                batches: &batches,
+                highlights: &[],
+                lines: &[],
+                faint_lines: &[],
+                boxes: &[],
+                overlay: &[],
+                hidden_lines: &[],
+                fills: &[],
+                grid: None,
+                axes: false,
+                axes_frame: DMat4::IDENTITY,
+                // Edges and silhouettes finer than the view's, at the thumbnail's small scale.
+                pixels_per_point: ppp * THUMBNAIL_EDGE_SCALE,
+                model_per_point: 1.0,
+            };
+            let device = &state.device;
+            if let Some(picture) = self.thumbnails.picture_for(&w, size) {
+                renderer.render_picture(device, &state.queue, &frame, picture);
+                self.thumbnails.redrawn(&w);
+            } else {
+                let picture = renderer.new_picture(device, size);
+                renderer.render_picture(device, &state.queue, &frame, &picture);
+                let mut egui_renderer = state.renderer.write();
+                let texture = egui_renderer.register_native_texture(device, picture.display_view(), wgpu::FilterMode::Linear);
+                if let Some(old) = self.thumbnails.drawn(&w, picture, texture) {
+                    egui_renderer.free_texture(&old);
+                }
+            }
+        }
+        let more = !rest.is_empty();
+        self.thumbnails.defer(rest);
+        if more {
+            ctx.request_repaint();
+        }
+    }
+}
+
+/// How much finer a thumbnail's edges are than the view's (`render::EDGE_WIDTH` times this).
+const THUMBNAIL_EDGE_SCALE: f32 = 0.5;
+
+/// The time the thumbnails may take per frame (milliseconds): the others wait for the next.
+const THUMBNAIL_BUDGET_MS: f64 = 6.0;
+
+/// A thumbnail's camera: a parallel iso view from the front, right and above, framed tight on
+/// `bounds` (their corners' extent across the view, a margin around), square.
+fn thumbnail_camera((lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
+    let forward = DVec3::new(-1.0, 1.0, -1.0).normalize();
+    let right = forward.cross(DVec3::Z).normalize();
+    let up = right.cross(forward);
+    let center = (lo + hi) * 0.5;
+    let (mut w, mut h, mut d) = (0.0f64, 0.0f64, 0.0f64);
+    for i in 0..8 {
+        let c = DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z }) - center;
+        w = w.max(c.dot(right).abs());
+        h = h.max(c.dot(up).abs());
+        d = d.max(c.dot(forward).abs());
+    }
+    let half = (w.max(h) * 1.12).max(1e-3);
+    let eye = center - forward * (2.0 * d + half + 1.0);
+    let view = DMat4::look_to_rh(eye, forward, up);
+    let dist = (center - eye).dot(forward);
+    let (near, far) = ((dist - d * 1.1 - 1.0).max(1e-3), dist + d * 1.1 + 1.0);
+    // Reversed depth: near → 1, far → 0.
+    let proj = glam::Mat4::orthographic_rh(-half as f32, half as f32, -half as f32, half as f32, far as f32, near as f32);
+    (view, proj)
 }
 
 /// How a highlight's mark colours its faces and edges (`fade`: the tint of what lies outside

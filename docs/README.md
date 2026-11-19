@@ -59,7 +59,7 @@ decision replaced. What is not built yet is not described here.
 
 **Interface** — [Application interface](ui/interface.md) · [Commands](ui/commands.md) ·
 [Ribbon](ui/ribbon.md) · [Title bar](ui/title-bar.md) · [File tabs](ui/file-tabs.md) ·
-[View bar](ui/view-bar.md) · [Mouse cursors](ui/cursors.md) · [Navigation styles](ui/navigation-styles.md) ·
+[View bar](ui/view-bar.md) · [Components library](ui/components-library.md) · [Mouse cursors](ui/cursors.md) · [Navigation styles](ui/navigation-styles.md) ·
 [Loading a model](ui/loading.md) · [Texts and languages](ui/texts.md)
 
 **Rendering** — [Display](render/display.md) · [Rendering and look](render/look.md) ·

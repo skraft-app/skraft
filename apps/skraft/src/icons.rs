@@ -68,6 +68,8 @@ icon!(ADD, "add");
 icon!(MORE, "more");
 icon!(WARNING, "warning");
 icon!(CHEVRON_DOWN, "chevron_down");
+icon!(TILES, "tiles");
+icon!(LIST, "list");
 icon!(HIDE_REST, "hide_rest");
 
 /// The chevron (pointing down, turned by `angle` clockwise) `side` wide centered on `at`: the

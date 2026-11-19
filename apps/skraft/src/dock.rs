@@ -17,10 +17,12 @@ pub enum PanelId {
     EntityInfo,
     Materials,
     Outliner,
+    /// The document's parts and assemblies (docs/ui/components-library.md).
+    Components,
 }
 
 impl PanelId {
-    pub const ALL: [PanelId; 3] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Outliner];
+    pub const ALL: [PanelId; 4] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Outliner, PanelId::Components];
 
     /// Its command (`view.*`), which shows or closes it.
     pub fn command(self) -> &'static str {
@@ -28,6 +30,7 @@ impl PanelId {
             PanelId::EntityInfo => "view.entity_info",
             PanelId::Materials => "view.materials",
             PanelId::Outliner => "view.outliner",
+            PanelId::Components => "view.components",
         }
     }
 
@@ -46,7 +49,19 @@ impl PanelId {
             PanelId::EntityInfo => 280.0,
             PanelId::Materials => 180.0,
             PanelId::Outliner => 300.0,
+            PanelId::Components => 240.0,
         }
+    }
+
+    /// Shown in a first layout, or once added to one written by an older build: the
+    /// components library waits to be asked for.
+    fn shown_by_default(self) -> bool {
+        !matches!(self, PanelId::Components)
+    }
+
+    /// Its card as a first layout has it.
+    fn first_card(self) -> Card {
+        Card { id: self, height: self.default_height(), shown: self.shown_by_default(), folded: false }
     }
 }
 
@@ -94,7 +109,7 @@ pub struct Layout {
 
 impl Default for Layout {
     fn default() -> Self {
-        let cards = PanelId::ALL.map(|id| Card { id, height: id.default_height(), shown: true, folded: false }).to_vec();
+        let cards = PanelId::ALL.map(PanelId::first_card).to_vec();
         Layout { left: Column { width: COLUMN_WIDTH, cards }, right: Column::default() }
     }
 }
@@ -190,7 +205,7 @@ impl Layout {
         }
         for id in PanelId::ALL {
             if !seen.contains(&id) {
-                self.left.cards.push(Card { id, height: id.default_height(), shown: true, folded: false });
+                self.left.cards.push(id.first_card());
             }
         }
     }
@@ -341,7 +356,7 @@ mod tests {
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials]);
         l.move_card(PanelId::Outliner, Dock::Right, Some(PanelId::Materials));
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Outliner, PanelId::Materials]);
-        assert_eq!(l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::EntityInfo]);
+        assert_eq!(l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::EntityInfo, PanelId::Components]);
         // Within its column, above another one.
         l.move_card(PanelId::Materials, Dock::Right, Some(PanelId::Outliner));
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials, PanelId::Outliner]);
@@ -356,6 +371,9 @@ mod tests {
         l.normalize();
         assert_eq!(l.right.cards.len(), 0);
         let ids: Vec<_> = l.left.cards.iter().map(|c| c.id).collect();
-        assert_eq!(ids, [PanelId::Outliner, PanelId::EntityInfo, PanelId::Materials]);
+        assert_eq!(ids, [PanelId::Outliner, PanelId::EntityInfo, PanelId::Materials, PanelId::Components]);
+        // The components library added closed, as in a first layout.
+        assert!(!l.is_shown(PanelId::Components) && !Layout::default().is_shown(PanelId::Components));
+        assert!(l.is_shown(PanelId::EntityInfo));
     }
 }

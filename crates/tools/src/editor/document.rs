@@ -233,6 +233,10 @@ impl Editor {
         if !self.at_model_level_with_nothing_selected() {
             self.model_selected = false;
         }
+        // The component chosen in the library, only while nothing else is and it is there.
+        if self.chosen.is_some() && ((self.anything_selected() && self.carry.is_none()) || self.open_part.is_some() || self.chosen.is_some_and(|c| self.document().component(c).is_err())) {
+            self.chosen = None;
+        }
         // How far the file being read is (the load's window shows it).
         let mut moved = false;
         for (id, p) in self.kernel.progress() {

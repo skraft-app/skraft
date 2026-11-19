@@ -92,6 +92,8 @@ menu:
     group_bodies: "Group Bodies"
     ungroup_bodies: "Ungroup"
     delete_guides: "Delete Guides"
+    # The components not in the model, the named ones too (docs/ui/components-library.md).
+    purge_unused: "Purge Unused"
     select_all: "Select All"
     command_palette: "$t(common.command_palette)"
     preferences: "$t(common.preferences)"
@@ -113,6 +115,7 @@ menu:
     entity_info: "$t(panel.entity_info.title) Panel"
     materials: "$t(common.materials) Panel"
     outliner: "$t(panel.outliner.title) Panel"
+    components: "$t(panel.components.title) Panel"
     render_stats: "Render Statistics"
     top: "Top"
     front: "Front"
@@ -464,6 +467,19 @@ prefs:
     edit: "Edit"
     default: "Default"
 
+# The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
+search:
+  hint: "Search"
+  clear: "Clear the search"
+  parts: "Parts"
+  assemblies: "Assemblies"
+  all_materials: "All"
+  material_tip: "Show only what carries this material"
+  # The material menu while the document has none: greyed.
+  no_materials: "No materials in the document"
+  # Nothing matches the search.
+  no_match: "No match"
+
 panel:
   entity_info:
     title: "Entity Info"
@@ -502,6 +518,32 @@ panel:
     materials: "$t(common.materials)"
     selected: "%{count} selected"
     selected_plural: "%{count} selected"
+    # A component chosen in the Components card: how many times it is in the model.
+    in_model: "In model"
+  # The document's parts and assemblies (docs/ui/components-library.md).
+  components:
+    title: "Components"
+    in_model: "In Model"
+    # Placed nowhere: kept until purged (docs/ui/components-library.md).
+    unused: "Unused"
+    unused_tip: "Placed nowhere: kept until purged"
+    purge: "Purge"
+    purge_tip: "Delete every unused component"
+    count_tip: "%{count} occurrence in the model"
+    count_tip_plural: "%{count} occurrences in the model"
+    select: "Select Occurrences"
+    replace: "Replace Selection"
+    rename: "Rename"
+    delete: "Delete"
+    delete_tip: "Delete this component and all its occurrences"
+    # The assembly edited, or one above it: not placed into itself, not deleted.
+    on_path: "Being edited"
+    # A part open: the library waits for it to be closed.
+    disabled: "Close the part to place or manage components"
+    empty: "No components"
+    # The card view: a grid of thumbnails, or a list.
+    as_grid: "Thumbnails"
+    as_list: "List"
   materials:
     title: "$t(common.materials)"
     none: "None"
@@ -582,6 +624,8 @@ status:
   op_failed: "%{op}: %{error}"
   unexpected_reply: "unexpected reply from the kernel"
   nothing_to_group: "First select what to group"
+  # « Sélectionner les occurrences » of a component placed nowhere under the context (docs/ui/components-library.md).
+  no_occurrence_here: "No occurrence of this component here"
   group_one_assembly: "The items to group must be in the same assembly"
   no_guides: "No guides here"
   copy_not_last: "The last step is no longer this copy"
@@ -716,6 +760,8 @@ tool:
       start: "Click the start point · arrows: lock an axis · %{copy_key}: copy"
       destination: "Click the destination, or type a distance · Shift: lock the inference"
       paste: "Click where to place what is pasted, or type a distance · Esc: abandon"
+      # A component carried from the « Composants » card (docs/ui/components-library.md).
+      place: "Click where to place the component · Esc: abandon"
     vcb:
       distance: "Distance"
       copies: "$t(common.copies)"
@@ -991,6 +1037,10 @@ operation:
   explode: "$t(common.explode)"
   make_unique: "$t(common.make_unique)"
   place: "Place"
+  replace: "Replace"
+  # A part or an assembly deleted with all its occurrences (docs/ui/components-library.md).
+  delete_component: "Delete"
+  purge_unused: "Purge Unused"
   union: "Union"
   difference: "Subtraction"
   intersection: "Intersection"
@@ -1064,6 +1114,7 @@ error:
     empty_assembly: "nothing to put in the assembly"
     not_exploded: "only an assembly can be exploded"
     root_placed: "the model cannot be placed"
+    root_deleted: "the model cannot be deleted"
     self_boolean: "a part cannot be combined with itself"
     no_such_face: "no such face"
     no_bodies: "no bodies given"

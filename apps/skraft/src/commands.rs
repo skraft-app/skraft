@@ -93,6 +93,8 @@ pub const COMMANDS: &[Command] = &[
     c("edit.group_bodies", || t!("menu.edit.group_bodies"), M::Edit, None),
     c("edit.ungroup_bodies", || t!("menu.edit.ungroup_bodies"), M::Edit, None),
     c("edit.delete_guides", || t!("menu.edit.delete_guides"), M::Edit, None),
+    // The « Composants » card's « Purger » (docs/ui/components-library.md#managing).
+    c("components.purge", || t!("menu.edit.purge_unused"), M::Edit, None),
     g("app.command_palette", || ellipsis(t!("menu.edit.command_palette")), M::Edit, Some("Cmd+K")),
     c("app.preferences", || ellipsis(t!("menu.edit.preferences")), M::Edit, Some("Cmd+Comma")),
     // The control channel, on or off (desktop).
@@ -113,6 +115,7 @@ pub const COMMANDS: &[Command] = &[
     g("view.entity_info", || t!("menu.view.entity_info"), M::View, None),
     c("view.materials", || t!("menu.view.materials"), M::View, None),
     c("view.outliner", || t!("menu.view.outliner"), M::View, None),
+    c("view.components", || t!("menu.view.components"), M::View, None),
     c("view.render_stats", || t!("menu.view.render_stats"), M::View, None),
     g("view.top", || t!("menu.view.top"), M::View, Some("Cmd+1")),
     c("view.front", || t!("menu.view.front"), M::View, Some("Cmd+2")),

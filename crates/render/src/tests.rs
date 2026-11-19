@@ -1424,3 +1424,76 @@ fn model_dashes_hold_still_on_a_line_as_the_view_orbits() {
     }
     assert!(checked > 100, "{checked} points checked");
 }
+
+/// Reads `texture` back as RGBA8 rows.
+fn read(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, size: [u32; 2]) -> Vec<u8> {
+    let row = (size[0] * 4).div_ceil(256) * 256;
+    let out = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: (row * size[1]) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut enc = device.create_command_encoder(&Default::default());
+    enc.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &out,
+            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: None },
+        },
+        wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+    );
+    queue.submit([enc.finish()]);
+    out.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let data = out.slice(..).get_mapped_range().unwrap();
+    (0..size[1]).flat_map(|y| data[(y * row) as usize..(y * row + size[0] * 4) as usize].to_vec()).collect()
+}
+
+#[test]
+fn a_picture_leaves_the_viewport_as_it_was() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
+    let p = Placement::new(DMat4::IDENTITY);
+    let (view_before, _) = shot(&mut r, &device, &queue, front_view(), p, Style::default());
+
+    // A small picture of the cube, on a dark background: the cube in its middle, the background
+    // in its corner.
+    let size = [64, 64];
+    let picture = r.new_picture(&device, size);
+    let batches = [Batch::new(1, vec![p])];
+    let frame = Frame {
+        view: front_view(),
+        proj: Mat4::perspective_infinite_reverse_rh(0.8, 1.0, 1.0),
+        background: [0.0, 0.0, 0.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &[],
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+        model_per_point: 1.0,
+    };
+    r.render_picture(&device, &queue, &frame, &picture);
+    let px = read(&device, &queue, picture.texture(), size);
+    save(&px, size, "picture");
+    assert_eq!(pixel(&px, 64, 1, 1), [0, 0, 0, 255], "the background");
+    assert!(pixel(&px, 64, 32, 32)[0] > 100, "the cube: {:?}", pixel(&px, 64, 32, 32));
+
+    // The viewport's still frame is still not drawn again, its picture kept.
+    let (view_after, drew) = shot(&mut r, &device, &queue, front_view(), p, Style::default());
+    assert!(!drew, "the viewport's picture still the one drawn");
+    assert_eq!(view_before, view_after);
+}

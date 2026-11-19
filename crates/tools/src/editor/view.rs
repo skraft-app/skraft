@@ -361,7 +361,7 @@ impl Editor {
         let preview = self.preview();
         // Moved or turned without copying, the selection is only drawn where it goes: the
         // original stays in place only when a copy is left behind.
-        let hide_original = preview.ghost.is_some() && !self.tool_copying();
+        let hide_original = (preview.ghost.is_some() || preview.away) && !self.tool_copying();
         let depth = self.context.len();
         let open = self.open_part_path();
         // What a tool previews stretched (docs/tools/stretch.md): each occurrence it changes drawn from its
@@ -588,7 +588,8 @@ impl Editor {
         let box_at = if matches!(
             self.tool_kind(),
             tools::ToolKind::Stretch | tools::ToolKind::CopyLine | tools::ToolKind::CopyGrid | tools::ToolKind::Distribute
-        ) {
+        ) || preview.away
+        {
             None
         } else if hide_original {
             preview.ghost

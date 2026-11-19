@@ -10,7 +10,7 @@ use skraft_tools::{Editor, Key, Modifiers, Projection, StandardView, ToolInput, 
 
 use crate::json::{self, v3};
 use crate::params::{
-    CameraParams, DocumentParams, GeometryParams, Input, KeyName, NoParams, PickParams, Pointer, ProjectParams, ToolInputParams, ViewName,
+    CameraParams, ComponentParams, DocumentParams, GeometryParams, Input, KeyName, NoParams, PickParams, Pointer, ProjectParams, ToolInputParams, ViewName,
 };
 use crate::params::{FailuresParams, LogParams, RecordAction, RecordParams};
 use crate::{Answer, Call, Error, Outcome};
@@ -27,6 +27,12 @@ pub fn call(e: &mut Editor, call: &Call) -> Option<Outcome> {
     Some(match call.method.as_str() {
         "model.document" => call.params().and_then(|p| document(e, &p)),
         "model.geometry" => call.params().and_then(|p| geometry(e, &p)),
+        "model.components" => call.params::<NoParams>().map(|_| components(e)),
+        "components.place" => call.params().and_then(|p| place(e, &p)),
+        "components.select" => call.params().and_then(|p| library(e, &p, Library::Select)),
+        "components.replace" => call.params().and_then(|p| library(e, &p, Library::Replace)),
+        "components.delete" => call.params().and_then(|p| library(e, &p, Library::Delete)),
+        "components.purge" => call.params::<NoParams>().and_then(|_| purge(e)),
         "tool.state" => call.params::<NoParams>().map(|_| tool_state(e)),
         "tool.input" => call.params().and_then(|p| tool_input(e, &p)),
         "view.camera" => call.params().and_then(|p| camera(e, &p)),
@@ -41,12 +47,101 @@ pub fn call(e: &mut Editor, call: &Call) -> Option<Outcome> {
 
 /// Is `method` one the editor answers?
 fn is_editors(method: &str) -> bool {
-    ["model.", "tool.", "view.", "journal."].iter().any(|p| method.starts_with(p))
+    ["model.", "tool.", "view.", "journal.", "components."].iter().any(|p| method.starts_with(p))
 }
 
 /// Is the editor idle: no kernel job, no mesh on its way, no load, no import?
 pub fn idle(e: &Editor) -> bool {
     !e.busy() && !e.meshing() && e.loading().is_none() && !e.is_importing()
+}
+
+/// The components library (docs/ui/components-library.md).
+fn components(e: &Editor) -> Answer {
+    let doc = e.document();
+    let counts = doc.counts_in_model();
+    let list: Vec<Value> = doc
+        .components()
+        .map(|c| {
+            let count = counts.get(&c.id).copied();
+            json!({
+                "id": c.id.0,
+                "name": c.name,
+                "kind": if c.is_part() { "part" } else { "assembly" },
+                "named": c.named,
+                "count": count.unwrap_or(0),
+                "unused": count.is_none(),
+            })
+        })
+        .collect();
+    Answer::Json(json!({
+        "revision": e.history().revision(),
+        "disabled": e.library_disabled(),
+        "chosen": e.chosen_component().map(|c| c.0),
+        "components": list,
+    }))
+}
+
+/// What `components.*` does to one component.
+enum Library {
+    Select,
+    Replace,
+    Delete,
+}
+
+/// The library's answer: the revision, the selection, whether something is carried.
+fn library_state(e: &Editor) -> Answer {
+    let deep: Vec<Value> = e.deep_selection().iter().map(|p| json!({ "instances": p.instances.iter().map(|i| i.0).collect::<Vec<_>>(), "entity": p.entity.0 })).collect();
+    Answer::Json(json!({
+        "revision": e.history().revision(),
+        "busy": e.busy(),
+        "carrying": e.carrying(),
+        "selection": e.selection().iter().map(|i| i.0).collect::<Vec<_>>(),
+        "deep_selection": deep,
+    }))
+}
+
+fn place(e: &mut Editor, p: &ComponentParams) -> Outcome {
+    let c = Id(p.component);
+    if !e.place_component(c) {
+        return Err(Error::Failed(format!("component {} cannot be placed now (a part open, the assembly edited or one above it, busy, or unknown)", p.component)));
+    }
+    Ok(library_state(e))
+}
+
+fn library(e: &mut Editor, p: &ComponentParams, what: Library) -> Outcome {
+    let c = Id(p.component);
+    if e.document().component(c).is_err() || c == e.document().root() {
+        return Err(Error::Failed(format!("no component {}", p.component)));
+    }
+    match what {
+        Library::Select => {
+            if e.occurrences_under_context(c).is_empty() || e.library_disabled() {
+                return Err(Error::Failed(format!("component {} has no occurrence under the active context", p.component)));
+            }
+            e.select_occurrences_of(c);
+        }
+        Library::Replace => {
+            if !e.can_replace_selection(c) {
+                return Err(Error::Failed(format!("the selection cannot be replaced by component {}", p.component)));
+            }
+            e.replace_selection(c);
+        }
+        Library::Delete => {
+            if !e.can_delete_component(c) {
+                return Err(Error::Failed(format!("component {} cannot be deleted now (the assembly edited or one above it, or a part open)", p.component)));
+            }
+            e.delete_component(c);
+        }
+    }
+    Ok(library_state(e))
+}
+
+fn purge(e: &mut Editor) -> Outcome {
+    if e.library_disabled() || e.unused_components().is_empty() {
+        return Err(Error::Failed("nothing to purge".into()));
+    }
+    e.purge_unused();
+    Ok(library_state(e))
 }
 
 fn document(e: &Editor, p: &DocumentParams) -> Outcome {
@@ -710,5 +805,30 @@ mod tests {
         assert!(test.contains("assert_eq!(e.history().revision(), 1"), "{test}");
         assert!(skraft_model::Document::from_json(done["document"].as_str().unwrap()).is_ok());
         assert_eq!(json_of(&mut e, "journal.record", Value::Null)["recording"], false);
+    }
+
+    #[test]
+    fn the_library_lists_places_and_purges() {
+        let mut e = editor();
+        draw_box(&mut e);
+        let list = json_of(&mut e, "model.components", Value::Null);
+        let first = &list["components"][0];
+        assert_eq!((first["kind"].as_str(), first["count"].as_u64(), first["unused"].as_bool()), (Some("part"), Some(1), Some(false)));
+        let id = first["id"].as_u64().unwrap();
+
+        // Placed at the cursor: carried, then put down by a click.
+        let placed = json_of(&mut e, "components.place", json!({ "component": id }));
+        assert_eq!(placed["carrying"], json!(true));
+        json_of(&mut e, "tool.input", json!({ "inputs": [{ "click": { "at": [800.0, 0.0, 0.0] } }] }));
+        let list = json_of(&mut e, "model.components", Value::Null);
+        assert_eq!(list["components"][0]["count"].as_u64(), Some(2));
+
+        // Its occurrences selected; nothing to purge, nor an unknown component.
+        let selected = json_of(&mut e, "components.select", json!({ "component": id }));
+        assert_eq!(selected["selection"].as_array().map(Vec::len), Some(2));
+        assert!(matches!(call(&mut e, &Call::new("components.purge", Value::Null)), Some(Err(Error::Failed(_)))));
+        assert!(matches!(call(&mut e, &Call::new("components.delete", json!({ "component": 999 }))), Some(Err(Error::Failed(_)))));
+        json_of(&mut e, "components.delete", json!({ "component": id }));
+        assert_eq!(json_of(&mut e, "model.components", Value::Null)["components"], json!([]));
     }
 }
