@@ -142,17 +142,19 @@ viewport (`camera.project`, `paint_inference`): no renderer work.
 
 ## Lines seen through the model
 
-**The move's line** (start point → cursor), **the rotation's radii and the tape's measure** (or
-its offset) are seen through what lies between — plain where they are seen, dashed where faces
-hide them (`Pen::x_ray`: the scene layer with its hidden part shown, [Drawing helpers](../render/drawer.md));
-the protractor stays over everything. Move writes its distance at the middle of its line,
+**The move's line** (start point → cursor) and **the tape's measure** (or its offset) are seen
+through what lies between — plain where they are seen, translucent dashes where faces hide them
+(`Pen::x_ray`: the scene layer with its hidden part shown, [Drawing helpers](../render/drawer.md));
+**the rotation's radii**, as every dimension's line, are dashed, translucent where hidden
+(`Pen::dimension`, [Dimensions](../render/drawer.md#dimensions)); the protractor stays over
+everything. Move writes its distance at the middle of its line,
 Rotate its angle on the bisector of its radii, just past the protractor (`PreviewLabel`, as
 Stretch). Move's line and the tape's are arrows, their head at the cursor (the destination,
 the point measured to, the guide's side): heads `ARROW_PX` long on screen, in the plane facing
 the eye (`Drawer::arrow_heads`), drawn over everything. The renderer draws such a line plain
 with the depth-tested lines (depth written), then dashed with the depth test reversed
-(`CompareFunction::Less`, the depth being reversed: what something nearer hides), blended, no
-depth written; where it was drawn plain, its own depth keeps the dashes off.
+(`CompareFunction::Less`, the depth being reversed: what something nearer hides), blended at
+`HIDDEN_ALPHA` of its colour, no depth written; where it was drawn plain, its own depth keeps the dashes off.
 
 ## Drawing plane
 

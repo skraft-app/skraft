@@ -1209,7 +1209,7 @@ impl Tool for PrismTool {
                 // the circle it turns along, faint.
                 if let (Some(ax), Some(p)) = (self.axis, self.aim) {
                     let foot = ax.a + ax.d * (p - ax.a).dot(ax.d);
-                    d.pen(pen(INK, true)).line(foot, p).length(foot, p, INK, None);
+                    d.pen(Pen::dimension(INK)).line(foot, p).length(foot, p, INK, None);
                     let (c, w) = (cx.to_world(foot), cx.to_world(p));
                     if let Some(normal) = (cx.to_world(foot + ax.d) - c).try_normalize().filter(|_| c.distance(w) >= MIN) {
                         let faint = [INK[0], INK[1], INK[2], INK[3] * RADIUS_CIRCLE_ALPHA];
@@ -1259,14 +1259,14 @@ impl Tool for PrismTool {
                     match c.pending {
                         // An arc by two points: its chord, and the arc through the cursor's bulge.
                         Some(pend) => {
-                            d.pen(pen(INK, true)).line(a, pend.end);
+                            d.pen(Pen::dimension(INK)).line(a, pend.end);
                             side(d, side_points(&f, a, cur.mid, pend.end), color, dash);
                             if let Some(m) = cur.mid {
                                 d.mark(m).length((a + pend.end) / 2.0, m, MAGENTA, Some(0));
                             }
                         }
                         None if self.mode == Mode::Arc => {
-                            d.pen(pen(along.unwrap_or(color), true)).line(a, cur.p).length(a, cur.p, along.unwrap_or(INK), length);
+                            d.pen(Pen::dimension(along.unwrap_or(color))).line(a, cur.p).length(a, cur.p, along.unwrap_or(INK), length);
                         }
                         None if cur.mid.is_some() && cur.on_corner.is_none() => {
                             side(d, side_points(&f, a, cur.mid, cur.p), color, dash);
@@ -1276,7 +1276,7 @@ impl Tool for PrismTool {
                                 && let Some(left) = cur.n.cross(t).try_normalize()
                             {
                                 let centre = a + left * r * phi.signum();
-                                d.pen(pen(INK, true)).line(centre, cur.p).length(centre, cur.p, MAGENTA, Some(0));
+                                d.pen(Pen::dimension(INK)).line(centre, cur.p).length(centre, cur.p, MAGENTA, Some(0));
                             }
                         }
                         None => {

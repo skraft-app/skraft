@@ -740,10 +740,18 @@ impl Translated<'_> {
                 (draw::Layer::Scene, false) => self.lines.push(line),
             }
             if let (draw::Layer::Scene, Some(h)) = (p.layer, p.hidden) {
+                let [r, g, b, a] = h.color.map_or(line.color, &color);
+                // Its dashes those of the part seen when they are the same (anchored on the
+                // whole segment: they run on through what hides them).
+                let lay = match p.lay {
+                    draw::Lay::Anchored if h.stipple == p.stipple => draw::Lay::Anchored,
+                    draw::Lay::Screen => draw::Lay::Screen,
+                    _ => draw::Lay::Model,
+                };
                 self.hidden_lines.push(render::Line {
-                    color: h.color.map_or(line.color, &color),
+                    color: [r, g, b, a * h.alpha],
                     width: h.width.unwrap_or(line.width),
-                    dash: dash(h.stipple, if p.lay == draw::Lay::Screen { draw::Lay::Screen } else { draw::Lay::Model }, l.phase),
+                    dash: dash(h.stipple, lay, l.phase),
                     ..line
                 });
             }

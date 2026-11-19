@@ -312,7 +312,7 @@ impl ProfileTool {
         let px = *px;
         let (p, z) = (&b.profile, base_z(b));
         let n = p.len();
-        let dashed = Pen::new(INK).over().dashed();
+        let dashed = Pen::dimension(INK);
         match *grip {
             Grip::Corner(_) | Grip::Side(_) => {
                 let to = self.grip_now(*grip, b, from.z);

@@ -4973,15 +4973,17 @@ fn move_rotate_and_the_tape_write_their_measure_on_lines_seen_through_faces() {
     assert!(p.drawing.lengths[0].text.starts_with("250"), "{}", p.drawing.lengths[0].text);
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
 
-    // Rotate: both radii dashed over everything, the angle between them.
+    // Rotate: both radii dimensions' lines (dashed in the scene, translucent where hidden), the
+    // angle between them.
     e.set_tool(ToolKind::Rotate);
     click(&mut e, DVec3::new(0.0, 0.0, 0.0));
     click(&mut e, DVec3::new(400.0, 0.0, 0.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(0.0, 400.0, 0.0)) });
     let p = e.preview();
-    assert!(x_rays(&p).is_empty());
+    let radii = x_rays(&p);
+    assert_eq!(radii.len(), 2);
     for end in [DVec3::new(400.0, 0.0, 0.0), DVec3::new(0.0, 400.0, 0.0)] {
-        assert!(p.drawing.lines.iter().any(|l| close(l.b, end)), "{end}");
+        assert!(radii.iter().any(|l| close(l.b, end) && l.pen == crate::draw::Pen::dimension(l.pen.color)), "{end}");
     }
     assert_eq!(p.drawing.lengths.len(), 1);
     assert_eq!(p.drawing.lengths[0].text, "90°");
@@ -6812,6 +6814,11 @@ fn the_copy_tools_draw_dotted_boxes_but_around_a_box() {
     assert!(boxes.iter().all(|b| !b.shell_on_top && b.pen.stipple == crate::draw::Stipple::Dotted && b.pen.color == crate::tools::INK.into()));
     let x0 = |b: &crate::draw::BoxEdges| b.bounds.frame.transform_point3(b.bounds.lo).x;
     assert!(x0(&boxes[1]) - x0(&boxes[0]) > 100.0, "{} {}", x0(&boxes[0]), x0(&boxes[1]));
+    // The measure, a dimension's line: dashed in the scene, translucent where faces hide it
+    // (docs/render/drawer.md#dimensions).
+    let dims: Vec<_> = v.drawing.lines.iter().filter(|l| l.pen == crate::draw::Pen::dimension(l.pen.color)).collect();
+    assert_eq!(dims.len(), 1, "{:?}", v.drawing.lines);
+    assert!(dims[0].pen.hidden.is_some_and(|h| h.alpha < 1.0 && h.stipple == dims[0].pen.stipple));
 
     // A box alone: none; a box with the cylinder: their box is not filled, drawn.
     let board = draw_box(&mut e, DVec3::new(0.0, 300.0, 0.0), DVec3::new(100.0, 400.0, 0.0), "18");

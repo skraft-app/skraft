@@ -172,7 +172,8 @@ perspective-correct interpolation (`LineOut::laid`). Three ways:
   both ends, the number of periods set by the length on screen, the pattern stretched to fit;
   dashes evenly spread on the segment, shorter on screen as it runs away; they jump when the
   count of periods changes, a period's worth of zoom apart.
-- **In model units** (`Lay::Model(phase)`: curves, hidden parts, every other dashed line): the
+- **In model units** (`Lay::Model(phase)`: curves, hidden parts but an anchored line's in its
+  own stipple, every other dashed line): the
   pattern at `phase` model units at `a`, its period the power of two (model units) nearest to
   the pattern's length **at the view's focus** (`Frame::model_per_point`, the orbit centre's
   scale): one period for the whole picture, so the dashes are regular on the line, shorter on

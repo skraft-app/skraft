@@ -59,19 +59,37 @@ lengths' helpers written on it). A primitive may draw both its outline and its f
   not hide at its alpha, no depth written: the faded and half faded guides); `hidden` (its
   hidden part drawn again). Helpers: `bold`,
   `bold_if`, `dashed` (long dashes, anchored), `dotted`, `anchored`, `over`, `blended`,
-  `hidden`, `x_ray` (plain where seen, long dashes where hidden), `Pen::guide` (long dashes laid
-  on screen, blended when translucent).
+  `hidden`, `x_ray` (plain where seen, translucent long dashes where hidden), `Pen::dimension`
+  ([Dimensions](#dimensions)), `Pen::guide` (long dashes laid on screen, blended when
+  translucent).
 - **`Brush`** (fills): `color` (its alpha the opacity), `layer`, `cull_back` (`front_only`: a
   translucent box's back and front not adding up).
 - **Layers**: `Scene` (depth-tested, the default), `Over` (Kuix's `on_top`), and `Scene` with
   its hidden part shown in its own style (`Hidden`, Kuix's `show_hidden_lines`: long dashes by
-  default, its colour and width optional). Fills take the same layers.
+  default, its colour and width optional, its alpha scaled by `alpha`, `HIDDEN_ALPHA` 0.3 by
+  default), blended over the faces that hide it. Fills take the same layers.
 - **Stipples**: Kuix's five — `Solid`, `Dotted` (1.5 / 3), `ShortDashes` (3 / 3), `LongDashes`
   (the guides' 6 / 6), `DashDot` (6 / 3 / 1.5 / 3) — made by the line shader (a pattern of up to
   four lengths, on / off, in points). They lie on the line (`Lay`) anchored (a dash at both
   ends, the period adjusted a little on screen), in model units at a phase (one period for the
   picture, set at the view's focus), or on screen at a phase (the guides'), [Display](display.md).
   No dashes are cut on the CPU.
+
+## Dimensions
+
+Every line that gives or leads to a dimension draws with one pen, `Pen::dimension(color)`: long
+dashes anchored, **in the scene**, in full colour where seen, and where faces hide it the same
+dashes at `HIDDEN_ALPHA`, blended over them (they take the colour of what hides them). The
+hidden part keeps the anchoring of the part seen (`viewport.rs`: same stipple, same `Lay`), so
+the dashes run on through what hides them; bold under an axis lock where the tool locks one.
+It draws the copy tools' measures and distribute's grey lines to them, the shapes' and the
+prism's measures, radii, chords and diagonals, the profile's dashed measures, Rotate's radii,
+Stretch's grip axes, measure and the line from where the interior handle is taken. Move's line
+and the tape's measure are plain where seen (`x_ray`: the gesture, the tape itself), their
+hidden part the same translucent dashes. Over everything stay what is a handle or an inference:
+a shape's outline, the protractor, Stretch's interior handle, the arrow heads, the dashed lines
+from tracked points. **Why:** over everything, a measure through the part copied or stretched
+did not tell where it runs; one style for all dimensions reads the same in every tool.
 
 ## Boxes
 
@@ -99,29 +117,29 @@ cost.
 ## What draws through it
 
 - **Shapes** (Box, Cylinder, Prism, Turn): through `Cx::axes_drawer`; `pen(color, dash)` in
-  `shapes.rs` (over the scene, dashed anchored). Sampled curves (circles, fillets, arcs, the
+  `shapes.rs` (over the scene, dashed anchored), their measures `Pen::dimension`. Sampled curves (circles, fillets, arcs, the
   turned mirror) go through `Drawer::curve`. « Dessiner dans »'s container: two boxes, dotted
   (OCL's stipple) and its corners, both `shell_on_top`, the renderer choosing the front edges.
 - **Profile**: the outline bold (closed), its cap and sides, the fillet stubs, its grips, its
-  length (`length_always` for the grip taken's).
+  length (`length_always` for the grip taken's), its dashed measures `Pen::dimension`.
 - **Tape measure**: in the world's axes, the curve referred to (bold magenta over the scene, an
   arc as a curve; an axis bold in the scene), the measure or offset `x_ray` (plain where seen,
-  long dashes where hidden), its heads over the scene (`arrow_heads`), its length, its mark; its
+  translucent long dashes where hidden), its heads over the scene (`arrow_heads`), its length, its mark; its
   guides through `Drawer::guide`.
-- **Rotate**: the protractor (its circle a curve, its ticks), the radii dashed over the scene,
+- **Rotate**: the protractor (its circle a curve, its ticks) over the scene, the radii `Pen::dimension`,
   the angle (`label`) and the centre's mark.
 - **Move**: the move's line `x_ray`, its head over the scene, its length (`length_always`), the
   start's mark.
 - **Handles and the copy tools**: `handle.rs`'s `draw_box` / `draw_boxes` go out as instanced
   boxes, dashed, their fronts over the scene (`shell_on_top`), no more than 100; `draw_axes` in
-  the scene, bold when locked, heads at both ends; `draw_measure` dashed over the scene, bold
-  under an axis lock; `mirror_badge` a grip. Copy along a line, copy as a grid and distribute
-  draw through them (grips, marks, lengths `length_always`; distribute's grey dashed lines and
+  the scene, bold when locked, heads at both ends; `draw_measure` `Pen::dimension`, bold under
+  an axis lock; `mirror_badge` a grip. Copy along a line, copy as a grid and distribute
+  draw through them (grips, marks, lengths `length_always`; distribute's grey lines `Pen::dimension` and
   its bold ray with its head).
-- **Stretch**: the grips' axes (dashed over the scene, grey when locked with their padlock), the
-  grips, the interior handle (bold over the scene, its chevrons, its grip, the dashed line from
-  where it is taken), the cutters (translucent fills in the scene, their outline dashed when
-  going or being added, bold when picked, their centre), the measure, its grips and its length
+- **Stretch**: the grips' axes (`Pen::dimension`, grey when locked with their padlock), the
+  grips, the interior handle (bold over the scene, its chevrons, its grip, the line from where
+  it is taken `Pen::dimension`), the cutters (translucent fills in the scene, their outline dashed when
+  going or being added, bold when picked, their centre), the measure (`Pen::dimension`), its grips and its length
   (`label`, the tool's own formatting).
 - **Section plane tool**: the plane's outline and normal.
 - **The editor** (`View.drawing`): the open part's profiled bodies' bottom caps (bold, as

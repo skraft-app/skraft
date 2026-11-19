@@ -392,7 +392,7 @@ impl Tool for DistributeTool {
         let (a, b) = (t.world(s.lps), t.world(s.lpe));
         // From the points clicked to the measure line, which runs through the box's centre.
         let cursor = self.ray_hit.unwrap_or_else(|| self.snap.as_ref().map_or(t.world(end), |i| i.point));
-        draw.pen(Pen::new(GREY).over().dashed()).line(from, a).line(cursor, b);
+        draw.pen(Pen::dimension(GREY)).line(from, a).line(cursor, b);
         if let Some(hit) = self.ray_hit {
             draw.pen(Pen::new(color).over().bold()).edge(from, hit, Ends::End);
         }

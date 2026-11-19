@@ -111,7 +111,8 @@ copying, the boxes dotted in black (the source's and the copies' alike) and in t
 scene, hidden behind faces (no front drawn over them: OCL's `shell_on_top` off), none when what
 is copied is one part (or body) that is its box exactly (`Solid::fills_its_box`, square to the
 axes chosen: the box would only redraw its edges), the measure
-line or rectangle dashed over everything (bold while an axis is locked), in the axis colour, with
+line or rectangle dashed in the scene, translucent where faces hide it (bold while an axis is
+locked; `Pen::dimension`, [Dimensions](../render/drawer.md#dimensions)), in the axis colour, with
 its VCB bubbles (one per side for the grid), and OCL's mirror badge (`PointShape::Mirror`, 40 px
 past the mirrored copy: in the axis colour for the line, black for the grid). The copies' ghosts
 are the selection's marks drawn at each copy (`Preview::copies`), so what is copied is the

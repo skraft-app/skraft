@@ -394,12 +394,12 @@ impl First {
         d.mark(m.v);
         match m.sides.as_slice() {
             [(_, foot)] => {
-                d.pen(pen(RED, true)).line(m.v, *foot).length(m.v, *foot, RED, Some(0));
+                d.pen(Pen::dimension(RED)).line(m.v, *foot).length(m.v, *foot, RED, Some(0));
             }
             sides => {
                 for (slot, ((_, foot), color)) in sides.iter().zip([RED, GREEN]).enumerate() {
-                    d.pen(pen(INK, true)).line(m.v, *foot);
-                    d.pen(pen(color, true)).line(*foot, m.p).length(*foot, m.p, color, Some(slot));
+                    d.pen(Pen::dimension(INK)).line(m.v, *foot);
+                    d.pen(Pen::dimension(color)).line(*foot, m.p).length(*foot, m.p, color, Some(slot));
                 }
             }
         }
@@ -1030,9 +1030,9 @@ impl Tool for BoxTool {
                 d.length(c[0], c[1], RED, Some(0)).length(c[0], c[3], GREEN, Some(1));
                 // A square base: its diagonal; centred: the centre, and on to the cursor.
                 if (v.x.abs() - v.y.abs()).abs() <= 1e-9 * v.x.abs().max(1.0) && v.x.abs() >= MIN {
-                    d.pen(pen(color, true)).line(c[0], c[2]);
+                    d.pen(Pen::dimension(color)).line(c[0], c[2]);
                 } else if self.centered {
-                    d.pen(pen(INK, true)).line(f.o, p2);
+                    d.pen(Pen::dimension(INK)).line(f.o, p2);
                 }
                 if self.centered {
                     d.mark(f.o);
@@ -1059,7 +1059,7 @@ impl Tool for BoxTool {
                 // Centred: the diagonal through the cursor (at the opposite corner, height `h`).
                 if self.pull_centered {
                     let (a, b) = (f.at(DVec3::new(0.0, 0.0, -h)), f.at(DVec3::new(v.x, v.y, h)));
-                    d.pen(pen(INK, true)).line(a, b);
+                    d.pen(Pen::dimension(INK)).line(a, b);
                 }
             }
         }
@@ -1374,7 +1374,7 @@ impl Tool for CylinderTool {
                 // Measured across: the whole diameter, through the centre.
                 let (o, p) = (if self.diameter { f.at(-rim) } else { f.o }, f.at(rim));
                 let color = axis_color(p - o).unwrap_or(INK);
-                d.pen(pen(color, true)).line(o, p).length(o, p, color, Some(0));
+                d.pen(Pen::dimension(color)).line(o, p).length(o, p, color, Some(0));
             }
             CylState::Height { f, rim, h } => {
                 let (r, color) = (rim.length(), plane_color(cx, &f));

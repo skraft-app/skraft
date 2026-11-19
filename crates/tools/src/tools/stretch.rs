@@ -1130,7 +1130,7 @@ impl StretchTool {
         let shape = if h.magnetized { PointShape::Diamond } else { PointShape::Round };
         d.grip(at, radius, Some(color), Some(WHITE), shape);
         if let Some(from) = h.from.map(|f| target.world(f)).filter(|f| (*f - at).length() > MIN) {
-            d.pen(Pen::new(color).over().dashed()).line(from, at);
+            d.pen(Pen::dimension(color)).line(from, at);
         }
     }
 
@@ -1146,14 +1146,14 @@ impl StretchTool {
                 let (a, b) = (target.world(target.grip(k, -1.0)), target.world(target.grip(k, 1.0)));
                 // Locked: grey, no grips, its padlock (in its colour when hovered).
                 if self.locked(k) {
-                    d.pen(Pen::new(AXIS_GREY).over().dashed()).line(a, b);
+                    d.pen(Pen::dimension(AXIS_GREY)).line(a, b);
                     let hovered = self.over == Over::Padlock(k);
                     let fill = if hovered { axis_color(k) } else { GREY };
                     d.grip(b, PADLOCK_RADIUS, Some(fill), Some(WHITE), PointShape::Padlock);
                     continue;
                 }
                 let color = if active == Some(k) { axis_color(k) } else { GREY };
-                d.pen(Pen::new(if active == Some(k) { color } else { AXIS_GREY }).over().dashed()).line(a, b);
+                d.pen(Pen::dimension(if active == Some(k) { color } else { AXIS_GREY })).line(a, b);
                 for (side, at) in [(-1.0, a), (1.0, b)] {
                     let fill = if self.over == (Over::Grip { k, side }) { color } else { WHITE };
                     let radius = if active == Some(k) { 5.0 } else { 4.0 };
@@ -1419,7 +1419,7 @@ impl Tool for StretchTool {
                     grip
                 };
                 let (a, b) = (target.world(start), target.world(end));
-                draw.pen(Pen::new(color).over().dashed()).line(a, b);
+                draw.pen(Pen::dimension(color)).line(a, b);
                 for at in [a, b] {
                     draw.grip(at, 4.0, Some(WHITE), Some(color), PointShape::Round);
                 }
