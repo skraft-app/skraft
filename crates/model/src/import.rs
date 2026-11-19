@@ -392,7 +392,15 @@ impl Document {
             match component_of[c.node] {
                 Some(component) => {
                     let material = c.material.and_then(|m| materials.get(m).copied());
-                    top.push(Occurrence { id: Id(0), name: c.name.clone(), component, transform: c.transform, material, hidden: false, props: Default::default() });
+                    top.push(Occurrence {
+                        id: Id(0),
+                        name: c.name.clone(),
+                        component,
+                        transform: c.transform,
+                        material,
+                        hidden: false,
+                        props: Default::default(),
+                    });
                 }
                 None => report.dropped_instances += 1,
             }

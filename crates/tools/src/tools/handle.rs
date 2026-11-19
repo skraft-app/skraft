@@ -240,7 +240,8 @@ impl Target {
                 _ => DAffine3::IDENTITY,
             };
             let (lo, hi) = occurrences_bounds(cx, cx.context, &occs, in_context)?;
-            let filled = matches!(&occs[..], [o] if cx.doc.part(o.component).is_ok_and(|p| fills(p.shape(), in_context.inverse() * o.transform)));
+            let filled =
+                matches!(&occs[..], [o] if cx.doc.part(o.component).is_ok_and(|p| fills(p.shape(), in_context.inverse() * o.transform)));
             let (_, frame) = to_world(in_context);
             (frame, lo, hi, filled)
         };

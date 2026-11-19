@@ -254,8 +254,7 @@ fn file_round_trip() {
     let root = h.document().root();
     let a = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(100.0, 50.0, 18.0) });
     let b = add(&mut h, Primitive::Cylinder { origin: DVec3::new(50.0, 25.0, 10.0), radius: 4.0, height: 20.0 });
-    h.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(b), Boolean::Difference, Scope::All))
-        .unwrap();
+    h.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(b), Boolean::Difference, Scope::All)).unwrap();
     h.apply(Operation::MakeAssembly { context: root, entities: vec![a], name: Some("Tiroir".into()) }).unwrap();
     let json = h.document().to_json().unwrap();
     assert!(json.contains("\"version\":1"));
@@ -594,8 +593,7 @@ fn only_this_one_makes_the_way_to_it_unique() {
     // A hole in the shelf of the second cabinet only.
     let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(1250.0, 150.0, 10.0), radius: 4.0, height: 20.0 });
     let target = EntityPath::new(vec![cab2], shelf);
-    h.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::This))
-        .unwrap();
+    h.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::This)).unwrap();
     let doc = h.document();
     // The path still names it; its cabinet and its shelf are their own now.
     let (own_part, p, _) = doc.resolve_part(&target).unwrap();
@@ -615,15 +613,13 @@ fn only_this_one_makes_the_way_to_it_unique() {
     // Nothing shared on the way: nothing copied.
     let n = doc.components().count();
     let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(1300.0, 150.0, 10.0), radius: 4.0, height: 20.0 });
-    h.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::This))
-        .unwrap();
+    h.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::This)).unwrap();
     assert_eq!(h.document().components().count(), n + 1, "the drill's part unused, nothing else copied");
     assert_eq!(h.document().resolve_part(&target).unwrap().1.machinings().len(), 2);
 
     // All occurrences: the first cabinet's shelf and the loose one both get the hole.
     let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(250.0, 150.0, 10.0), radius: 4.0, height: 20.0 });
-    h.apply(Operation::boolean(EntityPath::new(vec![cab], shelf), EntityPath::root(drill), Boolean::Difference, Scope::All))
-    .unwrap();
+    h.apply(Operation::boolean(EntityPath::new(vec![cab], shelf), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     assert_eq!(h.document().part(part).unwrap().machinings().len(), 1);
     assert_eq!(h.document().resolve_part(&EntityPath::root(loose)).unwrap().0, part);
 }
@@ -754,8 +750,7 @@ fn drilled_board(h: &mut History) -> (EntityPath, Id, Id) {
     let board = add(h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
     let drill = add(h, Primitive::Cylinder { origin: DVec3::new(20.0, 25.0, -5.0), radius: 4.0, height: 30.0 });
     let target = EntityPath::root(board);
-    h.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
-        .unwrap();
+    h.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let (part, p, _) = h.document().resolve_part(&target).unwrap();
     (target, part, p.machinings()[0].id)
 }
@@ -993,8 +988,7 @@ fn a_part_s_guides_go_with_its_machinings() {
     let mut h = History::new(Document::new());
     let a = add(&mut h, cube(DVec3::ZERO, 100.0));
     let b = add(&mut h, Primitive::Cylinder { origin: DVec3::new(50.0, 50.0, 80.0), radius: 5.0, height: 30.0 });
-    h.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(b), Boolean::Difference, Scope::All))
-        .unwrap();
+    h.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(b), Boolean::Difference, Scope::All)).unwrap();
     let target = EntityPath::root(a);
     let part = occ(h.document(), &target).component;
     let circle = GuideShape::Circle { center: DVec3::new(50.0, 50.0, 100.0), normal: DVec3::Z, radius: 20.0 };
@@ -1716,7 +1710,15 @@ fn placed_changes_skip_only_what_is_shared() {
 
 /// An occurrence of `component`, for the assembly's own tests.
 fn bare_occurrence(id: u64, component: Id) -> Occurrence {
-    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, material: None, hidden: false, props: Props::default() }
+    Occurrence {
+        id: Id(id),
+        name: String::new(),
+        component,
+        transform: DAffine3::IDENTITY,
+        material: None,
+        hidden: false,
+        props: Props::default(),
+    }
 }
 
 #[test]
@@ -1898,9 +1900,7 @@ fn a_profile_is_kept_set_and_stretched() {
     // A free part (an intersection's result) has no profile to set.
     let a = add(&mut h, cube(DVec3::new(-500.0, 0.0, 0.0), 20.0));
     let b = add(&mut h, cube(DVec3::new(-490.0, 0.0, 0.0), 20.0));
-    let out = h
-        .apply(Operation::boolean(EntityPath::root(a), EntityPath::root(b), Boolean::Intersection, Scope::All))
-        .unwrap();
+    let out = h.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(b), Boolean::Intersection, Scope::All)).unwrap();
     let common = EntityPath::root(*out.created.first().unwrap_or(&a));
     assert!(profile_of(h.document(), &common).is_none());
     let any = profile_of(h.document(), &copy_path).unwrap();
@@ -2414,8 +2414,7 @@ fn a_union_brings_the_tool_as_a_group() {
     // A second drilled board, crossing the first's end, turned a quarter.
     let other = add(&mut h, Primitive::Box { origin: DVec3::new(180.0, -100.0, 0.0), size: DVec3::new(20.0, 250.0, 18.0) });
     let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(190.0, -80.0, -5.0), radius: 3.0, height: 30.0 });
-    h.apply(Operation::boolean(EntityPath::root(other), EntityPath::root(drill), Boolean::Difference, Scope::All))
-    .unwrap();
+    h.apply(Operation::boolean(EntityPath::root(other), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     h.apply(Operation::boolean(target.clone(), EntityPath::root(other), Boolean::Union, Scope::All)).unwrap();
     let p = h.document().part(part).unwrap();
     assert_eq!((p.positives().count(), p.negatives().count()), (2, 1));
@@ -2440,8 +2439,7 @@ fn board_and_drilled_block() -> (History, Id, EntityPath) {
     let board = add(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) });
     let block = add(&mut h, Primitive::Box { origin: DVec3::new(50.0, 10.0, 18.0), size: DVec3::new(30.0, 30.0, 20.0) });
     let drill = add(&mut h, Primitive::Cylinder { origin: DVec3::new(65.0, 25.0, 5.0), radius: 4.0, height: 40.0 });
-    h.apply(Operation::boolean(EntityPath::root(block), EntityPath::root(drill), Boolean::Difference, Scope::All))
-    .unwrap();
+    h.apply(Operation::boolean(EntityPath::root(block), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let target = EntityPath::root(board);
     h.apply(Operation::boolean(target.clone(), EntityPath::root(block), Boolean::Union, Scope::All)).unwrap();
     let part = h.document().resolve_part(&target).unwrap().0;
@@ -2530,11 +2528,9 @@ fn a_negative_group_sparing_material_is_not_flattened() {
     // A tool that spares material: a pocket with an island (a drilled block, subtracted).
     let pocket = add(&mut h, Primitive::Box { origin: DVec3::new(50.0, 10.0, 10.0), size: DVec3::new(40.0, 30.0, 20.0) });
     let island = add(&mut h, Primitive::Box { origin: DVec3::new(65.0, 20.0, 0.0), size: DVec3::new(10.0, 10.0, 40.0) });
-    h.apply(Operation::boolean(EntityPath::root(pocket), EntityPath::root(island), Boolean::Difference, Scope::All))
-    .unwrap();
+    h.apply(Operation::boolean(EntityPath::root(pocket), EntityPath::root(island), Boolean::Difference, Scope::All)).unwrap();
     let target = EntityPath::root(board);
-    h.apply(Operation::boolean(target.clone(), EntityPath::root(pocket), Boolean::Difference, Scope::All))
-        .unwrap();
+    h.apply(Operation::boolean(target.clone(), EntityPath::root(pocket), Boolean::Difference, Scope::All)).unwrap();
     let part = h.document().resolve_part(&target).unwrap().0;
     let p = h.document().part(part).unwrap();
     // The tool, a negative group of its bodies: still editable.
@@ -2637,8 +2633,7 @@ fn a_difference_keeps_a_drawn_tool_s_profile() {
     // A machined tool is taken as its shape, no profile.
     let tool = add(&mut h, Primitive::Box { origin: DVec3::new(100.0, 10.0, -5.0), size: DVec3::new(20.0, 20.0, 30.0) });
     let small = add(&mut h, Primitive::Cylinder { origin: DVec3::new(110.0, 20.0, -10.0), radius: 2.0, height: 40.0 });
-    h.apply(Operation::boolean(EntityPath::root(tool), EntityPath::root(small), Boolean::Difference, Scope::All))
-    .unwrap();
+    h.apply(Operation::boolean(EntityPath::root(tool), EntityPath::root(small), Boolean::Difference, Scope::All)).unwrap();
     let out = h.apply(Operation::boolean(target, EntityPath::root(tool), Boolean::Difference, Scope::All)).unwrap();
     let _ = out;
     let p = h.document().part(part).unwrap();
@@ -3642,12 +3637,14 @@ fn library() -> (History, Id, Vec<Id>, Id, Id, Id) {
     let mut h = History::new(Document::new());
     let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
-    let a2 = h.apply(Operation::Duplicate { context: root, entities: vec![a], transform: DAffine3::from_translation(DVec3::X * 20.0) })
+    let a2 = h
+        .apply(Operation::Duplicate { context: root, entities: vec![a], transform: DAffine3::from_translation(DVec3::X * 20.0) })
         .unwrap()
         .created[0];
     let b = add(&mut h, cube(DVec3::new(0.0, 40.0, 0.0), 5.0));
     let g = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, a2, b], name: None }).unwrap().created[0];
-    let g2 = h.apply(Operation::Duplicate { context: root, entities: vec![g], transform: DAffine3::from_translation(DVec3::Y * 100.0) })
+    let g2 = h
+        .apply(Operation::Duplicate { context: root, entities: vec![g], transform: DAffine3::from_translation(DVec3::Y * 100.0) })
         .unwrap()
         .created[0];
     let doc = h.document();
@@ -3736,10 +3733,7 @@ fn replacing_occurrences_keeps_their_placement_name_material_and_visibility() {
 
     // No assembly into itself; the model is not placed.
     let b_in_g = h.document().assembly(asm).unwrap().occurrences().iter().find(|o| o.component == pb).unwrap().id;
-    assert!(matches!(
-        h.apply(Operation::ReplaceOccurrences { context: asm, entities: vec![b_in_g], component: asm }),
-        Err(Error::Cycle)
-    ));
+    assert!(matches!(h.apply(Operation::ReplaceOccurrences { context: asm, entities: vec![b_in_g], component: asm }), Err(Error::Cycle)));
     assert!(h.apply(Operation::ReplaceOccurrences { context: root, entities: vec![a3], component: root }).is_err());
 
     // At depth, through the assembly placed twice: both copies change (`unique` off), and the
@@ -3765,7 +3759,11 @@ fn properties_are_typed_kept_by_copies_and_saved() {
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
     let part = occ(h.document(), &EntityPath::root(a)).component;
     let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [200, 160, 100] }).unwrap().material.unwrap();
-    let guide = h.apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin: DVec3::ONE, dir: DVec3::X } }).unwrap().guide.unwrap();
+    let guide = h
+        .apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin: DVec3::ONE, dir: DVec3::X } })
+        .unwrap()
+        .guide
+        .unwrap();
     let (def, body) = {
         let p = h.document().part(part).unwrap();
         (p.defs[0].id, p.bodies[0].id)
@@ -3885,8 +3883,7 @@ fn pasting_renames_properties_defined_otherwise() {
     let a = add(&mut src, cube(DVec3::ZERO, 10.0));
     let part = occ(src.document(), &EntityPath::root(a)).component;
     src.apply(Operation::SetPropDef { key: "user.x".into(), def: Some(PropDef::new(ValueKind::Length)) }).unwrap();
-    src.apply(set_props(PropTarget::Component(part), &[("user.x", Some(Value::Length(18.0))), ("user.raw", Some(Value::Int(3)))]))
-        .unwrap();
+    src.apply(set_props(PropTarget::Component(part), &[("user.x", Some(Value::Length(18.0))), ("user.raw", Some(Value::Int(3)))])).unwrap();
     let fragment = Arc::new(src.document().entities_fragment(&[], &[a]).unwrap());
 
     // Pasted where it was copied from: nothing renamed.

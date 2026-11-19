@@ -1969,8 +1969,7 @@ fn an_open_part_shows_its_blank_as_a_ghost_and_its_tools() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
-        .unwrap();
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let (part, p, _) = e.document().resolve_part(&target).unwrap();
     let hole = p.machinings()[0].id;
     e.apply(Operation::DuplicateBodies {
@@ -2051,8 +2050,7 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
-        .unwrap();
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let machinings = |e: &Editor, o: Id| e.document().resolve_part(&EntityPath::root(o)).unwrap().1.machinings().clone();
     let hole = machinings(&e, board)[0].id;
     e.enter(board);
@@ -2145,8 +2143,7 @@ fn a_machining_moved_stays_drawn_where_it_goes_while_the_kernel_computes() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
-        .unwrap();
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let (mut e, k) = deferred_editor(e.document().clone());
     let settle = |e: &mut Editor| {
         while k.queued() > 0 {
@@ -2203,8 +2200,7 @@ fn inferences_see_the_blank_and_the_tools_while_machinings_show() {
         .unwrap()
         .unwrap()
         .created[0];
-    e.apply(Operation::boolean(EntityPath::root(board), EntityPath::root(drill), Boolean::Difference, Scope::All))
-    .unwrap();
+    e.apply(Operation::boolean(EntityPath::root(board), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let hover = |e: &mut Editor, p: DVec3| {
         let at = px(e, p);
         e.input(ToolInput::Hover { px: at });
@@ -2262,8 +2258,7 @@ fn exact_sizes_of_tools_and_blanks() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(rod);
-    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
-        .unwrap();
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let (_, p, _) = e.document().resolve_part(&target).unwrap();
     let (blank, tool) = (p.blank().clone(), p.solid_of(&p.machinings()[0]).clone());
     let near = |b: Option<(DVec3, DVec3)>, lo: DVec3, hi: DVec3| b.is_some_and(|(a, b)| close(a, lo) && close(b, hi));
@@ -2917,10 +2912,7 @@ fn drilled_board_editor(xs: &[f64]) -> (Editor, Id) {
             .apply(&Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY, material: None })
             .unwrap();
         let tool = EntityPath::root(out.created[0]);
-        d = next
-            .apply(&Operation::boolean(EntityPath::root(a), tool, Boolean::Difference, skraft_model::Scope::All))
-            .unwrap()
-            .0;
+        d = next.apply(&Operation::boolean(EntityPath::root(a), tool, Boolean::Difference, skraft_model::Scope::All)).unwrap().0;
     }
     let mut e = top_editor(d);
     e.select(vec![a]);
@@ -3794,8 +3786,7 @@ fn erase_tool_erases_the_open_part_s_machinings() {
         .unwrap()
         .unwrap()
         .created[0];
-    e.apply(Operation::boolean(EntityPath::root(board), EntityPath::root(drill), Boolean::Difference, Scope::All))
-    .unwrap();
+    e.apply(Operation::boolean(EntityPath::root(board), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let machinings = |e: &Editor| e.document().resolve_part(&EntityPath::root(board)).unwrap().1.machinings().len();
     assert_eq!(machinings(&e), 1);
     e.enter(board);
@@ -4751,8 +4742,7 @@ fn machinings_paste_into_an_open_part() {
         .unwrap()
         .unwrap();
     let tool = hole.created[0];
-    e.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(tool), Boolean::Difference, Default::default()))
-    .unwrap();
+    e.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(tool), Boolean::Difference, Default::default())).unwrap();
 
     // Copied in the open part, its machinings shown.
     e.enter(a);
@@ -4822,8 +4812,7 @@ fn a_part_pasted_into_an_open_part_becomes_a_group_of_its_bodies() {
         .apply(Operation::AddPrimitive { context: root, primitive: drill, placement: glam::DAffine3::IDENTITY, material: None })
         .unwrap()
         .unwrap();
-    e.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(tool.created[0]), Boolean::Difference, Default::default()))
-    .unwrap();
+    e.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(tool.created[0]), Boolean::Difference, Default::default())).unwrap();
     e.take_notices();
 
     // The drilled board copied, pasted into the other one: one positive body, a group of its
@@ -5338,8 +5327,7 @@ fn copy_along_a_line_takes_the_bodies_of_the_open_part() {
         .unwrap()
         .created[0];
     let target = EntityPath::root(board);
-    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All))
-        .unwrap();
+    e.apply(Operation::boolean(target.clone(), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     let hole = e.document().resolve_part(&target).unwrap().1.machinings()[0].id;
     e.enter(board);
     e.select(vec![hole]);
@@ -6039,7 +6027,12 @@ fn what_is_made_unique_is_offered_its_name_by_a_toast() {
     let target = EntityPath::root(a);
     let part = part_of(&e, a);
     let body = e.document().part(part).unwrap().bodies[0].id;
-    let op = Operation::DuplicateBodies { target, bodies: vec![body], transform: glam::DAffine3::from_translation(DVec3::Z * 50.0), scope: Scope::All };
+    let op = Operation::DuplicateBodies {
+        target,
+        bodies: vec![body],
+        transform: glam::DAffine3::from_translation(DVec3::Z * 50.0),
+        scope: Scope::All,
+    };
     let twin = e.apply(op).unwrap().unwrap().bodies[0];
     e.enter(a);
     e.select(vec![twin]);
@@ -6824,7 +6817,9 @@ fn the_copy_tools_draw_dotted_boxes_but_around_a_box() {
     let v = e.view();
     let boxes = &v.drawing.boxes;
     assert_eq!(boxes.len(), 2);
-    assert!(boxes.iter().all(|b| !b.shell_on_top && b.pen.stipple == crate::draw::Stipple::Dotted && b.pen.color == crate::tools::INK.into()));
+    assert!(
+        boxes.iter().all(|b| !b.shell_on_top && b.pen.stipple == crate::draw::Stipple::Dotted && b.pen.color == crate::tools::INK.into())
+    );
     let x0 = |b: &crate::draw::BoxEdges| b.bounds.frame.transform_point3(b.bounds.lo).x;
     assert!(x0(&boxes[1]) - x0(&boxes[0]) > 100.0, "{} {}", x0(&boxes[0]), x0(&boxes[1]));
     // The measure, a dimension's line: dashed in the scene, translucent where faces hide it
@@ -6944,7 +6939,8 @@ fn library_chooses_selects_replaces_deletes_and_purges() {
     let (mut e, [a, _, c, g, g2]) = drawers_editor();
     let root = e.document().root();
     let component = |e: &Editor, path: EntityPath| e.document().resolve(&path).unwrap().component;
-    let (pa, pc, asm) = (component(&e, EntityPath::new(vec![g], a)), component(&e, EntityPath::root(c)), component(&e, EntityPath::root(g)));
+    let (pa, pc, asm) =
+        (component(&e, EntityPath::new(vec![g], a)), component(&e, EntityPath::root(c)), component(&e, EntityPath::root(g)));
 
     // Chosen until anything else is: a selection, a click in the view.
     e.choose_component(pc);

@@ -362,8 +362,7 @@ impl SkraftApp {
         let (files, shown) = (self.prefs.open_files.clone(), self.prefs.shown_file);
         let mut tabs = Vec::new();
         for path in &files {
-            match std::fs::read(path).map_err(|e| e.to_string()).and_then(|b| Document::from_file(&b).map_err(|e| e.to_string()))
-            {
+            match std::fs::read(path).map_err(|e| e.to_string()).and_then(|b| Document::from_file(&b).map_err(|e| e.to_string())) {
                 Ok(doc) => {
                     self.open_document(doc, Some(path.clone()));
                     tabs.push(self.docs.active_index());
@@ -1872,14 +1871,18 @@ impl SkraftApp {
                                 band_top: head_rect.bottom() + HEAD_PAD,
                                 margin: panels::CARD_MARGIN,
                             };
-                            ui.push_id(doc_id, |ui| crate::library::components(ui, editor, state, look, actions, area.id_salt("components")));
+                            ui.push_id(doc_id, |ui| {
+                                crate::library::components(ui, editor, state, look, actions, area.id_salt("components"))
+                            });
                         }
                         PanelId::Outliner => {
                             *outliner_shown = true;
                             // Salted by the document: its rows' clicks apart from another's.
                             let (doc_id, name) = (doc.id, doc.name());
                             let (editor, state) = (&doc.editor, &mut doc.outliner);
-                            ui.push_id(doc_id, |ui| panels::outliner(ui, editor, state, &name, actions, area.id_salt("outliner"), (body, title_line)));
+                            ui.push_id(doc_id, |ui| {
+                                panels::outliner(ui, editor, state, &name, actions, area.id_salt("outliner"), (body, title_line))
+                            });
                         }
                     }
                 });

@@ -617,7 +617,9 @@ impl Viewport {
         }
         let layer_images: Vec<(u64, &[u8])> = layers
             .iter()
-            .filter_map(|id| self.images.get(id).and_then(|i| i.as_deref()).map(|rgba| (u64::from_str_radix(&id[..16], 16).unwrap_or(0), rgba)))
+            .filter_map(|id| {
+                self.images.get(id).and_then(|i| i.as_deref()).map(|rgba| (u64::from_str_radix(&id[..16], 16).unwrap_or(0), rgba))
+            })
             .collect();
         renderer.set_textures(device, &state.queue, &layer_images);
         // The grain of each definition: its mesh's longest axis, measured again when it changes.
@@ -927,7 +929,9 @@ fn thumbnail_camera((lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
     let center = (lo + hi) * 0.5;
     let (mut w, mut h, mut d) = (0.0f64, 0.0f64, 0.0f64);
     for i in 0..8 {
-        let c = DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z }) - center;
+        let c =
+            DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z })
+                - center;
         w = w.max(c.dot(right).abs());
         h = h.max(c.dot(up).abs());
         d = d.max(c.dot(forward).abs());

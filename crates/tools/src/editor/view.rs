@@ -708,7 +708,8 @@ impl Editor {
         for p in preview.marquee.iter().flat_map(|m| &m.paths).filter(|p| !self.deep.contains(p)) {
             mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
         }
-        let picked = preview.picked_solids.iter().map(|p| (p, Mark::Picked)).chain(preview.picked_tools.iter().map(|p| (p, Mark::PickedTool)));
+        let picked =
+            preview.picked_solids.iter().map(|p| (p, Mark::Picked)).chain(preview.picked_tools.iter().map(|p| (p, Mark::PickedTool)));
         for (p, m) in preview.hover_solid.iter().map(|p| (p, Mark::Hover)).chain(picked) {
             mark(&mut v.highlights, &p.instances, p.entity, m, DAffine3::IDENTITY);
         }

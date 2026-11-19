@@ -135,7 +135,16 @@ impl Docs {
         setup(&mut editor);
         let id = self.next_id;
         self.next_id += 1;
-        let doc = Doc { id, editor, path, saved_at: 0, vcb: String::new(), outliner: Default::default(), library: Default::default(), shown_at: 0 };
+        let doc = Doc {
+            id,
+            editor,
+            path,
+            saved_at: 0,
+            vcb: String::new(),
+            outliner: Default::default(),
+            library: Default::default(),
+            shown_at: 0,
+        };
         Ok(match replaced {
             Some(i) => (id, Some(std::mem::replace(&mut self.list[i], doc).id)),
             None => {

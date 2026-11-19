@@ -386,8 +386,17 @@ fn a_face_highlight_forces_its_colour_on_that_face_only() {
     let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
     let mut shoot = |material: u32, face: Option<u32>| {
-        let hl =
-            Highlight { key: 1, part: 1, transform: DMat4::IDENTITY, face_tint: NO_TINT, edge_tint: NO_TINT, material, ghost: false, face, grain: 0 };
+        let hl = Highlight {
+            key: 1,
+            part: 1,
+            transform: DMat4::IDENTITY,
+            face_tint: NO_TINT,
+            edge_tint: NO_TINT,
+            material,
+            ghost: false,
+            face,
+            grain: 0,
+        };
         let highlights = [hl];
         let frame = Frame {
             view: front_view(),

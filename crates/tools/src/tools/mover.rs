@@ -66,7 +66,8 @@ fn axis(cx: &Cx<'_>, k: usize) -> DVec3 {
 impl MoveTool {
     /// Carries `entities`, just pasted by `pasted`, from `from`: already moving.
     pub fn carrying(entities: Vec<Id>, from: DVec3, pasted: Operation) -> Self {
-        let mut tool = MoveTool { state: State::Moving { from, to: from }, moving: entities, pasted: Some(Box::new(pasted)), ..Default::default() };
+        let mut tool =
+            MoveTool { state: State::Moving { from, to: from }, moving: entities, pasted: Some(Box::new(pasted)), ..Default::default() };
         // A component placed from the library shows once the pointer is over the view.
         tool.away = tool.placing();
         tool

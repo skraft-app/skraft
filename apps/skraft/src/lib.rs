@@ -4,11 +4,11 @@
 mod app;
 mod clipboard;
 mod commands;
-mod cursors;
 #[cfg(not(target_arch = "wasm32"))]
 mod control;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crash;
+mod cursors;
 mod dock;
 mod docs;
 mod driving;
@@ -18,8 +18,8 @@ mod icons;
 mod identity;
 mod instance_name;
 mod journal_window;
-mod library;
 mod language;
+mod library;
 mod naming;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;

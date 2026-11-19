@@ -10,7 +10,8 @@ use skraft_tools::{Editor, Key, Modifiers, Projection, StandardView, ToolInput, 
 
 use crate::json::{self, v3};
 use crate::params::{
-    CameraParams, ComponentParams, DocumentParams, GeometryParams, Input, KeyName, NoParams, PickParams, Pointer, ProjectParams, ToolInputParams, ViewName,
+    CameraParams, ComponentParams, DocumentParams, GeometryParams, Input, KeyName, NoParams, PickParams, Pointer, ProjectParams,
+    ToolInputParams, ViewName,
 };
 use crate::params::{FailuresParams, LogParams, RecordAction, RecordParams};
 use crate::{Answer, Call, Error, Outcome};
@@ -90,7 +91,11 @@ enum Library {
 
 /// The library's answer: the revision, the selection, whether something is carried.
 fn library_state(e: &Editor) -> Answer {
-    let deep: Vec<Value> = e.deep_selection().iter().map(|p| json!({ "instances": p.instances.iter().map(|i| i.0).collect::<Vec<_>>(), "entity": p.entity.0 })).collect();
+    let deep: Vec<Value> = e
+        .deep_selection()
+        .iter()
+        .map(|p| json!({ "instances": p.instances.iter().map(|i| i.0).collect::<Vec<_>>(), "entity": p.entity.0 }))
+        .collect();
     Answer::Json(json!({
         "revision": e.history().revision(),
         "busy": e.busy(),
@@ -103,7 +108,10 @@ fn library_state(e: &Editor) -> Answer {
 fn place(e: &mut Editor, p: &ComponentParams) -> Outcome {
     let c = Id(p.component);
     if !e.place_component(c) {
-        return Err(Error::Failed(format!("component {} cannot be placed now (a part open, the assembly edited or one above it, busy, or unknown)", p.component)));
+        return Err(Error::Failed(format!(
+            "component {} cannot be placed now (a part open, the assembly edited or one above it, busy, or unknown)",
+            p.component
+        )));
     }
     Ok(library_state(e))
 }
@@ -128,7 +136,10 @@ fn library(e: &mut Editor, p: &ComponentParams, what: Library) -> Outcome {
         }
         Library::Delete => {
             if !e.can_delete_component(c) {
-                return Err(Error::Failed(format!("component {} cannot be deleted now (the assembly edited or one above it, or a part open)", p.component)));
+                return Err(Error::Failed(format!(
+                    "component {} cannot be deleted now (the assembly edited or one above it, or a part open)",
+                    p.component
+                )));
             }
             e.delete_component(c);
         }

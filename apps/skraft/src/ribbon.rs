@@ -86,14 +86,12 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
         Tab {
             id: "assemble",
             label: || t!("ribbon.tab.assemble"),
-            groups: &[
-                group(
-                    "components",
-                    || t!("ribbon.group.components"),
-                    &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies"],
-                    &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies"],
-                ),
-            ],
+            groups: &[group(
+                "components",
+                || t!("ribbon.group.components"),
+                &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies"],
+                &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies"],
+            )],
         },
         Tab {
             id: "inspect",

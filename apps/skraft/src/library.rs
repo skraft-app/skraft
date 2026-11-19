@@ -11,9 +11,9 @@ use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
 use crate::icons;
-use crate::thumbnails::Thumbnails;
 use crate::panels::{Action, rename_field, tree_row, weak_share};
 use crate::ribbon::Corners;
+use crate::thumbnails::Thumbnails;
 
 /// What the card keeps of a document between frames, in the document itself (never on disk):
 /// its search, its tab, its rows — made again when the document (its history's revision) or
@@ -193,7 +193,14 @@ const TILE_GAP: f32 = 6.0;
 /// toggle, then the tab's components in their sections, as tiles of thumbnails or as rows (only
 /// the rows in view laid out, only the thumbnails in view asked for: a model may hold thousands
 /// of definitions).
-pub fn components(ui: &mut egui::Ui, editor: &Editor, state: &mut LibraryState, look: Look<'_>, actions: &mut Vec<Action>, area: egui::ScrollArea) {
+pub fn components(
+    ui: &mut egui::Ui,
+    editor: &Editor,
+    state: &mut LibraryState,
+    look: Look<'_>,
+    actions: &mut Vec<Action>,
+    area: egui::ScrollArea,
+) {
     let doc = editor.document();
     let top = ui.cursor().top();
     let revision = editor.history().revision();
@@ -481,11 +488,8 @@ fn item(
         Some(n) => tp!("panel.components.count_tip", n as usize),
         None => t!("panel.components.unused_tip"),
     };
-    let tip = if cx.editor.on_active_path(id) {
-        format!("{name}\n{tip}\n{}", t!("panel.components.on_path"))
-    } else {
-        format!("{name}\n{tip}")
-    };
+    let tip =
+        if cx.editor.on_active_path(id) { format!("{name}\n{tip}\n{}", t!("panel.components.on_path")) } else { format!("{name}\n{tip}") };
     // Dragged out of the card too (docs/ui/components-library.md#placing).
     let response = ui.interact(response.rect, response.id, egui::Sense::click_and_drag());
     let response = if response.dragged() { response } else { response.on_hover_text(tip) };
@@ -577,7 +581,12 @@ mod tests {
         let mut ids = Vec::new();
         for x in [0.0, 100.0] {
             let p = Primitive::Box { origin: DVec3::new(x, 0.0, 0.0), size: DVec3::splat(10.0) };
-            ids.push(e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None }).unwrap().unwrap().created[0]);
+            ids.push(
+                e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None })
+                    .unwrap()
+                    .unwrap()
+                    .created[0],
+            );
         }
         e.apply(Operation::MakeAssembly { context: root, entities: vec![ids[0]], name: Some("Caisson".into()) }).unwrap();
         let all = Shelves::of(e.document(), &Matcher::default());

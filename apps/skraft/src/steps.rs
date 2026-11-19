@@ -64,11 +64,8 @@ pub fn validation(ctx: &egui::Context, center: f32, top: f32, actions: &mut Vec<
 fn sentence(ui: &mut egui::Ui, text: &str, room: f32) {
     let text = egui::RichText::new(text).strong();
     let font = egui::TextStyle::Body.resolve(ui.style());
-    let width = text
-        .text()
-        .lines()
-        .map(|l| ui.painter().layout_no_wrap(l.to_owned(), font.clone(), Color32::WHITE).size().x)
-        .fold(0.0, f32::max);
+    let width =
+        text.text().lines().map(|l| ui.painter().layout_no_wrap(l.to_owned(), font.clone(), Color32::WHITE).size().x).fold(0.0, f32::max);
     if width <= room {
         ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend));
     } else {

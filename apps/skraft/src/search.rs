@@ -38,7 +38,10 @@ pub fn field(ui: &mut egui::Ui, salt: egui::Id, handle: &'static str, text: &mut
             if !text.is_empty() {
                 // Drawn at the field's centre line, not laid out as a button (whose padding put
                 // it lower); the buttons' pointer, not the field's text cursor.
-                let at = egui::Rect::from_center_size(egui::pos2(r.rect.right() - clear / 2.0 - 1.0, r.rect.center().y), egui::Vec2::splat(clear));
+                let at = egui::Rect::from_center_size(
+                    egui::pos2(r.rect.right() - clear / 2.0 - 1.0, r.rect.center().y),
+                    egui::Vec2::splat(clear),
+                );
                 let b = ui.interact(at, salt.with("clear"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::Default);
                 let tint = if b.hovered() { ui.visuals().text_color() } else { weak };
                 egui::Image::new(icons::CLOSE).tint(tint).paint_at(ui, egui::Rect::from_center_size(at.center(), egui::vec2(10.0, 10.0)));

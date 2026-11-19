@@ -92,7 +92,14 @@ pub(super) fn made_to_name(before: &Document, after: &Document, op: &Operation, 
         // « Créer un assemblage » under « Pièces »: in the parts' parent assembly.
         Operation::At { parent, op, .. } if matches!(**op, Operation::MakeAssembly { .. }) => {
             let context = after.context_of(parent).ok();
-            outcome.created.first().zip(context).and_then(|(o, c)| component_of(after, c, *o)).map(NameTarget::Component).into_iter().collect()
+            outcome
+                .created
+                .first()
+                .zip(context)
+                .and_then(|(o, c)| component_of(after, c, *o))
+                .map(NameTarget::Component)
+                .into_iter()
+                .collect()
         }
         Operation::MakeAssembly { context, .. } => {
             outcome.created.first().and_then(|o| component_of(after, *context, *o)).map(NameTarget::Component).into_iter().collect()

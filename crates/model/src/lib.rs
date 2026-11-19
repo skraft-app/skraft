@@ -2,8 +2,8 @@
 //! placed by occurrences, the operations that change it, its undo history and its file
 //! format. See docs/model/data-model.md–docs/model/undo.md and docs/io/file-format.md.
 
-mod boolean;
 mod assets;
+mod boolean;
 mod clipboard;
 mod document;
 pub mod expr;

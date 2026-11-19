@@ -22,11 +22,11 @@ use skraft_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, 
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::clipboard::BodyFragment;
 use crate::assets::Asset;
+use crate::clipboard::BodyFragment;
 use crate::document::{
-    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign, Texture,
-    is_identity,
+    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign,
+    Texture, is_identity,
 };
 use crate::props::{PropDef, PropTarget, Props, Value};
 use crate::settings::Settings;
@@ -405,7 +405,15 @@ pub enum Operation {
 impl Operation {
     /// `target op tool`, the scope's, nothing kept: the boolean of one target and one tool.
     pub fn boolean(target: EntityPath, tool: EntityPath, op: Boolean, scope: Scope) -> Operation {
-        Operation::Boolean { targets: vec![target], tools: vec![tool], op, scope, keep_targets: false, keep_tools: false, drop_unused: false }
+        Operation::Boolean {
+            targets: vec![target],
+            tools: vec![tool],
+            op,
+            scope,
+            keep_targets: false,
+            keep_tools: false,
+            drop_unused: false,
+        }
     }
 
     /// A short label for menus and the undo history.
@@ -1038,13 +1046,8 @@ impl Document {
                 for o in self.assembly_mut(assembly)?.occurrences_mut() {
                     o.transform = to_axes * o.transform;
                 }
-                let taken: Vec<Guide> = self
-                    .component(*context)?
-                    .guides
-                    .iter()
-                    .filter(|g| guides.contains(&g.id))
-                    .map(|g| g.moved(g.id, &to_axes))
-                    .collect();
+                let taken: Vec<Guide> =
+                    self.component(*context)?.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.moved(g.id, &to_axes)).collect();
                 self.component_mut(*context)?.guides.retain(|g| !guides.contains(&g.id));
                 self.component_mut(assembly)?.guides = taken;
                 let id = self.fresh_id();
@@ -1080,8 +1083,7 @@ impl Document {
                 let created = copies.iter().map(|c| c.id).collect();
                 // Its guides stay where they were, in the context.
                 let guides = self.component(o.component)?.guides.clone();
-                let guides: Vec<Guide> =
-                    guides.iter().map(|g| g.moved(self.fresh_id(), &o.transform)).collect();
+                let guides: Vec<Guide> = guides.iter().map(|g| g.moved(self.fresh_id(), &o.transform)).collect();
                 self.component_mut(*context)?.guides.extend(guides);
                 let ctx = self.assembly_mut(*context)?;
                 let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
@@ -1723,7 +1725,14 @@ impl Document {
                 let id = if shared { self.fresh_id() } else { c.id };
                 // A negative group holds positives only (above): each one a machining.
                 let sign = if b.sign == Sign::Negative { Sign::Negative } else { c.sign };
-                bodies.push(Body { id, name: c.name.clone(), def: c.def, sign, placement: b.placement * c.placement, props: c.props.clone() });
+                bodies.push(Body {
+                    id,
+                    name: c.name.clone(),
+                    def: c.def,
+                    sign,
+                    placement: b.placement * c.placement,
+                    props: c.props.clone(),
+                });
                 created.push(id);
             }
         }

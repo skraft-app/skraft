@@ -192,7 +192,8 @@ struct Target {
     hi: DVec3,
     /// The axes locked for good: a turned body across them spans the whole box, so any cutter
     /// would cut it across its axis (docs/tools/turned-bodies.md).
-    fixed: [bool; 3],    /// One part (or body) that is its box exactly, square to the axes: no dotted box drawn
+    fixed: [bool; 3],
+    /// One part (or body) that is its box exactly, square to the axes: no dotted box drawn
     /// before the stretch (it would only redraw its edges).
     filled: bool,
 }

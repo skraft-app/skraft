@@ -149,12 +149,8 @@ impl Document {
         let scope = solids::writing(self.source_solids());
         let document = readable(&serde_json::to_vec_pretty(self).map_err(file_err)?);
         let entries = scope.finish();
-        let manifest = Manifest {
-            format: FORMAT.to_owned(),
-            version: VERSION,
-            content,
-            generator: format!("Skraft {}", env!("CARGO_PKG_VERSION")),
-        };
+        let manifest =
+            Manifest { format: FORMAT.to_owned(), version: VERSION, content, generator: format!("Skraft {}", env!("CARGO_PKG_VERSION")) };
         let manifest = serde_json::to_vec_pretty(&manifest).map_err(file_err)?;
         let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
         let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -520,7 +516,9 @@ pub(crate) mod solids {
                                 _ => None,
                             });
                             let bytes = bytes.ok_or_else(|| de::Error::custom(format!("image {id} missing")))?;
-                            Asset::new(bytes).filter(|a| a.kind == kind).ok_or_else(|| de::Error::custom(format!("image {id} unreadable")))?
+                            Asset::new(bytes)
+                                .filter(|a| a.kind == kind)
+                                .ok_or_else(|| de::Error::custom(format!("image {id} unreadable")))?
                         }
                     };
                     Ok((id, asset))

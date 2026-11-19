@@ -692,10 +692,8 @@ impl TextureLayers {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
+        let view = texture
+            .create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
         (texture, view)
     }
 
@@ -1920,8 +1918,11 @@ impl Renderer {
                     })
                     .create_view(&Default::default())
             };
-            self.picture_scratch =
-                Some(PictureScratch { size, msaa: texture("picture msaa", TARGET_FORMAT), depth: texture("picture depth", self.depth_format) });
+            self.picture_scratch = Some(PictureScratch {
+                size,
+                msaa: texture("picture msaa", TARGET_FORMAT),
+                depth: texture("picture depth", self.depth_format),
+            });
         }
         let Some(scratch) = &self.picture_scratch else { return };
         let target = Target {

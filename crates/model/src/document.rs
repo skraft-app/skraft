@@ -465,7 +465,16 @@ pub struct BodyDef {
 impl BodyDef {
     /// A free shape (no profile), local.
     pub fn new(id: Id, solid: Arc<Solid>) -> Self {
-        BodyDef { id, name: String::new(), named: false, solid, profile: None, source: BodySource::Local, group: None, props: Props::default() }
+        BodyDef {
+            id,
+            name: String::new(),
+            named: false,
+            solid,
+            profile: None,
+            source: BodySource::Local,
+            group: None,
+            props: Props::default(),
+        }
     }
 
     /// A group of `children`, `solid` their result, `failed` those whose boolean failed.
@@ -874,9 +883,24 @@ impl Document {
     pub fn with_settings(settings: Settings) -> Self {
         let root = Id(1);
         let kind = ComponentKind::Assembly(Assembly::default());
-        let c =
-            Component { id: root, name: t!("default_name.model"), named: true, kind, guides: Vec::new(), behavior: Behavior::default(), props: Props::default() };
-        Document { components: BTreeMap::from([(root, Arc::new(c))]), root, next_id: 2, settings, materials: BTreeMap::new(), prop_defs: BTreeMap::new(), assets: BTreeMap::new() }
+        let c = Component {
+            id: root,
+            name: t!("default_name.model"),
+            named: true,
+            kind,
+            guides: Vec::new(),
+            behavior: Behavior::default(),
+            props: Props::default(),
+        };
+        Document {
+            components: BTreeMap::from([(root, Arc::new(c))]),
+            root,
+            next_id: 2,
+            settings,
+            materials: BTreeMap::new(),
+            prop_defs: BTreeMap::new(),
+            assets: BTreeMap::new(),
+        }
     }
 
     pub fn settings(&self) -> &Settings {
@@ -1018,7 +1042,8 @@ impl Document {
     /// ([`Operation::PurgeUnused`], docs/ui/components-library.md).
     pub(crate) fn drop_unused_empty_assemblies(&mut self) {
         loop {
-            let used: FastSet<Id> = self.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| a.occurrences.iter().map(|o| o.component)).collect();
+            let used: FastSet<Id> =
+                self.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| a.occurrences.iter().map(|o| o.component)).collect();
             let gone: Vec<Id> = self.empty_assemblies(self.root).into_iter().filter(|id| !used.contains(id)).collect();
             if gone.is_empty() {
                 return;
@@ -1388,7 +1413,10 @@ impl Document {
     pub(crate) fn insert_component(&mut self, base: &str, named: bool, kind: ComponentKind) -> Id {
         let id = self.fresh_id();
         let name = self.unique_name(base, named);
-        self.components.insert(id, Arc::new(Component { id, name, named, kind, guides: Vec::new(), behavior: Behavior::default(), props: Props::default() }));
+        self.components.insert(
+            id,
+            Arc::new(Component { id, name, named, kind, guides: Vec::new(), behavior: Behavior::default(), props: Props::default() }),
+        );
         id
     }
 
@@ -1571,8 +1599,10 @@ impl Document {
             };
             let guides = c.guides.iter().map(|g| Guide { id: self.fresh_id(), ..g.clone() }).collect();
             let name = self.unique_name(&c.name, c.named);
-            self.components
-                .insert(*new, Arc::new(Component { id: *new, name, named: c.named, kind, guides, behavior: c.behavior.clone(), props: c.props.clone() }));
+            self.components.insert(
+                *new,
+                Arc::new(Component { id: *new, name, named: c.named, kind, guides, behavior: c.behavior.clone(), props: c.props.clone() }),
+            );
         }
         Ok((occurrences(self, &fragment.root_assembly().occurrences)?, renamed))
     }

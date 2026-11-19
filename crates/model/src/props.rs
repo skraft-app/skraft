@@ -243,7 +243,6 @@ pub enum PropTarget {
     },
 }
 
-
 impl Component {
     /// Every properties it holds — its own, its guides', its occurrences' (an assembly), its
     /// body definitions' and bodies' (a part) —, with the kind of their entity; `root`: the
@@ -517,7 +516,13 @@ impl Value {
         let digits = if exact { 9 } else { 6 };
         let symbol = units.length.symbol();
         match self {
-            Value::Bool(b) => if *b { t!("property.yes") } else { t!("property.no") },
+            Value::Bool(b) => {
+                if *b {
+                    t!("property.yes")
+                } else {
+                    t!("property.no")
+                }
+            }
             Value::Int(n) => n.to_string(),
             Value::Real(x) => plain(*x, digits),
             Value::Text(s) | Value::Choice(s) => s.clone(),

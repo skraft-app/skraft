@@ -46,15 +46,7 @@ impl Content {
         let outer = common.flatten();
         let mut parts: Vec<PartPlaces> = Vec::new();
         let mut count = 0;
-        fn walk(
-            doc: &Document,
-            c: Id,
-            t: DAffine3,
-            m: Option<Id>,
-            parts: &mut Vec<PartPlaces>,
-            count: &mut usize,
-            depth: usize,
-        ) {
+        fn walk(doc: &Document, c: Id, t: DAffine3, m: Option<Id>, parts: &mut Vec<PartPlaces>, count: &mut usize, depth: usize) {
             if *count >= MAX_PLACEMENTS || depth > skraft_model::MAX_DEPTH {
                 return;
             }
@@ -242,7 +234,10 @@ mod tests {
     fn add(e: &mut Editor, origin: DVec3) -> Id {
         let root = e.document().root();
         let p = Primitive::Box { origin, size: DVec3::splat(10.0) };
-        e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None }).unwrap().unwrap().created[0]
+        e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None })
+            .unwrap()
+            .unwrap()
+            .created[0]
     }
 
     #[test]

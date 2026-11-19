@@ -84,12 +84,7 @@ impl Document {
         let occurrences = self.occurrences_of(context, &entities)?;
         let occurrences = occurrences.into_iter().map(|o| crate::Occurrence { transform: world * o.transform, ..o }).collect();
         let shown = self.component(context)?;
-        let guides = shown
-            .guides
-            .iter()
-            .filter(|g| guides.contains(&g.id))
-            .map(|g| g.moved(g.id, &world))
-            .collect();
+        let guides = shown.guides.iter().filter(|g| guides.contains(&g.id)).map(|g| g.moved(g.id, &world)).collect();
         self.fragment(occurrences, guides, self.next_id)
     }
 

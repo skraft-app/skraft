@@ -1276,7 +1276,14 @@ fn flatten<'d>(
             let key = births.occurrence_fold(path, o.id);
             // Open while the part is.
             let open = unfold(folds, key, editor.context() == path.as_slice() && editor.open_part() == Some(o.id));
-            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None, dim: false });
+            out.push(OutlinerRow {
+                path: path.clone(),
+                occurrence: o,
+                fold: Some(Fold { key, open }),
+                hidden_above,
+                body: None,
+                dim: false,
+            });
             if open {
                 let open_group = (editor.context() == path.as_slice() && editor.open_part() == Some(o.id)).then(|| editor.open_group());
                 let row = |fold, group, body, siblings, profile| OutlinerRow {
@@ -1338,8 +1345,7 @@ impl<'d> Filtered<'_, 'd> {
 
     /// Does one of `bodies`, or a body in their groups, pass?
     fn holds_body(&self, p: &skraft_model::Part, bodies: &[skraft_model::Body], depth: usize) -> bool {
-        depth <= skraft_model::MAX_DEPTH
-            && bodies.iter().any(|b| self.body(p, b) || self.holds_body(p, p.def_of(b).children(), depth + 1))
+        depth <= skraft_model::MAX_DEPTH && bodies.iter().any(|b| self.body(p, b) || self.holds_body(p, p.def_of(b).children(), depth + 1))
     }
 
     /// Does the definition `c` hold a row that passes?
@@ -2265,7 +2271,8 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
                     let [w, t] = tex.size().map(|v| v.max(1) as f32);
                     let (du, dv) = ((1.0 - (t / w).min(1.0)) / 2.0, (1.0 - (w / t).min(1.0)) / 2.0);
                     let uv = egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv));
-                    let img = egui::Image::new(tex).uv(uv).maintain_aspect_ratio(false).fit_to_exact_size(egui::vec2(h, h)).corner_radius(3.0);
+                    let img =
+                        egui::Image::new(tex).uv(uv).maintain_aspect_ratio(false).fit_to_exact_size(egui::vec2(h, h)).corner_radius(3.0);
                     let r = ui.add(egui::Button::image(img).frame(false).min_size(egui::vec2(h, h)));
                     r.on_hover_ui(|ui| {
                         ui.label(t!("panel.materials.texture_change_tip"));
@@ -2275,8 +2282,11 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
                 }
                 None => {
                     let texture = egui::Image::new(icons::TEXTURE).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink);
-                    let tip = if m.texture.is_some() { t!("panel.materials.texture_change_tip") } else { t!("panel.materials.texture_tip") };
-                    ui.add(egui::Button::image(texture).selected(m.texture.is_some()).min_size(egui::vec2(h, h))).on_hover_text(tip).clicked()
+                    let tip =
+                        if m.texture.is_some() { t!("panel.materials.texture_change_tip") } else { t!("panel.materials.texture_tip") };
+                    ui.add(egui::Button::image(texture).selected(m.texture.is_some()).min_size(egui::vec2(h, h)))
+                        .on_hover_text(tip)
+                        .clicked()
                 }
             };
             if clicked {
@@ -2315,7 +2325,12 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
                 let r = ui.horizontal(|ui| {
                     match &thumb {
                         Some(tex) => {
-                            ui.add(egui::Image::new(tex).maintain_aspect_ratio(false).fit_to_exact_size(egui::vec2(12.0, 12.0)).corner_radius(2.0));
+                            ui.add(
+                                egui::Image::new(tex)
+                                    .maintain_aspect_ratio(false)
+                                    .fit_to_exact_size(egui::vec2(12.0, 12.0))
+                                    .corner_radius(2.0),
+                            );
                         }
                         None => swatch(ui, Some(m.color), 12.0),
                     }
@@ -2348,7 +2363,11 @@ fn thumbnail(ctx: &egui::Context, doc: &Document, id: &str) -> Option<egui::Text
     let made = doc.asset(id).and_then(|a| image::load_from_memory(&a.bytes).ok()).map(|img| {
         let img = img.thumbnail(THUMB_SIZE, THUMB_SIZE).to_rgba8();
         let size = [img.width() as usize, img.height() as usize];
-        ctx.load_texture(format!("thumbnail {id}"), egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()), egui::TextureOptions::LINEAR)
+        ctx.load_texture(
+            format!("thumbnail {id}"),
+            egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()),
+            egui::TextureOptions::LINEAR,
+        )
     });
     ctx.data_mut(|d| d.insert_temp(key, made.clone()));
     made
@@ -2472,7 +2491,10 @@ mod tests {
         let root = e.document().root();
         let add = |e: &mut Editor, x: f64| {
             let p = Primitive::Box { origin: DVec3::new(x, 0.0, 0.0), size: DVec3::splat(10.0) };
-            e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None }).unwrap().unwrap().created[0]
+            e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None })
+                .unwrap()
+                .unwrap()
+                .created[0]
         };
         let (a, b, c) = (add(&mut e, 0.0), add(&mut e, 100.0), add(&mut e, 200.0));
         let g = e.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().unwrap().created[0];
