@@ -271,9 +271,9 @@ impl Tool for RotateTool {
                 (center + dir * r * inner, center + dir * r)
             }));
         };
-        // A radius from the centre, dashed, over everything as the protractor.
+        // A radius from the centre, a dimension's line (in the scene, translucent where hidden).
         let radius = |d: &mut Drawer<'_>, center: DVec3, to: DVec3, color: [f32; 4]| {
-            d.pen(Pen::new(color).over().dashed()).line(center, to);
+            d.pen(Pen::dimension(color)).line(center, to);
         };
         let mut drawing = Drawing::default();
         let d = &mut cx.drawer(&mut drawing);

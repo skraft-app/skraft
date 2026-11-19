@@ -103,18 +103,24 @@ pub enum Layer {
 }
 
 /// How the part of a line in the scene hidden behind faces is drawn again (Kuix's
-/// `show_hidden_lines`): its stipple; its colour and width, the line's when none.
+/// `show_hidden_lines`), blended over the faces that hide it: its stipple; its colour and
+/// width, the line's when none; `alpha` scales its colour's (translucent: it takes the colour
+/// of what hides it).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Hidden {
     pub stipple: Stipple,
     pub color: Option<Color>,
     pub width: Option<f32>,
+    pub alpha: f32,
 }
 
+/// How much of its colour the hidden part of a line keeps ([`Hidden::default`]).
+pub const HIDDEN_ALPHA: f32 = 0.3;
+
 impl Default for Hidden {
-    /// Long dashes, as Kuix's.
+    /// Long dashes, as Kuix's, translucent ([`HIDDEN_ALPHA`]).
     fn default() -> Self {
-        Hidden { stipple: Stipple::LongDashes, color: None, width: None }
+        Hidden { stipple: Stipple::LongDashes, color: None, width: None, alpha: HIDDEN_ALPHA }
     }
 }
 
@@ -220,9 +226,17 @@ impl Pen {
         Pen { hidden: Some(hidden), ..self }
     }
 
-    /// Plain where seen, long dashes where hidden (a move's line: the former x-ray lines).
+    /// Plain where seen, translucent long dashes where hidden (a move's line, the tape
+    /// measure's).
     pub fn x_ray(self) -> Self {
         self.hidden(Hidden::default())
+    }
+
+    /// A dimension's line (a measure, the lines that lead to it, a radius): long dashes
+    /// anchored, in the scene, in full colour where seen and translucent where hidden, the
+    /// same dashes running on through what hides them (docs/render/drawer.md#dimensions).
+    pub fn dimension(color: impl Into<Color>) -> Self {
+        Pen::new(color).dashed().x_ray()
     }
 }
 

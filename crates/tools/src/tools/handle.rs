@@ -362,7 +362,7 @@ pub(super) fn axis_color(k: usize) -> [f32; 4] {
 /// A measure line `a`–`b`, dashed, over everything (seen through what lies between); bold
 /// while an axis is locked.
 pub(super) fn draw_measure(cx: &Cx<'_>, d: &mut Drawer<'_>, a: DVec3, b: DVec3, color: [f32; 4]) {
-    d.pen(Pen::new(color).over().dashed().bold_if(cx.axis_lock.is_some())).line(a, b);
+    d.pen(Pen::dimension(color).bold_if(cx.axis_lock.is_some())).line(a, b);
 }
 
 /// The box of `target` placed by `to_world`, dotted in ink, in the scene (hidden behind faces: no front
