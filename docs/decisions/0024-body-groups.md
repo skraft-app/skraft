@@ -26,7 +26,9 @@ screws) had no form of its own.
 - **No order between siblings**: only nesting carries meaning.
 - The union puts the tool part's root as a **positive sub-group** of the target, the
   difference as a **negative sub-group**, their bodies kept and editable; the intersection
-  stays a new part with one positive `Brep` leaf.
+  stays a new part with one positive `Brep` leaf. Amended 2026-11-19: a union first groups
+  the target's bodies when machinings stand at its top level, so they do not cut the tools
+  ([Booleans between parts](../model/bodies.md#booleans-between-parts)).
 - Definitions stay local to their part (groups included); cycles are forbidden.
 - One piece is checked at the root only; failures are reported by the body's path.
 - The tree shows in the outliner, under its part; a group is opened as a component is.

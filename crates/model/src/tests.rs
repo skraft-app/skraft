@@ -216,13 +216,16 @@ fn a_difference_machines_the_part_for_all_its_occurrences() {
     let counts = doc.counts_in_model();
     assert_eq!(doc.components().filter(|c| c.is_part() && counts.contains_key(&c.id)).count(), 1);
 
-    // A union gives the target the tool's bodies (docs/model/bodies.md): its blank stays, the hole too.
+    // A union gives the target the tool's bodies (docs/model/bodies.md): its blank and its hole
+    // stay, grouped so the hole keeps off the tool.
     let other = add(&mut h, Primitive::Box { origin: DVec3::new(1590.0, 0.0, 0.0), size: DVec3::new(20.0, 300.0, 100.0) });
     h.apply(Operation::boolean(target, EntityPath::root(other), Boolean::Union, Scope::All)).unwrap();
     let p = h.document().part(part).unwrap();
-    assert_eq!((p.positives().count(), p.negatives().count()), (2, 1));
-    assert!(Arc::ptr_eq(&p.blank(), &blank));
-    assert!(p.positives().all(|b| p.profile_of(b).is_some()), "the profiles kept");
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 0));
+    let own = p.def_of(&p.bodies[0]).children();
+    assert_eq!(own.iter().map(|c| c.sign).collect::<Vec<_>>(), [Sign::Positive, Sign::Negative]);
+    assert!(Arc::ptr_eq(p.solid_of(&own[0]), &blank));
+    assert!(own.iter().chain(&p.bodies[1..]).all(|b| p.profile_of(b).is_some()), "the profiles kept");
     let (_, hi) = p.shape().vertex_bounds().unwrap();
     assert!((hi.x - 610.0).abs() < 1e-9 && (hi.z - 100.0).abs() < 1e-9, "{hi}");
     assert_eq!(p.pieces(), 1);
@@ -2417,10 +2420,12 @@ fn a_union_brings_the_tool_as_a_group() {
     h.apply(Operation::boolean(EntityPath::root(other), EntityPath::root(drill), Boolean::Difference, Scope::All)).unwrap();
     h.apply(Operation::boolean(target.clone(), EntityPath::root(other), Boolean::Union, Scope::All)).unwrap();
     let p = h.document().part(part).unwrap();
-    assert_eq!((p.positives().count(), p.negatives().count()), (2, 1));
+    assert_eq!((p.positives().count(), p.negatives().count()), (2, 0));
     assert!(p.failed.is_empty(), "{:?}", p.failed);
     assert_eq!(p.pieces(), 1);
-    // The tool, a group of its blank and its hole; the hole in the target's axes.
+    // The target's bodies grouped first, its hole with them; the tool, a group of its blank and
+    // its hole, in the target's axes.
+    assert_eq!(p.def_of(&p.bodies[0]).children().len(), 2);
     let group = p.positives().nth(1).unwrap();
     let children = p.def_of(group).children();
     assert_eq!(children.len(), 2);
@@ -2430,6 +2435,35 @@ fn a_union_brings_the_tool_as_a_group() {
     assert!(close(lo, DVec3::new(0.0, -100.0, 0.0)) && close(hi, DVec3::new(200.0, 150.0, 18.0)), "{lo} {hi}");
     let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
     assert_eq!(back.part(part).unwrap(), p);
+}
+
+#[test]
+fn a_union_keeps_the_target_s_machinings_off_the_tools() {
+    let mut h = History::new(Document::new());
+    // The board's hole runs from 5 under it: into a block set under the board.
+    let (target, part, hole) = drilled_board(&mut h);
+    let block = add(&mut h, Primitive::Box { origin: DVec3::new(10.0, 15.0, -30.0), size: DVec3::new(20.0, 20.0, 30.0) });
+    h.apply(Operation::boolean(target.clone(), EntityPath::root(block), Boolean::Union, Scope::All)).unwrap();
+    let p = h.document().part(part).unwrap();
+    let whole = 200.0 * 50.0 * 18.0 - std::f64::consts::PI * 16.0 * 18.0 + 20.0 * 20.0 * 30.0;
+    assert!((volume(h.document(), part) - whole).abs() < 1e-3, "{}", volume(h.document(), part));
+    // The board's bodies a group of their own, the first body; the block beside it.
+    let group = &p.bodies[0];
+    assert!(p.def_of(group).is_group() && group.sign == Sign::Positive);
+    assert!(p.def_of(group).children().iter().any(|c| c.id == hole));
+    assert!(!p.def_of(&p.bodies[1]).is_group());
+    let named = p.def_of(group).name.clone();
+    assert!(named.contains('#'), "{named}");
+    // A second union: no machining at the top level now, nothing grouped again.
+    let other = add(&mut h, Primitive::Box { origin: DVec3::new(100.0, 0.0, 18.0), size: DVec3::new(20.0, 20.0, 20.0) });
+    h.apply(Operation::boolean(target, EntityPath::root(other), Boolean::Union, Scope::All)).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.bodies.len(), 3);
+    assert_eq!(p.defs.iter().filter(|d| d.is_group()).count(), 1);
+    // Undone: the board as it was, its hole at the top level.
+    assert!(h.undo() && h.undo() && h.undo());
+    let p = h.document().part(part).unwrap();
+    assert!(p.body(hole).is_some() && p.defs.iter().all(|d| !d.is_group()));
 }
 
 /// A board with a block on it drilled through by a drill longer than it, down into the board,

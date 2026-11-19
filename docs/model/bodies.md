@@ -197,7 +197,13 @@ body, its profile with it — still editable; any other comes as a group of copi
 
 - **Union**: the tool part's root comes **as a positive sub-group** of the target, its
   structure kept, its negatives reaching that sub-group only; a through-hole meant to drill
-  the target too is had by flattening the group (« Dégrouper »).
+  the target too is had by flattening the group (« Dégrouper »). A target with machinings at
+  its top level first has its bodies put in **a positive group of their own**, at the
+  identity (its result the part as it was: no kernel; named after the part when the user
+  named it, else « Groupe#n »), so they keep off the tools: `A ∪ B`, not `(A ∪ B) − N_A`. A
+  target without one is left flat, so unions in a row stay at one level.
+  **Why** not always, nor for a difference: grouping changes nothing of a difference's result
+  (`(∪P − ∪N) − B` is `Group(P, N) − B`), and would nest one level deeper at each operation.
 - **Difference**: the tool part's root comes **as a negative sub-group** (its bodies kept,
   still editable); each tool reaching the target is one more negative body, all cut at once
   (`recompute` with the bodies added: one recipe, a failing tool marked as any machining).
