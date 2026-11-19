@@ -750,8 +750,8 @@ tool:
       this_tip: "Only the instance clicked: it becomes a unique part (and its assembly, if copied)"
   paint:
     name: "$t(common.paint)"
-    hint: "Click to paint with the chosen material (Materials panel; none: unpaint)"
-    hint_rectangle: "Click to paint with the chosen material (Materials panel; none: unpaint) · Drag: rectangle (→ inside, ← touching)"
+    hint: "Click to paint with the chosen material (Materials panel; none: unpaint) · hold %{alt_key}: sample"
+    hint_rectangle: "Click to paint with the chosen material (Materials panel; none: unpaint) · Drag: rectangle (→ inside, ← touching) · hold %{alt_key}: sample"
     outside: "Outside the item being edited"
     option:
       target: "$t(common.paint)"
@@ -760,6 +760,10 @@ tool:
       occurrence_tip: "The instance clicked, or the whole selection if it is part of it"
       face: "The Face"
       face_tip: "The face clicked, on all instances of its part"
+  sample:
+    name: "Sample Paint"
+    hint: "Click to take the material under the cursor, then paint with it"
+    hint_held: "Click to take the material under the cursor · release %{alt_key}: back to Paint"
   section:
     name: "Section Plane"
     hint:
