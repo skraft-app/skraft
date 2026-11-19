@@ -15,7 +15,7 @@ use skraft_i18n::t;
 use crate::settings::Settings;
 use skraft_kernel::Solid;
 
-use crate::{Error, FastMap, Result};
+use crate::{Error, FastMap, Operation, Result};
 
 /// A stable identifier, from one counter: unique across a document for components, within
 /// their assembly for occurrences and within their part for bodies (a copy of a component
@@ -352,6 +352,12 @@ impl Part {
     }
 
     /// The body `id`, the part's own or a group's (ids are unique in the whole part).
+    pub fn any_body(&self, id: Id) -> Option<&Body> {
+        let groups = self.defs.iter().filter_map(|d| d.group.as_ref()).flat_map(|g| g.children.iter());
+        self.bodies.iter().chain(groups).find(|b| b.id == id)
+    }
+
+    /// The body `id`, the part's own or a group's, to change.
     pub(crate) fn any_body_mut(&mut self, id: Id) -> Option<&mut Body> {
         let groups = self.defs.iter_mut().filter_map(|d| d.group.as_mut()).flat_map(|g| g.children.iter_mut());
         self.bodies.iter_mut().chain(groups).find(|b| b.id == id)
@@ -846,6 +852,46 @@ impl Document {
     /// Every component but the root, in id order.
     pub fn components(&self) -> impl Iterator<Item = &Component> {
         self.components.values().map(|c| &**c).filter(|c| c.id != self.root)
+    }
+
+    /// The operation taking away the occurrences of the empty assemblies (docs/model/data-model.md#empty-assemblies):
+    /// an assembly is empty with neither occurrences nor guides, or when it holds only empty
+    /// ones — an assembly emptied empties its parent in turn. The root and `keep` (the active
+    /// context, kept while it is edited) are never. One `Delete` per assembly holding some,
+    /// in one batch; none when there are none placed.
+    pub fn dropping_empty_assemblies(&self, keep: Id) -> Option<Operation> {
+        let assemblies: Vec<(&Component, &Assembly)> =
+            self.components.values().filter_map(|c| c.as_assembly().map(|a| (&**c, a))).collect();
+        let mut empty: BTreeSet<Id> = BTreeSet::new();
+        // Up the tree, until no assembly more is found empty.
+        loop {
+            let before = empty.len();
+            for (c, a) in &assemblies {
+                if c.id != self.root
+                    && c.id != keep
+                    && !empty.contains(&c.id)
+                    && c.guides.is_empty()
+                    && a.occurrences().iter().all(|o| empty.contains(&o.component))
+                {
+                    empty.insert(c.id);
+                }
+            }
+            if empty.len() == before {
+                break;
+            }
+        }
+        if empty.is_empty() {
+            return None;
+        }
+        let deletes: Vec<Operation> = assemblies
+            .iter()
+            .filter(|(c, _)| !empty.contains(&c.id))
+            .filter_map(|(c, a)| {
+                let entities: Vec<Id> = a.occurrences().iter().filter(|o| empty.contains(&o.component)).map(|o| o.id).collect();
+                (!entities.is_empty()).then_some(Operation::Delete { context: c.id, entities })
+            })
+            .collect();
+        (!deletes.is_empty()).then_some(Operation::Batch(deletes))
     }
 
     /// How many occurrences of `component` there are, in all assemblies (not multiplied by

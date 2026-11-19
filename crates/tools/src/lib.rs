@@ -23,7 +23,7 @@ mod tests;
 pub use camera::{Camera, Projection, Ray, StandardView, ViewArea};
 pub use editor::journal;
 pub use editor::{
-    Clip, Content, Editor, LoadEnd, LoadKind, Loading, Look, Mark, Naming, Notice, NoticeAction, NoticeKind, OrientedBox, SectionCut, Tree,
+    Clip, Content, Editor, LoadEnd, LoadKind, Loading, Look, Mark, NameTarget, Naming, Notice, NoticeAction, NoticeKind, OrientedBox, SectionCut, Tree,
     TreeRow, View, ViewHighlight, ViewPlacement, cap_histories,
 };
 pub use infer::{Curve, EdgeRef, InferKind, Inference, LineKind};

@@ -31,6 +31,12 @@ pub(super) enum After {
     Card {
         ask_name: Option<bool>,
     },
+    /// Select what it created, and offer to name it by a toast: the assembly or the group of
+    /// bodies just made (docs/tools/quick-tools.md#naming-what-was-just-made).
+    SelectNamed,
+    /// One operation of « Rendre unique »: what it gave its own definition gathered, offered to
+    /// be named once the queue is empty (docs/tools/quick-tools.md#naming-what-was-just-made).
+    Unique,
 }
 
 /// A job of [`Editor::crash_kernel`].
@@ -112,6 +118,15 @@ impl Editor {
             Operation::At { parent, op, .. } if matches!(**op, Operation::AddPrimitive { .. }) => Some(parent.clone()),
             _ => None,
         };
+        // « Créer un assemblage » under « Pièces »: what it made selected by its path.
+        let deep_parent = match (&op, after) {
+            (Operation::At { parent, .. }, After::SelectNamed) => Some(parent.clone()),
+            _ => None,
+        };
+        let named = match after {
+            After::SelectNamed | After::Unique => super::naming::made_to_name(self.document(), &document, &op, &outcome),
+            _ => Vec::new(),
+        };
         let label = op.label();
         self.history.push(document, op);
         self.journal.log(Event::Applied { op: label, revision: self.history.revision() });
@@ -131,9 +146,14 @@ impl Editor {
             self.notify(NoticeKind::Warning, w.to_string(), None);
         }
         match after {
-            After::Select | After::Carry(_) if !outcome.created.is_empty() => self.set_selection(outcome.created.clone()),
+            After::SelectNamed if let Some(parent) = &deep_parent => {
+                self.select_paths(outcome.created.iter().map(|id| EntityPath::new(parent.clone(), *id)).collect());
+            }
+            After::Select | After::SelectNamed | After::Carry(_) if !outcome.created.is_empty() => {
+                self.set_selection(outcome.created.clone())
+            }
             // Machinings made in an open part: selected while they are shown.
-            After::Select | After::Carry(_) if !outcome.bodies.is_empty() => {
+            After::Select | After::SelectNamed | After::Carry(_) if !outcome.bodies.is_empty() => {
                 self.set_selection(if self.showing_machinings() { outcome.bodies.clone() } else { Vec::new() });
             }
             After::Collect => self.collected.extend(outcome.created.iter().copied()),
@@ -141,6 +161,13 @@ impl Editor {
             _ => {}
         }
         self.after_change();
+        // An assembly it emptied goes with it (docs/model/data-model.md#empty-assemblies).
+        self.drop_empty_assemblies(true);
+        match after {
+            After::SelectNamed => self.offer_renaming(&named),
+            After::Unique => self.made_unique.extend(named),
+            _ => {}
+        }
         if let After::Card { ask_name } = after {
             self.offer_card(&outcome, made_in.as_deref());
             if let Some(ask) = ask_name {
@@ -152,6 +179,31 @@ impl Editor {
         }
         self.follow_cursor();
         outcome
+    }
+
+    /// Takes away the empty assemblies, all but the active context (docs/model/data-model.md#empty-assemblies):
+    /// within the last step when it is the one that emptied them (`within_last`: the step just
+    /// made; else when the document before it had none such), otherwise as a step of its own —
+    /// an assembly emptied from inside goes once left.
+    pub(super) fn drop_empty_assemblies(&mut self, within_last: bool) {
+        if self.pending.is_some() {
+            return;
+        }
+        let keep = self.context_definition();
+        let Some(op) = self.document().dropping_empty_assemblies(keep) else { return };
+        let amend = within_last || self.history.previous().is_some_and(|d| d.dropping_empty_assemblies(keep).is_none());
+        if amend && let Ok(Prepared::Done(applied)) = self.document().prepare(&op) {
+            let before = self.history.revision();
+            if self.history.amend(applied.document) {
+                self.journal.log(Event::Applied { op: op.label(), revision: self.history.revision() });
+                if let Some(card) = &mut self.card {
+                    card.follow(before, self.history.revision());
+                }
+                self.after_change();
+                return;
+            }
+        }
+        let _ = self.start(op, After::Nothing, false);
     }
 
     /// Once nothing is under way any more, the tool follows the cursor where it is now (a
@@ -305,6 +357,9 @@ impl Editor {
             let collected = std::mem::take(&mut self.collected);
             self.set_selection(collected);
         }
+        if !self.busy() && !self.made_unique.is_empty() {
+            self.offer_unique_naming();
+        }
     }
 
     /// Esc while the kernel works: its result will be dropped, the queue too.
@@ -316,6 +371,7 @@ impl Editor {
         self.update_preview_mesh();
         self.queue.clear();
         self.collected.clear();
+        self.made_unique.clear();
         if p.restore && self.history.redo() {
             self.after_change();
         }
@@ -517,6 +573,7 @@ impl Editor {
         self.importing.clear();
         self.queue.clear();
         self.collected.clear();
+        self.made_unique.clear();
         self.context.clear();
         self.open_part = None;
         self.open_group.clear();

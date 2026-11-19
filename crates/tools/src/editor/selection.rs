@@ -114,9 +114,12 @@ impl Editor {
             self.context = path.instances.clone();
             self.open_part = None;
             self.open_group.clear();
+            self.drop_empty_assemblies(false);
             self.sync_scene();
         }
-        self.set_selection(vec![path.entity]);
+        if self.document().resolve(path).is_ok() {
+            self.set_selection(vec![path.entity]);
+        }
     }
 
     /// The model chosen (the outliner's first row clicked): every assembly left and the part
@@ -132,6 +135,7 @@ impl Editor {
             self.open_part = None;
             self.open_group.clear();
             self.listed_hover = None;
+            self.drop_empty_assemblies(false);
             self.sync_scene();
         }
         self.clear_selection();
@@ -265,6 +269,7 @@ impl Editor {
             }
             self.set_selection(vec![id]);
             self.listed_hover = None;
+            self.drop_empty_assemblies(false);
             self.sync_scene();
         }
     }
@@ -354,12 +359,28 @@ impl Editor {
         if self.open_part.is_some() {
             return self.group_bodies();
         }
+        if self.selection.is_empty() && (!self.deep.is_empty() || !self.deep_guides.is_empty()) {
+            return self.make_assembly_deep();
+        }
         if self.selection.is_empty() {
             self.message = Some(t!("status.nothing_to_group"));
             return;
         }
         let op = Operation::MakeAssembly { context: self.context_definition(), entities: self.selection.clone(), name: None };
-        let _ = self.start(op, After::Select, false);
+        let _ = self.start(op, After::SelectNamed, false);
+    }
+
+    /// « Créer un assemblage » under « Pièces » (docs/tools/selection.md): the parts (and guides)
+    /// selected at any depth, all in one assembly, put in a new one there; else refused, told.
+    fn make_assembly_deep(&mut self) {
+        let crate::tools::Moved::Deep { mut groups, unique } = self.cx().moved_deep(&self.deep, &self.deep_guides) else { return };
+        let one = groups.len() == 1 && groups[0].part.is_none();
+        let Some(g) = groups.pop().filter(|_| one) else {
+            self.message = Some(t!("status.group_one_assembly"));
+            return;
+        };
+        let make = Operation::MakeAssembly { context: Id(0), entities: g.entities, name: None };
+        let _ = self.start(Operation::At { parent: g.parent, unique, op: Box::new(make) }, After::SelectNamed, false);
     }
 
     /// The selected occurrences of assemblies, in the active context.
@@ -413,7 +434,7 @@ impl Editor {
             self.message = Some(t!("status.nothing_to_group"));
             return;
         };
-        let _ = self.start(Operation::GroupBodies { target, bodies, scope: self.part_scope }, After::Select, false);
+        let _ = self.start(Operation::GroupBodies { target, bodies, scope: self.part_scope }, After::SelectNamed, false);
     }
 
     /// Flattens the groups selected in the open part; what they held then selected.
@@ -429,13 +450,14 @@ impl Editor {
         if self.busy() {
             return;
         }
+        self.made_unique.clear();
         // In an open part: its bodies selected, each given its own definition (docs/model/bodies.md).
         if let Some(target) = self.open_part_path() {
             let Ok((_, p, _)) = self.document().resolve_container(&target) else { return };
             let bodies: Vec<Id> = self.selection.iter().copied().filter(|id| p.body(*id).is_some()).collect();
             if !bodies.is_empty() {
                 let op = Operation::MakeBodiesUnique { target, bodies, scope: self.part_scope };
-                self.queue.push_back((op, After::Nothing));
+                self.queue.push_back((op, After::Unique));
                 self.pump();
             }
             return;
@@ -444,7 +466,7 @@ impl Editor {
         let Ok(a) = self.document().assembly(context) else { return };
         let occurrences: Vec<Id> = self.selection.iter().copied().filter(|id| a.occurrence(*id).is_some()).collect();
         for occurrence in occurrences {
-            self.queue.push_back((Operation::MakeUnique { context, occurrence }, After::Nothing));
+            self.queue.push_back((Operation::MakeUnique { context, occurrence }, After::Unique));
         }
         self.pump();
     }

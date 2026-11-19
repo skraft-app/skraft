@@ -1,16 +1,16 @@
-//! The dialog naming a part just made (docs/tools/quick-tools.md), OpenCutList's
+//! The dialog naming what was just made (docs/tools/quick-tools.md), OpenCutList's
 //! `UI.inputbox` after a Smart Draw creation: opened by itself (the creation tool's option
 //! « Nommage des pièces », [`skraft_tools::Editor::take_naming`]) or by the « Renommer »
-//! button of the toast « Nouvelle pièce créée ». One field, the part's name, filled with it and
-//! selected; Enter or OK names it, Esc or Cancel keeps it. A name the editor refuses (empty,
-//! another component's) greys OK and says why under the field.
+//! button of a toast « Nouvelle pièce créée », « Nouvel assemblage créé »… One field, the name,
+//! filled with it and selected; Enter or OK names it, Esc or Cancel keeps it. A name the editor
+//! refuses (empty, another component's) greys OK and says why under the field.
 
 use skraft_i18n::t;
 use skraft_tools::Naming;
 
 use crate::docs::DocId;
 
-/// The dialog open: on a part of a document.
+/// The dialog open: on what a document's editor names.
 pub struct Dialog {
     pub doc: DocId,
     pub naming: Naming,
@@ -46,7 +46,7 @@ impl Dialog {
         let modal = egui::Modal::new(egui::Id::unique("naming")).frame(crate::app::modal_frame(ctx)).show(ctx, |ui| {
             ui.set_width(340.0);
             ui.spacing_mut().button_padding = crate::app::MODAL_BUTTON_PADDING;
-            ui.heading(t!("naming.title"));
+            ui.heading(&self.naming.title);
             ui.add_space(8.0);
             let id = egui::Id::unique("naming.field");
             // Its own margin: not the modal's roomy button padding, which it would take.

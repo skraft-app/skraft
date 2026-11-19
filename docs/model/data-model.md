@@ -53,6 +53,16 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   « Caisson#2 » the first number free ([Automatic names](bodies.md#automatic-names)).
 - **Purge**: a part with no occurrence disappears, unless the user named it (it then stays in
   the model's library).
+- **Empty assemblies**: an assembly with neither occurrences nor guides — or holding only
+  empty ones — is taken away, its occurrences deleted wherever it is placed, as SketchUp
+  deletes an empty group (`Document::dropping_empty_assemblies`, a batch of `Delete`;
+  `Editor::drop_empty_assemblies`). After every operation, within its step (its parts erased
+  under « Pièces », cut…), the active context excepted: emptied from inside, it stays while
+  edited and goes once left (exit, the navigator, the model's row), within the step that
+  emptied it when that is the last one (one undo brings it back full), else as a step of its
+  own. A parent left holding only it goes too, once left in turn. Unlike empty parts, kept and
+  flagged ([Empty parts](bodies.md#empty-parts)): an empty part still holds bodies (its
+  machinings) to fix, an empty assembly holds nothing.
 - Not yet: **properties** (exclusion from the cut list…) on any component, and the part's
   **type** — the kind of stock it comes from (for wood, OpenCutList's solid wood, sheet good,
   dimensional, edge, veneer, hardware…; other materials have their own) — not a component

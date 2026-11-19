@@ -9,7 +9,6 @@
 //! The same message again counts (×2).
 
 use skraft_i18n::t;
-use skraft_model::Id;
 
 use crate::docs::DocId;
 
@@ -48,8 +47,9 @@ pub enum Act {
     // No toast offers it for now: kept, for those that will.
     #[allow(dead_code)]
     Reveal(String),
-    /// Opens the naming dialog on a part just made, of this document.
-    Rename { doc: DocId, part: Id },
+    /// Opens the naming dialog on what was just made (a part, an assembly, a body definition),
+    /// of this document.
+    Rename { doc: DocId, target: skraft_tools::NameTarget },
 }
 
 /// A message for the user: a title, and what went wrong or more about it (the system's or the
@@ -96,7 +96,7 @@ impl Note {
         };
         let note = Note::new(level, n.title, n.detail);
         match n.action {
-            Some(skraft_tools::NoticeAction::Rename(part)) => note.with_action(t!("notice.rename"), Act::Rename { doc, part }),
+            Some(skraft_tools::NoticeAction::Rename(target)) => note.with_action(t!("notice.rename"), Act::Rename { doc, target }),
             None => note,
         }
     }
@@ -358,13 +358,13 @@ mod tests {
 
     #[test]
     fn a_notice_of_the_editor_is_a_toast() {
-        use skraft_tools::{Notice, NoticeAction, NoticeKind};
+        use skraft_tools::{NameTarget, Notice, NoticeAction, NoticeKind};
         let n = Notice { kind: NoticeKind::Error, title: "t".into(), detail: Some("d".into()), action: None };
         assert_eq!(Note::of_notice(n, 1), Note::error("t", "d"));
-        let part = Id(7);
-        let n = Notice { kind: NoticeKind::Success, title: "p".into(), detail: None, action: Some(NoticeAction::Rename(part)) };
+        let target = NameTarget::Component(skraft_model::Id(7));
+        let n = Notice { kind: NoticeKind::Success, title: "p".into(), detail: None, action: Some(NoticeAction::Rename(target)) };
         let note = Note::of_notice(n, 2);
-        assert_eq!(note.action, Some(("Renommer".into(), Act::Rename { doc: 2, part })));
+        assert_eq!(note.action, Some(("Renommer".into(), Act::Rename { doc: 2, target })));
         // Gone with its part.
         let mut t = Toasts::default();
         t.push(note);

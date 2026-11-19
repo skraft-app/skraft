@@ -5685,29 +5685,29 @@ fn a_part_made_is_offered_its_name_by_a_toast() {
     assert_eq!(notices.len(), 1, "{notices:?}");
     assert_eq!(notices[0].kind, NoticeKind::Success);
     assert_eq!(notices[0].title, "Nouvelle pièce créée : Pièce#1");
-    assert_eq!(notices[0].action, Some(NoticeAction::Rename(part)));
+    assert_eq!(notices[0].action, Some(NoticeAction::Rename(NameTarget::Component(part))));
     assert!(e.take_naming().is_none(), "no dialog by itself");
     assert!(e.quick_card().is_some(), "the card as well");
 
     // The button: a step of its own.
-    let naming = e.naming_of(part).unwrap();
-    assert_eq!(naming.name, "Pièce#1");
+    let naming = e.naming_of(NameTarget::Component(part)).unwrap();
+    assert_eq!((naming.name.as_str(), naming.title.as_str()), ("Pièce#1", "Nom de la pièce"));
     assert_eq!(e.name_refusal(&naming, "  "), Some("le nom est vide".into()));
     assert_eq!(e.name_refusal(&naming, "Pièce#1"), None, "its own name");
     let steps = e.history().journal().count();
-    e.name_part(&naming, " Pied ").unwrap();
+    e.give_name(&naming, " Pied ").unwrap();
     assert_eq!(e.document().component(part).unwrap().name, "Pied");
     assert_eq!(e.history().journal().count(), steps + 1);
     e.undo();
     assert_eq!(e.document().component(part).unwrap().name, "Pièce#1");
 
     // Another part: the first one's name is taken.
-    let first = e.naming_of(part).unwrap();
-    e.name_part(&first, "Pied").unwrap();
+    let first = e.naming_of(NameTarget::Component(part)).unwrap();
+    e.give_name(&first, "Pied").unwrap();
     let q = box_then_quick(&mut e);
-    let naming = e.naming_of(part_of(&e, q)).unwrap();
+    let naming = e.naming_of(NameTarget::Component(part_of(&e, q))).unwrap();
     assert!(e.name_refusal(&naming, "Pied").is_some());
-    assert!(e.name_part(&naming, "Pied").is_err());
+    assert!(e.give_name(&naming, "Pied").is_err());
 
     // A copy: no part made, no toast.
     e.take_notices();
@@ -5728,9 +5728,9 @@ fn with_ask_name_the_dialog_opens_and_the_name_joins_the_creation() {
     let part = part_of(&e, o);
     assert!(e.take_notices().is_empty(), "no toast");
     let naming = e.take_naming().expect("the dialog");
-    assert_eq!((naming.component, naming.name.as_str()), (part, "Pièce#1"));
+    assert_eq!((naming.target, naming.name.as_str()), (NameTarget::Component(part), "Pièce#1"));
     assert!(e.take_naming().is_none(), "taken once");
-    e.name_part(&naming, "Côté").unwrap();
+    e.give_name(&naming, "Côté").unwrap();
     assert_eq!(e.document().component(part).unwrap().name, "Côté");
     assert_eq!(e.history().journal().count(), steps + 1, "one step");
     assert!(e.quick_card().is_some(), "the card still on it");
@@ -5744,8 +5744,200 @@ fn with_ask_name_the_dialog_opens_and_the_name_joins_the_creation() {
     let naming = e.take_naming().unwrap();
     e.apply(Operation::RenameOccurrence { context: e.document().root(), occurrence: o, name: "Gauche".into() }).unwrap();
     let steps = e.history().journal().count();
-    e.name_part(&naming, "Dos").unwrap();
+    e.give_name(&naming, "Dos").unwrap();
     assert_eq!(e.history().journal().count(), steps + 1);
+}
+
+#[test]
+fn an_assembly_or_a_group_made_is_offered_its_name_by_a_toast() {
+    use skraft_model::{Scope, Sign};
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "18");
+    let b = draw_box(&mut e, DVec3::new(200.0, 0.0, 0.0), DVec3::new(300.0, 100.0, 0.0), "18");
+    e.set_tool(ToolKind::Select);
+    e.take_notices();
+    e.select(vec![a, b]);
+    e.make_assembly();
+    let assembly = part_of(&e, e.selection()[0]);
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].title, "Nouvel assemblage créé : Assemblage#1");
+    let target = NameTarget::Component(assembly);
+    assert_eq!(notices[0].action, Some(NoticeAction::Rename(target)));
+    let naming = e.naming_of(target).unwrap();
+    assert_eq!(naming.title, "Nom de l'assemblage");
+    let steps = e.history().journal().count();
+    e.give_name(&naming, "Caisson").unwrap();
+    assert_eq!(e.document().component(assembly).unwrap().name, "Caisson");
+    assert_eq!(e.history().journal().count(), steps + 1, "a step of its own");
+    e.undo();
+    e.undo();
+    assert!(e.naming_of(target).is_none(), "gone with its assembly");
+
+    // In an open part: its bodies grouped, the group's definition offered its name.
+    let target = EntityPath::root(a);
+    let drill = |x: f64| Operation::AddBody {
+        target: target.clone(),
+        primitive: Primitive::Cylinder { origin: DVec3::new(x, 50.0, -5.0), radius: 4.0, height: 30.0 },
+        placement: glam::DAffine3::IDENTITY,
+        sign: Sign::Negative,
+        scope: Scope::All,
+    };
+    let holes = [e.apply(drill(20.0)).unwrap().unwrap().bodies[0], e.apply(drill(40.0)).unwrap().unwrap().bodies[0]];
+    e.enter(a);
+    e.select(holes.to_vec());
+    e.take_notices();
+    e.make_assembly();
+    let group = e.selection()[0];
+    let part = part_of(&e, a);
+    let def = e.document().part(part).unwrap().body(group).unwrap().def;
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].title, "Nouveau groupe créé : Groupe#1");
+    let target = NameTarget::BodyDef { part, def };
+    assert_eq!(notices[0].action, Some(NoticeAction::Rename(target)));
+    let naming = e.naming_of(target).unwrap();
+    assert_eq!(naming.title, "Nom du groupe");
+    // A body definition's name need not be unique: only an empty one refused.
+    assert_eq!(e.name_refusal(&naming, "Pièce#1"), None);
+    assert!(e.name_refusal(&naming, " ").is_some());
+    e.give_name(&naming, "Perçages").unwrap();
+    assert_eq!(e.document().part(part).unwrap().def(def).unwrap().name, "Perçages");
+}
+
+/// Three boxes, the first two put in an assembly: (the editor, the assembly's occurrence, its
+/// two parts' occurrences in it, the third box's occurrence at the root).
+fn two_in_an_assembly() -> (Editor, Id, [Id; 2], Id) {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "18");
+    let b = draw_box(&mut e, DVec3::new(200.0, 0.0, 0.0), DVec3::new(300.0, 100.0, 0.0), "18");
+    let c = draw_box(&mut e, DVec3::new(400.0, 0.0, 0.0), DVec3::new(500.0, 100.0, 0.0), "18");
+    e.set_tool(ToolKind::Select);
+    e.select(vec![a, b]);
+    e.make_assembly();
+    let asm = e.selection()[0];
+    let inner = e.document().assembly(part_of(&e, asm)).unwrap().occurrences().iter().map(|o| o.id).collect::<Vec<_>>();
+    e.take_notices();
+    (e, asm, [inner[0], inner[1]], c)
+}
+
+#[test]
+fn under_parts_an_assembly_is_made_in_the_parts_assembly() {
+    let (mut e, asm, [a, b], c) = two_in_an_assembly();
+    let steps = e.history().journal().count();
+    // Not in one assembly: refused, told.
+    e.select_paths(vec![EntityPath::new(vec![asm], a), EntityPath::root(c)]);
+    e.make_assembly();
+    assert_eq!(e.history().journal().count(), steps);
+    assert_eq!(e.status(), "Les éléments à regrouper doivent être dans un même assemblage");
+    // Both in the same one: a new assembly there, selected by its path, offered its name.
+    e.select_paths(vec![EntityPath::new(vec![asm], a), EntityPath::new(vec![asm], b)]);
+    e.make_assembly();
+    assert_eq!(e.history().journal().count(), steps + 1);
+    let outer = e.document().assembly(part_of(&e, asm)).unwrap();
+    assert_eq!(outer.occurrences().len(), 1);
+    let made = outer.occurrences()[0].clone();
+    assert_eq!(e.document().assembly(made.component).unwrap().occurrences().len(), 2);
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![asm], made.id)]);
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].action, Some(NoticeAction::Rename(NameTarget::Component(made.component))));
+}
+
+#[test]
+fn an_assembly_emptied_goes() {
+    // Its parts erased from outside (« Pièces »): gone in the same step.
+    let (mut e, asm, [a, b], _) = two_in_an_assembly();
+    let root = e.document().root();
+    let steps = e.history().journal().count();
+    e.select_paths(vec![EntityPath::new(vec![asm], a), EntityPath::new(vec![asm], b)]);
+    e.delete_selection();
+    assert!(e.document().assembly(root).unwrap().occurrence(asm).is_none());
+    assert_eq!(e.history().journal().count(), steps + 1);
+    e.undo();
+    assert_eq!(e.document().assembly(part_of(&e, asm)).unwrap().occurrences().len(), 2, "one undo brings both back");
+
+    // Emptied from inside: kept while edited, gone once left, within the erasing step.
+    e.enter(asm);
+    e.select_all();
+    e.delete_selection();
+    assert!(e.document().assembly(root).unwrap().occurrence(asm).is_some(), "kept while edited");
+    e.exit();
+    assert!(e.document().assembly(root).unwrap().occurrence(asm).is_none(), "gone once left");
+    assert!(e.selection().is_empty());
+    assert_eq!(e.history().journal().count(), steps + 1);
+    e.undo();
+    assert_eq!(e.document().assembly(part_of(&e, asm)).unwrap().occurrences().len(), 2);
+
+    // Nested: an assembly holding only the emptied one goes as well, once left in turn.
+    e.select(vec![asm]);
+    e.make_assembly();
+    let top = e.selection()[0];
+    e.enter(top);
+    e.enter(asm);
+    e.select_all();
+    e.delete_selection();
+    e.exit();
+    assert!(e.document().assembly(root).unwrap().occurrence(top).is_some(), "the context, kept");
+    e.exit();
+    assert!(e.document().assembly(root).unwrap().occurrence(top).is_none());
+    e.undo();
+    assert!(e.document().assembly(root).unwrap().occurrence(top).is_some(), "one undo brings it all back");
+}
+
+#[test]
+fn what_is_made_unique_is_offered_its_name_by_a_toast() {
+    use skraft_model::Scope;
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "18");
+    let root = e.document().root();
+    let copy = |e: &mut Editor, o: Id| {
+        let op = Operation::Duplicate { context: root, entities: vec![o], transform: glam::DAffine3::from_translation(DVec3::X * 300.0) };
+        e.apply(op).unwrap().unwrap().created[0]
+    };
+    let a2 = copy(&mut e, a);
+    e.set_tool(ToolKind::Select);
+    // Already unique: nothing made, no toast.
+    let b = draw_box(&mut e, DVec3::new(0.0, 200.0, 0.0), DVec3::new(100.0, 300.0, 0.0), "18");
+    e.set_tool(ToolKind::Select);
+    e.take_notices();
+    e.select(vec![b]);
+    e.make_unique();
+    assert!(e.take_notices().is_empty());
+    // One made unique: its toast, a « Renommer » on its new part.
+    e.select(vec![a2]);
+    e.make_unique();
+    let made = part_of(&e, a2);
+    assert_ne!(made, part_of(&e, a));
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].title, format!("Pièce rendue unique : {}", e.document().component(made).unwrap().name));
+    assert_eq!(notices[0].action, Some(NoticeAction::Rename(NameTarget::Component(made))));
+    // Two at once: one toast that counts them, no button.
+    let c1 = copy(&mut e, a);
+    let c2 = copy(&mut e, b);
+    e.select(vec![c1, c2]);
+    e.make_unique();
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!((notices[0].title.as_str(), notices[0].action), ("2 éléments rendus uniques", None));
+
+    // A body made unique in an open part: its new definition.
+    let target = EntityPath::root(a);
+    let part = part_of(&e, a);
+    let body = e.document().part(part).unwrap().bodies[0].id;
+    let op = Operation::DuplicateBodies { target, bodies: vec![body], transform: glam::DAffine3::from_translation(DVec3::Z * 50.0), scope: Scope::All };
+    let twin = e.apply(op).unwrap().unwrap().bodies[0];
+    e.enter(a);
+    e.select(vec![twin]);
+    e.take_notices();
+    e.make_unique();
+    let def = e.document().part(part).unwrap().body(twin).unwrap().def;
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].action, Some(NoticeAction::Rename(NameTarget::BodyDef { part, def })));
+    assert!(notices[0].title.starts_with("Corps rendu unique : "), "{}", notices[0].title);
+    assert_eq!(e.naming_of(NameTarget::BodyDef { part, def }).unwrap().title, "Nom du corps");
 }
 
 #[test]

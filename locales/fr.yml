@@ -640,16 +640,29 @@ notice:
   import_empty: "%{file} : aucun solide à importer"
   import_failed: "Import de %{file} impossible"
   import_cancelled: "Import de %{file} annulé"
-  # A creation tool made a part (docs/tools/quick-tools.md); the toast's button names it.
+  # A creation tool made a part, « Créer un assemblage » an assembly or a group of bodies,
+  # « Rendre unique » a definition of its own (docs/tools/quick-tools.md); the toast's button names it.
   part_created: "Nouvelle pièce créée : %{name}"
+  assembly_created: "Nouvel assemblage créé : %{name}"
+  group_created: "Nouveau groupe créé : %{name}"
+  part_made_unique: "Pièce rendue unique : %{name}"
+  assembly_made_unique: "Assemblage rendu unique : %{name}"
+  group_made_unique: "Groupe rendu unique : %{name}"
+  body_made_unique: "Corps rendu unique : %{name}"
+  # Several made unique at once: no button.
+  many_made_unique: "%{count} éléments rendus uniques"
   rename: "Renommer"
 
-# The dialog naming a part just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
+# The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
 naming:
-  title: "Nom de la pièce"
+  title_part: "Nom de la pièce"
+  title_assembly: "Nom de l'assemblage"
+  title_group: "Nom du groupe"
+  title_body: "Nom du corps"
   ok: "OK"
   cancel: "Annuler"
   empty: "le nom est vide"
+  gone: "il n'existe plus"
 
 # The status bar: the measurements box and the editor's messages.
 status:
@@ -670,6 +683,8 @@ status:
   op_failed: "%{op} : %{error}"
   unexpected_reply: "réponse inattendue du noyau"
   nothing_to_group: "Sélectionner d'abord ce qu'il faut regrouper"
+  # « Créer un assemblage » under « Pièces » (docs/tools/selection.md).
+  group_one_assembly: "Les éléments à regrouper doivent être dans un même assemblage"
   no_guides: "Aucun guide ici"
   # Typing a count after a copy, when the copy was undone or replaced since.
   copy_not_last: "Le dernier pas n'est plus cette copie"

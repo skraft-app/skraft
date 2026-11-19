@@ -428,6 +428,7 @@ impl Operation {
             | Operation::Delete { context, .. }
             | Operation::SetHidden { context, .. }
             | Operation::PaintOccurrences { context, .. }
+            | Operation::MakeAssembly { context, .. }
             | Operation::AddPrimitive { context, .. } => Some(context),
             _ => None,
         }

@@ -373,8 +373,9 @@ A body definition takes a name given by the user, as a part's.
   occurrence has a name of its own (« Instance <Composant> », the entity info's
   « Occurrence »), that name when the double-click is on it, or on F2 (`RenameOccurrence`;
   emptied, cleared), alone in the field, the row's whole width.
-- **No naming at creation**: « Nommage des pièces » ([Quick tools after a creation, naming a part just made](../tools/quick-tools.md)) stays for parts; a body
-  added to an open part is not asked its name.
+- **No naming at creation**: « Nommage des pièces » ([Quick tools after a creation, naming what was just made](../tools/quick-tools.md)) stays for parts; a body
+  added to an open part is not asked its name. A group made, or a body made unique, is offered
+  its name by a toast ([Naming what was just made](../tools/quick-tools.md#naming-what-was-just-made)).
 
 ## Automatic names
 
