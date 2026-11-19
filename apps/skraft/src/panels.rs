@@ -66,6 +66,9 @@ pub enum Action {
     /// A body of a part chosen in the outliner (docs/model/bodies.md#body-groups): the part, and the group
     /// the path names, opened; the body selected or deselected, Shift (`true`) adding it.
     SelectBody(EntityPath, Id, bool),
+    /// The body node `Id` of the part (or group) open: opened, its tool started on its edges
+    /// (docs/tools/rounds.md).
+    EditBlend(Id),
     /// A body's « Profil » row chosen in the outliner: its part (and group) opened, its profile
     /// edited.
     EditProfile(EntityPath, Id),
@@ -192,7 +195,13 @@ pub fn option_card(style: &egui::Style) -> egui::Frame {
 /// Whether the context card has anything to show (docs/ui/interface.md#context-card): the
 /// selection's scope of a tool that picks parts, or the open part's scope.
 pub fn has_context_options(editor: &Editor) -> bool {
-    shows_part_scope(editor) || editor.tool_options().iter().any(is_context_option)
+    shows_part_scope(editor) || editor.tool_options().iter().any(is_context_option) || shows_open_node(editor)
+}
+
+/// A round or a chamfer open, another tool on: the card says it, and how its edges are changed
+/// (docs/tools/rounds.md).
+fn shows_open_node(editor: &Editor) -> bool {
+    !editor.blending() && editor.open_node().is_some()
 }
 
 /// Whether the tool's card has anything to show: the active tool's own options, or an open
@@ -256,6 +265,21 @@ pub fn context_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Act
         let mut first = true;
         for o in options.iter().filter(|o| is_context_option(o)) {
             choice_option(ui, &mut first, o, actions);
+        }
+        // The node open: its name and size, its edges picked again from here.
+        if shows_open_node(editor)
+            && let Some((node, name, op)) = editor.open_node()
+        {
+            option_group(ui, &mut first, &name, &t!("option_bar.node_open_tip"));
+            let size = editor.document().settings().units.format(op.size);
+            let size = match op.blend {
+                skraft_model::kernel::names::Blend::Round => t!("panel.outliner.round_size", size = size),
+                skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
+            };
+            ui.label(size);
+            if ui.button(t!("panel.entity_info.blend_edges")).on_hover_text(t!("panel.entity_info.blend_edges_tip")).clicked() {
+                actions.push(Action::EditBlend(node));
+            }
         }
         if shows_part_scope(editor) {
             option_group(ui, &mut first, &t!("tool.boolean.option.scope"), &t!("option_bar.part_scope_tip"));
@@ -816,6 +840,8 @@ fn nature_icon(nature: Nature) -> egui::ImageSource<'static> {
         Nature::Revolution => icons::REVOLUTION,
         Nature::Solid => icons::SOLID,
         Nature::Group => icons::GROUP,
+        Nature::Round => icons::ROUND,
+        Nature::Chamfer => icons::CHAMFER,
     }
 }
 
@@ -1010,12 +1036,16 @@ pub fn outliner(
             let o = row.occurrence;
             // The part open: selected while none of its bodies is (a body selected is marked on
             // its own row, not its part's).
-            let open = editor.open_part() == Some(o.id) && selection.is_empty() && editing.is_none();
+            // The part open: marked open when it is the level open, else (a group open in it) only
+            // as on the way to it, its name in the accent's colour (docs/model/opening-a-part.md).
+            let open_here = editor.open_part() == Some(o.id) && editor.context() == row.path.as_slice();
+            let open = open_here && editor.open_group().is_empty() && selection.is_empty() && editing.is_none();
+            let on_path = open_here && !editor.open_group().is_empty();
             let selected = (editor.context() == row.path.as_slice() && (selection.contains(&o.id) || open))
                 || editor.deep_selection().iter().any(|p| p.instances == row.path && p.entity == o.id);
             // Hidden, itself or by an assembly above: greyed.
             let greyed = o.hidden || row.hidden_above;
-            let tint = if selected {
+            let tint = if selected || on_path {
                 on_selection
             } else if greyed {
                 hidden_color(ui.visuals(), false)
@@ -1576,12 +1606,19 @@ fn body_row(
     let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
     let open = editor.open_part_path().as_ref() == Some(&path);
     let shown = open && editor.showing_machinings();
-    let selected = shown && editor.selection().contains(&b.body.id);
+    // A group (a node) open: its row marked open, as a part's is, while nothing in it is
+    // selected; those on the way to it, their name in the accent's colour.
+    let inner: Vec<Id> = b.group.iter().copied().chain([b.body.id]).collect();
+    let open_path = editor.open_part_path().filter(|o| o.part_path() == path.part_path());
+    let is_open = open_path.as_ref().is_some_and(|o| o.group == inner);
+    let on_path = open_path.as_ref().is_some_and(|o| o.group.len() > inner.len() && o.group.starts_with(&inner));
+    let open_mark = is_open && editor.selection().is_empty() && editor.profile_body().is_none();
+    let selected = (shown && editor.selection().contains(&b.body.id)) || open_mark;
     let lit = shown && editor.hovered_machining() == Some(b.body.id);
     let greyed = row.occurrence.hidden || row.hidden_above;
     let v = ui.visuals();
     let weak = v.weak_text_color();
-    let tint = if selected {
+    let tint = if selected || on_path {
         v.selection.stroke.color
     } else if greyed {
         hidden_color(v, true)
@@ -1640,6 +1677,16 @@ fn body_row(
                     let color = if failed { ui.visuals().error_fg_color } else { tint };
                     let back = band_color(ui.visuals());
                     let (_, split) = instance_label(ui, &b.body.name, &b.label(), !def.named, color, selected, back);
+                    // A body node's size after its name (docs/tools/rounds.md).
+                    if let Some(op) = def.op() {
+                        let size = editor.document().settings().units.format(op.size);
+                        let text = match op.blend {
+                            skraft_model::kernel::names::Blend::Round => t!("panel.outliner.round_size", size = size),
+                            skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
+                        };
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new(text).color(weak));
+                    }
                     (None, split)
                 })
                 .inner;
@@ -1647,7 +1694,9 @@ fn body_row(
         })
         .inner
     });
-    let response = if warned {
+    let response = if let Some(r) = b.part.refusal_of(b.body.id) {
+        response.on_hover_text(skraft_model::blend_refusal(r))
+    } else if warned {
         let tip = match (inner, def.solid.is_empty()) {
             (true, _) => t!("panel.outliner.failed_inside_group"),
             (false, true) => t!("panel.outliner.empty_group"),
@@ -2118,7 +2167,12 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
     let field = (ui.available_width() - 90.0).max(60.0);
     egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
         ui.label(t!("panel.entity_info.type"));
-        ui.label(if def.is_group() { t!("panel.entity_info.type_group") } else { t!("panel.entity_info.type_body") });
+        ui.label(match def.nature() {
+            Nature::Round => t!("default_name.round"),
+            Nature::Chamfer => t!("default_name.chamfer"),
+            _ if def.is_group() => t!("panel.entity_info.type_group"),
+            _ => t!("panel.entity_info.type_body"),
+        });
         ui.end_row();
         // Its definition's: every copy shows it; emptied, it is named by its nature again.
         field_label(ui, t!("panel.entity_info.name"));
@@ -2138,9 +2192,51 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             Sign::Negative => t!("panel.entity_info.role_negative"),
         });
         ui.end_row();
+        // A body node's size, edited here (docs/tools/rounds.md).
+        if let Some(op) = def.op() {
+            let label = match op.blend {
+                skraft_model::kernel::names::Blend::Round => t!("tool.round.vcb"),
+                skraft_model::kernel::names::Blend::Chamfer => t!("tool.chamfer.vcb"),
+            };
+            field_label(ui, label);
+            let shown = units.format(op.size);
+            let exact = format!("{}{}", units.exact_number(op.size), units.suffix());
+            let f = Field {
+                tip: None,
+                width: field,
+                align: egui::Align2::RIGHT_CENTER,
+                lit: false,
+                addon: None,
+                blur_applies: true,
+                empty_applies: false,
+                handle: Some("info:blend_size".into()),
+            };
+            let id = ui.make_persistent_id(("info_blend_size", b.id));
+            if let Some(text) = ui.vertical(|ui| framed_field(ui, id, &shown, &exact, f)).inner
+                && let Ok(size) = measure::length(&text, units, op.size)
+                && size > 0.0
+                && let Some(target) = editor.open_part_path()
+            {
+                let scope = editor.part_scope();
+                actions.push(Action::Apply(Operation::SetBlend { target, body: b.id, blend: op.blend, size, picks: Vec::new(), scope }));
+            }
+            ui.end_row();
+            // Its edges, picked again on its children (the node opened).
+            ui.label("");
+            if ui.button(t!("panel.entity_info.blend_edges")).on_hover_text(t!("panel.entity_info.blend_edges_tip")).clicked() {
+                actions.push(Action::EditBlend(b.id));
+            }
+            ui.end_row();
+        }
         if p.is_failed(b.id) {
             ui.label(t!("panel.entity_info.state"));
-            let error = if def.solid.is_empty() { t!("panel.entity_info.empty") } else { t!("panel.entity_info.failed") };
+            let error = if let Some(r) = p.refusal_of(b.id) {
+                skraft_model::blend_refusal(r)
+            } else if def.solid.is_empty() {
+                t!("panel.entity_info.empty")
+            } else {
+                t!("panel.entity_info.failed")
+            };
             cut_label(ui, egui::RichText::new(error).color(ui.visuals().error_fg_color), field);
             ui.end_row();
         }

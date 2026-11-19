@@ -46,9 +46,22 @@ pub enum Task {
         base: Option<u32>,
         positives: Vec<(u32, DAffine3)>,
         negatives: Vec<(u32, DAffine3)>,
+        /// A group's: its inputs named, for its result's face map
+        /// (docs/decisions/0042-body-nodes-operators.md).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        names: Option<crate::names::RecipeNames>,
     },
     /// `inputs[solid]` stretched (docs/tools/stretch.md), read back by the kernel.
     Stretch { solid: u32, stretch: Stretch },
+    /// A body node (docs/decisions/0042-body-nodes-operators.md): its `children` computed from
+    /// their leaves in one session, then `op` applied to the edges its names match — or, with
+    /// `picks` (points in the node's axes, the tool's), to the edges nearest them, named.
+    Node {
+        children: Vec<crate::names::TreeBody>,
+        op: crate::names::NodeOp,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        picks: Vec<[f64; 3]>,
+    },
     /// The display mesh and snap features of `inputs[solid]`, at `quality`.
     Display {
         solid: u32,
@@ -110,6 +123,21 @@ pub enum Output {
         solid: Solid,
         display: Result<Display, String>,
         failed: Vec<u32>,
+        /// Its faces' names, when the task named its inputs and the session gave them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        faces: Option<crate::names::FaceMap>,
+    },
+    /// A node's solid, the edges it took (by name), its children whose boolean failed (by
+    /// path of body ids), and why it left its children's result as it was.
+    Node {
+        solid: Solid,
+        display: Result<Display, String>,
+        /// Its result's face map (relative to it).
+        #[serde(default)]
+        faces: crate::names::FaceMap,
+        edges: Vec<crate::names::NodeEdges>,
+        failed: Vec<Vec<u64>>,
+        refusal: Option<crate::names::NodeRefusal>,
     },
     /// A STEP file read (boxed: far larger than the others).
     Step(Box<crate::StepImport>),

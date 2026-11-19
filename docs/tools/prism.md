@@ -181,6 +181,16 @@ solver. Not yet: chains of arcs tangent to each other (an S) may lose their tang
 
 Decision record: [Profile edits keep the shape without a solver](../decisions/0019-profile-edits-keep-shape-without-solver.md)
 
+### Sides have ids
+
+Each corner carries the **id of the side leaving it** (`Corner::id`), kept by every edit (a
+corner moved, a side shifted, a fillet's radius, the outline reversed: the id goes with its
+side); a corner inserted, or one split from another, gets the next free id
+(`profile::settle_ids`, when a profile is made, read or set). The faces a side makes are
+named by it, a fillet's by its corner's — what a body node's edges are named by
+([Body nodes](../model/bodies.md#body-nodes)): a name by the side's position would move to
+another edge when a corner is inserted.
+
 ### Fillets are radii
 
 `Corner { p, bulge, fillet }` — `fillet`, a radius on a sharp corner between two straight sides

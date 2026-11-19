@@ -357,6 +357,23 @@ impl Editor {
     }
 
     /// What to draw now.
+    /// When a body node lies on the way to the group open (docs/tools/rounds.md): the bodies of
+    /// each level above it but those on the way — their meshes (the recipe's), placed in the
+    /// world, and signs —, drawn faded instead of the part's shape.
+    fn around_open_node(&self) -> Option<Vec<(Id, DAffine3, skraft_model::Sign)>> {
+        let open = self.open_part_path()?;
+        let doc = self.document();
+        let mut out = Vec::new();
+        let mut node = false;
+        for (level, &next) in open.group.iter().enumerate() {
+            let path = open.part_path().in_group(open.group[..level].to_vec());
+            let (_, p, t) = doc.resolve_container(&path).ok()?;
+            node |= p.body(next).is_some_and(|b| p.def_of(b).op().is_some());
+            out.extend(p.bodies.iter().filter(|b| b.id != next).map(|b| (crate::scene::recipe_key(b.def), t * b.placement, b.sign)));
+        }
+        node.then_some(out)
+    }
+
     pub fn view(&self) -> View {
         let mut v = View::default();
         let doc = self.document();
@@ -366,9 +383,12 @@ impl Editor {
         let hide_original = (preview.ghost.is_some() || preview.away) && !self.tool_copying();
         let depth = self.context.len();
         let open = self.open_part_path();
+        // A body node on the way to the group open (docs/tools/rounds.md): the part's shape is its
+        // result, not drawn over its children shown raw; the bodies around the way, faded.
+        let around_node = self.around_open_node();
         // What a tool previews stretched (docs/tools/stretch.md): each occurrence it changes drawn from its
         // preview mesh, or where it moves (`stretch_swaps`).
-        let swaps = if preview.stretch.is_some() { Some(&self.stretch_swaps) } else { None };
+        let swaps = if preview.stretch.is_some() || preview.blend.is_some() { Some(&self.stretch_swaps) } else { None };
         let swap = |p: &crate::scene::Placement| swaps.and_then(|s| s.get(&p.entity_path())).copied();
         // An open part showing its machinings is drawn as its recipe instead — but stretched,
         // as its shape.
@@ -402,6 +422,7 @@ impl Editor {
                 || (hide_original && p.path.starts_with(&self.context) && p.path.get(depth).is_some_and(|id| selected.contains(id)))
                 || (hide_original && under_any(&drawing.deep, &p.path, depth))
                 || (recipe.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == *o))
+                || (around_node.is_some() && open.as_ref().is_some_and(|o| p.entity_path() == o.part_path()))
         };
         // What the eraser would take: the context's occurrences (and the solids under them)
         // or the open part's machinings, drawn as ghosts, in batches of their own.
@@ -455,7 +476,7 @@ impl Editor {
                 .find(|(p, _)| *p == r.part)
                 .and_then(|(_, places)| places.iter().find(|p| p.entity_path() == *o).and_then(|p| p.material));
             // A body stretched is drawn as previewed (docs/model/bodies.md).
-            let body_swaps = if preview.stretch.is_some() { Some(&self.body_swaps) } else { None };
+            let body_swaps = if preview.stretch.is_some() || preview.blend.is_some() { Some(&self.body_swaps) } else { None };
             let drawn = |b: &crate::scene::RecipeTool| body_swaps.and_then(|s| s.get(&b.body)).copied().unwrap_or((b.key, b.placement));
             // A body open (its profile edited): the others faded, as what lies outside any
             // context (docs/model/bodies.md#edit-levels).
@@ -512,6 +533,12 @@ impl Editor {
             v.batches.extend(tools);
             v.batches.extend(tool_ghosts);
             v.batches.extend(tool_faint);
+            // Around a node open: the bodies of the levels above, faded, each where it is.
+            for (key, transform, sign) in around_node.iter().flatten() {
+                let look = if *sign == skraft_model::Sign::Positive { Look::Blank } else { Look::Tool };
+                let p = ViewPlacement { transform: *transform, faded: true, material, look, ghost: true, faint_edges: false };
+                v.batches.push((*key, vec![p]));
+            }
             // Each profiled body's bottom cap, where it is drawn: not one stretched (its
             // preview mesh no longer matches its profile), nor one moved (drawn elsewhere), nor
             // one faded.
@@ -787,6 +814,18 @@ impl Editor {
                 if self.tracked.contains(&origin) {
                     d.line(origin, i.point);
                 }
+            }
+        }
+        // A node open (docs/tools/rounds.md): its edges lit on its children, whatever the tool
+        // but its own (which draws them as it picks them).
+        if !self.blending()
+            && let Some((_, _, op)) = self.open_node()
+        {
+            let cx = self.cx();
+            let edges = tools::BlendTool::load(&cx, &op);
+            let d = &mut Drawer::new(&self.camera, self.size, &doc.settings().units, &mut v.drawing);
+            for e in &edges {
+                d.pen(Pen::new(Color::Theme(ThemeColor::Selected)).bold().over()).polyline(&e.drawn);
             }
         }
         v.inference = preview.inference.map(|i| (i.point, i.kind));

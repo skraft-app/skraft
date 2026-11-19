@@ -128,6 +128,12 @@ impl Cached {
 /// document's counter).
 const RECIPE_KEY: u64 = 1 << 63;
 const TOOL_KEY: u64 = 1 << 62;
+/// The key of the mesh of a body definition of the part open (its recipe's,
+/// [`DisplayScene::sync`]).
+pub fn recipe_key(def: Id) -> Id {
+    Id(RECIPE_KEY | TOOL_KEY | def.0)
+}
+
 /// The key of the first mesh a tool previews in a part's stead (a part stretched, docs/tools/stretch.md
 /// ); the others follow it ([`preview_key`]).
 pub const PREVIEW_KEY: Id = Id(1 << 61);

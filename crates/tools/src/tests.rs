@@ -7060,3 +7060,121 @@ fn library_places_a_component_carried_by_its_origin() {
     e.select_model();
     assert_eq!(root, e.document().root());
 }
+
+#[test]
+fn round_tool_picks_edges_previews_and_applies() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
+    // Another part beside it.
+    draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(500.0, 100.0, 0.0), "10");
+    let path = EntityPath::root(a);
+    let volume = |e: &Editor| e.document().resolve_part(&path).unwrap().1.shape().volume().unwrap();
+    let sharp = volume(&e);
+    e.select(Vec::new());
+    e.set_tool(ToolKind::Round);
+    // The top's edge along y = 0, seen from above: picked, then the radius typed.
+    click(&mut e, DVec3::new(100.0, 0.0, 20.0));
+    // An edge of another part is not taken once one of this one is.
+    click(&mut e, DVec3::new(400.0, 0.0, 10.0));
+    e.input(ToolInput::Vcb("5".into()));
+    let preview = e.preview().blend.expect("a round previewed");
+    assert!(matches!(&preview.op, Operation::Blend { size, picks, .. } if *size == 5.0 && picks.len() == 1), "{:?}", preview.op);
+    assert!(e.tool_awaits_validation());
+    // The kernel's preview: no refusal.
+    e.poll();
+    assert!(!e.status().contains("mm au plus"), "{}", e.status());
+    key(&mut e, Key::Enter);
+    e.poll();
+    let off = (1.0 - std::f64::consts::FRAC_PI_4) * 25.0 * 200.0;
+    assert!((volume(&e) - (sharp - off)).abs() < 1e-2, "{} vs {}: {}", volume(&e), sharp - off, e.status());
+    let (_, part, _) = e.document().resolve_part(&path).unwrap();
+    assert_eq!(part.def_of(&part.bodies[0]).nature(), skraft_model::Nature::Round);
+    assert!(e.preview().blend.is_none(), "the picks gone once applied");
+}
+
+#[test]
+fn round_tool_picks_a_node_s_edges_again_in_it() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
+    let path = EntityPath::root(a);
+    let volume = |e: &Editor| e.document().resolve_part(&path).unwrap().1.shape().volume().unwrap();
+    let sharp = volume(&e);
+    e.select(Vec::new());
+    e.set_tool(ToolKind::Round);
+    click(&mut e, DVec3::new(100.0, 0.0, 20.0));
+    e.input(ToolInput::Vcb("5".into()));
+    key(&mut e, Key::Enter);
+    e.poll();
+    let off = (1.0 - std::f64::consts::FRAC_PI_4) * 25.0;
+    assert!((volume(&e) - (sharp - off * 200.0)).abs() < 1e-2);
+    // The part opened, its node's edges picked again there: one more (along x = 200).
+    e.set_tool(ToolKind::Select);
+    e.enter(a);
+    let node = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
+    e.edit_blend(node);
+    assert_eq!(e.open_group(), &[node]);
+    assert_eq!(e.tool_kind(), ToolKind::Round);
+    // Its edges as they are: nothing to validate yet.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 50.0, 20.0)) });
+    assert!(!e.tool_awaits_validation());
+    click(&mut e, DVec3::new(200.0, 50.0, 20.0));
+    let preview = e.preview().blend.expect("the node changed, previewed");
+    assert!(matches!(&preview.op, Operation::SetBlend { picks, size, .. } if picks.len() == 2 && *size == 5.0), "{:?}", preview.op);
+    assert!(e.tool_awaits_validation());
+    key(&mut e, Key::Enter);
+    e.poll();
+    // Validated: the node closed and selected, the selection tool back, nothing waiting.
+    assert!(e.open_group().is_empty());
+    assert_eq!(e.tool_kind(), ToolKind::Select);
+    assert_eq!(e.selection(), &[node]);
+    assert!(!e.tool_awaits_validation());
+    // The two rounds meet at the corner: a little less than both.
+    let both = sharp - off * 300.0;
+    assert!((volume(&e) - both).abs() < 30.0, "{} vs {both}: {}", volume(&e), e.status());
+    let (_, part, _) = e.document().resolve_part(&path).unwrap();
+    assert_eq!(part.def_of(&part.bodies[0]).op().unwrap().edges.len(), 2);
+}
+
+#[test]
+fn a_node_opened_shows_its_children_raw_and_the_bodies_around_it_faded() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
+    let root = e.document().root();
+    let drill = e
+        .apply(Operation::AddPrimitive {
+            context: root,
+            primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 50.0, -5.0), radius: 5.0, height: 30.0 },
+            placement: glam::DAffine3::IDENTITY,
+            material: None,
+        })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    e.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(drill), Boolean::Difference, skraft_model::Scope::All)).unwrap();
+    let path = EntityPath::root(a);
+    let (part, p, _) = e.document().resolve_part(&path).unwrap();
+    let (board, hole) = (p.positives().next().unwrap().id, p.negatives().next().unwrap());
+    let (hole, hole_def) = (hole.id, hole.def);
+    // The board alone rounded, in the part open: the drill stays beside the node.
+    e.select(Vec::new());
+    e.enter(a);
+    e.set_tool(ToolKind::Round);
+    click(&mut e, DVec3::new(100.0, 0.0, 20.0));
+    key(&mut e, Key::Enter);
+    e.poll();
+    let (_, p, _) = e.document().resolve_part(&path).unwrap();
+    let node = p.positives().next().unwrap().id;
+    assert!(p.def_of(p.body(node).unwrap()).op().is_some() && p.body(hole).is_some() && p.body(board).is_none());
+    // The node opened: the part's shape (its result) not drawn; the drill, around it, faded.
+    e.set_tool(ToolKind::Select);
+    e.enter(node);
+    assert_eq!(e.open_group(), &[node]);
+    let v = e.view();
+    assert!(!v.batches.iter().any(|(def, ps)| *def == part && !ps.is_empty()), "the part's shape hidden");
+    let around = v.batches.iter().find(|(def, _)| *def == crate::scene::recipe_key(hole_def)).expect("the drill drawn");
+    assert!(around.1.iter().all(|p| p.faded && p.ghost));
+    // Under the selection tool, the node said open, by its name, with how its edges change.
+    let (open, name, _) = e.open_node().expect("the node open");
+    assert_eq!(open, node);
+    assert!(!e.blending() && e.status().contains(&name), "{}", e.status());
+}

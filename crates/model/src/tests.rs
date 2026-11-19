@@ -2272,7 +2272,7 @@ fn a_positive_body_joins_the_part_and_every_negative_cuts_it() {
     };
     let Prepared::Kernel(job) = h.document().prepare(&op).unwrap() else { panic!() };
     assert!(
-        matches!(&job.tasks[..], [kernel::Task::Primitive { .. }, kernel::Task::Recipe { base: Some(_), positives, negatives }] if positives.len() == 1 && negatives.len() == 1),
+        matches!(&job.tasks[..], [kernel::Task::Primitive { .. }, kernel::Task::Recipe { base: Some(_), positives, negatives, .. }] if positives.len() == 1 && negatives.len() == 1),
         "{:?}",
         job.tasks
     );

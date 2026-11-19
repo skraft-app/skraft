@@ -48,3 +48,4 @@ state and link the records behind it.
 | 0039 | [The .skraft file is a ZIP of JSON entries](0039-file-format-zip-of-json-entries.md) | accepted (2026-11-19) |
 | 0040 | [Typed properties, their schema optional](0040-typed-properties-schema-optional.md) | accepted (2026-11-19) |
 | 0041 | [Textures by box projection, materials alone in a .skraftmat](0041-textures-and-materials-files.md) | accepted (2026-11-19) |
+| 0042 | [Body nodes: an operation applied to the children, the part's tree as its history](0042-body-nodes-operators.md) | accepted (2026-11-19; not built yet) |

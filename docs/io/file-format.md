@@ -37,7 +37,9 @@ model.skraft
   from them, kept to open without computing them again — the parts' shapes (present exactly when
   a part is not its single positive body), the profiled bodies' and the groups' solids. A
   cache equal to a source is that source. A file is refused when a solid it names is missing,
-  caches included: they are not computed again on opening.
+  caches included: they are not computed again on opening. A group's cache comes with its
+  **face map** (`faces`, `faces_of`: its faces' names and the fingerprint of the solid they
+  name, in the document's JSON, [Body nodes](../model/bodies.md#body-nodes)).
 - **The images** ([Textures](../render/look.md#textures)): one entry each, its name its id
   (128 bits of the BLAKE3 hash of its bytes) and its kind's extension, not compressed again;
   `document.json`'s `assets` names them with their kind (`"<id>": "jpeg"`). A file naming an

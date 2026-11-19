@@ -18,6 +18,7 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
+use skraft_kernel::names::{Blend, FaceMap, InputNames, NodeEdges, NodeOp, NodeRefusal, RecipeNames, TreeBody, TreeNode};
 use skraft_kernel::{BooleanOp, Display, EARLIER, Job, Output, Primitive, Solid, Stretch, Task};
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -306,6 +307,33 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
+    /// Rounds or chamfers edges of the bodies `bodies` of the part `target` places
+    /// (docs/decisions/0042-body-nodes-operators.md): a body node takes their place, where the
+    /// first of them stood, they its children; its edges those nearest `picks` (points in the
+    /// part's axes, on its children's result), named in its children. Negatives alone make a
+    /// negative node of positive children (a machining rounded). Refused when the kernel does
+    /// not build it (a size too large: [`Error::Blend`] says the largest).
+    Blend {
+        target: EntityPath,
+        bodies: Vec<Id>,
+        blend: Blend,
+        size: f64,
+        picks: Vec<DVec3>,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Changes the body node `body` of the part `target` places: its kind and size, and with
+    /// `picks` (not empty) its edges, taken again nearest them. Every copy of the node shows it.
+    SetBlend {
+        target: EntityPath,
+        body: Id,
+        blend: Blend,
+        size: f64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        picks: Vec<DVec3>,
+        #[serde(default)]
+        scope: Scope,
+    },
     /// Sets how `component` is stretched: its locked axes and its cutters (docs/tools/stretch.md
     /// ). Every occurrence shows it; no scope. Changes in a row to one component undo
     /// in one go.
@@ -474,6 +502,9 @@ impl Operation {
             Operation::Stretch { .. } | Operation::StretchBodies { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
             Operation::SetProfile { .. } => t!("operation.set_profile"),
+            Operation::Blend { blend: Blend::Round, .. } => t!("operation.round"),
+            Operation::Blend { blend: Blend::Chamfer, .. } => t!("operation.chamfer"),
+            Operation::SetBlend { .. } => t!("operation.set_blend"),
             Operation::At { op, .. } => op.label(),
             Operation::Batch(ops) => ops.first().map_or_else(|| t!("operation.batch"), |op| op.label()),
         }
@@ -511,6 +542,8 @@ impl Operation {
             | Operation::CopyBodies { target, scope, .. }
             | Operation::StretchBodies { target, scope, .. }
             | Operation::SetProfile { target, scope, .. }
+            | Operation::Blend { target, scope, .. }
+            | Operation::SetBlend { target, scope, .. }
             | Operation::PasteBodies { target, scope, .. }
             | Operation::PasteParts { target, scope, .. }
             | Operation::GroupBodies { target, scope, .. }
@@ -614,6 +647,48 @@ impl Document {
             return Ok(Prepared::Done(Box::new(Applied { document: doc, outcome, displays: Vec::new() })));
         }
         Ok(Prepared::Kernel(recorder.job))
+    }
+
+    /// The kernel job previewing the round or chamfer `op` ([`Operation::Blend`], or a node
+    /// changed, [`Operation::SetBlend`]) — the node's
+    /// task alone, not the part computed again around it: its output is the node's solid, or
+    /// why the kernel refuses it (docs/tools/rounds.md).
+    pub fn blend_job(&self, op: &Operation) -> Result<Job> {
+        let (Operation::Blend { target, .. } | Operation::SetBlend { target, .. }) = op else {
+            return Err(Error::Invalid(Refusal::NotANode));
+        };
+        let (_, p, _) = self.resolve_container(target)?;
+        let (children, node, picks) = match op {
+            Operation::Blend { bodies, blend, size, picks, .. } => {
+                let mut children: Vec<Body> = p.bodies.iter().filter(|b| bodies.contains(&b.id)).cloned().collect();
+                // As the operation makes it: negatives alone, a machining rounded.
+                if children.iter().all(|b| b.sign == Sign::Negative) {
+                    children.iter_mut().for_each(|c| c.sign = Sign::Positive);
+                }
+                (children, NodeOp { blend: *blend, size: *size, edges: Vec::new() }, picks)
+            }
+            // A node changed: its children as they are, its edges kept unless picked again.
+            Operation::SetBlend { body, blend, size, picks, .. } => {
+                let b = p.body(*body).ok_or(Error::NotFound(*body))?;
+                let g = p.def(b.def).and_then(|d| d.group.as_ref()).ok_or(Error::Invalid(Refusal::NotANode))?;
+                let edges = match (&g.op, picks.is_empty()) {
+                    (Some(op), true) => op.edges.clone(),
+                    (Some(_), false) => Vec::new(),
+                    (None, _) => return Err(Error::Invalid(Refusal::NotANode)),
+                };
+                (g.children.clone(), NodeOp { blend: *blend, size: *size, edges }, picks)
+            }
+            _ => return Err(Error::Invalid(Refusal::NotANode)),
+        };
+        if children.is_empty() {
+            return Err(Error::Invalid(Refusal::NoBodies));
+        }
+        let mut leaves = Vec::new();
+        let children = tree(&p.defs, &children, &mut leaves)?;
+        let mut recorder = Recorder::default();
+        let picks: Vec<[f64; 3]> = picks.iter().map(|p| p.to_array()).collect();
+        recorder.node(&leaves, &children, &node, &picks)?;
+        Ok(recorder.job)
     }
 
     /// Applies `op` with the outputs of the job [`Document::prepare`] gave for it, on this same
@@ -1391,7 +1466,77 @@ impl Document {
                 // Its definition's: every copy of the body shows it.
                 if let Some(d) = self.part_mut(part)?.defs.iter_mut().find(|d| d.id == def) {
                     d.solid = solid;
-                    d.profile = Some(profile.clone());
+                    // A corner the edit inserted gets its id: its side's name.
+                    d.profile = Some(profile.clone().settled());
+                }
+                self.recompute(part, None, solver)?;
+                Ok(Outcome::default())
+            }
+            Operation::Blend { target, bodies, blend, size, picks, scope } => {
+                let (part, _, ids) = self.bodies_of(target, bodies, *scope)?;
+                if ids.is_empty() || !(size.is_finite() && *size > 0.0) {
+                    return Err(Error::Invalid(Refusal::NoBodies));
+                }
+                let p = self.part(part)?;
+                let defs = p.defs.clone();
+                let mut children: Vec<Body> = p.bodies.iter().filter(|b| ids.contains(&b.id)).cloned().collect();
+                // Negatives alone: a machining rounded, its children the shape it takes away.
+                let negative = children.iter().all(|b| b.sign == Sign::Negative);
+                if negative {
+                    children.iter_mut().for_each(|c| c.sign = Sign::Positive);
+                }
+                let op = NodeOp { blend: *blend, size: *size, edges: Vec::new() };
+                let group = crate::BodyGroup { op: Some(op), ..crate::BodyGroup::plain(children, BTreeSet::new()) };
+                let picks: Vec<[f64; 3]> = picks.iter().map(|p| p.to_array()).collect();
+                let (solid, group) = Self::computed_group(&defs, group, &picks, solver)?;
+                if let Some(r) = &group.refused {
+                    return Err(Error::Blend(r.clone()));
+                }
+                let def = BodyDef { group: Some(group), ..BodyDef::new(self.fresh_id(), solid) };
+                let sign = if negative { Sign::Negative } else { Sign::Positive };
+                let body = Body::new(self.fresh_id(), def.id, sign, DAffine3::IDENTITY);
+                let id = body.id;
+                let p = self.part_mut(part)?;
+                let at = p.bodies.iter().position(|b| ids.contains(&b.id)).unwrap_or(p.bodies.len());
+                p.bodies.retain(|b| !ids.contains(&b.id));
+                p.bodies.insert(at.min(p.bodies.len()), body);
+                p.defs.push(def);
+                p.failed.retain(|f| !ids.contains(f));
+                self.recompute(part, None, solver)?;
+                Ok(Outcome { bodies: vec![id], ..Outcome::default() })
+            }
+            Operation::SetBlend { target, body, blend, size, picks, scope } => {
+                if !(size.is_finite() && *size > 0.0) {
+                    return Err(Error::Invalid(Refusal::NotANode));
+                }
+                let (_, p, _) = self.resolve_part(target)?;
+                let b = p.body(*body).ok_or(Error::NotFound(*body))?;
+                let def = b.def;
+                if p.def(def).and_then(|d| d.op()).is_none() {
+                    return Err(Error::Invalid(Refusal::NotANode));
+                }
+                if *scope == Scope::This {
+                    self.separate(target)?;
+                }
+                let (part, p, _) = self.resolve_part(target)?;
+                let defs = p.defs.clone();
+                let mut group = defs.iter().find(|d| d.id == def).and_then(|d| d.group.clone()).ok_or(Error::NotFound(def))?;
+                if let Some(op) = &mut group.op {
+                    op.blend = *blend;
+                    op.size = *size;
+                    if !picks.is_empty() {
+                        op.edges.clear();
+                    }
+                }
+                let picks: Vec<[f64; 3]> = picks.iter().map(|p| p.to_array()).collect();
+                let (solid, group) = Self::computed_group(&defs, group, &picks, solver)?;
+                if let Some(r) = &group.refused {
+                    return Err(Error::Blend(r.clone()));
+                }
+                // Its definition's: every copy of the node shows it.
+                if let Some(d) = self.part_mut(part)?.defs.iter_mut().find(|d| d.id == def) {
+                    d.solid = solid;
+                    d.group = Some(group);
                 }
                 self.recompute(part, None, solver)?;
                 Ok(Outcome::default())
@@ -1499,8 +1644,8 @@ impl Document {
             }
         }
         let all: Vec<BodyDef> = defs.iter().chain(&extra).cloned().collect();
-        let (solid, failed) = Self::group_result(&all, &children, solver)?;
-        let group = crate::BodyGroup { children, failed };
+        let group = crate::BodyGroup { children, ..def.group.clone().unwrap_or_default() };
+        let (solid, group) = Self::computed_group(&all, group, &[], solver)?;
         Ok((BodyDef { solid, group: Some(group), ..def.clone() }, extra))
     }
 
@@ -1644,6 +1789,19 @@ impl Document {
                 c.id = id;
             }
             g.failed = g.failed.iter().filter_map(|f| map.iter().find(|(old, _)| old == f).map(|(_, new)| *new)).collect();
+            // The names its node and its face map give start with a child's id: theirs too
+            // (docs/decisions/0042-body-nodes-operators.md).
+            let renamed = |t: &mut skraft_kernel::names::FaceTag| {
+                if let Some(first) = t.path.first_mut()
+                    && let Some((_, new)) = map.iter().find(|(old, _)| old.0 == *first)
+                {
+                    *first = new.0;
+                }
+            };
+            if let Some(op) = &mut g.op {
+                op.edges.iter_mut().flat_map(|e| e.name.faces.iter_mut()).for_each(renamed);
+            }
+            g.faces.iter_mut().flatten().for_each(renamed);
         }
         def
     }
@@ -1651,19 +1809,71 @@ impl Document {
     /// The result of a group of `children` (`defs` the part's): `(∪ positives) − (∪
     /// negatives)`, and the children whose boolean failed. A single positive child, unplaced,
     /// is the result: no kernel.
-    pub(crate) fn group_result(defs: &[BodyDef], children: &[Body], solver: &mut dyn Solver) -> Result<(Arc<Solid>, BTreeSet<Id>)> {
-        let solid = |b: &Body| defs.iter().find(|d| d.id == b.def).map(|d| d.solid.clone()).ok_or(Error::NotFound(b.def));
+    /// With its face map, when every child's faces are named (a leaf, or a group with its own).
+    pub(crate) fn group_result(
+        defs: &[BodyDef],
+        children: &[Body],
+        solver: &mut dyn Solver,
+    ) -> Result<(Arc<Solid>, BTreeSet<Id>, Option<FaceMap>)> {
+        let def = |b: &Body| defs.iter().find(|d| d.id == b.def).ok_or(Error::NotFound(b.def));
+        let solid = |b: &Body| def(b).map(|d| d.solid.clone());
+        // How a child's faces are named, if they are.
+        let names = |b: &Body| -> Result<Option<InputNames>> {
+            let d = def(b)?;
+            Ok(match &d.group {
+                None => Some(InputNames::Recipe(d.profile.as_ref().map(|p| p.primitive()))),
+                Some(_) => d.face_map().map(|m| InputNames::Map(m.clone())),
+            })
+        };
         if let [c] = children
             && c.sign == Sign::Positive
             && is_identity(&c.placement)
         {
-            return Ok((solid(c)?, BTreeSet::new()));
+            // Its result, and its faces' names from it.
+            let d = def(c)?;
+            let map = match names(c)? {
+                Some(InputNames::Recipe(r)) => Some(skraft_kernel::names::leaf_map(d.solid.record(), r.as_ref(), c.id.0)),
+                Some(InputNames::Map(m)) => {
+                    Some(m.iter().map(|tags| tags.iter().map(|t| skraft_kernel::names::under(&[c.id.0], t)).collect()).collect())
+                }
+                None => None,
+            };
+            return Ok((solid(c)?, BTreeSet::new(), map));
         }
         let (pos, neg): (Vec<&Body>, Vec<&Body>) = children.iter().partition(|b| b.sign == Sign::Positive);
         let placed = |list: &[&Body]| list.iter().map(|b| Ok((solid(b)?, b.placement))).collect::<Result<Vec<_>>>();
-        let (shape, failed) = solver.recipe(None, &placed(&pos)?, &placed(&neg)?)?;
+        let named_list = |list: &[&Body]| list.iter().map(|b| Ok(names(b)?.map(|n| (b.id.0, n)))).collect::<Result<Option<Vec<_>>>>();
+        let names = match (named_list(&pos)?, named_list(&neg)?) {
+            (Some(positives), Some(negatives)) => Some(RecipeNames { positives, negatives }),
+            _ => None,
+        };
+        let (shape, failed, faces) = solver.named_recipe(&placed(&pos)?, &placed(&neg)?, names)?;
         let named: Vec<Id> = pos.iter().chain(&neg).map(|b| b.id).collect();
-        Ok((shape, failed.iter().filter_map(|k| named.get(*k).copied()).collect()))
+        Ok((shape, failed.iter().filter_map(|k| named.get(*k).copied()).collect(), faces))
+    }
+
+    /// `group` computed again (`defs` the part's): a plain group's result, or a body node's —
+    /// its children computed from their leaves, then its operation, its edges by their names
+    /// or (`picks` given) nearest those points, named (docs/decisions/0042-body-nodes-operators.md).
+    /// The group returned with its failures, its node's edges and why the node was refused.
+    pub(crate) fn computed_group(
+        defs: &[BodyDef],
+        group: crate::BodyGroup,
+        picks: &[[f64; 3]],
+        solver: &mut dyn Solver,
+    ) -> Result<(Arc<Solid>, crate::BodyGroup)> {
+        let Some(op) = group.op.clone() else {
+            let (solid, failed, faces) = Self::group_result(defs, &group.children, solver)?;
+            let group = crate::BodyGroup { failed, refused: None, ..group }.with_faces(&solid, faces);
+            return Ok((solid, group));
+        };
+        let mut leaves = Vec::new();
+        let children = tree(defs, &group.children, &mut leaves)?;
+        let out = solver.node(&leaves, &children, &op, picks)?;
+        let failed = out.failed.iter().filter_map(|p| p.first()).map(|&i| Id(i)).collect();
+        let op = NodeOp { edges: out.edges, ..op };
+        let node = crate::BodyGroup { failed, op: Some(op), refused: out.refusal, ..group }.with_faces(&out.solid, Some(out.faces));
+        Ok((out.solid, node))
     }
 
     /// [`Operation::GroupBodies`]: the bodies `ids` of `part` (each one of its own) replaced
@@ -1677,8 +1887,9 @@ impl Document {
             children.iter_mut().for_each(|c| c.sign = Sign::Positive);
         }
         let mixed = children.iter().any(|b| b.sign == Sign::Negative);
-        let (solid, failed) = Self::group_result(&p.defs, &children, solver)?;
-        let def = BodyDef::group(self.fresh_id(), solid, children, failed);
+        let (solid, failed, faces) = Self::group_result(&p.defs, &children, solver)?;
+        let mut def = BodyDef::group(self.fresh_id(), solid, children, failed);
+        def.group = def.group.take().map(|g| g.with_faces(&def.solid, faces));
         let sign = if negative { Sign::Negative } else { Sign::Positive };
         let body = Body::new(self.fresh_id(), def.id, sign, DAffine3::IDENTITY);
         let id = body.id;
@@ -1857,10 +2068,29 @@ impl Document {
                 defs.push(d.clone());
             }
         }
-        let shape = edited.shape().clone();
-        if let Some(d) = defs.iter_mut().find(|d| d.id == *chain.last().expect("a group path is not empty")) {
+        let last = *chain.last().expect("a group path is not empty");
+        let edited_shape = edited.shape().clone();
+        let edited_group = crate::BodyGroup {
+            children: edited.bodies,
+            failed: edited.failed,
+            ..defs.iter().find(|d| d.id == last).and_then(|d| d.group.clone()).unwrap_or_default()
+        };
+        // A node: its operation applied to its children's result (computed again from their
+        // leaves, for the names).
+        // Under a node too, a plain group: computed again with its face map, for the node not to
+        // compute it from its leaves (docs/decisions/0042-body-nodes-operators.md).
+        let under_node = chain.iter().any(|id| defs.iter().any(|d| d.id == *id && d.op().is_some()));
+        let (shape, edited_group) = match edited_group.op {
+            Some(_) => Self::computed_group(&defs, edited_group, &[], solver)?,
+            None if under_node => Self::computed_group(&defs, edited_group, &[], solver)?,
+            None => {
+                let group = edited_group.with_faces(&edited_shape, None);
+                (edited_shape, group)
+            }
+        };
+        if let Some(d) = defs.iter_mut().find(|d| d.id == last) {
             d.solid = shape;
-            d.group = Some(crate::BodyGroup { children: edited.bodies, failed: edited.failed });
+            d.group = Some(edited_group);
         }
         for d in defs.iter().filter(|d| d.is_group()) {
             if crate::document::used_defs(&defs, d.children()).contains(&d.id) {
@@ -1869,12 +2099,11 @@ impl Document {
         }
         // The groups above, innermost first.
         for id in chain.iter().rev().skip(1) {
-            let Some(d) = defs.iter().find(|d| d.id == *id) else { continue };
-            let children = d.children().to_vec();
-            let (solid, failed) = Self::group_result(&defs, &children, solver)?;
+            let Some(group) = defs.iter().find(|d| d.id == *id).and_then(|d| d.group.clone()) else { continue };
+            let (solid, group) = Self::computed_group(&defs, group, &[], solver)?;
             if let Some(d) = defs.iter_mut().find(|d| d.id == *id) {
                 d.solid = solid;
-                d.group = Some(crate::BodyGroup { children, failed });
+                d.group = Some(group);
             }
         }
         let mut next = original;
@@ -2011,6 +2240,39 @@ pub(crate) fn is_rigid(t: &DAffine3) -> bool {
 
 // ---- the kernel calls of an operation -------------------------------------------------------
 
+/// `children` (`defs` their part's) as the node task computes them, their leaves' solids
+/// pushed onto `leaves` (the tree's leaf indices).
+fn tree(defs: &[BodyDef], children: &[Body], leaves: &mut Vec<Arc<Solid>>) -> Result<Vec<TreeBody>> {
+    children
+        .iter()
+        .map(|b| {
+            let d = defs.iter().find(|d| d.id == b.def).ok_or(Error::NotFound(b.def))?;
+            let node = match &d.group {
+                // Computed already, its faces named: as it is, not from its leaves.
+                Some(_) if d.face_map().is_some() => {
+                    leaves.push(d.solid.clone());
+                    TreeNode::Mapped { solid: (leaves.len() - 1) as u32, faces: d.face_map().cloned().unwrap_or_default() }
+                }
+                Some(g) => TreeNode::Group { children: tree(defs, &g.children, leaves)?, op: g.op.clone() },
+                None => {
+                    leaves.push(d.solid.clone());
+                    TreeNode::Leaf { solid: (leaves.len() - 1) as u32, recipe: d.profile.as_ref().map(|p| p.primitive()) }
+                }
+            };
+            Ok(TreeBody { id: b.id.0, negative: b.sign == Sign::Negative, placement: b.placement, node })
+        })
+        .collect()
+}
+
+/// What the kernel gives for a body node ([`Task::Node`]).
+pub(crate) struct NodeOutcome {
+    pub solid: Arc<Solid>,
+    pub faces: FaceMap,
+    pub edges: Vec<NodeEdges>,
+    pub failed: Vec<Vec<u64>>,
+    pub refusal: Option<NodeRefusal>,
+}
+
 /// The kernel, as an operation sees it.
 pub(crate) trait Solver {
     fn primitive(&mut self, primitive: &Primitive) -> Result<Arc<Solid>>;
@@ -2025,8 +2287,18 @@ pub(crate) trait Solver {
         positives: &[(Arc<Solid>, DAffine3)],
         negatives: &[(Arc<Solid>, DAffine3)],
     ) -> Result<(Arc<Solid>, Vec<usize>)>;
+    /// A group's recipe, its inputs named ([`Task::Recipe`]'s `names`): the solid, the bodies
+    /// that failed, its face map when the kernel gives one.
+    fn named_recipe(
+        &mut self,
+        positives: &[(Arc<Solid>, DAffine3)],
+        negatives: &[(Arc<Solid>, DAffine3)],
+        names: Option<RecipeNames>,
+    ) -> Result<(Arc<Solid>, Vec<usize>, Option<FaceMap>)>;
     /// `solid` stretched.
     fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>>;
+    /// A body node: `children` (their leaves `leaves[i]`) computed, then `op` ([`Task::Node`]).
+    fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome>;
 }
 
 /// Records the calls into a job and answers with stand-ins (the operation only stores them,
@@ -2078,7 +2350,18 @@ impl Solver for Recorder {
         let base = base.map(|b| self.input(b));
         let positives = positives.iter().map(|(s, p)| (self.input(s), *p)).collect();
         let negatives = negatives.iter().map(|(s, p)| (self.input(s), *p)).collect();
-        Ok((self.task(Task::Recipe { base, positives, negatives })?, Vec::new()))
+        Ok((self.task(Task::Recipe { base, positives, negatives, names: None })?, Vec::new()))
+    }
+
+    fn named_recipe(
+        &mut self,
+        positives: &[(Arc<Solid>, DAffine3)],
+        negatives: &[(Arc<Solid>, DAffine3)],
+        names: Option<RecipeNames>,
+    ) -> Result<(Arc<Solid>, Vec<usize>, Option<FaceMap>)> {
+        let positives = positives.iter().map(|(s, p)| (self.input(s), *p)).collect();
+        let negatives = negatives.iter().map(|(s, p)| (self.input(s), *p)).collect();
+        Ok((self.task(Task::Recipe { base: None, positives, negatives, names })?, Vec::new(), None))
     }
 
     /// Refused here already when the record cannot be stretched: the operation is refused when
@@ -2087,6 +2370,14 @@ impl Solver for Recorder {
         stretch.apply(solid).map_err(skraft_kernel::Error::from)?;
         let solid = self.input(solid);
         self.task(Task::Stretch { solid, stretch: stretch.clone() })
+    }
+
+    fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome> {
+        let inputs: Vec<u32> = leaves.iter().map(|s| self.input(s)).collect();
+        let mut children = children.to_vec();
+        skraft_kernel::names::map_leaves(&mut children, &mut |i| inputs[i as usize]);
+        let solid = self.task(Task::Node { children, op: op.clone(), picks: picks.to_vec() })?;
+        Ok(NodeOutcome { solid, faces: Vec::new(), edges: op.edges.clone(), failed: Vec::new(), refusal: None })
     }
 }
 
@@ -2125,7 +2416,7 @@ impl Solver for Replayer {
         _: &[(Arc<Solid>, DAffine3)],
     ) -> Result<(Arc<Solid>, Vec<usize>)> {
         match self.outputs.next() {
-            Some(Output::Recipe { solid, display, failed }) => {
+            Some(Output::Recipe { solid, display, failed, .. }) => {
                 let solid = Arc::new(solid);
                 self.displays.push((solid.clone(), display));
                 Ok((solid, failed.into_iter().map(|k| k as usize).collect()))
@@ -2134,7 +2425,34 @@ impl Solver for Replayer {
         }
     }
 
+    fn named_recipe(
+        &mut self,
+        _: &[(Arc<Solid>, DAffine3)],
+        _: &[(Arc<Solid>, DAffine3)],
+        _: Option<RecipeNames>,
+    ) -> Result<(Arc<Solid>, Vec<usize>, Option<FaceMap>)> {
+        match self.outputs.next() {
+            Some(Output::Recipe { solid, display, failed, faces }) => {
+                let solid = Arc::new(solid);
+                self.displays.push((solid.clone(), display));
+                Ok((solid, failed.into_iter().map(|k| k as usize).collect(), faces))
+            }
+            _ => Err(Error::Invalid(Refusal::OutOfStep)),
+        }
+    }
+
     fn stretch(&mut self, _: &Arc<Solid>, _: &Stretch) -> Result<Arc<Solid>> {
         self.next()
+    }
+
+    fn node(&mut self, _: &[Arc<Solid>], _: &[TreeBody], _: &NodeOp, _: &[[f64; 3]]) -> Result<NodeOutcome> {
+        match self.outputs.next() {
+            Some(Output::Node { solid, display, faces, edges, failed, refusal }) => {
+                let solid = Arc::new(solid);
+                self.displays.push((solid.clone(), display));
+                Ok(NodeOutcome { solid, faces, edges, failed, refusal })
+            }
+            _ => Err(Error::Invalid(Refusal::OutOfStep)),
+        }
     }
 }

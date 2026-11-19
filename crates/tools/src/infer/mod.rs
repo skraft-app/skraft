@@ -17,6 +17,7 @@
 
 mod crossings;
 mod curves;
+mod edges;
 mod lines;
 mod points;
 #[cfg(test)]
@@ -32,6 +33,8 @@ use crossings::crossing;
 use curves::kept_guides;
 use lines::{Line, lines, on_line, two_lines};
 use points::infer_points;
+
+pub use edges::{EdgeHit, edge_at, edges_of, tangent_chain};
 
 /// How far from the cursor a feature is inferred (pixels).
 pub const APERTURE_PX: f64 = 10.0;

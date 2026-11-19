@@ -347,6 +347,54 @@ while it is carried, never picked — the click takes the group, a double-click 
 negative group is one machining, drawn as its result: what it spares inside is not shown in
 red. X-ray needs nothing more (the ghosts are see-through already).
 
+## Body nodes
+
+A **body node** is a group with an operation ([0042](../decisions/0042-body-nodes-operators.md)):
+its children's result, `(∪ positives) − (∪ negatives)`, then rounded or chamfered
+([Rounds and chamfers](../tools/rounds.md)). It is a body as any group is — a sign (a
+machining rounded: a negative node of positive children), a definition its copies share, its
+solid a cache, opened and edited as a group, named « Arrondi#n » / « Chanfrein#n » —; the
+tree is its history: what is under it, its past; what is above, its future.
+
+```
+BodyGroup { children, failed, op: Option<NodeOp>, refused: Option<NodeRefusal> }
+NodeOp    { blend: Round | Chamfer, size, edges: Vec<NodeEdges { name, near }> }
+```
+
+- **Edges by name, in its children only.** A leaf's faces are named by its recipe — a
+  profile's caps `Bottom` / `Top`, the face of a side by the side's id (`Corner::id`, stable
+  while the profile is edited: [Prism tool and profiled blanks](../tools/prism.md)), a
+  fillet's by its corner's —, a free shape's by their record index; each name tagged with the
+  path of bodies from the node down. The node's children are computed **from their leaves in
+  one kernel session** (`Task::Node`, `crates/kernel/src/node.rs`): the tags go through the
+  booleans as an application attribute of SolidCore's (a face cut keeps its tag, faces merged
+  carry both). An edge is named by its two faces' tags and **matches by inclusion** (a merged
+  face carries several). A name of several edges takes them all, unless only some were picked
+  (`near`: the edges nearest those points). The faces a node makes are named by the two faces
+  they lie between (`FaceName::Made`): a node above names them as any other.
+- **Computed again** wherever a group is (`Document::computed_group`): an edit inside it, the
+  groups above, welding, a stretch.
+- **Names beside the caches.** A group's recipe names its inputs (`Task::Recipe`'s `names`: a
+  leaf by its recipe, a group by its face map) and gives its result's **face map** — each
+  record face's tags, relative to the group (`BodyGroup::faces`) —; a node gives its own. The
+  map holds for the solid it was made for only (`faces_of`, a fingerprint of the record:
+  `BodyDef::face_map`). A node's task takes a child group that has one **as it is**, its
+  cache named by its map (`TreeNode::Mapped`), not computed again from its leaves; one without
+  (a group whose solid came from elsewhere: a part pasted as a group, a group edited while no
+  node is above it) from its leaves, as before. A group edited under a node is computed with
+  its map. Measured (`bench_a_node_over_a_group_from_its_leaves_or_its_cache`, debug): a node
+  over a board drilled 30 times, 99 ms from the cache against 202 ms from its leaves; naming the
+  group's recipe costs nothing measurable (166 ms against 164 ms).
+- **Copies**: a definition copied with its children renamed (`renamed_children`: made
+  unique, pasted, split by a stretch) renames the first body of its names' and its map's paths
+  with them.
+- **In error** when a name no longer matches an edge, or the kernel refuses its size after an
+  edit below it (`refused`): its children's result shown as it is, ⚠ in the navigator, the
+  entity info saying why (`Part::refusal_of`). Applying or changing a node refused fails
+  instead.
+- **The root is never a node**: new bodies go to the part's root and cut (or join) the node's
+  result.
+
 ## Body names
 
 A body definition takes a name given by the user, as a part's.

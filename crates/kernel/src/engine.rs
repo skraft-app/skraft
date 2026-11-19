@@ -247,7 +247,7 @@ impl Solid {
 fn input<'a>(job: &'a Job, out: &'a [Output], i: u32) -> Result<&'a Solid> {
     let found = if i & EARLIER != 0 {
         match out.get((i & !EARLIER) as usize) {
-            Some(Output::Solid { solid, .. } | Output::Recipe { solid, .. }) => Some(solid),
+            Some(Output::Solid { solid, .. } | Output::Recipe { solid, .. } | Output::Node { solid, .. }) => Some(solid),
             _ => None,
         }
     } else {
@@ -330,14 +330,27 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
                 };
                 solid(r)
             }
-            Task::Recipe { base, positives, negatives } => {
+            Task::Recipe { base, positives, negatives, names } => {
                 let placed = |list: &[(u32, DAffine3)]| list.iter().map(|(i, t)| Ok((input(*i)?, *t))).collect::<Result<Vec<_>>>();
                 let base = base.map(input).transpose()?;
-                let (shape, failed) = recipe(base, &placed(positives)?, &placed(negatives)?)?;
+                let (shape, failed, faces) = recipe(base, &placed(positives)?, &placed(negatives)?, names.as_ref())?;
                 let display = shape.display().map_err(|e| e.to_string());
-                Output::Recipe { solid: shape, display, failed }
+                Output::Recipe { solid: shape, display, failed, faces }
             }
             Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
+            Task::Node { children, op, picks } => {
+                // The leaves' solids (inputs, or earlier tasks' outputs), indexed afresh.
+                let mut children = children.clone();
+                let mut at = Vec::new();
+                crate::names::map_leaves(&mut children, &mut |i| {
+                    at.push(i);
+                    (at.len() - 1) as u32
+                });
+                let inputs = at.iter().map(|&i| input(i)).collect::<Result<Vec<_>>>()?;
+                let r = crate::node::node(&inputs, &children, op, picks)?;
+                let display = r.solid.display().map_err(|e| e.to_string());
+                Output::Node { solid: r.solid, display, faces: r.faces, edges: r.edges, failed: r.failed, refusal: r.refusal }
+            }
             Task::Display { solid: i, quality } => Output::Display(input(*i)?.display_at(*quality).map_err(|e| e.to_string())),
             Task::ImportStep { bytes } => Output::Step(Box::new(crate::step::read::import(bytes, cx.report)?)),
             Task::Panic { message } => guarded("panic", || -> Result<Output> { panic!("{message}") })?,
@@ -371,7 +384,17 @@ fn placed_in(k: &mut Kernel, solid: &Solid, t: &DAffine3, call: &str) -> Result<
 /// touching itself along an edge ») — while the kernel carries on with it. A boolean consumes
 /// the shape: a step that fails is marked and the session starts again without it (at most
 /// one session per failure).
-fn recipe(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(&Solid, DAffine3)]) -> Result<(Solid, Vec<u32>)> {
+/// With `names` (a group's), its inputs' faces tagged and its result's face map given
+/// (docs/decisions/0042-body-nodes-operators.md); none when it is not built in one session.
+fn recipe(
+    base: Option<&Solid>,
+    positives: &[(&Solid, DAffine3)],
+    negatives: &[(&Solid, DAffine3)],
+    names: Option<&crate::names::RecipeNames>,
+) -> Result<(Solid, Vec<u32>, Option<crate::names::FaceMap>)> {
+    let named: Option<Vec<(u64, &crate::names::InputNames)>> = names
+        .filter(|n| n.positives.len() == positives.len() && n.negatives.len() == negatives.len())
+        .map(|n| n.positives.iter().chain(&n.negatives).map(|(id, f)| (*id, f)).collect());
     let steps: Vec<(&Solid, &DAffine3, BooleanOp)> = positives
         .iter()
         .map(|(s, t)| (*s, t, BooleanOp::Union))
@@ -383,7 +406,7 @@ fn recipe(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(
     let base = base.filter(|b| !b.is_empty());
     let empty: Vec<u32> = steps.iter().enumerate().filter(|(_, (s, _, _))| s.is_empty()).map(|(k, _)| k as u32).collect();
     if positives.iter().all(|(s, _)| s.is_empty()) {
-        return Ok((base.cloned().unwrap_or_else(Solid::empty), empty));
+        return Ok((base.cloned().unwrap_or_else(Solid::empty), empty, None));
     }
     let mut failed = empty.clone();
     loop {
@@ -394,20 +417,20 @@ fn recipe(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(
             return Err(Error::Cancelled);
         }
         let at = std::cell::Cell::new(None);
-        match guarded("recipe", || recipe_session(base, &steps, &failed, &at)) {
-            Ok(shape) => {
+        match guarded("recipe", || recipe_session(base, &steps, named.as_deref(), &failed, &at)) {
+            Ok((shape, faces)) => {
                 failed.sort_unstable();
-                return Ok((shape, failed));
+                return Ok((shape, failed, faces));
             }
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(e) => match at.get() {
                 // Nothing added: every positive given failed.
-                Some(BASE) => return Ok((base.ok_or_else(no_positive)?.clone(), (0..positives.len() as u32).collect())),
+                Some(BASE) => return Ok((base.ok_or_else(no_positive)?.clone(), (0..positives.len() as u32).collect(), None)),
                 Some(i) => failed.push(i as u32),
                 // The shape computed but not read back to a record: step by step, as before,
                 // tells which step brings it.
                 None if !matches!(e, Error::Convert { .. } | Error::Panic { .. }) => return Err(e),
-                None => return recipe_stepwise(base, positives, negatives, &empty),
+                None => return recipe_stepwise(base, positives, negatives, &empty).map(|(s, f)| (s, f, None)),
             },
         }
     }
@@ -418,9 +441,10 @@ fn recipe(base: Option<&Solid>, positives: &[(&Solid, DAffine3)], negatives: &[(
 fn recipe_session(
     base: Option<&Solid>,
     steps: &[(&Solid, &DAffine3, BooleanOp)],
+    named: Option<&[(u64, &crate::names::InputNames)]>,
     skip: &[u32],
     at: &std::cell::Cell<Option<usize>>,
-) -> Result<Solid> {
+) -> Result<(Solid, Option<crate::names::FaceMap>)> {
     use solidcore::boolean::api_brep as b;
     use solidcore::topology::brep::p1::num_faces;
     let call = "recipe";
@@ -431,7 +455,10 @@ fn recipe_session(
             continue;
         }
         at.set(Some(i));
-        let placed = placed_in(&mut k, solid, t, call)?;
+        let placed = match named.and_then(|n| n.get(i)) {
+            Some((id, names)) => crate::node::tagged_placed(&mut k, solid, t, &[*id], names, call)?,
+            None => placed_in(&mut k, solid, t, call)?,
+        };
         shape = Some(match (shape, op) {
             (None, BooleanOp::Union) => placed,
             (Some(s), BooleanOp::Union) => b::boolean_union(&mut k, s, placed).map_err(|e| kernel_err(call, e))?,
@@ -441,7 +468,7 @@ fn recipe_session(
                 // « Empty parts »).
                 if num_faces(&cut) == 0 {
                     at.set(None);
-                    return Ok(base.cloned().unwrap_or_else(Solid::empty));
+                    return Ok((base.cloned().unwrap_or_else(Solid::empty), None));
                 }
                 cut
             }
@@ -461,11 +488,19 @@ fn recipe_session(
         shape = b::boolean_union(&mut k, base, shape).map_err(|e| kernel_err(call, e))?;
         at.set(None);
     }
+    // Named (a group's, no base): its faces' names read with it.
+    if named.is_some() && base.is_none() {
+        let (out, faces) = crate::node::read_map(&mut k, &mut shape, call)?;
+        if out.record.faces.is_empty() {
+            return Ok((Solid::empty(), None));
+        }
+        return Ok((out, Some(faces)));
+    }
     let out = to_record(&mut k, &mut shape, call)?;
     if out.record.faces.is_empty() {
-        return Ok(Solid::empty());
+        return Ok((Solid::empty(), None));
     }
-    Ok(out)
+    Ok((out, None))
 }
 
 /// [`recipe`] one boolean at a time, each result read back to a record: the fallback when the
@@ -814,9 +849,21 @@ impl Mesh {
     }
 }
 
+/// SolidCore's opt-in fixes of upstream SMLib defects: every one on, as SolidCraft runs them
+/// (they are off by default, upstream's behaviour); the calls `solidcore-ops` makes take them
+/// too, named once.
+fn fixes() -> solidcore::kernel::UpstreamFixes {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = solidcore_ops::session::set_fixes(solidcore::kernel::UpstreamFixes::NAMES.iter().copied());
+    });
+    solidcore::kernel::UpstreamFixes::all()
+}
+
 /// A fresh SolidCore kernel, stopped by the cancel token of the job running on this thread.
 pub(crate) fn kernel() -> Kernel {
     let mut k = Kernel::new(&KernelOptions::default());
+    k.fixes = fixes();
     if let Some(token) = cancel::current() {
         k.set_cancel_token(token);
     }
@@ -828,12 +875,12 @@ fn p3(v: DVec3) -> solidcore::Point3 {
 }
 
 /// SolidCore's matrix convention: row vectors, linear part in rows 0..3, translation in row 3.
-fn row_major(t: &DAffine3) -> [[f64; 4]; 4] {
+pub(crate) fn row_major(t: &DAffine3) -> [[f64; 4]; 4] {
     let (x, y, z, w) = (t.matrix3.x_axis, t.matrix3.y_axis, t.matrix3.z_axis, t.translation);
     [[x.x, x.y, x.z, 0.0], [y.x, y.y, y.z, 0.0], [z.x, z.y, z.z, 0.0], [w.x, w.y, w.z, 1.0]]
 }
 
-fn kernel_err(call: &str, e: solidcore::SolidError) -> Error {
+pub(crate) fn kernel_err(call: &str, e: solidcore::SolidError) -> Error {
     if e.is_cancelled() {
         return Error::Cancelled;
     }
@@ -845,10 +892,15 @@ pub(crate) fn to_kernel(k: &mut Kernel, r: &Record, call: &str) -> Result<solidc
 }
 
 pub(crate) fn to_record(k: &mut Kernel, b: &mut solidcore::Brep, call: &str) -> Result<Solid> {
+    to_record_ordered(k, b, call).map(|(s, _)| s)
+}
+
+/// [`to_record`], with which kernel entity each record one is.
+pub(crate) fn to_record_ordered(k: &mut Kernel, b: &mut solidcore::Brep, call: &str) -> Result<(Solid, solidcore_convert::brep::Order)> {
     solidcore_convert::brep::to_record(k, b)
-        .map(|(mut record, _order)| {
+        .map(|(mut record, order)| {
             square_frames(&mut record);
-            Solid::from_record(record)
+            (Solid::from_record(record), order)
         })
         .map_err(|e| Error::Convert { call: call.into(), message: e.to_string() })
 }
@@ -1138,9 +1190,9 @@ mod tests {
             b(DVec3::new(10.0, 0.0, 5.0), DVec3::new(10.0, 10.0, 5.0)),
         ];
         let all = |n: u32| (0..n).map(|i| (i, DAffine3::IDENTITY)).collect::<Vec<_>>();
-        let job = Job { inputs, tasks: vec![Task::Recipe { base: None, positives: all(4), negatives: vec![] }] };
+        let job = Job { inputs, tasks: vec![Task::Recipe { base: None, positives: all(4), negatives: vec![], names: None }] };
         let out = run(&job).unwrap();
-        let [Output::Recipe { solid, display, failed }] = out.as_slice() else { panic!("{out:?}") };
+        let [Output::Recipe { solid, display, failed, .. }] = out.as_slice() else { panic!("{out:?}") };
         assert!(failed.is_empty(), "{failed:?}");
         assert!(display.is_ok());
         assert_eq!(solid.pieces(), 1);
@@ -1157,10 +1209,10 @@ mod tests {
         let recipe = |base: Option<u32>, positives: Vec<(u32, DAffine3)>, negatives: Vec<(u32, DAffine3)>| {
             let job = Job {
                 inputs: vec![board.clone(), drill.clone(), huge.clone(), empty.clone()],
-                tasks: vec![Task::Recipe { base, positives, negatives }],
+                tasks: vec![Task::Recipe { base, positives, negatives, names: None }],
             };
             let mut out = run(&job).unwrap();
-            let Some(Output::Recipe { solid, display, failed }) = out.pop() else { panic!("{out:?}") };
+            let Some(Output::Recipe { solid, display, failed, .. }) = out.pop() else { panic!("{out:?}") };
             assert!(display.is_ok());
             (solid, failed)
         };
@@ -1209,7 +1261,8 @@ mod tests {
         let at = |x: f64| DAffine3::from_translation(DVec3::new(x, 0.0, 0.0));
         let drill = Arc::new(Solid::new_cylinder(DVec3::new(0.0, 25.0, -5.0), 4.0, 30.0).unwrap());
         let recipe = |base: Option<u32>, positives: Vec<(u32, DAffine3)>, negatives: Vec<(u32, DAffine3)>| {
-            let job = Job { inputs: vec![board.clone(), drill.clone()], tasks: vec![Task::Recipe { base, positives, negatives }] };
+            let job =
+                Job { inputs: vec![board.clone(), drill.clone()], tasks: vec![Task::Recipe { base, positives, negatives, names: None }] };
             let mut out = run(&job).unwrap();
             let Some(Output::Recipe { solid, failed, .. }) = out.pop() else { panic!("{out:?}") };
             (solid, failed)
@@ -1227,8 +1280,8 @@ mod tests {
         let job = Job {
             inputs: vec![board.clone(), drill.clone()],
             tasks: vec![
-                Task::Recipe { base: None, positives: vec![(0, DAffine3::IDENTITY)], negatives: vec![(1, at(90.0))] },
-                Task::Recipe { base: Some(EARLIER), positives: vec![(0, at(80.0))], negatives: vec![(1, at(90.0))] },
+                Task::Recipe { base: None, positives: vec![(0, DAffine3::IDENTITY)], negatives: vec![(1, at(90.0))], names: None },
+                Task::Recipe { base: Some(EARLIER), positives: vec![(0, at(80.0))], negatives: vec![(1, at(90.0))], names: None },
             ],
         };
         let out = run(&job).unwrap();
@@ -1237,7 +1290,10 @@ mod tests {
         assert_eq!(solid.pieces(), 1);
         assert_eq!(solid.record().faces.len(), l.record().faces.len());
         // Nothing positive: nothing (docs/model/bodies.md#empty-parts).
-        let nothing = Job { inputs: vec![board.clone()], tasks: vec![Task::Recipe { base: None, positives: vec![], negatives: vec![] }] };
+        let nothing = Job {
+            inputs: vec![board.clone()],
+            tasks: vec![Task::Recipe { base: None, positives: vec![], negatives: vec![], names: None }],
+        };
         assert!(matches!(run(&nothing).unwrap().as_slice(), [Output::Recipe { solid, .. }] if solid.is_empty()));
     }
 

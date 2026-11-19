@@ -23,6 +23,9 @@ use solidcore_record::brep::Brep as Record;
 #[cfg(feature = "engine")]
 mod engine;
 mod job;
+pub mod names;
+#[cfg(feature = "engine")]
+mod node;
 mod polyhedron;
 pub mod profile;
 mod shared;
@@ -30,6 +33,10 @@ mod snaps;
 mod step;
 mod stretch;
 mod weight;
+
+// Trial for docs/decisions/0042-body-nodes-operators.md (provenance through booleans).
+#[cfg(all(test, feature = "engine"))]
+mod provenance_trial;
 
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]
 pub use engine::Pool;
