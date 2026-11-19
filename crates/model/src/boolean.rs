@@ -16,7 +16,7 @@
 use glam::{DAffine3, DVec3};
 use skraft_kernel::{BooleanOp, Stretch};
 
-use crate::document::{Document, EntityPath, Id, Occurrence, Part, Sign, is_identity};
+use crate::document::{Body, BodyDef, Document, EntityPath, Id, Occurrence, Part, Sign, is_identity};
 use crate::ops::Solver;
 use crate::{Boolean, Error, FastMap, Outcome, Refusal, Result, Scope};
 
@@ -247,6 +247,31 @@ impl Document {
         Ok(())
     }
 
+    /// Before a union, `part`'s own bodies put in one positive group at the identity when a
+    /// machining is among them: every negative cuts every positive of its group, the tools
+    /// joined to the part included (docs/model/bodies.md#booleans-between-parts). The group's
+    /// result is the part as it is, `shape` (no kernel); it takes the part's name, when the user
+    /// gave it. A part without machining at its top level is left as it is.
+    fn group_machined(&mut self, part: Id, shape: std::sync::Arc<skraft_kernel::Solid>) -> Result<()> {
+        if !self.part(part)?.bodies.iter().any(|b| b.sign == Sign::Negative) {
+            return Ok(());
+        }
+        let named = self.component(part).ok().filter(|c| c.named).map(|c| c.name.clone());
+        let (group, body) = (self.fresh_id(), self.fresh_id());
+        let p = self.part_mut(part)?;
+        let children = std::mem::take(&mut p.bodies);
+        let failed = std::mem::take(&mut p.failed);
+        let mut def = BodyDef::group(group, shape.clone(), children, failed);
+        if named.is_some() {
+            def.set_name(named);
+        }
+        p.defs.push(def);
+        p.bodies.push(Body::new(body, group, Sign::Positive, DAffine3::IDENTITY));
+        // Its group alone at the identity, the part is plain: its shape is the group's.
+        p.shape = None;
+        Ok(())
+    }
+
     /// `target op (∪ tools)` on the target's part, the tools brought into its axes.
     fn combine(&mut self, target: &EntityPath, tools: &[&ToolPart], op: Boolean, solver: &mut dyn Solver) -> Result<()> {
         let (part, p, world) = self.resolve_part(target)?;
@@ -257,8 +282,11 @@ impl Document {
             // is its single positive body (a shape drawn) is taken whole, its profile with it:
             // still editable; any other comes as a group of copies of its bodies, its shape the
             // group's (docs/model/bodies.md#body-groups). Added as they are: the part as it is
-            // cut by the negatives, or joined to the positives cut by its machinings.
+            // cut by the negatives, or joined to it — its machinings first kept off the tools.
             Boolean::Difference | Boolean::Union => {
+                if op == Boolean::Union {
+                    self.group_machined(part, shape)?;
+                }
                 let mut ids = Vec::with_capacity(tools.len());
                 for t in tools {
                     let (defs, mut body) = self.tool_as_body(&t.q, &(to_target * t.world), t.named.clone());
