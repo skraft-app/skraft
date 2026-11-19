@@ -10,6 +10,7 @@
 //!
 //! Nothing is cached: egui draws every frame, so [`set_locale`] changes the app at once.
 
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 rust_i18n::i18n!("../../locales", fallback = "fr");
@@ -135,16 +136,36 @@ pub fn available_locales() -> Vec<String> {
     _rust_i18n_available_locales().into_iter().map(|l| l.into_owned()).collect()
 }
 
+/// The current locale; empty: [`DEFAULT_LOCALE`]. Ours, not rust-i18n's, which starts in
+/// English.
+static LOCALE: RwLock<String> = RwLock::new(String::new());
+
 /// The current locale, among the available ones ([`DEFAULT_LOCALE`] until one is set).
 pub fn locale() -> String {
-    let current = rust_i18n::locale().to_string();
-    if _rust_i18n_backend().translate(&current, "locale.name").is_some() { current } else { DEFAULT_LOCALE.to_owned() }
+    let current = LOCALE.read().unwrap_or_else(|e| e.into_inner());
+    if current.is_empty() { DEFAULT_LOCALE.to_owned() } else { current.clone() }
 }
 
 /// Changes the language of every text from now on. An unknown locale falls back to
 /// [`DEFAULT_LOCALE`].
 pub fn set_locale(locale: &str) {
-    rust_i18n::set_locale(locale);
+    let known = _rust_i18n_backend().translate(locale, "locale.name").is_some();
+    *LOCALE.write().unwrap_or_else(|e| e.into_inner()) = if known { locale.to_owned() } else { String::new() };
+}
+
+/// The locale of a system none of whose languages has a catalog.
+pub const SYSTEM_FALLBACK: &str = "en";
+
+/// The locale for a system preferring `languages`, best first (BCP 47 tags, `fr-CA`, or POSIX
+/// ones, `fr_CA.UTF-8`): the first one with a catalog, matched by its language (`fr-CA` takes
+/// `fr`), else [`SYSTEM_FALLBACK`].
+pub fn system_locale<S: AsRef<str>>(languages: &[S]) -> String {
+    let available = available_locales();
+    languages
+        .iter()
+        .find_map(|l| available.iter().find(|a| language(a).eq_ignore_ascii_case(language(l.as_ref()))))
+        .cloned()
+        .unwrap_or_else(|| SYSTEM_FALLBACK.to_owned())
 }
 
 /// A locale's name in itself (`Français`), for the language menu.

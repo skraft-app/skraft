@@ -287,4 +287,14 @@ fn texts_numbers_and_the_locale() {
     assert_eq!((decimal_separator(), list_separator()), (',', ';'));
     assert_eq!(ellipsis("Ouvrir"), "Ouvrir…");
     assert!(available_locales().contains(&DEFAULT_LOCALE.to_owned()));
+    assert!(available_locales().contains(&SYSTEM_FALLBACK.to_owned()));
+}
+
+#[test]
+fn the_systems_languages_pick_the_locale() {
+    assert_eq!(system_locale(&["fr-CA", "en-US"]), "fr");
+    assert_eq!(system_locale(&["de-DE", "en-GB", "fr"]), "en");
+    assert_eq!(system_locale(&["de-DE", "FR_be.UTF-8"]), "fr");
+    assert_eq!(system_locale(&["de-DE", "ja"]), SYSTEM_FALLBACK);
+    assert_eq!(system_locale::<&str>(&[]), SYSTEM_FALLBACK);
 }

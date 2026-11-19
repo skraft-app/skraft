@@ -414,6 +414,9 @@ prefs:
     debug: "$t(menu.debug.title)"
   general:
     language: "Langue"
+    # The language menu's first entry: the system's language, then its catalog's name
+    # (src/language.rs).
+    language_system: "Celle du système (%{language})"
     # Desktop: the saved documents open when the app quits are opened again at launch.
     reopen: "Rouvrir les documents au lancement"
     # The memory the undo histories of the documents open may hold together, in MiB.

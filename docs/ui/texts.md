@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/i18n/src/lib.rs, crates/i18n/src/tests.rs, crates/i18n/build.rs, locales/fr.yml, apps/skraft/src/separators.rs]
+code: [crates/i18n/src/lib.rs, crates/i18n/src/tests.rs, crates/i18n/build.rs, locales/fr.yml, locales/en.yml, apps/skraft/src/language.rs, apps/skraft/src/separators.rs]
 ---
 
 # Texts and languages
@@ -11,10 +11,12 @@ whole.
 
 ## Catalogs
 
-Every text the user sees is in a YAML catalog, one file per locale in `/locales` (`fr.yml`
-is the reference). The `skraft-i18n` crate compiles them in with rust-i18n and is the only way
-to them: `t!("menu.file.open")`, `t!("status.save_failed", error = e)`. The code holds no
-user-visible string. Not yet: `fr.yml` is the only locale.
+Every text the user sees is in a YAML catalog, one file per locale in `/locales`: `fr.yml`,
+the reference, where the comments say where each text shows, and `en.yml` (American English).
+The `skraft-i18n` crate compiles them in with rust-i18n and is the only way to them:
+`t!("menu.file.open")`, `t!("status.save_failed", error = e)`. The code holds no user-visible
+string. The current locale is `skraft-i18n`'s own (`set_locale`), French until one is set:
+rust-i18n's starts in English.
 
 ## Conventions
 
@@ -37,6 +39,13 @@ user-visible string. Not yet: `fr.yml` is the only locale.
   coupe »: « Couper » is the clipboard's Cut; « Profil »). The drawing tools are named by what
   they make — « Boîte », « Cylindre », « Prisme », « Tournage » — their ribbon group,
   « Dessiner », giving the verb.
+- **English** (`en.yml`): American spelling; title case for menu items, commands, tool names,
+  buttons and option labels (« Paste in Place », « Copy Along Line »), sentence case for hints,
+  tips and messages. The words of OpenCutList's English for the tools and notions they share
+  (Part, Assembly, Blank, Machining, Stretch, Distribute, Edge to Edge…), SketchUp's for the
+  rest (Instance for « exemplaire », Make Unique, Entity Info, Outliner, Section Plane, Zoom
+  Extents). The tool names keep the French rule: an imperative verb for an action (« Erase »,
+  « Unite », « Subtract »), what it makes for a drawing tool (« Box », « Prism », « Lathe »).
 - **Values** are named, `%{name}`, and few: a sentence is one key, but a label built from
   parts stays built by the code ("Edge × red axis" is `infer.edge`, "×", `infer.line.axis`).
 - **No ellipsis** (…) in a catalog: the code adds it (`skraft_i18n::ellipsis`), the same
@@ -62,7 +71,12 @@ user-visible string. Not yet: `fr.yml` is the only locale.
   `,` and `;` (`with_separators` sets others on one thread, for the tests). Numbers are
   written with the decimal separator (`number`); typed values always separate a list with
   `;`, and with `,` too when it is the list separator (then not a decimal point).
-- **Locale**: in the preferences (General › Language), applied at once — egui draws every frame
+- **Locale**: the system's by default — the first of its preferred languages with a catalog,
+  matched by language (`fr-CA` takes `fr`), else English (`skraft_i18n::system_locale`,
+  `SYSTEM_FALLBACK`); read by `src/language.rs` with the `sys-locale` crate (macOS and Windows'
+  preferred languages, Linux's `LANGUAGE` / `LC_*` / `LANG`, the browser's
+  `navigator.languages`). Or one chosen in the preferences (General › Language, whose first
+  entry is the system's), applied at once — egui draws every frame
   and nothing caches a text. Texts already in the status bar stay as they were. egui ids never
   come from a text (fixed `id` / `id_salt`), so a window or a section keeps its state across a
   change of language.
