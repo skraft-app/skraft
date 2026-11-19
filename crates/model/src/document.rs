@@ -394,7 +394,16 @@ impl Part {
 
     /// Did the body `id` fail, the last time the shape (or its group) was computed?
     pub fn is_failed(&self, id: Id) -> bool {
-        self.failed.contains(&id) || self.defs.iter().any(|d| d.group.as_ref().is_some_and(|g| g.failed.contains(&id)))
+        self.failed.contains(&id)
+            || self.defs.iter().any(|d| d.group.as_ref().is_some_and(|g| g.failed.contains(&id)))
+            || self.refusal_of(id).is_some()
+    }
+
+    /// Why the body node `id` (at any depth) left its children's result as it was, when it did
+    /// (docs/decisions/0042-body-nodes-operators.md).
+    pub fn refusal_of(&self, id: Id) -> Option<&skraft_kernel::names::NodeRefusal> {
+        let body = self.bodies.iter().chain(self.defs.iter().flat_map(|d| d.children())).find(|b| b.id == id)?;
+        self.def(body.def)?.group.as_ref()?.refused.as_ref()
     }
 
     /// How many separate lumps of material the shape holds: a part is one piece, more
@@ -479,7 +488,7 @@ impl BodyDef {
 
     /// A group of `children`, `solid` their result, `failed` those whose boolean failed.
     pub fn group(id: Id, solid: Arc<Solid>, children: Vec<Body>, failed: BTreeSet<Id>) -> Self {
-        BodyDef { group: Some(BodyGroup { children, failed }), ..BodyDef::new(id, solid) }
+        BodyDef { group: Some(BodyGroup::plain(children, failed)), ..BodyDef::new(id, solid) }
     }
 
     /// The bodies of a group, none for a leaf.
@@ -491,9 +500,23 @@ impl BodyDef {
         self.group.is_some()
     }
 
+    /// Its group's face map, when it is that of its solid as it is
+    /// (docs/decisions/0042-body-nodes-operators.md).
+    pub fn face_map(&self) -> Option<&skraft_kernel::names::FaceMap> {
+        let g = self.group.as_ref()?;
+        (!g.faces.is_empty() && g.faces_of == skraft_kernel::names::fingerprint(self.solid.record())).then_some(&g.faces)
+    }
+
+    /// Its node's operation, when it is a body node (docs/decisions/0042-body-nodes-operators.md).
+    pub fn op(&self) -> Option<&skraft_kernel::names::NodeOp> {
+        self.group.as_ref().and_then(|g| g.op.as_ref())
+    }
+
     /// What it is, which its automatic name and its icon tell.
     pub fn nature(&self) -> Nature {
         match &self.profile {
+            _ if self.op().is_some_and(|o| o.blend == skraft_kernel::names::Blend::Round) => Nature::Round,
+            _ if self.op().is_some() => Nature::Chamfer,
             _ if self.is_group() => Nature::Group,
             Some(f) if f.is_turned() => Nature::Revolution,
             Some(_) => Nature::Extrusion,
@@ -518,6 +541,10 @@ pub enum Nature {
     Revolution,
     Solid,
     Group,
+    /// A body node rounding edges of its children's result.
+    Round,
+    /// A body node chamfering them.
+    Chamfer,
 }
 
 impl Nature {
@@ -528,6 +555,8 @@ impl Nature {
             Nature::Revolution => t!("default_name.revolution"),
             Nature::Solid => t!("default_name.solid"),
             Nature::Group => t!("default_name.group"),
+            Nature::Round => t!("default_name.round"),
+            Nature::Chamfer => t!("default_name.chamfer"),
         }
     }
 }
@@ -554,6 +583,42 @@ pub struct BodyGroup {
     /// The children whose boolean failed when the group was computed (skipped).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub failed: BTreeSet<Id>,
+    /// What a body node does to its children's result (a round, a chamfer, of edges named in
+    /// it: docs/decisions/0042-body-nodes-operators.md); none for a plain group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<skraft_kernel::names::NodeOp>,
+    /// Why the node last left its children's result as it was (its names lost, its size too
+    /// large): the node is in error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<skraft_kernel::names::NodeRefusal>,
+    /// Its result's faces' names (relative to it), for a node above it not to compute it again
+    /// from its leaves (docs/decisions/0042-body-nodes-operators.md); held only for the solid
+    /// whose fingerprint is `faces_of` ([`BodyDef::face_map`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub faces: skraft_kernel::names::FaceMap,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub faces_of: u64,
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
+}
+
+impl BodyGroup {
+    /// A plain group of `children`, `failed` those whose boolean failed.
+    pub fn plain(children: Vec<Body>, failed: BTreeSet<Id>) -> BodyGroup {
+        BodyGroup { children, failed, op: None, refused: None, faces: Vec::new(), faces_of: 0 }
+    }
+
+    /// The face map `faces` of the solid `solid` (none: forgotten).
+    pub fn with_faces(self, solid: &Solid, faces: Option<skraft_kernel::names::FaceMap>) -> BodyGroup {
+        match faces {
+            Some(faces) if faces.len() == solid.record().faces.len() && !faces.is_empty() => {
+                BodyGroup { faces, faces_of: skraft_kernel::names::fingerprint(solid.record()), ..self }
+            }
+            _ => BodyGroup { faces: Vec::new(), faces_of: 0, ..self },
+        }
+    }
 }
 
 /// A solid of a part: an occurrence of the definition `def`, placed by `placement` in the part's

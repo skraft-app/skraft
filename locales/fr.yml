@@ -396,6 +396,8 @@ selection_scope:
   parts: "Pièces"
   parts_tip: "Un clic prend la pièce sous le curseur, à toute profondeur, sans entrer dans ses assemblages"
 option_bar:
+  # The context card naming the round or chamfer open (docs/tools/rounds.md).
+  node_open_tip: "Le nœud ouvert : ses enfants tels quels, ses arêtes en couleur"
   # The group of the lone options (toggles), at the end of the bar.
   options: "Options"
   options_tip: "Les options à activer ou désactiver"
@@ -548,6 +550,9 @@ search:
 
 panel:
   entity_info:
+    # A round's or a chamfer's edges, picked again (docs/tools/rounds.md).
+    blend_edges: "Choisir les arêtes"
+    blend_edges_tip: "Ouvrir le nœud et choisir à nouveau ses arêtes sur ses enfants"
     title: "Infos sur l'entité"
     no_selection: "Aucune sélection"
     editing: "Édition de « %{name} »"
@@ -663,6 +668,9 @@ panel:
     import_tip: "Importer des matières (.skraftmat)"
     export_name: "Matières %{model}"
   outliner:
+    # A round's radius and a chamfer's distance after their name (docs/tools/rounds.md).
+    round_size: "r %{size}"
+    chamfer_size: "%{size}"
     title: "Navigateur"
     # The first row, the model itself (named as its file): a click leaves every assembly and
     # part edited and chooses the model (the entity info shows it).
@@ -749,6 +757,8 @@ naming:
 
 # The status bar: the measurements box and the editor's messages.
 status:
+  # A round or a chamfer open, another tool on (docs/tools/rounds.md).
+  node_open: "%{name} ouvert : « Choisir les arêtes » ou son outil pour en changer les arêtes"
   measurements: "Mesures"
   # The tree drop-up open (OCL's, docs/tools/selection.md): the path of the part hovered, listed.
   tree: "Choisir un élément dans la liste"
@@ -1043,6 +1053,28 @@ tool:
       no_side: "Pointer le côté où décaler le guide"
       no_line: "Points confondus : pas de guide"
       no_radius: "Le cercle n'aurait plus de rayon : pas de guide"
+  # Rounds edges of a body or a part (docs/tools/rounds.md).
+  round:
+    name: "Arrondir"
+    vcb: "Rayon"
+    option:
+      size_tip: "Le rayon des arrondis, gardé pour les suivants"
+    hint:
+      pick: "Cliquer les arêtes à arrondir, d'un corps de la pièce ouverte ou d'une pièce · double-clic : toute la chaîne tangente · taper le rayon"
+  # Chamfers them.
+  chamfer:
+    name: "Chanfreiner"
+    vcb: "Distance"
+    option:
+      size_tip: "La distance des chanfreins, gardée pour les suivants"
+    hint:
+      pick: "Cliquer les arêtes à chanfreiner, d'un corps de la pièce ouverte ou d'une pièce · double-clic : toute la chaîne tangente · taper la distance"
+  # Both, Arrondir and Chanfreiner.
+  blend:
+    step:
+      edges: "Choisir les arêtes"
+    hint:
+      validate: "Cliquer d'autres arêtes du même corps ou de la même pièce, ou une choisie pour la retirer · taper la taille · Entrée : valider · Échap : tout retirer"
   profile:
     name: "Profil"
     hint:
@@ -1257,6 +1289,9 @@ operation:
   stretch: "Étirer"
   stretch_behavior: "Plans de coupe"
   set_profile: "Modifier le profil"
+  round: "Arrondir"
+  chamfer: "Chanfreiner"
+  set_blend: "Modifier l'arrondi"
   hide: "$t(common.hide)"
   show: "$t(common.show)"
   show_all: "$t(common.show_all)"
@@ -1287,6 +1322,9 @@ default_name:
   revolution: "Révolution"
   solid: "Solide"
   group: "Groupe"
+  # A body node rounding or chamfering edges of its children (docs/decisions/0042).
+  round: "Arrondi"
+  chamfer: "Chanfrein"
   material: "$t(common.material) %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"
@@ -1392,6 +1430,14 @@ error:
     bad_prop_def: "définition de propriété invalide"
     prop_def_contradicted: "des valeurs existantes ne correspondent pas à cette définition"
     bad_texture: "texture sans image, ou de taille nulle"
+    not_a_node: "ce corps n'est ni un arrondi ni un chanfrein, ou sa taille n'est pas positive"
+    blend_lost: "%{count} arête n'existe plus"
+    blend_lost_plural: "%{count} arêtes n'existent plus"
+    blend_no_edge: "aucune arête à cet endroit"
+    # The largest size that builds, in mm.
+    blend_too_large: "trop grand : %{size} mm au plus"
+    blend_no_room: "trop grand pour ces faces"
+    blend_failed: "le noyau ne le construit pas : %{error}"
   # A file that cannot be opened.
   file:
     unreadable: "fichier illisible : %{error}"

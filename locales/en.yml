@@ -343,6 +343,8 @@ selection_scope:
   parts: "Parts"
   parts_tip: "A click takes the part under the cursor, at any depth, without entering its assemblies"
 option_bar:
+  # The context card naming the round or chamfer open (docs/tools/rounds.md).
+  node_open_tip: "The node open: its children as they are, its edges in colour"
   options: "Options"
   options_tip: "The options to turn on or off"
   icon_tip: "%{label} — %{tip}"
@@ -481,6 +483,9 @@ search:
 
 panel:
   entity_info:
+    # A round's or a chamfer's edges, picked again (docs/tools/rounds.md).
+    blend_edges: "Pick the edges"
+    blend_edges_tip: "Open the node and pick its edges again on its children"
     title: "Entity Info"
     no_selection: "No selection"
     editing: "Editing “%{name}”"
@@ -588,6 +593,9 @@ panel:
     import_tip: "Import materials (.skraftmat)"
     export_name: "Materials %{model}"
   outliner:
+    # A round's radius and a chamfer's distance after their name (docs/tools/rounds.md).
+    round_size: "r %{size}"
+    chamfer_size: "%{size}"
     title: "Outliner"
     model_tip: "Click to go back to the model's level"
     hide: "$t(common.hide)"
@@ -654,6 +662,8 @@ naming:
   gone: "it no longer exists"
 
 status:
+  # A round or a chamfer open, another tool on (docs/tools/rounds.md).
+  node_open: "%{name} open: « Pick the edges » or its tool to change its edges"
   measurements: "Measurements"
   tree: "Choose an item in the list"
   tree_key: "%{key} held: parent item"
@@ -926,6 +936,28 @@ tool:
       no_side: "Point to the side to offset the guide to"
       no_line: "The points coincide: no guide"
       no_radius: "The circle would have no radius: no guide"
+  # Rounds edges of a body or a part (docs/tools/rounds.md).
+  round:
+    name: "Round"
+    vcb: "Radius"
+    option:
+      size_tip: "The rounds' radius, kept for the next ones"
+    hint:
+      pick: "Click the edges to round, of a body of the open part or of a part · double-click: the whole tangent chain · type the radius"
+  # Chamfers them.
+  chamfer:
+    name: "Chamfer"
+    vcb: "Distance"
+    option:
+      size_tip: "The chamfers' distance, kept for the next ones"
+    hint:
+      pick: "Click the edges to chamfer, of a body of the open part or of a part · double-click: the whole tangent chain · type the distance"
+  # Both, Round and Chamfer.
+  blend:
+    step:
+      edges: "Pick the edges"
+    hint:
+      validate: "Click more edges of the same body or part, or a picked one to drop it · type the size · Enter: validate · Esc: drop them all"
   profile:
     name: "Profile"
     hint:
@@ -1117,6 +1149,9 @@ operation:
   stretch: "Stretch"
   stretch_behavior: "Cutting Planes"
   set_profile: "Edit Profile"
+  round: "Round"
+  chamfer: "Chamfer"
+  set_blend: "Edit Round"
   hide: "$t(common.hide)"
   show: "$t(common.show)"
   show_all: "$t(common.show_all)"
@@ -1139,6 +1174,9 @@ default_name:
   revolution: "Revolution"
   solid: "Solid"
   group: "Group"
+  # A body node rounding or chamfering edges of its children (docs/decisions/0042).
+  round: "Round"
+  chamfer: "Chamfer"
   material: "$t(common.material) %{number}"
   file: "model"
   loose_faces: "%{name} (faces)"
@@ -1236,6 +1274,14 @@ error:
     bad_prop_def: "invalid property definition"
     prop_def_contradicted: "existing values do not match this definition"
     bad_texture: "texture without its image, or of no size"
+    not_a_node: "this body is neither a round nor a chamfer, or its size is not positive"
+    blend_lost: "%{count} edge no longer exists"
+    blend_lost_plural: "%{count} edges no longer exist"
+    blend_no_edge: "no edge there"
+    # The largest size that builds, in mm.
+    blend_too_large: "too large: %{size} mm at most"
+    blend_no_room: "too large for these faces"
+    blend_failed: "the kernel does not build it: %{error}"
   file:
     unreadable: "unreadable file: %{error}"
     not_skraft: "not a Skraft file (%{format})"

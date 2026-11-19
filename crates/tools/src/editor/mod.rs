@@ -150,6 +150,12 @@ pub struct Editor {
     /// The bodies of the open part a stretch previewed draws otherwise (docs/model/bodies.md): the mesh, the
     /// placement in the part's axes.
     pub(super) body_swaps: HashMap<Id, (Id, DAffine3)>,
+    /// The round or chamfer previewed (docs/tools/rounds.md): what the kernel was asked, its
+    /// job while it runs, why it refused it, and whether its result is in the scene's preview.
+    blend_asked: Option<tools::BlendPreview>,
+    blend_job: Option<JobId>,
+    blend_note: Option<String>,
+    blend_shown: bool,
     /// How the selection is drawn, worked out once for the frames that follow (docs/render/display.md).
     selection_drawing: std::cell::RefCell<Option<view::SelectionDrawing>>,
     /// The section's cut lines, kept while the plane and the meshes stay (docs/render/look.md).
@@ -276,6 +282,10 @@ impl Editor {
             held: None,
             stretch_swaps: HashMap::new(),
             body_swaps: HashMap::new(),
+            blend_asked: None,
+            blend_job: None,
+            blend_note: None,
+            blend_shown: false,
             selection_drawing: std::cell::RefCell::new(None),
             section_cuts: Default::default(),
             has_hidden: std::cell::Cell::new(None),
@@ -549,6 +559,17 @@ impl Editor {
         }
         self.message.clone().unwrap_or_else(|| {
             let mut s = self.tool.status();
+            // Why the round previewed is refused (« 25 mm au plus »).
+            if let Some(note) = &self.blend_note {
+                s = format!("{s} · {note}");
+            }
+            // A node open, another tool on: how its edges are changed (docs/tools/rounds.md), first —
+            // the tool's hint after it may not fit.
+            if !self.blending()
+                && let Some((_, name, _)) = self.open_node()
+            {
+                s = format!("{} · {s}", t!("status.node_open", name = name));
+            }
             if let Some(tab) = self.tab_hint() {
                 s = format!("{s} · {tab}");
             }
@@ -626,6 +647,20 @@ impl Editor {
             }
             None => full,
         }
+    }
+
+    /// The body node open (the group open is one, docs/tools/rounds.md): its id, its name, its
+    /// operation.
+    pub fn open_node(&self) -> Option<(Id, String, skraft_model::kernel::names::NodeOp)> {
+        let (parent, node, op) = tools::BlendTool::node(&self.cx())?;
+        let (_, p, _) = self.document().resolve_container(&parent).ok()?;
+        let name = p.body(node).map(|b| p.def_of(b).name.clone())?;
+        Some((node, name, op))
+    }
+
+    /// Is the active tool a node's (« Arrondir », « Chanfreiner »)?
+    pub fn blending(&self) -> bool {
+        matches!(self.tool.kind(), ToolKind::Round | ToolKind::Chamfer)
     }
 
     pub(crate) fn cx(&self) -> Cx<'_> {
@@ -1215,6 +1250,7 @@ impl Editor {
             self.card = None;
         }
         self.update_preview_mesh();
+        self.update_blend_preview();
     }
 
     /// A drag as clicks, for a tool that asks for it (docs/tools/interaction.md, OpenCutList's SmartDraw): the press
@@ -1349,6 +1385,71 @@ impl Editor {
         self.stretch_meshed = wanted;
     }
 
+    /// Asks the kernel for the round or chamfer the tool previews, when it changed: the job
+    /// before it dropped, the result shown in the part's (or the body's) stead when it comes
+    /// ([`Editor::blend_done`]), docs/tools/rounds.md.
+    pub(super) fn update_blend_preview(&mut self) {
+        let wanted = self.preview().blend;
+        if wanted == self.blend_asked {
+            return;
+        }
+        if let Some(j) = self.blend_job.take() {
+            self.kernel.cancel(j);
+        }
+        self.blend_note = None;
+        if self.blend_shown {
+            self.scene.set_preview(Vec::new());
+            self.stretch_swaps.clear();
+            self.body_swaps.clear();
+            self.blend_shown = false;
+        }
+        if let Some(w) = &wanted {
+            match self.document().blend_job(&w.op) {
+                Ok(job) => {
+                    let id = self.job_id();
+                    self.kernel.submit(id, job);
+                    self.blend_job = Some(id);
+                }
+                Err(e) => self.blend_note = Some(e.to_string()),
+            }
+        }
+        self.blend_asked = wanted;
+    }
+
+    /// The kernel's preview of the round asked: drawn in the part's or the body's stead, or
+    /// why it is refused, for the status bar.
+    pub(super) fn blend_done(&mut self, result: skraft_model::kernel::JobResult) {
+        let Some(w) = self.blend_asked.clone() else { return };
+        let out = match result {
+            Ok(mut outputs) => outputs.pop(),
+            Err(e) => {
+                self.blend_note = Some(e.to_string());
+                return;
+            }
+        };
+        let Some(skraft_model::kernel::Output::Node { display, refusal, .. }) = out else { return };
+        if let Some(r) = refusal {
+            self.blend_note = Some(skraft_model::blend_refusal(&r));
+            return;
+        }
+        let Ok(d) = display else { return };
+        let key = crate::scene::preview_key(0);
+        self.preview_revision += 1;
+        let part = crate::scene::PartMesh { solid: key, mesh: Arc::new(d.mesh), snaps: Arc::new(d.snaps), bounds: d.bounds };
+        let mesh =
+            crate::scene::DefinitionMesh { definition: key, revision: self.preview_revision, parts: vec![part], faces: Default::default() };
+        self.scene.set_preview(vec![mesh]);
+        match w.body {
+            Some(b) => {
+                self.body_swaps.insert(b, (key, DAffine3::IDENTITY));
+            }
+            None => {
+                self.stretch_swaps.insert(w.path.clone(), (key, w.world));
+            }
+        }
+        self.blend_shown = true;
+    }
+
     pub(crate) fn run(&mut self, c: Command) {
         match c {
             Command::Apply(op) => {
@@ -1358,6 +1459,9 @@ impl Editor {
                 }
                 let stretching = matches!(op, Operation::Stretch { .. } | Operation::StretchBodies { .. });
                 let held = stretching.then(|| self.stretch_meshed.clone()).flatten();
+                // A round applied: its preview drawn until the kernel gives the part its shape.
+                let blending = matches!(op, Operation::Blend { .. } | Operation::SetBlend { .. }) && self.blend_shown;
+                let held_blend = blending.then(|| self.blend_asked.clone()).flatten();
                 // What a boolean or a drawing tool makes is not selected: the next shape is
                 // drawn straight away.
                 // What a drawing tool makes is offered the quick tools' card (docs/tools/quick-tools.md); a
@@ -1386,6 +1490,9 @@ impl Editor {
                     self.selection.retain(|id| !hidden.contains(id));
                 }
                 self.held = held.zip(self.pending.as_ref()).map(|(s, p)| (p.job, Preview { stretch: Some(s), ..Preview::default() }));
+                if let (Some(b), Some(p)) = (held_blend, self.pending.as_ref()) {
+                    self.held = Some((p.job, Preview { blend: Some(b), ..Preview::default() }));
+                }
             }
             Command::Select(ids) => {
                 // Let go right after an operation still computed (a tool picking again,

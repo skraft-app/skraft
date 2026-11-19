@@ -204,6 +204,8 @@ pub(crate) fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.section" => ToolKind::Section,
         "tool.measure" => ToolKind::Measure,
         "tool.stretch" => ToolKind::Stretch,
+        "tool.round" => ToolKind::Round,
+        "tool.chamfer" => ToolKind::Chamfer,
         "tool.copy_line" => ToolKind::CopyLine,
         "tool.copy_grid" => ToolKind::CopyGrid,
         "tool.distribute" => ToolKind::Distribute,
@@ -1074,6 +1076,7 @@ impl SkraftApp {
             | Action::RemoteRetry => {}
             // A body chosen in the outliner: its part opened.
             Action::SelectBody(path, body, add) => e.toggle_body(&path, body, add),
+            Action::EditBlend(node) => e.edit_blend(node),
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
             Action::SelectModel => e.select_model(),
             Action::ChooseComponent(c) => e.choose_component(c),

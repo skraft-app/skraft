@@ -318,6 +318,10 @@ impl Editor {
                 // A stretch held while computed is done: the part is drawn as it now is.
                 self.held = None;
                 self.update_preview_mesh();
+                self.update_blend_preview();
+            } else if self.blend_job == Some(id) {
+                self.blend_job = None;
+                self.blend_done(result);
             }
             // Anything else was abandoned: dropped.
         }

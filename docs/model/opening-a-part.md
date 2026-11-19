@@ -18,6 +18,9 @@ and [Body groups](bodies.md#body-groups).
   (`Editor::open_part`). Esc (Select, nothing selected), a click off its grey box or a click in
   the outliner close it, the occurrence left selected; an undo that removes it closes it.
   While it is open nothing else is selectable.
+- **The navigator marks the level open**: the part's row while it is the level open (nothing
+  selected in it); a group (or a body node) open in it, that group's row, the part and the
+  groups above it on the way marked only by their name in the accent's colour.
 - **What surrounds it is faded**, as outside any context; the part's **other occurrences** are
   marked `Related`: whatever is changed reaches them, under the scope ([Copies and propagation](data-model.md#copies-and-propagation)). A **grey dashed
   box**, a few pixels off its blank, says the part is open, as for an assembly entered.

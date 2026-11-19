@@ -167,11 +167,11 @@ impl Document {
         }
         groups.sort_by_key(|(depth, _)| std::cmp::Reverse(*depth));
         for (_, g) in groups {
-            let Some(children) = next.def(g).map(|d| d.children().to_vec()) else { continue };
-            let (solid, failed) = Self::group_result(&next.defs, &children, solver)?;
+            let Some(group) = next.def(g).and_then(|d| d.group.clone()) else { continue };
+            let (solid, group) = Self::computed_group(&next.defs, group, &[], solver)?;
             if let Some(d) = next.defs.iter_mut().find(|d| d.id == g) {
                 d.solid = solid;
-                d.group = Some(crate::BodyGroup { children, failed });
+                d.group = Some(group);
             }
         }
         next.drop_unused_defs();

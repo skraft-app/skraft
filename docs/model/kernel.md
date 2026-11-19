@@ -21,6 +21,11 @@ or the way an operation reaches it.
 - Benefits: nearly free undo snapshots, direct saving, no kernel state to maintain. Cost: one
   conversion per operation (a part's recipe: one per input and one at the end,
   [Machinings and the recipe](data-model.md#machinings-and-the-recipe)).
+- Every kernel runs with **all of SolidCore's opt-in fixes** of upstream SMLib defects
+  (`UpstreamFixes::all()`, `engine::kernel()`; named once for the calls `solidcore-ops` makes,
+  `session::set_fixes`), as SolidCraft runs them. **Why:** they are off by default (upstream's
+  behaviour); without them a round too large ends as « not a closed solid » rather than the
+  refusal naming the size that fits ([0042](../decisions/0042-body-nodes-operators.md)).
 
 ## Booleans across contexts
 

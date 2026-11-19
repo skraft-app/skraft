@@ -21,6 +21,8 @@ mod stretch;
 mod weld;
 
 #[cfg(test)]
+mod node_tests;
+#[cfg(test)]
 mod tests;
 
 pub use assets::{Asset, ImageKind};
@@ -62,6 +64,8 @@ pub enum Error {
         part: String,
         error: Box<Error>,
     },
+    /// A round or a chamfer the kernel does not build (docs/decisions/0042-body-nodes-operators.md).
+    Blend(kernel::names::NodeRefusal),
 }
 
 /// An operation that cannot be done as asked.
@@ -121,6 +125,8 @@ pub enum Refusal {
     PropDefContradicted,
     /// A texture without its image, or of a size not positive (docs/render/look.md#textures).
     BadTexture,
+    /// A change to a body node's operation on a body that is none, or a size not positive.
+    NotANode,
 }
 
 /// A file that cannot be opened.
@@ -177,8 +183,25 @@ impl std::fmt::Display for Error {
             Error::Kernel(e) => e.to_string(),
             Error::File(e) => e.to_string(),
             Error::InPart { part, error } => t!("error.model.in_part", part = part, error = error),
+            Error::Blend(r) => blend_refusal(r),
         };
         f.write_str(&text)
+    }
+}
+
+/// Why a body node was refused, for the user.
+pub fn blend_refusal(r: &kernel::names::NodeRefusal) -> String {
+    use kernel::names::NodeRefusal as R;
+    match r {
+        R::Lost(names) => skraft_i18n::tp!("error.model.blend_lost", names.len()),
+        R::NoEdge => t!("error.model.blend_no_edge"),
+        R::TooLarge { size: Some(size) } => {
+            let size = format!("{size:.2}");
+            let size = size.trim_end_matches('0').trim_end_matches('.');
+            t!("error.model.blend_too_large", size = skraft_i18n::number(size))
+        }
+        R::TooLarge { size: None } => t!("error.model.blend_no_room"),
+        R::Kernel(e) => t!("error.model.blend_failed", error = e),
     }
 }
 
@@ -214,6 +237,7 @@ impl std::fmt::Display for Refusal {
             Refusal::BadPropDef => t!("error.model.bad_prop_def"),
             Refusal::PropDefContradicted => t!("error.model.prop_def_contradicted"),
             Refusal::BadTexture => t!("error.model.bad_texture"),
+            Refusal::NotANode => t!("error.model.not_a_node"),
         })
     }
 }

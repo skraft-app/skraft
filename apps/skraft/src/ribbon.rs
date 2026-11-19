@@ -77,8 +77,8 @@ pub const WORKSPACES: &[Workspace] = &[Workspace {
                 group(
                     "reshape",
                     || t!("ribbon.group.reshape"),
-                    &["tool.stretch", "tool.union", "tool.difference", "tool.intersection"],
-                    &["tool.stretch", "tool.union", "tool.difference", "tool.intersection"],
+                    &["tool.stretch", "tool.round", "tool.chamfer", "tool.union", "tool.difference", "tool.intersection"],
+                    &["tool.stretch", "tool.round", "tool.chamfer", "tool.union", "tool.difference", "tool.intersection"],
                 ),
                 group("appearance", || t!("ribbon.group.appearance"), &["tool.paint", "tool.sample"], &["tool.paint", "tool.sample"]),
             ],

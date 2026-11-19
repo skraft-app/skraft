@@ -1,6 +1,7 @@
 //! Interactive tools (docs/tools/interaction.md): each is a state machine fed with pointer and key
 //! input; it previews without touching the document and, when done, emits an `Operation`.
 
+mod blend;
 mod boolean;
 mod copy_grid;
 mod copy_line;
@@ -20,6 +21,7 @@ mod select;
 mod shapes;
 mod stretch;
 
+pub use blend::{BlendPreview, BlendTool};
 pub use boolean::BooleanTool;
 pub use copy_grid::CopyGridTool;
 pub use copy_line::CopyLineTool;
@@ -231,6 +233,9 @@ pub struct Preview {
     pub section: Option<Section>,
     /// A part drawn stretched (docs/tools/stretch.md).
     pub stretch: Option<StretchPreview>,
+    /// The round or chamfer to preview: the editor has the kernel compute it
+    /// (docs/tools/rounds.md).
+    pub blend: Option<BlendPreview>,
     /// The selected occurrences drawn as any others: the tool shows what it took its own way
     /// (the stretch tool's grips and cutters, whose colours the selection's would blur).
     pub hide_selection: bool,
@@ -447,11 +452,15 @@ pub enum ToolKind {
     Distribute,
     /// Edits the profile of a body of the open part (docs/tools/prism.md, docs/model/bodies.md).
     Profile,
+    /// Rounds edges (docs/tools/rounds.md).
+    Round,
+    /// Chamfers edges (docs/tools/rounds.md).
+    Chamfer,
 }
 
 impl ToolKind {
     /// Every tool.
-    pub const ALL: [ToolKind; 20] = [
+    pub const ALL: [ToolKind; 22] = [
         ToolKind::Select,
         ToolKind::Box,
         ToolKind::Cylinder,
@@ -472,6 +481,8 @@ impl ToolKind {
         ToolKind::CopyGrid,
         ToolKind::Distribute,
         ToolKind::Profile,
+        ToolKind::Round,
+        ToolKind::Chamfer,
     ];
 
     /// The tool named `id` ([`ToolKind::id`]).
@@ -502,6 +513,8 @@ impl ToolKind {
             ToolKind::CopyGrid => "copy_grid",
             ToolKind::Distribute => "distribute",
             ToolKind::Profile => "profile",
+            ToolKind::Round => "round",
+            ToolKind::Chamfer => "chamfer",
         }
     }
 
@@ -528,6 +541,8 @@ impl ToolKind {
             ToolKind::CopyGrid => t!("tool.copy_grid.name"),
             ToolKind::Distribute => t!("tool.distribute.name"),
             ToolKind::Profile => t!("tool.profile.name"),
+            ToolKind::Round => t!("tool.round.name"),
+            ToolKind::Chamfer => t!("tool.chamfer.name"),
         }
     }
 }
@@ -1507,6 +1522,8 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::CopyGrid => Box::new(CopyGridTool::default()),
         ToolKind::Distribute => Box::new(DistributeTool::default()),
         ToolKind::Profile => Box::new(ProfileTool::default()),
+        ToolKind::Round => Box::new(BlendTool::new(skraft_model::kernel::names::Blend::Round)),
+        ToolKind::Chamfer => Box::new(BlendTool::new(skraft_model::kernel::names::Blend::Chamfer)),
     }
 }
 

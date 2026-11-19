@@ -13,11 +13,27 @@ use skraft_kernel::{Primitive, Stretch};
 
 /// The profile a body is made of: its corners — `(x, y)` in the body's XY plane for an
 /// extrusion, `(x, z)` in its XZ plane for a revolution (`x` the radius) — and how it is swept.
+/// Its corners always have ids of their own ([`profile::settle_ids`]: made so, and read so).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(from = "Stored")]
 pub struct BodyProfile {
     pub profile: Vec<Corner>,
     #[serde(flatten)]
     pub sweep: Sweep,
+}
+
+/// A [`BodyProfile`] as read, its ids settled once read.
+#[derive(Deserialize)]
+struct Stored {
+    profile: Vec<Corner>,
+    #[serde(flatten)]
+    sweep: Sweep,
+}
+
+impl From<Stored> for BodyProfile {
+    fn from(s: Stored) -> BodyProfile {
+        BodyProfile { profile: s.profile, sweep: s.sweep }.settled()
+    }
 }
 
 /// How a body's profile is swept into its solid.
@@ -71,12 +87,19 @@ impl BodyProfile {
 
     /// The outline `profile` extruded from `z0` by `height`.
     pub fn extruded(profile: Vec<Corner>, z0: f64, height: f64) -> BodyProfile {
-        BodyProfile { profile, sweep: Sweep::Extrusion { z0, height } }
+        BodyProfile { profile, sweep: Sweep::Extrusion { z0, height } }.settled()
     }
 
     /// The half profile `profile` turned a whole turn.
     pub fn turned(profile: Vec<Corner>) -> BodyProfile {
-        BodyProfile { profile, sweep: Sweep::Revolution { revolution: Turn::Whole } }
+        BodyProfile { profile, sweep: Sweep::Revolution { revolution: Turn::Whole } }.settled()
+    }
+
+    /// The same, each corner with an id of its own (one just made, or split from another,
+    /// given the next free one): its sides' names (docs/decisions/0042-body-nodes-operators.md).
+    pub fn settled(mut self) -> BodyProfile {
+        profile::settle_ids(&mut self.profile);
+        self
     }
 
     /// An extrusion's base and height; none for a revolution.

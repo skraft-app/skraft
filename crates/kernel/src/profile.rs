@@ -23,7 +23,10 @@ const FLAT: f64 = 1e-9;
 
 /// A corner of an outline and the side leaving it: straight (`bulge` 0) or an arc of sweep
 /// 4·atan(`bulge`), turning counter-clockwise when positive. `fillet`: the radius rounding the
-/// corner when both its sides are straight (0: sharp), applied by [`rounded`].
+/// corner when both its sides are straight (0: sharp), applied by [`rounded`]. `id`: the side
+/// leaving it, stable while the profile is edited (docs/decisions/0042-body-nodes-operators.md):
+/// the faces the side makes are named by it, a fillet's by the corner's ([`SideName`]); 0 for
+/// none yet ([`settle_ids`]).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Corner {
     pub p: DVec2,
@@ -31,26 +34,65 @@ pub struct Corner {
     pub bulge: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub fillet: f64,
+    #[serde(default, skip_serializing_if = "is_no_id")]
+    pub id: u32,
 }
 
 fn is_zero(b: &f64) -> bool {
     *b == 0.0
 }
 
+fn is_no_id(id: &u32) -> bool {
+    *id == 0
+}
+
+/// The bit marking, in [`rounded`]'s output, the arc of a fillet: the rest is the id of the
+/// corner it rounds. Side ids stay below it.
+pub const FILLET: u32 = 1 << 31;
+
+/// What a side of [`rounded`]'s output is, by its corner's id: one of the profile's sides, or
+/// the fillet of one of its corners (`id & !FILLET`, the id of the side leaving that corner).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum SideName {
+    Side(u32),
+    Fillet(u32),
+}
+
+impl SideName {
+    pub fn of(c: &Corner) -> SideName {
+        if c.id & FILLET != 0 { SideName::Fillet(c.id & !FILLET) } else { SideName::Side(c.id) }
+    }
+}
+
+/// Gives the corners without an id (0, a corner just made) or with one an earlier corner
+/// already has (a corner split in two) an id of their own, the next above the largest.
+pub fn settle_ids(p: &mut [Corner]) {
+    let mut next = p.iter().map(|c| c.id & !FILLET).max().unwrap_or(0) + 1;
+    let mut seen = std::collections::HashSet::with_capacity(p.len());
+    for c in p.iter_mut() {
+        c.id &= !FILLET;
+        if c.id == 0 || !seen.insert(c.id) {
+            c.id = next;
+            seen.insert(next);
+            next += 1;
+        }
+    }
+}
+
 impl Corner {
     /// A corner whose side leaving it is straight.
     pub fn new(p: DVec2) -> Corner {
-        Corner { p, bulge: 0.0, fillet: 0.0 }
+        Corner { p, bulge: 0.0, fillet: 0.0, id: 0 }
     }
 
     /// A corner whose side leaving it is an arc of `bulge`.
     pub fn arc(p: DVec2, bulge: f64) -> Corner {
-        Corner { p, bulge, fillet: 0.0 }
+        Corner { p, bulge, fillet: 0.0, id: 0 }
     }
 
     /// A sharp corner rounded by a fillet of radius `r`, its side leaving it straight.
     pub fn filleted(p: DVec2, r: f64) -> Corner {
-        Corner { p, bulge: 0.0, fillet: r }
+        Corner { p, bulge: 0.0, fillet: r, id: 0 }
     }
 
     fn straight(&self) -> bool {
@@ -231,7 +273,15 @@ pub fn signed_area2(p: &[Corner]) -> f64 {
 pub fn reversed(p: &[Corner]) -> Vec<Corner> {
     let n = p.len();
     // The side from the k-th corner of the reversed outline is the one into it, turned.
-    (0..n).map(|k| Corner { p: p[n - 1 - k].p, bulge: -p[(2 * n - 2 - k) % n].bulge, fillet: p[n - 1 - k].fillet }).collect()
+    (0..n)
+        .map(|k| Corner {
+            p: p[n - 1 - k].p,
+            bulge: -p[(2 * n - 2 - k) % n].bulge,
+            fillet: p[n - 1 - k].fillet,
+            // The side's id goes with the side.
+            id: p[(2 * n - 2 - k) % n].id,
+        })
+        .collect()
 }
 
 /// The outline counter-clockwise.
@@ -815,8 +865,8 @@ pub fn rounded(p: &[Corner]) -> Vec<Corner> {
                 let before = (i + n - 1) % n;
                 let u_in = (p[i].p - p[before].p).normalize();
                 let u_out = (p[(i + 1) % n].p - p[i].p).normalize();
-                out.push(Corner::arc(p[i].p - u_in * t, bulge_of(turn)));
-                out.push(Corner::new(p[i].p + u_out * t));
+                out.push(Corner { id: FILLET | p[i].id, ..Corner::arc(p[i].p - u_in * t, bulge_of(turn)) });
+                out.push(Corner { id: p[i].id, ..Corner::new(p[i].p + u_out * t) });
             }
             None => out.push(sharp(&p[i])),
         }
@@ -862,7 +912,8 @@ pub fn recognized(p: &[Corner]) -> Vec<Corner> {
             if (q - u_in * t).distance(a) > SAME * (1.0 + r) || (q + u_out * t).distance(b) > SAME * (1.0 + r) {
                 continue;
             }
-            out[i] = Corner::filleted(q, r);
+            // The corner's side is the straight one after the arc.
+            out[i] = Corner { id: out[next].id, ..Corner::filleted(q, r) };
             out.remove(next);
             continue 'search;
         }
@@ -1243,5 +1294,42 @@ mod tests {
         // Not a corner a fillet rounds: next to an arc.
         let tomb = [Corner::new(v(0.0, 0.0)), Corner::new(v(10.0, 0.0)), Corner::arc(v(10.0, 10.0), 1.0), Corner::new(v(0.0, 10.0))];
         assert!(fillet_middle(&tomb, 2, 1.0).is_none() && fillet_middle(&tomb, 1, 1.0).is_some());
+    }
+
+    #[test]
+    fn side_ids_are_settled_and_follow_their_sides() {
+        let mut p = polygon(&[v(0.0, 0.0), v(10.0, 0.0), v(10.0, 10.0), v(0.0, 10.0)]);
+        settle_ids(&mut p);
+        assert_eq!(p.iter().map(|c| c.id).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
+        // A corner inserted (id 0) and one split from another (its id twice): the next free ids.
+        p.insert(1, Corner::new(v(5.0, 0.0)));
+        p.insert(3, p[2]);
+        settle_ids(&mut p);
+        assert_eq!(p.iter().map(|c| c.id).collect::<Vec<_>>(), vec![1, 5, 2, 6, 3, 4]);
+        // Reversed, each side keeps its id: the side 1 → 5 is now 5 → 1, leaving the corner at (5, 0).
+        let p = polygon(&[v(0.0, 0.0), v(10.0, 0.0), v(10.0, 10.0)])
+            .into_iter()
+            .zip([7, 8, 9])
+            .map(|(c, id)| Corner { id, ..c })
+            .collect::<Vec<_>>();
+        let r = reversed(&p);
+        let side = |q: &[Corner], a: DVec2| q.iter().find(|c| c.p == a).unwrap().id;
+        assert_eq!(side(&r, v(10.0, 0.0)), 7, "the side (0, 0) → (10, 0), run backwards");
+        assert_eq!(side(&r, v(0.0, 0.0)), 9);
+    }
+
+    #[test]
+    fn a_fillet_arc_is_named_by_the_corner_it_rounds() {
+        let mut p = polygon(&[v(0.0, 0.0), v(10.0, 0.0), v(10.0, 10.0), v(0.0, 10.0)]);
+        p[1].fillet = 2.0;
+        settle_ids(&mut p);
+        let names: Vec<SideName> = rounded(&p).iter().map(SideName::of).collect();
+        assert_eq!(names, vec![SideName::Side(1), SideName::Fillet(2), SideName::Side(2), SideName::Side(3), SideName::Side(4)]);
+        // Recognised back, the filleted corner takes the id of its side after the arc.
+        let back = recognized(&rounded(&p));
+        assert_eq!(
+            back.iter().map(|c| (c.id, (c.fillet * 1e6).round() / 1e6)).collect::<Vec<_>>(),
+            vec![(1, 0.0), (2, 2.0), (3, 0.0), (4, 0.0)]
+        );
     }
 }
