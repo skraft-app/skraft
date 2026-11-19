@@ -26,6 +26,17 @@ pub enum Action {
     /// The outliner's first row, the model, clicked: every assembly and part edited left,
     /// nothing selected.
     SelectModel,
+    /// A component chosen in the library (docs/ui/components-library.md).
+    ChooseComponent(Id),
+    /// One more occurrence of a component carried at the cursor, from a click on its row or
+    /// a drag out of it (`dragged`: the view follows the drag, docs/ui/components-library.md#placing).
+    PlaceComponent(Id, bool),
+    /// The « Composants » card as a list (true) or a grid of thumbnails.
+    ComponentsList(bool),
+    /// The library's menu: its occurrences selected, the selection replaced by it, deleted.
+    SelectOccurrences(Id),
+    ReplaceSelection(Id),
+    DeleteComponent(Id),
     Apply(Operation),
     /// A key for the active tool, from a button (the validation's ✓ Enter, ✗ Esc,
     /// docs/ui/interface.md#steps-bar).
@@ -731,7 +742,16 @@ pub struct OutlinerState {
     open: FastSet<egui::Id>,
     births: Births,
     active: Option<ActivePath>,
+    /// Its search (docs/ui/components-library.md#search), and whether a definition holds a
+    /// row it lets through, by definition and the material reaching it — kept for the
+    /// document's revision and the search it was found for.
+    pub filter: skraft_tools::search::Filter,
+    holds: Option<(u64, skraft_tools::search::Filter, Holds)>,
 }
+
+/// Whether a definition holds a row a search lets through, by definition and the material
+/// reaching it.
+type Holds = FastMap<(Id, Option<Id>), bool>;
 
 /// One line of the outliner: an occurrence at some depth of the tree, or a body of the part it
 /// places.
@@ -745,6 +765,8 @@ struct OutlinerRow<'d> {
     hidden_above: bool,
     /// The body this line shows, of the part `occurrence` places: none for the occurrence's own.
     body: Option<BodyRow<'d>>,
+    /// Shown under a search only for what it holds (it does not match): attenuated.
+    dim: bool,
 }
 
 /// A body in the outliner, under its part (docs/model/bodies.md#body-groups).
@@ -770,7 +792,7 @@ fn nature_icon(nature: Nature) -> egui::ImageSource<'static> {
 }
 
 /// How far the weak text lies from the text towards the background, 0 to 1.
-fn weak_share(v: &egui::Visuals) -> f32 {
+pub(crate) fn weak_share(v: &egui::Visuals) -> f32 {
     let (text, weak, back) = (v.text_color(), v.weak_text_color(), v.window_fill);
     let d = |a: egui::Color32, b: egui::Color32| {
         (a.r() as f32 - b.r() as f32).abs() + (a.g() as f32 - b.g() as f32).abs() + (a.b() as f32 - b.b() as f32).abs()
@@ -795,6 +817,10 @@ impl BodyRow<'_> {
     }
 }
 
+/// The room above the navigator's search field: its rows close under the title bar, the field as
+/// far from it as the other cards' content.
+const SEARCH_PAD: f32 = 6.0;
+
 /// The margin inside a panel's card, around its content (its border just outside).
 pub const CARD_MARGIN: f32 = 6.0;
 
@@ -815,7 +841,7 @@ fn hidden_color(v: &egui::Visuals, band: bool) -> egui::Color32 {
 /// bodies, then the selection, or the hover (`lit`: hovered in the view) — painted under the
 /// widgets `add` lays in it from left to right. The response is the line's click; the buttons
 /// in it (a fold, an eye, a sign), added after, take theirs first.
-fn tree_row<R>(
+pub(crate) fn tree_row<R>(
     ui: &mut egui::Ui,
     height: f32,
     selected: bool,
@@ -861,8 +887,17 @@ pub fn outliner(
     name: &str,
     actions: &mut Vec<Action>,
     area: egui::ScrollArea,
+    body: f32,
 ) {
     let doc = editor.document();
+    // The search field over the whole width, by name only (docs/ui/components-library.md#search), away
+    // from the title bar as the other cards' content; the tree in the height left under it.
+    let top = ui.cursor().top();
+    ui.add_space(SEARCH_PAD);
+    let salt = ui.make_persistent_id("outliner_search");
+    crate::search::field(ui, salt, "outliner", &mut state.filter.text, |_| {});
+    let left = (body - (ui.cursor().top() - top)).max(0.0);
+    let area = area.max_height(left).min_scrolled_height(left);
     let height = ui.spacing().interact_size.y;
     // Room above the first row and below the last for their backgrounds, which spill half the
     // rows' spacing beyond them (`tree_row`): the scroll area clips to its content and margin,
@@ -893,7 +928,28 @@ pub fn outliner(
         before.fold_left(&state.births, &mut state.open, &active);
     }
     let mut rows = Vec::new();
-    flatten(&state.births, &mut state.open, editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
+    if state.filter.is_active() {
+        // Under a search: every row it lets through and the rows above them, whatever is
+        // folded (the folds left as they are).
+        let revision = editor.history().revision();
+        if state.holds.as_ref().is_none_or(|(r, f, _)| *r != revision || *f != state.filter) {
+            state.holds = Some((revision, state.filter.clone(), FastMap::default()));
+        }
+        let matcher = state.filter.matcher();
+        let Some((_, _, holds)) = state.holds.as_mut() else { return };
+        let mut f = Filtered { matcher: &matcher, holds, doc };
+        f.rows(doc.root(), None, &mut Vec::new(), &mut rows, false, 0);
+    } else {
+        flatten(&state.births, &mut state.open, editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
+    }
+    if rows.is_empty() && state.filter.is_active() {
+        area.show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.weak(t!("search.no_match"));
+        });
+        actions.push(Action::HoverMachining(None));
+        return;
+    }
     let folds = &mut state.open;
     let salt = ui.make_persistent_id("outliner_folds");
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
@@ -936,6 +992,8 @@ pub fn outliner(
                 on_selection
             } else if greyed {
                 hidden_color(ui.visuals(), false)
+            } else if row.dim {
+                weak
             } else {
                 text
             };
@@ -1191,7 +1249,7 @@ fn flatten<'d>(
             let key = births.occurrence_fold(path, o.id);
             // Open while the part is.
             let open = unfold(folds, key, editor.context() == path.as_slice() && editor.open_part() == Some(o.id));
-            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None });
+            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None, dim: false });
             if open {
                 let open_group = (editor.context() == path.as_slice() && editor.open_part() == Some(o.id)).then(|| editor.open_group());
                 let row = |fold, group, body, siblings, profile| OutlinerRow {
@@ -1200,6 +1258,7 @@ fn flatten<'d>(
                     fold,
                     hidden_above,
                     body: Some(BodyRow { part: p, body, group, siblings, profile }),
+                    dim: false,
                 };
                 let at = (path.as_slice(), o.id);
                 // The profile edited, in the group open: its body unfolded.
@@ -1211,18 +1270,136 @@ fn flatten<'d>(
             continue;
         }
         if doc.assembly(o.component).is_err() {
-            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None });
+            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None, dim: false });
             continue;
         }
         let key = births.occurrence_fold(path, o.id);
         // Open along the context being edited.
         let along = editor.context().len() > path.len() && editor.context().starts_with(path) && editor.context()[path.len()] == o.id;
         let open = unfold(folds, key, along);
-        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None });
+        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None, dim: false });
         if open {
             path.push(o.id);
             flatten(births, folds, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
             path.pop();
+        }
+    }
+}
+
+/// The navigator's rows under a search (docs/ui/components-library.md#search): the rows it lets
+/// through — an occurrence by its name or its component's, its nature, the material it shows
+/// (its own or one inherited from above, or for a part a face's); a body by its name or its
+/// definition's —, and the rows above them, attenuated when they do not pass themselves. No
+/// folds: what holds a match is shown open, the rest closed.
+struct Filtered<'a, 'd> {
+    matcher: &'a skraft_tools::search::Matcher,
+    /// Does a definition hold a row that passes, the material reaching it being this?
+    holds: &'a mut Holds,
+    doc: &'d Document,
+}
+
+impl<'d> Filtered<'_, 'd> {
+    /// Does the occurrence `o` (the material above it `inherited`) pass itself?
+    fn occurrence(&self, o: &Occurrence, inherited: Option<Id>) -> bool {
+        use skraft_tools::search::Nature;
+        let Ok(c) = self.doc.component(o.component) else { return false };
+        let shown = o.material.or(inherited);
+        match &c.kind {
+            ComponentKind::Part(p) => {
+                self.matcher.matches(Nature::Part, [o.name.as_str(), c.name.as_str()], shown.into_iter().chain(p.faces.values().copied()))
+            }
+            ComponentKind::Assembly(_) => self.matcher.matches(Nature::Assembly, [o.name.as_str(), c.name.as_str()], shown),
+        }
+    }
+
+    /// Does the body `b` of `p` pass? (A body shows no material: none passes a material asked.)
+    fn body(&self, p: &skraft_model::Part, b: &skraft_model::Body) -> bool {
+        self.matcher.matches(skraft_tools::search::Nature::Body, [b.name.as_str(), p.def_of(b).name.as_str()], [])
+    }
+
+    /// Does one of `bodies`, or a body in their groups, pass?
+    fn holds_body(&self, p: &skraft_model::Part, bodies: &[skraft_model::Body], depth: usize) -> bool {
+        depth <= skraft_model::MAX_DEPTH
+            && bodies.iter().any(|b| self.body(p, b) || self.holds_body(p, p.def_of(b).children(), depth + 1))
+    }
+
+    /// Does the definition `c` (`inherited` reaching it) hold a row that passes?
+    fn holds(&mut self, c: Id, inherited: Option<Id>, depth: usize) -> bool {
+        if let Some(h) = self.holds.get(&(c, inherited)) {
+            return *h;
+        }
+        let h = match self.doc.component(c).map(|c| &c.kind) {
+            Ok(ComponentKind::Part(p)) => self.matcher.nature(skraft_tools::search::Nature::Body)
+                && self.matcher.material().is_none()
+                && self.holds_body(p, &p.bodies, 0),
+            Ok(ComponentKind::Assembly(a)) if depth <= skraft_model::MAX_DEPTH => a
+                .occurrences()
+                .iter()
+                .any(|o| self.occurrence(o, inherited) || self.holds(o.component, o.material.or(inherited), depth + 1)),
+            _ => false,
+        };
+        self.holds.insert((c, inherited), h);
+        h
+    }
+
+    /// The rows of the assembly `assembly` (`inherited` reaching it) under `path`.
+    fn rows(&mut self, assembly: Id, inherited: Option<Id>, path: &mut Vec<Id>, out: &mut Vec<OutlinerRow<'d>>, hidden_above: bool, depth: usize) {
+        let doc = self.doc;
+        let Ok(a) = doc.assembly(assembly) else { return };
+        if depth > skraft_model::MAX_DEPTH {
+            return;
+        }
+        for o in a.occurrences() {
+            let me = self.occurrence(o, inherited);
+            let shown = o.material.or(inherited);
+            let below = self.holds(o.component, shown, depth + 1);
+            if !me && !below {
+                continue;
+            }
+            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None, dim: !me });
+            if !below {
+                continue;
+            }
+            if let Ok(p) = doc.part(o.component) {
+                self.body_rows(p, &p.bodies, &mut Vec::new(), path, o, hidden_above, out);
+            } else {
+                path.push(o.id);
+                self.rows(o.component, shown, path, out, hidden_above || o.hidden, depth + 1);
+                path.pop();
+            }
+        }
+    }
+
+    /// The rows of `bodies` (of the part `o` places, in the groups `group`) that pass, and the
+    /// groups holding one.
+    #[allow(clippy::too_many_arguments)]
+    fn body_rows(
+        &self,
+        p: &'d skraft_model::Part,
+        bodies: &'d [skraft_model::Body],
+        group: &mut Vec<Id>,
+        path: &[Id],
+        o: &'d Occurrence,
+        hidden_above: bool,
+        out: &mut Vec<OutlinerRow<'d>>,
+    ) {
+        if group.len() > skraft_model::MAX_DEPTH {
+            return;
+        }
+        for b in bodies {
+            let me = self.body(p, b);
+            let children = p.def_of(b).children();
+            let below = self.holds_body(p, children, group.len() + 1);
+            if !me && !below {
+                continue;
+            }
+            let body = Some(BodyRow { part: p, body: b, group: group.clone(), siblings: bodies, profile: false });
+            out.push(OutlinerRow { path: path.to_vec(), occurrence: o, fold: None, hidden_above, body, dim: !me });
+            if below {
+                group.push(b.id);
+                self.body_rows(p, children, group, path, o, hidden_above, out);
+                group.pop();
+            }
         }
     }
 }
@@ -1387,6 +1564,8 @@ fn body_row(
         v.selection.stroke.color
     } else if greyed {
         hidden_color(v, true)
+    } else if row.dim {
+        weak
     } else {
         v.text_color()
     };
@@ -1492,7 +1671,7 @@ fn body_row(
 }
 
 /// The temporary key of the body row whose name is edited in place, if any.
-const RENAMING: &str = "outliner_renaming";
+pub(crate) const RENAMING: &str = "outliner_renaming";
 
 /// A navigator row's name edited in place, under the key `rename` (`renaming`: it is): a
 /// double-click on the row (`response`), or F2 while it is the one thing selected (`alone`),
@@ -1520,7 +1699,7 @@ fn start_rename(
 /// `id`: the name `current` wholly selected as it opens, to be typed over. Enter or a click away
 /// gives the text typed — empty: the name cleared —, Esc nothing: `Some` once done, `Some(None)`
 /// when nothing changes; None while it is edited.
-fn rename_field(ui: &mut egui::Ui, id: egui::Id, current: &str) -> Option<Option<String>> {
+pub(crate) fn rename_field(ui: &mut egui::Ui, id: egui::Id, current: &str) -> Option<Option<String>> {
     let (text_id, started) = (id.with("text"), id.with("started"));
     let first = !ui.data(|d| d.get_temp::<bool>(started).unwrap_or(false));
     let mut text = ui.data(|d| d.get_temp::<String>(text_id)).unwrap_or_else(|| current.to_owned());
@@ -1605,6 +1784,11 @@ fn dims(lo: DVec3, hi: DVec3, units: &Units) -> String {
 pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let units = &doc.settings().units;
+    // A component chosen in the library, its occurrence carried at the cursor too
+    // (docs/ui/components-library.md#managing).
+    if let Some(c) = editor.chosen_component() {
+        return component_info(ui, editor, c, actions);
+    }
     // A part or a guide of an assembly selected at any depth (« Parts », docs/tools/selection.md):
     // shown as in its own assembly; several, or a part's guide, counted.
     let (context, sel) = match (editor.deep_selection(), editor.deep_guides()) {
@@ -1750,6 +1934,55 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
             ui.label(tp!("panel.entity_info.selected", many.len()));
         }
     }
+}
+
+/// A component chosen in the library (docs/ui/components-library.md#managing): its nature, its name
+/// (edited there), how many times it is in the model, a part's dimensions, the materials its
+/// occurrences and faces carry.
+fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
+    let doc = editor.document();
+    let Ok(c) = doc.component(id) else { return };
+    let units = &doc.settings().units;
+    let field = (ui.available_width() - 90.0).max(60.0);
+    let count = doc.counts_in_model().get(&id).copied().unwrap_or(0);
+    // Its materials: its occurrences' own, its faces'; in the order of the document's.
+    let mut used: FastSet<Id> = FastSet::default();
+    for a in doc.components().filter_map(|c| c.as_assembly()).chain(std::iter::once(doc.root_assembly())) {
+        used.extend(a.occurrences().iter().filter(|o| o.component == id).filter_map(|o| o.material));
+    }
+    if let ComponentKind::Part(p) = &c.kind {
+        used.extend(p.faces.values().copied());
+    }
+    let materials: Vec<&str> = doc.materials().filter(|(m, _)| used.contains(m)).map(|(_, m)| m.name.as_str()).collect();
+    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+        ui.label(t!("panel.entity_info.type"));
+        ui.label(if c.is_part() { t!("panel.entity_info.type_part") } else { t!("panel.entity_info.type_assembly") });
+        ui.end_row();
+        field_label(ui, t!("panel.entity_info.name"));
+        if let Some(name) = text_field(ui, (c.id, 1), &c.name, field) {
+            actions.push(Action::Apply(Operation::RenameComponent { component: c.id, name }));
+        }
+        ui.end_row();
+        ui.label(t!("panel.entity_info.in_model"));
+        ui.label(count.to_string());
+        ui.end_row();
+        if let ComponentKind::Part(p) = &c.kind {
+            if let Some(error) = pieces_error(p.pieces()) {
+                ui.label(t!("panel.entity_info.dimensions"));
+                cut_label(ui, egui::RichText::new(error).color(ui.visuals().error_fg_color), field);
+                ui.end_row();
+            } else if let Some((lo, hi)) = editor.scene().bounds_of(p.shape()) {
+                ui.label(t!("panel.entity_info.dimensions"));
+                cut_label(ui, dims(lo, hi, units), field);
+                ui.end_row();
+            }
+        }
+        if !materials.is_empty() {
+            ui.label(t!("panel.entity_info.materials"));
+            cut_label(ui, materials.join(", "), field);
+            ui.end_row();
+        }
+    });
 }
 
 /// The model, chosen (the navigator's first row clicked): its name (`name`, its file's), its
@@ -1902,7 +2135,7 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
 const NEW_COLORS: [[u8; 3]; 6] = [[196, 152, 98], [120, 78, 48], [222, 196, 150], [160, 110, 70], [235, 235, 228], [90, 92, 96]];
 
 /// A swatch of `color`, `size` points square.
-fn swatch(ui: &mut egui::Ui, color: Option<[u8; 3]>, size: f32) {
+pub(crate) fn swatch(ui: &mut egui::Ui, color: Option<[u8; 3]>, size: f32) {
     let (r, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     let stroke = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.fg_stroke.color);
     match color {
@@ -2051,6 +2284,53 @@ mod tests {
             top = output.shapes.iter().find_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.pos.y) } else { None }).unwrap();
         }
         top
+    }
+
+    /// The navigator's rows under `filter`: (depth, occurrence, body, dimmed).
+    fn filtered(e: &Editor, filter: skraft_tools::search::Filter) -> Vec<(usize, Id, Option<Id>, bool)> {
+        let doc = e.document();
+        let matcher = filter.matcher();
+        let mut holds = FastMap::default();
+        let mut rows = Vec::new();
+        Filtered { matcher: &matcher, holds: &mut holds, doc }.rows(doc.root(), None, &mut Vec::new(), &mut rows, false, 0);
+        rows.iter().map(|r| (r.path.len(), r.occurrence.id, r.body.as_ref().map(|b| b.body.id), r.dim)).collect()
+    }
+
+    #[test]
+    fn a_search_keeps_what_matches_and_the_rows_above_it() {
+        use glam::DVec3;
+        use skraft_model::Primitive;
+        use skraft_tools::search::Filter;
+        let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
+        let root = e.document().root();
+        let mut add = |e: &mut Editor, x: f64| {
+            let p = Primitive::Box { origin: DVec3::new(x, 0.0, 0.0), size: DVec3::splat(10.0) };
+            e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None }).unwrap().unwrap().created[0]
+        };
+        let (a, b, c) = (add(&mut e, 0.0), add(&mut e, 100.0), add(&mut e, 200.0));
+        let g = e.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().unwrap().created[0];
+        let pa = e.document().resolve(&EntityPath::new(vec![g], a)).unwrap().component;
+        e.apply(Operation::RenameComponent { component: pa, name: "Étagère".into() }).unwrap();
+
+        // A part deep in the assembly: the assembly above it, attenuated, then it.
+        let rows = filtered(&e, Filter { text: "etag".into(), ..Filter::default() });
+        assert_eq!(rows, vec![(0, g, None, true), (1, a, None, false)]);
+        // Assemblies only: the assembly, nothing under it.
+        let rows = filtered(&e, Filter { parts: false, bodies: false, ..Filter::default() });
+        assert_eq!(rows, vec![(0, g, None, false)]);
+        // A material: what shows it, inherited from the assembly painted.
+        let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
+        e.apply(Operation::PaintOccurrences { context: root, entities: vec![g], material: Some(oak) }).unwrap();
+        let rows = filtered(&e, Filter { material: Some(oak), assemblies: false, ..Filter::default() });
+        assert_eq!(rows.iter().filter(|r| !r.3).map(|r| r.1).collect::<Vec<_>>(), vec![a, b], "C shows no oak: {rows:?}");
+        assert!(rows.iter().all(|r| r.1 != c));
+        // Bodies: under their part, by their definition's name.
+        let pc = e.document().resolve(&EntityPath::root(c)).unwrap().component;
+        let part = e.document().part(pc).unwrap();
+        let body = part.def_of(&part.bodies[0]).name.clone();
+        let rows = filtered(&e, Filter { text: body, parts: false, assemblies: false, ..Filter::default() });
+        assert!(rows.iter().any(|r| r.2.is_some() && !r.3), "{rows:?}");
+        assert!(rows.iter().filter(|r| r.2.is_none()).all(|r| r.3), "the parts and assembly above, attenuated");
     }
 
     #[test]

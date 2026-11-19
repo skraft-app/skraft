@@ -772,6 +772,7 @@ impl SkraftApp {
             "view.section" | "view.section_clear" => section,
             "view.show_all" => e.has_hidden(),
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
+            "components.purge" => !e.library_disabled() && !e.unused_components().is_empty(),
             "debug.crash_kernel" => self.debug_menu,
             "view.next_tab" | "view.previous_tab" => self.docs.len() > 1,
             "view.home" => true,
@@ -965,6 +966,7 @@ impl SkraftApp {
             "edit.group_bodies" => e.group_bodies(),
             "edit.ungroup_bodies" => e.ungroup_bodies(),
             "edit.delete_guides" => e.delete_guides(),
+            "components.purge" => e.purge_unused(),
             "view.parallel" => {
                 let p = !e.camera.is_parallel();
                 e.set_parallel(p);
@@ -1045,6 +1047,7 @@ impl SkraftApp {
             Action::QuickPin(id) => return crate::quick::toggle(&mut self.prefs.quick_tools, id),
             Action::ViewPin(id) => return crate::view_bar::toggle(&mut self.prefs.view_bar, id),
             Action::ViewBarSide(side) => return self.prefs.view_bar_side = side,
+            Action::ComponentsList(list) => return self.prefs.components_list = list,
             Action::ViewMove(id, before) => return crate::view_bar::move_to(&mut self.prefs.view_bar, id, before),
             Action::QuickMove(id, before) => return crate::quick::move_to(&mut self.prefs.quick_tools, id, before),
             Action::QuickTool(id) => {
@@ -1066,6 +1069,7 @@ impl SkraftApp {
             | Action::ViewPin(_)
             | Action::ViewMove(..)
             | Action::ViewBarSide(_)
+            | Action::ComponentsList(_)
             | Action::QuickMove(..)
             | Action::QuickTool(_)
             | Action::RemoteRetry => {}
@@ -1073,6 +1077,16 @@ impl SkraftApp {
             Action::SelectBody(path, body, add) => e.toggle_body(&path, body, add),
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
             Action::SelectModel => e.select_model(),
+            Action::ChooseComponent(c) => e.choose_component(c),
+            Action::PlaceComponent(c, dragged) => {
+                doc.vcb.clear();
+                if e.place_component(c) && dragged {
+                    self.viewport.dragged_in = true;
+                }
+            }
+            Action::SelectOccurrences(c) => e.select_occurrences_of(c),
+            Action::ReplaceSelection(c) => e.replace_selection(c),
+            Action::DeleteComponent(c) => e.delete_component(c),
             Action::EditProfile(p, body) => e.edit_body_profile(&p, body),
             Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
             Action::Apply(op) => {
@@ -1813,12 +1827,23 @@ impl SkraftApp {
                             let doc_id = doc.id;
                             area.id_salt("materials").show(ui, |ui| ui.push_id(doc_id, |ui| panels::materials(ui, &doc.editor, actions)));
                         }
+                        PanelId::Components => {
+                            let doc_id = doc.id;
+                            let (editor, state) = (&doc.editor, &mut doc.library);
+                            let look = crate::library::Look {
+                                doc: doc_id,
+                                thumbnails: &mut self.viewport.thumbnails,
+                                list: self.prefs.components_list,
+                                height: body,
+                            };
+                            ui.push_id(doc_id, |ui| crate::library::components(ui, editor, state, look, actions, area.id_salt("components")));
+                        }
                         PanelId::Outliner => {
                             *outliner_shown = true;
                             // Salted by the document: its rows' clicks apart from another's.
                             let (doc_id, name) = (doc.id, doc.name());
                             let (editor, state) = (&doc.editor, &mut doc.outliner);
-                            ui.push_id(doc_id, |ui| panels::outliner(ui, editor, state, &name, actions, area.id_salt("outliner")));
+                            ui.push_id(doc_id, |ui| panels::outliner(ui, editor, state, &name, actions, area.id_salt("outliner"), body));
                         }
                     }
                 });
@@ -3017,5 +3042,6 @@ fn panel_title(id: PanelId) -> String {
         PanelId::EntityInfo => t!("panel.entity_info.title"),
         PanelId::Materials => t!("panel.materials.title"),
         PanelId::Outliner => t!("panel.outliner.title"),
+        PanelId::Components => t!("panel.components.title"),
     }
 }

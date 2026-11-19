@@ -111,6 +111,8 @@ menu:
     group_bodies: "Grouper les corps"
     ungroup_bodies: "Dégrouper"
     delete_guides: "Supprimer les guides"
+    # The components not in the model, the named ones too (docs/ui/components-library.md).
+    purge_unused: "Purger les inutilisés"
     select_all: "Tout sélectionner"
     command_palette: "$t(common.command_palette)"
     preferences: "$t(common.preferences)"
@@ -137,6 +139,7 @@ menu:
     entity_info: "Panneau $t(panel.entity_info.title)"
     materials: "Panneau $t(common.materials)"
     outliner: "Panneau $t(panel.outliner.title)"
+    components: "Panneau $t(panel.components.title)"
     render_stats: "Statistiques de rendu"
     top: "Dessus"
     front: "Face"
@@ -536,6 +539,19 @@ prefs:
     edit: "Modifier"
     default: "Défaut"
 
+# The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
+search:
+  hint: "Rechercher"
+  clear: "Effacer la recherche"
+  parts: "Pièces"
+  assemblies: "Assemblages"
+  all_materials: "Toutes"
+  material_tip: "Ne montrer que ce qui porte cette matière"
+  # The material menu while the document has none: greyed.
+  no_materials: "Aucune matière dans le document"
+  # Nothing matches the search.
+  no_match: "Rien ne correspond"
+
 panel:
   entity_info:
     title: "Infos sur l'entité"
@@ -582,6 +598,32 @@ panel:
     materials: "$t(common.materials)"
     selected: "%{count} sélectionné"
     selected_plural: "%{count} sélectionnés"
+    # A component chosen in the « Composants » card: how many times it is in the model.
+    in_model: "Dans le modèle"
+  # The document's parts and assemblies (docs/ui/components-library.md).
+  components:
+    title: "Composants"
+    in_model: "Dans le modèle"
+    # Placed nowhere: kept until purged (docs/ui/components-library.md).
+    unused: "Inutilisés"
+    unused_tip: "Placé nulle part : gardé jusqu'à la purge"
+    purge: "Purger"
+    purge_tip: "Supprimer tous les composants inutilisés"
+    count_tip: "%{count} exemplaire dans le modèle"
+    count_tip_plural: "%{count} exemplaires dans le modèle"
+    select: "Sélectionner les exemplaires"
+    replace: "Remplacer la sélection"
+    rename: "Renommer"
+    delete: "Supprimer"
+    delete_tip: "Supprimer ce composant et tous ses exemplaires"
+    # The assembly edited, or one above it: not placed into itself, not deleted.
+    on_path: "En cours d'édition"
+    # A part open: the library waits for it to be closed.
+    disabled: "Fermer la pièce pour placer ou gérer les composants"
+    empty: "Aucun composant"
+    # The card view: a grid of thumbnails, or a list.
+    as_grid: "Vignettes"
+    as_list: "Liste"
   materials:
     title: "$t(common.materials)"
     none: "Aucune"
@@ -688,6 +730,8 @@ status:
   op_failed: "%{op} : %{error}"
   unexpected_reply: "réponse inattendue du noyau"
   nothing_to_group: "Sélectionner d'abord ce qu'il faut regrouper"
+  # « Sélectionner les occurrences » of a component placed nowhere under the context (docs/ui/components-library.md).
+  no_occurrence_here: "Aucun exemplaire de ce composant ici"
   # « Créer un assemblage » under « Pièces » (docs/tools/selection.md).
   group_one_assembly: "Les éléments à regrouper doivent être dans un même assemblage"
   no_guides: "Aucun guide ici"
@@ -831,6 +875,8 @@ tool:
       destination: "Cliquer la destination, ou taper une distance · Maj : bloquer l'inférence"
       # Pasting at the cursor: what was pasted follows it until placed.
       paste: "Cliquer où poser ce qui est collé, ou taper une distance · Échap : abandonner"
+      # A component carried from the « Composants » card (docs/ui/components-library.md).
+      place: "Cliquer où poser le composant · Échap : abandonner"
     vcb:
       distance: "Distance"
       copies: "$t(common.copies)"
@@ -1156,6 +1202,10 @@ operation:
   explode: "$t(common.explode)"
   make_unique: "$t(common.make_unique)"
   place: "Placer"
+  replace: "Remplacer"
+  # A part or an assembly deleted with all its occurrences (docs/ui/components-library.md).
+  delete_component: "Supprimer"
+  purge_unused: "Purger les inutilisés"
   union: "Union"
   difference: "Soustraction"
   intersection: "Intersection"
@@ -1245,6 +1295,7 @@ error:
     empty_assembly: "rien à mettre dans l'assemblage"
     not_exploded: "seul un assemblage s'éclate"
     root_placed: "le modèle ne se place pas"
+    root_deleted: "le modèle ne se supprime pas"
     self_boolean: "une pièce ne se combine pas avec elle-même"
     no_operand: "il faut au moins une cible et un outil"
     union_targets: "une union joint ses outils à une seule cible"

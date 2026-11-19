@@ -11,6 +11,7 @@ pub mod guides;
 pub mod infer;
 pub mod navigation;
 pub mod scene;
+pub mod search;
 pub mod section_cut;
 pub mod tools;
 pub mod vcb;

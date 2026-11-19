@@ -18,14 +18,15 @@ tabs have pages of their own.
   ribbon across the top** ([Workspaces and ribbon](ribbon.md)), the context card and the tool
   option bar under the ribbon ([Context card](#context-card)), the view bar along the left or
   right edge ([View bar](view-bar.md));
-  **Entity info**, **Materials** and **Outliner** are three cards docked in two columns, one
+  **Entity info**, **Materials**, **Outliner** and **Components**
+  ([Components library](components-library.md), closed at first) are four cards docked in two columns, one
   per edge of the view (`dock.rs`), under the ribbon. A card's header (a title bar in the
   headers' fill, a line under it, its title semibold, its chevron at the right end) folds it
   (click) or moves it (drag: it follows the pointer and drops into the column of the nearer
   edge, where a bar shows the insertion point); the commands `view.entity_info`,
-  `view.materials` and `view.outliner` (command palette, shortcuts) close or show each one
+  `view.materials`, `view.outliner` and `view.components` (command palette, shortcuts) close or show each one
   (`PanelId::command`). A card keeps the height given by dragging its bottom edge, except the
-  last unfolded list of its column (Materials or Outliner; never Entity info, which would only
+  last unfolded list of its column (Materials, Outliner or Components; never Entity info, which would only
   grow empty: `PanelId::fills`), which fills the height left; the inner edge sets the column's
   width (`dock::COLUMN_WIDTH` 270 pt by default, `COLUMN_MIN_WIDTH` 200 at least; double click:
   default). Order, columns, sizes, folded and closed cards are kept in the preferences
@@ -40,6 +41,9 @@ tabs have pages of their own.
 
 ## Navigator
 
+- **A search field** at its top, over the whole width, shared with the « Composants » card: the
+  tree filtered to the rows matching a name, and the rows above them
+  ([Components library: search](components-library.md#search)).
 - **The outliner is titled « Navigateur »** (the code keeps `outliner`, its `PanelId` being in
   the preferences and `model.outliner` in the control protocol). Its rows span the whole list
   (`tree_row`): the hover and the selection fill the line edge to edge, indent and buttons

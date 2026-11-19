@@ -184,6 +184,8 @@ impl Editor {
             return;
         }
         let previous = self.tool.kind();
+        // What was chosen in the library goes; a component placed from it is chosen again.
+        self.chosen = None;
         self.carry = Some(Carry { revision: self.history.revision(), previous });
         self.tool = Box::new(MoveTool::carrying(self.selection.clone(), from, op));
         self.clear_locks();

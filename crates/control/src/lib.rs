@@ -151,6 +151,32 @@ pub fn methods() -> Vec<Method> {
             schema::<GeometryParams>,
         ),
         m(
+            "model.components",
+            "The document's components library (docs/ui/components-library.md): every part and assembly with its name, kind, whether named, its count in the model (occurrences at any depth) and whether unused (placed nowhere); the one chosen.",
+            true,
+            schema::<NoParams>,
+        ),
+        m(
+            "components.place",
+            "Carries one more occurrence of a component at the cursor, held by the origin of its axes, as a paste: put it down with a tool.input click, Escape gives it up.",
+            true,
+            schema::<ComponentParams>,
+        ),
+        m(
+            "components.select",
+            "Selects the occurrences of a component under the active context (as paths under the « Parts » scope when deeper than its children).",
+            true,
+            schema::<ComponentParams>,
+        ),
+        m(
+            "components.replace",
+            "Replaces the selected occurrences by occurrences of a component, each keeping its placement, name, material and visibility.",
+            true,
+            schema::<ComponentParams>,
+        ),
+        m("components.delete", "Deletes a component and all its occurrences, at any depth.", true, schema::<ComponentParams>),
+        m("components.purge", "Deletes every component not in the model (the unused ones).", true, schema::<NoParams>),
+        m(
             "tool.state",
             "The active tool: status, measurements box, options, axis lock, its preview as data, the inference under the cursor.",
             true,

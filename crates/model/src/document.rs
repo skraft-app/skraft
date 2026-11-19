@@ -15,7 +15,7 @@ use skraft_i18n::t;
 use crate::settings::Settings;
 use skraft_kernel::Solid;
 
-use crate::{Error, FastMap, Operation, Result};
+use crate::{Error, FastMap, FastSet, Operation, Result};
 
 /// A stable identifier, from one counter: unique across a document for components, within
 /// their assembly for occurrences and within their part for bodies (a copy of a component
@@ -35,8 +35,9 @@ impl std::fmt::Display for Id {
 pub struct Component {
     pub id: Id,
     pub name: String,
-    /// Named by the user: kept while unused (in the model's library); otherwise dropped with
-    /// its last occurrence.
+    /// Named by the user (else its name is automatic, docs/model/bodies.md#automatic-names). Named
+    /// or not, a component stays when unused, in the library's « Inutilisés », until purged
+    /// (docs/ui/components-library.md).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub named: bool,
     pub kind: ComponentKind,
@@ -862,6 +863,26 @@ impl Document {
     pub fn dropping_empty_assemblies(&self, keep: Id) -> Option<Operation> {
         let assemblies: Vec<(&Component, &Assembly)> =
             self.components.values().filter_map(|c| c.as_assembly().map(|a| (&**c, a))).collect();
+        let empty = self.empty_assemblies(keep);
+        if empty.is_empty() {
+            return None;
+        }
+        let deletes: Vec<Operation> = assemblies
+            .iter()
+            .filter(|(c, _)| !empty.contains(&c.id))
+            .filter_map(|(c, a)| {
+                let entities: Vec<Id> = a.occurrences().iter().filter(|o| empty.contains(&o.component)).map(|o| o.id).collect();
+                (!entities.is_empty()).then_some(Operation::Delete { context: c.id, entities })
+            })
+            .collect();
+        (!deletes.is_empty()).then_some(Operation::Batch(deletes))
+    }
+
+    /// The empty assemblies (docs/model/data-model.md#empty-assemblies): with neither
+    /// occurrences nor guides, or holding only empty ones; never the root nor `keep`.
+    fn empty_assemblies(&self, keep: Id) -> BTreeSet<Id> {
+        let assemblies: Vec<(&Component, &Assembly)> =
+            self.components.values().filter_map(|c| c.as_assembly().map(|a| (&**c, a))).collect();
         let mut empty: BTreeSet<Id> = BTreeSet::new();
         // Up the tree, until no assembly more is found empty.
         loop {
@@ -880,24 +901,65 @@ impl Document {
                 break;
             }
         }
-        if empty.is_empty() {
-            return None;
+        empty
+    }
+
+    /// Drops the empty assemblies placed nowhere (an empty assembly holds nothing to keep:
+    /// docs/model/data-model.md#empty-assemblies), and so on up: one dropped may leave its
+    /// parent unused. Any other component stays when unused, until purged
+    /// ([`Operation::PurgeUnused`], docs/ui/components-library.md).
+    pub(crate) fn drop_unused_empty_assemblies(&mut self) {
+        loop {
+            let used: FastSet<Id> = self.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| a.occurrences.iter().map(|o| o.component)).collect();
+            let gone: Vec<Id> = self.empty_assemblies(self.root).into_iter().filter(|id| !used.contains(id)).collect();
+            if gone.is_empty() {
+                return;
+            }
+            for id in gone {
+                self.components.remove(&id);
+            }
         }
-        let deletes: Vec<Operation> = assemblies
-            .iter()
-            .filter(|(c, _)| !empty.contains(&c.id))
-            .filter_map(|(c, a)| {
-                let entities: Vec<Id> = a.occurrences().iter().filter(|o| empty.contains(&o.component)).map(|o| o.id).collect();
-                (!entities.is_empty()).then_some(Operation::Delete { context: c.id, entities })
-            })
-            .collect();
-        (!deletes.is_empty()).then_some(Operation::Batch(deletes))
     }
 
     /// How many occurrences of `component` there are, in all assemblies (not multiplied by
     /// the occurrences of those assemblies).
     pub fn occurrence_count(&self, component: Id) -> usize {
         self.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| &a.occurrences).filter(|o| o.component == component).count()
+    }
+
+    /// How many times each component is in the model: its occurrences at any depth under the
+    /// root, an assembly's multiplying those below it (the cut list's count,
+    /// docs/ui/components-library.md#the-card); the root counts 1. A component placed nowhere
+    /// under the root is absent (in no assembly, or only in assemblies themselves absent).
+    pub fn counts_in_model(&self) -> FastMap<Id, u64> {
+        // The components reached from the root, each after every assembly holding it (reverse
+        // post-order of a depth-first walk: the graph has no cycle).
+        fn walk(doc: &Document, c: Id, seen: &mut FastSet<Id>, order: &mut Vec<Id>) {
+            if !seen.insert(c) {
+                return;
+            }
+            if let Ok(a) = doc.assembly(c) {
+                for o in a.occurrences() {
+                    walk(doc, o.component, seen, order);
+                }
+            }
+            order.push(c);
+        }
+        let mut seen = FastSet::default();
+        let mut order = Vec::new();
+        walk(self, self.root, &mut seen, &mut order);
+        let mut counts: FastMap<Id, u64> = FastMap::default();
+        counts.insert(self.root, 1);
+        for &c in order.iter().rev() {
+            let n = counts.get(&c).copied().unwrap_or(0);
+            if let Ok(a) = self.assembly(c) {
+                for o in a.occurrences() {
+                    let k = counts.entry(o.component).or_insert(0);
+                    *k = k.saturating_add(n);
+                }
+            }
+        }
+        counts
     }
 
     /// Does the occurrence path `instances` go through an assembly placed more than once — a

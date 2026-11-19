@@ -40,7 +40,7 @@ In the option bar ([Application interface](../ui/interface.md)), remembered:
 | « Portée » | `scope` | All occurrences of a target's part, or only the one clicked ([Copies and propagation](../model/data-model.md#copies-and-propagation)); per tool, left out for a part placed once. |
 | « Conserver A » | `keep_targets` | The targets stay as they were; each result goes to a new part placed beside its target (same place, material, occurrence name). |
 | « Conserver B » | `keep_tools` | The tools' occurrences stay. |
-| Broom | `drop_unused` | The tools' parts left without occurrence are deleted, even named (OCL's `remove_unused_definitions`, its broom icon). |
+| Broom | `drop_unused` | The tools' parts left without occurrence are deleted, even named (OCL's `remove_unused_definitions`, its broom icon); without it they stay in the « Composants » card's « Inutilisés » until purged ([Components library](../ui/components-library.md)). |
 
 The last three are shared by the three tools (`synced_with`, OCL's
 `get_action_option_sync_actions`).
@@ -63,8 +63,3 @@ undo step (`Document::booleans`, `crates/model/src/boolean.rs`):
   made in place. Under « Celui-ci », the part changes in place only when the targets are every
   placement of it; else every group gets a part of its own (`Document::separate`).
 - Refused: a part both in A and in B, no target or no tool, a union of several targets.
-
-## Not yet
-
-- No way to list or place a component that no occurrence shows (a named part kept unused):
-  a components library is to be designed.

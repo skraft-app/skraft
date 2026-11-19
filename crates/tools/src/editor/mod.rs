@@ -27,6 +27,7 @@ use crate::vcb;
 mod clipboard;
 mod document;
 pub mod journal;
+mod library;
 mod loading;
 mod naming;
 mod navigation;
@@ -132,6 +133,9 @@ pub struct Editor {
     /// The model chosen (the outliner's first row clicked), until anything else is: selected,
     /// entered, opened, or a click in the view.
     model_selected: bool,
+    /// The component chosen in the library (docs/ui/components-library.md#managing), until
+    /// anything else is: [`Editor::chosen_component`].
+    chosen: Option<Id>,
     /// The occurrence hovered in the outliner (drawn hovered in the view).
     outliner_hover: Option<EntityPath>,
     /// The stretch the scene's preview mesh was made for, and the revisions handed out.
@@ -261,6 +265,7 @@ impl Editor {
             body_sign: Sign::Negative,
             listed_hover: None,
             model_selected: false,
+            chosen: None,
             deep: Vec::new(),
             deep_guides: Vec::new(),
             tree: None,
@@ -1011,6 +1016,7 @@ impl Editor {
             ToolInput::Click { .. } | ToolInput::DoubleClick { .. } | ToolInput::DragStart { .. } | ToolInput::Key { key: Key::Escape, .. }
         ) {
             self.model_selected = false;
+            self.chosen = None;
         }
         self.note(journal::Event::Input { input: input.clone(), count: 1 }, Some(journal::Step::Input(input.clone())));
         self.inside(|e| {

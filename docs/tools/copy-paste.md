@@ -163,7 +163,7 @@ world transformation (`transform`, rigid):
 **Move tool** in a mode of its own (`MoveTool::carrying`): already moving, from the low corner of
 the content's box in the axes (the box of the `Clip`'s hull, in world axes for occurrences, the
 part's copied from for bodies, brought into the axes tools work in), with Move's inferences,
-locks and typed distance or point; no copy toggle. The click **replaces** the paste in place by
+locks and typed distance or point; no copy toggle (none in the option bar). The click **replaces** the paste in place by
 the same paste moved (`Command::Replace`, `Moved::paste`: the transformation composed with the
 motion in the frame): one step in the history. Esc, Undo, Redo or another tool give it up: the
 paste in place, still the last step, is undone (`Editor::settle_carry`). Put down or given up,

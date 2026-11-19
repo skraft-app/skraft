@@ -6760,8 +6760,9 @@ fn editor_with_deleted_boxes(n: usize) -> Editor {
     for i in 0..n {
         let primitive = Primitive::Box { origin: DVec3::X * 50.0 * i as f64, size: DVec3::splat(10.0) };
         e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
-        let id = e.document().assembly(root).unwrap().occurrences().last().unwrap().id;
-        e.apply(Operation::Delete { context: root, entities: vec![id] }).unwrap();
+        // The part deleted with it (an occurrence erased leaves its part unused, still there).
+        let part = e.document().assembly(root).unwrap().occurrences().last().unwrap().component;
+        e.apply(Operation::DeleteComponent { component: part }).unwrap();
     }
     e
 }
@@ -6934,4 +6935,155 @@ fn solid_tools_tell_their_step_and_wait_for_validation() {
     assert_eq!(step(&e), Some((2, 0)));
     e.set_tool(ToolKind::Move);
     assert_eq!(e.tool_steps(), None);
+}
+
+/// The components library (docs/ui/components-library.md): choosing, selecting the occurrences,
+/// replacing the selection, deleting, purging.
+#[test]
+fn library_chooses_selects_replaces_deletes_and_purges() {
+    let (mut e, [a, _, c, g, g2]) = drawers_editor();
+    let root = e.document().root();
+    let component = |e: &Editor, path: EntityPath| e.document().resolve(&path).unwrap().component;
+    let (pa, pc, asm) = (component(&e, EntityPath::new(vec![g], a)), component(&e, EntityPath::root(c)), component(&e, EntityPath::root(g)));
+
+    // Chosen until anything else is: a selection, a click in the view.
+    e.choose_component(pc);
+    assert_eq!(e.chosen_component(), Some(pc));
+    e.select(vec![c]);
+    e.poll();
+    assert_eq!(e.chosen_component(), None);
+    e.choose_component(pc);
+    assert!(e.selection().is_empty(), "choosing lets the selection go");
+    click(&mut e, DVec3::new(5000.0, 5000.0, 0.0));
+    assert_eq!(e.chosen_component(), None);
+
+    // Its occurrences: the context's children as ids, deeper ones as paths under « Pièces ».
+    e.select_occurrences_of(pc);
+    assert_eq!(e.selection(), &[c]);
+    e.select_occurrences_of(pa);
+    assert!(e.pick_parts());
+    assert_eq!(e.deep_selection(), &[EntityPath::new(vec![g], a), EntityPath::new(vec![g2], a)]);
+
+    // Replaced: C by A's part, placed as it was.
+    e.select(vec![c]);
+    let before = e.document().resolve(&EntityPath::root(c)).unwrap().transform;
+    assert!(!e.can_replace_selection(pc), "already all of it");
+    e.replace_selection(pa);
+    assert_eq!(component(&e, EntityPath::root(c)), pa);
+    assert_eq!(e.document().resolve(&EntityPath::root(c)).unwrap().transform, before);
+    assert!(e.document().component(pc).is_ok() && e.unused_components() == vec![pc], "C's part unused, kept");
+    assert_eq!(e.document().counts_in_model()[&pa], 3);
+    e.undo();
+    assert_eq!(component(&e, EntityPath::root(c)), pc);
+
+    // The assembly edited is neither deleted nor placed into itself.
+    e.enter(g);
+    assert!(e.on_active_path(asm) && !e.can_delete_component(asm));
+    e.select(vec![a]);
+    assert!(!e.can_replace_selection(asm));
+    e.select_model();
+    assert!(e.can_delete_component(asm));
+
+    // Deleted with all its occurrences, at any depth.
+    e.delete_component(pa);
+    let doc = e.document();
+    assert!(doc.component(pa).is_err());
+    assert_eq!(doc.assembly(asm).unwrap().occurrences().len(), 1, "B left in each copy");
+    e.undo();
+
+    // A part placed nowhere is unused, purged with « Purger les inutilisés ».
+    e.apply(Operation::RenameComponent { component: pc, name: "Tiroir".into() }).unwrap();
+    e.apply(Operation::Delete { context: root, entities: vec![c] }).unwrap();
+    assert_eq!(e.unused_components(), vec![pc]);
+    e.purge_unused();
+    assert!(e.document().component(pc).is_err() && e.unused_components().is_empty());
+    assert!(e.document().component(pa).is_ok());
+}
+
+/// Placing from the library (docs/ui/components-library.md#placing): carried by the origin of
+/// its axes as a paste, put down by a click (one step), given up by Esc; refused into itself
+/// and while a part is open.
+#[test]
+fn library_places_a_component_carried_by_its_origin() {
+    let (mut e, [a, _, c, g, g2]) = drawers_editor();
+    let root = e.document().root();
+    let pc = e.document().resolve(&EntityPath::root(c)).unwrap().component;
+    let asm = e.document().resolve(&EntityPath::root(g)).unwrap().component;
+    let count = |e: &Editor| e.document().root_assembly().occurrences().len();
+    let before = count(&e);
+    let steps = e.history().journal().count();
+
+    assert!(e.place_component(pc));
+    assert!(e.carrying() && e.tool_kind() == ToolKind::Move);
+    assert_eq!(e.chosen_component(), Some(pc), "chosen while carried");
+    // Not drawn until the pointer is over the view; no distance from its origin.
+    assert!(e.preview().away && e.preview().ghost.is_none());
+    assert!(e.vcb().is_none(), "no distance to type");
+    let to = DVec3::new(500.0, 500.0, 0.0);
+    e.input(ToolInput::Hover { px: px(&e, to) });
+    assert!(!e.preview().away && e.preview().ghost.is_some());
+    assert!(e.preview().drawing.is_empty(), "no line nor length from its origin");
+    e.leave();
+    assert!(e.preview().away, "the pointer gone off the view: not drawn");
+    e.input(ToolInput::Hover { px: px(&e, to) });
+    e.input(ToolInput::Click { px: px(&e, to), mods: Modifiers::default() });
+    assert!(!e.carrying() && e.tool_kind() == ToolKind::Select, "the tool before is back");
+    assert_eq!(count(&e), before + 1);
+    assert_eq!(e.history().journal().count(), steps + 1, "one step");
+    let placed = *e.selection().first().expect("put down, selected");
+    let o = e.document().resolve(&EntityPath::root(placed)).unwrap();
+    assert_eq!(o.component, pc);
+    assert!(close(o.transform.translation, to), "its origin at the cursor: {}", o.transform.translation);
+
+    // Given up: nothing left of it.
+    assert!(e.place_component(pc));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(-300.0, 0.0, 0.0)) });
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert!(!e.carrying());
+    assert_eq!(count(&e), before + 1);
+    assert_eq!(e.history().journal().count(), steps + 1);
+
+    // Into the assembly edited, through its copy placed 300 further along Y: put down at the
+    // cursor in the world, so in the assembly 300 back.
+    e.enter(g2);
+    assert!(e.place_component(pc));
+    let to = DVec3::new(-500.0, -500.0, 0.0);
+    e.input(ToolInput::Hover { px: px(&e, to) });
+    e.input(ToolInput::Click { px: px(&e, to), mods: Modifiers::default() });
+    let placed = *e.selection().first().unwrap();
+    let o = e.document().resolve(&EntityPath::new(vec![g2], placed)).unwrap();
+    assert!(close(o.transform.translation, DVec3::new(-500.0, -800.0, 0.0)), "{}", o.transform.translation);
+    e.select_model();
+
+    // Into itself, or into an open part: refused.
+    e.enter(g);
+    assert!(!e.can_place_component(asm) && !e.place_component(asm));
+    assert!(e.can_place_component(pc));
+    e.enter(a);
+    assert!(e.library_disabled() && !e.place_component(pc));
+    e.select_model();
+    assert_eq!(root, e.document().root());
+}
+
+/// What each component shows (docs/ui/components-library.md#search): inherited from the
+/// assemblies above, or its own occurrence's.
+#[test]
+fn search_finds_the_materials_a_component_shows() {
+    let (mut e, [a, _, c, g, _]) = drawers_editor();
+    let root = e.document().root();
+    let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
+    let pine = e.apply(Operation::AddMaterial { name: "Pin".into(), color: [220, 200, 150] }).unwrap().unwrap().material.unwrap();
+    // One copy of the assembly in oak: its parts show oak; A painted pine in it, pine too.
+    e.apply(Operation::PaintOccurrences { context: root, entities: vec![g], material: Some(oak) }).unwrap();
+    let paint = Operation::PaintOccurrences { context: Id(0), entities: vec![a], material: Some(pine) };
+    e.apply(Operation::At { parent: vec![g], unique: false, op: Box::new(paint) }).unwrap();
+    let doc = e.document();
+    let component = |p: EntityPath| doc.resolve(&p).unwrap().component;
+    let (pa, pc, asm) = (component(EntityPath::new(vec![g], a)), component(EntityPath::root(c)), component(EntityPath::root(g)));
+    let shown = crate::search::materials_shown(doc);
+    assert!(shown[&asm].contains(&oak));
+    assert!(shown[&pa].contains(&pine) && !shown[&pa].contains(&oak), "its own over the assembly's");
+    let pb = doc.assembly(asm).unwrap().occurrences().iter().map(|o| o.component).find(|p| *p != pa).unwrap();
+    assert!(shown[&pb].contains(&oak), "inherited");
+    assert!(!shown.contains_key(&pc), "C shows none");
 }

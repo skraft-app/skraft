@@ -44,3 +44,4 @@ state and link the records behind it.
 | 0035 | [Custom cursors through a winit fork](0035-custom-cursors-winit-fork.md) | accepted (2026-11-18) |
 | 0036 | [A tool stack: a tool over another suspends it, as it is](0036-tool-stack.md) | accepted (2026-11-19) |
 | 0037 | [Solid tools take sets of targets and tools, as OpenCutList's](0037-solid-tools-sets-of-parts.md) | accepted (2026-11-19) |
+| 0038 | [The document's components in a card of their own, placed at the cursor by their origin](0038-components-library-card.md) | accepted (2026-11-19) |

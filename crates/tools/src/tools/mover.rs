@@ -44,6 +44,8 @@ pub struct MoveTool {
     last: Option<LastCopy>,
     /// The paste carried: the click replaces it by itself moved.
     pasted: Option<Box<Operation>>,
+    /// A component carried from the library, the pointer off the view: not drawn.
+    away: bool,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -64,7 +66,17 @@ fn axis(cx: &Cx<'_>, k: usize) -> DVec3 {
 impl MoveTool {
     /// Carries `entities`, just pasted by `pasted`, from `from`: already moving.
     pub fn carrying(entities: Vec<Id>, from: DVec3, pasted: Operation) -> Self {
-        MoveTool { state: State::Moving { from, to: from }, moving: entities, pasted: Some(Box::new(pasted)), ..Default::default() }
+        let mut tool = MoveTool { state: State::Moving { from, to: from }, moving: entities, pasted: Some(Box::new(pasted)), ..Default::default() };
+        // A component placed from the library shows once the pointer is over the view.
+        tool.away = tool.placing();
+        tool
+    }
+
+    /// Is what it carries a component placed from the library (docs/ui/components-library.md#placing)? Then
+    /// no distance (none is measured from its origin) and nothing drawn while the pointer is
+    /// off the view.
+    fn placing(&self) -> bool {
+        matches!(self.pasted.as_deref(), Some(Operation::PlaceOccurrence { .. }))
     }
 
     /// The destination under `px`: inferred on the scene (ignoring what moves, unless copying:
@@ -135,6 +147,7 @@ impl MoveTool {
                 self.cursor = self.snap.as_ref().map(|i| i.point);
             }
             (ToolInput::Hover { px }, State::Moving { from, .. }) => {
+                self.away = false;
                 let (to, snap) = self.target(cx, *px, from);
                 self.state = State::Moving { from, to };
                 self.snap = snap;
@@ -200,6 +213,11 @@ impl Tool for MoveTool {
                 }
                 Preview { drawing, inference: self.snap.clone(), ..Default::default() }
             }
+            State::Moving { .. } if self.away => Preview { away: true, ..Default::default() },
+            // A component placed: where it goes, no distance from where it was put in place.
+            State::Moving { from, to } if self.placing() => {
+                Preview { ghost: Some(DAffine3::from_translation(to - from)), inference: self.snap.clone(), ..Default::default() }
+            }
             State::Moving { from, to } => {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
                 let mut drawing = Drawing::default();
@@ -220,6 +238,8 @@ impl Tool for MoveTool {
             State::Start if self.last.is_some() && !self.picker.busy() => return t!("tool.move.hint.array"),
             State::Start if self.picking() => self.picker.status(t!("tool.move.hint.pick"), t!("tool.move.hint.gather")),
             State::Start => t!("tool.move.hint.start", copy_key = super::copy_key()),
+            // A component placed from the library (docs/ui/components-library.md#placing), or a paste.
+            State::Moving { .. } if self.placing() => return t!("tool.move.hint.place"),
             State::Moving { .. } if self.pasted.is_some() => return t!("tool.move.hint.paste"),
             State::Moving { .. } => t!("tool.move.hint.destination"),
         };
@@ -228,6 +248,8 @@ impl Tool for MoveTool {
 
     fn vcb(&self) -> Option<Vcb> {
         match self.state {
+            // A component placed: no distance to type.
+            State::Moving { .. } if self.placing() => None,
             State::Moving { from, to } => Some(Vcb {
                 point: Some(PointRef { from, to }),
                 ..Vcb::new(t!("tool.move.vcb.distance"), VcbKind::Lengths(vec![(to - from).length()]))
@@ -241,6 +263,10 @@ impl Tool for MoveTool {
     }
 
     fn options(&self, _: &Cx<'_>) -> Vec<ToolOption> {
+        // What is carried (a paste, a component placed) is never copied: no toggle for it.
+        if self.pasted.is_some() {
+            return Vec::new();
+        }
         vec![ToolOption {
             key: "copy",
             label: t!("tool.move.option.copy"),
@@ -290,6 +316,9 @@ impl Tool for MoveTool {
 
     fn leave(&mut self) {
         self.picker.leave();
+        if self.placing() {
+            self.away = true;
+        }
     }
 
     fn back(&mut self) {
@@ -308,5 +337,6 @@ impl Tool for MoveTool {
         self.moving_guides.clear();
         self.snap = None;
         self.pasted = None;
+        self.away = false;
     }
 }

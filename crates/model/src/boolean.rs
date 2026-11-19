@@ -10,8 +10,8 @@
 //!   under « only this one », only when the targets are every placement of their part.
 //! - **Keep the targets**: each result goes to a new part beside its target, left as it was.
 //!   **Keep the tools**: their occurrences stay. A tool that reaches no target always stays.
-//! - **Drop unused**: the tools' parts left without occurrence go, even named (unnamed ones go
-//!   anyway, [`Document::purge`]).
+//! - **Drop unused**: the tools' parts left without occurrence go, even named; without it they
+//!   stay, unused, until purged (docs/ui/components-library.md).
 
 use glam::{DAffine3, DVec3};
 use skraft_kernel::{BooleanOp, Stretch};

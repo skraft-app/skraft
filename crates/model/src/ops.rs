@@ -109,7 +109,7 @@ pub enum Operation {
     Delete { context: Id, entities: Vec<Id> },
     /// Names one occurrence of `context` ("Gauche"); empty to clear.
     RenameOccurrence { context: Id, occurrence: Id, name: String },
-    /// Names a part or an assembly; a named component is kept while unused.
+    /// Names a part or an assembly (no more automatic: docs/model/bodies.md#automatic-names).
     RenameComponent { component: Id, name: String },
     /// Names the body definition `def` of the part `part` (docs/model/bodies.md#body-names): every body
     /// of it, copies included, shows the name; empty to clear (named automatically again,
@@ -127,6 +127,16 @@ pub enum Operation {
     MakeUnique { context: Id, occurrence: Id },
     /// Places one more occurrence of a component in `context`.
     PlaceOccurrence { context: Id, component: Id, transform: DAffine3 },
+    /// Makes the occurrences `entities` of `context` occurrences of `component`, each one
+    /// keeping its placement, its name, its material and its visibility (« Remplacer la
+    /// sélection », docs/ui/components-library.md#managing). The guides among them are left.
+    ReplaceOccurrences { context: Id, entities: Vec<Id>, component: Id },
+    /// Removes a part or an assembly and every occurrence of it, at any depth
+    /// (docs/ui/components-library.md#managing).
+    DeleteComponent { component: Id },
+    /// Drops every component not in the model (placed nowhere under the root), the named ones
+    /// too (« Purger les inutilisés », docs/ui/components-library.md#managing).
+    PurgeUnused,
     /// `target op (∪ tools)` on each target's part, the tools brought into its axes
     /// (docs/model/kernel.md#booleans-across-contexts): on every occurrence of the part, or only the one picked
     /// (`scope`, docs/model/data-model.md). A difference adds each tool reaching the target as a negative
@@ -365,7 +375,7 @@ pub enum Operation {
     /// copy reached by `parent` changes. Takes the operations on occurrences of a context
     /// ([`Operation::Transform`], [`Operation::Duplicate`], [`Operation::Array`],
     /// [`Operation::Copies`], [`Operation::Delete`], [`Operation::SetHidden`],
-    /// [`Operation::PaintOccurrences`]), and the one making a part there
+    /// [`Operation::PaintOccurrences`], [`Operation::ReplaceOccurrences`]), and the one making a part there
     /// ([`Operation::AddPrimitive`], « Dessiner dans », docs/tools/draw-options.md).
     At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
     /// Several operations in one step, applied in order: their outcomes put together.
@@ -400,6 +410,9 @@ impl Operation {
             Operation::Explode { .. } => t!("operation.explode"),
             Operation::MakeUnique { .. } | Operation::MakeBodiesUnique { .. } => t!("operation.make_unique"),
             Operation::PlaceOccurrence { .. } => t!("operation.place"),
+            Operation::ReplaceOccurrences { .. } => t!("operation.replace"),
+            Operation::DeleteComponent { .. } => t!("operation.delete_component"),
+            Operation::PurgeUnused => t!("operation.purge_unused"),
             Operation::Boolean { op: Boolean::Union, .. } => t!("operation.union"),
             Operation::Boolean { op: Boolean::Difference, .. } => t!("operation.difference"),
             Operation::Boolean { op: Boolean::Intersection, .. } => t!("operation.intersection"),
@@ -446,6 +459,7 @@ impl Operation {
             | Operation::SetHidden { context, .. }
             | Operation::PaintOccurrences { context, .. }
             | Operation::MakeAssembly { context, .. }
+            | Operation::ReplaceOccurrences { context, .. }
             | Operation::AddPrimitive { context, .. } => Some(context),
             _ => None,
         }
@@ -546,7 +560,7 @@ impl Document {
         outcome.welds = doc.weld(self, &mut recorder)?;
         if recorder.job.tasks.is_empty() {
             doc.settle_names(Some(self));
-            doc.purge();
+            doc.drop_unused_empty_assemblies();
             return Ok(Prepared::Done(Box::new(Applied { document: doc, outcome, displays: Vec::new() })));
         }
         Ok(Prepared::Kernel(recorder.job))
@@ -563,7 +577,7 @@ impl Document {
             return Err(Error::Invalid(Refusal::OutOfStep));
         }
         doc.settle_names(Some(self));
-        doc.purge();
+        doc.drop_unused_empty_assemblies();
         Ok(Applied { document: doc, outcome, displays: replayer.displays })
     }
 
@@ -1049,6 +1063,49 @@ impl Document {
                     hidden: false,
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
+            }
+            Operation::ReplaceOccurrences { context, entities, component } => {
+                if *component == self.root {
+                    return Err(Error::Invalid(Refusal::RootPlaced));
+                }
+                self.component(*component)?;
+                let (_, entities) = &self.split_guides(*context, entities)?;
+                self.occurrences_of(*context, entities)?;
+                if self.contains_component(*component, *context) {
+                    return Err(Error::Cycle);
+                }
+                let entities = id_set(entities);
+                // The assembly copied only when something changes.
+                if self.assembly(*context)?.occurrences().iter().any(|o| entities.contains(&o.id) && o.component != *component) {
+                    for o in self.assembly_mut(*context)?.occurrences_mut() {
+                        if entities.contains(&o.id) {
+                            o.component = *component;
+                        }
+                    }
+                }
+                Ok(Outcome::default())
+            }
+            Operation::DeleteComponent { component } => {
+                if *component == self.root {
+                    return Err(Error::Invalid(Refusal::RootDeleted));
+                }
+                self.component(*component)?;
+                let holding: Vec<Id> = self
+                    .components
+                    .values()
+                    .filter(|c| c.as_assembly().is_some_and(|a| a.occurrences().iter().any(|o| o.component == *component)))
+                    .map(|c| c.id)
+                    .collect();
+                for id in holding {
+                    self.assembly_mut(id)?.occurrences_mut().retain(|o| o.component != *component);
+                }
+                self.components.remove(component);
+                Ok(Outcome::default())
+            }
+            Operation::PurgeUnused => {
+                let counts = self.counts_in_model();
+                self.components.retain(|id, _| counts.contains_key(id));
+                Ok(Outcome::default())
             }
             Operation::Boolean { targets, tools, op, scope, keep_targets, keep_tools, drop_unused } => {
                 let keep = crate::boolean::Keep { targets: *keep_targets, tools: *keep_tools, drop_unused: *drop_unused };

@@ -78,6 +78,7 @@ pub enum Refusal {
     /// Only an assembly is exploded.
     NotExploded,
     RootPlaced,
+    RootDeleted,
     /// A part is not combined with itself.
     SelfBoolean,
     /// A boolean names no target or no tool.
@@ -168,6 +169,7 @@ impl std::fmt::Display for Refusal {
             Refusal::EmptyAssembly => t!("error.model.empty_assembly"),
             Refusal::NotExploded => t!("error.model.not_exploded"),
             Refusal::RootPlaced => t!("error.model.root_placed"),
+            Refusal::RootDeleted => t!("error.model.root_deleted"),
             Refusal::SelfBoolean => t!("error.model.self_boolean"),
             Refusal::NoOperand => t!("error.model.no_operand"),
             Refusal::UnionTargets => t!("error.model.union_targets"),
