@@ -1,13 +1,14 @@
 ---
 status: built
-code: [crates/tools/src/editor/quick.rs, apps/skraft/src/quick.rs, crates/tools/src/editor/naming.rs, apps/skraft/src/naming.rs, crates/tools/src/editor/mod.rs, crates/tools/src/tools/shapes.rs]
+code: [crates/tools/src/editor/quick.rs, apps/skraft/src/quick.rs, crates/tools/src/editor/naming.rs, apps/skraft/src/naming.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/tools/shapes.rs]
 ---
 
-# Quick tools after a creation, naming a part just made
+# Quick tools after a creation, naming what was just made
 
 What follows a creation by Box, Cylinder, Prism or Turn: a floating card of tools to start on what
 was just made, after OpenCutList's floating tools of its Smart Draw tool, and the naming of the
-new part, after OCL's `ask_name`. Both come with each creation, each on its own.
+new part, after OCL's `ask_name`. Both come with each creation, each on its own. The naming's
+toast follows « Créer un assemblage », « Grouper les corps » and « Rendre unique » as well.
 
 ## Quick tools after a creation
 
@@ -96,13 +97,15 @@ what follows the cursor while it is over the card. Texts `quick_tools.*`.
 
 Not yet: the card after a paste.
 
-## Naming a part just made
+## Naming what was just made
 
 After OpenCutList's Smart Draw tool (`tool/smart_draw_tool.rb`, `fn_ask_name`, the same in
 `smart_build_tool.rb`): once it has made a part, either it asks its name at once
 (`UI.inputbox`, option `ask_name`), or a success notification « Nouvelle pièce créée : {{ name }} »
-offers a « Renommer » button that asks it. The editor says when, checks the name and names the
-part (`editor/naming.rs`, `Naming`); the dialog is the app's (`apps/skraft/src/naming.rs`).
+offers a « Renommer » button that asks it. Skraft offers the same toast after the commands that
+make a new definition (an assembly, a group of bodies, one made unique), which OCL does not. The
+editor says when, checks the name and names it (`editor/naming.rs`: `Naming` on a `NameTarget`,
+a component or a body definition); the dialog is the app's (`apps/skraft/src/naming.rs`).
 
 - **When**: a creation tool (Box, Cylinder, Prism, Turn) has made a part (`AddPrimitive`), not
   a body in an open part (`AddBody`: no new part), nor a copy or a paste (the same parts).
@@ -122,3 +125,26 @@ part (`editor/naming.rs`, `Naming`); the dialog is the app's (`apps/skraft/src/n
 - **Undo**: named from the dialog opened by itself, the name joins the creation's step (one
   undo takes the part away, its label the creation's), as OCL's inputbox inside the operation;
   from the toast's button, a step of its own (« Renommer »).
+
+### After « Créer un assemblage », « Grouper les corps », « Rendre unique »
+
+The toast only: these are commands, with no option bar to hold an `ask_name`.
+
+- **An assembly made** (`MakeAssembly`, the command « Créer un assemblage »): « Nouvel
+  assemblage créé : Assemblage#2 » [Renommer], the dialog « Nom de l'assemblage » naming its
+  component (`RenameComponent`, a name no other component has).
+- **A group of bodies made** (`GroupBodies`, the same command in an open part, or « Grouper les
+  corps »): « Nouveau groupe créé : Groupe#1 » [Renommer], the dialog « Nom du groupe » naming
+  its body definition (`RenameBodyDef`: every body of it shows the name; names need not be
+  unique, so only an empty one is refused, [Body names](../model/bodies.md#body-names)).
+- **Made unique** (`MakeUnique`, `MakeBodiesUnique`): what was given a definition of its own
+  — none when it was unique already, no toast then. One: « Pièce rendue unique : Pièce#4 »
+  (« Assemblage », « Groupe », « Corps rendu unique ») [Renommer], the dialog titled after what
+  it names (« Nom du corps » for a leaf body). Several at once: one toast « 3 éléments rendus
+  uniques », no button.
+- As built: the command's operations end with `After::SelectNamed` (the selection as
+  `After::Select`) or `After::Unique`; `naming::made_to_name` tells, from the document before
+  and after, what was made; « Rendre unique »'s queue gathers it (`Editor::made_unique`) and
+  says it once empty. Applied otherwise (a pilot's `Operation`), no toast.
+- The toast goes as soon as what it names is no more, as the part's (undone, erased); the
+  dialog's name is a step of its own (« Renommer »).

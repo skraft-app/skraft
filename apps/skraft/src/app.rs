@@ -530,8 +530,8 @@ impl SkraftApp {
         self.advance_closing();
     }
 
-    /// The dialog naming a part just made (docs/tools/quick-tools.md): opened by an editor (its tool's
-    /// « Nommage des pièces ») or by a toast's « Renommer »; gone with its document or its part.
+    /// The dialog naming what was just made (docs/tools/quick-tools.md): opened by an editor (its tool's
+    /// « Nommage des pièces ») or by a toast's « Renommer »; gone with its document or what it names.
     fn naming_dialog(&mut self, ctx: &egui::Context) {
         for d in self.docs.iter_mut() {
             if let Some(n) = d.editor.take_naming()
@@ -541,7 +541,7 @@ impl SkraftApp {
             }
         }
         let Some(dialog) = &mut self.naming else { return };
-        let Some(d) = self.docs.by_id_mut(dialog.doc).filter(|d| d.editor.naming_of(dialog.naming.component).is_some()) else {
+        let Some(d) = self.docs.by_id_mut(dialog.doc).filter(|d| d.editor.naming_of(dialog.naming.target).is_some()) else {
             self.naming = None;
             return;
         };
@@ -551,7 +551,7 @@ impl SkraftApp {
             crate::naming::Answer::Open => {}
             crate::naming::Answer::Cancel => self.naming = None,
             crate::naming::Answer::Name(name) => {
-                if let Err(e) = editor.name_part(&naming, &name) {
+                if let Err(e) = editor.give_name(&naming, &name) {
                     self.toasts.push(Note::error(t!("notice.op_failed", op = t!("operation.rename")), e));
                 }
                 self.naming = None;
@@ -759,7 +759,9 @@ impl SkraftApp {
         match id {
             "edit.undo" => e.history().can_undo(),
             "edit.redo" => e.history().can_redo(),
-            "edit.erase" | "edit.make_assembly" | "edit.explode" | "edit.make_unique" => has_sel,
+            // « Pièces » too (docs/tools/selection.md): its selection at any depth.
+            "edit.erase" | "edit.make_assembly" => e.anything_selected(),
+            "edit.explode" | "edit.make_unique" => has_sel,
             "edit.group_bodies" => e.can_group_bodies(),
             "edit.ungroup_bodies" => e.can_ungroup_bodies(),
             "edit.cut" | "edit.copy" => e.can_copy(),
@@ -2210,7 +2212,13 @@ impl SkraftApp {
             }
             "app.state" => {
                 call.params::<NoParams>()?;
-                let naming = self.naming.as_ref().map(|n| json!({ "document": n.doc, "part": n.naming.component.0, "name": n.text() }));
+                let naming = self.naming.as_ref().map(|n| {
+                    let target = match n.naming.target {
+                        skraft_tools::NameTarget::Component(c) => json!({ "component": c.0 }),
+                        skraft_tools::NameTarget::BodyDef { part, def } => json!({ "part": part.0, "def": def.0 }),
+                    };
+                    json!({ "document": n.doc, "target": target, "title": n.naming.title, "name": n.text() })
+                });
                 // Which app answers: several may run.
                 #[cfg(not(target_arch = "wasm32"))]
                 let instance = self.registration.as_ref().map(|r| json!(r.info()));
@@ -2494,7 +2502,9 @@ impl eframe::App for SkraftApp {
         // A toast whose part is no more goes (undone, erased, its document closed).
         let docs = &self.docs;
         self.toasts.retain_live(|act| match act {
-            Act::Rename { doc, part } => docs.index_of(*doc).and_then(|i| docs.get(i)).is_some_and(|d| d.editor.naming_of(*part).is_some()),
+            Act::Rename { doc, target } => {
+                docs.index_of(*doc).and_then(|i| docs.get(i)).is_some_and(|d| d.editor.naming_of(*target).is_some())
+            }
             Act::Reveal(_) => true,
         });
         for act in self.toasts.show(&ctx, status_top) {
@@ -2503,9 +2513,9 @@ impl eframe::App for SkraftApp {
                 Act::Reveal(path) => reveal(&path),
                 #[cfg(target_arch = "wasm32")]
                 Act::Reveal(_) => {}
-                Act::Rename { doc, part } => {
+                Act::Rename { doc, target } => {
                     if self.naming.is_none()
-                        && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(part))
+                        && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(target))
                     {
                         self.naming = Some(crate::naming::Dialog::new(doc, n));
                     }

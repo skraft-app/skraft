@@ -113,7 +113,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   several groups make several operations, in one undo step — and a world transform is brought
   into each parent's axes.
 - Model: `Operation::At { parent, unique, op }` — `op` (Transform, Duplicate, Array, Copies,
-  Delete, SetHidden, PaintOccurrences) on the assembly `parent` leads into, its `context` set
+  Delete, SetHidden, PaintOccurrences, MakeAssembly) on the assembly `parent` leads into, its `context` set
   when applied; `unique` makes the assemblies along it unique first, outermost first
   (`MakeUnique`, ids kept) — and `Operation::Batch(ops)`, applied in order, outcomes put
   together, one history step; `Document::shared_along(instances)`. An operation `At` / `Batch`
@@ -137,6 +137,11 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
 - **The Stretch**: parts at any depth **of one assembly** are its target (`Operation::Stretch`
   takes a context path); of several, the status says so (`tool.stretch.hint.one_assembly`) and
   a click picks again ([Stretch](stretch.md)).
+- **« Créer un assemblage »**: the parts (and guides) selected **in one assembly** put in a
+  new assembly there (`MakeAssembly` taken by `At`), selected by its path, offered its name
+  ([Naming what was just made](quick-tools.md#naming-what-was-just-made)); in several, refused,
+  the status saying so (`status.group_one_assembly`). The command is enabled by a selection
+  at any depth (`Editor::anything_selected`), as « Effacer ».
 - **Paint**: under « Parts », the part under the cursor — the parts selected when it is one of
   them — painted at its parent (`PaintOccurrences` taken by `At`); painting occurrences (either
   scope), a drag draws a rectangle whose take is painted when released, one step (the context's

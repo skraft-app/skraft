@@ -67,6 +67,11 @@ impl History {
     }
 
     /// The current document's revision (0 for the one the history started with).
+    /// The document before the last step, if any.
+    pub fn previous(&self) -> Option<&Document> {
+        self.past.last().map(|s| &s.doc)
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }

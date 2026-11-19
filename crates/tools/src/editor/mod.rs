@@ -40,7 +40,7 @@ pub use clipboard::{Clip, Content};
 pub use document::cap_histories;
 use document::{After, Pending, Probe};
 pub use loading::{LoadEnd, LoadKind, Loading};
-pub use naming::Naming;
+pub use naming::{NameTarget, Naming};
 pub use tree::{Tree, TreeRow};
 pub use view::{Look, Mark, OrientedBox, SectionCut, View, ViewHighlight, ViewPlacement};
 
@@ -59,9 +59,9 @@ pub struct Notice {
 /// A notice's button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoticeAction {
-    /// Opens the naming dialog on this part, just made (docs/tools/quick-tools.md,
-    /// [`Editor::naming_of`]).
-    Rename(Id),
+    /// Opens the naming dialog on this part, assembly or body definition, just made
+    /// (docs/tools/quick-tools.md#naming-what-was-just-made, [`Editor::naming_of`]).
+    Rename(NameTarget),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +84,9 @@ pub struct Editor {
     /// Operations of one action (explode several assemblies), applied one after the other.
     queue: VecDeque<(Operation, After)>,
     collected: Vec<Id>,
+    /// What the operations of « Rendre unique » gave their own definition, offered to be named
+    /// once they are all done (docs/tools/quick-tools.md#naming-what-was-just-made).
+    made_unique: Vec<NameTarget>,
     /// Meshes asked for, by job: the solid, and how fine.
     meshing: HashMap<JobId, (Arc<Solid>, Quality)>,
     /// The load under way (docs/ui/loading.md): a file opened or imported, until its last mesh.
@@ -240,6 +243,7 @@ impl Editor {
             pending: None,
             queue: VecDeque::new(),
             collected: Vec::new(),
+            made_unique: Vec::new(),
             meshing: HashMap::new(),
             load: Some(loading::Load::new(LoadKind::Open)),
             load_end: None,

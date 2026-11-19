@@ -129,8 +129,10 @@ bottom center, above the status bar, which keeps the tools' hints.
   bottom emptying towards the left; the pointer over it stops the countdown, full again. An
   error stays.
 - A toast may carry a button at its right end (as OpenCutList's « Ouvrir » after an export),
-  whose click runs it and closes the toast: « Renommer » on « Nouvelle pièce créée »
-  ([Quick tools](../tools/quick-tools.md)), the toast dropped once its part is gone. `Act::Reveal`
+  whose click runs it and closes the toast: « Renommer » on « Nouvelle pièce créée », « Nouvel
+  assemblage créé », « Nouveau groupe créé », « … rendu unique »
+  ([Naming what was just made](../tools/quick-tools.md#naming-what-was-just-made)), the toast
+  dropped once what it names is gone. `Act::Reveal`
   (show a file in the Finder or the Explorer) exists but no toast offers it.
 - The same message again counts (×2); six at most, the oldest timed one dropped first.
   `app.state` lists them (`toasts`); handles `toast.<i>` and `toast.<i>.action`. An editor

@@ -551,13 +551,24 @@ notice:
   import_failed: "Could not import %{file}"
   import_cancelled: "Import of %{file} canceled"
   part_created: "New part created: %{name}"
+  assembly_created: "New assembly created: %{name}"
+  group_created: "New group created: %{name}"
+  part_made_unique: "Part made unique: %{name}"
+  assembly_made_unique: "Assembly made unique: %{name}"
+  group_made_unique: "Group made unique: %{name}"
+  body_made_unique: "Body made unique: %{name}"
+  many_made_unique: "%{count} items made unique"
   rename: "Rename"
 
 naming:
-  title: "Part Name"
+  title_part: "Part Name"
+  title_assembly: "Assembly Name"
+  title_group: "Group Name"
+  title_body: "Body Name"
   ok: "OK"
   cancel: "Cancel"
   empty: "the name is empty"
+  gone: "it no longer exists"
 
 status:
   measurements: "Measurements"
@@ -571,6 +582,7 @@ status:
   op_failed: "%{op}: %{error}"
   unexpected_reply: "unexpected reply from the kernel"
   nothing_to_group: "First select what to group"
+  group_one_assembly: "The items to group must be in the same assembly"
   no_guides: "No guides here"
   copy_not_last: "The last step is no longer this copy"
   no_wgpu: "wgpu unavailable"

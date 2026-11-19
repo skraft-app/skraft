@@ -49,5 +49,5 @@ with that material's colour (its icon black or white to stay readable) and its t
 As OCL's `get_action_option_sync_actions`, a setting changed in one part creation tool is changed
 in the others that have it (`shapes::synced_with`) — the offset and the centred height between
 Box, Cylinder and Prism (Turn has neither); « Dessiner dans », « Pipette » and « Nommage des
-pièces » ([Naming a part just made](quick-tools.md#naming-a-part-just-made)) between all four.
+pièces » ([Naming what was just made](quick-tools.md#naming-what-was-just-made)) between all four.
 The others stay each tool's own (the box's « Centré », the fillet, the prism's « Inversé »).
