@@ -91,8 +91,9 @@ Decision [0038](../decisions/0038-components-library-card.md).
 
 ## Placing
 
-- **A click on a component, or dragging it into the view, carries one more occurrence of it at
-  the cursor**, as a paste ([Paste at the cursor](../tools/copy-paste.md#paste-at-the-cursor)):
+- **Dragging a component into the view carries one more occurrence of it at the cursor** — a
+  click only chooses it ([Managing](#managing)) —, as a paste
+  ([Paste at the cursor](../tools/copy-paste.md#paste-at-the-cursor)):
   `Editor::place_component` applies `PlaceOccurrence` in the active context first (at its
   origin, `After::Carry`), then the Move tool carries it (`MoveTool::carrying`), with Move's
   inferences and locks — **no distance**: none drawn nor typed from where it was put in place,
@@ -101,15 +102,17 @@ Decision [0038](../decisions/0038-components-library-card.md).
   puts it down (`Command::Replace`, `Moved::paste` composing the motion into the placement:
   one step in the history), Esc, Undo, another tool give it up. A carry under way is given up
   first. The component stays chosen while carried (the entity info shows it, the card marks
-  it). Put down, the new occurrence is selected and the tool before comes back; another
-  click on the card places another one.
-- **Shown only over the view**: from the click on the card until the pointer reaches the view,
+  it). Put down, the new occurrence is selected and the tool before comes back; another drag
+  from the card places another one. **Why:** a click placing too made every click on the card
+  start a carry — choosing a component to read it in the entity info, or the first click of a
+  double-click to rename it (asked on 2026-11-19).
+- **Shown only over the view**: from the drag's start on the card until the pointer reaches the view,
   and whenever it leaves it (over a card, out of the window), the carried occurrence is drawn
   neither where it was put in place nor at the cursor (`Preview::away`, set by the Move tool
   while it carries a component and the pointer is off the view); no copy toggle in the
   option bar (none for a paste either).
-- **Dragged out of the card**: the press is the first click, the release in the view the
-  second ([Drag as click, move, click](../tools/interaction.md#drag-as-click-move-click)). While
+- **The drag**: the press is the first click, the release in the view the second
+  ([Drag as click, move, click](../tools/interaction.md#drag-as-click-move-click)). While
   the row holds the drag, egui hovers nothing else, so the app tells the view
   (`Viewport::dragged_in`), which follows the pointer itself (`dragged_in_input`): over the
   view — not over a card floating on it (an egui layer other than the background, a tooltip
@@ -126,11 +129,11 @@ Decision [0038](../decisions/0038-components-library-card.md).
   ([0027](../decisions/0027-paste-across-the-part-boundary.md)).
 - **No component into itself**: the assembly edited and every assembly above it, along the
   active path (`Editor::on_active_path`), are greyed (placing one of them would make a
-  cycle): a click only chooses them (`Editor::can_place_component`).
+  cycle): they are not dragged out (`Editor::can_place_component`).
 
 ## Managing
 
-- **Choosing**: a click also chooses the component (marked in the card; `Editor::choose_component`,
+- **Choosing**: a click chooses the component (marked in the card; `Editor::choose_component`,
   the selection let go); the entity info then shows it as it shows the model
   ([The model row](interface.md#the-model-row)): its nature, its name (edited there), its count
   in the model, a part's dimensions, the materials its occurrences and faces carry
@@ -149,9 +152,9 @@ Decision [0038](../decisions/0038-components-library-card.md).
     not only of it (`Editor::can_replace_selection`). At any depth, the paths grouped per
     parent (`Cx::moved_deep`), made unique first as the part scope says. The components left
     unused stay, in « Inutilisés ».
-  - « Renommer » (also F2 on the chosen component): the name edited in place, as the
-    navigator's (`Operation::RenameComponent`, `panels::rename_field`). No double-click: the
-    first click already places.
+  - « Renommer » (also F2 on the chosen component, and a double-click on its row or tile):
+    the name edited in place, as the navigator's (`Operation::RenameComponent`,
+    `panels::rename_field`; in the grid, under the tile).
   - « Supprimer »: the component and **all its occurrences**, at any depth
     (`Operation::DeleteComponent`, one step; the root refused, `Refusal::RootDeleted`); what
     it held stays, unused when placed nowhere else; the assemblies left empty go

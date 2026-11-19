@@ -20,8 +20,10 @@ select instances, replace selected. Decided on 2026-11-19 (questions / answers).
   the unused ones in a section apart.
 - **3D thumbnails**, rendered off screen lazily and cached per definition and revision, with a
   grid / list toggle.
-- **A click or a drag carries one more occurrence at the cursor**, as a paste (`PlaceOccurrence`
-  then `MoveTool::carrying`), **held by the origin of its axes**, in the active context.
+- **A drag carries one more occurrence at the cursor**, as a paste (`PlaceOccurrence` then
+  `MoveTool::carrying`), **held by the origin of its axes**, in the active context; a click
+  only chooses the component (at first a click placed too: dropped on 2026-11-19, every click
+  then started a carry, a double-click could not rename).
 - **Disabled while a part is open**; an assembly is never placed into itself.
 - **Unused definitions stay**, named or not, until purged (as SketchUp's « In Model »); no
   more purge after every operation, but of the empty assemblies placed nowhere (they hold

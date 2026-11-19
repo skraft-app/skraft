@@ -1078,9 +1078,9 @@ impl SkraftApp {
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
             Action::SelectModel => e.select_model(),
             Action::ChooseComponent(c) => e.choose_component(c),
-            Action::PlaceComponent(c, dragged) => {
+            Action::PlaceComponent(c) => {
                 doc.vcb.clear();
-                if e.place_component(c) && dragged {
+                if e.place_component(c) {
                     self.viewport.dragged_in = true;
                 }
             }

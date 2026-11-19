@@ -31,9 +31,9 @@ pub enum Action {
     SelectModel,
     /// A component chosen in the library (docs/ui/components-library.md).
     ChooseComponent(Id),
-    /// One more occurrence of a component carried at the cursor, from a click on its row or
-    /// a drag out of it (`dragged`: the view follows the drag, docs/ui/components-library.md#placing).
-    PlaceComponent(Id, bool),
+    /// One more occurrence of a component carried at the cursor, dragged out of its row (the
+    /// view follows the drag, docs/ui/components-library.md#placing).
+    PlaceComponent(Id),
     /// The « Composants » card as a list (true) or a grid of thumbnails.
     ComponentsList(bool),
     /// The library's menu: its occurrences selected, the selection replaced by it, deleted.
