@@ -7,7 +7,8 @@ code: [crates/kernel/src/step.rs, crates/kernel/src/job.rs, crates/model/src/ste
 
 **File › Importer…** (`file.import`, Cmd+I) places a STEP file (AP203 / AP214 / AP242) **in the
 model**, in the active context, as one occurrence, selected, one step to undo. The kernel reads
-the file and its product structure; the model keeps the products shared as components.
+the file and its product structure; the model keeps the products shared as components. The same
+command imports SketchUp files ([SketchUp import](sketchup-import.md)), told by their extension.
 
 ## Reading
 
@@ -66,9 +67,11 @@ gathered in an assembly named after the file. The import inserts it at the conte
 - While the kernel reads, the status bar says « Lecture de … » and the loading window shows the
   import ([Loading a model](../ui/loading.md)); the rest of the editor stays usable. Cancelling
   it (« Annuler » or Esc) cancels the kernel's job and undoes the insertion if it was made.
-- The result is a toast: the parts imported, with the count of bodies excluded (not closed); a
-  file with no solid, or one the kernel could not read, an error toast.
+- The result is a toast: the parts imported; then, when some were left out, a warning toast of
+  its own with their count (« N corps non solides ignorés », only closed solids imported) —
+  under the success it went unseen. A file with no solid, or one the kernel could not read, an
+  error toast.
 - `skraft-import file.step [out.skraft]` (`apps/import`) does the same from the command line,
-  into an empty model ([SketchUp import](sketchup-import.md)).
+  into an empty model, as it does a `.skp` ([SketchUp import](sketchup-import.md)).
 
 Not yet: placing the import at the cursor (it lands at the context's origin).

@@ -1,6 +1,6 @@
 [package]
 name = "skraft-import"
-description = "Skraft: converts a SketchUp export (scripts/sketchup/export.rb) to a .skraft file"
+description = "Skraft: converts a SketchUp (.skp) or STEP file to a .skraft file, as the app imports it"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1523,7 +1523,7 @@ fn an_opened_file_loads_previews_then_final_meshes() {
 fn a_step_import_is_a_load_that_can_be_cancelled() {
     let bytes = include_bytes!("../../kernel/tests/fixtures/assembly.step").to_vec();
     let (mut e, k) = deferred_editor(Document::new());
-    e.import_step("assembly.step".into(), bytes.clone());
+    e.import("assembly.step".into(), bytes.clone());
     let loading = e.loading().cloned().unwrap();
     assert_eq!(loading.kind, LoadKind::Import { name: "assembly.step".into() });
     assert_eq!(loading.reading, Some(skraft_kernel::Progress::Reading));
@@ -1542,7 +1542,7 @@ fn a_step_import_is_a_load_that_can_be_cancelled() {
 
     // Cancelled while read: nothing comes in.
     let (mut e, k) = deferred_editor(Document::new());
-    e.import_step("assembly.step".into(), bytes.clone());
+    e.import("assembly.step".into(), bytes.clone());
     e.cancel_loading();
     assert_eq!(k.queued(), 0);
     e.poll();
@@ -1554,7 +1554,7 @@ fn a_step_import_is_a_load_that_can_be_cancelled() {
 
     // Cancelled once inserted: undone.
     let (mut e, k) = deferred_editor(Document::new());
-    e.import_step("assembly.step".into(), bytes);
+    e.import("assembly.step".into(), bytes);
     k.run_all();
     e.poll();
     assert_eq!(e.document().root_assembly().occurrences().len(), 1);
@@ -3602,7 +3602,7 @@ fn a_window_takes_an_assembly_only_whole() {
 #[test]
 fn a_step_file_is_imported_into_the_context_in_one_step() {
     let mut e = top_editor(Document::new());
-    e.import_step("assembly.step".into(), include_bytes!("../../kernel/tests/fixtures/assembly.step").to_vec());
+    e.import("assembly.step".into(), include_bytes!("../../kernel/tests/fixtures/assembly.step").to_vec());
     assert!(!e.is_importing());
     let doc = e.document();
     assert_eq!(doc.root_assembly().occurrences().len(), 1);
@@ -3611,6 +3611,32 @@ fn a_step_file_is_imported_into_the_context_in_one_step() {
     assert_eq!(e.selection(), &[doc.root_assembly().occurrences()[0].id][..]);
     let said = notices(&mut e);
     assert!(said.contains("assembly.step importé"), "{said}");
+    e.undo();
+    assert!(e.document().root_assembly().occurrences().is_empty());
+}
+
+/// A SketchUp file goes the same way as a STEP one, told by its extension
+/// (docs/io/sketchup-import.md): read by the kernel, inserted in one step, a toast saying the
+/// parts and the definitions excluded.
+#[test]
+fn a_sketchup_file_is_imported_into_the_context_in_one_step() {
+    let mut e = top_editor(Document::new());
+    e.import("cabinet.skp".into(), include_bytes!("../../kernel/tests/fixtures/cabinet.skp").to_vec());
+    assert!(!e.is_importing());
+    let doc = e.document();
+    // The model's top (two cabinets, the long board, the plinth, the cube) in one assembly
+    // named after the file.
+    assert_eq!(doc.root_assembly().occurrences().len(), 1);
+    let top = doc.component(doc.root_assembly().occurrences()[0].component).unwrap();
+    assert_eq!(top.name, "cabinet.skp");
+    assert_eq!(doc.placed_parts().len(), 8);
+    assert_eq!(e.selection(), &[doc.root_assembly().occurrences()[0].id][..]);
+    // The success, then what was left out as a warning of its own.
+    let said: Vec<_> = e.take_notices().into_iter().map(|n| (n.kind, n.title)).collect();
+    assert_eq!(
+        said,
+        [(NoticeKind::Success, "cabinet.skp importé : 5 pièces".to_owned()), (NoticeKind::Warning, "1 corps non solide ignoré".to_owned())]
+    );
     e.undo();
     assert!(e.document().root_assembly().occurrences().is_empty());
 }

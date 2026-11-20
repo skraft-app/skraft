@@ -34,7 +34,7 @@ pub use document::{
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, VERSION};
 pub use history::History;
-pub use import::{ImportReport, SKETCHUP_FORMAT, SKETCHUP_VERSION};
+pub use import::ImportReport;
 pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope, Warning};
 pub use profile::BodyProfile;
 pub use props::{EntityKind, PropDef, PropTarget, Props, Value, ValueKind};

@@ -1,6 +1,6 @@
 # Import SketchUp models through a JSON export of their structure
 
-- Status: accepted (2026-11-12)
+- Status: superseded by [0043](0043-sketchup-files-read-with-skpwright.md) (2026-11-20): the `.skp` read directly, in the kernel
 - Design: [SketchUp import](../io/sketchup-import.md)
 
 ## Context

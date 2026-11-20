@@ -28,4 +28,7 @@ allow = [
   "Unicode-3.0",
   # Weak copyleft, per file (dirs → option-ext), unmodified.
   "MPL-2.0",
+  # Strong copyleft, GPLv3 only (skpwright, the SketchUp reader): Skraft's sources stay
+  # GPL-3.0-or-later, the binaries that link it are distributed under GPLv3.
+  "GPL-3.0-only",
 ]

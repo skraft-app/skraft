@@ -1,5 +1,5 @@
-//! Opening and saving `.skraft` files (docs/io/file-format.md), importing STEP files: file
-//! dialogs on the desktop, a file picker and a download in the browser.
+//! Opening and saving `.skraft` files (docs/io/file-format.md), importing STEP and SketchUp
+//! files: file dialogs on the desktop, a file picker and a download in the browser.
 
 use std::sync::{Arc, Mutex};
 
@@ -15,8 +15,9 @@ pub const MATERIALS_EXTENSION: &str = "skraftmat";
 /// The images a texture takes (docs/render/look.md#textures).
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"];
 
-/// The extensions of the files the app imports (docs/io/step-import.md).
-pub const IMPORT_EXTENSIONS: &[&str] = &["step", "stp", "STEP", "STP"];
+/// The extensions of the files the app imports (docs/io/step-import.md,
+/// docs/io/sketchup-import.md).
+pub const IMPORT_EXTENSIONS: &[&str] = &["step", "stp", "skp", "STEP", "STP", "SKP"];
 
 /// What a file dialog ended with. Dialogs never block: a modal one (rfd's `FileDialog`) runs a
 /// nested event loop inside winit's event handler, which panics on macOS ("tried to handle event
@@ -98,12 +99,12 @@ pub fn open_path(path: &str, inbox: &Inbox) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Asks for a file to import (STEP); its name and bytes arrive in `inbox`.
+/// Asks for a file to import (STEP, SketchUp); its name and bytes arrive in `inbox`.
 pub fn import(inbox: &Inbox, ctx: &egui::Context) {
     let inbox = inbox.clone();
     let ctx = ctx.clone();
     spawn(async move {
-        let picked = rfd::AsyncFileDialog::new().add_filter("STEP", IMPORT_EXTENSIONS).pick_file().await;
+        let picked = rfd::AsyncFileDialog::new().add_filter("STEP, SKP", IMPORT_EXTENSIONS).pick_file().await;
         if let Some(f) = picked {
             let name = f.file_name();
             let bytes = f.read().await;
