@@ -200,7 +200,7 @@ impl Side {
     }
 
     /// Is `p` on it (within `tol`)?
-    fn holds(&self, p: DVec2, tol: f64) -> bool {
+    pub fn holds(&self, p: DVec2, tol: f64) -> bool {
         match *self {
             Side::Line { a, b } => {
                 let d = b - a;
@@ -221,6 +221,20 @@ impl Side {
                 let slack = tol / r;
                 along <= sweep.abs() + slack || along >= TAU - slack
             }
+        }
+    }
+
+    /// How far `p` is from it.
+    pub fn distance(&self, p: DVec2) -> f64 {
+        match *self {
+            Side::Line { a, b } => {
+                let d = b - a;
+                let l2 = d.length_squared();
+                let t = if l2 > 0.0 { ((p - a).dot(d) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                (a + d * t).distance(p)
+            }
+            Side::Arc { c, r, .. } if self.holds(c + (p - c).normalize_or_zero() * r, 1e-9) => (p.distance(c) - r).abs(),
+            Side::Arc { a, b, .. } => p.distance(a).min(p.distance(b)),
         }
     }
 

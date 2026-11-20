@@ -1,8 +1,9 @@
 # Body nodes: an operation applied to the children, the part's tree as its history
 
-- Status: accepted (2026-11-19; not built yet)
-- Design: [Bodies](../model/bodies.md#body-groups), [Opening a part](../model/opening-a-part.md)
-  — to be described there as the steps are built
+- Status: accepted (2026-11-19); steps 1 and 2 built (rounds and chamfers, names through
+  the booleans, face maps), step 3 (∩, mirror, shell) not yet
+- Design: [Bodies](../model/bodies.md#body-nodes), [Rounds and chamfers](../tools/rounds.md),
+  [Opening a part](../model/opening-a-part.md)
 - Amends: [Body definitions may be groups](0024-body-groups.md) (its « no ∩ node, nor any
   ordered operation »)
 
@@ -161,7 +162,10 @@ another edge silently.
 - **Incremental computation** stops at the first non-group node on the path (adding a negative
   to a group under a round computes the round again). A node takes its child groups from their
   caches and face maps (built 2026-11-19, step 2): a node over a board drilled 30 times, 99 ms
-  against 202 ms from its leaves (debug).
+  against 202 ms from its leaves (debug). Since 2026-11-20 a node also starts from its own
+  children's result, kept in memory, while its children are the same or only cutters were
+  added ([Bodies](../model/bodies.md#body-nodes)): the incremental computation goes on below a
+  node for drills, and stops at it for the rest.
 - **Booleans on round faces** were the kernel's least proven ground: `crates/kernel/tests/rounds.rs`
   (2026-11-19, SolidCore `793d09e`, its fixes on) runs them as the app does — a node's solid an
   input of its parent's recipe — and checks each result against itself (volume against its
@@ -189,7 +193,8 @@ another edge silently.
 
 ## Trial (2026-11-19, headless)
 
-`crates/kernel/src/provenance_trial.rs`: the leaves' faces tagged `body:face` with an
+`crates/kernel/src/provenance_trial.rs` (removed 2026-11-20, once its cases ran on the code
+built in `crates/kernel/tests/node.rs`; in git at 0fd5d46): the leaves' faces tagged `body:face` with an
 application attribute of SolidCore's kernel (`Attribute::application`, our own handlers: a split
 keeps the tag, a merge and a coincidence join the tags), the booleans run in one session as
 `recipe_session` runs them, the tags read back on the result's faces. `solidcore_ops::provenance`

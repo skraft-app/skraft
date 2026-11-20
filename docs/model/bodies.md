@@ -364,16 +364,35 @@ NodeOp    { blend: Round | Chamfer, size, edges: Vec<NodeEdges { name, near }> }
 - **Edges by name, in its children only.** A leaf's faces are named by its recipe — a
   profile's caps `Bottom` / `Top`, the face of a side by the side's id (`Corner::id`, stable
   while the profile is edited: [Prism tool and profiled blanks](../tools/prism.md)), a
-  fillet's by its corner's —, a free shape's by their record index; each name tagged with the
+  fillet's by its corner's: each face the side holding all its vertices and fitting its surface,
+  a plane on a straight side, `names::leaf_faces` —, a free shape's by their record index; each name tagged with the
   path of bodies from the node down. The node's children are computed **from their leaves in
   one kernel session** (`Task::Node`, `crates/kernel/src/node.rs`): the tags go through the
   booleans as an application attribute of SolidCore's (a face cut keeps its tag, faces merged
   carry both). An edge is named by its two faces' tags and **matches by inclusion** (a merged
-  face carries several). A name of several edges takes them all, unless only some were picked
+  face carries several; the edge is named by the tag of each face nearest the other's in the
+  tree, of one body first: an edge of a board along a top merged with another's keeps its
+  name when the other moves away). A name of several edges takes them all, unless only some were picked
   (`near`: the edges nearest those points). The faces a node makes are named by the two faces
-  they lie between (`FaceName::Made`): a node above names them as any other.
+  they lie between (`FaceName::Made`: of the edges taken, the one whose two faces run longest
+  along it — its rails, not the faces its ends meet), a corner's patch where rounds meet by the
+  faces around it, its rounds among them (`FaceName::Corner`, named after them): a node above
+  names them as any other. A copy's children renamed rename these too.
 - **Computed again** wherever a group is (`Document::computed_group`): an edit inside it, the
   groups above, welding, a stretch.
+- **From its children's result, while it holds.** A node keeps, in memory only (not in the
+  file, nor in its equality), its children's result before its operation and that result's
+  face map, with the children it was computed for (`BodyGroup::raw`, `RawCache`: their tree and
+  their leaves' solids, the same `Arc`s). Its children the same (its size or edges changed,
+  the tool's preview of them), its task starts from that result (`TreeNode::Base`) and only
+  the round is done again; cutters added since (a drill drawn in it), from that result cut by
+  them alone; else (a body moved, removed, a positive added: a hole cannot be filled back)
+  from its children. While an operation runs in a node or a group under one, the part standing
+  for that group is not computed (`Document::deferred`): the node computes it afterwards.
+  Measured (`bench_a_node_from_its_childrens_result_or_its_leaves`, debug, a board 600 × 300
+  drilled 30 times, its front edge rounded): its size changed 100 ms against 210 ms (the node's
+  task 41 ms against 150, the result's display mesh 60 ms either way); a drill added inside
+  117 ms against 221 ms (194 against 300 while the part standing for the node was computed).
 - **Names beside the caches.** A group's recipe names its inputs (`Task::Recipe`'s `names`: a
   leaf by its recipe, a group by its face map) and gives its result's **face map** — each
   record face's tags, relative to the group (`BodyGroup::faces`) —; a node gives its own. The
@@ -388,8 +407,16 @@ NodeOp    { blend: Round | Chamfer, size, edges: Vec<NodeEdges { name, near }> }
 - **Copies**: a definition copied with its children renamed (`renamed_children`: made
   unique, pasted, split by a stretch) renames the first body of its names' and its map's paths
   with them.
+- **Bodies moved in the tree under a node** follow its names: an operation in an opened group
+  says which bodies it moved, by their paths from there (`Outcome::relocated`: grouped,
+  ungrouped, wrapped by a node, a group made unique and its children renamed), and the nodes on
+  the way — the group and those above it — rewrite the paths of their names and maps from
+  them down (`ops::relocate`; the tags a face made by a node on the way is named by, from that
+  node down). Grouping the bodies of a node leaves its edges as they were.
 - **In error** when a name no longer matches an edge, or the kernel refuses its size after an
-  edit below it (`refused`): its children's result shown as it is, ⚠ in the navigator, the
+  edit below it (`refused`; a node computed from its leaves with its parent, having no face
+  map of its own, has its refusal noted all the same: `Output::Node`'s `inner`,
+  `ops::note_refused`): its children's result shown as it is, ⚠ in the navigator, the
   entity info saying why (`Part::refusal_of`). Applying or changing a node refused fails
   instead.
 - **The root is never a node**: new bodies go to the part's root and cut (or join) the node's

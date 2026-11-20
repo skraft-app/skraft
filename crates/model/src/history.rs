@@ -262,7 +262,9 @@ pub(crate) fn exclusive_bytes(a: &Document, b: &Document, solid: &dyn Fn(&Arc<So
 /// The solids a component holds: a part's shape and its bodies' definitions.
 fn solids_of(c: &Component) -> impl Iterator<Item = &Arc<Solid>> {
     let part = c.as_part();
-    part.and_then(|p| p.shape.as_ref()).into_iter().chain(part.into_iter().flat_map(|p| p.defs.iter().map(|d| &d.solid)))
+    // A node's children's result cached too (docs/model/bodies.md#body-nodes).
+    let raws = part.into_iter().flat_map(|p| p.defs.iter().filter_map(|d| d.group.as_ref()?.raw.0.as_ref().map(|c| &c.solid)));
+    part.and_then(|p| p.shape.as_ref()).into_iter().chain(part.into_iter().flat_map(|p| p.defs.iter().map(|d| &d.solid))).chain(raws)
 }
 
 /// What `c` holds, but for the solids `other` (another version of it) holds too.
