@@ -42,9 +42,10 @@ Decision record: [One control protocol, several transports](decisions/0020-contr
 
 | Namespace | Methods | Headless |
 |---|---|---|
-| `app.*` | `ping`, `methods` (names, descriptions, schemas), `state` (the active document — name, path, modified, revision, busy, idle —, tool, status, selection, context, open part, toasts, `instance`), `instances`, `wait` (`revision` other than n, and / or `idle`, with a timeout: 10 s by default, 2 min at most), `commands` (the registry: id, label, enabled, checked, shortcut), `run` (a command id), `docs` (`action`: list, new, switch, close — `index`, `force`), `screenshot` (the viewport, PNG) | `ping`, `methods`, `state`, `instances`, `wait` |
-| `model.*` | `document` (the recipe: the document's JSON, B-reps inline — `Document::to_json` —, not saved; `brep` for the records in full, else their counts), `components` (the library: every part and assembly, its count in the model, unused or not, the one chosen), `geometry` (per placed part: path, part, name, occurrence name, hidden, material, world transform, pieces, topology counts, bounds local and world, volume, bodies; `ids` / `selection` filters, `offset` / `limit` paging — 100 by default, 2 000 at most —, `stale` while the kernel computes; `brep`: the SolidCore record; `mesh`: the display mesh, an approximation) | yes |
+| `app.*` | `ping`, `methods` (names, descriptions, schemas), `state` (the active document — name, path, modified, revision, busy, idle —, tool, status, selection, the level open — `context`, `open_part`, `open_group` —, `body_sign`, toasts, `instance`; its editor's part, `editor::state`, shared with a headless session), `instances`, `wait` (`revision` other than n, and / or `idle`, with a timeout: 10 s by default, 2 min at most), `commands` (the registry: id, label, enabled, checked, shortcut), `run` (a command id), `docs` (`action`: list, new, switch, close — `index`, `force`), `screenshot` (the viewport, PNG) | `ping`, `methods`, `state`, `instances`, `wait` |
+| `model.*` | `document` (the recipe: the document's JSON, B-reps inline — `Document::to_json` —, not saved; `brep` for the records in full, else their counts), `components` (the library: every part and assembly, its count in the model, unused or not, the one chosen), `geometry` (per placed part: path, part, name, occurrence name, hidden, material, world transform, pieces, topology counts, bounds local and world, volume, bodies — each its `nature` (`extrusion`, `revolution`, `solid`, `group`, `round`, `chamfer`) and name, a group's `children`, a body node's `node`: blend, size, edges, `refused` —; `ids` / `selection` filters, `offset` / `limit` paging — 100 by default, 2 000 at most —, `stale` while the kernel computes; `brep`: the SolidCore record; `mesh`: the display mesh, an approximation) | yes |
 | `components.*` | the document's components library ([Components library](ui/components-library.md)): `place` (`component`: carried at the cursor by the origin of its axes, put down by a `tool.input` click), `select` (its occurrences under the active context), `replace` (the selection by it), `delete` (with all its occurrences), `purge` (the unused); `model.components` lists them (id, name, kind, named, count in the model, unused) | yes |
+| `context.*` | the level open and what is selected in it, by id, as the user's double-clicks, Esc and clicks reach them: `open` (`ids` opened in turn: an occurrence of the assembly edited, of a part, a group or a body node of the part open; refused at the first that cannot be), `close` (one level, `levels`, or `all`; what was left selected), `select` (`ids` of the level open — occurrences, bodies, guides —, `add`; refused, nothing changed, naming one not there), `sign` (the sign of the bodies drawn in an open part, « Solide »: `positive` / `negative`); each answers `app.state`'s editor part | yes |
 | `tool.*` | `state` (tool, status, busy, revision, copying, the [cursor](ui/cursors.md), the VCB's label and value shown, takes typing, axis and face locks, options with their choices, selection, the last inference, the preview's `drawing`), `input` (a list of inputs, below) | yes |
 | `view.*` | `camera` (read; set: `perspective`, `view` — a standard view —, `eye` + `target`, `fov_deg` or `height`, `fit`), `project` (world points → pixels, and whether each is in view), `pick` (pixels or world points → path, part, name, B-rep face, point, normal, distance) | yes (a virtual viewport) |
 | `journal.*` | `log`, `failures`, `record` (below) | yes |
@@ -55,7 +56,9 @@ Decision record: [One control protocol, several transports](decisions/0020-contr
 `tool.input` feeds `Editor::input` directly: deterministic, no window focus, the same calls as
 the `tools` tests (`click(e, p)`). Inputs: `hover`, `click`, `double_click`, `drag` (`from`,
 `to`, `steps`), `key` (`name`), `vcb` (typed, then Enter), `tool` (by its id,
-`ToolKind::from_id`) — each pointer at a world point (`at`) or a pixel (`px`, the viewport's
+`ToolKind::from_id`), `option` (`key`, `value` as `tool.state` shows it: `{"choice": …}`,
+`{"toggle": …}`, `{"length": …}`; refused when the tool has no such option, or the value is
+not of its kind or among its choices) — each pointer at a world point (`at`) or a pixel (`px`, the viewport's
 points, origin top left); a click is a hover then the click, as the viewport gives them; the
 first input refused stops the rest. `view.camera` in the window adds `pixels_per_point`, a
 screenshot's scale.
@@ -64,6 +67,11 @@ Every editor method first takes in what the kernel finished (`Editor::poll`: a h
 has no frames), and *idle* waits for the meshes too (`Editor::meshing`): a pick or an inference
 after a change needs them. Between inputs that depend on a change (a face of the box just
 drawn), `app.wait` with `idle` — the kernel computes in the background in the window.
+
+The level open and the selection have their own methods (`context.*`), by id, rather than
+double-clicks, Esc and clicks at world points. **Why:** driving body nodes (2026-11-20), a
+part opened by a double-click at a point that projected elsewhere opened nothing or another
+level, and a tool's options and the bodies' sign could only be set through the window.
 
 `Camera::project` is in `f64`, the exact inverse of `Camera::ray`: a world point clicked lands
 on itself, to 1e-9. **Why:** going through the GPU's `f32` matrix, a box clicked at 600 × 400

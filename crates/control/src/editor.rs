@@ -6,18 +6,19 @@ use std::collections::HashMap;
 use glam::{DMat3, DVec2, DVec3};
 use serde_json::{Value, json};
 use skraft_model::{Id, PlacedPart};
-use skraft_tools::{Editor, Key, Modifiers, Projection, StandardView, ToolInput, ToolKind};
+use skraft_tools::{Editor, Key, Modifiers, OptionValue, Projection, StandardView, ToolInput, ToolKind};
 
 use crate::json::{self, v3};
 use crate::params::{
     CameraParams, ComponentParams, DocumentParams, GeometryParams, Input, KeyName, NoParams, PickParams, Pointer, ProjectParams,
     ToolInputParams, ViewName,
 };
+use crate::params::{CloseParams, OpenParams, OptionInput, OptionSetting, SelectParams, SignName, SignParams};
 use crate::params::{FailuresParams, LogParams, RecordAction, RecordParams};
 use crate::{Answer, Call, Error, Outcome};
 
-/// Answers `call` if it is one of the editor's methods (`model.*`, `tool.*`, `view.*`);
-/// `None` for the others.
+/// Answers `call` if it is one of the editor's methods (`model.*`, `tool.*`, `view.*`,
+/// `context.*`…); `None` for the others.
 pub fn call(e: &mut Editor, call: &Call) -> Option<Outcome> {
     if !is_editors(&call.method) {
         return None;
@@ -34,6 +35,10 @@ pub fn call(e: &mut Editor, call: &Call) -> Option<Outcome> {
         "components.replace" => call.params().and_then(|p| library(e, &p, Library::Replace)),
         "components.delete" => call.params().and_then(|p| library(e, &p, Library::Delete)),
         "components.purge" => call.params::<NoParams>().and_then(|_| purge(e)),
+        "context.open" => call.params().and_then(|p| open(e, &p)),
+        "context.close" => call.params().map(|p| close(e, &p)),
+        "context.select" => call.params().and_then(|p| select(e, &p)),
+        "context.sign" => call.params().map(|p| sign(e, &p)),
         "tool.state" => call.params::<NoParams>().map(|_| tool_state(e)),
         "tool.input" => call.params().and_then(|p| tool_input(e, &p)),
         "view.camera" => call.params().and_then(|p| camera(e, &p)),
@@ -48,7 +53,107 @@ pub fn call(e: &mut Editor, call: &Call) -> Option<Outcome> {
 
 /// Is `method` one the editor answers?
 fn is_editors(method: &str) -> bool {
-    ["model.", "tool.", "view.", "journal.", "components."].iter().any(|p| method.starts_with(p))
+    ["model.", "tool.", "view.", "journal.", "components.", "context."].iter().any(|p| method.starts_with(p))
+}
+
+/// The editor's part of `app.state`: the tool, the level open (context, part, group), the
+/// selection, the sign of the bodies drawn, the status, busy, idle, the revision. The window
+/// and a headless session add theirs.
+pub fn state(e: &Editor) -> Value {
+    json!({
+        "tool": e.tool_kind().id(),
+        "context": json::ids(e.context()),
+        "open_part": e.open_part().map(|i| i.0),
+        "open_group": json::ids(e.open_group()),
+        "body_sign": e.body_sign(),
+        "selection": json::ids(e.selection()),
+        "status": e.status(),
+        "busy": e.busy(),
+        "idle": idle(e),
+        "revision": e.history().revision(),
+    })
+}
+
+// ---- context.* -------------------------------------------------------------------------------
+
+/// The level the editor is at: the context's depth, the part open, the group's depth, and
+/// whether a body is open (its profile edited).
+fn level(e: &Editor) -> (usize, Option<Id>, usize, bool) {
+    (e.context().len(), e.open_part(), e.open_group().len(), e.tool_kind() == ToolKind::Profile)
+}
+
+/// `context.open`: each id opened in turn, as a double-click does.
+fn open(e: &mut Editor, p: &OpenParams) -> Outcome {
+    for (i, &id) in p.ids.iter().enumerate() {
+        let before = level(e);
+        e.enter(Id(id));
+        if level(e) == before {
+            return Err(Error::Failed(format!(
+                "ids {i}: {id} cannot be opened here (an occurrence of the assembly edited, a group or a body node of the part open)"
+            )));
+        }
+    }
+    Ok(Answer::Json(state(e)))
+}
+
+/// `context.close`: levels left as Esc leaves them (a body open, a group, the part, an
+/// assembly), what was left selected.
+fn close(e: &mut Editor, p: &CloseParams) -> Answer {
+    let n = if p.all { u32::MAX } else { p.levels.unwrap_or(1) };
+    for _ in 0..n {
+        let before = level(e);
+        e.exit();
+        if level(e) == before {
+            break;
+        }
+    }
+    Answer::Json(state(e))
+}
+
+/// What can be selected at the level open: the bodies of the part or group open, else the
+/// occurrences of the assembly edited; its guides shown.
+fn selectable(e: &Editor) -> Vec<Id> {
+    let doc = e.document();
+    let mut ids = e.shown_guides();
+    match e.open_part_path() {
+        Some(path) => {
+            if let Ok((_, p, _)) = doc.resolve_container(&path) {
+                ids.extend(p.bodies.iter().map(|b| b.id));
+            }
+        }
+        None => {
+            if let Ok(a) = doc.assembly(e.context_definition()) {
+                ids.extend(a.occurrences().iter().map(|o| o.id));
+            }
+        }
+    }
+    ids
+}
+
+/// `context.select`: entities of the level open, by id; refused (nothing changed) naming the
+/// first that is not one.
+fn select(e: &mut Editor, p: &SelectParams) -> Outcome {
+    let here = selectable(e);
+    if let Some((i, id)) = p.ids.iter().enumerate().find(|(_, id)| !here.contains(&Id(**id))) {
+        return Err(Error::Failed(format!("ids {i}: {id} is not selectable at the level open")));
+    }
+    let mut ids: Vec<Id> = if p.add { e.selection().to_vec() } else { Vec::new() };
+    for id in p.ids.iter().map(|&i| Id(i)) {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    e.select(ids);
+    Ok(Answer::Json(state(e)))
+}
+
+/// `context.sign`: the sign of the bodies the drawing tools add to an open part.
+fn sign(e: &mut Editor, p: &SignParams) -> Answer {
+    e.set_body_sign(match p.sign {
+        SignName::Positive => skraft_model::Sign::Positive,
+        SignName::Negative => skraft_model::Sign::Negative,
+    });
+    Answer::Json(state(e))
 }
 
 /// Is the editor idle: no kernel job, no mesh on its way, no load, no import?
@@ -246,14 +351,31 @@ fn part(e: &Editor, pp: &PlacedPart, p: &GeometryParams, volumes: &mut HashMap<u
             part.bodies
                 .iter()
                 .map(|b| {
-                    json!({
+                    let d = part.def_of(b);
+                    let mut v = json!({
                         "id": b.id.0,
                         "def": b.def.0,
+                        "name": (!d.name.is_empty()).then_some(d.name.as_str()),
+                        "nature": format!("{:?}", d.nature()).to_lowercase(),
                         "sign": b.sign,
                         "placement": json::affine(&b.placement),
-                        "profiled": part.def_of(b).profile.is_some(),
+                        "profiled": d.profile.is_some(),
                         "failed": part.is_failed(b.id),
-                    })
+                    });
+                    // A group's children (opened by `context.open`); a node's operation, and why
+                    // it is in error (docs/model/bodies.md#body-nodes).
+                    if d.is_group() {
+                        v["children"] = json::ids(&d.children().iter().map(|c| c.id).collect::<Vec<_>>());
+                    }
+                    if let Some(op) = d.op() {
+                        v["node"] = json!({
+                            "blend": op.blend,
+                            "size": op.size,
+                            "edges": op.edges.len(),
+                            "refused": part.refusal_of(b.id),
+                        });
+                    }
+                    v
                 })
                 .collect(),
         );
@@ -371,8 +493,32 @@ fn expand(e: &Editor, input: &Input) -> Result<Vec<ToolInput>, Error> {
         }
         Input::Key(k) => vec![ToolInput::Key { key: key(k.name), mods: mods(k.toggle, k.copy) }],
         Input::Vcb(text) => vec![ToolInput::Vcb(text.clone())],
-        Input::Tool(_) => Vec::new(),
+        Input::Tool(_) | Input::Option(_) => Vec::new(),
     })
+}
+
+/// An option of the active tool set, as its bar does: refused when the tool has no such
+/// option, or the value is not one of its kind (a choice not among its choices).
+fn set_option(e: &mut Editor, o: &OptionInput) -> Result<(), Error> {
+    let options = e.tool_options();
+    let Some(option) = options.iter().find(|x| x.key == o.key) else {
+        let keys: Vec<&str> = options.iter().map(|x| x.key).collect();
+        return Err(Error::BadParams(format!("the tool has no option {:?} (its options: {keys:?})", o.key)));
+    };
+    let value = match (&o.value, &option.value) {
+        (OptionSetting::Choice(c), OptionValue::Choice(_)) => {
+            if !option.choices.iter().any(|x| x.value == c) {
+                let choices: Vec<&str> = option.choices.iter().map(|x| x.value).collect();
+                return Err(Error::BadParams(format!("{:?} is not a choice of {:?} (its choices: {choices:?})", c, o.key)));
+            }
+            OptionValue::Choice(c.clone())
+        }
+        (OptionSetting::Toggle(b), OptionValue::Toggle(_)) => OptionValue::Toggle(*b),
+        (OptionSetting::Length(l), OptionValue::Length(_)) if l.is_finite() => OptionValue::Length(*l),
+        _ => return Err(Error::BadParams(format!("{:?} takes a value like {}", o.key, json!(option.value)))),
+    };
+    e.set_tool_option(&o.key, value);
+    Ok(())
 }
 
 fn tool_input(e: &mut Editor, p: &ToolInputParams) -> Outcome {
@@ -383,6 +529,11 @@ fn tool_input(e: &mut Editor, p: &ToolInputParams) -> Outcome {
             let kind = ToolKind::from_id(id).ok_or_else(|| refused(Error::BadParams(format!("no tool {id:?}"))))?;
             e.set_tool(kind);
             done.push(json!({ "tool": id }));
+            continue;
+        }
+        if let Input::Option(o) = input {
+            set_option(e, o).map_err(refused)?;
+            done.push(json!({ "option": o.key, "status": e.status() }));
             continue;
         }
         let inputs = expand(e, input).map_err(refused)?;
@@ -610,6 +761,77 @@ mod tests {
         click(e, DVec3::new(600.0, 400.0, 0.0));
         e.input(ToolInput::Vcb("18".into()));
         e.set_tool(ToolKind::Select);
+    }
+
+    fn refused(e: &mut Editor, method: &str, params: Value) -> String {
+        match call(e, &Call::new(method, params)).expect("an editor method") {
+            Err(err) => err.message().to_string(),
+            other => panic!("{method} not refused: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn context_opens_selects_signs_and_closes() {
+        let mut e = editor();
+        draw_box(&mut e);
+        e.poll();
+        let part = json_of(&mut e, "model.geometry", json!({}))["parts"][0].clone();
+        let occ = part["path"]["entity"].as_u64().unwrap();
+        let body = part["bodies"][0]["id"].as_u64().unwrap();
+        assert_eq!(part["bodies"][0]["nature"], json!("extrusion"));
+        // The part opened by its occurrence; an id that is not there refused.
+        let s = json_of(&mut e, "context.open", json!({ "ids": [occ] }));
+        assert_eq!((s["open_part"].clone(), s["open_group"].clone()), (json!(occ), json!([])));
+        assert!(refused(&mut e, "context.open", json!({ "ids": [987654] })).contains("ids 0"));
+        // Its body selected; the occurrence is not selectable in it.
+        assert_eq!(json_of(&mut e, "context.select", json!({ "ids": [body] }))["selection"], json!([body]));
+        assert!(refused(&mut e, "context.select", json!({ "ids": [occ] })).contains("not selectable"));
+        assert_eq!(e.selection(), &[Id(body)], "a refusal changes nothing");
+        // The sign of the bodies drawn.
+        assert_eq!(json_of(&mut e, "context.sign", json!({ "sign": "positive" }))["body_sign"], json!("positive"));
+        assert_eq!(e.body_sign(), skraft_model::Sign::Positive);
+        // An option of the tool's bar; a choice it has not, an option it has not, refused.
+        let v = json_of(
+            &mut e,
+            "tool.input",
+            json!({ "inputs": [{ "tool": "cylinder" }, { "option": { "key": "measure", "value": { "choice": "radius" } } }] }),
+        );
+        let measure = v["options"].as_array().unwrap().iter().find(|o| o["key"] == "measure").unwrap().clone();
+        assert_eq!(measure["value"], json!({ "choice": "radius" }));
+        let bad = |e: &mut Editor, option: Value| refused(e, "tool.input", json!({ "inputs": [{ "option": option }] }));
+        assert!(bad(&mut e, json!({ "key": "measure", "value": { "choice": "side" } })).contains("not a choice"));
+        assert!(bad(&mut e, json!({ "key": "measure", "value": { "toggle": true } })).contains("takes a value like"));
+        assert!(bad(&mut e, json!({ "key": "colour", "value": { "toggle": true } })).contains("no option"));
+        // Closed: back to the model, the occurrence selected.
+        e.set_tool(ToolKind::Select);
+        let s = json_of(&mut e, "context.close", json!({}));
+        assert_eq!((s["open_part"].clone(), s["selection"].clone()), (Value::Null, json!([occ])));
+    }
+
+    #[test]
+    fn geometry_shows_a_body_node_and_context_opens_it() {
+        let mut e = editor();
+        draw_box(&mut e);
+        e.poll();
+        // The box's edge along y = 0, at its top, rounded 5.
+        e.set_tool(ToolKind::Round);
+        click(&mut e, DVec3::new(300.0, 0.0, 18.0));
+        e.input(ToolInput::Vcb("5".into()));
+        e.input(ToolInput::Key { key: Key::Enter, mods: Default::default() });
+        e.poll();
+        e.set_tool(ToolKind::Select);
+        let part = json_of(&mut e, "model.geometry", json!({}))["parts"][0].clone();
+        let node = &part["bodies"][0];
+        assert_eq!(node["nature"], json!("round"), "{node}");
+        assert_eq!(node["name"], json!("Arrondi#1"));
+        assert_eq!(node["node"], json!({ "blend": "round", "size": 5.0, "edges": 1, "refused": null }));
+        assert_eq!(node["children"].as_array().map(Vec::len), Some(1));
+        // Opened down to the node in one call.
+        let (occ, id) = (part["path"]["entity"].as_u64().unwrap(), node["id"].as_u64().unwrap());
+        let s = json_of(&mut e, "context.open", json!({ "ids": [occ, id] }));
+        assert_eq!(s["open_group"], json!([id]));
+        let s = json_of(&mut e, "context.close", json!({ "all": true }));
+        assert_eq!((s["open_part"].clone(), s["open_group"].clone(), s["context"].clone()), (Value::Null, json!([]), json!([])));
     }
 
     #[test]
