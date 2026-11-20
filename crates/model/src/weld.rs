@@ -168,7 +168,8 @@ impl Document {
         groups.sort_by_key(|(depth, _)| std::cmp::Reverse(*depth));
         for (_, g) in groups {
             let Some(group) = next.def(g).and_then(|d| d.group.clone()) else { continue };
-            let (solid, group) = Self::computed_group(&next.defs, group, &[], solver)?;
+            let (solid, group, inner) = Self::computed_group(&next.defs, group, &[], solver)?;
+            crate::ops::note_refused(&mut next.defs, inner);
             if let Some(d) = next.defs.iter_mut().find(|d| d.id == g) {
                 d.solid = solid;
                 d.group = Some(group);

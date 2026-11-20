@@ -30,6 +30,9 @@ pub enum FaceName {
     /// A face a node made (a round's, a chamfer's), by the two faces it lies between, named in
     /// that node's children.
     Made(Box<[FaceTag; 2]>),
+    /// A corner's patch a node made where its rounds meet, by the faces around it (its rounds
+    /// among them), named in that node's children.
+    Corner(Vec<FaceTag>),
 }
 
 /// A face named in a node's children: the bodies from the node down (ids), and the face.
@@ -105,6 +108,10 @@ pub enum TreeNode {
     /// A group or a node computed already: `inputs[solid]`, its cached result, its faces named
     /// by its face map (relative to it), not computed again from its leaves.
     Mapped { solid: u32, faces: FaceMap },
+    /// The node's own children's result computed already (`inputs[solid]`, its faces named by
+    /// `faces`, relative to the node): what the bodies after it join or cut, as the first
+    /// positive. Its body's id and placement are not used: it is the node's, not a child's.
+    Base { solid: u32, faces: FaceMap },
 }
 
 /// The names of a solid's faces, by record face index: each face's tags (several where faces
@@ -129,15 +136,23 @@ pub struct RecipeNames {
 }
 
 /// A cheap fingerprint of a record: its counts and its vertices. A face map is used only on
-/// the solid it was made for (one with this fingerprint).
+/// the solid it was made for (one with this fingerprint). Written in the file: the same on
+/// every platform and Rust release (FNV-1a over `u64`s, not `DefaultHasher` over `usize`s,
+/// whose hashes differ between wasm32 and 64 bits and are not promised to last).
 pub fn fingerprint(r: &Record) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    (r.faces.len(), r.edges.len(), r.vertices.len()).hash(&mut h);
-    for v in &r.vertices {
-        v.point.map(f64::to_bits).hash(&mut h);
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |x: u64| {
+        for b in x.to_le_bytes() {
+            h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    for n in [r.faces.len(), r.edges.len(), r.vertices.len()] {
+        eat(n as u64);
     }
-    h.finish()
+    for v in &r.vertices {
+        v.point.iter().for_each(|c| eat(c.to_bits()));
+    }
+    h
 }
 
 /// `tag` as seen from `path` up: `path` before its own.
@@ -168,7 +183,7 @@ pub enum NodeRefusal {
 pub fn map_leaves(bodies: &mut [TreeBody], f: &mut dyn FnMut(u32) -> u32) {
     for b in bodies {
         match &mut b.node {
-            TreeNode::Leaf { solid, .. } | TreeNode::Mapped { solid, .. } => *solid = f(*solid),
+            TreeNode::Leaf { solid, .. } | TreeNode::Mapped { solid, .. } | TreeNode::Base { solid, .. } => *solid = f(*solid),
             TreeNode::Group { children, .. } => map_leaves(children, f),
         }
     }
@@ -176,11 +191,23 @@ pub fn map_leaves(bodies: &mut [TreeBody], f: &mut dyn FnMut(u32) -> u32) {
 
 // ---- a leaf's names --------------------------------------------------------------------------
 
-/// A point standing for face `i` of `r`: its vertices' centroid, or for a curved face the mean
-/// of its control points (on the side it bulges to, where the vertices are those of a chord).
-fn sample(r: &Record, i: usize, curved: bool) -> DVec3 {
+/// A point standing for face `i` of `r`: its vertices' centroid, or (`inside`) a point inside
+/// it where its surface tells — a plane's middle (its domain's), the mean of a curved face's
+/// control points (on the side it bulges to, where the vertices are those of a chord).
+fn sample(r: &Record, i: usize, inside: bool) -> DVec3 {
     let f = &r.faces[i];
-    if curved {
+    let middle = |k: usize| (f.domain[k][0] + f.domain[k][1]) / 2.0;
+    match f.surface {
+        Surface::Plane { origin, u_axis, v_axis } if inside => {
+            return DVec3::from_array(origin) + DVec3::from_array(u_axis) * middle(0) + DVec3::from_array(v_axis) * middle(1);
+        }
+        Surface::PlaneThrough { origin, u_point, v_point } if inside => {
+            let o = DVec3::from_array(origin);
+            return o + (DVec3::from_array(u_point) - o) * middle(0) + (DVec3::from_array(v_point) - o) * middle(1);
+        }
+        _ => {}
+    }
+    if inside {
         let net = f.nurbs.as_ref().unwrap_or(&f.surface);
         let mean = |ps: &mut dyn Iterator<Item = DVec3>| {
             let (sum, n) = ps.fold((DVec3::ZERO, 0usize), |(s, n), p| (s + p, n + 1));
@@ -224,7 +251,16 @@ fn is_plane(s: &Surface) -> bool {
 }
 
 /// The names of `r`'s faces (by record index), from the recipe it was built from: a profile's
-/// caps and sides (each face matched to the side it stands on), else their record index.
+/// caps and sides, else their record index.
+///
+/// A face stands on the side whose curve (in the profile's plane: (x, y) for an extrusion,
+/// (radius, height) for a turned profile) holds all its vertices: two sides share a corner at
+/// most, so a face with vertices at two places has one — but a chord and an arc between the
+/// same two corners (a D): the side must also fit the face's surface, a plane on a straight
+/// side (for a turned profile a horizontal one: its other straight sides turn into cylinders
+/// and cones), a curved face on any other. A turned disc's vertices are all on its rim (one
+/// place, the corner of two sides): the side nearest a point inside it, its plane's middle on
+/// the axis, is its own.
 pub fn leaf_faces(r: &Record, recipe: Option<&Primitive>) -> Vec<FaceName> {
     let free = || (0..r.faces.len() as u32).map(FaceName::Face).collect();
     let (corners, sweep): (Vec<profile::Corner>, Option<(f64, f64)>) = match recipe {
@@ -238,54 +274,71 @@ pub fn leaf_faces(r: &Record, recipe: Option<&Primitive>) -> Vec<FaceName> {
     };
     let outline = profile::rounded(&corners);
     let n = outline.len();
-    let sides: Vec<(DVec2, FaceName)> = (0..n)
-        .map(|k| {
-            let at = profile::Side::new(outline[k].p, outline[(k + 1) % n].p, outline[k].bulge).at(0.5);
-            let name = match SideName::of(&outline[k]) {
-                SideName::Side(id) => FaceName::Side(id),
-                SideName::Fillet(id) => FaceName::Fillet(id),
-            };
-            (at, name)
+    let extent = profile::bounds(&outline).map_or(1.0, |(lo, hi)| (hi - lo).length());
+    let tol = 1e-6 * (1.0 + extent);
+    // The sides that make a face: of some length, and off the axis for a turned profile.
+    let sides: Vec<(profile::Side, FaceName)> = (0..n)
+        .filter_map(|k| {
+            let side = profile::Side::new(outline[k].p, outline[(k + 1) % n].p, outline[k].bulge);
+            let on_axis = sweep.is_none() && side.a().x.abs() <= tol && side.b().x.abs() <= tol;
+            (side.length() > tol && !on_axis).then(|| {
+                let name = match SideName::of(&outline[k]) {
+                    SideName::Side(id) => FaceName::Side(id),
+                    SideName::Fillet(id) => FaceName::Fillet(id),
+                };
+                (side, name)
+            })
         })
         .collect();
-    let nearest = |q: DVec2| sides.iter().min_by(|a, b| a.0.distance(q).total_cmp(&b.0.distance(q))).map(|s| s.1.clone());
+    // A point in the profile's plane.
+    let flat = |q: DVec3| match sweep {
+        Some(_) => q.truncate(),
+        None => DVec2::new(q.truncate().length(), q.z),
+    };
     (0..r.faces.len())
         .map(|i| {
             let plane = is_plane(&r.faces[i].surface);
-            let name = match sweep {
-                Some((z0, h)) => {
-                    let p = sample(r, i, !plane);
-                    let flat = plane && sample_flat(r, i);
-                    if flat && (p.z - z0).abs() < 1e-6 {
-                        Some(FaceName::Bottom)
-                    } else if flat && (p.z - z0 - h).abs() < 1e-6 {
-                        Some(FaceName::Top)
-                    } else {
-                        nearest(p.truncate())
-                    }
+            let vertices: Vec<DVec3> = vertices_of(r, i).collect();
+            if let Some((z0, h)) = sweep
+                && plane
+                && let Some(z) = vertices.first().map(|v| v.z)
+                && vertices.iter().all(|v| (v.z - z).abs() < tol)
+            {
+                if (z - z0).abs() < tol {
+                    return FaceName::Bottom;
+                } else if (z - z0 - h).abs() < tol {
+                    return FaceName::Top;
                 }
-                // Turned: the profile is in the (radius, height) plane, the face's vertices
-                // on its seam.
-                None => {
-                    let p = sample(r, i, false);
-                    nearest(DVec2::new(p.truncate().length(), p.z))
-                }
+            }
+            let fits = |s: &profile::Side| match (s, sweep) {
+                (profile::Side::Line { .. }, Some(_)) => plane,
+                (profile::Side::Line { a, b }, None) => plane == ((a.y - b.y).abs() <= tol),
+                (profile::Side::Arc { .. }, _) => !plane,
+            };
+            let on: Vec<&(profile::Side, FaceName)> =
+                sides.iter().filter(|(s, _)| fits(s) && vertices.iter().all(|v| s.holds(flat(*v), tol))).collect();
+            let inside = flat(sample(r, i, true));
+            let nearest = |list: &mut dyn Iterator<Item = &(profile::Side, FaceName)>| {
+                list.min_by(|a, b| a.0.distance(inside).total_cmp(&b.0.distance(inside))).map(|s| s.1.clone())
+            };
+            let name = match on.as_slice() {
+                [(_, name)] => Some(name.clone()),
+                [] => nearest(&mut sides.iter()),
+                several => nearest(&mut several.iter().copied()),
             };
             name.unwrap_or(FaceName::Face(i as u32))
         })
         .collect()
 }
 
-/// Is face `i` of `r` square to Z: all its vertices at one height?
-fn sample_flat(r: &Record, i: usize) -> bool {
-    let mut zs = r.faces[i]
+/// The vertices of face `i` of `r` (each once per edge end).
+fn vertices_of(r: &Record, i: usize) -> impl Iterator<Item = DVec3> + '_ {
+    r.faces[i]
         .loops
         .iter()
         .filter_map(|l| if let Loop::Edges { edges } = l { Some(edges) } else { None })
         .flatten()
-        .flat_map(|e| r.edges[e.edge as usize].vertices.map(|v| r.vertices[v as usize].point[2]));
-    let Some(z) = zs.next() else { return false };
-    zs.all(|w| (w - z).abs() < 1e-6)
+        .flat_map(|e| r.edges[e.edge as usize].vertices.map(|v| DVec3::from_array(r.vertices[v as usize].point)))
 }
 
 /// The record edges of `r` between its faces named `a` and `b` (`names`: its faces', as

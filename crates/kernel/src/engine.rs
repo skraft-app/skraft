@@ -349,7 +349,16 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
                 let inputs = at.iter().map(|&i| input(i)).collect::<Result<Vec<_>>>()?;
                 let r = crate::node::node(&inputs, &children, op, picks)?;
                 let display = r.solid.display().map_err(|e| e.to_string());
-                Output::Node { solid: r.solid, display, faces: r.faces, edges: r.edges, failed: r.failed, refusal: r.refusal }
+                Output::Node {
+                    solid: r.solid,
+                    display,
+                    faces: r.faces,
+                    edges: r.edges,
+                    failed: r.failed,
+                    refusal: r.refusal,
+                    inner: r.inner,
+                    raw: r.raw,
+                }
             }
             Task::Display { solid: i, quality } => Output::Display(input(*i)?.display_at(*quality).map_err(|e| e.to_string())),
             Task::ImportStep { bytes } => Output::Step(Box::new(crate::step::read::import(bytes, cx.report)?)),

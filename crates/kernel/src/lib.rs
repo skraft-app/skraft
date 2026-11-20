@@ -34,10 +34,6 @@ mod step;
 mod stretch;
 mod weight;
 
-// Trial for docs/decisions/0042-body-nodes-operators.md (provenance through booleans).
-#[cfg(all(test, feature = "engine"))]
-mod provenance_trial;
-
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]
 pub use engine::Pool;
 #[cfg(feature = "engine")]

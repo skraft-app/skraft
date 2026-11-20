@@ -138,6 +138,14 @@ pub enum Output {
         edges: Vec<crate::names::NodeEdges>,
         failed: Vec<Vec<u64>>,
         refusal: Option<crate::names::NodeRefusal>,
+        /// The nodes inside it computed with it that left their children's result as it was
+        /// (by path of body ids), and why: theirs to show.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        inner: Vec<(Vec<u64>, crate::names::NodeRefusal)>,
+        /// Its children's result before its operation, and its face map (for the node to start
+        /// from next time: [`crate::names::TreeNode::Base`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        raw: Option<(Solid, crate::names::FaceMap)>,
     },
     /// A STEP file read (boxed: far larger than the others).
     Step(Box<crate::StepImport>),

@@ -126,15 +126,6 @@ impl Read {
             _ => None,
         }
     }
-
-    /// How far `p` is from record edge `e` (its chord between its vertices: enough to choose
-    /// between the edges of one name).
-    fn distance(&self, e: usize, p: DVec3) -> f64 {
-        let [a, b] = self.record.edges[e].vertices.map(|v| DVec3::from_array(self.record.vertices[v as usize].point));
-        let d = b - a;
-        let t = if d.length_squared() > 0.0 { ((p - a).dot(d) / d.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
-        (a + d * t).distance(p)
-    }
 }
 
 /// The group `children` computed in the session `k`, their leaves' faces tagged from `path`
@@ -153,17 +144,26 @@ fn group(k: &mut Kernel, children: &[TreeBody], path: &[u64], cx: &mut Session) 
             TreeNode::Leaf { solid, recipe } => tagged(k, cx.inputs[*solid as usize], &here, &InputNames::Recipe(recipe.clone()), call)?,
             // A group or a node computed already: its cache, named by its face map.
             TreeNode::Mapped { solid, faces } => tagged(k, cx.inputs[*solid as usize], &here, &InputNames::Map(faces.clone()), call)?,
+            // The node's children's result already: named from the node, not from a child.
+            TreeNode::Base { solid, faces } => tagged(k, cx.inputs[*solid as usize], path, &InputNames::Map(faces.clone()), call)?,
             TreeNode::Group { children, op } => {
                 let inner = group(k, children, &here, cx)?;
                 match (inner, op) {
-                    (Some(b), Some(op)) => Some(apply(k, b, op, &[], &here)?.0),
+                    // Refused, its children's result goes on, and the node is told why.
+                    (Some(b), Some(op)) => {
+                        let (b, _, refusal) = apply(k, b, op, &[], &here)?;
+                        if let Some(why) = refusal {
+                            cx.inner.push((here.clone(), why));
+                        }
+                        Some(b)
+                    }
                     (inner, _) => inner,
                 }
             }
         }) else {
             continue;
         };
-        if !c.placement.abs_diff_eq(DAffine3::IDENTITY, 1e-12) {
+        if !c.placement.abs_diff_eq(DAffine3::IDENTITY, 1e-12) && !matches!(c.node, TreeNode::Base { .. }) {
             solidcore::topology::brep::mirror::transform_matrix(k, &mut body, &row_major(&c.placement), false)
                 .map_err(|e| kernel_err(call, e))?;
         }
@@ -242,6 +242,8 @@ struct Session<'a> {
     inputs: &'a [&'a Solid],
     skip: Vec<Vec<u64>>,
     at: Option<Vec<u64>>,
+    /// The nodes inside, computed from their leaves, that were refused: by path, and why.
+    inner: Vec<(Vec<u64>, NodeRefusal)>,
 }
 
 /// `op` applied to `shape`, the result of the node at `path` (its names relative to it); with
@@ -259,11 +261,18 @@ fn apply(
     let before = read(k, &mut shape, call)?;
     let native: Vec<solidcore::topology::EdgeId> = shape.edge_list().to_vec();
     let record_of: Vec<Option<usize>> = native.iter().map(|&e| before.edge_of(e)).collect();
-    // The name of native edge `x`: the first tag of each face, relative to the node.
+    // The name of native edge `x`, relative to the node: a tag of each face — of a merged face,
+    // the one nearest the other face's in the tree (most of their paths in common: of one body
+    // first), not the first by id. An edge of board a along a top merged with board b's would
+    // else be named by b's top, and lost once b moved away.
     let strip = |t: &FaceTag| FaceTag { path: t.path[path.len().min(t.path.len())..].to_vec(), face: t.face.clone() };
     let name_of = |x: usize| -> Option<EdgeName> {
         let (a, b) = before.faces_of(record_of[x]?)?;
-        Some(EdgeName::new(strip(a.first()?), strip(b.first()?)))
+        let common = |s: &FaceTag, t: &FaceTag| s.path.iter().zip(&t.path).take_while(|(p, q)| p == q).count();
+        // The first of the best pairs (`max_by_key` keeps the last of equals: reversed).
+        let pairs = a.iter().flat_map(|s| b.iter().map(move |t| (s, t))).collect::<Vec<_>>();
+        let (s, t) = pairs.into_iter().rev().max_by_key(|(s, t)| common(s, t))?;
+        Some(EdgeName::new(strip(s), strip(t)))
     };
     let matching = |name: &EdgeName| -> Vec<usize> {
         let placed = EdgeName { faces: [under(path, &name.faces[0]), under(path, &name.faces[1])] };
@@ -308,12 +317,16 @@ fn apply(
             if e.near.is_empty() {
                 edges.extend(all);
             } else {
+                // The kernel's distance to the edge itself: a chord between its ends says
+                // nothing of a whole circle (its two ends one vertex).
+                let shape = body.kernel();
                 for p in &e.near {
-                    let p = DVec3::from_array(*p);
-                    if let Some(x) = all.iter().copied().min_by(|&a, &b| {
-                        let d = |x: usize| record_of[x].map_or(f64::INFINITY, |r| before.distance(r, p));
-                        d(a).total_cmp(&d(b))
-                    }) {
+                    let p = solidcore::Point3::new(p[0], p[1], p[2]);
+                    let d = |x: usize| {
+                        solidcore::query::api_queries::edge_closest_point(k, &shape, native[x], p)
+                            .map_or(f64::INFINITY, |c| c.closest.distance)
+                    };
+                    if let Some(x) = all.iter().copied().min_by(|&a, &b| d(a).total_cmp(&d(b))) {
                         edges.push(x);
                     }
                 }
@@ -345,31 +358,71 @@ fn apply(
         }
     };
     let mut shape = std::mem::take(&mut *body.kernel());
-    // The faces made, named by the edge they replace: the taken name whose two faces they touch.
+    // The faces made, named in two passes. A round's (a chamfer's) by the edge it replaces: the
+    // taken name whose two faces run longest along it — its rails, not the faces its ends meet.
+    // Then a corner's patch, where rounds meet, by the faces around it, the rounds named first
+    // (they are all it touches).
     let after = read(k, &mut shape, call)?;
     let faces: Vec<solidcore::topology::FaceId> = shape.face_list().to_vec();
-    for m in made {
-        let Some(&f) = faces.get(m) else { continue };
-        let Some(fi) = after.order.faces.iter().position(|&x| x == f) else { continue };
-        let around: BTreeSet<&FaceTag> = after
-            .edge_faces
+    let made: Vec<(solidcore::topology::FaceId, usize)> = made
+        .iter()
+        .filter_map(|&m| {
+            let f = *faces.get(m)?;
+            Some((f, after.order.faces.iter().position(|&x| x == f)?))
+        })
+        .collect();
+    // The faces next to record face `fi`, each with the length (chords) of the edges they share.
+    let next_to = |fi: usize| -> Vec<(usize, f64)> {
+        let mut out: Vec<(usize, f64)> = Vec::new();
+        for (e, fs) in after.edge_faces.iter().enumerate().filter(|(_, fs)| fs.contains(&fi)) {
+            let [a, b] = after.record.edges[e].vertices.map(|v| DVec3::from_array(after.record.vertices[v as usize].point));
+            for &g in fs.iter().filter(|&&g| g != fi) {
+                match out.iter_mut().find(|(h, _)| *h == g) {
+                    Some((_, l)) => *l += a.distance(b),
+                    None => out.push((g, a.distance(b))),
+                }
+            }
+        }
+        out
+    };
+    let mut named: Vec<Option<FaceTag>> = vec![None; made.len()];
+    for (k, &(_, fi)) in made.iter().enumerate() {
+        let next = next_to(fi);
+        // How long the faces carrying `t` run along it; none when none touches it.
+        let along = |t: &FaceTag| {
+            let touching: Vec<f64> = next.iter().filter(|(g, _)| after.tags[*g].contains(t)).map(|(_, l)| *l).collect();
+            (!touching.is_empty()).then(|| touching.iter().sum::<f64>())
+        };
+        let best = taken
             .iter()
-            .filter(|fs| fs.contains(&fi))
-            .flat_map(|fs| fs.iter().filter(|&&g| g != fi))
-            .flat_map(|&g| after.tags[g].iter())
+            .filter_map(|t| {
+                let [a, b] = [under(path, &t.name.faces[0]), under(path, &t.name.faces[1])];
+                Some((along(&a)?.min(along(&b)?), [strip(&a), strip(&b)]))
+            })
+            // The first of the longest (`max_by` keeps the last of equals: reversed).
+            .rev()
+            .max_by(|x, y| x.0.total_cmp(&y.0));
+        named[k] = best.map(|(_, between)| FaceTag { path: path.to_vec(), face: FaceName::Made(Box::new(between)) });
+    }
+    for k in 0..made.len() {
+        if named[k].is_some() {
+            continue;
+        }
+        let around: BTreeSet<FaceTag> = next_to(made[k].1)
+            .into_iter()
+            .flat_map(|(g, _)| match made.iter().position(|&(_, x)| x == g) {
+                Some(j) => named[j].iter().cloned().collect::<Vec<_>>(),
+                None => after.tags[g].clone(),
+            })
+            .map(|t| strip(&t))
             .collect();
-        let between = taken
-            .iter()
-            .map(|t| [under(path, &t.name.faces[0]), under(path, &t.name.faces[1])])
-            .find(|[a, b]| around.contains(a) && around.contains(b))
-            .map(|[a, b]| [strip(&a), strip(&b)]);
-        // A corner's patch: the two first faces around it.
-        let between = between.or_else(|| {
-            let mut it = around.iter().map(|t| strip(t));
-            Some([it.next()?, it.next()?])
-        });
-        if let Some(between) = between {
-            tag(&mut shape, f, BTreeSet::from([FaceTag { path: path.to_vec(), face: FaceName::Made(Box::new(between)) }]), call)?;
+        if !around.is_empty() {
+            named[k] = Some(FaceTag { path: path.to_vec(), face: FaceName::Corner(around.into_iter().collect()) });
+        }
+    }
+    for (&(f, _), name) in made.iter().zip(named) {
+        if let Some(name) = name {
+            tag(&mut shape, f, BTreeSet::from([name]), call)?;
         }
     }
     Ok((shape, taken, None))
@@ -383,6 +436,12 @@ pub(crate) struct NodeResult {
     pub edges: Vec<NodeEdges>,
     pub failed: Vec<Vec<u64>>,
     pub refusal: Option<NodeRefusal>,
+    /// The nodes inside it computed with it that were refused: by path, and why.
+    pub inner: Vec<(Vec<u64>, NodeRefusal)>,
+    /// Its children's result, before its operation, and its face map: for the node to start
+    /// from next time its children are the same, or only cutters were added
+    /// ([`TreeNode::Base`]).
+    pub raw: Option<(Solid, FaceMap)>,
 }
 
 /// [`crate::Task::Node`]: `children` computed in one session, then `op` (with `picks`, its
@@ -390,7 +449,7 @@ pub(crate) struct NodeResult {
 pub(crate) fn node(inputs: &[&Solid], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeResult> {
     let mut skip: Vec<Vec<u64>> = Vec::new();
     loop {
-        let mut cx = Session { inputs, skip: skip.clone(), at: None };
+        let mut cx = Session { inputs, skip: skip.clone(), at: None, inner: Vec::new() };
         let r = guarded("node", || {
             let mut k = kernel();
             let Some(shape) = group(&mut k, children, &[], &mut cx)? else {
@@ -400,12 +459,18 @@ pub(crate) fn node(inputs: &[&Solid], children: &[TreeBody], op: &NodeOp, picks:
                     edges: op.edges.clone(),
                     failed: Vec::new(),
                     refusal: None,
+                    inner: std::mem::take(&mut cx.inner),
+                    raw: None,
                 });
             };
             cx.at = None;
+            let mut shape = shape;
+            // Its children's result, unless it is the one it was given as it is.
+            let given = matches!(children, [TreeBody { node: TreeNode::Base { .. }, .. }]);
+            let raw = if given { None } else { Some(read_map(&mut k, &mut shape, "node")?) };
             let (mut shape, edges, refusal) = apply(&mut k, shape, op, picks, &[])?;
             let (solid, faces) = read_map(&mut k, &mut shape, "node")?;
-            Ok(NodeResult { solid, faces, edges, failed: Vec::new(), refusal })
+            Ok(NodeResult { solid, faces, edges, failed: Vec::new(), refusal, inner: std::mem::take(&mut cx.inner), raw })
         });
         match r {
             Ok(mut r) => {

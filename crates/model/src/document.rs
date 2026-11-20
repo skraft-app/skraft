@@ -598,6 +598,56 @@ pub struct BodyGroup {
     pub faces: skraft_kernel::names::FaceMap,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub faces_of: u64,
+    /// A body node's children's result as last computed, in memory only: what the node starts
+    /// from next time its children are the same (its size or edges changed, a preview) or only
+    /// cutters were added (docs/model/bodies.md#body-nodes).
+    #[serde(skip)]
+    pub raw: RawCell,
+}
+
+/// A body node's children's result, before its operation, and its face map (relative to the
+/// node), for the children `tree` whose leaves are `leaves` (the same `Arc`s: held, so their
+/// addresses stay theirs).
+#[derive(Debug)]
+pub struct RawCache {
+    pub tree: Vec<skraft_kernel::names::TreeBody>,
+    pub leaves: Vec<Arc<Solid>>,
+    pub solid: Arc<Solid>,
+    pub faces: skraft_kernel::names::FaceMap,
+}
+
+impl RawCache {
+    /// Does it hold for the children `tree` of leaves `leaves`?
+    pub fn holds(&self, tree: &[skraft_kernel::names::TreeBody], leaves: &[Arc<Solid>]) -> bool {
+        self.tree == tree && self.leaves.len() == leaves.len() && self.leaves.iter().zip(leaves).all(|(a, b)| Arc::ptr_eq(a, b))
+    }
+
+    /// The children of `tree` (leaves `leaves`) added after those it holds for, when they are
+    /// all it lacks (the first ones as it holds them, the leaves too) and all cutters: what
+    /// the node can cut it by, rather than computing its children again.
+    pub fn cutters<'a>(
+        &self,
+        tree: &'a [skraft_kernel::names::TreeBody],
+        leaves: &[Arc<Solid>],
+    ) -> Option<&'a [skraft_kernel::names::TreeBody]> {
+        let n = self.tree.len();
+        let added = tree.get(n..).filter(|a| !a.is_empty())?;
+        (tree[..n] == self.tree[..]
+            && leaves.len() >= self.leaves.len()
+            && self.leaves.iter().zip(leaves).all(|(a, b)| Arc::ptr_eq(a, b))
+            && added.iter().all(|b| b.negative))
+        .then_some(added)
+    }
+}
+
+/// A [`RawCache`], or none: a cache, which a document's equality ignores.
+#[derive(Clone, Debug, Default)]
+pub struct RawCell(pub Option<Arc<RawCache>>);
+
+impl PartialEq for RawCell {
+    fn eq(&self, _: &RawCell) -> bool {
+        true
+    }
 }
 
 fn is_zero_u64(v: &u64) -> bool {
@@ -607,7 +657,7 @@ fn is_zero_u64(v: &u64) -> bool {
 impl BodyGroup {
     /// A plain group of `children`, `failed` those whose boolean failed.
     pub fn plain(children: Vec<Body>, failed: BTreeSet<Id>) -> BodyGroup {
-        BodyGroup { children, failed, op: None, refused: None, faces: Vec::new(), faces_of: 0 }
+        BodyGroup { children, failed, op: None, refused: None, faces: Vec::new(), faces_of: 0, raw: RawCell::default() }
     }
 
     /// The face map `faces` of the solid `solid` (none: forgotten).
@@ -930,6 +980,11 @@ pub struct Document {
     /// material uses ([`Document::prune_assets`]).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", with = "crate::file::solids::images")]
     pub(crate) assets: BTreeMap<String, crate::Asset>,
+    /// While an operation runs in a group of bodies a node computes (the group itself or one
+    /// under it), the part standing for that group: its shape is not computed, the node computes
+    /// the group from its children afterwards (docs/model/bodies.md#body-nodes).
+    #[serde(skip)]
+    pub(crate) deferred: Option<Id>,
 }
 
 impl Default for Document {
@@ -965,6 +1020,7 @@ impl Document {
             materials: BTreeMap::new(),
             prop_defs: BTreeMap::new(),
             assets: BTreeMap::new(),
+            deferred: None,
         }
     }
 
