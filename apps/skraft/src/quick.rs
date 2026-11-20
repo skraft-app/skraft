@@ -7,6 +7,7 @@ use skraft_i18n::t;
 
 use crate::icons;
 use crate::panels::{Action, CommandView};
+use crate::style::Tip;
 
 /// The commands the card can show, in its order.
 pub const COMMANDS: &[&str] =
@@ -84,7 +85,7 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Opti
         ink = ink.gamma_multiply(0.35);
     }
     egui::Image::new(icon.clone()).tint(ink).paint_at(ui, Rect::from_center_size(rect.center(), vec2(ICON, ICON)));
-    let response = response.on_hover_text(&c.label);
+    let response = response.tip(&c.label);
     if response.clicked() && c.enabled {
         actions.push(Action::QuickTool(c.id));
     }
@@ -105,7 +106,7 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
     }
     crate::ribbon::chevron(ui, rect.center(), ui.visuals().text_color());
-    let response = response.on_hover_text(t!("quick_tools.choose"));
+    let response = response.tip(t!("quick_tools.choose"));
     // A pin clicked leaves it open, as the ribbon's group menus; a row run closes it.
     Popup::menu(&response).style(crate::style::menu).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         let ink = ui.visuals().text_color();
@@ -133,7 +134,7 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
                 };
                 let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
                 let tip = if on { t!("quick_tools.unpin") } else { t!("quick_tools.pin") };
-                if ui.add(pin).on_hover_text(tip).clicked() {
+                if ui.add(pin).tip(tip).clicked() {
                     actions.push(Action::QuickPin(id));
                 }
             });

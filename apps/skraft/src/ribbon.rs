@@ -15,6 +15,7 @@ use skraft_i18n::t;
 
 use crate::icons;
 use crate::panels::{Action, CommandView};
+use crate::style::Tip;
 use crate::style::menu_item;
 
 // ---- the description -------------------------------------------------------------------------
@@ -381,7 +382,7 @@ fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, actions: &mut Vec<Act
     let at = pos2(rect.center().x - (label.size().x + CHEVRON_AFTER) / 2.0, icon.bottom() + 6.0);
     ui.painter().galley(at, label.clone(), ink);
     chevron(ui, pos2(at.x + label.size().x + CHEVRON_AFTER - 6.0, at.y + label.size().y / 2.0), ink);
-    let response = response.on_hover_text(t!("ribbon.workspace.tip"));
+    let response = response.tip(t!("ribbon.workspace.tip"));
     Popup::menu(&response).style(crate::style::menu).show(|ui| {
         for w in WORKSPACES {
             if ui.selectable_label(w.id == current.id, (w.label)()).clicked() && w.id != current.id {
@@ -678,7 +679,7 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: Option<egui::Margin>, 
             ui.painter().rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
         }
         egui::Image::new(icons::MORE).tint(visuals.text_color()).paint_at(ui, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)));
-        let response = response.on_hover_text(t!("ribbon.more"));
+        let response = response.tip(t!("ribbon.more"));
         Popup::menu(&response).style(crate::style::menu).show(|ui| {
             for l in laid.iter().filter(|l| l.plan.fit == Fit::More) {
                 ui.menu_button((l.group.label)(), |ui| group_menu(ui, v, &l.key, l.group, actions));
@@ -699,13 +700,10 @@ pub fn ribbon_menu(ui: &mut egui::Ui, prefs: &Prefs, actions: &mut Vec<Action>) 
     }
 }
 
-/// A command's tool tip on the ribbon: its label and shortcut, and what its tip adds.
+/// A command's tool tip on the ribbon: its label and shortcut, no more (a tool's options and
+/// steps are in its option bar).
 fn tip(c: &CommandView) -> String {
     match c.id {
-        "tool.move" | "tool.rotate" => {
-            t!("toolbar.with_hint", tip = c.tip(), hint = t!("toolbar.copy_hint", copy_key = skraft_tools::tools::copy_key()))
-        }
-        "tool.union" | "tool.difference" | "tool.intersection" => t!("toolbar.with_hint", tip = c.tip(), hint = t!("toolbar.boolean_hint")),
         // Erase is not a command shortcut: the tool reads the delete key.
         "edit.erase" => t!("toolbar.with_shortcut", label = c.label, shortcut = crate::panels::delete_key()),
         _ => c.tip(),
@@ -748,7 +746,7 @@ fn command_button(
     if labels {
         text_lines(ui, &c.label, pos2(rect.center().x, rect.top() + ICON + 7.0), rect.width() - 4.0, 2, ink);
     }
-    let response = response.on_hover_text(tip(c));
+    let response = response.tip(tip(c));
     if response.clicked() {
         actions.push(Action::Command(id));
     }
@@ -775,7 +773,7 @@ fn collapsed_button(ui: &mut egui::Ui, l: &Laid, rect: Rect, labels: bool) -> eg
         egui::Image::new(icon).tint(ink).paint_at(ui, Rect::from_center_size(center, vec2(ICON, ICON)));
     }
     chevron(ui, pos2(rect.right() - 7.0, center.y + ICON / 2.0 - 2.0), ink);
-    response.on_hover_text((l.group.label)())
+    response.tip((l.group.label)())
 }
 
 /// A group's label under its buttons, with the chevron of its menu.
@@ -814,7 +812,7 @@ fn group_menu(ui: &mut egui::Ui, v: &View, key: &str, group: &'static Group, act
             button = button.selected(c.checked == Some(true)).min_size(vec2(210.0, 22.0));
             // Always a shortcut, if empty: it pushes the label to the left (else centered).
             button = button.shortcut_text(c.shortcut.as_deref().unwrap_or(""));
-            if ui.add_enabled(c.enabled, button).on_hover_text(tip(c)).clicked() {
+            if ui.add_enabled(c.enabled, button).tip(tip(c)).clicked() {
                 actions.push(Action::Command(id));
                 ui.close();
             }
@@ -827,7 +825,7 @@ fn group_menu(ui: &mut egui::Ui, v: &View, key: &str, group: &'static Group, act
             };
             let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
             let tip = if on { t!("ribbon.unpin") } else { t!("ribbon.pin") };
-            if ui.add(pin).on_hover_text(tip).clicked() {
+            if ui.add(pin).tip(tip).clicked() {
                 actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
             }
         });

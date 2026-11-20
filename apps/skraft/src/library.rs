@@ -13,6 +13,7 @@ use skraft_tools::search::Matcher;
 use crate::icons;
 use crate::panels::{Action, rename_field, tree_row, weak_share};
 use crate::ribbon::Corners;
+use crate::style::Tip;
 use crate::thumbnails::Thumbnails;
 
 /// What the card keeps of a document between frames, in the document itself (never on disk):
@@ -492,7 +493,7 @@ fn item(
         if cx.editor.on_active_path(id) { format!("{name}\n{tip}\n{}", t!("panel.components.on_path")) } else { format!("{name}\n{tip}") };
     // Dragged out of the card too (docs/ui/components-library.md#placing).
     let response = ui.interact(response.rect, response.id, egui::Sense::click_and_drag());
-    let response = if response.dragged() { response } else { response.on_hover_text(tip) };
+    let response = if response.dragged() { response } else { response.tip(tip) };
     if cx.disabled {
         return;
     }
@@ -538,7 +539,7 @@ fn header(ui: &mut egui::Ui, height: f32, unused: bool, disabled: bool, actions:
         row.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let purge = ui.add_enabled(!disabled, egui::Button::new(t!("panel.components.purge")).small());
             crate::handles::publish(|| "components:purge".into(), purge.rect);
-            if purge.on_hover_text(t!("panel.components.purge_tip")).clicked() {
+            if purge.tip(t!("panel.components.purge_tip")).clicked() {
                 actions.push(Action::Command("components.purge"));
             }
         });
@@ -562,7 +563,7 @@ fn menu(editor: &Editor, response: &egui::Response, id: Id, rename: egui::Id, ac
             ui.data_mut(|d| d.insert_temp(egui::Id::unique(crate::panels::RENAMING), rename));
         }
         let delete = ui.add_enabled(editor.can_delete_component(id), egui::Button::new(t!("panel.components.delete")));
-        if delete.on_hover_text(t!("panel.components.delete_tip")).clicked() {
+        if delete.tip(t!("panel.components.delete_tip")).clicked() {
             actions.push(Action::DeleteComponent(id));
         }
     });

@@ -19,7 +19,7 @@ pub enum Level {
     Info,
     /// Green; goes by itself.
     Success,
-    /// Amber; goes by itself.
+    /// Amber; stays until clicked.
     Warning,
     /// Red; stays until clicked.
     Error,
@@ -27,7 +27,7 @@ pub enum Level {
 
 impl Level {
     fn timed(self) -> bool {
-        self != Level::Error
+        matches!(self, Level::Info | Level::Success)
     }
 
     fn name(self) -> &'static str {

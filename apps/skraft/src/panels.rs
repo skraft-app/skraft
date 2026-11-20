@@ -12,6 +12,7 @@ use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
 
 use crate::commands::Menu;
 use crate::icons;
+use crate::style::Tip;
 
 mod props;
 
@@ -251,7 +252,7 @@ fn option_group(ui: &mut egui::Ui, first: &mut bool, label: &str, tip: &str) {
     if !std::mem::take(first) {
         ui.separator();
     }
-    ui.label(egui::RichText::new(label).color(ui.visuals().weak_text_color())).on_hover_text(tip);
+    ui.label(egui::RichText::new(label).color(ui.visuals().weak_text_color())).tip(tip);
 }
 
 /// The context card (docs/ui/interface.md#context-card), left of the tool's: what a pick takes
@@ -277,7 +278,7 @@ pub fn context_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Act
                 skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
             };
             ui.label(size);
-            if ui.button(t!("panel.entity_info.blend_edges")).on_hover_text(t!("panel.entity_info.blend_edges_tip")).clicked() {
+            if ui.button(t!("panel.entity_info.blend_edges")).tip(t!("panel.entity_info.blend_edges_tip")).clicked() {
                 actions.push(Action::EditBlend(node));
             }
         }
@@ -419,12 +420,11 @@ impl Face {
     }
 }
 
-/// The tip of a button: an icon's adds its label.
-fn face_tip(face: &Face, label: &str, tip: &str) -> String {
+/// The tip of a button, and what it adds smaller under it: an icon's is its label, then its tip.
+fn face_tip<'a>(face: &Face, label: &'a str, tip: &'a str) -> (&'a str, &'a str) {
     match face {
-        Face::Icon(_) if tip.is_empty() => label.to_owned(),
-        Face::Icon(_) => t!("option_bar.icon_tip", label = label, tip = tip),
-        Face::Text(_) => tip.to_owned(),
+        Face::Icon(_) => (label, tip),
+        Face::Text(_) => (tip, ""),
     }
 }
 
@@ -540,7 +540,7 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
                 .align(f.align);
             let r = ui.add(field);
             match f.tip {
-                Some(tip) => r.on_hover_text(tip),
+                Some(tip) => r.tip(tip),
                 None => r,
             }
         })
@@ -607,7 +607,8 @@ fn option_button(
         None => ui.visuals().text_color(),
     };
     face.paint(ui, rect, OPTION_ICON, ink);
-    response.on_hover_text(face_tip(&face, label, tip)).clicked()
+    let (text, more) = face_tip(&face, label, tip);
+    response.tip_more(text, more).clicked()
 }
 
 /// `stroke` faded by `alpha`.
@@ -704,7 +705,8 @@ pub fn segmented_sized(
     for (i, (s, response)) in segments.iter().zip(responses).enumerate() {
         let ink = if s.selected { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
         faces[i].paint(ui, place(i), icon, ink);
-        if response.on_hover_text(face_tip(&faces[i], &s.label, &s.tip)).clicked() && !s.selected {
+        let (text, more) = face_tip(&faces[i], &s.label, &s.tip);
+        if response.tip_more(text, more).clicked() && !s.selected {
             clicked = Some(i);
         }
     }
@@ -1091,7 +1093,7 @@ pub fn outliner(
                     let (icon, tip) =
                         if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
                     let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-                    let eye = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
+                    let eye = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
                     // Its own material, if any: a dot of its colour left of the eye, a column of
                     // its own so the names stay aligned.
                     if let Some(m) = o.material.and_then(|m| doc.material(m).ok()) {
@@ -1127,7 +1129,7 @@ pub fn outliner(
                 _ => Some(t!("panel.outliner.pieces", count = pieces)),
             };
             let response = match tip {
-                Some(tip) => response.on_hover_text(tip),
+                Some(tip) => response.tip(tip),
                 None => response,
             };
             let path = EntityPath::new(row.path, o.id);
@@ -1216,7 +1218,7 @@ fn material_dot(ui: &mut egui::Ui, m: &skraft_model::Material, greyed: bool) {
     let fill = egui::Color32::from_rgb(red, g, b).gamma_multiply(alpha);
     let ring = ui.visuals().widgets.noninteractive.fg_stroke.color.gamma_multiply(0.5 * alpha);
     ui.painter().circle(r.center(), SIZE / 2.0 - 0.5, fill, egui::Stroke::new(1.0, ring));
-    response.on_hover_text(&m.name);
+    response.tip(&m.name);
 }
 
 /// The model, the outliner's first row, at the list's left edge (no indent, no fold nor eye):
@@ -1246,7 +1248,7 @@ fn model_row(ui: &mut egui::Ui, editor: &Editor, name: &str, height: f32, action
         });
         drop_on_row(ui, &response, 0.0, target, actions);
     }
-    if response.on_hover_text(t!("panel.outliner.model_tip")).clicked() {
+    if response.tip(t!("panel.outliner.model_tip")).clicked() {
         actions.push(Action::SelectModel);
     }
 }
@@ -1639,7 +1641,7 @@ fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &OutlinerRow, height: f3
         let label = egui::RichText::new(t!("panel.outliner.profile")).color(tint);
         ui.add(egui::Label::new(label).selectable(false).truncate());
     });
-    if response.on_hover_text(t!("panel.outliner.profile_tip")).clicked() && !selected {
+    if response.tip(t!("panel.outliner.profile_tip")).clicked() && !selected {
         actions.push(Action::EditProfile(path, b.body.id));
     }
 }
@@ -1863,7 +1865,7 @@ fn body_row(
                 Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
             };
             let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-            let toggled = ui.add(egui::Button::image(img).frame(false)).on_hover_text(tip).clicked();
+            let toggled = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
             let renamed = ui
                 .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     if warned {
@@ -1895,14 +1897,14 @@ fn body_row(
         .inner
     });
     let response = if let Some(r) = b.part.refusal_of(b.body.id) {
-        response.on_hover_text(skraft_model::blend_refusal(r))
+        response.tip(skraft_model::blend_refusal(r))
     } else if warned {
         let tip = match (inner, def.solid.is_empty()) {
             (true, _) => t!("panel.outliner.failed_inside_group"),
             (false, true) => t!("panel.outliner.empty_group"),
             (false, false) => t!("panel.outliner.failed_group"),
         };
-        response.on_hover_text(tip)
+        response.tip(tip)
     } else {
         response
     };
@@ -2080,6 +2082,55 @@ fn name_field(ui: &mut egui::Ui, key: (Id, u8), current: &str, width: f32, empty
     ui.vertical(|ui| framed_field(ui, id, current, current, field)).inner
 }
 
+/// The entity info's grid spacing.
+const INFO_SPACING: egui::Vec2 = egui::vec2(8.0, 6.0);
+
+/// The width of the entity info's label column: its widest label in the language shown, whatever
+/// the entity. Its grids share one id and an egui `Grid` lays a frame out with the column widths
+/// of the frame before: sized by its own labels, the column took another entity's width for one
+/// frame when the selection changed kind (or a row came or went), the values sliding sideways.
+fn info_label_width(ui: &egui::Ui) -> f32 {
+    const LABELS: &[&str] = &[
+        "panel.entity_info.type",
+        "panel.entity_info.name",
+        "panel.entity_info.occurrence",
+        "panel.entity_info.occurrences",
+        "panel.entity_info.material",
+        "panel.entity_info.materials",
+        "panel.entity_info.dimensions",
+        "panel.entity_info.position",
+        "panel.entity_info.in_model",
+        "panel.entity_info.parts",
+        "panel.entity_info.assemblies",
+        "panel.entity_info.shape",
+        "panel.entity_info.body",
+        "panel.entity_info.corners",
+        "panel.entity_info.role",
+        "panel.entity_info.state",
+        "panel.entity_info.copies",
+        "tool.round.vcb",
+        "tool.chamfer.vcb",
+    ];
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let painter = ui.painter();
+    LABELS
+        .iter()
+        .map(|key| painter.layout_no_wrap(skraft_i18n::translate(key, &[]), font.clone(), egui::Color32::PLACEHOLDER).size().x)
+        .fold(0.0, f32::max)
+        .ceil()
+}
+
+/// An entity info's grid: label and value columns, the labels' as wide whatever the entity
+/// ([`info_label_width`]; the value column is always wider).
+fn info_grid(ui: &egui::Ui) -> egui::Grid {
+    egui::Grid::new("info").num_columns(2).spacing(INFO_SPACING).min_col_width(info_label_width(ui))
+}
+
+/// The width of a field in an entity info's value column: the room left by the labels.
+fn info_field_width(ui: &egui::Ui) -> f32 {
+    (ui.available_width() - info_label_width(ui) - INFO_SPACING.x).max(60.0)
+}
+
 /// A grid row's label, level with the [`framed_field`] beside it (or the first one, on top).
 fn field_label(ui: &mut egui::Ui, text: String) {
     ui.vertical(|ui| {
@@ -2165,9 +2216,8 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
         [id] => {
             let Some(o) = asm.occurrence(*id) else { return };
             let Ok(c) = doc.component(o.component) else { return };
-            // Room left for the value column (labels ~ 80 pt, plus the grid spacing).
-            let field = (ui.available_width() - 90.0).max(60.0);
-            egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+            let field = info_field_width(ui);
+            info_grid(ui).show(ui, |ui| {
                 ui.label(t!("panel.entity_info.type"));
                 ui.label(if c.is_part() { t!("panel.entity_info.type_part") } else { t!("panel.entity_info.type_assembly") });
                 ui.end_row();
@@ -2264,7 +2314,7 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
     let doc = editor.document();
     let Ok(c) = doc.component(id) else { return };
     let units = &doc.settings().units;
-    let field = (ui.available_width() - 90.0).max(60.0);
+    let field = info_field_width(ui);
     let count = doc.counts_in_model().get(&id).copied().unwrap_or(0);
     // Its materials: its occurrences' own, its faces'; in the order of the document's.
     let mut used: FastSet<Id> = FastSet::default();
@@ -2275,7 +2325,7 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
         used.extend(p.faces.values().copied());
     }
     let materials: Vec<&str> = doc.materials().filter(|(m, _)| used.contains(m)).map(|(_, m)| m.name.as_str()).collect();
-    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+    info_grid(ui).show(ui, |ui| {
         ui.label(t!("panel.entity_info.type"));
         ui.label(if c.is_part() { t!("panel.entity_info.type_part") } else { t!("panel.entity_info.type_assembly") });
         ui.end_row();
@@ -2311,8 +2361,8 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
 /// (docs/model/properties.md).
 fn model_info(ui: &mut egui::Ui, doc: &Document, name: &str, actions: &mut Vec<Action>) {
     let (parts, assemblies) = placed_counts(doc, doc.root(), &mut FastMap::default(), 0);
-    let field = (ui.available_width() - 90.0).max(60.0);
-    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+    let field = info_field_width(ui);
+    info_grid(ui).show(ui, |ui| {
         ui.label(t!("panel.entity_info.type"));
         ui.label(t!("panel.entity_info.type_model"));
         ui.end_row();
@@ -2371,7 +2421,7 @@ fn pieces_error(pieces: usize) -> Option<String> {
 /// A guide of `component`: its shape (a circle's radius), its properties.
 fn guide_info(ui: &mut egui::Ui, doc: &Document, component: Id, g: &skraft_model::Guide, actions: &mut Vec<Action>) {
     let units = &doc.settings().units;
-    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+    info_grid(ui).show(ui, |ui| {
         ui.label(t!("panel.entity_info.type"));
         ui.label(t!("panel.entity_info.type_guide"));
         ui.end_row();
@@ -2390,7 +2440,7 @@ fn guide_info(ui: &mut egui::Ui, doc: &Document, component: Id, g: &skraft_model
 fn profile_info(ui: &mut egui::Ui, p: &skraft_model::Part, k: usize) {
     let b = &p.bodies[k];
     let Some(profile) = p.profile_of(b) else { return };
-    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+    info_grid(ui).show(ui, |ui| {
         ui.label(t!("panel.entity_info.type"));
         ui.label(t!("panel.entity_info.type_profile"));
         ui.end_row();
@@ -2411,8 +2461,8 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
     let units = &editor.document().settings().units;
     let b = &p.bodies[k];
     let def = p.def_of(b);
-    let field = (ui.available_width() - 90.0).max(60.0);
-    egui::Grid::new("info").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+    let field = info_field_width(ui);
+    info_grid(ui).show(ui, |ui| {
         ui.label(t!("panel.entity_info.type"));
         ui.label(match def.nature() {
             Nature::Round => t!("default_name.round"),
@@ -2470,7 +2520,7 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             ui.end_row();
             // Its edges, picked again on its children (the node opened).
             ui.label("");
-            if ui.button(t!("panel.entity_info.blend_edges")).on_hover_text(t!("panel.entity_info.blend_edges_tip")).clicked() {
+            if ui.button(t!("panel.entity_info.blend_edges")).tip(t!("panel.entity_info.blend_edges_tip")).clicked() {
                 actions.push(Action::EditBlend(b.id));
             }
             ui.end_row();
@@ -2579,7 +2629,7 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
     let tint = ui.visuals().text_color();
     let brush = |ui: &mut egui::Ui, on: bool, tip: &str| {
         let img = egui::Image::new(icons::PAINT).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint);
-        ui.add(egui::Button::image(img).selected(on)).on_hover_text(tip).clicked()
+        ui.add(egui::Button::image(img).selected(on)).tip(tip).clicked()
     };
     ui.horizontal(|ui| {
         if brush(ui, painting && current.is_none(), &t!("panel.materials.unpaint_tip")) {
@@ -2594,7 +2644,7 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
                 actions.push(Action::PaintWith(Some(id)));
             }
             let mut c = m.color;
-            if ui.color_edit_button_srgb(&mut c).on_hover_text(t!("panel.materials.color_tip")).changed() {
+            if ui.color_edit_button_srgb(&mut c).tip(t!("panel.materials.color_tip")).changed() {
                 actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
             }
             // Room left for the texture and delete buttons, as high as the field
@@ -2617,7 +2667,7 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
                     let img =
                         egui::Image::new(tex).uv(uv).maintain_aspect_ratio(false).fit_to_exact_size(egui::vec2(h, h)).corner_radius(3.0);
                     let r = ui.add(egui::Button::image(img).frame(false).min_size(egui::vec2(h, h)));
-                    r.on_hover_ui(|ui| {
+                    r.tip_ui(|ui| {
                         ui.label(t!("panel.materials.texture_change_tip"));
                         ui.add(egui::Image::new(tex).max_size(egui::vec2(THUMB_PREVIEW, THUMB_PREVIEW)).corner_radius(4.0));
                     })
@@ -2627,16 +2677,14 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
                     let texture = egui::Image::new(icons::TEXTURE).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink);
                     let tip =
                         if m.texture.is_some() { t!("panel.materials.texture_change_tip") } else { t!("panel.materials.texture_tip") };
-                    ui.add(egui::Button::image(texture).selected(m.texture.is_some()).min_size(egui::vec2(h, h)))
-                        .on_hover_text(tip)
-                        .clicked()
+                    ui.add(egui::Button::image(texture).selected(m.texture.is_some()).min_size(egui::vec2(h, h))).tip(tip).clicked()
                 }
             };
             if clicked {
                 actions.push(Action::PickTexture(id));
             }
             let delete = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ink);
-            if ui.add(egui::Button::image(delete).min_size(egui::vec2(h, h))).on_hover_text(t!("panel.materials.delete_tip")).clicked() {
+            if ui.add(egui::Button::image(delete).min_size(egui::vec2(h, h))).tip(t!("panel.materials.delete_tip")).clicked() {
                 actions.push(Action::Apply(Operation::DeleteMaterial { material: id }));
             }
         });
@@ -2656,7 +2704,7 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
         let none = doc.materials().next().is_none();
         // A menu: all of them, or one.
         let export = ui.add_enabled(!none, egui::Button::image(icon(icons::EXPORT)).min_size(egui::vec2(OPTION_HEIGHT, OPTION_HEIGHT)));
-        let export = export.on_hover_text(t!("panel.materials.export_tip"));
+        let export = export.tip(t!("panel.materials.export_tip"));
         egui::Popup::menu(&export).id(ui.make_persistent_id("export_materials")).style(crate::style::menu).show(|ui| {
             ui.set_min_width(160.0);
             if ui.button(t!("panel.materials.export_all")).clicked() {
@@ -2685,7 +2733,7 @@ pub fn materials(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action>) 
             }
         });
         let import = ui.add(egui::Button::image(icon(icons::IMPORT)).min_size(egui::vec2(OPTION_HEIGHT, OPTION_HEIGHT)));
-        if import.on_hover_text(t!("panel.materials.import_tip")).clicked() {
+        if import.tip(t!("panel.materials.import_tip")).clicked() {
             actions.push(Action::ImportMaterials);
         }
     });
@@ -2766,7 +2814,7 @@ fn texture_row(ui: &mut egui::Ui, doc: &Document, id: Id, texture: &skraft_model
         }
         let close = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ui.visuals().text_color());
         let h = OPTION_HEIGHT;
-        if ui.add(egui::Button::image(close).min_size(egui::vec2(h, h))).on_hover_text(t!("panel.materials.texture_remove_tip")).clicked() {
+        if ui.add(egui::Button::image(close).min_size(egui::vec2(h, h))).tip(t!("panel.materials.texture_remove_tip")).clicked() {
             actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None }));
         }
     });

@@ -153,9 +153,9 @@ the status bar keeping the tools' hints.
   `Outcome::warning`, the warning sign at its left), error (red), each a border of its colour on
   a pale wash of it (a dark one in a dark theme), the title in the colour and what went wrong
   under it, smaller.
-- A click on a toast closes it. An info, a success or a warning goes after 5 s, a bar along its
-  bottom emptying towards the left; the pointer over it stops the countdown, full again. An
-  error stays.
+- A click on a toast closes it. An info or a success goes after 5 s, a bar along its bottom
+  emptying towards the left; the pointer over it stops the countdown, full again. A warning or
+  an error stays.
 - A toast may carry a button at its right end (as OpenCutList's « Ouvrir » after an export),
   whose click runs it and closes the toast: « Renommer » on « Nouvelle pièce créée », « Nouvel
   assemblage créé », « Nouveau groupe créé », « … rendu unique »
@@ -191,6 +191,19 @@ tool's options:
 
 Original SVG icons (drawn for the project), white and tinted by the theme, loaded by
 `egui_extras` (`svg`): no build step, no binary asset.
+
+## Tips
+
+A widget's tip (tooltip) shows centred under it, above it when there is no room below — egui
+puts it under its left edge: `.tip(text)` / `.tip_ui(add)` (`style::Tip`) in place of egui's
+`on_hover_text` / `on_hover_ui`, the text also the widget's accessible description as egui's.
+A tip of a name and what it does (`.tip_more(text, more)`) puts the second smaller, on a line of
+its own, no separator: an option drawn as an icon (its name, then its tip). The ribbon's tips
+are a command's name and shortcut alone: its options and steps are the option bar's. Its text wraps at 260 pt (egui's
+500), a description on a few short lines. It comes after 0.15 s, the next ones at once while
+the pointer goes from widget to widget. The tips egui shows by itself (a label cut short, whole
+in its tip) keep egui's place; the view's tip by the pointer keeps off the cursor
+([Cursors](cursors.md)).
 
 ## Shortcuts
 

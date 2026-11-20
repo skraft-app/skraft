@@ -10,6 +10,7 @@
 use skraft_i18n::t;
 
 use crate::icons;
+use crate::style::Tip;
 
 /// A tab as the app describes it this frame.
 pub struct Tab {
@@ -242,12 +243,12 @@ pub fn show(
         if show_close && held.is_none() {
             let x = small_button(ui, close, id.with(("close", i)), icons::CLOSE, 12.0, ink);
             crate::handles::publish(|| format!("tab_close:{i}"), close);
-            if x.on_hover_text(t!("tabs.close_tip")).clicked() {
+            if x.tip(t!("tabs.close_tip")).clicked() {
                 out.push(TabAction::Close(i));
             }
         }
 
-        let resp = if held.is_none() { resp.on_hover_text(tab.tip(cut)) } else { resp };
+        let resp = if held.is_none() { resp.tip(tab.tip(cut)) } else { resp };
         if resp.clicked() {
             out.push(TabAction::Select(i));
         }
@@ -314,7 +315,7 @@ pub fn show(
     if count < n {
         let r = button(x);
         let mut chosen = None;
-        let more = small_button(ui, r, id.with("more"), icons::MORE, 14.0, visuals.text_color()).on_hover_text(t!("tabs.more_tip"));
+        let more = small_button(ui, r, id.with("more"), icons::MORE, 14.0, visuals.text_color()).tip(t!("tabs.more_tip"));
         egui::Popup::menu(&more).style(crate::style::menu).show(|ui| {
             for (i, tab) in tabs.iter().enumerate() {
                 let label = format!("{}{}", tab.name, if tab.modified { " •" } else { "" });
@@ -329,10 +330,7 @@ pub fn show(
         x += BUTTON;
     }
     crate::handles::publish(|| "tab_new".into(), button(x).shrink(1.0));
-    if small_button(ui, button(x).shrink(1.0), id.with("new"), icons::ADD, 16.0, visuals.text_color())
-        .on_hover_text(t!("tabs.new_tip"))
-        .clicked()
-    {
+    if small_button(ui, button(x).shrink(1.0), id.with("new"), icons::ADD, 16.0, visuals.text_color()).tip(t!("tabs.new_tip")).clicked() {
         out.push(TabAction::New);
     }
     out

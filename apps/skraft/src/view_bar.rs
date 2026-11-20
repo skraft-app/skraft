@@ -8,6 +8,7 @@ use skraft_i18n::t;
 use crate::dock::Dock;
 use crate::icons;
 use crate::panels::{Action, CommandView};
+use crate::style::Tip;
 
 /// The standard views' button: not a command of the registry, it opens their menu.
 pub const VIEWS: &str = "view.views";
@@ -192,7 +193,7 @@ fn icon_button(ui: &mut egui::Ui, handle: &str, icon: egui::ImageSource<'static>
 fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Option<crate::pins::Item> {
     let icon = icons::command(c.id)?;
     let tip = if c.id == "view.parallel" { t!("toolbar.perspective") } else { c.tip() };
-    let response = icon_button(ui, c.id, icon.clone(), lit(c), c.enabled).on_hover_text(tip);
+    let response = icon_button(ui, c.id, icon.clone(), lit(c), c.enabled).tip(tip);
     if response.clicked() && c.enabled {
         actions.push(Action::Command(c.id));
     }
@@ -226,7 +227,7 @@ fn grip(ui: &mut egui::Ui) -> egui::Response {
             ui.painter().circle_filled(rect.center() + vec2(col, row), 1.0, ink);
         }
     }
-    response.on_hover_cursor(egui::CursorIcon::Grab).on_hover_text(t!("view_bar.grip"))
+    response.on_hover_cursor(egui::CursorIcon::Grab).tip(t!("view_bar.grip"))
 }
 
 /// Its menus open towards the view, their top at their button's: on the right of a bar on
@@ -242,7 +243,7 @@ fn inward(side: Dock) -> RectAlign {
 fn views_button(ui: &mut egui::Ui, side: Dock, views: &[CommandView], actions: &mut Vec<Action>) -> (crate::pins::Item, bool) {
     let open = Popup::is_id_open(ui.ctx(), egui::Id::unique("view_bar_views_menu"));
     let response = icon_button(ui, VIEWS, icons::VIEWS, open, true);
-    let response = if open { response } else { response.on_hover_text(t!("view_bar.views")) };
+    let response = if open { response } else { response.tip(t!("view_bar.views")) };
     Popup::menu(&response).id(egui::Id::unique("view_bar_views_menu")).align(inward(side)).style(crate::style::menu).show(|ui| {
         // Each view with its icon, as the ▾ menu's rows.
         let ink = ui.visuals().text_color();
@@ -286,7 +287,7 @@ fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[Command
     crate::ribbon::chevron(ui, rect.center(), ui.visuals().text_color());
     let id = egui::Id::unique("view_bar_more_menu");
     let open = Popup::is_id_open(ui.ctx(), id);
-    let response = if open { response } else { response.on_hover_text(t!("view_bar.choose")) };
+    let response = if open { response } else { response.tip(t!("view_bar.choose")) };
     // A pin clicked leaves it open, as the ribbon's group menus; a row run closes it.
     Popup::menu(&response)
         .id(id)
@@ -323,7 +324,7 @@ fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[Command
                     };
                     let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
                     let tip = if on { t!("view_bar.unpin") } else { t!("view_bar.pin") };
-                    if ui.add(pin).on_hover_text(tip).clicked() {
+                    if ui.add(pin).tip(tip).clicked() {
                         actions.push(Action::ViewPin(id));
                     }
                 });

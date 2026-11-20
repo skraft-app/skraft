@@ -9,6 +9,7 @@ use skraft_tools::navigation::{Binding, BindingError, Button, Mods, NavAction, N
 
 use crate::prefs::Navigation;
 use crate::ribbon::Corners;
+use crate::style::Tip;
 use crate::style::{settings_grid as grid, settings_section as section};
 
 /// The mouse drawn: its size, and its buttons' line (points from its top).
@@ -397,11 +398,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
                 let actions = if b.trigger.is_drag() { NavAction::DRAG } else { NavAction::CLICK };
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let x = egui::Image::new(crate::icons::CLOSE).fit_to_exact_size(vec2(12.0, 12.0)).tint(ui.visuals().text_color());
-                    if ui
-                        .add(egui::Button::image(x).min_size(vec2(h, h)))
-                        .on_hover_text(t!("prefs.navigation.gestures.delete_tip"))
-                        .clicked()
-                    {
+                    if ui.add(egui::Button::image(x).min_size(vec2(h, h))).tip(t!("prefs.navigation.gestures.delete_tip")).clicked() {
                         delete = Some(i);
                     }
                     ui.add_space(6.0);

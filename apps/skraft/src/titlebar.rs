@@ -19,6 +19,7 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 use crate::commands::Menu;
 use crate::icons;
 use crate::panels::{self, Action, CommandView};
+use crate::style::Tip;
 use crate::tabs::{self, Tab};
 
 /// The bar's height, in points.
@@ -171,7 +172,7 @@ fn id_icon(id: &str) -> egui::ImageSource<'static> {
 fn bar_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, lit: bool, enabled: bool, tip: &str) -> egui::Response {
     let img = icon_image(ui, icon);
     let button = unframed(egui::Button::image(img).min_size(egui::vec2(26.0, 26.0)));
-    backed(ui, |_| lit, |ui| ui.add_enabled(enabled, button)).on_hover_text(tip)
+    backed(ui, |_| lit, |ui| ui.add_enabled(enabled, button)).tip(tip)
 }
 
 /// A button whose frame is not drawn ([`backed`] draws its background) but keeps its margins.
@@ -211,7 +212,7 @@ fn menu_button(ui: &mut egui::Ui, handle: &str, button: egui::Button, tip: Optio
     });
     crate::handles::publish(|| handle.to_owned(), r.rect);
     if let Some(tip) = tip {
-        r.on_hover_text(tip);
+        r.tip(tip);
     }
 }
 
@@ -269,7 +270,7 @@ fn brand(ui: &mut egui::Ui, home: Option<&CommandView>, actions: &mut Vec<Action
         ui.painter().set(behind, egui::Shape::rect_filled(rect, tabs::VEIL_RADIUS, fill));
     }
     crate::handles::publish(|| format!("titlebar:{}", v.id), rect);
-    if r.on_hover_text(v.tip()).clicked() {
+    if r.tip(v.tip()).clicked() {
         actions.push(Action::Command(v.id));
     }
 }
@@ -287,7 +288,7 @@ fn instance_badge(ui: &mut egui::Ui, i: &skraft_control::instances::Instance, se
     let (rect, r) = ui.allocate_exact_size(galley.size() + 2.0 * pad, egui::Sense::hover());
     ui.painter().rect_filled(rect, 4.0, crate::identity::color(&label, session));
     ui.painter().galley(rect.min + pad, galley, egui::Color32::PLACEHOLDER);
-    r.on_hover_ui(|ui| {
+    r.tip_ui(|ui| {
         let now = skraft_control::instances::now();
         ui.strong(t!("titlebar.instance.title", label = label));
         ui.label(t!("titlebar.instance.worktree", path = b.worktree));
@@ -436,6 +437,6 @@ fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) 
         ui.painter().set(behind, egui::Shape::rect_filled(r.rect, tabs::VEIL_RADIUS, fill));
     }
     if !menu_open(&r) {
-        r.on_hover_text(tip);
+        r.tip(tip);
     }
 }

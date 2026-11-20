@@ -164,12 +164,9 @@ menu:
     title: "Débogage"
     crash_kernel: "Faire planter le noyau"
 
-# The tool bar's tooltips: a command's label and shortcut, and a hint for some.
+# The tool bar's tooltips: a command's label and shortcut.
 toolbar:
   with_shortcut: "%{label} (%{shortcut})"
-  with_hint: "%{tip} · %{hint}"
-  copy_hint: "%{copy_key} : copier · flèches : axe"
-  boolean_hint: "pièces A, puis pièces outils B"
   perspective: "Perspective / parallèle"
 
 # The steps bar and its validation buttons (docs/ui/interface.md#steps-bar).
@@ -403,8 +400,6 @@ option_bar:
   # The group of the lone options (toggles), at the end of the bar.
   options: "Options"
   options_tip: "Les options à activer ou désactiver"
-  # The tip of a value drawn as an icon: its name, then what it does.
-  icon_tip: "%{label} — %{tip}"
   # What a shape drawn in an open part does (docs/model/bodies.md).
   body_sign: "Solide"
   body_sign_tip: "Ce que fait une forme dessinée dans la pièce ouverte (revient à « Enlever » à chaque ouverture)"
