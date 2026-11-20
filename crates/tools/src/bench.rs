@@ -15,6 +15,40 @@ fn time<T>(what: &str, f: impl FnOnce() -> T) -> T {
     r
 }
 
+/// A SketchUp model read (what the kernel's `Task::ImportSketchUp` gives) of `defs` boxes, box
+/// `k` `length(k)` × 50 × 20 mm, each placed 4 times along a grid; their solids built here.
+fn boxes(defs: usize, length: impl Fn(usize) -> f64) -> skraft_kernel::SketchUpImport {
+    use skraft_kernel::{PolyFace, Polyhedron, SketchUpChild, SketchUpDefinition, SketchUpImport, SketchUpNode, SketchUpPart};
+    let faces: [([f64; 3], [u32; 4]); 6] = [
+        ([0.0, 0.0, -1.0], [0, 2, 3, 1]),
+        ([0.0, 0.0, 1.0], [4, 5, 7, 6]),
+        ([0.0, -1.0, 0.0], [0, 1, 5, 4]),
+        ([0.0, 1.0, 0.0], [2, 6, 7, 3]),
+        ([-1.0, 0.0, 0.0], [0, 4, 6, 2]),
+        ([1.0, 0.0, 0.0], [1, 3, 7, 5]),
+    ];
+    let mut skp = SketchUpImport::default();
+    let mut top = Vec::with_capacity(defs * 4);
+    for k in 0..defs {
+        let size = DVec3::new(length(k), 50.0, 20.0);
+        let poly = Polyhedron {
+            vertices: (0..8).map(|i| DVec3::new((i & 1) as f64, ((i >> 1) & 1) as f64, ((i >> 2) & 1) as f64) * size).collect(),
+            faces: faces.iter().map(|(n, l)| PolyFace { normal: DVec3::from_array(*n), loops: vec![l.to_vec()] }).collect(),
+        };
+        let solid = skraft_kernel::Solid::from_polyhedron(&poly).map_err(|e| e.to_string());
+        skp.definitions.push(SketchUpDefinition { name: format!("P{k}"), ..Default::default() });
+        skp.parts.push(SketchUpPart { definition: Some(k), loose: false, faces: 6, solid, painted: Vec::new(), time: Default::default() });
+        skp.nodes.push(SketchUpNode { definition: Some(k), part: Some(k), children: Vec::new() });
+        for c in 0..4 {
+            let t = DVec3::new((k % 100) as f64 * 300.0, ((k / 100) * 4 + c) as f64 * 80.0, 0.0);
+            top.push(SketchUpChild { node: k, transform: glam::DAffine3::from_translation(t), name: String::new(), material: None });
+        }
+    }
+    skp.nodes.push(SketchUpNode { definition: None, part: None, children: top });
+    skp.root = defs;
+    skp
+}
+
 #[test]
 #[ignore]
 fn bench_array() {
@@ -244,7 +278,7 @@ fn bench_meshes_coming_in() {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use skraft_model::kernel::{Job, JobId, JobResult, KernelService, Solid};
+    use skraft_model::kernel::{Job, JobId, JobResult, KernelService};
 
     /// Holds the jobs; hands out `n` results when asked.
     #[derive(Clone, Default)]
@@ -272,30 +306,9 @@ fn bench_meshes_coming_in() {
 
     let defs: usize = std::env::var("BENCH_DEFS").ok().and_then(|s| s.parse().ok()).unwrap_or(5000);
     let per_frame: usize = 20;
-    // The export: box `k` is (100 + k mm) × 50 × 20, placed 4 times along a grid.
-    let faces = r#"[{"normal":[0,0,-1],"loops":[[0,2,3,1]]},{"normal":[0,0,1],"loops":[[4,5,7,6]]},{"normal":[0,-1,0],"loops":[[0,1,5,4]]},{"normal":[0,1,0],"loops":[[2,6,7,3]]},{"normal":[-1,0,0],"loops":[[0,4,6,2]]},{"normal":[1,0,0],"loops":[[1,3,7,5]]}]"#;
-    let mut definitions = Vec::with_capacity(defs);
-    let mut instances = Vec::with_capacity(defs * 4);
-    for k in 0..defs {
-        let (x, y, z) = (100.0 + k as f64, 50.0, 20.0);
-        let v: Vec<String> = (0..8)
-            .map(|i| {
-                format!("[{},{},{}]", if i & 1 == 0 { 0.0 } else { x }, if i & 2 == 0 { 0.0 } else { y }, if i & 4 == 0 { 0.0 } else { z })
-            })
-            .collect();
-        definitions.push(format!(r#"{{"name":"P{k}","vertices":[{}],"faces":{faces}}}"#, v.join(",")));
-        for c in 0..4 {
-            let (tx, ty) = ((k % 100) as f64 * 300.0, ((k / 100) * 4 + c) as f64 * 80.0);
-            instances.push(format!(r#"{{"definition":{k},"transform":[1,0,0,0,0,1,0,0,0,0,1,0,{tx},{ty},0,1]}}"#));
-        }
-    }
-    let text = format!(
-        r#"{{"format":"{}","version":1,"definitions":[{}],"root":{{"instances":[{}]}}}}"#,
-        skraft_model::SKETCHUP_FORMAT,
-        definitions.join(","),
-        instances.join(",")
-    );
-    let (doc, _) = time("import", || Document::from_sketchup(&text, &Solid::from_polyhedron).unwrap());
+    // Box `k` is (100 + k mm) × 50 × 20, placed 4 times along a grid.
+    let skp = time("solids", || boxes(defs, |k| 100.0 + k as f64));
+    let (doc, _) = time("import", || Document::from_sketchup(&skp, "bench.skp").unwrap());
     let kernel = Trickle::default();
     let mut e = time("open (stand-ins)", || Editor::new(doc, Box::new(kernel.clone())));
     e.set_viewport_size(DVec2::new(1000.0, 1000.0));
@@ -325,37 +338,11 @@ fn bench_meshes_coming_in() {
 #[ignore]
 fn bench_small_edit() {
     use glam::DAffine3;
-    use skraft_model::kernel::Solid;
     use skraft_model::{Operation, Primitive};
     let distinct = std::env::var("BENCH_DISTINCT").is_ok();
     let mut e = if distinct {
-        let faces = r#"[{"normal":[0,0,-1],"loops":[[0,2,3,1]]},{"normal":[0,0,1],"loops":[[4,5,7,6]]},{"normal":[0,-1,0],"loops":[[0,1,5,4]]},{"normal":[0,1,0],"loops":[[2,6,7,3]]},{"normal":[-1,0,0],"loops":[[0,4,6,2]]},{"normal":[1,0,0],"loops":[[1,3,7,5]]}]"#;
-        let (mut definitions, mut instances) = (Vec::new(), Vec::new());
-        for k in 0..10_000 {
-            let (x, y, z) = (100.0 + k as f64 * 0.01, 50.0, 20.0);
-            let v: Vec<String> = (0..8)
-                .map(|i| {
-                    format!(
-                        "[{},{},{}]",
-                        if i & 1 == 0 { 0.0 } else { x },
-                        if i & 2 == 0 { 0.0 } else { y },
-                        if i & 4 == 0 { 0.0 } else { z }
-                    )
-                })
-                .collect();
-            definitions.push(format!(r#"{{"name":"P{k}","vertices":[{}],"faces":{faces}}}"#, v.join(",")));
-            for c in 0..4 {
-                let (tx, ty) = ((k % 100) as f64 * 300.0, ((k / 100) * 4 + c) as f64 * 80.0);
-                instances.push(format!(r#"{{"definition":{k},"transform":[1,0,0,0,0,1,0,0,0,0,1,0,{tx},{ty},0,1]}}"#));
-            }
-        }
-        let text = format!(
-            r#"{{"format":"{}","version":1,"definitions":[{}],"root":{{"instances":[{}]}}}}"#,
-            skraft_model::SKETCHUP_FORMAT,
-            definitions.join(","),
-            instances.join(",")
-        );
-        let (doc, _) = Document::from_sketchup(&text, &Solid::from_polyhedron).unwrap();
+        let skp = boxes(10_000, |k| 100.0 + k as f64 * 0.01);
+        let (doc, _) = Document::from_sketchup(&skp, "bench.skp").unwrap();
         Editor::new(doc, Box::new(skraft_kernel::Inline::default()))
     } else {
         let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
@@ -543,7 +530,7 @@ fn bench_step_loading() {
     let bytes = std::fs::read(&path).unwrap();
     let load = |e: &mut Editor, stop_after_previews: bool| -> (Duration, Duration, Duration) {
         let t = Instant::now();
-        e.import_step("model".into(), bytes.clone());
+        e.import("model".into(), bytes.clone());
         let (mut read, mut previewed) = (None, None);
         while e.loading().is_some() && t.elapsed() < Duration::from_secs(600) {
             e.poll();

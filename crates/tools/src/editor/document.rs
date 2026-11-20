@@ -408,10 +408,11 @@ impl Editor {
         self.poll();
     }
 
-    /// Imports a STEP file (`name`, its `bytes`) into the active context (docs/io/step-import.md):
-    /// the kernel reads it, then its content is inserted as one occurrence, selected —
-    /// one step to undo. The rest of the editor stays usable meanwhile.
-    pub fn import_step(&mut self, name: String, bytes: Vec<u8>) {
+    /// Imports a file (`name`, its `bytes`) into the active context: a SketchUp file (`.skp`,
+    /// docs/io/sketchup-import.md), else a STEP file (docs/io/step-import.md). The kernel reads
+    /// it, then its content is inserted as one occurrence, selected — one step to undo. The
+    /// rest of the editor stays usable meanwhile.
+    pub fn import(&mut self, name: String, bytes: Vec<u8>) {
         let id = self.job_id();
         self.message = Some(skraft_i18n::ellipsis(t!("status.importing", file = name)));
         // A load of its own (none under way: the app's window keeps another from starting).
@@ -422,8 +423,10 @@ impl Editor {
             load.reading = Some(id);
             load.view.reading = Some(skraft_model::kernel::Progress::Reading);
         }
+        let sketchup = std::path::Path::new(&name).extension().is_some_and(|e| e.eq_ignore_ascii_case("skp"));
+        let task = if sketchup { Task::ImportSketchUp { bytes } } else { Task::ImportStep { bytes } };
         self.importing.insert(id, name);
-        self.kernel.submit(id, Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] });
+        self.kernel.submit(id, Job { inputs: Vec::new(), tasks: vec![task] });
         // A kernel run inline has answered already.
         self.poll();
     }
@@ -441,22 +444,28 @@ impl Editor {
             load.reading = None;
             load.view.reading = None;
         }
-        let step = match result {
+        let read = match result {
             Ok(mut outputs) => match outputs.pop() {
-                Some(Output::Step(s)) => s,
-                _ => {
-                    self.notify(NoticeKind::Error, t!("notice.import_failed", file = name), Some(t!("status.unexpected_reply")));
-                    return;
+                Some(Output::Step(step)) => {
+                    let (fragment, report) = Document::from_step(&step, name);
+                    Ok((fragment, report.parts, report.excluded))
                 }
+                Some(Output::SketchUp(skp)) => {
+                    Document::from_sketchup(&skp, name).map(|(f, r)| (f, r.parts, r.excluded.len())).map_err(|e| e.to_string())
+                }
+                _ => Err(t!("status.unexpected_reply")),
             },
-            Err(e) => {
-                self.notify(NoticeKind::Error, t!("notice.import_failed", file = name), Some(e.to_string()));
+            Err(e) => Err(e.to_string()),
+        };
+        let (fragment, parts, excluded) = match read {
+            Ok(r) => r,
+            Err(why) => {
+                self.notify(NoticeKind::Error, t!("notice.import_failed", file = name), Some(why));
                 return;
             }
         };
-        let (fragment, report) = Document::from_step(&step, name);
         if fragment.root_assembly().occurrences().is_empty() {
-            let detail = (report.excluded > 0).then(|| skraft_i18n::tp!("notice.import_excluded", report.excluded));
+            let detail = (excluded > 0).then(|| skraft_i18n::tp!("notice.import_excluded", excluded));
             self.notify(NoticeKind::Error, t!("notice.import_empty", file = name), detail);
             return;
         }
@@ -474,8 +483,15 @@ impl Editor {
         if !self.busy() {
             self.zoom_extents();
         }
-        let detail = (report.excluded > 0).then(|| skraft_i18n::tp!("notice.import_excluded", report.excluded));
-        self.notify(NoticeKind::Success, skraft_i18n::tp!("notice.imported", report.parts, file = name), detail);
+        self.notify(NoticeKind::Success, skraft_i18n::tp!("notice.imported", parts, file = name), None);
+        // What was left out, a warning of its own: under the success it went unseen.
+        if excluded > 0 {
+            self.notify(
+                NoticeKind::Warning,
+                skraft_i18n::tp!("notice.import_excluded", excluded),
+                Some(t!("notice.import_excluded_detail")),
+            );
+        }
     }
 
     /// Are meshes asked of the kernel still on their way (or meshes missing, not asked yet)?

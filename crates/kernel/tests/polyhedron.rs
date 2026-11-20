@@ -107,3 +107,51 @@ fn a_reversed_face_is_set_right() {
     assert!((volume - 1000.0).abs() < 1e-6);
     Solid::from_polyhedron(&poly).unwrap();
 }
+
+/// An edge drawn on a face from its border, ending inside: SketchUp runs the face's loop into it
+/// and back (`… 5 c 5 …`). The edge is no edge of the solid.
+#[test]
+fn an_edge_ending_inside_a_face_is_left_out() {
+    let (mut vertices, mut faces) = cuboid(DVec3::ZERO, DVec3::splat(10.0), 0);
+    vertices.push(DVec3::new(5.0, 5.0, 10.0)); // c = 8, on the top face
+    faces[1].loops = vec![vec![4, 5, 8, 5, 7, 6]];
+    let poly = Polyhedron { vertices, faces };
+    let (_, volume) = poly.oriented().unwrap();
+    assert!((volume - 1000.0).abs() < 1e-6);
+    let s = Solid::from_polyhedron(&poly).unwrap();
+    assert_eq!(s.topology_counts(), (6, 12, 8));
+}
+
+/// A plate with a square through hole whose top face has an edge drawn from its corner to the
+/// hole's: SketchUp holds that face as one loop, round the border, along the edge, round the
+/// hole and back along the edge. The loop is parted into the border and the hole.
+#[test]
+fn an_edge_bridging_a_face_to_its_hole_is_left_out() {
+    let mut vertices: Vec<DVec3> = Vec::new();
+    for z in [0.0, 10.0] {
+        for (x, y) in [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0), (40.0, 40.0), (60.0, 40.0), (60.0, 60.0), (40.0, 60.0)] {
+            vertices.push(DVec3::new(x, y, z));
+        }
+    }
+    let quad = |n: DVec3, ids: [u32; 4]| PolyFace { normal: n, loops: vec![ids.to_vec()] };
+    let faces = vec![
+        PolyFace { normal: -DVec3::Z, loops: vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]] },
+        // 8 → 12 the edge, run there (after the border) and back (after the hole).
+        PolyFace { normal: DVec3::Z, loops: vec![vec![8, 9, 10, 11, 8, 12, 15, 14, 13, 12]] },
+        quad(-DVec3::Y, [0, 1, 9, 8]),
+        quad(DVec3::X, [1, 2, 10, 9]),
+        quad(DVec3::Y, [2, 3, 11, 10]),
+        quad(-DVec3::X, [3, 0, 8, 11]),
+        quad(DVec3::Y, [4, 5, 13, 12]),
+        quad(-DVec3::X, [5, 6, 14, 13]),
+        quad(-DVec3::Y, [6, 7, 15, 14]),
+        quad(DVec3::X, [7, 4, 12, 15]),
+    ];
+    let poly = Polyhedron { vertices, faces };
+    let (oriented, volume) = poly.oriented().unwrap();
+    assert!((volume - (100.0 * 100.0 - 400.0) * 10.0).abs() < 1e-6);
+    assert_eq!(oriented.faces[1].loops.len(), 2, "the border, then the hole");
+    assert_eq!(oriented.faces[1].loops[0].len(), 4);
+    let s = Solid::from_polyhedron(&poly).unwrap();
+    assert_eq!(s.topology_counts().0, 10);
+}

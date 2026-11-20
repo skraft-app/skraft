@@ -74,6 +74,13 @@ pub enum Task {
         #[serde(with = "serde_bytes_compat")]
         bytes: Vec<u8>,
     },
+    /// Reads a SketchUp file (its bytes): definitions at their scales, their faces built as
+    /// solids (docs/io/sketchup-import.md). Produces no solid of the job's: an
+    /// [`Output::SketchUp`].
+    ImportSketchUp {
+        #[serde(with = "serde_bytes_compat")]
+        bytes: Vec<u8>,
+    },
     /// Panics with `message`, on purpose: tests how a kernel crash is recovered from (the
     /// app's Débogage menu). Natively the panic is caught: an error. In the web
     /// worker it aborts the wasm: the worker is replaced.
@@ -92,9 +99,9 @@ pub enum Quality {
 /// How far a long task is (docs/ui/loading.md), reported while it runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Progress {
-    /// A STEP file being parsed and its structure read.
+    /// A file being parsed and its structure read (STEP, SketchUp).
     Reading,
-    /// A STEP file's bodies: `done` of `total` read.
+    /// A file's bodies: `done` of `total` read (STEP) or built (SketchUp).
     Bodies { done: u32, total: u32 },
 }
 
@@ -141,11 +148,13 @@ pub enum Output {
     },
     /// A STEP file read (boxed: far larger than the others).
     Step(Box<crate::StepImport>),
+    /// A SketchUp file read (boxed: far larger than the others).
+    SketchUp(Box<crate::SketchUpImport>),
 }
 
 /// A file's bytes crossing to the web worker as one MessagePack binary, not one number per
 /// byte.
-mod serde_bytes_compat {
+pub(crate) mod serde_bytes_compat {
     use serde::{Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {

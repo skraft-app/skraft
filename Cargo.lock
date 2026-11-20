@@ -3023,6 +3023,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
+name = "skpwright"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa374de079ed320cace464fce37867d56fee8d108168f0787b087e6ecf3d1261"
+dependencies = [
+ "miniz_oxide 0.9.1",
+]
+
+[[package]]
 name = "skraft"
 version = "0.1.0"
 dependencies = [
@@ -3105,6 +3114,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
+ "skpwright",
  "skraft-i18n",
  "solidcore",
  "solidcore-convert",

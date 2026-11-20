@@ -82,7 +82,7 @@ menu:
     title: "Fichier"
     new: "Nouveau"
     open: "Ouvrir"
-    # Places a STEP file's content in the model.
+    # Places a STEP or SketchUp file's content in the model.
     import: "Importer"
     save: "Enregistrer"
     save_as: "Enregistrer sous"
@@ -283,7 +283,7 @@ start:
   title: "Skraft"
   new: "Nouveau document"
   open: "Ouvrir un fichier"
-  import: "Importer un fichier STEP"
+  import: "Importer un fichier STEP ou SKP"
   recent: "Fichiers récents"
   # Desktop: the browser keeps no paths.
   no_recent: "Aucun fichier récent"
@@ -725,9 +725,11 @@ notice:
   display_failed: "Affichage impossible"
   imported: "%{file} importé : %{count} pièce"
   imported_plural: "%{file} importé : %{count} pièces"
-  # Bodies of the file that are no closed solid (surfaces), left out.
-  import_excluded: "%{count} corps non fermé ignoré"
-  import_excluded_plural: "%{count} corps non fermés ignorés"
+  # Bodies of the file that are no closed solid (surfaces), left out: a warning of its own after
+  # the import, its detail under it.
+  import_excluded: "%{count} corps non solide ignoré"
+  import_excluded_plural: "%{count} corps non solides ignorés"
+  import_excluded_detail: "Seuls les solides fermés sont importés."
   import_empty: "%{file} : aucun solide à importer"
   import_failed: "Import de %{file} impossible"
   import_cancelled: "Import de %{file} annulé"
@@ -764,7 +766,7 @@ status:
   tree: "Choisir un élément dans la liste"
   # Under « Pièces », what the copy modifier held does while picking.
   tree_key: "%{key} maintenu : élément parent"
-  # Importing a file (STEP): read by the kernel, then inserted in the model.
+  # Importing a file (STEP, SketchUp): read by the kernel, then inserted in the model.
   importing: "Lecture de %{file}"
   # « calcul en cours… (Échap pour abandonner) »: the code joins them with the ellipsis.
   computing: "%{op} : calcul en cours"
@@ -1295,7 +1297,7 @@ operation:
   hide: "$t(common.hide)"
   show: "$t(common.show)"
   show_all: "$t(common.show_all)"
-  # Placing the content of an imported file (STEP…) in the model.
+  # Placing the content of an imported file (STEP, SketchUp) in the model.
   import: "Importer"
   # Placing what was copied (occurrences, guides, machinings).
   paste: "Coller"

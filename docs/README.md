@@ -96,14 +96,14 @@ decision replaced. What is not built yet is not described here.
 |---|---|---|
 | `crates/i18n` — `skraft-i18n` | The texts ([Texts and languages](ui/texts.md)): the `/locales` catalogs compiled in, `t!` / `tp!`, the current locale, plurals, decimal separator, platform key names. | `rust-i18n` |
 | `crates/theme` — `skraft-theme` | The colour tokens ([Rendering and look](render/look.md)) of the viewport and the interface, light and dark themes, sRGB ↔ linear. No UI toolkit. | `serde` |
-| `crates/kernel` — `skraft-kernel` | `Solid` (record), primitives, booleans, transformation, face offset, display mesh (`Mesh`: positions, normals, indices, B-rep face per triangle, edges). Runs each call on a fresh `Kernel` and catches its panics. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `glam`, `i18n` |
+| `crates/kernel` — `skraft-kernel` | `Solid` (record), primitives, booleans, transformation, face offset, display mesh (`Mesh`: positions, normals, indices, B-rep face per triangle, edges). Runs each call on a fresh `Kernel` and catches its panics. | `solidcore`, `solidcore-record`, `solidcore-convert`, `solidcore-tess`, `skpwright`, `glam`, `i18n` |
 | `crates/model` — `skraft-model` | `Document`, components, occurrences, ids, paths, `Operation` + `apply`, undo history, the file (a ZIP of JSON), reading typed values (expressions, `@`, lists, points). No UI dependency; testable without display. | `kernel`, `i18n`, `serde` |
 | `crates/render` — `skraft-render` | wgpu pipelines (shaded faces, edges, grid, axes, highlight, previews), GPU cache of meshes per definition, instanced drawing with a view-projection matrix. Knows neither egui nor the document. Usable off screen. | `kernel` (for `Mesh`), `wgpu`, `glam` |
 | `crates/tools` — `skraft-tools` | Camera (orbit/pan/zoom, ray from the screen), display scene (the document flattened into placed solids + mesh cache), picking by ray (CPU, triangle → B-rep face), the tools' state machines, typed dimensions, inferences. Testable without UI or GPU. | `model`, `kernel`, `i18n`, `glam` |
 | `crates/control` — `skraft-control` | The control protocol ([Control protocol](control-protocol.md)): methods and their parameters (with their JSON Schemas), the handlers that need only an `Editor` (`model.*`, `tool.*`), the loopback HTTP server with its per-start token and discovery files (desktop). No UI toolkit. | `model`, `tools`, `kernel`, `serde_json`, `schemars` |
 | `apps/skraft` | eframe: title bar, ribbon, navigator, entity info, status bar + VCB, viewport (`render`'s off-screen target shown as an egui texture), kernel service (native threads or a Web Worker), translation of egui events into tool events, opening/saving. Native and wasm. | all of the above, `eframe`, `egui-wgpu` |
 | `apps/kernel-worker` | The kernel in a web worker: runs the jobs the web UI posts. | `kernel` |
-| `apps/import` — `skraft-import` | Converts a SketchUp export (`scripts/sketchup/export.rb`) or a STEP file to a `.skraft` file. | `model`, `kernel` |
+| `apps/import` — `skraft-import` | Converts a SketchUp (`.skp`) or STEP file to a `.skraft` file, as the app imports it, with counts and timings. | `model`, `kernel` |
 | `apps/skraft-mcp` | An MCP server (stdio) over the control protocol: the running app, or an editor of its own without a window. | `control`, `tools`, `model`, `kernel` |
 
 ## Toolchain and dependencies
@@ -119,6 +119,7 @@ decision replaced. What is not built yet is not described here.
   kernel's Web Worker ([The kernel](model/kernel.md)).
 - `rust-i18n` reads the `/locales` catalogs at compile time; `crates/i18n/build.rs` makes a
   changed catalog rebuild it.
-- Licences: GPL-3.0-or-later; `deny.toml` lists the licences a dependency may have (checked by
+- Licences: GPL-3.0-or-later; the binaries linking skpwright (GPL-3.0-only, the SketchUp
+  reader: the app, the kernel worker) are distributed under GPLv3. `deny.toml` lists the licences a dependency may have (checked by
   `cargo deny` in CI), `scripts/third-party-licenses.sh` writes the notices shipped with the
   installers.

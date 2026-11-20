@@ -2541,7 +2541,7 @@ impl eframe::App for SkraftApp {
                         self.new_document();
                     }
                     if let Some(d) = self.docs.active_mut() {
-                        d.editor.import_step(name, bytes);
+                        d.editor.import(name, bytes);
                     }
                 }
             }

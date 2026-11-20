@@ -1,48 +1,94 @@
-//! Converts a SketchUp export (the JSON `scripts/sketchup/export.rb` writes) to a
-//! `.skraft` file, and says what it did:
+//! Converts a SketchUp file (`.skp`) or a STEP file (`.step`, `.stp`) to a `.skraft` file as
+//! the app imports it, and says what it did:
 //!
 //! ```sh
-//! cargo run --release -p skraft-import -- model.json [model.skraft]
+//! cargo run --release -p skraft-import -- model.skp [model.skraft]
 //! ```
 //!
-//! A developer tool (its output in English): the app will import from its own menu later.
+//! A developer tool (its output in English): timings and what was left out.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use skraft_kernel::Solid;
-use skraft_model::Document;
+use skraft_kernel::{Job, Output, Task};
+use skraft_model::{Document, Operation, Prepared};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(input) = args.first().map(PathBuf::from) else {
-        eprintln!("usage: skraft-import <export.json> [<out.skraft>]");
+        eprintln!("usage: skraft-import <model.skp | model.step> [<out.skraft>]");
         return ExitCode::FAILURE;
     };
     let output = args.get(1).map(PathBuf::from).unwrap_or_else(|| input.with_extension("skraft"));
-    let is_step =
-        input.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("step") || e.eq_ignore_ascii_case("stp"));
-    if is_step {
-        return step(&input, &output);
+    let extension = input.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+    match extension.as_deref() {
+        Some("step" | "stp") => step(&input, &output),
+        Some("skp") => sketchup(&input, &output),
+        _ => {
+            eprintln!("{}: not a .skp, .step or .stp file", input.display());
+            ExitCode::FAILURE
+        }
     }
+}
 
+/// `fragment` inserted into an empty model, as the app inserts an imported file.
+fn inserted(fragment: Document) -> Option<Document> {
+    let doc = Document::new();
+    let op = Operation::Insert { context: doc.root(), fragment: std::sync::Arc::new(fragment), transform: glam::DAffine3::IDENTITY };
+    match doc.prepare(&op) {
+        Ok(Prepared::Done(a)) => Some(a.document),
+        Ok(Prepared::Kernel(_)) => unreachable!("an insert needs no kernel"),
+        Err(e) => {
+            eprintln!("insert: {e}");
+            None
+        }
+    }
+}
+
+/// A SketchUp file read as the app reads it (the kernel's `Task::ImportSketchUp`, then
+/// `Document::from_sketchup` and `Operation::Insert` into an empty model), saved, and reported.
+fn sketchup(input: &std::path::Path, output: &std::path::Path) -> ExitCode {
+    let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
     let t = Instant::now();
-    let text = match std::fs::read_to_string(&input) {
-        Ok(t) => t,
+    let bytes = match std::fs::read(input) {
+        Ok(b) => b,
         Err(e) => {
             eprintln!("{}: {e}", input.display());
             return ExitCode::FAILURE;
         }
     };
-    let read = t.elapsed();
-    let (doc, report) = match Document::from_sketchup(&text, &Solid::from_polyhedron) {
+    let load = t.elapsed();
+    let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportSketchUp { bytes }] };
+    let skp = match skraft_kernel::run(&job).map(|mut o| o.pop()) {
+        Ok(Some(Output::SketchUp(s))) => s,
+        Ok(_) => {
+            eprintln!("unexpected kernel output");
+            return ExitCode::FAILURE;
+        }
+        Err(e) => {
+            eprintln!("{}: {e}", input.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let name = input.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let (fragment, report) = match Document::from_sketchup(&skp, &name) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("{}: {e}", input.display());
             return ExitCode::FAILURE;
         }
     };
+    if fragment.root_assembly().occurrences().is_empty() {
+        eprintln!("{}: no solid to import", input.display());
+        for (name, why) in &report.excluded {
+            eprintln!("  excluded {name}: {why}");
+        }
+        return ExitCode::FAILURE;
+    }
+    let t = Instant::now();
+    let Some(doc) = inserted(fragment) else { return ExitCode::FAILURE };
+    let insert = t.elapsed();
     let t = Instant::now();
     let file = match doc.to_file() {
         Ok(f) => f,
@@ -51,7 +97,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if let Err(e) = std::fs::write(&output, &file) {
+    if let Err(e) = std::fs::write(output, &file) {
         eprintln!("{}: {e}", output.display());
         return ExitCode::FAILURE;
     }
@@ -61,12 +107,23 @@ fn main() -> ExitCode {
     let reopened = Document::from_file(&file).map(|d| d.placed_parts().len());
     let reopen = t.elapsed();
 
-    let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
     println!("{} → {}", input.display(), output.display());
     println!("  parts {:>8}   assemblies {:>6}   occurrences {:>8}", report.parts, report.assemblies, report.occurrences);
-    println!("  placed parts {:>8}   faces {:>10}", report.placed_parts, report.faces);
-    println!("  read {:>9.1} ms   parse {:>9.1} ms   build {:>9.1} ms", ms(read), ms(report.parse), ms(report.build));
-    println!("  assemble {:>5.1} ms   write {:>9.1} ms   ({:.1} MB)", ms(report.assemble), ms(write), file.len() as f64 / 1e6);
+    println!(
+        "  placed parts {:>8}   faces {:>10}   painted {:>8}   materials {:>4}",
+        report.placed_parts,
+        report.faces,
+        report.painted,
+        doc.materials().count()
+    );
+    println!("  load {:>9.1} ms   read {:>9.1} ms   build {:>9.1} ms", ms(load), ms(report.read), ms(report.build));
+    println!(
+        "  assemble {:>5.1} ms   insert {:>7.1} ms   write {:>9.1} ms   ({:.1} MB)",
+        ms(report.assemble),
+        ms(insert),
+        ms(write),
+        file.len() as f64 / 1e6
+    );
     match reopened {
         Ok(n) => println!("  reopen {:>7.1} ms   ({n} placed parts)", ms(reopen)),
         Err(e) => println!("  reopen failed: {e}"),
@@ -84,15 +141,18 @@ fn main() -> ExitCode {
             println!("    {name}: {why}");
         }
     }
+    if !report.diagnostics.is_empty() {
+        println!("  diagnostics:");
+        for d in report.diagnostics.iter().take(20) {
+            println!("    {d}");
+        }
+    }
     ExitCode::SUCCESS
 }
 
 /// A STEP file read as the app reads it (the kernel's `Task::ImportStep`, then
 /// `Document::from_step` and `Operation::Insert` into an empty model), saved, and reported.
 fn step(input: &std::path::Path, output: &std::path::Path) -> ExitCode {
-    use skraft_kernel::{Job, Output, Task};
-    use skraft_model::{Operation, Prepared};
-
     let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
     let bytes = match std::fs::read(input) {
         Ok(b) => b,
@@ -118,16 +178,7 @@ fn step(input: &std::path::Path, output: &std::path::Path) -> ExitCode {
     let name = input.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
     let t = Instant::now();
     let (fragment, report) = Document::from_step(&step, &name);
-    let doc = Document::new();
-    let op = Operation::Insert { context: doc.root(), fragment: std::sync::Arc::new(fragment), transform: glam::DAffine3::IDENTITY };
-    let doc = match doc.prepare(&op) {
-        Ok(Prepared::Done(a)) => a.document,
-        Ok(Prepared::Kernel(_)) => unreachable!("an insert needs no kernel"),
-        Err(e) => {
-            eprintln!("insert: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let Some(doc) = inserted(fragment) else { return ExitCode::FAILURE };
     let insert = t.elapsed();
     let file = match doc.to_file() {
         Ok(f) => f,

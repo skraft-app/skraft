@@ -353,6 +353,7 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
             }
             Task::Display { solid: i, quality } => Output::Display(input(*i)?.display_at(*quality).map_err(|e| e.to_string())),
             Task::ImportStep { bytes } => Output::Step(Box::new(crate::step::read::import(bytes, cx.report)?)),
+            Task::ImportSketchUp { bytes } => Output::SketchUp(Box::new(crate::sketchup::read::import(bytes, cx.report)?)),
             Task::Panic { message } => guarded("panic", || -> Result<Output> { panic!("{message}") })?,
         };
         out.push(done);

@@ -33,9 +33,42 @@ fn newell(vertices: &[DVec3], ids: &[u32]) -> DVec3 {
     n
 }
 
+/// A loop without the edges it runs both ways: SketchUp keeps an edge drawn on a face that does
+/// not split it in the face's loop, run there and back — a spur (`… a b a …`: the edge into the
+/// face, its far end dropped) or a bridge to a hole (`… a b … b a …`: the loop parted in two, the
+/// part between the two runs a loop of its own). Loops of fewer than three vertices dropped.
+pub(crate) fn untangled(l: &[u32]) -> Vec<Vec<u32>> {
+    let mut l: Vec<u32> = l.to_vec();
+    l.dedup();
+    while l.len() > 1 && l.first() == l.last() {
+        l.pop();
+    }
+    let n = l.len();
+    if n < 3 {
+        return Vec::new();
+    }
+    // The first edge run both ways: i → i+1, then later j → j+1 back.
+    for i in 0..n {
+        let (a, b) = (l[i], l[(i + 1) % n]);
+        for j in i + 1..n {
+            if l[j] == b && l[(j + 1) % n] == a {
+                // Between the two runs (b … , before the second b), and the rest (a, then on
+                // from after the second a).
+                let inner: Vec<u32> = l[i + 1..j].to_vec();
+                let outer: Vec<u32> = l[..=i].iter().chain(l[(j + 2).min(n)..].iter()).copied().collect();
+                // `j + 1 == n`: the second run ends at the start (l[0] == a), already kept.
+                let outer = if j + 1 == n { outer[1..].to_vec() } else { outer };
+                return untangled(&outer).into_iter().chain(untangled(&inner)).collect();
+            }
+        }
+    }
+    vec![l]
+}
+
 impl Polyhedron {
-    /// The same faces ready to build: consecutive repeated vertices dropped, loops of fewer
-    /// than three vertices dropped, each outer loop turning about its face's normal and each
+    /// The same faces ready to build: consecutive repeated vertices dropped, edges a loop runs
+    /// both ways taken out (an edge drawn on a face: [`untangled`]), loops of fewer than three
+    /// vertices dropped, each outer loop turning about its face's normal and each
     /// hole against it; then, lump by lump, the faces turned alike across their edges (a
     /// reversed face set right) and all of them turned if the lump is inside out (a negative
     /// volume). Also the volume. `Err` names what makes it no solid: open, non-manifold, not
@@ -44,22 +77,27 @@ impl Polyhedron {
         let n = self.vertices.len();
         let mut faces = Vec::with_capacity(self.faces.len());
         for f in &self.faces {
-            let mut loops = Vec::with_capacity(f.loops.len());
+            if f.loops.iter().flatten().any(|&i| i as usize >= n) {
+                return Err(format!("vertex index out of range ({n} vertices)"));
+            }
+            // The loops untangled: a loop parted gives more than it had, and the outer one is
+            // then the largest (they lie in one plane).
+            let mut parts: Vec<Vec<u32>> = Vec::with_capacity(f.loops.len());
             for (k, l) in f.loops.iter().enumerate() {
-                if l.iter().any(|&i| i as usize >= n) {
-                    return Err(format!("vertex index out of range ({n} vertices)"));
+                let untangled = untangled(l);
+                if k == 0 && untangled.is_empty() {
+                    break; // A degenerate outer loop: the face is dropped.
                 }
-                let mut l: Vec<u32> = l.clone();
-                l.dedup();
-                while l.len() > 1 && l.first() == l.last() {
-                    l.pop();
-                }
-                if l.len() < 3 {
-                    if k == 0 {
-                        break; // A degenerate outer loop: the face is dropped.
-                    }
-                    continue;
-                }
+                parts.extend(untangled);
+            }
+            if parts.len() > f.loops.len()
+                && let Some(largest) = (0..parts.len())
+                    .max_by(|&a, &b| newell(&self.vertices, &parts[a]).length().total_cmp(&newell(&self.vertices, &parts[b]).length()))
+            {
+                parts.swap(0, largest);
+            }
+            let mut loops = Vec::with_capacity(parts.len());
+            for (k, mut l) in parts.into_iter().enumerate() {
                 let along = newell(&self.vertices, &l).dot(f.normal);
                 if (k == 0) == (along < 0.0) {
                     l.reverse();

@@ -18,7 +18,7 @@ state and link the records behind it.
 | 0009 | [Stretch rewrites the B-rep record, on the recipe](0009-stretch-rewrites-brep-record.md) | accepted (2026-11-11) |
 | 0010 | [File format version 1 until the first release](0010-file-format-v1-until-release.md) | accepted (2026-11-12) |
 | 0011 | [Per-occurrence costs: one GPU instance, lookups through indexes](0011-per-occurrence-costs-instances-and-indexes.md) | accepted (2026-11-12) |
-| 0012 | [Import SketchUp models through a JSON export of their structure](0012-sketchup-import-through-json-export.md) | accepted (2026-11-12) |
+| 0012 | [Import SketchUp models through a JSON export of their structure](0012-sketchup-import-through-json-export.md) | superseded by 0043 (2026-11-20) |
 | 0013 | [Cutters and locks as a typed Behavior on the component](0013-stretch-behavior-on-component.md) | accepted (2026-11-12) |
 | 0014 | [Each open document holds its whole state; one kernel service and one renderer are shared](0014-documents-own-their-state.md) | accepted (2026-11-13) |
 | 0015 | [A ribbon with workspaces holds the tools, as data with pins](0015-ribbon-with-workspaces.md) | accepted (2026-11-13) |
@@ -49,3 +49,4 @@ state and link the records behind it.
 | 0040 | [Typed properties, their schema optional](0040-typed-properties-schema-optional.md) | accepted (2026-11-19) |
 | 0041 | [Textures by box projection, materials alone in a .skraftmat](0041-textures-and-materials-files.md) | accepted (2026-11-19) |
 | 0042 | [Body nodes: an operation applied to the children, the part's tree as its history](0042-body-nodes-operators.md) | accepted (2026-11-19; not built yet) |
+| 0043 | [Read SketchUp files directly with skpwright, in the kernel](0043-sketchup-files-read-with-skpwright.md) | accepted (2026-11-20) |

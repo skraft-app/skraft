@@ -23,8 +23,8 @@ A simple, intuitive 3D modeller on real solids: exact B-reps computed by the Sol
 `crates/`: `kernel` (SolidCore, the B-rep record) → `model` (document, operations) and `render`
 (wgpu, no egui, no document) → `tools` (editor, tools, inferences; no GPU) → `apps/skraft`
 (egui app). Also `control` (control protocol), `i18n`, `theme`; `apps/kernel-worker` (the
-kernel in a web worker), `apps/import` (a SketchUp export, `scripts/sketchup/export.rb`, to a
-`.skraft` file), `apps/skraft-mcp` (MCP server over the control protocol).
+kernel in a web worker), `apps/import` (a `.skp` or STEP file to a `.skraft` file),
+`apps/skraft-mcp` (MCP server over the control protocol).
 
 ## Conventions
 

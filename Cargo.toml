@@ -36,6 +36,9 @@ solidcore-ops = { git = "https://github.com/tangency-labs/solidcore", rev = "793
 # `Solid::from_polyhedron`).
 solidcore-step = { git = "https://github.com/tangency-labs/solidcore", rev = "793d09e8f1e1089fda739f228b20223068c9e14c" }
 
+# SketchUp files read (docs/io/sketchup-import.md): a clean-room .skp reader, GPL-3.0-only.
+skpwright = "0.6.1"
+
 glam = { version = "0.30", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"

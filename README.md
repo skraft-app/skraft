@@ -93,6 +93,8 @@ one page per topic, with the decision records behind it; what changes from one r
   rendering, its theme and its control protocol.
 - [OpenCutList](https://github.com/lairdubois/lairdubois-opencutlist-sketchup-extension), the
   model for parts, materials and many of the tools' interactions.
+- [skpwright](https://github.com/hew3d/skpwright) by Kurt Granroth, the reader of SketchUp files
+  (GPL-3.0-only).
 - [egui](https://github.com/emilk/egui) and [wgpu](https://github.com/gfx-rs/wgpu) for the
   interface and the display.
 - The fonts IBM Plex Sans, IBM Plex Mono and DejaVu Sans.
@@ -102,4 +104,5 @@ installer (`THIRD-PARTY-LICENSES.txt`).
 
 ## License
 
-Skraft is free software, under the [GNU General Public License v3.0 or later](LICENSE).
+Skraft is free software, under the [GNU General Public License v3.0 or later](LICENSE). The
+application, which links skpwright (GPL-3.0-only), is distributed under the GPL v3.
