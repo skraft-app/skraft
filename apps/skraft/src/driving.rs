@@ -141,7 +141,8 @@ impl Driving {
     }
 
     /// The user acted other than through the window's events (the native menu bar, a file
-    /// the system opens): what follows is theirs.
+    /// the system opens): what follows is theirs. Native only: the web has neither.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn user_acted(&mut self) {
         self.origin = Origin::User;
     }
