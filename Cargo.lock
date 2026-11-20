@@ -3184,13 +3184,16 @@ name = "skraft-tools"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "pollster 0.4.0",
  "serde",
  "serde_json",
  "skraft-i18n",
  "skraft-kernel",
  "skraft-model",
+ "skraft-render",
  "skraft-theme",
  "web-time",
+ "wgpu",
 ]
 
 [[package]]

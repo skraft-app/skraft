@@ -328,8 +328,10 @@ impl Dash {
 
 /// The optional device features the renderer uses when the device has them:
 /// `DEPTH_CLIP_CONTROL`, so that depth-tested lines past the parallel projection's depth range
-/// (infinite guides and axes) are clamped to it rather than cut.
-pub const OPTIONAL_FEATURES: wgpu::Features = wgpu::Features::DEPTH_CLIP_CONTROL;
+/// (infinite guides and axes) are clamped to it rather than cut; `DEPTH32FLOAT_STENCIL8`, the
+/// float depth reversed depth needs far from the eye (a 24-bit one steps by about 2 mm at 30 m,
+/// the near plane a thousandth of the distance: a part 5 mm behind a face showed through it).
+pub const OPTIONAL_FEATURES: wgpu::Features = wgpu::Features::DEPTH_CLIP_CONTROL.union(wgpu::Features::DEPTH32FLOAT_STENCIL8);
 
 /// A square grid on the XY plane centred on the origin.
 #[derive(Clone, Copy, Debug)]
@@ -456,27 +458,59 @@ struct Vertex {
     paint: u32,
 }
 
-/// One corner of a segment drawn as a screen-space quad (6 per segment, two triangles): both
-/// ends, which end this corner is at (`corner.x`: 0 = `a`, 1 = `b`) and on which side
-/// (`corner.y`: ±1). The vertex shader widens it to the line width in pixels.
+/// A segment of an edge (a B-rep edge's, or a silhouette candidate's: a mesh edge inside a
+/// curved surface), read by the vertex shader from a storage buffer (`EdgeSegment` in
+/// shader.wgsl, its quad's corners indexed by [`SEGMENT_INDICES`]): its ends, and the outward
+/// normals of the two triangles along it (`w`: 1, 0 when there is none) — an edge whose two
+/// faces turn away is not drawn, an outline only where one does.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct EdgeVertex {
-    a: [f32; 3],
-    b: [f32; 3],
-    corner: [f32; 2],
+struct Segment {
+    a: [f32; 4],
+    b: [f32; 4],
+    n1: [f32; 4],
+    n2: [f32; 4],
 }
 
-/// A corner of a silhouette candidate's quad: a mesh edge inside a curved surface, with the
-/// normals of its two triangles. Drawn only where one faces the eye and the other does not.
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct SilhouetteVertex {
-    a: [f32; 3],
-    b: [f32; 3],
-    corner: [f32; 2],
-    n1: [f32; 3],
-    n2: [f32; 3],
+/// A segment's quad: 4 corners (each end, on each side), 6 indices (`band` in shader.wgsl).
+const SEGMENT_CORNERS: u32 = 4;
+const SEGMENT_INDICES: [u32; 6] = [0, 1, 3, 0, 3, 2];
+
+/// A segment's indices repeated for as many segments as the largest mesh has: one buffer for
+/// every mesh's segments, the GPU shading the corners its triangles share once.
+struct SegmentIndices {
+    corners: u32,
+    pattern: &'static [u32],
+    buffer: Option<wgpu::Buffer>,
+    segments: u32,
+}
+
+impl SegmentIndices {
+    const fn new(corners: u32, pattern: &'static [u32]) -> Self {
+        SegmentIndices { corners, pattern, buffer: None, segments: 0 }
+    }
+
+    /// Room for `segments` segments.
+    fn reserve(&mut self, device: &wgpu::Device, segments: u32) {
+        if segments <= self.segments {
+            return;
+        }
+        let n = segments.next_power_of_two();
+        let (pattern, corners) = (self.pattern, self.corners);
+        let indices: Vec<u32> = (0..n).flat_map(|k| pattern.iter().map(move |i| k * corners + i)).collect();
+        self.buffer = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("segment indices"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        }));
+        self.segments = n;
+    }
+
+    /// The indices of segments `range`.
+    fn of(&self, range: Range<u32>) -> Range<u32> {
+        let n = self.pattern.len() as u32;
+        range.start * n..range.end * n
+    }
 }
 
 /// A corner of a coloured line's quad; `corner.z` is its half width in pixels; `pattern`: its
@@ -610,8 +644,35 @@ struct PartRange {
     /// Each B-rep face's runs of triangles in `indices` (by face index): a face highlighted
     /// draws only those.
     faces: Vec<(u32, Range<u32>)>,
+    /// Its segments in the mesh's [`GpuMesh::edges`] and [`GpuMesh::silhouettes`].
     edges: Range<u32>,
     silhouettes: Range<u32>,
+}
+
+/// A mesh's [`Segment`]s on the GPU, bound for the edges' vertex shader.
+struct Segments {
+    buffer: wgpu::Buffer,
+    group: wgpu::BindGroup,
+    count: u32,
+}
+
+impl Segments {
+    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, label: &str, segments: &[Segment]) -> Option<Self> {
+        if segments.is_empty() {
+            return None;
+        }
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(segments),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
+        });
+        Some(Segments { buffer, group, count: segments.len() as u32 })
+    }
 }
 
 struct GpuMesh {
@@ -621,10 +682,8 @@ struct GpuMesh {
     vertices: Option<wgpu::Buffer>,
     indices: Option<wgpu::Buffer>,
     index_count: u32,
-    edges: Option<wgpu::Buffer>,
-    edge_vertex_count: u32,
-    silhouettes: Option<wgpu::Buffer>,
-    silhouette_vertex_count: u32,
+    edges: Option<Segments>,
+    silhouettes: Option<Segments>,
     parts: Vec<PartRange>,
 }
 
@@ -767,8 +826,81 @@ impl Dynamic {
     }
 }
 
-/// The viewport renderer.
-pub struct Renderer {
+/// How a pipeline of the renderer's is made ([`create_pipeline`]).
+struct PipelineDesc<'a> {
+    label: &'a str,
+    vs: &'a str,
+    fs: &'a str,
+    buffers: &'a [Option<wgpu::VertexBufferLayout<'a>>],
+    depth: wgpu::DepthStencilState,
+    write_mask: wgpu::ColorWrites,
+    blend: Option<wgpu::BlendState>,
+    unclipped_depth: bool,
+    cull_mode: Option<wgpu::Face>,
+}
+
+/// A triangle pipeline drawing into the multisampled target.
+fn create_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+    d: PipelineDesc<'_>,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(d.label),
+        layout: Some(layout),
+        vertex: wgpu::VertexState { module: shader, entry_point: Some(d.vs), compilation_options: Default::default(), buffers: d.buffers },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: d.cull_mode,
+            unclipped_depth: d.unclipped_depth,
+            ..Default::default()
+        },
+        depth_stencil: Some(d.depth),
+        multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some(d.fs),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState { format: TARGET_FORMAT, blend: d.blend, write_mask: d.write_mask })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+const INSTANCE_ATTRS: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
+    4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4,
+    8 => Float32x4, 9 => Float32x4, 10 => Float32x4, 11 => Float32x4,
+    12 => Uint32, 14 => Uint32
+];
+
+/// A placement of a part's mesh ([`InstanceRaw`]), stepped per instance.
+fn instance_layout() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+        array_stride: size_of::<InstanceRaw>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &INSTANCE_ATTRS,
+    }
+}
+
+const FACE_ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
+
+/// A face's vertex ([`Vertex`]).
+fn face_layout() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout { array_stride: size_of::<Vertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &FACE_ATTRS }
+}
+
+/// The depth steps the faces are pushed back by (docs/render/display.md#depth-of-lines): the
+/// `f32` rounding between a face and what lies on it (its edges, the tools' lines and fills,
+/// from the CPU in `f64`). Their slope term is the vertex shader's (`pushed_back`), not the
+/// pipeline's: a GPU's slope bias is its own (Apple's several times WebGPU's). The caps add as
+/// much in their shader (`pushed`).
+const FACE_STEPS: i32 = 8;
+
+/// The faces' pipelines, pushed back from the eye by [`FACE_STEPS`] (and by their slope in their
+/// vertex shader).
+struct FacePipelines {
     faces: wgpu::RenderPipeline,
     /// Faces while a section is on: cut, the backs seen through the cut painted as caps.
     faces_cut: wgpu::RenderPipeline,
@@ -776,12 +908,58 @@ pub struct Renderer {
     faces_ghost: wgpu::RenderPipeline,
     /// A ghost highlighted: a wash of its tint over its faces, as see-through.
     faces_ghost_mark: wgpu::RenderPipeline,
+}
+
+impl FacePipelines {
+    fn new(device: &wgpu::Device, layout: &wgpu::PipelineLayout, shader: &wgpu::ShaderModule, depth_format: wgpu::TextureFormat) -> Self {
+        // Reversed depth: nearer is greater, pushed back is towards 0.
+        let depth = |write: bool| wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: Some(write),
+            depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+            stencil: Default::default(),
+            bias: wgpu::DepthBiasState { constant: -FACE_STEPS, slope_scale: 0.0, clamp: 0.0 },
+        };
+        let buffers = [Some(face_layout()), Some(instance_layout())];
+        let make = |label, fs, depth, blend| {
+            create_pipeline(
+                device,
+                layout,
+                shader,
+                PipelineDesc {
+                    label,
+                    vs: "vs_face",
+                    fs,
+                    buffers: &buffers,
+                    depth,
+                    write_mask: wgpu::ColorWrites::ALL,
+                    blend,
+                    unclipped_depth: false,
+                    cull_mode: None,
+                },
+            )
+        };
+        let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
+        FacePipelines {
+            faces: make("faces", "fs_face", depth(true), None),
+            faces_cut: make("faces (section)", "fs_face_cut", depth(true), None),
+            faces_ghost: make("faces (ghost)", "fs_face_ghost", depth(false), alpha),
+            faces_ghost_mark: make("faces (ghost highlighted)", "fs_face_ghost_mark", depth(false), alpha),
+        }
+    }
+}
+
+/// The viewport renderer.
+pub struct Renderer {
+    faces: FacePipelines,
     /// Then the caps marked in the stencil (the parity of the faces left along each ray), and
     /// drawn there from the back faces, just behind the plane.
     cap_mark: wgpu::RenderPipeline,
     caps: wgpu::RenderPipeline,
     depth_format: wgpu::TextureFormat,
     edges: wgpu::RenderPipeline,
+    /// The edges of what is seen through (a ghost): those its own solid hides drawn too.
+    edges_all: wgpu::RenderPipeline,
     silhouettes: wgpu::RenderPipeline,
     /// The same for [`Batch::faint_edges`]: blended, no depth written.
     edges_faint: wgpu::RenderPipeline,
@@ -799,6 +977,9 @@ pub struct Renderer {
     fills: [wgpu::RenderPipeline; 4],
     globals: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
+    /// The edges' segments' (group 1, [`Segments`]).
+    segment_layout: wgpu::BindGroupLayout,
+    segment_indices: SegmentIndices,
     bind_group: Option<wgpu::BindGroup>,
     palette: Dynamic,
     /// The palette entries' textures ([`Style::textures`]).
@@ -898,33 +1079,46 @@ impl Renderer {
             immediate_size: 0,
         });
 
-        let instance_attrs = wgpu::vertex_attr_array![
-            4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4,
-            8 => Float32x4, 9 => Float32x4, 10 => Float32x4, 11 => Float32x4,
-            12 => Uint32, 14 => Uint32
-        ];
-        let instance_layout = wgpu::VertexBufferLayout {
-            array_stride: size_of::<InstanceRaw>() as u64,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &instance_attrs,
-        };
-        let face_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
-        let face_layout = wgpu::VertexBufferLayout {
-            array_stride: size_of::<Vertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &face_attrs,
-        };
-        let edge_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
-        let edge_layout = wgpu::VertexBufferLayout {
-            array_stride: size_of::<EdgeVertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &edge_attrs,
-        };
-        let sil_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x3, 13 => Float32x3];
-        let sil_layout = wgpu::VertexBufferLayout {
-            array_stride: size_of::<SilhouetteVertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &sil_attrs,
+        let instance_layout = instance_layout();
+        let face_layout = face_layout();
+        // The edges' segments, read by their vertex shader (group 1): one bind group per mesh.
+        let segment_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("segments"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(size_of::<Segment>() as u64),
+                },
+                count: None,
+            }],
+        });
+        let edge_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("skraft edges"),
+            bind_group_layouts: &[Some(&bgl), Some(&segment_bgl)],
+            immediate_size: 0,
+        });
+        // No vertex buffer of their own: the instances in slot 1, as the faces'.
+        let edge_buffers = [None, Some(instance_layout.clone())];
+        let edge_pipeline = |label: &str, vs: &str, fs: &str, depth: wgpu::DepthStencilState, blend: Option<wgpu::BlendState>| {
+            create_pipeline(
+                device,
+                &edge_pipeline_layout,
+                &shader,
+                PipelineDesc {
+                    label,
+                    vs,
+                    fs,
+                    buffers: &edge_buffers,
+                    depth,
+                    write_mask: wgpu::ColorWrites::ALL,
+                    blend,
+                    unclipped_depth: false,
+                    cull_mode: None,
+                },
+            )
         };
         let line_attrs =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4];
@@ -950,27 +1144,12 @@ impl Renderer {
                       blend: Option<wgpu::BlendState>,
                       unclipped_depth: bool,
                       cull_mode: Option<wgpu::Face>| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), compilation_options: Default::default(), buffers },
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode,
-                    unclipped_depth,
-                    ..Default::default()
-                },
-                depth_stencil: Some(depth),
-                multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(fs),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState { format: TARGET_FORMAT, blend, write_mask })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
+            create_pipeline(
+                device,
+                &layout,
+                &shader,
+                PipelineDesc { label, vs, fs, buffers, depth, write_mask, blend, unclipped_depth, cull_mode },
+            )
         };
         let blended =
             |label: &str,
@@ -1003,46 +1182,8 @@ impl Renderer {
         };
         use wgpu::StencilOperation::Keep;
         let all = wgpu::ColorWrites::ALL;
-        // Reversed depth: nearer is greater. Faces are pushed back (towards 0) a little so
-        // their edges win the depth test.
-        let face_bias = wgpu::DepthBiasState { constant: -2, slope_scale: -1.0, clamp: 0.0 };
+        // Reversed depth: nearer is greater.
         let nearer = wgpu::CompareFunction::GreaterEqual;
-        let faces = pipeline(
-            "faces",
-            "vs_face",
-            "fs_face",
-            &[Some(face_layout.clone()), Some(instance_layout.clone())],
-            depth(true, nearer, face_bias),
-            all,
-        );
-        let faces_cut = pipeline(
-            "faces (section)",
-            "vs_face",
-            "fs_face_cut",
-            &[Some(face_layout.clone()), Some(instance_layout.clone())],
-            depth(true, nearer, face_bias),
-            all,
-        );
-        let faces_ghost = blended(
-            "faces (ghost)",
-            "vs_face",
-            "fs_face_ghost",
-            &[Some(face_layout.clone()), Some(instance_layout.clone())],
-            depth(false, nearer, face_bias),
-            all,
-            Some(wgpu::BlendState::ALPHA_BLENDING),
-            false,
-        );
-        let faces_ghost_mark = blended(
-            "faces (ghost highlighted)",
-            "vs_face",
-            "fs_face_ghost_mark",
-            &[Some(face_layout.clone()), Some(instance_layout.clone())],
-            depth(false, nearer, face_bias),
-            all,
-            Some(wgpu::BlendState::ALPHA_BLENDING),
-            false,
-        );
         // Every fragment left flips the stencil: an odd count, the ray meets the plane inside
         // a part.
         let cap_mark = pipeline(
@@ -1066,36 +1207,13 @@ impl Renderer {
             wgpu::DepthStencilState { stencil: stencil(wgpu::CompareFunction::Equal, Keep), ..depth(true, nearer, Default::default()) },
             all,
         );
-        let edges = pipeline(
-            "edges",
-            "vs_edge",
-            "fs_edge",
-            &[Some(edge_layout.clone()), Some(instance_layout.clone())],
-            depth(true, nearer, Default::default()),
-            all,
-        );
-        let silhouettes = pipeline(
-            "silhouettes",
-            "vs_silhouette",
-            "fs_edge",
-            &[Some(sil_layout.clone()), Some(instance_layout.clone())],
-            depth(true, nearer, Default::default()),
-            all,
-        );
-        let faint = |label: &str, vs: &str, layout: &wgpu::VertexBufferLayout<'_>| {
-            blended(
-                label,
-                vs,
-                "fs_edge_faint",
-                &[Some(layout.clone()), Some(instance_layout.clone())],
-                depth(false, nearer, Default::default()),
-                all,
-                Some(wgpu::BlendState::ALPHA_BLENDING),
-                false,
-            )
-        };
-        let edges_faint = faint("edges (faint)", "vs_edge", &edge_layout);
-        let silhouettes_faint = faint("silhouettes (faint)", "vs_silhouette", &sil_layout);
+        let edges = edge_pipeline("edges", "vs_edge", "fs_edge", depth(true, nearer, Default::default()), None);
+        let edges_all = edge_pipeline("edges (all)", "vs_edge_all", "fs_edge", depth(true, nearer, Default::default()), None);
+        let silhouettes = edge_pipeline("silhouettes", "vs_silhouette", "fs_edge", depth(true, nearer, Default::default()), None);
+        let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
+        let edges_faint = edge_pipeline("edges (faint)", "vs_edge_all", "fs_edge_faint", depth(false, nearer, Default::default()), alpha);
+        let silhouettes_faint =
+            edge_pipeline("silhouettes (faint)", "vs_silhouette", "fs_edge_faint", depth(false, nearer, Default::default()), alpha);
         // Infinite lines (here and in the overlay) reach past the parallel projection's depth
         // range: clamped to it, where the device can.
         let unclipped = device.features().contains(wgpu::Features::DEPTH_CLIP_CONTROL);
@@ -1186,14 +1304,12 @@ impl Renderer {
         });
 
         Renderer {
-            faces,
-            faces_cut,
-            faces_ghost,
-            faces_ghost_mark,
+            faces: FacePipelines::new(device, &layout, &shader, depth_format),
             cap_mark,
             caps,
             depth_format,
             edges,
+            edges_all,
             silhouettes,
             edges_faint,
             silhouettes_faint,
@@ -1206,6 +1322,8 @@ impl Renderer {
             fills,
             globals,
             layout: bgl,
+            segment_layout: segment_bgl,
+            segment_indices: SegmentIndices::new(SEGMENT_CORNERS, &SEGMENT_INDICES),
             bind_group: None,
             palette: Dynamic::new("palette", wgpu::BufferUsages::STORAGE),
             texture_entries: Dynamic::new("texture entries", wgpu::BufferUsages::STORAGE),
@@ -1274,8 +1392,8 @@ impl Renderer {
         }
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
-        let mut edges: Vec<EdgeVertex> = Vec::new();
-        let mut silhouettes: Vec<SilhouetteVertex> = Vec::new();
+        let mut edges: Vec<Segment> = Vec::new();
+        let mut silhouettes: Vec<Segment> = Vec::new();
         let mut ranges = Vec::with_capacity(parts.len());
         // The centre of the parts' origins: vertices are stored relative to it.
         let origin = parts
@@ -1329,16 +1447,14 @@ impl Renderer {
             }));
             vertices.extend(extra);
             indices.extend(tri_indices);
-            for poly in &p.mesh.edges {
-                for w in poly.windows(2) {
-                    let (a, b) = (at(&w[0]), at(&w[1]));
-                    edges.extend(QUAD.map(|corner| EdgeVertex { a, b, corner }));
-                }
-            }
-            for s in silhouette_edges(p.mesh) {
-                let (a, b) = (at(&s.a), at(&s.b));
-                silhouettes.extend(QUAD.map(|corner| SilhouetteVertex { a, b, corner, n1: s.n1, n2: s.n2 }));
-            }
+            let segments = mesh_segments(p.mesh);
+            let shifted = |mut s: Segment| {
+                s.a = [s.a[0] + shift.x, s.a[1] + shift.y, s.a[2] + shift.z, 0.0];
+                s.b = [s.b[0] + shift.x, s.b[1] + shift.y, s.b[2] + shift.z, 0.0];
+                s
+            };
+            edges.extend(segments.edges.into_iter().map(shifted));
+            silhouettes.extend(segments.silhouettes.into_iter().map(shifted));
             faces.sort_by_key(|(f, _)| *f);
             ranges.push(PartRange {
                 id: p.id,
@@ -1352,16 +1468,15 @@ impl Renderer {
             (!bytes.is_empty())
                 .then(|| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytes, usage }))
         };
+        self.segment_indices.reserve(device, edges.len().max(silhouettes.len()) as u32);
         let mesh = GpuMesh {
             revision,
             origin,
             vertices: buffer("vertices", bytemuck::cast_slice(&vertices), wgpu::BufferUsages::VERTEX),
             indices: buffer("indices", bytemuck::cast_slice(&indices), wgpu::BufferUsages::INDEX),
             index_count: indices.len() as u32,
-            edges: buffer("edges", bytemuck::cast_slice(&edges), wgpu::BufferUsages::VERTEX),
-            edge_vertex_count: edges.len() as u32,
-            silhouettes: buffer("silhouettes", bytemuck::cast_slice(&silhouettes), wgpu::BufferUsages::VERTEX),
-            silhouette_vertex_count: silhouettes.len() as u32,
+            edges: Segments::new(device, &self.segment_layout, "edges", &edges),
+            silhouettes: Segments::new(device, &self.segment_layout, "silhouettes", &silhouettes),
             parts: ranges,
         };
         self.meshes.insert(key, mesh);
@@ -1467,6 +1582,7 @@ impl Renderer {
             _ => ([0.0; 4], 0.0, [0.0; 4], [0.0; 4]),
         };
         let ppp = frame.pixels_per_point;
+        let edge_half = EDGE_WIDTH * ppp / 2.0;
         queue.write_buffer(
             &self.globals,
             0,
@@ -1475,7 +1591,7 @@ impl Renderer {
                 up: dir(DVec3::Z),
                 key: dir(DVec3::new(0.35, 0.25, 0.9)),
                 background: [bg[0], bg[1], bg[2], 1.0],
-                viewport: [size[0] as f32, size[1] as f32, EDGE_WIDTH * frame.pixels_per_point / 2.0, 0.0],
+                viewport: [size[0] as f32, size[1] as f32, edge_half, 0.0],
                 face_front: rgb(style.face_front),
                 face_back: rgb(style.face_back),
                 edge: rgb(style.edge),
@@ -1648,7 +1764,8 @@ impl Renderer {
 
         if let Some(inst) = &self.instances.buffer {
             // Faces.
-            pass.set_pipeline(if section_on > 0.0 { &self.faces_cut } else { &self.faces });
+            let faces = &self.faces;
+            pass.set_pipeline(if section_on > 0.0 { &faces.faces_cut } else { &faces.faces });
             pass.set_vertex_buffer(1, inst.slice(..));
             for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.ghost) {
                 let Some(m) = self.meshes.get(&b.key) else { continue };
@@ -1705,36 +1822,45 @@ impl Renderer {
                     }
                 }
             }
-            // Edges, then silhouettes (same ink, same instances).
-            pass.set_pipeline(&self.edges);
-            for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.faint_edges) {
-                let Some(m) = self.meshes.get(&b.key) else { continue };
-                if let Some(e) = &m.edges {
-                    pass.set_vertex_buffer(0, e.slice(..));
-                    pass.draw(0..m.edge_vertex_count, r.clone());
+            // Edges, then silhouettes (same ink, same instances), their segments' indices.
+            // A ghost's edges all (seen through it), an opaque part's those it does not hide.
+            if let Some(ei) = &self.segment_indices.buffer {
+                pass.set_index_buffer(ei.slice(..), wgpu::IndexFormat::Uint32);
+                for ghost in [false, true] {
+                    pass.set_pipeline(if ghost { &self.edges_all } else { &self.edges });
+                    for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.faint_edges && b.ghost == ghost) {
+                        let Some(m) = self.meshes.get(&b.key) else { continue };
+                        if let Some(e) = &m.edges {
+                            pass.set_bind_group(1, &e.group, &[]);
+                            pass.draw_indexed(self.segment_indices.of(0..e.count), 0, r.clone());
+                        }
+                    }
+                    for run in runs.iter().filter(|r| r.face.is_none() && r.ghost == ghost) {
+                        let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
+                        if let Some(e) = &m.edges {
+                            pass.set_bind_group(1, &e.group, &[]);
+                            pass.draw_indexed(self.segment_indices.of(part.edges.clone()), 0, run.edges.clone());
+                        }
+                    }
                 }
             }
-            for run in runs.iter().filter(|r| r.face.is_none()) {
-                let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
-                if let Some(e) = &m.edges {
-                    pass.set_vertex_buffer(0, e.slice(..));
-                    pass.draw(part.edges.clone(), run.edges.clone());
-                }
-            }
-            if style.silhouettes {
+            if style.silhouettes
+                && let Some(oi) = &self.segment_indices.buffer
+            {
+                pass.set_index_buffer(oi.slice(..), wgpu::IndexFormat::Uint32);
                 pass.set_pipeline(&self.silhouettes);
                 for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.faint_edges) {
                     let Some(m) = self.meshes.get(&b.key) else { continue };
                     if let Some(s) = &m.silhouettes {
-                        pass.set_vertex_buffer(0, s.slice(..));
-                        pass.draw(0..m.silhouette_vertex_count, r.clone());
+                        pass.set_bind_group(1, &s.group, &[]);
+                        pass.draw_indexed(self.segment_indices.of(0..s.count), 0, r.clone());
                     }
                 }
                 for run in runs.iter().filter(|r| r.face.is_none()) {
                     let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                     if let Some(s) = &m.silhouettes {
-                        pass.set_vertex_buffer(0, s.slice(..));
-                        pass.draw(part.silhouettes.clone(), run.edges.clone());
+                        pass.set_bind_group(1, &s.group, &[]);
+                        pass.draw_indexed(self.segment_indices.of(part.silhouettes.clone()), 0, run.edges.clone());
                     }
                 }
             }
@@ -1743,7 +1869,7 @@ impl Renderer {
         if let Some(inst) = &self.instances.buffer
             && (frame.batches.iter().any(|b| b.ghost) || runs.iter().any(|r| r.ghost))
         {
-            pass.set_pipeline(&self.faces_ghost);
+            pass.set_pipeline(&self.faces.faces_ghost);
             pass.set_vertex_buffer(1, inst.slice(..));
             for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| b.ghost) {
                 let Some(m) = self.meshes.get(&b.key) else { continue };
@@ -1754,7 +1880,7 @@ impl Renderer {
                 }
             }
             // Ghosts highlighted: a wash of their tint, over the ghost's own faces.
-            pass.set_pipeline(&self.faces_ghost_mark);
+            pass.set_pipeline(&self.faces.faces_ghost_mark);
             for run in runs.iter().filter(|r| r.ghost) {
                 let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                 if let (Some(v), Some(i)) = (&m.vertices, &m.indices) {
@@ -1771,21 +1897,27 @@ impl Renderer {
             && frame.batches.iter().any(|b| b.faint_edges)
         {
             pass.set_vertex_buffer(1, inst.slice(..));
-            pass.set_pipeline(&self.edges_faint);
-            for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| b.faint_edges) {
-                let Some(m) = self.meshes.get(&b.key) else { continue };
-                if let Some(e) = &m.edges {
-                    pass.set_vertex_buffer(0, e.slice(..));
-                    pass.draw(0..m.edge_vertex_count, r.clone());
+            if let Some(ei) = &self.segment_indices.buffer {
+                pass.set_index_buffer(ei.slice(..), wgpu::IndexFormat::Uint32);
+                pass.set_pipeline(&self.edges_faint);
+                for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| b.faint_edges) {
+                    let Some(m) = self.meshes.get(&b.key) else { continue };
+                    if let Some(e) = &m.edges {
+                        pass.set_bind_group(1, &e.group, &[]);
+                        pass.draw_indexed(self.segment_indices.of(0..e.count), 0, r.clone());
+                    }
                 }
             }
-            if style.silhouettes {
+            if style.silhouettes
+                && let Some(oi) = &self.segment_indices.buffer
+            {
+                pass.set_index_buffer(oi.slice(..), wgpu::IndexFormat::Uint32);
                 pass.set_pipeline(&self.silhouettes_faint);
                 for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| b.faint_edges) {
                     let Some(m) = self.meshes.get(&b.key) else { continue };
                     if let Some(s) = &m.silhouettes {
-                        pass.set_vertex_buffer(0, s.slice(..));
-                        pass.draw(0..m.silhouette_vertex_count, r.clone());
+                        pass.set_bind_group(1, &s.group, &[]);
+                        pass.draw_indexed(self.segment_indices.of(0..s.count), 0, r.clone());
                     }
                 }
             }
@@ -1872,7 +2004,14 @@ impl Renderer {
     /// The meshes uploaded, every document's, and the bytes they take on the GPU.
     pub fn mesh_memory(&self) -> (usize, u64) {
         let all = || std::iter::once(&self.meshes).chain(self.parked.values()).flat_map(|m| m.values());
-        let bytes = all().flat_map(|m| [&m.vertices, &m.indices, &m.edges, &m.silhouettes]).flatten().map(|b| b.size()).sum();
+        let bytes = all()
+            .flat_map(|m| {
+                let segments = [&m.edges, &m.silhouettes].map(|s| s.as_ref().map(|s| &s.buffer));
+                [m.vertices.as_ref(), m.indices.as_ref(), segments[0], segments[1]]
+            })
+            .flatten()
+            .map(|b| b.size())
+            .sum();
         (all().count(), bytes)
     }
 
@@ -2132,20 +2271,23 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     h.0.finish()
 }
 
-/// A silhouette candidate: a mesh edge between two triangles of a curved surface, with their
-/// normals (in the mesh's coordinates, relative to its origin).
-#[derive(Clone, Copy, Debug)]
-struct SilhouetteEdge {
-    a: [f32; 3],
-    b: [f32; 3],
-    n1: [f32; 3],
-    n2: [f32; 3],
+/// A mesh's edges as [`Segment`]s, in its own coordinates (relative to its origin).
+#[derive(Default)]
+struct MeshSegments {
+    /// The B-rep edges' polylines, segment by segment.
+    edges: Vec<Segment>,
+    /// The silhouette candidates: the mesh edges shared by two triangles at an angle that are
+    /// not B-rep edges (those are drawn anyway), where a curved surface can turn away from the
+    /// eye (docs/render/look.md#silhouettes).
+    silhouettes: Vec<Segment>,
+    /// B-rep edge segments that are no mesh edge: without their faces, drawn even where their
+    /// solid hides them.
+    unmatched: usize,
 }
 
-/// The mesh edges shared by two triangles at an angle that are not B-rep edges (those are
-/// drawn anyway): where a curved surface can turn away from the eye (docs/render/look.md). Vertices are
-/// welded by position: the mesher may split them along seams.
-fn silhouette_edges(m: &Mesh) -> Vec<SilhouetteEdge> {
+/// The [`MeshSegments`] of `m`, each with the triangles along it. Vertices are welded by
+/// position: the mesher splits them along B-rep edges and seams.
+fn mesh_segments(m: &Mesh) -> MeshSegments {
     use std::collections::HashMap;
     // A position, quantised finely relative to the mesh's size.
     let extent = m.positions.iter().fold(0f32, |e, p| e.max(p[0].abs()).max(p[1].abs()).max(p[2].abs())).max(1e-6);
@@ -2161,26 +2303,18 @@ fn silhouette_edges(m: &Mesh) -> Vec<SilhouetteEdge> {
         })
         .collect();
     let pair = |a: u32, b: u32| if a < b { (a, b) } else { (b, a) };
-    // Segments of B-rep edges, welded the same way.
-    let mut brep = std::collections::HashSet::new();
-    for poly in &m.edges {
-        for w in poly.windows(2) {
-            if let (Some(&a), Some(&b)) = (weld.get(&key(&w[0])), weld.get(&key(&w[1]))) {
-                brep.insert(pair(a, b));
-            }
-        }
-    }
-    // Each mesh edge: the triangles along it (first vertex index kept for its position).
-    // Per welded edge: its triangles' normals, and its two vertex indices.
-    type Sides = HashMap<(u32, u32), (Vec<[f32; 3]>, [u32; 2])>;
-    let mut sides: Sides = HashMap::new();
     let pos = |i: u32| Vec3::from_array(m.positions[i as usize]);
+    // Per welded mesh edge: its triangles' outward normals, and its two vertex indices.
+    type Sides = HashMap<(u32, u32), (Vec<Vec3>, [u32; 2])>;
+    let mut sides: Sides = HashMap::new();
     for tri in m.indices.chunks_exact(3) {
         let n = (pos(tri[1]) - pos(tri[0])).cross(pos(tri[2]) - pos(tri[0]));
         if n.length_squared() == 0.0 {
             continue;
         }
-        let n = n.normalize().to_array();
+        // Outwards, as the mesh's vertex normals (whatever the triangle's winding).
+        let outward: Vec3 = tri.iter().filter_map(|&i| m.normals.get(i as usize)).map(|n| Vec3::from_array(*n)).sum();
+        let n = if n.dot(outward) < 0.0 { -n.normalize() } else { n.normalize() };
         for k in 0..3 {
             let (i, j) = (tri[k], tri[(k + 1) % 3]);
             let (a, b) = (ids[i as usize], ids[j as usize]);
@@ -2190,17 +2324,44 @@ fn silhouette_edges(m: &Mesh) -> Vec<SilhouetteEdge> {
             sides.entry(pair(a, b)).or_insert_with(|| (Vec::new(), [i, j])).0.push(n);
         }
     }
-    let mut out = Vec::new();
-    for (k, (normals, [i, j])) in sides {
-        let [n1, n2] = normals.as_slice() else { continue };
-        if brep.contains(&k) {
+    let normal = |n: Option<&Vec3>| n.map_or([0.0; 4], |n| [n.x, n.y, n.z, 1.0]);
+    let segment = |a: Vec3, b: Vec3, tris: &[Vec3]| Segment {
+        a: [a.x, a.y, a.z, 0.0],
+        b: [b.x, b.y, b.z, 0.0],
+        n1: normal(tris.first()),
+        n2: normal(tris.get(1)),
+    };
+    let mut out = MeshSegments::default();
+    let mut brep = std::collections::HashSet::new();
+    for poly in &m.edges {
+        for w in poly.windows(2) {
+            let (a, b) = (Vec3::from_array(w[0]), Vec3::from_array(w[1]));
+            let found = match (weld.get(&key(&w[0])), weld.get(&key(&w[1]))) {
+                (Some(&i), Some(&j)) => sides.get(&pair(i, j)).map(|(tris, _)| (pair(i, j), tris)),
+                _ => None,
+            };
+            match found {
+                Some((k, tris)) => {
+                    brep.insert(k);
+                    out.edges.push(segment(a, b, tris));
+                }
+                None => {
+                    out.unmatched += 1;
+                    out.edges.push(segment(a, b, &[]));
+                }
+            }
+        }
+    }
+    for (k, (tris, [i, j])) in &sides {
+        let [t1, t2] = tris.as_slice() else { continue };
+        if brep.contains(k) {
             continue;
         }
         // Flat (inside a plane, or nearly): never an outline.
-        if Vec3::from_array(*n1).dot(Vec3::from_array(*n2)) > 0.99999 {
+        if t1.dot(*t2) > 0.99999 {
             continue;
         }
-        out.push(SilhouetteEdge { a: m.positions[i as usize], b: m.positions[j as usize], n1: *n1, n2: *n2 });
+        out.silhouettes.push(segment(pos(*i), pos(*j), tris));
     }
     out
 }

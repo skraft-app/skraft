@@ -212,8 +212,49 @@ Decision record: [Dashes laid on the segment](../decisions/0032-dashes-laid-on-t
 - Lines that run past a parallel projection's depth range (infinite guides and axes) are
   clamped to it, not cut: the line pipeline uses `unclipped_depth` where the device has
   `DEPTH_CLIP_CONTROL` (`render::OPTIONAL_FEATURES`, which the app asks egui's device for).
-- The quad has the depth of its centre line, while a pixel away a neighbouring face can be
-  closer (inner corners, grazing faces): lines are therefore **pulled towards the eye** by 3
-  half-widths measured at their depth (scaling towards the eye in perspective, translation
-  along the view axis in parallel: the pixel does not move). Test: the edges of a pocket are not
-  buried.
+- A quad has the depth of its centre line, while a pixel away a neighbouring face can be
+  nearer (inner corners, faces seen at a glance): the widened part would sink into it. Lines are
+  drawn **at their own depth** and the faces are **pushed back by their own slope**, in their
+  vertex shader (`pushed_back`): each vertex moved away from the eye along its ray (its pixel
+  kept) by the depth its face gains over 7/8 of an edge's half width (`FACE_PUSH`) — the size of
+  a pixel there times the tangent of the angle between the face's normal and the ray, capped
+  at 50 where it is seen edge on —, and by 8 depth steps in their pipelines (`FACE_STEPS`: the
+  `f32` rounding between a face and what lies on it). Measured on screen, the same at every
+  zoom, in perspective as in parallel.
+  - An edge on a face draws (nearly) whole over it at any angle; what lies behind a face shows
+    where it is nearer than about (7/8 + 1) half widths of the face's slope — the face recedes
+    across the edge's quad too. A concealed hinge 5 mm behind a door's face is hidden at 12.7 m
+    seen 25° off the door's normal; farther, or more at a glance, it shows.
+  - An **edge whose two faces turn away** is not drawn: its closed solid hides it, however close
+    behind its faces (drawn for a ghost, seen through) — a small part's far edges.
+  - The **section caps** write their own depth, which the pipelines' steps do not reach: their
+    shader pushes it back as much (`pushed`, the slope from the depth's screen derivatives).
+  - A **line wider than an edge** (`BOLD_WIDTH`) is lifted towards the eye by the pixels of its
+    half width the faces' push does not cover, measured at its depth (scaling towards the eye in
+    perspective, translation along the view axis in parallel: the pixel does not move).
+  - Tests: the edges of a pocket are not buried; a panel's edges 2 mm behind another, seen from
+    afar, stay hidden; a hinge's cup 5 mm behind a door changes no pixel from 12.7 m (25°) to
+    0.6 m (75°); every B-rep edge segment finds its two triangles.
+- **Storage**: a mesh's segments (B-rep edges, outline candidates) in a storage buffer, 64 bytes
+  each — the ends, the outward normals of the two triangles along it (`Segment`) —, read by the
+  vertex shader by its vertex index, each a quad of 4 corners indexed by one buffer shared by
+  every mesh (`SegmentIndices`), so the GPU shades the corners its triangles share once.
+- The depth buffer is `Depth32FloatStencil8` when the device has it (`OPTIONAL_FEATURES`): with
+  reversed depth and the near plane a thousandth of the distance, a 24-bit one steps by about
+  2 mm at 30 m.
+
+**Why:** lines used to be pulled towards the eye by 3 half widths measured at their depth — in
+perspective a constant share of the depth (about 0.5 %), in parallel a few pixels' worth of
+model units. Zoomed out, that outgrew a panel's thickness and the gaps between parts: the edges
+behind came through the faces, whole or as slivers where they crossed a slanted face (the
+"staircase" of a curve's segments). Pushing the faces back by their own slope is measured on
+screen (SolidCraft's `FACE_BIAS`, its issue #1434), but worked out in the shader: a GPU's slope
+bias is its own (Apple's is several times WebGPU's: 0.25 px of it let a hinge 5 mm behind a door
+through at 12 m).
+
+**Cost** (`bench_render_step`, `crates/tools/src/bench.rs`: Cruise_Assembly.step, 2 789
+placements, 0.15 M edge segments, Apple M1, 3024 × 1964): 23.5 ms a frame (30.3 ms with the
+quads' corners as vertices), 11.5 ms without outlines; the meshes 64.5 MB on the GPU (206.8 MB
+before: a corner's vertex of 56 bytes, six per outline candidate).
+
+Decision record: [Faces pushed back by their slope, in their shader](../decisions/0046-faces-pushed-back-in-their-shader.md).

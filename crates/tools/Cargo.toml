@@ -20,3 +20,7 @@ web-time = "1.1"
 skraft-model = { workspace = true, features = ["engine"] }
 skraft-kernel = { workspace = true, features = ["engine"] }
 serde_json.workspace = true
+# The rendering bench (src/bench.rs, `bench_render_step`): the renderer on a real model.
+skraft-render.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
