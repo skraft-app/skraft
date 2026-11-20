@@ -211,6 +211,76 @@ pub enum Input {
     /// Makes this tool the active one, by its id (`box`, `move`, `stretch`… as `tool.state`
     /// names them).
     Tool(String),
+    /// Sets an option of the active tool, as its bar does (`tool.state` lists them, with their
+    /// choices).
+    Option(OptionInput),
+}
+
+/// An option of the active tool set: its key, its value.
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptionInput {
+    pub key: String,
+    pub value: OptionSetting,
+}
+
+/// A tool option's value, as `tool.state` gives it.
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum OptionSetting {
+    /// One of a choice's values (its `choices`).
+    Choice(String),
+    Toggle(bool),
+    /// A length, mm.
+    Length(f64),
+}
+
+/// `context.open`.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OpenParams {
+    /// Opened in turn, each from the level the one before opened: an occurrence of an
+    /// assembly (edited), of a part (opened), a group or a body node of the part or group open
+    /// (opened). The first that cannot be stops the rest.
+    pub ids: Vec<u64>,
+}
+
+/// `context.close`: one level, `levels` of them, or `all`.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CloseParams {
+    /// How many levels to leave (default 1).
+    pub levels: Option<u32>,
+    /// Every level: back to the model.
+    #[serde(default)]
+    pub all: bool,
+}
+
+/// `context.select`.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SelectParams {
+    /// The entities of the level open: occurrences of its assembly, bodies of the part or
+    /// group open, its guides. Empty: nothing selected.
+    pub ids: Vec<u64>,
+    /// Added to the selection rather than replacing it.
+    #[serde(default)]
+    pub add: bool,
+}
+
+/// `context.sign`: the sign of the bodies the drawing tools add to an open part (its
+/// « Solide »: positive adds material, negative is a machining).
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SignParams {
+    pub sign: SignName,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SignName {
+    Positive,
+    Negative,
 }
 
 /// `tool.input`.

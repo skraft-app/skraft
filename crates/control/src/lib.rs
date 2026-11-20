@@ -118,7 +118,7 @@ pub fn methods() -> Vec<Method> {
         m("app.methods", "The methods, with their parameters' JSON Schemas.", true, schema::<NoParams>),
         m(
             "app.state",
-            "The active document: tool, context, selection, status, revision, busy, modified, path; and which app answers (`instance`: its build, worktree, pid, who launched it).",
+            "The active document: tool, the level open (`context`, `open_part`, `open_group`), selection, the sign of the bodies drawn (`body_sign`), status, revision, busy, modified, path; and which app answers (`instance`: its build, worktree, pid, who launched it).",
             true,
             schema::<NoParams>,
         ),
@@ -139,6 +139,30 @@ pub fn methods() -> Vec<Method> {
         m("app.docs", "The open documents (list), or a new one, another shown, one closed.", false, schema::<DocsParams>),
         m("app.screenshot", "The viewport, as a PNG.", false, schema::<NoParams>),
         m(
+            "context.open",
+            "Opens, in turn, each of `ids` from the level open, as a double-click: an occurrence of the assembly edited (edited), of a part (opened), a group or a body node of the part or group open (opened). Refused at the first that cannot be.",
+            true,
+            schema::<OpenParams>,
+        ),
+        m(
+            "context.close",
+            "Leaves one level open (or `levels`, or `all`), as Esc: a body open, a group or node, the part, an assembly; what was left is selected.",
+            true,
+            schema::<CloseParams>,
+        ),
+        m(
+            "context.select",
+            "Selects entities of the level open by id (`add`: added): occurrences of the assembly edited, bodies of the part or group open, guides. Refused, nothing changed, naming one that is not there.",
+            true,
+            schema::<SelectParams>,
+        ),
+        m(
+            "context.sign",
+            "The sign of the bodies the drawing tools add to an open part (its « Solide »): `positive` adds material, `negative` is a machining.",
+            true,
+            schema::<SignParams>,
+        ),
+        m(
             "model.document",
             "The document's recipe, as its file holds it (not saved); solids summed up unless `brep`.",
             true,
@@ -146,7 +170,7 @@ pub fn methods() -> Vec<Method> {
         ),
         m(
             "model.geometry",
-            "Every placed part (filtered by `ids` or the selection): world transform, bounds, sizes, volume, pieces, topology, bodies; optionally its B-rep and display mesh.",
+            "Every placed part (filtered by `ids` or the selection): world transform, bounds, sizes, volume, pieces, topology, bodies (each its nature, a group's children, a body node's operation and refusal); optionally its B-rep and display mesh.",
             true,
             schema::<GeometryParams>,
         ),
@@ -184,7 +208,7 @@ pub fn methods() -> Vec<Method> {
         ),
         m(
             "tool.input",
-            "Inputs for the active tool as the viewport gives them — hover, click, double click, drag, keys, typed values, another tool — at world points (`at`) or pixels (`px`); answers as tool.state, with the pixel of each input.",
+            "Inputs for the active tool as the viewport gives them — hover, click, double click, drag, keys, typed values, another tool, an option of its bar set — at world points (`at`) or pixels (`px`); answers as tool.state, with the pixel of each input.",
             true,
             schema::<ToolInputParams>,
         ),

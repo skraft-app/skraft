@@ -2298,23 +2298,14 @@ impl SkraftApp {
                 let Some(d) = self.docs.active() else {
                     return ok(json!({ "document": null, "toasts": self.toasts.json(), "naming": naming, "instance": instance }));
                 };
-                let e = &d.editor;
-                ok(json!({
-                    "tool": e.tool_kind().id(),
-                    "context": e.context().iter().map(|i| i.0).collect::<Vec<_>>(),
-                    "open_part": e.open_part().map(|i| i.0),
-                    "selection": e.selection().iter().map(|i| i.0).collect::<Vec<_>>(),
-                    "status": e.status(),
-                    "busy": e.busy(),
-                    "idle": skraft_control::editor::idle(e),
-                    "revision": e.history().revision(),
-                    "modified": d.modified(),
-                    "path": d.path,
-                    "document": d.id,
-                    "toasts": self.toasts.json(),
-                    "naming": naming,
-                    "instance": instance,
-                }))
+                let mut state = skraft_control::editor::state(&d.editor);
+                state["modified"] = json!(d.modified());
+                state["path"] = json!(d.path);
+                state["document"] = json!(d.id);
+                state["toasts"] = self.toasts.json();
+                state["naming"] = json!(naming);
+                state["instance"] = json!(instance);
+                ok(state)
             }
             "app.instances" => {
                 call.params::<NoParams>()?;

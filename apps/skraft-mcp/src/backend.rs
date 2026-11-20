@@ -136,20 +136,12 @@ impl Backend for Headless {
             }
             "app.state" => {
                 call.params::<NoParams>()?;
-                Ok(Answer::Json(json!({
-                    "tool": e.tool_kind().id(),
-                    "context": e.context().iter().map(|i| i.0).collect::<Vec<_>>(),
-                    "open_part": e.open_part().map(|i| i.0),
-                    "selection": e.selection().iter().map(|i| i.0).collect::<Vec<_>>(),
-                    "status": e.status(),
-                    "busy": e.busy(),
-                    "idle": skraft_control::editor::idle(e),
-                    "revision": e.history().revision(),
-                    "modified": e.history().revision() > 0,
-                    "path": self.path,
-                    "document": 1,
-                    "headless": true,
-                })))
+                let mut state = skraft_control::editor::state(e);
+                state["modified"] = json!(e.history().revision() > 0);
+                state["path"] = json!(self.path);
+                state["document"] = json!(1);
+                state["headless"] = json!(true);
+                Ok(Answer::Json(state))
             }
             "app.wait" => {
                 call.params::<skraft_control::params::WaitParams>()?;
