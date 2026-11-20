@@ -17,7 +17,7 @@ fn board(l: f64, w: f64, t: f64) -> Primitive {
 }
 
 fn leaf(id: u64, negative: bool, at: DVec3, solid: u32, recipe: Option<Primitive>) -> TreeBody {
-    TreeBody { id, negative, placement: DAffine3::from_translation(at), node: TreeNode::Leaf { solid, recipe } }
+    TreeBody { id, negative, intersect: false, placement: DAffine3::from_translation(at), node: TreeNode::Leaf { solid, recipe } }
 }
 
 struct Ran {
@@ -127,6 +127,7 @@ fn a_node_over_a_node_names_the_inner_rounds() {
     let inner_body = TreeBody {
         id: 7,
         negative: false,
+        intersect: false,
         placement: DAffine3::IDENTITY,
         node: TreeNode::Group { children, op: Some(round(10.0, inner.edges.clone())) },
     };
@@ -159,13 +160,18 @@ fn a_named_recipe_gives_its_face_map_and_a_node_over_it_names_the_same() {
     let (inputs, children) = board_and_pocket(35.0);
     let b = board(100.0, 60.0, 20.0);
     // The group's recipe, named: its result's face map.
-    let names = RecipeNames { positives: vec![(1, InputNames::Recipe(Some(b)))], negatives: vec![(2, InputNames::Recipe(None))] };
+    let names = RecipeNames {
+        positives: vec![(1, InputNames::Recipe(Some(b)))],
+        negatives: vec![(2, InputNames::Recipe(None))],
+        intersects: vec![],
+    };
     let job = Job {
         inputs: inputs.clone(),
         tasks: vec![Task::Recipe {
             base: None,
             positives: vec![(0, DAffine3::IDENTITY)],
             negatives: vec![(1, DAffine3::from_translation(DVec3::new(35.0, 20.0, 10.0)))],
+            intersects: vec![],
             names: Some(names),
         }],
     };
@@ -178,11 +184,23 @@ fn a_named_recipe_gives_its_face_map_and_a_node_over_it_names_the_same() {
     let picks = vec![[50.0, 0.0, 20.0], [50.0, 20.0, 20.0]];
     let from_leaves = node(
         inputs.clone(),
-        vec![TreeBody { id: 9, negative: false, placement: DAffine3::IDENTITY, node: TreeNode::Group { children, op: None } }],
+        vec![TreeBody {
+            id: 9,
+            negative: false,
+            intersect: false,
+            placement: DAffine3::IDENTITY,
+            node: TreeNode::Group { children, op: None },
+        }],
         round(2.0, Vec::new()),
         picks.clone(),
     );
-    let mapped = TreeBody { id: 9, negative: false, placement: DAffine3::IDENTITY, node: TreeNode::Mapped { solid: 0, faces: map } };
+    let mapped = TreeBody {
+        id: 9,
+        negative: false,
+        intersect: false,
+        placement: DAffine3::IDENTITY,
+        node: TreeNode::Mapped { solid: 0, faces: map },
+    };
     let from_cache = node(vec![Arc::new(group)], vec![mapped], round(2.0, Vec::new()), picks);
     assert_eq!(from_leaves.refusal, None);
     assert_eq!(from_cache.refusal, None);
@@ -205,6 +223,7 @@ fn bench_a_node_over_a_group_from_its_leaves_or_its_cache() {
     let names = RecipeNames {
         positives: vec![(1, InputNames::Recipe(Some(b)))],
         negatives: (0..30).map(|k| (10 + k as u64, InputNames::Recipe(None))).collect(),
+        intersects: vec![],
     };
     let job = Job {
         inputs: inputs.clone(),
@@ -212,6 +231,7 @@ fn bench_a_node_over_a_group_from_its_leaves_or_its_cache() {
             base: None,
             positives: vec![(0, DAffine3::IDENTITY)],
             negatives: (0..30).map(|k| (1, DAffine3::from_translation(at(k)))).collect(),
+            intersects: vec![],
             names: Some(names),
         }],
     };
@@ -233,7 +253,13 @@ fn bench_a_node_over_a_group_from_its_leaves_or_its_cache() {
     let t = std::time::Instant::now();
     let from_leaves = node(
         inputs.clone(),
-        vec![TreeBody { id: 9, negative: false, placement: DAffine3::IDENTITY, node: TreeNode::Group { children, op: None } }],
+        vec![TreeBody {
+            id: 9,
+            negative: false,
+            intersect: false,
+            placement: DAffine3::IDENTITY,
+            node: TreeNode::Group { children, op: None },
+        }],
         round(3.0, Vec::new()),
         picks.clone(),
     );
@@ -242,7 +268,13 @@ fn bench_a_node_over_a_group_from_its_leaves_or_its_cache() {
     let t = std::time::Instant::now();
     let from_cache = node(
         inputs,
-        vec![TreeBody { id: 9, negative: false, placement: DAffine3::IDENTITY, node: TreeNode::Mapped { solid: 0, faces: map } }],
+        vec![TreeBody {
+            id: 9,
+            negative: false,
+            intersect: false,
+            placement: DAffine3::IDENTITY,
+            node: TreeNode::Mapped { solid: 0, faces: map },
+        }],
         round(3.0, Vec::new()),
         picks,
     );
@@ -361,6 +393,7 @@ fn a_node_inside_refused_says_why() {
     let inner = TreeBody {
         id: 7,
         negative: false,
+        intersect: false,
         placement: DAffine3::IDENTITY,
         node: TreeNode::Group { children: lath(), op: Some(round(1.5, fits.edges.clone())) },
     };
@@ -428,6 +461,7 @@ fn rounds_over_chamfers_meeting_at_a_corner_take_their_edges() {
     let inner = TreeBody {
         id: 7,
         negative: false,
+        intersect: false,
         placement: DAffine3::IDENTITY,
         node: TreeNode::Group { children, op: Some(NodeOp::blend_of(Blend::Chamfer, 5.0, r.edges)) },
     };

@@ -22,6 +22,8 @@ mod stretch;
 mod weld;
 
 #[cfg(test)]
+mod intersect_tests;
+#[cfg(test)]
 mod moves_tests;
 #[cfg(test)]
 mod node_tests;
@@ -114,6 +116,10 @@ pub enum Refusal {
     NothingPasted,
     /// A negative group holding a negative body flattened: it would add material.
     UngroupNegative,
+    /// Several ∩ bodies grouped (their union would limit, not each), or a ∩ group of several
+    /// bodies flattened (each would limit, not their union): the shape would change
+    /// (docs/decisions/0045-intersection-a-third-sign.md).
+    IntersectsRegrouped,
     /// A turned body stretched across its axis, or across an arc of its half profile (docs/tools/turned-bodies.md).
     TurnedAcross,
     /// Only an operation on occurrences of a context is applied at a path.
@@ -234,6 +240,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NothingPasted => t!("error.model.nothing_pasted"),
             Refusal::TurnedAcross => t!("error.model.turned_across"),
             Refusal::UngroupNegative => t!("error.model.ungroup_negative"),
+            Refusal::IntersectsRegrouped => t!("error.model.intersects_regrouped"),
             Refusal::NotAtPath => t!("error.model.not_at_path"),
             Refusal::BadPropKey => t!("error.model.bad_prop_key"),
             Refusal::BadPropValue => t!("error.model.bad_prop_value"),

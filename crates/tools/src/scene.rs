@@ -175,6 +175,8 @@ pub struct RecipeTool {
     /// Its solid in the part's axes.
     pub placement: DAffine3,
     pub failed: bool,
+    /// An intersection (∩), not a machining.
+    pub intersect: bool,
 }
 
 /// The meshes of the recipe shown, in the axes of what is open — the part, or a group of its
@@ -363,7 +365,8 @@ impl DisplayScene {
             let (mut blanks, mut tools) = (Vec::new(), Vec::with_capacity(p.bodies.len()));
             for b in &p.bodies {
                 let key = Id(RECIPE_KEY | TOOL_KEY | b.def.0);
-                let t = RecipeTool { body: b.id, key, placement: b.placement, failed: p.is_failed(b.id) };
+                let t =
+                    RecipeTool { body: b.id, key, placement: b.placement, failed: p.is_failed(b.id), intersect: b.sign == Sign::Intersect };
                 if b.sign == Sign::Positive { blanks.push(t) } else { tools.push(t) }
             }
             let mut nested = Vec::new();
@@ -1232,9 +1235,9 @@ fn cut_at(mesh: &Mesh, a: DVec3, at: &[f64]) -> Mesh {
     Mesh { positions, normals, indices, tri_face, ..mesh.clone() }
 }
 
-/// Adds to `out` the machinings among `bodies` (children of a positive group of `p` placed by
-/// `at`, lying in its own body `top`), and those inside their positive groups in turn; a
-/// negative group is one machining (its result), what it spares inside never shown in red.
+/// Adds to `out` the machinings and intersections among `bodies` (children of a positive group of `p`
+/// placed by `at`, lying in its own body `top`), and those inside their positive groups in turn;
+/// a negative or intersection group is one (its result), what it spares inside never shown in red.
 fn nested_tools(p: &skraft_model::Part, bodies: &[skraft_model::Body], at: DAffine3, top: Id, out: &mut Vec<RecipeTool>, depth: usize) {
     if depth > skraft_model::MAX_DEPTH {
         return;
@@ -1242,9 +1245,13 @@ fn nested_tools(p: &skraft_model::Part, bodies: &[skraft_model::Body], at: DAffi
     for b in bodies {
         let placement = at * b.placement;
         match b.sign {
-            Sign::Negative => {
-                out.push(RecipeTool { body: top, key: Id(RECIPE_KEY | TOOL_KEY | b.def.0), placement, failed: p.is_failed(b.id) })
-            }
+            Sign::Negative | Sign::Intersect => out.push(RecipeTool {
+                body: top,
+                key: Id(RECIPE_KEY | TOOL_KEY | b.def.0),
+                placement,
+                failed: p.is_failed(b.id),
+                intersect: b.sign == Sign::Intersect,
+            }),
             Sign::Positive => nested_tools(p, p.def_of(b).children(), placement, top, out, depth + 1),
         }
     }

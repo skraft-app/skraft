@@ -591,6 +591,7 @@ impl Viewport {
         let tool_slot = palette.len() as u32;
         palette.push(theme.machining);
         palette.push(theme.machining_failed);
+        palette.push(theme.intersect);
 
         // Meshes: one per definition, re-uploaded when its revision (faces' paint included)
         // changes.
@@ -656,10 +657,11 @@ impl Viewport {
                         transform: DMat4::from(p.transform),
                         tint: if p.faded { fade } else { render::NO_TINT },
                         // Not what the eraser would take: that one as faint as any.
-                        opacity: if p.look == Look::Tool && p.ghost && !p.faint_edges { machining } else { 0.0 },
+                        opacity: if matches!(p.look, Look::Tool | Look::Intersect) && p.ghost && !p.faint_edges { machining } else { 0.0 },
                         material: match p.look {
                             Look::Tool => tool_slot,
                             Look::FailedTool => tool_slot + 1,
+                            Look::Intersect => tool_slot + 2,
                             Look::Shape | Look::Blank => slot(p.material),
                         },
                     })

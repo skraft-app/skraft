@@ -152,6 +152,7 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
     match name {
         "union" => return Some(UNION),
         "subtract" => return Some(SUBTRACT),
+        "intersect" => return Some(INTERSECT),
         _ => {}
     }
     macro_rules! options {

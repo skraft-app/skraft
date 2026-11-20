@@ -145,6 +145,10 @@ impl NodeOp {
 pub struct TreeBody {
     pub id: u64,
     pub negative: bool,
+    /// An intersection (a ∩ body): it limits its level, intersected after the positives and negatives
+    /// (docs/decisions/0045-intersection-a-third-sign.md); never `negative` too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub intersect: bool,
     pub placement: DAffine3,
     pub node: TreeNode,
 }
@@ -178,12 +182,15 @@ pub enum InputNames {
     Map(FaceMap),
 }
 
-/// A group's recipe named: each input's body id and names, positives then negatives, as the
-/// recipe lists them. The recipe then gives its result's face map.
+/// A group's recipe named: each input's body id and names, positives, negatives then intersections,
+/// as the recipe lists them. The recipe then gives its result's face map.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecipeNames {
     pub positives: Vec<(u64, InputNames)>,
     pub negatives: Vec<(u64, InputNames)>,
+    /// The ∩ bodies' (docs/decisions/0045-intersection-a-third-sign.md).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub intersects: Vec<(u64, InputNames)>,
 }
 
 /// A cheap fingerprint of a record: its counts and its vertices. A face map is used only on

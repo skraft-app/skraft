@@ -37,15 +37,19 @@ pub enum Task {
     /// target's coordinates.
     Boolean { target: u32, tool: u32, tool_transform: Option<DAffine3>, op: BooleanOp },
     /// A part's recipe (docs/model/data-model.md, docs/model/bodies.md): the union of the `positives`, minus
-    /// each of the `negatives` — every one `inputs[k]` placed by its transform —, then joined
-    /// to `inputs[base]` when given (a positive body added to a part as it is). A boolean that
-    /// fails is skipped and reported (by its index in `positives` then `negatives`, one list),
-    /// the others still done: the task itself fails only when no positive is left.
+    /// each of the `negatives`, intersected with each of the `intersects` (the intersections) — every one `inputs[k]`
+    /// placed by its transform —, then joined to `inputs[base]` when given (a positive body
+    /// added to a part as it is). A boolean that fails is skipped and reported (by its index in
+    /// `positives`, `negatives` then `intersects`, one list), the others still done: the task itself
+    /// fails only when no positive is left.
     Recipe {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         base: Option<u32>,
         positives: Vec<(u32, DAffine3)>,
         negatives: Vec<(u32, DAffine3)>,
+        /// The ∩ bodies, each limiting the result (docs/decisions/0045-intersection-a-third-sign.md).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        intersects: Vec<(u32, DAffine3)>,
         /// A group's: its inputs named, for its result's face map
         /// (docs/decisions/0042-body-nodes-operators.md).
         #[serde(default, skip_serializing_if = "Option::is_none")]

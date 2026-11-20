@@ -152,6 +152,7 @@ fn sign(e: &mut Editor, p: &SignParams) -> Answer {
     e.set_body_sign(match p.sign {
         SignName::Positive => skraft_model::Sign::Positive,
         SignName::Negative => skraft_model::Sign::Negative,
+        SignName::Intersect => skraft_model::Sign::Intersect,
     });
     Answer::Json(state(e))
 }
@@ -988,20 +989,12 @@ mod tests {
 
     #[test]
     fn a_kernel_failure_keeps_its_job_which_fails_again() {
-        use skraft_model::{Boolean, EntityPath, Operation, Primitive};
+        use skraft_model::{Operation, Primitive};
         let mut e = editor();
         let root = e.document().root();
-        let add = |e: &mut Editor, origin: f64, size: f64| {
-            let primitive = Primitive::Box { origin: DVec3::splat(origin), size: DVec3::splat(size) };
-            e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None })
-                .unwrap()
-                .unwrap()
-                .created[0]
-        };
-        let small = add(&mut e, 0.0, 10.0);
-        let corner = add(&mut e, 10.0, 10.0);
-        // The common volume of two boxes touching at a corner: nothing, the kernel fails.
-        let op = Operation::boolean(EntityPath::root(small), EntityPath::root(corner), Boolean::Intersection, Default::default());
+        // A box of no height: the kernel refuses it.
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(10.0, 10.0, 0.0) };
+        let op = Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None };
         assert!(e.apply(op).is_err());
         let all = json_of(&mut e, "journal.failures", Value::Null);
         let failures = all["failures"].as_array().unwrap();
@@ -1012,7 +1005,7 @@ mod tests {
         assert!(full["operation"].is_object(), "{full}");
         // Its job, read back and run again: the same failure, headless.
         let job: skraft_kernel::Job = serde_json::from_value(full["job"].clone()).unwrap();
-        assert_eq!(job.inputs.len(), 2);
+        assert!(matches!(job.tasks.as_slice(), [skraft_kernel::Task::Primitive { .. }]), "{:?}", job.tasks);
         assert!(skraft_kernel::run(&job).is_err());
         assert!(call(&mut e, &Call::new("journal.failures", json!({ "seq": 999_999 }))).unwrap().is_err());
     }
