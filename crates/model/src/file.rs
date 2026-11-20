@@ -40,7 +40,7 @@ const VIEW: &str = "view.json";
 #[serde(default)]
 pub struct FileView {
     /// The workspace shown (an id of the app's; none, or one the app does not list: its first,
-    /// decision 0046).
+    /// decision 0047).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
 }

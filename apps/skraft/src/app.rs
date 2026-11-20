@@ -26,7 +26,7 @@ use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
 use crate::toasts::{Act, Note, Toasts};
 use crate::viewport::{self, Viewport};
-use crate::workspace::{self, Workspace};
+use crate::workspace::{self, Stage, Workspace};
 
 /// A side panel dragged by its header to another place.
 #[derive(Clone, Copy)]
@@ -189,6 +189,18 @@ fn kernel_service(ctx: &egui::Context) -> Box<dyn KernelService> {
         Box::new(crate::worker::WebKernel::new(std::rc::Rc::new(move || ctx.request_repaint())))
     }
 }
+
+/// A split stage's xs ([`App::split`]): its table's left edge, where the 3D view starts, the
+/// right end of the room they share.
+#[derive(Clone, Copy, Debug)]
+struct Split {
+    table: f32,
+    view: f32,
+    right: f32,
+}
+
+/// The least and most of the room a split stage's table takes.
+const TABLE_SHARE: (f32, f32) = (0.2, 0.8);
 
 /// The tool a `tool.*` command starts.
 pub(crate) fn tool_of(id: &str) -> Option<ToolKind> {
@@ -438,7 +450,7 @@ impl SkraftApp {
         self.docs.active().map_or_else(|| workspace::find(None), |d| d.workspace)
     }
 
-    /// Shows the shown document in workspace `id` (decision 0046): the running tool cancelled,
+    /// Shows the shown document in workspace `id` (decision 0047): the running tool cancelled,
     /// the selection and the level open kept. Not a change of the document: nothing modified,
     /// nothing to undo; its file keeps it at the next save.
     fn set_workspace(&mut self, id: &str) -> Result<(), String> {
@@ -1121,6 +1133,7 @@ impl SkraftApp {
             Action::SelectBody(path, body, add) => e.toggle_body(&path, body, add),
             Action::EditBlend(node) => e.edit_blend(node),
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
+            Action::SelectParts(paths) => e.select_occurrences(paths),
             Action::SelectModel => e.select_model(),
             Action::ChooseComponent(c) => e.choose_component(c),
             Action::PlaceComponent(c) => {
@@ -1331,7 +1344,7 @@ impl SkraftApp {
         if modifiers.command_only() && matches!(key, K::X | K::C | K::V) {
             return None;
         }
-        // The shortcuts of the commands available in the workspace shown (decision 0046).
+        // The shortcuts of the commands available in the workspace shown (decision 0047).
         let w = self.workspace();
         let command = || self.keymap.command_for(key, modifiers, |id| w.has(id));
         let Some(d) = self.docs.active_mut() else { return command() };
@@ -1721,6 +1734,56 @@ impl SkraftApp {
         (columns, egui::Rangef::new(left, right), max_width)
     }
 
+    /// A split stage's xs in `area` (docs/ui/workspaces.md#stage): its table from the left
+    /// column (or the area's edge) to the view, which goes on to the area's right edge, under
+    /// the right column; the room between the columns shared by the preference `table_share`.
+    fn split(&self, area: egui::Rect, margin: f32) -> Split {
+        let (_, free, _) = self.columns(area, margin);
+        let table = if free.min > area.left() { free.min } else { area.left() + margin };
+        let right = if free.max < area.right() { free.max } else { area.right() - margin };
+        let share = self.prefs.table_share.clamp(TABLE_SHARE.0, TABLE_SHARE.1);
+        Split { table, view: table + share * (right - table).max(0.0) + margin, right }
+    }
+
+    /// A split stage's table in `rect` (the parts list), and the separation right of it,
+    /// `margin` wide, dragged to share the room between the table and the view.
+    fn stage_table(&mut self, ctx: &egui::Context, rect: egui::Rect, area: egui::Rect, margin: f32, actions: &mut Vec<Action>) {
+        let Some(d) = self.docs.active_mut() else { return };
+        egui::Area::new(egui::Id::unique("stage_table")).fixed_pos(rect.min).constrain_to(area).show(ctx, |ui| {
+            let frame = egui::Frame::window(ui.style()).inner_margin(panels::CARD_MARGIN);
+            let inner = (rect.size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
+            frame.show(ui, |ui| {
+                ui.set_min_size(inner);
+                ui.set_max_size(inner);
+                crate::handles::publish(|| "parts_list".into(), rect);
+                // A title bar as the side panels' (neither folded nor moved: no chevron).
+                let header = ui.spacing().interact_size.y;
+                let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
+                title_bar(ui, rect, head_rect, &t!("parts_list.title"), false, true);
+                ui.add_space(2.0 * HEAD_PAD);
+                crate::parts_table::ui(ui, &d.editor, &mut d.parts_list, actions);
+            });
+        });
+        let grip = egui::Rect::from_x_y_ranges(rect.right()..=rect.right() + margin, rect.y_range());
+        let split = self.split(area, margin);
+        egui::Area::new(egui::Id::unique("stage_split")).fixed_pos(grip.min).show(ctx, |ui| {
+            let (_, edge) = ui.allocate_exact_size(grip.size(), egui::Sense::click_and_drag());
+            crate::handles::publish(|| "stage_split".into(), grip);
+            if edge.hovered() || edge.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+            if edge.dragged()
+                && let Some(p) = edge.interact_pointer_pos()
+            {
+                let room = (split.right - split.table).max(1.0);
+                self.prefs.table_share = ((p.x - margin / 2.0 - split.table) / room).clamp(TABLE_SHARE.0, TABLE_SHARE.1);
+            }
+            if edge.double_clicked() {
+                self.prefs.table_share = Preferences::default().table_share;
+            }
+        });
+    }
+
     /// The side panels, as cards in their columns ([`dock`]), the one dragged by its header
     /// following the pointer. Gives the view's span left free between the columns (x).
     /// The docked cards, in columns from `top` (the view's top, or under the ribbon when it is
@@ -1832,34 +1895,14 @@ impl SkraftApp {
                     ui.set_max_size(inner);
                     let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
                     let head = ui.interact(head_rect, egui::Id::unique(("panel_head", id)), egui::Sense::click_and_drag());
-                    let painter = ui.painter();
-                    // The title bar: a band of its own colour across the card's top, a line
-                    // under it parting it from the content (the whole card once folded); none
-                    // above the « Composants » card's tabs, whose band of the same colour goes
-                    // on from it.
+                    // No line above the « Composants » card's tabs, whose band of the same colour
+                    // goes on from the title's.
+                    let band = title_bar(ui, rect, head_rect, &panel_title(id), folded, id != PanelId::Components);
                     let stroke = ui.visuals().window_stroke;
-                    let card = rect.shrink(stroke.width);
-                    let bottom = if folded { card.bottom() } else { head_rect.bottom() + HEAD_PAD };
-                    let band = egui::Rect::from_x_y_ranges(card.x_range(), card.top()..=bottom);
-                    let r = ui.visuals().window_corner_radius;
-                    let corners = if folded { r } else { egui::CornerRadius { sw: 0, se: 0, ..r } };
-                    painter.rect_filled(band, corners, ui.visuals().faint_bg_color);
-                    if !folded && id != PanelId::Components {
-                        painter.hline(band.x_range(), band.bottom(), stroke);
-                    }
                     let color = ui.visuals().strong_text_color();
                     // The fold chevron at the right end: down when open, right when folded.
                     let angle = if folded { -std::f32::consts::FRAC_PI_2 } else { 0.0 };
                     crate::icons::chevron(ui, egui::pos2(head_rect.right() - 8.0, head_rect.center().y), 14.0, color, angle);
-                    let painter = ui.painter();
-                    let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size + 1.0);
-                    painter.text(
-                        egui::pos2(head_rect.left() + 4.0, head_rect.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        panel_title(id),
-                        font,
-                        color,
-                    );
                     if head.dragged() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                     } else if head.hovered() {
@@ -2757,21 +2800,33 @@ impl SkraftApp {
         views: &[CommandView],
         actions: &mut Vec<Action>,
     ) {
-        // The 3D view fills everything between the title bar and the status bar; the tools (with
-        // the active tool's option bar as their footer) and the side panel float over it, so
-        // opening or resizing them never resizes the view.
+        // The central area, between the title bar and the status bar, is the workspace's stage
+        // (docs/ui/workspaces.md#stage): the 3D view over all of it, or a table on the left and
+        // the view on the right. The ribbon, the tools' cards and the side panels float over
+        // it, so opening or resizing them never resizes the view.
         let theme = self.theme;
         let Some(i) = self.docs.active_index() else { return };
-        let (viewport, docs, prefs) = (&mut self.viewport, &mut self.docs, &self.prefs);
-        let view = egui::CentralPanel::no_frame()
-            .show(ui, |ui| {
-                if let Some(d) = docs.iter_mut().nth(i) {
-                    viewport.ui(ui, frame, d.id, &mut d.editor, &d.vcb, &prefs.navigation, &theme, prefs.show_render_stats);
-                }
-            })
-            .response
-            .rect;
         let margin = 8.0;
+        let area = ui.available_rect_before_wrap();
+        let split = match self.workspace().stage {
+            Stage::View => None,
+            Stage::Parts => Some(self.split(area, margin)),
+        };
+        // The 3D view's rect: what overlays on the view (quick card, drop-up, steps bar, view
+        // bar) and what zoom extents frames are placed in.
+        let view = split.map_or(area, |s| egui::Rect::from_min_max(egui::pos2(s.view, area.top()), area.max));
+        let (viewport, docs, prefs) = (&mut self.viewport, &mut self.docs, &self.prefs);
+        egui::CentralPanel::no_frame().show(ui, |ui| {
+            // Beside the view, the stage's ground is the view's (the table's card over it).
+            if view != area {
+                ui.painter().rect_filled(area, 0.0, viewport::color(theme.ui.view));
+            }
+            if let Some(d) = docs.iter_mut().nth(i) {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(view), |ui| {
+                    viewport.ui(ui, frame, d.id, &mut d.editor, &d.vcb, &prefs.navigation, &theme, prefs.show_render_stats);
+                });
+            }
+        });
         let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(panels::CARD_MARGIN);
         // The ribbon at the top (docs/ui/ribbon.md#layout): between the docked cards' columns,
         // which then take the view's whole height, when it fits there whole; else above them,
@@ -2779,21 +2834,28 @@ impl SkraftApp {
         let ribbon_view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views };
         let frame_x = card(&ctx.global_style()).total_margin().sum().x;
         let natural = ribbon::natural_width(ctx, &ribbon_view);
-        let (_, free, _) = self.columns(view, margin);
-        let inside = |x: f32| x > view.left() && x < view.right();
+        let (_, free, _) = self.columns(area, margin);
+        let inside = |x: f32| x > area.left() && x < area.right();
+        // A split stage's table counts as a column: the ribbon between it and the right one.
         let between = egui::Rangef::new(
-            if inside(free.min) { free.min } else { view.left() + margin },
-            if inside(free.max) { free.max } else { view.right() - margin },
+            match split {
+                Some(s) => s.view,
+                None if inside(free.min) => free.min,
+                None => area.left() + margin,
+            },
+            if inside(free.max) { free.max } else { area.right() - margin },
         );
         let above = natural + frame_x > between.span();
-        let span = if above { egui::Rangef::new(view.left() + margin, view.right() - margin) } else { between };
-        // As wide as its content, centered on the view within its span: a window narrower than
-        // that narrows it ([`ribbon::fit`] then gives way).
+        let span = if above { egui::Rangef::new(area.left() + margin, area.right() - margin) } else { between };
+        // As wide as its content, centered within its span (on the area, or between a split
+        // stage's table and the right column): a window narrower than that narrows it
+        // ([`ribbon::fit`] then gives way).
+        let center = if split.is_some() && !above { span.center() } else { area.center().x };
         let ribbon_width = natural.min((span.span() - frame_x).max(0.0));
-        let ribbon_left = (view.center().x - (ribbon_width + frame_x) / 2.0).min(span.max - ribbon_width - frame_x).max(span.min);
+        let ribbon_left = (center - (ribbon_width + frame_x) / 2.0).min(span.max - ribbon_width - frame_x).max(span.min);
         let ribbon_area = egui::Area::new(egui::Id::unique("ribbon"))
-            .fixed_pos(egui::pos2(ribbon_left, view.top() + margin))
-            .constrain_to(view)
+            .fixed_pos(egui::pos2(ribbon_left, area.top() + margin))
+            .constrain_to(area)
             .sense(egui::Sense::click())
             .show(ctx, |ui| {
                 let card = card(ui.style());
@@ -2807,9 +2869,16 @@ impl SkraftApp {
         let below_ribbon = ribbon_rect.bottom() + margin;
         self.ribbon_bottom = Some(ribbon_rect.bottom());
 
-        let columns_top = if above { below_ribbon } else { view.top() + margin };
-        let free = self.side_panels(ctx, view, columns_top, margin, actions);
-        let (free_left, free_right) = (free.min, free.max);
+        let columns_top = if above { below_ribbon } else { area.top() + margin };
+        let free = self.side_panels(ctx, area, columns_top, margin, actions);
+        // A split stage's table, from the left column to the view: the area's whole height, as
+        // the columns, when the ribbon fits beside it, else under the ribbon.
+        if let Some(s) = split {
+            let table = egui::Rect::from_min_max(egui::pos2(s.table, columns_top), egui::pos2(s.view - margin, area.bottom() - margin));
+            self.stage_table(ctx, table, area, margin, actions);
+        }
+        // Beside a split stage's table, what is left free is the view's.
+        let (free_left, free_right) = (free.min.max(view.left()), free.max);
         // Over the view under the ribbon, centered together between the columns: the context card
         // (what a pick takes, which copies a change reaches), then the active tool's card
         // (docs/ui/interface.md#context-card), each translucent but under the pointer or typed
@@ -3166,6 +3235,26 @@ struct Edges {
 /// Room under a side panel's title before its bar's bottom line, and as much again under the
 /// line before the content.
 const HEAD_PAD: f32 = 4.0;
+
+/// A card's title bar (docs/ui/interface.md#layout): a band of its own colour across the top of
+/// the card `rect`, around `head` (the title's row), `line` under it parting it from the content
+/// (the whole card once `folded`), the title semibold at its left. Gives the band.
+fn title_bar(ui: &egui::Ui, rect: egui::Rect, head: egui::Rect, title: &str, folded: bool, line: bool) -> egui::Rect {
+    let painter = ui.painter();
+    let stroke = ui.visuals().window_stroke;
+    let card = rect.shrink(stroke.width);
+    let bottom = if folded { card.bottom() } else { head.bottom() + HEAD_PAD };
+    let band = egui::Rect::from_x_y_ranges(card.x_range(), card.top()..=bottom);
+    let r = ui.visuals().window_corner_radius;
+    let corners = if folded { r } else { egui::CornerRadius { sw: 0, se: 0, ..r } };
+    painter.rect_filled(band, corners, ui.visuals().faint_bg_color);
+    if !folded && line {
+        painter.hline(band.x_range(), band.bottom(), stroke);
+    }
+    let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size + 1.0);
+    painter.text(egui::pos2(head.left() + 4.0, head.center().y), egui::Align2::LEFT_CENTER, title, font, ui.visuals().strong_text_color());
+    band
+}
 
 /// What a side panel's header did.
 enum CardEvent {

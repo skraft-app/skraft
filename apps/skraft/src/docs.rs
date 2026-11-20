@@ -28,7 +28,9 @@ pub struct Doc {
     pub outliner: crate::panels::OutlinerState,
     /// Its « Composants » card's rows (docs/ui/components-library.md).
     pub library: crate::library::LibraryState,
-    /// The workspace it is shown in (decision 0046): kept in its file ([`skraft_model::FileView`]).
+    /// Its parts list's sort and rows (docs/ui/parts-list.md).
+    pub parts_list: crate::parts_table::PartsListState,
+    /// The workspace it is shown in (decision 0047): kept in its file ([`skraft_model::FileView`]).
     pub workspace: &'static crate::workspace::Workspace,
     /// When it was last shown ([`Docs::cap_histories`]'s tick).
     shown_at: u64,
@@ -145,6 +147,7 @@ impl Docs {
             vcb: String::new(),
             outliner: Default::default(),
             library: Default::default(),
+            parts_list: Default::default(),
             workspace: crate::workspace::find(None),
             shown_at: 0,
         };

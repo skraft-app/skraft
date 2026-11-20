@@ -29,7 +29,9 @@ a band in the headers' fill, the band starting from the workspace cell's line, t
 opening onto the groups). The card is as wide as its content and centered on the view, within
 its span:
 
-- **between the docked cards' columns** when it fits there whole (its natural width,
+- **between the docked cards' columns** (a split stage's table counting as one, the ribbon then
+  centred on the view between it and the right column: [Workspaces](workspaces.md#stage)) when
+  it fits there whole (its natural width,
   `ribbon::natural_width`): the columns then take the view's whole height;
 - **else above them**, over the view's width less its margins, the columns starting under it; a
   window narrower than the ribbon narrows it ([Narrow window](#narrow-window) decides what gives

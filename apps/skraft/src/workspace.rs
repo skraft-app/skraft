@@ -1,4 +1,4 @@
-//! Workspaces (docs/ui/workspaces.md, decision 0046): each a profile of the editor — its
+//! Workspaces (docs/ui/workspaces.md, decision 0047): each a profile of the editor — its
 //! ribbon (tabs and the fixed group, drawn by [`crate::ribbon`]), its stage, the commands
 //! available in it — and the document's: each document is shown in one, kept in its file
 //! ([`skraft_model::FileView`]).
@@ -20,12 +20,15 @@ pub struct Workspace {
     /// What it is for, in a few words (under its name in the switcher's menu).
     pub about: fn() -> String,
     pub icon: ImageSource<'static>,
-    /// Not finished: listed in debug builds only, marked as under way (decision 0046).
+    /// Not finished: listed in debug builds only, marked as under way (decision 0047).
     pub under_way: bool,
     /// What takes the central area.
     pub stage: Stage,
     /// Its commands besides its ribbon's and the common base (a card's, a menu's).
     pub commands: &'static [&'static str],
+    /// The side panels it shows until the user arranges its own (none: as the first
+    /// workspace's), each in the first workspace's place (docs/ui/workspaces.md#panels).
+    pub panels: Option<&'static [crate::dock::PanelId]>,
     /// The ribbon's group shown before the tab's own, on every tab (Selection).
     pub fixed: Group,
     pub tabs: &'static [Tab],
@@ -36,12 +39,16 @@ pub struct Workspace {
 pub enum Stage {
     /// The 3D view, over the whole area, the cards floating over it.
     View,
+    /// The parts list on the left (docs/ui/parts-list.md), the 3D view on the right, a
+    /// separation to drag between them.
+    Parts,
 }
 
 impl Stage {
     pub fn id(self) -> &'static str {
         match self {
             Stage::View => "view",
+            Stage::Parts => "parts",
         }
     }
 }
@@ -64,65 +71,99 @@ pub const COMMON: &[&str] = &[
 
 const STANDARD_VIEWS: &[&str] = &["view.zoom_extents", "view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
 
-/// Every workspace, the first the one a document opens in. Cut list and Drawing are planned
-/// (decision 0046).
-pub const WORKSPACES: &[Workspace] = &[Workspace {
-    id: "modelling",
-    label: || t!("ribbon.workspace.modelling"),
-    about: || t!("ribbon.workspace.about.modelling"),
-    icon: icons::MODELLING,
-    under_way: false,
-    stage: Stage::View,
-    // The « Composants » card's.
-    commands: &["components.purge"],
-    fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "tool.erase"], &["tool.select", "tool.erase"]),
-    tabs: &[
-        Tab {
-            id: "build",
-            label: || t!("ribbon.tab.build"),
-            groups: &[
-                group(
-                    "draw",
-                    || t!("ribbon.group.draw"),
-                    &["tool.box", "tool.cylinder", "tool.prism", "tool.turn"],
-                    &["tool.box", "tool.cylinder", "tool.prism", "tool.turn"],
-                ),
-                group(
-                    "handle",
-                    || t!("ribbon.group.handle"),
-                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
-                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
-                ),
-                group(
-                    "reshape",
-                    || t!("ribbon.group.reshape"),
-                    &["tool.stretch", "tool.round", "tool.chamfer", "tool.union", "tool.difference", "tool.intersection"],
-                    &["tool.stretch", "tool.round", "tool.chamfer", "tool.union", "tool.difference", "tool.intersection"],
-                ),
-                group("appearance", || t!("ribbon.group.appearance"), &["tool.paint", "tool.sample"], &["tool.paint", "tool.sample"]),
-            ],
-        },
-        Tab {
-            id: "assemble",
-            label: || t!("ribbon.tab.assemble"),
-            groups: &[group(
-                "components",
-                || t!("ribbon.group.components"),
-                &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies", "edit.move_out"],
-                &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies", "edit.move_out"],
-            )],
-        },
-        Tab {
-            id: "inspect",
-            label: || t!("ribbon.tab.inspect"),
-            groups: &[
-                group("measure", || t!("ribbon.group.measure"), &["tool.measure", "edit.delete_guides"], &["tool.measure"]),
-                group("section", || t!("ribbon.group.section"), &["tool.section", "view.section_clear"], &["tool.section"]),
-                group("view", || t!("ribbon.group.view"), STANDARD_VIEWS, &["view.zoom_extents"]),
-            ],
-        },
-    ],
-}];
+/// Every workspace, the first the one a document opens in. Drawing and a cut list are planned
+/// (decision 0047).
+pub const WORKSPACES: &[Workspace] = &[
+    Workspace {
+        id: "modelling",
+        label: || t!("ribbon.workspace.modelling"),
+        about: || t!("ribbon.workspace.about.modelling"),
+        icon: icons::MODELLING,
+        under_way: false,
+        stage: Stage::View,
+        // The « Composants » card's.
+        commands: &["components.purge"],
+        panels: None,
+        fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "tool.erase"], &["tool.select", "tool.erase"]),
+        tabs: &[
+            Tab {
+                id: "build",
+                label: || t!("ribbon.tab.build"),
+                groups: &[
+                    group(
+                        "draw",
+                        || t!("ribbon.group.draw"),
+                        &["tool.box", "tool.cylinder", "tool.prism", "tool.turn"],
+                        &["tool.box", "tool.cylinder", "tool.prism", "tool.turn"],
+                    ),
+                    group(
+                        "handle",
+                        || t!("ribbon.group.handle"),
+                        &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
+                        &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
+                    ),
+                    group(
+                        "reshape",
+                        || t!("ribbon.group.reshape"),
+                        &["tool.stretch", "tool.round", "tool.chamfer", "tool.union", "tool.difference", "tool.intersection"],
+                        &["tool.stretch", "tool.round", "tool.chamfer", "tool.union", "tool.difference", "tool.intersection"],
+                    ),
+                    group("appearance", || t!("ribbon.group.appearance"), &["tool.paint", "tool.sample"], &["tool.paint", "tool.sample"]),
+                ],
+            },
+            Tab {
+                id: "assemble",
+                label: || t!("ribbon.tab.assemble"),
+                groups: &[group(
+                    "components",
+                    || t!("ribbon.group.components"),
+                    &[
+                        "edit.make_assembly",
+                        "edit.explode",
+                        "edit.make_unique",
+                        "edit.group_bodies",
+                        "edit.ungroup_bodies",
+                        "edit.move_out",
+                    ],
+                    &[
+                        "edit.make_assembly",
+                        "edit.explode",
+                        "edit.make_unique",
+                        "edit.group_bodies",
+                        "edit.ungroup_bodies",
+                        "edit.move_out",
+                    ],
+                )],
+            },
+            Tab {
+                id: "inspect",
+                label: || t!("ribbon.tab.inspect"),
+                groups: &[
+                    group("measure", || t!("ribbon.group.measure"), &["tool.measure", "edit.delete_guides"], &["tool.measure"]),
+                    group("section", || t!("ribbon.group.section"), &["tool.section", "view.section_clear"], &["tool.section"]),
+                    group("view", || t!("ribbon.group.view"), STANDARD_VIEWS, &["view.zoom_extents"]),
+                ],
+            },
+        ],
+    },
+    Workspace {
+        id: "parts",
+        label: || t!("ribbon.workspace.parts"),
+        about: || t!("ribbon.workspace.about.parts"),
+        icon: icons::PARTS_LIST,
+        under_way: true,
+        stage: Stage::Parts,
+        commands: &[],
+        // The table and the view alone.
+        panels: Some(&[]),
+        fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select"], &["tool.select"]),
+        tabs: &[Tab {
+            id: "list",
+            label: || t!("ribbon.tab.list"),
+            groups: &[group("view", || t!("ribbon.group.view"), STANDARD_VIEWS, &["view.zoom_extents"])],
+        }],
+    },
+];
 
 /// The workspaces this build lists: an unfinished one in debug builds only.
 pub fn listed() -> impl Iterator<Item = &'static Workspace> {

@@ -270,7 +270,7 @@ impl Keymap {
     }
 
     /// The command a key press runs, among those `available` (the workspace shown's: one key
-    /// may serve two workspaces, decision 0046).
+    /// may serve two workspaces, decision 0047).
     pub fn command_for(&self, key: egui::Key, m: egui::Modifiers, available: impl Fn(&str) -> bool) -> Option<&'static str> {
         self.map.iter().find(|(c, s)| s.matches(key, m) && available(c)).map(|(c, _)| *c)
     }

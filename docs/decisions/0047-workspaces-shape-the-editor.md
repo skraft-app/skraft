@@ -42,6 +42,14 @@ panels, their view's look and the commands that make sense differ from Modelling
   (one per document, shared by its workspaces); the selection is shared both ways (a row lights
   its parts in the view, a part picked in the view its row).
 
+- **Amended on 2026-11-20 (questions / answers), once the mechanism was built**: the first
+  other workspace is *Parts list* « Liste des pièces » — a table of the parts placed, their
+  name, material, dimensions and quantity —, before any cut list; its stage the central area
+  **split**, the table on the left and the 3D view on the right, a separation to drag (rather
+  than the view in a card); one row per part (and material), sorted by a column, read only; the
+  selection shared both ways. What matters first is the workspaces' structure (stages, the
+  view in part of the area).
+
 ## Alternatives considered
 
 - **The ribbon only** (0015 as it was), cut list and drawing as panels or windows of Modelling:

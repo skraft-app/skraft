@@ -64,8 +64,11 @@ pub struct Preferences {
     /// The side panels: their columns, order, sizes, folded or closed — the first workspace's
     /// (Modelling)…
     pub panels: Layout,
-    /// …and the other workspaces', by id ([`Preferences::layout`], decision 0046).
+    /// …and the other workspaces', by id ([`Preferences::layout`], decision 0047).
     pub workspace_panels: BTreeMap<String, Layout>,
+    /// A split stage's share of the room between the columns that its table takes, the 3D view
+    /// the rest (docs/ui/workspaces.md#stage).
+    pub table_share: f32,
     /// The workspace and tab shown, the ribbon's pins and labels (docs/ui/ribbon.md).
     pub ribbon: crate::ribbon::Prefs,
     /// The commands the quick tools' card shows (docs/tools/quick-tools.md); absent: the
@@ -104,6 +107,7 @@ impl Default for Preferences {
             shown_file: None,
             panels: Layout::default(),
             workspace_panels: BTreeMap::new(),
+            table_share: 0.5,
             ribbon: crate::ribbon::Prefs::default(),
             quick_tools: None,
             view_bar: None,
@@ -185,19 +189,40 @@ impl Preferences {
         }
     }
 
-    /// The side panels of workspace `id`: a workspace never arranged has the first one's.
-    pub fn layout(&self, id: &str) -> &Layout {
-        self.workspace_panels.get(id).filter(|_| id != crate::workspace::WORKSPACES[0].id).unwrap_or(&self.panels)
+    /// The side panels of workspace `id`: a workspace never arranged has its first layout
+    /// ([`Preferences::first_layout`]).
+    pub fn layout(&self, id: &str) -> std::borrow::Cow<'_, Layout> {
+        if id == crate::workspace::WORKSPACES[0].id {
+            return std::borrow::Cow::Borrowed(&self.panels);
+        }
+        match self.workspace_panels.get(id) {
+            Some(l) => std::borrow::Cow::Borrowed(l),
+            None => std::borrow::Cow::Owned(self.first_layout(id)),
+        }
     }
 
-    /// The same, to arrange them: a workspace arranged for the first time starts from the first
-    /// one's.
+    /// The same, to arrange them: kept from then on.
     pub fn layout_mut(&mut self, id: &str) -> &mut Layout {
         if id == crate::workspace::WORKSPACES[0].id {
             return &mut self.panels;
         }
-        let first = &self.panels;
-        self.workspace_panels.entry(id.to_owned()).or_insert_with(|| first.clone())
+        if !self.workspace_panels.contains_key(id) {
+            let first = self.first_layout(id);
+            self.workspace_panels.insert(id.to_owned(), first);
+        }
+        self.workspace_panels.get_mut(id).expect("inserted")
+    }
+
+    /// The layout of workspace `id` until it is arranged: the first workspace's, the panels
+    /// shown those it says ([`crate::workspace::Workspace::panels`]), each keeping its place.
+    fn first_layout(&self, id: &str) -> Layout {
+        let mut layout = self.panels.clone();
+        if let Some(shown) = crate::workspace::WORKSPACES.iter().find(|w| w.id == id).and_then(|w| w.panels) {
+            for c in layout.left.cards.iter_mut().chain(layout.right.cards.iter_mut()) {
+                c.shown = shown.contains(&c.id);
+            }
+        }
+        layout
     }
 
     /// Puts `path` first in the recent files, keeping the last [`RECENT_FILES`].
@@ -279,6 +304,10 @@ mod tests {
         assert!(p.workspace_panels.is_empty(), "the first workspace's are `panels`");
         // Another, never arranged: the first one's, until it is.
         assert!(!p.layout("other").is_shown(PanelId::Materials));
+        // The parts list shows none at first, each in its place to come back to.
+        let parts = p.layout("parts");
+        assert!(PanelId::ALL.iter().all(|&id| !parts.is_shown(id)), "{parts:?}");
+        assert!(PanelId::ALL.iter().all(|&id| parts.card(id).is_some()));
         p.layout_mut("other").toggle(PanelId::Materials);
         assert!(p.layout("other").is_shown(PanelId::Materials));
         assert!(!p.layout(first).is_shown(PanelId::Materials), "the first one's untouched");

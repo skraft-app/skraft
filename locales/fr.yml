@@ -179,15 +179,18 @@ ribbon:
   workspace:
     tip: "Espace de travail"
     modelling: "Modélisation"
-    # A workspace not finished, listed in debug builds only (decision 0046).
+    parts: "Liste des pièces"
+    # A workspace not finished, listed in debug builds only (decision 0047).
     under_way: "%{name} (en cours)"
     # What each one is for, under its name in the switcher's menu.
     about:
       modelling: "Dessiner, remodeler et assembler les pièces"
+      parts: "Les pièces du modèle : matière, dimensions, quantité"
   tab:
     build: "Construire"
     assemble: "Assembler"
     inspect: "Inspecter"
+    list: "Liste"
   group:
     selection: "Sélection"
     draw: "Dessiner"
@@ -544,6 +547,18 @@ prefs:
     default: "Défaut"
 
 # The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
+# The parts list, the « Liste des pièces » workspace's stage (docs/ui/parts-list.md).
+parts_list:
+  title: "$t(ribbon.workspace.parts)"
+  column:
+    name: "Nom"
+    material: "Matière"
+    length: "Longueur"
+    width: "Largeur"
+    thickness: "Épaisseur"
+    quantity: "Qté"
+  empty: "Aucune pièce dans le modèle"
+
 search:
   hint: "Rechercher"
   clear: "Effacer la recherche"

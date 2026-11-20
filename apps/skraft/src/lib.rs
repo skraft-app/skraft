@@ -27,6 +27,7 @@ mod nav_prefs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opened;
 mod panels;
+mod parts_table;
 mod pins;
 mod prefs;
 mod quick;

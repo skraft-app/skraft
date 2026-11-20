@@ -79,8 +79,10 @@ pub enum Action {
     SetHidden(EntityPath, bool),
     /// The ribbon's own state: tab, pins, labels (docs/ui/ribbon.md).
     Ribbon(crate::ribbon::Change),
-    /// The shown document into workspace `id` (decision 0046).
+    /// The shown document into workspace `id` (decision 0047).
     Workspace(&'static str),
+    /// The parts `paths` (from the root) selected: a row of the parts list (docs/ui/parts-list.md).
+    SelectParts(Vec<EntityPath>),
     /// A tool started from the quick tools' card, on what was just made (docs/tools/quick-tools.md).
     QuickTool(&'static str),
     /// A command of the quick tools' card pinned, or unpinned.

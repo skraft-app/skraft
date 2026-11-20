@@ -9,7 +9,7 @@ A workspace is a profile of the editor: what it shows and what it lets one do, f
 work — modelling, then a cut list or a drawing. Each document is shown in one; the workspace
 switcher, at the ribbon's left end ([Workspaces and ribbon](ribbon.md#layout)), changes it.
 
-Decision record: [A workspace shapes the editor](../decisions/0046-workspaces-shape-the-editor.md)
+Decision record: [A workspace shapes the editor](../decisions/0047-workspaces-shape-the-editor.md)
 
 ## The switcher
 
@@ -26,15 +26,32 @@ cours) » after it when under way) and, under it, smaller and weak, what it is f
 - its **name**, **icon** and what it is for (`about`);
 - its **ribbon**: the fixed group (Selection) and the tabs, drawn by `ribbon.rs`
   ([Workspaces and ribbon](ribbon.md));
-- its **stage**, what takes the central area (`Stage`): the 3D view only for now, the cards
-  floating over it;
+- its **stage**, what takes the central area ([Stage](#stage));
 - its **own commands** besides its ribbon's (`commands`: a card's, as « Purger » of the
   « Composants » card);
-- its **side panels' layout**, a preference per workspace ([Panels](#panels));
+- its **side panels' layout**, a preference per workspace, and the panels it shows at first
+  ([Panels](#panels));
 - whether it is **under way** (`under_way`): listed in debug builds only.
 
-*Modelling* « Modélisation » is the only one, and has every command of the registry (a test
-checks it).
+*Modelling* « Modélisation », the first, has every command of the registry (a test checks
+it). *Parts list* « Liste des pièces » is under way ([Parts list](parts-list.md)).
+
+## Stage
+
+The central area, between the title bar and the status bar (`App::document_ui`), is the
+workspace's stage (`Stage`):
+
+- **`View`**: the 3D view over the whole area, the ribbon, the tools' cards and the side panels
+  floating over it (Modelling).
+- **`Parts`**: the parts list's card on the left, from the left column (or the area's edge) to
+  the 3D view, which goes on to the area's right edge, under the right column; a separation to
+  drag between them (`App::split`, preference `table_share`; [Parts list](parts-list.md)). The
+  table counts as a column for the ribbon: beside it when the ribbon fits between it and the
+  right column (the table then the area's whole height), else above.
+
+The ribbon and the side panels are placed in the whole area; what belongs to the view — the
+tools' option cards, the view bar, the steps bar, the quick tools' card, the drop-up, what zoom
+extents frames — in the 3D view's rect. The viewport renders at that rect's size.
 
 ## Commands available
 
@@ -77,9 +94,11 @@ cours) » in the switcher's menu; a release lists it once finished (`workspace::
 ## Panels
 
 The docked cards' layout ([Application interface](interface.md#layout)) is kept per workspace:
-the first one's in the preference `panels`, the others' in `workspace_panels` by id; a
-workspace never arranged shows the first one's, and starts from it when first arranged
-(`Preferences::layout`, `layout_mut`). The *Interface* preferences show or close the panels of
+the first one's in the preference `panels`, the others' in `workspace_panels` by id. A
+workspace never arranged shows its **first layout**: the first workspace's, the panels shown
+those the workspace says (`Workspace::panels`; none: as the first's), each in its place to come
+back to; it is kept once arranged (`Preferences::layout`, `layout_mut`, `first_layout`). The
+parts list shows none at first. The *Interface* preferences show or close the panels of
 the shown document's workspace.
 
 ## Driving
