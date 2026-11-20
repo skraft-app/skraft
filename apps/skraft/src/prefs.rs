@@ -61,8 +61,11 @@ pub struct Preferences {
     /// …which are these, in tab order, and the one shown among them.
     pub open_files: Vec<String>,
     pub shown_file: Option<usize>,
-    /// The side panels: their columns, order, sizes, folded or closed.
+    /// The side panels: their columns, order, sizes, folded or closed — the first workspace's
+    /// (Modelling)…
     pub panels: Layout,
+    /// …and the other workspaces', by id ([`Preferences::layout`], decision 0046).
+    pub workspace_panels: BTreeMap<String, Layout>,
     /// The workspace and tab shown, the ribbon's pins and labels (docs/ui/ribbon.md).
     pub ribbon: crate::ribbon::Prefs,
     /// The commands the quick tools' card shows (docs/tools/quick-tools.md); absent: the
@@ -100,6 +103,7 @@ impl Default for Preferences {
             open_files: Vec::new(),
             shown_file: None,
             panels: Layout::default(),
+            workspace_panels: BTreeMap::new(),
             ribbon: crate::ribbon::Prefs::default(),
             quick_tools: None,
             view_bar: None,
@@ -171,6 +175,7 @@ impl Preferences {
             Ok(Some(text)) => match serde_json::from_str::<Preferences>(&text) {
                 Ok(mut p) if p.version <= VERSION => {
                     p.panels.normalize();
+                    p.workspace_panels.values_mut().for_each(Layout::normalize);
                     (Preferences { version: VERSION, ..p }, None)
                 }
                 Ok(p) => (Preferences::default(), Some(t!("error.preferences.newer", version = p.version))),
@@ -178,6 +183,21 @@ impl Preferences {
             },
             Err(e) => (Preferences::default(), Some(t!("error.preferences.unreadable", error = e))),
         }
+    }
+
+    /// The side panels of workspace `id`: a workspace never arranged has the first one's.
+    pub fn layout(&self, id: &str) -> &Layout {
+        self.workspace_panels.get(id).filter(|_| id != crate::workspace::WORKSPACES[0].id).unwrap_or(&self.panels)
+    }
+
+    /// The same, to arrange them: a workspace arranged for the first time starts from the first
+    /// one's.
+    pub fn layout_mut(&mut self, id: &str) -> &mut Layout {
+        if id == crate::workspace::WORKSPACES[0].id {
+            return &mut self.panels;
+        }
+        let first = &self.panels;
+        self.workspace_panels.entry(id.to_owned()).or_insert_with(|| first.clone())
     }
 
     /// Puts `path` first in the recent files, keeping the last [`RECENT_FILES`].
@@ -248,6 +268,24 @@ mod store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_workspace_arranges_its_panels_from_the_first_ones() {
+        use crate::dock::PanelId;
+        let mut p = Preferences::default();
+        let first = crate::workspace::WORKSPACES[0].id;
+        p.layout_mut(first).toggle(PanelId::Materials);
+        assert!(!p.layout(first).is_shown(PanelId::Materials));
+        assert!(p.workspace_panels.is_empty(), "the first workspace's are `panels`");
+        // Another, never arranged: the first one's, until it is.
+        assert!(!p.layout("other").is_shown(PanelId::Materials));
+        p.layout_mut("other").toggle(PanelId::Materials);
+        assert!(p.layout("other").is_shown(PanelId::Materials));
+        assert!(!p.layout(first).is_shown(PanelId::Materials), "the first one's untouched");
+        // Old preferences: the ribbon's workspace, gone, is ignored.
+        let p: Preferences = serde_json::from_str(r#"{"ribbon":{"workspace":"modelling","labels":true}}"#).unwrap();
+        assert!(p.ribbon.labels);
+    }
 
     #[test]
     fn partial_files_load_with_defaults() {

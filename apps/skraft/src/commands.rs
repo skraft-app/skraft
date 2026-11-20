@@ -269,14 +269,15 @@ impl Keymap {
         self.map.iter().find(|(c, _)| *c == id).map(|(_, s)| *s)
     }
 
-    /// The command a key press runs.
-    pub fn command_for(&self, key: egui::Key, m: egui::Modifiers) -> Option<&'static str> {
-        self.map.iter().find(|(_, s)| s.matches(key, m)).map(|(c, _)| *c)
+    /// The command a key press runs, among those `available` (the workspace shown's: one key
+    /// may serve two workspaces, decision 0046).
+    pub fn command_for(&self, key: egui::Key, m: egui::Modifiers, available: impl Fn(&str) -> bool) -> Option<&'static str> {
+        self.map.iter().find(|(c, s)| s.matches(key, m) && available(c)).map(|(c, _)| *c)
     }
 
-    /// The other commands bound to `s`.
-    pub fn conflicts(&self, id: &str, s: Shortcut) -> Vec<&'static str> {
-        self.map.iter().filter(|(c, t)| *c != id && *t == s).map(|(c, _)| *c).collect()
+    /// The other commands bound to `s` that some workspace has with `id` (`share`).
+    pub fn conflicts(&self, id: &str, s: Shortcut, share: impl Fn(&str, &str) -> bool) -> Vec<&'static str> {
+        self.map.iter().filter(|(c, t)| *c != id && *t == s && share(c, id)).map(|(c, _)| *c).collect()
     }
 }
 
@@ -319,7 +320,7 @@ mod tests {
         let keymap = Keymap::new(&BTreeMap::new());
         for c in COMMANDS {
             if let Some(s) = keymap.get(c.id) {
-                assert!(keymap.conflicts(c.id, s).is_empty(), "{} shares {}", c.id, s.text());
+                assert!(keymap.conflicts(c.id, s, crate::workspace::share).is_empty(), "{} shares {}", c.id, s.text());
             }
         }
     }
@@ -352,10 +353,26 @@ mod tests {
     fn user_shortcuts_replace_or_remove_defaults() {
         let overrides = BTreeMap::from([("tool.box".to_owned(), "Shift+B".to_owned()), ("tool.move".to_owned(), String::new())]);
         let k = Keymap::new(&overrides);
-        assert_eq!(k.command_for(egui::Key::B, egui::Modifiers::SHIFT), Some("tool.box"));
-        assert_eq!(k.command_for(egui::Key::R, egui::Modifiers::NONE), None);
+        let all = |_: &str| true;
+        assert_eq!(k.command_for(egui::Key::B, egui::Modifiers::SHIFT, all), Some("tool.box"));
+        assert_eq!(k.command_for(egui::Key::R, egui::Modifiers::NONE, all), None);
         assert_eq!(k.get("tool.move"), None, "an empty shortcut removes it");
-        assert_eq!(k.command_for(egui::Key::B, egui::Modifiers::NONE), Some("tool.paint"));
+        assert_eq!(k.command_for(egui::Key::B, egui::Modifiers::NONE, all), Some("tool.paint"));
+    }
+
+    #[test]
+    fn a_key_runs_the_command_available_in_the_workspace_shown() {
+        // Two commands on one key, each in its own workspace: the one available runs, and they
+        // do not conflict.
+        let overrides = BTreeMap::from([("tool.measure".to_owned(), "R".to_owned())]);
+        let k = Keymap::new(&overrides);
+        let only = |id: &'static str| move |c: &str| c == id;
+        assert_eq!(k.command_for(egui::Key::R, egui::Modifiers::NONE, only("tool.measure")), Some("tool.measure"));
+        assert_eq!(k.command_for(egui::Key::R, egui::Modifiers::NONE, only("tool.box")), Some("tool.box"));
+        assert_eq!(k.command_for(egui::Key::R, egui::Modifiers::NONE, only("edit.undo")), None);
+        let r = Shortcut::parse("R").unwrap();
+        assert_eq!(k.conflicts("tool.box", r, |_, _| true), ["tool.measure"]);
+        assert!(k.conflicts("tool.box", r, |_, _| false).is_empty());
     }
 
     #[test]

@@ -179,6 +179,11 @@ ribbon:
   workspace:
     tip: "Espace de travail"
     modelling: "Modélisation"
+    # A workspace not finished, listed in debug builds only (decision 0046).
+    under_way: "%{name} (en cours)"
+    # What each one is for, under its name in the switcher's menu.
+    about:
+      modelling: "Dessiner, remodeler et assembler les pièces"
   tab:
     build: "Construire"
     assemble: "Assembler"

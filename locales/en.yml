@@ -150,6 +150,9 @@ ribbon:
   workspace:
     tip: "Workspace"
     modelling: "Modeling"
+    under_way: "%{name} (under way)"
+    about:
+      modelling: "Draw, reshape and assemble parts"
   tab:
     build: "Build"
     assemble: "Assemble"

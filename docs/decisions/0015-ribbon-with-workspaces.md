@@ -1,6 +1,7 @@
 # A ribbon with workspaces holds the tools, as data with pins
 
-- Status: accepted (2026-11-13)
+- Status: accepted (2026-11-13); amended by [A workspace shapes the editor](0046-workspaces-shape-the-editor.md)
+  (2026-11-20): the workspace is the document's, shortcuts are per workspace
 - Design: [Workspaces and ribbon](../ui/ribbon.md)
 
 ## Context

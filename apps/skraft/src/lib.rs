@@ -46,6 +46,7 @@ mod viewport;
 mod web;
 #[cfg(target_arch = "wasm32")]
 mod worker;
+mod workspace;
 
 pub use app::SkraftApp;
 

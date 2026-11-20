@@ -1,15 +1,16 @@
 //! The ribbon and its workspace switcher, at its left end (docs/ui/ribbon.md).
 //!
-//! The ribbon is data: [`WORKSPACES`] → tabs → groups → command ids of the registry
+//! The ribbon is data: [`crate::workspace::WORKSPACES`] → tabs → groups → command ids of the registry
 //! (docs/ui/commands.md), each group with its default pins. A group shows its pinned commands as buttons;
 //! its label (▾) opens its menu, which lists every command of the group with a pin. The user's
-//! pins, the tab shown per workspace and the labels' switch are a preference ([`Prefs`]).
+//! pins, the tab shown per workspace and the labels' switch are a preference ([`Prefs`]); the
+//! workspace shown is the document's ([`crate::workspace`]).
 //! When the ribbon is too narrow, [`fit`] decides what gives way. Drawing only reads: what the
 //! user chose comes back as actions ([`Change`] for the ribbon's own state).
 
 use std::collections::BTreeMap;
 
-use egui::{Align2, Color32, FontId, ImageSource, Popup, PopupCloseBehavior, Rect, Sense, StrokeKind, pos2, vec2};
+use egui::{Align2, Color32, FontId, Popup, PopupCloseBehavior, Rect, Sense, StrokeKind, pos2, vec2};
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 
@@ -17,18 +18,9 @@ use crate::icons;
 use crate::panels::{Action, CommandView};
 use crate::style::Tip;
 use crate::style::menu_item;
+use crate::workspace::{self, Workspace};
 
 // ---- the description -------------------------------------------------------------------------
-
-/// A workspace: a tab row, and a group shown first whatever the tab.
-pub struct Workspace {
-    pub id: &'static str,
-    pub label: fn() -> String,
-    pub icon: ImageSource<'static>,
-    /// Before the tab's own groups, on every tab (Selection).
-    pub fixed: Group,
-    pub tabs: &'static [Tab],
-}
 
 pub struct Tab {
     pub id: &'static str,
@@ -46,77 +38,13 @@ pub struct Group {
     pub pinned: &'static [&'static str],
 }
 
-const fn group(id: &'static str, label: fn() -> String, commands: &'static [&'static str], pinned: &'static [&'static str]) -> Group {
+pub(crate) const fn group(
+    id: &'static str,
+    label: fn() -> String,
+    commands: &'static [&'static str],
+    pinned: &'static [&'static str],
+) -> Group {
     Group { id, label, commands, pinned }
-}
-
-const STANDARD_VIEWS: &[&str] = &["view.zoom_extents", "view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
-
-/// Every workspace. Cut list and Drawing are planned (docs/ui/ribbon.md): not listed until they exist.
-pub const WORKSPACES: &[Workspace] = &[Workspace {
-    id: "modelling",
-    label: || t!("ribbon.workspace.modelling"),
-    icon: icons::MODELLING,
-    fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "tool.erase"], &["tool.select", "tool.erase"]),
-    tabs: &[
-        Tab {
-            id: "build",
-            label: || t!("ribbon.tab.build"),
-            groups: &[
-                group(
-                    "draw",
-                    || t!("ribbon.group.draw"),
-                    &["tool.box", "tool.cylinder", "tool.prism", "tool.turn"],
-                    &["tool.box", "tool.cylinder", "tool.prism", "tool.turn"],
-                ),
-                group(
-                    "handle",
-                    || t!("ribbon.group.handle"),
-                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
-                    &["tool.move", "tool.rotate", "tool.copy_line", "tool.copy_grid", "tool.distribute"],
-                ),
-                group(
-                    "reshape",
-                    || t!("ribbon.group.reshape"),
-                    &["tool.stretch", "tool.round", "tool.chamfer", "tool.union", "tool.difference", "tool.intersection"],
-                    &["tool.stretch", "tool.round", "tool.chamfer", "tool.union", "tool.difference", "tool.intersection"],
-                ),
-                group("appearance", || t!("ribbon.group.appearance"), &["tool.paint", "tool.sample"], &["tool.paint", "tool.sample"]),
-            ],
-        },
-        Tab {
-            id: "assemble",
-            label: || t!("ribbon.tab.assemble"),
-            groups: &[group(
-                "components",
-                || t!("ribbon.group.components"),
-                &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies", "edit.move_out"],
-                &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.ungroup_bodies", "edit.move_out"],
-            )],
-        },
-        Tab {
-            id: "inspect",
-            label: || t!("ribbon.tab.inspect"),
-            groups: &[
-                group("measure", || t!("ribbon.group.measure"), &["tool.measure", "edit.delete_guides"], &["tool.measure"]),
-                group("section", || t!("ribbon.group.section"), &["tool.section", "view.section_clear"], &["tool.section"]),
-                group("view", || t!("ribbon.group.view"), STANDARD_VIEWS, &["view.zoom_extents"]),
-            ],
-        },
-    ],
-}];
-
-/// The workspace `id`, or the first one.
-pub fn workspace(id: &str) -> &'static Workspace {
-    WORKSPACES.iter().find(|w| w.id == id).unwrap_or(&WORKSPACES[0])
-}
-
-impl Workspace {
-    /// The tab `id`, or the first one.
-    pub fn tab(&self, id: Option<&str>) -> &'static Tab {
-        let tabs: &'static [Tab] = self.tabs;
-        tabs.iter().find(|t| Some(t.id) == id).unwrap_or(&tabs[0])
-    }
 }
 
 /// A group's key in the pins: `"<workspace>/<tab>/<group>"`, `"<workspace>/<group>"` for the
@@ -131,33 +59,21 @@ pub fn key(workspace: &Workspace, tab: Option<&Tab>, group: &Group) -> String {
 // ---- the user's state ------------------------------------------------------------------------
 
 /// The ribbon's preferences.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
-    /// The workspace shown.
-    pub workspace: String,
     /// The tab shown, by workspace.
     pub tabs: BTreeMap<String, String>,
     /// The pinned commands of the groups the user changed, by [`key`] (absent: the defaults).
     pub pins: BTreeMap<String, Vec<String>>,
-    /// Buttons show their label under their icon.
+    /// Buttons show their label under their icon (off by default: compact, the names in the
+    /// tips).
     pub labels: bool,
 }
 
-impl Default for Prefs {
-    fn default() -> Self {
-        // Compact by default: the names are in the tips.
-        Prefs { workspace: WORKSPACES[0].id.to_owned(), tabs: BTreeMap::new(), pins: BTreeMap::new(), labels: false }
-    }
-}
-
 impl Prefs {
-    pub fn workspace(&self) -> &'static Workspace {
-        workspace(&self.workspace)
-    }
-
-    pub fn tab(&self) -> &'static Tab {
-        let w = self.workspace();
+    /// The tab shown in workspace `w`.
+    pub fn tab(&self, w: &Workspace) -> &'static Tab {
         w.tab(self.tabs.get(w.id).map(String::as_str))
     }
 
@@ -169,11 +85,11 @@ impl Prefs {
         }
     }
 
-    pub fn apply(&mut self, change: Change) {
+    /// Applies `change`, made on the ribbon of workspace `w`.
+    pub fn apply(&mut self, change: Change, w: &Workspace) {
         match change {
-            Change::Workspace(id) => self.workspace = id.to_owned(),
             Change::Tab(id) => {
-                self.tabs.insert(self.workspace().id.to_owned(), id.to_owned());
+                self.tabs.insert(w.id.to_owned(), id.to_owned());
             }
             Change::TogglePin { key, group, id } => {
                 let mut pinned = self.pinned(&key, group);
@@ -190,7 +106,7 @@ impl Prefs {
                 }
             }
             Change::ResetTab => {
-                let (w, tab) = (self.workspace(), self.tab());
+                let tab = self.tab(w);
                 self.pins.remove(&key(w, None, &w.fixed));
                 for g in tab.groups {
                     self.pins.remove(&key(w, Some(tab), g));
@@ -204,7 +120,6 @@ impl Prefs {
 /// What the user changed on the ribbon (applied by the app after drawing, [`Prefs::apply`]).
 #[derive(Clone)]
 pub enum Change {
-    Workspace(&'static str),
     Tab(&'static str),
     /// Pin command `id` of the group under `key`, or unpin it.
     TogglePin {
@@ -349,6 +264,9 @@ const COMPACT_WIDTH: f32 = 34.0;
 const ICON: f32 = 24.0;
 /// The workspace cell's width, at the ribbon's left end.
 const WORKSPACE_WIDTH: f32 = 92.0;
+/// The workspace's icon in its cell, and the gap between it and its name.
+const WORKSPACE_ICON: f32 = 28.0;
+const WORKSPACE_ICON_GAP: f32 = 4.0;
 
 fn label_font() -> FontId {
     FontId::proportional(11.5)
@@ -356,6 +274,8 @@ fn label_font() -> FontId {
 
 /// What the ribbon shows this frame.
 pub struct View<'a> {
+    /// The shown document's workspace.
+    pub workspace: &'static Workspace,
     pub prefs: &'a Prefs,
     pub views: &'a [CommandView],
 }
@@ -366,30 +286,98 @@ impl View<'_> {
     }
 }
 
-/// The workspace cell, at the ribbon's left end, over its whole height: the workspace's icon and
-/// name; a click lists the workspaces.
-fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, actions: &mut Vec<Action>) {
-    let current = v.prefs.workspace();
-    let response = ui.interact(rect, egui::Id::unique("ribbon_workspace"), Sense::click());
-    let visuals = ui.style().interact(&response);
-    if response.hovered() {
-        ui.painter().rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
+/// The workspace cell, at the ribbon's left end: the workspace's icon over its name, centred
+/// above the groups' label line, the chevron of its menu on that line, at the height of the
+/// groups' own (docs/ui/ribbon.md#layout). It reacts over its whole surface: the card's inner
+/// margin (`inset`) on three sides, up to the separator (`sep`) on the right; a click lists the
+/// workspaces.
+fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, inset: egui::Margin, sep: f32, actions: &mut Vec<Action>) {
+    let current = v.workspace;
+    let full = Rect::from_min_max(pos2(rect.left() - inset.leftf(), rect.top() - inset.topf()), pos2(sep, rect.bottom() + inset.bottomf()));
+    let response = ui.interact(full, egui::Id::unique("ribbon_workspace"), Sense::click());
+    crate::handles::publish(|| "ribbon_workspace".into(), full);
+    let hovered = response.hovered() || response.is_pointer_button_down_on();
+    if hovered {
+        // The card's corners on its left, square along the separator.
+        let r = ui.visuals().window_corner_radius;
+        let corners = egui::CornerRadius { nw: r.nw, sw: r.sw, ne: 0, se: 0 };
+        ui.painter().rect_filled(full, corners, ui.style().interact(&response).weak_bg_fill);
     }
     let ink = ui.visuals().text_color();
-    let icon = Rect::from_center_size(rect.center() - vec2(0.0, 10.0), vec2(28.0, 28.0));
-    egui::Image::new(current.icon.clone()).tint(ink).paint_at(ui, icon);
     let label = ui.painter().layout_no_wrap((current.label)(), FontId::proportional(12.5), ink);
-    let at = pos2(rect.center().x - (label.size().x + CHEVRON_AFTER) / 2.0, icon.bottom() + 6.0);
-    ui.painter().galley(at, label.clone(), ink);
-    chevron(ui, pos2(at.x + label.size().x + CHEVRON_AFTER - 6.0, at.y + label.size().y / 2.0), ink);
+    let line = rect.bottom() - GROUP_LABEL_HEIGHT;
+    let block = WORKSPACE_ICON + WORKSPACE_ICON_GAP + label.size().y;
+    let top = (full.top() + line - block) / 2.0;
+    let icon = Rect::from_min_size(pos2(full.center().x - WORKSPACE_ICON / 2.0, top), vec2(WORKSPACE_ICON, WORKSPACE_ICON));
+    egui::Image::new(current.icon.clone()).tint(ink).paint_at(ui, icon);
+    let at = pos2(full.center().x - label.size().x / 2.0, icon.bottom() + WORKSPACE_ICON_GAP);
+    ui.painter().galley(at, label, ink);
+    // As a group label's chevron: weak, the text's colour when hovered.
+    let chevron_ink = if hovered { ink } else { ui.visuals().weak_text_color() };
+    chevron(ui, pos2(full.center().x, line + GROUP_LABEL_HEIGHT / 2.0), chevron_ink);
     let response = response.tip(t!("ribbon.workspace.tip"));
     Popup::menu(&response).style(crate::style::menu).show(|ui| {
-        for w in WORKSPACES {
-            if ui.selectable_label(w.id == current.id, (w.label)()).clicked() && w.id != current.id {
-                actions.push(Action::Ribbon(Change::Workspace(w.id)));
+        let rows: Vec<_> = workspace::listed().map(|w| WorkspaceRow::new(ui, w)).collect();
+        let width = rows.iter().map(WorkspaceRow::width).fold(WORKSPACE_ROW_MIN_WIDTH, f32::max);
+        for row in rows {
+            let w = row.workspace;
+            if row.show(ui, width, w.id == current.id).clicked() {
+                if w.id != current.id {
+                    actions.push(Action::Workspace(w.id));
+                }
+                ui.close();
             }
         }
     });
+}
+
+/// A row of the workspaces' menu: the icon, then the name over what it is for, smaller and weak.
+const WORKSPACE_ROW_ICON: f32 = 22.0;
+const WORKSPACE_ROW_HEIGHT: f32 = 40.0;
+const WORKSPACE_ROW_PAD: f32 = 8.0;
+const WORKSPACE_ROW_MIN_WIDTH: f32 = 200.0;
+
+struct WorkspaceRow {
+    workspace: &'static Workspace,
+    name: std::sync::Arc<egui::Galley>,
+    about: std::sync::Arc<egui::Galley>,
+}
+
+impl WorkspaceRow {
+    fn new(ui: &egui::Ui, w: &'static Workspace) -> Self {
+        let name = if w.under_way { t!("ribbon.workspace.under_way", name = (w.label)()) } else { (w.label)() };
+        let name = ui.painter().layout_no_wrap(name, FontId::proportional(13.0), ui.visuals().text_color());
+        let about = ui.painter().layout_no_wrap((w.about)(), FontId::proportional(11.0), ui.visuals().weak_text_color());
+        WorkspaceRow { workspace: w, name, about }
+    }
+
+    /// The row's width for its texts.
+    fn width(&self) -> f32 {
+        3.0 * WORKSPACE_ROW_PAD + WORKSPACE_ROW_ICON + self.name.size().x.max(self.about.size().x)
+    }
+
+    /// Drawn `width` wide, filled when `selected` (the workspace shown) or hovered.
+    fn show(self, ui: &mut egui::Ui, width: f32, selected: bool) -> egui::Response {
+        let (rect, response) = ui.allocate_exact_size(vec2(width, WORKSPACE_ROW_HEIGHT), Sense::click());
+        crate::handles::publish(|| format!("ribbon_workspace:{}", self.workspace.id), rect);
+        let visuals = ui.style().interact_selectable(&response, selected);
+        if selected || response.hovered() {
+            ui.painter().rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
+        }
+        let ink = ui.visuals().text_color();
+        let icon = Rect::from_min_size(
+            pos2(rect.left() + WORKSPACE_ROW_PAD, rect.center().y - WORKSPACE_ROW_ICON / 2.0),
+            vec2(WORKSPACE_ROW_ICON, WORKSPACE_ROW_ICON),
+        );
+        egui::Image::new(self.workspace.icon.clone()).tint(ink).paint_at(ui, icon);
+        let x = icon.right() + WORKSPACE_ROW_PAD;
+        let gap = 2.0;
+        let top = rect.center().y - (self.name.size().y + gap + self.about.size().y) / 2.0;
+        let about_at = pos2(x, top + self.name.size().y + gap);
+        ui.painter().galley(pos2(x, top), self.name, ink);
+        ui.painter().galley(about_at, self.about, ink);
+        response
+    }
 }
 
 /// The tab row, as the file tabs of the title bar (docs/ui/title-bar.md): a band across the card's top
@@ -526,8 +514,8 @@ fn tab_row_width(painter: &egui::Painter, w: &Workspace) -> f32 {
 
 /// The groups shown (the fixed one first) and their sizes, as [`fit`] sees them.
 fn measure(painter: &egui::Painter, v: &View) -> (Vec<Laid>, Vec<GroupSize>) {
-    let w = v.prefs.workspace();
-    let tab = v.prefs.tab();
+    let w = v.workspace;
+    let tab = v.prefs.tab(v.workspace);
     let labels = v.prefs.labels;
     let mut laid: Vec<Laid> = Vec::new();
     for (tab_of, g) in std::iter::once((None, &w.fixed)).chain(tab.groups.iter().map(|g| (Some(tab), g))) {
@@ -568,46 +556,43 @@ pub fn natural_width(ctx: &egui::Context, v: &View) -> f32 {
     let collapsed = if v.prefs.labels { BUTTON_MIN_WIDTH } else { COMPACT_WIDTH };
     let plans: Vec<Plan> = sizes.iter().map(Plan::full).collect();
     let groups = used(&plans, &sizes, collapsed);
-    let w = v.prefs.workspace();
-    let tabs = if w.tabs.len() > 1 { tab_row_width(&painter, w) } else { 0.0 };
+    let w = v.workspace;
+    let tabs = tab_row_width(&painter, w);
     (WORKSPACE_WIDTH + GROUP_GAP + groups.max(tabs)).ceil()
 }
 
 /// The ribbon card's content, `width` wide: the workspace cell at the left, over the whole
 /// height, then the tab row over the groups. `inset`: the card's inner margin.
 pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
-    let w = v.prefs.workspace();
     let labels = v.prefs.labels;
     let button_h = if labels { BUTTON_HEIGHT } else { COMPACT_HEIGHT };
-    let tabs = w.tabs.len() > 1;
     let spacing = ui.spacing().item_spacing.y;
-    let height = if tabs { TAB_ROW_HEIGHT + spacing + TAB_GAP_BELOW } else { 0.0 } + button_h + LABEL_GAP + GROUP_LABEL_HEIGHT;
+    // The tab row always, a single tab too: the ribbon keeps its height whatever the workspace.
+    let height = TAB_ROW_HEIGHT + spacing + TAB_GAP_BELOW + button_h + LABEL_GAP + GROUP_LABEL_HEIGHT;
     ui.set_width(width);
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         let (cell, _) = ui.allocate_exact_size(vec2(WORKSPACE_WIDTH, height), Sense::hover());
-        workspace_cell(ui, v, cell, actions);
-        ui.add_space(GROUP_GAP);
-        let content = (width - WORKSPACE_WIDTH - GROUP_GAP).max(0.0);
         // The tab band from the separator, which is drawn over it, across the whole card.
         let band = egui::Margin { left: (GROUP_GAP / 2.0) as i8, ..inset };
-        ui.vertical(|ui| groups(ui, v, content, tabs.then_some(band), actions));
         let sx = cell.right() + GROUP_GAP - band.leftf();
+        workspace_cell(ui, v, cell, inset, sx, actions);
+        ui.add_space(GROUP_GAP);
+        let content = (width - WORKSPACE_WIDTH - GROUP_GAP).max(0.0);
+        ui.vertical(|ui| groups(ui, v, content, band, actions));
         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
         ui.painter().vline(sx, cell.top() - inset.topf()..=cell.bottom() + inset.bottomf(), stroke);
     });
 }
 
-/// The tab row (`inset`: the card's inner margin, beside the workspace cell; none: a
-/// single tab) over the groups, `width` wide.
-fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: Option<egui::Margin>, actions: &mut Vec<Action>) {
-    let w = v.prefs.workspace();
-    let tab = v.prefs.tab();
+/// The tab row (`inset`: the card's inner margin, beside the workspace cell) over the groups,
+/// `width` wide.
+fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
+    let w = v.workspace;
+    let tab = v.prefs.tab(v.workspace);
     ui.set_width(width);
-    if let Some(inset) = inset {
-        tab_row(ui, w, tab, width, inset, actions);
-        ui.add_space(TAB_GAP_BELOW);
-    }
+    tab_row(ui, w, tab, width, inset, actions);
+    ui.add_space(TAB_GAP_BELOW);
 
     let labels = v.prefs.labels;
     let (button_h, collapsed) = if labels { (BUTTON_HEIGHT, BUTTON_MIN_WIDTH) } else { (COMPACT_HEIGHT, COMPACT_WIDTH) };
@@ -859,6 +844,7 @@ pub(crate) fn chevron(ui: &egui::Ui, at: egui::Pos2, ink: Color32) {
 mod tests {
     use super::*;
     use crate::commands;
+    use crate::workspace::WORKSPACES;
 
     fn every_group() -> Vec<(String, &'static Group)> {
         let mut out = Vec::new();
@@ -892,23 +878,23 @@ mod tests {
     #[test]
     fn pins_toggle_in_the_groups_order_and_reset() {
         let mut p = Prefs::default();
-        let w = p.workspace();
-        let tab = p.tab();
+        let w = workspace::find(None);
+        let tab = p.tab(w);
         let create = &tab.groups[0];
         let k = key(w, Some(tab), create);
         assert_eq!(p.pinned(&k, create), ["tool.box", "tool.cylinder", "tool.prism", "tool.turn"]);
-        p.apply(Change::TogglePin { key: k.clone(), group: create, id: "tool.box" });
+        p.apply(Change::TogglePin { key: k.clone(), group: create, id: "tool.box" }, w);
         assert_eq!(p.pinned(&k, create), ["tool.cylinder", "tool.prism", "tool.turn"]);
-        p.apply(Change::TogglePin { key: k.clone(), group: create, id: "tool.box" });
+        p.apply(Change::TogglePin { key: k.clone(), group: create, id: "tool.box" }, w);
         assert_eq!(p.pinned(&k, create), ["tool.box", "tool.cylinder", "tool.prism", "tool.turn"]);
         assert!(p.pins.is_empty(), "back to the defaults, nothing is kept");
         let view = &w.tabs[2].groups[2];
         let kv = key(w, Some(&w.tabs[2]), view);
-        p.apply(Change::Tab("inspect"));
-        p.apply(Change::TogglePin { key: kv.clone(), group: view, id: "view.iso" });
-        p.apply(Change::TogglePin { key: kv.clone(), group: view, id: "view.top" });
+        p.apply(Change::Tab("inspect"), w);
+        p.apply(Change::TogglePin { key: kv.clone(), group: view, id: "view.iso" }, w);
+        p.apply(Change::TogglePin { key: kv.clone(), group: view, id: "view.top" }, w);
         assert_eq!(p.pinned(&kv, view), ["view.zoom_extents", "view.top", "view.iso"]);
-        p.apply(Change::ResetTab);
+        p.apply(Change::ResetTab, w);
         assert!(p.pins.is_empty());
     }
 
@@ -918,9 +904,8 @@ mod tests {
             r#"{"workspace":"gone","tabs":{"modelling":"gone"},"pins":{"modelling/selection":["tool.select","nope"]}}"#,
         )
         .unwrap();
-        assert_eq!(p.workspace().id, "modelling");
-        assert_eq!(p.tab().id, "build");
-        let w = p.workspace();
+        let w = workspace::find(None);
+        assert_eq!(p.tab(w).id, "build");
         assert_eq!(p.pinned(&key(w, None, &w.fixed), &w.fixed), ["tool.select"]);
         assert!(!p.labels);
     }

@@ -351,6 +351,26 @@ fn a_file_is_a_zip_of_the_structure_and_its_b_reps() {
 }
 
 #[test]
+fn a_file_keeps_how_it_was_seen_beside_the_document() {
+    let doc = Document::new();
+    // Nothing to say: no entry, the same bytes as without it.
+    assert_eq!(doc.to_file_seen(&FileView::default()).unwrap(), doc.to_file().unwrap());
+    assert!(!unzip(&doc.to_file().unwrap()).contains_key("view.json"));
+    assert_eq!(Document::file_view(&doc.to_file().unwrap()), FileView::default());
+
+    let seen = FileView { workspace: Some("cut_list".into()) };
+    let file = doc.to_file_seen(&seen).unwrap();
+    assert_eq!(Document::file_view(&file), seen);
+    // The document reads as without it.
+    assert_eq!(Document::from_file(&file).unwrap(), doc);
+    // Unreadable or not a ZIP: the default, never an error.
+    let mut entries = unzip(&file);
+    entries.insert("view.json".into(), b"{ nope".to_vec());
+    assert_eq!(Document::file_view(&rezip(&entries)), FileView::default());
+    assert_eq!(Document::file_view(b"not a zip"), FileView::default());
+}
+
+#[test]
 fn guides_belong_to_their_component() {
     let mut h = History::new(Document::new());
     let root = h.document().root();

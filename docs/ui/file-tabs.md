@@ -23,8 +23,10 @@ Decision record: [Each document holds its whole state](../decisions/0014-documen
   shown or not: nothing is swapped in and out of the app. **Why:** the type holds a document's
   state, so a new per-document field needs no swapping code. At most **32** documents
   (`docs::MAX_OPEN`; one more is refused with a toast).
-- **Global, not per document** (preferences): the dock's layout, the workspace and ribbon tab,
-  the tools' settings, theme, navigation. The model's settings stay in the document.
+- **Global, not per document** (preferences): the dock's layout (per workspace), the ribbon's
+  tab per workspace, the tools' settings, theme, navigation. The model's settings stay in the
+  document; the workspace it is shown in is the document's, kept in its file
+  ([Workspaces](workspaces.md#the-documents-workspace)).
 
 ## Kernel and rendering
 

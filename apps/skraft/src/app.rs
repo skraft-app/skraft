@@ -7,7 +7,7 @@
 
 use skraft_i18n::{ellipsis, t, tp};
 use skraft_model::kernel::{KernelService, Progress, SharedKernel};
-use skraft_model::{Boolean, Document, LengthUnit, Operation, Settings};
+use skraft_model::{Boolean, Document, FileView, LengthUnit, Operation, Settings};
 use skraft_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use skraft_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, ToolKind};
 
@@ -26,6 +26,7 @@ use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
 use crate::toasts::{Act, Note, Toasts};
 use crate::viewport::{self, Viewport};
+use crate::workspace::{self, Workspace};
 
 /// A side panel dragged by its header to another place.
 #[derive(Clone, Copy)]
@@ -365,9 +366,10 @@ impl SkraftApp {
         let (files, shown) = (self.prefs.open_files.clone(), self.prefs.shown_file);
         let mut tabs = Vec::new();
         for path in &files {
-            match std::fs::read(path).map_err(|e| e.to_string()).and_then(|b| Document::from_file(&b).map_err(|e| e.to_string())) {
-                Ok(doc) => {
-                    self.open_document(doc, Some(path.clone()));
+            let read = std::fs::read(path).map_err(|e| e.to_string());
+            match read.and_then(|b| Document::from_file(&b).map(|d| (d, Document::file_view(&b))).map_err(|e| e.to_string())) {
+                Ok((doc, view)) => {
+                    self.open_document(doc, Some(path.clone()), &view);
                     tabs.push(self.docs.active_index());
                 }
                 Err(e) => {
@@ -411,18 +413,43 @@ impl SkraftApp {
         move |e: &mut Editor| e.set_tool_settings(tools)
     }
 
-    /// Opens `doc` (read from `path`) and shows it: its tab if that file is open already, the
-    /// blank document's place, or a new tab.
-    fn open_document(&mut self, doc: Document, path: Option<String>) {
+    /// Opens `doc` (read from `path`, seen as `view` says) and shows it: its tab if that file
+    /// is open already, the blank document's place, or a new tab.
+    fn open_document(&mut self, doc: Document, path: Option<String>, view: &FileView) {
         if let Some(i) = path.as_deref().and_then(|p| self.docs.find_path(p)) {
             self.docs.select(i);
             return;
         }
         match self.docs.open(doc, path, Self::setup(&self.prefs)) {
-            Ok((_, Some(replaced))) => self.viewport.drop_document(replaced),
-            Ok(_) => {}
+            Ok((_, replaced)) => {
+                if let Some(replaced) = replaced {
+                    self.viewport.drop_document(replaced);
+                }
+                if let Some(d) = self.docs.active_mut() {
+                    d.workspace = workspace::find(view.workspace.as_deref());
+                }
+            }
             Err(_) => self.toasts.push(Note::info(t!("toast.too_many_documents", max = crate::docs::MAX_OPEN))),
         }
+    }
+
+    /// The shown document's workspace; the first one on the start page.
+    fn workspace(&self) -> &'static Workspace {
+        self.docs.active().map_or_else(|| workspace::find(None), |d| d.workspace)
+    }
+
+    /// Shows the shown document in workspace `id` (decision 0046): the running tool cancelled,
+    /// the selection and the level open kept. Not a change of the document: nothing modified,
+    /// nothing to undo; its file keeps it at the next save.
+    fn set_workspace(&mut self, id: &str) -> Result<(), String> {
+        let w = workspace::listed().find(|w| w.id == id).ok_or_else(|| format!("no workspace {id}"))?;
+        let Some(d) = self.docs.active_mut() else { return Err("no document".into()) };
+        if d.workspace.id != w.id {
+            d.vcb.clear();
+            d.editor.set_tool(ToolKind::Select);
+            d.workspace = w;
+        }
+        Ok(())
     }
 
     /// Closes tab `i` now, without asking.
@@ -794,7 +821,7 @@ impl SkraftApp {
     /// A toggle's state, or which tool is on.
     fn checked(&self, id: &str) -> Option<bool> {
         match id {
-            id if let Some(p) = PanelId::from_command(id) => return Some(self.prefs.panels.is_shown(p)),
+            id if let Some(p) = PanelId::from_command(id) => return Some(self.prefs.layout(self.workspace().id).is_shown(p)),
             "view.render_stats" => return Some(self.prefs.show_render_stats),
             "app.journal" => return Some(self.journal_window.is_some()),
             #[cfg(not(target_arch = "wasm32"))]
@@ -835,11 +862,14 @@ impl SkraftApp {
         self.ctx.os() == egui::os::OperatingSystem::Mac
     }
 
-    /// Every command as the menus, the tool bar and the palette show it now.
+    /// Every command as the menus, the tool bar and the palette show it now: those available
+    /// in the workspace shown.
     fn command_views(&self) -> Vec<CommandView> {
         let mac = self.mac();
+        let w = self.workspace();
         COMMANDS
             .iter()
+            .filter(|c| w.has(c.id))
             // An empty recent file slot is not shown; nor Quit on the web (the page is closed).
             .filter(|c| commands::recent_slot(c.id).is_none_or(|k| k < self.prefs.recent_files.len()))
             .filter(|c| c.id != "app.quit" || !cfg!(target_arch = "wasm32"))
@@ -861,7 +891,7 @@ impl SkraftApp {
         if commands::find(id).is_none() {
             return Err(Note::info(t!("toast.command_unknown", id = id)));
         }
-        if !self.enabled(id) {
+        if !self.workspace().has(id) || !self.enabled(id) {
             return Err(Note::info(t!("toast.command_unavailable", id = id)));
         }
         if let Some(k) = commands::recent_slot(id) {
@@ -919,7 +949,7 @@ impl SkraftApp {
                 true
             }
             id if let Some(p) = PanelId::from_command(id) => {
-                self.prefs.panels.toggle(p);
+                self.prefs.layout_mut(self.workspace().id).toggle(p);
                 true
             }
             "view.render_stats" => {
@@ -1047,7 +1077,16 @@ impl SkraftApp {
             Action::RemoteRetry => return self.set_remote(true),
             #[cfg(target_arch = "wasm32")]
             Action::RemoteRetry => return,
-            Action::Ribbon(change) => return self.prefs.ribbon.apply(change),
+            Action::Ribbon(change) => {
+                let w = self.workspace();
+                return self.prefs.ribbon.apply(change, w);
+            }
+            Action::Workspace(id) => {
+                if let Err(e) = self.set_workspace(id) {
+                    log::warn!("{e}");
+                }
+                return;
+            }
             Action::QuickPin(id) => return crate::quick::toggle(&mut self.prefs.quick_tools, id),
             Action::ViewPin(id) => return crate::view_bar::toggle(&mut self.prefs.view_bar, id),
             Action::ViewBarSide(side) => return self.prefs.view_bar_side = side,
@@ -1069,6 +1108,7 @@ impl SkraftApp {
             Action::Command(_)
             | Action::Tab(_)
             | Action::Ribbon(_)
+            | Action::Workspace(_)
             | Action::QuickPin(_)
             | Action::ViewPin(_)
             | Action::ViewMove(..)
@@ -1142,7 +1182,7 @@ impl SkraftApp {
 
     /// A new document, in a tab of its own (or the blank one's place).
     fn new_document(&mut self) {
-        self.open_document(Document::with_settings(self.prefs.new_model.clone()), None);
+        self.open_document(Document::with_settings(self.prefs.new_model.clone()), None, &FileView::default());
     }
 
     /// Opens the recent file `k`; one that cannot be read leaves the list.
@@ -1182,7 +1222,8 @@ impl SkraftApp {
         // The name offered: its file's, else the default one.
         let name = d.path.as_deref().map(file_name).map(|n| n.trim_end_matches(&format!(".{}", file::EXTENSION)).to_owned());
         let name = name.unwrap_or_else(|| t!("default_name.file"));
-        file::save(id, d.editor.document(), d.editor.history().revision(), path.as_deref(), &name, &self.inbox, &self.ctx);
+        let view = FileView { workspace: Some(d.workspace.id.to_owned()) };
+        file::save(id, d.editor.document(), &view, d.editor.history().revision(), path.as_deref(), &name, &self.inbox, &self.ctx);
     }
 
     /// A modifier tapped alone goes to the tool: the copy modifier (Option on macOS, Ctrl
@@ -1290,7 +1331,9 @@ impl SkraftApp {
         if modifiers.command_only() && matches!(key, K::X | K::C | K::V) {
             return None;
         }
-        let command = || self.keymap.command_for(key, modifiers);
+        // The shortcuts of the commands available in the workspace shown (decision 0046).
+        let w = self.workspace();
+        let command = || self.keymap.command_for(key, modifiers, |id| w.has(id));
         let Some(d) = self.docs.active_mut() else { return command() };
         let typing = !d.vcb.is_empty();
         let m = viewport::modifiers(ctx, modifiers);
@@ -1316,7 +1359,7 @@ impl SkraftApp {
             K::Tab => e.input(tool_key(Key::Tab)),
             // Enter with nothing typed: the tool's (the prism tool closes its outline).
             K::Enter => e.input(tool_key(Key::Enter)),
-            _ => return self.keymap.command_for(key, modifiers),
+            _ => return self.keymap.command_for(key, modifiers, |id| w.has(id)),
         }
         None
     }
@@ -1440,6 +1483,7 @@ impl SkraftApp {
                 egui::pos2(r.center().x, r.top() + r.height() * 0.15)
             })
             .show(ctx, |ui| {
+                let workspace = self.workspace().id;
                 // The ribbon's tabs (as the journal window's), their band across the window
                 // under its title bar.
                 let mut tabs = vec![
@@ -1472,7 +1516,7 @@ impl SkraftApp {
                     PrefsTab::Debug => {}
                     PrefsTab::Model => self.model_settings(ui),
                     PrefsTab::Navigation => crate::nav_prefs::navigation_settings(ui, &mut self.prefs.navigation),
-                    PrefsTab::Interface => interface_settings(ui, &mut self.prefs),
+                    PrefsTab::Interface => interface_settings(ui, &mut self.prefs, workspace),
                     PrefsTab::Shortcuts => self.shortcut_settings(ui),
                 }
             });
@@ -1616,7 +1660,7 @@ impl SkraftApp {
                     ui.label((c.label)()).tip(c.id);
                     let current = self.keymap.get(c.id);
                     let text = current.map_or("—".to_owned(), |s| s.display(mac));
-                    let conflict = current.is_some_and(|s| !self.keymap.conflicts(c.id, s).is_empty());
+                    let conflict = current.is_some_and(|s| !self.keymap.conflicts(c.id, s, workspace::share).is_empty());
                     if self.capturing == Some(c.id) {
                         ui.strong("…");
                     } else {
@@ -1652,7 +1696,7 @@ impl SkraftApp {
         let painting = self.docs.active().is_some_and(|d| matches!(d.editor.tool_kind(), ToolKind::Paint | ToolKind::Sample));
         let started = painting && !self.painting;
         self.painting = painting;
-        started && self.prefs.panels.reveal(PanelId::Materials)
+        started && self.prefs.layout_mut(self.workspace().id).reveal(PanelId::Materials)
     }
 
     /// The docked cards' columns: each one's left edge and width (left, right), the view's span
@@ -1661,15 +1705,19 @@ impl SkraftApp {
     fn columns(&self, view: egui::Rect, margin: f32) -> ([(f32, f32); 2], egui::Rangef, f32) {
         let max_width = (view.width() * 0.4).max(dock::COLUMN_MIN_WIDTH);
         let column = |side: Dock| {
-            let width = self.prefs.panels.column(side).width.clamp(dock::COLUMN_MIN_WIDTH, max_width);
+            let width = self.prefs.layout(self.workspace().id).column(side).width.clamp(dock::COLUMN_MIN_WIDTH, max_width);
             match side {
                 Dock::Left => (view.left() + margin, width),
                 Dock::Right => (view.right() - margin - width, width),
             }
         };
         let columns = [column(Dock::Left), column(Dock::Right)];
-        let left = if self.prefs.panels.occupied(Dock::Left, None) { columns[0].0 + columns[0].1 + margin } else { view.left() };
-        let right = if self.prefs.panels.occupied(Dock::Right, None) { columns[1].0 - margin } else { view.right() };
+        let left = if self.prefs.layout(self.workspace().id).occupied(Dock::Left, None) {
+            columns[0].0 + columns[0].1 + margin
+        } else {
+            view.left()
+        };
+        let right = if self.prefs.layout(self.workspace().id).occupied(Dock::Right, None) { columns[1].0 - margin } else { view.right() };
         (columns, egui::Rangef::new(left, right), max_width)
     }
 
@@ -1690,7 +1738,7 @@ impl SkraftApp {
         let mut outliner_shown = false;
         let mut columns = Vec::new();
         for (side, (x, width)) in [Dock::Left, Dock::Right].into_iter().zip(xs) {
-            let placed = dock::place(self.prefs.panels.column(side), top, room, metrics, dragged);
+            let placed = dock::place(self.prefs.layout(self.workspace().id).column(side), top, room, metrics, dragged);
             for p in &placed {
                 let rect = egui::Rect::from_min_size(egui::pos2(x, p.top), egui::vec2(width, p.height));
                 // Every card but the one filling the column has a bottom edge to drag.
@@ -1725,7 +1773,7 @@ impl SkraftApp {
             Some(CardEvent::Dropped) => {
                 if let (Some(d), Some(p)) = (self.panel_drag.take(), pointer) {
                     let (side, .., before) = target(p);
-                    self.prefs.panels.move_card(d.id, side, before.map(|q| q.id));
+                    self.prefs.layout_mut(self.workspace().id).move_card(d.id, side, before.map(|q| q.id));
                 }
             }
             None => {
@@ -1766,7 +1814,8 @@ impl SkraftApp {
         outliner_shown: &mut bool,
         actions: &mut Vec<Action>,
     ) -> Option<CardEvent> {
-        let folded = self.prefs.panels.card(id).is_some_and(|c| c.folded);
+        let workspace = self.workspace().id;
+        let folded = self.prefs.layout(workspace).card(id).is_some_and(|c| c.folded);
         let floating = edges.side.is_none();
         let mut event = None;
         // Drawn only with a document shown.
@@ -1817,7 +1866,7 @@ impl SkraftApp {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                     }
                     if head.clicked()
-                        && let Some(c) = self.prefs.panels.card_mut(id)
+                        && let Some(c) = self.prefs.layout_mut(workspace).card_mut(id)
                     {
                         c.folded = !c.folded;
                     }
@@ -1897,7 +1946,7 @@ impl SkraftApp {
                 if edge.hovered() || edge.dragged() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                 }
-                let column = self.prefs.panels.column_mut(side);
+                let column = self.prefs.layout_mut(workspace).column_mut(side);
                 if edge.dragged() {
                     column.width = (rect.width() + sign * edge.drag_delta().x).clamp(dock::COLUMN_MIN_WIDTH, edges.max_width);
                 }
@@ -1914,7 +1963,7 @@ impl SkraftApp {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                 }
                 if edge.dragged()
-                    && let Some(c) = self.prefs.panels.card_mut(id)
+                    && let Some(c) = self.prefs.layout_mut(workspace).card_mut(id)
                 {
                     c.height = (rect.height() + edge.drag_delta().y).max(edges.min_height);
                 }
@@ -2279,6 +2328,16 @@ impl SkraftApp {
                 let asking = self.closing.as_ref().and_then(|c| c.asking);
                 ok(json!({ "docs": list, "shown": self.docs.active_index(), "asking": asking }))
             }
+            "app.workspace" => {
+                let p: skraft_control::params::WorkspaceParams = call.params()?;
+                if let Some(id) = &p.id {
+                    self.set_workspace(id).map_err(Error::Failed)?;
+                }
+                let list: Vec<_> = workspace::listed()
+                    .map(|w| json!({ "id": w.id, "label": (w.label)(), "under_way": w.under_way, "stage": w.stage.id() }))
+                    .collect();
+                ok(json!({ "workspaces": list, "shown": self.docs.active().map(|d| d.workspace.id) }))
+            }
             "app.state" => {
                 call.params::<NoParams>()?;
                 let naming = self.naming.as_ref().map(|n| {
@@ -2300,6 +2359,7 @@ impl SkraftApp {
                 state["modified"] = json!(d.modified());
                 state["path"] = json!(d.path);
                 state["document"] = json!(d.id);
+                state["workspace"] = json!(d.workspace.id);
                 state["toasts"] = self.toasts.json();
                 state["naming"] = json!(naming);
                 state["instance"] = json!(instance);
@@ -2470,7 +2530,7 @@ impl eframe::App for SkraftApp {
                 file::Outcome::Opened { name, bytes } => match Document::read_file(&bytes) {
                     Ok((doc, skraft_model::Content::Model)) => {
                         self.add_recent_file(&name);
-                        self.open_document(doc, Some(name));
+                        self.open_document(doc, Some(name), &Document::file_view(&bytes));
                     }
                     // Materials alone: into the shown document; from the start page, a new one.
                     Ok((materials, skraft_model::Content::Materials)) => {
@@ -2716,7 +2776,7 @@ impl SkraftApp {
         // The ribbon at the top (docs/ui/ribbon.md#layout): between the docked cards' columns,
         // which then take the view's whole height, when it fits there whole; else above them,
         // over the view's width, the columns under it.
-        let ribbon_view = ribbon::View { prefs: &self.prefs.ribbon, views };
+        let ribbon_view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views };
         let frame_x = card(&ctx.global_style()).total_margin().sum().x;
         let natural = ribbon::natural_width(ctx, &ribbon_view);
         let (_, free, _) = self.columns(view, margin);
@@ -2939,7 +2999,8 @@ fn palette_name(palette: UiPalette) -> String {
     }
 }
 
-fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
+/// `workspace`: the shown document's, whose panels it shows or closes.
+fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &str) {
     egui::Grid::new("interface").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.interface.theme"));
         ui.horizontal(|ui| {
@@ -2967,9 +3028,9 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
         ui.label(t!("prefs.interface.panels"));
         ui.vertical(|ui| {
             for id in PanelId::ALL {
-                let mut shown = prefs.panels.is_shown(id);
+                let mut shown = prefs.layout(workspace).is_shown(id);
                 if ui.checkbox(&mut shown, panel_title(id)).changed() {
-                    prefs.panels.toggle(id);
+                    prefs.layout_mut(workspace).toggle(id);
                 }
             }
         });

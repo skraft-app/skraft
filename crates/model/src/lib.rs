@@ -35,7 +35,7 @@ pub use document::{
     Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache, RawCell, Sign, StretchMask, Texture, name_base,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
-pub use file::{Content, FORMAT, VERSION};
+pub use file::{Content, FORMAT, FileView, VERSION};
 pub use history::History;
 pub use import::ImportReport;
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope, Warning};
