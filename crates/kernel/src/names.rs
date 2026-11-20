@@ -70,7 +70,7 @@ pub struct NodeEdges {
     pub near: Vec<[f64; 3]>,
 }
 
-/// What a node does to its children's result.
+/// A blend's kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Blend {
@@ -80,12 +80,63 @@ pub enum Blend {
     Chamfer,
 }
 
-/// A node's operation: its kind, size and edges.
+/// What a node does to its children's result (docs/decisions/0042-body-nodes-operators.md).
+/// One kind yet, others to come (a shell); not the intersection, a sign of bodies, nor the
+/// mirror, a placement (docs/REVIEW.md, 2026-11-20).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct NodeOp {
-    pub blend: Blend,
+#[serde(rename_all = "snake_case")]
+pub enum NodeOp {
+    /// Edges rounded or chamfered.
+    Blend(BlendOp),
+}
+
+/// A round or a chamfer: its kind, its size, the edges it takes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BlendOp {
+    pub kind: Blend,
     pub size: f64,
     pub edges: Vec<NodeEdges>,
+}
+
+impl NodeOp {
+    /// A round or a chamfer of `size` taking `edges`.
+    pub fn blend_of(kind: Blend, size: f64, edges: Vec<NodeEdges>) -> NodeOp {
+        NodeOp::Blend(BlendOp { kind, size, edges })
+    }
+
+    /// Its blend, when it is one.
+    pub fn blend(&self) -> Option<&BlendOp> {
+        match self {
+            NodeOp::Blend(b) => Some(b),
+        }
+    }
+
+    pub fn blend_mut(&mut self) -> Option<&mut BlendOp> {
+        match self {
+            NodeOp::Blend(b) => Some(b),
+        }
+    }
+
+    /// The edges it takes by name: those of its children's result it names.
+    pub fn edges(&self) -> &[NodeEdges] {
+        match self {
+            NodeOp::Blend(b) => &b.edges,
+        }
+    }
+
+    /// The same, taking `edges` instead (as the kernel named them).
+    pub fn with_edges(self, edges: Vec<NodeEdges>) -> NodeOp {
+        match self {
+            NodeOp::Blend(b) => NodeOp::Blend(BlendOp { edges, ..b }),
+        }
+    }
+
+    /// Every face name it holds, to rewrite (bodies moved under it).
+    pub fn tags_mut(&mut self) -> impl Iterator<Item = &mut FaceTag> {
+        match self {
+            NodeOp::Blend(b) => b.edges.iter_mut().flat_map(|e| e.name.faces.iter_mut()),
+        }
+    }
 }
 
 /// A body of a node's children, as the node task computes it: its id (for the names' paths),

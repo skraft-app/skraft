@@ -358,8 +358,14 @@ tree is its history: what is under it, its past; what is above, its future.
 
 ```
 BodyGroup { children, failed, op: Option<NodeOp>, refused: Option<NodeRefusal> }
-NodeOp    { blend: Round | Chamfer, size, edges: Vec<NodeEdges { name, near }> }
+NodeOp    = Blend(BlendOp)                          (a shell to come)
+BlendOp   { kind: Round | Chamfer, size, edges: Vec<NodeEdges { name, near }> }
 ```
+
+`NodeOp` is an enum of the kinds of node (written `"op": {"blend": {"kind": "round", …}}`),
+one yet: what is blend-specific asks `NodeOp::blend()`, what is not (the names it holds,
+rewritten when bodies move under it: `tags_mut`) takes any. The intersection is no node but a
+sign of bodies, the mirror no node but a placement (decided 2026-11-20, `docs/REVIEW.md`).
 
 - **Edges by name, in its children only.** A leaf's faces are named by its recipe — a
   profile's caps `Bottom` / `Top`, the face of a side by the side's id (`Corner::id`, stable

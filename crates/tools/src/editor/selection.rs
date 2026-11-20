@@ -220,8 +220,8 @@ impl Editor {
     pub fn edit_blend(&mut self, node: Id) {
         let Some(path) = self.open_part_path() else { return };
         let Ok((_, p, _)) = self.document().resolve_container(&path) else { return };
-        let Some(op) = p.body(node).and_then(|b| p.def_of(b).op()) else { return };
-        let kind = match op.blend {
+        let Some(op) = p.body(node).and_then(|b| p.def_of(b).op()).and_then(|o| o.blend()) else { return };
+        let kind = match op.kind {
             skraft_model::kernel::names::Blend::Round => ToolKind::Round,
             skraft_model::kernel::names::Blend::Chamfer => ToolKind::Chamfer,
         };

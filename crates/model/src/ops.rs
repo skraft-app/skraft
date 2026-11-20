@@ -739,7 +739,7 @@ impl Document {
                 if children.iter().all(|b| b.sign == Sign::Negative) {
                     children.iter_mut().for_each(|c| c.sign = Sign::Positive);
                 }
-                (children, NodeOp { blend: *blend, size: *size, edges: Vec::new() }, picks, None)
+                (children, NodeOp::blend_of(*blend, *size, Vec::new()), picks, None)
             }
             // A node changed: its children as they are, its edges kept unless picked again —
             // from their result cached, when it holds.
@@ -747,11 +747,12 @@ impl Document {
                 let b = p.body(*body).ok_or(Error::NotFound(*body))?;
                 let g = p.def(b.def).and_then(|d| d.group.as_ref()).ok_or(Error::Invalid(Refusal::NotANode))?;
                 let edges = match (&g.op, picks.is_empty()) {
-                    (Some(op), true) => op.edges.clone(),
+                    (Some(op), _) if op.blend().is_none() => return Err(Error::Invalid(Refusal::NotANode)),
+                    (Some(op), true) => op.edges().to_vec(),
                     (Some(_), false) => Vec::new(),
                     (None, _) => return Err(Error::Invalid(Refusal::NotANode)),
                 };
-                (g.children.clone(), NodeOp { blend: *blend, size: *size, edges }, picks, Some(g))
+                (g.children.clone(), NodeOp::blend_of(*blend, *size, edges), picks, Some(g))
             }
             _ => return Err(Error::Invalid(Refusal::NotANode)),
         };
@@ -1574,7 +1575,7 @@ impl Document {
                 if negative {
                     children.iter_mut().for_each(|c| c.sign = Sign::Positive);
                 }
-                let op = NodeOp { blend: *blend, size: *size, edges: Vec::new() };
+                let op = NodeOp::blend_of(*blend, *size, Vec::new());
                 let group = crate::BodyGroup { op: Some(op), ..crate::BodyGroup::plain(children, BTreeSet::new()) };
                 let picks: Vec<[f64; 3]> = picks.iter().map(|p| p.to_array()).collect();
                 let (solid, group, inner) = Self::computed_group(&defs, group, &picks, solver)?;
@@ -1603,7 +1604,7 @@ impl Document {
                 let (_, p, _) = self.resolve_part(target)?;
                 let b = p.body(*body).ok_or(Error::NotFound(*body))?;
                 let def = b.def;
-                if p.def(def).and_then(|d| d.op()).is_none() {
+                if p.def(def).and_then(|d| d.op()).and_then(|o| o.blend()).is_none() {
                     return Err(Error::Invalid(Refusal::NotANode));
                 }
                 if *scope == Scope::This {
@@ -1612,8 +1613,8 @@ impl Document {
                 let (part, p, _) = self.resolve_part(target)?;
                 let defs = p.defs.clone();
                 let mut group = defs.iter().find(|d| d.id == def).and_then(|d| d.group.clone()).ok_or(Error::NotFound(def))?;
-                if let Some(op) = &mut group.op {
-                    op.blend = *blend;
+                if let Some(op) = group.op.as_mut().and_then(|o| o.blend_mut()) {
+                    op.kind = *blend;
                     op.size = *size;
                     if !picks.is_empty() {
                         op.edges.clear();
@@ -1990,7 +1991,7 @@ impl Document {
             def
         };
         let inner = out.inner.into_iter().filter_map(|(path, why)| Some((def_at(&path)?, why))).collect();
-        let op = NodeOp { edges: out.edges, ..op };
+        let op = op.with_edges(out.edges);
         let node = crate::BodyGroup { failed, op: Some(op), refused: out.refusal, raw, ..group }.with_faces(&out.solid, Some(out.faces));
         Ok((out.solid, node, inner))
     }
@@ -2392,7 +2393,7 @@ pub(crate) fn relocate(group: &mut crate::BodyGroup, prefix: &[Id], moves: &[(Ve
         moves.iter().map(|(old, new)| (old.iter().map(|i| i.0).collect(), new.iter().map(|i| i.0).collect())).collect();
     let mut follow = |t: &mut skraft_kernel::names::FaceTag| relocate_tag(t, &prefix, &moves);
     if let Some(op) = &mut group.op {
-        op.edges.iter_mut().flat_map(|e| e.name.faces.iter_mut()).for_each(&mut follow);
+        op.tags_mut().for_each(&mut follow);
     }
     group.faces.iter_mut().flatten().for_each(&mut follow);
 }
@@ -2598,7 +2599,7 @@ impl Solver for Recorder {
         Ok(NodeOutcome {
             solid,
             faces: Vec::new(),
-            edges: op.edges.clone(),
+            edges: op.edges().to_vec(),
             failed: Vec::new(),
             refusal: None,
             inner: Vec::new(),

@@ -36,7 +36,7 @@ fn node(inputs: Vec<Arc<Solid>>, children: Vec<TreeBody>, op: NodeOp, picks: Vec
 }
 
 fn round(size: f64, edges: Vec<NodeEdges>) -> NodeOp {
-    NodeOp { blend: Blend::Round, size, edges }
+    NodeOp::blend_of(Blend::Round, size, edges)
 }
 
 /// A board 100 × 60 × 20 (body 1) minus a pocket 30 × 20 × 15 (body 2) at `pocket_x`.
@@ -389,7 +389,7 @@ fn blended_board(
     let children = vec![leaf(1, false, DVec3::ZERO, 0, Some(b))];
     let job = Job {
         inputs: vec![solid.clone()],
-        tasks: vec![Task::Node { children: children.clone(), op: NodeOp { blend, size, edges: Vec::new() }, picks }],
+        tasks: vec![Task::Node { children: children.clone(), op: NodeOp::blend_of(blend, size, Vec::new()), picks }],
     };
     match run(&job).unwrap().pop() {
         Some(Output::Node { solid: s, edges, failed, refusal, faces, .. }) => {
@@ -429,7 +429,7 @@ fn rounds_over_chamfers_meeting_at_a_corner_take_their_edges() {
         id: 7,
         negative: false,
         placement: DAffine3::IDENTITY,
-        node: TreeNode::Group { children, op: Some(NodeOp { blend: Blend::Chamfer, size: 5.0, edges: r.edges }) },
+        node: TreeNode::Group { children, op: Some(NodeOp::blend_of(Blend::Chamfer, 5.0, r.edges)) },
     };
     let made = |t: &skraft_kernel::names::FaceTag, a: FaceName, b: FaceName| match &t.face {
         FaceName::Made(between) => between.iter().map(|x| x.face.clone()).collect::<Vec<_>>() == vec![a, b],

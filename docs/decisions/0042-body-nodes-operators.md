@@ -188,7 +188,9 @@ another edge silently.
      recipe's faces;
   2. names through the booleans (tried headless, « Trial » below) and the face map beside the
      caches, then the node over a group;
-  3. the nodes on whole solids (∩, mirror), and others (shell) once the naming has proved
+  3. (amended 2026-11-20, Q&A: the intersection is a third sign of bodies, `(∪P − ∪N) ∩ I1 ∩
+     I2…`, each ∩ body limiting, not a node; the mirror a transformation, a placement, not a
+     node; `NodeOp` an enum, `Blend` its one kind yet) the nodes on whole solids (∩, mirror), and others (shell) once the naming has proved
      itself.
 
 ## Trial (2026-11-19, headless)

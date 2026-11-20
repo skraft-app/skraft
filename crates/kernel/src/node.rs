@@ -16,7 +16,7 @@ use solidcore_record::brep::{Brep as Record, Loop};
 
 use crate::engine::{guarded, kernel, kernel_err, row_major, to_record_ordered};
 use crate::names::{
-    Blend, EdgeName, FaceMap, FaceName, FaceTag, InputNames, NodeEdges, NodeOp, NodeRefusal, TreeBody, TreeNode, leaf_faces, under,
+    Blend, BlendOp, EdgeName, FaceMap, FaceName, FaceTag, InputNames, NodeEdges, NodeOp, NodeRefusal, TreeBody, TreeNode, leaf_faces, under,
 };
 use crate::{Error, Result, Solid};
 
@@ -251,8 +251,21 @@ struct Session<'a> {
 /// it came when the node is refused, and why; the edges it took, by name.
 fn apply(
     k: &mut Kernel,
-    mut shape: Brep,
+    shape: Brep,
     op: &NodeOp,
+    picks: &[[f64; 3]],
+    path: &[u64],
+) -> Result<(Brep, Vec<NodeEdges>, Option<NodeRefusal>)> {
+    match op {
+        NodeOp::Blend(b) => apply_blend(k, shape, b, picks, path),
+    }
+}
+
+/// [`apply`] for a round or a chamfer.
+fn apply_blend(
+    k: &mut Kernel,
+    mut shape: Brep,
+    op: &BlendOp,
     picks: &[[f64; 3]],
     path: &[u64],
 ) -> Result<(Brep, Vec<NodeEdges>, Option<NodeRefusal>)> {
@@ -342,7 +355,7 @@ fn apply(
     if edges.is_empty() {
         return Ok((std::mem::take(&mut *body.kernel()), taken, Some(NodeRefusal::NoEdge)));
     }
-    let kind = match op.blend {
+    let kind = match op.kind {
         Blend::Round => solidcore_ops::blend::Blend::Round,
         Blend::Chamfer => solidcore_ops::blend::Blend::Chamfer,
     };
@@ -456,7 +469,7 @@ pub(crate) fn node(inputs: &[&Solid], children: &[TreeBody], op: &NodeOp, picks:
                 return Ok(NodeResult {
                     solid: Solid::empty(),
                     faces: Vec::new(),
-                    edges: op.edges.clone(),
+                    edges: op.edges().to_vec(),
                     failed: Vec::new(),
                     refusal: None,
                     inner: std::mem::take(&mut cx.inner),

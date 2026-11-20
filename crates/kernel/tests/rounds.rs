@@ -32,7 +32,7 @@ fn top_edges(l: f64, w: f64, t: f64) -> Vec<[f64; 3]> {
 fn blended(l: f64, w: f64, t: f64, blend: Blend, size: f64, picks: Vec<[f64; 3]>) -> (Solid, Vec<skraft_kernel::names::NodeEdges>) {
     let b = board(l, w, t);
     let solid = Arc::new(b.build().unwrap());
-    let op = NodeOp { blend, size, edges: Vec::new() };
+    let op = NodeOp::blend_of(blend, size, Vec::new());
     let job = Job { inputs: vec![solid], tasks: vec![Task::Node { children: vec![leaf(1, DVec3::ZERO, 0, Some(b))], op, picks }] };
     match run(&job).unwrap().pop() {
         Some(Output::Node { solid, edges, refusal: None, failed, .. }) if failed.is_empty() => (solid, edges),
@@ -248,13 +248,13 @@ fn a_node_over_a_rounded_board_notched() {
     let b = board(100.0, 60.0, 20.0);
     let solid = Arc::new(b.build().unwrap());
     let notch = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::new(20.0, 20.0, 20.0)).unwrap());
-    let inner = NodeOp { blend: Blend::Round, size: R, edges: Vec::new() };
+    let inner = NodeOp::blend_of(Blend::Round, R, Vec::new());
     let (_, names) = blended(100.0, 60.0, 20.0, Blend::Round, R, top_edges(100.0, 60.0, 20.0));
     let rounded_node = TreeBody {
         id: 5,
         negative: false,
         placement: DAffine3::IDENTITY,
-        node: TreeNode::Group { children: vec![leaf(1, DVec3::ZERO, 0, Some(b))], op: Some(NodeOp { edges: names, ..inner }) },
+        node: TreeNode::Group { children: vec![leaf(1, DVec3::ZERO, 0, Some(b))], op: Some(inner.clone().with_edges(names)) },
     };
     let notched = TreeBody {
         id: 6,
@@ -265,7 +265,7 @@ fn a_node_over_a_rounded_board_notched() {
             op: None,
         },
     };
-    let op = NodeOp { blend: Blend::Round, size: 2.0, edges: Vec::new() };
+    let op = NodeOp::blend_of(Blend::Round, 2.0, Vec::new());
     let picks = vec![[40.0, 0.0, 10.0], [60.0, 0.0, 10.0]];
     let job = Job { inputs: vec![solid, notch], tasks: vec![Task::Node { children: vec![notched], op, picks }] };
     match run(&job).unwrap().pop() {
@@ -288,10 +288,7 @@ fn a_round_over_the_edge_where_a_notch_meets_the_round() {
         id: 5,
         negative: false,
         placement: DAffine3::IDENTITY,
-        node: TreeNode::Group {
-            children: vec![leaf(1, DVec3::ZERO, 0, Some(b))],
-            op: Some(NodeOp { blend: Blend::Round, size: R, edges: names }),
-        },
+        node: TreeNode::Group { children: vec![leaf(1, DVec3::ZERO, 0, Some(b))], op: Some(NodeOp::blend_of(Blend::Round, R, names)) },
     };
     let notched = TreeBody {
         id: 6,
@@ -305,7 +302,7 @@ fn a_round_over_the_edge_where_a_notch_meets_the_round() {
     // The arc on the wall x = 40, round's axis at (y 5, z 15): its middle at 45°.
     let s = std::f64::consts::FRAC_1_SQRT_2 * R;
     let picks = vec![[40.0, R - s, 20.0 - R + s]];
-    let op = NodeOp { blend: Blend::Round, size: 1.0, edges: Vec::new() };
+    let op = NodeOp::blend_of(Blend::Round, 1.0, Vec::new());
     let job = Job { inputs: vec![solid, notch], tasks: vec![Task::Node { children: vec![notched], op, picks }] };
     match run(&job).unwrap().pop() {
         Some(Output::Node { solid, refusal: None, failed, edges, .. }) if failed.is_empty() => {
@@ -325,7 +322,7 @@ fn a_rounded_board_whose_board_is_stretched_keeps_its_rounds() {
     let (_, names) = blended(100.0, 60.0, 20.0, Blend::Round, R, top_edges(100.0, 60.0, 20.0));
     let longer = board(150.0, 60.0, 20.0);
     let solid = Arc::new(longer.build().unwrap());
-    let op = NodeOp { blend: Blend::Round, size: R, edges: names.clone() };
+    let op = NodeOp::blend_of(Blend::Round, R, names.clone());
     let job = Job {
         inputs: vec![solid],
         tasks: vec![Task::Node { children: vec![leaf(1, DVec3::ZERO, 0, Some(longer))], op, picks: Vec::new() }],

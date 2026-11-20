@@ -651,7 +651,7 @@ impl Editor {
 
     /// The body node open (the group open is one, docs/tools/rounds.md): its id, its name, its
     /// operation.
-    pub fn open_node(&self) -> Option<(Id, String, skraft_model::kernel::names::NodeOp)> {
+    pub fn open_node(&self) -> Option<(Id, String, skraft_model::kernel::names::BlendOp)> {
         let (parent, node, op) = tools::BlendTool::node(&self.cx())?;
         let (_, p, _) = self.document().resolve_container(&parent).ok()?;
         let name = p.body(node).map(|b| p.def_of(b).name.clone())?;

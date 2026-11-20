@@ -272,7 +272,7 @@ pub fn context_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Act
         {
             option_group(ui, &mut first, &name, &t!("option_bar.node_open_tip"));
             let size = editor.document().settings().units.format(op.size);
-            let size = match op.blend {
+            let size = match op.kind {
                 skraft_model::kernel::names::Blend::Round => t!("panel.outliner.round_size", size = size),
                 skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
             };
@@ -1878,9 +1878,9 @@ fn body_row(
                     let back = band_color(ui.visuals());
                     let (_, split) = instance_label(ui, &b.body.name, &b.label(), !def.named, color, selected, back);
                     // A body node's size after its name (docs/tools/rounds.md).
-                    if let Some(op) = def.op() {
+                    if let Some(op) = def.op().and_then(|o| o.blend()) {
                         let size = editor.document().settings().units.format(op.size);
-                        let text = match op.blend {
+                        let text = match op.kind {
                             skraft_model::kernel::names::Blend::Round => t!("panel.outliner.round_size", size = size),
                             skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
                         };
@@ -2440,8 +2440,8 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
         });
         ui.end_row();
         // A body node's size, edited here (docs/tools/rounds.md).
-        if let Some(op) = def.op() {
-            let label = match op.blend {
+        if let Some(op) = def.op().and_then(|o| o.blend()) {
+            let label = match op.kind {
                 skraft_model::kernel::names::Blend::Round => t!("tool.round.vcb"),
                 skraft_model::kernel::names::Blend::Chamfer => t!("tool.chamfer.vcb"),
             };
@@ -2465,7 +2465,7 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
                 && let Some(target) = editor.open_part_path()
             {
                 let scope = editor.part_scope();
-                actions.push(Action::Apply(Operation::SetBlend { target, body: b.id, blend: op.blend, size, picks: Vec::new(), scope }));
+                actions.push(Action::Apply(Operation::SetBlend { target, body: b.id, blend: op.kind, size, picks: Vec::new(), scope }));
             }
             ui.end_row();
             // Its edges, picked again on its children (the node opened).
