@@ -7178,3 +7178,51 @@ fn a_node_opened_shows_its_children_raw_and_the_bodies_around_it_faded() {
     assert_eq!(open, node);
     assert!(!e.blending() && e.status().contains(&name), "{}", e.status());
 }
+
+#[test]
+fn move_out_takes_a_body_one_level_up_and_out_of_the_part() {
+    // A board 200 × 100 × 20, a drill in it, the two rounded on the top's front edge.
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
+    let path = EntityPath::root(a);
+    let board = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
+    let drill = e
+        .apply(Operation::AddBody {
+            target: path.clone(),
+            primitive: Primitive::Cylinder { origin: DVec3::new(50.0, 50.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: glam::DAffine3::IDENTITY,
+            sign: skraft_model::Sign::Negative,
+            scope: skraft_model::Scope::All,
+        })
+        .unwrap()
+        .unwrap()
+        .bodies[0];
+    let round = Operation::Blend {
+        target: path.clone(),
+        bodies: vec![board, drill],
+        blend: skraft_model::kernel::names::Blend::Round,
+        size: 3.0,
+        picks: vec![DVec3::new(100.0, 0.0, 20.0)],
+        scope: skraft_model::Scope::All,
+    };
+    let node = e.apply(round).unwrap().unwrap().bodies[0];
+    // The node open, its drill selected: « Sortir du groupe ».
+    e.enter(a);
+    e.enter(node);
+    assert_eq!(e.open_group(), &[node]);
+    e.select(vec![drill]);
+    assert!(e.can_move_out());
+    e.move_out();
+    e.poll();
+    assert!(e.open_group().is_empty(), "the node left");
+    assert_eq!(e.selection(), &[drill], "the drill selected where it went");
+    let (_, p, _) = e.document().resolve_part(&path).unwrap();
+    assert!(p.bodies.iter().any(|b| b.id == drill));
+    // Again, at the part's root: out of the part, a part beside it, selected.
+    e.move_out();
+    e.poll();
+    assert_eq!(e.open_part(), None);
+    assert_eq!(e.document().assembly(e.document().root()).unwrap().occurrences().len(), 2);
+    assert_eq!(e.selection().len(), 1);
+    assert_ne!(e.selection()[0], a);
+}

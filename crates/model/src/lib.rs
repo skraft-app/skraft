@@ -12,6 +12,7 @@ mod file;
 mod history;
 mod import;
 pub mod measure;
+mod moves;
 mod ops;
 mod profile;
 pub mod props;
@@ -20,6 +21,8 @@ mod step;
 mod stretch;
 mod weld;
 
+#[cfg(test)]
+mod moves_tests;
 #[cfg(test)]
 mod node_tests;
 #[cfg(test)]
@@ -35,7 +38,7 @@ pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, VERSION};
 pub use history::History;
 pub use import::{ImportReport, SKETCHUP_FORMAT, SKETCHUP_VERSION};
-pub use ops::{Applied, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope, Warning};
+pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, Operation, Outcome, Prepared, Scope, Warning};
 pub use profile::BodyProfile;
 pub use props::{EntityKind, PropDef, PropTarget, Props, Value, ValueKind};
 pub use settings::{APPROX, Display, LengthUnit, Section, Settings, Units};

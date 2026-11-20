@@ -181,6 +181,41 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
+    /// Moves (or copies, `copy`) the bodies `bodies` of the level `from` names — the part's
+    /// root, or a group or body node in it (`from.group`) — to `to`, their world place kept
+    /// (docs/model/bodies.md#moving-bodies, decision 0043): a body keeps its id and definition
+    /// inside the part, the names of the nodes above follow it; a shared group left or entered
+    /// is made unique first; each body keeps what it does (adds or takes away).
+    MoveBodies {
+        from: EntityPath,
+        bodies: Vec<Id>,
+        to: BodiesTo,
+        #[serde(default, skip_serializing_if = "is_false")]
+        copy: bool,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `instances` leads
+    /// to into the part `to` (at the level its path names), as bodies — parts pasted into a part
+    /// (docs/tools/copy-paste.md, decision 0043) —, their world place kept.
+    MoveParts {
+        instances: Vec<Id>,
+        occurrences: Vec<Id>,
+        to: EntityPath,
+        #[serde(default, skip_serializing_if = "is_false")]
+        copy: bool,
+    },
+    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `instances` leads
+    /// to into the assembly `to` leads to (empty: the model), their world place kept (decision
+    /// 0043): that assembly's definition changes, every copy of it. Into itself, or into an
+    /// assembly one of them holds, refused.
+    MoveOccurrences {
+        instances: Vec<Id>,
+        occurrences: Vec<Id>,
+        to: Vec<Id>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        copy: bool,
+    },
     /// Gives each of the bodies of the part `target` places that shares its definition a copy of
     /// its own (docs/model/bodies.md): a change to its shape no longer shows in the others.
     MakeBodiesUnique {
@@ -488,6 +523,12 @@ impl Operation {
             Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
             Operation::DeleteBodies { .. } => t!("operation.delete"),
             Operation::GroupBodies { .. } => t!("operation.group"),
+            Operation::MoveBodies { copy: true, .. } => t!("operation.copy_bodies_to"),
+            Operation::MoveBodies { .. } => t!("operation.move_bodies_to"),
+            Operation::MoveParts { copy: true, .. } => t!("operation.copy_parts_into"),
+            Operation::MoveParts { .. } => t!("operation.move_parts_into"),
+            Operation::MoveOccurrences { copy: true, .. } => t!("operation.copy_occurrences_into"),
+            Operation::MoveOccurrences { .. } => t!("operation.move_occurrences_into"),
             Operation::UngroupBodies { .. } => t!("operation.ungroup"),
             Operation::SetSign { sign: Sign::Positive, .. } => t!("operation.set_sign_positive"),
             Operation::SetSign { sign: Sign::Negative, .. } => t!("operation.set_sign_negative"),
@@ -567,6 +608,22 @@ impl Operation {
     }
 }
 
+/// Where [`Operation::MoveBodies`] puts the bodies.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BodiesTo {
+    /// A level of the same part: a group or body node, by the bodies leading to it from the
+    /// part's root (empty: its root).
+    Level(Vec<Id>),
+    /// Out of the part: a new part in the assembly the occurrences `instances` lead to (empty:
+    /// the model; the part's own context: « Sortir de la pièce »), as bodies pasted out of a
+    /// part (docs/tools/copy-paste.md).
+    NewPart(Vec<Id>),
+    /// Into another part, at the level its path names (its `group`), as bodies pasted into it;
+    /// the part's other occurrence (the same part): its level, as [`BodiesTo::Level`].
+    Part(EntityPath),
+}
+
 /// The most copies an `Operation::Array` makes, the most placements of an `Operation::Copies`.
 pub const MAX_ARRAY: u32 = 1000;
 
@@ -600,6 +657,9 @@ pub enum Warning {
     /// Properties pasted or imported renamed, old → new: here, their key was defined otherwise
     /// (docs/model/properties.md).
     PropsRenamed(Vec<(String, String)>),
+    /// Bodies moved in the tree (decision 0043): the shared groups made unique on the way, the
+    /// nodes left in error (their edges on a body gone), by name.
+    Moved { made_unique: Vec<String>, in_error: Vec<String> },
 }
 
 impl Warning {
@@ -615,6 +675,16 @@ impl std::fmt::Display for Warning {
             Warning::PropsRenamed(keys) => {
                 let keys: Vec<String> = keys.iter().map(|(old, new)| format!("{old} → {new}")).collect();
                 f.write_str(&t!("warning.props_renamed", keys = keys.join(", ")))
+            }
+            Warning::Moved { made_unique, in_error } => {
+                let mut said = Vec::new();
+                if !made_unique.is_empty() {
+                    said.push(t!("warning.made_unique", names = made_unique.join(", ")));
+                }
+                if !in_error.is_empty() {
+                    said.push(t!("warning.nodes_lost_edges", names = in_error.join(", ")));
+                }
+                f.write_str(&said.join(" · "))
             }
         }
     }
@@ -729,7 +799,7 @@ impl Document {
         Ok((applied.document, applied.outcome))
     }
 
-    fn apply_in_place(&mut self, op: &Operation, solver: &mut dyn Solver) -> Result<Outcome> {
+    pub(crate) fn apply_in_place(&mut self, op: &Operation, solver: &mut dyn Solver) -> Result<Outcome> {
         let mut inner = op.clone();
         if let Some((target, scope)) = inner.body_target_mut()
             && !target.group.is_empty()
@@ -1319,6 +1389,9 @@ impl Document {
                 }
                 Ok(Outcome::default())
             }
+            Operation::MoveBodies { from, bodies, to, copy, scope } => self.move_bodies(from, bodies, to, *copy, *scope, solver),
+            Operation::MoveParts { instances, occurrences, to, copy } => self.move_parts(instances, occurrences, to, *copy, solver),
+            Operation::MoveOccurrences { instances, occurrences, to, copy } => self.move_occurrences(instances, occurrences, to, *copy),
             Operation::GroupBodies { target, bodies, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
                 if bodies.is_empty() {
@@ -2313,7 +2386,7 @@ pub(crate) fn is_rigid(t: &DAffine3) -> bool {
 /// (docs/decisions/0042-body-nodes-operators.md): `moves`, old path → new path, from the bodies
 /// `prefix` leads to (`group`'s descendants), in their order — a tag whose path starts with
 /// `prefix` + old starts with `prefix` + new.
-fn relocate(group: &mut crate::BodyGroup, prefix: &[Id], moves: &[(Vec<Id>, Vec<Id>)]) {
+pub(crate) fn relocate(group: &mut crate::BodyGroup, prefix: &[Id], moves: &[(Vec<Id>, Vec<Id>)]) {
     let prefix: Vec<u64> = prefix.iter().map(|i| i.0).collect();
     let moves: Vec<(Vec<u64>, Vec<u64>)> =
         moves.iter().map(|(old, new)| (old.iter().map(|i| i.0).collect(), new.iter().map(|i| i.0).collect())).collect();
