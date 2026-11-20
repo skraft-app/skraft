@@ -2065,7 +2065,9 @@ impl SkraftApp {
     }
 
     /// The user acted other than through the window's events (the native menu bar, a file
-    /// the system opens): the journal notes what follows as theirs.
+    /// the system opens): the journal notes what follows as theirs. Native only: the web has
+    /// neither.
+    #[cfg(not(target_arch = "wasm32"))]
     fn user_acted(&mut self) {
         self.driving.user_acted();
         self.set_origin(&skraft_tools::journal::Origin::User);
