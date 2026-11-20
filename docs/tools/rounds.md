@@ -42,6 +42,13 @@ The kernel names the edges the picks are nearest (in the node's children), appli
 round, and the node keeps their names. A size the kernel does not build is **refused, never
 reduced**: the operation fails with the largest that builds (« trop grand : 1 mm au plus »).
 
+**A round larger than the faces it lies on is kept**: SolidCore runs it past them and trims it
+by the faces beyond (a board 18 mm thick, its top edge rounded 30: the front face gone, the
+round's cylinder cut by the bottom), a valid shape — a router profile larger than the board.
+« Trop grand » is the kernel's only: rounds that meet (both long edges of a lath).
+**Why** not refused (decided 2026-11-20): the shape is what the size asks for; refusing it
+would be guessing what the user meant.
+
 ## The preview
 
 Each change (an edge, the size) asks the kernel for the node alone (`Document::blend_job`,
