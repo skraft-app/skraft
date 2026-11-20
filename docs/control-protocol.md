@@ -132,12 +132,12 @@ a name, not a pixel: `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<
 `quick:<command>`, `quick:more`, `view_bar:<handle>`, `tree:<k>` (the tree drop-up's rows),
 `naming.field`, `naming.ok`, `naming.cancel`, `toast.<i>`, `toast.<i>.action`,
 `validation:cancel`, `validation:ok` (the steps bar's buttons), `vcb`,
-`viewport`. `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
+`viewport`, `outliner:<occurrence>` and `outliner_body:<body>` (the navigator's rows, those
+laid out), `outliner_menu:move_out` (a body row's menu, open). `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
 whole window (egui's `request_screenshot`), PNG. `ui.messages` (`clear`): the status bar's
 texts as they changed, the last 200, with their time.
 
-Not yet published as handles: the outliner's rows, entity info's fields, the palette, the
-preferences.
+Not yet published as handles: entity info's fields, the palette, the preferences.
 
 ## Transports
 

@@ -463,6 +463,35 @@ impl Editor {
         let _ = self.start(Operation::UngroupBodies { target, bodies, scope: self.part_scope }, After::Select, false);
     }
 
+    /// Can the bodies selected go one level up: bodies selected in the open part or group
+    /// (decision 0044)?
+    pub fn can_move_out(&self) -> bool {
+        self.selected_bodies().is_some_and(|(_, b)| !b.is_empty())
+    }
+
+    /// « Sortir du groupe »: the bodies selected one level up — out of the group or node open,
+    /// into its parent; at the part's root, out of the part, a new part beside it (decision
+    /// 0044, docs/model/bodies.md#moving-bodies) —; that level then open, what moved selected.
+    pub fn move_out(&mut self) {
+        if self.busy() {
+            return;
+        }
+        let Some((from, bodies)) = self.selected_bodies().filter(|(_, b)| !b.is_empty()) else { return };
+        let to = match self.open_group.split_last() {
+            Some((_, up)) => skraft_model::BodiesTo::Level(up.to_vec()),
+            None => skraft_model::BodiesTo::NewPart(from.instances.clone()),
+        };
+        let op = Operation::MoveBodies { from, bodies, to, copy: false, scope: self.part_scope };
+        let Ok(done) = self.start(op, After::Select, false) else { return };
+        // Up a level (that selects the level left); what moved selected there, once it lands
+        // — now, when the operation is done already.
+        self.exit();
+        if let Some(outcome) = done {
+            let moved = if outcome.created.is_empty() { outcome.bodies } else { outcome.created };
+            self.set_selection(moved);
+        }
+    }
+
     pub fn make_unique(&mut self) {
         if self.busy() {
             return;

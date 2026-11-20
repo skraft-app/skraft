@@ -110,6 +110,8 @@ menu:
     # In an open part (docs/model/bodies.md#body-groups).
     group_bodies: "Grouper les corps"
     ungroup_bodies: "Dégrouper"
+    move_out: "Sortir du groupe"
+    move_out_of_part: "Sortir de la pièce"
     delete_guides: "Supprimer les guides"
     # The components not in the model, the named ones too (docs/ui/components-library.md).
     purge_unused: "Purger les inutilisés"
@@ -1248,6 +1250,15 @@ infer:
 
 # The operations, in Annuler / Rétablir and in the messages about them.
 operation:
+  # A body or group moved (copied) to another level of the tree (decision 0044).
+  move_bodies_to: "Changer de niveau"
+  copy_bodies_to: "Copier à un autre niveau"
+  # Parts put into a part, as its bodies (decision 0044).
+  move_parts_into: "Mettre dans la pièce"
+  copy_parts_into: "Copier dans la pièce"
+  # Occurrences moved (copied) into another assembly (decision 0044).
+  move_occurrences_into: "Mettre dans l'assemblage"
+  copy_occurrences_into: "Copier dans l'assemblage"
   # Drawing a part, whatever its shape.
   add_part: "$t(common.part)"
   # A shape drawn in an open part: cut from it.
@@ -1378,6 +1389,10 @@ property:
 warning:
   # Pasted or imported properties whose key is defined otherwise here (%{keys}: « old → new », …).
   props_renamed: "propriétés renommées, définies autrement ici : %{keys}"
+  # Bodies moved in the tree (decision 0044): the shared groups made their own on the way.
+  made_unique: "rendu unique : %{names}"
+  # … and the body nodes whose edges were on a body that left them (now in error).
+  nodes_lost_edges: "arêtes perdues : %{names}"
 
 error:
   # A typed value that cannot be read (the measurements box, the entity info).

@@ -48,5 +48,6 @@ state and link the records behind it.
 | 0039 | [The .skraft file is a ZIP of JSON entries](0039-file-format-zip-of-json-entries.md) | accepted (2026-11-19) |
 | 0040 | [Typed properties, their schema optional](0040-typed-properties-schema-optional.md) | accepted (2026-11-19) |
 | 0041 | [Textures by box projection, materials alone in a .skraftmat](0041-textures-and-materials-files.md) | accepted (2026-11-19) |
-| 0042 | [Body nodes: an operation applied to the children, the part's tree as its history](0042-body-nodes-operators.md) | accepted (2026-11-19; not built yet) |
+| 0042 | [Body nodes: an operation applied to the children, the part's tree as its history](0042-body-nodes-operators.md) | accepted (2026-11-19; steps 1-2 built) |
 | 0043 | [Read SketchUp files directly with skpwright, in the kernel](0043-sketchup-files-read-with-skpwright.md) | accepted (2026-11-20) |
+| 0044 | [Bodies and occurrences moved in the tree: the navigator's drag and « Sortir du groupe »](0044-moving-bodies-in-the-tree.md) | accepted (2026-11-20; built) |

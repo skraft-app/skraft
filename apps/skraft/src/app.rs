@@ -768,6 +768,7 @@ impl SkraftApp {
             "edit.explode" | "edit.make_unique" => has_sel,
             "edit.group_bodies" => e.can_group_bodies(),
             "edit.ungroup_bodies" => e.can_ungroup_bodies(),
+            "edit.move_out" => e.can_move_out(),
             "edit.cut" | "edit.copy" => e.can_copy(),
             "edit.paste" | "edit.paste_in_place" => self.clipboard.as_ref().is_some_and(|c| e.can_paste(&c.clip)),
             "view.section" | "view.section_clear" => section,
@@ -966,6 +967,7 @@ impl SkraftApp {
             "edit.make_unique" => e.make_unique(),
             "edit.group_bodies" => e.group_bodies(),
             "edit.ungroup_bodies" => e.ungroup_bodies(),
+            "edit.move_out" => e.move_out(),
             "edit.delete_guides" => e.delete_guides(),
             "components.purge" => e.purge_unused(),
             "view.parallel" => {

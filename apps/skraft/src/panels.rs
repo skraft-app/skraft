@@ -5,8 +5,8 @@
 use glam::{DAffine3, DVec3};
 use skraft_i18n::{t, tp};
 use skraft_model::{
-    ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, Nature, Occurrence, Operation, PropTarget, Scope, Sign, Units,
-    measure,
+    BodiesTo, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, Nature, Occurrence, Operation, PropTarget, Scope,
+    Sign, Units, measure,
 };
 use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
 
@@ -1135,6 +1135,48 @@ pub fn outliner(
             if ui.rect_contains_pointer(response.rect) {
                 over = Some(path.clone());
             }
+            crate::handles::publish(|| format!("outliner:{}", o.id.0), response.rect);
+            // Bodies dragged onto their part's row: to its root (decision 0044).
+            // Dragged (decision 0044): the selected occurrences of its assembly with it when it
+            // is selected. Dropped on: a part takes bodies or parts in, at its root; an assembly
+            // makes a part of bodies.
+            let response = response.interact(egui::Sense::click_and_drag());
+            let with: Vec<Id> = match selected && editor.context() == path.instances.as_slice() {
+                true => doc
+                    .context_of(&path.instances)
+                    .and_then(|c| doc.assembly(c))
+                    .map(|a| a.occurrences().iter().map(|x| x.id).filter(|id| selection.contains(id)).collect())
+                    .unwrap_or_default(),
+                false => vec![o.id],
+            };
+            response.dnd_set_drag_payload(PartsDrag { instances: path.instances.clone(), occurrences: with });
+            let (bodies_over, parts_over) = dragged_over(&response);
+            if bodies_over.is_some() || parts_over.is_some() {
+                let is_part = doc.part(o.component).is_ok();
+                let target: Option<(Mark, Box<dyn FnOnce(bool) -> Operation + '_>)> = match (bodies_over, parts_over) {
+                    (Some(drag), _) if is_part => {
+                        let same = same_part(doc, &drag.from.part_path(), &path);
+                        drag.to(same, &path, Vec::new()).map(|to| (Mark::Into, Box::new(move |copy| drag.op(editor, to, copy)) as Box<_>))
+                    }
+                    (Some(drag), _) => {
+                        let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
+                        Some((Mark::Into, Box::new(move |copy| drag.op(editor, BodiesTo::NewPart(inside), copy)) as Box<_>))
+                    }
+                    (None, Some(drag)) if is_part => {
+                        let at = path.clone();
+                        drag.into_part(doc, &at, Vec::new(), false).map(|_| {
+                            (Mark::Into, Box::new(move |copy| drag.into_part(doc, &at, Vec::new(), copy).expect("checked")) as Box<_>)
+                        })
+                    }
+                    (None, Some(drag)) => {
+                        let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
+                        drag.into_assembly(doc, inside.clone(), false)
+                            .map(|_| (Mark::Into, Box::new(move |copy| drag.into_assembly(doc, inside, copy).expect("checked")) as Box<_>))
+                    }
+                    _ => None,
+                };
+                drop_on_row(ui, &response, 0.0, target, actions);
+            }
             // A component's name is never empty, and unique: an emptied one is kept, one taken
             // refused (the failure told); an occurrence's emptied is cleared.
             let alone = selected && selection.len() == 1;
@@ -1187,6 +1229,23 @@ fn model_row(ui: &mut egui::Ui, editor: &Editor, name: &str, height: f32, action
         let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size);
         ui.add(egui::Label::new(egui::RichText::new(name).font(font).color(tint)).selectable(false).truncate());
     });
+    // Bodies dropped on the model: a part of them at its root (decision 0044).
+    let (bodies_over, parts_over) = dragged_over(&response);
+    if let Some(drag) = bodies_over {
+        let make = Box::new(move |copy| drag.op(editor, BodiesTo::NewPart(Vec::new()), copy));
+        drop_on_row(ui, &response, 0.0, Some((Mark::Into, make)), actions);
+    } else if let Some(drag) = parts_over {
+        // Occurrences dropped on the model: to its root.
+        let doc = editor.document();
+        let target = drag.into_assembly(doc, Vec::new(), false).map(|_| {
+            (
+                Mark::Into,
+                Box::new(move |copy| drag.into_assembly(doc, Vec::new(), copy).expect("checked"))
+                    as Box<dyn FnOnce(bool) -> Operation + '_>,
+            )
+        });
+        drop_on_row(ui, &response, 0.0, target, actions);
+    }
     if response.on_hover_text(t!("panel.outliner.model_tip")).clicked() {
         actions.push(Action::SelectModel);
     }
@@ -1593,6 +1652,147 @@ fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &OutlinerRow, height: f3
 /// opened —, in every occurrence of the part unless it is open for this one alone
 /// (« Celui-ci »).
 #[allow(clippy::too_many_arguments)]
+/// Bodies dragged in the navigator (decision 0044, docs/model/bodies.md#moving-bodies): the
+/// level they lie in (its part's path and groups), which of its bodies.
+#[derive(Clone, Debug)]
+struct BodiesDrag {
+    from: EntityPath,
+    bodies: Vec<Id>,
+}
+
+impl BodiesDrag {
+    /// Where bodies dropped at the level `level` of the part `part` places go, if they may: in
+    /// their own part (`same`), another level of it, not where they lie nor inside one of them;
+    /// in another part, into it.
+    fn to(&self, same: bool, part: &EntityPath, level: Vec<Id>) -> Option<BodiesTo> {
+        if !same {
+            return Some(BodiesTo::Part(part.clone().in_group(level)));
+        }
+        (level != self.from.group && !level.iter().any(|g| self.bodies.contains(g))).then_some(BodiesTo::Level(level))
+    }
+
+    /// The move to `to`, with the scope of their part when it is open.
+    fn op(&self, editor: &Editor, to: BodiesTo, copy: bool) -> Operation {
+        let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == self.from.part_path());
+        let scope = if part_open { editor.part_scope() } else { Scope::All };
+        Operation::MoveBodies { from: self.from.clone(), bodies: self.bodies.clone(), to, copy, scope }
+    }
+}
+
+/// Occurrences dragged in the navigator (decision 0044): the assembly they lie in (the
+/// occurrences leading to it), which of its occurrences.
+#[derive(Clone, Debug)]
+struct PartsDrag {
+    instances: Vec<Id>,
+    occurrences: Vec<Id>,
+}
+
+impl PartsDrag {
+    /// Into the part `part` places, at its level `level`, as its bodies: not a part they place,
+    /// nor one inside them (an assembly dragged), nor themselves.
+    fn into_part(&self, doc: &Document, part: &EntityPath, level: Vec<Id>, copy: bool) -> Option<Operation> {
+        let n = self.instances.len();
+        let inside = part.instances.len() > n && part.instances[..n] == self.instances[..] && self.occurrences.contains(&part.instances[n]);
+        let itself = part.instances == self.instances && self.occurrences.contains(&part.entity);
+        let component = doc.resolve(part).ok()?.component;
+        let context = doc.context_of(&self.instances).ok()?;
+        let placed =
+            doc.assembly(context).ok()?.occurrences().iter().filter(|o| self.occurrences.contains(&o.id)).any(|o| o.component == component);
+        (!inside && !itself && !placed).then(|| Operation::MoveParts {
+            instances: self.instances.clone(),
+            occurrences: self.occurrences.clone(),
+            to: part.clone().in_group(level),
+            copy,
+        })
+    }
+}
+
+impl PartsDrag {
+    /// Into the assembly `to` leads to (empty: the model): not the one they lie in, nor one of
+    /// them or one they hold (decision 0044).
+    fn into_assembly(&self, doc: &Document, to: Vec<Id>, copy: bool) -> Option<Operation> {
+        let (from, into) = (doc.context_of(&self.instances).ok()?, doc.context_of(&to).ok()?);
+        let holds = doc
+            .assembly(from)
+            .ok()?
+            .occurrences()
+            .iter()
+            .filter(|o| self.occurrences.contains(&o.id))
+            .any(|o| doc.contains_component(o.component, into));
+        (from != into && !holds).then(|| Operation::MoveOccurrences {
+            instances: self.instances.clone(),
+            occurrences: self.occurrences.clone(),
+            to,
+            copy,
+        })
+    }
+}
+
+/// Does the occurrence `a` place the same part as `b`?
+fn same_part(doc: &Document, a: &EntityPath, b: &EntityPath) -> bool {
+    match (doc.resolve(a), doc.resolve(b)) {
+        (Ok(x), Ok(y)) => x.component == y.component,
+        _ => false,
+    }
+}
+
+/// The path of the group `id` lying in the groups `group`: the level its children are in.
+fn inner_path(group: &[Id], id: Id) -> Vec<Id> {
+    group.iter().copied().chain([id]).collect()
+}
+
+/// How a row shows where a drop on it goes.
+#[derive(Clone, Copy)]
+enum Mark {
+    /// Into the row's group, part or assembly: the row framed.
+    Into,
+    /// Beside the row, in its level: a line above it (`true`) or under it.
+    Beside(bool),
+}
+
+/// While something is dragged over a row (`response`, from `indent` on): `target` — how the
+/// row shows where it would go and the operation (given whether the platform's copy key is
+/// held), none when it may not go there — marked, the cursor; dropped, the operation.
+fn drop_on_row(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    indent: f32,
+    target: Option<(Mark, Box<dyn FnOnce(bool) -> Operation + '_>)>,
+    actions: &mut Vec<Action>,
+) {
+    let copy = crate::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
+    let Some((mark, op)) = target else {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::NoDrop);
+        return;
+    };
+    let stroke = egui::Stroke::new(1.5, ui.visuals().selection.stroke.color);
+    let r = response.rect;
+    match mark {
+        Mark::Into => {
+            ui.painter().rect_stroke(r.shrink(1.0), 3.0, stroke, egui::StrokeKind::Inside);
+        }
+        Mark::Beside(above) => {
+            let y = if above { r.top() } else { r.bottom() };
+            ui.painter().hline(r.left() + indent..=r.right(), y, stroke);
+        }
+    }
+    ui.ctx().set_cursor_icon(if copy { egui::CursorIcon::Copy } else { egui::CursorIcon::Grabbing });
+    // Taken as the type it is: egui's takes the payload whatever its type, and keeps it only
+    // when it is the one asked.
+    let released = match response.dnd_hover_payload::<BodiesDrag>() {
+        Some(_) => response.dnd_release_payload::<BodiesDrag>().is_some(),
+        None => response.dnd_release_payload::<PartsDrag>().is_some(),
+    };
+    if released {
+        actions.push(Action::Apply(op(copy)));
+    }
+}
+
+/// Is something of the navigator dragged over `response`?
+fn dragged_over(response: &egui::Response) -> (Option<std::sync::Arc<BodiesDrag>>, Option<std::sync::Arc<PartsDrag>>) {
+    (response.dnd_hover_payload::<BodiesDrag>(), response.dnd_hover_payload::<PartsDrag>())
+}
+
 fn body_row(
     ui: &mut egui::Ui,
     editor: &Editor,
@@ -1709,6 +1909,53 @@ fn body_row(
     if shown && ui.rect_contains_pointer(response.rect) {
         *over = Some(b.body.id);
     }
+    // Dragged (decision 0044): the selected siblings with it when it is selected; dropped on, a
+    // group's middle takes them in, its edges and a leaf put them beside it, in its level.
+    crate::handles::publish(|| format!("outliner_body:{}", b.body.id.0), response.rect);
+    let response = response.interact(egui::Sense::click_and_drag());
+    let with: Vec<Id> = match selected {
+        true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
+        false => vec![b.body.id],
+    };
+    response.dnd_set_drag_payload(BodiesDrag { from: path.clone(), bodies: with.clone() });
+    let (bodies_over, parts_over) = dragged_over(&response);
+    if bodies_over.is_some() || parts_over.is_some() {
+        let doc = editor.document();
+        let part = path.part_path();
+        let r = response.rect;
+        let y = ui.input(|i| i.pointer.hover_pos()).map_or(r.center().y, |p| p.y);
+        let into = def.is_group() && (y - r.top()) > r.height() * 0.25 && (r.bottom() - y) > r.height() * 0.25;
+        let (level, mark) = match into {
+            true => (inner_path(&b.group, b.body.id), Mark::Into),
+            false => (b.group.clone(), Mark::Beside(y < r.center().y)),
+        };
+        let target: Option<(Mark, Box<dyn FnOnce(bool) -> Operation + '_>)> = match (bodies_over, parts_over) {
+            (Some(drag), _) => {
+                let same = same_part(doc, &drag.from.part_path(), &part);
+                drag.to(same, &part, level).map(|to| (mark, Box::new(move |copy| drag.op(editor, to, copy)) as Box<_>))
+            }
+            (None, Some(drag)) => drag
+                .into_part(doc, &part, level.clone(), false)
+                .map(|_| (mark, Box::new(move |copy| drag.into_part(doc, &part, level, copy).expect("checked")) as Box<_>)),
+            _ => None,
+        };
+        let indent = ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32;
+        drop_on_row(ui, &response, indent, target, actions);
+    }
+    // Its menu: « Sortir du groupe » (de la pièce, at its root).
+    egui::Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
+        let (label, to) = match b.group.split_last() {
+            Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
+            None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
+        };
+        let button = ui.button(label);
+        crate::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
+        if button.clicked() {
+            let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
+            let scope = if part_open { editor.part_scope() } else { Scope::All };
+            actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.clone(), to, copy: false, scope }));
+        }
+    });
     let alone = selected && editor.selection().len() == 1;
     let on_own = match (split, response.interact_pointer_pos()) {
         (Some(split), Some(at)) if response.double_clicked() => at.x < split,
@@ -2528,6 +2775,19 @@ fn texture_row(ui: &mut egui::Ui, doc: &Document, id: Id, texture: &skraft_model
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bodies_dragged_go_to_another_level_of_their_part_not_into_themselves() {
+        let part = EntityPath::new(Vec::new(), Id(5));
+        // Bodies 6 and 7 of the group 9 dragged.
+        let drag = BodiesDrag { from: part.clone().in_group(vec![Id(9)]), bodies: vec![Id(6), Id(7)] };
+        assert_eq!(drag.to(true, &part, Vec::new()), Some(BodiesTo::Level(Vec::new())), "to the part's root");
+        assert_eq!(drag.to(true, &part, vec![Id(9), Id(8)]), Some(BodiesTo::Level(vec![Id(9), Id(8)])), "into a group beside them");
+        assert_eq!(drag.to(true, &part, vec![Id(9)]), None, "where they lie");
+        assert_eq!(drag.to(true, &part, vec![Id(9), Id(7)]), None, "into one of them");
+        let other = EntityPath::new(Vec::new(), Id(4));
+        assert_eq!(drag.to(false, &other, vec![Id(3)]), Some(BodiesTo::Part(other.clone().in_group(vec![Id(3)]))), "into another part");
+    }
 
     /// The mark's place at `time` (seconds), heading to `to`.
     fn slide_at(ctx: &egui::Context, time: f64, to: (f32, f32)) -> (f32, f32) {

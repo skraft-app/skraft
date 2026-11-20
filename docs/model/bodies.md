@@ -299,7 +299,7 @@ Decision record: [Body definitions may be groups: a CSG tree without history](..
 ### The interface
 
 - « Grouper les corps » / « Dégrouper » (`edit.group_bodies`, `edit.ungroup_bodies`, in
-  Assembler › Composants); in an open part, « Créer un assemblage » (G) and « Éclater » do the
+  Assembler › Composants), « Sortir du groupe » ([Moving bodies](#moving-bodies)); in an open part, « Créer un assemblage » (G) and « Éclater » do the
   same on its bodies.
 - **The outliner shows the bodies of every part under it**, a single one too (folded, open
   while the part is), drawn by their nature — an extrusion (`PRISM`), a revolution (`TURN`), a
@@ -421,6 +421,61 @@ NodeOp    { blend: Round | Chamfer, size, edges: Vec<NodeEdges { name, near }> }
   instead.
 - **The root is never a node**: new bodies go to the part's root and cut (or join) the node's
   result.
+
+## Moving bodies
+
+A body (a leaf, a group, a node) goes from a level of its part to another — the order of the
+history changed: a drill taken out of a round drills after it —, or out of the part
+([0044](../decisions/0044-moving-bodies-in-the-tree.md)). `Operation::MoveBodies { from,
+bodies, to, copy, scope }` (`crates/model/src/moves.rs`), `to` a level of the part
+(`BodiesTo::Level`: the bodies leading to a group from the root, empty for the root),
+`BodiesTo::NewPart(instances)` (a new part in that assembly) or `BodiesTo::Part(path)` (another
+part, at its level `path.group`).
+
+- **Its world place kept**: its placement computed again in the axes of where it goes.
+- **Its id and definition kept** inside the part; the names of the nodes above both levels
+  follow it (`[g1, b]` becomes `[g2, b]`). **A node it leaves loses the edges it took on it**:
+  in error (⚠), said by a toast (`Warning::Moved`'s `in_error`); Undo takes it back.
+- **A group shared by several copies in the part, left or entered, is made unique first**
+  (its own definition, its children new ids, the names above following them;
+  `Warning::Moved`'s `made_unique`); the other copies keep what they hold. The option bar's
+  scope is the part's occurrences', as for any edit.
+- **It keeps what it does**: its sign turned when the signs on its way differ — a positive
+  child of a machining group (taking away) out at the root becomes negative; a drill dropped
+  into a machining group (a group of drills) becomes one of its positive children, still
+  drilling.
+- **Into another part** (`BodiesTo::Part`): bodies pasted into it at that level
+  (`PasteBodies`, new ids there), each keeping what it does, then taken away. Another
+  occurrence of the same part: its level, as `Level`.
+- **Parts into a part** (`Operation::MoveParts { instances, occurrences, to, copy }`): as parts
+  pasted into a part (`PasteParts`: one positive body each, a group of its bodies unless it is
+  one; negative where the level takes away), the occurrences then taken away; a part into
+  itself, or into a part an assembly moved holds, refused (`Error::Cycle`).
+- **Out of the part** (`BodiesTo::NewPart`): a new part in the assembly given (its own context
+  for « Sortir de la pièce », the model or an assembly dropped on), as bodies pasted out of a
+  part ([Copy, cut and paste](../tools/copy-paste.md#across-the-parts-boundary):
+  signs kept, all positive with no positive among them — a drill becomes a pin), then the
+  bodies taken from the part.
+- `copy`: a new body of the same definition, the first one left where it was.
+- **« Sortir du groupe »** (`edit.move_out`, Assembler › Composants, after « Dégrouper »): the
+  bodies selected one level up — out of the group or node open into its parent; at the part's
+  root, out of the part —; that level then open, what moved selected (`Editor::move_out`).
+- **The navigator's drag and drop** (`panels::BodiesDrag`, its part open or not): a body's
+  row dragged — the selected siblings with it when it is selected —, dropped on a group's or
+  node's row (its middle half) goes into it; on its edges, or on a leaf's row, beside it, in
+  its level (a line above or under the row); on its part's row, to its root (the row framed).
+  Dropped on another part's row (its body's or group's), into that part at that level; on an
+  assembly's row or the model's, a new part there. A part's or assembly's row dragged (its
+  selected siblings with it) and dropped on a part's row (or one of its bodies' or groups'),
+  into that part as bodies. Where it may not go (where it lies, into itself, its own part),
+  the cursor says so. Option
+  (Ctrl elsewhere) held at the drop copies. The part's scope when it is open, else every
+  occurrence. A body row's menu (right click): « Sortir du groupe » (« Sortir de la pièce » at
+  its root), the row's body with its selected siblings.
+- **Occurrences between assemblies** (`Operation::MoveOccurrences { instances, occurrences, to,
+  copy }`): a part's or assembly's row dropped on an assembly's row, or the model's, goes into
+  it, its world place kept, its id too; that assembly's definition changes, every copy of it.
+  Into itself, or into an assembly it holds, refused (`Error::Cycle`).
 
 ## Body names
 

@@ -91,6 +91,8 @@ menu:
     make_unique: "$t(common.make_unique)"
     group_bodies: "Group Bodies"
     ungroup_bodies: "Ungroup"
+    move_out: "Move Out of Group"
+    move_out_of_part: "Move Out of Part"
     delete_guides: "Delete Guides"
     # The components not in the model, the named ones too (docs/ui/components-library.md).
     purge_unused: "Purge Unused"
@@ -1112,6 +1114,15 @@ infer:
     tool: "On revolution axis"
 
 operation:
+  # A body or group moved (copied) to another level of the tree (decision 0044).
+  move_bodies_to: "Change Level"
+  copy_bodies_to: "Copy to Another Level"
+  # Parts put into a part, as its bodies (decision 0044).
+  move_parts_into: "Put Into Part"
+  copy_parts_into: "Copy Into Part"
+  # Occurrences moved (copied) into another assembly (decision 0044).
+  move_occurrences_into: "Put Into Assembly"
+  copy_occurrences_into: "Copy Into Assembly"
   add_part: "$t(common.part)"
   add_machining: "Machining"
   add_body: "Blank"
@@ -1224,6 +1235,10 @@ property:
 warning:
   # Pasted or imported properties whose key is defined otherwise here (%{keys}: « old → new », …).
   props_renamed: "properties renamed, defined otherwise here: %{keys}"
+  # Bodies moved in the tree (decision 0044): the shared groups made their own on the way.
+  made_unique: "made unique: %{names}"
+  # … and the body nodes whose edges were on a body that left them (now in error).
+  nodes_lost_edges: "edges lost: %{names}"
 
 error:
   expr:
