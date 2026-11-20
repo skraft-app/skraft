@@ -7,7 +7,7 @@ struct Globals {
     up: vec4<f32>,         // world +Z, in camera coordinates
     key: vec4<f32>,        // key light direction, in camera coordinates
     background: vec4<f32>, // linear RGB
-    viewport: vec4<f32>,   // target size (px), half edge width (px), unused
+    viewport: vec4<f32>,   // target size (px), half edge width (px: the faces' push too), unused
     face_front: vec4<f32>, // a face without a colour
     face_back: vec4<f32>,  // the back of every face
     edge: vec4<f32>,       // edges and silhouettes
@@ -83,7 +83,7 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
     let nmat = mat3x3<f32>(inst.n0.xyz, inst.n1.xyz, inst.n2.xyz);
     let world = model * vec4<f32>(pos, 1.0);
     var out: FaceOut;
-    out.clip = g.proj * world;
+    out.clip = g.proj * pushed_back(world.xyz, nmat * normal);
     out.world = world.xyz;
     out.normal = nmat * normal;
     out.tint = inst.tint;
@@ -323,23 +323,26 @@ fn fs_cap(in: FaceOut, @builtin(front_facing) facing: bool) -> CapOut {
     let q = on_plane(in.world);
     let dx = dpdx(q.xyz);
     let dy = dpdy(q.xyz);
+    // Its depth just behind the plane (the plane seen edge on: the back face's own), and that
+    // depth's slope, pushed back as the faces are, so the cut lines draw whole over it.
+    let c = g.proj * vec4<f32>(q.xyz, 1.0);
+    let plane = clamp(c.z / max(c.w, 1e-6), 0.0, 1.0);
+    let z = select(in.clip.z, plane - (plane - in.clip.z) * CAP_DEPTH, q.w != 0.0);
+    let slope = max(abs(dpdx(z)), abs(dpdy(z)));
     if (cut(in.world) || is_front(in, facing)) {
         discard;
     }
     var out: CapOut;
+    out.depth = pushed(z, slope);
     if (q.w == 0.0) {
         // The plane seen edge on: the back face as it is.
         out.colour = shade(in, facing, true, 0.0);
-        out.depth = in.clip.z;
         return out;
     }
     let k = hatch_direction(in.hatch);
     let d = k.x * g.hatch_u.xyz + k.y * g.hatch_v.xyz;
     let rate = length(vec2<f32>(dot(d, dx), dot(d, dy)));
     out.colour = shade(in, facing, true, hatch_cover(hatch_measure(q.xyz, in.hatch), rate, in.pitch));
-    let c = g.proj * vec4<f32>(q.xyz, 1.0);
-    let plane = clamp(c.z / c.w, 0.0, 1.0);
-    out.depth = plane - (plane - in.clip.z) * CAP_DEPTH;
     return out;
 }
 
@@ -435,21 +438,68 @@ fn wide(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) -> vec
 }
 
 // A quad carries the depth of its centre line, but a pixel away from it a neighbouring face
-// can be nearer (both faces of a concave corner rise towards the eye; a face seen at a
-// glance climbs fast): the widened part would sink into it. So lines are pulled towards the
-// eye by `PULL` times their half width, measured at their own depth. In perspective, scaling
-// a camera-space point towards the eye (at the origin) keeps it on the same pixel; in
-// parallel projection, moving it along the view axis does.
-const PULL: f32 = 3.0;
+// can be nearer (both faces of a concave corner rise towards the eye; a face seen at a glance
+// climbs fast): the widened part would sink into it. So the faces are pushed back from the eye
+// by the depth they gain over most of an edge's half width (`pushed_back`), and lines are drawn
+// at their own depth: an edge on a face draws (nearly) whole over it at any angle, and what lies
+// behind a face shows only within a few pixels of the face's own slope, measured on screen —
+// the same at every zoom (docs/render/display.md#depth-of-lines; SolidCraft's `FACE_BIAS`, worked out
+// here: a GPU's slope bias is its own, Apple's several times WebGPU's).
 
-fn pulled(p: vec4<f32>, half: f32) -> vec4<f32> {
+// How steeply a face is seen, at most: the depth it gains per unit across the screen (the
+// tangent of the angle between its normal and the ray), capped where it is seen edge on.
+const STEEPEST: f32 = 50.0;
+
+// How much of an edge's half width the faces are pushed back over: what lies behind a face
+// shows where it is nearer than about (this + 1) half widths of the face's slope (the face
+// recedes across the edge's quad too), and a line on a steep face keeps this much of its half
+// width over it. 7/8: a concealed hinge 5 mm behind a door hidden at 12.7 m (25°), a pocket's
+// corners inked (tests `embedded_edges_stay_hidden_far_away`, `concave_edges_are_not_buried`).
+const FACE_PUSH: f32 = 0.875;
+
+// The camera-space point `p` of a face of normal `n`, moved away from the eye along its ray
+// (its pixel kept) by the depth the face gains over `FACE_PUSH` of an edge's half width there.
+fn pushed_back(p: vec3<f32>, n: vec3<f32>) -> vec4<f32> {
+    let perspective = g.proj[3][3] == 0.0;
+    let ray = select(vec3<f32>(0.0, 0.0, -1.0), normalize(p), perspective);
+    let c = abs(dot(normalize(n), ray));
+    let steep = min(sqrt(max(1.0 - c * c, 0.0)) / max(c, 1.0 / STEEPEST), STEEPEST);
+    // The size of a pixel there (perspective: at its depth).
+    let pixel = select(1.0, -p.z, perspective) * 2.0 / (g.proj[1][1] * g.viewport.y);
+    let push = FACE_PUSH * g.viewport.z * pixel * steep;
+    if (perspective) {
+        return vec4<f32>(p * (1.0 + push / max(-p.z, 1e-6)), 1.0);
+    }
+    return vec4<f32>(p.xy, p.z - push, 1.0);
+}
+
+// A line of the tools wider than an edge is lifted towards the eye by the pixels of its half
+// width the faces' push does not cover, measured at its depth. In perspective, scaling a
+// camera-space point towards the eye (at the origin) keeps it on the same pixel; in parallel
+// projection, moving it along the view axis does.
+fn lifted(p: vec4<f32>, half: f32) -> vec4<f32> {
+    let px = half - g.viewport.z;
+    if (px <= 0.0) {
+        return p;
+    }
     // The size of a pixel at unit depth (perspective) or anywhere (parallel).
     let pixel = 2.0 / (g.proj[1][1] * g.viewport.y);
-    let d = PULL * half * pixel;
+    let d = px * pixel;
     if (g.proj[3][3] == 0.0) {
         return vec4<f32>(p.xyz * max(1.0 - d, 0.5), 1.0); // perspective
     }
     return vec4<f32>(p.xy, p.z + d, 1.0); // parallel: the eye looks down -Z
+}
+
+// A depth the shader writes itself (the caps'), pushed back as the faces are: by its own slope
+// over `FACE_PUSH` of an edge's half width (`pushed_back`), and the `FACE_STEPS` depth steps
+// their pipelines add — a step 2⁻²³ of the depth in a float buffer, 2⁻²⁴ in a 24-bit one: the
+// larger of the two, whichever the device has.
+const FACE_STEPS: f32 = 8.0;
+
+fn pushed(z: f32, slope: f32) -> f32 {
+    let step = max(abs(z) * 1.1920929e-7, 1.0 / 16777216.0);
+    return max(z - slope * FACE_PUSH * g.viewport.z - step * FACE_STEPS, 0.0);
 }
 
 // ---- B-rep edges and silhouettes (instanced like faces) ----------------------------------------
@@ -457,53 +507,72 @@ fn pulled(p: vec4<f32>, half: f32) -> vec4<f32> {
 struct EdgeOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) tint: vec4<f32>,
-    // Where the line is, before it is pulled towards the eye (for the section).
+    // Where the line is (for the section).
     @location(1) world: vec3<f32>,
 };
 
-fn edge_out(a: vec3<f32>, b: vec3<f32>, corner: vec2<f32>, inst: Instance) -> EdgeOut {
+// A segment of an edge (lib.rs's `Segment`): its ends, and the outward normals of the two
+// triangles along it (`w`: 1, 0 when there is none).
+struct EdgeSegment {
+    a: vec4<f32>,
+    b: vec4<f32>,
+    n1: vec4<f32>,
+    n2: vec4<f32>,
+};
+
+// The drawn mesh's segments: its B-rep edges', or its silhouette candidates'.
+@group(1) @binding(0) var<storage, read> segments: array<EdgeSegment>;
+
+// A corner of a segment's quad (4 corners, indexed: lib.rs's `SEGMENT_INDICES`): its end (k & 1)
+// and its side (-1, then +1), half a width past each end so that joints have no notch, at the
+// segment's own depth. An edge whose two faces turn away is not drawn (`all`: drawn all the
+// same, for what is seen through): its closed solid hides it, however close behind its faces.
+// An outline (`outline`), only where one of its triangles faces the eye and the other does not.
+fn band(vi: u32, inst: Instance, outline: bool, all: bool) -> EdgeOut {
+    var none: EdgeOut;
+    none.clip = vec4<f32>(0.0, 0.0, 0.0, 0.0); // degenerate: nothing drawn
+    let seg = segments[vi / 4u];
+    let k = vi % 4u;
     let model = mat4x4<f32>(inst.m0, inst.m1, inst.m2, inst.m3);
+    let nmat = mat3x3<f32>(inst.n0.xyz, inst.n1.xyz, inst.n2.xyz);
+    let pa = model * vec4<f32>(seg.a.xyz, 1.0);
+    let pb = model * vec4<f32>(seg.b.xyz, 1.0);
+    // Towards the eye: to the origin in perspective, +Z in parallel projection.
+    let mid = (pa.xyz + pb.xyz) * 0.5;
+    let eye = select(vec3<f32>(0.0, 0.0, 1.0), -mid, g.proj[3][3] == 0.0);
+    let front1 = seg.n1.w != 0.0 && dot(nmat * seg.n1.xyz, eye) > 0.0;
+    let front2 = seg.n2.w != 0.0 && dot(nmat * seg.n2.xyz, eye) > 0.0;
+    if (outline && front1 == front2) {
+        return none;
+    }
+    if (!all && seg.n1.w != 0.0 && seg.n2.w != 0.0 && !front1 && !front2) {
+        return none;
+    }
+    let corner = vec2<f32>(f32(k & 1u), select(-1.0, 1.0, k >= 2u));
     var out: EdgeOut;
-    let half = g.viewport.z;
-    let wa = model * vec4<f32>(a, 1.0);
-    let wb = model * vec4<f32>(b, 1.0);
-    let ca = g.proj * pulled(wa, half);
-    let cb = g.proj * pulled(wb, half);
-    out.clip = wide(ca, cb, corner, half);
+    out.clip = wide(g.proj * pa, g.proj * pb, corner, g.viewport.z);
     out.tint = inst.tint;
-    out.world = select(wa.xyz, wb.xyz, corner.x > 0.5);
+    out.world = select(pa.xyz, pb.xyz, corner.x > 0.5);
     return out;
 }
 
 @vertex
-fn vs_edge(@location(0) a: vec3<f32>, @location(1) b: vec3<f32>, @location(2) corner: vec2<f32>, inst: Instance) -> EdgeOut {
-    return edge_out(a, b, corner, inst);
+fn vs_edge(@builtin(vertex_index) vi: u32, inst: Instance) -> EdgeOut {
+    return band(vi, inst, false, false);
+}
+
+// The same for what is seen through (ghosts, faint edges): its edges hidden by its own solid
+// drawn too.
+@vertex
+fn vs_edge_all(@builtin(vertex_index) vi: u32, inst: Instance) -> EdgeOut {
+    return band(vi, inst, false, true);
 }
 
 // A mesh edge inside a curved surface, with its two triangles' normals: drawn only where one
 // faces the eye and the other does not — the outline of the surface as seen from here.
 @vertex
-fn vs_silhouette(
-    @location(0) a: vec3<f32>,
-    @location(1) b: vec3<f32>,
-    @location(2) corner: vec2<f32>,
-    @location(3) n1: vec3<f32>,
-    @location(13) n2: vec3<f32>,
-    inst: Instance,
-) -> EdgeOut {
-    let model = mat4x4<f32>(inst.m0, inst.m1, inst.m2, inst.m3);
-    let nmat = mat3x3<f32>(inst.n0.xyz, inst.n1.xyz, inst.n2.xyz);
-    let mid = (model * vec4<f32>((a + b) * 0.5, 1.0)).xyz;
-    // Towards the eye: to the origin in perspective, +Z in parallel projection.
-    let eye = select(vec3<f32>(0.0, 0.0, 1.0), -mid, g.proj[3][3] == 0.0);
-    let s1 = dot(nmat * n1, eye);
-    let s2 = dot(nmat * n2, eye);
-    if (s1 * s2 > 0.0) {
-        var none: EdgeOut;
-        none.clip = vec4<f32>(0.0, 0.0, 0.0, 0.0); // degenerate: nothing drawn
-        return none;
-    }
-    return edge_out(a, b, corner, inst);
+fn vs_silhouette(@builtin(vertex_index) vi: u32, inst: Instance) -> EdgeOut {
+    return band(vi, inst, true, true);
 }
 
 @fragment
@@ -692,8 +761,8 @@ fn face_exposed(model: mat4x4<f32>, k: u32, side: u32) -> bool {
 //   held still as the view pans, sliding along the line as it orbits (the guides').
 fn line_out(a: vec3<f32>, b: vec3<f32>, corner: vec3<f32>, color: vec4<f32>, pattern: vec4<f32>, dash: vec4<f32>, reach: f32) -> LineOut {
     var out: LineOut;
-    let ca = g.proj * pulled(vec4<f32>(a, 1.0), corner.z);
-    let cb = g.proj * pulled(vec4<f32>(b, 1.0), corner.z);
+    let ca = g.proj * lifted(vec4<f32>(a, 1.0), corner.z);
+    let cb = g.proj * lifted(vec4<f32>(b, 1.0), corner.z);
     out.clip = wide(ca, cb, corner.xy, corner.z);
     out.color = color;
     out.pattern = pattern;

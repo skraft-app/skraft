@@ -1541,3 +1541,152 @@ fn a_texture_is_laid_on_the_faces_at_its_real_size() {
     let c = pixel(&px, SIZE[0], 160, 100);
     assert!(c[0] > c[1] + 60 && c[0] > c[2] + 60, "{c:?} is not red");
 }
+
+/// Edges behind a face stay hidden however far the view: a panel 2 mm behind an 18 mm one, seen
+/// from so far that the front panel is a few pixels thick, in perspective and in parallel
+/// projection — nothing of the back panel's edges inside the front face (they were pulled
+/// through it by a share of their depth, docs/render/display.md#depth-of-lines).
+#[test]
+fn far_edges_behind_a_face_stay_hidden() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let front = Solid::new_box(DVec3::ZERO, DVec3::new(400.0, 18.0, 300.0)).unwrap().mesh().unwrap();
+    let back = Solid::new_box(DVec3::new(50.0, 20.0, -20.0), DVec3::new(300.0, 18.0, 340.0)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &front, face_paint: &[] }]);
+    r.set_mesh(&device, 2, 0, &[Part { id: 2, mesh: &back, face_paint: &[] }]);
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)]), Batch::new(2, vec![Placement::new(DMat4::IDENTITY)])];
+    let size = [800, 500];
+    let aspect = size[0] as f32 / size[1] as f32;
+    let target = DVec3::new(200.0, 20.0, 150.0);
+    let dir = DVec3::new(-0.5, -1.0, 0.7).normalize();
+    let perspective = Mat4::perspective_infinite_reverse_rh(35f32.to_radians(), aspect, 1.0);
+    for (name, dist, parallel) in [("far_hidden_perspective", 3500.0, false), ("far_hidden_parallel", 3500.0, true)] {
+        let view = DMat4::look_at_rh(target + dir * dist, target, DVec3::Z);
+        let proj = if parallel {
+            let h = dist as f32 * 0.6;
+            // Reversed depth: the far plane first.
+            Mat4::orthographic_rh(-h * aspect, h * aspect, -h, h, dist as f32 + 1000.0, dist as f32 - 1000.0)
+        } else {
+            perspective
+        };
+        let frame = Frame {
+            view,
+            proj,
+            background: [1.0, 1.0, 1.0],
+            style: Style::default(),
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            faint_lines: &[],
+            boxes: &[],
+            overlay: &[],
+            hidden_lines: &[],
+            fills: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 2.0,
+            model_per_point: 1.0,
+        };
+        let px = draw(&mut r, &device, &queue, size, &frame);
+        save(&px, size, name);
+        let to_px = |p: DVec3| {
+            let c = proj.as_dmat4() * view * p.extend(1.0);
+            let n = c.truncate() / c.w;
+            ((n.x + 1.0) * 0.5 * size[0] as f64, (1.0 - n.y) * 0.5 * size[1] as f64)
+        };
+        // The front face (y = 0), 10 % in from its sides: no ink there.
+        let mut inked = 0;
+        for i in 1..40 {
+            for j in 1..30 {
+                let p = DVec3::new(40.0 + 320.0 * i as f64 / 40.0, 0.0, 30.0 + 240.0 * j as f64 / 30.0);
+                let (x, y) = to_px(p);
+                if pixel(&px, size[0], x.round() as u32, y.round() as u32)[0] < 120 {
+                    inked += 1;
+                }
+            }
+        }
+        assert_eq!(inked, 0, "{name}: {inked} samples of the front face inked by the edges behind it");
+    }
+}
+
+/// A part embedded in another, just behind its face (a concealed hinge's cup 5 mm behind a
+/// door's face), seen from afar and at a glance, with the app's near plane (a thousandth of the
+/// distance): nothing of it shows — the picture is the door's alone
+/// (docs/render/display.md#depth-of-lines).
+#[test]
+fn embedded_edges_stay_hidden_far_away() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    // The door's face at z = 0 (facing +Z), the cup from z = -19 to -5.
+    let door = Solid::new_box(DVec3::new(0.0, 0.0, -19.0), DVec3::new(500.0, 600.0, 19.0)).unwrap().mesh().unwrap();
+    let cup = Solid::new_cylinder(DVec3::new(150.0, 300.0, -19.0), 17.0, 14.0).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &door, face_paint: &[] }]);
+    r.set_mesh(&device, 2, 0, &[Part { id: 2, mesh: &cup, face_paint: &[] }]);
+    let both = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)]), Batch::new(2, vec![Placement::new(DMat4::IDENTITY)])];
+    let size = [2400, 1400];
+    let aspect = size[0] as f32 / size[1] as f32;
+    let target = DVec3::new(150.0, 300.0, 0.0);
+    // Distance (mm), angle off the face's normal (degrees).
+    // The faces are pushed back by their slope over half an edge's width: what lies closer
+    // behind them than about twice that shows (farther, or more at a glance;
+    // docs/render/display.md#depth-of-lines). 7.6 m here: a pixel as large as the app's at 12.7 m
+    // (its view 2334 pixels high).
+    for (dist, angle) in [(7600.0, 25.0), (3000.0, 45.0), (1500.0, 60.0), (600.0, 75.0)] {
+        let a = f64::to_radians(angle);
+        let dir = DVec3::new(-a.sin(), -0.05, a.cos()).normalize();
+        let view = DMat4::look_at_rh(target + dir * dist, target, DVec3::Y);
+        let proj = Mat4::perspective_infinite_reverse_rh(35f32.to_radians(), aspect, (dist * 1e-3) as f32);
+        let mut shoot = |batches: &[Batch]| {
+            let frame = Frame {
+                view,
+                proj,
+                background: [1.0, 1.0, 1.0],
+                style: Style::default(),
+                batches,
+                highlights: &[],
+                lines: &[],
+                faint_lines: &[],
+                boxes: &[],
+                overlay: &[],
+                hidden_lines: &[],
+                fills: &[],
+                grid: None,
+                axes: false,
+                axes_frame: DMat4::IDENTITY,
+                pixels_per_point: 2.0,
+                model_per_point: 1.0,
+            };
+            draw(&mut r, &device, &queue, size, &frame)
+        };
+        let with = shoot(&both);
+        let without = shoot(&both[..1]);
+        save(&with, size, &format!("embedded_{dist}_{angle}"));
+        let differ = with.chunks(4).zip(without.chunks(4)).filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| x.abs_diff(*y) > 8)).count();
+        assert_eq!(differ, 0, "{dist} mm, {angle}°: {differ} pixels show the cup through the door");
+    }
+}
+
+/// Every segment of a B-rep edge is a mesh edge, with its two triangles (else it would be drawn
+/// where its own solid hides it): boxes, cylinders, a drilled box.
+#[test]
+fn brep_edges_lie_on_their_triangles() {
+    use skraft_kernel::BooleanOp;
+    let block = Solid::new_box(DVec3::ZERO, DVec3::new(40.0, 30.0, 18.0)).unwrap();
+    let hole = Solid::new_cylinder(DVec3::new(20.0, 15.0, 5.0), 6.0, 20.0).unwrap();
+    let solids =
+        [block.clone(), Solid::new_cylinder(DVec3::ZERO, 17.0, 14.0).unwrap(), block.boolean(&hole, BooleanOp::Difference).unwrap()];
+    for (k, solid) in solids.iter().enumerate() {
+        let s = mesh_segments(&solid.mesh().unwrap());
+        assert!(!s.edges.is_empty(), "solid {k}: no edges");
+        assert_eq!(s.unmatched, 0, "solid {k}: {} of {} edge segments without their triangles", s.unmatched, s.edges.len());
+        let both = s.edges.iter().filter(|e| e.n1[3] != 0.0 && e.n2[3] != 0.0).count();
+        assert_eq!(both, s.edges.len(), "solid {k}: edge segments with one triangle");
+    }
+}

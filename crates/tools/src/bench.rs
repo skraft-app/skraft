@@ -585,3 +585,154 @@ fn bench_step_loading() {
         e.document().root_assembly().occurrences().len() == 1
     );
 }
+
+/// The viewport's rendering on a real model (`BENCH_STEP`: a STEP file's path), off-screen on
+/// the GPU: its meshes and instances as the app gives them to the renderer, then frames drawn
+/// while the view orbits, each waited for (`BENCH_FRAMES`, default 60), at the size of a
+/// high-density laptop screen; and the meshes' GPU memory:
+/// `BENCH_STEP=… cargo test --workspace bench_render_step -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn bench_render_step() {
+    use glam::DMat4;
+    use skraft_model::kernel::{Job, JobId, JobResult, KernelService, Output, Task};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// Holds the jobs until the bench runs them.
+    #[derive(Clone, Default)]
+    struct Hold {
+        jobs: Rc<RefCell<Vec<(JobId, Job)>>>,
+        ready: Rc<RefCell<Vec<(JobId, JobResult)>>>,
+    }
+    impl KernelService for Hold {
+        fn submit(&mut self, id: JobId, job: Job) {
+            self.jobs.borrow_mut().push((id, job));
+        }
+        fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+            std::mem::take(&mut *self.ready.borrow_mut())
+        }
+    }
+
+    let Ok(path) = std::env::var("BENCH_STEP") else {
+        eprintln!("BENCH_STEP unset: nothing to do");
+        return;
+    };
+    let frames: usize = std::env::var("BENCH_FRAMES").ok().and_then(|s| s.parse().ok()).unwrap_or(60);
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let required_features = adapter.features() & skraft_render::OPTIONAL_FEATURES;
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_features, ..Default::default() })).unwrap();
+    eprintln!("adapter: {}", adapter.get_info().name);
+
+    // The model, meshed on every core.
+    let bytes = std::fs::read(&path).unwrap();
+    let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] };
+    let step = time("STEP read", || match skraft_kernel::run(&job).unwrap().pop() {
+        Some(Output::Step(s)) => *s,
+        _ => panic!("no STEP output"),
+    });
+    let (doc, _) = Document::from_step(&step, "model");
+    drop(step);
+    let kernel = Hold::default();
+    let mut e = Editor::new(doc, Box::new(kernel.clone()));
+    let size = [3024u32, 1964];
+    let ppp = 2.0f32;
+    e.set_viewport_size(DVec2::new(size[0] as f64, size[1] as f64) / ppp as f64);
+    let jobs: Vec<(JobId, Job)> = std::mem::take(&mut *kernel.jobs.borrow_mut());
+    let results = time("meshing on every core", || skraft_kernel::parallel_map(&jobs, |(id, job)| (*id, skraft_kernel::run(job))));
+    kernel.ready.borrow_mut().extend(results);
+    e.poll();
+
+    // Uploaded as the viewport does.
+    let mut r = skraft_render::Renderer::new(&device);
+    time("meshes uploaded", || {
+        for dm in e.scene().definition_meshes() {
+            let parts: Vec<skraft_render::Part<'_>> =
+                dm.parts.iter().map(|p| skraft_render::Part { id: p.solid.0, mesh: &p.mesh, face_paint: &[] }).collect();
+            r.set_mesh(&device, dm.definition.0, dm.revision, &parts);
+        }
+    });
+    let (meshes, bytes) = r.mesh_memory();
+    let (tris, segments): (usize, usize) = e
+        .scene()
+        .definition_meshes()
+        .flat_map(|d| &d.parts)
+        .map(|p| (p.mesh.indices.len() / 3, p.mesh.edges.iter().map(|e| e.len().saturating_sub(1)).sum::<usize>()))
+        .fold((0, 0), |(t, s), (a, b)| (t + a, s + b));
+    eprintln!(
+        "{meshes} meshes: {:.2} M triangles, {:.2} M edge segments, {:.1} MB on the GPU",
+        tris as f64 / 1e6,
+        segments as f64 / 1e6,
+        bytes as f64 / 1e6
+    );
+
+    // Frames while orbiting about the model, the whole of it in view.
+    let bounds = e.scene().bounds().unwrap();
+    e.camera.set_standard_view(StandardView::Iso, glam::DMat3::IDENTITY, Some(bounds), crate::camera::ViewArea::full(e.viewport_size()));
+    let view = e.view();
+    let batches: Vec<skraft_render::Batch> = view
+        .batches
+        .iter()
+        .map(|(def, places)| {
+            skraft_render::Batch::new(def.0, places.iter().map(|p| skraft_render::Placement::new(DMat4::from(p.transform))).collect())
+        })
+        .collect();
+    let instances: usize = batches.iter().map(|b| b.placements.len()).sum();
+    eprintln!("{} batches, {instances} placements", batches.len());
+    let pivot = (bounds.0 + bounds.1) * 0.5;
+    let mut times = Vec::with_capacity(frames);
+    let mut stats = None;
+    for k in 0..frames + 3 {
+        e.camera.orbit(DVec2::new(6.0, 0.0), pivot);
+        let aspect = size[0] as f64 / size[1] as f64;
+        let frame = skraft_render::Frame {
+            view: e.camera.view(),
+            proj: e.camera.proj(aspect, Some(bounds)),
+            background: [1.0, 1.0, 1.0],
+            // BENCH_NO_SILHOUETTES: without the outlines of curved surfaces.
+            style: skraft_render::Style { silhouettes: std::env::var("BENCH_NO_SILHOUETTES").is_err(), ..Default::default() },
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            faint_lines: &[],
+            boxes: &[],
+            overlay: &[],
+            hidden_lines: &[],
+            fills: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: ppp,
+            model_per_point: 1.0,
+        };
+        let t = Instant::now();
+        let mut enc = device.create_command_encoder(&Default::default());
+        r.render(&device, &queue, &mut enc, size, &frame);
+        queue.submit([enc.finish()]);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        // The first frames make the target and the pipelines.
+        if k >= 3 {
+            times.push(t.elapsed().as_secs_f64() * 1e3);
+        }
+        stats = Some(r.stats());
+    }
+    times.sort_by(f64::total_cmp);
+    let mean = times.iter().sum::<f64>() / times.len() as f64;
+    eprintln!(
+        "{frames} frames at {}×{}: median {:.2} ms, mean {:.2} ms, fastest {:.2} ms, slowest {:.2} ms",
+        size[0],
+        size[1],
+        times[times.len() / 2],
+        mean,
+        times[0],
+        times[times.len() - 1]
+    );
+    if let Some(s) = stats {
+        eprintln!("per frame: {} draw calls, {:.2} M triangles, {} instances", s.draw_calls, s.triangles as f64 / 1e6, s.instances);
+    }
+}

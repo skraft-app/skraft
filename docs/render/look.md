@@ -192,9 +192,10 @@ A material may have a **texture**: an image laid on the faces at its real size.
 
 **Geometric, in the shader**: when a mesh is uploaded, `render` collects every mesh edge shared
 by two triangles (vertices welded by position) that is not a B-rep edge and whose normals
-differ, with both normals. The lines' vertex shader draws it only where one triangle faces the
+differ, with both normals. The edges' vertex shader draws it only where one triangle faces the
 eye and the other does not: the outline of a curved surface (a cylinder's sides). Same wide
-lines as edges. Document setting `display.silhouettes` (on by default).
+lines as edges ([Depth of lines](display.md#depth-of-lines)). Document setting
+`display.silhouettes` (on by default).
 
 ## Section view
 
@@ -218,7 +219,9 @@ in its part's colour (a colour per part), at its **true depth** with the faces' 
 2. where the bit is set, the **back faces are drawn again** (`fs_cap`, front faces discarded),
    at a depth brought just behind the plane — 1/64 of the way from the plane to the face, so
    their order is kept: the nearest back face, the cut part's, wins, and the cap gets its colour
-   and hatch.
+   and hatch. That depth is written by the shader, then pushed back as the faces are, by its slope
+   and a few depth steps ([Depth of lines](display.md#depth-of-lines)), so the cut lines draw
+   whole over it.
 
 Any front face behind the plane loses, even one lying on that back face: a part in contact (a
 part standing on another), a pin in its hole — whose two meshes cross by their chords, so
@@ -262,7 +265,7 @@ slant, where the level changes.
 ### Cut lines
 
 The outline of each cut, bold (`BOLD_WIDTH`) in the edges' ink, depth-tested as the tools'
-lines (pulled towards the eye). Cut on the CPU from the **display meshes**, so they meet the
+lines (a bold line lifted towards the eye, [Depth of lines](display.md#depth-of-lines)). Cut on the CPU from the **display meshes**, so they meet the
 caps exactly (`tools::section_cut`): each placement drawn opaque (not a ghost) whose part's
 bounds straddle the plane has its triangles sliced by the plane taken into its definition's
 axes (a vertex on the plane counts with the side kept, so an edge on the plane gives one
