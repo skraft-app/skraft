@@ -352,6 +352,8 @@ option_bar:
   remove_tip: "The shape drawn is a machining: it removes material from the part"
   add: "Add"
   add_tip: "The shape drawn is a blank: it adds material to the part"
+  intersect: "Intersect"
+  intersect_tip: "The shape drawn is an intersection: the part keeps only what lies inside it"
   part_scope_tip: "What the changes to the open part affect (back to all instances each time a part opens)"
 
 prefs:
@@ -507,6 +509,7 @@ panel:
     role: "Role"
     role_positive: "Blank"
     role_negative: "Machining"
+    role_intersect: "Intersection"
     state: "State"
     failed: "could not be computed, needs fixing"
     copies: "Copies"
@@ -608,7 +611,8 @@ panel:
     profile: "Profile"
     profile_tip: "Click to edit the profile"
     sign_positive: "Blank: adds material to the part. Click to make it a machining"
-    sign_negative: "Machining: removes material from the part. Click to make it a blank"
+    sign_negative: "Machining: removes material from the part. Click to make it an intersection"
+    sign_intersect: "Intersection: the part keeps only what lies inside it. Click to make it a blank"
 
 toast:
   saved: "%{file} saved"
@@ -1122,8 +1126,11 @@ operation:
   add_part: "$t(common.part)"
   add_machining: "Machining"
   add_body: "Blank"
+  # An intersection (an intersect body) added: it limits its part (decision 0045).
+  add_intersect: "Intersection"
   set_sign_positive: "Change to Blank"
   set_sign_negative: "Change to Machining"
+  set_sign_intersect: "Change to Intersection"
   group: "Group"
   ungroup: "Ungroup"
   add_guide: "Guide"
@@ -1274,6 +1281,8 @@ error:
     no_such_face: "no such face"
     no_bodies: "no bodies given"
     ungroup_negative: "a compound machining that spares material cannot be ungrouped"
+    # Grouping several intersections, or ungrouping an intersection group of several bodies: the shape would change.
+    intersects_regrouped: "intersections are not grouped or ungrouped together: each one limits the part, the shape would change"
     not_at_path: "only an operation on instances applies at depth"
     turned_across: "a turned body only stretches along its axis, without cutting an arc of its profile"
     bad_guide: "guide without a direction or a radius"

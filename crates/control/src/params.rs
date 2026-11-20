@@ -281,6 +281,8 @@ pub struct SignParams {
 pub enum SignName {
     Positive,
     Negative,
+    /// An intersection (∩, docs/decisions/0045-intersection-a-third-sign.md).
+    Intersect,
 }
 
 /// `tool.input`.

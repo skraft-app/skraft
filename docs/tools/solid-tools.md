@@ -53,7 +53,9 @@ undo step (`Document::booleans`, `crates/model/src/boolean.rs`):
 - **The tools reaching a target**: those whose bounds meet the target's, in its axes (a box test
   on the records, conservative, no kernel — `extent_along`, `placed_extent`). A difference cuts
   each target with the tools reaching it; an intersection keeps what each target shares with the
-  **union** of those tools (OCL's `(∪A) ∩ (∪B)`, fragment by fragment); a union joins every tool
+  **union** of those tools (OCL's `(∪A) ∩ (∪B)`, fragment by fragment), the tools kept in the
+  target as an intersection body or group, editable
+  ([A third sign](../model/bodies.md#a-third-sign-the-intersection)); a union joins every tool
   to its target. A target reached by none is left alone; none reached at all, the operation is
   refused (« aucun outil n'atteint une cible »).
 - **Tools leave the model** once used, unless kept; a tool that reaches nothing stays.

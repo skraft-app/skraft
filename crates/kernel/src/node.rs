@@ -133,7 +133,12 @@ impl Read {
 fn group(k: &mut Kernel, children: &[TreeBody], path: &[u64], cx: &mut Session) -> Result<Option<Brep>> {
     let call = "node";
     let mut shape: Option<Brep> = None;
-    let order = children.iter().filter(|c| !c.negative).chain(children.iter().filter(|c| c.negative));
+    // The positives, then the negatives, then the intersections (docs/decisions/0045-intersection-a-third-sign.md).
+    let order = children
+        .iter()
+        .filter(|c| !c.negative && !c.intersect)
+        .chain(children.iter().filter(|c| c.negative))
+        .chain(children.iter().filter(|c| c.intersect));
     for c in order {
         let here: Vec<u64> = path.iter().copied().chain([c.id]).collect();
         if cx.skip.contains(&here) {
@@ -167,19 +172,25 @@ fn group(k: &mut Kernel, children: &[TreeBody], path: &[u64], cx: &mut Session) 
             solidcore::topology::brep::mirror::transform_matrix(k, &mut body, &row_major(&c.placement), false)
                 .map_err(|e| kernel_err(call, e))?;
         }
-        shape = Some(match (shape.take(), c.negative) {
-            (None, false) => body,
-            (Some(s), false) => b::boolean_union(k, s, body).map_err(|e| kernel_err(call, e))?,
-            (Some(s), true) => {
-                let cut = b::boolean_difference(k, s, body).map_err(|e| kernel_err(call, e))?;
+        let adds = !c.negative && !c.intersect;
+        shape = Some(match (shape.take(), adds) {
+            (None, true) => body,
+            (Some(s), true) => b::boolean_union(k, s, body).map_err(|e| kernel_err(call, e))?,
+            (Some(s), false) => {
+                let cut = match c.intersect {
+                    true => b::boolean_intersection(k, s, body),
+                    false => b::boolean_difference(k, s, body),
+                }
+                .map_err(|e| kernel_err(call, e))?;
                 if num_faces(&cut) == 0 {
                     cx.at = None;
                     return Ok(None);
                 }
                 cut
             }
-            // A machining with nothing to cut yet: its positives all failed or are empty.
-            (None, true) => continue,
+            // A machining or an intersection with nothing to act on yet: its positives all failed or
+            // are empty.
+            (None, false) => continue,
         });
     }
     cx.at = None;

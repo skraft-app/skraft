@@ -521,6 +521,7 @@ impl Operation {
             Operation::ShowAll => t!("operation.show_all"),
             Operation::AddBody { sign: Sign::Negative, .. } => t!("operation.add_machining"),
             Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
+            Operation::AddBody { sign: Sign::Intersect, .. } => t!("operation.add_intersect"),
             Operation::DeleteBodies { .. } => t!("operation.delete"),
             Operation::GroupBodies { .. } => t!("operation.group"),
             Operation::MoveBodies { copy: true, .. } => t!("operation.copy_bodies_to"),
@@ -532,6 +533,7 @@ impl Operation {
             Operation::UngroupBodies { .. } => t!("operation.ungroup"),
             Operation::SetSign { sign: Sign::Positive, .. } => t!("operation.set_sign_positive"),
             Operation::SetSign { sign: Sign::Negative, .. } => t!("operation.set_sign_negative"),
+            Operation::SetSign { sign: Sign::Intersect, .. } => t!("operation.set_sign_intersect"),
             Operation::TransformBodies { .. } => t!("operation.transform"),
             Operation::DuplicateBodies { .. } => t!("operation.duplicate"),
             Operation::ArrayBodies { .. } => t!("operation.array"),
@@ -735,10 +737,8 @@ impl Document {
         let (children, node, picks, group) = match op {
             Operation::Blend { bodies, blend, size, picks, .. } => {
                 let mut children: Vec<Body> = p.bodies.iter().filter(|b| bodies.contains(&b.id)).cloned().collect();
-                // As the operation makes it: negatives alone, a machining rounded.
-                if children.iter().all(|b| b.sign == Sign::Negative) {
-                    children.iter_mut().for_each(|c| c.sign = Sign::Positive);
-                }
+                // As the operation makes it: negatives alone, a machining rounded (intersections alone, an intersection).
+                group_sign(&mut children);
                 (children, NodeOp::blend_of(*blend, *size, Vec::new()), picks, None)
             }
             // A node changed: its children as they are, its edges kept unless picked again —
@@ -1015,7 +1015,8 @@ impl Document {
                 }
                 let (fragment, renamed) = self.adopt_fragment_props(fragment);
                 let (defs, mut bodies) = self.copies_of_bodies(&fragment.defs, &fragment.bodies, &DAffine3::IDENTITY);
-                if bodies.iter().all(|b| b.sign == Sign::Negative) {
+                // No positive among them (machinings, intersections): all positive.
+                if bodies.iter().all(|b| b.sign != Sign::Positive) {
                     bodies.iter_mut().for_each(|b| b.sign = Sign::Positive);
                 }
                 // A single body named: the new part takes its name (docs/model/bodies.md#body-names).
@@ -1570,11 +1571,9 @@ impl Document {
                 let p = self.part(part)?;
                 let defs = p.defs.clone();
                 let mut children: Vec<Body> = p.bodies.iter().filter(|b| ids.contains(&b.id)).cloned().collect();
-                // Negatives alone: a machining rounded, its children the shape it takes away.
-                let negative = children.iter().all(|b| b.sign == Sign::Negative);
-                if negative {
-                    children.iter_mut().for_each(|c| c.sign = Sign::Positive);
-                }
+                // Negatives alone: a machining rounded, its children the shape it takes away
+                // (intersections alone, an intersection rounded).
+                let sign = group_sign(&mut children);
                 let op = NodeOp::blend_of(*blend, *size, Vec::new());
                 let group = crate::BodyGroup { op: Some(op), ..crate::BodyGroup::plain(children, BTreeSet::new()) };
                 let picks: Vec<[f64; 3]> = picks.iter().map(|p| p.to_array()).collect();
@@ -1584,7 +1583,6 @@ impl Document {
                 }
                 note_refused(&mut self.part_mut(part)?.defs, inner);
                 let def = BodyDef { group: Some(group), ..BodyDef::new(self.fresh_id(), solid) };
-                let sign = if negative { Sign::Negative } else { Sign::Positive };
                 let body = Body::new(self.fresh_id(), def.id, sign, DAffine3::IDENTITY);
                 let id = body.id;
                 let p = self.part_mut(part)?;
@@ -1933,15 +1931,16 @@ impl Document {
             };
             return Ok((solid(c)?, BTreeSet::new(), map));
         }
-        let (pos, neg): (Vec<&Body>, Vec<&Body>) = children.iter().partition(|b| b.sign == Sign::Positive);
+        let of = |s: Sign| children.iter().filter(move |b| b.sign == s).collect::<Vec<&Body>>();
+        let (pos, neg, lim) = (of(Sign::Positive), of(Sign::Negative), of(Sign::Intersect));
         let placed = |list: &[&Body]| list.iter().map(|b| Ok((solid(b)?, b.placement))).collect::<Result<Vec<_>>>();
         let named_list = |list: &[&Body]| list.iter().map(|b| Ok(names(b)?.map(|n| (b.id.0, n)))).collect::<Result<Option<Vec<_>>>>();
-        let names = match (named_list(&pos)?, named_list(&neg)?) {
-            (Some(positives), Some(negatives)) => Some(RecipeNames { positives, negatives }),
+        let names = match (named_list(&pos)?, named_list(&neg)?, named_list(&lim)?) {
+            (Some(positives), Some(negatives), Some(intersects)) => Some(RecipeNames { positives, negatives, intersects }),
             _ => None,
         };
-        let (shape, failed, faces) = solver.named_recipe(&placed(&pos)?, &placed(&neg)?, names)?;
-        let named: Vec<Id> = pos.iter().chain(&neg).map(|b| b.id).collect();
+        let (shape, failed, faces) = solver.named_recipe(&placed(&pos)?, &placed(&neg)?, &placed(&lim)?, names)?;
+        let named: Vec<Id> = pos.iter().chain(&neg).chain(&lim).map(|b| b.id).collect();
         Ok((shape, failed.iter().filter_map(|k| named.get(*k).copied()).collect(), faces))
     }
 
@@ -2001,16 +2000,18 @@ impl Document {
     fn group_bodies(&mut self, part: Id, ids: &[Id], solver: &mut dyn Solver) -> Result<Id> {
         let p = self.part(part)?;
         let mut children: Vec<Body> = p.bodies.iter().filter(|b| ids.contains(&b.id)).cloned().collect();
-        let negative = children.iter().all(|b| b.sign == Sign::Negative);
-        // Negatives alone: a compound machining, its children the shape it takes away.
-        if negative {
-            children.iter_mut().for_each(|c| c.sign = Sign::Positive);
+        // Several intersections alone: their union would limit, not each (docs/decisions/0045-intersection-a-third-sign.md).
+        if children.len() > 1 && children.iter().all(|b| b.sign == Sign::Intersect) {
+            return Err(Error::Invalid(Refusal::IntersectsRegrouped));
         }
-        let mixed = children.iter().any(|b| b.sign == Sign::Negative);
+        // Negatives alone: a compound machining, its children the shape it takes away; an intersection
+        // alone, the shape it limits by.
+        let sign = group_sign(&mut children);
+        // Negatives or intersections beside positives: they no longer act on the positives outside it.
+        let mixed = children.iter().any(|b| b.sign != Sign::Positive);
         let (solid, failed, faces) = Self::group_result(&p.defs, &children, solver)?;
         let mut def = BodyDef::group(self.fresh_id(), solid, children, failed);
         def.group = def.group.take().map(|g| g.with_faces(&def.solid, faces));
-        let sign = if negative { Sign::Negative } else { Sign::Positive };
         let body = Body::new(self.fresh_id(), def.id, sign, DAffine3::IDENTITY);
         let id = body.id;
         let p = self.part_mut(part)?;
@@ -2044,6 +2045,14 @@ impl Document {
         {
             return Err(Error::Invalid(Refusal::UngroupNegative));
         }
+        // An intersection of several bodies: each would limit, not their union.
+        if p.bodies
+            .iter()
+            .filter(|b| is_group(b))
+            .any(|b| b.sign == Sign::Intersect && !matches!(p.def_of(b).children(), [c] if c.sign == Sign::Positive))
+        {
+            return Err(Error::Invalid(Refusal::IntersectsRegrouped));
+        }
         let mut bodies = Vec::with_capacity(p.bodies.len());
         let mut created = Vec::new();
         let mut relocated = Vec::new();
@@ -2056,7 +2065,8 @@ impl Document {
             for c in p.def_of(b).children() {
                 let id = if shared { self.fresh_id() } else { c.id };
                 // A negative group holds positives only (above): each one a machining.
-                let sign = if b.sign == Sign::Negative { Sign::Negative } else { c.sign };
+                // A negative group's or an intersection's children: each what the group was.
+                let sign = if b.sign == Sign::Positive { c.sign } else { b.sign };
                 bodies.push(Body {
                     id,
                     name: c.name.clone(),
@@ -2114,28 +2124,34 @@ impl Document {
         let is_added = |b: &Body| added.is_some_and(|ids| ids.contains(&b.id));
         let new: Vec<&Body> = p.bodies.iter().filter(|b| is_added(b)).collect();
         let current = p.shape().clone();
-        // The bodies each index of the task's failures names: its positives, then its negatives.
-        let cut_current = !new.is_empty() && new.iter().all(|b| b.sign == Sign::Negative);
-        let (base, positives, negatives): (Option<Arc<Solid>>, Vec<&Body>, Vec<&Body>) = if cut_current {
-            (None, Vec::new(), new)
-        } else if !new.is_empty() && new.iter().all(|b| b.sign == Sign::Positive) {
-            (Some(current.clone()), new, p.negatives().collect())
+        // The bodies each index of the task's failures names: its positives, its negatives, then
+        // its intersections (docs/decisions/0045-intersection-a-third-sign.md).
+        let all = |s: Sign| !new.is_empty() && new.iter().all(|b| b.sign == s);
+        let on_current = all(Sign::Negative) || all(Sign::Intersect);
+        type Lists<'a> = (Option<Arc<Solid>>, Vec<&'a Body>, Vec<&'a Body>, Vec<&'a Body>);
+        let (base, positives, negatives, intersects): Lists = if all(Sign::Negative) {
+            (None, Vec::new(), new, Vec::new())
+        } else if all(Sign::Intersect) {
+            (None, Vec::new(), Vec::new(), new)
+        } else if all(Sign::Positive) {
+            (Some(current.clone()), new, p.negatives().collect(), p.intersects().collect())
         } else {
-            (None, p.positives().collect(), p.negatives().collect())
+            (None, p.positives().collect(), p.negatives().collect(), p.intersects().collect())
         };
-        let incremental = base.is_some() || cut_current;
-        let mut named: Vec<Id> = positives.iter().chain(&negatives).map(|b| b.id).collect();
+        let incremental = base.is_some() || on_current;
+        let mut named: Vec<Id> = positives.iter().chain(&negatives).chain(&intersects).map(|b| b.id).collect();
         let mut pos: Vec<(Arc<Solid>, DAffine3)> = positives.iter().map(|b| placed(b)).collect();
-        if cut_current {
-            // Negatives added: they cut the part as it is (reported failed when it is empty: no
-            // body of the part's).
+        if on_current {
+            // Negatives or intersections added: they act on the part as it is (reported failed when it
+            // is empty: no body of the part's).
             pos.push((current, DAffine3::IDENTITY));
             named.insert(0, Id(u64::MAX));
         }
         let neg: Vec<(Arc<Solid>, DAffine3)> = negatives.iter().map(|b| placed(b)).collect();
+        let lim: Vec<(Arc<Solid>, DAffine3)> = intersects.iter().map(|b| placed(b)).collect();
         // Added positives are cut by every negative: only their failures are new.
         let fresh: Vec<Id> = if base.is_some() { positives.iter().map(|b| b.id).collect() } else { named.clone() };
-        let (shape, failed) = solver.recipe(base.as_ref(), &pos, &neg)?;
+        let (shape, failed) = solver.recipe(base.as_ref(), &pos, &neg, &lim)?;
         let p = self.part_mut(part)?;
         if !incremental {
             p.failed.clear();
@@ -2416,6 +2432,24 @@ fn relocate_tag(t: &mut skraft_kernel::names::FaceTag, prefix: &[u64], moves: &[
     }
 }
 
+/// The sign of a group (or node) made of `children`, them made what it holds: negatives alone a
+/// compound machining, intersections alone a compound intersection — their children then positive, the
+/// shape it takes away or limits by —; else positive, as they are.
+fn group_sign(children: &mut [Body]) -> Sign {
+    let alone = |s: Sign| children.iter().all(|b| b.sign == s);
+    let sign = if alone(Sign::Negative) {
+        Sign::Negative
+    } else if alone(Sign::Intersect) {
+        Sign::Intersect
+    } else {
+        Sign::Positive
+    };
+    if sign != Sign::Positive {
+        children.iter_mut().for_each(|c| c.sign = Sign::Positive);
+    }
+    sign
+}
+
 fn tree(defs: &[BodyDef], children: &[Body], leaves: &mut Vec<Arc<Solid>>) -> Result<Vec<TreeBody>> {
     children
         .iter()
@@ -2433,7 +2467,8 @@ fn tree(defs: &[BodyDef], children: &[Body], leaves: &mut Vec<Arc<Solid>>) -> Re
                     TreeNode::Leaf { solid: (leaves.len() - 1) as u32, recipe: d.profile.as_ref().map(|p| p.primitive()) }
                 }
             };
-            Ok(TreeBody { id: b.id.0, negative: b.sign == Sign::Negative, placement: b.placement, node })
+            let (negative, intersect) = (b.sign == Sign::Negative, b.sign == Sign::Intersect);
+            Ok(TreeBody { id: b.id.0, negative, intersect, placement: b.placement, node })
         })
         .collect()
 }
@@ -2459,6 +2494,7 @@ fn node_input(group: &crate::BodyGroup, tree: &[TreeBody], leaves: &[Arc<Solid>]
     let base = |solid: u32, c: &crate::RawCache| TreeBody {
         id: 0,
         negative: false,
+        intersect: false,
         placement: DAffine3::IDENTITY,
         node: TreeNode::Base { solid, faces: c.faces.clone() },
     };
@@ -2495,16 +2531,15 @@ pub(crate) fn note_refused(defs: &mut [BodyDef], inner: InnerRefusals) {
 /// The kernel, as an operation sees it.
 pub(crate) trait Solver {
     fn primitive(&mut self, primitive: &Primitive) -> Result<Arc<Solid>>;
-    /// `target op tool`, the tool first moved by `tool_transform`.
-    fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>>;
-    /// The union of the placed `positives` minus each placed negative, joined to `base` when
-    /// given ([`Task::Recipe`]); the solid, and the bodies (by index, positives then
-    /// negatives) that failed.
+    /// The union of the placed `positives` minus each placed negative, intersected with each
+    /// placed intersection, joined to `base` when given ([`Task::Recipe`]); the solid, and the bodies
+    /// (by index, positives, negatives then intersections) that failed.
     fn recipe(
         &mut self,
         base: Option<&Arc<Solid>>,
         positives: &[(Arc<Solid>, DAffine3)],
         negatives: &[(Arc<Solid>, DAffine3)],
+        intersects: &[(Arc<Solid>, DAffine3)],
     ) -> Result<(Arc<Solid>, Vec<usize>)>;
     /// A group's recipe, its inputs named ([`Task::Recipe`]'s `names`): the solid, the bodies
     /// that failed, its face map when the kernel gives one.
@@ -2512,6 +2547,7 @@ pub(crate) trait Solver {
         &mut self,
         positives: &[(Arc<Solid>, DAffine3)],
         negatives: &[(Arc<Solid>, DAffine3)],
+        intersects: &[(Arc<Solid>, DAffine3)],
         names: Option<RecipeNames>,
     ) -> Result<(Arc<Solid>, Vec<usize>, Option<FaceMap>)>;
     /// `solid` stretched.
@@ -2555,32 +2591,31 @@ impl Solver for Recorder {
         self.task(Task::Primitive { primitive: primitive.clone(), placement: DAffine3::IDENTITY })
     }
 
-    fn boolean(&mut self, target: &Arc<Solid>, tool: &Arc<Solid>, tool_transform: Option<DAffine3>, op: BooleanOp) -> Result<Arc<Solid>> {
-        let (target, tool) = (self.input(target), self.input(tool));
-        self.task(Task::Boolean { target, tool, tool_transform, op })
-    }
-
     fn recipe(
         &mut self,
         base: Option<&Arc<Solid>>,
         positives: &[(Arc<Solid>, DAffine3)],
         negatives: &[(Arc<Solid>, DAffine3)],
+        intersects: &[(Arc<Solid>, DAffine3)],
     ) -> Result<(Arc<Solid>, Vec<usize>)> {
         let base = base.map(|b| self.input(b));
         let positives = positives.iter().map(|(s, p)| (self.input(s), *p)).collect();
         let negatives = negatives.iter().map(|(s, p)| (self.input(s), *p)).collect();
-        Ok((self.task(Task::Recipe { base, positives, negatives, names: None })?, Vec::new()))
+        let intersects = intersects.iter().map(|(s, p)| (self.input(s), *p)).collect();
+        Ok((self.task(Task::Recipe { base, positives, negatives, intersects, names: None })?, Vec::new()))
     }
 
     fn named_recipe(
         &mut self,
         positives: &[(Arc<Solid>, DAffine3)],
         negatives: &[(Arc<Solid>, DAffine3)],
+        intersects: &[(Arc<Solid>, DAffine3)],
         names: Option<RecipeNames>,
     ) -> Result<(Arc<Solid>, Vec<usize>, Option<FaceMap>)> {
         let positives = positives.iter().map(|(s, p)| (self.input(s), *p)).collect();
         let negatives = negatives.iter().map(|(s, p)| (self.input(s), *p)).collect();
-        Ok((self.task(Task::Recipe { base: None, positives, negatives, names })?, Vec::new(), None))
+        let intersects = intersects.iter().map(|(s, p)| (self.input(s), *p)).collect();
+        Ok((self.task(Task::Recipe { base: None, positives, negatives, intersects, names })?, Vec::new(), None))
     }
 
     /// Refused here already when the record cannot be stretched: the operation is refused when
@@ -2632,13 +2667,10 @@ impl Solver for Replayer {
         self.next()
     }
 
-    fn boolean(&mut self, _: &Arc<Solid>, _: &Arc<Solid>, _: Option<DAffine3>, _: BooleanOp) -> Result<Arc<Solid>> {
-        self.next()
-    }
-
     fn recipe(
         &mut self,
         _: Option<&Arc<Solid>>,
+        _: &[(Arc<Solid>, DAffine3)],
         _: &[(Arc<Solid>, DAffine3)],
         _: &[(Arc<Solid>, DAffine3)],
     ) -> Result<(Arc<Solid>, Vec<usize>)> {
@@ -2654,6 +2686,7 @@ impl Solver for Replayer {
 
     fn named_recipe(
         &mut self,
+        _: &[(Arc<Solid>, DAffine3)],
         _: &[(Arc<Solid>, DAffine3)],
         _: &[(Arc<Solid>, DAffine3)],
         _: Option<RecipeNames>,

@@ -324,6 +324,9 @@ pub struct Theme {
     pub machining: Rgba,
     pub machining_opacity: f32,
     pub machining_failed: Rgba,
+    /// Its intersections (∩ bodies, docs/decisions/0045-intersection-a-third-sign.md): ghosts as its
+    /// machinings, in a hue of their own.
+    pub intersect: Rgba,
     /// The selection: its edges only, its faces keeping their colour (face tint alpha 0).
     pub selected: MarkColors,
     pub hover: MarkColors,
@@ -396,6 +399,7 @@ impl Theme {
             machining: srgb(215, 75, 60),
             machining_opacity: 0.3,
             machining_failed: srgb(150, 20, 110),
+            intersect: srgb(30, 160, 150),
             selected: MarkColors { face: [0.05, 0.2, 1.0, 0.0], edge: [0.005, 0.035, 1.0, 1.0] },
             hover: MarkColors { face: [0.07, 0.25, 1.0, 0.2], edge: [0.01, 0.1, 1.0, 0.75] },
             picked: MarkColors { face: [1.0, 0.3, 0.0, 0.55], edge: [0.79, 0.073, 0.0, 1.0] },

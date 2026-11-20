@@ -330,10 +330,10 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
                 };
                 solid(r)
             }
-            Task::Recipe { base, positives, negatives, names } => {
+            Task::Recipe { base, positives, negatives, intersects, names } => {
                 let placed = |list: &[(u32, DAffine3)]| list.iter().map(|(i, t)| Ok((input(*i)?, *t))).collect::<Result<Vec<_>>>();
                 let base = base.map(input).transpose()?;
-                let (shape, failed, faces) = recipe(base, &placed(positives)?, &placed(negatives)?, names.as_ref())?;
+                let (shape, failed, faces) = recipe(base, &placed(positives)?, &placed(negatives)?, &placed(intersects)?, names.as_ref())?;
                 let display = shape.display().map_err(|e| e.to_string());
                 Output::Recipe { solid: shape, display, failed, faces }
             }
@@ -384,9 +384,9 @@ fn placed_in(k: &mut Kernel, solid: &Solid, t: &DAffine3, call: &str) -> Result<
     Ok(b)
 }
 
-/// [`Task::Recipe`]: the union of the placed `positives` minus each placed negative, joined to
-/// `base` when given; the solid, and the bodies that failed (by index, positives then
-/// negatives), skipped.
+/// [`Task::Recipe`]: the union of the placed `positives` minus each placed negative,
+/// intersected with each placed intersection, joined to `base` when given; the solid, and the bodies
+/// that failed (by index, positives, negatives then intersections), skipped.
 ///
 /// Every step runs in **one kernel session**, the shape read back to a record only at the end:
 /// a shape between two steps may be one the record cannot be read back from — two blanks
@@ -400,15 +400,17 @@ fn recipe(
     base: Option<&Solid>,
     positives: &[(&Solid, DAffine3)],
     negatives: &[(&Solid, DAffine3)],
+    intersects: &[(&Solid, DAffine3)],
     names: Option<&crate::names::RecipeNames>,
 ) -> Result<(Solid, Vec<u32>, Option<crate::names::FaceMap>)> {
     let named: Option<Vec<(u64, &crate::names::InputNames)>> = names
-        .filter(|n| n.positives.len() == positives.len() && n.negatives.len() == negatives.len())
-        .map(|n| n.positives.iter().chain(&n.negatives).map(|(id, f)| (*id, f)).collect());
+        .filter(|n| n.positives.len() == positives.len() && n.negatives.len() == negatives.len() && n.intersects.len() == intersects.len())
+        .map(|n| n.positives.iter().chain(&n.negatives).chain(&n.intersects).map(|(id, f)| (*id, f)).collect());
     let steps: Vec<(&Solid, &DAffine3, BooleanOp)> = positives
         .iter()
         .map(|(s, t)| (*s, t, BooleanOp::Union))
         .chain(negatives.iter().map(|(s, t)| (*s, t, BooleanOp::Difference)))
+        .chain(intersects.iter().map(|(s, t)| (*s, t, BooleanOp::Intersection)))
         .collect();
     let no_positive = || Error::Convert { call: "recipe".into(), message: "no positive body".into() };
     // Empty bodies (a group with nothing left, docs/model/bodies.md#empty-parts) are reported as failed
@@ -440,7 +442,7 @@ fn recipe(
                 // The shape computed but not read back to a record: step by step, as before,
                 // tells which step brings it.
                 None if !matches!(e, Error::Convert { .. } | Error::Panic { .. }) => return Err(e),
-                None => return recipe_stepwise(base, positives, negatives, &empty).map(|(s, f)| (s, f, None)),
+                None => return recipe_stepwise(base, positives, negatives, intersects, &empty).map(|(s, f)| (s, f, None)),
             },
         }
     }
@@ -472,10 +474,14 @@ fn recipe_session(
         shape = Some(match (shape, op) {
             (None, BooleanOp::Union) => placed,
             (Some(s), BooleanOp::Union) => b::boolean_union(&mut k, s, placed).map_err(|e| kernel_err(call, e))?,
-            (Some(s), _) => {
-                let cut = b::boolean_difference(&mut k, s, placed).map_err(|e| kernel_err(call, e))?;
-                // A tool swallowing the whole shape: nothing left to cut, the base alone (docs/model/bodies.md
-                // « Empty parts »).
+            (Some(s), op) => {
+                let cut = match op {
+                    BooleanOp::Intersection => b::boolean_intersection(&mut k, s, placed),
+                    _ => b::boolean_difference(&mut k, s, placed),
+                }
+                .map_err(|e| kernel_err(call, e))?;
+                // A tool swallowing the whole shape (an intersection missing it): nothing left, the base
+                // alone (docs/model/bodies.md « Empty parts »).
                 if num_faces(&cut) == 0 {
                     at.set(None);
                     return Ok((base.cloned().unwrap_or_else(Solid::empty), None));
@@ -519,6 +525,7 @@ fn recipe_stepwise(
     base: Option<&Solid>,
     positives: &[(&Solid, DAffine3)],
     negatives: &[(&Solid, DAffine3)],
+    intersects: &[(&Solid, DAffine3)],
     empty: &[u32],
 ) -> Result<(Solid, Vec<u32>)> {
     let placed = |s: &Solid, t: &DAffine3| if t.abs_diff_eq(DAffine3::IDENTITY, 1e-12) { Ok(s.clone()) } else { s.transformed(t) };
@@ -540,12 +547,13 @@ fn recipe_stepwise(
     let Some(mut shape) = shape else {
         return Err(Error::Convert { call: "recipe".into(), message: "no positive body".into() });
     };
-    for (k, (s, t)) in negatives.iter().enumerate() {
+    let tools = negatives.iter().map(|x| (x, BooleanOp::Difference)).chain(intersects.iter().map(|x| (x, BooleanOp::Intersection)));
+    for (k, ((s, t), op)) in tools.enumerate() {
         let step = (positives.len() + k) as u32;
         if empty.contains(&step) {
             continue;
         }
-        match placed(s, t).and_then(|n| shape.boolean(&n, BooleanOp::Difference)) {
+        match placed(s, t).and_then(|n| shape.boolean(&n, op)) {
             Ok(s) => shape = s,
             // A tool swallowing the whole shape: the base alone, or nothing (docs/model/bodies.md).
             Err(Error::Empty(_)) => {
@@ -1200,7 +1208,8 @@ mod tests {
             b(DVec3::new(10.0, 0.0, 5.0), DVec3::new(10.0, 10.0, 5.0)),
         ];
         let all = |n: u32| (0..n).map(|i| (i, DAffine3::IDENTITY)).collect::<Vec<_>>();
-        let job = Job { inputs, tasks: vec![Task::Recipe { base: None, positives: all(4), negatives: vec![], names: None }] };
+        let job =
+            Job { inputs, tasks: vec![Task::Recipe { base: None, positives: all(4), negatives: vec![], intersects: vec![], names: None }] };
         let out = run(&job).unwrap();
         let [Output::Recipe { solid, display, failed, .. }] = out.as_slice() else { panic!("{out:?}") };
         assert!(failed.is_empty(), "{failed:?}");
@@ -1219,7 +1228,7 @@ mod tests {
         let recipe = |base: Option<u32>, positives: Vec<(u32, DAffine3)>, negatives: Vec<(u32, DAffine3)>| {
             let job = Job {
                 inputs: vec![board.clone(), drill.clone(), huge.clone(), empty.clone()],
-                tasks: vec![Task::Recipe { base, positives, negatives, names: None }],
+                tasks: vec![Task::Recipe { base, positives, negatives, intersects: vec![], names: None }],
             };
             let mut out = run(&job).unwrap();
             let Some(Output::Recipe { solid, display, failed, .. }) = out.pop() else { panic!("{out:?}") };
@@ -1271,8 +1280,10 @@ mod tests {
         let at = |x: f64| DAffine3::from_translation(DVec3::new(x, 0.0, 0.0));
         let drill = Arc::new(Solid::new_cylinder(DVec3::new(0.0, 25.0, -5.0), 4.0, 30.0).unwrap());
         let recipe = |base: Option<u32>, positives: Vec<(u32, DAffine3)>, negatives: Vec<(u32, DAffine3)>| {
-            let job =
-                Job { inputs: vec![board.clone(), drill.clone()], tasks: vec![Task::Recipe { base, positives, negatives, names: None }] };
+            let job = Job {
+                inputs: vec![board.clone(), drill.clone()],
+                tasks: vec![Task::Recipe { base, positives, negatives, intersects: vec![], names: None }],
+            };
             let mut out = run(&job).unwrap();
             let Some(Output::Recipe { solid, failed, .. }) = out.pop() else { panic!("{out:?}") };
             (solid, failed)
@@ -1290,8 +1301,20 @@ mod tests {
         let job = Job {
             inputs: vec![board.clone(), drill.clone()],
             tasks: vec![
-                Task::Recipe { base: None, positives: vec![(0, DAffine3::IDENTITY)], negatives: vec![(1, at(90.0))], names: None },
-                Task::Recipe { base: Some(EARLIER), positives: vec![(0, at(80.0))], negatives: vec![(1, at(90.0))], names: None },
+                Task::Recipe {
+                    base: None,
+                    positives: vec![(0, DAffine3::IDENTITY)],
+                    negatives: vec![(1, at(90.0))],
+                    intersects: vec![],
+                    names: None,
+                },
+                Task::Recipe {
+                    base: Some(EARLIER),
+                    positives: vec![(0, at(80.0))],
+                    negatives: vec![(1, at(90.0))],
+                    intersects: vec![],
+                    names: None,
+                },
             ],
         };
         let out = run(&job).unwrap();
@@ -1302,7 +1325,7 @@ mod tests {
         // Nothing positive: nothing (docs/model/bodies.md#empty-parts).
         let nothing = Job {
             inputs: vec![board.clone()],
-            tasks: vec![Task::Recipe { base: None, positives: vec![], negatives: vec![], names: None }],
+            tasks: vec![Task::Recipe { base: None, positives: vec![], negatives: vec![], intersects: vec![], names: None }],
         };
         assert!(matches!(run(&nothing).unwrap().as_slice(), [Output::Recipe { solid, .. }] if solid.is_empty()));
     }

@@ -57,17 +57,46 @@ Decision record: [A part is positive and negative bodies](../decisions/0018-part
 
 ## A fixed formula, no history
 
-- The union of the positives minus the union of the negatives. **Every negative cuts every
-  positive of its group** — the part's, at the top level ([Body groups](#body-groups)) —,
-  those added later included; the order bodies were made in does not matter. A hole is filled
-  by deleting its negative, not by adding a positive into it.
+- The union of the positives minus the union of the negatives, intersected with each
+  intersection (`(∪P − ∪N) ∩ I1 ∩ I2 …`, [A third sign](#a-third-sign-the-intersection)). **Every negative
+  cuts every positive of its group** — the part's, at the top level ([Body groups](#body-groups))
+  —, those added later included; the order bodies were made in does not matter. A hole is
+  filled by deleting its negative, not by adding a positive into it.
 - **Incremental computation** (`Document::recompute`): adding negatives = subtractions on the
-  cached final; adding positives `P` = `final ∪ (P − ∪N)` (since
-  `(A ∪ B) − N = (A − N) ∪ (B − N)`, the recipe's `base`); a part with a single positive, the
-  common case, makes no union at all. Removing or moving a body computes the part again from
-  its bodies.
+  cached final, adding intersections intersects it with them; adding positives `P` =
+  `final ∪ ((P − ∪N) ∩ ∩I)` (since `(A ∪ B) − N = (A − N) ∪ (B − N)`, the recipe's `base`);
+  a part with a single positive, the common case, makes no union at all. Removing or moving a
+  body computes the part again from its bodies.
 - **Failures**: a body whose boolean fails is skipped and reported by its id, the others still
   computed (`Part::failed`; a group's children in `BodyGroup::failed`).
+
+## A third sign: the intersection
+
+A body adds (positive), takes away (negative), or **intersects (∩, « Intersection »)**: its
+level — the part's root, a group — keeps only what lies inside it
+([0045](../decisions/0045-intersection-a-third-sign.md)). `Sign::Intersect`, written
+`"intersect"`.
+
+- **Each intersection limits**: `(∪P − ∪N) ∩ I1 ∩ I2 …`, the order of none mattering
+  (`(X − N) ∩ I = (X ∩ I) − N`). Their union limits by grouping them first in an intersection
+  group, whose children are positive (the shape it limits by, as a negative group's the shape
+  it takes away).
+- **The kernel's recipe** takes them after the positives and the negatives (`Task::Recipe`'s
+  `intersects`, `RecipeNames::intersects`; the node task's tree, `TreeBody::intersect`);
+  failures are reported by index, positives, negatives then intersections. A level limited to
+  nothing is empty.
+- **Grouping several intersections alone, or ungrouping an intersection group of several
+  bodies, is refused** (`Refusal::IntersectsRegrouped`): the union of the shapes is not their
+  intersection. An intersection alone groups (an intersection group of one positive child) and
+  ungroups freely; intersections beside positives group as negatives do (they then limit that
+  group only).
+- **Drawn**: the drawing tools' « Solide » in an open part has a third choice, « Intersecter »
+  (`Editor::body_sign`); `context.sign` takes `intersect` (docs/control-protocol.md).
+- **Shown** in an open part as a ghost of its own hue (`theme.intersect`, a blue-green; the
+  machinings' red; `Look::Intersect`), the ∩ icon on its navigator row; the navigator's sign
+  button cycles `+ → − → ∩ → +` (« Intersection : la pièce ne garde que ce qui est dedans »).
+- **Moved in the tree**, an intersection stays one ([Moving bodies](#moving-bodies)). A node
+  over intersections alone is an intersection rounded (`group_sign`).
 
 ## Plane welding
 
@@ -207,10 +236,13 @@ body, its profile with it — still editable; any other comes as a group of copi
 - **Difference**: the tool part's root comes **as a negative sub-group** (its bodies kept,
   still editable); each tool reaching the target is one more negative body, all cut at once
   (`recompute` with the bodies added: one recipe, a failing tool marked as any machining).
-- **Intersection**: a new part with one positive leaf, a free shape (the common volume with
-  the union of the tools reaching it).
+- **Intersection**: the target limited by the union of the tools reaching it, the tools kept
+  ([A third sign](#a-third-sign-the-intersection)): one tool comes as an intersection body (as
+  a difference's tool as a negative one, its profile kept when it is a shape drawn), several as
+  the positive children of one intersection group — their union limits, not each. The target
+  keeps its bodies.
   **No ∩ node**, nor any ordered operation. **Why:** that would turn the tree into a feature
-  history (persistent naming).
+  history (persistent naming); the intersection needs no order, a sign does it.
 
 ## Body definitions
 

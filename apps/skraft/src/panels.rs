@@ -329,10 +329,15 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                     Segment::new(&t!("option_bar.remove"), &t!("option_bar.remove_tip"), Some("subtract"), sign == Sign::Negative),
                 ),
                 (Sign::Positive, Segment::new(&t!("option_bar.add"), &t!("option_bar.add_tip"), Some("union"), sign == Sign::Positive)),
+                // An intersection (docs/decisions/0045-intersection-a-third-sign.md).
+                (
+                    Sign::Intersect,
+                    Segment::new(&t!("option_bar.intersect"), &t!("option_bar.intersect_tip"), Some("intersect"), sign == Sign::Intersect),
+                ),
             ];
             let (values, segments): (Vec<_>, Vec<_>) = signs.into_iter().unzip();
             if let Some(i) = segmented(ui, egui::Id::unique("option_bar_body_sign"), &segments, |i| {
-                ["option:body_sign:negative", "option:body_sign:positive"][i].into()
+                ["option:body_sign:negative", "option:body_sign:positive", "option:body_sign:intersect"][i].into()
             }) {
                 actions.push(Action::BodySign(values[i]));
             }
@@ -1863,6 +1868,7 @@ fn body_row(
             let (icon, tip) = match b.body.sign {
                 Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
                 Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
+                Sign::Intersect => (icons::INTERSECT, t!("panel.outliner.sign_intersect")),
             };
             let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
             let toggled = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
@@ -1972,8 +1978,10 @@ fn body_row(
     }
     if toggled {
         let sign = match b.body.sign {
+            // + → − → ∩ → + (docs/decisions/0045-intersection-a-third-sign.md).
             Sign::Positive => Sign::Negative,
-            Sign::Negative => Sign::Positive,
+            Sign::Negative => Sign::Intersect,
+            Sign::Intersect => Sign::Positive,
         };
         // Selected (in its part or group, opened): the selected siblings with it.
         let bodies = match selected {
@@ -2487,6 +2495,7 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
         ui.label(match b.sign {
             Sign::Positive => t!("panel.entity_info.role_positive"),
             Sign::Negative => t!("panel.entity_info.role_negative"),
+            Sign::Intersect => t!("panel.entity_info.role_intersect"),
         });
         ui.end_row();
         // A body node's size, edited here (docs/tools/rounds.md).

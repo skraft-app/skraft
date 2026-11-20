@@ -51,3 +51,4 @@ state and link the records behind it.
 | 0042 | [Body nodes: an operation applied to the children, the part's tree as its history](0042-body-nodes-operators.md) | accepted (2026-11-19; steps 1-2 built) |
 | 0043 | [Read SketchUp files directly with skpwright, in the kernel](0043-sketchup-files-read-with-skpwright.md) | accepted (2026-11-20) |
 | 0044 | [Bodies and occurrences moved in the tree: the navigator's drag and « Sortir du groupe »](0044-moving-bodies-in-the-tree.md) | accepted (2026-11-20; built) |
+| 0045 | [The intersection, a third sign of bodies](0045-intersection-a-third-sign.md) | accepted (2026-11-20; built) |

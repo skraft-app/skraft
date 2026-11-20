@@ -14,9 +14,9 @@
 //!   stay, unused, until purged (docs/ui/components-library.md).
 
 use glam::{DAffine3, DVec3};
-use skraft_kernel::{BooleanOp, Stretch};
+use skraft_kernel::Stretch;
 
-use crate::document::{Body, BodyDef, Document, EntityPath, Id, Occurrence, Part, Sign, is_identity};
+use crate::document::{Body, BodyDef, Document, EntityPath, Id, Occurrence, Part, Sign};
 use crate::ops::Solver;
 use crate::{Boolean, Error, FastMap, Outcome, Refusal, Result, Scope};
 
@@ -303,21 +303,34 @@ impl Document {
                 }
                 self.recompute(part, Some(&ids), solver)?;
             }
-            // A new part of one positive body: the common volume with the tools' union.
+            // The target limited by the tools' union, the tools kept (docs/decisions/0045-intersection-a-third-sign.md):
+            // one tool an intersection itself; several, the children of an intersection group (their
+            // union limits, as the tool's `(∪A) ∩ (∪B)`), each as a union's or a difference's are.
             Boolean::Intersection => {
-                let result = match tools {
-                    [t] => {
-                        let relative = to_target * t.world;
-                        let moved = if is_identity(&relative) { None } else { Some(relative) };
-                        solver.boolean(&shape, t.q.shape(), moved, BooleanOp::Intersection)?
+                let mut bodies = Vec::with_capacity(tools.len());
+                for t in tools {
+                    let (defs, mut body) = self.tool_as_body(&t.q, &(to_target * t.world), t.named.clone());
+                    if !t.name.is_empty() {
+                        body.name = t.name.clone();
                     }
+                    self.part_mut(part)?.defs.extend(defs);
+                    bodies.push(body);
+                }
+                let intersect = match bodies.len() {
+                    1 => Body { sign: Sign::Intersect, ..bodies.remove(0) },
                     _ => {
-                        let positives: Vec<_> = tools.iter().map(|t| (t.q.shape().clone(), to_target * t.world)).collect();
-                        let (union, _) = solver.recipe(None, &positives, &[])?;
-                        solver.boolean(&shape, &union, None, BooleanOp::Intersection)?
+                        let p = self.part(part)?;
+                        let (solid, failed, faces) = Self::group_result(&p.defs, &bodies, solver)?;
+                        let mut def = BodyDef::group(self.fresh_id(), solid, bodies, failed);
+                        def.group = def.group.take().map(|g| g.with_faces(&def.solid, faces));
+                        let body = Body::new(self.fresh_id(), def.id, Sign::Intersect, DAffine3::IDENTITY);
+                        self.part_mut(part)?.defs.push(def);
+                        body
                     }
                 };
-                *self.part_mut(part)? = self.plain_part(result);
+                let id = intersect.id;
+                self.part_mut(part)?.bodies.push(intersect);
+                self.recompute(part, Some(&[id]), solver)?;
             }
         }
         Ok(())

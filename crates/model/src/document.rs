@@ -387,6 +387,11 @@ impl Part {
         self.bodies.iter().filter(|b| b.sign == Sign::Negative)
     }
 
+    /// Its intersections (∩ bodies), each limiting it (docs/decisions/0045-intersection-a-third-sign.md).
+    pub fn intersects(&self) -> impl Iterator<Item = &Body> {
+        self.bodies.iter().filter(|b| b.sign == Sign::Intersect)
+    }
+
     /// The first positive body with a profile: the one the Profile tool edits for now.
     pub fn profiled(&self) -> Option<&Body> {
         self.positives().find(|b| self.profile_of(b).is_some())
@@ -432,12 +437,14 @@ pub(crate) fn is_identity(t: &DAffine3) -> bool {
     t.abs_diff_eq(DAffine3::IDENTITY, 1e-12)
 }
 
-/// Whether a body adds material to its part or takes it away (docs/model/bodies.md).
+/// Whether a body adds material to its part, takes it away, or keeps only what lies inside it (∩, an intersection: what lies outside
+/// it is taken away, docs/decisions/0045-intersection-a-third-sign.md) (docs/model/bodies.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Sign {
     Positive,
     Negative,
+    Intersect,
 }
 
 /// The shape of bodies of a part (docs/model/bodies.md): `solid`, in its own axes — a body's. A leaf holds its
@@ -626,8 +633,8 @@ impl RawCache {
     }
 
     /// The children of `tree` (leaves `leaves`) added after those it holds for, when they are
-    /// all it lacks (the first ones as it holds them, the leaves too) and all cutters: what
-    /// the node can cut it by, rather than computing its children again.
+    /// all it lacks (the first ones as it holds them, the leaves too) and all cutters or intersections:
+    /// what the node can cut or intersect it with, rather than computing its children again.
     pub fn cutters<'a>(
         &self,
         tree: &'a [skraft_kernel::names::TreeBody],
@@ -638,7 +645,7 @@ impl RawCache {
         (tree[..n] == self.tree[..]
             && leaves.len() >= self.leaves.len()
             && self.leaves.iter().zip(leaves).all(|(a, b)| Arc::ptr_eq(a, b))
-            && added.iter().all(|b| b.negative))
+            && added.iter().all(|b| b.negative || b.intersect))
         .then_some(added)
     }
 }

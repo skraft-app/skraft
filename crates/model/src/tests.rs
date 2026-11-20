@@ -1900,11 +1900,9 @@ fn a_profile_is_kept_set_and_stretched() {
     let b = profile_of(h.document(), &copy_path).unwrap();
     assert_eq!(skraft_kernel::profile::bounds(&b.profile).unwrap().1, glam::DVec2::new(700.0, 300.0));
 
-    // A free part (an intersection's result) has no profile to set.
-    let a = add(&mut h, cube(DVec3::new(-500.0, 0.0, 0.0), 20.0));
-    let b = add(&mut h, cube(DVec3::new(-490.0, 0.0, 0.0), 20.0));
-    let out = h.apply(Operation::boolean(EntityPath::root(a), EntityPath::root(b), Boolean::Intersection, Scope::All)).unwrap();
-    let common = EntityPath::root(*out.created.first().unwrap_or(&a));
+    // A free part (a sphere) has no profile to set.
+    let a = add(&mut h, Primitive::Sphere { center: DVec3::new(-500.0, 0.0, 0.0), radius: 20.0 });
+    let common = EntityPath::root(a);
     assert!(profile_of(h.document(), &common).is_none());
     let any = profile_of(h.document(), &copy_path).unwrap();
     let only = h.document().resolve_part(&common).unwrap().1.bodies[0].id;

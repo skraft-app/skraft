@@ -19,7 +19,7 @@ fn board(l: f64, w: f64, t: f64) -> Primitive {
 }
 
 fn leaf(id: u64, at: DVec3, solid: u32, recipe: Option<Primitive>) -> TreeBody {
-    TreeBody { id, negative: false, placement: DAffine3::from_translation(at), node: TreeNode::Leaf { solid, recipe } }
+    TreeBody { id, negative: false, intersect: false, placement: DAffine3::from_translation(at), node: TreeNode::Leaf { solid, recipe } }
 }
 
 /// `b`'s top edges, `l × w × t`, at their middles.
@@ -63,7 +63,7 @@ fn recipe(positives: &[(&Solid, DVec3)], negatives: &[(&Solid, DVec3)]) -> Solid
             .collect()
     };
     let (positives, negatives) = (place(positives), place(negatives));
-    let job = Job { inputs, tasks: vec![Task::Recipe { base: None, positives, negatives, names: None }] };
+    let job = Job { inputs, tasks: vec![Task::Recipe { base: None, positives, negatives, intersects: vec![], names: None }] };
     match run(&job).unwrap().pop() {
         Some(Output::Recipe { solid, failed, display, .. }) => {
             assert!(failed.is_empty(), "inputs failed: {failed:?}");
@@ -253,12 +253,14 @@ fn a_node_over_a_rounded_board_notched() {
     let rounded_node = TreeBody {
         id: 5,
         negative: false,
+        intersect: false,
         placement: DAffine3::IDENTITY,
         node: TreeNode::Group { children: vec![leaf(1, DVec3::ZERO, 0, Some(b))], op: Some(inner.clone().with_edges(names)) },
     };
     let notched = TreeBody {
         id: 6,
         negative: false,
+        intersect: false,
         placement: DAffine3::IDENTITY,
         node: TreeNode::Group {
             children: vec![rounded_node, TreeBody { negative: true, ..leaf(2, DVec3::new(40.0, -10.0, 5.0), 1, None) }],
@@ -287,12 +289,14 @@ fn a_round_over_the_edge_where_a_notch_meets_the_round() {
     let rounded_node = TreeBody {
         id: 5,
         negative: false,
+        intersect: false,
         placement: DAffine3::IDENTITY,
         node: TreeNode::Group { children: vec![leaf(1, DVec3::ZERO, 0, Some(b))], op: Some(NodeOp::blend_of(Blend::Round, R, names)) },
     };
     let notched = TreeBody {
         id: 6,
         negative: false,
+        intersect: false,
         placement: DAffine3::IDENTITY,
         node: TreeNode::Group {
             children: vec![rounded_node, TreeBody { negative: true, ..leaf(2, DVec3::new(40.0, -10.0, 5.0), 1, None) }],

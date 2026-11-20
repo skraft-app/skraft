@@ -57,10 +57,13 @@ fn effective(p: &Part, path: &[Id]) -> Result<Sign> {
     Ok(sign)
 }
 
+/// The other of adding and taking away; an intersection stays one, it limits wherever it goes
+/// (docs/decisions/0045-intersection-a-third-sign.md).
 fn flip(s: Sign) -> Sign {
     match s {
         Sign::Positive => Sign::Negative,
         Sign::Negative => Sign::Positive,
+        Sign::Intersect => Sign::Intersect,
     }
 }
 

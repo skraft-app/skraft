@@ -42,6 +42,8 @@ pub enum Look {
     Tool,
     /// A tool that failed to cut.
     FailedTool,
+    /// One of its intersections (∩ bodies, docs/decisions/0045-intersection-a-third-sign.md).
+    Intersect,
 }
 
 /// One occurrence of a definition to draw.
@@ -499,7 +501,11 @@ impl Editor {
             // A tool moved without a copy is drawn only where it goes.
             for tool in r.tools.iter().filter(|tool| !(hide_original && selected.contains(&tool.body))) {
                 // A ghost, a little more opaque than a blank; one that failed opaque (docs/model/bodies.md).
-                let look = if tool.failed { Look::FailedTool } else { Look::Tool };
+                let look = match (tool.failed, tool.intersect) {
+                    (true, _) => Look::FailedTool,
+                    (false, true) => Look::Intersect,
+                    (false, false) => Look::Tool,
+                };
                 let faint = erasing.contains(&tool.body);
                 let ghost = faint || !tool.failed || self.xray();
                 let (key, placement) = drawn(tool);
@@ -519,7 +525,11 @@ impl Editor {
                 .iter()
                 .filter(|n| !(hide_original && selected.contains(&n.body)) && !body_swaps.is_some_and(|s| s.contains_key(&n.body)))
             {
-                let look = if tool.failed { Look::FailedTool } else { Look::Tool };
+                let look = match (tool.failed, tool.intersect) {
+                    (true, _) => Look::FailedTool,
+                    (false, true) => Look::Intersect,
+                    (false, false) => Look::Tool,
+                };
                 let p = ViewPlacement {
                     transform: t * tool.placement,
                     faded: faded(tool.body),
@@ -535,7 +545,11 @@ impl Editor {
             v.batches.extend(tool_faint);
             // Around a node open: the bodies of the levels above, faded, each where it is.
             for (key, transform, sign) in around_node.iter().flatten() {
-                let look = if *sign == skraft_model::Sign::Positive { Look::Blank } else { Look::Tool };
+                let look = match sign {
+                    skraft_model::Sign::Positive => Look::Blank,
+                    skraft_model::Sign::Negative => Look::Tool,
+                    skraft_model::Sign::Intersect => Look::Intersect,
+                };
                 let p = ViewPlacement { transform: *transform, faded: true, material, look, ghost: true, faint_edges: false };
                 v.batches.push((*key, vec![p]));
             }
