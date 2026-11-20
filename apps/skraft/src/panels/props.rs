@@ -9,6 +9,7 @@ use skraft_model::{Document, EntityKind, Operation, PropDef, PropTarget, Units, 
 
 use super::{Action, Field, OPTION_HEIGHT, cut_label, framed_field};
 use crate::icons;
+use crate::style::Tip;
 
 /// The kinds a definition offers, in its menu.
 const KINDS: [fn() -> ValueKind; 14] = [
@@ -82,7 +83,7 @@ fn key_name(key: &str) -> &str {
 fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: &str) -> bool {
     let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ui.visuals().text_color());
     let h = OPTION_HEIGHT;
-    ui.add(egui::Button::image(img).min_size(egui::vec2(h, h))).on_hover_text(tip).clicked()
+    ui.add(egui::Button::image(img).min_size(egui::vec2(h, h))).tip(tip).clicked()
 }
 
 /// A text field, `width` wide, applied by a click away too, emptied too: the text, when applied.
@@ -285,7 +286,7 @@ pub fn section(ui: &mut egui::Ui, doc: &Document, target: &PropTarget, title: St
                 actions.push(set(key, None));
             }
         })
-        .on_hover_text(t!("panel.properties.raw_tip"));
+        .tip(t!("panel.properties.raw_tip"));
     }
 }
 
@@ -394,7 +395,7 @@ pub fn definitions(ui: &mut egui::Ui, doc: &Document, actions: &mut Vec<Action>)
                 });
             });
             rows.row(ui, t!("panel.properties.key"), |ui| cut_label(ui, egui::RichText::new(key.as_str()).weak(), field));
-            if ui.button(t!("panel.properties.delete")).on_hover_text(t!("panel.properties.delete_tip")).clicked() {
+            if ui.button(t!("panel.properties.delete")).tip(t!("panel.properties.delete_tip")).clicked() {
                 actions.push(define(key, None));
             }
         });

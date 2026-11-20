@@ -9,6 +9,7 @@ use skraft_i18n::t;
 use skraft_tools::{Key, Steps};
 
 use crate::panels::Action;
+use crate::style::Tip;
 use crate::toasts::Level;
 
 /// A step number's square, and the link between two.
@@ -113,7 +114,7 @@ fn buttons(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         (cancel, Level::Error, Key::Escape, "validation:cancel", t!("steps.cancel")),
         (ok, Level::Success, Key::Enter, "validation:ok", t!("steps.validate")),
     ] {
-        let response = ui.interact(r, ui.scope_id().with(name), Sense::click()).on_hover_text(tip);
+        let response = ui.interact(r, ui.scope_id().with(name), Sense::click()).tip(tip);
         crate::handles::publish(|| name.into(), r);
         let dark = ui.visuals().dark_mode;
         let (hue, fill, _) = crate::toasts::colors(ui.visuals(), level, dark);

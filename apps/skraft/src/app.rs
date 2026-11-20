@@ -21,6 +21,7 @@ use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView};
 use crate::prefs::Preferences;
 use crate::ribbon;
+use crate::style::Tip;
 use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
 use crate::toasts::{Act, Note, Toasts};
@@ -1385,7 +1386,7 @@ impl SkraftApp {
                             }
                             header = Some(palette_header(ui, v.menu));
                         }
-                        let row = palette_row(ui, v, k == p.picked).on_hover_text(v.id);
+                        let row = palette_row(ui, v, k == p.picked).tip(v.id);
                         if k == p.picked && (up || down) {
                             // A section's first row brings its name along.
                             let first = k == 0 || found[k - 1].menu != v.menu;
@@ -1486,7 +1487,7 @@ impl SkraftApp {
         let mut on = self.remote.is_on();
         let mut port_set = false;
         egui::Grid::new("debug").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-            ui.label(t!("prefs.debug.remote_control")).on_hover_text(t!("prefs.debug.remote_control_tip"));
+            ui.label(t!("prefs.debug.remote_control")).tip(t!("prefs.debug.remote_control_tip"));
             ui.checkbox(&mut on, "");
             ui.end_row();
             ui.label(t!("prefs.debug.remote_port"));
@@ -1523,10 +1524,10 @@ impl SkraftApp {
             ui.checkbox(&mut s.display.guides, "");
             ui.end_row();
             ui.label(t!("prefs.model.silhouettes"));
-            ui.checkbox(&mut s.display.silhouettes, "").on_hover_text(t!("prefs.model.silhouettes_tip"));
+            ui.checkbox(&mut s.display.silhouettes, "").tip(t!("prefs.model.silhouettes_tip"));
             ui.end_row();
             ui.label(t!("prefs.model.hide_rest_of_model"));
-            ui.checkbox(&mut s.display.hide_rest_of_model, "").on_hover_text(t!("prefs.model.hide_rest_of_model_tip"));
+            ui.checkbox(&mut s.display.hide_rest_of_model, "").tip(t!("prefs.model.hide_rest_of_model_tip"));
             ui.end_row();
         });
         crate::style::settings_section(ui, &t!("prefs.model.units"));
@@ -1545,7 +1546,7 @@ impl SkraftApp {
             ui.add(egui::Slider::new(&mut s.units.decimals, 0..=6));
             ui.end_row();
             ui.label(t!("prefs.model.unit_symbol"));
-            ui.checkbox(&mut s.units.symbol, "").on_hover_text(t!("prefs.model.unit_symbol_tip"));
+            ui.checkbox(&mut s.units.symbol, "").tip(t!("prefs.model.unit_symbol_tip"));
             ui.end_row();
             ui.label(t!("prefs.model.example"));
             ui.weak(s.units.format(1234.5678));
@@ -1563,18 +1564,11 @@ impl SkraftApp {
         };
         let defaults = without_section(s.clone()) == self.prefs.new_model;
         ui.horizontal(|ui| {
-            if ui
-                .add_enabled(!defaults, egui::Button::new(t!("prefs.model.use_for_new")))
-                .on_hover_text(t!("prefs.model.use_for_new_tip"))
-                .clicked()
+            if ui.add_enabled(!defaults, egui::Button::new(t!("prefs.model.use_for_new"))).tip(t!("prefs.model.use_for_new_tip")).clicked()
             {
                 self.prefs.new_model = without_section(s.clone());
             }
-            if ui
-                .add_enabled(!defaults, egui::Button::new(t!("prefs.model.restore")))
-                .on_hover_text(t!("prefs.model.restore_tip"))
-                .clicked()
-            {
+            if ui.add_enabled(!defaults, egui::Button::new(t!("prefs.model.restore"))).tip(t!("prefs.model.restore_tip")).clicked() {
                 let mut d = self.prefs.new_model.clone();
                 d.display.section = s.display.section;
                 d.display.section_active = s.display.section_active;
@@ -1617,7 +1611,7 @@ impl SkraftApp {
         egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
             egui::Grid::new("shortcuts").num_columns(3).spacing([12.0, 4.0]).striped(true).show(ui, |ui| {
                 for c in COMMANDS.iter().filter(|c| c.menu != Menu::Debug) {
-                    ui.label((c.label)()).on_hover_text(c.id);
+                    ui.label((c.label)()).tip(c.id);
                     let current = self.keymap.get(c.id);
                     let text = current.map_or("—".to_owned(), |s| s.display(mac));
                     let conflict = current.is_some_and(|s| !self.keymap.conflicts(c.id, s).is_empty());
@@ -1983,7 +1977,7 @@ impl SkraftApp {
             }
             for (k, path) in self.prefs.recent_files.iter().enumerate().take(commands::RECENT_FILES) {
                 let id = commands::COMMANDS.iter().find(|c| commands::recent_slot(c.id) == Some(k)).map(|c| c.id);
-                let r = ui.add_sized([width, 24.0], egui::Button::new(file_name(path)).frame_when_inactive(false)).on_hover_text(path);
+                let r = ui.add_sized([width, 24.0], egui::Button::new(file_name(path)).frame_when_inactive(false)).tip(path);
                 if let (true, Some(id)) = (r.clicked(), id) {
                     actions.push(Action::Command(id));
                 }
@@ -2872,7 +2866,7 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
             ui.checkbox(&mut prefs.reopen_documents, "");
             ui.end_row();
         }
-        ui.label(t!("prefs.general.history_memory")).on_hover_text(t!("prefs.general.history_memory_tip"));
+        ui.label(t!("prefs.general.history_memory")).tip(t!("prefs.general.history_memory_tip"));
         let unit = format!(" {}", t!("prefs.general.history_memory_unit"));
         ui.add(egui::DragValue::new(&mut prefs.history_memory).range(64..=65536).speed(16.0).suffix(unit));
         ui.end_row();

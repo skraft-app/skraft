@@ -10,6 +10,7 @@ use skraft_tools::journal::{Entry, Event, Failure, JobKind, Journal, Origin};
 use skraft_tools::{Modifiers, ToolInput};
 
 use crate::ribbon::Corners;
+use crate::style::Tip;
 
 /// The width of the entries' kind column (« Début de glisser » fits).
 const KIND_WIDTH: f32 = 120.0;
@@ -175,7 +176,7 @@ fn log(ui: &mut egui::Ui, shown: &mut Shown, journal: &Journal) {
             });
         },
         |ui| {
-            if ui.button(t!("journal.copy")).on_hover_text(t!("journal.copy_tip")).clicked() {
+            if ui.button(t!("journal.copy")).tip(t!("journal.copy_tip")).clicked() {
                 let lines: Vec<String> = entries.iter().map(|e| skraft_control::json::entry(e).to_string()).collect();
                 ui.ctx().copy_text(lines.join("\n"));
             }
@@ -220,7 +221,7 @@ fn pilot_mark(ui: &mut egui::Ui, origin: &Origin, height: f32) {
     }
     let img = egui::Image::new(crate::icons::REMOTE).tint(crate::titlebar::ACTIVE);
     img.paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK)));
-    r.on_hover_text(match origin.client() {
+    r.tip(match origin.client() {
         Some(c) => t!("journal.origin.pilot_named", client = c),
         None => t!("journal.origin.pilot_tip"),
     });
@@ -247,7 +248,7 @@ fn failures_list(ui: &mut egui::Ui, journal: &Journal) {
                     ui.label(egui::RichText::new(what).strong());
                 },
                 |ui| {
-                    if ui.button(t!("journal.copy_job")).on_hover_text(t!("journal.copy_job_tip")).clicked() {
+                    if ui.button(t!("journal.copy_job")).tip(t!("journal.copy_job_tip")).clicked() {
                         let full = skraft_control::json::failure(f, true);
                         ui.ctx().copy_text(serde_json::to_string_pretty(&full).unwrap_or_default());
                     }

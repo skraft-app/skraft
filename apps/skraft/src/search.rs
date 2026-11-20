@@ -4,6 +4,7 @@
 use skraft_i18n::t;
 
 use crate::icons;
+use crate::style::Tip;
 
 /// The search field on a line of its own, under the key `salt`, its handle `<handle>:search`: a
 /// magnifier, the field over the width left by `trailing` (buttons laid at the line's right end,
@@ -45,7 +46,7 @@ pub fn field(ui: &mut egui::Ui, salt: egui::Id, handle: &'static str, text: &mut
                 let b = ui.interact(at, salt.with("clear"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::Default);
                 let tint = if b.hovered() { ui.visuals().text_color() } else { weak };
                 egui::Image::new(icons::CLOSE).tint(tint).paint_at(ui, egui::Rect::from_center_size(at.center(), egui::vec2(10.0, 10.0)));
-                if b.on_hover_text(t!("search.clear")).clicked() {
+                if b.tip(t!("search.clear")).clicked() {
                     text.clear();
                 }
             }

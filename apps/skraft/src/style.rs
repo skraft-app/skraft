@@ -263,6 +263,9 @@ fn apply(s: &mut egui::Style, t: &UiTokens) {
     // while the pointer goes from widget to widget.
     s.interaction.tooltip_delay = 0.15;
     s.interaction.tooltip_grace_time = 0.5;
+    // A tip's text wraps at this width (egui's 500 pt): a description reads better on a few
+    // short lines than on a long one.
+    s.spacing.tooltip_width = 260.0;
 
     let v = &mut s.visuals;
     let border = Stroke::new(1.0, color(t.border));
@@ -372,4 +375,62 @@ mod tests {
             assert!(missing.is_empty(), "{family:?} lacks {missing:?}");
         }
     }
+}
+
+/// Tips (tooltips) centred under their widget (above it when there is no room below), where
+/// egui puts them at its left: `.tip(text)` in place of egui's `.on_hover_text(text)`,
+/// `.tip_ui(add)` of its `.on_hover_ui(add)` (docs/ui/interface.md#tips).
+pub trait Tip {
+    fn tip(self, text: impl Into<egui::WidgetText>) -> Self;
+    /// A tip of a name and what it does: `more` smaller, on a line of its own (none when
+    /// empty).
+    fn tip_more(self, text: &str, more: &str) -> Self;
+    fn tip_ui(self, add: impl FnOnce(&mut egui::Ui)) -> Self;
+}
+
+impl Tip for egui::Response {
+    fn tip(self, text: impl Into<egui::WidgetText>) -> Self {
+        let text = text.into();
+        describe_for_accessibility(&self, text.text());
+        self.tip_ui(|ui| {
+            // As egui's: auto-sizing would shrink a tip of a changing text (egui #5167).
+            ui.set_max_width(ui.spacing().tooltip_width);
+            ui.add(egui::Label::new(text));
+        })
+    }
+
+    fn tip_more(self, text: &str, more: &str) -> Self {
+        if more.is_empty() {
+            return self.tip(text);
+        }
+        describe_for_accessibility(&self, &format!("{text}. {more}"));
+        self.tip_ui(|ui| {
+            ui.set_max_width(ui.spacing().tooltip_width);
+            ui.add(egui::Label::new(text));
+            ui.add(egui::Label::new(egui::RichText::new(more).text_style(egui::TextStyle::Small)));
+        })
+    }
+
+    fn tip_ui(self, add: impl FnOnce(&mut egui::Ui)) -> Self {
+        let mut tip = egui::Tooltip::for_enabled(&self);
+        tip.popup = tip.popup.align(egui::RectAlign::BOTTOM);
+        tip.show(add);
+        self
+    }
+}
+
+/// The tip's text as the widget's accessible description, and as its name when it has none (an
+/// icon-only button): what egui's `on_hover_text` does, private to it.
+fn describe_for_accessibility(r: &egui::Response, text: &str) {
+    if !r.ctx.has_accesskit_node(r.id) {
+        return;
+    }
+    r.ctx.accesskit_node_builder(r.id, |node| {
+        if node.description().is_none() {
+            node.set_description(text);
+        }
+        if node.role() != egui::accesskit::Role::Label && node.labelled_by().is_empty() && node.label().is_none_or(str::is_empty) {
+            node.set_label(text);
+        }
+    });
 }

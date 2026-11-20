@@ -137,9 +137,6 @@ menu:
 
 toolbar:
   with_shortcut: "%{label} (%{shortcut})"
-  with_hint: "%{tip} · %{hint}"
-  copy_hint: "%{copy_key}: copy · arrows: axis"
-  boolean_hint: "parts A, then tool parts B"
   perspective: "Perspective / Parallel"
 
 # The steps bar and its validation buttons (docs/ui/interface.md#steps-bar).
@@ -347,7 +344,6 @@ option_bar:
   node_open_tip: "The node open: its children as they are, its edges in colour"
   options: "Options"
   options_tip: "The options to turn on or off"
-  icon_tip: "%{label} — %{tip}"
   body_sign: "Solid"
   body_sign_tip: "What a shape drawn in the open part does (back to “Remove” each time a part opens)"
   remove: "Remove"
