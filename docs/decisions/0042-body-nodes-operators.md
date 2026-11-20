@@ -162,9 +162,14 @@ another edge silently.
   to a group under a round computes the round again). A node takes its child groups from their
   caches and face maps (built 2026-11-19, step 2): a node over a board drilled 30 times, 99 ms
   against 202 ms from its leaves (debug).
-- **Booleans on round faces** are the kernel's least proven ground: a battery of tests in
-  `crates/kernel/tests/solidcore_quirks.rs` before relying on them (round then cut, round then
-  stretch, a part with rounds in a union).
+- **Booleans on round faces** were the kernel's least proven ground: `crates/kernel/tests/rounds.rs`
+  (2026-11-19, SolidCore `793d09e`, its fixes on) runs them as the app does — a node's solid an
+  input of its parent's recipe — and checks each result against itself (volume against its
+  mesh, `A − B` + `A ∩ B` = `A`, exact volumes where they can be counted): holes, notches and
+  slanted cuts through rounds, chamfers and corner balls, cutters lying on a round's tangent
+  lines or on its own surface, unions of rounded boards overlapping, end to end, stacked, a
+  round over a notched round, a node's child stretched. All 24 pass; a case found failing goes
+  to `solidcore_quirks.rs`.
 - **File format**: `BodyGroup` gains `op` and `refused`; a profile's corners their `id` (v1
   until the first release, [0010](0010-file-format-v1-until-release.md): no compatibility; ids
   settled when a profile is read).
