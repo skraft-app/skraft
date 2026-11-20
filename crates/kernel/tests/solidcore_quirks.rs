@@ -2,7 +2,7 @@
 //! test asserts that the bug is **still there**: when one fails after a SolidCore upgrade, the
 //! bug is fixed upstream; drop its workaround, then the test.
 //!
-//! Checked at: tangency-labs/solidcore `793d09e` (2026-11-19), the `rev` pinned
+//! Checked at: tangency-labs/solidcore `3af0aea` (2026-11-20), the `rev` pinned
 //! in the workspace's Cargo.toml. Update this line with each upgrade.
 //!
 //! That our results are right in spite of them is checked elsewhere (`engine.rs`'s tests,
