@@ -5,7 +5,7 @@
 
 use glam::{DAffine3, DVec3};
 use skraft_i18n::t;
-use skraft_model::kernel::names::{Blend, NodeOp, edges_between, leaf_faces};
+use skraft_model::kernel::names::{Blend, BlendOp, edges_between, leaf_faces};
 use skraft_model::{EntityPath, Id, Operation, Sign};
 
 use super::{Command, Cx, Key, OptionValue, Preview, Steps, Tool, ToolInput, ToolKind, ToolOption};
@@ -50,19 +50,20 @@ impl BlendTool {
         BlendTool { blend, size: SIZE, hover: None, picks: Vec::new(), loaded: None, changed: false }
     }
 
-    /// The body node open (the group open is one): the path to what holds it, its id, its
-    /// operation. The tool then picks its edges again rather than wrapping a body.
-    pub(crate) fn node(cx: &Cx<'_>) -> Option<(EntityPath, Id, NodeOp)> {
+    /// The body node open (the group open is one), a round's or a chamfer's: the path to what
+    /// holds it, its id, its operation. The tool then picks its edges again rather than
+    /// wrapping a body.
+    pub(crate) fn node(cx: &Cx<'_>) -> Option<(EntityPath, Id, BlendOp)> {
         let (&node, above) = cx.open_group.split_last()?;
         let parent = cx.open_part_path()?.in_group(above.to_vec());
         let (_, p, _) = cx.doc.resolve_container(&parent).ok()?;
-        let op = p.body(node).and_then(|b| p.def_of(b).op())?.clone();
+        let op = p.body(node).and_then(|b| p.def_of(b).op())?.blend()?.clone();
         Some((parent, node, op))
     }
 
     /// The node's edges as they are, on its children shown: those whose two faces are of one
     /// leaf child (an edge between two children is on neither as shown).
-    pub(crate) fn load(cx: &Cx<'_>, op: &NodeOp) -> Vec<EdgeHit> {
+    pub(crate) fn load(cx: &Cx<'_>, op: &BlendOp) -> Vec<EdgeHit> {
         let Some(path) = cx.open_part_path() else { return Vec::new() };
         let Ok((_, p, _)) = cx.doc.resolve_container(&path) else { return Vec::new() };
         let to_world = cx.axes();

@@ -118,7 +118,7 @@ fn a_node_over_both_levels_follows_a_body_moved_between_its_groups() {
     let v = volume(h.document(), part);
     let name_path = |h: &History| {
         let p = h.document().part(part).unwrap();
-        p.def_of(p.body(node).unwrap()).op().unwrap().edges[0].name.faces[0].path.clone()
+        p.def_of(p.body(node).unwrap()).op().unwrap().edges()[0].name.faces[0].path.clone()
     };
     assert_eq!(name_path(&h), vec![g1.0, board.0]);
     // The board moved from g1 to g2: the round finds its edge through g2.

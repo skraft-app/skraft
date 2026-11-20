@@ -7158,7 +7158,7 @@ fn round_tool_picks_a_node_s_edges_again_in_it() {
     let both = sharp - off * 300.0;
     assert!((volume(&e) - both).abs() < 30.0, "{} vs {both}: {}", volume(&e), e.status());
     let (_, part, _) = e.document().resolve_part(&path).unwrap();
-    assert_eq!(part.def_of(&part.bodies[0]).op().unwrap().edges.len(), 2);
+    assert_eq!(part.def_of(&part.bodies[0]).op().unwrap().edges().len(), 2);
 }
 
 #[test]

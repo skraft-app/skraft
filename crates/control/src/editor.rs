@@ -368,12 +368,13 @@ fn part(e: &Editor, pp: &PlacedPart, p: &GeometryParams, volumes: &mut HashMap<u
                         v["children"] = json::ids(&d.children().iter().map(|c| c.id).collect::<Vec<_>>());
                     }
                     if let Some(op) = d.op() {
-                        v["node"] = json!({
-                            "blend": op.blend,
-                            "size": op.size,
-                            "edges": op.edges.len(),
-                            "refused": part.refusal_of(b.id),
-                        });
+                        let mut node = match op {
+                            skraft_model::kernel::names::NodeOp::Blend(o) => {
+                                json!({ "blend": o.kind, "size": o.size, "edges": o.edges.len() })
+                            }
+                        };
+                        node["refused"] = json!(part.refusal_of(b.id));
+                        v["node"] = node;
                     }
                     v
                 })

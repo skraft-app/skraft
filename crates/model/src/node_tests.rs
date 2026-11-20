@@ -49,7 +49,7 @@ fn a_round_wraps_its_bodies_and_follows_them() {
     let def = p.def_of(p.body(node).unwrap());
     assert_eq!(def.nature(), Nature::Round);
     let op = def.op().unwrap();
-    assert_eq!((op.edges.len(), op.edges[0].near.len()), (1, 0));
+    assert_eq!((op.edges().len(), op.edges()[0].near.len()), (1, 0));
     assert!((volume(h.document(), part) - (sharp - round_off(3.0, 200.0))).abs() < 1e-2, "{}", volume(h.document(), part));
 
     // The drill moved inside the node: the round is applied again, by its name.
@@ -198,8 +198,8 @@ fn a_node_made_unique_keeps_its_names() {
     let (a, b) = (p.body(node).unwrap(), p.body(copy).unwrap());
     assert_ne!(a.def, b.def, "a definition of its own");
     let child = p.def_of(b).children()[0].id;
-    assert!(p.def_of(b).op().unwrap().edges[0].name.faces.iter().all(|f| f.path[0] != p.def_of(a).children()[0].id.0), "renamed");
-    assert!(p.def_of(b).op().unwrap().edges[0].name.faces.iter().any(|f| f.path[0] == child.0));
+    assert!(p.def_of(b).op().unwrap().edges()[0].name.faces.iter().all(|f| f.path[0] != p.def_of(a).children()[0].id.0), "renamed");
+    assert!(p.def_of(b).op().unwrap().edges()[0].name.faces.iter().any(|f| f.path[0] == child.0));
     // Changed, it finds its edge again by its renamed names.
     let set =
         Operation::SetBlend { target: target.clone(), body: copy, blend: Blend::Round, size: 4.0, picks: Vec::new(), scope: Scope::All };
@@ -232,7 +232,7 @@ fn grouping_or_ungrouping_inside_a_node_keeps_its_edges() {
     let g = h.apply(Operation::GroupBodies { target: inside.clone(), bodies: vec![board, drill], scope: Scope::All }).unwrap().bodies[0];
     let p = h.document().part(part).unwrap();
     assert_eq!(p.refusal_of(node), None);
-    let names = &p.def_of(p.body(node).unwrap()).op().unwrap().edges[0].name;
+    let names = &p.def_of(p.body(node).unwrap()).op().unwrap().edges()[0].name;
     assert!(names.faces.iter().all(|f| f.path == [g.0, board.0]), "{names:?}");
     assert!((volume(h.document(), part) - rounded).abs() < 1e-2);
     // Ungrouped: back to its children.
@@ -260,7 +260,7 @@ fn grouping_inside_an_inner_node_keeps_the_outer_nodes_edges() {
     let r2 = h.apply(r2).unwrap().bodies[0];
     let p = h.document().part(part).unwrap();
     let made = |f: &kernel::names::FaceTag| matches!(f.face, kernel::names::FaceName::Made(_));
-    assert!(p.def_of(p.body(r2).unwrap()).op().unwrap().edges[0].name.faces.iter().any(made), "r2 on r1's face");
+    assert!(p.def_of(p.body(r2).unwrap()).op().unwrap().edges()[0].name.faces.iter().any(made), "r2 on r1's face");
     let before = volume(h.document(), part);
     let inside = target.clone().in_group(vec![r2, r1]);
     h.apply(Operation::GroupBodies { target: inside, bodies: vec![board, drill], scope: Scope::All }).unwrap();
@@ -292,7 +292,7 @@ fn a_group_made_unique_inside_a_node_keeps_its_edges() {
     let own = def.children().iter().find(|c| c.id == g).map(|c| p.def(c.def).unwrap().children()[0].id).unwrap();
     assert_ne!(own, board, "renamed");
     assert_eq!(p.refusal_of(node), None);
-    assert!(def.op().unwrap().edges[0].name.faces.iter().all(|f| f.path == [g.0, own.0]), "{:?}", def.op());
+    assert!(def.op().unwrap().edges()[0].name.faces.iter().all(|f| f.path == [g.0, own.0]), "{:?}", def.op());
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn a_node_inside_computed_with_its_parent_shows_its_refusal() {
     let def = p.any_body(r1).unwrap().def;
     let g = p.defs.iter_mut().find(|d| d.id == def).unwrap().group.as_mut().unwrap();
     g.faces.clear();
-    g.op.as_mut().unwrap().size = 30.0;
+    g.op.as_mut().unwrap().blend_mut().unwrap().size = 30.0;
     let mut h = History::new(doc);
     let set =
         Operation::SetBlend { target: target.clone(), body: r2, blend: Blend::Round, size: 2.0, picks: Vec::new(), scope: Scope::All };
@@ -516,4 +516,22 @@ fn bench_a_node_from_its_childrens_result_or_its_leaves() {
         println!("a drill added inside: {:?} from its children's result, {leaves:?} from its leaves", t.elapsed());
     }
     assert_eq!(h.document().part(part).unwrap().refusal_of(node), None);
+}
+
+#[test]
+fn a_node_s_operation_is_written_by_its_kind_and_read_back() {
+    let mut h = History::new(Document::new());
+    let (target, part, board, drill) = drilled_board(&mut h);
+    let node = round_front(&mut h, &target, vec![board, drill], 3.0);
+    let text = h.document().to_json().unwrap();
+    // `NodeOp` an enum (one kind yet: a blend), its blend by its `kind`.
+    assert!(
+        text.contains(r#""op":{"blend":{"kind":"round","size":3.0"#),
+        "{}",
+        &text[text.find("\"op\"").unwrap_or(0)..][..200.min(text.len())]
+    );
+    let back = Document::from_json(&text).unwrap();
+    let (a, b) = (h.document().part(part).unwrap(), back.part(part).unwrap());
+    assert_eq!(a.def_of(a.body(node).unwrap()).op(), b.def_of(b.body(node).unwrap()).op());
+    assert_eq!(b.def_of(b.body(node).unwrap()).nature(), Nature::Round);
 }

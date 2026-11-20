@@ -514,13 +514,16 @@ impl BodyDef {
 
     /// What it is, which its automatic name and its icon tell.
     pub fn nature(&self) -> Nature {
-        match &self.profile {
-            _ if self.op().is_some_and(|o| o.blend == skraft_kernel::names::Blend::Round) => Nature::Round,
-            _ if self.op().is_some() => Nature::Chamfer,
+        use skraft_kernel::names::{Blend, NodeOp};
+        match (self.op(), &self.profile) {
+            (Some(NodeOp::Blend(b)), _) => match b.kind {
+                Blend::Round => Nature::Round,
+                Blend::Chamfer => Nature::Chamfer,
+            },
             _ if self.is_group() => Nature::Group,
-            Some(f) if f.is_turned() => Nature::Revolution,
-            Some(_) => Nature::Extrusion,
-            None => Nature::Solid,
+            (_, Some(f)) if f.is_turned() => Nature::Revolution,
+            (_, Some(_)) => Nature::Extrusion,
+            (_, None) => Nature::Solid,
         }
     }
 
