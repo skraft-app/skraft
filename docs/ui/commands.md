@@ -25,11 +25,14 @@ has its own page ([Control protocol](../control-protocol.md)).
 
 ## Shortcuts and command palette
 
+- **The workspace's commands**: the shortcuts, the palette, the menus and `run` reach only the
+  commands available in the shown document's workspace; a key runs the one available there, so
+  one key may serve two workspaces ([Workspaces](workspaces.md#commands-available)).
 - **Changeable shortcuts**: preference `shortcuts: id → shortcut` (absent = default, empty =
-  none), *Shortcuts* tab of the preferences (conflicts flagged). The defaults:
-  [Application interface](interface.md#shortcuts).
+  none), *Shortcuts* tab of the preferences (conflicts flagged: two commands some workspace has
+  both of). The defaults: [Application interface](interface.md#shortcuts).
 - **Command palette**: Cmd/Ctrl+K, searches labels and ids (accents ignored), Enter runs. It
-  holds every enabled command, the debug ones with the debug menu.
+  holds every enabled command of the workspace, the debug ones with the debug menu.
 
 ## External driving
 

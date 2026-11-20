@@ -16,6 +16,7 @@ A **ZIP** (Deflate), whose entries are JSON — but the images:
 model.skraft
 ├── manifest.json               {"format": "skraft", "version": 1, "content": "model", "generator": "Skraft 0.1.0"}
 ├── document.json               the document: its structure, readable
+├── view.json                   how it was last seen (its workspace), when there is something to say
 ├── breps/<name>.json           the B-reps it is made of
 ├── cache/<name>.json           the B-reps computed from them
 └── textures/<name>.<png|jpg>   the images of the materials' textures, as they came (stored)
@@ -30,6 +31,11 @@ model.skraft
   (`settings`; missing: default values). Its solids are the **names** of their entries. Indented,
   arrays of plain values on one line (`"transform": [1.0, 0.0, …]`): read with `unzip -p
   model.skraft document.json`.
+- **`view.json`** (`FileView`): how the file was last seen, not part of the document — the
+  workspace it was shown in ([Workspaces](../ui/workspaces.md#the-documents-workspace)). Written
+  beside the document, never in its history: changing it neither modifies the document nor is
+  undone. Absent when it holds nothing (`Document::to_file` writes none); missing or
+  unreadable, it never fails an opening (`Document::file_view`: the defaults).
 - **The B-reps**: one entry each, SolidCore's record as JSON (its own `version`: the geometry
   schema). An entry's name is 128 bits of the BLAKE3 hash of that JSON: a solid used twice is
   stored once. `breps/` holds those the document is made of — the solids of the leaf bodies

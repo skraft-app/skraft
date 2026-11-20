@@ -31,6 +31,19 @@ const BREPS: &str = "breps/";
 const CACHE: &str = "cache/";
 /// The images of the materials' textures, `<name>.<png|jpg>` (docs/render/look.md#textures).
 const TEXTURES: &str = "textures/";
+/// How the file was last seen ([`FileView`]): absent when it holds nothing.
+const VIEW: &str = "view.json";
+
+/// How a file was last seen, not part of the document: written beside it, never in its
+/// history — changing it neither modifies the document nor is undone (docs/io/file-format.md).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FileView {
+    /// The workspace shown (an id of the app's; none, or one the app does not list: its first,
+    /// decision 0047).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+}
 
 #[derive(Serialize, Deserialize)]
 struct Manifest {
@@ -136,16 +149,23 @@ fn check_header(format: &str, version: u32) -> Result<()> {
 impl Document {
     /// The document as a `.skraft` file. The same document gives the same bytes (no dates).
     pub fn to_file(&self) -> Result<Vec<u8>> {
-        self.write(Content::Model)
+        self.to_file_seen(&FileView::default())
+    }
+
+    /// The same, with how it was last seen ([`FileView`]; its entry left out when it holds
+    /// nothing).
+    pub fn to_file_seen(&self, view: &FileView) -> Result<Vec<u8>> {
+        let view = (*view != FileView::default()).then_some(view);
+        self.write(Content::Model, view)
     }
 
     /// The materials `ids` (all when empty) as a `.skraftmat` file: their textures' images,
     /// the definitions of the properties with them.
     pub fn materials_file(&self, ids: &[Id]) -> Result<Vec<u8>> {
-        self.materials_fragment(ids)?.write(Content::Materials)
+        self.materials_fragment(ids)?.write(Content::Materials, None)
     }
 
-    fn write(&self, content: Content) -> Result<Vec<u8>> {
+    fn write(&self, content: Content, view: Option<&FileView>) -> Result<Vec<u8>> {
         let scope = solids::writing(self.source_solids());
         let document = readable(&serde_json::to_vec_pretty(self).map_err(file_err)?);
         let entries = scope.finish();
@@ -160,6 +180,9 @@ impl Document {
         };
         put(MANIFEST, &manifest)?;
         put(DOCUMENT, &document)?;
+        if let Some(view) = view {
+            put(VIEW, &serde_json::to_vec_pretty(view).map_err(file_err)?)?;
+        }
         for (dir, map) in [(BREPS, &entries.sources), (CACHE, &entries.caches)] {
             for (name, json) in map {
                 put(&format!("{dir}{name}.json"), json)?;
@@ -179,6 +202,18 @@ impl Document {
         match Document::read_file(bytes)? {
             (doc, Content::Model) => Ok(doc),
             (_, Content::Materials) => Err(Error::File(FileError::MaterialsOnly)),
+        }
+    }
+
+    /// How a `.skraft` file was last seen: the default when it says nothing, or nothing
+    /// readable (a view state never fails an opening).
+    pub fn file_view(bytes: &[u8]) -> FileView {
+        let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(bytes)) else { return FileView::default() };
+        let Ok(mut entry) = zip.by_name(VIEW) else { return FileView::default() };
+        let mut out = Vec::new();
+        match entry.read_to_end(&mut out) {
+            Ok(_) => serde_json::from_slice(&out).unwrap_or_default(),
+            Err(_) => FileView::default(),
         }
     }
 

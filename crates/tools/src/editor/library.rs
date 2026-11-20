@@ -104,6 +104,16 @@ impl Editor {
             return;
         }
         let paths = self.occurrences_under_context(component);
+        self.select_occurrences(paths);
+    }
+
+    /// The occurrences `paths` (from the root) selected, those under the active context: as
+    /// [`Editor::select_occurrences_of`] does (the parts list's rows, docs/ui/parts-list.md).
+    pub fn select_occurrences(&mut self, paths: Vec<EntityPath>) {
+        if self.library_disabled() {
+            return;
+        }
+        let paths: Vec<EntityPath> = paths.into_iter().filter(|p| p.instances.starts_with(&self.context)).collect();
         if paths.is_empty() {
             self.message = Some(t!("status.no_occurrence_here"));
             return;

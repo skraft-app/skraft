@@ -1,6 +1,7 @@
 # Each open document holds its whole state; one kernel service and one renderer are shared
 
-- Status: accepted (2026-11-13)
+- Status: accepted (2026-11-13); the workspace became the document's with
+  [A workspace shapes the editor](0047-workspaces-shape-the-editor.md) (2026-11-20)
 - Design: [Several documents: file tabs](../ui/file-tabs.md)
 
 ## Context

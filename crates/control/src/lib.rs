@@ -137,6 +137,12 @@ pub fn methods() -> Vec<Method> {
         m("app.commands", "The command registry: id, label, enabled, checked, shortcut.", false, schema::<NoParams>),
         m("app.run", "Runs a command of the registry by its id.", false, schema::<RunParams>),
         m("app.docs", "The open documents (list), or a new one, another shown, one closed.", false, schema::<DocsParams>),
+        m(
+            "app.workspace",
+            "The workspaces this build lists (id, label, under way, stage) and the active document's; with `id`, shows the document in that one (the running tool cancelled, the selection kept; not a change of the document).",
+            false,
+            schema::<WorkspaceParams>,
+        ),
         m("app.screenshot", "The viewport, as a PNG.", false, schema::<NoParams>),
         m(
             "context.open",

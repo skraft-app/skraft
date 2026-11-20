@@ -32,7 +32,8 @@ tabs have pages of their own.
   grow empty: `PanelId::fills`), which fills the height left; the inner edge sets the column's
   width (`dock::COLUMN_WIDTH` 270 pt by default, `COLUMN_MIN_WIDTH` 200 at least; double click:
   default). Order, columns, sizes, folded and closed cards are kept in the preferences
-  (`panels`), written once the pointer is released. Opening or resizing a panel therefore
+  (`panels`, per workspace: [Workspaces](workspaces.md#panels)), written once the pointer is
+  released. Opening or resizing a panel therefore
   never resizes the view; zoom extents frames the area left free.
 - The viewport is the image of `render`'s off-screen target, registered as an egui texture;
   rendering is submitted during `update`, before egui paints.

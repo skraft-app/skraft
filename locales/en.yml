@@ -150,10 +150,16 @@ ribbon:
   workspace:
     tip: "Workspace"
     modelling: "Modeling"
+    parts: "Parts list"
+    under_way: "%{name} (under way)"
+    about:
+      modelling: "Draw, reshape and assemble parts"
+      parts: "The model's parts: material, dimensions, quantity"
   tab:
     build: "Build"
     assemble: "Assemble"
     inspect: "Inspect"
+    list: "List"
   group:
     selection: "Selection"
     draw: "Draw"
@@ -475,6 +481,17 @@ prefs:
     default: "Default"
 
 # The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
+parts_list:
+  title: "$t(ribbon.workspace.parts)"
+  column:
+    name: "Name"
+    material: "Material"
+    length: "Length"
+    width: "Width"
+    thickness: "Thickness"
+    quantity: "Qty"
+  empty: "No part in the model"
+
 search:
   hint: "Search"
   clear: "Clear the search"

@@ -17,14 +17,21 @@ Decision record: [A ribbon with workspaces](../decisions/0015-ribbon-with-worksp
 ## Layout
 
 One floating card across the top of the view, under the title bar: at its left end the
-**workspace cell**, over the card's whole height (the workspace's icon and name, ▾ opens the
-list of workspaces; `WORKSPACE_WIDTH` 92 pt), parted from the rest by a line across the card;
-then a row of tabs over a row of groups (the tabs drawn as the title bar's file tabs: centered on
+**workspace cell**, over the card's whole height (`WORKSPACE_WIDTH` 92 pt): the workspace's
+icon over its name, centred above the groups' label line, and the chevron of its menu alone on
+that line, at the height of the groups' own; it reacts over its whole surface, the card's margin
+included up to the separator (hover filled with the card's corners on its left), and a click
+lists the workspaces ([Workspaces](workspaces.md#the-switcher)). A line across the card parts it
+from the rest;
+then a row of tabs — always, a workspace has one tab at least (a test checks it) — over a row
+of groups (the tabs drawn as the title bar's file tabs: centered on
 a band in the headers' fill, the band starting from the workspace cell's line, the shown tab
 opening onto the groups). The card is as wide as its content and centered on the view, within
 its span:
 
-- **between the docked cards' columns** when it fits there whole (its natural width,
+- **between the docked cards' columns** (a split stage's table counting as one, the ribbon then
+  centred on the view between it and the right column: [Workspaces](workspaces.md#stage)) when
+  it fits there whole (its natural width,
   `ribbon::natural_width`): the columns then take the view's whole height;
 - **else above them**, over the view's width less its margins, the columns starting under it; a
   window narrower than the ribbon narrows it ([Narrow window](#narrow-window) decides what gives
@@ -41,8 +48,8 @@ between the columns, which had to start under it.
 
 ## Workspaces
 
-*Modelling* only. The data model has room for others, but a workspace is not listed until it
-exists. The workspace shown is a user preference, not a document setting.
+The workspace shown is the document's, each with its own ribbon (its fixed group and tabs):
+[Workspaces](workspaces.md). *Modelling* only for now.
 
 ## Tabs of Modelling
 
@@ -60,12 +67,13 @@ Each tab a list of groups, each group a list of commands of the registry
 - A fixed **Selection** group (Select, Eraser) stays at the left of every tab, before the tabs'
   own groups.
 - The tab shown is remembered per workspace (preference). A shortcut runs its command whatever
-  the tab: the ribbon does not switch tabs; a running tool whose button is not shown lights its
-  group's label instead.
+  the tab (among the workspace's commands, [Workspaces](workspaces.md#commands-available)): the
+  ribbon does not switch tabs; a running tool whose button is not shown lights its group's label
+  instead.
 
 ## The ribbon is data
 
-A `const` description in the app (`ribbon::WORKSPACES`: workspaces → tabs → groups → command
+A `const` description in the app (`workspace::WORKSPACES`: workspaces → tabs → groups → command
 ids, with each group's default pins), checked by a test against the registry (every id exists,
 no group is empty). The ribbon draws it; state, labels, tips and enabled/checked come from the
 registry's `CommandView`s, as for the menus. The active tool's button is filled; a tool
@@ -79,7 +87,7 @@ A group shows its **pinned** commands as buttons; its label (with ▾) opens its
 Unpin; right click on the ribbon: Reset this tab (its groups and the fixed group), and the
 labels' switch. Order is the group's order (buttons are not reordered by a drag, unlike the view
 bar's). A group with no pin is drawn as a single button opening its menu. Preference `ribbon`
-(`ribbon::Prefs`: `workspace`, `tabs` — the tab shown per workspace —, `pins`, `labels`); `pins`
+(`ribbon::Prefs`: `tabs` — the tab shown per workspace —, `pins`, `labels`); `pins`
 maps `"<workspace>/<tab>/<group>"` (`"<workspace>/<group>"` for the fixed group) to the pinned
 ids, only for groups the user changed (absent = the defaults; unknown ids, workspaces and tabs
 ignored).

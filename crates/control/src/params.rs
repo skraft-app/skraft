@@ -25,6 +25,15 @@ pub struct RunParams {
     pub id: String,
 }
 
+/// `app.workspace`.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceParams {
+    /// The workspace to show the active document in (`modelling`…); none: only list them.
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
 /// What `app.docs` does.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

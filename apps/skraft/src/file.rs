@@ -176,11 +176,21 @@ pub fn export_materials(bytes: Vec<u8>, name: &str, inbox: &Inbox, ctx: &egui::C
     }
 }
 
-/// Saves `document` (document `doc`, at history `revision`): to `path` if given (desktop),
-/// else asking where (`name`: the name offered). The outcome arrives in `inbox`, with `doc`:
-/// another tab may be shown by then.
-pub fn save(doc: DocId, document: &Document, revision: u64, path: Option<&str>, name: &str, inbox: &Inbox, ctx: &egui::Context) {
-    let bytes = match document.to_file() {
+/// Saves `document` (document `doc`, at history `revision`, as `view` says it was seen): to
+/// `path` if given (desktop), else asking where (`name`: the name offered). The outcome arrives
+/// in `inbox`, with `doc`: another tab may be shown by then.
+#[allow(clippy::too_many_arguments)]
+pub fn save(
+    doc: DocId,
+    document: &Document,
+    view: &skraft_model::FileView,
+    revision: u64,
+    path: Option<&str>,
+    name: &str,
+    inbox: &Inbox,
+    ctx: &egui::Context,
+) {
+    let bytes = match document.to_file_seen(view) {
         Ok(t) => t,
         Err(e) => return inbox.put(Outcome::SaveFailed { doc, error: e.to_string() }),
     };

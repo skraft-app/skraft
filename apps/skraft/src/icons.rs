@@ -62,6 +62,7 @@ icon!(MATERIALS, "materials");
 icon!(EYE, "eye");
 icon!(EYE_OFF, "eye_off");
 icon!(MODELLING, "modelling");
+icon!(PARTS_LIST, "parts_list");
 icon!(PIN, "pin");
 icon!(PIN_FILLED, "pin_filled");
 icon!(SECTION_CLEAR, "section_clear");
