@@ -501,7 +501,7 @@ prefs:
     dark: "Dark"
     palette: "Palette"
     palettes:
-      neutral: "Neutral"
+      navy: "Navy"
       warm: "Warm"
       graphite: "Graphite"
     panels: "Panels"

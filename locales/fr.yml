@@ -569,7 +569,7 @@ prefs:
     dark: "Sombre"
     palette: "Palette"
     palettes:
-      neutral: "Neutre"
+      navy: "Marine"
       warm: "Chaud"
       graphite: "Graphite"
     panels: "Panneaux"
