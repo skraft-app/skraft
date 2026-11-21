@@ -61,8 +61,27 @@ icon!(REMOTE, "remote");
 icon!(MATERIALS, "materials");
 icon!(EYE, "eye");
 icon!(EYE_OFF, "eye_off");
+icon!(LOCK, "lock");
+icon!(UNLOCK, "unlock");
+icon!(ARROW_UP, "arrow_up");
+icon!(ARROW_DOWN, "arrow_down");
+icon!(LAYER_SHARED, "layer_shared");
 icon!(MODELLING, "modelling");
 icon!(PARTS_LIST, "parts_list");
+icon!(DRAWING, "drawing");
+icon!(SHEET_ADD, "sheet_add");
+icon!(VIEW_ADD, "view_add");
+icon!(VIEW_PROJECT, "view_project");
+icon!(SHEET_TEXT, "sheet_text");
+icon!(SHEET_RECT, "sheet_rect");
+icon!(SHEET_LINE, "sheet_line");
+icon!(DIM_LINEAR, "dim_linear");
+icon!(DIM_RADIUS, "dim_radius");
+icon!(DIM_DIAMETER, "dim_diameter");
+icon!(DIM_ANGLE, "dim_angle");
+icon!(STYLE_LINES, "style_lines");
+icon!(STYLE_RENDERED, "style_rendered");
+icon!(STYLE_HYBRID, "style_hybrid");
 icon!(PIN, "pin");
 icon!(PIN_FILLED, "pin_filled");
 icon!(SECTION_CLEAR, "section_clear");
@@ -136,6 +155,20 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "view.materials" => MATERIALS,
         "view.section" => SECTION,
         "view.zoom_extents" => EXTENTS,
+        "drawing.new_sheet" => SHEET_ADD,
+        "drawing.add_view" => VIEW_ADD,
+        "drawing.project_view" => VIEW_PROJECT,
+        "drawing.export_pdf" => EXPORT,
+        "drawing.tool_text" => SHEET_TEXT,
+        "drawing.tool_rect" => SHEET_RECT,
+        "drawing.tool_line" => SHEET_LINE,
+        "drawing.dim_linear" => DIM_LINEAR,
+        "drawing.dim_radius" => DIM_RADIUS,
+        "drawing.dim_diameter" => DIM_DIAMETER,
+        "drawing.dim_angle" => DIM_ANGLE,
+        "drawing.style_lines" => STYLE_LINES,
+        "drawing.style_rendered" => STYLE_RENDERED,
+        "drawing.style_hybrid" => STYLE_HYBRID,
         "view.top" => VIEW_TOP,
         "view.front" => VIEW_FRONT,
         "view.right" => VIEW_RIGHT,

@@ -30,6 +30,10 @@ pub struct Doc {
     pub library: crate::library::LibraryState,
     /// Its parts list's sort and rows (docs/ui/parts-list.md).
     pub parts_list: crate::parts_table::PartsListState,
+    /// Its drawing's sheet shown and how (docs/ui/drawing.md).
+    pub sheet: crate::sheet::SheetState,
+    /// Its drawing's views' lines, computed off the UI thread (docs/ui/drawing.md#lines).
+    pub lines: crate::view_lines::LinesCache,
     /// The workspace it is shown in (decision 0047): kept in its file ([`skraft_model::FileView`]).
     pub workspace: &'static crate::workspace::Workspace,
     /// When it was last shown ([`Docs::cap_histories`]'s tick).
@@ -148,6 +152,8 @@ impl Docs {
             outliner: Default::default(),
             library: Default::default(),
             parts_list: Default::default(),
+            sheet: Default::default(),
+            lines: Default::default(),
             workspace: crate::workspace::find(None),
             shown_at: 0,
         };

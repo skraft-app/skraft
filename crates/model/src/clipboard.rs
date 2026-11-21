@@ -161,6 +161,7 @@ impl Document {
             // All of them, few: the properties of what was copied keep their definitions.
             prop_defs: self.prop_defs.clone(),
             assets: self.assets.clone(),
+            drawing: Arc::default(),
             deferred: None,
         }
         .with_assets_pruned())

@@ -122,6 +122,22 @@ menu:
     remote_control: "Pilotage distant"
     # Shows or hides the journal window (what the shown document's editor went through).
     journal: "Journal"
+  drawing:
+    new_sheet: "Nouvelle feuille"
+    add_view: "Nouvelle vue"
+    project_view: "Vue projetée"
+    tool_text: "Texte"
+    tool_rect: "Rectangle"
+    tool_line: "Trait"
+    dim_linear: "Cote"
+    dim_radius: "Rayon"
+    dim_diameter: "Diamètre"
+    dim_angle: "Angle"
+    save_template: "Enregistrer comme modèle"
+    export_pdf: "Exporter en PDF"
+    style_lines: "Traits"
+    style_rendered: "Rendu"
+    style_hybrid: "Hybride"
   view:
     title: "Vue"
     parallel: "Projection parallèle"
@@ -142,6 +158,7 @@ menu:
     materials: "Panneau $t(common.materials)"
     outliner: "Panneau $t(panel.outliner.title)"
     components: "Panneau $t(panel.components.title)"
+    layers: "Panneau $t(panel.layers.title)"
     render_stats: "Statistiques de rendu"
     top: "Dessus"
     front: "Face"
@@ -180,17 +197,20 @@ ribbon:
     tip: "Espace de travail"
     modelling: "Modélisation"
     parts: "Liste des pièces"
+    drawing: "Mise en plan"
     # A workspace not finished, listed in debug builds only (decision 0047).
     under_way: "%{name} (en cours)"
     # What each one is for, under its name in the switcher's menu.
     about:
       modelling: "Dessiner, remodeler et assembler les pièces"
       parts: "Les pièces du modèle : matière, dimensions, quantité"
+      drawing: "Des feuilles à imprimer : vues du modèle, cartouche, cotes"
   tab:
     build: "Construire"
     assemble: "Assembler"
     inspect: "Inspecter"
     list: "Liste"
+    sheet: "Feuille"
   group:
     selection: "Sélection"
     draw: "Dessiner"
@@ -198,6 +218,9 @@ ribbon:
     reshape: "Remodeler"
     appearance: "Apparence"
     components: "Composants"
+    sheet: "Feuille"
+    style: "Style"
+    dimension: "Coter"
     measure: "Mesurer"
     section: "Section"
     view: "Vue"
@@ -550,6 +573,106 @@ prefs:
 
 # The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
 # The parts list, the « Liste des pièces » workspace's stage (docs/ui/parts-list.md).
+drawing:
+  sheet_name: "Feuille %{n}"
+  # The status bar on a sheet, per tool and step.
+  hint:
+    select: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché), ou déplacer la sélection · Maj : ajouter/retirer · Bouton du milieu ou droit : faire glisser la feuille · Double-clic : cadrer la feuille"
+    moving: "Relâcher pour poser la sélection · Échap : annuler"
+    grip: "Relâcher pour finir · Maj : garder les proportions · Échap : annuler"
+    project: "Cliquer d'un côté de la vue de base pour poser la vue projetée · Espace : terminer"
+    text: "Cliquer pour poser un texte, à écrire dans les infos sur l'entité · Espace : terminer"
+    rect: "Cliquer le premier coin du rectangle (ou glisser) · Espace : terminer"
+    rect_second: "Cliquer le coin opposé, ou taper ses dimensions · Échap : annuler"
+    line: "Cliquer le début du trait (ou glisser) · Espace : terminer"
+    line_second: "Cliquer la fin du trait, ou taper sa longueur · Échap : annuler"
+    linear_first: "Cliquer un premier sommet d'une vue · Espace : terminer"
+    linear_second: "Cliquer le second sommet"
+    linear_place: "Cliquer pour poser la cote : horizontale, verticale ou alignée selon le pointeur"
+    circle_pick: "Cliquer une arête circulaire vue de face · Espace : terminer"
+    angle_first: "Cliquer une première arête droite d'une vue · Espace : terminer"
+    angle_second: "Cliquer la seconde arête droite"
+    dim_place: "Cliquer pour poser la cote"
+    back: "Échap : recommencer"
+  view_name: "Vue %{n}"
+  # A text just put on a sheet, to be written in the entity info.
+  text_default: "Texte"
+  insert_field: "Insérer un champ"
+  dim:
+    horizontal: "Cote horizontale"
+    vertical: "Cote verticale"
+    aligned: "Cote alignée"
+    radius: "Cote de rayon"
+    diameter: "Cote de diamètre"
+    angle: "Cote d'angle"
+    orphan: "Orpheline"
+    orphan_tip: "Ce qu'elle mesurait n'existe plus dans le modèle : supprimez-la et cotez à nouveau"
+  template:
+    default: "A3 avec cartouche"
+    sheet: "Feuille : {sheet}"
+    date: "Date : {date}"
+    scale: "Échelle : {scale}"
+    number: "Feuille {sheet.number} / {sheet.count}"
+  field:
+    document: "Nom du document"
+    date: "Date"
+    sheet: "Nom de la feuille"
+    sheet_number: "Numéro de la feuille"
+    sheet_count: "Nombre de feuilles"
+    scale: "Échelle"
+  no_sheet: "Aucune feuille"
+  no_view_selected: "Aucune vue sélectionnée sur la feuille"
+  delete_sheet: "Supprimer la feuille"
+  blank_sheet: "Feuille vierge"
+  subject:
+    model: "Le modèle"
+    occurrences: "%{count} occurrences"
+  direction:
+    front: "Face"
+    back: "Arrière"
+    left: "Gauche"
+    right: "Droite"
+    top: "Dessus"
+    bottom: "Dessous"
+    iso: "Isométrique"
+    # The 3D view's camera when chosen, perspective or parallel.
+    camera: "Caméra"
+  side:
+    left: "à gauche"
+    right: "à droite"
+    above: "au-dessus"
+    below: "en dessous"
+  paper:
+    landscape: "Paysage"
+    portrait: "Portrait"
+  projection:
+    first_angle: "Européenne"
+    third_angle: "Américaine"
+  # The empty stage of the « Mise en plan » workspace.
+  grid_none: "Aucune"
+  # The measurements box on a sheet (docs/ui/drawing.md#measurements).
+  vcb:
+    size: "Dimensions"
+    width: "Largeur"
+    height: "Hauteur"
+    length: "Longueur"
+    distance: "Distance"
+    radius: "Rayon"
+    scale: "Échelle"
+    refused: "« %{text} » : valeur non reconnue"
+  no_sheet_hint: "Aucune feuille : « Nouvelle feuille » dans le ruban, ou « + » ci-dessous"
+  layer:
+    plan: "Plan"
+    title_block: "Cartouche"
+    name: "Calque %{n}"
+    active: "Calque actif : ce qu'on dessine va dessus"
+    shared: "Partagé : sur toutes les feuilles"
+    shown: "Visible"
+    locked: "Verrouillé"
+    up: "Monter"
+    down: "Descendre"
+    delete: "Supprimer le calque et ce qu'il porte"
+    add: "Nouveau calque"
 parts_list:
   title: "$t(ribbon.workspace.parts)"
   column:
@@ -582,6 +705,26 @@ panel:
     # The model itself: nothing selected at its level (the navigator's first row).
     type_model: "$t(common.model)"
     type_guide: "Guide"
+    type_view: "Vue"
+    type_projected_view: "Vue projetée"
+    type_sheet: "Feuille"
+    subject: "Montre"
+    direction: "Direction"
+    scale: "Échelle"
+    style: "Style"
+    projected_from: "Projetée de"
+    paper: "Format"
+    orientation: "Orientation"
+    projection: "Projection"
+    grid: "Grille"
+    layer: "Calque"
+    text: "Texte"
+    text_size: "Taille"
+    value: "Valeur"
+    type_text: "Texte"
+    type_line: "Trait"
+    type_rect: "Rectangle"
+    type_image: "Image"
     # A body of the open part (docs/model/bodies.md), or a group of its bodies.
     type_body: "Corps"
     type_group: "Groupe de corps"
@@ -619,6 +762,9 @@ panel:
     selected_plural: "%{count} sélectionnés"
     # A component chosen in the « Composants » card: how many times it is in the model.
     in_model: "Dans le modèle"
+  # The drawing's layers (docs/ui/drawing.md#layers).
+  layers:
+    title: "Calques"
   # The document's parts and assemblies (docs/ui/components-library.md).
   components:
     title: "Composants"
@@ -723,9 +869,15 @@ toast:
   export_failed: "Impossible d'exporter les matières"
   materials_imported: "%{count} matière importée de %{file}"
   materials_imported_plural: "%{count} matières importées de %{file}"
+  template_added: "Feuille ajoutée depuis le modèle %{file}"
+  template_saved: "Modèle enregistré : %{file}"
+  template_failed: "Le modèle n'a pas pu être enregistré"
+  pdf_failed: "Le PDF n'a pas pu être écrit"
   texture_failed: "Texture non appliquée"
   texture_not_image: "une image PNG ou JPEG est attendue"
   written: "%{file} enregistré"
+  # The button of a file exported's toast: the system's application opens it.
+  open: "Ouvrir"
   save_failed: "Impossible d'enregistrer %{file}"
   open_failed: "Impossible d'ouvrir %{file}"
   # MAX_OPEN documents are open (%{max}).
@@ -1314,6 +1466,18 @@ operation:
   intersection: "Intersection"
   settings: "Réglages du modèle"
   add_material: "Nouvelle matière"
+  add_sheet: "Nouvelle feuille"
+  set_sheet: "Modifier la feuille"
+  delete_sheet: "Supprimer la feuille"
+  move_sheet: "Déplacer la feuille"
+  add_view: "Nouvelle vue"
+  add_element: "Ajouter à la feuille"
+  set_element: "Modifier sur la feuille"
+  set_projection: "Disposition des vues projetées"
+  add_layer: "Nouveau calque"
+  set_layer: "Modifier le calque"
+  delete_layer: "Supprimer le calque"
+  move_to_layer: "Changer de calque"
   edit_material: "Modifier la matière"
   delete_material: "Supprimer la matière"
   set_props: "Modifier les propriétés"
@@ -1472,6 +1636,11 @@ error:
     prop_def_contradicted: "des valeurs existantes ne correspondent pas à cette définition"
     bad_texture: "texture sans image, ou de taille nulle"
     not_a_node: "ce corps n'est ni un arrondi ni un chanfrein, ou sa taille n'est pas positive"
+    bad_paper: "le format de la feuille doit être entre 1 mm et 10 m"
+    bad_element: "élément de feuille invalide"
+    projection_loop: "une vue ne peut pas être projetée d'elle-même"
+    projected_from_perspective: "une vue en perspective n'a pas de vues projetées"
+    last_layer: "il faut garder un calque non partagé pour dessiner"
     blend_lost: "%{count} arête n'existe plus"
     blend_lost_plural: "%{count} arêtes n'existent plus"
     blend_no_edge: "aucune arête à cet endroit"
@@ -1499,7 +1668,9 @@ error:
     unknown_material: "matière %{id} inconnue"
     bad_prop: "propriété %{key} invalide"
     bad_texture: "matière %{id} : texture invalide"
+    bad_drawing: "mise en plan : élément %{id} invalide"
     materials_only: "des matières seules : à importer dans un modèle (Matières)"
+    template_only: "c'est un modèle de feuille : il sert à créer des feuilles dans la mise en plan"
   # Reading or writing a file of the disk (a document, the preferences).
   io: "%{path} : %{error}"
   # The kernel failing (its own messages, from SolidCore, stay in English).

@@ -33,8 +33,10 @@ cours) » after it when under way) and, under it, smaller and weak, what it is f
   ([Panels](#panels));
 - whether it is **under way** (`under_way`): listed in debug builds only.
 
-*Modelling* « Modélisation », the first, has every command of the registry (a test checks
-it). *Parts list* « Liste des pièces » is under way ([Parts list](parts-list.md)).
+*Modelling* « Modélisation », the first, has every command of the registry but those only
+another workspace has (the drawing's; a test checks it). *Parts list* « Liste des pièces »
+([Parts list](parts-list.md)) and *Drawing* « Mise en plan » ([Drawing](drawing.md)) are
+under way.
 
 ## Stage
 
@@ -48,6 +50,9 @@ workspace's stage (`Stage`):
   drag between them (`App::split`, preference `table_share`; [Parts list](parts-list.md)). The
   table counts as a column for the ribbon: beside it when the ribbon fits between it and the
   right column (the table then the area's whole height), else above.
+- **`Sheet`**: a sheet of the drawing over the whole area, no 3D view ([Drawing](drawing.md));
+  the ribbon and the side panels over it, nothing of the 3D view's (tools' cards, view bar,
+  steps bar, quick tools, drop-up).
 
 The ribbon and the side panels are placed in the whole area; what belongs to the view — the
 tools' option cards, the view bar, the steps bar, the quick tools' card, the drop-up, what zoom

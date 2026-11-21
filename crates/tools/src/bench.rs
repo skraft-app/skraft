@@ -736,3 +736,63 @@ fn bench_render_step() {
         eprintln!("per frame: {} draw calls, {:.2} M triangles, {} instances", s.draw_calls, s.triangles as f64 / 1e6, s.instances);
     }
 }
+
+/// The drawing's hidden lines found on the meshes (docs/ui/drawing.md#lines) of a STEP model
+/// (`BENCH_STEP`), the whole model seen from the front, top, right and iso:
+/// `BENCH_STEP=… cargo test --workspace bench_hidden_lines -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn bench_hidden_lines() {
+    use skraft_model::kernel::{Job, JobId, JobResult, KernelService, Output, Task};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[derive(Clone, Default)]
+    struct Hold {
+        jobs: Rc<RefCell<Vec<(JobId, Job)>>>,
+        ready: Rc<RefCell<Vec<(JobId, JobResult)>>>,
+    }
+    impl KernelService for Hold {
+        fn submit(&mut self, id: JobId, job: Job) {
+            self.jobs.borrow_mut().push((id, job));
+        }
+        fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+            std::mem::take(&mut *self.ready.borrow_mut())
+        }
+    }
+
+    let Ok(path) = std::env::var("BENCH_STEP") else {
+        eprintln!("BENCH_STEP unset: nothing to do");
+        return;
+    };
+    let bytes = std::fs::read(&path).unwrap();
+    let job = Job { inputs: Vec::new(), tasks: vec![Task::ImportStep { bytes }] };
+    let step = time("STEP read", || match skraft_kernel::run(&job).unwrap().pop() {
+        Some(Output::Step(s)) => *s,
+        _ => panic!("no STEP output"),
+    });
+    let (doc, _) = Document::from_step(&step, "model");
+    let kernel = Hold::default();
+    let mut e = Editor::new(doc, Box::new(kernel.clone()));
+    let jobs: Vec<(JobId, Job)> = std::mem::take(&mut *kernel.jobs.borrow_mut());
+    let results = time("meshing on every core", || skraft_kernel::parallel_map(&jobs, |(id, job)| (*id, skraft_kernel::run(job))));
+    kernel.ready.borrow_mut().extend(results);
+    e.poll();
+    let parts: Vec<_> = e.scene().parts().filter(|(p, _)| !p.hidden).map(|(p, m)| (m.mesh.clone(), p.transform)).collect();
+    let tris: usize = parts.iter().map(|(m, _)| m.indices.len() / 3).sum();
+    eprintln!("{} placed parts, {:.2} M triangles", parts.len(), tris as f64 / 1e6);
+    let look = |forward: DVec3, up: DVec3| {
+        let forward = forward.normalize();
+        let right = forward.cross(up).normalize();
+        crate::hidden_lines::Look { right, up: right.cross(forward), forward }
+    };
+    for (name, l) in [
+        ("front", look(DVec3::Y, DVec3::Z)),
+        ("top", look(-DVec3::Z, DVec3::Y)),
+        ("right", look(-DVec3::X, DVec3::Z)),
+        ("iso", look(DVec3::new(-1.0, 1.0, -1.0), DVec3::Z)),
+    ] {
+        let lines = time(&format!("hidden lines, {name}"), || crate::hidden_lines::hidden_lines(&parts, &l));
+        eprintln!("  {} visible polylines, {} hidden, {} segments", lines.visible.len(), lines.hidden.len(), lines.segments());
+    }
+}

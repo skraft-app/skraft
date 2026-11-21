@@ -19,10 +19,12 @@ pub enum PanelId {
     Outliner,
     /// The document's parts and assemblies (docs/ui/components-library.md).
     Components,
+    /// The drawing's layers (docs/ui/drawing.md#layers): « Mise en plan »'s.
+    Layers,
 }
 
 impl PanelId {
-    pub const ALL: [PanelId; 4] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Outliner, PanelId::Components];
+    pub const ALL: [PanelId; 5] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Outliner, PanelId::Components, PanelId::Layers];
 
     /// Its command (`view.*`), which shows or closes it.
     pub fn command(self) -> &'static str {
@@ -31,6 +33,7 @@ impl PanelId {
             PanelId::Materials => "view.materials",
             PanelId::Outliner => "view.outliner",
             PanelId::Components => "view.components",
+            PanelId::Layers => "view.layers",
         }
     }
 
@@ -39,9 +42,15 @@ impl PanelId {
     }
 
     /// It may fill the height left in its column: a list, which shows more rows. The entity
-    /// info keeps the height it is given.
+    /// info keeps the height it is given; the layers too, a few rows.
     pub fn fills(self) -> bool {
-        !matches!(self, PanelId::EntityInfo)
+        !matches!(self, PanelId::EntityInfo | PanelId::Layers)
+    }
+
+    /// The same on a drawing's sheet (docs/ui/drawing.md#layers): the entity info fills there —
+    /// a view's or a sheet's settings are many rows —, the other cards keep their height.
+    pub fn fills_on_sheet(self) -> bool {
+        self == PanelId::EntityInfo
     }
 
     fn default_height(self) -> f32 {
@@ -50,13 +59,15 @@ impl PanelId {
             PanelId::Materials => 180.0,
             PanelId::Outliner => 300.0,
             PanelId::Components => 240.0,
+            PanelId::Layers => 150.0,
         }
     }
 
     /// Shown in a first layout, or once added to one written by an older build: the
-    /// components library waits to be asked for.
+    /// components library waits to be asked for, the layers are « Mise en plan »'s (its
+    /// workspace shows them: [`crate::workspace::Workspace::panels`]).
     fn shown_by_default(self) -> bool {
-        !matches!(self, PanelId::Components)
+        !matches!(self, PanelId::Components | PanelId::Layers)
     }
 
     /// Its card as a first layout has it.
@@ -195,6 +206,11 @@ impl Layout {
 
     /// Every panel exactly once (preferences written by another build may lack or repeat one).
     pub fn normalize(&mut self) {
+        self.normalize_with(None);
+    }
+
+    /// The same for a workspace showing `shown` at first: a card added shown if it is one.
+    pub fn normalize_with(&mut self, shown: Option<&[PanelId]>) {
         let mut seen = Vec::new();
         for d in [Dock::Left, Dock::Right] {
             self.column_mut(d).cards.retain(|c| {
@@ -205,7 +221,11 @@ impl Layout {
         }
         for id in PanelId::ALL {
             if !seen.contains(&id) {
-                self.left.cards.push(id.first_card());
+                let mut card = id.first_card();
+                if let Some(shown) = shown {
+                    card.shown = shown.contains(&id);
+                }
+                self.left.cards.push(card);
             }
         }
     }
@@ -217,12 +237,18 @@ impl Layout {
 }
 
 /// The cards of `column` shown (but `skip`), stacked from `top` within `room` in height.
+#[cfg(test)]
 pub fn place(column: &Column, top: f32, room: f32, m: Metrics, skip: Option<PanelId>) -> Vec<Placed> {
+    place_with(column, top, room, m, skip, PanelId::fills)
+}
+
+/// [`place`], `fills` saying which cards may fill.
+pub fn place_with(column: &Column, top: f32, room: f32, m: Metrics, skip: Option<PanelId>, fills: fn(PanelId) -> bool) -> Vec<Placed> {
     let cards: Vec<&Card> = column.cards.iter().filter(|c| c.shown && Some(c.id) != skip).collect();
     if cards.is_empty() {
         return Vec::new();
     }
-    let filler = cards.iter().rposition(|c| !c.folded && c.id.fills());
+    let filler = cards.iter().rposition(|c| !c.folded && fills(c.id));
     let mut heights: Vec<f32> = cards
         .iter()
         .enumerate()
@@ -356,7 +382,7 @@ mod tests {
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials]);
         l.move_card(PanelId::Outliner, Dock::Right, Some(PanelId::Materials));
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Outliner, PanelId::Materials]);
-        assert_eq!(l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::EntityInfo, PanelId::Components]);
+        assert_eq!(l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::EntityInfo, PanelId::Components, PanelId::Layers]);
         // Within its column, above another one.
         l.move_card(PanelId::Materials, Dock::Right, Some(PanelId::Outliner));
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials, PanelId::Outliner]);
@@ -371,9 +397,13 @@ mod tests {
         l.normalize();
         assert_eq!(l.right.cards.len(), 0);
         let ids: Vec<_> = l.left.cards.iter().map(|c| c.id).collect();
-        assert_eq!(ids, [PanelId::Outliner, PanelId::EntityInfo, PanelId::Materials, PanelId::Components]);
+        assert_eq!(ids, [PanelId::Outliner, PanelId::EntityInfo, PanelId::Materials, PanelId::Components, PanelId::Layers]);
         // The components library added closed, as in a first layout.
         assert!(!l.is_shown(PanelId::Components) && !Layout::default().is_shown(PanelId::Components));
         assert!(l.is_shown(PanelId::EntityInfo));
+        // A workspace's own first panels: the layers added shown in « Mise en plan ».
+        let mut l = Layout { left: Column { width: 270.0, cards: vec![card(PanelId::EntityInfo, 1.0)] }, right: Column::default() };
+        l.normalize_with(Some(&[PanelId::EntityInfo, PanelId::Layers]));
+        assert!(l.is_shown(PanelId::Layers) && !l.is_shown(PanelId::Materials));
     }
 }

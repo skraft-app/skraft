@@ -21,6 +21,8 @@ use skraft_i18n::t;
 use solidcore_record::brep::Brep as Record;
 
 #[cfg(feature = "engine")]
+pub mod drawing;
+#[cfg(feature = "engine")]
 mod engine;
 mod job;
 pub mod names;
@@ -33,6 +35,7 @@ mod sketchup;
 mod snaps;
 mod step;
 mod stretch;
+pub mod topo;
 mod weight;
 
 #[cfg(all(feature = "engine", not(target_arch = "wasm32")))]

@@ -64,6 +64,10 @@ pub enum Content {
     /// Materials alone, imported into a model (`.skraftmat`): a document without geometry
     /// ([`Document::materials_fragment`]).
     Materials,
+    /// A sheet template (`.skrafttpl`, docs/ui/drawing.md#templates): a document holding only a
+    /// drawing — a sheet's paper, its layers, the shared ones' elements, their images
+    /// ([`Document::template_of`]).
+    Template,
 }
 
 /// The document as one JSON ([`Document::to_json`]).
@@ -165,6 +169,11 @@ impl Document {
         self.materials_fragment(ids)?.write(Content::Materials, None)
     }
 
+    /// The sheet `sheet` as a template file (`.skrafttpl`, [`Document::template_of`]).
+    pub fn template_file(&self, sheet: Id) -> Result<Vec<u8>> {
+        self.template_of(sheet)?.write(Content::Template, None)
+    }
+
     fn write(&self, content: Content, view: Option<&FileView>) -> Result<Vec<u8>> {
         let scope = solids::writing(self.source_solids());
         let document = readable(&serde_json::to_vec_pretty(self).map_err(file_err)?);
@@ -202,6 +211,7 @@ impl Document {
         match Document::read_file(bytes)? {
             (doc, Content::Model) => Ok(doc),
             (_, Content::Materials) => Err(Error::File(FileError::MaterialsOnly)),
+            (_, Content::Template) => Err(Error::File(FileError::TemplateOnly)),
         }
     }
 
@@ -307,6 +317,42 @@ impl Document {
             }
             if m.texture.as_ref().is_some_and(|t| !t.is_valid() || !self.assets.contains_key(&t.image)) {
                 return Err(Error::File(FileError::BadTexture(*id)));
+            }
+        }
+        // The drawing (docs/ui/drawing.md): ids fresh, elements on known layers (a shared
+        // layer's held by it, the others' by their sheet), images present, views resolved.
+        let d = &self.drawing;
+        let bad = |id: Id| Error::File(FileError::BadDrawing(id));
+        for l in &d.layers {
+            fresh(l.id, FileError::BadDrawing)?;
+        }
+        for s in &d.sheets {
+            fresh(s.id, FileError::BadDrawing)?;
+        }
+        let owned = d
+            .layers
+            .iter()
+            .map(|l| (l, &l.elements, true))
+            .chain(d.sheets.iter().flat_map(|s| d.layers.iter().filter(|l| !l.shared).map(move |l| (l, &s.elements, false))));
+        for (layer, elements, shared) in owned {
+            for e in elements.iter().filter(|e| e.layer == layer.id || shared) {
+                if shared && e.layer != layer.id {
+                    return Err(bad(e.id));
+                }
+                fresh(e.id, FileError::BadDrawing)?;
+                let fine = match &e.kind {
+                    crate::ElementKind::Image { asset, .. } => self.assets.contains_key(asset),
+                    crate::ElementKind::View(_) => d.resolve(e.id).is_some(),
+                    _ => true,
+                };
+                if !fine {
+                    return Err(bad(e.id));
+                }
+            }
+        }
+        for s in &d.sheets {
+            if let Some(e) = s.elements.iter().find(|e| d.layer(e.layer).is_none_or(|l| l.shared)) {
+                return Err(bad(e.id));
             }
         }
         let material = |m: &Option<Id>| match m {

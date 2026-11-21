@@ -2122,6 +2122,19 @@ fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.copies",
         "tool.round.vcb",
         "tool.chamfer.vcb",
+        "panel.entity_info.subject",
+        "panel.entity_info.direction",
+        "panel.entity_info.scale",
+        "panel.entity_info.style",
+        "panel.entity_info.projected_from",
+        "panel.entity_info.paper",
+        "panel.entity_info.orientation",
+        "panel.entity_info.projection",
+        "panel.entity_info.grid",
+        "panel.entity_info.layer",
+        "panel.entity_info.text",
+        "panel.entity_info.text_size",
+        "panel.entity_info.value",
     ];
     let font = egui::TextStyle::Body.resolve(ui.style());
     let painter = ui.painter();
@@ -2831,6 +2844,402 @@ fn texture_row(ui: &mut egui::Ui, doc: &Document, id: Id, texture: &skraft_model
             actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None }));
         }
     });
+}
+
+// ---- the drawing (docs/ui/drawing.md) ----------------------------------------------------------
+
+/// The entity info in « Mise en plan »: the view picked on the sheet shown — its name, what it
+/// shows, from where, at what scale, in what style; a projected view its base and side —, else
+/// the sheet — its name, its paper, the document's projection.
+pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::SheetState, actions: &mut Vec<Action>) {
+    use skraft_model::{Direction, ElementKind, Look, Paper, Projection, Side, Subject, View, ViewKind, ViewStyle};
+    let doc = editor.document();
+    let d = doc.drawing();
+    let Some(sheet) = st.shown(d) else {
+        ui.weak(t!("drawing.no_sheet"));
+        return;
+    };
+    let field = info_field_width(ui);
+    let combo = |salt: (&str, u64)| egui::ComboBox::from_id_salt(salt).icon(crate::icons::combo_chevron).width(field);
+    // Several picked: how many.
+    let many = crate::sheet::selection(editor, st).len();
+    if many > 1 {
+        ui.label(tp!("panel.entity_info.selected", many));
+        return;
+    }
+    // A free element picked: its kind, its layer; a text its words and size.
+    if let Some(el) = crate::sheet::selected_element(editor, st).filter(|el| !matches!(el.kind, ElementKind::View(_))) {
+        let id = el.id;
+        info_grid(ui).show(ui, |ui| {
+            ui.label(t!("panel.entity_info.type"));
+            ui.label(match &el.kind {
+                ElementKind::Text { .. } => t!("panel.entity_info.type_text"),
+                ElementKind::Line { .. } => t!("panel.entity_info.type_line"),
+                ElementKind::Rect { .. } => t!("panel.entity_info.type_rect"),
+                ElementKind::Dimension(dim) => match dim.kind {
+                    skraft_model::DimKind::Linear { orient: skraft_model::Orient::Horizontal, .. } => t!("drawing.dim.horizontal"),
+                    skraft_model::DimKind::Linear { orient: skraft_model::Orient::Vertical, .. } => t!("drawing.dim.vertical"),
+                    skraft_model::DimKind::Linear { .. } => t!("drawing.dim.aligned"),
+                    skraft_model::DimKind::Radius { diameter: false, .. } => t!("drawing.dim.radius"),
+                    skraft_model::DimKind::Radius { .. } => t!("drawing.dim.diameter"),
+                    skraft_model::DimKind::Angle { .. } => t!("drawing.dim.angle"),
+                },
+                _ => t!("panel.entity_info.type_image"),
+            });
+            ui.end_row();
+            // A dimension's value as the model is now, or why it has none.
+            if let ElementKind::Dimension(dim) = &el.kind
+                && let Some(s) = crate::sheet::dim_shape(editor, dim)
+            {
+                ui.label(t!("panel.entity_info.value"));
+                if s.orphan {
+                    ui.colored_label(egui::Color32::from_rgb(210, 40, 40), t!("drawing.dim.orphan"))
+                        .on_hover_text(t!("drawing.dim.orphan_tip"));
+                } else {
+                    ui.label(&s.text);
+                }
+                ui.end_row();
+            }
+            layer_row(ui, d, el, sheet.id, field, actions);
+            if let ElementKind::Text { at, text, size } = &el.kind {
+                let set = |text: String, size: f64| {
+                    Action::Apply(Operation::SetElement { element: id, kind: ElementKind::Text { at: *at, text, size } })
+                };
+                field_label(ui, t!("panel.entity_info.text"));
+                ui.vertical(|ui| {
+                    // The words as typed, applied when the field is left.
+                    let key = ui.make_persistent_id(("drawing_text", id.0));
+                    let mut buf: String = ui.data(|m| m.get_temp::<String>(key)).unwrap_or_else(|| text.clone());
+                    let edit = ui.add(egui::TextEdit::multiline(&mut buf).desired_width(field).desired_rows(2));
+                    if edit.has_focus() {
+                        ui.data_mut(|m| m.insert_temp(key, buf.clone()));
+                    } else {
+                        ui.data_mut(|m| m.remove::<String>(key));
+                    }
+                    if edit.lost_focus() && buf != *text {
+                        actions.push(set(buf.clone(), *size));
+                    }
+                    // A field put at the end (docs/ui/drawing.md#fields).
+                    let button = ui.button(t!("drawing.insert_field"));
+                    crate::handles::publish(|| "drawing_insert_field".into(), button.rect);
+                    egui::Popup::menu(&button).style(crate::style::menu).show(|ui| {
+                        for f in crate::sheet::FIELDS {
+                            let item = ui.add(crate::style::menu_item(field_name(f), None, false));
+                            crate::handles::publish(|| format!("drawing_field:{f}"), item.rect);
+                            if item.clicked() {
+                                actions.push(set(format!("{text}{{{f}}}"), *size));
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+                ui.end_row();
+                ui.label(t!("panel.entity_info.text_size"));
+                let mut v = *size;
+                if ui.add(egui::DragValue::new(&mut v).speed(0.1).range(0.5..=200.0).suffix(" mm")).changed() {
+                    actions.push(set(text.clone(), v));
+                }
+                ui.end_row();
+            }
+        });
+        return;
+    }
+    if let Some((id, view)) = crate::sheet::selected_view(editor, st) {
+        let set = |v: View| Action::Apply(Operation::SetElement { element: id, kind: ElementKind::View(v) });
+        info_grid(ui).show(ui, |ui| {
+            ui.label(t!("panel.entity_info.type"));
+            ui.label(match view.kind {
+                ViewKind::Base { .. } => t!("panel.entity_info.type_view"),
+                ViewKind::Projected { .. } => t!("panel.entity_info.type_projected_view"),
+            });
+            ui.end_row();
+            field_label(ui, t!("panel.entity_info.name"));
+            if let Some(name) = text_field(ui, (id, 10), &view.name, field) {
+                actions.push(set(View { name, ..view.clone() }));
+            }
+            ui.end_row();
+            if let Some(el) = d.element(id) {
+                layer_row(ui, d, el, sheet.id, field, actions);
+            }
+            match &view.kind {
+                ViewKind::Base { subject, look, scale, at } => {
+                    ui.label(t!("panel.entity_info.subject"));
+                    ui.label(match subject {
+                        Subject::Model => t!("drawing.subject.model"),
+                        Subject::Component(c) => doc.component(*c).map_or_else(|_| "—".into(), |c| c.name.clone()),
+                        Subject::Occurrences(paths) => t!("drawing.subject.occurrences", count = paths.len()),
+                    });
+                    ui.end_row();
+                    let base = |look: Look, scale: f64| View {
+                        kind: ViewKind::Base { subject: subject.clone(), look, scale, at: *at },
+                        ..view.clone()
+                    };
+                    field_label(ui, t!("panel.entity_info.direction"));
+                    let shown = match look {
+                        Look::Standard(d) => direction_label(*d),
+                        Look::Camera { .. } => t!("drawing.direction.camera"),
+                    };
+                    combo(("drawing_direction", id.0)).selected_text(shown).show_ui(ui, |ui| {
+                        for d in [
+                            Direction::Front,
+                            Direction::Back,
+                            Direction::Left,
+                            Direction::Right,
+                            Direction::Top,
+                            Direction::Bottom,
+                            Direction::Iso,
+                        ] {
+                            if ui.selectable_label(*look == Look::Standard(d), direction_label(d)).clicked() {
+                                actions.push(set(base(Look::Standard(d), *scale)));
+                            }
+                        }
+                        ui.separator();
+                        // The 3D view's camera now, perspective or parallel.
+                        if ui.selectable_label(matches!(look, Look::Camera { .. }), t!("drawing.direction.camera")).clicked() {
+                            let cam = &editor.camera;
+                            let perspective = match cam.projection {
+                                skraft_tools::camera::Projection::Perspective { fov_y } => {
+                                    Some(skraft_model::Perspective { eye: cam.eye, fov_y })
+                                }
+                                _ => None,
+                            };
+                            actions.push(set(base(Look::Camera { forward: cam.forward(), up: cam.up(), perspective }, *scale)));
+                        }
+                    });
+                    ui.end_row();
+                    field_label(ui, t!("panel.entity_info.scale"));
+                    combo(("drawing_scale", id.0)).selected_text(crate::sheet::scale_label(*scale)).show_ui(ui, |ui| {
+                        for s in crate::sheet::SCALES {
+                            if ui.selectable_label((s - scale).abs() < 1e-12, crate::sheet::scale_label(*s)).clicked() {
+                                actions.push(set(base(look.clone(), *s)));
+                            }
+                        }
+                    });
+                    ui.end_row();
+                }
+                ViewKind::Projected { base, side, .. } => {
+                    let base_name = d
+                        .element(*base)
+                        .and_then(|el| match &el.kind {
+                            ElementKind::View(v) => Some(v.name.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+                    let side = match side {
+                        Side::Left => t!("drawing.side.left"),
+                        Side::Right => t!("drawing.side.right"),
+                        Side::Above => t!("drawing.side.above"),
+                        Side::Below => t!("drawing.side.below"),
+                    };
+                    ui.label(t!("panel.entity_info.projected_from"));
+                    ui.label(format!("{base_name}, {side}"));
+                    ui.end_row();
+                    ui.label(t!("panel.entity_info.scale"));
+                    ui.label(d.resolve(id).map_or_else(String::new, |r| crate::sheet::scale_label(r.scale)));
+                    ui.end_row();
+                }
+            }
+            field_label(ui, t!("panel.entity_info.style"));
+            let label = |s: ViewStyle| match s {
+                ViewStyle::Lines => t!("menu.drawing.style_lines"),
+                ViewStyle::Rendered => t!("menu.drawing.style_rendered"),
+                ViewStyle::Hybrid => t!("menu.drawing.style_hybrid"),
+            };
+            combo(("drawing_style", id.0)).selected_text(label(view.style)).show_ui(ui, |ui| {
+                for s in [ViewStyle::Lines, ViewStyle::Rendered, ViewStyle::Hybrid] {
+                    if ui.selectable_label(view.style == s, label(s)).clicked() {
+                        actions.push(set(View { style: s, ..view.clone() }));
+                    }
+                }
+            });
+            ui.end_row();
+        });
+        return;
+    }
+    // The sheet.
+    let id = sheet.id;
+    let paper = sheet.paper;
+    let portrait = paper.height > paper.width;
+    let landscape = |p: Paper| if p.height > p.width { Paper { width: p.height, height: p.width } } else { p };
+    let set_paper = |p: Paper, portrait: bool| {
+        let p = landscape(p);
+        let p = if portrait { Paper { width: p.height, height: p.width } } else { p };
+        Action::Apply(Operation::SetSheet { sheet: id, name: sheet.name.clone(), paper: p, grid: sheet.grid })
+    };
+    const SIZES: [(&str, Paper); 5] = [("A4", Paper::A4), ("A3", Paper::A3), ("A2", Paper::A2), ("A1", Paper::A1), ("A0", Paper::A0)];
+    let named = SIZES.iter().find(|(_, p)| *p == landscape(paper)).map(|(n, _)| n.to_string());
+    let units = &doc.settings().units;
+    info_grid(ui).show(ui, |ui| {
+        ui.label(t!("panel.entity_info.type"));
+        ui.label(t!("panel.entity_info.type_sheet"));
+        ui.end_row();
+        field_label(ui, t!("panel.entity_info.name"));
+        if let Some(name) = text_field(ui, (id, 11), &sheet.name, field) {
+            actions.push(Action::Apply(Operation::SetSheet { sheet: id, name, paper, grid: sheet.grid }));
+        }
+        ui.end_row();
+        field_label(ui, t!("panel.entity_info.paper"));
+        let shown = named.unwrap_or_else(|| format!("{} × {}", units.number(paper.width), units.number(paper.height)));
+        combo(("drawing_paper", id.0)).selected_text(shown).show_ui(ui, |ui| {
+            for (n, p) in SIZES {
+                if ui.selectable_label(p == landscape(paper), n).clicked() {
+                    actions.push(set_paper(p, portrait));
+                }
+            }
+        });
+        ui.end_row();
+        field_label(ui, t!("panel.entity_info.orientation"));
+        let orientation = |portrait: bool| if portrait { t!("drawing.paper.portrait") } else { t!("drawing.paper.landscape") };
+        combo(("drawing_orientation", id.0)).selected_text(orientation(portrait)).show_ui(ui, |ui| {
+            for o in [false, true] {
+                if ui.selectable_label(portrait == o, orientation(o)).clicked() && o != portrait {
+                    actions.push(set_paper(paper, o));
+                }
+            }
+        });
+        ui.end_row();
+        field_label(ui, t!("panel.entity_info.projection"));
+        let projection = |p: Projection| match p {
+            Projection::FirstAngle => t!("drawing.projection.first_angle"),
+            Projection::ThirdAngle => t!("drawing.projection.third_angle"),
+        };
+        combo(("drawing_projection", 0)).selected_text(projection(d.projection)).show_ui(ui, |ui| {
+            for p in [Projection::FirstAngle, Projection::ThirdAngle] {
+                if ui.selectable_label(d.projection == p, projection(p)).clicked() && p != d.projection {
+                    actions.push(Action::Apply(Operation::SetProjection(p)));
+                }
+            }
+        });
+        ui.end_row();
+        // The grid the points drawn snap to when nothing else is near (docs/ui/drawing.md#snapping).
+        field_label(ui, t!("panel.entity_info.grid"));
+        let grid_label = |g: f64| if g > 0.0 { format!("{} mm", units.number(g)) } else { t!("drawing.grid_none") };
+        combo(("drawing_grid", id.0)).selected_text(grid_label(sheet.grid)).show_ui(ui, |ui| {
+            for g in [0.0, 1.0, 2.0, 5.0, 10.0] {
+                if ui.selectable_label(sheet.grid == g, grid_label(g)).clicked() && g != sheet.grid {
+                    actions.push(Action::Apply(Operation::SetSheet { sheet: id, name: sheet.name.clone(), paper, grid: g }));
+                }
+            }
+        });
+        ui.end_row();
+    });
+}
+
+/// The « Calques » panel (docs/ui/drawing.md#layers): the drawing's layers, top first — the
+/// active one (what is drawn goes on it), each one's name, shared, shown, locked, moved up or
+/// down, deleted; a new one.
+pub fn layers(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::SheetState, actions: &mut Vec<Action>) {
+    let d = editor.document().drawing();
+    // Sharing a layer takes its elements to the sheet shown (or from it).
+    let Some(sheet) = st.shown(d).map(|s| s.id) else {
+        ui.weak(t!("drawing.no_sheet"));
+        return;
+    };
+    let active = crate::sheet::active_layer(d, st);
+    let n = d.layers.len();
+    let (strong, weak) = (ui.visuals().strong_text_color(), ui.visuals().weak_text_color());
+    // A frameless icon button, lit when `on`.
+    let toggle = |ui: &mut egui::Ui, icon: egui::ImageSource<'static>, on: bool, enabled: bool, tip: String| {
+        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if on { strong } else { weak });
+        ui.add_enabled(enabled, egui::Button::image(img).frame(false)).tip(tip).clicked()
+    };
+    for (k, l) in d.layers.iter().enumerate().rev() {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if ui.radio(active == Some(l.id), "").on_hover_text(t!("drawing.layer.active")).clicked() {
+                st.active_layer = Some(l.id);
+            }
+            // The buttons at the right end, the name in the room left.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                if toggle(ui, crate::icons::CLOSE, false, true, t!("drawing.layer.delete")) {
+                    actions.push(Action::Apply(Operation::DeleteLayer { layer: l.id }));
+                }
+                if toggle(ui, crate::icons::ARROW_DOWN, false, k > 0, t!("drawing.layer.down")) {
+                    actions.push(Action::Apply(Operation::MoveLayer { layer: l.id, index: k - 1 }));
+                }
+                if toggle(ui, crate::icons::ARROW_UP, false, k + 1 < n, t!("drawing.layer.up")) {
+                    actions.push(Action::Apply(Operation::MoveLayer { layer: l.id, index: k + 1 }));
+                }
+                let lock = if l.locked { crate::icons::LOCK } else { crate::icons::UNLOCK };
+                if toggle(ui, lock, l.locked, true, t!("drawing.layer.locked")) {
+                    actions.push(Action::Apply(Operation::SetLayer {
+                        layer: l.id,
+                        name: l.name.clone(),
+                        hidden: l.hidden,
+                        locked: !l.locked,
+                    }));
+                }
+                let eye = if l.hidden { crate::icons::EYE_OFF } else { crate::icons::EYE };
+                if toggle(ui, eye, !l.hidden, true, t!("drawing.layer.shown")) {
+                    actions.push(Action::Apply(Operation::SetLayer {
+                        layer: l.id,
+                        name: l.name.clone(),
+                        hidden: !l.hidden,
+                        locked: l.locked,
+                    }));
+                }
+                if toggle(ui, crate::icons::LAYER_SHARED, l.shared, true, t!("drawing.layer.shared")) {
+                    actions.push(Action::Apply(Operation::ShareLayer { layer: l.id, shared: !l.shared, sheet }));
+                }
+                ui.add_space(4.0);
+                let width = ui.available_width().max(40.0);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    if let Some(name) = text_field(ui, (l.id, 12), &l.name, width) {
+                        actions.push(Action::Apply(Operation::SetLayer { layer: l.id, name, hidden: l.hidden, locked: l.locked }));
+                    }
+                });
+            });
+        });
+    }
+    ui.add_space(4.0);
+    if ui.button(format!("+ {}", t!("drawing.layer.add"))).clicked() {
+        actions.push(Action::Apply(Operation::AddLayer { name: None }));
+    }
+}
+
+/// An element's layer, chosen among the drawing's (moving it there).
+fn layer_row(ui: &mut egui::Ui, d: &skraft_model::Drawing, el: &skraft_model::Element, sheet: Id, width: f32, actions: &mut Vec<Action>) {
+    field_label(ui, t!("panel.entity_info.layer"));
+    let name = d.layer(el.layer).map_or_else(String::new, |l| l.name.clone());
+    egui::ComboBox::from_id_salt(("drawing_layer", el.id.0)).icon(crate::icons::combo_chevron).width(width).selected_text(name).show_ui(
+        ui,
+        |ui| {
+            for l in d.layers.iter().rev() {
+                if ui.selectable_label(l.id == el.layer, &l.name).clicked() && l.id != el.layer {
+                    actions.push(Action::Apply(Operation::MoveToLayer { elements: vec![el.id], layer: l.id, sheet }));
+                }
+            }
+        },
+    );
+    ui.end_row();
+}
+
+/// A text field's name in the « Insérer un champ » menu.
+fn field_name(f: &str) -> String {
+    match f {
+        "document" => t!("drawing.field.document"),
+        "date" => t!("drawing.field.date"),
+        "sheet" => t!("drawing.field.sheet"),
+        "sheet.number" => t!("drawing.field.sheet_number"),
+        "sheet.count" => t!("drawing.field.sheet_count"),
+        "scale" => t!("drawing.field.scale"),
+        other => other.to_owned(),
+    }
+}
+
+/// A standard direction's name.
+fn direction_label(d: skraft_model::Direction) -> String {
+    use skraft_model::Direction;
+    match d {
+        Direction::Front => t!("drawing.direction.front"),
+        Direction::Back => t!("drawing.direction.back"),
+        Direction::Left => t!("drawing.direction.left"),
+        Direction::Right => t!("drawing.direction.right"),
+        Direction::Top => t!("drawing.direction.top"),
+        Direction::Bottom => t!("drawing.direction.bottom"),
+        Direction::Iso => t!("drawing.direction.iso"),
+    }
 }
 
 #[cfg(test)]

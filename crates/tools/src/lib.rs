@@ -8,6 +8,7 @@ pub mod camera;
 pub mod draw;
 mod editor;
 pub mod guides;
+pub mod hidden_lines;
 pub mod infer;
 pub mod navigation;
 pub mod scene;
