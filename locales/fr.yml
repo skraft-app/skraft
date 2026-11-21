@@ -124,6 +124,11 @@ menu:
     journal: "Journal"
   drawing:
     new_sheet: "Nouvelle feuille"
+    new_presentation: "Nouvelle présentation"
+    make_composition: "Créer une composition"
+    explode: "Éclater"
+    make_unique: "Rendre unique"
+    edit_composition: "Modifier la composition"
     add_view: "Nouvelle vue"
     project_view: "Vue projetée"
     tool_text: "Texte"
@@ -158,7 +163,7 @@ menu:
     materials: "Panneau $t(common.materials)"
     outliner: "Panneau $t(panel.outliner.title)"
     components: "Panneau $t(panel.components.title)"
-    layers: "Panneau $t(panel.layers.title)"
+    compositions: "Panneau $t(panel.compositions.title)"
     render_stats: "Statistiques de rendu"
     top: "Dessus"
     front: "Face"
@@ -219,6 +224,7 @@ ribbon:
     appearance: "Apparence"
     components: "Composants"
     sheet: "Feuille"
+    arrange: "Organiser"
     style: "Style"
     dimension: "Coter"
     measure: "Mesurer"
@@ -574,10 +580,12 @@ prefs:
 # The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
 # The parts list, the « Liste des pièces » workspace's stage (docs/ui/parts-list.md).
 drawing:
+  presentation_name: "Présentation %{n}"
   sheet_name: "Feuille %{n}"
   # The status bar on a sheet, per tool and step.
   hint:
     select: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché), ou déplacer la sélection · Maj : ajouter/retirer · Bouton du milieu ou droit : faire glisser la feuille · Double-clic : cadrer la feuille"
+    select_open: "Dans la composition : cliquer pour sélectionner · Glisser : rectangle ou déplacer · Clic hors du cadre ou Échap : en sortir"
     moving: "Relâcher pour poser la sélection · Échap : annuler"
     grip: "Relâcher pour finir · Maj : garder les proportions · Échap : annuler"
     project: "Cliquer d'un côté de la vue de base pour poser la vue projetée · Espace : terminer"
@@ -598,6 +606,13 @@ drawing:
   # A text just put on a sheet, to be written in the entity info.
   text_default: "Texte"
   insert_field: "Insérer un champ"
+  new_field: "Nouveau champ"
+  anchor:
+    free: "Libre"
+    bottom_left: "Bas gauche"
+    bottom_right: "Bas droite"
+    top_left: "Haut gauche"
+    top_right: "Haut droite"
   dim:
     horizontal: "Cote horizontale"
     vertical: "Cote verticale"
@@ -624,6 +639,7 @@ drawing:
   no_view_selected: "Aucune vue sélectionnée sur la feuille"
   delete_sheet: "Supprimer la feuille"
   blank_sheet: "Feuille vierge"
+  blank_presentation: "Présentation vierge"
   subject:
     model: "Le modèle"
     occurrences: "%{count} occurrences"
@@ -660,19 +676,19 @@ drawing:
     radius: "Rayon"
     scale: "Échelle"
     refused: "« %{text} » : valeur non reconnue"
-  no_sheet_hint: "Aucune feuille : « Nouvelle feuille » dans le ruban, ou « + » ci-dessous"
-  layer:
-    plan: "Plan"
+  no_sheet_hint: "Aucune feuille : « Nouvelle feuille » dans le ruban, ou « + » dans le navigateur"
+  composition:
+    name: "Composition"
     title_block: "Cartouche"
-    name: "Calque %{n}"
-    active: "Calque actif : ce qu'on dessine va dessus"
-    shared: "Partagé : sur toutes les feuilles"
-    shown: "Visible"
-    locked: "Verrouillé"
-    up: "Monter"
-    down: "Descendre"
-    delete: "Supprimer le calque et ce qu'il porte"
-    add: "Nouveau calque"
+  # The navigator on a sheet (docs/ui/drawing.md#navigator).
+  tree:
+    lock: "Verrouiller"
+    unlock: "Déverrouiller"
+    up: "Monter (au-dessus)"
+    down: "Descendre (en dessous)"
+    delete_presentation: "Supprimer la présentation"
+    place: "Placer sur la feuille"
+    copy: "Placer une copie"
 parts_list:
   title: "$t(ribbon.workspace.parts)"
   column:
@@ -717,13 +733,22 @@ panel:
     orientation: "Orientation"
     projection: "Projection"
     grid: "Grille"
-    layer: "Calque"
     text: "Texte"
     text_size: "Taille"
     value: "Valeur"
     type_text: "Texte"
     type_line: "Trait"
     type_rect: "Rectangle"
+    type_instance: "Composition"
+    type_presentation: "Présentation"
+    type_document: "Document"
+    anchor: "Ancrage"
+    rotation: "Rotation"
+    border: "Cadre"
+    margin: "Marge"
+    border_width: "Trait"
+    sheets: "Feuilles"
+    values: "Valeurs"
     type_image: "Image"
     # A body of the open part (docs/model/bodies.md), or a group of its bodies.
     type_body: "Corps"
@@ -762,9 +787,6 @@ panel:
     selected_plural: "%{count} sélectionnés"
     # A component chosen in the « Composants » card: how many times it is in the model.
     in_model: "Dans le modèle"
-  # The drawing's layers (docs/ui/drawing.md#layers).
-  layers:
-    title: "Calques"
   # The document's parts and assemblies (docs/ui/components-library.md).
   components:
     title: "Composants"
@@ -794,6 +816,17 @@ panel:
     # The card view: a grid of thumbnails, or a list.
     as_grid: "Vignettes"
     as_list: "Liste"
+  # The drawing's compositions (docs/ui/drawing.md#the-compositions-card).
+  compositions:
+    title: "Compositions"
+    on_sheets: "Sur les feuilles"
+    unused: "Inutilisées"
+    unused_tip: "Sur aucune feuille : gardée jusqu'à la purge"
+    purge_tip: "Supprimer toutes les compositions inutilisées"
+    count_tip: "%{count} instance sur les feuilles"
+    count_tip_plural: "%{count} instances sur les feuilles"
+    delete_tip: "Supprimer cette composition et toutes ses instances"
+    none: "Aucune composition"
   # The entity info's properties (docs/model/properties.md): an entity's values, the
   # model's definitions.
   properties:
@@ -870,6 +903,8 @@ toast:
   materials_imported: "%{count} matière importée de %{file}"
   materials_imported_plural: "%{count} matières importées de %{file}"
   template_added: "Feuille ajoutée depuis le modèle %{file}"
+  template_presentation_added: "Présentation ajoutée depuis le modèle %{file}"
+  pdf_missing_fields: "Champs sans valeur, imprimés tels quels dans le PDF"
   template_saved: "Modèle enregistré : %{file}"
   template_failed: "Le modèle n'a pas pu être enregistré"
   pdf_failed: "Le PDF n'a pas pu être écrit"
@@ -1473,11 +1508,18 @@ operation:
   add_view: "Nouvelle vue"
   add_element: "Ajouter à la feuille"
   set_element: "Modifier sur la feuille"
-  set_projection: "Disposition des vues projetées"
-  add_layer: "Nouveau calque"
-  set_layer: "Modifier le calque"
-  delete_layer: "Supprimer le calque"
-  move_to_layer: "Changer de calque"
+  add_presentation: "Nouvelle présentation"
+  set_presentation: "Modifier la présentation"
+  delete_presentation: "Supprimer la présentation"
+  make_composition: "Créer une composition"
+  explode_instance: "Éclater"
+  make_instance_unique: "Rendre unique"
+  rename_composition: "Renommer la composition"
+  delete_composition: "Supprimer la composition"
+  purge_compositions: "Purger les compositions"
+  set_field: "Modifier un champ"
+  paste_elements: "Coller sur la feuille"
+  move_elements: "Déplacer vers la feuille"
   edit_material: "Modifier la matière"
   delete_material: "Supprimer la matière"
   set_props: "Modifier les propriétés"
@@ -1640,7 +1682,10 @@ error:
     bad_element: "élément de feuille invalide"
     projection_loop: "une vue ne peut pas être projetée d'elle-même"
     projected_from_perspective: "une vue en perspective n'a pas de vues projetées"
-    last_layer: "il faut garder un calque non partagé pour dessiner"
+    composition_loop: "une composition ne peut pas se contenir elle-même"
+    nothing_to_paste: "rien à coller : les vues et les cotes restent dans leur document"
+    split_view: "une vue, ses projections et ses cotes restent ensemble"
+    turned_instance: "une instance tournée ne s'éclate pas : ses textes, rectangles, images ou vues ne tournent pas"
     blend_lost: "%{count} arête n'existe plus"
     blend_lost_plural: "%{count} arêtes n'existent plus"
     blend_no_edge: "aucune arête à cet endroit"
@@ -1670,7 +1715,7 @@ error:
     bad_texture: "matière %{id} : texture invalide"
     bad_drawing: "mise en plan : élément %{id} invalide"
     materials_only: "des matières seules : à importer dans un modèle (Matières)"
-    template_only: "c'est un modèle de feuille : il sert à créer des feuilles dans la mise en plan"
+    template_only: "c'est un modèle de mise en plan : il sert à créer des présentations et des feuilles"
   # Reading or writing a file of the disk (a document, the preferences).
   io: "%{path} : %{error}"
   # The kernel failing (its own messages, from SolidCore, stay in English).

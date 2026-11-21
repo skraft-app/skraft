@@ -29,7 +29,7 @@ use crate::document::{
     Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign,
     Texture, is_identity,
 };
-use crate::drawing::{ElementKind, Paper, Placing, Projection};
+use crate::drawing::{Border, Container, ElementKind, FieldOn, Paper, Projection};
 use crate::props::{PropDef, PropTarget, Props, Value};
 use crate::settings::Settings;
 use crate::stretch::BodyStretch;
@@ -462,10 +462,21 @@ pub enum Operation {
     /// [`Operation::PaintOccurrences`], [`Operation::ReplaceOccurrences`]), and the one making a part there
     /// ([`Operation::AddPrimitive`], « Dessiner dans », docs/tools/draw-options.md).
     At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
-    /// A sheet added to the drawing, last (docs/ui/drawing.md); named « Feuille n » when
-    /// `name` is none. The drawing's first comes with its layers.
-    AddSheet { name: Option<String>, paper: Paper },
-    /// A sheet renamed or its paper changed.
+    /// A presentation added last (docs/ui/drawing.md), « Présentation n » when `name` is none,
+    /// with a first sheet of `paper` if given.
+    AddPresentation { name: Option<String>, paper: Option<Paper> },
+    /// A presentation added from a template, its sheets keeping their names.
+    AddPresentationFrom { template: Arc<Document>, name: Option<String> },
+    /// A presentation renamed, or where its projected views go changed.
+    SetPresentation { presentation: Id, name: String, projection: Projection },
+    /// A presentation deleted, with its sheets.
+    DeletePresentation { presentation: Id },
+    /// A presentation moved to `index` in their order.
+    MovePresentation { presentation: Id, index: usize },
+    /// A sheet added last to `presentation` (none: the first, made if there is none); named
+    /// « Feuille n » when `name` is none.
+    AddSheet { presentation: Option<Id>, name: Option<String>, paper: Paper },
+    /// A sheet renamed, or its paper, grid or border changed.
     SetSheet {
         sheet: Id,
         name: String,
@@ -473,34 +484,46 @@ pub enum Operation {
         /// Its grid's step (paper millimetres; 0: none, at most 100).
         #[serde(default)]
         grid: f64,
+        /// Its frame.
+        #[serde(default)]
+        border: Option<Border>,
     },
-    /// A sheet deleted, with its elements and the views projected from its views.
+    /// A sheet deleted, with its elements.
     DeleteSheet { sheet: Id },
-    /// A sheet moved to `index` in the sheets' order.
-    MoveSheet { sheet: Id, index: usize },
-    /// An element added to a sheet, on a layer (a shared one: on every sheet).
-    AddElement { at: Placing, element: ElementKind },
+    /// A sheet moved to `index` of presentation `presentation` (none: its own).
+    MoveSheet { sheet: Id, presentation: Option<Id>, index: usize },
+    /// An element added on top of a sheet or a composition.
+    AddElement { to: Container, element: ElementKind },
     /// An element changed (moved, its view turned…), of the same kind.
     SetElement { element: Id, kind: ElementKind },
-    /// Elements deleted, and the views projected from them.
+    /// Elements deleted, and what hangs on them (projected views, dimensions).
     DeleteElements { elements: Vec<Id> },
-    /// Where projected views go.
-    SetProjection(Projection),
-    /// A sheet added from a template (`Document::template_of`), its layers joined to the
-    /// document's.
-    AddSheetFrom { template: Arc<Document>, name: Option<String> },
-    /// A layer added on top, named « Calque n » when `name` is none.
-    AddLayer { name: Option<String> },
-    /// A layer renamed, hidden or shown, locked or not.
-    SetLayer { layer: Id, name: String, hidden: bool, locked: bool },
-    /// A layer shared (its elements on `sheet` become every sheet's) or not (copied on each).
-    ShareLayer { layer: Id, shared: bool, sheet: Id },
-    /// A layer deleted with its elements.
-    DeleteLayer { layer: Id },
-    /// A layer moved to `index` in the layers' order (bottom first).
-    MoveLayer { layer: Id, index: usize },
-    /// Elements moved onto another layer (off a shared one, onto `sheet`).
-    MoveToLayer { elements: Vec<Id>, layer: Id, sheet: Id },
+    /// Elements hidden or shown, locked or not (`None`: left as it is).
+    SetElementState { elements: Vec<Id>, hidden: Option<bool>, locked: Option<bool> },
+    /// An element moved to `index` in its container's order (bottom first).
+    MoveElement { element: Id, index: usize },
+    /// A sheet added from a template's sheet (none: its first), its compositions brought in once.
+    AddSheetFrom { template: Arc<Document>, sheet: Option<Id>, presentation: Option<Id>, name: Option<String> },
+    /// Elements of one container gathered into a composition placed there (decision 0049), « Groupe#n »
+    /// when `name` is none.
+    MakeComposition { elements: Vec<Id>, name: Option<String> },
+    /// A fragment of a drawing (`Document::elements_fragment`) pasted on top of `to`, moved by
+    /// `offset`; `linked` when copied from this document in a state it still knows.
+    PasteElements { fragment: Arc<Document>, to: Container, offset: glam::DVec2, linked: bool },
+    /// Elements of a sheet, with what hangs on them, moved (or copied) onto sheet `to`.
+    MoveElements { elements: Vec<Id>, to: Id, offset: glam::DVec2, copy: bool },
+    /// An instance replaced by copies of what its composition holds.
+    ExplodeInstance { instance: Id },
+    /// An instance given a composition of its own, a copy of the one it shares.
+    MakeInstanceUnique { instance: Id },
+    /// A composition named.
+    RenameComposition { composition: Id, name: String },
+    /// A composition deleted, with its instances.
+    DeleteComposition { composition: Id },
+    /// The compositions shown on no sheet deleted.
+    PurgeCompositions,
+    /// A field's value set on a presentation, a sheet or an instance, or cleared.
+    SetField { on: FieldOn, key: String, value: Option<crate::Value> },
     /// Several operations in one step, applied in order: their outcomes put together.
     Batch(Vec<Operation>),
 }
@@ -556,12 +579,20 @@ impl Operation {
             Operation::AddElement { .. } => t!("operation.add_element"),
             Operation::SetElement { .. } => t!("operation.set_element"),
             Operation::DeleteElements { .. } => t!("operation.delete"),
-            Operation::SetProjection(_) => t!("operation.set_projection"),
-            Operation::AddLayer { .. } => t!("operation.add_layer"),
             Operation::AddSheetFrom { .. } => t!("operation.add_sheet"),
-            Operation::SetLayer { .. } | Operation::ShareLayer { .. } | Operation::MoveLayer { .. } => t!("operation.set_layer"),
-            Operation::DeleteLayer { .. } => t!("operation.delete_layer"),
-            Operation::MoveToLayer { .. } => t!("operation.move_to_layer"),
+            Operation::AddPresentation { .. } | Operation::AddPresentationFrom { .. } => t!("operation.add_presentation"),
+            Operation::SetPresentation { .. } | Operation::MovePresentation { .. } => t!("operation.set_presentation"),
+            Operation::DeletePresentation { .. } => t!("operation.delete_presentation"),
+            Operation::SetElementState { .. } | Operation::MoveElement { .. } => t!("operation.set_element"),
+            Operation::MakeComposition { .. } => t!("operation.make_composition"),
+            Operation::ExplodeInstance { .. } => t!("operation.explode_instance"),
+            Operation::MakeInstanceUnique { .. } => t!("operation.make_instance_unique"),
+            Operation::RenameComposition { .. } => t!("operation.rename_composition"),
+            Operation::DeleteComposition { .. } => t!("operation.delete_composition"),
+            Operation::PurgeCompositions => t!("operation.purge_compositions"),
+            Operation::SetField { .. } => t!("operation.set_field"),
+            Operation::PasteElements { .. } => t!("operation.paste_elements"),
+            Operation::MoveElements { .. } => t!("operation.move_elements"),
             Operation::AddMaterial { .. } => t!("operation.add_material"),
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
@@ -708,10 +739,14 @@ pub struct Outcome {
     pub relocated: Vec<(Vec<Id>, Vec<Id>)>,
     /// The sheet added (docs/ui/drawing.md).
     pub sheet: Option<Id>,
-    /// The element added to a sheet.
+    /// The element added to a sheet or a composition, or the instance a group became.
     pub element: Option<Id>,
-    /// The layer added.
-    pub layer: Option<Id>,
+    /// The presentation added.
+    pub presentation: Option<Id>,
+    /// The composition an instance was given.
+    pub composition: Option<Id>,
+    /// The elements an instance exploded into.
+    pub elements: Vec<Id>,
 }
 
 /// What an operation done has to say.
@@ -875,38 +910,74 @@ impl Document {
                 self.settings = settings.clone();
                 Ok(Outcome::default())
             }
-            Operation::AddSheet { name, paper } => {
-                let id = self.add_sheet(name.as_deref(), *paper)?;
+            Operation::AddPresentation { name, paper } => {
+                let id = self.add_presentation(name.as_deref())?;
+                let sheet = paper.map(|p| self.add_sheet(Some(id), None, p)).transpose()?;
+                Ok(Outcome { presentation: Some(id), sheet, ..Outcome::default() })
+            }
+            Operation::AddPresentationFrom { template, name } => {
+                let id = self.add_presentation_from(template, name.as_deref())?;
+                Ok(Outcome { presentation: Some(id), ..Outcome::default() })
+            }
+            Operation::SetPresentation { presentation, name, projection } => {
+                self.set_presentation(*presentation, name, *projection).map(|_| Outcome::default())
+            }
+            Operation::DeletePresentation { presentation } => self.delete_presentation(*presentation).map(|_| Outcome::default()),
+            Operation::MovePresentation { presentation, index } => {
+                self.move_presentation(*presentation, *index).map(|_| Outcome::default())
+            }
+            Operation::AddSheet { presentation, name, paper } => {
+                let id = self.add_sheet(*presentation, name.as_deref(), *paper)?;
                 Ok(Outcome { sheet: Some(id), ..Outcome::default() })
             }
-            Operation::SetSheet { sheet, name, paper, grid } => self.set_sheet(*sheet, name, *paper, *grid).map(|_| Outcome::default()),
+            Operation::SetSheet { sheet, name, paper, grid, border } => {
+                self.set_sheet(*sheet, name, *paper, *grid, *border).map(|_| Outcome::default())
+            }
             Operation::DeleteSheet { sheet } => self.delete_sheet(*sheet).map(|_| Outcome::default()),
-            Operation::MoveSheet { sheet, index } => self.move_sheet(*sheet, *index).map(|_| Outcome::default()),
-            Operation::AddElement { at, element } => {
-                let id = self.add_element(at, element)?;
+            Operation::MoveSheet { sheet, presentation, index } => {
+                self.move_sheet(*sheet, *presentation, *index).map(|_| Outcome::default())
+            }
+            Operation::AddElement { to, element } => {
+                let id = self.add_element(*to, element)?;
                 Ok(Outcome { element: Some(id), ..Outcome::default() })
             }
             Operation::SetElement { element, kind } => self.set_element(*element, kind).map(|_| Outcome::default()),
             Operation::DeleteElements { elements } => self.delete_elements(elements).map(|_| Outcome::default()),
-            Operation::SetProjection(p) => {
-                self.set_projection(*p);
-                Ok(Outcome::default())
+            Operation::SetElementState { elements, hidden, locked } => {
+                self.set_element_state(elements, *hidden, *locked).map(|_| Outcome::default())
             }
-            Operation::AddSheetFrom { template, name } => {
-                let id = self.add_sheet_from(template, name.as_deref())?;
+            Operation::MoveElement { element, index } => self.move_element(*element, *index).map(|_| Outcome::default()),
+            Operation::AddSheetFrom { template, sheet, presentation, name } => {
+                let id = self.add_sheet_from(template, *sheet, *presentation, name.as_deref())?;
                 Ok(Outcome { sheet: Some(id), ..Outcome::default() })
             }
-            Operation::AddLayer { name } => {
-                let id = self.add_layer(name.as_deref())?;
-                Ok(Outcome { layer: Some(id), ..Outcome::default() })
+            Operation::MakeComposition { elements, name } => {
+                let id = self.make_composition(elements, name.as_deref())?;
+                Ok(Outcome { element: Some(id), ..Outcome::default() })
             }
-            Operation::SetLayer { layer, name, hidden, locked } => {
-                self.set_layer(*layer, name, *hidden, *locked).map(|_| Outcome::default())
+            Operation::PasteElements { fragment, to, offset, linked } => {
+                let elements = self.paste_elements(fragment, *to, *offset, *linked)?;
+                Ok(Outcome { elements, ..Outcome::default() })
             }
-            Operation::ShareLayer { layer, shared, sheet } => self.share_layer(*layer, *shared, *sheet).map(|_| Outcome::default()),
-            Operation::DeleteLayer { layer } => self.delete_layer(*layer).map(|_| Outcome::default()),
-            Operation::MoveLayer { layer, index } => self.move_layer(*layer, *index).map(|_| Outcome::default()),
-            Operation::MoveToLayer { elements, layer, sheet } => self.move_to_layer(elements, *layer, *sheet).map(|_| Outcome::default()),
+            Operation::MoveElements { elements, to, offset, copy } => {
+                let elements = self.move_elements(elements, *to, *offset, *copy)?;
+                Ok(Outcome { elements, ..Outcome::default() })
+            }
+            Operation::ExplodeInstance { instance } => {
+                let elements = self.explode_instance(*instance)?;
+                Ok(Outcome { elements, ..Outcome::default() })
+            }
+            Operation::MakeInstanceUnique { instance } => {
+                let composition = self.make_instance_unique(*instance)?;
+                Ok(Outcome { composition: Some(composition), ..Outcome::default() })
+            }
+            Operation::RenameComposition { composition, name } => self.rename_composition(*composition, name).map(|_| Outcome::default()),
+            Operation::DeleteComposition { composition } => self.delete_composition(*composition).map(|_| Outcome::default()),
+            Operation::PurgeCompositions => {
+                self.purge_compositions();
+                Ok(Outcome::default())
+            }
+            Operation::SetField { on, key, value } => self.set_field(*on, key, value.as_ref()).map(|_| Outcome::default()),
             Operation::AddMaterial { name, color } => {
                 let id = self.fresh_id();
                 self.materials.insert(id, Material::new(name.clone(), *color));
@@ -1367,7 +1438,9 @@ impl Document {
                     all.relocated.extend(o.relocated);
                     all.sheet = all.sheet.or(o.sheet);
                     all.element = all.element.or(o.element);
-                    all.layer = all.layer.or(o.layer);
+                    all.presentation = all.presentation.or(o.presentation);
+                    all.composition = all.composition.or(o.composition);
+                    all.elements.extend(o.elements);
                 }
                 Ok(all)
             }

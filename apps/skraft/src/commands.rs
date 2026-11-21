@@ -99,10 +99,17 @@ pub const COMMANDS: &[Command] = &[
     c("components.purge", || t!("menu.edit.purge_unused"), M::Edit, None),
     // The drawing's (docs/ui/drawing.md).
     g("drawing.new_sheet", || t!("menu.drawing.new_sheet"), M::Edit, None),
+    g("drawing.new_presentation", || t!("menu.drawing.new_presentation"), M::Edit, None),
     c("drawing.add_view", || t!("menu.drawing.add_view"), M::Edit, None),
     // Views projected from the view picked, placed on the side the pointer is.
     c("drawing.project_view", || t!("menu.drawing.project_view"), M::Edit, None),
-    // Free elements drawn on the sheet, on the active layer.
+    // The elements picked gathered into a composition, an instance exploded, given a composition of its own,
+    // its composition edited in place (docs/ui/drawing.md#compositions).
+    g("drawing.make_composition", || t!("menu.drawing.make_composition"), M::Edit, Some("G")),
+    c("drawing.explode", || t!("menu.drawing.explode"), M::Edit, None),
+    c("drawing.make_unique", || t!("menu.drawing.make_unique"), M::Edit, None),
+    c("drawing.edit_composition", || t!("menu.drawing.edit_composition"), M::Edit, None),
+    // Free elements drawn on the sheet.
     g("drawing.tool_text", || t!("menu.drawing.tool_text"), M::Tools, None),
     c("drawing.tool_rect", || t!("menu.drawing.tool_rect"), M::Tools, None),
     c("drawing.tool_line", || t!("menu.drawing.tool_line"), M::Tools, None),
@@ -111,9 +118,9 @@ pub const COMMANDS: &[Command] = &[
     c("drawing.dim_radius", || t!("menu.drawing.dim_radius"), M::Tools, None),
     c("drawing.dim_diameter", || t!("menu.drawing.dim_diameter"), M::Tools, None),
     c("drawing.dim_angle", || t!("menu.drawing.dim_angle"), M::Tools, None),
-    // The sheet shown as a template in the library (docs/ui/drawing.md#templates).
+    // The presentation shown as a template in the library (docs/ui/drawing.md#templates).
     c("drawing.save_template", || t!("menu.drawing.save_template"), M::File, None),
-    // The drawing written as a PDF, a page per sheet (docs/ui/drawing.md#pdf).
+    // The presentation shown written as a PDF, a page per sheet (docs/ui/drawing.md#pdf).
     c("drawing.export_pdf", || ellipsis(t!("menu.drawing.export_pdf")), M::File, None),
     // The view picked on the sheet drawn in lines, rendered, or both.
     g("drawing.style_lines", || t!("menu.drawing.style_lines"), M::Edit, None),
@@ -140,7 +147,7 @@ pub const COMMANDS: &[Command] = &[
     c("view.materials", || t!("menu.view.materials"), M::View, None),
     c("view.outliner", || t!("menu.view.outliner"), M::View, None),
     c("view.components", || t!("menu.view.components"), M::View, None),
-    c("view.layers", || t!("menu.view.layers"), M::View, None),
+    c("view.compositions", || t!("menu.view.compositions"), M::View, None),
     c("view.render_stats", || t!("menu.view.render_stats"), M::View, None),
     g("view.top", || t!("menu.view.top"), M::View, Some("Cmd+1")),
     c("view.front", || t!("menu.view.front"), M::View, Some("Cmd+2")),

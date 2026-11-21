@@ -103,6 +103,11 @@ menu:
     journal: "Journal"
   drawing:
     new_sheet: "New Sheet"
+    new_presentation: "New Presentation"
+    make_composition: "Make Composition"
+    explode: "Explode"
+    make_unique: "Make Unique"
+    edit_composition: "Edit Composition"
     add_view: "New View"
     project_view: "Projected View"
     tool_text: "Text"
@@ -134,7 +139,7 @@ menu:
     materials: "$t(common.materials) Panel"
     outliner: "$t(panel.outliner.title) Panel"
     components: "$t(panel.components.title) Panel"
-    layers: "$t(panel.layers.title) Panel"
+    compositions: "$t(panel.compositions.title) Panel"
     render_stats: "Render Statistics"
     top: "Top"
     front: "Front"
@@ -188,6 +193,7 @@ ribbon:
     appearance: "Appearance"
     components: "Components"
     sheet: "Sheet"
+    arrange: "Arrange"
     style: "Style"
     dimension: "Dimension"
     measure: "Measure"
@@ -505,10 +511,12 @@ prefs:
 
 # The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
 drawing:
+  presentation_name: "Presentation %{n}"
   sheet_name: "Sheet %{n}"
   # The status bar on a sheet, per tool and step.
   hint:
     select: "Click to select · Drag: rectangle (→ inside, ← touching), or move the selection · Shift: add/remove · Middle or right button: pan the sheet · Double-click: frame the sheet"
+    select_open: "In the composition: click to select · Drag: rectangle or move · Click off its box or Esc: leave it"
     moving: "Release to drop the selection · Esc: cancel"
     grip: "Release to finish · Shift: keep the proportions · Esc: cancel"
     project: "Click on a side of the base view to place the projected view · Space: done"
@@ -529,6 +537,13 @@ drawing:
   # A text just put on a sheet, to be written in the entity info.
   text_default: "Text"
   insert_field: "Insert Field"
+  new_field: "New field"
+  anchor:
+    free: "Free"
+    bottom_left: "Bottom left"
+    bottom_right: "Bottom right"
+    top_left: "Top left"
+    top_right: "Top right"
   dim:
     horizontal: "Horizontal dimension"
     vertical: "Vertical dimension"
@@ -555,6 +570,7 @@ drawing:
   no_view_selected: "No view selected on the sheet"
   delete_sheet: "Delete Sheet"
   blank_sheet: "Blank sheet"
+  blank_presentation: "Blank presentation"
   subject:
     model: "The model"
     occurrences: "%{count} occurrences"
@@ -591,19 +607,19 @@ drawing:
     radius: "Radius"
     scale: "Scale"
     refused: "“%{text}”: value not understood"
-  no_sheet_hint: "No sheet: « New Sheet » in the ribbon, or « + » below"
-  layer:
-    plan: "Drawing"
+  no_sheet_hint: "No sheet: « New Sheet » in the ribbon, or « + » in the navigator"
+  composition:
+    name: "Composition"
     title_block: "Title Block"
-    name: "Layer %{n}"
-    active: "Active layer: what is drawn goes on it"
-    shared: "Shared: on every sheet"
-    shown: "Shown"
-    locked: "Locked"
-    up: "Move up"
-    down: "Move down"
-    delete: "Delete the layer and what is on it"
-    add: "New Layer"
+  # The navigator on a sheet (docs/ui/drawing.md#navigator).
+  tree:
+    lock: "Lock"
+    unlock: "Unlock"
+    up: "Move up (over)"
+    down: "Move down (under)"
+    delete_presentation: "Delete the presentation"
+    place: "Place on the Sheet"
+    copy: "Place a Copy"
 parts_list:
   title: "$t(ribbon.workspace.parts)"
   column:
@@ -647,13 +663,22 @@ panel:
     orientation: "Orientation"
     projection: "Projection"
     grid: "Grid"
-    layer: "Layer"
     text: "Text"
     text_size: "Size"
     value: "Value"
     type_text: "Text"
     type_line: "Line"
     type_rect: "Rectangle"
+    type_instance: "Composition"
+    type_presentation: "Presentation"
+    type_document: "Document"
+    anchor: "Anchor"
+    rotation: "Rotation"
+    border: "Border"
+    margin: "Margin"
+    border_width: "Line"
+    sheets: "Sheets"
+    values: "Values"
     type_image: "Image"
     type_body: "Body"
     type_group: "Body Group"
@@ -685,9 +710,6 @@ panel:
     selected_plural: "%{count} selected"
     # A component chosen in the Components card: how many times it is in the model.
     in_model: "In model"
-  # The drawing's layers (docs/ui/drawing.md#layers).
-  layers:
-    title: "Layers"
   # The document's parts and assemblies (docs/ui/components-library.md).
   components:
     title: "Components"
@@ -717,6 +739,17 @@ panel:
     # The card view: a grid of thumbnails, or a list.
     as_grid: "Thumbnails"
     as_list: "List"
+  # The drawing's compositions (docs/ui/drawing.md#the-compositions-card).
+  compositions:
+    title: "Compositions"
+    on_sheets: "On the Sheets"
+    unused: "Unused"
+    unused_tip: "On no sheet: kept until purged"
+    purge_tip: "Delete all unused compositions"
+    count_tip: "%{count} instance on the sheets"
+    count_tip_plural: "%{count} instances on the sheets"
+    delete_tip: "Delete this composition and all its instances"
+    none: "No compositions"
   # The entity info's properties (docs/model/properties.md): an entity's values, the
   # model's definitions.
   properties:
@@ -783,6 +816,8 @@ toast:
   materials_imported: "%{count} material imported from %{file}"
   materials_imported_plural: "%{count} materials imported from %{file}"
   template_added: "Sheet added from the template %{file}"
+  template_presentation_added: "Presentation added from the template %{file}"
+  pdf_missing_fields: "Fields without a value, printed as they are in the PDF"
   template_saved: "Template saved: %{file}"
   template_failed: "The template could not be saved"
   pdf_failed: "The PDF could not be written"
@@ -1330,11 +1365,18 @@ operation:
   add_view: "New View"
   add_element: "Add to Sheet"
   set_element: "Edit on Sheet"
-  set_projection: "Projected Views Layout"
-  add_layer: "New Layer"
-  set_layer: "Edit Layer"
-  delete_layer: "Delete Layer"
-  move_to_layer: "Move to Layer"
+  add_presentation: "New Presentation"
+  set_presentation: "Edit Presentation"
+  delete_presentation: "Delete Presentation"
+  make_composition: "Make Composition"
+  explode_instance: "Explode"
+  make_instance_unique: "Make Unique"
+  rename_composition: "Rename Composition"
+  delete_composition: "Delete Composition"
+  purge_compositions: "Purge Compositions"
+  set_field: "Edit Field"
+  paste_elements: "Paste on Sheet"
+  move_elements: "Move to Sheet"
   edit_material: "Edit Material"
   delete_material: "Delete Material"
   set_props: "Edit Properties"
@@ -1481,7 +1523,10 @@ error:
     bad_element: "invalid sheet element"
     projection_loop: "a view cannot be projected from itself"
     projected_from_perspective: "a perspective view has no projected views"
-    last_layer: "a layer not shared must stay to draw on"
+    composition_loop: "a composition cannot hold itself"
+    nothing_to_paste: "nothing to paste: views and dimensions stay in their document"
+    split_view: "a view, its projections and its dimensions stay together"
+    turned_instance: "a turned instance cannot be exploded: its texts, rectangles, images or views do not turn"
     blend_lost: "%{count} edge no longer exists"
     blend_lost_plural: "%{count} edges no longer exist"
     blend_no_edge: "no edge there"
@@ -1510,7 +1555,7 @@ error:
     bad_texture: "material %{id}: invalid texture"
     bad_drawing: "drawing: invalid element %{id}"
     materials_only: "materials alone: import them into a model (Materials)"
-    template_only: "this is a sheet template: it makes sheets in the drawing"
+    template_only: "this is a drawing template: it makes presentations and sheets"
   io: "%{path}: %{error}"
   kernel:
     failed: "%{call}: %{message}"

@@ -173,9 +173,10 @@ pub const WORKSPACES: &[Workspace] = &[
         icon: icons::DRAWING,
         under_way: true,
         stage: Stage::Sheet,
-        commands: &["drawing.save_template"],
-        // The sheet, and the entity info to set the view picked.
-        panels: Some(&[crate::dock::PanelId::EntityInfo, crate::dock::PanelId::Layers]),
+        commands: &["drawing.save_template", "drawing.edit_composition"],
+        // The sheet, the entity info to set the view picked, the navigator of its tree, the
+        // compositions to place.
+        panels: Some(&[crate::dock::PanelId::EntityInfo, crate::dock::PanelId::Outliner, crate::dock::PanelId::Compositions]),
         fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "edit.erase"], &["tool.select", "edit.erase"]),
         tabs: &[Tab {
             id: "sheet",
@@ -184,14 +185,20 @@ pub const WORKSPACES: &[Workspace] = &[
                 group(
                     "sheet",
                     || t!("ribbon.group.sheet"),
-                    &["drawing.new_sheet", "drawing.add_view", "drawing.project_view", "drawing.export_pdf"],
-                    &["drawing.new_sheet", "drawing.add_view", "drawing.project_view", "drawing.export_pdf"],
+                    &["drawing.new_presentation", "drawing.new_sheet", "drawing.add_view", "drawing.project_view", "drawing.export_pdf"],
+                    &["drawing.new_presentation", "drawing.new_sheet", "drawing.add_view", "drawing.project_view", "drawing.export_pdf"],
                 ),
                 group(
                     "draw",
                     || t!("ribbon.group.draw"),
                     &["drawing.tool_text", "drawing.tool_rect", "drawing.tool_line"],
                     &["drawing.tool_text", "drawing.tool_rect", "drawing.tool_line"],
+                ),
+                group(
+                    "arrange",
+                    || t!("ribbon.group.arrange"),
+                    &["drawing.make_composition", "drawing.explode", "drawing.make_unique"],
+                    &["drawing.make_composition", "drawing.explode", "drawing.make_unique"],
                 ),
                 group(
                     "dimension",
@@ -237,6 +244,10 @@ impl Workspace {
 
     /// Is the command `id` available in it?
     pub fn has(&self, id: &str) -> bool {
+        // A panel of sheets, out of the common « view. » base.
+        if id == "view.compositions" {
+            return self.stage == Stage::Sheet;
+        }
         COMMON.contains(&id)
             || COMMON_PREFIXES.iter().any(|p| id.starts_with(p))
             || self.commands.contains(&id)

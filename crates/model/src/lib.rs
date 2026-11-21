@@ -42,8 +42,8 @@ pub use document::{
     Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache, RawCell, Sign, StretchMask, Texture, name_base,
 };
 pub use drawing::{
-    Direction, Drawing, Element, ElementKind, Frame, Layer, Look, Paper, Perspective, Placing, Projection, Resolved, Sheet, Side, Subject,
-    View, ViewKind, ViewStyle,
+    Border, Composition, Container, Corner, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Instance, Look, Paper, Perspective,
+    Place, Placed, Presentation, Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle, field_key, text_fields,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, VERSION};
@@ -154,8 +154,14 @@ pub enum Refusal {
     ProjectionLoop,
     /// A view projected from a perspective view.
     ProjectedFromPerspective,
-    /// The last layer not shared deleted: nothing left to draw on.
-    LastLayer,
+    /// A composition made to hold itself, at any depth (decision 0049).
+    CompositionLoop,
+    /// Nothing left to paste from another document: only views and dimensions were copied.
+    NothingToPaste,
+    /// A view, its projections and its dimensions parted: they stay in one container.
+    SplitView,
+    /// An instance turned, exploded over what has no rotation of its own.
+    TurnedInstance,
 }
 
 /// A file that cannot be opened.
@@ -197,8 +203,8 @@ pub enum FileError {
     BadProp(String),
     /// A material's texture without its image, or not well formed.
     BadTexture(Id),
-    /// A sheet, layer or element of the drawing whose id is taken, on no layer, or naming what
-    /// is not there (docs/ui/drawing.md).
+    /// A presentation, sheet, composition or element of the drawing whose id is taken, or naming what
+    /// is not there or is not beside it (docs/ui/drawing.md).
     BadDrawing(Id),
     /// Materials alone (a `.skraftmat`): imported into a model, not opened as one.
     MaterialsOnly,
@@ -277,7 +283,10 @@ impl std::fmt::Display for Refusal {
             Refusal::BadElement => t!("error.model.bad_element"),
             Refusal::ProjectionLoop => t!("error.model.projection_loop"),
             Refusal::ProjectedFromPerspective => t!("error.model.projected_from_perspective"),
-            Refusal::LastLayer => t!("error.model.last_layer"),
+            Refusal::CompositionLoop => t!("error.model.composition_loop"),
+            Refusal::NothingToPaste => t!("error.model.nothing_to_paste"),
+            Refusal::SplitView => t!("error.model.split_view"),
+            Refusal::TurnedInstance => t!("error.model.turned_instance"),
         })
     }
 }

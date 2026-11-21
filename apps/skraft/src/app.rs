@@ -11,7 +11,7 @@ use skraft_model::{Boolean, Document, FileView, LengthUnit, Operation, Settings}
 use skraft_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use skraft_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, ToolKind};
 
-use crate::clipboard::Clipboard;
+use crate::clipboard::{Clipboard, Copied};
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
 use crate::dock::{self, Dock, PanelId};
 use crate::docs::{DocId, Docs, file_name};
@@ -792,8 +792,9 @@ impl SkraftApp {
 
     // ---- commands ------------------------------------------------------------------------------
 
-    /// The shown document's drawing written as a PDF (docs/ui/drawing.md#pdf), then saved
-    /// where the user says (a download on the web).
+    /// The presentation shown of the shown document written as a PDF (docs/ui/drawing.md#pdf),
+    /// then saved where the user says (a download on the web): named after the document, and
+    /// after the presentation when it has several.
     fn export_pdf(&mut self, frame: &eframe::Frame) {
         let theme = self.theme;
         let (viewport, docs) = (&mut self.viewport, &self.docs);
@@ -801,11 +802,24 @@ impl SkraftApp {
         let title = d.name();
         // The pictures' lines and edges about as wide as on screen at their resolution.
         let ppp = (crate::pdf::DPI / 150.0) as f32;
-        let bytes = crate::pdf::drawing_pdf(&d.editor, &title, |w| viewport.picture_rgba(frame, d.id, &d.editor, &theme, w, ppp));
+        let drawing = d.editor.document().drawing();
+        let Some(presentation) = d.sheet.presentation(drawing) else { return };
+        let bytes =
+            crate::pdf::drawing_pdf(&d.editor, &title, presentation.id, |w| viewport.picture_rgba(frame, d.id, &d.editor, &theme, w, ppp));
         match bytes {
             Ok(bytes) => {
                 let stem = std::path::Path::new(&title).file_stem().map_or_else(|| title.clone(), |s| s.to_string_lossy().into_owned());
-                file::export_file(bytes, &format!("{stem}.pdf"), "PDF", "pdf", &self.inbox, &self.ctx);
+                let name = match drawing.presentations.len() {
+                    1 => format!("{stem}.pdf"),
+                    _ => format!("{stem} - {}.pdf", presentation.name.replace(['/', '\\', ':'], "-")),
+                };
+                file::export_file(bytes, &name, "PDF", "pdf", &self.inbox, &self.ctx);
+                // What would go out as `{client}` is said (docs/ui/drawing.md#pdf).
+                let missing = crate::pdf::missing_fields(&d.editor, presentation.id);
+                if !missing.is_empty() {
+                    let fields = missing.iter().map(|f| format!("{{{f}}}")).collect::<Vec<_>>().join(", ");
+                    self.toasts.push(Note::new(crate::toasts::Level::Warning, t!("toast.pdf_missing_fields"), Some(fields)));
+                }
             }
             Err(e) => self.toasts.push(Note::error(t!("toast.pdf_failed"), e)),
         }
@@ -839,16 +853,27 @@ impl SkraftApp {
             "edit.group_bodies" => e.can_group_bodies(),
             "edit.ungroup_bodies" => e.can_ungroup_bodies(),
             "edit.move_out" => e.can_move_out(),
+            // On a sheet, what is picked there: the 3D selection is not what is seen.
+            "edit.cut" | "edit.copy" if d.workspace.stage == Stage::Sheet => !crate::sheet::selection(e, &d.sheet).is_empty(),
+            "edit.paste" | "edit.paste_in_place" if d.workspace.stage == Stage::Sheet => {
+                d.sheet.shown(e.document().drawing()).is_some()
+                    && self.clipboard.as_ref().is_some_and(|c| matches!(c.content, Copied::Sheet { .. }))
+            }
+            "edit.select_all" if d.workspace.stage == Stage::Sheet => d.sheet.shown(e.document().drawing()).is_some(),
             "edit.cut" | "edit.copy" => e.can_copy(),
-            "edit.paste" | "edit.paste_in_place" => self.clipboard.as_ref().is_some_and(|c| e.can_paste(&c.clip)),
+            "edit.paste" | "edit.paste_in_place" => {
+                self.clipboard.as_ref().is_some_and(|c| matches!(&c.content, Copied::Model(clip) if e.can_paste(clip)))
+            }
             "view.section" | "view.section_clear" => section,
             "view.show_all" => e.has_hidden(),
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "components.purge" => !e.library_disabled() && !e.unused_components().is_empty(),
             "drawing.add_view" | "drawing.export_pdf" => d.sheet.shown(e.document().drawing()).is_some(),
             "drawing.project_view" => crate::sheet::can_project(e, &d.sheet),
-            // The drawing's layers, on a sheet only.
-            "view.layers" => d.workspace.stage == Stage::Sheet,
+            "drawing.make_composition" => !crate::sheet::selection(e, &d.sheet).is_empty(),
+            "drawing.explode" | "drawing.make_unique" | "drawing.edit_composition" => {
+                !crate::sheet::selected_instances(e, &d.sheet).is_empty()
+            }
             id if crate::sheet::style_of(id).is_some() => !crate::sheet::selected_views(e, &d.sheet).is_empty(),
             "debug.crash_kernel" => self.debug_menu,
             "view.next_tab" | "view.previous_tab" => self.docs.len() > 1,
@@ -1054,18 +1079,20 @@ impl SkraftApp {
         }
         // The drawing as a PDF, at the next frame (the GPU draws the views' pictures).
         if id == "drawing.export_pdf" {
-            if doc.editor.document().drawing().sheets.is_empty() {
+            if doc.sheet.shown(doc.editor.document().drawing()).is_none() {
                 return Err(Note::info(t!("drawing.no_sheet")));
             }
             self.pdf_asked = true;
             return Ok(());
         }
-        // The sheet shown as a template in the library (docs/ui/drawing.md#templates).
+        // The presentation shown as a template in the library (docs/ui/drawing.md#templates).
         if id == "drawing.save_template" {
             let d = doc.editor.document();
-            let Some(sheet) = doc.sheet.shown(d.drawing()) else { return Err(Note::info(t!("drawing.no_sheet"))) };
-            let name = sheet.name.clone();
-            let bytes = d.template_file(sheet.id).map_err(|e| Note::error(t!("toast.template_failed"), e))?;
+            let Some(p) = doc.sheet.presentation(d.drawing()).filter(|p| !p.sheets.is_empty()) else {
+                return Err(Note::info(t!("drawing.no_sheet")));
+            };
+            let name = p.name.clone();
+            let bytes = d.template_file(p.id).map_err(|e| Note::error(t!("toast.template_failed"), e))?;
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let path = crate::templates::install(&name, &bytes).map_err(|e| Note::error(t!("toast.template_failed"), e))?;
@@ -1084,8 +1111,20 @@ impl SkraftApp {
                 crate::sheet::new_sheet(&mut doc.editor, &mut doc.sheet);
                 return Ok(());
             }
+            "edit.select_all" if doc.workspace.stage == Stage::Sheet => {
+                crate::sheet::select_all(&doc.editor, &mut doc.sheet);
+                return Ok(());
+            }
+            "drawing.new_presentation" => {
+                crate::sheet::new_presentation(&mut doc.editor, &mut doc.sheet);
+                return Ok(());
+            }
             "drawing.add_view" => return crate::sheet::add_view(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.project_view" => return crate::sheet::project_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.make_composition" => return crate::sheet::compose_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.explode" => return crate::sheet::explode_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.make_unique" => return crate::sheet::unique_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.edit_composition" => return crate::sheet::edit_selected(&doc.editor, &mut doc.sheet).map_err(Note::info),
             "edit.erase" if doc.workspace.stage == Stage::Sheet => {
                 return crate::sheet::delete_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info);
             }
@@ -1160,9 +1199,18 @@ impl SkraftApp {
         let Some(d) = self.docs.active_mut() else { return };
         // The state copied from: the one before the erase, for a cut.
         let revision = d.editor.history().revision();
-        let Some(clip) = (if cut { d.editor.cut() } else { d.editor.copy() }) else { return };
+        let content = if d.workspace.stage == Stage::Sheet {
+            let Some((fragment, bounds)) = crate::sheet::copy_selected(&d.editor, &d.sheet) else { return };
+            if cut {
+                let _ = crate::sheet::delete_selected(&mut d.editor, &mut d.sheet);
+            }
+            Copied::Sheet { fragment, bounds }
+        } else {
+            let Some(clip) = (if cut { d.editor.cut() } else { d.editor.copy() }) else { return };
+            Copied::Model(clip)
+        };
         self.copies += 1;
-        let c = Clipboard::new(clip, d.id, revision, self.copies);
+        let c = Clipboard::new(content, d.id, revision, self.copies);
         self.ctx.copy_text(c.token.clone());
         self.clipboard = Some(c);
     }
@@ -1173,10 +1221,20 @@ impl SkraftApp {
         let (Some(c), Some(d)) = (&self.clipboard, self.docs.active_mut()) else { return };
         let reuse = c.reuse(d.id, |r| d.editor.history().holds(r));
         d.vcb.clear();
-        if in_place {
-            d.editor.paste_in_place(&c.clip, reuse);
-        } else {
-            d.editor.paste(&c.clip, reuse);
+        match &c.content {
+            // At the sheet's next frame, where the pointer is known in the level open.
+            Copied::Sheet { fragment, bounds } if d.workspace.stage == Stage::Sheet => {
+                d.sheet.asked =
+                    Some(crate::sheet::SheetAsk::Paste { fragment: fragment.clone(), bounds: *bounds, in_place, linked: reuse });
+            }
+            Copied::Model(clip) if d.workspace.stage != Stage::Sheet => {
+                if in_place {
+                    d.editor.paste_in_place(clip, reuse);
+                } else {
+                    d.editor.paste(clip, reuse);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1923,16 +1981,12 @@ impl SkraftApp {
         let (xs, free, max_width) = self.columns(view, margin);
         let pointer = ctx.pointer_latest_pos();
         let dragged = self.panel_drag.map(|d| d.id);
-        // On a sheet, down to its tabs, not over them, the entity info filling.
-        let on_sheet = self.docs.active().is_some_and(|d| d.workspace.stage == Stage::Sheet);
-        let tabs = if on_sheet { crate::sheet::tabs_height(&style) } else { 0.0 };
-        let room = view.bottom() - margin - top - tabs;
+        let room = view.bottom() - margin - top;
         let mut event = None;
         let mut outliner_shown = false;
         let mut columns = Vec::new();
         for (side, (x, width)) in [Dock::Left, Dock::Right].into_iter().zip(xs) {
-            let fills = if on_sheet { PanelId::fills_on_sheet } else { PanelId::fills };
-            let placed = dock::place_with(self.prefs.layout(self.workspace().id).column(side), top, room, metrics, dragged, fills);
+            let placed = dock::place_with(self.prefs.layout(self.workspace().id).column(side), top, room, metrics, dragged, PanelId::fills);
             for p in &placed {
                 let rect = egui::Rect::from_min_size(egui::pos2(x, p.top), egui::vec2(width, p.height));
                 // Every card but the one filling the column has a bottom edge to drag.
@@ -2080,17 +2134,12 @@ impl SkraftApp {
                             area.id_salt("entity_info").show(ui, |ui| {
                                 ui.push_id(doc_id, |ui| {
                                     if sheet {
-                                        panels::drawing_info(ui, &doc.editor, &mut doc.sheet, actions)
+                                        panels::drawing_info(ui, &doc.editor, &mut doc.sheet, &name, actions)
                                     } else {
                                         panels::info(ui, &doc.editor, &name, actions)
                                     }
                                 })
                             });
-                        }
-                        PanelId::Layers => {
-                            let doc_id = doc.id;
-                            area.id_salt("layers")
-                                .show(ui, |ui| ui.push_id(doc_id, |ui| panels::layers(ui, &doc.editor, &mut doc.sheet, actions)));
                         }
                         PanelId::Materials => {
                             let doc_id = doc.id;
@@ -2109,6 +2158,21 @@ impl SkraftApp {
                             };
                             ui.push_id(doc_id, |ui| {
                                 crate::library::components(ui, editor, state, look, actions, area.id_salt("components"))
+                            });
+                        }
+                        PanelId::Compositions => {
+                            let (doc_id, list) = (doc.id, self.prefs.components_list);
+                            let (editor, st) = (&doc.editor, &mut doc.sheet);
+                            ui.push_id(doc_id, |ui| {
+                                crate::sheet_library::compositions(ui, editor, st, list, body, actions, area.id_salt("compositions"))
+                            });
+                        }
+                        // On a sheet, the drawing's tree (docs/ui/drawing.md#navigator).
+                        PanelId::Outliner if doc.workspace.stage == Stage::Sheet => {
+                            let (doc_id, name) = (doc.id, doc.name());
+                            let (editor, st) = (&doc.editor, &mut doc.sheet);
+                            ui.push_id(doc_id, |ui| {
+                                crate::sheet_tree::navigator(ui, editor, st, &name, actions, area.id_salt("sheet_tree"))
                             });
                         }
                         PanelId::Outliner => {
@@ -2765,8 +2829,8 @@ impl eframe::App for SkraftApp {
                             }
                         }
                     }
-                    // A sheet template: put in the library, a sheet made from it in the shown
-                    // document (docs/ui/drawing.md#templates).
+                    // A template: put in the library, and in the shown document a sheet made from
+                    // it, or a presentation when it holds several (docs/ui/drawing.md#templates).
                     Ok((template, skraft_model::Content::Template)) => {
                         #[cfg(not(target_arch = "wasm32"))]
                         {
@@ -2777,13 +2841,22 @@ impl eframe::App for SkraftApp {
                         if self.docs.active().is_none() {
                             self.new_document();
                         }
-                        if let Some(d) = self.docs.active_mut()
-                            && let Ok(Some(o)) = d
-                                .editor
-                                .apply(skraft_model::Operation::AddSheetFrom { template: std::sync::Arc::new(template), name: None })
-                        {
-                            d.sheet.current = o.sheet;
-                            self.toasts.push(Note::success(t!("toast.template_added", file = file_name(&name))));
+                        if let Some(d) = self.docs.active_mut() {
+                            let several = template.drawing().sheets().count() > 1;
+                            let template = std::sync::Arc::new(template);
+                            let added = if several {
+                                crate::sheet::presentation_from(&mut d.editor, &mut d.sheet, template)
+                            } else {
+                                crate::sheet::sheet_from(&mut d.editor, &mut d.sheet, template, None, None)
+                            };
+                            if added {
+                                let key = if several {
+                                    t!("toast.template_presentation_added", file = file_name(&name))
+                                } else {
+                                    t!("toast.template_added", file = file_name(&name))
+                                };
+                                self.toasts.push(Note::success(key));
+                            }
                         }
                     }
                     Err(e) => self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&name)), e)),
@@ -3022,8 +3095,11 @@ impl SkraftApp {
         // The 3D view's rect: what overlays on the view (quick card, drop-up, steps bar, view
         // bar) and what zoom extents frames are placed in.
         let view = split.map_or(area, |s| egui::Rect::from_min_max(egui::pos2(s.view, area.top()), area.max));
-        // A sheet is framed below the ribbon (as last drawn).
-        let sheet_top = self.ribbon_last_bottom.map_or(area.top(), |b| b + margin).clamp(area.top(), area.bottom());
+        // A sheet is framed in what the ribbon (as last drawn) and the side columns leave.
+        let sheet_room = self.ribbon_last_bottom.map(|b| {
+            let (_, free, _) = self.columns(view, margin);
+            egui::Rect::from_x_y_ranges(free, (b + margin).clamp(area.top(), area.bottom())..=area.bottom())
+        });
         let (viewport, docs, prefs) = (&mut self.viewport, &mut self.docs, &self.prefs);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             // Beside the view, the stage's ground is the view's (the table's card over it).
@@ -3037,10 +3113,7 @@ impl SkraftApp {
                         let ready = viewport.sheet_textures(d.id);
                         let title = d.name();
                         let wanted =
-                            crate::sheet::ui(ui, view, sheet_top, &mut d.editor, &mut d.sheet, &mut d.lines, &theme, &ready, &title);
-                        if let Some(c) = d.sheet.command.take() {
-                            actions.push(Action::Command(c));
-                        }
+                            crate::sheet::ui(ui, view, sheet_room, &mut d.editor, &mut d.sheet, &mut d.lines, &theme, &ready, &title);
                         viewport.sheet_pictures(ui.ctx(), frame, d.id, &d.editor, &theme, &wanted);
                     } else {
                         viewport.ui(ui, frame, d.id, &mut d.editor, &d.vcb, &prefs.navigation, &theme, prefs.show_render_stats);
@@ -3322,7 +3395,7 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &st
         ui.end_row();
         ui.label(t!("prefs.interface.panels"));
         ui.vertical(|ui| {
-            for id in PanelId::ALL {
+            for id in PanelId::ALL.into_iter().filter(|id| workspace::find(Some(workspace)).has(id.command())) {
                 let mut shown = prefs.layout(workspace).is_shown(id);
                 if ui.checkbox(&mut shown, panel_title(id)).changed() {
                     prefs.layout_mut(workspace).toggle(id);
@@ -3511,6 +3584,6 @@ fn panel_title(id: PanelId) -> String {
         PanelId::Materials => t!("panel.materials.title"),
         PanelId::Outliner => t!("panel.outliner.title"),
         PanelId::Components => t!("panel.components.title"),
-        PanelId::Layers => t!("panel.layers.title"),
+        PanelId::Compositions => t!("panel.compositions.title"),
     }
 }

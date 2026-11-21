@@ -27,6 +27,7 @@ icon!(REDO, "redo");
 icon!(COMPONENT, "component");
 icon!(MODEL, "model");
 icon!(GROUP, "group");
+icon!(COMPOSITION, "composition");
 icon!(MOVE_OUT, "move_out");
 icon!(EXPLODE, "explode");
 icon!(UNIQUE, "unique");
@@ -65,11 +66,12 @@ icon!(LOCK, "lock");
 icon!(UNLOCK, "unlock");
 icon!(ARROW_UP, "arrow_up");
 icon!(ARROW_DOWN, "arrow_down");
-icon!(LAYER_SHARED, "layer_shared");
 icon!(MODELLING, "modelling");
 icon!(PARTS_LIST, "parts_list");
 icon!(DRAWING, "drawing");
+icon!(SHEET, "sheet");
 icon!(SHEET_ADD, "sheet_add");
+icon!(PRESENTATION_ADD, "presentation_add");
 icon!(VIEW_ADD, "view_add");
 icon!(VIEW_PROJECT, "view_project");
 icon!(SHEET_TEXT, "sheet_text");
@@ -155,7 +157,11 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "view.materials" => MATERIALS,
         "view.section" => SECTION,
         "view.zoom_extents" => EXTENTS,
+        "drawing.new_presentation" => PRESENTATION_ADD,
         "drawing.new_sheet" => SHEET_ADD,
+        "drawing.make_composition" => COMPOSITION,
+        "drawing.explode" => EXPLODE,
+        "drawing.make_unique" => UNIQUE,
         "drawing.add_view" => VIEW_ADD,
         "drawing.project_view" => VIEW_PROJECT,
         "drawing.export_pdf" => EXPORT,

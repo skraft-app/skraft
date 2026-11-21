@@ -54,4 +54,5 @@ state and link the records behind it.
 | 0045 | [The intersection, a third sign of bodies](0045-intersection-a-third-sign.md) | accepted (2026-11-20; built) |
 | 0046 | [Faces pushed back by their slope, in their shader](0046-faces-pushed-back-in-their-shader.md) | accepted (2026-11-20; built) |
 | 0047 | [A workspace shapes the editor: its ribbon, panels, stage, look and commands; the document's](0047-workspaces-shape-the-editor.md) | accepted (2026-11-20) |
-| 0048 | [Drawing: free sheets in the document, for the workshop and for clients](0048-drawing-sheets-in-the-document.md) | accepted (2026-11-20) |
+| 0048 | [Drawing: free sheets in the document, for the workshop and for clients](0048-drawing-sheets-in-the-document.md) | accepted (2026-11-20; layers and templates replaced by 0049) |
+| 0049 | [Drawing: a tree of presentations, sheets and definitions, no layers](0049-drawing-a-tree-of-presentations-and-definitions.md) | accepted (2026-11-21; built) |

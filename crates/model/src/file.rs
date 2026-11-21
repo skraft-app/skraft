@@ -64,8 +64,8 @@ pub enum Content {
     /// Materials alone, imported into a model (`.skraftmat`): a document without geometry
     /// ([`Document::materials_fragment`]).
     Materials,
-    /// A sheet template (`.skrafttpl`, docs/ui/drawing.md#templates): a document holding only a
-    /// drawing — a sheet's paper, its layers, the shared ones' elements, their images
+    /// A template (`.skrafttpl`, docs/ui/drawing.md#templates): a document holding only a
+    /// drawing — a presentation, its sheets and compositions without views, their images
     /// ([`Document::template_of`]).
     Template,
 }
@@ -169,9 +169,10 @@ impl Document {
         self.materials_fragment(ids)?.write(Content::Materials, None)
     }
 
-    /// The sheet `sheet` as a template file (`.skrafttpl`, [`Document::template_of`]).
-    pub fn template_file(&self, sheet: Id) -> Result<Vec<u8>> {
-        self.template_of(sheet)?.write(Content::Template, None)
+    /// The presentation `presentation` as a template file (`.skrafttpl`,
+    /// [`Document::template_of`]).
+    pub fn template_file(&self, presentation: Id) -> Result<Vec<u8>> {
+        self.template_of(presentation)?.write(Content::Template, None)
     }
 
     fn write(&self, content: Content, view: Option<&FileView>) -> Result<Vec<u8>> {
@@ -319,40 +320,42 @@ impl Document {
                 return Err(Error::File(FileError::BadTexture(*id)));
             }
         }
-        // The drawing (docs/ui/drawing.md): ids fresh, elements on known layers (a shared
-        // layer's held by it, the others' by their sheet), images present, views resolved.
+        // The drawing (docs/ui/drawing.md): ids fresh, images present, views resolved, what
+        // hangs on a view beside it, instances of known compositions, no composition holding itself, a
+        // paper's corner only on a sheet.
         let d = &self.drawing;
-        let bad = |id: Id| Error::File(FileError::BadDrawing(id));
-        for l in &d.layers {
-            fresh(l.id, FileError::BadDrawing)?;
-        }
-        for s in &d.sheets {
-            fresh(s.id, FileError::BadDrawing)?;
-        }
-        let owned = d
-            .layers
-            .iter()
-            .map(|l| (l, &l.elements, true))
-            .chain(d.sheets.iter().flat_map(|s| d.layers.iter().filter(|l| !l.shared).map(move |l| (l, &s.elements, false))));
-        for (layer, elements, shared) in owned {
-            for e in elements.iter().filter(|e| e.layer == layer.id || shared) {
-                if shared && e.layer != layer.id {
-                    return Err(bad(e.id));
-                }
-                fresh(e.id, FileError::BadDrawing)?;
-                let fine = match &e.kind {
-                    crate::ElementKind::Image { asset, .. } => self.assets.contains_key(asset),
-                    crate::ElementKind::View(_) => d.resolve(e.id).is_some(),
-                    _ => true,
-                };
-                if !fine {
-                    return Err(bad(e.id));
-                }
+        for p in &d.presentations {
+            fresh(p.id, FileError::BadDrawing)?;
+            for s in &p.sheets {
+                fresh(s.id, FileError::BadDrawing)?;
             }
         }
-        for s in &d.sheets {
-            if let Some(e) = s.elements.iter().find(|e| d.layer(e.layer).is_none_or(|l| l.shared)) {
-                return Err(bad(e.id));
+        for (key, b) in &d.compositions {
+            if *key != b.id {
+                return Err(Error::File(FileError::BadDrawing(b.id)));
+            }
+            fresh(b.id, FileError::BadDrawing)?;
+        }
+        for (container, elements) in d.containers() {
+            for e in elements {
+                fresh(e.id, FileError::BadDrawing)?;
+                let beside = e.kind.hung_on().is_none_or(|v| elements.iter().any(|x| x.id == v));
+                let fine = beside
+                    && match &e.kind {
+                        crate::ElementKind::Image { asset, .. } => self.assets.contains_key(asset),
+                        crate::ElementKind::View(_) => d.resolve(e.id).is_some(),
+                        crate::ElementKind::Instance(i) => {
+                            d.composition(i.composition).is_some()
+                                && match container {
+                                    crate::Container::Sheet(_) => true,
+                                    crate::Container::Composition(b) => i.place.corner.is_none() && !d.reaches(i.composition, b),
+                                }
+                        }
+                        _ => true,
+                    };
+                if !fine {
+                    return Err(Error::File(FileError::BadDrawing(e.id)));
+                }
             }
         }
         let material = |m: &Option<Id>| match m {

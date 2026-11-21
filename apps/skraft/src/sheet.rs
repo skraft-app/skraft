@@ -1,16 +1,16 @@
 //! The « Mise en plan » workspace's stage (docs/ui/drawing.md, decision 0048): a sheet of
 //! the document's drawing on its paper, panned and zoomed, its views' frames, its elements;
-//! the sheets' tabs under it.
+//! the navigator (`sheet_tree`) choosing it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use glam::{DAffine3, DMat4, DVec2, DVec3};
+use glam::{DAffine2, DAffine3, DMat4, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::{
-    DimKind, Dimension, Direction, Drawing, ElementKind, Entity, EntityPath, Found, Id, Look, Operation, Orient, Paper, Placing, Resolved,
-    Sheet, Side, Subject, View, ViewKind, ViewStyle,
+    Container, DimKind, Dimension, Direction, Drawing, ElementKind, Entity, EntityPath, Found, Id, Look, Operation, Orient, Paper, Place,
+    Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle,
 };
 use skraft_theme::Theme;
 use skraft_tools::Editor;
@@ -20,8 +20,13 @@ use crate::viewport;
 /// A document's sheet shown and how it is seen (not saved).
 #[derive(Clone, Debug, Default)]
 pub struct SheetState {
-    /// The sheet shown: none, the first.
+    /// The sheet shown: none, the first of the presentation shown.
     pub current: Option<Id>,
+    /// The presentation shown: the sheet's, kept while it has none (docs/ui/drawing.md#navigator).
+    presentation: Option<Id>,
+    /// The navigator's rows unfolded, and the sheet they were last unfolded for.
+    pub tree_open: skraft_model::FastSet<egui::Id>,
+    pub tree_shown: Option<Id>,
     /// The sheet point at the stage's centre, in millimetres.
     pan: DVec2,
     /// Points per millimetre of paper.
@@ -56,23 +61,32 @@ pub struct SheetState {
     message: Option<String>,
     /// The views' frames on screen last frame, bottom first: what a press lands on.
     frames: Vec<(Id, egui::Rect)>,
+    /// Their boxes in the axes of the level open, last frame.
+    boxes: HashMap<Id, (DVec2, DVec2)>,
+    /// The instances entered, from the sheet down (docs/ui/drawing.md#compositions): what they place
+    /// is edited, the rest faded.
+    pub open: Vec<Id>,
+    /// The box of what the level open shows, in its axes: a click off it leaves it.
+    open_box: Option<(DVec2, DVec2)>,
+    /// The compositions entered last frame: one left empty goes.
+    was_open: Vec<Id>,
+    /// A definition to place on the sheet shown (the navigator's menu).
+    pub place_composition: Option<Id>,
+    /// What the navigator or the clipboard ask of the stage, done at its next frame (it has the
+    /// editor, and the pointer in the level open).
+    pub asked: Option<SheetAsk>,
+    /// The « Compositions » card's search, rows and outlines.
+    pub library: crate::sheet_library::CompositionsState,
+    /// The composition being dragged from that card, placed where it is let go.
+    pub carried: Option<Id>,
+    /// What the entity info shows while nothing is picked.
+    pub info: InfoOn,
     /// What each view shows, for the document's revision and the meshes' generation.
     views: ViewsCache,
-    /// The layer what is drawn goes on (none, or one gone: the first not shared).
-    pub active_layer: Option<Id>,
     /// Where the rectangle or line being drawn starts (sheet millimetres).
     sketch: Option<DVec2>,
-    /// A command the sheet asks the app to run (a tab's menu).
-    pub command: Option<&'static str>,
     /// What a dimension's tool picked so far: the view, the anchors.
     picks: Vec<(Id, skraft_model::Anchor)>,
-}
-
-/// The layer what is drawn goes on: the one chosen if it is still there, shown and not locked,
-/// else the first such one not shared.
-pub fn active_layer(d: &Drawing, st: &SheetState) -> Option<Id> {
-    let usable = |l: &&skraft_model::Layer| !l.hidden && !l.locked;
-    st.active_layer.and_then(|id| d.layer(id)).filter(usable).or_else(|| d.layers.iter().filter(|l| !l.shared).find(usable)).map(|l| l.id)
 }
 
 /// The element picked on the sheet shown, if it is still there.
@@ -86,8 +100,305 @@ pub fn selected_element<'a>(e: &'a Editor, st: &SheetState) -> Option<&'a skraft
 /// The elements picked on the sheet shown that are still there.
 pub fn selection<'a>(e: &'a Editor, st: &SheetState) -> Vec<&'a skraft_model::Element> {
     let d = e.document().drawing();
-    let Some(sheet) = st.shown(d) else { return Vec::new() };
-    d.elements_of(sheet).filter(|el| st.selected.contains(&el.id)).collect()
+    let Some(list) = st.container(d).and_then(|c| d.elements_in(c)) else { return Vec::new() };
+    list.iter().filter(|el| st.selected.contains(&el.id)).collect()
+}
+
+/// What is picked, as a fragment to paste, with the box it covers in the level open.
+pub fn copy_selected(e: &Editor, st: &SheetState) -> Option<(Arc<skraft_model::Document>, (DVec2, DVec2))> {
+    let ids: Vec<Id> = selection(e, st).iter().map(|el| el.id).collect();
+    let to = st.container(e.document().drawing())?;
+    let fragment = e.document().elements_fragment(to, &ids).ok()?;
+    let bounds = ids
+        .iter()
+        .filter_map(|id| st.boxes.get(id).copied())
+        .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+        .unwrap_or((DVec2::ZERO, DVec2::ZERO));
+    Some((Arc::new(fragment), bounds))
+}
+
+/// Everything in the level open picked, but what is hidden or locked.
+pub fn select_all(e: &Editor, st: &mut SheetState) {
+    let d = e.document().drawing();
+    let list = st.container(d).and_then(|c| d.elements_in(c)).unwrap_or(&[]);
+    st.selected = list.iter().filter(|el| !el.hidden && !el.locked).map(|el| el.id).collect();
+}
+
+/// How far box `lo`–`hi` must move to lie on `paper`; too large for it, centred on it.
+fn offset_into(lo: DVec2, hi: DVec2, paper: Paper) -> DVec2 {
+    let along = |lo: f64, hi: f64, room: f64| {
+        if hi - lo > room {
+            (room - lo - hi) / 2.0
+        } else if lo < 0.0 {
+            -lo
+        } else if hi > room {
+            room - hi
+        } else {
+            0.0
+        }
+    };
+    DVec2::new(along(lo.x, hi.x, paper.width), along(lo.y, hi.y, paper.height))
+}
+
+/// The box of `el` in its container's axes; an instance has none of its own.
+fn element_box(e: &Editor, el: &skraft_model::Element, projection: Projection) -> Option<(DVec2, DVec2)> {
+    Some(match &el.kind {
+        ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. } => (*min, *max),
+        ElementKind::Line { from, to } => (from.min(*to), from.max(*to)),
+        ElementKind::Text { at, text, size } => {
+            let columns = text.lines().map(|l| l.chars().count()).max().unwrap_or(1) as f64;
+            let rows = text.lines().count().max(1) as f64;
+            (*at, *at + DVec2::new(columns * size * 0.55, rows * size * 1.25))
+        }
+        ElementKind::View(_) => view_frame(e, &e.document().drawing().resolve_as(el.id, projection)?),
+        ElementKind::Dimension(dim) => dim_shape(e, dim, projection)?.bounds(),
+        ElementKind::Instance(_) => return None,
+    })
+}
+
+/// A composition's outline in its axes, what stands for it in the card and while it is dragged:
+/// its lines, its rectangles, a view's frame, a bar per line of text.
+#[derive(Clone, Debug)]
+pub struct Sketch {
+    pub segments: Vec<(DVec2, DVec2)>,
+    pub lo: DVec2,
+    pub hi: DVec2,
+}
+
+impl Sketch {
+    /// Its lines, as large as they fit in the middle of `rect`.
+    pub fn paint_in(&self, painter: &egui::Painter, rect: egui::Rect, stroke: egui::Stroke) {
+        let size = (self.hi - self.lo).max(DVec2::splat(1e-6));
+        let scale = (rect.width() as f64 / size.x).min(rect.height() as f64 / size.y);
+        let middle = (self.lo + self.hi) / 2.0;
+        let at = |q: DVec2| rect.center() + egui::vec2(((q.x - middle.x) * scale) as f32, ((middle.y - q.y) * scale) as f32);
+        painter.extend(self.segments.iter().map(|(a, b)| egui::Shape::line_segment([at(*a), at(*b)], stroke)));
+    }
+}
+
+/// The outline of composition `id`, what is hidden left out; none when it shows nothing.
+pub fn sketch_of(e: &Editor, id: Id, projection: Projection) -> Option<Sketch> {
+    fn walk(e: &Editor, list: &[skraft_model::Element], to: DAffine2, projection: Projection, depth: usize, s: &mut Sketch) {
+        let d = e.document().drawing();
+        for el in list.iter().filter(|el| !el.hidden) {
+            if let Some(i) = el.kind.instance() {
+                if let Some(c) = d.composition(i.composition).filter(|_| depth < 32) {
+                    walk(e, &c.elements, to * i.place.transform(None), projection, depth + 1, s);
+                }
+                continue;
+            }
+            let Some((lo, hi)) = element_box(e, el, projection) else { continue };
+            let corners = [lo, DVec2::new(hi.x, lo.y), hi, DVec2::new(lo.x, hi.y)].map(|q| to.transform_point2(q));
+            for q in corners {
+                (s.lo, s.hi) = (s.lo.min(q), s.hi.max(q));
+            }
+            match &el.kind {
+                ElementKind::Line { from, to: end } => s.segments.push((to.transform_point2(*from), to.transform_point2(*end))),
+                ElementKind::Text { at, text, size } => {
+                    for (k, line) in text.lines().enumerate() {
+                        let y = at.y + size * (0.5 + 1.25 * (text.lines().count() - 1 - k) as f64);
+                        let width = line.chars().count() as f64 * size * 0.55;
+                        s.segments.push((to.transform_point2(DVec2::new(at.x, y)), to.transform_point2(DVec2::new(at.x + width, y))));
+                    }
+                }
+                ElementKind::Dimension(_) => {}
+                _ => s.segments.extend((0..4).map(|k| (corners[k], corners[(k + 1) % 4]))),
+            }
+        }
+    }
+    let c = e.document().drawing().composition(id)?;
+    let mut s = Sketch { segments: Vec::new(), lo: DVec2::INFINITY, hi: DVec2::NEG_INFINITY };
+    walk(e, &c.elements, DAffine2::IDENTITY, projection, 0, &mut s);
+    (s.lo.x <= s.hi.x).then_some(s)
+}
+
+/// The composition dragged from the card: its outline at the pointer over the sheet, an instance
+/// there, free, when the button is let go; given up elsewhere, or by Esc.
+fn carry_composition(ui: &egui::Ui, e: &mut Editor, st: &mut SheetState, room: egui::Rect, lv: &Paperview, to: Container) {
+    let Some(composition) = st.carried else { return };
+    let ctx = ui.ctx();
+    let (pos, down, esc) = ctx.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down(), i.key_pressed(egui::Key::Escape)));
+    let d = e.document().drawing();
+    let allowed = d.composition(composition).is_some() && !matches!(to, Container::Composition(x) if d.reaches(composition, x));
+    if esc || !allowed {
+        st.carried = None;
+        return;
+    }
+    let over = pos.filter(|p| {
+        room.contains(*p) && ctx.layer_id_at(*p).is_none_or(|l| matches!(l.order, egui::Order::Background | egui::Order::Tooltip))
+    });
+    let projection = st.projection(d);
+    let Some(sketch) = st.library.sketch(e, composition, projection).cloned() else {
+        if !down {
+            st.carried = None;
+        }
+        return;
+    };
+    let at = over.map(|p| lv.to_sheet(p) - (sketch.lo + sketch.hi) / 2.0);
+    if let Some(at) = at {
+        let stroke = egui::Stroke::new(1.0, ui.visuals().selection.stroke.color);
+        let painter = ui.painter().with_clip_rect(room);
+        painter
+            .extend(sketch.segments.iter().map(|(a, b)| egui::Shape::line_segment([lv.to_screen(*a + at), lv.to_screen(*b + at)], stroke)));
+    }
+    if down {
+        return;
+    }
+    st.carried = None;
+    if let Some(at) = at {
+        let place = Place::free(at);
+        let element = ElementKind::Instance(skraft_model::Instance { composition, place, props: Default::default() });
+        match e.apply(Operation::AddElement { to, element }) {
+            Ok(Some(o)) => st.selected = o.element.into_iter().collect(),
+            Ok(None) => {}
+            Err(m) => st.message = Some(m),
+        }
+    }
+}
+
+/// The box on sheet `sheet` of the elements `ids` with their families, those anchored to the
+/// paper left out (they keep their corner on any paper).
+fn free_bounds(e: &Editor, sheet: Id, ids: &[Id]) -> Option<(DVec2, DVec2)> {
+    let doc = e.document();
+    let d = doc.drawing();
+    let members = doc.families(Container::Sheet(sheet), ids).ok()?;
+    let anchored = |id: Id| d.element(id).and_then(|el| el.kind.instance()).is_some_and(|i| i.place.corner.is_some());
+    let mut out: Option<(DVec2, DVec2)> = None;
+    for shown in d.placed(sheet) {
+        let top = shown.top();
+        if !members.contains(&top) || anchored(top) {
+            continue;
+        }
+        let Some((lo, hi)) = element_box(e, shown.element, shown.projection) else { continue };
+        for q in [lo, DVec2::new(hi.x, lo.y), hi, DVec2::new(lo.x, hi.y)].map(|q| shown.transform.transform_point2(q)) {
+            out = Some(out.map_or((q, q), |(a, z)| (a.min(q), z.max(q))));
+        }
+    }
+    out
+}
+
+/// Does what was asked of the stage; `centre`: the stage's on screen.
+fn run_ask(e: &mut Editor, st: &mut SheetState, ask: SheetAsk, centre: egui::Pos2) {
+    match ask {
+        SheetAsk::NewSheet(presentation) => {
+            st.show_presentation(e.document().drawing(), presentation);
+            new_sheet(e, st);
+        }
+        SheetAsk::SheetFrom { template, sheet, name, presentation } => {
+            st.show_presentation(e.document().drawing(), presentation);
+            sheet_from(e, st, template, sheet, name);
+        }
+        SheetAsk::PresentationFrom(template) => {
+            presentation_from(e, st, template);
+        }
+        SheetAsk::Paste { fragment, bounds, in_place, linked } => {
+            let d = e.document().drawing();
+            let Some(sheet) = st.shown(d).map(|s| s.id) else { return };
+            let (to, place) = d.opened(sheet, &st.open).unwrap_or((Container::Sheet(sheet), DAffine2::IDENTITY));
+            let offset = match (in_place, st.pointer) {
+                (true, _) => DVec2::ZERO,
+                (false, Some(p)) => Paperview::new(centre, st.pan, st.zoom).placed(place).to_sheet(p) - (bounds.0 + bounds.1) / 2.0,
+                (false, None) => DVec2::new(10.0, -10.0),
+            };
+            match e.apply(Operation::PasteElements { fragment, to, offset, linked }) {
+                Ok(Some(o)) => {
+                    st.selected = o.elements;
+                    st.amend = None;
+                }
+                Ok(None) => {}
+                Err(m) => st.message = Some(m),
+            }
+        }
+        SheetAsk::Drop { elements, to, copy } => {
+            let d = e.document().drawing();
+            let Some(Container::Sheet(from)) = elements.first().and_then(|id| d.container_of(*id)) else { return };
+            let Some(paper) = d.sheet(to).map(|s| s.paper) else { return };
+            let offset = if from == to {
+                DVec2::new(5.0, -5.0)
+            } else {
+                free_bounds(e, from, &elements).map_or(DVec2::ZERO, |(lo, hi)| offset_into(lo, hi, paper))
+            };
+            match e.apply(Operation::MoveElements { elements, to, offset, copy }) {
+                Ok(Some(o)) => {
+                    st.show_sheet(to);
+                    st.selected = o.elements;
+                }
+                Ok(None) => {}
+                Err(m) => st.message = Some(m),
+            }
+        }
+    }
+}
+
+/// The instances among them.
+pub fn selected_instances<'a>(e: &'a Editor, st: &SheetState) -> Vec<(Id, &'a skraft_model::Instance)> {
+    selection(e, st).into_iter().filter_map(|el| el.kind.instance().map(|i| (el.id, i))).collect()
+}
+
+/// The elements picked gathered into a composition placed there, picked.
+pub fn compose_selected(e: &mut Editor, st: &mut SheetState) -> Result<(), String> {
+    let elements: Vec<Id> = selection(e, st).iter().map(|el| el.id).collect();
+    if elements.is_empty() {
+        return Err(t!("drawing.no_view_selected"));
+    }
+    if let Some(o) = e.apply(Operation::MakeComposition { elements, name: None })? {
+        st.selected = o.element.into_iter().collect();
+    }
+    Ok(())
+}
+
+/// The instances picked replaced by what their compositions hold, picked.
+pub fn explode_selected(e: &mut Editor, st: &mut SheetState) -> Result<(), String> {
+    let ops: Vec<Operation> = selected_instances(e, st).iter().map(|(id, _)| Operation::ExplodeInstance { instance: *id }).collect();
+    let op = match ops.len() {
+        0 => return Err(t!("drawing.no_view_selected")),
+        1 => ops.into_iter().next().expect("one"),
+        _ => Operation::Batch(ops),
+    };
+    if let Some(o) = e.apply(op)? {
+        st.selected = o.elements;
+    }
+    Ok(())
+}
+
+/// The instances picked each given a composition of its own.
+pub fn unique_selected(e: &mut Editor, st: &SheetState) -> Result<(), String> {
+    let ops: Vec<Operation> = selected_instances(e, st).iter().map(|(id, _)| Operation::MakeInstanceUnique { instance: *id }).collect();
+    match ops.len() {
+        0 => Err(t!("drawing.no_view_selected")),
+        1 => e.apply(ops.into_iter().next().expect("one")).map(|_| ()),
+        _ => e.apply(Operation::Batch(ops)).map(|_| ()),
+    }
+}
+
+/// The instance picked entered, its composition edited in place.
+pub fn edit_selected(e: &Editor, st: &mut SheetState) -> Result<(), String> {
+    let Some((id, _)) = selected_instances(e, st).first().copied() else { return Err(t!("drawing.no_view_selected")) };
+    st.enter(id);
+    Ok(())
+}
+
+/// Definition `composition` placed on the level open: where its first instance on a sheet is (a title
+/// block at its corner), a little aside on the sheet already showing it.
+fn place_composition(e: &mut Editor, st: &mut SheetState, composition: Id) {
+    let d = e.document().drawing();
+    let Some(s) = st.shown(d) else { return };
+    let Some(to) = st.container(d) else { return };
+    let on = |list: &[skraft_model::Element]| {
+        list.iter().find_map(|el| el.kind.instance().filter(|i| i.composition == composition).map(|i| i.place))
+    };
+    let mut place = match on(d.elements_in(to).unwrap_or(&[])) {
+        Some(p) => Place { at: p.at + DVec2::new(10.0, -10.0), ..p },
+        None => d.sheets().find_map(|x| on(&x.elements)).unwrap_or_else(|| Place::free(s.paper.size() / 2.0)),
+    };
+    // A composition has no paper.
+    if matches!(to, Container::Composition(_)) {
+        place.corner = None;
+    }
+    let element = ElementKind::Instance(skraft_model::Instance { composition, place, props: Default::default() });
+    if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element }) {
+        st.selected = o.element.into_iter().collect();
+    }
 }
 
 /// The views among them.
@@ -128,14 +439,47 @@ pub struct Fields<'a> {
     pub number: usize,
     pub count: usize,
     pub scale: Option<f64>,
+    /// Where the other fields' values are looked for: the document, this sheet.
+    pub values: Option<(&'a skraft_model::Document, Id)>,
+}
+
+/// What is asked of the stage for its next frame.
+#[derive(Clone, Debug)]
+pub enum SheetAsk {
+    /// What was copied, at the pointer or `in_place`; `linked`: from this document, in a state
+    /// it still knows.
+    Paste { fragment: Arc<skraft_model::Document>, bounds: (DVec2, DVec2), in_place: bool, linked: bool },
+    /// A blank sheet in presentation `.0`.
+    NewSheet(Id),
+    /// A sheet of `template` (`sheet`: none, its first) in `presentation`.
+    SheetFrom { template: Arc<skraft_model::Document>, sheet: Option<Id>, name: Option<String>, presentation: Id },
+    /// A presentation from a template.
+    PresentationFrom(Arc<skraft_model::Document>),
+    /// Elements dragged in the navigator onto sheet `to`, moved or copied.
+    Drop { elements: Vec<Id>, to: Id, copy: bool },
+}
+
+/// What the entity info shows while nothing is picked (docs/ui/drawing.md#entity-info).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InfoOn {
+    #[default]
+    Sheet,
+    Presentation,
+    Document,
+}
+
+/// The fields among `names` that are given values: not those Skraft fills itself.
+pub fn custom_fields(names: impl IntoIterator<Item = String>) -> Vec<String> {
+    names.into_iter().filter(|n| !FIELDS.contains(&n.as_str()) && !n.trim().is_empty()).collect()
 }
 
 /// The fields a text may hold, in the « Insérer un champ » menu's order.
 pub const FIELDS: &[&str] = &["document", "date", "sheet", "sheet.number", "sheet.count", "scale"];
 
 impl Fields<'_> {
-    /// `text` with its `{…}` fields filled (an unknown one left as it is).
-    pub fn fill(&self, text: &str) -> String {
+    /// `text` with its `{…}` fields filled, for an element under the instances `path` (one
+    /// without a value left as it is).
+    pub fn fill(&self, text: &str, path: &[Id]) -> String {
         let mut out = String::with_capacity(text.len());
         let mut rest = text;
         while let Some(i) = rest.find('{') {
@@ -144,7 +488,7 @@ impl Fields<'_> {
             match tail.find('}') {
                 Some(j) => {
                     let key = &tail[1..j];
-                    match self.value(key) {
+                    match self.value(key, path) {
                         Some(v) => out.push_str(&v),
                         None => out.push_str(&tail[..=j]),
                     }
@@ -160,7 +504,7 @@ impl Fields<'_> {
         out
     }
 
-    fn value(&self, key: &str) -> Option<String> {
+    fn value(&self, key: &str, path: &[Id]) -> Option<String> {
         Some(match key {
             "document" => self.document.to_owned(),
             "date" => today(),
@@ -168,7 +512,10 @@ impl Fields<'_> {
             "sheet.number" => self.number.to_string(),
             "sheet.count" => self.count.to_string(),
             "scale" => self.scale.map(scale_label).unwrap_or_default(),
-            _ => return None,
+            _ => {
+                let (doc, sheet) = self.values?;
+                doc.field(sheet, path, key)?.shown(&doc.settings().units)
+            }
         })
     }
 }
@@ -194,7 +541,9 @@ fn today() -> String {
 #[derive(Clone, Debug, Default)]
 struct ViewsCache {
     key: (u64, u64),
-    views: HashMap<Id, Arc<ViewData>>,
+    /// By view and the direction it looks along: a composition's projected view looks its
+    /// presentation's way (docs/ui/drawing.md#compositions).
+    views: HashMap<(Id, [u64; 9]), Arc<ViewData>>,
 }
 
 /// What a view shows.
@@ -287,7 +636,7 @@ impl ViewsCache {
             self.views.clear();
         }
         self.views
-            .entry(id)
+            .entry((id, e_key(r)))
             .or_insert_with(|| {
                 let placed = e.document().subject_parts(r.subject);
                 let mut by_part: HashMap<Id, Vec<Placed>> = HashMap::new();
@@ -425,6 +774,7 @@ fn handles(
     views: &mut ViewsCache,
     el: &skraft_model::Element,
     frame: Option<(DVec2, DVec2)>,
+    projection: Projection,
 ) -> Vec<(Handle, DVec2)> {
     let pick = |s: i8, lo: f64, hi: f64| match s {
         -1 => lo,
@@ -451,7 +801,7 @@ fn handles(
                 .collect()
         }),
         ElementKind::Text { .. } => frame.map_or_else(Vec::new, |(_, hi)| vec![(Handle::Size, hi)]),
-        ElementKind::Dimension(dim) => view_map(e, d, views, dim.view)
+        ElementKind::Dimension(dim) => view_map(e, d, views, dim.view, projection)
             .map_or_else(Vec::new, |(r, c)| vec![(Handle::Dim, crate::dims::shape(e.document(), &r, c, dim).grip)]),
         _ => Vec::new(),
     }
@@ -527,18 +877,20 @@ fn regrip(g: &Grip, p: DVec2, shift: bool) -> ElementKind {
 type Picked = (skraft_model::Element, (DVec2, DVec2), Vec<(Handle, DVec2)>);
 
 /// The element picked alone, its box as last drawn (sheet millimetres) and its handles —
-/// none on a locked layer's (not in `frames`).
-fn picked_handles(e: &Editor, st: &mut SheetState, pv: &Paperview) -> Option<Picked> {
+/// none on a locked element (not in `frames`).
+fn picked_handles(e: &Editor, st: &mut SheetState) -> Option<Picked> {
     let el = selected_element(e, st)?.clone();
-    let r = st.frames.iter().find(|(id, _)| *id == el.id)?.1;
-    let frame = (pv.to_sheet(r.left_bottom()), pv.to_sheet(r.right_top()));
-    let hs = handles(e, e.document().drawing(), &mut st.views, &el, Some(frame));
+    st.frames.iter().find(|(id, _)| *id == el.id)?;
+    let frame = *st.boxes.get(&el.id)?;
+    let d = e.document().drawing();
+    let projection = st.projection(d);
+    let hs = handles(e, d, &mut st.views, &el, Some(frame), projection);
     Some((el, frame, hs))
 }
 
 /// The handle of the element picked alone under `p` (screen points), the nearest.
 fn handle_at(e: &Editor, st: &mut SheetState, pv: &Paperview, p: egui::Pos2) -> Option<Grip> {
-    let (el, (lo, hi), hs) = picked_handles(e, st, pv)?;
+    let (el, (lo, hi), hs) = picked_handles(e, st)?;
     let (handle, start, _) = hs
         .into_iter()
         .map(|(h, q)| (h, q, pv.to_screen(q).distance(p)))
@@ -719,8 +1071,10 @@ fn sketch_grip(tool: SheetTool, from: DVec2, to: DVec2) -> Grip {
 /// Where the pointer aims on a sheet (docs/ui/drawing.md#snapping).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Aim {
-    /// The point, sheet millimetres.
+    /// The point, in the axes of the level open (the sheet's, none open).
     at: DVec2,
+    /// The same on the sheet, where its marks are drawn; `along_x` and `along_y` are too.
+    mark: DVec2,
     /// Snapped on a point (an element's corner or end, a view's vertex or frame corner).
     point: bool,
     /// The point it is aligned with along the sheet's x (the same y), along its y (the same x).
@@ -730,24 +1084,29 @@ struct Aim {
 
 /// The points of sheet `sheet` a point snaps on, and those it aligns with: rectangles' and
 /// images' corners, lines' ends, views' frame corners (both); views' vertices (snapped on only:
-/// so many would align everywhere); not `skip`'s, nor a hidden layer's.
-fn snap_points(e: &Editor, d: &Drawing, views: &mut ViewsCache, sheet: Id, skip: Option<Id>) -> (Vec<DVec2>, Vec<DVec2>) {
+/// so many would align everywhere), through its instances; not `skip`'s (right in the level
+/// `open`), nor what is hidden.
+fn snap_points(e: &Editor, d: &Drawing, views: &mut ViewsCache, sheet: Id, open: &[Id], skip: Option<Id>) -> (Vec<DVec2>, Vec<DVec2>) {
     let (mut on, mut align) = (Vec::new(), Vec::new());
     let Some(s) = d.sheet(sheet) else { return (on, align) };
     let corners = |lo: DVec2, hi: DVec2| [lo, DVec2::new(hi.x, lo.y), hi, DVec2::new(lo.x, hi.y)];
-    for el in d.elements_of(s) {
-        if Some(el.id) == skip || d.layer(el.layer).is_some_and(|l| l.hidden) {
+    for shown in d.placed(s.id) {
+        if shown.hidden || skip.is_some_and(|s| shown.under(open) == Some(s)) {
             continue;
         }
+        let t = shown.transform;
+        let el = shown.element;
         match &el.kind {
-            ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. } => align.extend(corners(*min, *max)),
-            ElementKind::Line { from, to } => align.extend([*from, *to]),
+            ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. } => {
+                align.extend(corners(*min, *max).map(|q| t.transform_point2(q)));
+            }
+            ElementKind::Line { from, to } => align.extend([*from, *to].map(|q| t.transform_point2(q))),
             ElementKind::View(_) => {
-                let Some(r) = d.resolve(el.id) else { continue };
+                let Some(r) = d.resolve_as(el.id, shown.projection) else { continue };
                 let data = views.get(e, el.id, &r);
                 let (lo, hi) = frame_of(&r, data.bx3.map(|(lo, hi)| (lo.truncate(), hi.truncate())));
-                align.extend(corners(lo, hi));
-                on.extend(data.snaps(e, &r).vertices.iter().map(|v| v.3));
+                align.extend(corners(lo, hi).map(|q| t.transform_point2(q)));
+                on.extend(data.snaps(e, &r).vertices.iter().map(|v| t.transform_point2(v.3)));
             }
             _ => {}
         }
@@ -789,20 +1148,32 @@ fn aim_at(on: &[DVec2], align: &[DVec2], p: DVec2, reach: f64, from: Option<DVec
     aim
 }
 
-/// Where the pointer at `p` (sheet millimetres) aims for the shape being drawn or the handle
-/// being dragged; `lock` (Shift, a line): its direction from where it started kept horizontal
-/// or vertical, the nearer.
+/// Where the pointer at `p` (in the axes of the level open) aims for the shape being drawn or
+/// the handle being dragged, `from` in those axes too; `lock` (Shift, a line): its direction
+/// from where it started kept horizontal or vertical, the nearer. Snapped on the sheet, its
+/// points and grid, and given back in those axes.
 #[allow(clippy::too_many_arguments)]
 fn aim_for(e: &Editor, st: &mut SheetState, sheet: Id, zoom: f64, p: DVec2, skip: Option<Id>, from: Option<DVec2>, lock: bool) -> Aim {
     let d = e.document().drawing();
     let grid = d.sheet(sheet).map_or(0.0, |s| s.grid);
-    let (on, align) = snap_points(e, d, &mut st.views, sheet, skip);
+    let place = d.opened(sheet, &st.open).map_or(DAffine2::IDENTITY, |(_, t)| t);
+    let (p, from) = (place.transform_point2(p), from.map(|f| place.transform_point2(f)));
+    let open = st.open.clone();
+    let (on, align) = snap_points(e, d, &mut st.views, sheet, &open, skip);
     let reach = SNAP_PT as f64 / zoom;
+    let mut aim = aim_on_sheet(&on, &align, p, reach, from, grid, lock);
+    aim.mark = aim.at;
+    aim.at = place.inverse().transform_point2(aim.at);
+    aim
+}
+
+/// [`aim_at`], `lock` keeping a line horizontal or vertical from `from`.
+fn aim_on_sheet(on: &[DVec2], align: &[DVec2], p: DVec2, reach: f64, from: Option<DVec2>, grid: f64, lock: bool) -> Aim {
     match from {
         Some(f) if lock => {
             // Along the axis through its start: only the other coordinate snaps.
             let horizontal = (p.x - f.x).abs() >= (p.y - f.y).abs();
-            let mut aim = aim_at(&[], &align, p, reach, None, grid);
+            let mut aim = aim_at(&[], align, p, reach, None, grid);
             if horizontal {
                 aim.at.y = f.y;
                 aim.along_x = Some(f);
@@ -812,7 +1183,7 @@ fn aim_for(e: &Editor, st: &mut SheetState, sheet: Id, zoom: f64, p: DVec2, skip
             }
             aim
         }
-        _ => aim_at(&on, &align, p, reach, from, grid),
+        _ => aim_at(on, align, p, reach, from, grid),
     }
 }
 
@@ -822,7 +1193,7 @@ const SNAP_PT: f32 = 8.0;
 /// An aim's marks: the point snapped on circled, the alignments dotted — along the sheet's x
 /// red, along its y green, as the 3D view's axes.
 fn draw_aim(painter: &egui::Painter, pv: &Paperview, aim: &Aim) {
-    let at = pv.to_screen(aim.at);
+    let at = pv.to_screen(aim.mark);
     if aim.point {
         painter.circle_stroke(at, 5.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(230, 120, 30)));
     }
@@ -834,9 +1205,88 @@ fn draw_aim(painter: &egui::Painter, pv: &Paperview, aim: &Aim) {
 }
 
 impl SheetState {
-    /// The sheet shown: `current` if it still is, else the first.
+    /// The presentation shown: the sheet's, else the one last shown, else the first.
+    pub fn presentation<'a>(&self, d: &'a Drawing) -> Option<&'a skraft_model::Presentation> {
+        self.current
+            .and_then(|s| d.presentation_of(s))
+            .or_else(|| self.presentation.and_then(|p| d.presentation(p)))
+            .or_else(|| d.presentations.first())
+    }
+
+    /// The sheet shown: `current` if it still is, else the first of the presentation shown.
     pub fn shown<'a>(&self, d: &'a Drawing) -> Option<&'a Sheet> {
-        self.current.and_then(|id| d.sheet(id)).or_else(|| d.sheets.first())
+        self.current.and_then(|id| d.sheet(id)).or_else(|| self.presentation(d)?.sheets.first())
+    }
+
+    /// Where its projected views go: the presentation shown's.
+    pub fn projection(&self, d: &Drawing) -> Projection {
+        self.presentation(d).map_or_else(Projection::default, |p| p.projection)
+    }
+
+    /// What holds what is edited now: the composition of the last instance entered, else the sheet
+    /// shown.
+    pub fn container(&self, d: &Drawing) -> Option<Container> {
+        let s = self.shown(d)?;
+        Some(d.opened(s.id, &self.open).map_or(Container::Sheet(s.id), |(c, _)| c))
+    }
+
+    /// Sheet `id` shown, what was being drawn on the other one dropped.
+    pub fn show_sheet(&mut self, id: Id) {
+        if self.current != Some(id) {
+            self.current = Some(id);
+            self.amend = None;
+            self.picks.clear();
+            self.sketch = None;
+            self.selected.clear();
+            self.open.clear();
+        }
+    }
+
+    /// Instance `id`, in the level open, entered.
+    pub fn enter(&mut self, id: Id) {
+        self.open.push(id);
+        self.selected.clear();
+        self.amend = None;
+        self.picks.clear();
+        self.sketch = None;
+    }
+
+    /// One level up, the instance left picked.
+    pub fn leave(&mut self) {
+        if let Some(id) = self.open.pop() {
+            self.selected = vec![id];
+            self.amend = None;
+            self.picks.clear();
+            self.sketch = None;
+        }
+    }
+
+    /// The levels open down to `path`, kept as far as they agree with it.
+    pub fn open_to(&mut self, path: &[Id]) {
+        let k = self.open.iter().zip(path).take_while(|(a, b)| a == b).count();
+        if k < self.open.len() {
+            self.open.truncate(k);
+            self.selected.clear();
+            self.amend = None;
+            self.picks.clear();
+            self.sketch = None;
+        }
+    }
+
+    /// Presentation `id` shown, at its first sheet (none while it has none).
+    pub fn show_presentation(&mut self, d: &Drawing, id: Id) {
+        if self.presentation(d).is_some_and(|p| p.id == id) {
+            return;
+        }
+        self.presentation = Some(id);
+        match d.presentation(id).and_then(|p| p.sheets.first()) {
+            Some(s) => self.show_sheet(s.id),
+            None => {
+                self.current = None;
+                self.selected.clear();
+                self.open.clear();
+            }
+        }
     }
 
     /// Frames the sheet whole at the next frame.
@@ -857,6 +1307,7 @@ impl SheetState {
                 (Some(from), Some(p)) if p.x < from.x => t!("tool.select.hint.crossing"),
                 (Some(_), _) => t!("tool.select.hint.window"),
                 _ if self.moving.is_some() => t!("drawing.hint.moving"),
+                _ if !self.open.is_empty() => t!("drawing.hint.select_open"),
                 _ => t!("drawing.hint.select"),
             },
             SheetTool::Project { .. } => t!("drawing.hint.project"),
@@ -1000,19 +1451,19 @@ fn picture_side(px: f64) -> u32 {
     q.min(MAX_PICTURE).round() as u32
 }
 
-/// The picture view `id` (`style`, showing `data`) asks for, its frame `rect` on screen, its
-/// lines (`lines`, as last computed) over its parts.
+/// The picture view `id` (`style`, showing `data`) asks for, its frame `frame` points wide and
+/// high on screen (turned or not), its lines (`lines`, as last computed) over its parts.
 fn wanted_picture(
     id: Id,
     style: ViewStyle,
     r: &Resolved<'_>,
     data: &ViewData,
     lines: Option<Arc<skraft_tools::hidden_lines::ViewLines>>,
-    rect: egui::Rect,
+    frame: egui::Vec2,
     ppp: f32,
 ) -> Option<Wanted> {
     let b = data.bx3?;
-    let size = [picture_side((rect.width() * ppp) as f64), picture_side((rect.height() * ppp) as f64)];
+    let size = [picture_side((frame.x * ppp) as f64), picture_side((frame.y * ppp) as f64)];
     // Points per paper millimetre in the picture.
     let frame_mm = (b.1.x - b.0.x).max(1e-9) * r.scale;
     let ppm = size[0] as f64 / ppp as f64 / frame_mm;
@@ -1108,10 +1559,60 @@ fn subject_of_selection(e: &Editor) -> Subject {
     }
 }
 
-/// A new sheet, A3 landscape, shown.
+/// A new sheet, A3 landscape, in the presentation shown, shown.
 pub fn new_sheet(e: &mut Editor, st: &mut SheetState) {
-    if let Ok(Some(o)) = e.apply(Operation::AddSheet { name: None, paper: Paper::A3 }) {
-        st.current = o.sheet;
+    let presentation = st.presentation(e.document().drawing()).map(|p| p.id);
+    if let Ok(Some(o)) = e.apply(Operation::AddSheet { presentation, name: None, paper: Paper::A3 })
+        && let Some(s) = o.sheet
+    {
+        st.show_sheet(s);
+    }
+}
+
+/// A sheet from `template`'s `sheet` (none: its first) in the presentation shown, « Feuille n »
+/// unless `name` is given and free there, shown. Was it made?
+pub fn sheet_from(
+    e: &mut Editor,
+    st: &mut SheetState,
+    template: Arc<skraft_model::Document>,
+    sheet: Option<Id>,
+    name: Option<String>,
+) -> bool {
+    let shown = st.presentation(e.document().drawing());
+    // A name its presentation already has: « Feuille n » instead.
+    let name = name.filter(|n| !shown.is_some_and(|p| p.sheets.iter().any(|s| s.name == *n)));
+    let presentation = shown.map(|p| p.id);
+    match e.apply(Operation::AddSheetFrom { template, sheet, presentation, name }) {
+        Ok(Some(o)) => {
+            if let Some(s) = o.sheet {
+                st.show_sheet(s);
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// A presentation from `template`, shown. Was it made?
+pub fn presentation_from(e: &mut Editor, st: &mut SheetState, template: Arc<skraft_model::Document>) -> bool {
+    match e.apply(Operation::AddPresentationFrom { template, name: None }) {
+        Ok(Some(o)) => {
+            if let Some(p) = o.presentation {
+                st.show_presentation(e.document().drawing(), p);
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// A new presentation with a first sheet, A3 landscape, shown.
+pub fn new_presentation(e: &mut Editor, st: &mut SheetState) {
+    if let Ok(Some(o)) = e.apply(Operation::AddPresentation { name: None, paper: Some(Paper::A3) }) {
+        st.presentation = o.presentation;
+        if let Some(s) = o.sheet {
+            st.show_sheet(s);
+        }
     }
 }
 
@@ -1120,16 +1621,19 @@ pub fn new_sheet(e: &mut Editor, st: &mut SheetState) {
 pub fn add_view(e: &mut Editor, st: &mut SheetState) -> Result<(), String> {
     let sheet = st.shown(e.document().drawing()).ok_or_else(|| t!("drawing.no_sheet"))?;
     let (sheet_id, paper) = (sheet.id, sheet.paper);
-    let n = sheet.elements.iter().filter(|e| matches!(e.kind, ElementKind::View(_))).count() + 1;
+    // On the level open, at the paper's centre.
+    let d = e.document().drawing();
+    let (to, place) = d.opened(sheet_id, &st.open).unwrap_or((Container::Sheet(sheet_id), DAffine2::IDENTITY));
+    let n = d.elements_in(to).unwrap_or(&[]).iter().filter(|e| matches!(e.kind, ElementKind::View(_))).count() + 1;
     let subject = subject_of_selection(e);
     let look = Look::Standard(Direction::Front);
     let (frame, perspective) = look.frame();
-    let at = paper.size() / 2.0;
+    let at = place.inverse().transform_point2(paper.size() / 2.0);
     // Its scale from its box, seen at scale 1.
     let probe = Resolved { subject: &subject, frame, perspective, scale: 1.0, at };
     let scale = subject_box(e, &probe).map_or(1.0, |(lo, hi)| scale_to_fit(hi - lo, paper.size() / 2.0));
     let view = View { name: t!("drawing.view_name", n = n), kind: ViewKind::Base { subject, look, scale, at }, style: ViewStyle::Lines };
-    e.apply(Operation::AddElement { at: Placing { sheet: sheet_id, layer: None }, element: ElementKind::View(view) }).map(|_| ())
+    e.apply(Operation::AddElement { to, element: ElementKind::View(view) }).map(|_| ())
 }
 
 /// The view picked on the sheet shown, if it is still there.
@@ -1188,20 +1692,25 @@ fn moved_element(kind: &ElementKind, offset: DVec2) -> ElementKind {
             };
             ElementKind::Dimension(Dimension { view: dim.view, kind })
         }
+        ElementKind::Instance(i) => {
+            let mut i = i.clone();
+            i.place.at += offset;
+            ElementKind::Instance(i)
+        }
     }
 }
 
 /// Dimension `dim` as drawn now, its view's box computed afresh (the PDF's).
-pub fn dim_shape(e: &Editor, dim: &Dimension) -> Option<crate::dims::DimShape> {
+pub fn dim_shape(e: &Editor, dim: &Dimension, projection: skraft_model::Projection) -> Option<crate::dims::DimShape> {
     let d = e.document().drawing();
-    let r = d.resolve(dim.view)?;
+    let r = d.resolve_as(dim.view, projection)?;
     let (lo, hi) = subject_box3(e, &r)?;
     Some(crate::dims::shape(e.document(), &r, ((lo + hi) / 2.0).truncate(), dim))
 }
 
 /// How a view maps its model onto the sheet: its resolution and its box's centre.
-fn view_map<'a>(e: &Editor, d: &'a Drawing, views: &mut ViewsCache, view: Id) -> Option<(Resolved<'a>, DVec2)> {
-    let r = d.resolve(view)?;
+fn view_map<'a>(e: &Editor, d: &'a Drawing, views: &mut ViewsCache, view: Id, projection: Projection) -> Option<(Resolved<'a>, DVec2)> {
+    let r = d.resolve_as(view, projection)?;
     let centre = views.get(e, view, &r).centre()?;
     Some((r, centre))
 }
@@ -1227,30 +1736,32 @@ fn near_polyline(line: &[DVec2], p: DVec2) -> (f64, usize, f64) {
 }
 
 /// What a dimension's tool picks at `p` (sheet millimetres) within `reach`: a vertex
-/// (linear) or an edge (a circle's: radius, diameter; a straight one: angle) of a view on
-/// sheet `sheet` (`only`: that view's); its view, its anchor, and where it is on the sheet.
+/// (linear) or an edge (a circle's: radius, diameter; a straight one: angle) of a view right
+/// in `list`, what is edited (`only`: that view's; a dimension stays beside its view, so one in
+/// an instance is dimensioned once in its composition), `p` in its axes; its view, its anchor, and
+/// where it is.
 #[allow(clippy::too_many_arguments)]
 fn pick_at(
     e: &Editor,
     d: &Drawing,
     views: &mut ViewsCache,
-    sheet: Id,
+    list: &[skraft_model::Element],
+    projection: Projection,
     tool: SheetTool,
     p: DVec2,
     reach: f64,
     only: Option<Id>,
 ) -> Option<(Id, skraft_model::Anchor, Vec<DVec2>)> {
     use skraft_model::kernel::topo::EdgeShape;
-    let s = d.sheet(sheet)?;
-    let ids: Vec<Id> = d
-        .elements_of(s)
-        .filter(|el| matches!(el.kind, ElementKind::View(_)) && d.layer(el.layer).is_none_or(|l| !l.hidden))
+    let ids: Vec<Id> = list
+        .iter()
+        .filter(|el| matches!(el.kind, ElementKind::View(_)) && !el.hidden)
         .map(|el| el.id)
         .filter(|id| only.is_none_or(|o| o == *id))
         .collect();
     let mut best: Option<(f64, Id, skraft_model::Anchor, Vec<DVec2>)> = None;
     for id in ids {
-        let Some(r) = d.resolve(id) else { continue };
+        let Some(r) = d.resolve_as(id, projection) else { continue };
         let data = views.get(e, id, &r);
         let snaps = data.snaps(e, &r);
         if tool == SheetTool::Linear {
@@ -1311,9 +1822,10 @@ fn dimension_of(
     tool: SheetTool,
     picks: &[(Id, skraft_model::Anchor)],
     p: DVec2,
+    projection: Projection,
 ) -> Option<Dimension> {
     let (view, _) = picks.first()?;
-    let (r, centre) = view_map(e, d, views, *view)?;
+    let (r, centre) = view_map(e, d, views, *view, projection)?;
     let found = |a: &skraft_model::Anchor| e.document().find(r.subject, a);
     let kind = match (tool, picks) {
         (SheetTool::Linear, [(_, a), (_, b)]) => {
@@ -1364,8 +1876,8 @@ fn draw_dim(painter: &egui::Painter, pv: &Paperview, s: &crate::dims::DimShape) 
     }
     let font = egui::FontId::proportional((crate::dims::TEXT_MM * pv.zoom).max(1.0) as f32);
     let galley = painter.layout_no_wrap(s.text.clone(), font, color);
-    // Turned about its middle; the screen's y down.
-    let angle = -s.text_angle as f32;
+    // Turned about its middle, with what places it; the screen's y down.
+    let angle = -s.text_angle as f32 + pv.angle();
     let rot = egui::emath::Rot2::from_angle(angle);
     let centre = pv.to_screen(s.text_at);
     let pos = centre - rot * (galley.size() / 2.0);
@@ -1389,8 +1901,8 @@ fn moved(kind: &ViewKind, offset: DVec2) -> ViewKind {
 
 /// Where a view projected from `base` goes for the pointer at `p` (sheet millimetres): the
 /// side it is on, past the base view's frame, and the distance between the frames' centres.
-fn projection_at(e: &Editor, d: &Drawing, base: Id, p: DVec2) -> Option<(Side, f64)> {
-    let r = d.resolve(base)?;
+fn projection_at(e: &Editor, d: &Drawing, base: Id, p: DVec2, projection: Projection) -> Option<(Side, f64)> {
+    let r = d.resolve_as(base, projection)?;
     let (lo, hi) = view_frame(e, &r);
     let half = ((hi - lo) / 2.0).max(DVec2::ONE);
     let off = p - r.at;
@@ -1432,40 +1944,63 @@ pub fn set_style(e: &mut Editor, st: &SheetState, style: ViewStyle) -> Result<()
     }
 }
 
-/// Sheet millimetres (y up) to screen points, and back.
+/// Sheet millimetres (y up) to screen points, and back; drawing in the axes of what `place`
+/// puts on the sheet (an instance's content).
 #[derive(Clone, Copy)]
 struct Paperview {
     centre: egui::Pos2,
     pan: DVec2,
     zoom: f64,
+    place: DAffine2,
 }
 
 impl Paperview {
+    fn new(centre: egui::Pos2, pan: DVec2, zoom: f64) -> Self {
+        Paperview { centre, pan, zoom, place: DAffine2::IDENTITY }
+    }
+    /// This view drawing in the axes `place` puts on the sheet.
+    fn placed(self, place: DAffine2) -> Self {
+        Paperview { place, ..self }
+    }
     fn to_screen(self, p: DVec2) -> egui::Pos2 {
-        let d = (p - self.pan) * self.zoom;
+        let d = (self.place.transform_point2(p) - self.pan) * self.zoom;
         egui::pos2(self.centre.x + d.x as f32, self.centre.y - d.y as f32)
     }
+    /// A screen point in the axes it draws in.
     fn to_sheet(self, p: egui::Pos2) -> DVec2 {
-        self.pan + DVec2::new((p.x - self.centre.x) as f64, (self.centre.y - p.y) as f64) / self.zoom
+        let on_sheet = self.pan + DVec2::new((p.x - self.centre.x) as f64, (self.centre.y - p.y) as f64) / self.zoom;
+        self.place.inverse().transform_point2(on_sheet)
     }
+    /// The corners of box `a`–`b` on screen: its top left first, then clockwise.
+    fn quad(self, a: DVec2, b: DVec2) -> [egui::Pos2; 4] {
+        let (lo, hi) = (a.min(b), a.max(b));
+        [DVec2::new(lo.x, hi.y), hi, DVec2::new(hi.x, lo.y), lo].map(|p| self.to_screen(p))
+    }
+    /// What box `a`–`b` covers on screen.
     fn rect(self, a: DVec2, b: DVec2) -> egui::Rect {
-        egui::Rect::from_two_pos(self.to_screen(a), self.to_screen(b))
+        egui::Rect::from_points(&self.quad(a, b))
+    }
+    /// Is what it draws turned?
+    fn turned(self) -> bool {
+        self.place.matrix2.x_axis.y.abs() > 1e-12 || self.place.matrix2.x_axis.x < 0.0
+    }
+    /// How much what it draws is turned on screen (radians, the screen's y down); 0 when not.
+    fn angle(self) -> f32 {
+        if self.turned() { -self.place.matrix2.x_axis.y.atan2(self.place.matrix2.x_axis.x) as f32 } else { 0.0 }
     }
 }
 
-/// The height of the sheets' tabs at the stage's bottom (the side panels stop above them).
-pub fn tabs_height(style: &egui::Style) -> f32 {
-    style.spacing.interact_size.y + 16.0
-}
+/// The least room (points, each way) the sheet is framed in.
+const MIN_FIT_ROOM: f32 = 160.0;
 
 /// The stage: the sheet shown on its paper over `rect`, panned (a drag) and zoomed (the
-/// wheel, about the pointer; a double click frames it whole), and the sheets' tabs at the
-/// bottom.
+/// wheel, about the pointer; a double click frames it whole in `fit`, what the ribbon and the
+/// side panels leave free: none while it is not known yet).
 #[allow(clippy::too_many_arguments)]
 pub fn ui(
     ui: &mut egui::Ui,
     rect: egui::Rect,
-    top: f32,
+    fit: Option<egui::Rect>,
     e: &mut Editor,
     st: &mut SheetState,
     lines: &mut crate::view_lines::LinesCache,
@@ -1477,10 +2012,12 @@ pub fn ui(
     let ink = viewport::color(theme.ui.view_text);
     ui.painter().rect_filled(rect, 0.0, viewport::color(theme.ui.view));
     crate::handles::publish(|| "sheet".into(), rect);
-    let tabs_height = tabs_height(ui.style());
-    let paper_room = egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.max.y - tabs_height));
-    // Framed whole in what the ribbon leaves.
-    let fit_room = egui::Rect::from_min_max(egui::pos2(rect.min.x, top.min(paper_room.max.y - 50.0)), paper_room.max);
+    let paper_room = rect;
+    if let Some(ask) = st.asked.take() {
+        run_ask(e, st, ask, paper_room.center());
+    }
+    // Framed whole in what the panels leave; if they leave next to nothing, in the whole stage.
+    let fit_room = fit.filter(|r| r.width() >= MIN_FIT_ROOM && r.height() >= MIN_FIT_ROOM).unwrap_or(rect);
     let shown = st.shown(e.document().drawing()).map(|s| (s.id, s.paper));
     if let Some((id, paper)) = shown {
         if st.fitted != Some(id) || st.zoom <= 0.0 {
@@ -1488,12 +2025,38 @@ pub fn ui(
             // The paper's centre at the room's.
             let shift = fit_room.center() - paper_room.center();
             st.pan = paper.size() / 2.0 - DVec2::new(shift.x as f64, -shift.y as f64) / st.zoom;
-            st.fitted = Some(id);
+            st.fitted = fit.map(|_| id);
         }
         st.current = Some(id);
+        // The level open, as far as it still leads somewhere; what is picked: in it, neither
+        // hidden nor locked. A composition left empty goes (as an empty assembly, data-model.md).
+        let (to, place, projection) = {
+            let d = e.document().drawing();
+            st.presentation = d.presentation_of(id).map(|p| p.id);
+            while !st.open.is_empty() && d.opened(id, &st.open).is_none() {
+                st.open.pop();
+            }
+            let (to, place) = d.opened(id, &st.open).unwrap_or((Container::Sheet(id), DAffine2::IDENTITY));
+            if let Some(list) = d.elements_in(to) {
+                st.selected.retain(|v| list.iter().any(|el| el.id == *v && !el.hidden && !el.locked));
+            }
+            (to, place, st.projection(d))
+        };
+        let compositions: Vec<Id> =
+            st.open.iter().filter_map(|i| e.document().drawing().element(*i)?.kind.instance().map(|i| i.composition)).collect();
+        for b in std::mem::replace(&mut st.was_open, compositions.clone()) {
+            if !compositions.contains(&b) && e.document().drawing().composition(b).is_some_and(|x| x.elements.is_empty()) {
+                let _ = e.apply(Operation::DeleteComposition { composition: b });
+            }
+        }
+        if let Some(b) = st.place_composition.take() {
+            place_composition(e, st, b);
+        }
         let response = ui.interact(paper_room, egui::Id::unique("sheet_stage"), egui::Sense::click_and_drag());
         let centre = paper_room.center();
-        let pv = Paperview { centre, pan: st.pan, zoom: st.zoom };
+        let pv = Paperview::new(centre, st.pan, st.zoom);
+        // In the axes of the level open: what is picked, moved and drawn there.
+        let lv = pv.placed(place);
         // A press with Select on an element drags the selection (it alone when it was not in
         // it), elsewhere draws a selection rectangle; with Rectangle or Line it starts the
         // shape. The middle or right button's drag pans.
@@ -1505,7 +2068,7 @@ pub fn ui(
             && let Some(p) = ui.input(|i| i.pointer.press_origin()).or(response.interact_pointer_pos())
         {
             // A handle of the element picked alone first.
-            let grip = if st.tool == SheetTool::Select { handle_at(e, st, &pv, p) } else { None };
+            let grip = if st.tool == SheetTool::Select { handle_at(e, st, &lv, p) } else { None };
             match st.tool {
                 SheetTool::Select if grip.is_some() => st.grip = grip,
                 SheetTool::Select => match st.frames.iter().rev().find(|(_, r)| r.contains(p)) {
@@ -1516,13 +2079,13 @@ pub fn ui(
                             }
                             st.selected.push(*v);
                         }
-                        st.moving = Some(pv.to_sheet(p));
+                        st.moving = Some(lv.to_sheet(p));
                     }
                     None => st.marquee = Some(p),
                 },
                 // A drag from where the button went down (the first click's point, if made).
                 SheetTool::Rect | SheetTool::Line if st.sketch.is_none() => {
-                    st.sketch = Some(aim_for(e, st, id, pv.zoom, pv.to_sheet(p), None, None, false).at);
+                    st.sketch = Some(aim_for(e, st, id, pv.zoom, lv.to_sheet(p), None, None, false).at);
                 }
                 _ => {}
             }
@@ -1535,19 +2098,20 @@ pub fn ui(
             let line_end = grip.as_ref().is_some_and(|g| matches!(g.handle, Handle::End(_)));
             match (pointer, grip) {
                 (Some(p), Some(g)) => {
-                    g.snaps().map(|from| aim_for(e, st, id, pv.zoom, g.target(pv.to_sheet(p)), Some(g.element), from, shift && line_end))
+                    g.snaps().map(|from| aim_for(e, st, id, pv.zoom, g.target(lv.to_sheet(p)), Some(g.element), from, shift && line_end))
                 }
                 (Some(p), None) if matches!(st.tool, SheetTool::Rect | SheetTool::Line | SheetTool::Text) => {
                     let lock = shift && st.tool == SheetTool::Line && st.sketch.is_some();
-                    Some(aim_for(e, st, id, pv.zoom, pv.to_sheet(p), None, st.sketch, lock))
+                    Some(aim_for(e, st, id, pv.zoom, lv.to_sheet(p), None, st.sketch, lock))
                 }
                 _ => None,
             }
         };
         // A handle's point: where it aims, else as far as the pointer went.
-        let grip_to = |g: &Grip, p: egui::Pos2| aim.map_or_else(|| g.target(pv.to_sheet(p)), |a| a.at);
+        let grip_to = |g: &Grip, p: egui::Pos2| aim.map_or_else(|| g.target(lv.to_sheet(p)), |a| a.at);
         if response.clicked() || response.drag_started() {
             st.message = None;
+            st.info = InfoOn::Sheet;
         }
         // The measurements box (docs/ui/drawing.md#measurements): the shape being drawn, the
         // handle dragged, else the shape last made or the handle last let go, while its element
@@ -1582,8 +2146,7 @@ pub fn ui(
             match typed_kind(g, &text, &units) {
                 Ok(kind) if g.element == Id(0) => {
                     st.sketch = None;
-                    let layer = active_layer(e.document().drawing(), st);
-                    if let Ok(Some(o)) = e.apply(Operation::AddElement { at: Placing { sheet: id, layer }, element: kind.clone() }) {
+                    if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element: kind.clone() }) {
                         st.selected = o.element.into_iter().collect();
                         st.amend = o.element.map(|element| Grip { element, kind, ..g.clone() });
                     }
@@ -1598,7 +2161,7 @@ pub fn ui(
             }
         }
         let offset = match (st.moving, pointer) {
-            (Some(from), Some(p)) => pv.to_sheet(p) - from,
+            (Some(from), Some(p)) => lv.to_sheet(p) - from,
             _ => DVec2::ZERO,
         };
         if response.dragged_by(egui::PointerButton::Middle) || response.dragged_by(egui::PointerButton::Secondary) {
@@ -1650,33 +2213,29 @@ pub fn ui(
                 st.selected = hit;
             }
         }
-        // A rectangle or a line, on the active layer: two clicks (its corners, its ends) or a
+        // A rectangle or a line: two clicks (its corners, its ends) or a
         // drag, as the 3D view's shapes (docs/tools/interaction.md); under 0.5 mm, the second
         // point still to come.
         if matches!(st.tool, SheetTool::Rect | SheetTool::Line)
             && let Some(p) = pointer
             && (response.clicked() || response.drag_stopped_by(egui::PointerButton::Primary))
         {
-            let to = aim.map_or_else(|| pv.to_sheet(p), |a| a.at);
+            let end = aim.map_or_else(|| lv.to_sheet(p), |a| a.at);
             match st.sketch {
-                None => st.sketch = Some(to),
-                Some(from) if from.distance(to) > 0.5 => {
+                None => st.sketch = Some(end),
+                Some(from) if from.distance(end) > 0.5 => {
                     st.sketch = None;
                     let element = match st.tool {
-                        SheetTool::Rect => ElementKind::Rect { min: from.min(to), max: from.max(to) },
-                        _ => ElementKind::Line { from, to },
+                        SheetTool::Rect => ElementKind::Rect { min: from.min(end), max: from.max(end) },
+                        _ => ElementKind::Line { from, to: end },
                     };
-                    let layer = active_layer(e.document().drawing(), st);
-                    if let Ok(Some(o)) = e.apply(Operation::AddElement { at: Placing { sheet: id, layer }, element }) {
+                    if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element }) {
                         st.selected = o.element.into_iter().collect();
-                        st.amend = o.element.map(|element| Grip { element, ..sketch_grip(st.tool, from, to) });
+                        st.amend = o.element.map(|element| Grip { element, ..sketch_grip(st.tool, from, end) });
                     }
                 }
                 Some(_) => {}
             }
-        }
-        if response.double_clicked() && st.tool == SheetTool::Select {
-            st.refit();
         }
         if let Some(at) = response.hover_pos() {
             let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
@@ -1700,10 +2259,16 @@ pub fn ui(
             } else if !st.picks.is_empty() {
                 st.picks.clear();
             } else if st.tool == SheetTool::Select {
-                st.selected.clear();
+                // The selection first, then one level up.
+                if st.selected.is_empty() {
+                    st.leave();
+                } else {
+                    st.selected.clear();
+                }
             }
         }
-        let pv = Paperview { centre, pan: st.pan, zoom: st.zoom };
+        let pv = Paperview::new(centre, st.pan, st.zoom);
+        let lv = pv.placed(place);
         let painter = ui.painter().with_clip_rect(paper_room);
         let page = pv.rect(DVec2::ZERO, paper.size());
         painter.rect_filled(page.translate(egui::vec2(3.0, 4.0)), 0.0, egui::Color32::from_black_alpha(40));
@@ -1755,34 +2320,49 @@ pub fn ui(
             }
             _ => e.document().drawing(),
         };
+        let placed = drawing.placed(id);
         let fields = drawing.sheet(id).map(|s| Fields {
             document: title,
             sheet: &s.name,
-            number: drawing.sheets.iter().position(|x| x.id == id).map_or(0, |i| i + 1),
-            count: drawing.sheets.len(),
-            scale: drawing.elements_of(s).find_map(|el| match &el.kind {
+            number: drawing.sheet_number(id).map_or(0, |(n, _)| n),
+            count: drawing.sheet_number(id).map_or(0, |(_, c)| c),
+            // The first base view it shows, through its instances.
+            scale: placed.iter().find_map(|p| match &p.element.kind {
                 ElementKind::View(View { kind: ViewKind::Base { scale, .. }, .. }) => Some(*scale),
                 _ => None,
             }),
+            values: Some((e.document(), id)),
         });
-        st.frames = draw_elements(&painter, &pv, e, drawing, id, &st.selected, ready, lines, &mut st.views, &mut wanted, fields.as_ref());
+        let level = Level { open: &st.open, place };
+        let drawn = draw_elements(
+            &painter,
+            &pv,
+            e,
+            drawing,
+            id,
+            &placed,
+            level,
+            &st.selected,
+            ready,
+            lines,
+            &mut st.views,
+            &mut wanted,
+            fields.as_ref(),
+        );
+        (st.frames, st.boxes, st.open_box) = (drawn.frames, drawn.boxes, drawn.level_box);
         // The handles of the element picked alone (Select), as it is drawn; the pointer over one
         // shows what it does.
         if st.tool == SheetTool::Select && st.moving.is_none() && st.marquee.is_none() {
             let shown = match &st.grip {
                 Some(g) => drawing.element(g.element).cloned().map(|el| {
-                    let frame = st
-                        .frames
-                        .iter()
-                        .find(|(id, _)| *id == el.id)
-                        .map(|(_, r)| (pv.to_sheet(r.left_bottom()), pv.to_sheet(r.right_top())));
-                    handles(e, drawing, &mut st.views, &el, frame)
+                    let frame = st.boxes.get(&el.id).copied();
+                    handles(e, drawing, &mut st.views, &el, frame, projection)
                 }),
-                None => picked_handles(e, st, &pv).map(|(_, _, hs)| hs),
+                None => picked_handles(e, st).map(|(_, _, hs)| hs),
             };
             let stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 120, 200));
             for (h, q) in shown.unwrap_or_default() {
-                let at = pv.to_screen(q);
+                let at = lv.to_screen(q);
                 painter.rect(
                     egui::Rect::from_center_size(at, egui::vec2(GRIP_SIDE, GRIP_SIDE)),
                     0.0,
@@ -1814,31 +2394,43 @@ pub fn ui(
         // The shape being drawn.
         if let (Some(from), Some(p)) = (st.sketch, pointer) {
             let stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(70, 120, 200));
-            let (a, b) = (pv.to_screen(from), aim.map_or(p, |a| pv.to_screen(a.at)));
+            let end = aim.map_or_else(|| lv.to_sheet(p), |a| a.at);
             if st.tool == SheetTool::Rect {
-                painter.rect_stroke(egui::Rect::from_two_pos(a, b), 0.0, stroke, egui::StrokeKind::Middle);
+                painter.add(egui::Shape::closed_line(lv.quad(from, end).to_vec(), stroke));
             } else {
-                painter.line_segment([a, b], stroke);
+                painter.line_segment([lv.to_screen(from), lv.to_screen(end)], stroke);
             }
         }
         // The lines of views gone forgotten.
-        let views: Vec<Id> = e
-            .document()
-            .drawing()
-            .sheets
-            .iter()
-            .flat_map(|s| &s.elements)
-            .filter(|el| matches!(el.kind, ElementKind::View(_)))
-            .map(|el| el.id)
-            .collect();
+        let views: Vec<Id> = e.document().drawing().view_ids().collect();
         lines.retain(&views);
         match st.tool {
             SheetTool::Select => {
-                // A click picks what is under it (the last drawn first), elsewhere nothing; with
-                // Shift it adds it or takes it off.
-                if response.clicked() {
-                    let at = response.interact_pointer_pos();
-                    let hit = at.and_then(|p| st.frames.iter().rev().find(|(_, r)| r.contains(p)).map(|(v, _)| *v));
+                let at = response.interact_pointer_pos();
+                let hit = at.and_then(|p| st.frames.iter().rev().find(|(_, r)| r.contains(p)).map(|(v, _)| *v));
+                // A double click enters an instance; on the sheet's void it frames the sheet.
+                if response.double_clicked() {
+                    let instance = hit.filter(|v| drawing.element(*v).is_some_and(|el| el.kind.instance().is_some()));
+                    match (instance, hit) {
+                        (Some(i), _) => st.enter(i),
+                        (None, None) if st.open.is_empty() => st.refit(),
+                        _ => {}
+                    }
+                } else if response.clicked()
+                    && hit.is_none()
+                    && !shift
+                    && !st.open.is_empty()
+                    && !at.is_some_and(|p| {
+                        let q = lv.to_sheet(p);
+                        st.open_box.is_some_and(|(lo, hi)| q.cmpge(lo).all() && q.cmple(hi).all())
+                    })
+                {
+                    // Off the box of the composition edited: one level up, as in the 3D view
+                    // (docs/tools/interaction.md#selection).
+                    st.leave();
+                } else if response.clicked() {
+                    // A click picks what is under it (the last drawn first), elsewhere nothing;
+                    // with Shift it adds it or takes it off.
                     match (shift, hit) {
                         (true, Some(v)) => match st.selected.iter().position(|x| *x == v) {
                             Some(i) => {
@@ -1857,9 +2449,9 @@ pub fn ui(
                 if response.clicked()
                     && let Some(p) = response.interact_pointer_pos()
                     && let Ok(Some(o)) = e.apply(Operation::AddElement {
-                        at: Placing { sheet: id, layer: active_layer(e.document().drawing(), st) },
+                        to,
                         element: ElementKind::Text {
-                            at: aim.map_or_else(|| pv.to_sheet(p), |a| a.at),
+                            at: aim.map_or_else(|| lv.to_sheet(p), |a| a.at),
                             text: t!("drawing.text_default"),
                             size: 3.5,
                         },
@@ -1873,19 +2465,20 @@ pub fn ui(
             tool @ (SheetTool::Linear | SheetTool::Radius | SheetTool::Diameter | SheetTool::Angle) => {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                 if let Some(p) = response.hover_pos() {
-                    let at = pv.to_sheet(p);
+                    let at = lv.to_sheet(p);
                     let mark = egui::Stroke::new(2.0, egui::Color32::from_rgb(230, 120, 30));
                     if st.picks.len() < picks_needed(tool) {
                         // A vertex or an edge to pick, of the first pick's view once there is one.
                         let only = st.picks.first().map(|x| x.0);
-                        let hit = pick_at(e, drawing, &mut st.views, id, tool, at, 8.0 / pv.zoom, only);
+                        let list = drawing.elements_in(to).unwrap_or(&[]);
+                        let hit = pick_at(e, drawing, &mut st.views, list, projection, tool, at, 8.0 / pv.zoom, only);
                         if let Some((_, _, marker)) = &hit {
                             match marker.as_slice() {
                                 [q] => {
-                                    painter.circle_stroke(pv.to_screen(*q), 5.0, mark);
+                                    painter.circle_stroke(lv.to_screen(*q), 5.0, mark);
                                 }
                                 line => {
-                                    painter.add(egui::Shape::line(line.iter().map(|q| pv.to_screen(*q)).collect(), mark));
+                                    painter.add(egui::Shape::line(line.iter().map(|q| lv.to_screen(*q)).collect(), mark));
                                 }
                             }
                         }
@@ -1894,17 +2487,14 @@ pub fn ui(
                         {
                             st.picks.push((v, a));
                         }
-                    } else if let Some(dim) = dimension_of(e, drawing, &mut st.views, tool, &st.picks, at) {
+                    } else if let Some(dim) = dimension_of(e, drawing, &mut st.views, tool, &st.picks, at, projection) {
                         // Where a click puts it.
-                        if let Some((r, c)) = view_map(e, drawing, &mut st.views, dim.view) {
-                            draw_dim(&painter, &pv, &crate::dims::shape(e.document(), &r, c, &dim));
+                        if let Some((r, c)) = view_map(e, drawing, &mut st.views, dim.view, projection) {
+                            draw_dim(&painter, &lv, &crate::dims::shape(e.document(), &r, c, &dim));
                         }
                         if response.clicked() {
-                            let layer = active_layer(e.document().drawing(), st);
                             st.picks.clear();
-                            if let Ok(Some(o)) =
-                                e.apply(Operation::AddElement { at: Placing { sheet: id, layer }, element: ElementKind::Dimension(dim) })
-                            {
+                            if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element: ElementKind::Dimension(dim) }) {
                                 st.selected = o.element.into_iter().collect();
                             }
                         }
@@ -1912,24 +2502,22 @@ pub fn ui(
                 }
             }
             SheetTool::Project { base } => {
-                if drawing.resolve(base).is_none() {
+                if drawing.resolve_as(base, projection).is_none() || drawing.container_of(base) != Some(to) {
                     st.tool = SheetTool::Select;
                 } else if let Some(p) = response.hover_pos()
-                    && let Some((side, distance)) = projection_at(e, drawing, base, pv.to_sheet(p))
+                    && let Some((side, distance)) = projection_at(e, drawing, base, lv.to_sheet(p), projection)
                 {
                     // Its frame where a click puts it.
-                    let r = drawing.resolve(base).unwrap();
-                    let ghost =
-                        Resolved { frame: r.frame.projected(side, drawing.projection), at: r.at + side.dir() * distance, ..r.clone() };
+                    let r = drawing.resolve_as(base, projection).unwrap();
+                    let ghost = Resolved { frame: r.frame.projected(side, projection), at: r.at + side.dir() * distance, ..r.clone() };
                     let (lo, hi) = view_frame(e, &ghost);
-                    let g = pv.rect(lo, hi);
-                    let corners = [g.left_top(), g.right_top(), g.right_bottom(), g.left_bottom(), g.left_top()];
+                    let q = lv.quad(lo, hi);
+                    let corners = [q[0], q[1], q[2], q[3], q[0]];
                     painter.extend(egui::Shape::dashed_line(&corners, egui::Stroke::new(1.0, egui::Color32::from_gray(120)), 4.0, 4.0));
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                     if response.clicked() {
                         let n =
-                            drawing.sheet(id).map_or(0, |s| s.elements.iter().filter(|e| matches!(e.kind, ElementKind::View(_))).count())
-                                + 1;
+                            drawing.elements_in(to).unwrap_or(&[]).iter().filter(|e| matches!(e.kind, ElementKind::View(_))).count() + 1;
                         let view = View {
                             name: t!("drawing.view_name", n = n),
                             kind: ViewKind::Projected { base, side, distance },
@@ -1941,25 +2529,92 @@ pub fn ui(
                                 })
                                 .unwrap_or_default(),
                         };
-                        if let Ok(Some(o)) =
-                            e.apply(Operation::AddElement { at: Placing { sheet: id, layer: None }, element: ElementKind::View(view) })
-                        {
+                        if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element: ElementKind::View(view) }) {
                             st.selected = o.element.into_iter().collect();
                         }
                     }
                 }
             }
         }
+        carry_composition(ui, e, st, paper_room, &lv, to);
     } else {
-        let at = rect.center();
+        st.carried = None;
+        let at = fit.unwrap_or(rect).center();
         ui.painter().text(at, egui::Align2::CENTER_CENTER, t!("drawing.no_sheet_hint"), egui::FontId::proportional(14.0), ink);
     }
-    tabs(ui, egui::Rect::from_min_max(egui::pos2(rect.min.x, rect.max.y - tabs_height), rect.max), e, st);
     wanted
 }
 
-/// A sheet's elements, bottom first: views as their frames, named; texts, lines, rectangles;
-/// images as their frames for now.
+/// A picture on the four corners `quad` (its top left first, clockwise on screen).
+fn draw_picture(painter: &egui::Painter, texture: egui::TextureId, quad: [egui::Pos2; 4]) {
+    let mut mesh = egui::Mesh::with_texture(texture);
+    let uvs = [egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0)];
+    for (pos, uv) in quad.into_iter().zip(uvs) {
+        mesh.vertices.push(egui::epaint::Vertex { pos, uv, color: egui::Color32::WHITE });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(mesh);
+}
+
+/// `text` from its bottom left corner `at`, turned about it by `angle` (on screen); what it
+/// covers on screen, and its size before it is turned.
+fn turned_text(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    angle: f32,
+    text: String,
+    font: egui::FontId,
+    color: egui::Color32,
+) -> (egui::Rect, egui::Vec2) {
+    if angle == 0.0 {
+        let r = painter.text(at, egui::Align2::LEFT_BOTTOM, text, font, color);
+        return (r, r.size());
+    }
+    let galley = painter.layout_no_wrap(text, font, color);
+    let size = galley.size();
+    let rot = egui::emath::Rot2::from_angle(angle);
+    let top_left = at + rot * egui::vec2(0.0, -size.y);
+    let corners = [top_left, top_left + rot * egui::vec2(size.x, 0.0), top_left + rot * size, top_left + rot * egui::vec2(0.0, size.y)];
+    painter.add(egui::epaint::TextShape::new(top_left, galley, color).with_angle(angle));
+    (egui::Rect::from_points(&corners), size)
+}
+
+/// The outline of the box on `quad`, turned or not.
+fn stroke_box(painter: &egui::Painter, pv: &Paperview, quad: [egui::Pos2; 4], stroke: egui::Stroke) {
+    if pv.turned() {
+        painter.add(egui::Shape::closed_line(quad.to_vec(), stroke));
+    } else {
+        painter.rect_stroke(egui::Rect::from_points(&quad), 0.0, stroke, egui::StrokeKind::Middle);
+    }
+}
+
+/// The level edited: the instances entered, what takes their last composition's axes to the sheet.
+#[derive(Clone, Copy)]
+struct Level<'a> {
+    open: &'a [Id],
+    place: DAffine2,
+}
+
+/// What [`draw_elements`] leaves for the pointer.
+#[derive(Default)]
+struct Drawn {
+    /// What a press lands on, bottom first: what is right in the level open, on screen.
+    frames: Vec<(Id, egui::Rect)>,
+    /// The same in the level's axes.
+    boxes: HashMap<Id, (DVec2, DVec2)>,
+    /// All it shows there, a little wider: the box a click off leaves it.
+    level_box: Option<(DVec2, DVec2)>,
+}
+
+/// How far the box of the composition edited stands off what it shows (paper millimetres).
+const LEVEL_MARGIN: f64 = 2.0;
+
+/// What a sheet shows through its instances (docs/ui/drawing.md#compositions), bottom first: views as
+/// their frames, named; texts, lines, rectangles; images as their frames for now. With a composition
+/// entered, what lies outside it first, faded under a veil of the paper's white, then what it
+/// shows in its grey box. A press lands on what is right in the level, an instance whole by the
+/// box of what it shows.
 #[allow(clippy::too_many_arguments)]
 fn draw_elements(
     painter: &egui::Painter,
@@ -1967,40 +2622,66 @@ fn draw_elements(
     e: &Editor,
     d: &Drawing,
     sheet: Id,
+    placed: &[skraft_model::Placed<'_>],
+    level: Level<'_>,
     selected: &[Id],
     ready: &HashMap<Id, egui::TextureId>,
     lines: &mut crate::view_lines::LinesCache,
     views: &mut ViewsCache,
     wanted: &mut Vec<Wanted>,
     fields: Option<&Fields<'_>>,
-) -> Vec<(Id, egui::Rect)> {
-    let mut frames = Vec::new();
-    let Some(s) = d.sheet(sheet) else { return frames };
+) -> Drawn {
+    let mut out = Drawn::default();
+    let Some(s) = d.sheet(sheet) else { return out };
     let ppp = painter.ctx().pixels_per_point();
     let paper_ink = egui::Color32::from_gray(30);
     let frame_ink = egui::Color32::from_rgb(70, 120, 200);
     let thin = egui::Stroke::new((0.25 * pv.zoom).max(1.0) as f32, paper_ink);
     let accent = egui::Stroke::new(2.0, frame_ink);
-    for el in d.elements_of(s) {
-        // A hidden layer's elements not drawn, a locked one's not picked.
-        let layer = d.layer(el.layer);
-        if layer.is_some_and(|l| l.hidden) {
+    // Its frame, under what it holds.
+    if let Some(b) = s.border {
+        let m = DVec2::splat(b.margin);
+        let stroke = egui::Stroke::new((b.width * pv.zoom).max(1.0) as f32, paper_ink);
+        painter.rect_stroke(pv.rect(m, s.paper.size() - m), 0.0, stroke, egui::StrokeKind::Middle);
+    }
+    let list = d.opened(sheet, level.open).and_then(|(c, _)| d.elements_in(c)).unwrap_or(&[]);
+    let tops: HashMap<Id, &skraft_model::Element> = list.iter().map(|el| (el.id, el)).collect();
+    let to_level = level.place.inverse();
+    let (outside, inside): (Vec<_>, Vec<_>) = placed.iter().partition(|p| p.under(level.open).is_none());
+    let mut boxes: Vec<(Id, egui::Rect)> = Vec::new();
+    // A view placed twice asks for its picture once.
+    let mut asked = HashSet::new();
+    // What is outside, the veil (`None`), what is inside.
+    for shown in outside.iter().map(|p| Some(*p)).chain([None]).chain(inside.iter().map(|p| Some(*p))) {
+        let Some(shown) = shown else {
+            if !level.open.is_empty() {
+                painter.rect_filled(pv.rect(DVec2::ZERO, s.paper.size()), 0.0, egui::Color32::from_white_alpha(190));
+            }
+            continue;
+        };
+        // Hidden, itself or by an instance above it.
+        if shown.hidden {
             continue;
         }
-        let pickable = layer.is_none_or(|l| !l.locked);
-        match &el.kind {
+        let el = shown.element;
+        let under = shown.under(level.open);
+        // Picked: only what is right in the level (an instance is outlined whole, below).
+        let alone = under.is_some() && shown.path.len() == level.open.len();
+        let picked = alone && selected.contains(&el.id);
+        let pv = pv.placed(shown.transform);
+        let (rect, (lo, hi)) = match &el.kind {
             ElementKind::View(v) => {
-                let Some(r) = d.resolve(el.id) else { continue };
+                let Some(r) = d.resolve_as(el.id, shown.projection) else { continue };
                 let data = views.get(e, el.id, &r);
                 let (lo, hi) = frame_of(&r, data.bx3.map(|(lo, hi)| (lo.truncate(), hi.truncate())));
-                let rect = pv.rect(lo, hi);
+                let quad = pv.quad(lo, hi);
+                let rect = egui::Rect::from_points(&quad);
                 // Its picture — its parts rendered, its lines over them, as the style says — as
                 // last drawn, under its frame.
                 if let Some(tex) = ready.get(&el.id) {
-                    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                    painter.image(*tex, rect, uv, egui::Color32::WHITE);
+                    draw_picture(painter, *tex, quad);
                 }
-                if painter.clip_rect().intersects(rect) {
+                if painter.clip_rect().intersects(rect) && asked.insert(el.id) {
                     // Its lines as last computed (new ones on their way when it changed).
                     let got = if v.style == ViewStyle::Rendered {
                         None
@@ -2011,79 +2692,114 @@ fn draw_elements(
                         }
                         got
                     };
-                    if let Some(w) = wanted_picture(el.id, v.style, &r, &data, got, rect, ppp) {
+                    let size = (hi - lo) * pv.zoom;
+                    if let Some(w) = wanted_picture(el.id, v.style, &r, &data, got, egui::vec2(size.x as f32, size.y as f32), ppp) {
                         wanted.push(w);
                     }
                 }
-                if pickable {
-                    frames.push((el.id, rect));
-                }
-                if selected.contains(&el.id) {
-                    painter.rect_stroke(rect, 0.0, egui::Stroke::new(2.0, frame_ink), egui::StrokeKind::Outside);
+                if picked {
+                    stroke_box(painter, &pv, quad, egui::Stroke::new(2.0, frame_ink));
                 } else {
-                    let corners = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom(), rect.left_top()];
-                    painter.extend(egui::Shape::dashed_line(&corners, egui::Stroke::new(1.0, frame_ink), 6.0, 4.0));
+                    let closed = [quad[0], quad[1], quad[2], quad[3], quad[0]];
+                    painter.extend(egui::Shape::dashed_line(&closed, egui::Stroke::new(1.0, frame_ink), 6.0, 4.0));
                 }
-                let scale = scale_label(r.scale);
-                painter.text(
-                    rect.left_top() + egui::vec2(0.0, -2.0),
-                    egui::Align2::LEFT_BOTTOM,
-                    format!("{} · {scale}", v.name),
-                    egui::FontId::proportional(11.0),
-                    frame_ink,
-                );
-                crate::handles::publish(|| format!("sheet_view:{}", el.id.0), rect);
+                let angle = pv.angle();
+                let label = quad[0] + egui::emath::Rot2::from_angle(angle) * egui::vec2(0.0, -2.0);
+                let name = format!("{} · {}", v.name, scale_label(r.scale));
+                turned_text(painter, label, angle, name, egui::FontId::proportional(11.0), frame_ink);
+                if alone {
+                    crate::handles::publish(|| format!("sheet_view:{}", el.id.0), rect);
+                }
+                (rect, (lo, hi))
             }
             ElementKind::Dimension(dim) => {
-                if let Some((r, centre)) = view_map(e, d, views, dim.view) {
-                    let shape = crate::dims::shape(e.document(), &r, centre, dim);
-                    let rect = draw_dim(painter, pv, &shape);
-                    if pickable {
-                        frames.push((el.id, rect));
-                    }
-                    if selected.contains(&el.id) {
-                        painter.rect_stroke(rect, 2.0, accent, egui::StrokeKind::Outside);
-                    }
+                let Some(r) = d.resolve_as(dim.view, shown.projection) else { continue };
+                let Some(centre) = views.get(e, dim.view, &r).centre() else { continue };
+                let shape = crate::dims::shape(e.document(), &r, centre, dim);
+                let rect = draw_dim(painter, &pv, &shape);
+                if picked {
+                    painter.rect_stroke(rect, 2.0, accent, egui::StrokeKind::Outside);
+                }
+                if alone {
                     crate::handles::publish(|| format!("sheet_element:{}", el.id.0), rect);
                 }
+                (rect, shape.bounds())
             }
+            // `placed` goes through them.
+            ElementKind::Instance(_) => continue,
             other => {
-                let r = match other {
+                let (r, b) = match other {
                     ElementKind::Text { at, text, size } => {
-                        let shown = fields.map_or_else(|| text.clone(), |f| f.fill(text));
+                        let words = fields.map_or_else(|| text.clone(), |f| f.fill(text, &shown.path));
                         let font = egui::FontId::proportional((size * pv.zoom).max(1.0) as f32);
-                        painter.text(pv.to_screen(*at), egui::Align2::LEFT_BOTTOM, shown, font, paper_ink)
+                        let (r, on_screen) = turned_text(painter, pv.to_screen(*at), pv.angle(), words, font, paper_ink);
+                        (r, (*at, *at + DVec2::new(on_screen.x as f64, on_screen.y as f64) / pv.zoom))
                     }
                     ElementKind::Line { from, to } => {
                         let (a, b) = (pv.to_screen(*from), pv.to_screen(*to));
                         painter.line_segment([a, b], thin);
-                        egui::Rect::from_two_pos(a, b).expand(3.0)
+                        (egui::Rect::from_two_pos(a, b).expand(3.0), (from.min(*to), from.max(*to)))
                     }
                     ElementKind::Rect { min, max } => {
-                        let r = pv.rect(*min, *max);
-                        painter.rect_stroke(r, 0.0, thin, egui::StrokeKind::Middle);
-                        r
+                        let quad = pv.quad(*min, *max);
+                        stroke_box(painter, &pv, quad, thin);
+                        (egui::Rect::from_points(&quad), (*min, *max))
                     }
                     ElementKind::Image { min, max, .. } => {
-                        let r = pv.rect(*min, *max);
-                        painter.rect_stroke(r, 0.0, thin, egui::StrokeKind::Middle);
-                        painter.line_segment([r.left_top(), r.right_bottom()], thin);
-                        painter.line_segment([r.left_bottom(), r.right_top()], thin);
-                        r
+                        let quad = pv.quad(*min, *max);
+                        stroke_box(painter, &pv, quad, thin);
+                        painter.line_segment([quad[0], quad[2]], thin);
+                        painter.line_segment([quad[3], quad[1]], thin);
+                        (egui::Rect::from_points(&quad), (*min, *max))
                     }
-                    ElementKind::View(_) | ElementKind::Dimension(_) => unreachable!(),
+                    ElementKind::View(_) | ElementKind::Dimension(_) | ElementKind::Instance(_) => unreachable!(),
                 };
-                if pickable {
-                    frames.push((el.id, r));
-                }
-                if selected.contains(&el.id) {
+                if picked {
                     painter.rect_stroke(r.expand(2.0), 2.0, accent, egui::StrokeKind::Outside);
                 }
-                crate::handles::publish(|| format!("sheet_element:{}", el.id.0), r);
+                if alone {
+                    crate::handles::publish(|| format!("sheet_element:{}", el.id.0), r);
+                }
+                (r, b)
             }
+        };
+        let Some(top) = under else { continue };
+        // What one instance shows comes in a row.
+        match boxes.last_mut() {
+            Some((id, r)) if *id == top => *r = r.union(rect),
+            _ => boxes.push((top, rect)),
+        }
+        // Its box in the level's axes.
+        let rel = to_level * shown.transform;
+        for q in [lo, DVec2::new(hi.x, lo.y), hi, DVec2::new(lo.x, hi.y)].map(|q| rel.transform_point2(q)) {
+            let b = out.boxes.entry(top).or_insert((q, q));
+            *b = (b.0.min(q), b.1.max(q));
+            out.level_box = Some(out.level_box.map_or((q, q), |(a, z)| (a.min(q), z.max(q))));
         }
     }
-    frames
+    // An instance: picked and named by the box of what it shows.
+    for (id, r) in &boxes {
+        if tops.get(id).is_some_and(|el| el.kind.instance().is_some()) {
+            if selected.contains(id) {
+                painter.rect_stroke(r.expand(2.0), 2.0, accent, egui::StrokeKind::Outside);
+            }
+            crate::handles::publish(|| format!("sheet_element:{}", id.0), *r);
+        }
+    }
+    // The composition edited in its grey box.
+    if level.open.is_empty() {
+        out.level_box = None;
+    } else if let Some((lo, hi)) = out.level_box {
+        let m = DVec2::splat(LEVEL_MARGIN);
+        out.level_box = Some((lo - m, hi + m));
+        let q = pv.placed(level.place).quad(lo - m, hi + m);
+        let closed = [q[0], q[1], q[2], q[3], q[0]];
+        painter.extend(egui::Shape::dashed_line(&closed, egui::Stroke::new(1.0, egui::Color32::from_gray(130)), 5.0, 3.0));
+    }
+    // A locked one is drawn, not picked.
+    boxes.retain(|(id, _)| tops.get(id).is_some_and(|el| !el.locked));
+    out.frames = boxes;
+    out
 }
 
 /// « 1:10 », « 2:1 ».
@@ -2092,72 +2808,208 @@ pub fn scale_label(scale: f64) -> String {
     if scale >= 1.0 { format!("{}:1", n(scale)) } else { format!("1:{}", n(1.0 / scale)) }
 }
 
-/// The sheets' tabs along the bottom: one per sheet (a click shows it), then « + » (a new
-/// sheet).
-fn tabs(ui: &mut egui::Ui, rect: egui::Rect, e: &mut Editor, st: &mut SheetState) {
-    let sheets: Vec<(Id, String)> = e.document().drawing().sheets.iter().map(|s| (s.id, s.name.clone())).collect();
-    let shown = st.shown(e.document().drawing()).map(|s| s.id);
-    let mut add = false;
-    let mut template = None;
-    let mut deleted = None;
-    ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink2(egui::vec2(12.0, 8.0))), |ui| {
-        ui.horizontal(|ui| {
-            for (id, name) in &sheets {
-                let tab = ui.selectable_label(shown == Some(*id), name);
-                crate::handles::publish(|| format!("sheet_tab:{}", id.0), tab.rect);
-                if tab.clicked() {
-                    st.current = Some(*id);
-                }
-                tab.context_menu(|ui| {
-                    if ui.button(t!("menu.drawing.save_template")).clicked() {
-                        st.current = Some(*id);
-                        st.command = Some("drawing.save_template");
-                        ui.close();
-                    }
-                    if ui.button(t!("drawing.delete_sheet")).clicked() {
-                        deleted = Some(*id);
-                        ui.close();
-                    }
-                });
-            }
-            // « + »: a blank sheet, or one from a template (docs/ui/drawing.md#templates).
-            let plus = ui.button("+").on_hover_text(t!("menu.drawing.new_sheet"));
-            crate::handles::publish(|| "sheet_add".into(), plus.rect);
-            egui::Popup::menu(&plus).style(crate::style::menu).show(|ui| {
-                let blank = ui.add(crate::style::menu_item(t!("drawing.blank_sheet"), None, false));
-                crate::handles::publish(|| "sheet_add:blank".into(), blank.rect);
-                if blank.clicked() {
-                    add = true;
-                    ui.close();
-                }
-                ui.separator();
-                for (k, tpl) in crate::templates::all().into_iter().enumerate() {
-                    let item = ui.add(crate::style::menu_item(&tpl.name, None, false));
-                    crate::handles::publish(|| format!("sheet_add:{k}"), item.rect);
-                    if item.clicked() {
-                        template = Some(tpl.document);
-                        ui.close();
-                    }
-                }
-            });
-        });
-    });
-    if add {
-        new_sheet(e, st);
-    }
-    if let Some(template) = template
-        && let Ok(Some(o)) = e.apply(Operation::AddSheetFrom { template, name: None })
-    {
-        st.current = o.sheet;
-    }
-    if let Some(sheet) = deleted {
-        let _ = e.apply(Operation::DeleteSheet { sheet });
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use skraft_model::kernel::{Job, JobId, JobResult, KernelService};
+    use skraft_model::{Corner, Document, Instance, Place};
+
     use super::*;
+
+    /// No kernel: these sheets hold no solid.
+    struct NoKernel;
+    impl KernelService for NoKernel {
+        fn submit(&mut self, _: JobId, _: Job) {}
+        fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+            Vec::new()
+        }
+    }
+
+    /// An A4 sheet holding a composition — a 40 × 20 rectangle left of its origin and a line — placed
+    /// at 10 mm from the paper's bottom right corner.
+    fn sheet_with_a_composition() -> (Editor, Id, Id) {
+        let mut e = Editor::new(Document::new(), Box::new(NoKernel));
+        let sheet = e.apply(Operation::AddSheet { presentation: None, name: None, paper: Paper::A4 }).unwrap().unwrap().sheet.unwrap();
+        let to = Container::Sheet(sheet);
+        let mut add = |element| e.apply(Operation::AddElement { to, element }).unwrap().unwrap().element.unwrap();
+        let rect = add(ElementKind::Rect { min: DVec2::new(-40.0, 0.0), max: DVec2::new(0.0, 20.0) });
+        let line = add(ElementKind::Line { from: DVec2::new(-40.0, 10.0), to: DVec2::new(0.0, 10.0) });
+        let group = Operation::MakeComposition { elements: vec![rect, line], name: Some("Cartouche".into()) };
+        let i = e.apply(group).unwrap().unwrap().element.unwrap();
+        let composition = e.document().drawing().element(i).unwrap().kind.instance().unwrap().composition;
+        let place = Place::anchored(Corner::BottomRight, DVec2::new(-10.0, 10.0));
+        let kind = ElementKind::Instance(Instance { composition, place, props: Default::default() });
+        e.apply(Operation::SetElement { element: i, kind }).unwrap();
+        (e, sheet, i)
+    }
+
+    /// What a press lands on, the sheet drawn at a point per millimetre about the screen's origin.
+    fn frames_of(e: &Editor, sheet: Id) -> Vec<(Id, egui::Rect)> {
+        let ctx = egui::Context::default();
+        let mut out = Vec::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let painter = ui.ctx().layer_painter(egui::LayerId::background());
+            let pv = Paperview::new(egui::Pos2::ZERO, DVec2::ZERO, 1.0);
+            let d = e.document().drawing();
+            let placed = d.placed(sheet);
+            let (mut lines, mut views, mut wanted) = (Default::default(), ViewsCache::default(), Vec::new());
+            let level = Level { open: &[], place: DAffine2::IDENTITY };
+            out =
+                draw_elements(&painter, &pv, e, d, sheet, &placed, level, &[], &HashMap::new(), &mut lines, &mut views, &mut wanted, None)
+                    .frames;
+        });
+        // No renderer to take the font atlas.
+        output.textures_delta.clear();
+        out
+    }
+
+    #[test]
+    fn an_instance_is_picked_whole_where_it_shows_its_composition() {
+        let (mut e, sheet, i) = sheet_with_a_composition();
+        // Its origin at (287, 10): the rectangle from (247, 10) to (287, 30), y down on screen,
+        // and 3 points on each side for its line's reach.
+        let frames = frames_of(&e, sheet);
+        assert_eq!(frames.len(), 1, "one box for what it shows");
+        assert_eq!(frames[0].0, i);
+        let want = egui::Rect::from_min_max(egui::pos2(244.0, -30.0), egui::pos2(290.0, -10.0));
+        assert!(frames[0].1.min.distance(want.min) < 1e-3 && frames[0].1.max.distance(want.max) < 1e-3, "{:?}", frames[0].1);
+        // Locked: drawn, not picked. Hidden: neither.
+        e.apply(Operation::SetElementState { elements: vec![i], hidden: None, locked: Some(true) }).unwrap();
+        assert!(frames_of(&e, sheet).is_empty());
+        e.apply(Operation::SetElementState { elements: vec![i], hidden: Some(true), locked: Some(false) }).unwrap();
+        assert!(frames_of(&e, sheet).is_empty());
+    }
+
+    #[test]
+    fn a_point_snaps_on_what_an_instance_shows() {
+        let (e, sheet, i) = sheet_with_a_composition();
+        let d = e.document().drawing();
+        let (on, align) = snap_points(&e, d, &mut ViewsCache::default(), sheet, &[], None);
+        for q in [DVec2::new(247.0, 10.0), DVec2::new(287.0, 30.0), DVec2::new(247.0, 20.0)] {
+            assert!(on.iter().any(|p| p.distance(q) < 1e-9) && align.iter().any(|p| p.distance(q) < 1e-9), "{q}");
+        }
+        // Not on the instance being dragged.
+        assert!(snap_points(&e, d, &mut ViewsCache::default(), sheet, &[], Some(i)).0.is_empty());
+    }
+
+    #[test]
+    fn an_anchored_instance_moves_from_its_corner() {
+        let (e, _, i) = sheet_with_a_composition();
+        let kind = &e.document().drawing().element(i).unwrap().kind;
+        let moved = moved_element(kind, DVec2::new(-5.0, 2.0));
+        let place = moved.instance().unwrap().place;
+        assert_eq!((place.corner, place.at), (Some(Corner::BottomRight), DVec2::new(-15.0, 12.0)));
+    }
+
+    #[test]
+    fn a_composition_entered_is_what_a_press_lands_on_in_its_own_axes() {
+        let (mut e, sheet, i) = sheet_with_a_composition();
+        // Something else on the sheet: faded, out of reach.
+        e.apply(Operation::AddElement { to: Container::Sheet(sheet), element: ElementKind::Rect { min: DVec2::ZERO, max: DVec2::ONE } })
+            .unwrap();
+        let d = e.document().drawing();
+        let (to, place) = d.opened(sheet, &[i]).unwrap();
+        let list = d.elements_in(to).unwrap();
+        let ctx = egui::Context::default();
+        let mut drawn = Drawn::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let painter = ui.ctx().layer_painter(egui::LayerId::background());
+            let pv = Paperview::new(egui::Pos2::ZERO, DVec2::ZERO, 1.0);
+            let placed = d.placed(sheet);
+            let (mut lines, mut views, mut wanted) = (Default::default(), ViewsCache::default(), Vec::new());
+            let level = Level { open: &[i], place };
+            drawn =
+                draw_elements(&painter, &pv, &e, d, sheet, &placed, level, &[], &HashMap::new(), &mut lines, &mut views, &mut wanted, None);
+        });
+        output.textures_delta.clear();
+        let ids: Vec<Id> = drawn.frames.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, list.iter().map(|el| el.id).collect::<Vec<_>>(), "what the composition holds, nothing else");
+        assert_eq!(drawn.boxes[&list[0].id], (DVec2::new(-40.0, 0.0), DVec2::new(0.0, 20.0)), "in the composition's axes");
+        // Its box a little wider than what it shows.
+        assert_eq!(drawn.level_box, Some((DVec2::new(-42.0, -2.0), DVec2::new(2.0, 22.0))));
+        // The pointer read in its axes: the paper's (287, 10) is its origin.
+        let lv = Paperview::new(egui::Pos2::ZERO, DVec2::ZERO, 1.0).placed(place);
+        assert!(lv.to_sheet(egui::pos2(287.0, -10.0)).length() < 1e-3);
+    }
+
+    #[test]
+    fn levels_are_entered_and_left_the_instance_picked() {
+        let (e, sheet, i) = sheet_with_a_composition();
+        let d = e.document().drawing();
+        let mut st = SheetState { current: Some(sheet), ..Default::default() };
+        assert_eq!(st.container(d), Some(Container::Sheet(sheet)));
+        st.selected = vec![i];
+        edit_selected(&e, &mut st).unwrap();
+        let composition = d.element(i).unwrap().kind.instance().unwrap().composition;
+        assert_eq!((st.container(d), st.selected.len()), (Some(Container::Composition(composition)), 0));
+        st.leave();
+        assert_eq!((st.container(d), st.selected.as_slice()), (Some(Container::Sheet(sheet)), &[i][..]));
+    }
+
+    #[test]
+    fn a_definition_placed_on_another_sheet_takes_its_corner() {
+        let (mut e, _, i) = sheet_with_a_composition();
+        let composition = e.document().drawing().element(i).unwrap().kind.instance().unwrap().composition;
+        let other = e.apply(Operation::AddSheet { presentation: None, name: None, paper: Paper::A3 }).unwrap().unwrap().sheet.unwrap();
+        let mut st = SheetState { current: Some(other), ..Default::default() };
+        place_composition(&mut e, &mut st, composition);
+        let d = e.document().drawing();
+        let placed = st.selected[0];
+        let p = d.element(placed).unwrap().kind.instance().unwrap().place;
+        assert_eq!((p.corner, p.at), (Some(Corner::BottomRight), DVec2::new(-10.0, 10.0)));
+        assert_eq!(d.container_of(placed), Some(Container::Sheet(other)));
+        // Again on the same sheet: a little aside.
+        place_composition(&mut e, &mut st, composition);
+        let p = e.document().drawing().element(st.selected[0]).unwrap().kind.instance().unwrap().place;
+        assert_eq!(p.at, DVec2::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn a_box_is_brought_onto_a_smaller_paper() {
+        let a4 = Paper::A4;
+        let at = |x, y| DVec2::new(x, y);
+        assert_eq!(offset_into(at(10.0, 10.0), at(50.0, 50.0), a4), DVec2::ZERO, "on it: left where it is");
+        assert_eq!(offset_into(at(300.0, 250.0), at(400.0, 280.0), a4), at(-103.0, -70.0));
+        assert_eq!(offset_into(at(-5.0, 10.0), at(20.0, 20.0), a4), at(5.0, 0.0));
+        assert_eq!(offset_into(at(0.0, 0.0), at(397.0, 10.0), a4), at(-50.0, 0.0), "too wide: centred");
+    }
+
+    #[test]
+    fn copying_on_a_sheet_pastes_at_the_pointer_in_the_level_open() {
+        let (mut e, sheet, i) = sheet_with_a_composition();
+        let mut st = SheetState { current: Some(sheet), zoom: 1.0, ..Default::default() };
+        st.selected = vec![i];
+        st.frames = vec![(i, egui::Rect::NOTHING)];
+        st.boxes.insert(i, (DVec2::new(247.0, 10.0), DVec2::new(287.0, 30.0)));
+        let (fragment, bounds) = copy_selected(&e, &st).unwrap();
+        // The pointer at the paper's (100, 100), the stage's centre at its origin.
+        st.pointer = Some(egui::pos2(100.0, -100.0));
+        run_ask(&mut e, &mut st, SheetAsk::Paste { fragment, bounds, in_place: false, linked: true }, egui::Pos2::ZERO);
+        let d = e.document().drawing();
+        assert_eq!(d.sheet(sheet).unwrap().elements.len(), 2);
+        let copy = st.selected[0];
+        assert_ne!(copy, i);
+        let (a, b) = (d.element(i).unwrap().kind.instance().unwrap(), d.element(copy).unwrap().kind.instance().unwrap());
+        assert_eq!(a.composition, b.composition, "the same composition");
+        assert!(b.place.origin(Some(Paper::A4)).distance(DVec2::new(120.0, 90.0)) < 1e-9, "its box centred on the pointer");
+        select_all(&e, &mut st);
+        assert_eq!(st.selected.len(), 2);
+    }
+
+    #[test]
+    fn what_a_placed_view_draws_turns_with_it() {
+        let pv = Paperview::new(egui::pos2(100.0, 100.0), DVec2::ZERO, 2.0);
+        assert!(!pv.turned() && pv.angle() == 0.0);
+        let turned = pv.placed(DAffine2::from_angle_translation(std::f64::consts::FRAC_PI_2, DVec2::new(10.0, 0.0)));
+        assert!(turned.turned());
+        assert!((turned.angle() + std::f32::consts::FRAC_PI_2).abs() < 1e-6, "counterclockwise on paper, y down on screen");
+        // (1, 0) turned to (0, 1), moved to (10, 1): 20 right of the centre, 2 up.
+        assert!(turned.to_screen(DVec2::X).distance(egui::pos2(120.0, 98.0)) < 1e-3);
+        // The box's top left corner (0, 1): at (9, 0).
+        assert!(turned.quad(DVec2::ZERO, DVec2::new(2.0, 1.0))[0].distance(egui::pos2(118.0, 100.0)) < 1e-3);
+        // What it covers on screen, whatever its turn: 2 wide × 4 high… at 2 points a millimetre.
+        let r = turned.rect(DVec2::ZERO, DVec2::new(2.0, 1.0));
+        assert!((r.size() - egui::vec2(2.0, 4.0)).length() < 1e-3, "{r:?}");
+    }
 
     #[test]
     fn a_box_handle_moves_its_sides_and_a_corner_with_shift_keeps_proportions() {
@@ -2271,10 +3123,28 @@ mod tests {
 
     #[test]
     fn fields_are_filled_and_unknown_ones_kept() {
-        let f = Fields { document: "Table.skraft", sheet: "Plan", number: 2, count: 3, scale: Some(0.1) };
-        assert_eq!(f.fill("{document} · {sheet} {sheet.number}/{sheet.count} · {scale}"), "Table.skraft · Plan 2/3 · 1:10");
-        assert_eq!(f.fill("{nope} and {"), "{nope} and {");
-        assert_eq!(f.fill("{date}").len(), 10, "dd/mm/yyyy");
+        let f = Fields { document: "Table.skraft", sheet: "Plan", number: 2, count: 3, scale: Some(0.1), values: None };
+        assert_eq!(f.fill("{document} · {sheet} {sheet.number}/{sheet.count} · {scale}", &[]), "Table.skraft · Plan 2/3 · 1:10");
+        assert_eq!(f.fill("{nope} and {", &[]), "{nope} and {");
+        assert_eq!(f.fill("{date}", &[]).len(), 10, "dd/mm/yyyy");
+    }
+
+    #[test]
+    fn a_field_is_filled_from_the_nearest_value() {
+        let (mut e, sheet, i) = sheet_with_a_composition();
+        let text = |s: &str| Some(skraft_model::Value::Text(s.into()));
+        let set = |on, value| Operation::SetField { on, key: "user.client".into(), value };
+        let p = e.document().drawing().presentation_of(sheet).unwrap().id;
+        e.apply(set(skraft_model::FieldOn::Presentation(p), text("Martin"))).unwrap();
+        let fill = |e: &Editor, path: &[Id]| {
+            let f = Fields { document: "", sheet: "", number: 1, count: 1, scale: None, values: Some((e.document(), sheet)) };
+            f.fill("{client} {autre}", path)
+        };
+        assert_eq!(fill(&e, &[i]), "Martin {autre}", "from the presentation; one without a value left");
+        e.apply(set(skraft_model::FieldOn::Instance(i), text("Dupont"))).unwrap();
+        assert_eq!(fill(&e, &[i]), "Dupont {autre}");
+        assert_eq!(fill(&e, &[]), "Martin {autre}", "not under the instance");
+        assert_eq!(custom_fields(["client".to_owned(), "scale".to_owned(), "sheet.number".to_owned()]), vec!["client".to_owned()]);
     }
 
     #[test]

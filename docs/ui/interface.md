@@ -26,10 +26,11 @@ tabs have pages of their own.
   headers' fill, a line under it, its title semibold, its chevron at the right end) folds it
   (click) or moves it (drag: it follows the pointer and drops into the column of the nearer
   edge, where a bar shows the insertion point); the commands `view.entity_info`,
-  `view.materials`, `view.outliner`, `view.components` and `view.layers` (« Mise en plan »'s,
-  docs/ui/drawing.md#layers) (command palette, shortcuts) close or show each one
+  `view.materials`, `view.outliner` (on a sheet, the drawing's tree:
+  docs/ui/drawing.md#navigator), `view.components` and, in a workspace of sheets,
+  `view.compositions` (command palette, shortcuts) close or show each one
   (`PanelId::command`). A card keeps the height given by dragging its bottom edge, except the
-  last unfolded list of its column (Materials, Outliner or Components; never Entity info, which would only
+  last unfolded list of its column (Materials, Outliner, Components or Compositions; never Entity info, which would only
   grow empty: `PanelId::fills`), which fills the height left; the inner edge sets the column's
   width (`dock::COLUMN_WIDTH` 270 pt by default, `COLUMN_MIN_WIDTH` 200 at least; double click:
   default). Order, columns, sizes, folded and closed cards are kept in the preferences
