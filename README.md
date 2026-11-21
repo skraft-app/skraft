@@ -90,8 +90,9 @@ one page per topic, with the decision records behind it; what changes from one r
 - [SolidCore](https://github.com/tangency-labs/solidcore) by Tangency Labs, the B-rep kernel
   that computes every solid (Apache-2.0).
 - [SolidCraft](https://github.com/tangency-labs/solidcraft), an independent open-source CAD
-  application on the same kernel. Parts of Skraft's rendering and control protocol are adapted
-  from its code, under the MIT license (see `THIRD-PARTY-LICENSES.txt`).
+  application on the same kernel. Parts of Skraft's rendering, control protocol and Prism tool
+  (its line-to-arc gesture and outline offset) are adapted from its code, under the MIT license
+  (see `THIRD-PARTY-LICENSES.txt`).
 - [OpenCutList](https://github.com/lairdubois/lairdubois-opencutlist-sketchup-extension), the
   model for parts, materials and many of the tools' interactions.
 - [skpwright](https://github.com/hew3d/skpwright) by Kurt Granroth, the reader of SketchUp files
