@@ -71,8 +71,8 @@ where they are drawn covers them all.
   accent and soft accent, corner radii, spacing.
 - **Palettes**: a `Palette` (user preference `palette`) gives the interface's colours, **each in
   a light and a dark variant**; the `theme` preference (system, light, dark) picks the variant,
-  so the two settings are independent. Built in code, no theme files: *Neutral* (SolidCraft's:
-  neutral greys, blue accent), *Warm* (warm greys, amber, the default), *Graphite* (cool, deeper
+  so the two settings are independent. Built in code, no theme files: *Navy* (navy-tinted
+  greys, blue accent), *Warm* (warm greys, amber, the default), *Graphite* (cool, deeper
   greys, teal). A palette changes the interface only: the model's and the overlays' tokens stay
   the theme's. A test holds every variant to text ≥ 7:1 and dim text ≥ 3:1 on its grounds.
 - `apps/skraft/src/style.rs` turns a palette's tokens into egui's visuals and spacing for

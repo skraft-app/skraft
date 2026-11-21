@@ -298,6 +298,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_palette_0_1_0_called_neutral_stays_chosen() {
+        let p: Preferences = serde_json::from_str(r#"{"palette":"Neutral"}"#).unwrap();
+        assert_eq!(p.palette, Palette::Navy);
+    }
+
+    #[test]
     fn each_workspace_arranges_its_panels_from_the_first_ones() {
         use crate::dock::PanelId;
         let mut p = Preferences::default();

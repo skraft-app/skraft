@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn both_styles_follow_the_palette() {
         let ctx = egui::Context::default();
-        for palette in [Palette::Warm, Palette::Graphite, Palette::Neutral] {
+        for palette in [Palette::Warm, Palette::Graphite, Palette::Navy] {
             install_palette(&ctx, palette);
             for (theme, mode) in [(egui::Theme::Light, Mode::Light), (egui::Theme::Dark, Mode::Dark)] {
                 let (v, t) = (&ctx.style_of(theme).visuals, UiTokens::of(palette, mode));

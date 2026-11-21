@@ -25,8 +25,9 @@ pub enum Choice {
 /// [`Choice`] picks the variant.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Palette {
-    /// Neutral greys, a blue accent (SolidCraft's).
-    Neutral,
+    /// Navy-tinted greys, a blue accent (`Neutral` in the preferences 0.1.0 wrote).
+    #[serde(alias = "Neutral")]
+    Navy,
     /// Warm greys, an amber accent.
     #[default]
     Warm,
@@ -35,7 +36,7 @@ pub enum Palette {
 }
 
 impl Palette {
-    pub const ALL: [Palette; 3] = [Palette::Neutral, Palette::Warm, Palette::Graphite];
+    pub const ALL: [Palette; 3] = [Palette::Navy, Palette::Warm, Palette::Graphite];
 }
 
 /// A theme as drawn.
@@ -113,7 +114,7 @@ pub struct UiTokens {
     /// Space between widgets (x, y), and inside a button, in points.
     pub item_spacing: [f32; 2],
     pub button_padding: [f32; 2],
-    /// The title bar: dark in both modes (as SolidCraft's application bar), its text light.
+    /// The title bar: dark in both modes, its text light.
     pub title_bar: TitleBarTokens,
     /// The 3D view's background, and the text drawn on it (the shown file tab, which opens onto
     /// the view): light in the light mode, a dark grey a little lighter than the panels in the
@@ -137,8 +138,8 @@ pub struct TitleBarTokens {
 impl UiTokens {
     pub fn of(palette: Palette, mode: Mode) -> Self {
         match (palette, mode) {
-            (Palette::Neutral, Mode::Light) => Self::light(),
-            (Palette::Neutral, Mode::Dark) => Self::dark(),
+            (Palette::Navy, Mode::Light) => Self::light(),
+            (Palette::Navy, Mode::Dark) => Self::dark(),
             (Palette::Warm, Mode::Light) => Self::warm_light(),
             (Palette::Warm, Mode::Dark) => Self::warm_dark(),
             (Palette::Graphite, Mode::Light) => Self::graphite_light(),
@@ -146,56 +147,54 @@ impl UiTokens {
         }
     }
 
-    /// The neutral palette, light: SolidCraft's (`crates/theme/src/palettes.rs` in
-    /// tangency-labs/solidcraft, Apache-2.0).
+    /// The navy palette, light: blue-tinted greys, a blue accent.
     pub fn light() -> Self {
         UiTokens {
-            panel: srgb(250, 251, 252),
-            panel_header: srgb(236, 238, 242),
+            panel: srgb(244, 251, 255),
+            panel_header: srgb(225, 239, 255),
             field: srgb(255, 255, 255),
-            border: srgb(208, 212, 220),
-            text: srgb(38, 42, 50),
-            text_dim: srgb(110, 116, 128),
-            hover: srgb(226, 234, 246),
-            accent: srgb(38, 120, 218),
-            accent_soft: srgb(214, 230, 250),
+            border: srgb(196, 213, 237),
+            text: srgb(23, 40, 65),
+            text_dim: srgb(90, 107, 133),
+            hover: srgb(224, 235, 251),
+            accent: srgb(27, 102, 197),
+            accent_soft: srgb(206, 229, 255),
             radius_sm: 4,
             radius_md: 6,
             item_spacing: [6.0, 4.0],
             button_padding: [6.0, 3.0],
-            // SolidCraft's application bar (`app_bar`, `app_bar_text`).
             title_bar: TitleBarTokens {
-                ground: srgb(52, 56, 64),
-                text: srgb(230, 234, 242),
-                text_dim: srgb(160, 168, 182),
-                border: srgb(84, 90, 102),
-                lit: srgb(68, 76, 92),
+                ground: srgb(29, 46, 71),
+                text: srgb(226, 238, 254),
+                text_dim: srgb(162, 178, 202),
+                border: srgb(67, 83, 107),
+                lit: srgb(52, 70, 96),
             },
-            view: srgb(246, 247, 249),
-            view_text: srgb(38, 42, 50),
+            view: srgb(236, 245, 255),
+            view_text: srgb(23, 40, 65),
         }
     }
 
-    /// The neutral palette, dark (SolidCraft's).
+    /// The navy palette, dark.
     pub fn dark() -> Self {
         UiTokens {
-            panel: srgb(39, 43, 52),
-            panel_header: srgb(47, 52, 62),
-            field: srgb(30, 34, 41),
-            border: srgb(63, 69, 82),
-            text: srgb(222, 226, 232),
-            text_dim: srgb(148, 155, 168),
-            hover: srgb(54, 61, 74),
-            accent: srgb(58, 136, 238),
-            accent_soft: srgb(42, 70, 110),
+            panel: srgb(24, 39, 62),
+            panel_header: srgb(33, 49, 73),
+            field: srgb(13, 28, 51),
+            border: srgb(53, 70, 95),
+            text: srgb(217, 228, 244),
+            text_dim: srgb(145, 161, 184),
+            hover: srgb(52, 62, 78),
+            accent: srgb(99, 162, 250),
+            accent_soft: srgb(32, 64, 108),
             title_bar: TitleBarTokens {
-                ground: srgb(28, 31, 38),
-                border: srgb(56, 62, 74),
-                lit: srgb(54, 61, 74),
+                ground: srgb(8, 23, 45),
+                border: srgb(39, 55, 79),
+                lit: srgb(52, 62, 78),
                 ..Self::light().title_bar
             },
-            view: srgb(52, 57, 66),
-            view_text: srgb(222, 226, 232),
+            view: srgb(43, 58, 81),
+            view_text: srgb(217, 228, 244),
             ..Self::light()
         }
     }
@@ -582,7 +581,7 @@ mod tests {
 
     #[test]
     fn a_palette_changes_the_interface_only() {
-        let (n, w) = (Theme::of(Palette::Neutral, Mode::Light), Theme::of(Palette::Warm, Mode::Light));
+        let (n, w) = (Theme::of(Palette::Navy, Mode::Light), Theme::of(Palette::Warm, Mode::Light));
         assert_ne!(n.ui, w.ui);
         assert_eq!(Theme { ui: n.ui, ..w }, n);
     }
@@ -600,7 +599,7 @@ mod tests {
         let (l, d) = (Theme::light(), Theme::dark());
         assert_eq!((l.face_front, l.face_back, l.edge), (d.face_front, d.face_back, d.edge));
         assert_ne!(l.tooltip_fill, d.tooltip_fill);
-        assert_eq!(Theme::of(Palette::Neutral, Mode::Dark), d);
+        assert_eq!(Theme::of(Palette::Navy, Mode::Dark), d);
         assert_ne!(l.ui.panel, d.ui.panel);
         assert_eq!((l.ui.radius_sm, l.ui.item_spacing), (d.ui.radius_sm, d.ui.item_spacing));
     }

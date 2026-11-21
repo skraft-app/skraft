@@ -3361,7 +3361,7 @@ fn palette_row(ui: &mut egui::Ui, v: &CommandView, picked: bool) -> egui::Respon
 /// A palette's name in the preferences.
 fn palette_name(palette: UiPalette) -> String {
     match palette {
-        UiPalette::Neutral => t!("prefs.interface.palettes.neutral"),
+        UiPalette::Navy => t!("prefs.interface.palettes.navy"),
         UiPalette::Warm => t!("prefs.interface.palettes.warm"),
         UiPalette::Graphite => t!("prefs.interface.palettes.graphite"),
     }
