@@ -65,15 +65,19 @@ preview is held until the kernel gives the part its new shape (`Editor::held`, a
 - **Its edges**: the entity info's « Choisir les arêtes » opens the node and starts its tool
   (`Editor::edit_blend`). In a node opened, the tool picks the node's edges again rather than
   wrapping a body: its children are shown as they are (the node not applied, as any group
-  opened), its edges lit and picked already — those whose two faces are of one leaf child,
-  found from their names (`names::leaf_faces`, `names::edges_between`; an edge between two
-  children lies on neither as shown) —; Enter applies `SetBlend` with the picks, the node's edges named again — with the node's own
-  size (typed there, it changes the node's, not the tool's) — then closes the node, selected,
+  opened), its edges lit and picked already. Edges are read and picked on the **children's
+  result** (`Document::node_raw`, `DisplayScene::node_raw`, `names::edges_named`), not on the
+  children shown: an edge between two of them lies on neither. That result is the node's
+  cache, or, when it does not hold (a file just read, it is not saved), computed in the
+  background when the node is opened, its edges lit once it comes (`Editor::update_node_raw`).
+  Enter applies `SetBlend` with the picks, the node's edges named again — with the node's own
+  size (shown in the bar and the measurements box, following the entity info's; typed
+  there, it changes the node's, not the tool's saved one) — then closes the node, selected,
   the selection tool back. ✓ shows only once its edges or its size changed; Esc takes its edges
   back as they are.
 - **A node open, under another tool than its own** (the selection's, after a double click):
   its edges are lit on its children all the same, the context card names it with its size and
-  « Choisir les arêtes » (its tool started on it), and the status bar says so first
+  « Modifier » (its tool started on it: its edges, its size), and the status bar says so first
   (`Editor::open_node`). The navigator marks the node's row open, as a part's, the levels above
   it on the way only by their name in the accent's colour.
 - **Its children**, by opening it as a group: they are edited as in a group, and the node
@@ -82,7 +86,8 @@ preview is held until the kernel gives the part its new shape (`Editor::held`, a
   on the way to it, are drawn faded instead, each where it is (`Editor::around_open_node`); a
   plain group opened keeps the part's shape faded around it. A name that no longer matches an
   edge leaves the node in error (⚠ in the navigator, its tooltip and the entity info saying
-  why, its children's result shown as it is).
+  why, its children's result shown as it is). An edit changes only the bodies it is applied
+  to: a cutter flush with a face stretched does not follow it, and when that takes the edge
+  away the node says so. **Why:** the app makes no guess at what the user meant to change.
 
-Not yet: a round nested inside a node opened (the tool there edits the node), the edges of a
-node between two of its children lit when it is opened.
+Not yet: a round nested inside a node opened (the tool there edits the node).

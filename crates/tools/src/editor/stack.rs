@@ -42,6 +42,8 @@ impl Editor {
         for option in tool.options(&self.cx_for(&*tool)) {
             tool.set_option(option.key, &option.value);
         }
+        let cx = self.cx_for(&*tool);
+        tool.started(&cx);
         let mut under = std::mem::replace(&mut self.tool, tool);
         under.leave();
         self.stack.push(Suspended { tool: under, over });

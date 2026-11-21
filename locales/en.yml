@@ -373,6 +373,8 @@ selection_scope:
 option_bar:
   # The context card naming the round or chamfer open (docs/tools/rounds.md).
   node_open_tip: "The node open: its children as they are, its edges in colour"
+  node_edit: "Edit"
+  node_edit_tip: "Take up its tool again to change its edges and its size"
   options: "Options"
   options_tip: "The options to turn on or off"
   body_sign: "Solid"
@@ -835,7 +837,7 @@ naming:
 
 status:
   # A round or a chamfer open, another tool on (docs/tools/rounds.md).
-  node_open: "%{name} open: « Pick the edges » or its tool to change its edges"
+  node_open: "%{name} open: « Edit » to change its edges or its size"
   measurements: "Measurements"
   tree: "Choose an item in the list"
   tree_key: "%{key} held: parent item"

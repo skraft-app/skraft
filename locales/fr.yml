@@ -428,6 +428,8 @@ selection_scope:
 option_bar:
   # The context card naming the round or chamfer open (docs/tools/rounds.md).
   node_open_tip: "Le nœud ouvert : ses enfants tels quels, ses arêtes en couleur"
+  node_edit: "Modifier"
+  node_edit_tip: "Reprendre son outil pour changer ses arêtes et sa taille"
   # The group of the lone options (toggles), at the end of the bar.
   options: "Options"
   options_tip: "Les options à activer ou désactiver"
@@ -933,7 +935,7 @@ naming:
 # The status bar: the measurements box and the editor's messages.
 status:
   # A round or a chamfer open, another tool on (docs/tools/rounds.md).
-  node_open: "%{name} ouvert : « Choisir les arêtes » ou son outil pour en changer les arêtes"
+  node_open: "%{name} ouvert : « Modifier » pour en changer les arêtes ou la taille"
   measurements: "Mesures"
   # The tree drop-up open (OCL's, docs/tools/selection.md): the path of the part hovered, listed.
   tree: "Choisir un élément dans la liste"

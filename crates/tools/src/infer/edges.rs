@@ -133,15 +133,20 @@ fn outward(c: &SnapCurve, at: DVec3) -> Option<DVec3> {
 /// The edges of the solid `of` was hit on that run on from it tangentially, at either end,
 /// one after another (the round tools' double click): `of` first.
 pub fn tangent_chain(scene: &DisplayScene, of: &EdgeHit) -> Vec<EdgeHit> {
-    let Some((_, part)) = scene
+    let Some(part) = scene
         .inferable_where(|_| true)
         .into_iter()
         .find(|(p, _, piece)| p.entity_path() == of.path && *piece == of.piece)
-        .map(|(p, m, _)| (p, m))
+        .map(|(_, m, _)| m)
     else {
         return vec![of.clone()];
     };
-    let edges = &part.snaps.edges;
+    chain_in(&part.snaps, of)
+}
+
+/// [`tangent_chain`] among the edges of `snaps`, those of the solid `of` is on.
+fn chain_in(snaps: &Snaps, of: &EdgeHit) -> Vec<EdgeHit> {
+    let edges = &snaps.edges;
     let Some(start) = edges.iter().position(|e| e.id == of.edge) else { return vec![of.clone()] };
     let mut chain = vec![start];
     let mut ends: Vec<DVec3> = edges[start].curve.ends();
@@ -159,22 +164,46 @@ pub fn tangent_chain(scene: &DisplayScene, of: &EdgeHit) -> Vec<EdgeHit> {
             ends.extend(edges[j].curve.ends().into_iter().filter(|e| e.distance(at) >= 1e-6));
         }
     }
-    chain.into_iter().filter_map(|i| hit(&of.path, of.piece, &of.transform, &part.snaps, i)).collect()
+    chain.into_iter().filter_map(|i| hit(&of.path, of.piece, &of.transform, snaps, i)).collect()
 }
 
-/// The edges `ids` (record indices) of the piece `piece` of `path` as shown: the open part's
-/// body, or a part's shape (a node's edges lit when it is opened, docs/tools/rounds.md).
-pub fn edges_of(scene: &DisplayScene, path: &EntityPath, piece: Piece, ids: &[u32]) -> Vec<EdgeHit> {
-    let Some((place, part)) = scene
-        .inferable_where(|_| true)
-        .into_iter()
-        .find(|(p, _, pc)| *pc == piece && (piece != Piece::Shape || p.entity_path() == *path))
-        .map(|(p, m, _)| (p, m))
-    else {
-        return Vec::new();
-    };
-    (0..part.snaps.edges.len())
-        .filter(|&i| ids.contains(&part.snaps.edges[i].id))
-        .filter_map(|i| hit(path, piece, &place.transform, &part.snaps, i))
-        .collect()
+/// The edges of a solid no piece of the scene draws: an open body node's children's result,
+/// its children being shown apart (docs/tools/rounds.md). Its hits are `path`'s shape.
+pub struct EdgesOn<'a> {
+    pub snaps: &'a Snaps,
+    pub path: &'a EntityPath,
+    /// Its axes to the world.
+    pub transform: DAffine3,
+}
+
+impl EdgesOn<'_> {
+    /// The edge nearest the cursor `px` within the aperture and seen: nothing `hide` accepts
+    /// in front of it.
+    pub fn at(&self, scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, hide: &dyn Fn(&Owner<'_>) -> bool) -> Option<EdgeHit> {
+        let ray = camera.ray(px, size);
+        let screen = camera.projector(size);
+        let mut best: Option<(f64, usize)> = None;
+        for (i, e) in self.snaps.edges.iter().enumerate() {
+            let Some(p) = on_curve(&e.curve, &self.transform, &ray, &screen, px) else { continue };
+            let Some(d) = screen.project(p).map(|s| s.distance(px)) else { continue };
+            if d > APERTURE_PX || best.is_some_and(|(b, _)| b <= d) || !seen(scene, camera, size, p, hide) {
+                continue;
+            }
+            best = Some((d, i));
+        }
+        hit(self.path, Piece::Shape, &self.transform, self.snaps, best?.1)
+    }
+
+    /// Its edges `ids` (record indices).
+    pub fn with_ids(&self, ids: &[u32]) -> Vec<EdgeHit> {
+        (0..self.snaps.edges.len())
+            .filter(|&i| ids.contains(&self.snaps.edges[i].id))
+            .filter_map(|i| hit(self.path, Piece::Shape, &self.transform, self.snaps, i))
+            .collect()
+    }
+
+    /// [`tangent_chain`] of its edge `of`.
+    pub fn chain(&self, of: &EdgeHit) -> Vec<EdgeHit> {
+        chain_in(self.snaps, of)
+    }
 }

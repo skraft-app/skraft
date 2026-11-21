@@ -399,23 +399,25 @@ fn vertices_of(r: &Record, i: usize) -> impl Iterator<Item = DVec3> + '_ {
         .flat_map(|e| r.edges[e.edge as usize].vertices.map(|v| DVec3::from_array(r.vertices[v as usize].point)))
 }
 
-/// The record edges of `r` between its faces named `a` and `b` (`names`: its faces', as
-/// [`leaf_faces`] gives them): where a node's edge of one leaf lies on that leaf.
-pub fn edges_between(r: &Record, names: &[FaceName], a: &FaceName, b: &FaceName) -> Vec<u32> {
-    let mut faces_of = vec![Vec::new(); r.edges.len()];
+/// The record edges of `r`, a node's children's result (`map`: its face map), that `name`
+/// names: where a node's edges lie, of one child or between two.
+pub fn edges_named(r: &Record, map: &FaceMap, name: &EdgeName) -> Vec<u32> {
+    let mut faces_of: Vec<Vec<usize>> = vec![Vec::new(); r.edges.len()];
     for (fi, f) in r.faces.iter().enumerate() {
         for l in &f.loops {
             if let Loop::Edges { edges } = l {
                 for e in edges {
-                    faces_of[e.edge as usize].push(fi);
+                    let list = &mut faces_of[e.edge as usize];
+                    if !list.contains(&fi) {
+                        list.push(fi);
+                    }
                 }
             }
         }
     }
-    let named = |fi: usize| names.get(fi);
     (0..r.edges.len() as u32)
         .filter(|&e| match faces_of[e as usize].as_slice() {
-            [x, y] => (named(*x) == Some(a) && named(*y) == Some(b)) || (named(*x) == Some(b) && named(*y) == Some(a)),
+            [x, y] => map.get(*x).zip(map.get(*y)).is_some_and(|(a, b)| name.matches(a, b)),
             _ => false,
         })
         .collect()

@@ -153,7 +153,7 @@ fn group(k: &mut Kernel, children: &[TreeBody], path: &[u64], cx: &mut Session) 
             TreeNode::Base { solid, faces } => tagged(k, cx.inputs[*solid as usize], path, &InputNames::Map(faces.clone()), call)?,
             TreeNode::Group { children, op } => {
                 let inner = group(k, children, &here, cx)?;
-                match (inner, op) {
+                let inner = match (inner, op) {
                     // Refused, its children's result goes on, and the node is told why.
                     (Some(b), Some(op)) => {
                         let (b, _, refusal) = apply(k, b, op, &[], &here)?;
@@ -163,6 +163,16 @@ fn group(k: &mut Kernel, children: &[TreeBody], path: &[u64], cx: &mut Session) 
                         Some(b)
                     }
                     (inner, _) => inner,
+                };
+                // Read back and tagged afresh, as a group computed already is: taken as it
+                // came out of its booleans, lumps of it flush with the shape it then cuts had
+                // their walls tagged with that shape's faces.
+                match inner {
+                    Some(mut b) => {
+                        let (solid, map) = read_map(k, &mut b, call)?;
+                        tagged(k, &solid, &[], &InputNames::Map(map), call)?
+                    }
+                    None => None,
                 }
             }
         }) else {

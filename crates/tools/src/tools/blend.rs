@@ -5,12 +5,12 @@
 
 use glam::{DAffine3, DVec3};
 use skraft_i18n::t;
-use skraft_model::kernel::names::{Blend, BlendOp, edges_between, leaf_faces};
-use skraft_model::{EntityPath, Id, Operation, Sign};
+use skraft_model::kernel::names::{Blend, BlendOp, edges_named};
+use skraft_model::{EntityPath, Id, Operation, RawCache};
 
 use super::{Command, Cx, Key, OptionValue, Preview, Steps, Tool, ToolInput, ToolKind, ToolOption};
 use crate::draw::{Color, Pen, ThemeColor};
-use crate::infer::{EdgeHit, edge_at, edges_of, tangent_chain};
+use crate::infer::{EdgeHit, EdgesOn, edge_at, tangent_chain};
 use crate::scene::{Owner, Piece};
 use crate::vcb::{Vcb, VcbKind, VcbValue};
 
@@ -31,12 +31,18 @@ pub struct BlendTool {
     /// The radius or the distance (mm).
     size: f64,
     hover: Option<EdgeHit>,
-    /// The edges picked, all of one body or one part (in a node opened, of its children).
+    /// The edges picked, all of one body or one part (in a node opened, of its children's
+    /// result).
     picks: Vec<EdgeHit>,
-    /// The node opened whose edges the picks were loaded from (docs/tools/rounds.md), and
-    /// whether they (or its size) were changed since.
+    /// The node opened whose edges the picks were loaded from (docs/tools/rounds.md), whether
+    /// they (or its size) were changed since, and whether its children's result was there to
+    /// load them from (it may come after the node is opened).
     loaded: Option<Id>,
     changed: bool,
+    raw_loaded: bool,
+    /// The node's size was typed here: `size` is what it will take. Else `size` follows the
+    /// node's, which the entity info may change while the tool is on.
+    size_typed: bool,
 }
 
 /// The size option (saved per tool): the radius, the distance.
@@ -47,7 +53,7 @@ const SIZE: f64 = 2.0;
 
 impl BlendTool {
     pub fn new(blend: Blend) -> Self {
-        BlendTool { blend, size: SIZE, hover: None, picks: Vec::new(), loaded: None, changed: false }
+        BlendTool { blend, size: SIZE, hover: None, picks: Vec::new(), loaded: None, changed: false, raw_loaded: false, size_typed: false }
     }
 
     /// The body node open (the group open is one), a round's or a chamfer's: the path to what
@@ -61,29 +67,21 @@ impl BlendTool {
         Some((parent, node, op))
     }
 
-    /// The node's edges as they are, on its children shown: those whose two faces are of one
-    /// leaf child (an edge between two children is on neither as shown).
+    /// The open node's children's result and its edges, in the node's axes, once they are there.
+    fn raw_edges<'a>(cx: &'a Cx<'_>, path: &'a EntityPath) -> Option<(&'a RawCache, EdgesOn<'a>)> {
+        let (raw, snaps) = cx.scene.node_raw()?;
+        Some((raw, EdgesOn { snaps, path, transform: cx.axes() }))
+    }
+
+    /// The node's edges as they are, on its children's result: an edge between two children
+    /// lies on neither of them as shown.
     pub(crate) fn load(cx: &Cx<'_>, op: &BlendOp) -> Vec<EdgeHit> {
         let Some(path) = cx.open_part_path() else { return Vec::new() };
-        let Ok((_, p, _)) = cx.doc.resolve_container(&path) else { return Vec::new() };
+        let Some((raw, on)) = Self::raw_edges(cx, &path) else { return Vec::new() };
         let to_world = cx.axes();
         let mut out: Vec<EdgeHit> = Vec::new();
         for e in &op.edges {
-            let [a, b] = &e.name.faces;
-            let ([c], [d]) = (a.path.as_slice(), b.path.as_slice()) else { continue };
-            if c != d {
-                continue;
-            }
-            let Some(child) = p.body(Id(*c)) else { continue };
-            let def = p.def_of(child);
-            if def.is_group() {
-                continue;
-            }
-            let recipe = def.profile.as_ref().map(|f| f.primitive());
-            let names = leaf_faces(def.solid.record(), recipe.as_ref());
-            let ids = edges_between(def.solid.record(), &names, &a.face, &b.face);
-            let piece = if child.sign == Sign::Positive { Piece::Blank(child.id) } else { Piece::Tool(child.id) };
-            let hits = edges_of(cx.scene, &path, piece, &ids);
+            let hits = on.with_ids(&edges_named(raw.solid.record(), &raw.faces, &e.name));
             if e.near.is_empty() {
                 out.extend(hits);
             } else {
@@ -100,21 +98,42 @@ impl BlendTool {
 
     /// The picks follow the node opened: its edges loaded when it is, let go when it closes.
     fn sync(&mut self, cx: &Cx<'_>) {
-        match Self::node(cx) {
-            // Its edges and its size, as they are.
-            Some((_, node, op)) if self.loaded != Some(node) => {
-                self.picks = Self::load(cx, &op);
-                self.size = op.size;
-                self.loaded = Some(node);
+        let node = Self::node(cx);
+        match &node {
+            // Its edges, as they are.
+            Some((_, id, op)) if self.loaded != Some(*id) => {
+                self.picks = Self::load(cx, op);
+                self.raw_loaded = cx.scene.node_raw().is_some();
+                self.loaded = Some(*id);
                 self.changed = false;
+                self.size_typed = false;
+            }
+            // Its children's result come since it was opened: its edges known only now.
+            Some((_, _, op)) if self.awaits_raw(cx) => {
+                self.picks = Self::load(cx, op);
+                self.raw_loaded = true;
             }
             None if self.loaded.is_some() => {
                 self.picks.clear();
                 self.loaded = None;
                 self.changed = false;
+                self.size_typed = false;
             }
             _ => {}
         }
+        if let Some((_, _, op)) = &node {
+            self.size = self.node_size(op);
+        }
+    }
+
+    /// The size the node `op` is edited to: the one typed here, else its own.
+    fn node_size(&self, op: &BlendOp) -> f64 {
+        if self.size_typed { self.size } else { op.size }
+    }
+
+    /// Has the node's children's result come since its edges were loaded?
+    fn awaits_raw(&self, cx: &Cx<'_>) -> bool {
+        !self.raw_loaded && cx.scene.node_raw().is_some()
     }
 
     /// What can be picked: a body of the open part, else a closed part's shape.
@@ -127,12 +146,27 @@ impl BlendTool {
         }
     }
 
-    /// The edge under the cursor: once one is picked, only of its body or part (a node's
-    /// edges, of any of its children) — the others still hiding what lies behind them.
+    /// The edge under the cursor: in a node opened, of its children's result; else, once one
+    /// is picked, only of its body or part — the others still hiding what lies behind them.
     fn edge(&self, cx: &Cx<'_>, px: glam::DVec2) -> Option<EdgeHit> {
+        if Self::node(cx).is_some() {
+            let path = cx.open_part_path()?;
+            let (_, on) = Self::raw_edges(cx, &path)?;
+            return on.at(cx.scene, cx.camera, cx.size, px, &|o| Self::keeps(cx, o));
+        }
         let first = self.picks.first().filter(|_| self.loaded.is_none());
         let keep = |o: &Owner<'_>| Self::keeps(cx, o) && first.is_none_or(|f| *o.path == f.path && o.piece == f.piece);
         edge_at(cx.scene, cx.camera, cx.size, px, &keep, &|o| Self::keeps(cx, o))
+    }
+
+    /// The edges running on from `e` tangentially, among those it was picked from.
+    fn chain(cx: &Cx<'_>, e: &EdgeHit) -> Vec<EdgeHit> {
+        if Self::node(cx).is_some()
+            && let Some((_, on)) = Self::raw_edges(cx, &e.path)
+        {
+            return on.chain(e);
+        }
+        tangent_chain(cx.scene, e)
     }
 
     /// The size saved, or the first one's.
@@ -169,14 +203,13 @@ impl BlendTool {
     fn operation(&self, cx: &Cx<'_>) -> Option<BlendPreview> {
         let first = self.picks.first()?;
         // In a node opened: its edges picked again, in its axes (the group open's).
-        if let Some((parent, node, _)) = Self::node(cx) {
+        if let Some((parent, node, now)) = Self::node(cx) {
             let to_node = cx.axes().inverse();
             let picks: Vec<DVec3> = self.picks.iter().map(|p| to_node.transform_point3(p.middle)).collect();
-            let body = match first.piece {
-                Piece::Blank(id) | Piece::Tool(id) => Some(id),
-                _ => None,
-            };
-            let op = Operation::SetBlend { target: parent, body: node, blend: self.blend, size: self.size, picks, scope: cx.part_scope };
+            // Its result previewed in the stead of its first child.
+            let body = cx.scene.recipe().and_then(|r| r.bodies().next()).map(|b| b.body);
+            let size = self.node_size(&now);
+            let op = Operation::SetBlend { target: parent, body: node, blend: self.blend, size, picks, scope: cx.part_scope };
             return Some(BlendPreview { op, path: cx.open_part_path()?, body, world: DAffine3::IDENTITY });
         }
         let (target, bodies, body, to_target, world) = match (first.piece, cx.open_part_path()) {
@@ -202,6 +235,11 @@ impl Tool for BlendTool {
         }
     }
 
+    /// On a node open: its edges and its size at once, for the bar and the measurements box.
+    fn started(&mut self, cx: &Cx<'_>) {
+        self.sync(cx);
+    }
+
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
         self.sync(cx);
         match input {
@@ -220,7 +258,7 @@ impl Tool for BlendTool {
             ToolInput::DoubleClick { px, .. } => {
                 // The click before took the edge: the double click takes its whole chain.
                 if let Some(e) = self.edge(cx, *px) {
-                    let chain = tangent_chain(cx.scene, &e);
+                    let chain = Self::chain(cx, &e);
                     if !self.picks.iter().any(|p| p.edge == e.edge && Self::same_owner(p, &e)) {
                         self.toggle(vec![e]);
                     }
@@ -238,6 +276,7 @@ impl Tool for BlendTool {
                     // A node's size changed: its own, not the tool's.
                     if self.loaded.is_some() {
                         self.changed = true;
+                        self.size_typed = true;
                         return Vec::new();
                     }
                     return vec![Command::SetOption { key: SIZE_OPTION, value: OptionValue::Length(s) }];
@@ -254,6 +293,7 @@ impl Tool for BlendTool {
                     self.picks.clear();
                     self.loaded = None;
                     self.changed = false;
+                    self.size_typed = false;
                     return vec![Command::Apply(p.op), Command::Exit, Command::Start(ToolKind::Select)];
                 }
                 if let Some(p) = self.operation(cx) {
@@ -271,7 +311,9 @@ impl Tool for BlendTool {
         {
             let mut d = cx.drawer(&mut preview.drawing);
             // A node just opened, before any input: its edges lit already.
-            let loading = Self::node(cx).filter(|(_, node, _)| self.loaded != Some(*node)).map(|(_, _, op)| Self::load(cx, &op));
+            let loading = Self::node(cx)
+                .filter(|(_, node, _)| self.loaded != Some(*node) || self.awaits_raw(cx))
+                .map(|(_, _, op)| Self::load(cx, &op));
             for p in loading.as_ref().unwrap_or(&self.picks) {
                 d.pen(Pen::new(Color::Theme(ThemeColor::Selected)).bold().over()).polyline(&p.drawn);
             }
@@ -303,19 +345,22 @@ impl Tool for BlendTool {
         if self.loaded.is_some() { self.changed } else { !self.picks.is_empty() }
     }
 
-    /// The size, in the bar (saved: the next round takes it again).
+    /// The size, in the bar: the tool's (saved: the next round takes it again), or on a node
+    /// open the node's own (not saved).
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
         let (label, tip) = match self.blend {
             Blend::Round => (t!("tool.round.vcb"), t!("tool.round.option.size_tip")),
             Blend::Chamfer => (t!("tool.chamfer.vcb"), t!("tool.chamfer.option.size_tip")),
         };
+        let node = Self::node(cx);
+        let size = node.as_ref().map_or_else(|| Self::size(cx), |(_, _, op)| self.node_size(op));
         vec![ToolOption {
             key: SIZE_OPTION,
             label,
             tip,
-            value: OptionValue::Length(Self::size(cx)),
+            value: OptionValue::Length(size),
             choices: Vec::new(),
-            saved: true,
+            saved: node.is_none(),
             icon: None,
             swatch: None,
         }]
@@ -327,6 +372,11 @@ impl Tool for BlendTool {
             && *v > 0.0
         {
             self.size = *v;
+            // On a node: its own size changed, to validate.
+            if self.loaded.is_some() {
+                self.changed = true;
+                self.size_typed = true;
+            }
         }
     }
 
@@ -348,11 +398,13 @@ impl Tool for BlendTool {
         self.hover = None;
     }
 
-    /// Every edge let go; a node's, its own taken again (its changes undone).
+    /// Every edge let go; a node's, its own taken again (its changes undone): it stays the one
+    /// loaded, its edges read again from its children's result.
     fn back(&mut self) {
         self.picks.clear();
-        self.loaded = None;
+        self.raw_loaded = false;
         self.changed = false;
+        self.size_typed = false;
     }
 
     fn reset(&mut self) {
@@ -360,5 +412,6 @@ impl Tool for BlendTool {
         self.hover = None;
         self.loaded = None;
         self.changed = false;
+        self.size_typed = false;
     }
 }

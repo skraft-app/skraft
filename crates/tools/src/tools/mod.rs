@@ -1187,6 +1187,8 @@ pub trait Tool {
     /// An option of the gesture changed (a saved one is stored by the editor, read in
     /// [`Cx::options`]).
     fn set_option(&mut self, _key: &str, _value: &OptionValue) {}
+    /// Made the active tool, its saved options read: what it takes from where it starts.
+    fn started(&mut self, _cx: &Cx<'_>) {}
     /// Does ↓ lock the normal of the face under the cursor now, rather than free the axis
     /// (the shape tools' drawing plane)?
     fn down_locks_face(&self) -> bool {
