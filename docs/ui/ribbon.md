@@ -7,8 +7,7 @@ code: [apps/skraft/src/ribbon.rs, apps/skraft/src/icons.rs, apps/skraft/src/pref
 
 The ribbon and its workspace switcher: the tools and commands of the app, grouped by tab and
 group, across the top of the view. The ribbon follows the workspace / tabbed-toolbar pattern of
-CAD tools (CATIA and FreeCAD workbenches, SolidWorks' CommandManager, Fusion), after
-SolidCraft's ribbon (`ui-kit/src/ribbon.rs`, `ui-egui/src/toolbar_custom.rs`). The pattern is
+CAD tools (CATIA and FreeCAD workbenches, SolidWorks' CommandManager, Fusion). The pattern is
 free to use; the drawing is ours: our icons, palette, names and proportions — nothing traced
 from another product.
 
@@ -102,7 +101,7 @@ buttons in both cases.
 
 ## Narrow window
 
-A pure function `fit(groups, room) → plans`, tested without display, after SolidCraft's:
+A pure function `arrange(groups, room, folded) → placements`, tested without display:
 (1) buttons narrow, labels wrapping then truncating; (2) groups hand their last buttons to their
 menu one at a time, down to one collapsed button; (3) the last groups go into a » menu at the
 end (`MORE_ROOM`, kept only while a group is in it). It depends on the width only (no state from
@@ -119,11 +118,11 @@ the Matière picker, combo boxes (`icons::combo_chevron`).
 
 ## Code and texts
 
-- `apps/skraft/src/ribbon.rs` (description, `Prefs`, `fit`, drawing, tests); `ribbon::tab_strip`
+- `apps/skraft/src/ribbon.rs` (description, `Prefs`, `arrange`, drawing, tests); `ribbon::tab_strip`
   also draws the Preferences', the journal window's and the « Composants » card's tabs, its
   band's top corners following the card's or not (`Corners`); `App::document_ui` places the
   card (`App::columns` gives the columns' span).
 - Texts: `ribbon.*` keys of the catalog (workspaces, tabs, groups, menus' notes), without
   ellipsis ([Texts and languages](texts.md)).
-- File tabs in the title bar (several documents open, as SolidCraft):
+- File tabs in the title bar (several documents open):
   [Several documents: file tabs](file-tabs.md).

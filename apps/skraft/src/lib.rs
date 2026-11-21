@@ -81,8 +81,8 @@ pub(crate) fn app_drags_window(cc: &eframe::CreationContext<'_>) {
     }
 }
 
-/// The desktop window. On macOS the OS title bar is hidden and the content runs under it, the
-/// traffic lights kept: the app's bar ([`titlebar`]) takes its place.
+/// The desktop window. On macOS the app draws its own bar ([`titlebar`]) instead of the system's:
+/// the content extends to the window's top edge, and only the three window buttons remain.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn native_options() -> eframe::NativeOptions {
     let mut viewport =

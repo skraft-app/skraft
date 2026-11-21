@@ -5,10 +5,10 @@ code: [apps/skraft/src/titlebar.rs, apps/skraft/src/native_menu.rs, apps/skraft/
 
 # Title bar and native menus
 
-One bar at the top of the window holds the document and the commands used most, after
-SolidCraft (`ui-kit/src/window_chrome.rs`, `app_bar.rs`); there is no menu strip. On the macOS
-desktop the bar is the window's own title bar, and the native menu bar has only the app menu,
-File and Window. This page covers the bar, its look and the menus per platform.
+One bar at the top of the window holds the document and the commands used most; there is no
+menu strip. On the macOS desktop the bar is the window's own title bar, and the native menu bar
+has only the app menu, File and Window. This page covers the bar, its look and the menus per
+platform.
 
 Decision record: [A title bar instead of a menu strip](../decisions/0006-title-bar-instead-of-menus.md)
 
@@ -25,7 +25,7 @@ Decision record: [A title bar instead of a menu strip](../decisions/0006-title-b
   ([Command registry and external driving](commands.md)). Every button is a registry command,
   its state and tip from it. The standard views and the view's toggles are in the view bar
   ([View bar](view-bar.md)), the tools in the ribbon ([Workspaces and ribbon](ribbon.md)).
-- The bar is **dark in both modes** (as SolidCraft's application bar), its text light: each
+- The bar is **dark in both modes**, its text light: each
   palette's `title_bar` tokens (ground, text, dim text, separators, lit surface; a test holds
   its text to ≥ 7:1 on the ground and the lit surface), applied to the bar's panel only
   (`style::title_bar`); the menus and tips it opens keep the window's style.
@@ -60,6 +60,6 @@ item is its command's id, run as everywhere else.
 ## Web, Windows, Linux
 
 The OS frame is kept (no caption buttons of our own: resizing, snapping and the move loop are
-the OS's). No menu bar (as SolidCraft's bar, which has only File): the other menus' commands are
+the OS's). No menu bar beyond File: the other menus' commands are
 reached through the ribbon, the view bar, the command search (every enabled command, the debug
 ones with the debug menu) and the shortcuts.

@@ -393,9 +393,9 @@ impl Tip for egui::Response {
         let text = text.into();
         describe_for_accessibility(&self, text.text());
         self.tip_ui(|ui| {
-            // As egui's: auto-sizing would shrink a tip of a changing text (egui #5167).
+            // An explicit width: an auto-sized tip shrinks when its text changes.
             ui.set_max_width(ui.spacing().tooltip_width);
-            ui.add(egui::Label::new(text));
+            ui.label(text);
         })
     }
 
@@ -406,8 +406,8 @@ impl Tip for egui::Response {
         describe_for_accessibility(&self, &format!("{text}. {more}"));
         self.tip_ui(|ui| {
             ui.set_max_width(ui.spacing().tooltip_width);
-            ui.add(egui::Label::new(text));
-            ui.add(egui::Label::new(egui::RichText::new(more).text_style(egui::TextStyle::Small)));
+            ui.label(text);
+            ui.label(egui::RichText::new(more).small());
         })
     }
 
@@ -419,8 +419,9 @@ impl Tip for egui::Response {
     }
 }
 
-/// The tip's text as the widget's accessible description, and as its name when it has none (an
-/// icon-only button): what egui's `on_hover_text` does, private to it.
+/// Hands a tip's `text` to assistive tools, on widgets that have an AccessKit node: as the
+/// node's description if it has none, and as its name if it is otherwise nameless (an icon-only
+/// button).
 fn describe_for_accessibility(r: &egui::Response, text: &str) {
     if !r.ctx.has_accesskit_node(r.id) {
         return;
@@ -429,7 +430,10 @@ fn describe_for_accessibility(r: &egui::Response, text: &str) {
         if node.description().is_none() {
             node.set_description(text);
         }
-        if node.role() != egui::accesskit::Role::Label && node.labelled_by().is_empty() && node.label().is_none_or(str::is_empty) {
+        let named = node.role() == egui::accesskit::Role::Label
+            || !node.labelled_by().is_empty()
+            || node.label().is_some_and(|label| !label.is_empty());
+        if !named {
             node.set_label(text);
         }
     });

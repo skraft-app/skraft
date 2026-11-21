@@ -48,4 +48,17 @@ cargo about generate --locked --fail -m apps/skraft/Cargo.toml about.hbs -o "$ou
     cat "$license"
   done
 } >> "$out"
+
+# Code adapted from a project the app does not link, with its license.
+{
+  echo
+  echo "================================================================================"
+  echo "Code adapted from other projects"
+  echo
+  echo "--------------------------------------------------------------------------------"
+  echo "SolidCraft (https://github.com/tangency-labs/solidcraft), MIT license:"
+  echo "parts of Skraft's rendering and control protocol."
+  echo
+  cat licenses/solidcraft-MIT.txt
+} >> "$out"
 echo "$out"
