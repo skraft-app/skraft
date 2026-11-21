@@ -241,7 +241,11 @@ chevron, the active sheet and its presentation unfolding when another becomes ac
   sheet's in full ink. Its **« + »** adds a sheet: blank, or from a template. Its menu:
   « Enregistrer comme modèle », « Supprimer la présentation ».
 - **A sheet**: a click makes it active and frames it, lit while nothing is picked on it. Its menu: « Supprimer la
-  feuille ». Elements dragged onto it move there ([below](#moving-between-sheets)).
+  feuille ». Elements dragged onto it move there ([below](#moving-between-sheets)). **Dragged by its
+  row, it changes place** (`MoveSheet`, one step undone at once): onto another sheet's row, before
+  it, or after it by its lower half while that row is folded; onto a presentation's row, to its
+  end, also from another presentation. The board and the numbering follow, the active sheet
+  staying where it is on screen.
 - **Its elements, the topmost first**: a view's name, a text's first line, a composition's name for an
   instance, else their kind. A click makes their sheet active and picks them, the camera going to
   the sheet and never to the element ([Framing](#framing)), Shift adding or taking off;

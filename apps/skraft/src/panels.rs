@@ -1167,6 +1167,10 @@ pub fn outliner(
                     .unwrap_or_default(),
                 false => vec![o.id],
             };
+            if response.drag_started() {
+                let shown = if o.name.is_empty() { name.clone() } else { o.name.to_string() };
+                set_drag_ghost(ui.ctx(), occurrence_icon(doc, o), shown, with.len());
+            }
             response.dnd_set_drag_payload(PartsDrag { instances: path.instances.clone(), occurrences: with });
             let (bodies_over, parts_over) = dragged_over(&response);
             if bodies_over.is_some() || parts_over.is_some() {
@@ -1220,6 +1224,7 @@ pub fn outliner(
             }
         }
     });
+    paint_drag_ghost(ui.ctx());
     actions.push(Action::HoverOutliner(over));
     actions.push(Action::HoverMachining(over_body));
 }
@@ -1806,6 +1811,49 @@ fn drop_on_row(
     }
 }
 
+/// What follows the pointer while a navigator's row is dragged (docs/ui/interface.md#navigator):
+/// its icon and name, how many go with it.
+#[derive(Clone)]
+struct RowGhost {
+    icon: egui::ImageSource<'static>,
+    name: String,
+    count: usize,
+}
+
+/// The key of the row being dragged, in the context's memory: the row itself may scroll out of
+/// the list, which then no longer draws it.
+const ROW_GHOST: &str = "navigator_row_ghost";
+
+/// A row was picked up: its translucent copy, `count` elements going with it, follows the pointer.
+pub(crate) fn set_drag_ghost(ctx: &egui::Context, icon: egui::ImageSource<'static>, name: String, count: usize) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique(ROW_GHOST), RowGhost { icon, name, count }));
+}
+
+/// The copy of the row being dragged under the pointer, over everything and never in the way of
+/// what is under it; forgotten once nothing is dragged.
+pub(crate) fn paint_drag_ghost(ctx: &egui::Context) {
+    let key = egui::Id::unique(ROW_GHOST);
+    if !egui::DragAndDrop::has_any_payload(ctx) {
+        ctx.data_mut(|d| d.remove::<RowGhost>(key));
+        return;
+    }
+    let (Some(ghost), Some(at)) = (ctx.data(|d| d.get_temp::<RowGhost>(key)), ctx.input(|i| i.pointer.latest_pos())) else { return };
+    egui::Area::new(key).order(egui::Order::Tooltip).interactable(false).fixed_pos(at + egui::vec2(12.0, 10.0)).show(ctx, |ui| {
+        ui.multiply_opacity(0.75);
+        egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+            ui.set_max_width(240.0);
+            ui.horizontal(|ui| {
+                let ink = ui.visuals().text_color();
+                ui.add(egui::Image::new(ghost.icon.clone()).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink));
+                ui.add(egui::Label::new(egui::RichText::new(&ghost.name).color(ink)).selectable(false).truncate());
+                if ghost.count > 1 {
+                    ui.label(egui::RichText::new(format!("+{}", ghost.count - 1)).color(ui.visuals().weak_text_color()));
+                }
+            });
+        });
+    });
+}
+
 /// Is something of the navigator dragged over `response`?
 fn dragged_over(response: &egui::Response) -> (Option<std::sync::Arc<BodiesDrag>>, Option<std::sync::Arc<PartsDrag>>) {
     (response.dnd_hover_payload::<BodiesDrag>(), response.dnd_hover_payload::<PartsDrag>())
@@ -1936,6 +1984,10 @@ fn body_row(
         true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
         false => vec![b.body.id],
     };
+    if response.drag_started() {
+        let shown = if b.body.name.is_empty() { b.label() } else { b.body.name.to_string() };
+        set_drag_ghost(ui.ctx(), b.icon(), shown, with.len());
+    }
     response.dnd_set_drag_payload(BodiesDrag { from: path.clone(), bodies: with.clone() });
     let (bodies_over, parts_over) = dragged_over(&response);
     if bodies_over.is_some() || parts_over.is_some() {
