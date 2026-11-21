@@ -1175,7 +1175,7 @@ pub fn outliner(
             let (bodies_over, parts_over) = dragged_over(&response);
             if bodies_over.is_some() || parts_over.is_some() {
                 let is_part = doc.part(o.component).is_ok();
-                let target: Option<(Mark, Box<dyn FnOnce(bool) -> Operation + '_>)> = match (bodies_over, parts_over) {
+                let target: DropTarget<'_> = match (bodies_over, parts_over) {
                     (Some(drag), _) if is_part => {
                         let same = same_part(doc, &drag.from.part_path(), &path);
                         drag.to(same, &path, Vec::new()).map(|to| (Mark::Into, Box::new(move |copy| drag.op(editor, to, copy)) as Box<_>))
@@ -1186,14 +1186,14 @@ pub fn outliner(
                     }
                     (None, Some(drag)) if is_part => {
                         let at = path.clone();
-                        drag.into_part(doc, &at, Vec::new(), false).map(|_| {
-                            (Mark::Into, Box::new(move |copy| drag.into_part(doc, &at, Vec::new(), copy).expect("checked")) as Box<_>)
+                        drag.onto_part(doc, &at, Vec::new(), false).map(|_| {
+                            (Mark::Into, Box::new(move |copy| drag.onto_part(doc, &at, Vec::new(), copy).expect("checked")) as Box<_>)
                         })
                     }
                     (None, Some(drag)) => {
                         let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
-                        drag.into_assembly(doc, inside.clone(), false)
-                            .map(|_| (Mark::Into, Box::new(move |copy| drag.into_assembly(doc, inside, copy).expect("checked")) as Box<_>))
+                        drag.onto_assembly(doc, inside.clone(), false)
+                            .map(|_| (Mark::Into, Box::new(move |copy| drag.onto_assembly(doc, inside, copy).expect("checked")) as Box<_>))
                     }
                     _ => None,
                 };
@@ -1260,13 +1260,9 @@ fn model_row(ui: &mut egui::Ui, editor: &Editor, name: &str, height: f32, action
     } else if let Some(drag) = parts_over {
         // Occurrences dropped on the model: to its root.
         let doc = editor.document();
-        let target = drag.into_assembly(doc, Vec::new(), false).map(|_| {
-            (
-                Mark::Into,
-                Box::new(move |copy| drag.into_assembly(doc, Vec::new(), copy).expect("checked"))
-                    as Box<dyn FnOnce(bool) -> Operation + '_>,
-            )
-        });
+        let target = drag
+            .onto_assembly(doc, Vec::new(), false)
+            .map(|_| (Mark::Into, Box::new(move |copy| drag.onto_assembly(doc, Vec::new(), copy).expect("checked")) as DropOperation<'_>));
         drop_on_row(ui, &response, 0.0, target, actions);
     }
     if response.tip(t!("panel.outliner.model_tip")).clicked() {
@@ -1702,6 +1698,11 @@ impl BodiesDrag {
     }
 }
 
+/// The operation a drop makes, told whether the copy modifier is held.
+type DropOperation<'a> = Box<dyn FnOnce(bool) -> Operation + 'a>;
+/// Where a drag may land on a row: how it is marked, and what dropping it there does.
+type DropTarget<'a> = Option<(Mark, DropOperation<'a>)>;
+
 /// Occurrences dragged in the navigator (decision 0044): the assembly they lie in (the
 /// occurrences leading to it), which of its occurrences.
 #[derive(Clone, Debug)]
@@ -1713,7 +1714,7 @@ struct PartsDrag {
 impl PartsDrag {
     /// Into the part `part` places, at its level `level`, as its bodies: not a part they place,
     /// nor one inside them (an assembly dragged), nor themselves.
-    fn into_part(&self, doc: &Document, part: &EntityPath, level: Vec<Id>, copy: bool) -> Option<Operation> {
+    fn onto_part(&self, doc: &Document, part: &EntityPath, level: Vec<Id>, copy: bool) -> Option<Operation> {
         let n = self.instances.len();
         let inside = part.instances.len() > n && part.instances[..n] == self.instances[..] && self.occurrences.contains(&part.instances[n]);
         let itself = part.instances == self.instances && self.occurrences.contains(&part.entity);
@@ -1733,7 +1734,7 @@ impl PartsDrag {
 impl PartsDrag {
     /// Into the assembly `to` leads to (empty: the model): not the one they lie in, nor one of
     /// them or one they hold (decision 0044).
-    fn into_assembly(&self, doc: &Document, to: Vec<Id>, copy: bool) -> Option<Operation> {
+    fn onto_assembly(&self, doc: &Document, to: Vec<Id>, copy: bool) -> Option<Operation> {
         let (from, into) = (doc.context_of(&self.instances).ok()?, doc.context_of(&to).ok()?);
         let holds = doc
             .assembly(from)
@@ -1776,13 +1777,7 @@ enum Mark {
 /// While something is dragged over a row (`response`, from `indent` on): `target` — how the
 /// row shows where it would go and the operation (given whether the platform's copy key is
 /// held), none when it may not go there — marked, the cursor; dropped, the operation.
-fn drop_on_row(
-    ui: &egui::Ui,
-    response: &egui::Response,
-    indent: f32,
-    target: Option<(Mark, Box<dyn FnOnce(bool) -> Operation + '_>)>,
-    actions: &mut Vec<Action>,
-) {
+fn drop_on_row(ui: &egui::Ui, response: &egui::Response, indent: f32, target: DropTarget<'_>, actions: &mut Vec<Action>) {
     let copy = crate::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
     let Some((mark, op)) = target else {
         ui.ctx().set_cursor_icon(egui::CursorIcon::NoDrop);
@@ -2000,14 +1995,14 @@ fn body_row(
             true => (inner_path(&b.group, b.body.id), Mark::Into),
             false => (b.group.clone(), Mark::Beside(y < r.center().y)),
         };
-        let target: Option<(Mark, Box<dyn FnOnce(bool) -> Operation + '_>)> = match (bodies_over, parts_over) {
+        let target: DropTarget<'_> = match (bodies_over, parts_over) {
             (Some(drag), _) => {
                 let same = same_part(doc, &drag.from.part_path(), &part);
                 drag.to(same, &part, level).map(|to| (mark, Box::new(move |copy| drag.op(editor, to, copy)) as Box<_>))
             }
             (None, Some(drag)) => drag
-                .into_part(doc, &part, level.clone(), false)
-                .map(|_| (mark, Box::new(move |copy| drag.into_part(doc, &part, level, copy).expect("checked")) as Box<_>)),
+                .onto_part(doc, &part, level.clone(), false)
+                .map(|_| (mark, Box::new(move |copy| drag.onto_part(doc, &part, level, copy).expect("checked")) as Box<_>)),
             _ => None,
         };
         let indent = ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32;

@@ -123,3 +123,5 @@ decision replaced. What is not built yet is not described here.
   reader: the app, the kernel worker) are distributed under GPLv3. `deny.toml` lists the licences a dependency may have (checked by
   `cargo deny` in CI), `scripts/third-party-licenses.sh` writes the notices shipped with the
   installers.
+- Checks: a pull request runs `.github/workflows/checks.yml` on Linux (rustfmt, Clippy with its
+  warnings denied, the tests). The workflows' actions are pinned by commit.

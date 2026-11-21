@@ -1301,6 +1301,7 @@ fn on_picture(proj: Mat4, size: [u32; 2], p: DVec3) -> [f64; 2] {
 /// dash at `b` (a whole one for a line, half for a box's half edge): its dashes and gaps laid
 /// evenly on the segment itself — in perspective, shorter on screen as it runs away — their
 /// count set by its length on screen.
+#[allow(clippy::too_many_arguments)]
 fn assert_dashes_on_segment(px: &[u8], size: [u32; 2], proj: Mat4, a: DVec3, b: DVec3, dash: f64, gap: f64, tail: f64) {
     let dist = |p: [f64; 2], q: [f64; 2]| ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2)).sqrt();
     let len = dist(on_picture(proj, size, a), on_picture(proj, size, b));

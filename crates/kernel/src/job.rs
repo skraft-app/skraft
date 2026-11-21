@@ -122,6 +122,8 @@ pub struct Display {
 
 /// One task's result. A display the mesher refused does not fail the task: the solid is
 /// still the operation's result, it is only not drawn.
+// One per task, moved once from the kernel to the app: its size does not matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Output {
     Solid {

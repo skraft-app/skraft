@@ -1123,7 +1123,7 @@ impl SkraftApp {
             "drawing.project_view" => return crate::sheet::project_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.make_composition" => return crate::sheet::compose_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.explode" => return crate::sheet::explode_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
-            "drawing.make_unique" => return crate::sheet::unique_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.make_unique" => return crate::sheet::unique_selected(&mut doc.editor, &doc.sheet).map_err(Note::info),
             "drawing.edit_composition" => return crate::sheet::edit_selected(&doc.editor, &mut doc.sheet).map_err(Note::info),
             "edit.erase" if doc.workspace.stage == Stage::Sheet => {
                 return crate::sheet::delete_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info);
