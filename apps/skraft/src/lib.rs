@@ -37,6 +37,7 @@ mod ribbon;
 mod search;
 mod separators;
 mod sheet;
+mod sheet_board;
 mod sheet_library;
 mod sheet_tree;
 mod steps;

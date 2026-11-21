@@ -223,7 +223,7 @@ ribbon:
     reshape: "Remodeler"
     appearance: "Apparence"
     components: "Composants"
-    sheet: "Feuille"
+    presentation: "Présentation"
     arrange: "Organiser"
     style: "Style"
     dimension: "Coter"
@@ -586,7 +586,7 @@ drawing:
   sheet_name: "Feuille %{n}"
   # The status bar on a sheet, per tool and step.
   hint:
-    select: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché), ou déplacer la sélection · Maj : ajouter/retirer · Bouton du milieu ou droit : faire glisser la feuille · Double-clic : cadrer la feuille"
+    select: "Cliquer pour sélectionner · Glisser : rectangle (→ contenu, ← touché), ou déplacer la sélection · Maj : ajouter/retirer · Bouton du milieu ou droit : déplacer la vue · Double-clic : cadrer"
     select_open: "Dans la composition : cliquer pour sélectionner · Glisser : rectangle ou déplacer · Clic hors du cadre ou Échap : en sortir"
     moving: "Relâcher pour poser la sélection · Échap : annuler"
     grip: "Relâcher pour finir · Maj : garder les proportions · Échap : annuler"
