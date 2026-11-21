@@ -403,6 +403,16 @@ fn run_ask(e: &mut Editor, st: &mut SheetState, ask: SheetAsk, centre: egui::Pos
                 Err(m) => st.message = Some(m),
             }
         }
+        SheetAsk::CopySheet { sheet, presentation, index } => match e.apply(Operation::CopySheet { sheet, presentation, index }) {
+            Ok(Some(o)) => {
+                if let Some(s) = o.sheet {
+                    st.show_sheet(s);
+                    st.info = InfoOn::Sheet;
+                }
+            }
+            Ok(None) => {}
+            Err(m) => st.message = Some(m),
+        },
         SheetAsk::Drop { elements, to, copy } => {
             let d = e.document().drawing();
             let Some(Container::Sheet(from)) = elements.first().and_then(|id| d.container_of(*id)) else { return };
@@ -551,6 +561,8 @@ pub enum SheetAsk {
     PresentationFrom(Arc<skraft_model::Document>),
     /// Elements dragged in the navigator onto sheet `to`, moved or copied.
     Drop { elements: Vec<Id>, to: Id, copy: bool },
+    /// A copy of sheet `sheet` at `index` of `presentation`, made active.
+    CopySheet { sheet: Id, presentation: Id, index: usize },
 }
 
 /// What the entity info shows while nothing is picked (docs/ui/drawing.md#entity-info).
@@ -2375,7 +2387,7 @@ fn draw_names(painter: &egui::Painter, view: Paperview, board: &Board, d: &Drawi
         let Some(p) = d.presentation(column.presentation) else { continue };
         let top = view.to_screen(DVec2::new(column.centre, 0.0));
         let above = if with_sheets { SHEET_NAME_PT } else { 4.0 };
-        let room = (column.width + board.gap) as f32 * zoom;
+        let room = (column.width + board.column_gap) as f32 * zoom;
         board_name(painter, top - egui::vec2(0.0, above), &p.name, 14.0, ink, room);
     }
 }
@@ -3545,6 +3557,19 @@ mod tests {
         assert!(!can_leave_sheet(d, &[side]), "without its base");
         assert!(!can_leave_sheet(d, &[title_block, side]), "the whole selection stays");
         assert!(can_leave_sheet(d, &[base, side]));
+    }
+
+    #[test]
+    fn a_sheet_copied_from_the_navigator_becomes_active() {
+        let (mut e, sheet, _) = sheet_with_a_composition();
+        let o = e.apply(Operation::AddPresentation { name: None, paper: None }).unwrap().unwrap();
+        let presentation = o.presentation.unwrap();
+        let mut st = SheetState { current: Some(sheet), zoom: 1.0, ..Default::default() };
+        run_ask(&mut e, &mut st, SheetAsk::CopySheet { sheet, presentation, index: 0 }, egui::Pos2::ZERO);
+        let d = e.document().drawing();
+        let copy = d.presentation(presentation).unwrap().sheets[0].id;
+        assert_ne!(copy, sheet);
+        assert_eq!(st.current, Some(copy));
     }
 
     #[test]

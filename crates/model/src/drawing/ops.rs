@@ -173,6 +173,32 @@ impl Document {
         Ok(())
     }
 
+    /// A copy of sheet `sheet` at `index` of presentation `to`: its elements under fresh ids, what
+    /// hangs on a view following it, its instances placing the same compositions; its name, or if
+    /// that presentation has it the next free « Feuille n » for a default name, else numbered.
+    /// Gives it.
+    pub(crate) fn copy_sheet(&mut self, sheet: Id, to: Id, index: usize) -> Result<Id> {
+        let source = self.drawing.sheet(sheet).ok_or(Error::NotFound(sheet))?.clone();
+        self.drawing.presentation(to).ok_or(Error::NotFound(to))?;
+        let elements = self.fresh_copies(&source.elements);
+        let id = self.fresh_id();
+        let p = self.presentation_mut(to)?;
+        let name = {
+            let taken = |n: &str| p.sheets.iter().any(|s| s.name == n);
+            let number = source.name.rsplit(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse::<usize>().ok());
+            let default = number.is_some_and(|n| t!("drawing.sheet_name", n = n) == source.name);
+            if !taken(&source.name) {
+                source.name.clone()
+            } else if default {
+                (p.sheets.len() + 1..).map(|n| t!("drawing.sheet_name", n = n)).find(|n| !taken(n)).expect("a free number")
+            } else {
+                numbered_name(name_base(&source.name), 2, taken)
+            }
+        };
+        p.sheets.insert(index.min(p.sheets.len()), Sheet { id, name, elements, ..source });
+        Ok(id)
+    }
+
     // ---- Elements ------------------------------------------------------------------------
 
     /// `kind` is fit to be in `container`, as element `own` if it is one already.

@@ -91,9 +91,17 @@ struct SheetOrderDrag {
     sheet: Id,
 }
 
-/// What puts sheet `moved` in presentation `p`: beside its sheet `at` (after it or before it), or
-/// at its end; none when that changes nothing.
-fn sheet_drop(d: &Drawing, moved: Id, p: &Presentation, at: Option<(Id, bool)>) -> Option<Operation> {
+/// What puts sheet `moved`, or a copy of it (`copy`), in presentation `p`: beside its sheet `at`
+/// (after it or before it), or at its end; none when that changes nothing.
+fn sheet_drop(d: &Drawing, moved: Id, p: &Presentation, at: Option<(Id, bool)>, copy: bool) -> Option<Operation> {
+    if copy {
+        d.sheet(moved)?;
+        let index = match at {
+            Some((target, after)) => p.sheets.iter().position(|s| s.id == target)? + usize::from(after),
+            None => p.sheets.len(),
+        };
+        return Some(Operation::CopySheet { sheet: moved, presentation: p.id, index });
+    }
     let others: Vec<Id> = p.sheets.iter().map(|s| s.id).filter(|s| *s != moved).collect();
     let index = match at {
         Some((target, after)) => others.iter().position(|s| *s == target)? + usize::from(after),
@@ -104,8 +112,16 @@ fn sheet_drop(d: &Drawing, moved: Id, p: &Presentation, at: Option<(Id, bool)>) 
 }
 
 /// While a sheet is dragged over row `response`: where it would go marked (`line`: a line above
-/// it or under it, none: the row framed), the cursor; let go, `op`. No `op`: it may not go there.
-fn sheet_drop_on_row(ui: &egui::Ui, response: &egui::Response, line: Option<bool>, op: Option<Operation>, actions: &mut Vec<Action>) {
+/// it or under it, none: the row framed), the cursor; let go, `op`, a copy made active by the
+/// stage. No `op`: it may not go there.
+fn sheet_drop_on_row(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    st: &mut SheetState,
+    line: Option<bool>,
+    op: Option<Operation>,
+    actions: &mut Vec<Action>,
+) {
     let Some(op) = op else {
         ui.ctx().set_cursor_icon(egui::CursorIcon::NoDrop);
         return;
@@ -121,9 +137,13 @@ fn sheet_drop_on_row(ui: &egui::Ui, response: &egui::Response, line: Option<bool
             ui.painter().rect_stroke(r.shrink(1.0), 3.0, stroke, egui::StrokeKind::Inside);
         }
     }
-    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    let copying = matches!(op, Operation::CopySheet { .. });
+    ui.ctx().set_cursor_icon(if copying { egui::CursorIcon::Copy } else { egui::CursorIcon::Grabbing });
     if response.dnd_release_payload::<SheetOrderDrag>().is_some() {
-        actions.push(Action::Apply(op));
+        match op {
+            Operation::CopySheet { sheet, presentation, index } => st.asked = Some(SheetAsk::CopySheet { sheet, presentation, index }),
+            op => actions.push(Action::Apply(op)),
+        }
     }
 }
 
@@ -477,7 +497,8 @@ fn presentation_row(
     }
     // A sheet dragged onto it goes to its end.
     if let Some(drag) = response.dnd_hover_payload::<SheetOrderDrag>() {
-        sheet_drop_on_row(ui, &response, None, sheet_drop(d, drag.sheet, p, None), actions);
+        let copy = crate::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
+        sheet_drop_on_row(ui, &response, st, None, sheet_drop(d, drag.sheet, p, None, copy), actions);
     }
     if response.clicked() {
         st.show_presentation(d, p.id);
@@ -534,8 +555,9 @@ fn sheet_row(
     if let Some(drag) = response.dnd_hover_payload::<SheetOrderDrag>() {
         let lower = ui.ctx().pointer_interact_pos().is_some_and(|p| p.y > response.rect.center().y);
         let after = lower && !fold.is_some_and(|f| f.open);
-        let op = d.presentation_of(s.id).and_then(|p| sheet_drop(d, drag.sheet, p, Some((s.id, after))));
-        sheet_drop_on_row(ui, &response, Some(!after), op, actions);
+        let copy = crate::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
+        let op = d.presentation_of(s.id).and_then(|p| sheet_drop(d, drag.sheet, p, Some((s.id, after)), copy));
+        sheet_drop_on_row(ui, &response, st, Some(!after), op, actions);
     }
     // Elements dragged from the rows below: moved onto it, or copied with the copy modifier
     // (docs/ui/drawing.md#navigator).
@@ -846,7 +868,7 @@ mod tests {
             |h: &History, id: Id| -> Vec<Id> { h.document().drawing().presentation(id).unwrap().sheets.iter().map(|s| s.id).collect() };
         let drop = |h: &History, moved, to, at| {
             let d = h.document().drawing();
-            sheet_drop(d, moved, d.presentation(to).unwrap(), at)
+            sheet_drop(d, moved, d.presentation(to).unwrap(), at, false)
         };
         // Where it already is, or onto itself: nothing.
         assert_eq!(drop(&h, a, p, Some((b, false))), None);
@@ -865,6 +887,12 @@ mod tests {
         assert_eq!((order(&h, p), order(&h, q)), (vec![b, c], vec![a]));
         h.undo();
         assert_eq!(order(&h, p), vec![b, a, c], "one step");
+        // With the copy key: anywhere, beside itself too, the index in the list as it is.
+        let d = h.document().drawing();
+        let copied = |at, to: Id| sheet_drop(d, a, d.presentation(to).unwrap(), at, true);
+        assert_eq!(copied(Some((a, true)), p), Some(Operation::CopySheet { sheet: a, presentation: p, index: 2 }));
+        assert_eq!(copied(Some((b, false)), p), Some(Operation::CopySheet { sheet: a, presentation: p, index: 0 }));
+        assert_eq!(copied(None, q), Some(Operation::CopySheet { sheet: a, presentation: q, index: 0 }));
     }
 
     #[test]

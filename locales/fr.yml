@@ -1507,6 +1507,7 @@ operation:
   set_sheet: "Modifier la feuille"
   delete_sheet: "Supprimer la feuille"
   move_sheet: "Déplacer la feuille"
+  copy_sheet: "Copier la feuille"
   add_view: "Nouvelle vue"
   add_element: "Ajouter à la feuille"
   set_element: "Modifier sur la feuille"

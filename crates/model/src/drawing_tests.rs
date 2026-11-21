@@ -573,6 +573,38 @@ fn elements_move_between_sheets_with_what_hangs_on_them() {
     assert_eq!(h.document().drawing().sheet(a3).unwrap().elements.len(), 3);
 }
 
+#[test]
+fn a_sheet_is_copied_with_what_hangs_on_its_views() {
+    let mut h = History::new(Document::new());
+    let a3 = sheet(&mut h);
+    let f = add(&mut h, a3, front()).unwrap();
+    add(&mut h, a3, projected(f, Side::Right)).unwrap();
+    let (c, _) = anchored_composition(&mut h, a3);
+    let client = h.apply(Operation::AddPresentation { name: Some("Client".into()), paper: Some(Paper::A4) }).unwrap();
+    let (q, other) = (client.presentation.unwrap(), client.sheet.unwrap());
+    let copy = h.apply(Operation::CopySheet { sheet: a3, presentation: q, index: 0 }).unwrap().sheet.unwrap();
+    let d = h.document().drawing();
+    let list: Vec<Id> = d.presentation(q).unwrap().sheets.iter().map(|s| s.id).collect();
+    assert_eq!(list, vec![copy, other], "at its index");
+    let (s, from) = (d.sheet(copy).unwrap(), d.sheet(a3).unwrap());
+    assert_eq!((s.paper, s.elements.len(), from.elements.len()), (Paper::A3, 3, 3));
+    assert!(s.elements.iter().all(|e| from.elements.iter().all(|x| x.id != e.id)), "ids of its own");
+    assert_eq!(s.name, skraft_i18n::t!("drawing.sheet_name", n = 2), "a default name taken: the next free one");
+    match &s.elements[1].kind {
+        ElementKind::View(View { kind: ViewKind::Projected { base, .. }, .. }) => {
+            assert_eq!(*base, s.elements[0].id, "on the copy of its base")
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(s.elements[2].kind.instance().unwrap().composition, c, "the same composition");
+    h.undo();
+    assert!(h.document().drawing().sheet(copy).is_none(), "one step");
+    // A name of one's own, taken: numbered.
+    h.apply(Operation::SetSheet { sheet: other, name: "Plan".into(), paper: Paper::A4, grid: 0.0, border: None }).unwrap();
+    let copy = h.apply(Operation::CopySheet { sheet: other, presentation: q, index: 1 }).unwrap().sheet.unwrap();
+    assert_eq!(h.document().drawing().sheet(copy).unwrap().name, "Plan#2");
+}
+
 /// A named composition holding a rectangle, its instance anchored 10 mm from the bottom right.
 fn anchored_composition(h: &mut History, s: Id) -> (Id, Id) {
     let (c, i) = composition_with(h, s, rect(), "Cartouche");
