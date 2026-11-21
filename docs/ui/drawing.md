@@ -1,6 +1,6 @@
 ---
 status: under way
-code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/view_lines.rs, apps/skraft/src/sheet.rs, apps/skraft/src/sheet_tree.rs, apps/skraft/src/viewport.rs, apps/skraft/src/panels.rs, apps/skraft/src/templates.rs, apps/skraft/src/pdf.rs, apps/skraft/src/workspace.rs, apps/skraft/src/app.rs]
+code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/view_lines.rs, apps/skraft/src/sheet.rs, apps/skraft/src/sheet_board.rs, apps/skraft/src/sheet_tree.rs, apps/skraft/src/sheet_library.rs, apps/skraft/src/viewport.rs, apps/skraft/src/panels.rs, apps/skraft/src/templates.rs, apps/skraft/src/pdf.rs, apps/skraft/src/workspace.rs, apps/skraft/src/app.rs]
 ---
 
 # Drawing
@@ -11,7 +11,8 @@ the model and free elements — for the workshop (a part's fabrication drawing) 
 listed in debug builds only. What is not built yet is in `docs/REVIEW.md` (« Work: drawing »).
 
 Decision records: [Drawing: free sheets in the document, for the workshop and for clients](../decisions/0048-drawing-sheets-in-the-document.md),
-[Drawing: a tree of presentations, sheets and definitions, no layers](../decisions/0049-drawing-a-tree-of-presentations-and-definitions.md)
+[Drawing: a tree of presentations, sheets and definitions, no layers](../decisions/0049-drawing-a-tree-of-presentations-and-definitions.md),
+[Drawing: every sheet on one board, one of them active](../decisions/0050-drawing-every-sheet-on-one-board.md)
 
 ## The drawing in the document
 
@@ -89,11 +90,13 @@ it.
 
 A view's lines are its parts' edges and the silhouettes of their curved faces, seen parallel
 along its frame, split where faces hide them, visible or hidden; polylines in its frame, in
-model units (`skraft_tools::hidden_lines::ViewLines`). They are computed off the UI thread (a
-thread each; on the web on the UI thread) and kept per view (`view_lines::LinesCache`), asked
-for by what they depend on — the frame's axes, the parts' meshes and places, the part's shape —
-so that moving a view or changing its scale computes nothing; the last ones are shown while
-new ones are on their way.
+model units (`skraft_tools::hidden_lines::ViewLines`). They are computed off the UI thread
+through a **queue**, a bounded number at once, the active sheet's views first, then the others on
+screen (on the web on the UI thread, one a frame), and kept per view and, for a projected view,
+per projection of its presentation (`view_lines::LinesCache`, `sheet::ViewSlot`: a composition's
+projected view may look two ways on the board at once), asked for by what they depend on — the frame's axes, the parts' meshes and places, the
+part's shape — so that moving a view or changing its scale computes nothing; the last ones are
+shown while new ones are on their way.
 
 - **A view of one part** (native): SolidCore's exact hidden lines (`skraft_kernel::drawing::
   part_lines`, `solidcore_ops::hlr`: lines and arcs exact, curves sampled; a mirrored
@@ -121,35 +124,75 @@ Every view is drawn by the 3D view's renderer, its meshes and
 palette (materials, textures) shared, into a picture of its own: its subject's parts at their
 places in its axes, seen parallel along its frame, framed exactly on its subject's box — the
 box its frame shows on the sheet —, on the paper's white, with the view's edges and
-silhouettes (`Viewport::sheet_pictures`, the « Composants » thumbnails' way). The sheet asks
-for the pictures of the views it shows (`sheet::Wanted`), each the size of its frame on screen
-in pixels, by steps of a fifth (a zoom redraws it past a step), 4 096 at most — its parts for
-the *Rendered* and *Hybrid* styles, its lines for *Lines* and *Hybrid*; a picture is drawn
-again when its direction, its parts and places, its lines or its size change, within
-40 ms a frame (the others the next), shown from the next frame. A perspective view is drawn
-parallel for now.
+silhouettes (`Viewport::sheet_pictures`, the « Composants » thumbnails' way). The board asks
+for the pictures of the views on screen (`sheet::Wanted`), the active sheet's first, one per view
+and, for a projected view, per projection, each the size of its frame on screen in pixels, by steps of a fifth (a zoom
+redraws it past a step), 4 096 at most — its parts for the *Rendered* and *Hybrid* styles, its
+lines for *Lines* and *Hybrid*; a picture is drawn again when its direction, its parts and
+places, its lines or its size change, within 40 ms a frame (the others the next), shown from the
+next frame. A picture gone off screen is kept within a memory budget (256 MB, 64 on the web), the
+least recently seen freed first, so that panning back redraws nothing. A perspective view is drawn parallel for now.
 
 ## The stage
 
-`Stage::Sheet`: the sheet shown over the whole central area, on its white paper with a
-shadow, the stage's ground the view's colour. Framed whole below the ribbon when first shown
-(and by zoom extents, or a double click on the sheet's void); a drag with the middle or right button pans it (the
-first button's drag never does: it selects, moves or draws), the wheel (or a pinch) zooms
-about the pointer. The tools' cards, the
-view bar and what else belongs to the 3D view are not shown; the ribbon and the panels are
-(the entity info, the [navigator](#navigator) and the
-[compositions](#the-compositions-card) at first). It is **framed in what they leave**: below the
-ribbon, between the side columns (`sheet::ui`, `fit`; the whole stage if they leave under 160 pt). The sheets are chosen in the navigator;
-a presentation without a sheet stays shown, the stage saying how to make one. A sheet shows its **border** under its elements, and what it
-holds through its instances ([Compositions](#compositions)). A document
-without a sheet says how to make one. The sheet and the presentation shown are a view state (`SheetState`), not
-saved.
+`Stage::Sheet`: **the board** over the whole central area, on the view's colour: every
+presentation and every sheet at once, as a desktop publishing application's pasteboard, so that
+their sizes and orientations compare at a glance. The tools' cards, the view bar and what else
+belongs to the 3D view are not shown; the ribbon and the panels are (the entity info, the
+[navigator](#navigator) and the [compositions](#the-compositions-card) at first). A document
+without a sheet says how to make one. The board's layout is computed; the active sheet and the
+camera are a view state (`SheetState`). None of it is saved.
+
+### The board
+
+- **A column per presentation**, in their order from the left, without a rule between them, its
+  name on top. A presentation without a sheet keeps its column, saying how to make one.
+- **Its sheets stacked** below, in their order, each on its white paper with a shadow, **centred
+  on the column** (as wide as its widest sheet), its name above it. A sheet shows its **border**
+  under its elements, and what it holds through its instances ([Compositions](#compositions)).
+- **In board millimetres**, y up, from the tree and the papers alone. The gaps between sheets and
+  columns are a tenth of the drawing's largest paper side, so that an A0 among A4s leaves room.
+  The names keep their size on screen; a sheet's is left out when its gap has no room for it.
+- **When the layout changes** (a sheet added, a format changed), the camera follows the active
+  sheet, which stays where it is on screen.
+
+### The active sheet
+
+One sheet is **active**, the one edited (`SheetState::current`): the selection, the tools, the
+handles, snapping, the entity info and paste act on it.
+
+- **It is drawn with its aids**: an accent outline, its views' frames and names, its grid, what
+  goes past its paper.
+- **The others are drawn as printed**: what the PDF shows, clipped to their paper, without view
+  frames, view names or grid. Nothing on them is picked.
+- **A click on another sheet makes it active**, the camera still, nothing picked (a composition
+  open is left); **a second click picks**. With a tool too, the click only making the sheet
+  active; but while a tool is under way (a shape started, a pick made, a view being projected)
+  its clicks are its own. A drag from another sheet makes it active and goes on there: a selection
+  rectangle with Select, never moving what lies under it, a shape with a drawing tool.
+- **A double click**: on another sheet, makes it active and frames it, never entering a
+  composition under the pointer; on the active sheet, enters an instance, or frames the sheet
+  from its void; in the board's void, frames the whole board.
+
+### Framing
+
+A drag with the middle or right button pans the board (the first button's drag never does: it
+selects, moves or draws), the wheel (or a pinch) zooms about the pointer. The board is framed
+whole when first shown and by zoom extents. Whatever is framed is **framed in what the panels
+leave**: below the ribbon, between the side columns (`sheet::ui`, `fit`; the whole stage if they
+leave under 160 pt).
+
+**The camera targets a sheet, never an element.** In the [navigator](#navigator), a sheet's row
+makes it active and frames it, a presentation's does so with its first sheet, or the one of its
+sheets already active. An element's row on
+another sheet makes that sheet active and frames it; on the active sheet the camera moves only if
+the sheet is off screen.
 
 ## Placing views
 
-- **Selecting** (the sheet's Select tool, as the 3D view's, docs/tools/interaction.md#selection):
-  a click on an element picks it (the last drawn under the pointer), elsewhere on the sheet
-  none; Shift+click adds or removes it; a drag off the elements draws a **selection
+- **Selecting** (the sheet's Select tool, as the 3D view's, docs/tools/interaction.md#selection),
+  on the active sheet: a click on an element picks it (the last drawn under the pointer),
+  elsewhere none; Shift+click adds or removes it; a drag off the elements draws a **selection
   rectangle** — left to right (solid) the elements it holds whole, right to left (dashed)
   those it touches, Shift adding or removing them; Esc clears the selection
   (`SheetState::selected`, not saved). A view's frame picked is solid, another element's box
@@ -168,7 +211,8 @@ saved.
   alone, or added with Shift), drawn where it goes and changed once let go (one `SetElement`,
   a `Batch` of them for several): a base view anywhere, a projected view along its side only —
   it stays aligned (its distance to its base changes); what a view carries (its projections,
-  its dimensions) goes with it, not moved twice.
+  its dimensions) goes with it, not moved twice. Let go over another sheet, it moves there
+  ([Moving between sheets](#moving-between-sheets)).
 - **Projected views** (`drawing.project_view`, « Vue projetée », the view picked a parallel
   one): the pointer off the base view's frame shows, dashed, the frame of the view projected
   to the side it is on — the side where it is the farthest out, the frame's half sizes
@@ -189,16 +233,18 @@ The « Navigateur » card (`PanelId::Outliner`, `view.outliner`): on a sheet it 
 tree instead of the model's (`sheet_tree::navigator`), as the entity info shows the sheet's; each
 workspace keeps its own place for it. The cards are placed as in Modelling: the entity info keeps its height, the navigator fills the
 column. Rows, unfolded by their
-chevron, the presentation and the sheet shown unfolding when another is shown:
+chevron, the active sheet and its presentation unfolding when another becomes active:
 
 - **The document**, first, at the left edge: a click shows its values in the entity info.
-- **A presentation**: a click shows it (at its first sheet) and its settings in the entity info,
-  the one shown in full ink. Its **« + »** adds a sheet: blank, or from a template. Its menu:
+- **A presentation**: a click makes its first sheet active (unless one of its sheets already
+  is), frames that sheet and shows the presentation's settings in the entity info, the active
+  sheet's in full ink. Its **« + »** adds a sheet: blank, or from a template. Its menu:
   « Enregistrer comme modèle », « Supprimer la présentation ».
-- **A sheet**: a click shows it, lit while nothing is picked on it. Its menu: « Supprimer la
+- **A sheet**: a click makes it active and frames it, lit while nothing is picked on it. Its menu: « Supprimer la
   feuille ». Elements dragged onto it move there ([below](#moving-between-sheets)).
 - **Its elements, the topmost first**: a view's name, a text's first line, a composition's name for an
-  instance, else their kind. A click shows their sheet and picks them, Shift adding or taking off;
+  instance, else their kind. A click makes their sheet active and picks them, the camera going to
+  the sheet and never to the element ([Framing](#framing)), Shift adding or taking off;
   hidden or locked, they are not picked. At the row's right end **the eye** (hidden or shown), **the
   padlock** (under the pointer, or while locked), and under the pointer **up** and **down**, over or
   under the next element (`SetElementState`, `MoveElement`).
@@ -220,6 +266,12 @@ with its projections and dimensions. It keeps its place on the paper, brought ba
 one (`sheet::offset_into`; too large for it, centred); an instance anchored to a corner keeps its
 corner and offset. The sheet it lands on is shown, what moved picked. Not into a composition: that
 would change all its instances at once.
+
+**On the board**, the selection dragged from the active sheet and let go over another sheet's paper
+moves there (`MoveElements`, one step undone at once), where it was let go, that sheet becoming
+active, what moved picked, the camera still; the sheet it would land on is outlined meanwhile. An instance anchored to a corner keeps its corner and
+offset. A view goes with its projections and dimensions. A projected view or a dimension picked
+without its base view stays on its sheet, and nothing leaves a composition open.
 
 ## Compositions
 
@@ -250,7 +302,7 @@ what takes it to the sheet, whether it or an instance above it is hidden or lock
 
 **On the sheet** (`sheet::draw_elements`, through `Drawing::placed`), what an instance holds is
 drawn in its place and turned with it: lines, boxes, texts, dimensions, views (their picture on
-their turned frame, asked for once however many times the view is placed). **An instance is
+their turned frame, asked for once per projection however many times the view is placed). **An instance is
 picked whole**: a click, the selection rectangle and a drag take what is right on the sheet, by
 the box of all it shows, outlined when picked; it has no handles, and moving it keeps its anchor
 (its offset from the corner changes). Hidden, nothing of it is drawn; locked, it is drawn and not
@@ -283,10 +335,11 @@ workspace of sheets, and is shown there at first, under the navigator.
 - **« Inutilisées »**, apart: those on no sheet, even if another unused one places them.
   « Purger » deletes them (`PurgeCompositions`).
 - **A click** picks its instances in the level open.
-- **A drag onto the sheet places one more**, its outline following the pointer, held by the middle
+- **A drag onto a sheet places one more**, its outline following the pointer, held by the middle
   of its box since a composition's origin may be anywhere (a title block's is its corner). It
-  lands free, in the level open, and is picked. Let go off the sheet or over a card, or Esc,
-  gives it up. Not into itself.
+  lands free on the sheet under the pointer, which becomes active (in the level open when it
+  already was), and is picked. Let go off the papers or over a card, or Esc, gives it up. Not
+  into itself.
 - **Its menu**: « Placer sur la feuille » (where its first instance on a sheet is: a title block
   at its corner), « Renommer » (also a double click, or F2 while its instances are picked),
   « Supprimer », with its instances.
@@ -300,8 +353,9 @@ level open holds, but what is hidden or locked.
 
 - **What is copied** (`Document::elements_fragment`): the elements with their families (a view's
   base, projections and dimensions), the compositions they place, their images.
-- **Pasted** (`PasteElements`) on top of the sheet or composition open: at the pointer, the
-  box of what was copied centred on it (off the stage, a little aside), or **in place** (⌘⇧V).
+- **Pasted** (`PasteElements`) on top of the active sheet or composition open: at the pointer,
+  the box of what was copied centred on it (off that sheet's paper, a little aside), or **in
+  place** (⌘⇧V).
   An instance anchored keeps its corner; into a composition, which has no paper, its place.
   What is pasted is picked.
 - **In its document**, an instance stays one of its composition and a view keeps showing the
@@ -417,7 +471,7 @@ The library's are in `<config>/Skraft/templates` (native). Skraft comes with one
 « Feuille n / N ».
 
 - **Saving**: « Enregistrer comme modèle » (`drawing.save_template`, the File menu, or a
-  presentation's menu in the navigator) writes the presentation shown under its name. A template
+  presentation's menu in the navigator) writes the active sheet's presentation under its name. A template
   of that name is never written over: the same one is left as it is, another takes the next
   number (« Client 2 »).
 - **A new sheet**: a presentation's « + » in the navigator offers a blank sheet, then the templates (Skraft's first,
@@ -476,8 +530,8 @@ shapes `dims::shape` gives the sheet and the PDF alike).
 
 ## PDF
 
-« Exporter en PDF » (`drawing.export_pdf`, the ribbon's « Feuille » group and the File menu)
-writes **the presentation shown** as a PDF (`pdf::drawing_pdf`, with `krilla`), then asks where to
+« Exporter en PDF » (`drawing.export_pdf`, the ribbon's « Présentation » group and the File menu)
+writes **the active sheet's presentation** as a PDF (`pdf::drawing_pdf`, with `krilla`), then asks where to
 save it (a download on the web), named after the document, and after the presentation when the
 document has several (« Table - Client.pdf »). A field without a value would be printed as it is
 written: a warning names them (`pdf::missing_fields`). It is done at the next frame, where
@@ -526,21 +580,24 @@ Each change is one operation (`SetElement`, `SetSheet`, `SetPresentation`, `SetF
 
 ## Ribbon
 
-The fixed group: Select and Erase (`edit.erase`). One tab, « Feuille »: « Nouvelle présentation » (`drawing.new_presentation`, blank; from a
-template, in the [navigator](#navigator)), « Nouvelle feuille » (`drawing.new_sheet`,
-A3, shown) and « Nouvelle vue » (`drawing.add_view`: the front of the part open, else of the
+The fixed group: Select and Erase (`edit.erase`). One tab, « Feuille ». Its group « Présentation »:
+« Nouvelle présentation » (`drawing.new_presentation`, blank; from a template, in the
+[navigator](#navigator)), « Nouvelle feuille » (`drawing.new_sheet`, A3, shown) and « Exporter en
+PDF ». Its group « Vue »: « Nouvelle vue » (`drawing.add_view`: the front of the part open, else of the
 one occurrence selected — its component in its own axes —, else of the occurrences selected,
 else of the model; at the largest standard scale (10:1 to 1:5000) fitting half the paper, at
 its centre), « Vue projetée » (`drawing.project_view`, checked while its tool runs); the groups « Dessiner »,
 « Organiser » (« Créer une composition », « Éclater », « Rendre unique »), « Coter » and
 « Style »: « Traits », « Rendu », « Hybride » (`drawing.style_lines`,
 `_rendered`, `_hybrid`: the views picked, checked when they all have it; `SetElement`, a
-`Batch` for several); zoom extents.
+`Batch` for several). Zoom extents is not in the ribbon: its shortcut (Shift+Z), the View menu and
+the command search keep it.
 
 ## Driving
 
-Handles ([Control protocol](../control-protocol.md)): `sheet` (the stage), `sheet_view:<id>`
-(a view's frame), `sheet_element:<id>` (another element's box); in the navigator, `sheet_tree:add_sheet:<id>` (a
+Handles ([Control protocol](../control-protocol.md)): `sheet` (the stage), `sheet_paper:<id>`
+(a sheet's paper on the board), `sheet_view:<id>` (a view's frame on the active sheet),
+`sheet_element:<id>` (another element's box there); in the navigator, `sheet_tree:add_sheet:<id>` (a
 presentation's « + ») and its menu's `sheet_add:blank`, `sheet_add:<n>` (the n-th template), `sheet_add:<n>:<k>` (its
 k-th sheet), `sheet_tree:add` and its menu's `sheet_presentation:new`,
 `sheet_presentation:template:<n>`; the navigator's

@@ -91,7 +91,7 @@ pub enum Side {
 
 /// Where projected views go: first-angle (European: the view from the left goes right) or
 /// third-angle (American: the view from the left goes left).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Projection {
     #[default]

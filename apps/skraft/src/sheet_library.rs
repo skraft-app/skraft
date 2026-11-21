@@ -276,12 +276,14 @@ fn item(
         actions.push(Action::Apply(Operation::RenameComposition { composition: id, name }));
     }
     let can_place = placeable(d, st, id);
-    if response.drag_started_by(egui::PointerButton::Primary) && can_place {
+    // Dragged, it may land on any sheet of the board, whatever the level open or the sheet active.
+    let can_carry = d.sheets().next().is_some();
+    if response.drag_started_by(egui::PointerButton::Primary) && can_carry {
         st.carried = Some(id);
     } else if response.clicked() {
         st.selected = here;
     }
-    if response.dragged_by(egui::PointerButton::Primary) && can_place {
+    if response.dragged_by(egui::PointerButton::Primary) && can_carry {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
     egui::Popup::context_menu(&response).style(crate::style::menu).show(|ui| {

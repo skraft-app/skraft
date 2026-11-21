@@ -91,16 +91,19 @@ pub struct Viewport {
     palette: Vec<[f32; 4]>,
     textures: Vec<[f32; 4]>,
     /// The pictures of the drawing's views (docs/ui/drawing.md#rendered-views), by document
-    /// and view, and the textures of those dropped, freed at the next frame.
-    sheet: HashMap<(u64, u64), SheetPicture>,
+    /// and view slot, and the textures of those dropped, freed at the next frame.
+    sheet: HashMap<(u64, crate::sheet::ViewSlot), SheetPicture>,
     sheet_freed: Vec<egui::TextureId>,
+    /// Counts the frames a sheet asked for pictures: how recently each was seen.
+    sheet_frame: u64,
 }
 
-/// A view's picture on a sheet, drawn for `stamp`.
+/// A view's picture on a sheet, drawn for `stamp`, last asked for at frame `seen`.
 struct SheetPicture {
     picture: render::Picture,
     texture: egui::TextureId,
     stamp: u64,
+    seen: u64,
 }
 
 /// Measured on every frame, for the render statistics overlay.
@@ -190,7 +193,7 @@ impl Viewport {
             r.drop_document(doc);
         }
         self.thumbnails.drop_document(doc);
-        let gone: Vec<(u64, u64)> = self.sheet.keys().filter(|(d, _)| *d == doc).copied().collect();
+        let gone: Vec<_> = self.sheet.keys().filter(|(d, _)| *d == doc).copied().collect();
         for k in gone {
             if let Some(p) = self.sheet.remove(&k) {
                 self.sheet_freed.push(p.texture);
@@ -198,14 +201,15 @@ impl Viewport {
         }
     }
 
-    /// The views' pictures of document `doc` drawn so far, by view.
-    pub fn sheet_textures(&self, doc: u64) -> HashMap<Id, egui::TextureId> {
-        self.sheet.iter().filter(|((d, _), _)| *d == doc).map(|((_, v), p)| (Id(*v), p.texture)).collect()
+    /// The views' pictures of document `doc` drawn so far, by view slot.
+    pub fn sheet_textures(&self, doc: u64) -> HashMap<crate::sheet::ViewSlot, egui::TextureId> {
+        self.sheet.iter().filter(|((d, _), _)| *d == doc).map(|((_, v), p)| (*v, p.texture)).collect()
     }
 
     /// Draws the views' pictures a sheet of document `doc` asks for (docs/ui/drawing.md#rendered-views),
-    /// those whose stamp changed, within [`SHEET_BUDGET_MS`] (the others the next frame); the
-    /// pictures of views no longer asked for freed. The paper's white behind them.
+    /// those whose stamp changed, within [`SHEET_BUDGET_MS`] (the others the next frame), in the
+    /// order asked; those no longer asked for kept within [`SHEET_KEPT_BYTES`], so that panning
+    /// back redraws nothing. The paper's white behind them.
     pub fn sheet_pictures(
         &mut self,
         ctx: &egui::Context,
@@ -217,9 +221,18 @@ impl Viewport {
     ) {
         let Some(state) = frame.wgpu_render_state() else { return };
         self.show_document(doc);
-        let asked: std::collections::HashSet<u64> = wanted.iter().map(|w| w.view.0).collect();
-        let gone: Vec<(u64, u64)> = self.sheet.keys().filter(|(d, v)| *d == doc && !asked.contains(v)).copied().collect();
-        for k in gone {
+        self.sheet_frame += 1;
+        let now = self.sheet_frame;
+        for w in wanted {
+            if let Some(p) = self.sheet.get_mut(&(doc, w.slot)) {
+                p.seen = now;
+            }
+        }
+        let sizes = self.sheet.iter().map(|(k, p)| {
+            let [w, h] = p.picture.size();
+            (*k, w as u64 * h as u64 * 4, p.seen)
+        });
+        for k in crate::sheet::over_budget(sizes, now, SHEET_KEPT_BYTES) {
             if let Some(p) = self.sheet.remove(&k) {
                 self.sheet_freed.push(p.texture);
             }
@@ -231,7 +244,7 @@ impl Viewport {
             }
         }
         let todo: Vec<&crate::sheet::Wanted> =
-            wanted.iter().filter(|w| self.sheet.get(&(doc, w.view.0)).is_none_or(|p| p.stamp != w.stamp)).collect();
+            wanted.iter().filter(|w| self.sheet.get(&(doc, w.slot)).is_none_or(|p| p.stamp != w.stamp)).collect();
         if todo.is_empty() {
             return;
         }
@@ -248,7 +261,7 @@ impl Viewport {
                 break;
             }
             let device = &state.device;
-            let key = (doc, w.view.0);
+            let key = (doc, w.slot);
             let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, grains: &self.grains, document, ppp };
             match self.sheet.get_mut(&key) {
                 Some(p) if p.picture.size() == w.size => {
@@ -259,7 +272,7 @@ impl Viewport {
                     let picture = renderer.new_picture(device, w.size);
                     draw_sheet_picture(renderer, state, scene, &look, w, &picture);
                     let texture = state.renderer.write().register_native_texture(device, picture.display_view(), wgpu::FilterMode::Linear);
-                    if let Some(old) = self.sheet.insert(key, SheetPicture { picture, texture, stamp: w.stamp }) {
+                    if let Some(old) = self.sheet.insert(key, SheetPicture { picture, texture, stamp: w.stamp, seen: now }) {
                         self.sheet_freed.push(old.texture);
                     }
                 }
@@ -1166,6 +1179,9 @@ fn read_texture(state: &egui_wgpu::RenderState, texture: &wgpu::Texture) -> Opti
 /// The time the views' pictures of a sheet may take per frame (milliseconds): the others wait
 /// for the next.
 const SHEET_BUDGET_MS: f64 = 40.0;
+
+/// What the views' pictures may keep in memory, those on screen always kept (bytes).
+const SHEET_KEPT_BYTES: u64 = if cfg!(target_arch = "wasm32") { 64 << 20 } else { 256 << 20 };
 
 /// The time the thumbnails may take per frame (milliseconds): the others wait for the next.
 const THUMBNAIL_BUDGET_MS: f64 = 6.0;

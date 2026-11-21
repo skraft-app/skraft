@@ -306,6 +306,10 @@ pub fn navigator(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title:
             }
         }
     });
+    // The stage frames what a row asked for at its next frame.
+    if st.framing_asked() {
+        ui.ctx().request_repaint();
+    }
 }
 
 /// The root, at the list's left edge as the 3D navigator's model: a click shows the document's
@@ -430,6 +434,7 @@ fn presentation_row(
     }
     if response.clicked() {
         st.show_presentation(d, p.id);
+        st.frame_presentation(d, p.id);
         st.open.clear();
         st.selected.clear();
         st.info = InfoOn::Presentation;
@@ -489,6 +494,7 @@ fn sheet_row(
     }
     if response.clicked() {
         st.show_sheet(s.id);
+        st.frame_sheet(s.id);
         st.open.clear();
         st.selected.clear();
         st.info = InfoOn::Sheet;
@@ -506,6 +512,12 @@ fn sheet_row(
 /// takes it off) unless it is hidden or locked.
 fn pick(st: &mut SheetState, d: &Drawing, sheet: Id, path: &[Id], id: Id, shift: bool) {
     st.info = InfoOn::Sheet;
+    // The camera goes to the sheet, never to the element (docs/ui/drawing.md#framing).
+    if st.shown(d).is_some_and(|s| s.id == sheet) {
+        st.reveal_sheet(sheet);
+    } else {
+        st.frame_sheet(sheet);
+    }
     st.show_sheet(sheet);
     st.open_to(path);
     let top = path.get(st.open.len()).copied().unwrap_or(id);

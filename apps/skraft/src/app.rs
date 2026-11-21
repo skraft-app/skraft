@@ -1105,7 +1105,7 @@ impl SkraftApp {
                 return Err(Note::info(t!("toast.template_failed")));
             }
         }
-        // The drawing's (docs/ui/drawing.md); zoom extents on a sheet frames it.
+        // The drawing's (docs/ui/drawing.md); zoom extents on a sheet frames the whole board.
         match id {
             "drawing.new_sheet" => {
                 crate::sheet::new_sheet(&mut doc.editor, &mut doc.sheet);

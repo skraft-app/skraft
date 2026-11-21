@@ -183,10 +183,16 @@ pub const WORKSPACES: &[Workspace] = &[
             label: || t!("ribbon.tab.sheet"),
             groups: &[
                 group(
-                    "sheet",
-                    || t!("ribbon.group.sheet"),
-                    &["drawing.new_presentation", "drawing.new_sheet", "drawing.add_view", "drawing.project_view", "drawing.export_pdf"],
-                    &["drawing.new_presentation", "drawing.new_sheet", "drawing.add_view", "drawing.project_view", "drawing.export_pdf"],
+                    "presentation",
+                    || t!("ribbon.group.presentation"),
+                    &["drawing.new_presentation", "drawing.new_sheet", "drawing.export_pdf"],
+                    &["drawing.new_presentation", "drawing.new_sheet", "drawing.export_pdf"],
+                ),
+                group(
+                    "views",
+                    || t!("ribbon.group.view"),
+                    &["drawing.add_view", "drawing.project_view"],
+                    &["drawing.add_view", "drawing.project_view"],
                 ),
                 group(
                     "draw",
@@ -212,7 +218,6 @@ pub const WORKSPACES: &[Workspace] = &[
                     &["drawing.style_lines", "drawing.style_rendered", "drawing.style_hybrid"],
                     &["drawing.style_lines", "drawing.style_rendered", "drawing.style_hybrid"],
                 ),
-                group("view", || t!("ribbon.group.view"), &["view.zoom_extents"], &["view.zoom_extents"]),
             ],
         }],
     },

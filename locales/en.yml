@@ -192,7 +192,7 @@ ribbon:
     reshape: "Reshape"
     appearance: "Appearance"
     components: "Components"
-    sheet: "Sheet"
+    presentation: "Presentation"
     arrange: "Arrange"
     style: "Style"
     dimension: "Dimension"
@@ -517,7 +517,7 @@ drawing:
   sheet_name: "Sheet %{n}"
   # The status bar on a sheet, per tool and step.
   hint:
-    select: "Click to select · Drag: rectangle (→ inside, ← touching), or move the selection · Shift: add/remove · Middle or right button: pan the sheet · Double-click: frame the sheet"
+    select: "Click to select · Drag: rectangle (→ inside, ← touching), or move the selection · Shift: add/remove · Middle or right button: pan the view · Double-click: frame"
     select_open: "In the composition: click to select · Drag: rectangle or move · Click off its box or Esc: leave it"
     moving: "Release to drop the selection · Esc: cancel"
     grip: "Release to finish · Shift: keep the proportions · Esc: cancel"
