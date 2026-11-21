@@ -57,7 +57,8 @@ cargo about generate --locked --fail -m apps/skraft/Cargo.toml about.hbs -o "$ou
   echo
   echo "--------------------------------------------------------------------------------"
   echo "SolidCraft (https://github.com/tangency-labs/solidcraft), MIT license:"
-  echo "parts of Skraft's rendering and control protocol."
+  echo "parts of Skraft's rendering, control protocol and Prism tool (its line-to-arc gesture"
+  echo "and outline offset)."
   echo
   cat licenses/solidcraft-MIT.txt
 } >> "$out"
