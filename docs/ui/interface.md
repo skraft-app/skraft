@@ -49,6 +49,8 @@ tabs have pages of their own.
 - **A search field** at its top, over the whole width, shared with the « Composants » card: the
   tree filtered to the rows matching a name, and the rows above them
   ([Components library: search](components-library.md#search)).
+- **A row dragged** carries a translucent copy of itself under the pointer, in the model's tree as
+  in the drawing's (`panels::paint_drag_ghost`): its icon, its name, « +n » for what goes with it.
 - **The outliner is titled « Navigateur »** (the code keeps `outliner`, its `PanelId` being in
   the preferences and `model.outliner` in the control protocol). Its rows span the whole list
   (`tree_row`): the hover and the selection fill the line edge to edge, indent and buttons

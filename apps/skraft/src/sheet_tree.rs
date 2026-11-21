@@ -85,6 +85,48 @@ struct SheetDrag {
     elements: Vec<Id>,
 }
 
+/// A sheet dragged by its row, to put it elsewhere in the order (docs/ui/drawing.md#navigator).
+#[derive(Clone)]
+struct SheetOrderDrag {
+    sheet: Id,
+}
+
+/// What puts sheet `moved` in presentation `p`: beside its sheet `at` (after it or before it), or
+/// at its end; none when that changes nothing.
+fn sheet_drop(d: &Drawing, moved: Id, p: &Presentation, at: Option<(Id, bool)>) -> Option<Operation> {
+    let others: Vec<Id> = p.sheets.iter().map(|s| s.id).filter(|s| *s != moved).collect();
+    let index = match at {
+        Some((target, after)) => others.iter().position(|s| *s == target)? + usize::from(after),
+        None => others.len(),
+    };
+    let same_place = p.sheets.iter().position(|s| s.id == moved) == Some(index);
+    (!same_place && d.sheet(moved).is_some()).then_some(Operation::MoveSheet { sheet: moved, presentation: Some(p.id), index })
+}
+
+/// While a sheet is dragged over row `response`: where it would go marked (`line`: a line above
+/// it or under it, none: the row framed), the cursor; let go, `op`. No `op`: it may not go there.
+fn sheet_drop_on_row(ui: &egui::Ui, response: &egui::Response, line: Option<bool>, op: Option<Operation>, actions: &mut Vec<Action>) {
+    let Some(op) = op else {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::NoDrop);
+        return;
+    };
+    let stroke = egui::Stroke::new(1.5, ui.visuals().selection.stroke.color);
+    let r = response.rect;
+    match line {
+        Some(above) => {
+            let y = if above { r.top() } else { r.bottom() };
+            ui.painter().hline(r.left() + ui.spacing().indent..=r.right(), y, stroke);
+        }
+        None => {
+            ui.painter().rect_stroke(r.shrink(1.0), 3.0, stroke, egui::StrokeKind::Inside);
+        }
+    }
+    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    if response.dnd_release_payload::<SheetOrderDrag>().is_some() {
+        actions.push(Action::Apply(op));
+    }
+}
+
 /// The rows of drawing `d`, as far as they are unfolded.
 fn rows<'d>(d: &'d Drawing, open: &FastSet<egui::Id>) -> Vec<Row<'d>> {
     let mut out = vec![Row::Document];
@@ -283,7 +325,7 @@ pub fn navigator(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title:
             match row {
                 Row::Document => document_row(ui, height, st, title),
                 Row::Presentation { p, fold } => presentation_row(ui, height, d, st, p, fold, active, salt, actions),
-                Row::Sheet { s, fold } => sheet_row(ui, height, st, s, fold, shown, salt, actions),
+                Row::Sheet { s, fold } => sheet_row(ui, height, d, st, s, fold, shown, salt, actions),
                 Row::Element(row) => element_row(ui, height, d, st, row, salt, actions),
                 Row::Add => {
                     let tint = ui.visuals().weak_text_color();
@@ -306,6 +348,7 @@ pub fn navigator(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title:
             }
         }
     });
+    panels::paint_drag_ghost(ui.ctx());
     // The stage frames what a row asked for at its next frame.
     if st.framing_asked() {
         ui.ctx().request_repaint();
@@ -432,6 +475,10 @@ fn presentation_row(
     {
         actions.push(Action::Apply(Operation::SetPresentation { presentation: p.id, name, projection: p.projection }));
     }
+    // A sheet dragged onto it goes to its end.
+    if let Some(drag) = response.dnd_hover_payload::<SheetOrderDrag>() {
+        sheet_drop_on_row(ui, &response, None, sheet_drop(d, drag.sheet, p, None), actions);
+    }
     if response.clicked() {
         st.show_presentation(d, p.id);
         st.frame_presentation(d, p.id);
@@ -458,6 +505,7 @@ fn presentation_row(
 fn sheet_row(
     ui: &mut egui::Ui,
     height: f32,
+    d: &Drawing,
     st: &mut SheetState,
     s: &Sheet,
     fold: Option<Fold2>,
@@ -472,6 +520,23 @@ fn sheet_row(
     let l = Line { depth: 1, fold, icon: icons::SHEET, name: &s.name, strong: false, tint, selected, rename: Some(rename), alone: false };
     let (response, renamed, ()) = line(ui, height, l, (salt, &mut st.tree_open), |_, _| ());
     crate::handles::publish(|| format!("sheet_tree:sheet:{}", s.id.0), response.rect);
+    // Dragged by its row, it goes elsewhere in the order.
+    let response = response.interact(egui::Sense::click_and_drag());
+    if response.drag_started() {
+        panels::set_drag_ghost(ui.ctx(), icons::SHEET, s.name.clone(), 1);
+    }
+    response.dnd_set_drag_payload(SheetOrderDrag { sheet: s.id });
+    if response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    }
+    // Another sheet over it: before it, or after it by its lower half; unfolded, what follows
+    // it is its elements, so only before it (the presentation's row takes it to the end).
+    if let Some(drag) = response.dnd_hover_payload::<SheetOrderDrag>() {
+        let lower = ui.ctx().pointer_interact_pos().is_some_and(|p| p.y > response.rect.center().y);
+        let after = lower && !fold.is_some_and(|f| f.open);
+        let op = d.presentation_of(s.id).and_then(|p| sheet_drop(d, drag.sheet, p, Some((s.id, after))));
+        sheet_drop_on_row(ui, &response, Some(!after), op, actions);
+    }
     // Elements dragged from the rows below: moved onto it, or copied with the copy modifier
     // (docs/ui/drawing.md#navigator).
     if let Some(drag) = response.dnd_hover_payload::<SheetDrag>() {
@@ -612,6 +677,9 @@ fn element_row(
     let response = if row.path.is_empty() && !el.locked {
         let response = response.interact(egui::Sense::click_and_drag());
         let elements = if selected { st.selected.clone() } else { vec![el.id] };
+        if response.drag_started() {
+            panels::set_drag_ghost(ui.ctx(), icon_of(el), name.clone(), elements.len());
+        }
         response.dnd_set_drag_payload(SheetDrag { sheet: row.sheet, elements });
         response
     } else {
@@ -762,6 +830,41 @@ mod tests {
         assert_eq!((st.open.as_slice(), st.selected.as_slice()), (&[i][..], &[inner][..]), "entered: itself");
         pick(&mut st, d, s, &[], r, false);
         assert_eq!((st.open.as_slice(), st.selected.as_slice()), (&[][..], &[r][..]), "elsewhere: the composition left");
+    }
+
+    #[test]
+    fn a_sheet_dropped_goes_beside_a_sheet_or_to_a_presentations_end() {
+        let mut h = History::new(Document::new());
+        let o = h.apply(Operation::AddPresentation { name: None, paper: Some(Paper::A3) }).unwrap();
+        let (p, a) = (o.presentation.unwrap(), o.sheet.unwrap());
+        let mut add_sheet = |presentation| {
+            h.apply(Operation::AddSheet { presentation: Some(presentation), name: None, paper: Paper::A4 }).unwrap().sheet.unwrap()
+        };
+        let (b, c) = (add_sheet(p), add_sheet(p));
+        let q = h.apply(Operation::AddPresentation { name: None, paper: None }).unwrap().presentation.unwrap();
+        let order =
+            |h: &History, id: Id| -> Vec<Id> { h.document().drawing().presentation(id).unwrap().sheets.iter().map(|s| s.id).collect() };
+        let drop = |h: &History, moved, to, at| {
+            let d = h.document().drawing();
+            sheet_drop(d, moved, d.presentation(to).unwrap(), at)
+        };
+        // Where it already is, or onto itself: nothing.
+        assert_eq!(drop(&h, a, p, Some((b, false))), None);
+        assert_eq!(drop(&h, c, p, Some((b, true))), None);
+        assert_eq!(drop(&h, c, p, None), None);
+        assert_eq!(drop(&h, b, p, Some((b, true))), None);
+        // Down past the next one, then up to the top.
+        h.apply(drop(&h, a, p, Some((b, true))).unwrap()).unwrap();
+        assert_eq!(order(&h, p), vec![b, a, c]);
+        h.apply(drop(&h, c, p, Some((b, false))).unwrap()).unwrap();
+        assert_eq!(order(&h, p), vec![c, b, a]);
+        // To the end of its presentation, then into another, empty.
+        h.apply(drop(&h, c, p, None).unwrap()).unwrap();
+        assert_eq!(order(&h, p), vec![b, a, c]);
+        h.apply(drop(&h, a, q, None).unwrap()).unwrap();
+        assert_eq!((order(&h, p), order(&h, q)), (vec![b, c], vec![a]));
+        h.undo();
+        assert_eq!(order(&h, p), vec![b, a, c], "one step");
     }
 
     #[test]
