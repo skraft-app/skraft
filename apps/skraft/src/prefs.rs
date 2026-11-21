@@ -179,7 +179,10 @@ impl Preferences {
             Ok(Some(text)) => match serde_json::from_str::<Preferences>(&text) {
                 Ok(mut p) if p.version <= VERSION => {
                     p.panels.normalize();
-                    p.workspace_panels.values_mut().for_each(Layout::normalize);
+                    // A panel new to a workspace's layout shown if the workspace shows it at first.
+                    for (id, l) in p.workspace_panels.iter_mut() {
+                        l.normalize_with(crate::workspace::WORKSPACES.iter().find(|w| w.id == id).and_then(|w| w.panels));
+                    }
                     (Preferences { version: VERSION, ..p }, None)
                 }
                 Ok(p) => (Preferences::default(), Some(t!("error.preferences.newer", version = p.version))),

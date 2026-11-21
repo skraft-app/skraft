@@ -33,6 +33,9 @@ pub enum Outcome {
     TextureImage { doc: DocId, material: skraft_model::Id, bytes: Vec<u8> },
     /// A file written that is not a document's (materials exported): where.
     Written { path: String },
+    /// A file exported (a drawing's PDF) written: where — to be opened from its toast.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    Exported { path: String },
     /// Writing it failed (the message is ready to show).
     WriteFailed { error: String },
     /// Document `doc` written to `path`, as it was at history `revision`.
@@ -171,6 +174,34 @@ pub fn export_materials(bytes: Vec<u8>, name: &str, inbox: &Inbox, ctx: &egui::C
         let _ = ctx;
         inbox.put(match download(&name, &bytes) {
             Ok(()) => Outcome::Written { path: name },
+            Err(e) => Outcome::WriteFailed { error: format!("{e:?}") },
+        });
+    }
+}
+
+/// Writes `bytes` to a file the user picks (`name` offered, `ext` its extension, `kind` the
+/// filter's name); a download on the web. The outcome arrives in `inbox`.
+pub fn export_file(bytes: Vec<u8>, name: &str, kind: &str, ext: &str, inbox: &Inbox, ctx: &egui::Context) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (inbox, ctx, name, kind, ext) = (inbox.clone(), ctx.clone(), name.to_owned(), kind.to_owned(), ext.to_owned());
+        spawn(async move {
+            let picked = rfd::AsyncFileDialog::new().add_filter(kind, &[ext.as_str()]).set_file_name(name).save_file().await;
+            if let Some(f) = picked {
+                let path = f.path().to_path_buf();
+                inbox.put(match std::fs::write(&path, &bytes) {
+                    Ok(()) => Outcome::Exported { path: path.display().to_string() },
+                    Err(e) => Outcome::WriteFailed { error: t!("error.io", path = path.display(), error = e) },
+                });
+                ctx.request_repaint();
+            }
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (ctx, kind, ext);
+        inbox.put(match download(name, &bytes) {
+            Ok(()) => Outcome::Written { path: name.to_owned() },
             Err(e) => Outcome::WriteFailed { error: format!("{e:?}") },
         });
     }

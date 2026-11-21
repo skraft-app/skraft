@@ -27,7 +27,8 @@ model.skraft
   [`.skraftmat`](#materials-alone-skraftmat)) and the app that wrote it, for information.
 - **`document.json`**: the serde serialisation of the `Document` — components, occurrences,
   the parts' bodies and body definitions with their profiles and `source`, the components' guides
-  ([Tape measure and guides](../tools/tape-measure.md)), the materials, the settings
+  ([Tape measure and guides](../tools/tape-measure.md)), the drawing's sheets and layers
+  ([Drawing](../ui/drawing.md)), the materials, the settings
   (`settings`; missing: default values). Its solids are the **names** of their entries. Indented,
   arrays of plain values on one line (`"transform": [1.0, 0.0, …]`): read with `unzip -p
   model.skraft document.json`.
@@ -92,6 +93,14 @@ button, a double click — is imported into the model shown (a new one from the 
 A library of materials is a folder of them.
 
 Decision record: [Textures by box projection, materials alone in a .skraftmat](../decisions/0041-textures-and-materials-files.md).
+
+## Sheet templates (`.skrafttpl`)
+
+A drawing's sheet template ([Drawing](../ui/drawing.md#templates)): **the same container**,
+`content: "template"`, holding a document whose only content is its drawing — one sheet's paper
+and name, the layers, the shared ones' elements, their images (`Document::template_of`,
+`template_file`). `from_file` refuses it (`FileError::TemplateOnly`); opened, it goes into the
+library and a sheet is made from it.
 
 ## Extension and file associations
 

@@ -42,6 +42,8 @@ pub enum Stage {
     /// The parts list on the left (docs/ui/parts-list.md), the 3D view on the right, a
     /// separation to drag between them.
     Parts,
+    /// A sheet of the drawing, alone (docs/ui/drawing.md).
+    Sheet,
 }
 
 impl Stage {
@@ -49,6 +51,7 @@ impl Stage {
         match self {
             Stage::View => "view",
             Stage::Parts => "parts",
+            Stage::Sheet => "sheet",
         }
     }
 }
@@ -163,6 +166,49 @@ pub const WORKSPACES: &[Workspace] = &[
             groups: &[group("view", || t!("ribbon.group.view"), STANDARD_VIEWS, &["view.zoom_extents"])],
         }],
     },
+    Workspace {
+        id: "drawing",
+        label: || t!("ribbon.workspace.drawing"),
+        about: || t!("ribbon.workspace.about.drawing"),
+        icon: icons::DRAWING,
+        under_way: true,
+        stage: Stage::Sheet,
+        commands: &["drawing.save_template"],
+        // The sheet, and the entity info to set the view picked.
+        panels: Some(&[crate::dock::PanelId::EntityInfo, crate::dock::PanelId::Layers]),
+        fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "edit.erase"], &["tool.select", "edit.erase"]),
+        tabs: &[Tab {
+            id: "sheet",
+            label: || t!("ribbon.tab.sheet"),
+            groups: &[
+                group(
+                    "sheet",
+                    || t!("ribbon.group.sheet"),
+                    &["drawing.new_sheet", "drawing.add_view", "drawing.project_view", "drawing.export_pdf"],
+                    &["drawing.new_sheet", "drawing.add_view", "drawing.project_view", "drawing.export_pdf"],
+                ),
+                group(
+                    "draw",
+                    || t!("ribbon.group.draw"),
+                    &["drawing.tool_text", "drawing.tool_rect", "drawing.tool_line"],
+                    &["drawing.tool_text", "drawing.tool_rect", "drawing.tool_line"],
+                ),
+                group(
+                    "dimension",
+                    || t!("ribbon.group.dimension"),
+                    &["drawing.dim_linear", "drawing.dim_radius", "drawing.dim_diameter", "drawing.dim_angle"],
+                    &["drawing.dim_linear", "drawing.dim_radius", "drawing.dim_diameter", "drawing.dim_angle"],
+                ),
+                group(
+                    "style",
+                    || t!("ribbon.group.style"),
+                    &["drawing.style_lines", "drawing.style_rendered", "drawing.style_hybrid"],
+                    &["drawing.style_lines", "drawing.style_rendered", "drawing.style_hybrid"],
+                ),
+                group("view", || t!("ribbon.group.view"), &["view.zoom_extents"], &["view.zoom_extents"]),
+            ],
+        }],
+    },
 ];
 
 /// The workspaces this build lists: an unfinished one in debug builds only.
@@ -234,11 +280,14 @@ mod tests {
     }
 
     #[test]
-    fn modelling_has_every_command() {
-        // Modelling alone: every command is reachable, as before workspaces shaped the editor.
+    fn modelling_has_every_command_but_other_workspaces_own() {
+        // Every command is reachable somewhere; Modelling has all but what only another
+        // workspace does (the drawing's sheets).
         let m = find(Some("modelling"));
-        let missing: Vec<_> = COMMANDS.iter().map(|c| c.id).filter(|id| !m.has(id)).collect();
-        assert!(missing.is_empty(), "not in Modelling: {missing:?}");
+        let own = |id: &str| WORKSPACES.iter().any(|w| w.id != m.id && w.has(id) && !COMMON.contains(&id));
+        let missing: Vec<_> = COMMANDS.iter().map(|c| c.id).filter(|id| !m.has(id) && !own(id)).collect();
+        assert!(missing.is_empty(), "in no workspace: {missing:?}");
+        assert!(!m.has("drawing.add_view") && find(Some("drawing")).has("drawing.add_view"));
         assert!(share("tool.box", "edit.undo"));
         assert!(!m.has("nope"));
     }

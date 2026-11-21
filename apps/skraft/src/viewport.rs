@@ -90,6 +90,17 @@ pub struct Viewport {
     /// The palette of the last frame and its entries' textures, the thumbnails' too.
     palette: Vec<[f32; 4]>,
     textures: Vec<[f32; 4]>,
+    /// The pictures of the drawing's views (docs/ui/drawing.md#rendered-views), by document
+    /// and view, and the textures of those dropped, freed at the next frame.
+    sheet: HashMap<(u64, u64), SheetPicture>,
+    sheet_freed: Vec<egui::TextureId>,
+}
+
+/// A view's picture on a sheet, drawn for `stamp`.
+struct SheetPicture {
+    picture: render::Picture,
+    texture: egui::TextureId,
+    stamp: u64,
 }
 
 /// Measured on every frame, for the render statistics overlay.
@@ -179,6 +190,106 @@ impl Viewport {
             r.drop_document(doc);
         }
         self.thumbnails.drop_document(doc);
+        let gone: Vec<(u64, u64)> = self.sheet.keys().filter(|(d, _)| *d == doc).copied().collect();
+        for k in gone {
+            if let Some(p) = self.sheet.remove(&k) {
+                self.sheet_freed.push(p.texture);
+            }
+        }
+    }
+
+    /// The views' pictures of document `doc` drawn so far, by view.
+    pub fn sheet_textures(&self, doc: u64) -> HashMap<Id, egui::TextureId> {
+        self.sheet.iter().filter(|((d, _), _)| *d == doc).map(|((_, v), p)| (Id(*v), p.texture)).collect()
+    }
+
+    /// Draws the views' pictures a sheet of document `doc` asks for (docs/ui/drawing.md#rendered-views),
+    /// those whose stamp changed, within [`SHEET_BUDGET_MS`] (the others the next frame); the
+    /// pictures of views no longer asked for freed. The paper's white behind them.
+    pub fn sheet_pictures(
+        &mut self,
+        ctx: &egui::Context,
+        frame: &eframe::Frame,
+        doc: u64,
+        editor: &Editor,
+        theme: &Theme,
+        wanted: &[crate::sheet::Wanted],
+    ) {
+        let Some(state) = frame.wgpu_render_state() else { return };
+        self.show_document(doc);
+        let asked: std::collections::HashSet<u64> = wanted.iter().map(|w| w.view.0).collect();
+        let gone: Vec<(u64, u64)> = self.sheet.keys().filter(|(d, v)| *d == doc && !asked.contains(v)).copied().collect();
+        for k in gone {
+            if let Some(p) = self.sheet.remove(&k) {
+                self.sheet_freed.push(p.texture);
+            }
+        }
+        if !self.sheet_freed.is_empty() {
+            let mut egui_renderer = state.renderer.write();
+            for t in self.sheet_freed.drain(..) {
+                egui_renderer.free_texture(&t);
+            }
+        }
+        let todo: Vec<&crate::sheet::Wanted> =
+            wanted.iter().filter(|w| self.sheet.get(&(doc, w.view.0)).is_none_or(|p| p.stamp != w.stamp)).collect();
+        if todo.is_empty() {
+            return;
+        }
+        let (palette, textures, _) = self.sync(state, editor, theme);
+        let document = self.document;
+        let Some(renderer) = self.renderer.as_mut() else { return };
+        let scene = editor.scene();
+        let start = web_time::Instant::now();
+        let ppp = ctx.pixels_per_point();
+        let mut more = false;
+        for w in todo {
+            if start.elapsed().as_secs_f64() * 1e3 > SHEET_BUDGET_MS {
+                more = true;
+                break;
+            }
+            let device = &state.device;
+            let key = (doc, w.view.0);
+            let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, grains: &self.grains, document, ppp };
+            match self.sheet.get_mut(&key) {
+                Some(p) if p.picture.size() == w.size => {
+                    draw_sheet_picture(renderer, state, scene, &look, w, &p.picture);
+                    p.stamp = w.stamp;
+                }
+                _ => {
+                    let picture = renderer.new_picture(device, w.size);
+                    draw_sheet_picture(renderer, state, scene, &look, w, &picture);
+                    let texture = state.renderer.write().register_native_texture(device, picture.display_view(), wgpu::FilterMode::Linear);
+                    if let Some(old) = self.sheet.insert(key, SheetPicture { picture, texture, stamp: w.stamp }) {
+                        self.sheet_freed.push(old.texture);
+                    }
+                }
+            }
+        }
+        // Drawn now, shown at the next frame.
+        ctx.request_repaint();
+        let _ = more;
+    }
+
+    /// A sheet view's picture `w` drawn now and read back (RGBA, rows top first): the PDF's
+    /// (docs/ui/drawing.md#pdf). `ppp`: the picture's pixels per point (its lines' widths).
+    pub fn picture_rgba(
+        &mut self,
+        frame: &eframe::Frame,
+        doc: u64,
+        editor: &Editor,
+        theme: &Theme,
+        w: &crate::sheet::Wanted,
+        ppp: f32,
+    ) -> Option<(u32, u32, Vec<u8>)> {
+        let state = frame.wgpu_render_state()?;
+        self.show_document(doc);
+        let (palette, textures, _) = self.sync(state, editor, theme);
+        let document = self.document;
+        let renderer = self.renderer.as_mut()?;
+        let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, grains: &self.grains, document, ppp };
+        let picture = renderer.new_picture(&state.device, w.size);
+        draw_sheet_picture(renderer, state, editor.scene(), &look, w, &picture);
+        read_texture(state, picture.texture())
     }
 
     /// Draws document `doc`, edited by `editor`, and feeds it the view's input; `typed` is the
@@ -555,7 +666,10 @@ impl Viewport {
         *self.slots.entry(m).or_insert(next)
     }
 
-    fn render(&mut self, state: &egui_wgpu::RenderState, size: [u32; 2], pixels_per_point: f32, editor: &Editor, theme: &Theme) {
+    /// What every picture of the shown document needs, kept up to date: the palette (each
+    /// material at its entry, then an open part's tools' colours, from the returned slot), the
+    /// textures' layers, the meshes uploaded, the definitions' grains.
+    fn sync(&mut self, state: &egui_wgpu::RenderState, editor: &Editor, theme: &Theme) -> (Vec<[f32; 4]>, Vec<[f32; 4]>, u32) {
         let device = &state.device;
         let doc = editor.document();
         // The palette: every material at its entry (entries of deleted ones stay unused).
@@ -630,9 +744,19 @@ impl Viewport {
                 self.grains.insert(key, (dm.revision, grain_of(dm)));
             }
         }
+        renderer.retain_meshes(|k| scene.definition_mesh(skraft_model::Id(k)).is_some());
+        (palette, textures, tool_slot)
+    }
+
+    fn render(&mut self, state: &egui_wgpu::RenderState, size: [u32; 2], pixels_per_point: f32, editor: &Editor, theme: &Theme) {
+        let device = &state.device;
+        let doc = editor.document();
+        let (palette, textures, tool_slot) = self.sync(state, editor, theme);
+        let scene = editor.scene();
+        let document = self.document;
+        let Some(renderer) = self.renderer.as_mut() else { return };
         let grains = &self.grains;
         let grain = |def: u64| grains.get(&(document, def)).map_or(0, |(_, g)| *g);
-        renderer.retain_meshes(|k| scene.definition_mesh(skraft_model::Id(k)).is_some());
 
         let display = &doc.settings().display;
         // The palette's, not the document's (docs/render/look.md).
@@ -918,6 +1042,130 @@ impl Viewport {
 
 /// How much finer a thumbnail's edges are than the view's (`render::EDGE_WIDTH` times this).
 const THUMBNAIL_EDGE_SCALE: f32 = 0.5;
+
+/// What a sheet view's picture is drawn with: the theme, the palette and textures, the
+/// materials' entries, the definitions' grains, the document shown, its points' pixels.
+struct SheetLook<'a> {
+    theme: &'a Theme,
+    palette: &'a [[f32; 4]],
+    textures: &'a [[f32; 4]],
+    slots: &'a HashMap<Id, u32>,
+    grains: &'a HashMap<(u64, u64), (u64, u8)>,
+    document: u64,
+    ppp: f32,
+}
+
+/// A sheet view's picture `w` drawn into `picture` (docs/ui/drawing.md#rendered-views): its
+/// parts, its lines over them, on the paper's white.
+fn draw_sheet_picture(
+    renderer: &mut render::Renderer,
+    state: &egui_wgpu::RenderState,
+    scene: &skraft_tools::DisplayScene,
+    look: &SheetLook<'_>,
+    w: &crate::sheet::Wanted,
+    picture: &render::Picture,
+) {
+    let (theme, palette, textures, document, ppp) = (look.theme, look.palette, look.textures, look.document, look.ppp);
+    let slot = |m: Option<Id>| m.and_then(|m| look.slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
+    let rgb = |c: Rgba| [c[0], c[1], c[2]];
+    let batches: Vec<render::Batch> = w
+        .parts
+        .iter()
+        .filter(|(p, _)| renderer.has_mesh(p.0, scene.definition_mesh(*p).map_or(u64::MAX, |d| d.revision)))
+        .map(|(p, places)| {
+            let placements =
+                places.iter().map(|(t, m)| render::Placement { material: slot(*m), ..render::Placement::new(DMat4::from(*t)) }).collect();
+            let grain = look.grains.get(&(document, p.0)).map_or(0, |(_, g)| *g);
+            render::Batch { grain, ..render::Batch::new(p.0, placements) }
+        })
+        .collect();
+    // Its lines over everything: the visible ones dark, the hidden ones grey and dashed.
+    let mut overlay = Vec::new();
+    if let Some(pl) = &w.lines {
+        let [right, up, forward] = pl.axes;
+        let at = |p: glam::DVec2| right * p.x + up * p.y + forward * pl.depth;
+        if pl.hidden {
+            let dash = Some(render::Dash { pattern: [pl.dash[0], pl.dash[1], 0.0, 0.0], lay: render::Lay::Screen(0.0) });
+            for poly in &pl.lines.hidden {
+                for s in poly.windows(2) {
+                    overlay.push(render::Line { a: at(s[0]), b: at(s[1]), color: [0.25, 0.25, 0.25, 1.0], dash, width: pl.hidden_width });
+                }
+            }
+        }
+        for poly in &pl.lines.visible {
+            for s in poly.windows(2) {
+                overlay.push(render::Line { a: at(s[0]), b: at(s[1]), color: [0.01, 0.01, 0.01, 1.0], dash: None, width: pl.width });
+            }
+        }
+    }
+    let frame = render::Frame {
+        view: w.camera.0,
+        proj: w.camera.1,
+        // The paper's.
+        background: [1.0, 1.0, 1.0],
+        style: render::Style {
+            face_front: rgb(theme.face_front),
+            face_back: rgb(theme.face_back),
+            edge: rgb(theme.edge),
+            grid: rgb(theme.grid),
+            palette,
+            textures,
+            silhouettes: true,
+            section: None,
+            ..render::Style::default()
+        },
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &overlay,
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: ppp,
+        model_per_point: 1.0,
+    };
+    renderer.render_picture(&state.device, &state.queue, &frame, picture);
+}
+
+/// The pixels of `texture` (RGBA, rows top first), read back from the GPU.
+fn read_texture(state: &egui_wgpu::RenderState, texture: &wgpu::Texture) -> Option<(u32, u32, Vec<u8>)> {
+    let [w, h] = [texture.width(), texture.height()];
+    let (device, queue) = (&state.device, &state.queue);
+    let row = (w * 4).div_ceil(256) * 256;
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("read back"),
+        size: (row * h) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut enc = device.create_command_encoder(&Default::default());
+    enc.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: None },
+        },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
+    queue.submit([enc.finish()]);
+    buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+    device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+    let data = buffer.slice(..).get_mapped_range().ok()?;
+    let mut px = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        let s = (y * row) as usize;
+        px.extend_from_slice(&data[s..s + (w * 4) as usize]);
+    }
+    Some((w, h, px))
+}
+
+/// The time the views' pictures of a sheet may take per frame (milliseconds): the others wait
+/// for the next.
+const SHEET_BUDGET_MS: f64 = 40.0;
 
 /// The time the thumbnails may take per frame (milliseconds): the others wait for the next.
 const THUMBNAIL_BUDGET_MS: f64 = 6.0;

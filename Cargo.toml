@@ -67,6 +67,8 @@ eframe = { version = "0.37", default-features = false, features = ["wgpu_no_defa
 egui-wgpu = { version = "0.37", default-features = false, features = ["fragile-send-sync-non-atomic-wasm", "macos-window-resize-jitter-fix"] }
 egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 rfd = "0.17"
+# A drawing written as a PDF (apps/skraft/src/pdf.rs, docs/ui/drawing.md#pdf).
+krilla = { version = "0.8.2", default-features = false, features = ["raster-images", "simple-text"] }
 bytemuck = { version = "1", features = ["derive"] }
 # The wgpu egui-wgpu 0.37 is built on. Its default features: Metal, DX12, Vulkan, GLES natively,
 # WebGPU on the web — no WebGL (docs/render/display.md).

@@ -990,6 +990,9 @@ pub struct Document {
     /// material uses ([`Document::prune_assets`]).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", with = "crate::file::solids::images")]
     pub(crate) assets: BTreeMap<String, crate::Asset>,
+    /// The sheets of its drawing (docs/ui/drawing.md): shared by the history's snapshots.
+    #[serde(default, skip_serializing_if = "crate::drawing::Drawing::is_empty")]
+    pub(crate) drawing: Arc<crate::drawing::Drawing>,
     /// While an operation runs in a group of bodies a node computes (the group itself or one
     /// under it), the part standing for that group: its shape is not computed, the node computes
     /// the group from its children afterwards (docs/model/bodies.md#body-nodes).
@@ -1030,6 +1033,7 @@ impl Document {
             materials: BTreeMap::new(),
             prop_defs: BTreeMap::new(),
             assets: BTreeMap::new(),
+            drawing: Arc::default(),
             deferred: None,
         }
     }
@@ -1059,7 +1063,8 @@ impl Document {
 
     /// Drops the images no material uses any more.
     pub(crate) fn prune_assets(&mut self) {
-        let used: BTreeSet<&str> = self.materials.values().filter_map(|m| m.texture.as_ref()).map(|t| t.image.as_str()).collect();
+        let used: BTreeSet<&str> =
+            self.materials.values().filter_map(|m| m.texture.as_ref()).map(|t| t.image.as_str()).chain(self.drawing.images()).collect();
         if self.assets.keys().any(|id| !used.contains(id.as_str())) {
             let used: BTreeSet<String> = used.into_iter().map(str::to_owned).collect();
             self.assets.retain(|id, _| used.contains(id));
@@ -1419,7 +1424,7 @@ impl Document {
 
     /// `above`: the material and the deepest hidden occurrence ([`PlacedPart::hidden_at`])
     /// coming from the occurrences above.
-    fn walk(
+    pub(crate) fn walk(
         &self,
         assembly: Id,
         path: &mut Vec<Id>,

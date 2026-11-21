@@ -5,7 +5,9 @@
 mod assets;
 mod boolean;
 mod clipboard;
+mod dimensions;
 mod document;
+mod drawing;
 pub mod expr;
 mod fast_hash;
 mod file;
@@ -22,6 +24,8 @@ mod stretch;
 mod weld;
 
 #[cfg(test)]
+mod drawing_tests;
+#[cfg(test)]
 mod intersect_tests;
 #[cfg(test)]
 mod moves_tests;
@@ -32,9 +36,14 @@ mod tests;
 
 pub use assets::{Asset, ImageKind};
 pub use clipboard::BodyFragment;
+pub use dimensions::{Anchor, DimKind, Dimension, Entity, Found, Orient, part_names};
 pub use document::{
     Assembly, Behavior, Body, BodyDef, BodyGroup, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuidePath, GuideShape,
     Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache, RawCell, Sign, StretchMask, Texture, name_base,
+};
+pub use drawing::{
+    Direction, Drawing, Element, ElementKind, Frame, Layer, Look, Paper, Perspective, Placing, Projection, Resolved, Sheet, Side, Subject,
+    View, ViewKind, ViewStyle,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, VERSION};
@@ -136,6 +145,17 @@ pub enum Refusal {
     BadTexture,
     /// A change to a body node's operation on a body that is none, or a size not positive.
     NotANode,
+    /// A sheet's paper not between 1 mm and 10 m (docs/ui/drawing.md).
+    BadPaper,
+    /// An element of a sheet not well formed: not finite, a scale not positive, a view of a
+    /// component gone, a change of its kind.
+    BadElement,
+    /// A view projected from itself, or from one projected from it.
+    ProjectionLoop,
+    /// A view projected from a perspective view.
+    ProjectedFromPerspective,
+    /// The last layer not shared deleted: nothing left to draw on.
+    LastLayer,
 }
 
 /// A file that cannot be opened.
@@ -177,8 +197,13 @@ pub enum FileError {
     BadProp(String),
     /// A material's texture without its image, or not well formed.
     BadTexture(Id),
+    /// A sheet, layer or element of the drawing whose id is taken, on no layer, or naming what
+    /// is not there (docs/ui/drawing.md).
+    BadDrawing(Id),
     /// Materials alone (a `.skraftmat`): imported into a model, not opened as one.
     MaterialsOnly,
+    /// A sheet template (a `.skrafttpl`): new sheets are made from it, it is not opened.
+    TemplateOnly,
 }
 
 impl std::fmt::Display for Error {
@@ -248,6 +273,11 @@ impl std::fmt::Display for Refusal {
             Refusal::PropDefContradicted => t!("error.model.prop_def_contradicted"),
             Refusal::BadTexture => t!("error.model.bad_texture"),
             Refusal::NotANode => t!("error.model.not_a_node"),
+            Refusal::BadPaper => t!("error.model.bad_paper"),
+            Refusal::BadElement => t!("error.model.bad_element"),
+            Refusal::ProjectionLoop => t!("error.model.projection_loop"),
+            Refusal::ProjectedFromPerspective => t!("error.model.projected_from_perspective"),
+            Refusal::LastLayer => t!("error.model.last_layer"),
         })
     }
 }
@@ -272,7 +302,9 @@ impl std::fmt::Display for FileError {
             FileError::BadBehavior(id) => t!("error.file.bad_behavior", id = id),
             FileError::BadProp(key) => t!("error.file.bad_prop", key = key),
             FileError::BadTexture(id) => t!("error.file.bad_texture", id = id),
+            FileError::BadDrawing(id) => t!("error.file.bad_drawing", id = id),
             FileError::MaterialsOnly => t!("error.file.materials_only"),
+            FileError::TemplateOnly => t!("error.file.template_only"),
             FileError::DuplicateOccurrence { occurrence, assembly } => {
                 t!("error.file.duplicate_occurrence", occurrence = occurrence, assembly = assembly)
             }

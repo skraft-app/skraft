@@ -29,6 +29,7 @@ use crate::document::{
     Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign,
     Texture, is_identity,
 };
+use crate::drawing::{ElementKind, Paper, Placing, Projection};
 use crate::props::{PropDef, PropTarget, Props, Value};
 use crate::settings::Settings;
 use crate::stretch::BodyStretch;
@@ -461,6 +462,45 @@ pub enum Operation {
     /// [`Operation::PaintOccurrences`], [`Operation::ReplaceOccurrences`]), and the one making a part there
     /// ([`Operation::AddPrimitive`], « Dessiner dans », docs/tools/draw-options.md).
     At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
+    /// A sheet added to the drawing, last (docs/ui/drawing.md); named « Feuille n » when
+    /// `name` is none. The drawing's first comes with its layers.
+    AddSheet { name: Option<String>, paper: Paper },
+    /// A sheet renamed or its paper changed.
+    SetSheet {
+        sheet: Id,
+        name: String,
+        paper: Paper,
+        /// Its grid's step (paper millimetres; 0: none, at most 100).
+        #[serde(default)]
+        grid: f64,
+    },
+    /// A sheet deleted, with its elements and the views projected from its views.
+    DeleteSheet { sheet: Id },
+    /// A sheet moved to `index` in the sheets' order.
+    MoveSheet { sheet: Id, index: usize },
+    /// An element added to a sheet, on a layer (a shared one: on every sheet).
+    AddElement { at: Placing, element: ElementKind },
+    /// An element changed (moved, its view turned…), of the same kind.
+    SetElement { element: Id, kind: ElementKind },
+    /// Elements deleted, and the views projected from them.
+    DeleteElements { elements: Vec<Id> },
+    /// Where projected views go.
+    SetProjection(Projection),
+    /// A sheet added from a template (`Document::template_of`), its layers joined to the
+    /// document's.
+    AddSheetFrom { template: Arc<Document>, name: Option<String> },
+    /// A layer added on top, named « Calque n » when `name` is none.
+    AddLayer { name: Option<String> },
+    /// A layer renamed, hidden or shown, locked or not.
+    SetLayer { layer: Id, name: String, hidden: bool, locked: bool },
+    /// A layer shared (its elements on `sheet` become every sheet's) or not (copied on each).
+    ShareLayer { layer: Id, shared: bool, sheet: Id },
+    /// A layer deleted with its elements.
+    DeleteLayer { layer: Id },
+    /// A layer moved to `index` in the layers' order (bottom first).
+    MoveLayer { layer: Id, index: usize },
+    /// Elements moved onto another layer (off a shared one, onto `sheet`).
+    MoveToLayer { elements: Vec<Id>, layer: Id, sheet: Id },
     /// Several operations in one step, applied in order: their outcomes put together.
     Batch(Vec<Operation>),
 }
@@ -508,6 +548,20 @@ impl Operation {
             Operation::Boolean { op: Boolean::Difference, .. } => t!("operation.difference"),
             Operation::Boolean { op: Boolean::Intersection, .. } => t!("operation.intersection"),
             Operation::SetSettings(_) => t!("operation.settings"),
+            Operation::AddSheet { .. } => t!("operation.add_sheet"),
+            Operation::SetSheet { .. } => t!("operation.set_sheet"),
+            Operation::DeleteSheet { .. } => t!("operation.delete_sheet"),
+            Operation::MoveSheet { .. } => t!("operation.move_sheet"),
+            Operation::AddElement { element: ElementKind::View(_), .. } => t!("operation.add_view"),
+            Operation::AddElement { .. } => t!("operation.add_element"),
+            Operation::SetElement { .. } => t!("operation.set_element"),
+            Operation::DeleteElements { .. } => t!("operation.delete"),
+            Operation::SetProjection(_) => t!("operation.set_projection"),
+            Operation::AddLayer { .. } => t!("operation.add_layer"),
+            Operation::AddSheetFrom { .. } => t!("operation.add_sheet"),
+            Operation::SetLayer { .. } | Operation::ShareLayer { .. } | Operation::MoveLayer { .. } => t!("operation.set_layer"),
+            Operation::DeleteLayer { .. } => t!("operation.delete_layer"),
+            Operation::MoveToLayer { .. } => t!("operation.move_to_layer"),
             Operation::AddMaterial { .. } => t!("operation.add_material"),
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
@@ -601,6 +655,7 @@ impl Operation {
         match (self, prev) {
             (Operation::SetSettings(_), Operation::SetSettings(_)) => true,
             (Operation::EditMaterial { material: a, .. }, Operation::EditMaterial { material: b, .. }) => a == b,
+            (Operation::SetElement { element: a, .. }, Operation::SetElement { element: b, .. }) => a == b,
             (Operation::SetBehavior { component: a, .. }, Operation::SetBehavior { component: b, .. }) => a == b,
             (Operation::SetProps { target: a, props: pa }, Operation::SetProps { target: b, props: pb }) => {
                 a == b && pa.keys().eq(pb.keys())
@@ -651,6 +706,12 @@ pub struct Outcome {
     /// new (grouped, ungrouped, wrapped by a node, renamed in a copy): the names of the nodes
     /// above follow them (docs/decisions/0042-body-nodes-operators.md).
     pub relocated: Vec<(Vec<Id>, Vec<Id>)>,
+    /// The sheet added (docs/ui/drawing.md).
+    pub sheet: Option<Id>,
+    /// The element added to a sheet.
+    pub element: Option<Id>,
+    /// The layer added.
+    pub layer: Option<Id>,
 }
 
 /// What an operation done has to say.
@@ -814,6 +875,38 @@ impl Document {
                 self.settings = settings.clone();
                 Ok(Outcome::default())
             }
+            Operation::AddSheet { name, paper } => {
+                let id = self.add_sheet(name.as_deref(), *paper)?;
+                Ok(Outcome { sheet: Some(id), ..Outcome::default() })
+            }
+            Operation::SetSheet { sheet, name, paper, grid } => self.set_sheet(*sheet, name, *paper, *grid).map(|_| Outcome::default()),
+            Operation::DeleteSheet { sheet } => self.delete_sheet(*sheet).map(|_| Outcome::default()),
+            Operation::MoveSheet { sheet, index } => self.move_sheet(*sheet, *index).map(|_| Outcome::default()),
+            Operation::AddElement { at, element } => {
+                let id = self.add_element(at, element)?;
+                Ok(Outcome { element: Some(id), ..Outcome::default() })
+            }
+            Operation::SetElement { element, kind } => self.set_element(*element, kind).map(|_| Outcome::default()),
+            Operation::DeleteElements { elements } => self.delete_elements(elements).map(|_| Outcome::default()),
+            Operation::SetProjection(p) => {
+                self.set_projection(*p);
+                Ok(Outcome::default())
+            }
+            Operation::AddSheetFrom { template, name } => {
+                let id = self.add_sheet_from(template, name.as_deref())?;
+                Ok(Outcome { sheet: Some(id), ..Outcome::default() })
+            }
+            Operation::AddLayer { name } => {
+                let id = self.add_layer(name.as_deref())?;
+                Ok(Outcome { layer: Some(id), ..Outcome::default() })
+            }
+            Operation::SetLayer { layer, name, hidden, locked } => {
+                self.set_layer(*layer, name, *hidden, *locked).map(|_| Outcome::default())
+            }
+            Operation::ShareLayer { layer, shared, sheet } => self.share_layer(*layer, *shared, *sheet).map(|_| Outcome::default()),
+            Operation::DeleteLayer { layer } => self.delete_layer(*layer).map(|_| Outcome::default()),
+            Operation::MoveLayer { layer, index } => self.move_layer(*layer, *index).map(|_| Outcome::default()),
+            Operation::MoveToLayer { elements, layer, sheet } => self.move_to_layer(elements, *layer, *sheet).map(|_| Outcome::default()),
             Operation::AddMaterial { name, color } => {
                 let id = self.fresh_id();
                 self.materials.insert(id, Material::new(name.clone(), *color));
@@ -1272,6 +1365,9 @@ impl Document {
                     all.warning = all.warning.or(o.warning);
                     all.welds.extend(o.welds);
                     all.relocated.extend(o.relocated);
+                    all.sheet = all.sheet.or(o.sheet);
+                    all.element = all.element.or(o.element);
+                    all.layer = all.layer.or(o.layer);
                 }
                 Ok(all)
             }

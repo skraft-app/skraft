@@ -97,6 +97,28 @@ pub const COMMANDS: &[Command] = &[
     c("edit.delete_guides", || t!("menu.edit.delete_guides"), M::Edit, None),
     // The « Composants » card's « Purger » (docs/ui/components-library.md#managing).
     c("components.purge", || t!("menu.edit.purge_unused"), M::Edit, None),
+    // The drawing's (docs/ui/drawing.md).
+    g("drawing.new_sheet", || t!("menu.drawing.new_sheet"), M::Edit, None),
+    c("drawing.add_view", || t!("menu.drawing.add_view"), M::Edit, None),
+    // Views projected from the view picked, placed on the side the pointer is.
+    c("drawing.project_view", || t!("menu.drawing.project_view"), M::Edit, None),
+    // Free elements drawn on the sheet, on the active layer.
+    g("drawing.tool_text", || t!("menu.drawing.tool_text"), M::Tools, None),
+    c("drawing.tool_rect", || t!("menu.drawing.tool_rect"), M::Tools, None),
+    c("drawing.tool_line", || t!("menu.drawing.tool_line"), M::Tools, None),
+    // Dimensions through a view (docs/ui/drawing.md#dimensions).
+    g("drawing.dim_linear", || t!("menu.drawing.dim_linear"), M::Tools, None),
+    c("drawing.dim_radius", || t!("menu.drawing.dim_radius"), M::Tools, None),
+    c("drawing.dim_diameter", || t!("menu.drawing.dim_diameter"), M::Tools, None),
+    c("drawing.dim_angle", || t!("menu.drawing.dim_angle"), M::Tools, None),
+    // The sheet shown as a template in the library (docs/ui/drawing.md#templates).
+    c("drawing.save_template", || t!("menu.drawing.save_template"), M::File, None),
+    // The drawing written as a PDF, a page per sheet (docs/ui/drawing.md#pdf).
+    c("drawing.export_pdf", || ellipsis(t!("menu.drawing.export_pdf")), M::File, None),
+    // The view picked on the sheet drawn in lines, rendered, or both.
+    g("drawing.style_lines", || t!("menu.drawing.style_lines"), M::Edit, None),
+    c("drawing.style_rendered", || t!("menu.drawing.style_rendered"), M::Edit, None),
+    c("drawing.style_hybrid", || t!("menu.drawing.style_hybrid"), M::Edit, None),
     g("app.command_palette", || ellipsis(t!("menu.edit.command_palette")), M::Edit, Some("Cmd+K")),
     c("app.preferences", || ellipsis(t!("menu.edit.preferences")), M::Edit, Some("Cmd+Comma")),
     // The control channel, on or off (desktop).
@@ -118,6 +140,7 @@ pub const COMMANDS: &[Command] = &[
     c("view.materials", || t!("menu.view.materials"), M::View, None),
     c("view.outliner", || t!("menu.view.outliner"), M::View, None),
     c("view.components", || t!("menu.view.components"), M::View, None),
+    c("view.layers", || t!("menu.view.layers"), M::View, None),
     c("view.render_stats", || t!("menu.view.render_stats"), M::View, None),
     g("view.top", || t!("menu.view.top"), M::View, Some("Cmd+1")),
     c("view.front", || t!("menu.view.front"), M::View, Some("Cmd+2")),

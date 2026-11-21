@@ -47,6 +47,9 @@ pub enum Act {
     // No toast offers it for now: kept, for those that will.
     #[allow(dead_code)]
     Reveal(String),
+    /// Opens the file with the system's application for its kind (a PDF exported).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    Open(String),
     /// Opens the naming dialog on what was just made (a part, an assembly, a body definition),
     /// of this document.
     Rename { doc: DocId, target: skraft_tools::NameTarget },
