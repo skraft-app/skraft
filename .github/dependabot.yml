@@ -1,0 +1,19 @@
+# Dependabot: see docs/README.md.
+version: 2
+updates:
+  # The workflows' actions are pinned by commit: their updates, in one pull request a month.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The crates: security updates only. A version bump stays a deliberate step, measured against
+  # the kernel's behaviour.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0

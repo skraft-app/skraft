@@ -1,0 +1,28 @@
+# What runs on a contributor's or a maintainer's machine or in CI, and what the licenses rest on:
+# a change to these paths asks for the maintainer's review.
+
+# Agent instructions and hooks
+/.claude/                         @bbeaulant
+/CLAUDE.md                        @bbeaulant
+
+# CI, build and packaging
+/.cargo/                          @bbeaulant
+/.github/                         @bbeaulant
+/packaging/                       @bbeaulant
+/rust-toolchain.toml              @bbeaulant
+/scripts/                         @bbeaulant
+
+# Dependencies
+/Cargo.lock                       @bbeaulant
+/Cargo.toml                       @bbeaulant
+
+# Licenses
+/LICENSE                          @bbeaulant
+/about.hbs                        @bbeaulant
+/about.toml                       @bbeaulant
+/deny.toml                        @bbeaulant
+/licenses/                        @bbeaulant
+
+# Policies
+/CONTRIBUTING.md                  @bbeaulant
+/SECURITY.md                      @bbeaulant
