@@ -161,7 +161,7 @@ impl Editor {
             _ => {}
         }
         self.after_change();
-        // An assembly it emptied goes with it (docs/model/data-model.md#empty-assemblies).
+        // An assembly it emptied goes with it (docs/model/data-model.md#components-parts-and-assemblies).
         self.drop_empty_assemblies(true);
         match after {
             After::SelectNamed => self.offer_renaming(&named),
@@ -181,7 +181,7 @@ impl Editor {
         outcome
     }
 
-    /// Takes away the empty assemblies, all but the active context (docs/model/data-model.md#empty-assemblies):
+    /// Takes away the empty assemblies, all but the active context (docs/model/data-model.md#components-parts-and-assemblies):
     /// within the last step when it is the one that emptied them (`within_last`: the step just
     /// made; else when the document before it had none such), otherwise as a step of its own —
     /// an assembly emptied from inside goes once left.

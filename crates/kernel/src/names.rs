@@ -82,7 +82,7 @@ pub enum Blend {
 
 /// What a node does to its children's result (docs/decisions/0042-body-nodes-operators.md).
 /// One kind yet, others to come (a shell); not the intersection, a sign of bodies, nor the
-/// mirror, a placement (docs/REVIEW.md, 2026-11-20).
+/// mirror, a placement.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeOp {
