@@ -1,48 +1,62 @@
-//! The document's drawing (docs/ui/drawing.md, decision 0048): sheets of paper holding views
-//! of the model and free elements, on layers — a shared layer's elements on every sheet (its
-//! title block). Changed by operations, as the rest of the document.
+//! The document's drawing (docs/ui/drawing.md, decisions 0048 and 0049): a tree of presentations
+//! holding sheets of paper holding elements — views of the model, free elements, instances of
+//! the compositions, the definitions all presentations share. Changed by operations, as the rest of
+//! the document.
 
-use glam::{DAffine3, DVec2, DVec3};
+mod clipboard;
+mod ops;
+mod template;
+mod view;
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use glam::{DAffine2, DVec2};
 use serde::{Deserialize, Serialize};
-use skraft_i18n::t;
 
-use crate::{ComponentKind, Document, EntityPath, Error, Id, PlacedPart, Refusal, Result};
+pub use ops::FieldOn;
+pub use view::{Direction, Frame, Look, Perspective, Projection, Side, Subject, View, ViewKind, ViewStyle};
 
-/// The sheets, in their order, and the layers their elements are on, bottom first.
+use crate::{Id, Props};
+
+/// The presentations, in their order, and the definitions they share.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Drawing {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub sheets: Vec<Sheet>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub layers: Vec<Layer>,
-    /// Where projected views go (docs/ui/drawing.md#projected-views).
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub projection: Projection,
+    pub presentations: Vec<Presentation>,
+    /// The definitions, by id (docs/ui/drawing.md#compositions).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub compositions: BTreeMap<Id, Composition>,
 }
 
-fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+pub(crate) fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     *v == T::default()
 }
 
-/// A layer. A shared one holds its elements itself, drawn on every sheet (a title block); the
-/// others' elements are each sheet's own.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Layer {
-    pub id: Id,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub shared: bool,
-    /// Not drawn (nor printed).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub hidden: bool,
-    /// Drawn, but its elements neither picked nor changed on the sheet.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub locked: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub elements: Vec<Element>,
+fn is_zero(x: &f64) -> bool {
+    *x == 0.0
 }
 
-/// A sheet of paper: its size and its own elements, in the order they are drawn.
+fn no_grid(g: &f64) -> bool {
+    *g <= 0.0
+}
+
+/// A document of sheets for someone (« Atelier », « Client »): numbered, valued and exported on
+/// its own.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Presentation {
+    pub id: Id,
+    pub name: String,
+    /// Where its projected views go.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub projection: Projection,
+    /// The values its fields take (docs/ui/drawing.md#fields).
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sheets: Vec<Sheet>,
+}
+
+/// A sheet of paper: its size and its elements, in the order they are drawn.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Sheet {
     pub id: Id,
@@ -54,10 +68,30 @@ pub struct Sheet {
     /// (docs/ui/drawing.md#snapping); 0: none.
     #[serde(default, skip_serializing_if = "no_grid")]
     pub grid: f64,
+    /// Its frame, drawn from its paper.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<Border>,
+    /// The values its fields take.
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
 }
 
-fn no_grid(g: &f64) -> bool {
-    *g <= 0.0
+/// A sheet's frame: a rectangle `margin` millimetres inside its paper, `width` wide.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Border {
+    pub margin: f64,
+    pub width: f64,
+}
+
+impl Border {
+    /// Well formed on `paper`: a line of 0.05 to 10 mm, leaving some paper inside.
+    fn fits(self, paper: Paper) -> bool {
+        self.margin.is_finite()
+            && self.margin >= 0.0
+            && 2.0 * self.margin < paper.width.min(paper.height)
+            && self.width.is_finite()
+            && (0.05..=10.0).contains(&self.width)
+    }
 }
 
 /// A paper's size in millimetres, landscape when wider than high.
@@ -84,13 +118,41 @@ impl Paper {
     }
 }
 
-/// Something on a sheet, on a layer. Sheet coordinates are millimetres of paper, from the
-/// sheet's bottom left corner, y up.
+/// A composition: elements in axes of its own, placed by instances; made from a selection with an
+/// automatic name (decision 0049).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Composition {
+    pub id: Id,
+    pub name: String,
+    /// Named by the user: it stays while placed nowhere.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub named: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub elements: Vec<Element>,
+    /// The template's definition it comes from: brought in once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+/// Something on a sheet or in a composition. Coordinates are millimetres of paper in its container's
+/// axes: a sheet's from its bottom left corner, y up.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Element {
     pub id: Id,
-    pub layer: Id,
+    /// Not drawn (nor printed), nor what it holds.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+    /// Drawn, but neither picked nor changed on the sheet, nor what it holds.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
     pub kind: ElementKind,
+}
+
+impl Element {
+    /// An element shown and free.
+    pub(crate) fn new(id: Id, kind: ElementKind) -> Self {
+        Element { id, hidden: false, locked: false, kind }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -119,180 +181,145 @@ pub enum ElementKind {
     },
     /// A dimension measured through a view (docs/ui/drawing.md#dimensions).
     Dimension(crate::Dimension),
+    /// A composition placed.
+    Instance(Instance),
 }
 
-/// A view of the model on a sheet.
+/// A composition placed in a sheet or another composition.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct View {
-    pub name: String,
-    pub kind: ViewKind,
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub style: ViewStyle,
+pub struct Instance {
+    pub composition: Id,
+    pub place: Place,
+    /// The values its fields take here, before the sheet's.
+    #[serde(default, skip_serializing_if = "Props::is_empty")]
+    pub props: Props,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ViewKind {
-    /// A view of its own: what it shows, from where, at what scale; the centre of the
-    /// subject's box seen there is drawn at `at`.
-    Base { subject: Subject, look: Look, scale: f64, at: DVec2 },
-    /// A view of a base view's subject, at its scale, seen from the side `side` says and
-    /// aligned with it, `distance` from it (between their centres) on the sheet.
-    Projected { base: Id, side: Side, distance: f64 },
-}
-
-/// What a view shows.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Subject {
-    /// The whole model.
-    Model,
-    /// A component in its own axes.
-    Component(Id),
-    /// These occurrences, where they stand in the model.
-    Occurrences(Vec<EntityPath>),
-}
-
-/// From where a base view looks.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Look {
-    /// A standard direction of the model's axes (or the component's).
-    Standard(Direction),
-    /// Any direction, parallel or in perspective (the 3D camera's when the view was made).
-    Camera { forward: DVec3, up: DVec3, perspective: Option<Perspective> },
-}
-
-impl Look {
-    /// The axes it looks along, and its perspective if any.
-    pub fn frame(&self) -> (Frame, Option<Perspective>) {
-        match self {
-            Look::Standard(d) => (Frame::of(*d), None),
-            Look::Camera { forward, up, perspective } => (Frame::looking(*forward, *up), *perspective),
-        }
-    }
-}
-
-/// A perspective view's eye and opening.
+/// Where an instance puts its composition's origin, and how it turns it: never a scale (a view at
+/// 1:10 stays true).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Perspective {
-    pub eye: DVec3,
-    pub fov_y: f64,
+pub struct Place {
+    /// The paper's corner `at` is measured from, following the paper when its format changes.
+    /// Only on a sheet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner: Option<Corner>,
+    pub at: DVec2,
+    /// Radians, counterclockwise, about the composition's origin.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rotation: f64,
 }
 
-/// A standard direction, as the 3D view's standard views (Z up).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Direction {
-    Front,
-    Back,
-    Left,
-    Right,
-    Top,
-    Bottom,
-    Iso,
-}
-
-/// The side of its base a projected view goes to, on the sheet.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Side {
-    Left,
-    Right,
-    Above,
-    Below,
-}
-
-/// Where projected views go: first-angle (European: the view from the left goes right) or
-/// third-angle (American: the view from the left goes left).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Projection {
-    #[default]
-    FirstAngle,
-    ThirdAngle,
-}
-
-/// How a view is drawn (decision 0048).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ViewStyle {
-    /// The visible and hidden edges, as vectors.
-    #[default]
-    Lines,
-    /// An image of the 3D renderer.
-    Rendered,
-    /// The image with the lines over it.
-    Hybrid,
-}
-
-/// The axes a view looks along, in its subject's axes: `forward` from the eye into the scene,
-/// `up` and `right` the sheet's.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Frame {
-    pub right: DVec3,
-    pub up: DVec3,
-    pub forward: DVec3,
-}
-
-impl Frame {
-    /// The frame looking along `forward`, `up` as near up as it can be.
-    pub fn looking(forward: DVec3, up: DVec3) -> Frame {
-        let forward = forward.normalize();
-        let right = forward.cross(up).try_normalize().unwrap_or_else(|| forward.any_orthonormal_vector());
-        Frame { right, up: right.cross(forward), forward }
+impl Place {
+    /// At `at` in its container.
+    pub fn free(at: DVec2) -> Self {
+        Place { corner: None, at, rotation: 0.0 }
     }
 
-    pub fn of(direction: Direction) -> Frame {
-        let f = match direction {
-            Direction::Front => DVec3::Y,
-            Direction::Back => -DVec3::Y,
-            Direction::Left => DVec3::X,
-            Direction::Right => -DVec3::X,
-            Direction::Top => -DVec3::Z,
-            Direction::Bottom => DVec3::Z,
-            Direction::Iso => DVec3::new(-1.0, 1.0, -1.0),
-        };
-        let up = match direction {
-            Direction::Top => DVec3::Y,
-            Direction::Bottom => -DVec3::Y,
-            _ => DVec3::Z,
-        };
-        Frame::looking(f, up)
+    /// At `offset` from a corner of the paper.
+    pub fn anchored(corner: Corner, offset: DVec2) -> Self {
+        Place { corner: Some(corner), at: offset, rotation: 0.0 }
     }
 
-    /// The frame of the view projected from this one to `side`.
-    pub fn projected(self, side: Side, projection: Projection) -> Frame {
-        // Third-angle: the view placed right looks from the right; first-angle from the left.
-        let s = match projection {
-            Projection::ThirdAngle => 1.0,
-            Projection::FirstAngle => -1.0,
-        };
-        // Either way, the base view's near side faces it (its up or right the base's forward).
-        let (forward, up) = match side {
-            Side::Right => (-self.right * s, self.up),
-            Side::Left => (self.right * s, self.up),
-            Side::Above => (-self.up * s, self.forward),
-            Side::Below => (self.up * s, -self.forward),
-        };
-        Frame::looking(forward, up)
-    }
-
-    /// A point seen in this frame: sheet x, y (model units) and depth.
-    pub fn project(&self, p: DVec3) -> DVec3 {
-        DVec3::new(p.dot(self.right), p.dot(self.up), p.dot(self.forward))
-    }
-}
-
-impl Side {
-    /// Its direction on the sheet.
-    pub fn dir(self) -> DVec2 {
-        match self {
-            Side::Left => -DVec2::X,
-            Side::Right => DVec2::X,
-            Side::Above => DVec2::Y,
-            Side::Below => -DVec2::Y,
+    /// Where the composition's origin goes, on `paper` when its container is a sheet.
+    pub fn origin(&self, paper: Option<Paper>) -> DVec2 {
+        match (self.corner, paper) {
+            (Some(c), Some(p)) => c.on(p) + self.at,
+            _ => self.at,
         }
+    }
+
+    /// The same place on `paper`, measured from `corner` (none: from the paper's origin).
+    pub fn with_corner(self, corner: Option<Corner>, paper: Paper) -> Place {
+        let origin = self.origin(Some(paper));
+        Place { corner, at: origin - corner.map_or(DVec2::ZERO, |c| c.on(paper)), rotation: self.rotation }
+    }
+
+    /// From the composition's axes to its container's.
+    pub fn transform(&self, paper: Option<Paper>) -> DAffine2 {
+        DAffine2::from_angle_translation(self.rotation, self.origin(paper))
+    }
+
+    fn is_valid(&self) -> bool {
+        self.at.is_finite() && self.rotation.is_finite()
+    }
+}
+
+/// A corner of the paper.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Corner {
+    BottomLeft,
+    BottomRight,
+    TopLeft,
+    TopRight,
+}
+
+impl Corner {
+    /// Where it is on `paper`.
+    pub fn on(self, paper: Paper) -> DVec2 {
+        match self {
+            Corner::BottomLeft => DVec2::ZERO,
+            Corner::BottomRight => DVec2::new(paper.width, 0.0),
+            Corner::TopLeft => DVec2::new(0.0, paper.height),
+            Corner::TopRight => paper.size(),
+        }
+    }
+}
+
+/// The names of the `{…}` fields of `text`, as written.
+pub fn text_fields(text: &str) -> impl Iterator<Item = &str> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        let open = rest.find('{')?;
+        let tail = &rest[open + 1..];
+        let close = tail.find('}')?;
+        rest = &tail[close + 1..];
+        Some(&tail[..close])
+    })
+}
+
+/// The property a field reads: `client` is the user's, `user.client`; a name with a namespace
+/// is that key.
+pub fn field_key(name: &str) -> String {
+    if name.contains('.') { name.to_owned() } else { format!("user.{name}") }
+}
+
+/// What holds elements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Container {
+    Sheet(Id),
+    Composition(Id),
+}
+
+/// An element as a sheet shows it, through the instances leading to it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Placed<'a> {
+    pub element: &'a Element,
+    /// The instances from the sheet down to it, outermost first; empty on the sheet itself.
+    pub path: Vec<Id>,
+    /// From its container's axes to the sheet's.
+    pub transform: DAffine2,
+    /// It or an instance above it is hidden.
+    pub hidden: bool,
+    /// It or an instance above it is locked.
+    pub locked: bool,
+    /// Its presentation's: how a projected view in a composition is drawn here.
+    pub projection: Projection,
+}
+
+impl Placed<'_> {
+    /// What is right on the sheet for it: the outermost instance, else itself. What a click
+    /// on the sheet picks.
+    pub fn top(&self) -> Id {
+        self.path.first().copied().unwrap_or(self.element.id)
+    }
+
+    /// What a click picks for it with the instances `open` entered: the element right in the
+    /// last one, itself or the instance leading to it; none when it is not in there.
+    pub fn under(&self, open: &[Id]) -> Option<Id> {
+        let rest = self.path.strip_prefix(open)?;
+        Some(rest.first().copied().unwrap_or(self.element.id))
     }
 }
 
@@ -303,7 +330,7 @@ pub struct Resolved<'a> {
     pub frame: Frame,
     pub perspective: Option<Perspective>,
     pub scale: f64,
-    /// Where the centre of the subject's box seen in `frame` is drawn on the sheet.
+    /// Where the centre of the subject's box seen in `frame` is drawn in its container.
     pub at: DVec2,
 }
 
@@ -312,34 +339,80 @@ const MAX_CHAIN: usize = 16;
 
 impl Drawing {
     pub fn is_empty(&self) -> bool {
-        self.sheets.is_empty() && self.layers.is_empty() && self.projection == Projection::default()
+        self.presentations.is_empty() && self.compositions.is_empty()
+    }
+
+    pub fn presentation(&self, id: Id) -> Option<&Presentation> {
+        self.presentations.iter().find(|p| p.id == id)
+    }
+
+    /// Every sheet, presentation by presentation.
+    pub fn sheets(&self) -> impl Iterator<Item = &Sheet> {
+        self.presentations.iter().flat_map(|p| &p.sheets)
     }
 
     pub fn sheet(&self, id: Id) -> Option<&Sheet> {
-        self.sheets.iter().find(|s| s.id == id)
+        self.sheets().find(|s| s.id == id)
     }
 
-    pub fn layer(&self, id: Id) -> Option<&Layer> {
-        self.layers.iter().find(|l| l.id == id)
+    /// The presentation sheet `id` is in.
+    pub fn presentation_of(&self, sheet: Id) -> Option<&Presentation> {
+        self.presentations.iter().find(|p| p.sheets.iter().any(|s| s.id == sheet))
     }
 
-    /// What sheet `sheet` shows, bottom first: the layers in their order, a shared layer's
-    /// elements and the sheet's own on the others.
-    pub fn elements_of<'a>(&'a self, sheet: &'a Sheet) -> impl Iterator<Item = &'a Element> {
-        self.layers.iter().flat_map(move |l| {
-            let (shared, own): (&[Element], &[Element]) = if l.shared { (&l.elements, &[]) } else { (&[], &sheet.elements) };
-            shared.iter().chain(own.iter().filter(move |e| e.layer == l.id))
-        })
+    /// Sheet `id`'s number in its presentation, from 1, and how many it has.
+    pub fn sheet_number(&self, sheet: Id) -> Option<(usize, usize)> {
+        let p = self.presentation_of(sheet)?;
+        Some((p.sheets.iter().position(|s| s.id == sheet)? + 1, p.sheets.len()))
     }
 
-    /// The element `id`, on a sheet or a shared layer.
+    pub fn composition(&self, id: Id) -> Option<&Composition> {
+        self.compositions.get(&id)
+    }
+
+    /// Everything holding elements, with them.
+    pub(crate) fn containers(&self) -> impl Iterator<Item = (Container, &[Element])> {
+        self.sheets()
+            .map(|s| (Container::Sheet(s.id), s.elements.as_slice()))
+            .chain(self.compositions.values().map(|b| (Container::Composition(b.id), b.elements.as_slice())))
+    }
+
+    fn lists_mut(&mut self) -> impl Iterator<Item = &mut Vec<Element>> {
+        let Drawing { presentations, compositions } = self;
+        presentations
+            .iter_mut()
+            .flat_map(|p| p.sheets.iter_mut().map(|s| &mut s.elements))
+            .chain(compositions.values_mut().map(|b| &mut b.elements))
+    }
+
+    /// What `container` holds.
+    pub fn elements_in(&self, container: Container) -> Option<&[Element]> {
+        match container {
+            Container::Sheet(s) => self.sheet(s).map(|s| s.elements.as_slice()),
+            Container::Composition(b) => self.composition(b).map(|b| b.elements.as_slice()),
+        }
+    }
+
+    fn elements_in_mut(&mut self, container: Container) -> Option<&mut Vec<Element>> {
+        match container {
+            Container::Sheet(id) => self.presentations.iter_mut().flat_map(|p| &mut p.sheets).find(|s| s.id == id).map(|s| &mut s.elements),
+            Container::Composition(b) => self.compositions.get_mut(&b).map(|b| &mut b.elements),
+        }
+    }
+
+    /// The container holding element `id`.
+    pub fn container_of(&self, id: Id) -> Option<Container> {
+        self.containers().find(|(_, list)| list.iter().any(|e| e.id == id)).map(|(c, _)| c)
+    }
+
+    /// The element `id`, on a sheet or in a composition.
     pub fn element(&self, id: Id) -> Option<&Element> {
-        self.sheets.iter().flat_map(|s| &s.elements).chain(self.layers.iter().flat_map(|l| &l.elements)).find(|e| e.id == id)
+        self.containers().flat_map(|(_, list)| list).find(|e| e.id == id)
     }
 
     /// The element `id`, to change (a preview: the document's change through operations).
     pub fn element_mut(&mut self, id: Id) -> Option<&mut Element> {
-        self.elements_mut().flat_map(|l| l.iter_mut()).find(|e| e.id == id)
+        self.lists_mut().flat_map(|l| l.iter_mut()).find(|e| e.id == id)
     }
 
     fn view(&self, id: Id) -> Option<&View> {
@@ -349,9 +422,32 @@ impl Drawing {
         }
     }
 
+    /// The projection view `id` is drawn with: its presentation's, for one in a composition the
+    /// first presentation placing it (a sheet's walk knows its own, [`Placed::projection`]).
+    pub fn projection_of(&self, id: Id) -> Projection {
+        match self.container_of(id) {
+            Some(Container::Sheet(s)) => self.presentation_of(s).map_or_else(Projection::default, |p| p.projection),
+            Some(Container::Composition(b)) => self
+                .presentations
+                .iter()
+                .find(|p| p.sheets.iter().flat_map(|s| &s.elements).any(|e| self.reaches_element(e, b)))
+                .map_or_else(Projection::default, |p| p.projection),
+            None => Projection::default(),
+        }
+    }
+
     /// How the view `id` is drawn, following its bases; `None` when one is gone or the chain
     /// loops.
     pub fn resolve(&self, id: Id) -> Option<Resolved<'_>> {
+        self.resolve_with(id, || self.projection_of(id))
+    }
+
+    /// How the view `id` is drawn in a presentation of projection `projection`.
+    pub fn resolve_as(&self, id: Id, projection: Projection) -> Option<Resolved<'_>> {
+        self.resolve_with(id, || projection)
+    }
+
+    fn resolve_with(&self, id: Id, projection: impl FnOnce() -> Projection) -> Option<Resolved<'_>> {
         let mut chain = Vec::new();
         let mut view = self.view(id)?;
         loop {
@@ -359,9 +455,12 @@ impl Drawing {
                 ViewKind::Base { subject, look, scale, at } => {
                     let (mut frame, perspective) = look.frame();
                     let mut at = *at;
-                    for (side, distance) in chain.into_iter().rev() {
-                        frame = frame.projected(side, self.projection);
-                        at += Side::dir(side) * distance;
+                    if !chain.is_empty() {
+                        let projection = projection();
+                        for (side, distance) in chain.into_iter().rev() {
+                            frame = frame.projected(side, projection);
+                            at += Side::dir(side) * distance;
+                        }
                     }
                     return Some(Resolved { subject, frame, perspective, scale: *scale, at });
                 }
@@ -377,19 +476,10 @@ impl Drawing {
     }
 
     /// What hangs on view `id`, at any depth: the views projected from it, the dimensions
-    /// measured through them.
+    /// measured through them. They are all in its container.
     pub fn projections_of(&self, id: Id) -> Vec<Id> {
-        let views: Vec<(Id, Id)> = self
-            .sheets
-            .iter()
-            .flat_map(|s| &s.elements)
-            .chain(self.layers.iter().flat_map(|l| &l.elements))
-            .filter_map(|e| match &e.kind {
-                ElementKind::View(View { kind: ViewKind::Projected { base, .. }, .. }) => Some((e.id, *base)),
-                ElementKind::Dimension(d) => Some((e.id, d.view)),
-                _ => None,
-            })
-            .collect();
+        let Some(list) = self.container_of(id).and_then(|c| self.elements_in(c)) else { return Vec::new() };
+        let views: Vec<(Id, Id)> = list.iter().filter_map(|e| e.kind.hung_on().map(|base| (e.id, base))).collect();
         let mut out = Vec::new();
         let mut todo = vec![id];
         while let Some(b) = todo.pop() {
@@ -403,489 +493,217 @@ impl Drawing {
         out
     }
 
+    /// Its views, on sheets and in compositions.
+    pub fn view_ids(&self) -> impl Iterator<Item = Id> + '_ {
+        self.containers().flat_map(|(_, list)| list).filter(|e| matches!(e.kind, ElementKind::View(_))).map(|e| e.id)
+    }
+
     /// The images its elements show.
     pub fn images(&self) -> impl Iterator<Item = &str> {
-        self.sheets.iter().flat_map(|s| &s.elements).chain(self.layers.iter().flat_map(|l| &l.elements)).filter_map(|e| match &e.kind {
+        self.containers().flat_map(|(_, list)| list).filter_map(|e| match &e.kind {
             ElementKind::Image { asset, .. } => Some(asset.as_str()),
             _ => None,
         })
     }
 
-    fn elements_mut(&mut self) -> impl Iterator<Item = &mut Vec<Element>> {
-        self.sheets.iter_mut().map(|s| &mut s.elements).chain(self.layers.iter_mut().map(|l| &mut l.elements))
-    }
-}
-
-// ---- Operations ------------------------------------------------------------------------
-
-/// Where an element added goes.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Placing {
-    pub sheet: Id,
-    /// Its layer: none, the first layer not shared.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub layer: Option<Id>,
-}
-
-impl Document {
-    pub fn drawing(&self) -> &Drawing {
-        &self.drawing
+    /// The instances of composition `id`, wherever they are.
+    pub fn instances_of(&self, composition: Id) -> Vec<Id> {
+        self.containers()
+            .flat_map(|(_, list)| list)
+            .filter(|e| matches!(&e.kind, ElementKind::Instance(i) if i.composition == composition))
+            .map(|e| e.id)
+            .collect()
     }
 
-    /// The parts a view of `subject` shows, in the subject's axes, the hidden ones left out.
-    pub fn subject_parts(&self, subject: &Subject) -> Vec<PlacedPart> {
-        let mut out = match subject {
-            Subject::Model => self.placed_parts(),
-            Subject::Component(c) => match self.component(*c).map(|c| &c.kind) {
-                Ok(ComponentKind::Part(p)) => vec![PlacedPart {
-                    path: EntityPath::root(*c),
-                    part: *c,
-                    transform: DAffine3::IDENTITY,
-                    shape: p.shape().clone(),
-                    material: None,
-                    hidden_at: None,
-                }],
-                Ok(ComponentKind::Assembly(_)) => {
-                    let mut out = Vec::new();
-                    self.walk(*c, &mut Vec::new(), DAffine3::IDENTITY, (None, None), &mut out, 0);
-                    out
-                }
-                Err(_) => Vec::new(),
-            },
-            Subject::Occurrences(paths) => {
-                let chains: Vec<Vec<Id>> = paths.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
-                let mut all = self.placed_parts();
-                all.retain(|p| {
-                    let chain: Vec<Id> = p.path.instances.iter().copied().chain([p.path.entity]).collect();
-                    chains.iter().any(|c| chain.starts_with(c))
-                });
-                all
-            }
-        };
-        out.retain(|p| p.hidden_at.is_none());
+    /// The names of the fields the texts of `list` hold, through its instances.
+    pub fn field_names(&self, list: &[Element]) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        self.gather_fields(list, &mut Vec::new(), &mut out);
         out
     }
 
-    fn drawing_mut(&mut self) -> &mut Drawing {
-        std::sync::Arc::make_mut(&mut self.drawing)
-    }
-
-    /// The layers a first sheet comes with: the drawing's, not shared, and the title block's,
-    /// shared by every sheet.
-    fn ensure_layers(&mut self) {
-        if self.drawing.layers.is_empty() {
-            let (plan, title) = (self.fresh_id(), self.fresh_id());
-            let d = self.drawing_mut();
-            d.layers.push(Layer {
-                id: plan,
-                name: t!("drawing.layer.plan"),
-                shared: false,
-                hidden: false,
-                locked: false,
-                elements: Vec::new(),
-            });
-            d.layers.push(Layer {
-                id: title,
-                name: t!("drawing.layer.title_block"),
-                shared: true,
-                hidden: false,
-                locked: false,
-                elements: Vec::new(),
-            });
-        }
-    }
-
-    pub(crate) fn add_sheet(&mut self, name: Option<&str>, paper: Paper) -> Result<Id> {
-        if !paper.is_valid() {
-            return Err(Error::Invalid(Refusal::BadPaper));
-        }
-        self.ensure_layers();
-        let id = self.fresh_id();
-        let n = self.drawing.sheets.len() + 1;
-        let name = name.map(str::to_owned).unwrap_or_else(|| t!("drawing.sheet_name", n = n));
-        self.drawing_mut().sheets.push(Sheet { id, name, paper, elements: Vec::new(), grid: 0.0 });
-        Ok(id)
-    }
-
-    pub(crate) fn set_sheet(&mut self, sheet: Id, name: &str, paper: Paper, grid: f64) -> Result<()> {
-        if !paper.is_valid() || !(0.0..=100.0).contains(&grid) {
-            return Err(Error::Invalid(Refusal::BadPaper));
-        }
-        let s = self.drawing_mut().sheets.iter_mut().find(|s| s.id == sheet).ok_or(Error::NotFound(sheet))?;
-        (s.name, s.paper, s.grid) = (name.to_owned(), paper, grid);
-        Ok(())
-    }
-
-    pub(crate) fn delete_sheet(&mut self, sheet: Id) -> Result<()> {
-        let d = self.drawing_mut();
-        let i = d.sheets.iter().position(|s| s.id == sheet).ok_or(Error::NotFound(sheet))?;
-        let gone: Vec<Id> = d.sheets[i].elements.iter().map(|e| e.id).collect();
-        d.sheets.remove(i);
-        // Views projected from one of its views, on another sheet, go with it.
-        let orphans: Vec<Id> = gone.iter().flat_map(|v| d.projections_of(*v)).collect();
-        for list in d.elements_mut() {
-            list.retain(|e| !orphans.contains(&e.id));
-        }
-        self.prune_assets();
-        Ok(())
-    }
-
-    pub(crate) fn move_sheet(&mut self, sheet: Id, index: usize) -> Result<()> {
-        let d = self.drawing_mut();
-        let i = d.sheets.iter().position(|s| s.id == sheet).ok_or(Error::NotFound(sheet))?;
-        let s = d.sheets.remove(i);
-        d.sheets.insert(index.min(d.sheets.len()), s);
-        Ok(())
-    }
-
-    fn check_element(&self, kind: &ElementKind, own: Option<Id>) -> Result<()> {
-        let finite = |v: DVec2| v.is_finite();
-        let ok = match kind {
-            ElementKind::View(v) => match &v.kind {
-                ViewKind::Base { subject, look, scale, at } => {
-                    let look_ok = match look {
-                        Look::Standard(_) => true,
-                        Look::Camera { forward, up, perspective } => {
-                            forward.is_finite()
-                                && up.is_finite()
-                                && forward.length() > 1e-9
-                                && perspective.is_none_or(|p| p.eye.is_finite() && p.fov_y > 0.0 && p.fov_y < 3.0)
-                        }
-                    };
-                    let subject_ok = match subject {
-                        Subject::Model => true,
-                        Subject::Component(c) => self.components.contains_key(c),
-                        Subject::Occurrences(paths) => !paths.is_empty(),
-                    };
-                    look_ok && subject_ok && scale.is_finite() && *scale > 0.0 && finite(*at)
-                }
-                ViewKind::Projected { base, distance, .. } => {
-                    if Some(*base) == own || own.is_some_and(|o| self.drawing.projections_of(o).contains(base)) {
-                        return Err(Error::Invalid(Refusal::ProjectionLoop));
-                    }
-                    match self.drawing.resolve(*base) {
-                        None => return Err(Error::NotFound(*base)),
-                        Some(r) if r.perspective.is_some() => return Err(Error::Invalid(Refusal::ProjectedFromPerspective)),
-                        Some(_) => distance.is_finite(),
+    fn gather_fields(&self, list: &[Element], seen: &mut Vec<Id>, out: &mut BTreeSet<String>) {
+        for e in list {
+            match &e.kind {
+                ElementKind::Text { text, .. } => out.extend(text_fields(text).map(str::to_owned)),
+                ElementKind::Instance(i) if !seen.contains(&i.composition) => {
+                    seen.push(i.composition);
+                    if let Some(b) = self.composition(i.composition) {
+                        self.gather_fields(&b.elements, seen, out);
                     }
                 }
-            },
-            ElementKind::Text { at, size, .. } => finite(*at) && size.is_finite() && *size > 0.0,
-            ElementKind::Line { from, to } => finite(*from) && finite(*to),
-            ElementKind::Rect { min, max } => finite(*min) && finite(*max),
-            ElementKind::Image { asset, min, max } => self.assets.contains_key(asset) && finite(*min) && finite(*max),
-            ElementKind::Dimension(dim) => {
-                let anchor_ok = |a: &crate::Anchor| a.at.is_finite();
-                matches!(self.drawing.element(dim.view).map(|e| &e.kind), Some(ElementKind::View(_)))
-                    && match &dim.kind {
-                        crate::DimKind::Linear { a, b, offset, .. } => anchor_ok(a) && anchor_ok(b) && offset.is_finite(),
-                        crate::DimKind::Radius { edge, at, .. } => anchor_ok(edge) && finite(*at),
-                        crate::DimKind::Angle { a, b, at } => anchor_ok(a) && anchor_ok(b) && finite(*at),
-                    }
+                _ => {}
             }
-        };
-        if ok { Ok(()) } else { Err(Error::Invalid(Refusal::BadElement)) }
-    }
-
-    pub(crate) fn add_element(&mut self, at: &Placing, kind: &ElementKind) -> Result<Id> {
-        self.drawing.sheet(at.sheet).ok_or(Error::NotFound(at.sheet))?;
-        self.check_element(kind, None)?;
-        let layer = match at.layer {
-            Some(l) => self.drawing.layer(l).ok_or(Error::NotFound(l))?.id,
-            None => self.drawing.layers.iter().find(|l| !l.shared).ok_or(Error::Invalid(Refusal::BadElement))?.id,
-        };
-        let id = self.fresh_id();
-        let e = Element { id, layer, kind: kind.clone() };
-        let d = self.drawing_mut();
-        if d.layer(layer).is_some_and(|l| l.shared) {
-            d.layers.iter_mut().find(|l| l.id == layer).unwrap().elements.push(e);
-        } else {
-            d.sheets.iter_mut().find(|s| s.id == at.sheet).unwrap().elements.push(e);
         }
-        Ok(id)
     }
 
-    pub(crate) fn set_element(&mut self, id: Id, kind: &ElementKind) -> Result<()> {
-        let old = self.drawing.element(id).ok_or(Error::NotFound(id))?;
-        if std::mem::discriminant(&old.kind) != std::mem::discriminant(kind) {
-            return Err(Error::Invalid(Refusal::BadElement));
-        }
-        self.check_element(kind, Some(id))?;
-        let e = self.drawing_mut().elements_mut().flat_map(|l| l.iter_mut()).find(|e| e.id == id).unwrap();
-        e.kind = kind.clone();
-        self.prune_assets();
-        Ok(())
-    }
-
-    /// Deletes the elements `ids`, and the views projected from them.
-    pub(crate) fn delete_elements(&mut self, ids: &[Id]) -> Result<()> {
-        if ids.is_empty() {
-            return Err(Error::Invalid(Refusal::BadElement));
-        }
-        let mut gone = Vec::new();
-        for id in ids {
-            self.drawing.element(*id).ok_or(Error::NotFound(*id))?;
-            gone.push(*id);
-            gone.extend(self.drawing.projections_of(*id));
-        }
-        for list in self.drawing_mut().elements_mut() {
-            list.retain(|e| !gone.contains(&e.id));
-        }
-        self.prune_assets();
-        Ok(())
-    }
-
-    pub(crate) fn set_projection(&mut self, projection: Projection) {
-        self.drawing_mut().projection = projection;
-    }
-
-    /// The sheet `sheet` as a template (docs/ui/drawing.md#templates): a document holding
-    /// only a drawing — that sheet's paper and name, every layer, the shared ones with their
-    /// elements but views (a template shows no model), the images they show.
-    pub fn template_of(&self, sheet: Id) -> Result<Document> {
-        let s = self.drawing.sheet(sheet).ok_or(Error::NotFound(sheet))?;
-        let layers: Vec<Layer> = self
-            .drawing
-            .layers
-            .iter()
-            .map(|l| Layer {
-                elements: if l.shared {
-                    l.elements.iter().filter(|e| !matches!(e.kind, ElementKind::View(_))).cloned().collect()
-                } else {
-                    Vec::new()
-                },
-                ..l.clone()
-            })
-            .collect();
-        let mut t = Document::new();
-        t.next_id = self.next_id;
-        t.drawing = std::sync::Arc::new(Drawing {
-            sheets: vec![Sheet { id: s.id, name: s.name.clone(), paper: s.paper, elements: Vec::new(), grid: s.grid }],
-            layers,
-            projection: self.drawing.projection,
-        });
-        let images: Vec<String> = t.drawing.images().map(str::to_owned).collect();
-        t.assets = self.assets.iter().filter(|(id, _)| images.contains(id)).map(|(k, v)| (k.clone(), v.clone())).collect();
-        Ok(t)
-    }
-
-    /// The template Skraft comes with: A3 landscape, a frame 10 mm in, a title block at the
-    /// bottom right — the document's name, the sheet's, the date, the scale, the sheet's
-    /// number — on the shared layer « Cartouche ».
-    pub fn default_template() -> Document {
-        let mut t = Document::new();
-        t.ensure_layers();
-        let title = t.drawing.layers.iter().find(|l| l.shared).map(|l| l.id).unwrap_or(Id(0));
-        let v = DVec2::new;
-        let text = |at: DVec2, text: String, size: f64| ElementKind::Text { at, text, size };
-        let kinds = vec![
-            ElementKind::Rect { min: v(10.0, 10.0), max: v(410.0, 287.0) },
-            ElementKind::Rect { min: v(250.0, 10.0), max: v(410.0, 46.0) },
-            ElementKind::Line { from: v(250.0, 34.0), to: v(410.0, 34.0) },
-            ElementKind::Line { from: v(250.0, 22.0), to: v(410.0, 22.0) },
-            ElementKind::Line { from: v(340.0, 10.0), to: v(340.0, 34.0) },
-            text(v(253.0, 37.5), "{document}".into(), 5.0),
-            text(v(253.0, 25.5), t!("drawing.template.sheet"), 2.5),
-            text(v(253.0, 13.5), t!("drawing.template.date"), 2.5),
-            text(v(343.0, 25.5), t!("drawing.template.scale"), 2.5),
-            text(v(343.0, 13.5), t!("drawing.template.number"), 2.5),
-        ];
-        let elements: Vec<Element> = kinds.into_iter().map(|kind| Element { id: t.fresh_id(), layer: title, kind }).collect();
-        let sheet = t.fresh_id();
-        let d = t.drawing_mut();
-        if let Some(l) = d.layers.iter_mut().find(|l| l.id == title) {
-            l.elements = elements;
-        }
-        d.sheets.push(Sheet { id: sheet, name: t!("drawing.template.default"), paper: Paper::A3, elements: Vec::new(), grid: 0.0 });
-        t
-    }
-
-    /// A sheet added from `template` (docs/ui/drawing.md#templates), « Feuille n » unless
-    /// named: its paper; its layers
-    /// joined to the document's — one of the same name and sharing taken as it is (a shared
-    /// one still empty filled with the template's elements), the others added with them —,
-    /// their images taken in.
-    pub(crate) fn add_sheet_from(&mut self, template: &Document, name: Option<&str>) -> Result<Id> {
-        let tsheet = template.drawing.sheets.first();
-        let paper = tsheet.map_or(Paper::A3, |s| s.paper);
-        let mut images = Vec::new();
-        for tl in &template.drawing.layers {
-            let found =
-                self.drawing.layers.iter().find(|l| l.name == tl.name && l.shared == tl.shared).map(|l| (l.id, l.elements.is_empty()));
-            let (id, fill) = match found {
-                Some((id, empty)) => (id, tl.shared && empty),
-                None => {
-                    let id = self.fresh_id();
-                    self.drawing_mut().layers.push(Layer { id, elements: Vec::new(), ..tl.clone() });
-                    (id, tl.shared)
+    /// The names of the fields of every text of the drawing.
+    pub fn all_field_names(&self) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for (_, list) in self.containers() {
+            for e in list {
+                if let ElementKind::Text { text, .. } = &e.kind {
+                    out.extend(text_fields(text).map(str::to_owned));
                 }
+            }
+        }
+        out
+    }
+
+    /// How many instances each composition has, wherever they are (a composition without any: none).
+    pub fn composition_uses(&self) -> BTreeMap<Id, usize> {
+        let mut uses = BTreeMap::new();
+        for e in self.containers().flat_map(|(_, list)| list) {
+            if let Some(i) = e.kind.instance() {
+                *uses.entry(i.composition).or_insert(0) += 1;
+            }
+        }
+        uses
+    }
+
+    /// How many times each composition shows on the sheets, those inside another counted once
+    /// per instance of it. One that is not there is unused, even if an unused one places it.
+    pub fn counts_on_sheets(&self) -> BTreeMap<Id, usize> {
+        fn walk(d: &Drawing, list: &[Element], out: &mut BTreeMap<Id, usize>) {
+            for i in list.iter().filter_map(|e| e.kind.instance()) {
+                *out.entry(i.composition).or_insert(0) += 1;
+                if let Some(c) = d.composition(i.composition) {
+                    walk(d, &c.elements, out);
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        for s in self.sheets() {
+            walk(self, &s.elements, &mut out);
+        }
+        out
+    }
+
+    /// Does composition `from` hold composition `to`, or is it `to`, at any depth?
+    pub fn reaches(&self, from: Id, to: Id) -> bool {
+        let mut seen = Vec::new();
+        let mut todo = vec![from];
+        while let Some(b) = todo.pop() {
+            if b == to {
+                return true;
+            }
+            if seen.contains(&b) {
+                continue;
+            }
+            seen.push(b);
+            if let Some(composition) = self.composition(b) {
+                todo.extend(composition.elements.iter().filter_map(|e| e.kind.instance().map(|i| i.composition)));
+            }
+        }
+        false
+    }
+
+    fn reaches_element(&self, e: &Element, composition: Id) -> bool {
+        e.kind.instance().is_some_and(|i| self.reaches(i.composition, composition))
+    }
+
+    /// What sheet `id` shows, bottom first, through its instances: every element but the
+    /// instances themselves, each with what takes it to the sheet.
+    pub fn placed(&self, sheet: Id) -> Vec<Placed<'_>> {
+        let mut out = Vec::new();
+        let Some(s) = self.sheet(sheet) else { return out };
+        let projection = self.presentation_of(sheet).map_or_else(Projection::default, |p| p.projection);
+        let start =
+            Walk { path: Vec::new(), transform: DAffine2::IDENTITY, hidden: false, locked: false, paper: Some(s.paper), projection };
+        self.walk(&s.elements, &start, &mut out);
+        out
+    }
+
+    /// What the instances `path`, from sheet `sheet` down, open: the container the last one
+    /// places and what takes its axes to the sheet's; none when the path does not lead there.
+    pub fn opened(&self, sheet: Id, path: &[Id]) -> Option<(Container, DAffine2)> {
+        let s = self.sheet(sheet)?;
+        let (mut list, mut container, mut t, mut paper) =
+            (s.elements.as_slice(), Container::Sheet(sheet), DAffine2::IDENTITY, Some(s.paper));
+        for id in path {
+            let i = list.iter().find(|e| e.id == *id)?.kind.instance()?;
+            let b = self.composition(i.composition)?;
+            t *= i.place.transform(paper);
+            (list, container, paper) = (b.elements.as_slice(), Container::Composition(b.id), None);
+        }
+        Some((container, t))
+    }
+
+    fn walk<'a>(&'a self, list: &'a [Element], at: &Walk, out: &mut Vec<Placed<'a>>) {
+        for e in list {
+            let (hidden, locked) = (at.hidden || e.hidden, at.locked || e.locked);
+            let ElementKind::Instance(i) = &e.kind else {
+                out.push(Placed { element: e, path: at.path.clone(), transform: at.transform, hidden, locked, projection: at.projection });
+                continue;
             };
-            if fill {
-                let copies: Vec<Element> = tl
-                    .elements
-                    .iter()
-                    .filter(|e| !matches!(e.kind, ElementKind::View(_)))
-                    .map(|e| Element { id: self.fresh_id(), layer: id, kind: e.kind.clone() })
-                    .collect();
-                for e in &copies {
-                    if let ElementKind::Image { asset, .. } = &e.kind {
-                        images.push(asset.clone());
-                    }
-                }
-                if let Some(l) = self.drawing_mut().layers.iter_mut().find(|l| l.id == id) {
-                    l.elements.extend(copies);
-                }
+            // Compositions never hold themselves (refused, and checked in a file).
+            let Some(composition) = self.composition(i.composition).filter(|_| at.path.len() < MAX_NESTING) else { continue };
+            let mut path = at.path.clone();
+            path.push(e.id);
+            let inner = Walk {
+                path,
+                transform: at.transform * i.place.transform(at.paper),
+                hidden,
+                locked,
+                paper: None,
+                projection: at.projection,
+            };
+            self.walk(&composition.elements, &inner, out);
+        }
+    }
+}
+
+/// How deep instances may nest in [`Drawing::placed`].
+const MAX_NESTING: usize = 64;
+
+/// Where [`Drawing::walk`] is.
+struct Walk {
+    path: Vec<Id>,
+    transform: DAffine2,
+    hidden: bool,
+    locked: bool,
+    /// The sheet's, for an instance right on it.
+    paper: Option<Paper>,
+    projection: Projection,
+}
+
+impl ElementKind {
+    /// The view it hangs on: a projected view's base, a dimension's view.
+    pub fn hung_on(&self) -> Option<Id> {
+        match self {
+            ElementKind::View(View { kind: ViewKind::Projected { base, .. }, .. }) => Some(*base),
+            ElementKind::Dimension(d) => Some(d.view),
+            _ => None,
+        }
+    }
+
+    pub fn instance(&self) -> Option<&Instance> {
+        match self {
+            ElementKind::Instance(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    /// Can it take a rotation? The others are drawn upright.
+    fn turns(&self) -> bool {
+        matches!(self, ElementKind::Line { .. } | ElementKind::Instance(_))
+    }
+
+    /// As it is once its composition's axes are `t`'s: what hangs on a view moves with it.
+    fn placed_by(&self, t: DAffine2, rotation: f64) -> ElementKind {
+        let mut out = self.clone();
+        match &mut out {
+            ElementKind::View(View { kind: ViewKind::Base { at, .. }, .. }) | ElementKind::Text { at, .. } => *at = t.transform_point2(*at),
+            ElementKind::Line { from, to } => (*from, *to) = (t.transform_point2(*from), t.transform_point2(*to)),
+            ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. } => {
+                (*min, *max) = (t.transform_point2(*min), t.transform_point2(*max));
             }
-        }
-        for a in images {
-            if let Some(asset) = template.assets.get(&a) {
-                self.assets.insert(a, asset.clone());
+            ElementKind::Instance(i) => {
+                i.place.at = t.transform_point2(i.place.at);
+                i.place.rotation += rotation;
             }
+            ElementKind::View(_) | ElementKind::Dimension(_) => {}
         }
-        // Something to draw on.
-        self.ensure_layers();
-        if !self.drawing.layers.iter().any(|l| !l.shared) {
-            self.add_layer(Some(&t!("drawing.layer.plan")))?;
-        }
-        // « Feuille n » unless named: the template's own sheet name is the template's; its grid.
-        let id = self.add_sheet(name, paper)?;
-        let grid = tsheet.map_or(0.0, |s| s.grid);
-        if let Some(s) = self.drawing_mut().sheets.iter_mut().find(|s| s.id == id) {
-            s.grid = grid;
-        }
-        Ok(id)
-    }
-
-    /// A layer added on top of the others, not shared, named « Calque n » when `name` is none.
-    pub(crate) fn add_layer(&mut self, name: Option<&str>) -> Result<Id> {
-        self.ensure_layers();
-        let id = self.fresh_id();
-        let n = self.drawing.layers.len() + 1;
-        let name = name.map(str::to_owned).unwrap_or_else(|| t!("drawing.layer.name", n = n));
-        self.drawing_mut().layers.push(Layer { id, name, shared: false, hidden: false, locked: false, elements: Vec::new() });
-        Ok(id)
-    }
-
-    pub(crate) fn set_layer(&mut self, layer: Id, name: &str, hidden: bool, locked: bool) -> Result<()> {
-        let l = self.drawing_mut().layers.iter_mut().find(|l| l.id == layer).ok_or(Error::NotFound(layer))?;
-        (l.name, l.hidden, l.locked) = (name.to_owned(), hidden, locked);
-        Ok(())
-    }
-
-    /// A layer shared — its elements on `sheet` become every sheet's, those of the other sheets
-    /// on it deleted (LayOut's) — or not — its elements copied onto every sheet.
-    pub(crate) fn share_layer(&mut self, layer: Id, shared: bool, sheet: Id) -> Result<()> {
-        let l = self.drawing.layer(layer).ok_or(Error::NotFound(layer))?;
-        if l.shared == shared {
-            return Ok(());
-        }
-        if shared {
-            self.drawing.sheet(sheet).ok_or(Error::NotFound(sheet))?;
-            // The other sheets' elements on it, and the views projected from them, deleted.
-            let gone: Vec<Id> = self
-                .drawing
-                .sheets
-                .iter()
-                .filter(|s| s.id != sheet)
-                .flat_map(|s| &s.elements)
-                .filter(|e| e.layer == layer)
-                .map(|e| e.id)
-                .collect();
-            if !gone.is_empty() {
-                self.delete_elements(&gone)?;
-            }
-            let d = self.drawing_mut();
-            let s = d.sheets.iter_mut().find(|s| s.id == sheet).unwrap();
-            let (moved, kept): (Vec<Element>, Vec<Element>) = std::mem::take(&mut s.elements).into_iter().partition(|e| e.layer == layer);
-            s.elements = kept;
-            let l = d.layers.iter_mut().find(|l| l.id == layer).unwrap();
-            l.elements = moved;
-            l.shared = true;
-        } else {
-            // A copy on each sheet: the first keeps its ids, the others fresh ones (a view
-            // projected from one of them follows its copy).
-            let elements = self.drawing.layer(layer).map(|l| l.elements.clone()).unwrap_or_default();
-            let sheets: Vec<Id> = self.drawing.sheets.iter().map(|s| s.id).collect();
-            let mut copies = Vec::with_capacity(sheets.len());
-            for (k, _) in sheets.iter().enumerate() {
-                if k == 0 {
-                    copies.push(elements.clone());
-                    continue;
-                }
-                let map: std::collections::HashMap<Id, Id> = elements.iter().map(|e| (e.id, self.fresh_id())).collect();
-                copies.push(
-                    elements
-                        .iter()
-                        .map(|e| {
-                            let mut c = e.clone();
-                            c.id = map[&e.id];
-                            if let ElementKind::View(View { kind: ViewKind::Projected { base, .. }, .. }) = &mut c.kind
-                                && let Some(b) = map.get(base)
-                            {
-                                *base = *b;
-                            }
-                            c
-                        })
-                        .collect(),
-                );
-            }
-            let d = self.drawing_mut();
-            for (s, copy) in d.sheets.iter_mut().zip(copies) {
-                s.elements.extend(copy);
-            }
-            let l = d.layers.iter_mut().find(|l| l.id == layer).unwrap();
-            l.elements.clear();
-            l.shared = false;
-        }
-        Ok(())
-    }
-
-    /// A layer deleted with its elements (and the views projected from them); a layer not
-    /// shared stays (something to draw on).
-    pub(crate) fn delete_layer(&mut self, layer: Id) -> Result<()> {
-        let l = self.drawing.layer(layer).ok_or(Error::NotFound(layer))?;
-        if !l.shared && self.drawing.layers.iter().filter(|l| !l.shared).count() < 2 {
-            return Err(Error::Invalid(Refusal::LastLayer));
-        }
-        let gone: Vec<Id> =
-            self.drawing.sheets.iter().flat_map(|s| &s.elements).chain(&l.elements).filter(|e| e.layer == layer).map(|e| e.id).collect();
-        if !gone.is_empty() {
-            self.delete_elements(&gone)?;
-        }
-        self.drawing_mut().layers.retain(|l| l.id != layer);
-        Ok(())
-    }
-
-    pub(crate) fn move_layer(&mut self, layer: Id, index: usize) -> Result<()> {
-        let d = self.drawing_mut();
-        let i = d.layers.iter().position(|l| l.id == layer).ok_or(Error::NotFound(layer))?;
-        let l = d.layers.remove(i);
-        d.layers.insert(index.min(d.layers.len()), l);
-        Ok(())
-    }
-
-    /// Elements moved onto `layer`: onto a shared one, every sheet's; off one, onto `sheet`.
-    pub(crate) fn move_to_layer(&mut self, elements: &[Id], layer: Id, sheet: Id) -> Result<()> {
-        let to = self.drawing.layer(layer).ok_or(Error::NotFound(layer))?.shared;
-        self.drawing.sheet(sheet).ok_or(Error::NotFound(sheet))?;
-        let d = self.drawing_mut();
-        let mut taken = Vec::new();
-        for list in d.elements_mut() {
-            let (out, keep): (Vec<Element>, Vec<Element>) = std::mem::take(list).into_iter().partition(|e| elements.contains(&e.id));
-            *list = keep;
-            taken.extend(out);
-        }
-        if taken.len() != elements.len() {
-            return Err(Error::Invalid(Refusal::BadElement));
-        }
-        for e in &mut taken {
-            e.layer = layer;
-        }
-        if to {
-            d.layers.iter_mut().find(|l| l.id == layer).unwrap().elements.extend(taken);
-        } else {
-            d.sheets.iter_mut().find(|s| s.id == sheet).unwrap().elements.extend(taken);
-        }
-        Ok(())
+        out
     }
 }

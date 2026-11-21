@@ -1,6 +1,6 @@
 ---
 status: under way
-code: [crates/model/src/drawing.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/view_lines.rs, apps/skraft/src/sheet.rs, apps/skraft/src/viewport.rs, apps/skraft/src/panels.rs, apps/skraft/src/templates.rs, apps/skraft/src/pdf.rs, apps/skraft/src/workspace.rs, apps/skraft/src/app.rs]
+code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/view_lines.rs, apps/skraft/src/sheet.rs, apps/skraft/src/sheet_tree.rs, apps/skraft/src/viewport.rs, apps/skraft/src/panels.rs, apps/skraft/src/templates.rs, apps/skraft/src/pdf.rs, apps/skraft/src/workspace.rs, apps/skraft/src/app.rs]
 ---
 
 # Drawing
@@ -10,37 +10,48 @@ the model and free elements — for the workshop (a part's fabrication drawing) 
 (rendered views, a title block of one's own, as SketchUp users do with LayOut). Under way:
 listed in debug builds only. What is not built yet is in `docs/REVIEW.md` (« Work: drawing »).
 
-Decision record: [Drawing: free sheets in the document, for the workshop and for clients](../decisions/0048-drawing-sheets-in-the-document.md)
+Decision records: [Drawing: free sheets in the document, for the workshop and for clients](../decisions/0048-drawing-sheets-in-the-document.md),
+[Drawing: a tree of presentations, sheets and definitions, no layers](../decisions/0049-drawing-a-tree-of-presentations-and-definitions.md)
 
 ## The drawing in the document
 
 The document's `drawing` (`skraft_model::Drawing`), in its `document.json`
 ([File format](../io/file-format.md)), changed by operations — undone as the rest, kept
-whole in the history's snapshots behind an `Arc`:
+whole in the history's snapshots behind an `Arc`. A tree, as the 3D document's:
 
-- **Sheets**, in their order: a name (« Feuille n » by default), a paper (millimetres,
-  landscape: A4 to A0 given), their own elements.
-- **Layers**, bottom first: a layer **shared** holds its elements itself and shows them on
-  every sheet (the title block); the others' elements are each sheet's. The first sheet comes
-  with two: « Plan » and « Cartouche » (shared). A layer may be **hidden** (not drawn) or
-  **locked** (drawn, its elements not picked). See [Layers](#layers).
-- **Elements**, on a layer, drawn in order: views, texts (`{…}` fields to come), lines,
-  rectangles, images (the document's assets, kept while an element shows them). Sheet
-  coordinates are paper millimetres from the bottom left corner, y up.
-- **The projection** (`Projection`): where projected views go — first-angle (European) by
-  default, third-angle.
+```
+drawing
+├─ compositions        : Id → Composition { name, named, elements, source }
+└─ presentations : { name, projection, props }
+   └─ sheets     : { name, paper, grid, border, props }
+      └─ elements: { hidden, locked, kind }
+         kind = View | Text | Line | Rect | Image | Dimension
+              | Instance { composition, place, props }
+```
 
-Operations: `AddSheet` (A3 from the app), `AddSheetFrom` (a template, [Templates](#templates)),
-`AddLayer`, `SetLayer` (name, hidden, locked), `ShareLayer`, `DeleteLayer`, `MoveLayer`,
-`MoveToLayer`, `SetSheet`, `DeleteSheet` (and the views projected
-from its views, on other sheets), `MoveSheet`, `AddElement` (on the first layer not shared
-unless one is named), `SetElement` (same kind; consecutive changes of one element merge in the
-history), `DeleteElements` (and their projections), `SetProjection`. Refused: a paper outside
-1 mm – 10 m, an element not finite or of scale not positive, a view of a component gone, a view
-projected from itself or from one of its projections, or from a perspective view, the last
-layer not shared deleted (`LastLayer`). A file whose
-drawing has an id taken or above `next_id`, an element on no layer (or a shared layer's on a
-sheet), an image missing or a view that does not resolve is refused (`FileError::BadDrawing`).
+- **Presentations** ([Presentations](#presentations)), in their order, hold their **sheets**: a
+  name (« Feuille n » by default), a paper (millimetres, landscape: A4 to A0 given), a grid, a
+  border, their elements.
+- **Elements**, drawn in their container's order, bottom first: views, texts, lines,
+  rectangles, images (the document's assets, kept while an element shows them), dimensions,
+  **instances** of a composition ([Compositions](#compositions)). Coordinates are paper millimetres in their
+  container's axes: a sheet's from its bottom left corner, y up. An element may be **hidden**
+  (not drawn, nor what it holds) or **locked** (drawn, not picked).
+
+Operations: `AddPresentation` (with a first sheet if a paper is given), `AddPresentationFrom` (a template, [Templates](#templates)),
+`SetPresentation`, `DeletePresentation`, `MovePresentation`; `AddSheet` (to a presentation, else
+the first, made if there is none), `AddSheetFrom`, `SetSheet`, `DeleteSheet`, `MoveSheet` (within
+its presentation or to another); `AddElement` (on top of a sheet or a composition), `SetElement` (same
+kind; consecutive changes of one element merge in the history), `DeleteElements` (and what hangs
+on them), `SetElementState` (hidden, locked), `MoveElement` (its order); `MakeComposition`,
+`ExplodeInstance`, `MakeInstanceUnique`, `RenameComposition`, `DeleteComposition`, `PurgeCompositions`; `SetField`. Refused: a
+paper outside 1 mm – 10 m, a border leaving no paper inside, an element not finite or of scale
+not positive, a view of a component gone, a view projected from itself or from one of its
+projections, or from a perspective view, a view's projection or dimension in another container
+(`SplitView`), a composition made to hold itself (`CompositionLoop`). A file whose drawing has an id taken or
+above `next_id`, an image missing, a view that does not resolve, what hangs on a view away from
+it, an instance of a composition gone, a composition holding itself or a paper's corner in a composition is refused
+(`FileError::BadDrawing`).
 
 ## Views
 
@@ -53,9 +64,11 @@ A view (`View`) has a name, a style and a kind:
   drawn at `at`.
 - **A projected view** takes a base view (perhaps projected itself) and a side (left, right,
   above, below): its base's subject and scale, turned a quarter towards that side as the
-  projection says, aligned with it at a distance; moving the base moves it.
+  projection says, aligned with it at a distance; moving the base moves it. It stays in its
+  base's container.
   `Drawing::resolve` gives a view's subject, frame (`Frame`: right, up, forward), scale and
-  place, following its bases.
+  place, following its bases; `resolve_as` for a given projection, a composition's view being drawn
+  with that of the presentation it is placed in.
 
 What a view shows: `Document::subject_parts` (the parts placed under it, in its axes, the
 hidden ones left out). Every view shows its **frame**: its subject's exact box seen in its
@@ -68,8 +81,9 @@ frame, at its scale, dashed (solid when picked), named with its scale (« Vue 1 
 - **Hybrid** « Hybride »: the picture, its visible lines over it.
 
 What a view shows — its parts, its box, what its lines are computed from — is kept per view
-for the history's revision and the meshes' generation (`sheet::ViewsCache`): a sheet drawn
-again computes none of it.
+and direction (a composition's projected view looks its presentation's way) for the history's
+revision and the meshes' generation (`sheet::ViewsCache`): a sheet drawn again computes none of
+it.
 
 ## Lines
 
@@ -119,13 +133,16 @@ parallel for now.
 
 `Stage::Sheet`: the sheet shown over the whole central area, on its white paper with a
 shadow, the stage's ground the view's colour. Framed whole below the ribbon when first shown
-(and by zoom extents, or a double click); a drag with the middle or right button pans it (the
+(and by zoom extents, or a double click on the sheet's void); a drag with the middle or right button pans it (the
 first button's drag never does: it selects, moves or draws), the wheel (or a pinch) zooms
 about the pointer. The tools' cards, the
 view bar and what else belongs to the 3D view are not shown; the ribbon and the panels are
-(the entity info alone at first). Under the sheet, its **tabs**: one per sheet, the one shown
-lit, a click shows another, a right click offers to delete it; « + » adds one. A document
-without a sheet says how to make one. The sheet shown is a view state (`SheetState`), not
+(the entity info, the [navigator](#navigator) and the
+[compositions](#the-compositions-card) at first). It is **framed in what they leave**: below the
+ribbon, between the side columns (`sheet::ui`, `fit`; the whole stage if they leave under 160 pt). The sheets are chosen in the navigator;
+a presentation without a sheet stays shown, the stage saying how to make one. A sheet shows its **border** under its elements, and what it
+holds through its instances ([Compositions](#compositions)). A document
+without a sheet says how to make one. The sheet and the presentation shown are a view state (`SheetState`), not
 saved.
 
 ## Placing views
@@ -158,42 +175,157 @@ saved.
   weighing —, centred where it is along that side; a click puts it there (named « Vue n », in
   its base's style, picked) and the tool goes on (`SheetTool`).
 
-## Layers
+## Presentations
 
-LayOut's: what is drawn goes on the **active layer** (`SheetState::active_layer`: the one
-chosen if it is still there, shown and not locked, else the first such one not shared; not
-saved). A layer added (`AddLayer`) goes on top, not shared, « Calque n ». **Sharing** a layer
-(`ShareLayer`) makes its elements on the sheet shown every sheet's, those of the other sheets on
-it deleted; **unsharing** copies them onto every sheet (the first sheet keeping their ids, a
-copied view projected from a copied one following it). A layer deleted takes its elements
-(views with their projections); the last one not shared stays. `MoveToLayer` moves elements
-onto another layer: onto a shared one, every sheet's; off one, onto the sheet shown.
+A presentation is a document of sheets for someone (« Atelier », « Client »): its sheets are
+numbered on their own (`Drawing::sheet_number`), it says where its projected views go
+(`projection`) and holds values for its fields ([Fields](#fields)). A sheet belongs to one; the
+compositions are common to all. « Nouvelle présentation » (`drawing.new_presentation`) makes one with
+an A3 sheet, in one step, and shows it. Its PDF is a file of its own ([PDF](#pdf)).
 
-The **« Calques » panel** (`PanelId::Layers`, `view.layers`, `panels::layers`): the drawing's
-layers are not a sheet's, so they have a panel of their own, shown with the entity info in
-« Mise en plan » (its `Workspace::panels`; a layout arranged before it existed gets it shown
-too) and offered on a sheet only; on a sheet the entity info fills its column, the layers
-keeping their height (`PanelId::fills_on_sheet`). A row per layer, top first: the active one (a radio), its
-name (edited), then icon buttons — shared on every sheet (lit when it is), shown (an eye),
-locked (a padlock), up, down, deleted. « Nouveau calque » below. The side panels stop above the
-sheets' tabs.
+## Navigator
+
+The « Navigateur » card (`PanelId::Outliner`, `view.outliner`): on a sheet it shows the drawing's
+tree instead of the model's (`sheet_tree::navigator`), as the entity info shows the sheet's; each
+workspace keeps its own place for it. The cards are placed as in Modelling: the entity info keeps its height, the navigator fills the
+column. Rows, unfolded by their
+chevron, the presentation and the sheet shown unfolding when another is shown:
+
+- **The document**, first, at the left edge: a click shows its values in the entity info.
+- **A presentation**: a click shows it (at its first sheet) and its settings in the entity info,
+  the one shown in full ink. Its **« + »** adds a sheet: blank, or from a template. Its menu:
+  « Enregistrer comme modèle », « Supprimer la présentation ».
+- **A sheet**: a click shows it, lit while nothing is picked on it. Its menu: « Supprimer la
+  feuille ». Elements dragged onto it move there ([below](#moving-between-sheets)).
+- **Its elements, the topmost first**: a view's name, a text's first line, a composition's name for an
+  instance, else their kind. A click shows their sheet and picks them, Shift adding or taking off;
+  hidden or locked, they are not picked. At the row's right end **the eye** (hidden or shown), **the
+  padlock** (under the pointer, or while locked), and under the pointer **up** and **down**, over or
+  under the next element (`SetElementState`, `MoveElement`).
+- **An instance** unfolds on what its composition holds, one level after another. Its menu: « Modifier
+  la composition », « Éclater », « Rendre unique », « Placer une copie ». Only the rows right in the
+  level open have their buttons and names to edit, those of the instance entered lit; a click on
+  another row leaves the levels that do not lead to it and picks what stands for it in the last
+  one left open (the instance, on the sheet).
+- **« Nouvelle présentation »**, last: a blank one (an A3 sheet), or one from a template.
+
+A double click (or F2 on the one element picked) renames in place a presentation, a sheet, a view
+or a composition (from an instance's row too).
+
+### Moving between sheets
+
+An element right on a sheet is **dragged by its row onto another sheet's** (`MoveElements`), with
+what is picked when it is, in any presentation, the copy modifier copying it instead. A view goes
+with its projections and dimensions. It keeps its place on the paper, brought back onto a smaller
+one (`sheet::offset_into`; too large for it, centred); an instance anchored to a corner keeps its
+corner and offset. The sheet it lands on is shown, what moved picked. Not into a composition: that
+would change all its instances at once.
+
+## Compositions
+
+A **composition** is a definition: elements in axes of its own, placed by **instances**, as a
+component by its occurrences, in types of their own (they stay out of the cut list, the
+components' counts and the purge). A composition may hold instances of others, never itself, at any
+depth. `Drawing::placed` walks a sheet through them: each element with its path of instances,
+what takes it to the sheet, whether it or an instance above it is hidden or locked.
+
+- **Making one** (« Créer une composition », `drawing.make_composition`, G; `MakeComposition`): the
+  elements picked become a composition placed there, at the identity, where the topmost of them
+  was; « Composition#n » unless named. A view comes with its
+  whole family (its base, its projections, their dimensions). What was anchored to the paper
+  keeps its place, without the anchor.
+- **A copy** is an instance of the same composition, placed from the navigator (« Placer une copie » on
+  an instance, a little aside; « Placer sur la feuille » on a composition, where its first
+  instance on a sheet is: a title block at its corner). « Rendre unique » (`drawing.make_unique`,
+  `MakeInstanceUnique`) gives one a copy of its own.
+- **Exploding** (« Éclater », `drawing.explode`, `ExplodeInstance`) puts copies of what the composition holds where the instance shows
+  them. Refused when the instance is turned over a text, a rectangle, an image or a view, which
+  have no rotation of their own.
+- A composition **neither named nor placed** goes away; a named one stays until `DeleteComposition`, which
+  takes its instances.
+- **The place** (`Place`): a move and a rotation, never a scale (a view at 1:10 stays true). On
+  a sheet it may be measured from a **corner of the paper** (`Corner`): the instance then follows
+  it when the format changes, so one title block serves an A3 and an A4. The sheet's frame is not
+  an element: it is its **border** (a margin, a line width), drawn from its paper.
+
+**On the sheet** (`sheet::draw_elements`, through `Drawing::placed`), what an instance holds is
+drawn in its place and turned with it: lines, boxes, texts, dimensions, views (their picture on
+their turned frame, asked for once however many times the view is placed). **An instance is
+picked whole**: a click, the selection rectangle and a drag take what is right on the sheet, by
+the box of all it shows, outlined when picked; it has no handles, and moving it keeps its anchor
+(its offset from the corner changes). Hidden, nothing of it is drawn; locked, it is drawn and not
+picked. Its content is snapped on as the sheet's ([Snapping](#snapping)), but a dimension tool
+picks only in the views right in the level open: a dimension stays beside its view.
+
+**Editing a composition in place**, as an assembly in the 3D view
+([Selection](../tools/interaction.md#selection)): a double click on an instance (or « Modifier la
+composition », `drawing.edit_composition`) enters it (`SheetState::open`, the instances entered from the
+sheet down; not saved). What lies outside is drawn first, under a veil of the paper's white, then
+what it shows, in a dashed grey box 2 mm around it. Everything the sheet does then acts on the
+composition, in its axes, turned or not (`Drawing::opened`): picking, moving, handles, the tools, a new
+view; what is snapped on stays the sheet's, its points and grid. Every instance of the composition
+shows the change as it is made. **To leave it**, one level at a time: a click off its box (inside,
+a click in the void only clears the selection), or Esc once nothing is picked; the instance left
+is then the one picked. Showing another sheet leaves it too. A composition left empty goes with its
+instances, as an empty assembly, as a step of its own.
+
+### The compositions card
+
+The card « Compositions » (`PanelId::Compositions`, `view.compositions`, `sheet_library`) is to
+the drawing what [« Composants »](components-library.md) is to the model. It exists only in a
+workspace of sheets, and is shown there at first, under the navigator.
+
+- **What it lists**: every composition, by name in natural order, as tiles or rows (the toggle and
+  its preference are the components card's), with a search. Its picture is **its outline**
+  (`sheet::Sketch`: lines, rectangles, view frames, a bar per line of text), made again when the
+  document changes. **« ×n »**: how many times it shows on the sheets, one inside another counted
+  per instance of it (`Drawing::counts_on_sheets`).
+- **« Inutilisées »**, apart: those on no sheet, even if another unused one places them.
+  « Purger » deletes them (`PurgeCompositions`).
+- **A click** picks its instances in the level open.
+- **A drag onto the sheet places one more**, its outline following the pointer, held by the middle
+  of its box since a composition's origin may be anywhere (a title block's is its corner). It
+  lands free, in the level open, and is picked. Let go off the sheet or over a card, or Esc,
+  gives it up. Not into itself.
+- **Its menu**: « Placer sur la feuille » (where its first instance on a sheet is: a title block
+  at its corner), « Renommer » (also a double click, or F2 while its instances are picked),
+  « Supprimer », with its instances.
+
+## Copy and paste
+
+⌘C, ⌘X and ⌘V act on what is picked on the sheet, or in the composition entered — never on the
+3D selection, which is not seen there (`sheet::copy_selected`, `Copied::Sheet`, on the app's one
+clipboard, [Copy, cut and paste](../tools/copy-paste.md)). « Tout sélectionner » takes what the
+level open holds, but what is hidden or locked.
+
+- **What is copied** (`Document::elements_fragment`): the elements with their families (a view's
+  base, projections and dimensions), the compositions they place, their images.
+- **Pasted** (`PasteElements`) on top of the sheet or composition open: at the pointer, the
+  box of what was copied centred on it (off the stage, a little aside), or **in place** (⌘⇧V).
+  An instance anchored keeps its corner; into a composition, which has no paper, its place.
+  What is pasted is picked.
+- **In its document**, an instance stays one of its composition and a view keeps showing the
+  model. A composition gone with its last instance (a cut) comes back under its id: every paste
+  places the same one. Pasted into itself: refused (`CompositionLoop`).
+- **From another document** (or a state no longer in the history): as a template's, without
+  views nor dimensions, the compositions brought once.
 
 ## Free elements
 
-Drawn with the ribbon's « Dessiner » group on the active layer (`SheetTool`): **Texte**
+Drawn with the ribbon's « Dessiner » group, on top of the sheet (`SheetTool`): **Texte**
 (`drawing.tool_text`: a click puts « Texte » there, picked, written in the entity info; the tool
 then back to Select), **Rectangle** and **Trait** (`drawing.tool_rect`, `drawing.tool_line`: two
 clicks — its corners, its ends — or a drag, as the 3D view's shapes; previewed from the first
 point; a second point under 0.5 mm from it waits for another; Esc drops it; the tool goes on). Every element is picked by a
 click (its box: a text's laid out words, a line's ends 3 points around), moved by a drag
-(`SetElement` once let go), deleted by « Effacer »; a hidden layer's are not drawn, a locked
-one's not picked. Texts are drawn at their size in paper millimetres, lines and rectangles
+(`SetElement` once let go), deleted by « Effacer »; a hidden one is not drawn, a locked one not
+picked. Texts are drawn at their size in paper millimetres, lines and rectangles
 0.25 mm wide; images as their frame for now.
 
 ## Handles
 
 The element picked alone shows its **handles** (white squares, 7 points, with Select; none on
-a locked layer's), as a vector drawing tool's; the pointer over one shows what it does (a
+a locked one), as a vector drawing tool's; the pointer over one shows what it does (a
 resize or move cursor), a drag from it (within 6 points; before the element's own drag)
 reshapes the element, previewed, changed once let go (one `SetElement`); Esc drops it
 (`Grip`, `Handle`, `regrip`):
@@ -217,8 +349,8 @@ Where the pointer aims while a rectangle, a line or a text is put, or a box's or
 dragged (`Aim`, `aim_for`), as the 3D view's inferences:
 
 - **on a point** within 8 points: the rectangles' and images' corners, the lines' ends, the
-  views' frame corners and their parts' vertices (`ViewData::snaps`); the element dragged left
-  out; circled in orange;
+  views' frame corners and their parts' vertices (`ViewData::snaps`), those in instances where
+  they show them; the element dragged left out; circled in orange;
 - else **aligned**, each axis apart, with the nearest such point within 8 points across it (the
   views' vertices left out: so many would align everywhere), or with where the shape started
   (a line's other end for its handle): a dotted line to that point, red along the sheet's x,
@@ -258,26 +390,48 @@ A value refused says why in the status bar until the next one or a click.
 
 A text's `{…}` are filled when drawn (`sheet::Fields`): `{document}` (the document's name, its
 file's), `{date}` (today, day/month/year), `{sheet}` (the sheet's name), `{sheet.number}`,
-`{sheet.count}`, `{scale}` (the sheet's first base view's); an unknown one is left as it is.
+`{sheet.count}`, `{scale}` (the first base view the sheet shows, through its instances); an
+unknown one is left as it is.
 The entity info's « Insérer un champ » menu puts one at the text's end.
+
+**Values in cascade** (`Document::field`): any other field — `{client}`, `{indice}` — takes its
+value from the instance showing the text (the innermost first), the sheet, its presentation, then
+the document's properties: the model's typed properties (`Props`, set by `SetField`, the document's
+by `SetProps`); `{client}` stands for `user.client`. A field without a value stays written
+`{client}`, on the sheet and in the PDF, whose export says which ([PDF](#pdf)).
+
+The entity info lists, under « Valeurs », the fields of what is shown (`Drawing::field_names`,
+through its instances) with the value set **at that level**; while it has none, the field shows
+faintly the one it inherits. Typing sets it, emptying takes it off. « Insérer un champ » offers
+Skraft's fields, those the drawing's texts already name, and a new one.
 
 ## Templates
 
-A **template** is a sheet's paper and layers — the shared ones with their elements but views,
-their images (`Document::template_of`) — in a file of its own: the `.skraft` container,
-`content: "template"` ([File format](../io/file-format.md)), `.skrafttpl`, refused as a model
-(`FileError::TemplateOnly`). The library's are in `<config>/Skraft/templates` (native):
-« Enregistrer comme modèle » (`drawing.save_template`, also a sheet tab's right click) writes
-the sheet shown there under its name; a `.skrafttpl` opened is put there and a sheet made from it
-in the document shown. Skraft comes with one (`Document::default_template`, « A3 avec
-cartouche »): a frame 10 mm in and a title block at the bottom right — the document's name, the
-sheet's, the date, the scale, « Feuille n / N » —, on the shared « Cartouche ».
+A **template** is a presentation — its sheets, their values, the compositions they place, without views
+nor dimensions (a composition that held only those goes, with its instances), their images
+(`Document::template_of`) — in a file of its own: the `.skraft` container, `content: "template"`
+([File format](../io/file-format.md)), `.skrafttpl`, refused as a model (`FileError::TemplateOnly`).
+The library's are in `<config>/Skraft/templates` (native). Skraft comes with one
+(`Document::default_template`, « A3 avec cartouche »): a sheet with a border 10 mm in and the composition
+« Cartouche » anchored at the bottom right — the document's name, the sheet's, the date, the scale,
+« Feuille n / N ».
 
-The sheet tabs' « + » offers a blank sheet, then the templates (Skraft's first, the library's
-by name). A sheet made from a template (`AddSheetFrom`, « Feuille n ») takes its paper; each of
-its layers is joined to the document's of the same name and sharing — a shared one still empty
-filled with the template's elements, so a title block is never doubled — or added with them;
-their images taken in; a layer not shared made if none is left to draw on.
+- **Saving**: « Enregistrer comme modèle » (`drawing.save_template`, the File menu, or a
+  presentation's menu in the navigator) writes the presentation shown under its name. A template
+  of that name is never written over: the same one is left as it is, another takes the next
+  number (« Client 2 »).
+- **A new sheet**: a presentation's « + » in the navigator offers a blank sheet, then the templates (Skraft's first,
+  the library's by name), one of several sheets offering each in a submenu. The sheet
+  (`AddSheetFrom`) takes its paper, grid, border, values and elements; it is named « Feuille n »
+  from a template of one sheet, else keeps its name unless the presentation has it.
+- **A new presentation**: « Nouvelle présentation » in the navigator offers one from each template
+  (`AddPresentationFrom`), under its name (numbered if taken), its sheets keeping theirs.
+- **A file opened**: a `.skrafttpl` is put in the library, and makes a sheet in the document shown,
+  or a presentation when it holds several sheets.
+
+**A composition comes once**: each carries the name of its source (`Composition::source`, the hash of what a
+template keeps of it), and one already in the document — brought before, or the very composition the
+template was saved from, unchanged — is used as it is.
 
 ## Dimensions
 
@@ -309,10 +463,10 @@ reattaching yet). The topology is read from the record (`skraft_kernel::topo`: v
 the faces around a vertex or an edge, an edge's line or circle), no kernel.
 
 **Tools** (the ribbon's « Coter » group, `SheetTool::Linear` / `Radius` / `Diameter` /
-`Angle`): the pointer snaps, within 8 points, on a view's vertices (linear) or edges (a circle
-face on; a straight edge), marked in orange (each view's vertices and edges on the sheet made
+`Angle`): the pointer snaps, within 8 points, on the vertices (linear) or edges (a circle face
+on; a straight edge) of a view right in the level open, marked in orange (each view's vertices and edges on the sheet made
 once, `ViewData::snaps`); a click picks it — the second pick in the first's view —; then the
-dimension follows the pointer and a click places it on the active layer, picked, the tool
+dimension follows the pointer and a click places it on the sheet, picked, the tool
 going on. A linear dimension is horizontal when the pointer is past the points' span along y,
 vertical past it along x, aligned within it. Esc drops the picks. A
 dimension is moved by a drag (a linear one's line across itself, the others' text or arc) and
@@ -323,14 +477,17 @@ shapes `dims::shape` gives the sheet and the PDF alike).
 ## PDF
 
 « Exporter en PDF » (`drawing.export_pdf`, the ribbon's « Feuille » group and the File menu)
-writes the document's drawing as a PDF (`pdf::drawing_pdf`, with `krilla`), then asks where to
-save it (a download on the web), named after the document. It is done at the next frame, where
+writes **the presentation shown** as a PDF (`pdf::drawing_pdf`, with `krilla`), then asks where to
+save it (a download on the web), named after the document, and after the presentation when the
+document has several (« Table - Client.pdf »). A field without a value would be printed as it is
+written: a warning names them (`pdf::missing_fields`). It is done at the next frame, where
 the GPU is at hand (`App::pdf_asked`). Once written, its toast offers « Ouvrir »: the system's
 application for PDFs opens it (`Act::Open`: `open`, `explorer`, `xdg-open`; desktop only).
 
-- **A page per sheet**, in their order, at its paper's size (points: 72 a 25.4 mm), the
-  sheet's millimetres (y up) turned into the page's (y down); a hidden layer's elements left
-  out.
+- **A page per sheet** of the presentation, at its paper's size (points: 72 a
+  25.4 mm), the sheet's millimetres (y up) turned into the page's (y down); its border, then what
+  it shows through its instances (`Drawing::placed`), each drawn in its container's axes under
+  its instances' transform; what is hidden left out.
 - **Views**: their picture (*Rendered*, *Hybrid*) drawn now by the 3D renderer at 200 dpi
   (`Viewport::picture_rgba`: a picture of the frame's size at that resolution, read back from
   the GPU), placed on the frame; their lines (*Lines*, *Hybrid*) computed now
@@ -350,23 +507,32 @@ In « Mise en plan », the entity info panel shows (`panels::drawing_info`):
   model, a component's name, n occurrences); a base view its direction — the standard ones, or
   « Caméra »: the 3D view's camera now, perspective or parallel — and its scale (the standard
   scales); a projected view its base and side, and its scale (its base's); its style;
-- **a free element picked**: its type, its layer (a choice: `MoveToLayer`); a text its words
-  (a field of several lines, applied when left; « Insérer un champ ») and size (millimetres);
-- every element its layer too; several picked, how many;
+- **a free element picked**: its type; a text its words (a field of several lines, applied when
+  left; « Insérer un champ ») and size (millimetres);
+- **a composition picked** (an instance): its name (edited), its **anchor** (« Libre » or a corner of
+  the paper, only right on a sheet; changing it leaves it where it is, `Place::with_corner`), its
+  **X** and **Y** (from that corner, else from the sheet's or composition's origin), its **rotation**,
+  its values ([Fields](#fields));
+- several picked, how many;
 - **else the sheet**: its name (edited), its size (A4 to A0) and orientation (landscape,
-  portrait), the document's projection (first-angle « Européenne », third-angle
-  « Américaine »), its grid ([Snapping](#snapping)). The layers have their own panel
-  ([Layers](#layers)).
+  portrait), its grid ([Snapping](#snapping)), its **border** (« Cadre », with its margin and line
+  width), its values;
+- **the presentation** when chosen in the navigator (`SheetState::info`): its name, its number of
+  sheets, its projection (first-angle « Européenne », third-angle « Américaine »), its values;
+- **the document**, the navigator's first row: its name and its values.
 
-Each change is one operation (`SetElement`, `SetSheet`, `SetProjection`).
+Each change is one operation (`SetElement`, `SetSheet`, `SetPresentation`, `SetField`,
+`SetProps`). Lengths are in the document's unit, shown exactly: on paper, 0.25 mm is no « ~ 0 ».
 
 ## Ribbon
 
-The fixed group: Select and Erase (`edit.erase`). One tab, « Feuille »: « Nouvelle feuille » (`drawing.new_sheet`,
+The fixed group: Select and Erase (`edit.erase`). One tab, « Feuille »: « Nouvelle présentation » (`drawing.new_presentation`, blank; from a
+template, in the [navigator](#navigator)), « Nouvelle feuille » (`drawing.new_sheet`,
 A3, shown) and « Nouvelle vue » (`drawing.add_view`: the front of the part open, else of the
 one occurrence selected — its component in its own axes —, else of the occurrences selected,
 else of the model; at the largest standard scale (10:1 to 1:5000) fitting half the paper, at
-its centre), « Vue projetée » (`drawing.project_view`, checked while its tool runs); the group
+its centre), « Vue projetée » (`drawing.project_view`, checked while its tool runs); the groups « Dessiner »,
+« Organiser » (« Créer une composition », « Éclater », « Rendre unique »), « Coter » and
 « Style »: « Traits », « Rendu », « Hybride » (`drawing.style_lines`,
 `_rendered`, `_hybrid`: the views picked, checked when they all have it; `SetElement`, a
 `Batch` for several); zoom extents.
@@ -374,6 +540,14 @@ its centre), « Vue projetée » (`drawing.project_view`, checked while its tool
 ## Driving
 
 Handles ([Control protocol](../control-protocol.md)): `sheet` (the stage), `sheet_view:<id>`
-(a view's frame), `sheet_element:<id>` (another element's box), `sheet_tab:<id>`, `sheet_add`
-and its menu's `sheet_add:blank`, `sheet_add:<n>` (the n-th template), `drawing_insert_field`
+(a view's frame), `sheet_element:<id>` (another element's box); in the navigator, `sheet_tree:add_sheet:<id>` (a
+presentation's « + ») and its menu's `sheet_add:blank`, `sheet_add:<n>` (the n-th template), `sheet_add:<n>:<k>` (its
+k-th sheet), `sheet_tree:add` and its menu's `sheet_presentation:new`,
+`sheet_presentation:template:<n>`; the navigator's
+`sheet_tree:document`, `:presentation:<id>`, `:sheet:<id>`, `:element:<id>`, `:add`, and on an
+element's row `:eye:<id>`, `:lock:<id>`, `:up:<id>`, `:down:<id>` (the last three under the
+pointer), in an open menu `:menu:<command>`, `:menu:copy`; in the compositions card `compositions:<id>`, `:search`, `:grid`,
+`:list`, `:purge`, and in an open menu `:menu:place`, `:menu:delete`; in the entity info
+`drawing_border`, `drawing_value:<id>:<n>`, `drawing_field_value:<name>`, `drawing_new_field`;
+`drawing_insert_field`
 and its menu's `drawing_field:<field>`. `model.document` shows the drawing.

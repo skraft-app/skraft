@@ -142,7 +142,7 @@ fn cut_label(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, width: f32) {
 /// turning from right (folded) to down (open) as it opens; a click folds or unfolds the row (in
 /// `folds`, its document's). `salt` (the document's outliner) keeps its click and turn apart
 /// from another document's row of the same ids.
-fn fold_toggle(ui: &mut egui::Ui, salt: egui::Id, fold: Fold, folds: &mut FastSet<egui::Id>) {
+pub(crate) fn fold_toggle(ui: &mut egui::Ui, salt: egui::Id, fold: Fold, folds: &mut FastSet<egui::Id>) {
     let (_, rect) = ui.allocate_space(egui::vec2(ui.spacing().indent, ui.spacing().icon_width));
     let id = salt.with(fold.key);
     let response = ui.interact(rect, id, egui::Sense::click());
@@ -443,6 +443,7 @@ fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Un
     let shown = units.format(value);
     let exact = format!("{}{}", units.exact_number(value), units.suffix());
     let field = Field {
+        hint: None,
         tip: Some(tip),
         width: 80.0,
         align: egui::Align2::RIGHT_CENTER,
@@ -457,6 +458,8 @@ fn length_option(ui: &mut egui::Ui, key: &str, tip: &str, value: f64, units: &Un
 
 /// How a [`framed_field`] looks and applies.
 struct Field<'a> {
+    /// Shown faint while it is empty (a value it would inherit).
+    hint: Option<&'a str>,
     tip: Option<&'a str>,
     /// The whole width, its add-on's included.
     width: f32,
@@ -547,6 +550,10 @@ fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Fi
                 .desired_width(width)
                 .min_size(egui::vec2(width, OPTION_HEIGHT))
                 .align(f.align);
+            let field = match f.hint {
+                Some(hint) => field.hint_text(hint),
+                None => field,
+            };
             let r = ui.add(field);
             match f.tip {
                 Some(tip) => r.tip(tip),
@@ -793,9 +800,9 @@ fn instance_label(
 
 /// A row's fold: its key in its document's [`OutlinerState`], open or not.
 #[derive(Clone, Copy)]
-struct Fold {
-    key: egui::Id,
-    open: bool,
+pub(crate) struct Fold {
+    pub(crate) key: egui::Id,
+    pub(crate) open: bool,
 }
 
 /// What the outliner keeps of a document between frames, in the document itself (closed with
@@ -893,7 +900,7 @@ fn band_color(v: &egui::Visuals) -> egui::Color32 {
 
 /// The text and icons of a hidden row (itself or by an assembly above): the weak text halfway
 /// to the row's background (`band`: a part's bodies'), well behind the rows shown.
-fn hidden_color(v: &egui::Visuals, band: bool) -> egui::Color32 {
+pub(crate) fn hidden_color(v: &egui::Visuals, band: bool) -> egui::Color32 {
     let back = if band { band_color(v) } else { v.window_fill };
     v.weak_text_color().lerp_to_gamma(back, 0.5)
 }
@@ -2007,7 +2014,7 @@ pub(crate) const RENAMING: &str = "outliner_renaming";
 /// A navigator row's name edited in place, under the key `rename` (`renaming`: it is): a
 /// double-click on the row (`response`), or F2 while it is the one thing selected (`alone`),
 /// opens its field; `renamed`, the field's outcome, closes it and is given back.
-fn start_rename(
+pub(crate) fn start_rename(
     ui: &mut egui::Ui,
     response: &egui::Response,
     renaming: bool,
@@ -2079,6 +2086,7 @@ fn text_field(ui: &mut egui::Ui, key: (Id, u8), current: &str, width: f32) -> Op
 /// A [`text_field`], its text emptied applying too when `empty` (to clear a name).
 fn name_field(ui: &mut egui::Ui, key: (Id, u8), current: &str, width: f32, empty: bool) -> Option<String> {
     let field = Field {
+        hint: None,
         tip: None,
         width,
         align: egui::Align2::LEFT_CENTER,
@@ -2131,7 +2139,12 @@ fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.orientation",
         "panel.entity_info.projection",
         "panel.entity_info.grid",
-        "panel.entity_info.layer",
+        "panel.entity_info.anchor",
+        "panel.entity_info.rotation",
+        "panel.entity_info.border",
+        "panel.entity_info.margin",
+        "panel.entity_info.border_width",
+        "panel.entity_info.sheets",
         "panel.entity_info.text",
         "panel.entity_info.text_size",
         "panel.entity_info.value",
@@ -2295,6 +2308,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                         let exact = format!("{}{}", units.exact_number(*v), units.suffix());
                         let addon = Some((letter, crate::viewport::color(axis)));
                         let f = Field {
+                            hint: None,
                             tip: None,
                             width: field,
                             align: egui::Align2::RIGHT_CENTER,
@@ -2525,6 +2539,7 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             let shown = units.format(op.size);
             let exact = format!("{}{}", units.exact_number(op.size), units.suffix());
             let f = Field {
+                hint: None,
                 tip: None,
                 width: field,
                 align: egui::Align2::RIGHT_CENTER,
@@ -2797,6 +2812,7 @@ fn texture_row(ui: &mut egui::Ui, doc: &Document, id: Id, texture: &skraft_model
     let set = |t: skraft_model::Texture| Action::Apply(Operation::SetTexture { material: id, texture: Some(t), image: None });
     fn field(width: f32, tip: &str) -> Field<'_> {
         Field {
+            hint: None,
             tip: Some(tip),
             width,
             align: egui::Align2::RIGHT_CENTER,
@@ -2851,14 +2867,13 @@ fn texture_row(ui: &mut egui::Ui, doc: &Document, id: Id, texture: &skraft_model
 /// The entity info in « Mise en plan »: the view picked on the sheet shown — its name, what it
 /// shows, from where, at what scale, in what style; a projected view its base and side —, else
 /// the sheet — its name, its paper, the document's projection.
-pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::SheetState, actions: &mut Vec<Action>) {
-    use skraft_model::{Direction, ElementKind, Look, Paper, Projection, Side, Subject, View, ViewKind, ViewStyle};
+pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::SheetState, title: &str, actions: &mut Vec<Action>) {
+    use crate::sheet::InfoOn;
+    use skraft_model::{
+        Border, Corner, Direction, ElementKind, Instance, Look, Paper, Place, Side, Subject, Value, View, ViewKind, ViewStyle,
+    };
     let doc = editor.document();
     let d = doc.drawing();
-    let Some(sheet) = st.shown(d) else {
-        ui.weak(t!("drawing.no_sheet"));
-        return;
-    };
     let field = info_field_width(ui);
     let combo = |salt: (&str, u64)| egui::ComboBox::from_id_salt(salt).icon(crate::icons::combo_chevron).width(field);
     // Several picked: how many.
@@ -2867,7 +2882,24 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
         ui.label(tp!("panel.entity_info.selected", many));
         return;
     }
-    // A free element picked: its kind, its layer; a text its words and size.
+    // Nothing picked: the document or the presentation, if chosen in the navigator.
+    if many == 0 {
+        match st.info {
+            InfoOn::Document => return document_info(ui, doc, title, field, actions),
+            InfoOn::Presentation => {
+                if let Some(p) = st.presentation(d) {
+                    return presentation_info(ui, doc, p, field, actions);
+                }
+            }
+            InfoOn::Sheet => {}
+        }
+    }
+    let Some(sheet) = st.shown(d) else {
+        ui.weak(t!("drawing.no_sheet"));
+        return;
+    };
+    let units = &doc.settings().units;
+    // A free element picked: its kind; a text its words and size; an instance its place.
     if let Some(el) = crate::sheet::selected_element(editor, st).filter(|el| !matches!(el.kind, ElementKind::View(_))) {
         let id = el.id;
         info_grid(ui).show(ui, |ui| {
@@ -2884,12 +2916,13 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                     skraft_model::DimKind::Radius { .. } => t!("drawing.dim.diameter"),
                     skraft_model::DimKind::Angle { .. } => t!("drawing.dim.angle"),
                 },
+                ElementKind::Instance(_) => t!("panel.entity_info.type_instance"),
                 _ => t!("panel.entity_info.type_image"),
             });
             ui.end_row();
             // A dimension's value as the model is now, or why it has none.
             if let ElementKind::Dimension(dim) = &el.kind
-                && let Some(s) = crate::sheet::dim_shape(editor, dim)
+                && let Some(s) = crate::sheet::dim_shape(editor, dim, d.projection_of(dim.view))
             {
                 ui.label(t!("panel.entity_info.value"));
                 if s.orphan {
@@ -2900,7 +2933,6 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                 }
                 ui.end_row();
             }
-            layer_row(ui, d, el, sheet.id, field, actions);
             if let ElementKind::Text { at, text, size } = &el.kind {
                 let set = |text: String, size: f64| {
                     Action::Apply(Operation::SetElement { element: id, kind: ElementKind::Text { at: *at, text, size } })
@@ -2922,14 +2954,31 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                     // A field put at the end (docs/ui/drawing.md#fields).
                     let button = ui.button(t!("drawing.insert_field"));
                     crate::handles::publish(|| "drawing_insert_field".into(), button.rect);
-                    egui::Popup::menu(&button).style(crate::style::menu).show(|ui| {
-                        for f in crate::sheet::FIELDS {
-                            let item = ui.add(crate::style::menu_item(field_name(f), None, false));
+                    let menu = egui::Popup::menu(&button).style(crate::style::menu);
+                    menu.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                        // Skraft's own, those the drawing's texts already name, a new one.
+                        let custom = crate::sheet::custom_fields(d.all_field_names());
+                        let own = crate::sheet::FIELDS.iter().map(|f| (*f, field_name(f)));
+                        for (f, label) in own.chain(custom.iter().map(|f| (f.as_str(), f.clone()))) {
+                            let item = ui.add(crate::style::menu_item(label, None, false));
                             crate::handles::publish(|| format!("drawing_field:{f}"), item.rect);
                             if item.clicked() {
                                 actions.push(set(format!("{text}{{{f}}}"), *size));
                                 ui.close();
                             }
+                        }
+                        ui.separator();
+                        let key = ui.make_persistent_id(("drawing_new_field", id.0));
+                        let mut name = ui.data(|m| m.get_temp::<String>(key)).unwrap_or_default();
+                        let edit = ui.add(egui::TextEdit::singleline(&mut name).hint_text(t!("drawing.new_field")).desired_width(150.0));
+                        crate::handles::publish(|| "drawing_new_field".into(), edit.rect);
+                        let entered = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        let clean = name.replace(['{', '}', '.'], " ").trim().to_owned();
+                        ui.data_mut(|m| m.insert_temp(key, name));
+                        if entered && !clean.is_empty() {
+                            ui.data_mut(|m| m.remove::<String>(key));
+                            actions.push(set(format!("{text}{{{clean}}}"), *size));
+                            ui.close();
                         }
                     });
                 });
@@ -2940,6 +2989,56 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                     actions.push(set(text.clone(), v));
                 }
                 ui.end_row();
+            }
+            // An instance: its definition, its place, its values.
+            if let ElementKind::Instance(i) = &el.kind {
+                let set_place = |place: Place| {
+                    Action::Apply(Operation::SetElement { element: id, kind: ElementKind::Instance(Instance { place, ..i.clone() }) })
+                };
+                let composition = d.composition(i.composition);
+                if let Some(b) = composition {
+                    field_label(ui, t!("panel.entity_info.name"));
+                    if let Some(name) = text_field(ui, (id, 12), &b.name, field) {
+                        actions.push(Action::Apply(Operation::RenameComposition { composition: b.id, name }));
+                    }
+                    ui.end_row();
+                }
+                // A corner of the paper only right on a sheet; changing it keeps it where it is.
+                if st.open.is_empty() {
+                    let label = |c: Option<Corner>| match c {
+                        None => t!("drawing.anchor.free"),
+                        Some(Corner::BottomLeft) => t!("drawing.anchor.bottom_left"),
+                        Some(Corner::BottomRight) => t!("drawing.anchor.bottom_right"),
+                        Some(Corner::TopLeft) => t!("drawing.anchor.top_left"),
+                        Some(Corner::TopRight) => t!("drawing.anchor.top_right"),
+                    };
+                    field_label(ui, t!("panel.entity_info.anchor"));
+                    combo(("drawing_anchor", id.0)).selected_text(label(i.place.corner)).show_ui(ui, |ui| {
+                        for c in [None, Some(Corner::BottomLeft), Some(Corner::BottomRight), Some(Corner::TopLeft), Some(Corner::TopRight)]
+                        {
+                            if ui.selectable_label(i.place.corner == c, label(c)).clicked() && i.place.corner != c {
+                                actions.push(set_place(i.place.with_corner(c, sheet.paper)));
+                            }
+                        }
+                    });
+                    ui.end_row();
+                }
+                let at = i.place.at;
+                if let Some(Value::Length(x)) = typed_row(ui, "X".to_owned(), (id, 13), &Value::Length(at.x), units, field) {
+                    actions.push(set_place(Place { at: glam::DVec2::new(x, at.y), ..i.place }));
+                }
+                if let Some(Value::Length(y)) = typed_row(ui, "Y".to_owned(), (id, 14), &Value::Length(at.y), units, field) {
+                    actions.push(set_place(Place { at: glam::DVec2::new(at.x, y), ..i.place }));
+                }
+                let turn = Value::Angle(i.place.rotation);
+                if let Some(Value::Angle(r)) = typed_row(ui, t!("panel.entity_info.rotation"), (id, 15), &turn, units, field) {
+                    actions.push(set_place(Place { rotation: r, ..i.place }));
+                }
+                if let Some(b) = composition {
+                    let names = field_rows(d.field_names(&b.elements), Some(&i.props));
+                    let on = ValuesOn::Instance { id, instance: i, sheet: sheet.id, above: &st.open };
+                    value_rows(ui, doc, &on, names, field, actions);
+                }
             }
         });
         return;
@@ -2958,9 +3057,6 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                 actions.push(set(View { name, ..view.clone() }));
             }
             ui.end_row();
-            if let Some(el) = d.element(id) {
-                layer_row(ui, d, el, sheet.id, field, actions);
-            }
             match &view.kind {
                 ViewKind::Base { subject, look, scale, at } => {
                     ui.label(t!("panel.entity_info.subject"));
@@ -3064,18 +3160,17 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
     let set_paper = |p: Paper, portrait: bool| {
         let p = landscape(p);
         let p = if portrait { Paper { width: p.height, height: p.width } } else { p };
-        Action::Apply(Operation::SetSheet { sheet: id, name: sheet.name.clone(), paper: p, grid: sheet.grid })
+        Action::Apply(Operation::SetSheet { sheet: id, name: sheet.name.clone(), paper: p, grid: sheet.grid, border: sheet.border })
     };
     const SIZES: [(&str, Paper); 5] = [("A4", Paper::A4), ("A3", Paper::A3), ("A2", Paper::A2), ("A1", Paper::A1), ("A0", Paper::A0)];
     let named = SIZES.iter().find(|(_, p)| *p == landscape(paper)).map(|(n, _)| n.to_string());
-    let units = &doc.settings().units;
     info_grid(ui).show(ui, |ui| {
         ui.label(t!("panel.entity_info.type"));
         ui.label(t!("panel.entity_info.type_sheet"));
         ui.end_row();
         field_label(ui, t!("panel.entity_info.name"));
         if let Some(name) = text_field(ui, (id, 11), &sheet.name, field) {
-            actions.push(Action::Apply(Operation::SetSheet { sheet: id, name, paper, grid: sheet.grid }));
+            actions.push(Action::Apply(Operation::SetSheet { sheet: id, name, paper, grid: sheet.grid, border: sheet.border }));
         }
         ui.end_row();
         field_label(ui, t!("panel.entity_info.paper"));
@@ -3098,121 +3193,226 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
             }
         });
         ui.end_row();
-        field_label(ui, t!("panel.entity_info.projection"));
-        let projection = |p: Projection| match p {
-            Projection::FirstAngle => t!("drawing.projection.first_angle"),
-            Projection::ThirdAngle => t!("drawing.projection.third_angle"),
-        };
-        combo(("drawing_projection", 0)).selected_text(projection(d.projection)).show_ui(ui, |ui| {
-            for p in [Projection::FirstAngle, Projection::ThirdAngle] {
-                if ui.selectable_label(d.projection == p, projection(p)).clicked() && p != d.projection {
-                    actions.push(Action::Apply(Operation::SetProjection(p)));
-                }
-            }
-        });
-        ui.end_row();
         // The grid the points drawn snap to when nothing else is near (docs/ui/drawing.md#snapping).
         field_label(ui, t!("panel.entity_info.grid"));
         let grid_label = |g: f64| if g > 0.0 { format!("{} mm", units.number(g)) } else { t!("drawing.grid_none") };
         combo(("drawing_grid", id.0)).selected_text(grid_label(sheet.grid)).show_ui(ui, |ui| {
             for g in [0.0, 1.0, 2.0, 5.0, 10.0] {
                 if ui.selectable_label(sheet.grid == g, grid_label(g)).clicked() && g != sheet.grid {
-                    actions.push(Action::Apply(Operation::SetSheet { sheet: id, name: sheet.name.clone(), paper, grid: g }));
+                    actions.push(Action::Apply(Operation::SetSheet {
+                        sheet: id,
+                        name: sheet.name.clone(),
+                        paper,
+                        grid: g,
+                        border: sheet.border,
+                    }));
                 }
             }
         });
         ui.end_row();
+        // Its frame, drawn from its paper (docs/ui/drawing.md#compositions).
+        let set_border = |border: Option<Border>| {
+            Action::Apply(Operation::SetSheet { sheet: id, name: sheet.name.clone(), paper, grid: sheet.grid, border })
+        };
+        field_label(ui, t!("panel.entity_info.border"));
+        let mut on = sheet.border.is_some();
+        let check = ui.checkbox(&mut on, "");
+        crate::handles::publish(|| "drawing_border".into(), check.rect);
+        if check.changed() {
+            actions.push(set_border(on.then_some(Border { margin: 10.0, width: 0.25 })));
+        }
+        ui.end_row();
+        if let Some(b) = sheet.border {
+            if let Some(Value::Length(margin)) =
+                typed_row(ui, t!("panel.entity_info.margin"), (id, 16), &Value::Length(b.margin), units, field)
+            {
+                actions.push(set_border(Some(Border { margin, ..b })));
+            }
+            if let Some(Value::Length(width)) =
+                typed_row(ui, t!("panel.entity_info.border_width"), (id, 17), &Value::Length(b.width), units, field)
+            {
+                actions.push(set_border(Some(Border { width, ..b })));
+            }
+        }
+        let names = field_rows(d.field_names(&sheet.elements), Some(&sheet.props));
+        value_rows(ui, doc, &ValuesOn::Sheet(sheet), names, field, actions);
     });
 }
 
-/// The « Calques » panel (docs/ui/drawing.md#layers): the drawing's layers, top first — the
-/// active one (what is drawn goes on it), each one's name, shared, shown, locked, moved up or
-/// down, deleted; a new one.
-pub fn layers(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::SheetState, actions: &mut Vec<Action>) {
-    let d = editor.document().drawing();
-    // Sharing a layer takes its elements to the sheet shown (or from it).
-    let Some(sheet) = st.shown(d).map(|s| s.id) else {
-        ui.weak(t!("drawing.no_sheet"));
+/// A row of the entity info holding a value of its kind (a length, an angle), shown and typed in
+/// the document's units. The value typed.
+fn typed_row(
+    ui: &mut egui::Ui,
+    label: String,
+    key: (Id, u8),
+    value: &skraft_model::Value,
+    units: &Units,
+    width: f32,
+) -> Option<skraft_model::Value> {
+    field_label(ui, label);
+    let f = Field {
+        hint: None,
+        tip: None,
+        width,
+        align: egui::Align2::RIGHT_CENTER,
+        lit: false,
+        addon: None,
+        blur_applies: true,
+        empty_applies: false,
+        handle: Some(format!("drawing_value:{}:{}", key.0.0, key.1)),
+    };
+    let id = ui.make_persistent_id(("drawing_typed", key));
+    // Exact: on paper a line of 0.25 mm is no « ~ 0 », whatever the precision of the model's.
+    let exact = value.exact(units);
+    let typed = ui.vertical(|ui| framed_field(ui, id, &exact, &exact, f)).inner;
+    ui.end_row();
+    typed.and_then(|t| skraft_model::Value::typed(&value.kind(), &t, units, Some(value)))
+}
+
+/// What a field's value is set on, in the entity info.
+enum ValuesOn<'a> {
+    Document,
+    Presentation(&'a skraft_model::Presentation),
+    Sheet(&'a skraft_model::Sheet),
+    /// An instance on `sheet` under the instances `above`.
+    Instance {
+        id: Id,
+        instance: &'a skraft_model::Instance,
+        sheet: Id,
+        above: &'a [Id],
+    },
+}
+
+/// The fields to list: those `names` Skraft does not fill itself, and those `props` has a value
+/// for, under the name a text gives them.
+fn field_rows(names: std::collections::BTreeSet<String>, props: Option<&skraft_model::Props>) -> Vec<String> {
+    let held = props.into_iter().flat_map(|p| p.iter()).map(|(k, _)| k.strip_prefix("user.").unwrap_or(k).to_owned());
+    let all: std::collections::BTreeSet<String> = names.into_iter().chain(held).collect();
+    crate::sheet::custom_fields(all)
+}
+
+/// The fields `names`, a row each: the value set on `on`, typed over or emptied; while it has
+/// none, faint, the one it takes from above (docs/ui/drawing.md#fields).
+fn value_rows(ui: &mut egui::Ui, doc: &Document, on: &ValuesOn<'_>, names: Vec<String>, width: f32, actions: &mut Vec<Action>) {
+    use skraft_model::{FieldOn, Value, ValueKind, field_key};
+    if names.is_empty() {
         return;
+    }
+    ui.weak(t!("panel.entity_info.values"));
+    ui.label("");
+    ui.end_row();
+    let d = doc.drawing();
+    let units = &doc.settings().units;
+    let root = doc.component(doc.root()).ok().map(|c| &c.props);
+    let owner = match on {
+        ValuesOn::Document => doc.root().0,
+        ValuesOn::Presentation(p) => p.id.0,
+        ValuesOn::Sheet(s) => s.id.0,
+        ValuesOn::Instance { id, .. } => id.0,
     };
-    let active = crate::sheet::active_layer(d, st);
-    let n = d.layers.len();
-    let (strong, weak) = (ui.visuals().strong_text_color(), ui.visuals().weak_text_color());
-    // A frameless icon button, lit when `on`.
-    let toggle = |ui: &mut egui::Ui, icon: egui::ImageSource<'static>, on: bool, enabled: bool, tip: String| {
-        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if on { strong } else { weak });
-        ui.add_enabled(enabled, egui::Button::image(img).frame(false)).tip(tip).clicked()
-    };
-    for (k, l) in d.layers.iter().enumerate().rev() {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            if ui.radio(active == Some(l.id), "").on_hover_text(t!("drawing.layer.active")).clicked() {
-                st.active_layer = Some(l.id);
-            }
-            // The buttons at the right end, the name in the room left.
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 2.0;
-                if toggle(ui, crate::icons::CLOSE, false, true, t!("drawing.layer.delete")) {
-                    actions.push(Action::Apply(Operation::DeleteLayer { layer: l.id }));
-                }
-                if toggle(ui, crate::icons::ARROW_DOWN, false, k > 0, t!("drawing.layer.down")) {
-                    actions.push(Action::Apply(Operation::MoveLayer { layer: l.id, index: k - 1 }));
-                }
-                if toggle(ui, crate::icons::ARROW_UP, false, k + 1 < n, t!("drawing.layer.up")) {
-                    actions.push(Action::Apply(Operation::MoveLayer { layer: l.id, index: k + 1 }));
-                }
-                let lock = if l.locked { crate::icons::LOCK } else { crate::icons::UNLOCK };
-                if toggle(ui, lock, l.locked, true, t!("drawing.layer.locked")) {
-                    actions.push(Action::Apply(Operation::SetLayer {
-                        layer: l.id,
-                        name: l.name.clone(),
-                        hidden: l.hidden,
-                        locked: !l.locked,
-                    }));
-                }
-                let eye = if l.hidden { crate::icons::EYE_OFF } else { crate::icons::EYE };
-                if toggle(ui, eye, !l.hidden, true, t!("drawing.layer.shown")) {
-                    actions.push(Action::Apply(Operation::SetLayer {
-                        layer: l.id,
-                        name: l.name.clone(),
-                        hidden: !l.hidden,
-                        locked: l.locked,
-                    }));
-                }
-                if toggle(ui, crate::icons::LAYER_SHARED, l.shared, true, t!("drawing.layer.shared")) {
-                    actions.push(Action::Apply(Operation::ShareLayer { layer: l.id, shared: !l.shared, sheet }));
-                }
-                ui.add_space(4.0);
-                let width = ui.available_width().max(40.0);
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    if let Some(name) = text_field(ui, (l.id, 12), &l.name, width) {
-                        actions.push(Action::Apply(Operation::SetLayer { layer: l.id, name, hidden: l.hidden, locked: l.locked }));
-                    }
-                });
+    let label_width = info_label_width(ui);
+    for name in names {
+        let key = field_key(&name);
+        let in_root = root.and_then(|p| p.get(&key));
+        let (own, above): (Option<&Value>, Option<&Value>) = match on {
+            ValuesOn::Document => (in_root, None),
+            ValuesOn::Presentation(p) => (p.props.get(&key), in_root),
+            ValuesOn::Sheet(s) => (s.props.get(&key), d.presentation_of(s.id).and_then(|p| p.props.get(&key)).or(in_root)),
+            ValuesOn::Instance { instance, sheet, above, .. } => (instance.props.get(&key), doc.field(*sheet, above, &key)),
+        };
+        ui.vertical(|ui| {
+            let size = egui::vec2(label_width, OPTION_HEIGHT);
+            ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(&name).truncate());
             });
         });
-    }
-    ui.add_space(4.0);
-    if ui.button(format!("+ {}", t!("drawing.layer.add"))).clicked() {
-        actions.push(Action::Apply(Operation::AddLayer { name: None }));
+        let hint = above.map(|v| v.shown(units));
+        let shown = own.map_or_else(String::new, |v| v.shown(units));
+        let exact = own.map_or_else(String::new, |v| v.exact(units));
+        let f = Field {
+            hint: hint.as_deref(),
+            tip: None,
+            width,
+            align: egui::Align2::LEFT_CENTER,
+            lit: false,
+            addon: None,
+            blur_applies: true,
+            empty_applies: true,
+            handle: Some(format!("drawing_field_value:{name}")),
+        };
+        let id = ui.make_persistent_id(("drawing_field_value", owner, &key));
+        let typed = ui.vertical(|ui| framed_field(ui, id, &shown, &exact, f)).inner;
+        ui.end_row();
+        let Some(text) = typed else { continue };
+        // Of the kind it has or inherits; emptied, it is taken off.
+        let value = (!text.is_empty()).then(|| {
+            let kind = own.or(above).map_or(ValueKind::Text, Value::kind);
+            Value::typed(&kind, &text, units, own).unwrap_or(Value::Text(text))
+        });
+        actions.push(Action::Apply(match on {
+            ValuesOn::Document => Operation::SetProps {
+                target: skraft_model::PropTarget::Component(doc.root()),
+                props: std::collections::BTreeMap::from([(key, value)]),
+            },
+            ValuesOn::Presentation(p) => Operation::SetField { on: FieldOn::Presentation(p.id), key, value },
+            ValuesOn::Sheet(s) => Operation::SetField { on: FieldOn::Sheet(s.id), key, value },
+            ValuesOn::Instance { id, .. } => Operation::SetField { on: FieldOn::Instance(*id), key, value },
+        }));
     }
 }
 
-/// An element's layer, chosen among the drawing's (moving it there).
-fn layer_row(ui: &mut egui::Ui, d: &skraft_model::Drawing, el: &skraft_model::Element, sheet: Id, width: f32, actions: &mut Vec<Action>) {
-    field_label(ui, t!("panel.entity_info.layer"));
-    let name = d.layer(el.layer).map_or_else(String::new, |l| l.name.clone());
-    egui::ComboBox::from_id_salt(("drawing_layer", el.id.0)).icon(crate::icons::combo_chevron).width(width).selected_text(name).show_ui(
-        ui,
-        |ui| {
-            for l in d.layers.iter().rev() {
-                if ui.selectable_label(l.id == el.layer, &l.name).clicked() && l.id != el.layer {
-                    actions.push(Action::Apply(Operation::MoveToLayer { elements: vec![el.id], layer: l.id, sheet }));
+/// The entity info of the document in « Mise en plan »: its name, the values of its fields.
+fn document_info(ui: &mut egui::Ui, doc: &Document, title: &str, field: f32, actions: &mut Vec<Action>) {
+    info_grid(ui).show(ui, |ui| {
+        ui.label(t!("panel.entity_info.type"));
+        ui.label(t!("panel.entity_info.type_document"));
+        ui.end_row();
+        ui.label(t!("panel.entity_info.name"));
+        ui.label(title);
+        ui.end_row();
+        let names = crate::sheet::custom_fields(doc.drawing().all_field_names());
+        value_rows(ui, doc, &ValuesOn::Document, names, field, actions);
+    });
+}
+
+/// The entity info of a presentation: its name, its sheets, where its projected views go, the
+/// values of its fields.
+fn presentation_info(ui: &mut egui::Ui, doc: &Document, p: &skraft_model::Presentation, field: f32, actions: &mut Vec<Action>) {
+    use skraft_model::Projection;
+    let d = doc.drawing();
+    info_grid(ui).show(ui, |ui| {
+        ui.label(t!("panel.entity_info.type"));
+        ui.label(t!("panel.entity_info.type_presentation"));
+        ui.end_row();
+        field_label(ui, t!("panel.entity_info.name"));
+        if let Some(name) = text_field(ui, (p.id, 18), &p.name, field) {
+            actions.push(Action::Apply(Operation::SetPresentation { presentation: p.id, name, projection: p.projection }));
+        }
+        ui.end_row();
+        ui.label(t!("panel.entity_info.sheets"));
+        ui.label(p.sheets.len().to_string());
+        ui.end_row();
+        field_label(ui, t!("panel.entity_info.projection"));
+        let label = |x: Projection| match x {
+            Projection::FirstAngle => t!("drawing.projection.first_angle"),
+            Projection::ThirdAngle => t!("drawing.projection.third_angle"),
+        };
+        egui::ComboBox::from_id_salt(("drawing_projection", p.id.0))
+            .icon(crate::icons::combo_chevron)
+            .width(field)
+            .selected_text(label(p.projection))
+            .show_ui(ui, |ui| {
+                for x in [Projection::FirstAngle, Projection::ThirdAngle] {
+                    if ui.selectable_label(p.projection == x, label(x)).clicked() && x != p.projection {
+                        actions.push(Action::Apply(Operation::SetPresentation { presentation: p.id, name: p.name.clone(), projection: x }));
+                    }
                 }
-            }
-        },
-    );
-    ui.end_row();
+            });
+        ui.end_row();
+        let used = p.sheets.iter().flat_map(|s| d.field_names(&s.elements)).collect();
+        let names = field_rows(used, Some(&p.props));
+        value_rows(ui, doc, &ValuesOn::Presentation(p), names, field, actions);
+    });
 }
 
 /// A text field's name in the « Insérer un champ » menu.

@@ -16,15 +16,18 @@ pub const COLUMN_MIN_WIDTH: f32 = 200.0;
 pub enum PanelId {
     EntityInfo,
     Materials,
+    /// The navigator: the model's tree, on a sheet the drawing's (docs/ui/drawing.md#navigator).
+    /// `layers`: the drawing's former panel, in layouts already saved.
+    #[serde(alias = "layers")]
     Outliner,
     /// The document's parts and assemblies (docs/ui/components-library.md).
     Components,
-    /// The drawing's layers (docs/ui/drawing.md#layers): « Mise en plan »'s.
-    Layers,
+    /// The drawing's compositions (docs/ui/drawing.md#the-compositions-card).
+    Compositions,
 }
 
 impl PanelId {
-    pub const ALL: [PanelId; 5] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Outliner, PanelId::Components, PanelId::Layers];
+    pub const ALL: [PanelId; 5] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Outliner, PanelId::Components, PanelId::Compositions];
 
     /// Its command (`view.*`), which shows or closes it.
     pub fn command(self) -> &'static str {
@@ -33,7 +36,7 @@ impl PanelId {
             PanelId::Materials => "view.materials",
             PanelId::Outliner => "view.outliner",
             PanelId::Components => "view.components",
-            PanelId::Layers => "view.layers",
+            PanelId::Compositions => "view.compositions",
         }
     }
 
@@ -42,15 +45,9 @@ impl PanelId {
     }
 
     /// It may fill the height left in its column: a list, which shows more rows. The entity
-    /// info keeps the height it is given; the layers too, a few rows.
+    /// info keeps the height it is given.
     pub fn fills(self) -> bool {
-        !matches!(self, PanelId::EntityInfo | PanelId::Layers)
-    }
-
-    /// The same on a drawing's sheet (docs/ui/drawing.md#layers): the entity info fills there —
-    /// a view's or a sheet's settings are many rows —, the other cards keep their height.
-    pub fn fills_on_sheet(self) -> bool {
-        self == PanelId::EntityInfo
+        self != PanelId::EntityInfo
     }
 
     fn default_height(self) -> f32 {
@@ -58,16 +55,14 @@ impl PanelId {
             PanelId::EntityInfo => 280.0,
             PanelId::Materials => 180.0,
             PanelId::Outliner => 300.0,
-            PanelId::Components => 240.0,
-            PanelId::Layers => 150.0,
+            PanelId::Components | PanelId::Compositions => 240.0,
         }
     }
 
     /// Shown in a first layout, or once added to one written by an older build: the
-    /// components library waits to be asked for, the layers are « Mise en plan »'s (its
-    /// workspace shows them: [`crate::workspace::Workspace::panels`]).
+    /// components library waits to be asked for, the compositions are the drawing's.
     fn shown_by_default(self) -> bool {
-        !matches!(self, PanelId::Components | PanelId::Layers)
+        !matches!(self, PanelId::Components | PanelId::Compositions)
     }
 
     /// Its card as a first layout has it.
@@ -204,7 +199,8 @@ impl Layout {
         cards.insert(at, card);
     }
 
-    /// Every panel exactly once (preferences written by another build may lack or repeat one).
+    /// Every panel exactly once (preferences written by another build may lack or repeat one:
+    /// a panel repeated is shown if one of its cards was).
     pub fn normalize(&mut self) {
         self.normalize_with(None);
     }
@@ -212,12 +208,21 @@ impl Layout {
     /// The same for a workspace showing `shown` at first: a card added shown if it is one.
     pub fn normalize_with(&mut self, shown: Option<&[PanelId]>) {
         let mut seen = Vec::new();
+        let mut shown_again = Vec::new();
         for d in [Dock::Left, Dock::Right] {
             self.column_mut(d).cards.retain(|c| {
                 let new = !seen.contains(&c.id);
                 seen.push(c.id);
+                if !new && c.shown {
+                    shown_again.push(c.id);
+                }
                 new
             });
+        }
+        for id in shown_again {
+            if let Some(c) = self.card_mut(id) {
+                c.shown = true;
+            }
         }
         for id in PanelId::ALL {
             if !seen.contains(&id) {
@@ -382,7 +387,10 @@ mod tests {
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials]);
         l.move_card(PanelId::Outliner, Dock::Right, Some(PanelId::Materials));
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Outliner, PanelId::Materials]);
-        assert_eq!(l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::EntityInfo, PanelId::Components, PanelId::Layers]);
+        assert_eq!(
+            l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(),
+            [PanelId::EntityInfo, PanelId::Components, PanelId::Compositions]
+        );
         // Within its column, above another one.
         l.move_card(PanelId::Materials, Dock::Right, Some(PanelId::Outliner));
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials, PanelId::Outliner]);
@@ -397,13 +405,25 @@ mod tests {
         l.normalize();
         assert_eq!(l.right.cards.len(), 0);
         let ids: Vec<_> = l.left.cards.iter().map(|c| c.id).collect();
-        assert_eq!(ids, [PanelId::Outliner, PanelId::EntityInfo, PanelId::Materials, PanelId::Components, PanelId::Layers]);
+        assert_eq!(ids, [PanelId::Outliner, PanelId::EntityInfo, PanelId::Materials, PanelId::Components, PanelId::Compositions]);
         // The components library added closed, as in a first layout.
         assert!(!l.is_shown(PanelId::Components) && !Layout::default().is_shown(PanelId::Components));
         assert!(l.is_shown(PanelId::EntityInfo));
-        // A workspace's own first panels: the layers added shown in « Mise en plan ».
+        // A workspace's own first panels: the navigator added shown in « Mise en plan ».
         let mut l = Layout { left: Column { width: 270.0, cards: vec![card(PanelId::EntityInfo, 1.0)] }, right: Column::default() };
-        l.normalize_with(Some(&[PanelId::EntityInfo, PanelId::Layers]));
-        assert!(l.is_shown(PanelId::Layers) && !l.is_shown(PanelId::Materials));
+        l.normalize_with(Some(&[PanelId::EntityInfo, PanelId::Outliner]));
+        assert!(l.is_shown(PanelId::Outliner) && !l.is_shown(PanelId::Materials));
+    }
+
+    #[test]
+    fn a_layout_saved_with_the_drawings_former_panel_shows_the_navigator() {
+        let saved = r#"{"left":{"width":270.0,"cards":[
+            {"id":"entity_info","height":200.0,"shown":true,"folded":false},
+            {"id":"outliner","height":300.0,"shown":false,"folded":false},
+            {"id":"layers","height":150.0,"shown":true,"folded":false}]},"right":{"width":270.0,"cards":[]}}"#;
+        let mut l: Layout = serde_json::from_str(saved).unwrap();
+        l.normalize();
+        assert_eq!(l.left.cards.iter().filter(|c| c.id == PanelId::Outliner).count(), 1);
+        assert!(l.is_shown(PanelId::Outliner));
     }
 }

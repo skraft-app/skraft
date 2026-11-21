@@ -1,6 +1,7 @@
 # Drawing: free sheets in the document, for the workshop and for clients
 
-- Status: accepted (2026-11-20)
+- Status: accepted (2026-11-20); its layers, shared title block and templates replaced by
+  [0049](0049-drawing-a-tree-of-presentations-and-definitions.md)
 - Design: [Drawing](../ui/drawing.md) (under way; steps in `docs/REVIEW.md`, « Work: drawing »)
 - Follows: [A workspace shapes the editor](0047-workspaces-shape-the-editor.md)
 

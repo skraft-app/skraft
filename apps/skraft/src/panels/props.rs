@@ -89,6 +89,7 @@ fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: &str) -
 /// A text field, `width` wide, applied by a click away too, emptied too: the text, when applied.
 fn text_input(ui: &mut egui::Ui, id: egui::Id, current: &str, width: f32) -> Option<String> {
     let field = Field {
+        hint: None,
         tip: None,
         width,
         align: egui::Align2::LEFT_CENTER,
@@ -223,6 +224,7 @@ fn value_editor(
             let (shown, exact) = value.map_or((String::new(), String::new()), |v| (v.shown(units), v.exact(units)));
             let numeric = !matches!(kind, ValueKind::Text | ValueKind::List(_));
             let field = Field {
+                hint: None,
                 tip: None,
                 width,
                 align: if numeric { egui::Align2::RIGHT_CENTER } else { egui::Align2::LEFT_CENTER },
@@ -334,6 +336,7 @@ pub fn definitions(ui: &mut egui::Ui, doc: &Document, actions: &mut Vec<Action>)
                     let id = ui.make_persistent_id(("prop_def_choices", key));
                     let tip = t!("panel.properties.choices_tip");
                     let f = Field {
+                        hint: None,
                         tip: Some(&tip),
                         width: field,
                         align: egui::Align2::LEFT_CENTER,

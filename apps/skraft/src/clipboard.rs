@@ -2,13 +2,33 @@
 //! what was copied in memory; the system clipboard only gets a token naming it. Copying
 //! anything else anywhere replaces the token: ⌘V then no longer pastes the app's content.
 
+use std::sync::Arc;
+
+use glam::DVec2;
+use skraft_model::Document;
 use skraft_tools::Clip;
 
 use crate::docs::DocId;
 
+/// What was copied: from the model, or from a sheet (docs/ui/drawing.md#copy-and-paste).
+pub enum Copied {
+    Model(Clip),
+    /// A fragment of the drawing, and the box of what was picked, in the axes it was in.
+    Sheet {
+        fragment: Arc<Document>,
+        bounds: (DVec2, DVec2),
+    },
+}
+
+impl From<Clip> for Copied {
+    fn from(clip: Clip) -> Self {
+        Copied::Model(clip)
+    }
+}
+
 /// What was copied, and where from.
 pub struct Clipboard {
-    pub clip: Clip,
+    pub content: Copied,
     /// The document it was copied from…
     pub doc: DocId,
     /// …at this revision of its history: pasting there again reuses its parts while that
@@ -19,9 +39,9 @@ pub struct Clipboard {
 }
 
 impl Clipboard {
-    /// Takes `clip`, copied from `doc` at `revision`; `serial` counts the copies.
-    pub fn new(clip: Clip, doc: DocId, revision: u64, serial: u64) -> Self {
-        Clipboard { clip, doc, revision, token: format!("{TOKEN_PREFIX}{:016x}:{serial}", run_nonce()) }
+    /// Takes `content`, copied from `doc` at `revision`; `serial` counts the copies.
+    pub fn new(content: impl Into<Copied>, doc: DocId, revision: u64, serial: u64) -> Self {
+        Clipboard { content: content.into(), doc, revision, token: format!("{TOKEN_PREFIX}{:016x}:{serial}", run_nonce()) }
     }
 
     /// Is `text`, the system clipboard's, this clipboard's token?
@@ -52,9 +72,7 @@ fn run_nonce() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use skraft_model::Document;
     use skraft_tools::Content;
-    use std::sync::Arc;
 
     #[test]
     fn the_token_names_one_copy_and_reuse_needs_the_same_state() {

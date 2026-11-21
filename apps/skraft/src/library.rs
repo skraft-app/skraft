@@ -74,31 +74,31 @@ impl Shelves {
 }
 
 /// A tab's components in their sections, each in natural order of names.
-#[derive(Default)]
-struct Rows {
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Rows {
     /// In the model, with their count there.
-    used: Vec<(Id, u64)>,
+    pub used: Vec<(Id, u64)>,
     /// Placed nowhere (named).
-    unused: Vec<Id>,
+    pub unused: Vec<Id>,
 }
 
 /// One line of the card.
-enum Line {
+pub(crate) enum Line {
     Header { unused: bool },
     Item { id: Id, count: Option<u64> },
 }
 
 impl Rows {
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.used.len() + self.unused.len()
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// The lines shown: the headers only when there are unused ones.
-    fn lines(&self) -> Vec<Line> {
+    pub fn lines(&self) -> Vec<Line> {
         let mut lines = Vec::with_capacity(self.used.len() + self.unused.len() + 2);
         let apart = !self.unused.is_empty();
         if apart && !self.used.is_empty() {
@@ -156,7 +156,7 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
 
 /// A component's name in its row: its colour `ink`, an automatic one in italics, attenuated
 /// unless the row is selected.
-fn name_job(ui: &egui::Ui, name: &str, auto: bool, ink: egui::Color32, selected: bool) -> egui::text::LayoutJob {
+pub(crate) fn name_job(ui: &egui::Ui, name: &str, auto: bool, ink: egui::Color32, selected: bool) -> egui::text::LayoutJob {
     let size = egui::TextStyle::Body.resolve(ui.style()).size;
     let weak = if selected { ink } else { ink.lerp_to_gamma(ui.visuals().window_fill, weak_share(ui.visuals())) };
     let format = egui::TextFormat {
@@ -184,11 +184,11 @@ pub struct Look<'a> {
 }
 
 /// A list row's height, and its thumbnail's side (points).
-const LIST_ROW: f32 = 30.0;
-const LIST_THUMB: f32 = 26.0;
+pub(crate) const LIST_ROW: f32 = 30.0;
+pub(crate) const LIST_THUMB: f32 = 26.0;
 /// The room under a tile for its name (points), and between tiles.
-const TILE_LABEL: f32 = 18.0;
-const TILE_GAP: f32 = 6.0;
+pub(crate) const TILE_LABEL: f32 = 18.0;
+pub(crate) const TILE_GAP: f32 = 6.0;
 
 /// The card's content, in `area`: the tabs (parts, assemblies), the search and the grid / list
 /// toggle, then the tab's components in their sections, as tiles of thumbnails or as rows (only
@@ -234,7 +234,7 @@ pub fn components(
     // The search (docs/ui/components-library.md#search): the field left of the grid / list
     // toggle, as far from it as from the tabs above and the list below (`search::GAP`).
     let salt = ui.make_persistent_id("components_search");
-    crate::search::field(ui, salt, "components", &mut state.search, |ui, side| view_toggle(ui, side, look.list, actions));
+    crate::search::field(ui, salt, "components", &mut state.search, |ui, side| view_toggle(ui, side, look.list, "components", actions));
     ui.add_space(gap);
     let rows = shelves.tab(state.tab);
     let disabled = editor.library_disabled();
@@ -293,14 +293,14 @@ impl Thumbs<'_> {
 
 /// The grid / list toggle, at the right end of the search row: the option bar's segmented
 /// control, of the row's height.
-fn view_toggle(ui: &mut egui::Ui, side: f32, list: bool, actions: &mut Vec<Action>) {
+pub(crate) fn view_toggle(ui: &mut egui::Ui, side: f32, list: bool, card: &str, actions: &mut Vec<Action>) {
     use crate::panels::Segment;
     let segments = [
         Segment::image(&t!("panel.components.as_grid"), "", icons::TILES, !list),
         Segment::image(&t!("panel.components.as_list"), "", icons::LIST, list),
     ];
-    let id = ui.make_persistent_id("components_view");
-    let handle = |i: usize| ["components:grid", "components:list"][i].to_owned();
+    let id = ui.make_persistent_id((card, "view"));
+    let handle = |i: usize| format!("{card}:{}", ["grid", "list"][i]);
     if let Some(i) = crate::panels::segmented_sized(ui, id, &segments, (side, 14.0), handle) {
         actions.push(Action::ComponentsList(i == 1));
     }
@@ -389,7 +389,7 @@ fn grid(ui: &mut egui::Ui, cx: &Cx<'_>, rows: &Rows, thumbs: &mut Thumbs<'_>, ac
                             picture(&mut inner, egui::Vec2::splat(tile), thumb, c.is_part(), &ink);
                             ui.painter().rect_stroke(square, 4.0, stroke, egui::StrokeKind::Inside);
                             if let Some(n) = count {
-                                count_badge(ui, square, n, &ink);
+                                count_badge(ui, square, n, ink.weak);
                             }
                             let label = egui::Rect::from_min_max(egui::pos2(rect.min.x, square.max.y + 2.0), rect.max);
                             let layout = egui::Layout::top_down(egui::Align::Center);
@@ -457,14 +457,14 @@ fn picture(ui: &mut egui::Ui, size: egui::Vec2, thumb: Option<egui::TextureId>, 
 }
 
 /// « ×n » over a tile's top right corner, on a pill of the card's colour.
-fn count_badge(ui: &egui::Ui, square: egui::Rect, n: u64, ink: &Ink) {
+pub(crate) fn count_badge(ui: &egui::Ui, square: egui::Rect, n: u64, weak: egui::Color32) {
     let font = egui::TextStyle::Small.resolve(ui.style());
-    let galley = ui.painter().layout_no_wrap(format!("×{n}"), font, ink.weak);
+    let galley = ui.painter().layout_no_wrap(format!("×{n}"), font, weak);
     let pad = egui::vec2(4.0, 1.0);
     let min = egui::pos2(square.max.x - galley.size().x - 2.0 * pad.x - 3.0, square.min.y + 3.0);
     let r = egui::Rect::from_min_size(min, galley.size() + 2.0 * pad);
     ui.painter().rect_filled(r, r.height() / 2.0, ui.visuals().window_fill.gamma_multiply(0.85));
-    ui.painter().galley(r.min + pad, galley, ink.weak);
+    ui.painter().galley(r.min + pad, galley, weak);
 }
 
 /// Is the item of key `rename` renamed in place now?

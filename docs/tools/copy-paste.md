@@ -9,6 +9,7 @@ Copy, cut and paste whatever can be selected — occurrences and guides of an as
 guides of an open part — within a document or from one document (tab) to another, in place or
 at the cursor. What is copied is a fragment held in memory by the app; the system clipboard only
 receives a token naming it.
+On a drawing's sheet the same commands act on its elements ([Drawing](../ui/drawing.md#copy-and-paste)).
 
 ## What is copied
 
