@@ -583,9 +583,9 @@ drawing:
     project: "Cliquer d'un côté de la vue de base pour poser la vue projetée · Espace : terminer"
     text: "Cliquer pour poser un texte, à écrire dans les infos sur l'entité · Espace : terminer"
     rect: "Cliquer le premier coin du rectangle (ou glisser) · Espace : terminer"
-    rect_second: "Cliquer le coin opposé · Échap : annuler"
+    rect_second: "Cliquer le coin opposé, ou taper ses dimensions · Échap : annuler"
     line: "Cliquer le début du trait (ou glisser) · Espace : terminer"
-    line_second: "Cliquer la fin du trait · Échap : annuler"
+    line_second: "Cliquer la fin du trait, ou taper sa longueur · Échap : annuler"
     linear_first: "Cliquer un premier sommet d'une vue · Espace : terminer"
     linear_second: "Cliquer le second sommet"
     linear_place: "Cliquer pour poser la cote : horizontale, verticale ou alignée selon le pointeur"
@@ -650,6 +650,16 @@ drawing:
     third_angle: "Américaine"
   # The empty stage of the « Mise en plan » workspace.
   grid_none: "Aucune"
+  # The measurements box on a sheet (docs/ui/drawing.md#measurements).
+  vcb:
+    size: "Dimensions"
+    width: "Largeur"
+    height: "Hauteur"
+    length: "Longueur"
+    distance: "Distance"
+    radius: "Rayon"
+    scale: "Échelle"
+    refused: "« %{text} » : valeur non reconnue"
   no_sheet_hint: "Aucune feuille : « Nouvelle feuille » dans le ruban, ou « + » ci-dessous"
   layer:
     plan: "Plan"

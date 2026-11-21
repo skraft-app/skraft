@@ -209,8 +209,7 @@ reshapes the element, previewed, changed once let go (one `SetElement`); Esc dro
 - **Dimension**: a linear one's line middle, a radius's or diameter's text point, an angle's arc
   middle (`DimShape::grip`): moved as its drag does.
 
-Free points (polylines, polygons) will come with a tool of their own. Typed values are to
-come (docs/REVIEW.md).
+Free points (polylines, polygons) will come with a tool of their own.
 
 ## Snapping
 
@@ -233,6 +232,27 @@ dragged (`Aim`, `aim_for`), as the 3D view's inferences:
 
 Moving elements and the dimension tools (their own snapping on the views' vertices and edges)
 do not snap this way.
+
+## Measurements
+
+The status bar's measurements box works on a sheet as in the 3D view (`skraft_tools::vcb`: its
+expressions, lists, `@`, points): it shows the value live, what is typed goes to it with no
+click, Enter applies it, Backspace edits it, Esc drops what is typed and nothing else. Values
+are **lengths on the paper in the document's unit** (a bare number; an explicit unit wins),
+whatever a view's scale. It measures (`measure_of`, `typed_kind`):
+
+- **the shape being drawn**, after its first point: a rectangle's `width;height` from that
+  corner, towards the pointer; a line's length along where it goes, or its end at `<dx;dy>`
+  from its start, or at `[x;y]` on the sheet;
+- **the handle being dragged**: a box's corner `width;height`, a side its one length, from what
+  stays fixed; a line's end its length, its direction kept; a view's corner its scale (`1:20`,
+  `2:1`, `1/4`, a ratio: any, not only the standard ones); a text's height; a dimension's
+  distance (a linear one's offset, a radius's text, an angle's arc);
+- **else the shape last made or the handle last let go**, as SketchUp: typed right after the
+  gesture, the value corrects it (one more operation), while it is picked alone and has not
+  changed since (`SheetState::amend`).
+
+A value refused says why in the status bar until the next one or a click.
 
 ## Fields
 

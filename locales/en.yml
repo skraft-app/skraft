@@ -514,9 +514,9 @@ drawing:
     project: "Click on a side of the base view to place the projected view · Space: done"
     text: "Click to place a text, to write in the entity info · Space: done"
     rect: "Click the rectangle's first corner (or drag) · Space: done"
-    rect_second: "Click the opposite corner · Esc: cancel"
+    rect_second: "Click the opposite corner, or type its size · Esc: cancel"
     line: "Click the line's start (or drag) · Space: done"
-    line_second: "Click the line's end · Esc: cancel"
+    line_second: "Click the line's end, or type its length · Esc: cancel"
     linear_first: "Click a first vertex of a view · Space: done"
     linear_second: "Click the second vertex"
     linear_place: "Click to place the dimension: horizontal, vertical or aligned by the pointer"
@@ -581,6 +581,16 @@ drawing:
     third_angle: "Third angle"
   # The empty stage of the « Mise en plan » workspace.
   grid_none: "None"
+  # The measurements box on a sheet (docs/ui/drawing.md#measurements).
+  vcb:
+    size: "Dimensions"
+    width: "Width"
+    height: "Height"
+    length: "Length"
+    distance: "Distance"
+    radius: "Radius"
+    scale: "Scale"
+    refused: "“%{text}”: value not understood"
   no_sheet_hint: "No sheet: « New Sheet » in the ribbon, or « + » below"
   layer:
     plan: "Drawing"

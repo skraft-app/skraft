@@ -1429,7 +1429,8 @@ impl SkraftApp {
                 let starts_value = t.starts_with(|c: char| {
                     c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | ',' | '*' | '/' | '@' | '(' | '[' | '<' | ';')
                 });
-                if d.editor.takes_typing() && (!d.vcb.is_empty() || starts_value) {
+                let takes = if d.workspace.stage == Stage::Sheet { d.sheet.vcb().is_some() } else { d.editor.takes_typing() };
+                if takes && (!d.vcb.is_empty() || starts_value) {
                     d.vcb.push_str(&t);
                 }
             }
@@ -1453,10 +1454,27 @@ impl SkraftApp {
         let command = || self.keymap.command_for(key, modifiers, |id| w.has(id));
         let Some(d) = self.docs.active_mut() else { return command() };
         let typing = !d.vcb.is_empty();
-        // On a sheet, Delete or Backspace erases what is picked (docs/ui/drawing.md#placing-views).
-        let plain_key = !(modifiers.command || modifiers.alt || modifiers.ctrl);
-        if d.workspace.stage == Stage::Sheet && plain_key && matches!(key, K::Delete | K::Backspace) {
-            return Some("edit.erase");
+        // On a sheet, its own measurements box (docs/ui/drawing.md#measurements); Delete or
+        // Backspace erases what is picked; the 3D tool hears nothing.
+        if d.workspace.stage == Stage::Sheet {
+            if typing {
+                match key {
+                    K::Enter => d.sheet.typed = Some(std::mem::take(&mut d.vcb)),
+                    K::Backspace => {
+                        d.vcb.pop();
+                    }
+                    K::Escape => {
+                        d.vcb.clear();
+                        d.sheet.esc_eaten = true;
+                    }
+                    _ => {}
+                }
+                return None;
+            }
+            if !(modifiers.command || modifiers.alt || modifiers.ctrl) && matches!(key, K::Delete | K::Backspace) {
+                return Some("edit.erase");
+            }
+            return self.keymap.command_for(key, modifiers, |id| w.has(id));
         }
         let m = viewport::modifiers(ctx, modifiers);
         let tool_key = |k: Key| ToolInput::Key { key: k, mods: m };
@@ -2146,10 +2164,28 @@ impl SkraftApp {
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let Some(d) = self.docs.active_mut() else { return };
-            // On a sheet, its tool's hint alone: nothing is typed there.
+            // On a sheet, its tool's hint and its own measurements box.
             if d.workspace.stage == Stage::Sheet {
                 let status = d.sheet.status();
                 self.driving.message(&status);
+                let measure = d.sheet.vcb();
+                let takes = measure.is_some();
+                let (label, value) = measure.unwrap_or_else(|| (t!("status.measurements"), String::new()));
+                // What was typed, while the box still takes it.
+                if !takes {
+                    d.vcb.clear();
+                }
+                let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
+                let r = ui.add_enabled(takes, egui::TextEdit::singleline(&mut text).desired_width(160.0));
+                crate::handles::publish_enabled(|| "vcb".into(), r.rect, takes);
+                if r.changed() {
+                    d.vcb = text.clone();
+                }
+                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !d.vcb.is_empty() {
+                    d.sheet.typed = Some(std::mem::take(&mut d.vcb));
+                }
+                ui.label(label);
+                ui.add_space(ui.spacing().item_spacing.x * 2.0);
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.add(egui::Label::new(status).truncate());
                 });

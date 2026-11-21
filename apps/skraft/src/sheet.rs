@@ -41,6 +41,19 @@ pub struct SheetState {
     pointer: Option<egui::Pos2>,
     /// The handle being dragged.
     grip: Option<Grip>,
+    /// The shape last made or the handle last let go, which a value typed changes
+    /// (docs/ui/drawing.md#measurements); dropped once the element is changed otherwise.
+    amend: Option<Grip>,
+    /// What the measurements box shows: its label and the current value.
+    measure: Option<(String, String)>,
+    /// Where the shape being drawn last went: a value is typed with the pointer anywhere.
+    sketch_to: Option<DVec2>,
+    /// A value typed in the measurements box, to apply (the app puts it).
+    pub typed: Option<String>,
+    /// Esc was taken by the measurements box this frame (what was typed dropped).
+    pub esc_eaten: bool,
+    /// Why the value typed was refused, in the status bar until the next one.
+    message: Option<String>,
     /// The views' frames on screen last frame, bottom first: what a press lands on.
     frames: Vec<(Id, egui::Rect)>,
     /// What each view shows, for the document's revision and the meshes' generation.
@@ -553,6 +566,156 @@ impl Grip {
     }
 }
 
+/// What the measurements box takes for grip `g` (docs/ui/drawing.md#measurements): lengths
+/// (paper millimetres, shown and typed in the document's unit) or a view's scale.
+enum Measure {
+    Lengths(Vcb),
+    Scale(f64),
+}
+
+use skraft_tools::vcb::{Vcb, VcbKind, VcbValue};
+
+/// A box's corner its handle (`sx`, `sy`) does not move: where a typed size starts.
+fn opposite(min: DVec2, max: DVec2, sx: i8, sy: i8) -> DVec2 {
+    DVec2::new(if sx < 0 { max.x } else { min.x }, if sy < 0 { max.y } else { min.y })
+}
+
+/// The handle's other end for a line's end `k`, and its own.
+fn line_ends(from: DVec2, to: DVec2, k: u8) -> (DVec2, DVec2) {
+    if k == 0 { (to, from) } else { (from, to) }
+}
+
+/// What the measurements box measures for grip `g` (its element as `g.kind` is), signed as the
+/// gesture goes.
+fn measure_of(g: &Grip) -> Option<Measure> {
+    let lengths = |label: String, v: Vec<f64>| Some(Measure::Lengths(Vcb::new(label, VcbKind::Lengths(v))));
+    match (&g.kind, g.handle) {
+        (ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. }, Handle::Side(sx, sy)) => {
+            let size = *max - *min;
+            let (w, h) = (sx as f64 * size.x, sy as f64 * size.y);
+            match (sx, sy) {
+                (0, _) => lengths(t!("drawing.vcb.height"), vec![h]),
+                (_, 0) => lengths(t!("drawing.vcb.width"), vec![w]),
+                _ => lengths(t!("drawing.vcb.size"), vec![w, h]),
+            }
+        }
+        (ElementKind::Line { from, to }, Handle::End(k)) => {
+            let (o, end) = line_ends(*from, *to, k);
+            let mut vcb = Vcb::new(t!("drawing.vcb.length"), VcbKind::Lengths(vec![o.distance(end)]));
+            vcb.point = Some(skraft_tools::vcb::PointRef { from: o.extend(0.0), to: end.extend(0.0) });
+            Some(Measure::Lengths(vcb))
+        }
+        (ElementKind::View(View { kind: ViewKind::Base { scale, .. }, .. }), Handle::Scale(..)) => Some(Measure::Scale(*scale)),
+        (ElementKind::Text { size, .. }, Handle::Size) => lengths(t!("drawing.vcb.height"), vec![*size]),
+        (ElementKind::Dimension(dim), Handle::Dim) => match &dim.kind {
+            DimKind::Linear { offset, .. } => lengths(t!("drawing.vcb.distance"), vec![*offset]),
+            DimKind::Radius { at, .. } => lengths(t!("drawing.vcb.distance"), vec![at.length()]),
+            DimKind::Angle { at, .. } => lengths(t!("drawing.vcb.radius"), vec![at.length()]),
+        },
+        _ => None,
+    }
+}
+
+/// A scale typed: `1:20`, `2:1`, `1/20` or a ratio (`0.05`).
+fn parse_scale(text: &str) -> Option<f64> {
+    let t = text.trim().replace(',', ".");
+    let ratio = match t.split_once([':', '/']) {
+        Some((a, b)) => a.trim().parse::<f64>().ok()? / b.trim().parse::<f64>().ok()?,
+        None => t.parse::<f64>().ok()?,
+    };
+    (ratio.is_finite() && ratio > 0.0).then_some(ratio)
+}
+
+/// Grip `g`'s element with `text` typed for it: the box's size from its fixed corner, the
+/// line's length along it (or its end at a point), the view's scale, the text's height, the
+/// dimension's distance. The error is the status bar's.
+fn typed_kind(g: &Grip, text: &str, units: &skraft_model::Units) -> Result<ElementKind, String> {
+    let refused = || t!("drawing.vcb.refused", text = text.trim());
+    let lengths = |vcb: &Vcb| match skraft_tools::vcb::read(vcb, text, units, &glam::DAffine3::IDENTITY)? {
+        VcbValue::Lengths(v) => Ok(v),
+        _ => Err(refused()),
+    };
+    let measure = measure_of(g).ok_or_else(refused)?;
+    let vcb = match &measure {
+        Measure::Lengths(v) => Some(v),
+        Measure::Scale(_) => None,
+    };
+    match (&g.kind, g.handle, vcb) {
+        (ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. }, Handle::Side(sx, sy), Some(vcb)) => {
+            let v = lengths(vcb)?;
+            let o = opposite(*min, *max, sx, sy);
+            let (mut lo, mut hi) = (*min, *max);
+            let mut k = 0;
+            if sx != 0 {
+                (lo.x, hi.x) = (o.x.min(o.x + v[k]), o.x.max(o.x + v[k]));
+                k += 1;
+            }
+            if sy != 0 {
+                (lo.y, hi.y) = (o.y.min(o.y + v[k]), o.y.max(o.y + v[k]));
+            }
+            if hi.x - lo.x <= 0.0 || hi.y - lo.y <= 0.0 {
+                return Err(refused());
+            }
+            Ok(match &g.kind {
+                ElementKind::Image { asset, .. } => ElementKind::Image { asset: asset.clone(), min: lo, max: hi },
+                _ => ElementKind::Rect { min: lo, max: hi },
+            })
+        }
+        (ElementKind::Line { from, to }, Handle::End(k), Some(vcb)) => {
+            let (o, end) = line_ends(*from, *to, k);
+            let new = match skraft_tools::vcb::read(vcb, text, units, &glam::DAffine3::IDENTITY)? {
+                VcbValue::Point(p) => p.truncate(),
+                VcbValue::Lengths(v) => o + (end - o).normalize_or(DVec2::X) * v[0],
+                _ => return Err(refused()),
+            };
+            if new.distance(o) <= 0.0 {
+                return Err(refused());
+            }
+            Ok(if k == 0 { ElementKind::Line { from: new, to: o } } else { ElementKind::Line { from: o, to: new } })
+        }
+        (ElementKind::View(v), Handle::Scale(..), None) => match &v.kind {
+            ViewKind::Base { subject, look, at, .. } => {
+                let scale = parse_scale(text).ok_or_else(refused)?;
+                let kind = ViewKind::Base { subject: subject.clone(), look: look.clone(), scale, at: *at };
+                Ok(ElementKind::View(View { kind, ..v.clone() }))
+            }
+            ViewKind::Projected { .. } => Err(refused()),
+        },
+        (ElementKind::Text { at, text: words, .. }, Handle::Size, Some(vcb)) => {
+            let size = lengths(vcb)?[0].abs();
+            if !(0.5..=200.0).contains(&size) {
+                return Err(refused());
+            }
+            Ok(ElementKind::Text { at: *at, text: words.clone(), size })
+        }
+        (ElementKind::Dimension(dim), Handle::Dim, Some(vcb)) => {
+            let d = lengths(vcb)?[0];
+            let kind = match &dim.kind {
+                DimKind::Linear { a, b, orient, .. } => DimKind::Linear { a: a.clone(), b: b.clone(), orient: *orient, offset: d },
+                DimKind::Radius { edge, diameter, at } => {
+                    DimKind::Radius { edge: edge.clone(), diameter: *diameter, at: at.normalize_or(DVec2::X) * d.abs() }
+                }
+                DimKind::Angle { a, b, at } => DimKind::Angle { a: a.clone(), b: b.clone(), at: at.normalize_or(DVec2::X) * d.abs() },
+            };
+            Ok(ElementKind::Dimension(skraft_model::Dimension { view: dim.view, kind }))
+        }
+        _ => Err(refused()),
+    }
+}
+
+/// The shape being drawn from `from` to `to` (a rectangle or a line), as a grip on its moving
+/// corner or end — what the measurements box measures and a value typed makes.
+fn sketch_grip(tool: SheetTool, from: DVec2, to: DVec2) -> Grip {
+    let sign = |v: f64| if v < 0.0 { -1i8 } else { 1 };
+    let (kind, handle) = match tool {
+        SheetTool::Rect => {
+            (ElementKind::Rect { min: from.min(to), max: from.max(to) }, Handle::Side(sign(to.x - from.x), sign(to.y - from.y)))
+        }
+        _ => (ElementKind::Line { from, to }, Handle::End(1)),
+    };
+    Grip { element: Id(0), handle, start: to, from: to, kind, lo: from.min(to), hi: from.max(to) }
+}
+
 /// Where the pointer aims on a sheet (docs/ui/drawing.md#snapping).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Aim {
@@ -684,6 +847,9 @@ impl SheetState {
     /// The status bar's hint on the sheet (docs/ui/drawing.md#placing-views): what the tool
     /// does at its step.
     pub fn status(&self) -> String {
+        if let Some(m) = &self.message {
+            return m.clone();
+        }
         let back = || t!("drawing.hint.back");
         match self.tool {
             SheetTool::Select if self.grip.is_some() => t!("drawing.hint.grip"),
@@ -716,8 +882,15 @@ impl SheetState {
         }
     }
 
+    /// What the measurements box shows (its label, the current value), if it takes a value.
+    pub fn vcb(&self) -> Option<(String, String)> {
+        self.measure.clone()
+    }
+
     /// `tool` started, what the last one was doing dropped.
     pub fn set_tool(&mut self, tool: SheetTool) {
+        self.amend = None;
+        self.message = None;
         self.tool = tool;
         self.picks.clear();
         self.sketch = None;
@@ -1348,10 +1521,8 @@ pub fn ui(
                     None => st.marquee = Some(p),
                 },
                 // A drag from where the button went down (the first click's point, if made).
-                SheetTool::Rect | SheetTool::Line => {
-                    if st.sketch.is_none() {
-                        st.sketch = Some(aim_for(e, st, id, pv.zoom, pv.to_sheet(p), None, None, false).at);
-                    }
+                SheetTool::Rect | SheetTool::Line if st.sketch.is_none() => {
+                    st.sketch = Some(aim_for(e, st, id, pv.zoom, pv.to_sheet(p), None, None, false).at);
                 }
                 _ => {}
             }
@@ -1375,6 +1546,57 @@ pub fn ui(
         };
         // A handle's point: where it aims, else as far as the pointer went.
         let grip_to = |g: &Grip, p: egui::Pos2| aim.map_or_else(|| g.target(pv.to_sheet(p)), |a| a.at);
+        if response.clicked() || response.drag_started() {
+            st.message = None;
+        }
+        // The measurements box (docs/ui/drawing.md#measurements): the shape being drawn, the
+        // handle dragged, else the shape last made or the handle last let go, while its element
+        // is as it was left and picked alone.
+        if st
+            .amend
+            .as_ref()
+            .is_some_and(|a| st.selected != [a.element] || e.document().drawing().element(a.element).map(|el| &el.kind) != Some(&a.kind))
+        {
+            st.amend = None;
+        }
+        if let Some(a) = &aim {
+            st.sketch_to = Some(a.at);
+        }
+        let measured = match (st.sketch, &st.grip, pointer) {
+            (Some(from), _, _) if matches!(st.tool, SheetTool::Rect | SheetTool::Line) => {
+                Some(sketch_grip(st.tool, from, st.sketch_to.unwrap_or(from)))
+            }
+            (_, Some(g), Some(p)) => Some(Grip { kind: regrip(g, grip_to(g, p), shift), ..g.clone() }),
+            _ => st.amend.clone(),
+        };
+        let units = e.document().settings().units.clone();
+        st.measure = measured.as_ref().and_then(measure_of).map(|m| match m {
+            Measure::Lengths(v) => (v.label.clone(), skraft_tools::vcb::display(&v, &units)),
+            Measure::Scale(s) => (t!("drawing.vcb.scale"), scale_label(s)),
+        });
+        // A value typed: the shape drawn so, or the element changed so (one operation).
+        if let Some(text) = st.typed.take()
+            && let Some(g) = &measured
+        {
+            st.message = None;
+            match typed_kind(g, &text, &units) {
+                Ok(kind) if g.element == Id(0) => {
+                    st.sketch = None;
+                    let layer = active_layer(e.document().drawing(), st);
+                    if let Ok(Some(o)) = e.apply(Operation::AddElement { at: Placing { sheet: id, layer }, element: kind.clone() }) {
+                        st.selected = o.element.into_iter().collect();
+                        st.amend = o.element.map(|element| Grip { element, kind, ..g.clone() });
+                    }
+                }
+                Ok(kind) => {
+                    if e.apply(Operation::SetElement { element: g.element, kind: kind.clone() }).is_ok() {
+                        st.grip = None;
+                        st.amend = Some(Grip { kind, ..g.clone() });
+                    }
+                }
+                Err(m) => st.message = Some(m),
+            }
+        }
         let offset = match (st.moving, pointer) {
             (Some(from), Some(p)) => pv.to_sheet(p) - from,
             _ => DVec2::ZERO,
@@ -1390,8 +1612,9 @@ pub fn ui(
         {
             let kind = regrip(&g, grip_to(&g, p), shift);
             if kind != g.kind {
-                let _ = e.apply(Operation::SetElement { element: g.element, kind });
+                let _ = e.apply(Operation::SetElement { element: g.element, kind: kind.clone() });
             }
+            st.amend = Some(Grip { kind, ..g });
         }
         if response.drag_stopped() && st.moving.take().is_some() && offset != DVec2::ZERO {
             let mut ops: Vec<Operation> = moves(e.document().drawing(), &st.selected, offset)
@@ -1446,6 +1669,7 @@ pub fn ui(
                     let layer = active_layer(e.document().drawing(), st);
                     if let Ok(Some(o)) = e.apply(Operation::AddElement { at: Placing { sheet: id, layer }, element }) {
                         st.selected = o.element.into_iter().collect();
+                        st.amend = o.element.map(|element| Grip { element, ..sketch_grip(st.tool, from, to) });
                     }
                 }
                 Some(_) => {}
@@ -1467,7 +1691,11 @@ pub fn ui(
         // Esc goes back one step of the tool: the shape or rectangle drawn dropped, the picks;
         // with Select the selection cleared; a tool stays (Space, `tool.select`, ends it), as in
         // the 3D view (docs/tools/interaction.md#selection). Not while a field is typed in.
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) && ui.ctx().memory(|m| m.focused().is_none()) {
+        let esc = ui.input(|i| i.key_pressed(egui::Key::Escape)) && ui.ctx().memory(|m| m.focused().is_none());
+        if std::mem::take(&mut st.esc_eaten) {
+        } else if esc {
+            st.amend = None;
+            st.message = None;
             if st.sketch.take().is_some() || st.marquee.take().is_some() || st.moving.take().is_some() || st.grip.take().is_some() {
             } else if !st.picks.is_empty() {
                 st.picks.clear();
@@ -1959,6 +2187,60 @@ mod tests {
         // Nothing near, no grid: where the pointer is.
         let p = DVec2::new(73.3, 61.7);
         assert_eq!(aim_at(&on, &align, p, 2.0, None, 0.0).at, p);
+    }
+
+    #[test]
+    fn a_value_typed_sizes_a_shape_the_way_it_goes() {
+        let units = skraft_model::Units::default();
+        // A rectangle going down and left from (10, 10): 100 × 50 that way.
+        let g = sketch_grip(SheetTool::Rect, DVec2::new(10.0, 10.0), DVec2::new(0.0, 5.0));
+        let kind = typed_kind(&g, "100;50", &units).unwrap();
+        assert_eq!(kind, ElementKind::Rect { min: DVec2::new(-90.0, -40.0), max: DVec2::new(10.0, 10.0) });
+        // A line: its length along where it goes, or its end relative to its start.
+        let g = sketch_grip(SheetTool::Line, DVec2::ZERO, DVec2::new(3.0, 4.0));
+        let ElementKind::Line { to, .. } = typed_kind(&g, "100", &units).unwrap() else { panic!() };
+        assert!(to.distance(DVec2::new(60.0, 80.0)) < 1e-9);
+        let ElementKind::Line { to, .. } = typed_kind(&g, "<30;40>", &units).unwrap() else { panic!() };
+        assert!(to.distance(DVec2::new(30.0, 40.0)) < 1e-9);
+        // Nonsense is refused.
+        assert!(typed_kind(&g, "abc", &units).is_err());
+    }
+
+    #[test]
+    fn values_are_in_the_documents_unit() {
+        let units = skraft_model::Units { length: skraft_model::LengthUnit::Inch, ..Default::default() };
+        let g = sketch_grip(SheetTool::Rect, DVec2::ZERO, DVec2::new(10.0, 10.0));
+        let ElementKind::Rect { max, .. } = typed_kind(&g, "2;1", &units).unwrap() else { panic!() };
+        assert!(max.distance(DVec2::new(50.8, 25.4)) < 1e-9);
+        // An explicit unit wins.
+        let ElementKind::Rect { max, .. } = typed_kind(&g, "10mm;1", &units).unwrap() else { panic!() };
+        assert!(max.distance(DVec2::new(10.0, 25.4)) < 1e-9);
+    }
+
+    #[test]
+    fn a_side_handle_takes_one_length_from_the_opposite_side() {
+        let units = skraft_model::Units::default();
+        let kind = ElementKind::Rect { min: DVec2::ZERO, max: DVec2::new(40.0, 20.0) };
+        let g = Grip {
+            element: Id(1),
+            handle: Handle::Side(-1, 0),
+            start: DVec2::ZERO,
+            from: DVec2::ZERO,
+            kind,
+            lo: DVec2::ZERO,
+            hi: DVec2::ONE,
+        };
+        assert_eq!(typed_kind(&g, "100", &units).unwrap(), ElementKind::Rect { min: DVec2::new(-60.0, 0.0), max: DVec2::new(40.0, 20.0) });
+    }
+
+    #[test]
+    fn scales_are_typed_as_ratios() {
+        assert_eq!(parse_scale("1:20"), Some(0.05));
+        assert_eq!(parse_scale("2:1"), Some(2.0));
+        assert_eq!(parse_scale("1/4"), Some(0.25));
+        assert_eq!(parse_scale("0,5"), Some(0.5));
+        assert_eq!(parse_scale("0:1"), None);
+        assert_eq!(parse_scale("abc"), None);
     }
 
     #[test]
