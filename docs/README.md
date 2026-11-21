@@ -124,4 +124,6 @@ decision replaced. What is not built yet is not described here.
   `cargo deny` in CI), `scripts/third-party-licenses.sh` writes the notices shipped with the
   installers.
 - Checks: a pull request runs `.github/workflows/checks.yml` on Linux (rustfmt, Clippy with its
-  warnings denied, the tests). The workflows' actions are pinned by commit.
+  warnings denied, the tests). The workflows' actions are pinned by commit; Dependabot
+  (`.github/dependabot.yml`) proposes their updates monthly, and for the crates security fixes
+  only.
