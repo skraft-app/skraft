@@ -5,7 +5,7 @@ members = ["crates/i18n", "crates/theme", "crates/kernel", "crates/model", "crat
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 license = "GPL-3.0-or-later"
 # Our crates are not published on crates.io (and so are not third-party in about.toml).
 publish = false
@@ -39,7 +39,7 @@ solidcore-step = { git = "https://github.com/tangency-labs/solidcore", rev = "3a
 # SketchUp files read (docs/io/sketchup-import.md): a clean-room .skp reader, GPL-3.0-only.
 skpwright = "0.6.1"
 
-glam = { version = "0.30", features = ["serde"] }
+glam = { version = "0.34", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 # Messages to and from the kernel's web worker (docs/model/kernel.md).
@@ -66,14 +66,14 @@ eframe = { version = "0.37", default-features = false, features = ["wgpu_no_defa
 # egui-wgpu's default features but `wgpu/webgl` (and `wgpu/default`, the `wgpu` entry's).
 egui-wgpu = { version = "0.37", default-features = false, features = ["fragile-send-sync-non-atomic-wasm", "macos-window-resize-jitter-fix"] }
 egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
-rfd = "0.17"
+rfd = "0.18"
 # A drawing written as a PDF (apps/skraft/src/pdf.rs, docs/ui/drawing.md#pdf).
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images", "simple-text"] }
 bytemuck = { version = "1", features = ["derive"] }
 # The wgpu egui-wgpu 0.37 is built on. Its default features: Metal, DX12, Vulkan, GLES natively,
 # WebGPU on the web — no WebGL (docs/render/display.md).
 wgpu = "30"
-pollster = "0.4"
+pollster = "1"
 
 [profile.dev]
 # Line numbers only (panic backtraces): full debug info made the build tree tens of GB.

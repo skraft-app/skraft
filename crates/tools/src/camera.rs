@@ -168,7 +168,7 @@ impl Camera {
 
     /// World to camera.
     pub fn view(&self) -> DMat4 {
-        DMat4::look_to_rh(self.eye, self.forward(), self.up())
+        glam::dcamera::rh::view::look_to_mat4(self.eye, self.forward(), self.up())
     }
 
     /// Camera to clip, reversed depth. `bounds`: the scene's (for the parallel depth range).
@@ -176,7 +176,7 @@ impl Camera {
         match self.projection {
             Projection::Perspective { fov_y } => {
                 let near = (self.focus * 1e-3).clamp(1e-3, 100.0);
-                Mat4::perspective_infinite_reverse_rh(fov_y as f32, aspect as f32, near as f32)
+                glam::camera::rh::proj::directx::perspective_infinite_reverse(fov_y as f32, aspect as f32, near as f32)
             }
             Projection::Parallel { height } => {
                 let (hh, hw) = (height / 2.0, height / 2.0 * aspect);
@@ -199,7 +199,7 @@ impl Camera {
                     (near, far) = (a - pad, b + pad);
                 }
                 // Reversed: the near plane maps to 1, the far plane to 0.
-                Mat4::orthographic_rh(-hw as f32, hw as f32, -hh as f32, hh as f32, far as f32, near as f32)
+                glam::camera::rh::proj::directx::orthographic(-hw as f32, hw as f32, -hh as f32, hh as f32, far as f32, near as f32)
             }
         }
     }

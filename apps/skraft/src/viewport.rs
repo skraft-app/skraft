@@ -1188,11 +1188,11 @@ fn thumbnail_camera((lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
     }
     let half = (w.max(h) * 1.12).max(1e-3);
     let eye = center - forward * (2.0 * d + half + 1.0);
-    let view = DMat4::look_to_rh(eye, forward, up);
+    let view = glam::dcamera::rh::view::look_to_mat4(eye, forward, up);
     let dist = (center - eye).dot(forward);
     let (near, far) = ((dist - d * 1.1 - 1.0).max(1e-3), dist + d * 1.1 + 1.0);
     // Reversed depth: near → 1, far → 0.
-    let proj = glam::Mat4::orthographic_rh(-half as f32, half as f32, -half as f32, half as f32, far as f32, near as f32);
+    let proj = glam::camera::rh::proj::directx::orthographic(-half as f32, half as f32, -half as f32, half as f32, far as f32, near as f32);
     (view, proj)
 }
 

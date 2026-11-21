@@ -14,7 +14,7 @@
 //! `view × world × recentre` is computed on the CPU in `f64` and only then made `f32`, and each
 //! definition's mesh is stored around its own centre. Depth is **reversed** (1 near, 0 far) in
 //! a float depth buffer (with a stencil, for section caps): [`Frame::proj`] must map near to
-//! 1, e.g. `Mat4::perspective_infinite_reverse_rh`.
+//! 1, e.g. `glam::camera::rh::proj::directx::perspective_infinite_reverse`.
 //!
 //! Colours (docs/render/look.md): faces take a colour from the frame's **palette** — the face's own
 //! (baked in the mesh, [`Part::face_paint`]), else its placement's ([`Placement::material`]),

@@ -15,4 +15,4 @@ bytemuck.workspace = true
 [dev-dependencies]
 skraft-kernel = { workspace = true, features = ["engine"] }
 pollster.workspace = true
-png = "0.17"
+png = "0.18"

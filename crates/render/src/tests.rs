@@ -68,8 +68,8 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
     let batches = [Batch::new(7, placements)];
     let size = SIZE;
     let eye = offset + DVec3::new(-20.0, -70.0, 50.0);
-    let view = DMat4::look_at_rh(eye, offset + DVec3::new(0.0, 5.0, 5.0), DVec3::Z);
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, size[0] as f32 / size[1] as f32, 1.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(eye, offset + DVec3::new(0.0, 5.0, 5.0), DVec3::Z);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, size[0] as f32 / size[1] as f32, 1.0);
     let hl = [Highlight {
         key: 7,
         part: 1,
@@ -157,8 +157,8 @@ fn concave_edges_are_not_buried() {
     r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &mesh, face_paint: &[] }]);
     let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
     let size = [640, 400];
-    let view = DMat4::look_at_rh(DVec3::new(-30.0, -60.0, 90.0), DVec3::new(20.0, 20.0, 5.0), DVec3::Z);
-    let proj = Mat4::perspective_infinite_reverse_rh(0.6, size[0] as f32 / size[1] as f32, 1.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(-30.0, -60.0, 90.0), DVec3::new(20.0, 20.0, 5.0), DVec3::Z);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.6, size[0] as f32 / size[1] as f32, 1.0);
     let frame = Frame {
         view,
         proj,
@@ -212,8 +212,8 @@ fn a_mirrored_placement_shows_its_outside() {
     // wound the other way. Its faces must stay front faces (not the blue-grey of back faces).
     let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
     r.set_mesh(&device, 3, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
-    let view = DMat4::look_at_rh(DVec3::new(-20.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z);
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(-20.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let mut shot = |transform: DMat4| {
         let batches = [Batch::new(3, vec![Placement::new(transform)])];
         let frame = Frame {
@@ -254,7 +254,7 @@ fn shot(
     placement: Placement,
     style: Style<'_>,
 ) -> (Vec<u8>, bool) {
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let batches = [Batch::new(1, vec![placement])];
     let frame = Frame {
         view,
@@ -282,7 +282,7 @@ fn shot(
 }
 
 fn front_view() -> DMat4 {
-    DMat4::look_at_rh(DVec3::new(-20.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z)
+    glam::dcamera::rh::view::look_at_mat4(DVec3::new(-20.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z)
 }
 
 #[test]
@@ -299,7 +299,7 @@ fn a_still_frame_is_not_drawn_again() {
     assert!(drew, "the first frame is drawn");
     // `shot` renders the same frame twice: the second time, nothing is drawn.
     let mut enc = device.create_command_encoder(&Default::default());
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let batches = [Batch::new(1, vec![p])];
     let frame = Frame {
         view: front_view(),
@@ -325,7 +325,7 @@ fn a_still_frame_is_not_drawn_again() {
     let again = draw(&mut r, &device, &queue, SIZE, &frame);
     assert_eq!(first, again);
     // Anything that changes the picture draws it: the camera, a colour, a new mesh.
-    let moved = DMat4::look_at_rh(DVec3::new(-21.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z);
+    let moved = glam::dcamera::rh::view::look_at_mat4(DVec3::new(-21.0, -30.0, 25.0), DVec3::ZERO, DVec3::Z);
     assert!(shot(&mut r, &device, &queue, moved, p, Style::default()).1);
     let red = [[0.8, 0.05, 0.05, 1.0]];
     let style = Style { palette: &red, ..Style::default() };
@@ -383,7 +383,7 @@ fn a_face_highlight_forces_its_colour_on_that_face_only() {
     let style = Style { palette: &palette, ..Style::default() };
     // Every face painted red.
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[0; 6] }]);
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
     let mut shoot = |material: u32, face: Option<u32>| {
         let hl = Highlight {
@@ -455,7 +455,7 @@ fn a_cylinder_shows_its_outline() {
     // A tall cylinder seen from the side: its B-rep edges are the two circles; its sides
     // are only silhouettes.
     let cyl = Solid::new_cylinder(DVec3::new(0.0, 0.0, -15.0), 6.0, 30.0).unwrap().mesh().unwrap();
-    let view = DMat4::look_at_rh(DVec3::new(0.0, -60.0, 0.0), DVec3::ZERO, DVec3::Z);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(0.0, -60.0, 0.0), DVec3::ZERO, DVec3::Z);
     let mut r = Renderer::new(&device);
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cyl, face_paint: &[] }]);
     let p = Placement::new(DMat4::IDENTITY);
@@ -476,7 +476,7 @@ fn a_section_cuts_and_caps() {
     };
     // A cube cut by the plane x = 0, the +x half removed; seen from +x, the cap faces the eye.
     let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
-    let view = DMat4::look_at_rh(DVec3::new(30.0, -10.0, 8.0), DVec3::ZERO, DVec3::Z);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(30.0, -10.0, 8.0), DVec3::ZERO, DVec3::Z);
     let mut r = Renderer::new(&device);
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
     let palette = [[0.05, 0.6, 0.05, 1.0]];
@@ -529,8 +529,8 @@ fn a_cap_wins_over_a_part_lying_on_it() {
         let red = Solid::new_box(DVec3::new(-10.0, -10.0, -10.0), DVec3::new(20.0, 20.0, 10.0 + rise)).unwrap().mesh().unwrap();
         r.set_mesh(&device, 2, rise.to_bits(), &[Part { id: 2, mesh: &red, face_paint: &[] }]);
         let frame = Frame {
-            view: DMat4::look_at_rh(eye, DVec3::new(0.0, 0.0, 5.0), DVec3::Z),
-            proj: Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0),
+            view: glam::dcamera::rh::view::look_at_mat4(eye, DVec3::new(0.0, 0.0, 5.0), DVec3::Z),
+            proj: glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0),
             background: [1.0, 1.0, 1.0],
             style,
             batches: &batches,
@@ -577,7 +577,7 @@ fn hatches_run_across_a_cap_seen_at_a_slant() {
     let p = Placement { material: 0, ..Placement::new(DMat4::IDENTITY) };
     let section = Some(Section { origin: DVec3::ZERO, normal: DVec3::Z });
     let style = Style { palette: &palette, section, cap_shade: 0.0, ..Style::default() };
-    let view = DMat4::look_at_rh(DVec3::new(0.0, -60.0, 40.0), DVec3::new(0.0, 150.0, 0.0), DVec3::Z);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(0.0, -60.0, 40.0), DVec3::new(0.0, 150.0, 0.0), DVec3::Z);
     let (px, _) = shot(&mut r, &device, &queue, view, p, style);
     save(&px, SIZE, "section_slant");
     // The rows the cap crosses (green), and the hatches crossing each, its middle half.
@@ -605,7 +605,7 @@ fn a_section_caps_only_where_it_cuts() {
     // The plane lies between the eye and the cube: the cube is wholly kept, so it must look
     // as without a section — shaded, with its edges — not painted over as a cap.
     let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
-    let view = DMat4::look_at_rh(DVec3::new(30.0, -10.0, 8.0), DVec3::ZERO, DVec3::Z);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(30.0, -10.0, 8.0), DVec3::ZERO, DVec3::Z);
     let mut r = Renderer::new(&device);
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
     let palette = [[0.05, 0.6, 0.05, 1.0]];
@@ -639,7 +639,7 @@ fn a_ghost_shows_what_it_holds() {
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &blank, face_paint: &[] }]);
     r.set_mesh(&device, 2, 1, &[Part { id: 2, mesh: &tool, face_paint: &[] }]);
     let red = [[0.8, 0.02, 0.02, 1.0]];
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let shoot = |r: &mut Renderer, ghost: bool| {
         let batches = [
             Batch { ghost, ..Batch::new(1, vec![Placement::new(DMat4::IDENTITY)]) },
@@ -686,7 +686,7 @@ fn faint_edges_are_see_through() {
     let mut r = Renderer::new(&device);
     let mesh = Solid::new_box(DVec3::splat(-8.0), DVec3::splat(16.0)).unwrap().mesh().unwrap();
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &mesh, face_paint: &[] }]);
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     let shoot = |r: &mut Renderer, faint_edges: bool| {
         let batches = [Batch { ghost: true, faint_edges, ..Batch::new(1, vec![Placement::new(DMat4::IDENTITY)]) }];
         let frame = Frame {
@@ -733,8 +733,8 @@ fn dashed_lines_are_dashed_on_screen() {
     let mut r = Renderer::new(&device);
     // Looking down -Z, a pixel a unit, the plane z = 0 at depth 10 in a 5–15 range.
     let size = [200, 40];
-    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
-    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = glam::camera::rh::proj::directx::orthographic(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
     let clamped = device.features().contains(wgpu::Features::DEPTH_CLIP_CONTROL);
     let z = if clamped { 1000.0 } else { 2.0 };
     let line = Line {
@@ -795,8 +795,8 @@ fn dashed_lines_are_laid_in_model_units() {
     let mut r = Renderer::new(&device);
     // Looking down -Z, a pixel a unit, the plane z = 0 at depth 10 in a 5–15 range.
     let size = [200, 40];
-    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
-    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = glam::camera::rh::proj::directx::orthographic(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
     let clamped = device.features().contains(wgpu::Features::DEPTH_CLIP_CONTROL);
     let z = if clamped { 1000.0 } else { 2.0 };
     let line = Line {
@@ -864,8 +864,8 @@ fn box_outlines_are_dashed_from_their_corners() {
     let mut r = Renderer::new(&device);
     // Looking down -Z, a pixel a unit; the box 160 × 30 px, centred, flat at z = 0..1.
     let size = [200, 40];
-    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
-    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = glam::camera::rh::proj::directx::orthographic(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
     let outline = BoxOutline {
         dash: Some(Dash::even(5.0, Lay::Model(0.0))),
         ..BoxOutline::new(
@@ -918,7 +918,7 @@ fn fills_hide_behind_faces() {
     let cube = Solid::new_box(DVec3::splat(-5.0), DVec3::splat(10.0)).unwrap().mesh().unwrap();
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &cube, face_paint: &[] }]);
     let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
     // A large red plane under the cube.
     let c = |x: f64, y: f64| DVec3::new(x, y, -20.0);
     let plane = [Fill::polygon(vec![c(-500.0, -500.0), c(500.0, -500.0), c(500.0, 500.0), c(-500.0, 500.0)], [1.0, 0.0, 0.0, 0.5])];
@@ -965,8 +965,8 @@ fn x_ray_lines_are_dashed_behind_faces() {
     let mut r = Renderer::new(&device);
     // Looking down -Z, a pixel a unit; a slab 40 px wide over the middle of a red line.
     let size = [200, 40];
-    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
-    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = glam::camera::rh::proj::directx::orthographic(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
     let slab = Solid::new_box(DVec3::new(-20.0, -15.0, -2.0), DVec3::new(40.0, 30.0, 4.0)).unwrap().mesh().unwrap();
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &slab, face_paint: &[] }]);
     let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
@@ -1023,8 +1023,8 @@ fn faint_lines_blend_over_faces() {
     let mut r = Renderer::new(&device);
     // Looking down -Z, a pixel a unit, on a black background; a slab 40 px wide.
     let size = [200, 40];
-    let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
-    let proj = Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y);
+    let proj = glam::camera::rh::proj::directx::orthographic(-100.0, 100.0, -20.0, 20.0, 15.0, 5.0);
     let slab = Solid::new_box(DVec3::new(-20.0, -15.0, -2.0), DVec3::new(40.0, 30.0, 4.0)).unwrap().mesh().unwrap();
     r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &slab, face_paint: &[] }]);
     let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
@@ -1077,8 +1077,8 @@ fn faint_lines_blend_over_faces() {
 /// to -30: `lines`, `boxes`, `fills` and the slab `batches` drawn on white.
 fn flat_frame<'a>(batches: &'a [Batch], lines: &'a [Line], boxes: &'a [BoxOutline], fills: &'a [Fill]) -> Frame<'a> {
     Frame {
-        view: DMat4::look_at_rh(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y),
-        proj: Mat4::orthographic_rh(-100.0, 100.0, -20.0, 20.0, 40.0, 1.0),
+        view: glam::dcamera::rh::view::look_at_mat4(DVec3::new(0.0, 0.0, 10.0), DVec3::ZERO, DVec3::Y),
+        proj: glam::camera::rh::proj::directx::orthographic(-100.0, 100.0, -20.0, 20.0, 40.0, 1.0),
         background: [1.0, 1.0, 1.0],
         style: Style::default(),
         batches,
@@ -1340,7 +1340,7 @@ fn anchored_dashes_lie_on_the_line_in_perspective() {
     };
     let mut r = Renderer::new(&device);
     let size = [400, 400];
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, 1.0, 0.1);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, 1.0, 0.1);
     // The camera at the origin looking down -Z.
     fn frame<'a>(proj: Mat4, lines: &'a [Line], boxes: &'a [BoxOutline]) -> Frame<'a> {
         Frame { view: DMat4::IDENTITY, proj, ..flat_frame(&[], lines, boxes, &[]) }
@@ -1382,7 +1382,7 @@ fn model_dashes_hold_still_on_a_line_as_the_view_orbits() {
     };
     let mut r = Renderer::new(&device);
     let size = [400, 400];
-    let proj = Mat4::perspective_infinite_reverse_rh(0.8, 1.0, 0.1);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, 1.0, 0.1);
     let (a, b, phase) = (DVec3::new(-1.0, -1.0, -4.0), DVec3::new(2.0, -1.0, -20.0), 3.7);
     let line = Line { a, b, color: [0.0, 0.0, 0.0, 1.0], dash: Some(Dash::even(5.0, Lay::Model(phase))), width: LINE_WIDTH };
     // 10 points at the focus: 0.5 model units, a period of 0.5.
@@ -1479,7 +1479,7 @@ fn a_picture_leaves_the_viewport_as_it_was() {
     let batches = [Batch::new(1, vec![p])];
     let frame = Frame {
         view: front_view(),
-        proj: Mat4::perspective_infinite_reverse_rh(0.8, 1.0, 1.0),
+        proj: glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, 1.0, 1.0),
         background: [0.0, 0.0, 0.0],
         style: Style::default(),
         batches: &batches,
@@ -1562,13 +1562,13 @@ fn far_edges_behind_a_face_stay_hidden() {
     let aspect = size[0] as f32 / size[1] as f32;
     let target = DVec3::new(200.0, 20.0, 150.0);
     let dir = DVec3::new(-0.5, -1.0, 0.7).normalize();
-    let perspective = Mat4::perspective_infinite_reverse_rh(35f32.to_radians(), aspect, 1.0);
+    let perspective = glam::camera::rh::proj::directx::perspective_infinite_reverse(35f32.to_radians(), aspect, 1.0);
     for (name, dist, parallel) in [("far_hidden_perspective", 3500.0, false), ("far_hidden_parallel", 3500.0, true)] {
-        let view = DMat4::look_at_rh(target + dir * dist, target, DVec3::Z);
+        let view = glam::dcamera::rh::view::look_at_mat4(target + dir * dist, target, DVec3::Z);
         let proj = if parallel {
             let h = dist as f32 * 0.6;
             // Reversed depth: the far plane first.
-            Mat4::orthographic_rh(-h * aspect, h * aspect, -h, h, dist as f32 + 1000.0, dist as f32 - 1000.0)
+            glam::camera::rh::proj::directx::orthographic(-h * aspect, h * aspect, -h, h, dist as f32 + 1000.0, dist as f32 - 1000.0)
         } else {
             perspective
         };
@@ -1641,8 +1641,8 @@ fn embedded_edges_stay_hidden_far_away() {
     for (dist, angle) in [(7600.0, 25.0), (3000.0, 45.0), (1500.0, 60.0), (600.0, 75.0)] {
         let a = f64::to_radians(angle);
         let dir = DVec3::new(-a.sin(), -0.05, a.cos()).normalize();
-        let view = DMat4::look_at_rh(target + dir * dist, target, DVec3::Y);
-        let proj = Mat4::perspective_infinite_reverse_rh(35f32.to_radians(), aspect, (dist * 1e-3) as f32);
+        let view = glam::dcamera::rh::view::look_at_mat4(target + dir * dist, target, DVec3::Y);
+        let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(35f32.to_radians(), aspect, (dist * 1e-3) as f32);
         let mut shoot = |batches: &[Batch]| {
             let frame = Frame {
                 view,

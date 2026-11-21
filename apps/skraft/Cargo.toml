@@ -38,7 +38,7 @@ skraft-control.workspace = true
 # A clock on the web too (the render statistics overlay); already eframe's.
 web-time = "1.1"
 # Screenshots of the control protocol (src/driving.rs), on the web too.
-png = "0.17"
+png = "0.18"
 # A drawing written as a PDF, its texts in the app's font (src/pdf.rs).
 krilla.workspace = true
 # The system's preferred languages, for the texts when the preferences leave the language to
@@ -54,7 +54,7 @@ rfd.workspace = true
 # Runs the asynchronous file dialogs on a thread (src/file.rs).
 pollster.workspace = true
 env_logger = "0.11"
-dirs = "6"
+dirs = "7"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # winit's windowing backends, off with eframe's default features (workspace Cargo.toml).

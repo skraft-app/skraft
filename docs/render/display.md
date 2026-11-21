@@ -159,7 +159,7 @@ The GPU only has `f32`; neither WebGPU, WebGL2 nor Metal offer `f64`.
 - **Recentred meshes**: the kernel's `Mesh` is in `f32` relative to its centre (`origin` in
   `f64`), and a definition's GPU mesh is relative to the centre of its solids.
 - **Reversed depth** (near → 1, far → 0) in a `Depth32Float`: nearly uniform precision; the
-  projection given must be reversed (`Mat4::perspective_infinite_reverse_rh`).
+  projection given must be reversed (`glam::camera::rh::proj::directx::perspective_infinite_reverse`).
 - Checked by a test: the same scene 100 km from the origin gives the same image.
 
 ## Wide lines

@@ -1437,10 +1437,17 @@ fn picture_camera(r: &Resolved<'_>, (lo, hi): (DVec3, DVec3)) -> (DMat4, glam::M
     let centre = f.right * c.x + f.up * c.y + f.forward * c.z;
     let back = half.z + half.x.max(half.y) + 1.0;
     let eye = centre - f.forward * back;
-    let view = DMat4::look_to_rh(eye, f.forward, f.up);
+    let view = glam::dcamera::rh::view::look_to_mat4(eye, f.forward, f.up);
     let (near, far) = ((back - half.z * 1.05 - 1.0).max(1e-3), back + half.z * 1.05 + 1.0);
     // Reversed depth: near → 1, far → 0.
-    let proj = glam::Mat4::orthographic_rh(-half.x as f32, half.x as f32, -half.y as f32, half.y as f32, far as f32, near as f32);
+    let proj = glam::camera::rh::proj::directx::orthographic(
+        -half.x as f32,
+        half.x as f32,
+        -half.y as f32,
+        half.y as f32,
+        far as f32,
+        near as f32,
+    );
     (view, proj)
 }
 
