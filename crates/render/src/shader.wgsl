@@ -674,13 +674,20 @@ fn vs_box_front(in: BoxIn) -> LineOut {
     let model = mat4x4<f32>(in.m0, in.m1, in.m2, in.m3);
     let e = box_edge_corners(in.vi);
     let axis = e.x ^ e.y;
-    // The edge's two faces: across each other axis, on the side of its corners.
-    for (var k = 0u; k < 3u; k++) {
-        if ((1u << k) != axis && face_exposed(model, k, (e.x >> k) & 1u)) {
-            return box_edge(in);
-        }
+    // The edge's two faces: across each other axis, on the side of its corners. Written out
+    // rather than looped over: DX12's FXC fails on the loop (X3511, "forced to unroll loop").
+    if (edge_face_exposed(model, e.x, axis, 0u)
+        || edge_face_exposed(model, e.x, axis, 1u)
+        || edge_face_exposed(model, e.x, axis, 2u)) {
+        return box_edge(in);
     }
     return no_line();
+}
+
+// Whether the face across axis `k` on the side of `corner` is one of those of the edge along
+// `axis` (a single bit) through that corner, and turned to the eye.
+fn edge_face_exposed(model: mat4x4<f32>, corner: u32, axis: u32, k: u32) -> bool {
+    return (1u << k) != axis && face_exposed(model, k, (corner >> k) & 1u);
 }
 
 fn no_line() -> LineOut {
