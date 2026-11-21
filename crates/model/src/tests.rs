@@ -2285,7 +2285,6 @@ fn record_bytes(s: &Arc<kernel::Solid>) -> u64 {
 #[test]
 fn the_history_weighs_what_its_states_hold_alone() {
     let mut h = History::new(Document::new());
-    let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
     h.weigh(&record_bytes);
     let cube_bytes = h.document().components().find_map(|c| c.as_part()).unwrap().shape().approx_bytes();

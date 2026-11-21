@@ -1,0 +1,41 @@
+# What a pull request must pass: the format, Clippy with its warnings denied, and the tests.
+# Pull requests only: the maintainers' merges into main are checked locally, and spend no minutes
+# here. The off-screen rendering tests skip themselves on these runners, which have no GPU.
+name: Checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  checks:
+    name: Format, Clippy, tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # rustup installs the toolchain of rust-toolchain.toml on first use.
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked

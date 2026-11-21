@@ -809,6 +809,9 @@ pub enum Prepared {
     Kernel(Job),
 }
 
+/// What [`Outcome::relocated`] holds.
+type Relocated = Vec<(Vec<Id>, Vec<Id>)>;
+
 impl Document {
     /// Validates `op` and gathers the kernel calls it needs. On error the document is unchanged.
     pub fn prepare(&self, op: &Operation) -> Result<Prepared> {
@@ -2227,7 +2230,7 @@ impl Document {
     /// [`Operation::UngroupBodies`]: the groups among the bodies `ids` of `part` flattened in
     /// place — their children brought up, placements and signs composed (fresh ids when the
     /// group is shared); returns the bodies brought up.
-    fn ungroup_bodies(&mut self, part: Id, ids: &[Id], solver: &mut dyn Solver) -> Result<(Vec<Id>, Vec<(Vec<Id>, Vec<Id>)>)> {
+    fn ungroup_bodies(&mut self, part: Id, ids: &[Id], solver: &mut dyn Solver) -> Result<(Vec<Id>, Relocated)> {
         let p = self.part(part)?.clone();
         let is_group = |b: &Body| ids.contains(&b.id) && p.def_of(b).is_group();
         if !p.bodies.iter().any(is_group) {

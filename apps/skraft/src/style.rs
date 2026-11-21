@@ -311,6 +311,68 @@ fn apply(s: &mut egui::Style, t: &UiTokens) {
     w.hovered.corner_radius = CornerRadius::same(t.radius_sm.saturating_sub(1));
 }
 
+/// Tips (tooltips) centred under their widget (above it when there is no room below), where
+/// egui puts them at its left: `.tip(text)` in place of egui's `.on_hover_text(text)`,
+/// `.tip_ui(add)` of its `.on_hover_ui(add)` (docs/ui/interface.md#tips).
+pub trait Tip {
+    fn tip(self, text: impl Into<egui::WidgetText>) -> Self;
+    /// A tip of a name and what it does: `more` smaller, on a line of its own (none when
+    /// empty).
+    fn tip_more(self, text: &str, more: &str) -> Self;
+    fn tip_ui(self, add: impl FnOnce(&mut egui::Ui)) -> Self;
+}
+
+impl Tip for egui::Response {
+    fn tip(self, text: impl Into<egui::WidgetText>) -> Self {
+        let text = text.into();
+        describe_for_accessibility(&self, text.text());
+        self.tip_ui(|ui| {
+            // An explicit width: an auto-sized tip shrinks when its text changes.
+            ui.set_max_width(ui.spacing().tooltip_width);
+            ui.label(text);
+        })
+    }
+
+    fn tip_more(self, text: &str, more: &str) -> Self {
+        if more.is_empty() {
+            return self.tip(text);
+        }
+        describe_for_accessibility(&self, &format!("{text}. {more}"));
+        self.tip_ui(|ui| {
+            ui.set_max_width(ui.spacing().tooltip_width);
+            ui.label(text);
+            ui.label(egui::RichText::new(more).small());
+        })
+    }
+
+    fn tip_ui(self, add: impl FnOnce(&mut egui::Ui)) -> Self {
+        let mut tip = egui::Tooltip::for_enabled(&self);
+        tip.popup = tip.popup.align(egui::RectAlign::BOTTOM);
+        tip.show(add);
+        self
+    }
+}
+
+/// Hands a tip's `text` to assistive tools, on widgets that have an AccessKit node: as the
+/// node's description if it has none, and as its name if it is otherwise nameless (an icon-only
+/// button).
+fn describe_for_accessibility(r: &egui::Response, text: &str) {
+    if !r.ctx.has_accesskit_node(r.id) {
+        return;
+    }
+    r.ctx.accesskit_node_builder(r.id, |node| {
+        if node.description().is_none() {
+            node.set_description(text);
+        }
+        let named = node.role() == egui::accesskit::Role::Label
+            || !node.labelled_by().is_empty()
+            || node.label().is_some_and(|label| !label.is_empty());
+        if !named {
+            node.set_label(text);
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,66 +437,4 @@ mod tests {
             assert!(missing.is_empty(), "{family:?} lacks {missing:?}");
         }
     }
-}
-
-/// Tips (tooltips) centred under their widget (above it when there is no room below), where
-/// egui puts them at its left: `.tip(text)` in place of egui's `.on_hover_text(text)`,
-/// `.tip_ui(add)` of its `.on_hover_ui(add)` (docs/ui/interface.md#tips).
-pub trait Tip {
-    fn tip(self, text: impl Into<egui::WidgetText>) -> Self;
-    /// A tip of a name and what it does: `more` smaller, on a line of its own (none when
-    /// empty).
-    fn tip_more(self, text: &str, more: &str) -> Self;
-    fn tip_ui(self, add: impl FnOnce(&mut egui::Ui)) -> Self;
-}
-
-impl Tip for egui::Response {
-    fn tip(self, text: impl Into<egui::WidgetText>) -> Self {
-        let text = text.into();
-        describe_for_accessibility(&self, text.text());
-        self.tip_ui(|ui| {
-            // An explicit width: an auto-sized tip shrinks when its text changes.
-            ui.set_max_width(ui.spacing().tooltip_width);
-            ui.label(text);
-        })
-    }
-
-    fn tip_more(self, text: &str, more: &str) -> Self {
-        if more.is_empty() {
-            return self.tip(text);
-        }
-        describe_for_accessibility(&self, &format!("{text}. {more}"));
-        self.tip_ui(|ui| {
-            ui.set_max_width(ui.spacing().tooltip_width);
-            ui.label(text);
-            ui.label(egui::RichText::new(more).small());
-        })
-    }
-
-    fn tip_ui(self, add: impl FnOnce(&mut egui::Ui)) -> Self {
-        let mut tip = egui::Tooltip::for_enabled(&self);
-        tip.popup = tip.popup.align(egui::RectAlign::BOTTOM);
-        tip.show(add);
-        self
-    }
-}
-
-/// Hands a tip's `text` to assistive tools, on widgets that have an AccessKit node: as the
-/// node's description if it has none, and as its name if it is otherwise nameless (an icon-only
-/// button).
-fn describe_for_accessibility(r: &egui::Response, text: &str) {
-    if !r.ctx.has_accesskit_node(r.id) {
-        return;
-    }
-    r.ctx.accesskit_node_builder(r.id, |node| {
-        if node.description().is_none() {
-            node.set_description(text);
-        }
-        let named = node.role() == egui::accesskit::Role::Label
-            || !node.labelled_by().is_empty()
-            || node.label().is_some_and(|label| !label.is_empty());
-        if !named {
-            node.set_label(text);
-        }
-    });
 }
