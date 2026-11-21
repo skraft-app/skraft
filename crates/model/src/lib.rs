@@ -173,6 +173,8 @@ pub enum FileError {
     NotZip,
     /// An entry the file must have, missing (its path in the ZIP).
     MissingEntry(String),
+    /// Expanding past what a file of its size may (docs/io/file-format.md#untrusted-files).
+    TooLarge,
     /// Another `format` than Skraft's.
     NotSkraft(String),
     TooNew(u32),
@@ -297,6 +299,7 @@ impl std::fmt::Display for FileError {
             FileError::Unreadable(e) => t!("error.file.unreadable", error = e),
             FileError::NotZip => t!("error.file.not_zip"),
             FileError::MissingEntry(entry) => t!("error.file.missing_entry", entry = entry),
+            FileError::TooLarge => t!("error.file.too_large"),
             FileError::NotSkraft(format) => t!("error.file.not_skraft", format = format),
             FileError::TooNew(version) => t!("error.file.too_new", version = version, supported = file::VERSION),
             FileError::RootNotAssembly => t!("error.file.root_not_assembly"),

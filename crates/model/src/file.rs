@@ -33,6 +33,35 @@ const CACHE: &str = "cache/";
 const TEXTURES: &str = "textures/";
 /// How the file was last seen ([`FileView`]): absent when it holds nothing.
 const VIEW: &str = "view.json";
+/// The most [`VIEW`] may hold: past it, the view is ignored.
+const MAX_VIEW: u64 = 1 << 20;
+
+/// What a file may expand to once decompressed (docs/io/file-format.md#untrusted-files): this many
+/// times its size (real files stay under 10)…
+const MAX_EXPANSION: u64 = 256;
+/// …never less than this…
+pub(crate) const MIN_EXPANDED: u64 = 64 << 20;
+/// …nor more than this.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_EXPANDED: u64 = 4 << 30;
+#[cfg(target_arch = "wasm32")]
+const MAX_EXPANDED: u64 = 1 << 30;
+
+/// An entry's bytes, taken from what the file may still expand to (`left`); `None` past it. Its
+/// `declared` size is only a hint: a forged one neither reserves memory nor lets more through.
+pub(crate) fn read_entry(entry: impl Read, declared: u64, left: &mut u64) -> std::io::Result<Option<Vec<u8>>> {
+    if declared > *left {
+        return Ok(None);
+    }
+    let mut out = Vec::with_capacity(declared.min(MIN_EXPANDED) as usize);
+    entry.take(*left + 1).read_to_end(&mut out)?;
+    let read = out.len() as u64;
+    if read > *left {
+        return Ok(None);
+    }
+    *left -= read;
+    Ok(Some(out))
+}
 
 /// How a file was last seen, not part of the document: written beside it, never in its
 /// history — changing it neither modifies the document nor is undone (docs/io/file-format.md).
@@ -220,11 +249,11 @@ impl Document {
     /// readable (a view state never fails an opening).
     pub fn file_view(bytes: &[u8]) -> FileView {
         let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(bytes)) else { return FileView::default() };
-        let Ok(mut entry) = zip.by_name(VIEW) else { return FileView::default() };
+        let Ok(entry) = zip.by_name(VIEW) else { return FileView::default() };
         let mut out = Vec::new();
-        match entry.read_to_end(&mut out) {
-            Ok(_) => serde_json::from_slice(&out).unwrap_or_default(),
-            Err(_) => FileView::default(),
+        match entry.take(MAX_VIEW + 1).read_to_end(&mut out) {
+            Ok(read) if read as u64 <= MAX_VIEW => serde_json::from_slice(&out).unwrap_or_default(),
+            _ => FileView::default(),
         }
     }
 
@@ -233,11 +262,11 @@ impl Document {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| Error::File(FileError::NotZip))?;
         let paths: Vec<String> =
             zip.file_names().map(|n| n.map(|n| n.into_owned())).collect::<std::result::Result<_, _>>().map_err(file_err)?;
+        let mut left = (bytes.len() as u64).saturating_mul(MAX_EXPANSION).clamp(MIN_EXPANDED, MAX_EXPANDED);
         let mut read = |name: &str| -> Result<Vec<u8>> {
-            let mut entry = zip.by_name(name).map_err(|_| Error::File(FileError::MissingEntry(name.to_owned())))?;
-            let mut out = Vec::with_capacity(entry.size() as usize);
-            entry.read_to_end(&mut out).map_err(|e| file_err(format!("{name}: {e}")))?;
-            Ok(out)
+            let entry = zip.by_name(name).map_err(|_| Error::File(FileError::MissingEntry(name.to_owned())))?;
+            let declared = entry.size();
+            read_entry(entry, declared, &mut left).map_err(|e| file_err(format!("{name}: {e}")))?.ok_or(Error::File(FileError::TooLarge))
         };
         let manifest: Manifest = serde_json::from_slice(&read(MANIFEST)?).map_err(|e| file_err(format!("{MANIFEST}: {e}")))?;
         check_header(&manifest.format, manifest.version)?;

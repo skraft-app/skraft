@@ -350,6 +350,71 @@ fn a_file_is_a_zip_of_the_structure_and_its_b_reps() {
     assert_eq!(Document::from_file(&rezip(&entries)).unwrap(), *doc);
 }
 
+/// A ZIP of `entries`, deflated.
+fn deflated(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::Write as _;
+    let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in entries {
+        zip.start_file(*name, options).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+const SMALL_MANIFEST: &[u8] = br#"{"format":"skraft","version":1,"content":"model"}"#;
+
+#[test]
+fn an_entry_is_read_within_what_the_file_may_expand_to() {
+    let read = |bytes: &[u8], declared, left: &mut u64| crate::file::read_entry(bytes, declared, left).unwrap();
+    let mut left = 10;
+    assert_eq!(read(b"abcd", 4, &mut left).as_deref(), Some(&b"abcd"[..]));
+    assert_eq!(left, 6);
+    // Exactly what is left still reads; declaring less does not let more through.
+    assert_eq!(read(b"abcdef", 1, &mut left).as_deref(), Some(&b"abcdef"[..]));
+    assert_eq!(left, 0);
+    let mut left = 3;
+    assert_eq!(read(b"abcd", 1, &mut left), None);
+    assert_eq!(read(b"a", 4, &mut left), None, "declared past it: not even read");
+    assert_eq!(left, 3);
+}
+
+#[test]
+fn a_file_lying_about_a_size_is_refused_without_reserving_it() {
+    let mut file = deflated(&[("manifest.json", SMALL_MANIFEST)]);
+    // Its central directory now claims 2^62 bytes, through a Zip64 field.
+    let at = file.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+    let u16_at = |f: &[u8], i: usize| u16::from_le_bytes([f[i], f[i + 1]]) as usize;
+    let (name, extra) = (u16_at(&file, at + 28), u16_at(&file, at + 30));
+    file[at + 24..at + 28].copy_from_slice(&u32::MAX.to_le_bytes());
+    file[at + 30..at + 32].copy_from_slice(&((extra + 12) as u16).to_le_bytes());
+    let mut zip64 = vec![1, 0, 8, 0];
+    zip64.extend_from_slice(&(1u64 << 62).to_le_bytes());
+    file.splice(at + 46 + name..at + 46 + name, zip64);
+    let end = file.windows(4).rposition(|w| w == b"PK\x05\x06").unwrap();
+    let size = u32::from_le_bytes(file[end + 12..end + 16].try_into().unwrap());
+    file[end + 12..end + 16].copy_from_slice(&(size + 12).to_le_bytes());
+    assert!(matches!(Document::from_file(&file), Err(Error::File(FileError::TooLarge))));
+}
+
+#[test]
+fn a_file_expanding_past_its_limit_is_refused() {
+    let blanks = vec![b' '; crate::file::MIN_EXPANDED as usize + 1];
+    let file = deflated(&[("manifest.json", SMALL_MANIFEST), ("document.json", &blanks)]);
+    assert!(file.len() < 1 << 20, "a small file: {}", file.len());
+    assert!(matches!(Document::from_file(&file), Err(Error::File(FileError::TooLarge))));
+}
+
+#[test]
+fn an_oversized_view_is_ignored() {
+    let doc = Document::new();
+    let mut entries = unzip(&doc.to_file().unwrap());
+    let mut view = br#"{"workspace":"cut_list"}"#.to_vec();
+    view.resize((1 << 20) + 1, b' ');
+    entries.insert("view.json".into(), view);
+    assert_eq!(Document::file_view(&rezip(&entries)), FileView::default());
+}
+
 #[test]
 fn a_file_keeps_how_it_was_seen_beside_the_document() {
     let doc = Document::new();
