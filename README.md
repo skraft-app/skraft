@@ -12,7 +12,7 @@ It is written entirely in Rust and runs natively on macOS, Windows and Linux.
 > Skraft is at an early stage. Expect rough edges, and files saved now may not open in later
 > versions.
 
-<!-- TODO: screenshot or GIF of the app -->
+![The Parts list workspace: the parts of a fitted bookcase and desk with their materials and dimensions, beside the 3D model](docs/images/skraft-parts-list.png)
 
 ## Features
 
@@ -28,7 +28,12 @@ It is written entirely in Rust and runs natively on macOS, Windows and Linux.
   a tape measure and guides, section views with hatched caps.
 - **Your way of working.** Several documents in tabs, a navigator of the model, navigation
   presets matching other CAD programs (SketchUp, Fusion, SolidWorks, Onshape, Rhino, Blender).
-- **STEP import** (AP203, AP214, AP242), with its assembly structure.
+- **Parts list.** A workspace that lists the model's parts with their material, length, width,
+  thickness and quantity, and selects them in the 3D view and back.
+- **Drawing.** A workspace for sheets of paper: views of the model, dimensions, title blocks and
+  free elements, exported to PDF.
+- **Import** of STEP files (AP203, AP214, AP242), with their assembly structure, and of SketchUp
+  files (`.skp`).
 
 ## Download
 
