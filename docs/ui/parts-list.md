@@ -7,7 +7,7 @@ code: [apps/skraft/src/parts_table.rs, apps/skraft/src/app.rs, apps/skraft/src/w
 
 The « Liste des pièces » workspace ([Workspaces](workspaces.md)): the model's parts in a table on
 the left of the central area, the 3D view on the right. A first step towards a cut list: what is
-placed, in which material, of which size, how many. Under way: listed in debug builds only.
+placed, in which material, of which size, how many.
 
 ## Rows
 

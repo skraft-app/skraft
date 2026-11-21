@@ -35,8 +35,8 @@ cours) » after it when under way) and, under it, smaller and weak, what it is f
 
 *Modelling* « Modélisation », the first, has every command of the registry but those only
 another workspace has (the drawing's; a test checks it). *Parts list* « Liste des pièces »
-([Parts list](parts-list.md)) and *Drawing* « Mise en plan » ([Drawing](drawing.md)) are
-under way.
+([Parts list](parts-list.md)) and *Drawing* « Mise en plan » ([Drawing](drawing.md)) follow it,
+in every build.
 
 ## Stage
 
@@ -94,7 +94,8 @@ Within a workspace, a shortcut still runs its command whatever the ribbon's tab.
 ## Under way
 
 A workspace not finished has `under_way`: debug builds list it, its name followed by « (en
-cours) » in the switcher's menu; a release lists it once finished (`workspace::listed`).
+cours) » in the switcher's menu; a release lists it once finished (`workspace::listed`). None is
+under way at present.
 
 ## Panels
 

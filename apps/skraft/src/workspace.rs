@@ -154,7 +154,7 @@ pub const WORKSPACES: &[Workspace] = &[
         label: || t!("ribbon.workspace.parts"),
         about: || t!("ribbon.workspace.about.parts"),
         icon: icons::PARTS_LIST,
-        under_way: true,
+        under_way: false,
         stage: Stage::Parts,
         commands: &[],
         // The table and the view alone.
@@ -171,7 +171,7 @@ pub const WORKSPACES: &[Workspace] = &[
         label: || t!("ribbon.workspace.drawing"),
         about: || t!("ribbon.workspace.about.drawing"),
         icon: icons::DRAWING,
-        under_way: true,
+        under_way: false,
         stage: Stage::Sheet,
         commands: &["drawing.save_template", "drawing.edit_composition"],
         // The sheet, the entity info to set the view picked, the navigator of its tree, the
@@ -275,6 +275,14 @@ mod tests {
         assert_eq!(find(None).id, WORKSPACES[0].id);
         assert_eq!(find(Some("gone")).id, WORKSPACES[0].id);
         assert!(listed().any(|w| w.id == WORKSPACES[0].id));
+    }
+
+    #[test]
+    fn the_parts_list_and_the_drawing_are_listed_in_every_build() {
+        for id in ["parts", "drawing"] {
+            let w = WORKSPACES.iter().find(|w| w.id == id).expect("a workspace");
+            assert!(!w.under_way, "{id}: a release lists only what is not under way");
+        }
     }
 
     #[test]
