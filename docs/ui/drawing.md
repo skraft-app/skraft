@@ -7,8 +7,8 @@ code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/mode
 
 The « Mise en plan » workspace ([Workspaces](workspaces.md)): sheets of paper holding views of
 the model and free elements — for the workshop (a part's fabrication drawing) as for clients
-(rendered views, a title block of one's own, as SketchUp users do with LayOut). Under way:
-listed in debug builds only. What is not built yet is in `docs/REVIEW.md` (« Work: drawing »).
+(rendered views, a title block of one's own, as SketchUp users do with LayOut). What is not
+built yet is in `docs/REVIEW.md` (« Work: drawing »).
 
 Decision records: [Drawing: free sheets in the document, for the workshop and for clients](../decisions/0048-drawing-sheets-in-the-document.md),
 [Drawing: a tree of presentations, sheets and definitions, no layers](../decisions/0049-drawing-a-tree-of-presentations-and-definitions.md),
