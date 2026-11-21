@@ -9,6 +9,7 @@ mod control;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crash;
 mod cursors;
+mod dates;
 mod dims;
 mod dock;
 mod docs;
