@@ -22,9 +22,9 @@ schemars = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The token and discovery files' folder.
-dirs = "6"
+dirs = "7"
 # The per-launch token.
-getrandom = "0.3"
+getrandom = "0.4"
 
 [dev-dependencies]
 skraft-kernel = { workspace = true, features = ["engine"] }
