@@ -1,7 +1,7 @@
 # Drawing: a tree of presentations, sheets and definitions, no layers
 
 - Status: accepted (2026-11-21; built)
-- Design: [Drawing](../ui/drawing.md) (steps in `docs/REVIEW.md`, « Work: drawing tree »)
+- Design: [Drawing](../ui/drawing.md)
 - Replaces the layers, the shared title block and the templates of
   [Drawing: free sheets in the document](0048-drawing-sheets-in-the-document.md)
 

@@ -9,13 +9,12 @@
 
 ## Context
 
-Decided on 2026-11-20 (questions / answers), after the review of body nodes (`docs/REVIEW.md`
-« Review 2026-11-20 », point 3). A part's tree is its history (0042): what is under a node is
-its past, what is above its future. Yet nothing moved a body from one level to another but
-Grouper / Dégrouper and cut / paste — the paste giving a new body (a new id) in the group open,
-so a hole could not be taken out of a round to drill after it, keeping what it is. Since the
-same review, names follow bodies moved in the tree (`Outcome::relocated`, `ops::relocate`): a
-move breaks no other body's edges.
+Decided on 2026-11-20 (questions / answers), after a review of body nodes. A part's tree is its
+history (0042): what is under a node is its past, what is above its future. Yet nothing moved a body
+from one level to another but Grouper / Dégrouper and cut / paste — the paste giving a new body (a
+new id) in the group open, so a hole could not be taken out of a round to drill after it, keeping
+what it is. Since the same review, names follow bodies moved in the tree (`Outcome::relocated`,
+`ops::relocate`): a move breaks no other body's edges.
 
 ## Decision
 

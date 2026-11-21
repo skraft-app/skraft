@@ -9,11 +9,10 @@
 
 ## Context
 
-Decided on 2026-11-20 (questions / answers), after the review of body nodes (`docs/REVIEW.md`
-« Review 2026-11-20 », point 4, and « A third sign », asked 2026-11-19). A part is computed
-from its bodies by a fixed formula, `(∪ positives) − (∪ negatives)`, nested in groups: no
-history, no naming. The intersection had no place in it: the « Intersecter » tool between
-parts makes a new part, a free shape, its tools lost.
+Decided on 2026-11-20 (questions / answers), after a review of body nodes. A part is computed from
+its bodies by a fixed formula, `(∪ positives) − (∪ negatives)`, nested in groups: no history, no
+naming. The intersection had no place in it: the « Intersecter » tool between parts makes a new
+part, a free shape, its tools lost.
 
 The intersection needs no order: `(X − N) ∩ I = (X ∩ I) − N`. It fits the fixed formula as a
 third sign, where a node (0042) would add an ordered operation for nothing.

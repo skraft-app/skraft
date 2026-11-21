@@ -1,7 +1,7 @@
 # Drawing: every sheet on one board, one of them active
 
 - Status: accepted (2026-11-21; built)
-- Design: [Drawing](../ui/drawing.md#the-stage) (steps in `docs/REVIEW.md`, « Work: drawing board »)
+- Design: [Drawing](../ui/drawing.md#the-stage)
 - Replaces the single sheet on the stage of
   [Drawing: free sheets in the document](0048-drawing-sheets-in-the-document.md); keeps the tree of
   [Drawing: a tree of presentations, sheets and definitions](0049-drawing-a-tree-of-presentations-and-definitions.md)

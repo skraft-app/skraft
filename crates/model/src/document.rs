@@ -1123,7 +1123,7 @@ impl Document {
         self.components.values().map(|c| &**c).filter(|c| c.id != self.root)
     }
 
-    /// The operation taking away the occurrences of the empty assemblies (docs/model/data-model.md#empty-assemblies):
+    /// The operation taking away the occurrences of the empty assemblies (docs/model/data-model.md#components-parts-and-assemblies):
     /// an assembly is empty with neither occurrences nor guides, or when it holds only empty
     /// ones — an assembly emptied empties its parent in turn. The root and `keep` (the active
     /// context, kept while it is edited) are never. One `Delete` per assembly holding some,
@@ -1146,7 +1146,7 @@ impl Document {
         (!deletes.is_empty()).then_some(Operation::Batch(deletes))
     }
 
-    /// The empty assemblies (docs/model/data-model.md#empty-assemblies): with neither
+    /// The empty assemblies (docs/model/data-model.md#components-parts-and-assemblies): with neither
     /// occurrences nor guides, or holding only empty ones; never the root nor `keep`.
     fn empty_assemblies(&self, keep: Id) -> BTreeSet<Id> {
         let assemblies: Vec<(&Component, &Assembly)> =
@@ -1173,7 +1173,7 @@ impl Document {
     }
 
     /// Drops the empty assemblies placed nowhere (an empty assembly holds nothing to keep:
-    /// docs/model/data-model.md#empty-assemblies), and so on up: one dropped may leave its
+    /// docs/model/data-model.md#components-parts-and-assemblies), and so on up: one dropped may leave its
     /// parent unused. Any other component stays when unused, until purged
     /// ([`Operation::PurgeUnused`], docs/ui/components-library.md).
     pub(crate) fn drop_unused_empty_assemblies(&mut self) {
