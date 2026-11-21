@@ -835,6 +835,26 @@ impl Document {
         Ok(recorder.job)
     }
 
+    /// The children's result of the body node `node` of what `target` leads into, where its
+    /// edges lie (docs/tools/rounds.md): the node's own cache or `known` when one holds for its
+    /// children as they are, else the job computing it (the node's task with no edge to take:
+    /// its output is that result, its face map and its display).
+    pub fn node_raw(&self, target: &EntityPath, node: Id, known: Option<&Arc<crate::RawCache>>) -> Result<NodeRaw> {
+        let (_, p, _) = self.resolve_container(target)?;
+        let b = p.body(node).ok_or(Error::NotFound(node))?;
+        let g = p.def(b.def).and_then(|d| d.group.as_ref()).ok_or(Error::Invalid(Refusal::NotANode))?;
+        let op = g.op.as_ref().ok_or(Error::Invalid(Refusal::NotANode))?;
+        let mut leaves = Vec::new();
+        let tree = tree(&p.defs, &g.children, &mut leaves)?;
+        if let Some(c) = g.raw.0.iter().chain(known).find(|c| c.holds(&tree, &leaves)) {
+            return Ok(NodeRaw::Ready(c.clone()));
+        }
+        let (task, task_leaves, _) = node_input(g, &tree, &leaves);
+        let mut recorder = Recorder::default();
+        recorder.node(&task_leaves, &task, &op.clone().with_edges(Vec::new()), &[])?;
+        Ok(NodeRaw::Ask(RawAsk { tree, leaves, job: recorder.job }))
+    }
+
     /// Applies `op` with the outputs of the job [`Document::prepare`] gave for it, on this same
     /// document.
     pub fn commit(&self, op: &Operation, outputs: Vec<Output>) -> Result<Applied> {
@@ -2567,6 +2587,30 @@ fn tree(defs: &[BodyDef], children: &[Body], leaves: &mut Vec<Arc<Solid>>) -> Re
             Ok(TreeBody { id: b.id.0, negative, intersect, placement: b.placement, node })
         })
         .collect()
+}
+
+/// A body node's children's result, as [`Document::node_raw`] finds it.
+#[derive(Debug)]
+pub enum NodeRaw {
+    Ready(Arc<crate::RawCache>),
+    Ask(RawAsk),
+}
+
+/// The job computing a node's children's result, and the children it is for.
+#[derive(Debug)]
+pub struct RawAsk {
+    pub tree: Vec<TreeBody>,
+    pub leaves: Vec<Arc<Solid>>,
+    pub job: Job,
+}
+
+impl RawAsk {
+    /// Is it for the same children as `other`?
+    pub fn same(&self, other: &RawAsk) -> bool {
+        self.tree == other.tree
+            && self.leaves.len() == other.leaves.len()
+            && self.leaves.iter().zip(&other.leaves).all(|(a, b)| Arc::ptr_eq(a, b))
+    }
 }
 
 /// What the kernel gives for a body node ([`Task::Node`]).

@@ -7205,6 +7205,256 @@ fn a_node_opened_shows_its_children_raw_and_the_bodies_around_it_faded() {
     assert!(!e.blending() && e.status().contains(&name), "{}", e.status());
 }
 
+/// A board 200 × 100 × 20 notched at its corner (x ≥ 150, y ≥ 50), the notch's two rims along
+/// the top rounded: a node whose edges lie between its two children. The part, the node.
+fn notched_round(e: &mut Editor) -> (Id, Id) {
+    use skraft_model::{Scope, Sign};
+    let a = draw_box(e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
+    let path = EntityPath::root(a);
+    let board = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
+    let notch = Operation::AddBody {
+        target: path.clone(),
+        primitive: Primitive::Box { origin: DVec3::new(150.0, 50.0, -5.0), size: DVec3::new(60.0, 60.0, 30.0) },
+        placement: glam::DAffine3::IDENTITY,
+        sign: Sign::Negative,
+        scope: Scope::All,
+    };
+    let notch = e.apply(notch).unwrap().unwrap().bodies[0];
+    let round = Operation::Blend {
+        target: path,
+        bodies: vec![board, notch],
+        blend: skraft_model::kernel::names::Blend::Round,
+        size: 3.0,
+        picks: vec![DVec3::new(150.0, 75.0, 20.0), DVec3::new(175.0, 50.0, 20.0)],
+        scope: Scope::All,
+    };
+    let node = e.apply(round).unwrap().unwrap().bodies[0];
+    e.poll();
+    (a, node)
+}
+
+/// The edges of the node open, as they are lit.
+fn lit_edges(e: &Editor) -> Vec<crate::infer::EdgeHit> {
+    let (_, _, op) = e.open_node().expect("a node open");
+    tools::BlendTool::load(&e.cx(), &op)
+}
+
+#[test]
+fn a_node_opened_lights_its_edges_between_two_children() {
+    let mut e = top_editor(Document::new());
+    let (a, node) = notched_round(&mut e);
+    e.enter(a);
+    e.enter(node);
+    e.poll();
+    let lit = lit_edges(&e);
+    assert_eq!(lit.len(), 2);
+    for l in &lit {
+        assert!((l.middle - DVec3::new(150.0, 75.0, 20.0)).length() < 1e-6 || (l.middle - DVec3::new(175.0, 50.0, 20.0)).length() < 1e-6);
+    }
+}
+
+#[test]
+fn a_node_read_from_a_file_lights_its_edges_once_its_children_are_computed() {
+    let mut e = top_editor(Document::new());
+    let (a, node) = notched_round(&mut e);
+    // Its children's result is not in the file.
+    let read = Document::from_json(&e.document().to_json().unwrap()).unwrap();
+    let mut e = top_editor(read);
+    e.enter(a);
+    e.enter(node);
+    assert!(lit_edges(&e).is_empty(), "not computed yet");
+    assert!(e.meshing(), "waited for");
+    while e.meshing() {
+        e.poll();
+    }
+    assert_eq!(lit_edges(&e).len(), 2);
+}
+
+#[test]
+fn choosing_the_edges_of_a_node_already_open_starts_its_tool() {
+    let mut e = top_editor(Document::new());
+    let (a, node) = notched_round(&mut e);
+    e.enter(a);
+    e.enter(node);
+    e.poll();
+    assert_eq!(e.tool_kind(), ToolKind::Select);
+    e.edit_blend(node);
+    assert_eq!(e.tool_kind(), ToolKind::Round);
+    assert_eq!(e.open_group(), &[node], "it stays open");
+    // Its two edges picked: one more makes three.
+    click(&mut e, DVec3::new(100.0, 0.0, 20.0));
+    let preview = e.preview().blend.expect("the node changed, previewed");
+    assert!(matches!(&preview.op, Operation::SetBlend { picks, .. } if picks.len() == 3), "{:?}", preview.op);
+}
+
+#[test]
+fn the_round_tool_on_a_node_shows_and_keeps_the_node_s_size() {
+    use skraft_model::kernel::names::Blend;
+    let size = |e: &Editor| match e.tool_options().into_iter().find(|o| o.key == "size").unwrap().value {
+        crate::tools::OptionValue::Length(v) => v,
+        v => panic!("{v:?}"),
+    };
+    let node_size = |e: &Editor, path: &EntityPath, node: Id| {
+        let (_, p, _) = e.document().resolve_part(path).unwrap();
+        p.def_of(p.body(node).unwrap()).op().unwrap().blend().unwrap().size
+    };
+    let mut e = top_editor(Document::new());
+    let (a, node) = notched_round(&mut e);
+    let path = EntityPath::root(a);
+    let set = |size: f64| Operation::SetBlend {
+        target: path.clone(),
+        body: node,
+        blend: Blend::Round,
+        size,
+        picks: Vec::new(),
+        scope: skraft_model::Scope::All,
+    };
+    e.set_tool(ToolKind::Round);
+    let saved = size(&e);
+    e.set_tool(ToolKind::Select);
+    e.enter(a);
+    // Its radius changed in the entity info, then its tool started: it shows that one.
+    e.apply(set(7.0)).unwrap();
+    e.poll();
+    e.edit_blend(node);
+    assert_eq!(size(&e), 7.0);
+    // Changed again in the entity info, the tool on: followed, and not put back by a validation.
+    e.apply(set(6.0)).unwrap();
+    e.poll();
+    assert_eq!(size(&e), 6.0);
+    click(&mut e, DVec3::new(100.0, 0.0, 20.0));
+    assert!(matches!(e.preview().blend.unwrap().op, Operation::SetBlend { size, .. } if size == 6.0));
+    // Typed in the bar: the node's to validate, not the tool's saved size.
+    e.set_tool_option("size", crate::tools::OptionValue::Length(5.0));
+    assert_eq!(size(&e), 5.0);
+    assert!(e.tool_awaits_validation());
+    key(&mut e, Key::Enter);
+    e.poll();
+    assert_eq!(node_size(&e, &path, node), 5.0, "{}", e.status());
+    e.set_tool(ToolKind::Round);
+    assert_eq!(size(&e), saved, "the tool's own size untouched");
+}
+
+#[test]
+fn a_node_keeps_its_edges_on_a_group_of_flush_cutters_when_a_child_is_stretched() {
+    use skraft_model::kernel::names::Blend;
+    use skraft_model::{Scope, Sign};
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
+    let path = EntityPath::root(a);
+    let board = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
+    // Two notches through the board, along its end, at its two long sides.
+    let cutter = |e: &mut Editor, y: f64| {
+        let op = Operation::AddBody {
+            target: path.clone(),
+            primitive: Primitive::Box { origin: DVec3::new(100.0, y, 0.0), size: DVec3::new(100.0, 30.0, 20.0) },
+            placement: glam::DAffine3::IDENTITY,
+            sign: Sign::Negative,
+            scope: Scope::All,
+        };
+        e.apply(op).unwrap().unwrap().bodies[0]
+    };
+    let (back, front) = (cutter(&mut e, 70.0), cutter(&mut e, 0.0));
+    e.enter(a);
+    e.select(vec![back, front]);
+    e.group_bodies();
+    let group = e.selection()[0];
+    e.poll();
+    let round = Operation::Blend {
+        target: path.clone(),
+        bodies: vec![board, group],
+        blend: Blend::Round,
+        size: 3.0,
+        picks: vec![DVec3::new(150.0, 70.0, 20.0), DVec3::new(150.0, 30.0, 20.0)],
+        scope: Scope::All,
+    };
+    let node = e.apply(round).unwrap().unwrap().bodies[0];
+    e.poll();
+    // Each edge named by the board's top and a wall of its own cutter.
+    let (_, p, _) = e.document().resolve_part(&path).unwrap();
+    let edges = p.def_of(p.body(node).unwrap()).op().unwrap().edges().to_vec();
+    assert_eq!(edges.len(), 2);
+    for x in &edges {
+        assert!(x.name.faces.iter().any(|t| t.path.first() == Some(&group.0)), "{:?}", x.name);
+    }
+    // The board made longer: they are still there.
+    let stretch = Operation::StretchBodies {
+        target: path.clone().in_group(vec![node]),
+        bodies: vec![board],
+        frame: glam::DAffine3::IDENTITY,
+        axis: DVec3::X,
+        cuts: vec![50.0],
+        moves: vec![-30.0, 0.0],
+        scope: Scope::All,
+    };
+    e.apply(stretch).unwrap();
+    e.poll();
+    let (_, p, _) = e.document().resolve_part(&path).unwrap();
+    assert_eq!(p.def_of(p.body(node).unwrap()).group.as_ref().unwrap().refused, None);
+}
+
+#[test]
+fn round_tool_keeps_a_node_s_edges_between_children_when_one_is_added() {
+    let mut e = top_editor(Document::new());
+    let (a, node) = notched_round(&mut e);
+    let path = EntityPath::root(a);
+    e.set_tool(ToolKind::Select);
+    e.enter(a);
+    e.edit_blend(node);
+    e.poll();
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 50.0, 20.0)) });
+    assert!(!e.tool_awaits_validation(), "its edges as they are");
+    // One more, along y = 0: the two of the notch stay.
+    click(&mut e, DVec3::new(100.0, 0.0, 20.0));
+    let preview = e.preview().blend.expect("the node changed, previewed");
+    assert!(matches!(&preview.op, Operation::SetBlend { picks, .. } if picks.len() == 3), "{:?}", preview.op);
+    key(&mut e, Key::Enter);
+    e.poll();
+    let (_, part, _) = e.document().resolve_part(&path).unwrap();
+    assert_eq!(part.def_of(&part.bodies[0]).op().unwrap().edges().len(), 3, "{}", e.status());
+}
+
+#[test]
+fn a_node_shows_no_machining_of_its_children_over_its_result() {
+    use skraft_model::{Scope, Sign};
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
+    let path = EntityPath::root(a);
+    let board = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
+    let drill = |e: &mut Editor, x: f64| {
+        let op = Operation::AddBody {
+            target: path.clone(),
+            primitive: Primitive::Cylinder { origin: DVec3::new(x, 50.0, -5.0), radius: 4.0, height: 30.0 },
+            placement: glam::DAffine3::IDENTITY,
+            sign: Sign::Negative,
+            scope: Scope::All,
+        };
+        e.apply(op).unwrap().unwrap().bodies[0]
+    };
+    let inside = drill(&mut e, 50.0);
+    let beside = drill(&mut e, 150.0);
+    let round = Operation::Blend {
+        target: path.clone(),
+        bodies: vec![board, inside],
+        blend: skraft_model::kernel::names::Blend::Round,
+        size: 3.0,
+        picks: vec![DVec3::new(100.0, 0.0, 20.0)],
+        scope: Scope::All,
+    };
+    let node = e.apply(round).unwrap().unwrap().bodies[0];
+    e.enter(a);
+    // The node at the part's first level: its drill not drawn over its result.
+    assert!(e.scene().recipe().unwrap().nested.is_empty());
+    // In a plain group, beside another drill: that one shows, the node's still does not.
+    e.select(vec![node, beside]);
+    e.group_bodies();
+    let group = e.selection()[0];
+    let r = e.scene().recipe().unwrap();
+    assert_eq!(r.nested.len(), 1);
+    assert_eq!(r.nested[0].body, group);
+    assert!((r.nested[0].placement.translation - DVec3::new(150.0, 50.0, -5.0)).length() < 1e-9);
+}
+
 #[test]
 fn move_out_takes_a_body_one_level_up_and_out_of_the_part() {
     // A board 200 × 100 × 20, a drill in it, the two rounded on the top's front edge.

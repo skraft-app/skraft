@@ -134,6 +134,10 @@ pub fn recipe_key(def: Id) -> Id {
     Id(RECIPE_KEY | TOOL_KEY | def.0)
 }
 
+/// The key of the mesh of the open body node's children's result, never placed: its edges are
+/// what the node's are picked on (docs/tools/rounds.md).
+const NODE_RAW_KEY: Id = Id(RECIPE_KEY);
+
 /// The key of the first mesh a tool previews in a part's stead (a part stretched, docs/tools/stretch.md
 /// ); the others follow it ([`preview_key`]).
 pub const PREVIEW_KEY: Id = Id(1 << 61);
@@ -189,8 +193,9 @@ pub struct RecipeMeshes {
     pub within: DAffine3,
     pub blanks: Vec<RecipeTool>,
     pub tools: Vec<RecipeTool>,
-    /// The machinings inside its positive groups, at any depth through positive groups
-    /// (docs/model/bodies.md#body-groups), placed in its axes; `body` the group of its own they lie in.
+    /// The machinings inside its positive groups, at any depth through positive groups but not
+    /// under a body node (docs/model/bodies.md#machinings-inside-groups), placed in its axes;
+    /// `body` the group of its own they lie in.
     /// Drawn as faint ghosts, never picked: the group is.
     pub nested: Vec<RecipeTool>,
 }
@@ -246,6 +251,8 @@ pub struct DisplayScene {
     /// The open occurrence whose recipe is shown, its meshes, and their placements in the
     /// world (the blank's, then each tool's).
     recipe_path: Option<EntityPath>,
+    /// The open body node's children's result, in its axes (docs/tools/rounds.md).
+    node_raw: Option<Arc<skraft_model::RawCache>>,
     recipe: Option<RecipeMeshes>,
     recipe_places: Vec<(Placement, Id, Piece)>,
     /// X-ray: everything drawn see-through, hiding nothing from inferences.
@@ -371,9 +378,12 @@ impl DisplayScene {
             }
             let mut nested = Vec::new();
             for b in p.bodies.iter().filter(|b| b.sign == Sign::Positive) {
-                nested_tools(&p, p.def_of(b).children(), b.placement, b.id, &mut nested, 0);
+                nested_tools(&p, p.def_of(b), b.placement, b.id, &mut nested, 0);
             }
             self.recipe = Some(RecipeMeshes { part, within, blanks, tools, nested });
+        }
+        if let Some(raw) = self.node_raw.clone() {
+            self.define(&raw.solid, NODE_RAW_KEY, &BTreeMap::new(), &mut seen);
         }
         // Keep what the document shows, and what something else holds (undo, a job).
         self.solids.retain(|key, c| seen.contains(key) || Arc::strong_count(&c.solid) > 1);
@@ -614,6 +624,18 @@ impl DisplayScene {
     /// [`DisplayScene::sync`], or none: drawn and inferred on instead of the occurrence's shape.
     pub fn set_recipe(&mut self, path: Option<EntityPath>) {
         self.recipe_path = path;
+    }
+
+    /// The open body node's children's result, meshed from the next [`DisplayScene::sync`].
+    pub fn set_node_raw(&mut self, raw: Option<Arc<skraft_model::RawCache>>) {
+        self.node_raw = raw;
+    }
+
+    /// The open body node's children's result and its edges, once it is meshed.
+    pub fn node_raw(&self) -> Option<(&skraft_model::RawCache, &Snaps)> {
+        let raw = self.node_raw.as_deref()?;
+        let snaps: &Snaps = &self.definitions.get(&NODE_RAW_KEY)?.parts.first()?.snaps;
+        (!snaps.edges.is_empty()).then_some((raw, snaps))
     }
 
     /// The part open or the assembly being edited (`chain`, root first; empty: the model),
@@ -1235,14 +1257,16 @@ fn cut_at(mesh: &Mesh, a: DVec3, at: &[f64]) -> Mesh {
     Mesh { positions, normals, indices, tri_face, ..mesh.clone() }
 }
 
-/// Adds to `out` the machinings and intersections among `bodies` (children of a positive group of `p`
-/// placed by `at`, lying in its own body `top`), and those inside their positive groups in turn;
-/// a negative or intersection group is one (its result), what it spares inside never shown in red.
-fn nested_tools(p: &skraft_model::Part, bodies: &[skraft_model::Body], at: DAffine3, top: Id, out: &mut Vec<RecipeTool>, depth: usize) {
-    if depth > skraft_model::MAX_DEPTH {
+/// Adds to `out` the machinings and intersections among the children of `group` (a positive group
+/// of `p` placed by `at`, lying in its own body `top`), and those inside their positive groups in
+/// turn; a negative or intersection group is one (its result), what it spares inside never shown
+/// in red. A body node shows nothing of its children: they are its past, seen by opening it
+/// (docs/model/bodies.md#machinings-inside-groups).
+fn nested_tools(p: &skraft_model::Part, group: &skraft_model::BodyDef, at: DAffine3, top: Id, out: &mut Vec<RecipeTool>, depth: usize) {
+    if depth > skraft_model::MAX_DEPTH || group.op().is_some() {
         return;
     }
-    for b in bodies {
+    for b in group.children() {
         let placement = at * b.placement;
         match b.sign {
             Sign::Negative | Sign::Intersect => out.push(RecipeTool {
@@ -1252,7 +1276,7 @@ fn nested_tools(p: &skraft_model::Part, bodies: &[skraft_model::Body], at: DAffi
                 failed: p.is_failed(b.id),
                 intersect: b.sign == Sign::Intersect,
             }),
-            Sign::Positive => nested_tools(p, p.def_of(b).children(), placement, top, out, depth + 1),
+            Sign::Positive => nested_tools(p, p.def_of(b), placement, top, out, depth + 1),
         }
     }
 }

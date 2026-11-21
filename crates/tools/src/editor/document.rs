@@ -322,6 +322,9 @@ impl Editor {
             } else if self.blend_job == Some(id) {
                 self.blend_job = None;
                 self.blend_done(result);
+            } else if self.node_raw_job == Some(id) {
+                self.node_raw_job = None;
+                self.node_raw_done(result);
             }
             // Anything else was abandoned: dropped.
         }
@@ -496,7 +499,7 @@ impl Editor {
 
     /// Are meshes asked of the kernel still on their way (or meshes missing, not asked yet)?
     pub fn meshing(&self) -> bool {
-        !self.meshing.is_empty() || self.scene.has_missing()
+        !self.meshing.is_empty() || self.scene.has_missing() || self.node_raw_job.is_some()
     }
 
     /// Asks the kernel for the meshes the scene lacks, one job per solid. During a load, a

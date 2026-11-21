@@ -215,17 +215,23 @@ impl Editor {
         true
     }
 
-    /// Opens the body node `node` of the part (or group) open and starts its tool, its edges
-    /// picked as they are: picked again there, they replace them (docs/tools/rounds.md).
+    /// Starts the tool of the body node `node`, of the part (or group) open or open itself
+    /// (opened first if it is not), its edges picked as they are: picked again there, they
+    /// replace them (docs/tools/rounds.md).
     pub fn edit_blend(&mut self, node: Id) {
         let Some(path) = self.open_part_path() else { return };
-        let Ok((_, p, _)) = self.document().resolve_container(&path) else { return };
+        let open = self.open_group.last() == Some(&node);
+        // What holds it: the level open, or the one above when it is open.
+        let holder = if open { path.part_path().in_group(self.open_group[..self.open_group.len() - 1].to_vec()) } else { path };
+        let Ok((_, p, _)) = self.document().resolve_container(&holder) else { return };
         let Some(op) = p.body(node).and_then(|b| p.def_of(b).op()).and_then(|o| o.blend()) else { return };
         let kind = match op.kind {
             skraft_model::kernel::names::Blend::Round => ToolKind::Round,
             skraft_model::kernel::names::Blend::Chamfer => ToolKind::Chamfer,
         };
-        self.enter(node);
+        if !open {
+            self.enter(node);
+        }
         if self.open_group.last() == Some(&node) {
             self.set_tool(kind);
         }

@@ -377,7 +377,9 @@ machinings inside it — at any depth through positive groups — as faint red g
 (`RecipeMeshes::nested`, each with the group of the open level it lies in: hidden with it
 while it is carried, never picked — the click takes the group, a double-click opens it). A
 negative group is one machining, drawn as its result: what it spares inside is not shown in
-red. X-ray needs nothing more (the ghosts are see-through already).
+red. A [body node](#body-nodes) is drawn as its result too, nothing of its children over it:
+they are its past, their faces no longer those of the result (a rounded rim), and show by
+opening it. X-ray needs nothing more (the ghosts are see-through already).
 
 ## Body nodes
 

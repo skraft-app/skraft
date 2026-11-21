@@ -156,6 +156,11 @@ pub struct Editor {
     blend_job: Option<JobId>,
     blend_note: Option<String>,
     blend_shown: bool,
+    /// The open body node's children's result (docs/tools/rounds.md): the last one known, the
+    /// job computing it when its cache does not hold, and the children that job is for.
+    node_raw: Option<Arc<skraft_model::RawCache>>,
+    node_raw_job: Option<JobId>,
+    node_raw_asked: Option<skraft_model::RawAsk>,
     /// How the selection is drawn, worked out once for the frames that follow (docs/render/display.md).
     selection_drawing: std::cell::RefCell<Option<view::SelectionDrawing>>,
     /// The section's cut lines, kept while the plane and the meshes stay (docs/render/look.md).
@@ -284,6 +289,9 @@ impl Editor {
             body_swaps: HashMap::new(),
             blend_asked: None,
             blend_job: None,
+            node_raw: None,
+            node_raw_job: None,
+            node_raw_asked: None,
             blend_note: None,
             blend_shown: false,
             selection_drawing: std::cell::RefCell::new(None),
@@ -467,8 +475,64 @@ impl Editor {
         let display = &self.history.document().settings().display;
         self.scene.set_active(active, display.hide_rest_of_model);
         self.scene.set_xray(display.xray);
+        self.update_node_raw();
         self.scene.sync(self.history.document());
         self.request_meshes();
+    }
+
+    /// Gives the scene the open body node's children's result, where its edges lie, or asks
+    /// the kernel for it when its cache does not hold (a file just read:
+    /// docs/tools/rounds.md).
+    fn update_node_raw(&mut self) {
+        use skraft_model::NodeRaw;
+        let wanted = self.open_group.split_last().and_then(|(&node, above)| {
+            let parent = EntityPath::new(self.context.clone(), self.open_part?).in_group(above.to_vec());
+            self.document().node_raw(&parent, node, self.node_raw.as_ref()).ok()
+        });
+        match wanted {
+            Some(NodeRaw::Ask(mut ask)) => {
+                self.scene.set_node_raw(None);
+                if self.node_raw_asked.as_ref().is_none_or(|a| !a.same(&ask)) {
+                    self.drop_node_raw_job();
+                    let id = self.job_id();
+                    self.kernel.submit(id, std::mem::take(&mut ask.job));
+                    self.node_raw_job = Some(id);
+                    self.node_raw_asked = Some(ask);
+                }
+            }
+            Some(NodeRaw::Ready(raw)) => {
+                self.drop_node_raw_job();
+                self.scene.set_node_raw(Some(raw.clone()));
+                self.node_raw = Some(raw);
+            }
+            None => {
+                self.drop_node_raw_job();
+                self.scene.set_node_raw(None);
+                self.node_raw = None;
+            }
+        }
+    }
+
+    fn drop_node_raw_job(&mut self) {
+        if let Some(j) = self.node_raw_job.take() {
+            self.kernel.cancel(j);
+        }
+        self.node_raw_asked = None;
+    }
+
+    /// The kernel's answer for the open node's children's result: its task took no edge, so
+    /// its output is that result. Refused, it is not asked again for the same children.
+    pub(super) fn node_raw_done(&mut self, result: skraft_model::kernel::JobResult) {
+        let Ok(mut outputs) = result else { return };
+        let Some(skraft_model::kernel::Output::Node { solid, display, faces, .. }) = outputs.pop() else { return };
+        if solid.is_empty() {
+            return;
+        }
+        let Some(asked) = self.node_raw_asked.take() else { return };
+        let solid = Arc::new(solid);
+        self.scene.insert_at(&solid, display, Quality::Final);
+        self.node_raw = Some(Arc::new(skraft_model::RawCache { tree: asked.tree, leaves: asked.leaves, solid, faces }));
+        self.sync_scene();
     }
 
     /// The open part's axes in the context's (its occurrence's T); identity without one.
@@ -1019,11 +1083,14 @@ impl Editor {
     fn switch_tool(&mut self, kind: ToolKind) {
         // Another tool gives up a paste carried.
         self.settle_carry(true);
-        self.tool = tools::make(kind);
+        let mut tool = tools::make(kind);
         // Its saved options, read at once: what its status says before any input.
-        for option in self.tool.options(&self.cx()) {
-            self.tool.set_option(option.key, &option.value);
+        for option in tool.options(&self.cx_for(&*tool)) {
+            tool.set_option(option.key, &option.value);
         }
+        let cx = self.cx_for(&*tool);
+        tool.started(&cx);
+        self.tool = tool;
         // Erase lets the selection go when it starts: it erases what its clicks take, never
         // the selection (docs/tools/selection.md).
         if kind == ToolKind::Erase {
