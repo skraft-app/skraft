@@ -1702,6 +1702,7 @@ error:
     not_skraft: "pas un fichier Skraft (%{format})"
     not_zip: "pas un fichier Skraft (une archive ZIP est attendue)"
     missing_entry: "entrée %{entry} manquante"
+    too_large: "fichier trop volumineux une fois décompressé"
     too_new: "fichier en version %{version}, plus récente que celle de cette application (%{supported})"
     root_not_assembly: "la racine n'est pas un assemblage"
     bad_component_id: "identifiant de composant %{id} invalide"

@@ -58,6 +58,17 @@ Opening reads every entry, then the document; then `Document::check` checks its 
 (ids, the shapes in step with their bodies, known materials). In the browser: download and
 file upload.
 
+### Untrusted files
+
+A file may come from anyone. The size its ZIP declares for an entry only sizes a first
+reservation, and reading stops with `FileError::TooLarge` past what the file may expand to: 256
+times its size, at least 64 MiB, at most 4 GiB (1 GiB on the web). `view.json` stops at 1 MiB,
+and is then ignored, as an unreadable view is.
+
+**Why:** a forged size of a few bytes aborted the app, an allocation failure being impossible to
+catch, and lost the other tabs; a few hundred kilobytes could fill the memory. Real files expand
+less than 10 times, so the limit leaves them a wide margin.
+
 `Document::to_json` / `from_json` keep the document as **one JSON, its B-reps and images
 inline** (an image's bytes in base64): what a
 recording of the journal starts from ([Control protocol](../control-protocol.md)) and what
