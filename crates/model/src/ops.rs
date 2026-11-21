@@ -492,6 +492,8 @@ pub enum Operation {
     DeleteSheet { sheet: Id },
     /// A sheet moved to `index` of presentation `presentation` (none: its own).
     MoveSheet { sheet: Id, presentation: Option<Id>, index: usize },
+    /// A copy of a sheet, with its elements, put at `index` of `presentation`.
+    CopySheet { sheet: Id, presentation: Id, index: usize },
     /// An element added on top of a sheet or a composition.
     AddElement { to: Container, element: ElementKind },
     /// An element changed (moved, its view turned…), of the same kind.
@@ -575,6 +577,7 @@ impl Operation {
             Operation::SetSheet { .. } => t!("operation.set_sheet"),
             Operation::DeleteSheet { .. } => t!("operation.delete_sheet"),
             Operation::MoveSheet { .. } => t!("operation.move_sheet"),
+            Operation::CopySheet { .. } => t!("operation.copy_sheet"),
             Operation::AddElement { element: ElementKind::View(_), .. } => t!("operation.add_view"),
             Operation::AddElement { .. } => t!("operation.add_element"),
             Operation::SetElement { .. } => t!("operation.set_element"),
@@ -956,6 +959,10 @@ impl Document {
             Operation::DeleteSheet { sheet } => self.delete_sheet(*sheet).map(|_| Outcome::default()),
             Operation::MoveSheet { sheet, presentation, index } => {
                 self.move_sheet(*sheet, *presentation, *index).map(|_| Outcome::default())
+            }
+            Operation::CopySheet { sheet, presentation, index } => {
+                let id = self.copy_sheet(*sheet, *presentation, *index)?;
+                Ok(Outcome { sheet: Some(id), ..Outcome::default() })
             }
             Operation::AddElement { to, element } => {
                 let id = self.add_element(*to, element)?;

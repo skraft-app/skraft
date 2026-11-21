@@ -1364,6 +1364,7 @@ operation:
   set_sheet: "Edit Sheet"
   delete_sheet: "Delete Sheet"
   move_sheet: "Move Sheet"
+  copy_sheet: "Copy Sheet"
   add_view: "New View"
   add_element: "Add to Sheet"
   set_element: "Edit on Sheet"

@@ -6,8 +6,10 @@ use skraft_model::{Drawing, Id, Paper};
 
 /// The room a column without a sheet stands for.
 const EMPTY: Paper = Paper::A4;
-/// The gaps between sheets and columns, as a share of the drawing's largest paper side.
+/// The gap between two sheets of a column, as a share of the drawing's largest paper side.
 const GAP_SHARE: f64 = 0.1;
+/// The gap between two columns, wider: the presentations read apart without a rule.
+const COLUMN_GAP_SHARE: f64 = 0.3;
 
 /// A sheet on the board: its paper's bottom left corner (the sheet's origin) and size.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,15 +52,18 @@ impl Column {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Board {
     pub columns: Vec<Column>,
-    /// Between two sheets of a column, and two columns (millimetres).
+    /// Between two sheets of a column (millimetres).
     pub gap: f64,
+    /// Between two columns (millimetres).
+    pub column_gap: f64,
 }
 
 impl Board {
     /// The board of drawing `d`.
     pub fn of(d: &Drawing) -> Board {
         let largest = d.sheets().map(|s| s.paper.width.max(s.paper.height)).fold(0.0, f64::max);
-        let gap = if largest > 0.0 { largest } else { EMPTY.width } * GAP_SHARE;
+        let side = if largest > 0.0 { largest } else { EMPTY.width };
+        let (gap, column_gap) = (side * GAP_SHARE, side * COLUMN_GAP_SHARE);
         let mut x = 0.0;
         let columns = d
             .presentations
@@ -77,11 +82,11 @@ impl Board {
                         BoardSheet { id: s.id, origin, size }
                     })
                     .collect();
-                x += width + gap;
+                x += width + column_gap;
                 Column { presentation: p.id, centre, width, sheets }
             })
             .collect();
-        Board { columns, gap }
+        Board { columns, gap, column_gap }
     }
 
     pub fn sheets(&self) -> impl Iterator<Item = &BoardSheet> {
@@ -130,6 +135,7 @@ mod tests {
         let (q, a4) = presentation(&mut h, Some(Paper::A4));
         let b = Board::of(h.document().drawing());
         assert_eq!(b.gap, 42.0, "a tenth of the largest side");
+        assert!((b.column_gap - 126.0).abs() < 1e-9, "three tenths between columns");
         assert_eq!(b.columns.len(), 2);
         let (first, second) = (b.sheet(a3.unwrap()).unwrap(), b.sheet(portrait).unwrap());
         assert_eq!((first.origin, first.max()), (DVec2::new(0.0, -297.0), DVec2::new(420.0, 0.0)));
@@ -137,8 +143,9 @@ mod tests {
         assert_eq!((second.origin, second.max()), (DVec2::new(105.0, -636.0), DVec2::new(315.0, -339.0)));
         // The next column past the widest sheet and the gap, its top on the board's.
         let other = b.sheet(a4.unwrap()).unwrap();
-        assert_eq!((b.column(q).unwrap().centre, other.origin), (462.0 + 148.5, DVec2::new(462.0, -210.0)));
-        assert_eq!(b.bounds(), Some((DVec2::new(0.0, -636.0), DVec2::new(759.0, 0.0))));
+        assert!((b.column(q).unwrap().centre - (546.0 + 148.5)).abs() < 1e-9 && other.origin.distance(DVec2::new(546.0, -210.0)) < 1e-9);
+        let (lo, hi) = b.bounds().unwrap();
+        assert!(lo.distance(DVec2::new(0.0, -636.0)) < 1e-9 && hi.distance(DVec2::new(843.0, 0.0)) < 1e-9);
     }
 
     #[test]
@@ -148,7 +155,7 @@ mod tests {
         let (_, a3) = presentation(&mut h, Some(Paper::A3));
         let b = Board::of(h.document().drawing());
         assert_eq!(b.column(p).unwrap().bounds(), (DVec2::new(0.0, -210.0), DVec2::new(297.0, 0.0)));
-        assert_eq!(b.sheet(a3.unwrap()).unwrap().origin.x, 297.0 + 42.0);
+        assert!((b.sheet(a3.unwrap()).unwrap().origin.x - (297.0 + 126.0)).abs() < 1e-9);
     }
 
     #[test]

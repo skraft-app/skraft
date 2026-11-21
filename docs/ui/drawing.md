@@ -41,7 +41,7 @@ drawing
 
 Operations: `AddPresentation` (with a first sheet if a paper is given), `AddPresentationFrom` (a template, [Templates](#templates)),
 `SetPresentation`, `DeletePresentation`, `MovePresentation`; `AddSheet` (to a presentation, else
-the first, made if there is none), `AddSheetFrom`, `SetSheet`, `DeleteSheet`, `MoveSheet` (within
+the first, made if there is none), `AddSheetFrom`, `SetSheet`, `DeleteSheet`, `CopySheet`, `MoveSheet` (within
 its presentation or to another); `AddElement` (on top of a sheet or a composition), `SetElement` (same
 kind; consecutive changes of one element merge in the history), `DeleteElements` (and what hangs
 on them), `SetElementState` (hidden, locked), `MoveElement` (its order); `MakeComposition`,
@@ -150,8 +150,9 @@ camera are a view state (`SheetState`). None of it is saved.
 - **Its sheets stacked** below, in their order, each on its white paper with a shadow, **centred
   on the column** (as wide as its widest sheet), its name above it. A sheet shows its **border**
   under its elements, and what it holds through its instances ([Compositions](#compositions)).
-- **In board millimetres**, y up, from the tree and the papers alone. The gaps between sheets and
-  columns are a tenth of the drawing's largest paper side, so that an A0 among A4s leaves room.
+- **In board millimetres**, y up, from the tree and the papers alone. The gaps follow the drawing's
+  largest paper side, so that an A0 among A4s leaves room: a tenth of it between sheets, three
+  tenths between columns, which read apart without a rule.
   The names keep their size on screen; a sheet's is left out when its gap has no room for it.
 - **When the layout changes** (a sheet added, a format changed), the camera follows the active
   sheet, which stays where it is on screen.
@@ -245,7 +246,11 @@ chevron, the active sheet and its presentation unfolding when another becomes ac
   row, it changes place** (`MoveSheet`, one step undone at once): onto another sheet's row, before
   it, or after it by its lower half while that row is folded; onto a presentation's row, to its
   end, also from another presentation. The board and the numbering follow, the active sheet
-  staying where it is on screen.
+  staying where it is on screen. **With the copy modifier** (Option on macOS, Ctrl elsewhere) a
+  copy goes there instead (`CopySheet`, one step), beside the sheet itself too: its elements under
+  ids of their own, its views keeping their projections and dimensions, its instances placing the
+  same compositions, its name kept unless the presentation has it (then the next free « Feuille n »
+  for a default name, else « Plan#2 »). The copy becomes active.
 - **Its elements, the topmost first**: a view's name, a text's first line, a composition's name for an
   instance, else their kind. A click makes their sheet active and picks them, the camera going to
   the sheet and never to the element ([Framing](#framing)), Shift adding or taking off;
