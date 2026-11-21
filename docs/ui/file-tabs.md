@@ -5,11 +5,9 @@ code: [apps/skraft/src/docs.rs, apps/skraft/src/tabs.rs, apps/skraft/src/app.rs,
 
 # Several documents: file tabs
 
-Several documents open at once, one tab each in the title bar, as a web browser's tabs (after
-SolidCraft's document tabs, `crates/ui-kit/src/app_bar.rs`: `TabStrip`, `DocTab`, `tab_layout`;
-`crates/ui-egui/src/documents.rs`; the drawing is ours). This page covers what a document holds,
-how the kernel and the renderer are shared between documents, the tabs themselves, opening and
-closing, and the start page.
+Several documents open at once, one tab each in the title bar, as a web browser's tabs. This page
+covers what a document holds, how the kernel and the renderer are shared between documents, the
+tabs themselves, opening and closing, and the start page.
 
 Decision record: [Each document holds its whole state](../decisions/0014-documents-own-their-state.md)
 

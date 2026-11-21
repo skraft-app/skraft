@@ -5,9 +5,8 @@
 
 ## Context
 
-The app had a menu strip. SolidCraft (`ui-kit/src/window_chrome.rs`, `app_bar.rs`) has one
-application bar instead, whose only menu is File. The ribbon
-([A ribbon with workspaces](0015-ribbon-with-workspaces.md)), the command search and the shortcuts
+The app had a menu strip. One application bar, whose only menu is File, can take its place: the
+ribbon ([A ribbon with workspaces](0015-ribbon-with-workspaces.md)), the command search and the shortcuts
 reach every command of the registry.
 
 ## Decision

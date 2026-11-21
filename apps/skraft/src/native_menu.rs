@@ -29,7 +29,7 @@ enum Item {
     Check(CheckMenuItem),
 }
 
-/// The app's menu bar while it lives.
+/// Holds the menu bar installed for the app, for as long as this value exists.
 pub struct NativeMenu {
     _bar: Bar,
     items: Vec<(&'static str, Item)>,
@@ -122,8 +122,8 @@ fn accelerator(s: Option<Shortcut>) -> Option<Accelerator> {
 }
 
 impl NativeMenu {
-    /// Builds the bar and installs it. A chosen item repaints `ctx`. On the main thread only, as
-    /// every AppKit menu.
+    /// Builds the bar and installs it. A chosen item repaints `ctx`. Must run on the main thread,
+    /// which AppKit requires of anything touching menus.
     pub fn new(ctx: &egui::Context, views: &[CommandView], keymap: &Keymap) -> Result<Self, String> {
         let (sender, events) = sync_channel(64);
         let ctx = ctx.clone();

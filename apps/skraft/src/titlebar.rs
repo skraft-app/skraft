@@ -2,12 +2,13 @@
 //! the app's mark and name, the File menu, undo and redo, the file tabs (docs/ui/file-tabs.md,
 //! [`crate::tabs`]), the command search and the preferences, every button a command of the
 //! registry. The other menus are not in the bar: their commands are in the ribbon, the view bar
-//! ([`crate::view_bar`]), the command search and the shortcuts (as SolidCraft's bar).
+//! ([`crate::view_bar`]), the command search and the shortcuts.
 //!
-//! On the macOS desktop it is the window's title bar: the OS bar is hidden, the content runs
-//! under it ([`native_options`](crate::native_options)), room is left for the traffic lights,
-//! and its empty space moves the window (a double-click zooms it); the native menu bar
-//! ([`crate::native_menu`]) holds the File menu only. Elsewhere (web, Windows, Linux) the OS frame is kept.
+//! On the macOS desktop this band stands in for the system's title bar, which
+//! [`native_options`](crate::native_options) hides while letting the content reach the window's
+//! top. The band keeps clear of the three window buttons; dragging a free part of it carries the
+//! window and double-clicking there toggles its maximized size. The system menu bar
+//! ([`crate::native_menu`]) holds the File menu only. The web, Windows and Linux keep the OS frame.
 
 use skraft_i18n::{ellipsis, t};
 
@@ -24,7 +25,7 @@ use crate::tabs::{self, Tab};
 
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;
-/// Room for the macOS traffic lights at the bar's left end, with a gap before the mark.
+/// Width left clear for the three macOS window buttons ahead of the app's mark, margin included.
 const TRAFFIC_LIGHTS: f32 = 84.0;
 /// The command search's widest.
 const SEARCH_WIDTH: f32 = 240.0;
@@ -38,8 +39,8 @@ pub struct Bar<'a> {
     pub shown: Option<usize>,
     /// A tab's menu offers to show its file (desktop).
     pub reveal: bool,
-    /// The bar is the window's title bar (macOS desktop): room for the traffic lights, and
-    /// its empty space moves the window.
+    /// Set on the macOS desktop, where the bar replaces the title bar: it clears the window
+    /// buttons and its free areas drag the window.
     pub integrated: bool,
     /// The 3D view's background under the bar and the text drawn on it (none: the start
     /// page): the shown tab opens onto it.
@@ -95,8 +96,9 @@ pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
     });
 }
 
-/// The bar's empty space moves the window, a double-click zooms it. Registered before the
-/// bar's widgets, which take the pointer where they are.
+/// Gives the bar's free areas their window behaviour: a drag carries the window, a double-click
+/// toggles maximized. Set up ahead of the bar's widgets, so that those keep the pointer wherever
+/// they sit.
 fn move_window(ui: &egui::Ui) {
     let r = ui.interact(ui.max_rect(), egui::Id::unique("title_bar_drag"), egui::Sense::click_and_drag());
     if r.double_clicked() {

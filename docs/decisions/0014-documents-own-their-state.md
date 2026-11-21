@@ -6,11 +6,9 @@
 
 ## Context
 
-Decided on 2026-11-13 (questions / answers), after SolidCraft's document tabs
-(`crates/ui-kit/src/app_bar.rs`: `TabStrip`, `DocTab`, `tab_layout`;
-`crates/ui-egui/src/documents.rs`), to open several documents at once, one tab each. In
-SolidCraft the active design's state is spread over the app and swapped in and out when the tab
-changes.
+Decided on 2026-11-13 (questions / answers), to open several documents at once, one tab each.
+The question is where a document's state lives: spread over the app and swapped in and out when
+the tab changes, or held by the document itself.
 
 ## Decision
 
@@ -27,7 +25,7 @@ changes.
 
 ## Alternatives considered
 
-- Swapping the active document's state in and out of the app, as SolidCraft does: each new
+- Swapping the active document's state in and out of the app: each new
   per-design field must then be added to the swap by hand. Rejected: here the type holds it.
 - One kernel (one SolidCore wasm) per tab: rejected for one shared service.
 

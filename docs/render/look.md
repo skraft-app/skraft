@@ -10,7 +10,8 @@ colour tokens of the theme and the interface's palettes, the fonts, the material
 rendering, silhouettes, the section view with its caps, hatches and cut lines, and x-ray. How
 the document becomes meshes and lines is in [Display](display.md).
 
-Taken from SolidCraft's rendering and interface (questions / answers, 2026-11-10).
+Parts of the rendering are adapted from SolidCraft's, under the MIT license (the third-party
+notices; questions / answers, 2026-11-10).
 
 ## Still image
 

@@ -1,11 +1,11 @@
-//! The ribbon and its workspace switcher, at its left end (docs/ui/ribbon.md).
+//! The ribbon, whose first cell switches the workspace (docs/ui/ribbon.md).
 //!
 //! The ribbon is data: [`crate::workspace::WORKSPACES`] → tabs → groups → command ids of the registry
 //! (docs/ui/commands.md), each group with its default pins. A group shows its pinned commands as buttons;
 //! its label (▾) opens its menu, which lists every command of the group with a pin. The user's
 //! pins, the tab shown per workspace and the labels' switch are a preference ([`Prefs`]); the
 //! workspace shown is the document's ([`crate::workspace`]).
-//! When the ribbon is too narrow, [`fit`] decides what gives way. Drawing only reads: what the
+//! When the ribbon is too narrow, [`arrange`] decides what gives way. Drawing only reads: what the
 //! user chose comes back as actions ([`Change`] for the ribbon's own state).
 
 use std::collections::BTreeMap;
@@ -134,18 +134,7 @@ pub enum Change {
 
 // ---- fitting ---------------------------------------------------------------------------------
 
-/// How a group is drawn on a ribbon that may be too narrow for every button.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Fit {
-    /// Its first `shown` buttons; its menu lists every command anyway.
-    Buttons,
-    /// One button that opens its menu.
-    Collapsed,
-    /// In the » menu at the end of the ribbon.
-    More,
-}
-
-/// A group as [`fit`] sees it.
+/// A group's sizes, the input of the ribbon's fitting.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupSize {
     /// Each pinned button's preferred and least width.
@@ -154,99 +143,147 @@ pub struct GroupSize {
     pub label: f32,
 }
 
-/// Where [`fit`] put a group: its first `shown` buttons, at these widths.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Plan {
-    pub fit: Fit,
-    pub shown: usize,
-    pub widths: Vec<f32>,
-}
-
 /// Room between two buttons, and between two groups (their separator).
 pub const BUTTON_GAP: f32 = 2.0;
 pub const GROUP_GAP: f32 = 13.0;
-/// The » button's room, kept only while some group is in it.
+/// Width set aside at the right edge for the » button, when it has groups to list.
 pub const MORE_ROOM: f32 = 30.0;
 
-impl Plan {
-    fn full(g: &GroupSize) -> Self {
-        let fit = if g.buttons.is_empty() { Fit::Collapsed } else { Fit::Buttons };
-        Plan { fit, shown: g.buttons.len(), widths: g.buttons.iter().map(|b| b.0).collect() }
+/// What became of a group once the ribbon is arranged in its room.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Placement {
+    /// On the ribbon: its first `widths.len()` buttons, at these widths.
+    Row(Vec<f32>),
+    /// Folded into one button that opens its menu.
+    Folded,
+    /// Listed in the » menu: it takes no room at all.
+    Overflow,
+}
+
+impl Placement {
+    /// `group` with nothing given up.
+    fn unreduced(group: &GroupSize) -> Self {
+        if group.buttons.is_empty() { Placement::Folded } else { Placement::Row(group.buttons.iter().map(|b| b.0).collect()) }
     }
 
-    /// The group's width on the ribbon (0 in the » menu); `collapsed`: a collapsed group's button.
-    pub fn width(&self, g: &GroupSize, collapsed: f32) -> f32 {
-        match self.fit {
-            Fit::More => 0.0,
-            Fit::Collapsed => collapsed.max(g.label),
-            Fit::Buttons => {
-                let shown = &self.widths[..self.shown];
-                (shown.iter().sum::<f32>() + shown.len().saturating_sub(1) as f32 * BUTTON_GAP).max(g.label)
-            }
+    /// The width it takes on the ribbon. `folded`: the width of a folded group's button.
+    fn width(&self, group: &GroupSize, folded: f32) -> f32 {
+        match self {
+            Placement::Row(widths) => row_width(group.label, widths.iter().copied()),
+            Placement::Folded => folded.max(group.label),
+            Placement::Overflow => 0.0,
         }
     }
 }
 
-fn used(plans: &[Plan], groups: &[GroupSize], collapsed: f32) -> f32 {
-    let on: Vec<f32> = plans.iter().zip(groups).filter(|(p, _)| p.fit != Fit::More).map(|(p, g)| p.width(g, collapsed)).collect();
-    on.iter().sum::<f32>() + on.len().saturating_sub(1) as f32 * GROUP_GAP
+/// Buttons side by side, the group's label as a lower bound.
+fn row_width(label: f32, buttons: impl ExactSizeIterator<Item = f32>) -> f32 {
+    let gaps = buttons.len().saturating_sub(1) as f32 * BUTTON_GAP;
+    (buttons.sum::<f32>() + gaps).max(label)
 }
 
-/// Fits the groups into `room`, giving up as little as it takes, one step at a time:
-/// 1. buttons narrow together, from their preferred width to their least;
-/// 2. groups hand their last buttons to their menu one at a time — the group showing the most
-///    first, the rightmost of equals — down to one collapsed button;
-/// 3. the last groups go into the » menu (which takes [`MORE_ROOM`]).
-///
-/// It depends on `room` only (no state from earlier frames), so it never flickers; nothing is
-/// ever unreachable. `collapsed` is a collapsed group's button width.
-pub fn fit(groups: &[GroupSize], room: f32, collapsed: f32) -> Vec<Plan> {
+/// Group widths laid end to end with their separators.
+fn joined(widths: impl Iterator<Item = f32>) -> f32 {
+    let (sum, count) = widths.fold((0.0, 0usize), |(sum, count), w| (sum + w, count + 1));
+    sum + count.saturating_sub(1) as f32 * GROUP_GAP
+}
+
+/// The width the placed groups take together, the » button aside.
+fn span(placements: &[Placement], groups: &[GroupSize], folded: f32) -> f32 {
+    joined(placements.iter().zip(groups).filter(|(p, _)| **p != Placement::Overflow).map(|(p, g)| p.width(g, folded)))
+}
+
+/// A button's width once every button gave up `drop` points: never under its least width.
+fn narrowed((preferred, least): (f32, f32), drop: f32) -> f32 {
+    (preferred - drop).max(least.min(preferred))
+}
+
+/// The smallest whole drop for which `enough` holds, known to hold once all buttons are at their
+/// least. Bisected: the total width never grows with the drop.
+fn smallest_drop(groups: &[GroupSize], enough: impl Fn(f32) -> bool) -> u32 {
+    if enough(0.0) {
+        return 0;
+    }
+    let slack = groups.iter().flat_map(|g| &g.buttons).map(|&(p, l)| p - l.min(p)).fold(0.0, f32::max);
+    // One past the largest slack, so that rounding cannot leave a button above its least.
+    let (mut short, mut sufficient) = (0u32, (slack.ceil() as u32).saturating_add(1));
+    while sufficient - short > 1 {
+        let middle = short + (sufficient - short) / 2;
+        if enough(middle as f32) {
+            sufficient = middle;
+        } else {
+            short = middle;
+        }
+    }
+    sufficient
+}
+
+/// With every button at its least width, takes buttons away until the groups fit in `room`: the
+/// group showing the most goes first, the rightmost among equals. None if all folded is too wide.
+fn drop_buttons(groups: &[GroupSize], room: f32, folded: f32) -> Option<Vec<Placement>> {
+    // That order is known ahead: each button that can go, by how many its group shows just
+    // before, then by group. A group never rests on one button unless it only has one.
+    let mut turns: Vec<(usize, usize)> = groups
+        .iter()
+        .enumerate()
+        .flat_map(|(i, g)| {
+            let n = g.buttons.len();
+            (if n == 1 { 1 } else { 2 }..=n).map(move |showing| (showing, i))
+        })
+        .collect();
+    turns.sort_unstable_by(|a, b| b.cmp(a));
+
+    let least = |g: &'_ GroupSize, k: usize| g.buttons[..k].iter().map(|&b| narrowed(b, f32::INFINITY)).collect::<Vec<f32>>();
+    let width = |g: &GroupSize, k: usize| match k {
+        0 => folded.max(g.label),
+        k => row_width(g.label, g.buttons[..k].iter().map(|&b| narrowed(b, f32::INFINITY))),
+    };
+    let mut showing: Vec<usize> = groups.iter().map(|g| g.buttons.len()).collect();
+    let mut widths: Vec<f32> = groups.iter().zip(&showing).map(|(g, &k)| width(g, k)).collect();
+    for (before, i) in turns {
+        showing[i] = if before > 2 { before - 1 } else { 0 };
+        widths[i] = width(&groups[i], showing[i]);
+        if joined(widths.iter().copied()) <= room {
+            let place = |(g, &k): (&GroupSize, &usize)| if k == 0 { Placement::Folded } else { Placement::Row(least(g, k)) };
+            return Some(groups.iter().zip(&showing).map(place).collect());
+        }
+    }
+    None
+}
+
+/// `groups`, all of them on the ribbon or folded, in `room`; None if they cannot be.
+fn settle(groups: &[GroupSize], room: f32, folded: f32) -> Option<Vec<Placement>> {
+    let width_at = |g: &GroupSize, drop: f32| {
+        if g.buttons.is_empty() { folded.max(g.label) } else { row_width(g.label, g.buttons.iter().map(|&b| narrowed(b, drop))) }
+    };
+    let fits_at = |drop: f32| joined(groups.iter().map(|g| width_at(g, drop))) <= room;
+    if !fits_at(f32::INFINITY) {
+        return drop_buttons(groups, room, folded);
+    }
+    let drop = smallest_drop(groups, fits_at) as f32;
+    let place = |g: &GroupSize| {
+        if g.buttons.is_empty() { Placement::Folded } else { Placement::Row(g.buttons.iter().map(|&b| narrowed(b, drop)).collect()) }
+    };
+    Some(groups.iter().map(place).collect())
+}
+
+/// What each group becomes in `room` (a non-finite one counts as 0). `folded`: the width of a
+/// folded group's button. Depends on its arguments only: buttons narrow together, then go one by
+/// one, then the last groups move to the » menu (docs/ui/ribbon.md).
+pub fn arrange(groups: &[GroupSize], room: f32, folded: f32) -> Vec<Placement> {
     let room = if room.is_finite() { room } else { 0.0 };
-    if let Some(plans) = shrink(groups, room, collapsed) {
-        return plans;
+    if let Some(all) = settle(groups, room, folded) {
+        return all;
     }
-    for kept in (0..groups.len()).rev() {
-        if let Some(mut plans) = shrink(&groups[..kept], room - MORE_ROOM, collapsed) {
-            plans.extend(groups[kept..].iter().map(|_| Plan { fit: Fit::More, shown: 0, widths: Vec::new() }));
-            return plans;
-        }
-    }
-    // Narrower than the » button alone: everything in it.
-    groups.iter().map(|_| Plan { fit: Fit::More, shown: 0, widths: Vec::new() }).collect()
-}
-
-/// Steps 1 and 2 of [`fit`]: every group on the ribbon, or None if even collapsed they don't fit.
-fn shrink(groups: &[GroupSize], room: f32, collapsed: f32) -> Option<Vec<Plan>> {
-    let mut plans: Vec<Plan> = groups.iter().map(Plan::full).collect();
-    if used(&plans, groups, collapsed) <= room {
-        return Some(plans);
-    }
-    // 1. Narrow together in one-point steps, each button down to its least width.
-    let most = groups.iter().flat_map(|g| g.buttons.iter().map(|b| b.0 - b.1)).fold(0.0f32, f32::max).ceil() as usize;
-    for step in 1..=most {
-        for (plan, g) in plans.iter_mut().zip(groups) {
-            for (w, b) in plan.widths.iter_mut().zip(&g.buttons) {
-                *w = (b.0 - step as f32).max(b.1);
-            }
-        }
-        if used(&plans, groups, collapsed) <= room {
-            return Some(plans);
-        }
-    }
-    // 2. One button at a time into the menus.
-    while used(&plans, groups, collapsed) > room {
-        let (i, _) = plans
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.fit == Fit::Buttons)
-            .max_by(|(i, a), (j, b)| a.shown.cmp(&b.shown).then(i.cmp(j)))?;
-        let p = &mut plans[i];
-        p.shown -= 1;
-        if p.shown <= 1 {
-            p.fit = Fit::Collapsed;
-        }
-    }
-    Some(plans)
+    let beside_more = room - MORE_ROOM;
+    (1..groups.len())
+        .rev()
+        .find_map(|kept| {
+            let mut head = settle(&groups[..kept], beside_more, folded)?;
+            head.resize(groups.len(), Placement::Overflow);
+            Some(head)
+        })
+        .unwrap_or_else(|| vec![Placement::Overflow; groups.len()])
 }
 
 // ---- drawing ---------------------------------------------------------------------------------
@@ -262,7 +299,7 @@ const BUTTON_MIN_WIDTH: f32 = 50.0;
 const BUTTON_MAX_WIDTH: f32 = 74.0;
 const COMPACT_WIDTH: f32 = 34.0;
 const ICON: f32 = 24.0;
-/// The workspace cell's width, at the ribbon's left end.
+/// How wide the cell that picks the workspace is; the ribbon starts with it.
 const WORKSPACE_WIDTH: f32 = 92.0;
 /// The workspace's icon in its cell, and the gap between it and its name.
 const WORKSPACE_ICON: f32 = 28.0;
@@ -286,10 +323,10 @@ impl View<'_> {
     }
 }
 
-/// The workspace cell, at the ribbon's left end: the workspace's icon over its name, centred
-/// above the groups' label line, the chevron of its menu on that line, at the height of the
-/// groups' own (docs/ui/ribbon.md#layout). It reacts over its whole surface: the card's inner
-/// margin (`inset`) on three sides, up to the separator (`sep`) on the right; a click lists the
+/// The cell that opens the ribbon and picks the workspace. Its icon sits above its name, the
+/// pair centred over the line of group labels; its chevron lies on that line, level with the
+/// groups' chevrons (docs/ui/ribbon.md#layout). All of it is clickable, margins included: `inset`
+/// extends it at the top, left and bottom, `sep` bounds it on the right. Clicking lists the
 /// workspaces.
 fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, inset: egui::Margin, sep: f32, actions: &mut Vec<Action>) {
     let current = v.workspace;
@@ -407,7 +444,7 @@ fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui:
 }
 
 /// Which top corners of a [`tab_strip`]'s band follow its card's: none (the band under a title
-/// bar), both, or the right one only (the ribbon's, its left end at the workspace cell).
+/// bar), both, or only the right one (the ribbon's band, which starts at the workspace cell).
 #[derive(Clone, Copy, PartialEq)]
 pub enum Corners {
     Square,
@@ -486,12 +523,12 @@ pub fn tab_strip(
     clicked
 }
 
-/// One group laid out: where it is, and how [`fit`] placed it.
+/// One group laid out: where it is, and how [`arrange`] placed it.
 struct Laid {
     key: String,
     group: &'static Group,
     pinned: Vec<&'static str>,
-    plan: Plan,
+    place: Placement,
 }
 
 /// The tabs' width, with the gaps between them.
@@ -512,7 +549,7 @@ fn tab_row_width(painter: &egui::Painter, w: &Workspace) -> f32 {
     tab_labels_width(painter, &labels) + 2.0 * crate::tabs::TAB_RADIUS
 }
 
-/// The groups shown (the fixed one first) and their sizes, as [`fit`] sees them.
+/// The groups shown (the fixed one first) and their sizes, as [`arrange`] takes them.
 fn measure(painter: &egui::Painter, v: &View) -> (Vec<Laid>, Vec<GroupSize>) {
     let w = v.workspace;
     let tab = v.prefs.tab(v.workspace);
@@ -521,7 +558,7 @@ fn measure(painter: &egui::Painter, v: &View) -> (Vec<Laid>, Vec<GroupSize>) {
     for (tab_of, g) in std::iter::once((None, &w.fixed)).chain(tab.groups.iter().map(|g| (Some(tab), g))) {
         let key = key(w, tab_of, g);
         let pinned = v.prefs.pinned(&key, g);
-        laid.push(Laid { key, group: g, pinned, plan: Plan { fit: Fit::More, shown: 0, widths: Vec::new() } });
+        laid.push(Laid { key, group: g, pinned, place: Placement::Overflow });
     }
     let measure = |text: &str, font: FontId| painter.layout_no_wrap(text.to_owned(), font, Color32::WHITE).size().x;
     let sizes: Vec<GroupSize> = laid
@@ -554,8 +591,8 @@ pub fn natural_width(ctx: &egui::Context, v: &View) -> f32 {
     let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
     let (_, sizes) = measure(&painter, v);
     let collapsed = if v.prefs.labels { BUTTON_MIN_WIDTH } else { COMPACT_WIDTH };
-    let plans: Vec<Plan> = sizes.iter().map(Plan::full).collect();
-    let groups = used(&plans, &sizes, collapsed);
+    let unreduced: Vec<Placement> = sizes.iter().map(Placement::unreduced).collect();
+    let groups = span(&unreduced, &sizes, collapsed);
     let w = v.workspace;
     let tabs = tab_row_width(&painter, w);
     (WORKSPACE_WIDTH + GROUP_GAP + groups.max(tabs)).ceil()
@@ -597,9 +634,8 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
     let labels = v.prefs.labels;
     let (button_h, collapsed) = if labels { (BUTTON_HEIGHT, BUTTON_MIN_WIDTH) } else { (COMPACT_HEIGHT, COMPACT_WIDTH) };
     let (mut laid, sizes) = measure(ui.painter(), v);
-    let plans = fit(&sizes, width, collapsed);
-    for (l, p) in laid.iter_mut().zip(plans) {
-        l.plan = p;
+    for (l, p) in laid.iter_mut().zip(arrange(&sizes, width, collapsed)) {
+        l.place = p;
     }
 
     let (row, _) = ui.allocate_exact_size(vec2(width, button_h + LABEL_GAP + GROUP_LABEL_HEIGHT), Sense::hover());
@@ -607,7 +643,7 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
     let mut x = row.left();
     let mut first = true;
     for (l, size) in laid.iter().zip(&sizes) {
-        if l.plan.fit == Fit::More {
+        if l.place == Placement::Overflow {
             continue;
         }
         if !first {
@@ -617,27 +653,27 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
             x += GROUP_GAP;
         }
         first = false;
-        let gw = l.plan.width(size, collapsed);
+        let gw = l.place.width(size, collapsed);
         let mut bx = x;
         let mut shown = Vec::new();
         let mut collapsed_response = None;
-        match l.plan.fit {
-            Fit::Buttons => {
+        match &l.place {
+            Placement::Row(widths) => {
                 // Centered in the group when its label is the wider.
-                let buttons: f32 = l.plan.widths[..l.plan.shown].iter().sum::<f32>() + (l.plan.shown.saturating_sub(1)) as f32 * BUTTON_GAP;
+                let buttons = widths.iter().sum::<f32>() + widths.len().saturating_sub(1) as f32 * BUTTON_GAP;
                 bx += (gw - buttons) / 2.0;
-                for (id, bw) in l.pinned.iter().zip(&l.plan.widths).take(l.plan.shown) {
+                for (id, bw) in l.pinned.iter().zip(widths) {
                     let rect = Rect::from_min_size(pos2(bx, row.top()), vec2(*bw, button_h));
                     command_button(ui, v, &l.key, l.group, id, rect, labels, actions);
                     shown.push(*id);
                     bx += bw + BUTTON_GAP;
                 }
             }
-            Fit::Collapsed => {
+            Placement::Folded => {
                 let rect = Rect::from_min_size(pos2(x + (gw - collapsed) / 2.0, row.top()), vec2(collapsed, button_h));
                 collapsed_response = Some(collapsed_button(ui, l, rect, labels));
             }
-            Fit::More => {}
+            Placement::Overflow => {}
         }
         // The group's label opens its menu; lit when the running tool is in the menu only.
         let label_rect = Rect::from_min_size(pos2(x, row.top() + button_h + LABEL_GAP), vec2(gw, GROUP_LABEL_HEIGHT));
@@ -655,8 +691,8 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
         x += gw;
     }
 
-    // The groups that did not fit: in the » menu.
-    if laid.iter().any(|l| l.plan.fit == Fit::More) {
+    // Groups left without a place are reached through the » button, at the right edge.
+    if laid.iter().any(|l| l.place == Placement::Overflow) {
         let rect = Rect::from_min_size(pos2(row.right() - MORE_ROOM + 4.0, row.top()), vec2(MORE_ROOM - 4.0, button_h));
         let response = ui.interact(rect, egui::Id::unique("ribbon_more"), Sense::click());
         let visuals = ui.style().interact(&response);
@@ -666,7 +702,7 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
         egui::Image::new(icons::MORE).tint(visuals.text_color()).paint_at(ui, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)));
         let response = response.tip(t!("ribbon.more"));
         Popup::menu(&response).style(crate::style::menu).show(|ui| {
-            for l in laid.iter().filter(|l| l.plan.fit == Fit::More) {
+            for l in laid.iter().filter(|l| l.place == Placement::Overflow) {
                 ui.menu_button((l.group.label)(), |ui| group_menu(ui, v, &l.key, l.group, actions));
             }
         });
@@ -919,29 +955,42 @@ mod tests {
         ]
     }
 
-    fn total(plans: &[Plan], g: &[GroupSize]) -> f32 {
-        let more = if plans.iter().any(|p| p.fit == Fit::More) { MORE_ROOM } else { 0.0 };
-        used(plans, g, 50.0) + more
+    fn total(placed: &[Placement], g: &[GroupSize]) -> f32 {
+        let more = if placed.contains(&Placement::Overflow) { MORE_ROOM } else { 0.0 };
+        span(placed, g, 50.0) + more
+    }
+
+    /// The buttons a group shows on the ribbon.
+    fn showing(p: &Placement) -> usize {
+        match p {
+            Placement::Row(widths) => widths.len(),
+            _ => 0,
+        }
+    }
+
+    fn sized(buttons: &[(f32, f32)], label: f32) -> GroupSize {
+        GroupSize { buttons: buttons.to_vec(), label }
     }
 
     #[test]
     fn everything_shows_when_there_is_room() {
         let g = groups();
-        let plans = fit(&g, 2000.0, 50.0);
-        assert!(plans[..3].iter().all(|p| p.fit == Fit::Buttons));
-        assert_eq!(plans[1].widths, [70.0; 3]);
+        let placed = arrange(&g, 2000.0, 50.0);
+        assert!(placed[..3].iter().all(|p| matches!(p, Placement::Row(_))));
+        assert_eq!(placed[1], Placement::Row(vec![70.0; 3]));
         // A group without pins is one button opening its menu.
-        assert_eq!(plans[3].fit, Fit::Collapsed);
+        assert_eq!(placed[3], Placement::Folded);
     }
 
     #[test]
     fn buttons_narrow_before_any_is_hidden() {
         let g = groups();
-        let full = total(&fit(&g, 2000.0, 50.0), &g);
-        let plans = fit(&g, full - 20.0, 50.0);
-        assert!(plans.iter().zip(&g).all(|(p, g)| p.shown == g.buttons.len()));
-        assert!(plans[1].widths[0] < 70.0);
-        assert!(total(&plans, &g) <= full - 20.0);
+        let full = total(&arrange(&g, 2000.0, 50.0), &g);
+        let placed = arrange(&g, full - 20.0, 50.0);
+        assert!(placed.iter().zip(&g).all(|(p, g)| showing(p) == g.buttons.len()));
+        let Placement::Row(widths) = &placed[1] else { panic!("the group stays on the ribbon") };
+        assert!(widths[0] < 70.0);
+        assert!(total(&placed, &g) <= full - 20.0);
     }
 
     #[test]
@@ -951,24 +1000,77 @@ mod tests {
         let mut last = (0, usize::MAX);
         let mut room = 2000.0;
         while room > 0.0 {
-            let plans = fit(&g, room, 50.0);
-            let more = plans.iter().filter(|p| p.fit == Fit::More).count();
-            let on: usize = plans.iter().map(|p| if p.fit == Fit::Buttons { p.shown } else { 0 }).sum();
+            let placed = arrange(&g, room, 50.0);
+            let more = placed.iter().filter(|p| **p == Placement::Overflow).count();
+            let on: usize = placed.iter().map(showing).sum();
             assert!(more >= last.0, "less room never brings a group back from the » menu");
             // A group going into the » menu frees room the others may take back.
             assert!(more > last.0 || on <= last.1, "less room never shows more buttons");
             last = (more, on);
-            if total(&plans, &g) > room {
+            if total(&placed, &g) > room {
                 // Only when even the » menu alone does not fit.
-                assert!(plans.iter().all(|p| p.fit == Fit::More));
+                assert!(placed.iter().all(|p| *p == Placement::Overflow));
             }
-            assert_eq!(plans, fit(&g, room, 50.0), "the same room, the same plans");
+            assert_eq!(placed, arrange(&g, room, 50.0), "the same room, the same result");
             room -= 7.0;
         }
-        let plans = fit(&g, 300.0, 50.0);
-        assert!(plans.iter().any(|p| p.fit == Fit::Collapsed));
-        let plans = fit(&g, 120.0, 50.0);
-        assert_eq!(plans.last().unwrap().fit, Fit::More, "the last groups go first");
-        assert_ne!(plans[0].fit, Fit::More);
+        let placed = arrange(&g, 300.0, 50.0);
+        assert!(placed.contains(&Placement::Folded));
+        let placed = arrange(&g, 120.0, 50.0);
+        assert_eq!(*placed.last().unwrap(), Placement::Overflow, "the last groups go first");
+        assert_ne!(placed[0], Placement::Overflow);
+    }
+
+    #[test]
+    fn the_narrowing_is_the_smallest_whole_number_of_points() {
+        let g = [sized(&[(60.5, 50.0), (55.0, 54.0)], 10.0)];
+        // 117.5 wide at rest; a drop of 3 gives 57.5 + 54 + 2 = 113.5.
+        assert_eq!(arrange(&g, 114.0, 50.0), [Placement::Row(vec![57.5, 54.0])]);
+        assert_eq!(arrange(&g, 113.5, 50.0), [Placement::Row(vec![57.5, 54.0])]);
+        assert_eq!(arrange(&g, 113.0, 50.0), [Placement::Row(vec![56.5, 54.0])]);
+    }
+
+    #[test]
+    fn buttons_go_from_the_fullest_group_the_rightmost_first() {
+        let g = [sized(&[(30.0, 30.0); 3], 0.0), sized(&[(30.0, 30.0); 3], 0.0)];
+        // 94 + 13 + 94 = 201 at the least widths.
+        let row = |n: usize| Placement::Row(vec![30.0; n]);
+        assert_eq!(arrange(&g, 201.0, 20.0), [row(3), row(3)]);
+        assert_eq!(arrange(&g, 200.0, 20.0), [row(3), row(2)]);
+        assert_eq!(arrange(&g, 169.0, 20.0), [row(3), row(2)]);
+        assert_eq!(arrange(&g, 168.0, 20.0), [row(2), row(2)]);
+        // From two buttons, a group folds; the rightmost before the other.
+        assert_eq!(arrange(&g, 136.0, 20.0), [row(2), Placement::Folded]);
+        assert_eq!(arrange(&g, 94.0, 20.0), [Placement::Folded, Placement::Folded]);
+    }
+
+    #[test]
+    fn a_single_button_group_folds_last() {
+        let g = [sized(&[(40.0, 40.0)], 0.0), sized(&[(40.0, 40.0); 2], 0.0)];
+        assert_eq!(arrange(&g, 135.0, 20.0), [Placement::Row(vec![40.0]), Placement::Row(vec![40.0; 2])]);
+        assert_eq!(arrange(&g, 73.0, 20.0), [Placement::Row(vec![40.0]), Placement::Folded]);
+        assert_eq!(arrange(&g, 72.0, 20.0), [Placement::Folded, Placement::Folded]);
+    }
+
+    #[test]
+    fn the_more_menu_takes_the_fewest_trailing_groups() {
+        let g = [sized(&[(40.0, 40.0); 2], 0.0), sized(&[(40.0, 40.0); 2], 0.0), sized(&[(40.0, 40.0); 2], 0.0)];
+        // Three folded groups need 116; two, with the » button, 103; one, 60.
+        let folded = Placement::Folded;
+        assert_eq!(arrange(&g, 116.0, 30.0), [folded.clone(), folded.clone(), folded.clone()]);
+        assert_eq!(arrange(&g, 115.0, 30.0), [folded.clone(), folded.clone(), Placement::Overflow]);
+        assert_eq!(arrange(&g, 103.0, 30.0), [folded.clone(), folded.clone(), Placement::Overflow]);
+        assert_eq!(arrange(&g, 102.0, 30.0), [folded.clone(), Placement::Overflow, Placement::Overflow]);
+        assert_eq!(arrange(&g, 60.0, 30.0), [folded, Placement::Overflow, Placement::Overflow]);
+        // Nothing fits beside the » button: every group is in it.
+        assert_eq!(arrange(&g, 59.0, 30.0), vec![Placement::Overflow; 3]);
+    }
+
+    #[test]
+    fn a_room_that_is_not_finite_counts_as_none() {
+        let g = [sized(&[(40.0, 40.0); 2], 0.0)];
+        for room in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(arrange(&g, room, 30.0), arrange(&g, 0.0, 30.0));
+        }
     }
 }

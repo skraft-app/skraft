@@ -9,9 +9,8 @@
 Decided on 2026-11-13 (questions / answers). The tools were in a tool bar centered at the top of
 the view (`panels::toolbar`), with the tool option bar as its card's footer. More workspaces
 (*Cut list*, the OCL-like parts list, and *Drawing*) are planned, and the commands keep growing.
-SolidCraft has a ribbon (`ui-kit/src/ribbon.rs`, `ui-egui/src/toolbar_custom.rs`), itself after
-the workspace / tabbed-toolbar pattern of CAD tools (CATIA and FreeCAD workbenches, SolidWorks'
-CommandManager, Fusion).
+The workspace / tabbed-toolbar pattern of CAD tools (CATIA and FreeCAD workbenches, SolidWorks'
+CommandManager, Fusion) answers this.
 
 ## Decision
 
@@ -27,7 +26,7 @@ CommandManager, Fusion).
 - A group shows its pinned commands; its menu lists every command with a pin. The pins, the tab
   per workspace and the labels' switch are user preferences; the labels off by default
   (2026-11-19: the compact ribbon fits between the columns).
-- A narrow window is handled by a pure function of the width (`fit`), after SolidCraft's:
+- A narrow window is handled by a pure function of the width (`arrange`):
   buttons narrow, groups collapse into their menu, the last groups go into a » menu.
 - The pattern is free to use; the drawing is ours: our icons, palette, names and proportions —
   nothing traced from another product.

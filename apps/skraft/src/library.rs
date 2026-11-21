@@ -113,45 +113,44 @@ impl Rows {
     }
 }
 
-/// Names compared as people read them: case ignored, runs of digits by their value
-/// (« Pièce#2 » before « Pièce#10 »).
+/// Orders names as a person reads them: runs of digits by their value, letters without regard
+/// to case, a prefix first. Names alike by that measure are told apart at their first real
+/// difference (the shorter spelling of a number, else plain `char` order), so that only
+/// identical strings are `Equal`.
 pub fn natural_cmp(a: &str, b: &str) -> Ordering {
-    let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
-    // Names equal but for case or leading zeros: the first such difference decides.
+    let (mut left, mut right) = (a, b);
     let mut tie = Ordering::Equal;
     loop {
-        match (a.peek().copied(), b.peek().copied()) {
-            (None, None) => return tie,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let run = |it: &mut std::iter::Peekable<std::str::Chars>| {
-                    let mut digits = String::new();
-                    while let Some(d) = it.peek().copied().filter(char::is_ascii_digit) {
-                        digits.push(d);
-                        it.next();
-                    }
-                    digits
-                };
-                let (da, db) = (run(&mut a), run(&mut b));
-                let (ta, tb) = (da.trim_start_matches('0'), db.trim_start_matches('0'));
-                let o = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
-                if o != Ordering::Equal {
-                    return o;
-                }
-                tie = tie.then(da.len().cmp(&db.len()));
+        let (Some(x), Some(y)) = (left.chars().next(), right.chars().next()) else {
+            return right.is_empty().cmp(&left.is_empty()).then(tie);
+        };
+        if x.is_ascii_digit() && y.is_ascii_digit() {
+            let (run_x, rest_x) = left.split_at(digit_run(left));
+            let (run_y, rest_y) = right.split_at(digit_run(right));
+            let (value_x, value_y) = (run_x.trim_start_matches('0'), run_y.trim_start_matches('0'));
+            // Without leading zeros, more digits is a larger number; as many compare as text.
+            let by_value = value_x.len().cmp(&value_y.len()).then_with(|| value_x.cmp(value_y));
+            if by_value != Ordering::Equal {
+                return by_value;
             }
-            (Some(x), Some(y)) => {
-                let o = x.to_lowercase().cmp(y.to_lowercase());
-                if o != Ordering::Equal {
-                    return o;
+            tie = tie.then(run_x.len().cmp(&run_y.len()));
+            (left, right) = (rest_x, rest_y);
+        } else {
+            if x != y {
+                let by_letter = x.to_lowercase().cmp(y.to_lowercase());
+                if by_letter != Ordering::Equal {
+                    return by_letter;
                 }
                 tie = tie.then(x.cmp(&y));
-                a.next();
-                b.next();
             }
+            (left, right) = (&left[x.len_utf8()..], &right[y.len_utf8()..]);
         }
     }
+}
+
+/// How many ASCII digits `s` starts with.
+fn digit_run(s: &str) -> usize {
+    s.bytes().take_while(u8::is_ascii_digit).count()
 }
 
 /// A component's name in its row: its colour `ink`, an automatic one in italics, attenuated
@@ -602,5 +601,30 @@ mod tests {
         let mut names = vec!["Pièce#10", "pièce#2", "Assemblage#1", "Pièce#2", "Caisson", "Pièce#02", "Pièce", "étagère"];
         names.sort_by(|a, b| natural_cmp(a, b));
         assert_eq!(names, ["Assemblage#1", "Caisson", "Pièce", "Pièce#2", "Pièce#02", "pièce#2", "Pièce#10", "étagère"]);
+    }
+
+    #[test]
+    fn natural_order_cases() {
+        use Ordering::{Equal, Greater, Less};
+        // Runs by value, whatever their length.
+        assert_eq!(natural_cmp("a9", "a10"), Less);
+        let long = "9".repeat(60);
+        assert_eq!(natural_cmp(&long, &format!("1{long}")), Less);
+        assert_eq!(natural_cmp(&format!("000{long}"), &format!("1{long}")), Less);
+        // Case aside, then a prefix first, before any difference of case or zeros.
+        assert_eq!(natural_cmp("abc", "ABD"), Less);
+        assert_eq!(natural_cmp("ÉA", "éb"), Less);
+        assert_eq!(natural_cmp("AB", "abc"), Less);
+        assert_eq!(natural_cmp("a01", "A1b"), Less);
+        // Equal so far: the first real difference decides.
+        assert_eq!(natural_cmp("a1", "a01"), Less);
+        assert_eq!(natural_cmp("a01", "a1"), Greater);
+        assert_eq!(natural_cmp("A", "a"), Less);
+        assert_eq!(natural_cmp("a1B", "A01b"), Greater, "a after A, at the first place");
+        assert_eq!(natural_cmp("x01Y", "x1y"), Greater, "the zeros come first");
+        // Only identical strings are equal.
+        assert_eq!(natural_cmp("Pièce#02", "Pièce#02"), Equal);
+        assert_eq!(natural_cmp("", ""), Equal);
+        assert_eq!(natural_cmp("", "a"), Less);
     }
 }

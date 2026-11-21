@@ -3143,7 +3143,7 @@ impl SkraftApp {
         let span = if above { egui::Rangef::new(area.left() + margin, area.right() - margin) } else { between };
         // As wide as its content, centered within its span (on the area, or between a split
         // stage's table and the right column): a window narrower than that narrows it
-        // ([`ribbon::fit`] then gives way).
+        // ([`ribbon::arrange`] then gives way).
         let center = if split.is_some() && !above { span.center() } else { area.center().x };
         let ribbon_width = natural.min((span.span() - frame_x).max(0.0));
         let ribbon_left = (center - (ribbon_width + frame_x) / 2.0).min(span.max - ribbon_width - frame_x).max(span.min);

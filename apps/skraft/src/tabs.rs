@@ -3,16 +3,16 @@
 //! closes, a drag reorders, right click opens the tab's menu; `+` opens a new document and »
 //! lists every tab when they do not all fit ([`layout`], a pure function of the width).
 //!
-//! On the macOS desktop the tabs are part of the window's title bar: dragging the only tab, or
-//! a tab mostly up or down, moves the window ([`drag_moves_window`], told once as the drag
-//! starts).
+//! On the macOS desktop the strip sits in the window's own title bar, so a drag can mean two
+//! things: sideways it reorders, while a lone tab or a mainly vertical movement carries the
+//! window instead. [`drag_moves_window`] settles this once, when the drag begins.
 
 use skraft_i18n::t;
 
 use crate::icons;
 use crate::style::Tip;
 
-/// A tab as the app describes it this frame.
+/// What the app tells the strip about one open document, anew each frame.
 pub struct Tab {
     /// Its document's id: what follows the tab while tabs move.
     pub id: u64,
@@ -37,7 +37,7 @@ impl Tab {
     }
 }
 
-/// A row of a tab's menu.
+/// An entry of the context menu opened on a tab.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuRow {
     Close,
@@ -63,54 +63,53 @@ const MAX_TAB: f32 = 200.0;
 const BUTTON: f32 = 26.0;
 const HEIGHT: f32 = 26.0;
 
-/// Which tabs fit in `room` points with `+` after them: (first, how many, tab width). Tabs
-/// shrink to [`MIN_TAB`]; past that a run of tabs around `shown` is drawn, the others in the »
-/// list (its button then takes room too).
+/// Which tabs fit in `room`: `(first drawn, how many, their width)`. All of them share the room
+/// while they can stay at [`MIN_TAB`]; past that, » joins `+` and the widest run holding tab
+/// `shown` is drawn, as far left as it can start.
 pub fn layout(n: usize, shown: usize, room: f32) -> (usize, usize, f32) {
     if n == 0 {
         return (0, 0, MIN_TAB);
     }
-    let avail = room - BUTTON;
-    if avail >= n as f32 * MIN_TAB {
-        return (0, n, (avail / n as f32).min(MAX_TAB));
+    let strip = room - BUTTON;
+    if n as f32 * MIN_TAB <= strip {
+        return (0, n, (strip / n as f32).min(MAX_TAB));
     }
-    let fit = (((avail - BUTTON) / MIN_TAB).floor().max(1.0) as usize).min(n);
-    let first = shown.min(n - 1).saturating_sub(fit - 1).min(n - fit);
-    (first, fit, MIN_TAB)
+    let count = (((strip - BUTTON) / MIN_TAB).floor() as usize).clamp(1, n);
+    let end = shown.min(n - 1) + 1;
+    (end.saturating_sub(count), count, MIN_TAB)
 }
 
-/// The place among the drawn tabs (`first..first + count`, `width` wide from `x0`) where a tab
-/// dropped with the pointer at `x` goes.
+/// The tab index of the drawn slot under `x`. Slots are `width` wide from `x0` and numbered from
+/// `first`; a position outside the run counts as its nearest end.
 pub fn drop_place(x: f32, x0: f32, width: f32, first: usize, count: usize) -> usize {
-    let k = ((x - x0) / width).floor().max(0.0) as usize;
-    first + k.min(count.saturating_sub(1))
+    let slot = ((x - x0) / width).floor().max(0.0) as usize;
+    first + slot.min(count.saturating_sub(1))
 }
 
-/// Does a tab drag that started by moving `moved` move the window rather than the tab? Only
-/// when the tabs are the window's title bar (`window_moves`): the only tab, or one dragged
-/// mostly up or down.
+/// Whether a drag beginning with the movement `moved` carries the window rather than a tab: only
+/// from a title bar (`window_moves`), for a lone tab or a movement more vertical than horizontal.
 pub fn drag_moves_window(n: usize, window_moves: bool, moved: egui::Vec2) -> bool {
     window_moves && (n <= 1 || moved.y.abs() > moved.x.abs())
 }
 
-/// Where each drawn tab goes (`first..first + count`, by place along the strip) while tab
-/// `from` is dragged over place `to`: the others close up around the gap it leaves and open one
-/// where it would land.
+/// The slot (0-based along the strip) of each drawn tab `first..first + count`, in tab order,
+/// while tab `from` is carried to the slot of tab `to`. The others fill the remaining slots in
+/// their own order.
 pub fn places(first: usize, count: usize, from: usize, to: usize) -> Vec<usize> {
-    let mut order: Vec<usize> = (first..first + count).filter(|&i| i != from).collect();
-    order.insert((to - first).min(order.len()), from);
-    let mut place = vec![0; count];
-    for (k, i) in order.into_iter().enumerate() {
-        place[i - first] = k;
+    if !(first..first + count).contains(&from) {
+        return (0..count).collect();
     }
-    place
+    let taken = to.saturating_sub(first);
+    let mut free = (0..count).filter(|&slot| slot != taken);
+    (first..first + count).map(|i| if i == from { taken } else { free.next().unwrap_or(taken) }).collect()
 }
 
-/// The tab dragged along the strip, and where the pointer holds it (from its left edge).
+/// The tab following the pointer, kept from one frame to the next.
 #[derive(Clone, Copy)]
-struct Drag {
-    from: usize,
-    grab: f32,
+struct CarriedTab {
+    index: usize,
+    /// The pointer's distance from the tab's left edge.
+    grip: f32,
 }
 
 /// What the shown tab opens onto: it runs down to the bar's `bottom` edge in the 3D view's
@@ -142,39 +141,36 @@ pub fn show(
     let n = tabs.len();
     let (first, count, width) = layout(n, shown.unwrap_or(0), rect.width());
     let y = rect.center().y - HEIGHT / 2.0;
-    let mut drag: Option<Drag> = ui.data(|d| d.get_temp(id.with("drag")));
+    let carried_key = id.with("carried");
+    // A carried tab whose document has gone is dropped here.
+    let mut carried = ui.data(|d| d.get_temp::<CarriedTab>(carried_key)).filter(|c| c.index < n);
     let pointer = ui.ctx().pointer_latest_pos();
     let visuals = ui.visuals().clone();
     let font = egui::TextStyle::Body.resolve(ui.style());
 
-    // The tab dragged, if it is drawn: its left edge, under the pointer, kept on the strip, and
-    // the place it would land on.
-    let last_left = rect.left() + count.saturating_sub(1) as f32 * width;
-    let held = match (drag, pointer) {
-        (Some(d), Some(p)) if (first..first + count).contains(&d.from) => {
-            let left = (p.x - d.grab).clamp(rect.left(), last_left.max(rect.left()));
-            Some((d.from, left, drop_place(left + width / 2.0, rect.left(), width, first, count)))
-        }
-        _ => None,
-    };
-    let place = match held {
-        Some((from, _, to)) => places(first, count, from, to),
-        None => (0..count).collect(),
-    };
-    // The dragged tab is drawn last, over the others; else the shown one, its curves over its
-    // neighbours.
-    let top = held.map(|(from, ..)| from).or(shown.filter(|s| (first..first + count).contains(s)));
-    let mut order: Vec<usize> = (first..first + count).filter(|&i| top != Some(i)).collect();
-    order.extend(top);
+    // This frame's picture of the drag; a drag starting below shows from the next frame.
+    let carrying = carried.is_some();
+    let drawn = first..first + count;
+    let lifted = carried.map(|c| c.index).filter(|i| drawn.contains(i));
+    // The lifted tab's left edge and the index it would land on.
+    let flight = carried.filter(|c| drawn.contains(&c.index)).zip(pointer).map(|(c, p)| {
+        let last = (rect.left() + (count - 1) as f32 * width).max(rect.left());
+        let left = (p.x - c.grip).clamp(rect.left(), last);
+        (left, drop_place(left + width / 2.0, rect.left(), width, first, count))
+    });
+    let slots = lifted.zip(flight).map(|(i, (_, to))| places(first, count, i, to));
+    // Painted last, so that it stays above its neighbours.
+    let on_top = lifted.or(shown.filter(|i| drawn.contains(i)));
+    let order: Vec<usize> = drawn.clone().filter(|&i| Some(i) != on_top).chain(on_top).collect();
     let dt = ui.input(|i| i.stable_dt).min(0.1);
 
     for i in order {
         let tab = &tabs[i];
-        let dragged = held.is_some_and(|(from, ..)| from == i);
-        // Each tab slides to its place (a tab let go slides in from where it was dropped).
-        let target = match held {
-            Some((from, left, _)) if from == i => left,
-            _ => rect.left() + place[i - first] as f32 * width,
+        let dragged = lifted == Some(i);
+        let slot = slots.as_ref().map_or(i - first, |s| s[i - first]);
+        let target = match flight {
+            Some((left, _)) if dragged => left,
+            _ => rect.left() + slot as f32 * width,
         };
         let key = id.with(("x", tab.id));
         let x = match ui.data(|d| d.get_temp::<f32>(key)) {
@@ -211,7 +207,7 @@ pub fn show(
         } else {
             let fill = if active {
                 visuals.widgets.active.weak_bg_fill
-            } else if hovered && held.is_none() {
+            } else if hovered && !carrying {
                 visuals.widgets.hovered.weak_bg_fill
             } else {
                 egui::Color32::TRANSPARENT
@@ -240,7 +236,7 @@ pub fn show(
         );
         let cut = galley.elided;
         ui.painter().galley(egui::pos2(r.left() + 10.0, r.center().y - galley.size().y / 2.0), galley, color);
-        if show_close && held.is_none() {
+        if show_close && !carrying {
             let x = small_button(ui, close, id.with(("close", i)), icons::CLOSE, 12.0, ink);
             crate::handles::publish(|| format!("tab_close:{i}"), close);
             if x.tip(t!("tabs.close_tip")).clicked() {
@@ -248,7 +244,7 @@ pub fn show(
             }
         }
 
-        let resp = if held.is_none() { resp.tip(tab.tip(cut)) } else { resp };
+        let resp = if carrying { resp } else { resp.tip(tab.tip(cut)) };
         if resp.clicked() {
             out.push(TabAction::Select(i));
         }
@@ -271,43 +267,34 @@ pub fn show(
             }
         });
 
-        // Dragging, told once as it starts (after SolidCraft): along the strip, the tab moves;
-        // in the title bar, the only tab or a tab dragged mostly up or down moves the window.
         if resp.drag_started_by(egui::PointerButton::Primary) {
-            let origin = ui.input(|i| i.pointer.press_origin());
-            let moved = match (origin, pointer) {
-                (Some(o), Some(p)) => p - o,
-                _ => egui::Vec2::ZERO,
-            };
+            let origin = ui.input(|input| input.pointer.press_origin());
+            let moved = origin.zip(pointer).map_or(egui::Vec2::ZERO, |(o, p)| p - o);
             if drag_moves_window(n, window_moves, moved) {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            } else if n > 1 {
-                drag = Some(Drag { from: i, grab: origin.map_or(width / 2.0, |o| o.x - r.left()) });
+            } else if n >= 2 {
+                let grip = origin.map_or(width / 2.0, |o| o.x - r.left());
+                carried = Some(CarriedTab { index: i, grip });
             }
         }
-        if dragged {
+        if resp.drag_stopped() && carried.is_some_and(|c| c.index == i) {
+            carried = None;
+            if let Some((_, to)) = flight.filter(|&(_, to)| dragged && to != i) {
+                out.push(TabAction::Reorder { from: i, to });
+            }
+        }
+    }
+    // Every button up with the drag still open: its tab was not there to see the release.
+    if !ui.input(|input| input.pointer.any_down()) {
+        carried = None;
+    }
+    match carried {
+        Some(c) => {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-            if resp.drag_stopped() {
-                drag = None;
-                if let Some((from, _, to)) = held
-                    && to != from
-                {
-                    out.push(TabAction::Reorder { from, to });
-                }
-            }
+            ui.data_mut(|d| d.insert_temp(carried_key, c));
         }
+        None => ui.data_mut(|d| d.remove::<CarriedTab>(carried_key)),
     }
-    if drag.is_some_and(|d| d.from >= n) || !ui.input(|i| i.pointer.any_down()) && drag.is_some() {
-        drag = None;
-    }
-    ui.data_mut(|d| match drag {
-        Some(v) => {
-            d.insert_temp(id.with("drag"), v);
-        }
-        None => {
-            d.remove::<Drag>(id.with("drag"));
-        }
-    });
 
     // `+`, then » when tabs are left out.
     let mut x = rect.left() + count as f32 * width;
