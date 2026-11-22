@@ -117,7 +117,8 @@ becomes a **temporary reference**, with no click or key, as in SketchUp. The edi
 time from the app (`Editor::tick`, called every frame; it asks for a repaint while a point is
 waiting). `MAX_TRACKED` = 2 are kept, the most recent; each stays marked on screen with a
 ring. Their axes are `LineKind::TrackedAxis(k)` lines ("From point, on red axis"), whose guides
-are dashed from the reference. Tracked points drop with the locks.
+are dashed from the reference. Tracked points drop with the locks. When a rotation's preview
+starts, only the latest stays, so that the older one and their middle leave the view.
 
 With two tracked points, **their middle** is a point to infer (`TrackedMiddle`), marked by a
 small ring. It is offered even inside a solid (the centre of a box from two opposite corners)
@@ -191,7 +192,9 @@ through what lies between — plain where they are seen, translucent dashes wher
 (`Pen::x_ray`: the scene layer with its hidden part shown, [Drawing helpers](../render/drawer.md));
 **the rotation's radii**, as every dimension's line, are dashed, translucent where hidden
 (`Pen::dimension`, [Dimensions](../render/drawer.md#dimensions)); the protractor stays over
-everything. Move writes its distance at the middle of its line,
+everything, as do the fine dotted lines joining a radius's end to the point inferred off the
+protractor's plane that it is the projection of (the reference's stays while the angle is
+chosen). Move writes its distance at the middle of its line,
 Rotate its angle on the bisector of its radii, just past the protractor (`PreviewLabel`, as
 Stretch). Move's line and the tape's are arrows, their head at the cursor (the destination,
 the point measured to, the guide's side): heads `ARROW_PX` long on screen, in the plane facing

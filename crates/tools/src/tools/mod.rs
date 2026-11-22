@@ -159,6 +159,9 @@ pub enum Command {
     /// Drops the arrow keys' and Shift's locks (a step of the gesture done: the prism tool's
     /// corner placed); the points tracked stay. The tool is then given the cursor again.
     ClearLocks,
+    /// Keeps only the latest point tracked, so that neither the older one nor their middle stays
+    /// on screen (a rotation's preview starting).
+    KeepLastTracked,
     /// The material the paint tool paints with from now on (none: the paint removed).
     PaintWith(Option<Id>),
     /// Holds the tool `ToolKind` over the active one, which waits under it as it is, for as long

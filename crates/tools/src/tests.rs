@@ -1227,6 +1227,25 @@ fn rotate_tool_by_clicks_and_typed_angle() {
 }
 
 #[test]
+fn rotate_preview_keeps_only_the_last_tracked_point() {
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "50");
+    e.set_tool(ToolKind::Rotate);
+    let (first, last) = (DVec3::new(200.0, 0.0, 50.0), DVec3::new(200.0, 100.0, 50.0));
+    e.tick(10.0);
+    hover(&mut e, first);
+    e.tick(10.6);
+    hover(&mut e, last);
+    e.tick(11.2);
+    let is = |e: &Editor, want: &[DVec3]| e.tracked().len() == want.len() && e.tracked().iter().zip(want).all(|(a, b)| close(*a, *b));
+    assert!(is(&e, &[first, last]), "{:?}", e.tracked());
+    click(&mut e, DVec3::new(1.0, 1.0, 50.0));
+    assert!(is(&e, &[first, last]), "both kept while the reference is chosen: {:?}", e.tracked());
+    click(&mut e, DVec3::new(150.0, 0.0, 50.0));
+    assert!(is(&e, &[last]), "{:?}", e.tracked());
+}
+
+#[test]
 fn rotate_snaps_to_the_graduations_inside_the_protractor_only() {
     let mut e = top_editor(Document::new());
     draw_box(&mut e, DVec3::new(-600.0, -600.0, 0.0), DVec3::new(-500.0, -500.0, 0.0), "20");
