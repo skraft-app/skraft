@@ -28,7 +28,7 @@ pub const HEIGHT: f32 = 34.0;
 /// Width left clear for the three macOS window buttons ahead of the app's mark, margin included.
 const TRAFFIC_LIGHTS: f32 = 84.0;
 /// The command search's widest.
-const SEARCH_WIDTH: f32 = 240.0;
+const SEARCH_WIDTH: f32 = 160.0;
 /// Below this width, the search is only its icon.
 const SEARCH_MIN: f32 = 120.0;
 
@@ -142,6 +142,7 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
                 remote_mark(ui, mark, actions);
             }
             if let Some(v) = find("app.command_palette") {
+                ui.separator();
                 let room = ui.available_width() - TABS_MIN;
                 if room >= SEARCH_MIN {
                     if search(ui, v, room.min(SEARCH_WIDTH)) {

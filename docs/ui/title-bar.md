@@ -20,7 +20,8 @@ Decision record: [A title bar instead of a menu strip](../decisions/0006-title-b
   [Several documents: file tabs](file-tabs.md)), else a place that moves the window —, the
   **File** menu (a text button: the registry's File commands), Undo / Redo, the file tabs
   ([Several documents: file tabs](file-tabs.md)), and at the right the command search (opens
-  the palette, shows its shortcut; only its icon when the window is narrow) and the preferences;
+  the palette, shows its shortcut; only its icon when the window is narrow), between two
+  separators, and the preferences;
   the control channel's mark, while it is on, left of the preferences
   ([Command registry and external driving](commands.md)). Every button is a registry command,
   its state and tip from it. The standard views and the view's toggles are in the view bar

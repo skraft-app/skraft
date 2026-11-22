@@ -254,7 +254,7 @@ view_bar:
   grip: "Glisser pour placer la barre à gauche ou à droite"
 titlebar:
   modified: "Modifié depuis le dernier enregistrement"
-  search: "Rechercher une commande"
+  search: "Commande"
   # The control channel's mark, shown while it is on.
   remote:
     on: "Pilotage distant actif sur %{address} — %{n} requête(s)"
