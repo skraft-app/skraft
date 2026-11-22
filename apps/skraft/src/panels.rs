@@ -3040,6 +3040,7 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                 ElementKind::Text { .. } => t!("panel.entity_info.type_text"),
                 ElementKind::Line { .. } => t!("panel.entity_info.type_line"),
                 ElementKind::Rect { .. } => t!("panel.entity_info.type_rect"),
+                ElementKind::Circle { .. } => t!("panel.entity_info.type_circle"),
                 ElementKind::Dimension(dim) => match dim.kind {
                     skraft_model::DimKind::Linear { orient: skraft_model::Orient::Horizontal, .. } => t!("drawing.dim.horizontal"),
                     skraft_model::DimKind::Linear { orient: skraft_model::Orient::Vertical, .. } => t!("drawing.dim.vertical"),

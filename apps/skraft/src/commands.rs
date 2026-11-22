@@ -111,6 +111,7 @@ pub const COMMANDS: &[Command] = &[
     // Free elements drawn on the sheet.
     g("drawing.tool_text", || t!("menu.drawing.tool_text"), M::Tools, None),
     c("drawing.tool_rect", || t!("menu.drawing.tool_rect"), M::Tools, None),
+    c("drawing.tool_circle", || t!("menu.drawing.tool_circle"), M::Tools, None),
     c("drawing.tool_line", || t!("menu.drawing.tool_line"), M::Tools, None),
     // Dimensions through a view (docs/ui/drawing.md#dimensions).
     g("drawing.dim_linear", || t!("menu.drawing.dim_linear"), M::Tools, None),

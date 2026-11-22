@@ -132,6 +132,9 @@ pub fn drawing_pdf(
                         let ring = vec![*min, DVec2::new(max.x, min.y), *max, DVec2::new(min.x, max.y), *min];
                         polylines(&mut surface, &[ring], |q| at(*q), stroke(THIN_MM, 30, None));
                     }
+                    ElementKind::Circle { center, radius } => {
+                        circle(&mut surface, *center, *radius, |q| at(*q), stroke(THIN_MM, 30, None));
+                    }
                     ElementKind::Dimension(dim) => {
                         let Some(s) = crate::sheet::dim_shape(e, dim, shown.projection) else { break 'element };
                         let grey = if s.orphan { 0 } else { 25 };
@@ -238,6 +241,31 @@ fn polylines(surface: &mut krilla::surface::Surface<'_>, lines: &[Vec<DVec2>], a
             pb.line_to(q.x, q.y);
         }
     }
+    let Some(path) = pb.finish() else { return };
+    surface.set_fill(None);
+    surface.set_stroke(Some(stroke));
+    surface.draw_path(&path);
+    surface.set_stroke(None);
+}
+
+/// A circle stroked, as four cubic arcs (a curve in the PDF, whatever the zoom).
+fn circle(surface: &mut krilla::surface::Surface<'_>, c: DVec2, r: f64, at: impl Fn(&DVec2) -> Point, stroke: Stroke) {
+    // The handles' length for a quarter circle.
+    const K: f64 = 0.552_284_749_830_793_6;
+    let on = |x: f64, y: f64| at(&(c + DVec2::new(x, y) * r));
+    let mut pb = PathBuilder::new();
+    let start = on(1.0, 0.0);
+    pb.move_to(start.x, start.y);
+    for [a, b, q] in [
+        [(1.0, K), (K, 1.0), (0.0, 1.0)],
+        [(-K, 1.0), (-1.0, K), (-1.0, 0.0)],
+        [(-1.0, -K), (-K, -1.0), (0.0, -1.0)],
+        [(K, -1.0), (1.0, -K), (1.0, 0.0)],
+    ] {
+        let (a, b, q) = (on(a.0, a.1), on(b.0, b.1), on(q.0, q.1));
+        pb.cubic_to(a.x, a.y, b.x, b.y, q.x, q.y);
+    }
+    pb.close();
     let Some(path) = pb.finish() else { return };
     surface.set_fill(None);
     surface.set_stroke(Some(stroke));

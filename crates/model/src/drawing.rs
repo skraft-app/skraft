@@ -173,6 +173,10 @@ pub enum ElementKind {
         min: DVec2,
         max: DVec2,
     },
+    Circle {
+        center: DVec2,
+        radius: f64,
+    },
     /// An image of the document's assets (`Document::assets`), stretched over the rectangle.
     Image {
         asset: String,
@@ -686,7 +690,7 @@ impl ElementKind {
 
     /// Can it take a rotation? The others are drawn upright.
     fn turns(&self) -> bool {
-        matches!(self, ElementKind::Line { .. } | ElementKind::Instance(_))
+        matches!(self, ElementKind::Line { .. } | ElementKind::Circle { .. } | ElementKind::Instance(_))
     }
 
     /// As it is once its composition's axes are `t`'s: what hangs on a view moves with it.
@@ -694,6 +698,7 @@ impl ElementKind {
         let mut out = self.clone();
         match &mut out {
             ElementKind::View(View { kind: ViewKind::Base { at, .. }, .. }) | ElementKind::Text { at, .. } => *at = t.transform_point2(*at),
+            ElementKind::Circle { center, .. } => *center = t.transform_point2(*center),
             ElementKind::Line { from, to } => (*from, *to) = (t.transform_point2(*from), t.transform_point2(*to)),
             ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. } => {
                 (*min, *max) = (t.transform_point2(*min), t.transform_point2(*max));

@@ -44,8 +44,8 @@ pub struct SheetState {
     pub selected: Vec<Id>,
     /// What a click on the sheet does.
     pub tool: SheetTool,
-    /// The selection being dragged, from where (sheet millimetres).
-    moving: Option<DVec2>,
+    /// The selection being dragged.
+    moving: Option<Moving>,
     /// Where the selection rectangle being drawn starts (screen points).
     marquee: Option<egui::Pos2>,
     /// The pointer over the sheet last frame (screen points), for the status bar.
@@ -164,6 +164,7 @@ fn element_box(e: &Editor, el: &skraft_model::Element, projection: Projection) -
     Some(match &el.kind {
         ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. } => (*min, *max),
         ElementKind::Line { from, to } => (from.min(*to), from.max(*to)),
+        ElementKind::Circle { center, radius } => (*center - DVec2::splat(*radius), *center + DVec2::splat(*radius)),
         ElementKind::Text { at, text, size } => {
             let columns = text.lines().map(|l| l.chars().count()).max().unwrap_or(1) as f64;
             let rows = text.lines().count().max(1) as f64;
@@ -219,6 +220,14 @@ pub fn sketch_of(e: &Editor, id: Id, projection: Projection) -> Option<Sketch> {
                         let width = line.chars().count() as f64 * size * 0.55;
                         s.segments.push((to.transform_point2(DVec2::new(at.x, y)), to.transform_point2(DVec2::new(at.x + width, y))));
                     }
+                }
+                ElementKind::Circle { center, radius } => {
+                    const SIDES: usize = 32;
+                    let on = |k: usize| {
+                        let a = k as f64 / SIDES as f64 * std::f64::consts::TAU;
+                        to.transform_point2(*center + DVec2::from_angle(a) * *radius)
+                    };
+                    s.segments.extend((0..SIDES).map(|k| (on(k), on(k + 1))));
                 }
                 ElementKind::Dimension(_) => {}
                 _ => s.segments.extend((0..4).map(|k| (corners[k], corners[(k + 1) % 4]))),
@@ -766,8 +775,10 @@ pub enum SheetTool {
     },
     /// A click puts a text there (« Texte »).
     Text,
-    /// A drag draws a rectangle (« Rectangle »), a line (« Trait »).
+    /// A drag draws a rectangle (« Rectangle »), a circle from its centre (« Cercle »), a line
+    /// (« Trait »).
     Rect,
+    Circle,
     Line,
     /// Dimensions (docs/ui/drawing.md#dimensions): linear (two vertices, then its line),
     /// radius and diameter (a circular edge, then its text), angle (two straight edges, then
@@ -784,6 +795,7 @@ impl SheetTool {
         match id {
             "drawing.tool_text" => Some(SheetTool::Text),
             "drawing.tool_rect" => Some(SheetTool::Rect),
+            "drawing.tool_circle" => Some(SheetTool::Circle),
             "drawing.tool_line" => Some(SheetTool::Line),
             "drawing.dim_linear" => Some(SheetTool::Linear),
             "drawing.dim_radius" => Some(SheetTool::Radius),
@@ -828,6 +840,9 @@ enum Handle {
     Side(i8, i8),
     /// A line's start (0) or end (1).
     End(u8),
+    /// A circle's point on its right, left, top or bottom (its direction from the centre): its
+    /// radius.
+    Round(i8, i8),
     /// A base view frame's corner: its scale.
     Scale(i8, i8),
     /// A text's top right: its height.
@@ -841,8 +856,8 @@ impl Handle {
     fn cursor(self) -> egui::CursorIcon {
         use egui::CursorIcon as C;
         match self {
-            Handle::Side(0, _) => C::ResizeVertical,
-            Handle::Side(_, 0) => C::ResizeHorizontal,
+            Handle::Side(0, _) | Handle::Round(0, _) => C::ResizeVertical,
+            Handle::Side(_, 0) | Handle::Round(..) => C::ResizeHorizontal,
             Handle::Side(x, y) | Handle::Scale(x, y) if x == y => C::ResizeNeSw,
             Handle::Side(..) | Handle::Scale(..) => C::ResizeNwSe,
             Handle::Size => C::ResizeVertical,
@@ -891,6 +906,10 @@ fn handles(
             out
         }
         ElementKind::Line { from, to } => vec![(Handle::End(0), *from), (Handle::End(1), *to)],
+        ElementKind::Circle { center, radius } => [(1i8, 0i8), (0, 1), (-1, 0), (0, -1)]
+            .into_iter()
+            .map(|(x, y)| (Handle::Round(x, y), *center + DVec2::new(x as f64, y as f64) * *radius))
+            .collect(),
         ElementKind::View(View { kind: ViewKind::Base { .. }, .. }) => frame.map_or_else(Vec::new, |(lo, hi)| {
             [(-1i8, -1i8), (1, -1), (1, 1), (-1, 1)]
                 .into_iter()
@@ -935,6 +954,9 @@ fn nearest_scale(s: f64) -> f64 {
     SCALES.iter().copied().min_by(|a, b| (a.ln() - s.ln()).abs().total_cmp(&(b.ln() - s.ln()).abs())).unwrap_or(1.0)
 }
 
+/// The least radius a circle's handle leaves it (paper millimetres).
+const MIN_RADIUS: f64 = 0.01;
+
 /// The element of grip `g` with its handle at `p` (sheet millimetres); `shift` keeps a box's
 /// proportions.
 fn regrip(g: &Grip, p: DVec2, shift: bool) -> ElementKind {
@@ -949,6 +971,9 @@ fn regrip(g: &Grip, p: DVec2, shift: bool) -> ElementKind {
         }
         (ElementKind::Line { to, .. }, Handle::End(0)) => ElementKind::Line { from: p, to: *to },
         (ElementKind::Line { from, .. }, Handle::End(_)) => ElementKind::Line { from: *from, to: p },
+        (ElementKind::Circle { center, .. }, Handle::Round(..)) => {
+            ElementKind::Circle { center: *center, radius: center.distance(p).max(MIN_RADIUS) }
+        }
         // A view's scale: as far out as the pointer is from its centre, the nearest standard one.
         (ElementKind::View(v), Handle::Scale(..)) => match &v.kind {
             ViewKind::Base { subject, look, scale, at } => {
@@ -997,6 +1022,18 @@ fn handle_at(e: &Editor, st: &mut SheetState, pv: &Paperview, p: egui::Pos2) -> 
 }
 
 impl Grip {
+    /// A text's height handle with its top where the font's proportions put it: drawn small, a
+    /// text's box is rounded to the pixel, and scaling from it would miss the grid.
+    fn with_true_text_top(mut self, painter: &egui::Painter) -> Self {
+        if let (ElementKind::Text { at, text, size }, Handle::Size) = (&self.kind, self.handle) {
+            const LARGE: f32 = 100.0;
+            let galley = painter.layout_no_wrap(text.clone(), egui::FontId::proportional(LARGE), egui::Color32::BLACK);
+            let top = at.y + size * (galley.size().y / LARGE) as f64;
+            (self.start.y, self.hi.y) = (top, top);
+        }
+        self
+    }
+
     /// Where its handle goes for the pointer at `p` (sheet millimetres): as far from where it
     /// was as the pointer from where it took it.
     fn target(&self, p: DVec2) -> DVec2 {
@@ -1010,6 +1047,7 @@ impl Grip {
             (_, Handle::Side(..)) => Some(None),
             (ElementKind::Line { to, .. }, Handle::End(0)) => Some(Some(*to)),
             (ElementKind::Line { from, .. }, Handle::End(_)) => Some(Some(*from)),
+            (ElementKind::Circle { center, .. }, Handle::Round(..)) => Some(Some(*center)),
             _ => None,
         }
     }
@@ -1054,6 +1092,7 @@ fn measure_of(g: &Grip) -> Option<Measure> {
             vcb.point = Some(skraft_tools::vcb::PointRef { from: o.extend(0.0), to: end.extend(0.0) });
             Some(Measure::Lengths(vcb))
         }
+        (ElementKind::Circle { radius, .. }, Handle::Round(..)) => lengths(t!("drawing.vcb.radius"), vec![*radius]),
         (ElementKind::View(View { kind: ViewKind::Base { scale, .. }, .. }), Handle::Scale(..)) => Some(Measure::Scale(*scale)),
         (ElementKind::Text { size, .. }, Handle::Size) => lengths(t!("drawing.vcb.height"), vec![*size]),
         (ElementKind::Dimension(dim), Handle::Dim) => match &dim.kind {
@@ -1122,6 +1161,13 @@ fn typed_kind(g: &Grip, text: &str, units: &skraft_model::Units) -> Result<Eleme
             }
             Ok(if k == 0 { ElementKind::Line { from: new, to: o } } else { ElementKind::Line { from: o, to: new } })
         }
+        (ElementKind::Circle { center, .. }, Handle::Round(..), Some(vcb)) => {
+            let radius = lengths(vcb)?[0].abs();
+            if radius <= 0.0 {
+                return Err(refused());
+            }
+            Ok(ElementKind::Circle { center: *center, radius })
+        }
         (ElementKind::View(v), Handle::Scale(..), None) => match &v.kind {
             ViewKind::Base { subject, look, at, .. } => {
                 let scale = parse_scale(text).ok_or_else(refused)?;
@@ -1152,14 +1198,15 @@ fn typed_kind(g: &Grip, text: &str, units: &skraft_model::Units) -> Result<Eleme
     }
 }
 
-/// The shape being drawn from `from` to `to` (a rectangle or a line), as a grip on its moving
-/// corner or end — what the measurements box measures and a value typed makes.
+/// The shape being drawn from `from` to `to` (a rectangle, a circle from its centre, a line), as
+/// a grip on its moving corner, edge or end — what the measurements box measures and a value typed makes.
 fn sketch_grip(tool: SheetTool, from: DVec2, to: DVec2) -> Grip {
     let sign = |v: f64| if v < 0.0 { -1i8 } else { 1 };
     let (kind, handle) = match tool {
         SheetTool::Rect => {
             (ElementKind::Rect { min: from.min(to), max: from.max(to) }, Handle::Side(sign(to.x - from.x), sign(to.y - from.y)))
         }
+        SheetTool::Circle => (ElementKind::Circle { center: from, radius: from.distance(to) }, Handle::Round(1, 0)),
         _ => (ElementKind::Line { from, to }, Handle::End(1)),
     };
     Grip { element: Id(0), handle, start: to, from: to, kind, lo: from.min(to), hi: from.max(to) }
@@ -1180,15 +1227,15 @@ struct Aim {
 }
 
 /// The points of sheet `sheet` a point snaps on, and those it aligns with: rectangles' and
-/// images' corners, lines' ends, views' frame corners (both); views' vertices (snapped on only:
-/// so many would align everywhere), through its instances; not `skip`'s (right in the level
-/// `open`), nor what is hidden.
-fn snap_points(e: &Editor, d: &Drawing, views: &mut ViewsCache, sheet: Id, open: &[Id], skip: Option<Id>) -> (Vec<DVec2>, Vec<DVec2>) {
+/// images' corners, circles' centres and quadrants, lines' ends, views' frame corners (both);
+/// views' vertices (snapped on only: so many would align everywhere), through its instances; not
+/// those of `skip` (right in the level `open`), nor what is hidden.
+fn snap_points(e: &Editor, d: &Drawing, views: &mut ViewsCache, sheet: Id, open: &[Id], skip: &[Id]) -> (Vec<DVec2>, Vec<DVec2>) {
     let (mut on, mut align) = (Vec::new(), Vec::new());
     let Some(s) = d.sheet(sheet) else { return (on, align) };
     let corners = |lo: DVec2, hi: DVec2| [lo, DVec2::new(hi.x, lo.y), hi, DVec2::new(lo.x, hi.y)];
     for shown in d.placed(s.id) {
-        if shown.hidden || skip.is_some_and(|s| shown.under(open) == Some(s)) {
+        if shown.hidden || shown.under(open).is_some_and(|u| skip.contains(&u)) {
             continue;
         }
         let t = shown.transform;
@@ -1198,6 +1245,11 @@ fn snap_points(e: &Editor, d: &Drawing, views: &mut ViewsCache, sheet: Id, open:
                 align.extend(corners(*min, *max).map(|q| t.transform_point2(q)));
             }
             ElementKind::Line { from, to } => align.extend([*from, *to].map(|q| t.transform_point2(q))),
+            ElementKind::Circle { center, radius } => {
+                let r = *radius;
+                let points = [DVec2::ZERO, DVec2::X * r, DVec2::Y * r, DVec2::NEG_X * r, DVec2::NEG_Y * r];
+                align.extend(points.map(|q| t.transform_point2(*center + q)));
+            }
             ElementKind::View(_) => {
                 let Some(r) = d.resolve_as(el.id, shown.projection) else { continue };
                 let data = views.get(e, el.id, &r);
@@ -1256,7 +1308,7 @@ fn aim_for(e: &Editor, st: &mut SheetState, sheet: Id, zoom: f64, p: DVec2, skip
     let place = d.opened(sheet, &st.open).map_or(DAffine2::IDENTITY, |(_, t)| t);
     let (p, from) = (place.transform_point2(p), from.map(|f| place.transform_point2(f)));
     let open = st.open.clone();
-    let (on, align) = snap_points(e, d, &mut st.views, sheet, &open, skip);
+    let (on, align) = snap_points(e, d, &mut st.views, sheet, &open, skip.as_slice());
     let reach = SNAP_PT as f64 / zoom;
     let mut aim = aim_on_sheet(&on, &align, p, reach, from, grid, lock);
     aim.mark = aim.at;
@@ -1282,6 +1334,159 @@ fn aim_on_sheet(on: &[DVec2], align: &[DVec2], p: DVec2, reach: f64, from: Optio
         }
         _ => aim_at(on, align, p, reach, from, grid),
     }
+}
+
+/// The selection being dragged (docs/ui/drawing.md#snapping): what it snaps with and on, taken
+/// once when the drag starts (nothing else changes meanwhile).
+#[derive(Clone, Debug)]
+struct Moving {
+    /// Where it was taken, in the axes of the level open.
+    from: DVec2,
+    /// Its box on the sheet as it was, if it has one.
+    bounds: Option<(DVec2, DVec2)>,
+    /// The sheet's points it snaps on and aligns with, what moves with it left out.
+    on: Vec<DVec2>,
+    align: Vec<DVec2>,
+    /// The paper's centre, which its box's middle snaps on.
+    centre: Option<DVec2>,
+    /// The sheet's axes it can move along (a projected view, a linear dimension: one).
+    free: (bool, bool),
+    /// The level open is turned from the sheet.
+    turned: bool,
+}
+
+/// The axes (of the level) the elements `moved` can go along together.
+fn free_axes(d: &Drawing, moved: &[Id]) -> (bool, bool) {
+    let mut free = (true, true);
+    for id in moved.iter().filter(|id| !carried(d, **id, moved)) {
+        match d.element(*id).map(|el| &el.kind) {
+            Some(ElementKind::View(View { kind: ViewKind::Projected { side, .. }, .. })) => {
+                let along_x = side.dir().x != 0.0;
+                free = (free.0 && along_x, free.1 && !along_x);
+            }
+            Some(ElementKind::Dimension(Dimension { kind: DimKind::Linear { orient, .. }, .. })) => {
+                let along_x = matches!(orient, Orient::Vertical);
+                free = (free.0 && along_x, free.1 && !along_x);
+            }
+            _ => {}
+        }
+    }
+    free
+}
+
+/// The selection taken at `from` (axes of the level `to`, put on the sheet by `place`).
+fn start_moving(e: &Editor, st: &mut SheetState, sheet: Id, to: Container, place: DAffine2, from: DVec2) -> Moving {
+    let d = e.document().drawing();
+    let mut bounds: Option<(DVec2, DVec2)> = None;
+    for (lo, hi) in st.selected.iter().filter_map(|id| st.boxes.get(id)) {
+        for q in [*lo, DVec2::new(hi.x, lo.y), *hi, DVec2::new(lo.x, hi.y)].map(|q| place.transform_point2(q)) {
+            bounds = Some(bounds.map_or((q, q), |(a, z)| (a.min(q), z.max(q))));
+        }
+    }
+    // What moves with it is no target: a view's projections and dimensions.
+    let skip = e.document().families(to, &st.selected).unwrap_or_else(|_| st.selected.clone());
+    let open = st.open.clone();
+    let (on, align) = snap_points(e, d, &mut st.views, sheet, &open, &skip);
+    let turned = place.matrix2.x_axis.y.abs() > 1e-12 || place.matrix2.x_axis.x < 0.0;
+    let centre = d.sheet(sheet).map(|s| s.paper.size() / 2.0);
+    Moving { from, bounds, on, align, centre, free: free_axes(d, &st.selected), turned }
+}
+
+impl Moving {
+    /// The offset (in the level's axes) for the pointer gone `offset` from where it took it, and
+    /// what it snapped on. An axis it cannot go along in a turned level: not snapped at all.
+    fn aim(&self, place: DAffine2, offset: DVec2, reach: f64, grid: f64) -> (DVec2, Option<Aim>) {
+        let Some((lo, hi)) = self.bounds else { return (offset, None) };
+        if self.turned && self.free != (true, true) {
+            return (offset, None);
+        }
+        let on_sheet = place.transform_vector2(offset);
+        let (snapped, aim) = aim_box(&self.on, &self.align, self.centre, lo, hi, on_sheet, reach, grid, self.free);
+        // Unchanged, exactly: no rounding through the level's axes.
+        let out = if snapped == on_sheet { offset } else { place.inverse().transform_vector2(snapped) };
+        (out, Some(aim))
+    }
+}
+
+/// Box `lo`–`hi` dragged by `offset`, snapped (all on the sheet): one of its corners or its
+/// centre on the nearest point within reach, its centre alone on the paper's `centre`; else, each
+/// axis apart, one of its sides or its middle aligned with the nearest point within reach, its
+/// middle alone with `centre`; else its low side on the grid (step `grid`, 0: none). `free`: the
+/// axes it can move along. The offset, and the marks to draw.
+#[allow(clippy::too_many_arguments)]
+fn aim_box(
+    on: &[DVec2],
+    align: &[DVec2],
+    centre: Option<DVec2>,
+    lo: DVec2,
+    hi: DVec2,
+    offset: DVec2,
+    reach: f64,
+    grid: f64,
+    free: (bool, bool),
+) -> (DVec2, Aim) {
+    let (lo, hi) = (lo + offset, hi + offset);
+    let middle = (lo + hi) / 2.0;
+    if free == (true, true) {
+        let refs = [lo, DVec2::new(hi.x, lo.y), hi, DVec2::new(lo.x, hi.y), middle];
+        let best = centre
+            .map(|q| (middle, q, middle.distance(q)))
+            .into_iter()
+            .chain(refs.iter().flat_map(|r| on.iter().map(move |q| (*r, *q, r.distance(*q)))))
+            .filter(|(_, _, dist)| *dist <= reach)
+            .min_by(|a, b| a.2.total_cmp(&b.2));
+        if let Some((r, q, _)) = best {
+            return (offset + q - r, Aim { at: q, mark: q, point: true, ..Aim::default() });
+        }
+    }
+    // The point of `align` nearest one of `refs` along `of`, then nearest the middle across it.
+    let nearest = |refs: [f64; 3], of: fn(DVec2) -> f64, across: fn(DVec2) -> f64| {
+        centre
+            .map(|q| (refs[1], q, (refs[1] - of(q)).abs()))
+            .into_iter()
+            .chain(refs.iter().flat_map(|r| align.iter().map(move |q| (*r, *q, (r - of(*q)).abs()))))
+            .filter(|(_, _, dist)| *dist <= reach)
+            .min_by(|a, b| a.2.total_cmp(&b.2).then((across(a.1) - across(middle)).abs().total_cmp(&(across(b.1) - across(middle)).abs())))
+    };
+    let on_grid = |v: f64| if grid > 0.0 { (v / grid).round() * grid - v } else { 0.0 };
+    let mut out = offset;
+    let mut aim = Aim::default();
+    let mut mark = middle;
+    if free.0 {
+        if let Some((r, q, _)) = nearest([lo.x, middle.x, hi.x], |v| v.x, |v| v.y) {
+            out.x += q.x - r;
+            mark.x = q.x;
+            aim.along_y = Some(q);
+        } else {
+            let step = on_grid(lo.x);
+            out.x += step;
+            mark.x += step;
+        }
+    }
+    if free.1 {
+        if let Some((r, q, _)) = nearest([lo.y, middle.y, hi.y], |v| v.y, |v| v.x) {
+            out.y += q.y - r;
+            mark.y = q.y;
+            aim.along_x = Some(q);
+        } else {
+            let step = on_grid(lo.y);
+            out.y += step;
+            mark.y += step;
+        }
+    }
+    aim.at = mark;
+    aim.mark = mark;
+    (out, aim)
+}
+
+/// A text's height handle at `q` (axes of the level `place` puts on the sheet), its top on the
+/// sheet's grid (step `grid`, 0: none). A text is never turned.
+fn top_on_grid(q: DVec2, place: DAffine2, grid: f64) -> DVec2 {
+    if grid <= 0.0 {
+        return q;
+    }
+    let y = place.transform_point2(q).y;
+    DVec2::new(q.x, q.y + (y / grid).round() * grid - y)
 }
 
 /// How near a point the pointer snaps on it (points).
@@ -1438,8 +1643,10 @@ impl SheetState {
             SheetTool::Project { .. } => t!("drawing.hint.project"),
             SheetTool::Text => t!("drawing.hint.text"),
             SheetTool::Rect if self.sketch.is_some() => t!("drawing.hint.rect_second"),
+            SheetTool::Circle if self.sketch.is_some() => t!("drawing.hint.circle_second"),
             SheetTool::Line if self.sketch.is_some() => t!("drawing.hint.line_second"),
             SheetTool::Rect => t!("drawing.hint.rect"),
+            SheetTool::Circle => t!("drawing.hint.circle"),
             SheetTool::Line => t!("drawing.hint.line"),
             SheetTool::Linear => match self.picks.len() {
                 0 => t!("drawing.hint.linear_first"),
@@ -1831,6 +2038,7 @@ fn moved_element(kind: &ElementKind, offset: DVec2) -> ElementKind {
         ElementKind::Text { at, text, size } => ElementKind::Text { at: *at + offset, text: text.clone(), size: *size },
         ElementKind::Line { from, to } => ElementKind::Line { from: *from + offset, to: *to + offset },
         ElementKind::Rect { min, max } => ElementKind::Rect { min: *min + offset, max: *max + offset },
+        ElementKind::Circle { center, radius } => ElementKind::Circle { center: *center + offset, radius: *radius },
         ElementKind::Image { asset, min, max } => ElementKind::Image { asset: asset.clone(), min: *min + offset, max: *max + offset },
         // A dimension's line moved across itself, its text or arc with the pointer.
         ElementKind::Dimension(dim) => {
@@ -2456,8 +2664,8 @@ pub fn ui(
         // In the axes of the level open: what is picked, moved and drawn there.
         let lv = pv.placed(place);
         // A press with Select on an element drags the selection (it alone when it was not in
-        // it), elsewhere draws a selection rectangle; with Rectangle or Line it starts the
-        // shape. The middle or right button's drag pans.
+        // it), elsewhere draws a selection rectangle; with Rectangle, Circle or Line it starts
+        // the shape. The middle or right button's drag pans.
         let pointer = response.interact_pointer_pos().or(response.hover_pos());
         let shift = ui.input(|i| i.modifiers.shift);
         st.pointer = pointer;
@@ -2468,7 +2676,7 @@ pub fn ui(
             // A handle of the element picked alone first.
             let grip = if st.tool == SheetTool::Select { handle_at(e, st, &lv, p) } else { None };
             match st.tool {
-                SheetTool::Select if grip.is_some() => st.grip = grip,
+                SheetTool::Select if grip.is_some() => st.grip = grip.map(|g| g.with_true_text_top(&painter)),
                 SheetTool::Select => match st.frames.iter().rev().find(|(_, r)| r.contains(p)) {
                     Some((v, _)) => {
                         if !st.selected.contains(v) {
@@ -2477,12 +2685,12 @@ pub fn ui(
                             }
                             st.selected.push(*v);
                         }
-                        st.moving = Some(lv.to_sheet(p));
+                        st.moving = Some(start_moving(e, st, id, to, place, lv.to_sheet(p)));
                     }
                     None => st.marquee = Some(p),
                 },
                 // A drag from where the button went down (the first click's point, if made).
-                SheetTool::Rect | SheetTool::Line if st.sketch.is_none() => {
+                SheetTool::Rect | SheetTool::Circle | SheetTool::Line if st.sketch.is_none() => {
                     st.sketch = Some(aim_for(e, st, id, pv.zoom, lv.to_sheet(p), None, None, false).at);
                 }
                 _ => {}
@@ -2498,7 +2706,7 @@ pub fn ui(
                 (Some(p), Some(g)) => {
                     g.snaps().map(|from| aim_for(e, st, id, pv.zoom, g.target(lv.to_sheet(p)), Some(g.element), from, shift && line_end))
                 }
-                (Some(p), None) if matches!(st.tool, SheetTool::Rect | SheetTool::Line | SheetTool::Text) => {
+                (Some(p), None) if matches!(st.tool, SheetTool::Rect | SheetTool::Circle | SheetTool::Line | SheetTool::Text) => {
                     let lock = shift && st.tool == SheetTool::Line && st.sketch.is_some();
                     Some(aim_for(e, st, id, pv.zoom, lv.to_sheet(p), None, st.sketch, lock))
                 }
@@ -2506,7 +2714,16 @@ pub fn ui(
             }
         };
         // A handle's point: where it aims, else as far as the pointer went.
-        let grip_to = |g: &Grip, p: egui::Pos2| aim.map_or_else(|| g.target(lv.to_sheet(p)), |a| a.at);
+        let paper_grid = e.document().drawing().sheet(id).map_or(0.0, |s| s.grid);
+        let grip_to = |g: &Grip, p: egui::Pos2| {
+            aim.map_or_else(
+                || {
+                    let q = g.target(lv.to_sheet(p));
+                    if g.handle == Handle::Size { top_on_grid(q, place, paper_grid) } else { q }
+                },
+                |a| a.at,
+            )
+        };
         if response.clicked() || response.drag_started() {
             st.message = None;
             st.info = InfoOn::Sheet;
@@ -2525,7 +2742,7 @@ pub fn ui(
             st.sketch_to = Some(a.at);
         }
         let measured = match (st.sketch, &st.grip, pointer) {
-            (Some(from), _, _) if matches!(st.tool, SheetTool::Rect | SheetTool::Line) => {
+            (Some(from), _, _) if matches!(st.tool, SheetTool::Rect | SheetTool::Circle | SheetTool::Line) => {
                 Some(sketch_grip(st.tool, from, st.sketch_to.unwrap_or(from)))
             }
             (_, Some(g), Some(p)) => Some(Grip { kind: regrip(g, grip_to(g, p), shift), ..g.clone() }),
@@ -2558,18 +2775,23 @@ pub fn ui(
                 Err(m) => st.message = Some(m),
             }
         }
-        let offset = match (st.moving, pointer) {
-            (Some(from), Some(p)) => lv.to_sheet(p) - from,
+        let dragged = match (&st.moving, pointer) {
+            (Some(m), Some(p)) => lv.to_sheet(p) - m.from,
             _ => DVec2::ZERO,
         };
         // The sheet the selection would move to, let go here.
-        let drop_on = match (st.moving, pointer) {
+        let drop_on = match (&st.moving, pointer) {
             (Some(_), Some(p))
                 if st.open.is_empty() && on_stage(ui.ctx(), paper_room, p) && can_leave_sheet(e.document().drawing(), &st.selected) =>
             {
                 board.sheet_at(Paperview::new(centre, st.pan, st.zoom).to_sheet(p)).filter(|s| *s != id)
             }
             _ => None,
+        };
+        // Snapped on this sheet (docs/ui/drawing.md#snapping); carried over another, as it goes.
+        let (offset, move_aim) = match &st.moving {
+            Some(m) if pointer.is_some() && drop_on.is_none() => m.aim(place, dragged, SNAP_PT as f64 / pv.zoom, paper_grid),
+            _ => (dragged, None),
         };
         // A handle let go: its element changed (one `SetElement`).
         if response.drag_stopped()
@@ -2621,10 +2843,10 @@ pub fn ui(
                 st.selected = hit;
             }
         }
-        // A rectangle or a line: two clicks (its corners, its ends) or a
-        // drag, as the 3D view's shapes (docs/tools/interaction.md); under 0.5 mm, the second
-        // point still to come.
-        if matches!(st.tool, SheetTool::Rect | SheetTool::Line)
+        // A rectangle, a circle or a line: two clicks (its corners, its centre and a point of it,
+        // its ends) or a drag, as the 3D view's shapes (docs/tools/interaction.md); under 0.5 mm,
+        // the second point still to come.
+        if matches!(st.tool, SheetTool::Rect | SheetTool::Circle | SheetTool::Line)
             && let Some(p) = pointer
             && (clicked || response.drag_stopped_by(egui::PointerButton::Primary))
         {
@@ -2633,10 +2855,7 @@ pub fn ui(
                 None => st.sketch = Some(end),
                 Some(from) if from.distance(end) > 0.5 => {
                     st.sketch = None;
-                    let element = match st.tool {
-                        SheetTool::Rect => ElementKind::Rect { min: from.min(end), max: from.max(end) },
-                        _ => ElementKind::Line { from, to: end },
-                    };
+                    let element = sketch_grip(st.tool, from, end).kind;
                     if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element }) {
                         st.selected = o.element.into_iter().collect();
                         st.amend = o.element.map(|element| Grip { element, ..sketch_grip(st.tool, from, end) });
@@ -2783,7 +3002,7 @@ pub fn ui(
             }
         }
         // What the pointer snaps on.
-        if let Some(a) = &aim {
+        if let Some(a) = aim.as_ref().or(move_aim.as_ref()) {
             draw_aim(&painter, &pv, a);
         }
         // The shape being drawn.
@@ -2792,6 +3011,10 @@ pub fn ui(
             let end = aim.map_or_else(|| lv.to_sheet(p), |a| a.at);
             if st.tool == SheetTool::Rect {
                 painter.add(egui::Shape::closed_line(lv.quad(from, end).to_vec(), stroke));
+            } else if st.tool == SheetTool::Circle {
+                let (c, q) = (lv.to_screen(from), lv.to_screen(end));
+                painter.circle_stroke(c, c.distance(q), stroke);
+                painter.extend(egui::Shape::dashed_line(&[c, q], egui::Stroke::new(1.0, stroke.color), 3.0, 3.0));
             } else {
                 painter.line_segment([lv.to_screen(from), lv.to_screen(end)], stroke);
             }
@@ -2862,7 +3085,7 @@ pub fn ui(
                     st.tool = SheetTool::Select;
                 }
             }
-            SheetTool::Rect | SheetTool::Line => ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair),
+            SheetTool::Rect | SheetTool::Circle | SheetTool::Line => ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair),
             tool @ (SheetTool::Linear | SheetTool::Radius | SheetTool::Diameter | SheetTool::Angle) => {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                 if let Some(p) = response.hover_pos() {
@@ -3140,7 +3363,7 @@ fn draw_elements(
                 let shape = crate::dims::shape(e.document(), &r, centre, dim);
                 let rect = draw_dim(painter, &pv, &shape);
                 if picked {
-                    painter.rect_stroke(rect, 2.0, accent, egui::StrokeKind::Outside);
+                    painter.rect_stroke(rect, 0.0, accent, egui::StrokeKind::Middle);
                 }
                 if alone {
                     crate::handles::publish(|| format!("sheet_element:{}", el.id.0), rect);
@@ -3167,6 +3390,12 @@ fn draw_elements(
                         stroke_box(painter, &pv, quad, thin);
                         (egui::Rect::from_points(&quad), (*min, *max))
                     }
+                    ElementKind::Circle { center, radius } => {
+                        let (c, r) = (pv.to_screen(*center), (*radius * pv.zoom) as f32);
+                        painter.circle_stroke(c, r, thin);
+                        let half = DVec2::splat(*radius);
+                        (egui::Rect::from_center_size(c, egui::Vec2::splat(2.0 * r)), (*center - half, *center + half))
+                    }
                     ElementKind::Image { min, max, .. } => {
                         let quad = pv.quad(*min, *max);
                         stroke_box(painter, &pv, quad, thin);
@@ -3176,8 +3405,9 @@ fn draw_elements(
                     }
                     ElementKind::View(_) | ElementKind::Dimension(_) | ElementKind::Instance(_) => unreachable!(),
                 };
+                // On its box, as a view's frame.
                 if picked {
-                    painter.rect_stroke(r.expand(2.0), 2.0, accent, egui::StrokeKind::Outside);
+                    stroke_box(painter, &pv, pv.quad(b.0, b.1), accent);
                 }
                 if alone {
                     crate::handles::publish(|| format!("sheet_element:{}", el.id.0), r);
@@ -3203,7 +3433,7 @@ fn draw_elements(
     for (id, r) in &boxes {
         if !level.printed && tops.get(id).is_some_and(|el| el.kind.instance().is_some()) {
             if selected.contains(id) {
-                painter.rect_stroke(r.expand(2.0), 2.0, accent, egui::StrokeKind::Outside);
+                painter.rect_stroke(*r, 0.0, accent, egui::StrokeKind::Middle);
             }
             crate::handles::publish(|| format!("sheet_element:{}", id.0), *r);
         }
@@ -3319,12 +3549,12 @@ mod tests {
     fn a_point_snaps_on_what_an_instance_shows() {
         let (e, sheet, i) = sheet_with_a_composition();
         let d = e.document().drawing();
-        let (on, align) = snap_points(&e, d, &mut ViewsCache::default(), sheet, &[], None);
+        let (on, align) = snap_points(&e, d, &mut ViewsCache::default(), sheet, &[], &[]);
         for q in [DVec2::new(247.0, 10.0), DVec2::new(287.0, 30.0), DVec2::new(247.0, 20.0)] {
             assert!(on.iter().any(|p| p.distance(q) < 1e-9) && align.iter().any(|p| p.distance(q) < 1e-9), "{q}");
         }
         // Not on the instance being dragged.
-        assert!(snap_points(&e, d, &mut ViewsCache::default(), sheet, &[], Some(i)).0.is_empty());
+        assert!(snap_points(&e, d, &mut ViewsCache::default(), sheet, &[], &[i]).0.is_empty());
     }
 
     #[test]
@@ -3655,6 +3885,64 @@ mod tests {
         // Nothing near, no grid: where the pointer is.
         let p = DVec2::new(73.3, 61.7);
         assert_eq!(aim_at(&on, &align, p, 2.0, None, 0.0).at, p);
+    }
+
+    #[test]
+    fn a_box_moved_snaps_on_a_point_then_aligns_then_takes_the_grid() {
+        let (lo, hi) = (DVec2::ZERO, DVec2::new(10.0, 20.0));
+        let free = (true, true);
+        let q = DVec2::new(50.0, 50.0);
+        // Its top right corner comes on the point.
+        let (o, a) = aim_box(&[q], &[q], None, lo, hi, DVec2::new(39.0, 30.5), 2.0, 5.0, free);
+        assert!(a.point);
+        assert_eq!(o, DVec2::new(40.0, 30.0));
+        // Its middle aligned along x, its low side on the grid along y.
+        let (o, a) = aim_box(&[], &[q], None, lo, hi, DVec2::new(44.5, 3.2), 2.0, 5.0, free);
+        assert_eq!(o, DVec2::new(45.0, 5.0));
+        assert_eq!((a.along_y, a.along_x), (Some(q), None));
+        // No point, no grid: as the pointer went.
+        let free_offset = DVec2::new(3.3, 7.7);
+        assert_eq!(aim_box(&[], &[], None, lo, hi, free_offset, 2.0, 0.0, free).0, free_offset);
+        // Along x only: y left alone, and no point can take it.
+        let (o, _) = aim_box(&[q], &[q], None, lo, hi, DVec2::new(39.0, 30.5), 2.0, 5.0, (true, false));
+        assert_eq!(o, DVec2::new(40.0, 30.5));
+    }
+
+    #[test]
+    fn a_box_moved_centres_on_the_paper_by_its_middle_only() {
+        let (lo, hi) = (DVec2::ZERO, DVec2::new(10.0, 20.0));
+        let c = Some(DVec2::new(100.0, 100.0));
+        // Its middle comes on the centre.
+        let (o, a) = aim_box(&[], &[], c, lo, hi, DVec2::new(94.0, 91.0), 2.0, 0.0, (true, true));
+        assert_eq!(o, DVec2::new(95.0, 90.0));
+        assert!(a.point);
+        // Centred along x alone.
+        let (o, a) = aim_box(&[], &[], c, lo, hi, DVec2::new(94.0, 40.0), 2.0, 0.0, (true, true));
+        assert_eq!(o, DVec2::new(95.0, 40.0));
+        assert_eq!((a.along_y, a.along_x), (c, None));
+        // Its corner on the centre's line does not snap.
+        let free = DVec2::new(99.0, 40.0);
+        assert_eq!(aim_box(&[], &[], c, lo, hi, free, 2.0, 0.0, (true, true)).0, free);
+    }
+
+    #[test]
+    fn a_text_handle_takes_the_grid_by_its_top() {
+        let place = DAffine2::from_translation(DVec2::new(0.0, 3.0));
+        // On the sheet 21.8 + 3 = 24.8: to 25.
+        let q = top_on_grid(DVec2::new(7.0, 21.8), place, 5.0);
+        assert!((q.y - 22.0).abs() < 1e-9 && q.x == 7.0);
+        let free = DVec2::new(7.0, 21.8);
+        assert_eq!(top_on_grid(free, place, 0.0), free);
+    }
+
+    #[test]
+    fn a_circle_takes_its_radius_from_its_handle_or_a_value() {
+        let units = skraft_model::Units::default();
+        let g = sketch_grip(SheetTool::Circle, DVec2::new(10.0, 10.0), DVec2::new(13.0, 14.0));
+        assert_eq!(g.kind, ElementKind::Circle { center: DVec2::new(10.0, 10.0), radius: 5.0 });
+        assert_eq!(regrip(&g, DVec2::new(10.0, 18.0), false), ElementKind::Circle { center: DVec2::new(10.0, 10.0), radius: 8.0 });
+        assert_eq!(typed_kind(&g, "12", &units).unwrap(), ElementKind::Circle { center: DVec2::new(10.0, 10.0), radius: 12.0 });
+        assert!(typed_kind(&g, "0", &units).is_err());
     }
 
     #[test]

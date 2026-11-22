@@ -76,6 +76,7 @@ icon!(VIEW_ADD, "view_add");
 icon!(VIEW_PROJECT, "view_project");
 icon!(SHEET_TEXT, "sheet_text");
 icon!(SHEET_RECT, "sheet_rect");
+icon!(SHEET_CIRCLE, "sheet_circle");
 icon!(SHEET_LINE, "sheet_line");
 icon!(DIM_LINEAR, "dim_linear");
 icon!(DIM_RADIUS, "dim_radius");
@@ -166,6 +167,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "drawing.export_pdf" => EXPORT,
         "drawing.tool_text" => SHEET_TEXT,
         "drawing.tool_rect" => SHEET_RECT,
+        "drawing.tool_circle" => SHEET_CIRCLE,
         "drawing.tool_line" => SHEET_LINE,
         "drawing.dim_linear" => DIM_LINEAR,
         "drawing.dim_radius" => DIM_RADIUS,

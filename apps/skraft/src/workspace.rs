@@ -183,8 +183,8 @@ pub const WORKSPACES: &[Workspace] = &[
                 group(
                     "draw",
                     || t!("ribbon.group.draw"),
-                    &["drawing.tool_text", "drawing.tool_rect", "drawing.tool_line"],
-                    &["drawing.tool_text", "drawing.tool_rect", "drawing.tool_line"],
+                    &["drawing.tool_text", "drawing.tool_rect", "drawing.tool_circle", "drawing.tool_line"],
+                    &["drawing.tool_text", "drawing.tool_rect", "drawing.tool_circle", "drawing.tool_line"],
                 ),
                 group(
                     "arrange",

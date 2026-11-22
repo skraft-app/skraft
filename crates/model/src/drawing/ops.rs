@@ -243,6 +243,7 @@ impl Document {
             ElementKind::Text { at, size, .. } => finite(*at) && size.is_finite() && *size > 0.0,
             ElementKind::Line { from, to } => finite(*from) && finite(*to),
             ElementKind::Rect { min, max } => finite(*min) && finite(*max),
+            ElementKind::Circle { center, radius } => finite(*center) && radius.is_finite() && *radius > 0.0,
             ElementKind::Image { asset, min, max } => self.assets.contains_key(asset) && finite(*min) && finite(*max),
             ElementKind::Dimension(dim) => {
                 if !matches!(self.drawing.element(dim.view).map(|e| &e.kind), Some(ElementKind::View(_))) {
