@@ -127,3 +127,7 @@ decision replaced. What is not built yet is not described here.
   warnings denied, the tests). The workflows' actions are pinned by commit; Dependabot
   (`.github/dependabot.yml`) proposes their updates monthly, and for the crates security fixes
   only.
+- Web: a `v*` tag publishes the browser version on GitHub Pages, at https://try.skraft.app
+  (`.github/workflows/deploy-web.yml`). Only a tag is published, as the « À propos » window links
+  to the source of the version's tag; run by hand on a branch, the workflow only builds. Pages'
+  `github-pages` environment must allow the `v*` tags.

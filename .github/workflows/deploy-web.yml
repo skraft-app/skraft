@@ -1,0 +1,89 @@
+# Builds the browser version and, on a version tag, publishes it on GitHub Pages
+# (https://try.skraft.app, the custom domain being a setting of the repository's Pages).
+#
+# - Push a tag `v<version>`: built and published. Only a tag is ever published, since the
+#   « À propos » window links to the source of the version's tag.
+# - Actions tab → Deploy Web → « Run workflow » (or `gh workflow run deploy-web.yml`) on a tag:
+#   publishes that version again; on a branch: the build only, to try it.
+name: Deploy Web
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publication at a time, never cut short; a try on a branch does not wait for it.
+concurrency:
+  group: pages-${{ github.ref_type }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check the tag against the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(scripts/version.sh)"
+          if [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} but Cargo.toml says $version"
+            exit 1
+          fi
+
+      # The toolchain of rust-toolchain.toml, with its wasm target.
+      - name: Rust toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: web
+
+      # wasm-pack for the two wasm, cargo-about for the third-party notices.
+      - uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2
+        with:
+          tool: wasm-pack@0.15.0,cargo-about@0.9.3
+
+      - name: Build
+        run: scripts/build-web.sh
+
+      # What is served must be what the tag holds.
+      - name: Check the dependencies did not move
+        run: git diff --exit-code Cargo.lock
+
+      - name: Keep only what is served
+        run: |
+          rm -f dist/web/*/.built-from dist/web/*/.gitignore
+          for file in index.html kernel-worker.js wheel.js favicon.svg THIRD-PARTY-LICENSES.txt \
+            pkg/skraft.js pkg/skraft_bg.wasm \
+            worker/skraft_kernel_worker.js worker/skraft_kernel_worker_bg.wasm; do
+            test -s "dist/web/$file" || { echo "::error::dist/web/$file is missing"; exit 1; }
+          done
+          du -ah dist/web
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: dist/web
+
+  deploy:
+    name: Publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
