@@ -424,7 +424,7 @@ impl Editor {
     }
 
     /// « Éclater », by what is selected: the assemblies put in their context; in an open part,
-    /// its groups flattened, what they held then selected.
+    /// its groups undone, what they held then selected.
     pub fn explode(&mut self) {
         if self.busy() {
             return;

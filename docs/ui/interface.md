@@ -52,7 +52,7 @@ tabs have pages of their own.
 - **A row dragged** carries a translucent copy of itself under the pointer, in the model's tree as
   in the drawing's (`panels::paint_drag_ghost`): its icon, its name, « +n » for what goes with it.
 - **A right-click on a navigator row opens its menu**: « Renommer » (the field a double-click
-  opens; on a row with an instance name, « Renommer l'exemplaire » and « Renommer la définition »), « Éclater » on an assembly or a group, « Sortir du groupe » on a body, « Effacer ».
+  opens; on a row with an instance name, « Renommer l'exemplaire » and « Renommer la définition »), « Éclater » on an assembly or a group, « Aplatir » on a group or a part with a tree, « Sortir du groupe » on a body, « Effacer ».
   Opening it changes nothing. Its commands act on the whole selection when the row is in it,
   else on the row alone, chosen as a click would.
 - **The outliner is titled « Navigateur »** (the code keeps `outliner`, its `PanelId` being in

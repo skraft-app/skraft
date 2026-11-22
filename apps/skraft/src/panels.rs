@@ -1221,7 +1221,25 @@ pub fn outliner(
                 || editor.deep_selection().iter().any(|p| p.instances == path.instances && p.entity == o.id);
             let select = (!in_selection).then(|| Action::SelectPath(path.clone(), false));
             let own = (!o.name.is_empty()).then_some(rename_occurrence);
-            row_menu(&response, doc.assembly(o.component).is_ok(), rename, own, select, actions, |_, _| {});
+            // « Aplatir » on a part with a tree: the parts selected with it, when it is.
+            let composed = part.is_some_and(|p| p.has_tree());
+            row_menu(&response, doc.assembly(o.component).is_ok(), rename, own, select, actions, |ui, actions| {
+                if composed && flatten_button(ui) {
+                    let targets: Vec<EntityPath> = match in_selection {
+                        true => selection
+                            .iter()
+                            .map(|id| EntityPath::new(path.instances.clone(), *id))
+                            .chain(editor.deep_selection().iter().cloned())
+                            .filter(|q| doc.resolve_part(q).is_ok_and(|(_, p, _)| p.has_tree()))
+                            .collect(),
+                        false => vec![path.clone()],
+                    };
+                    let part_open = editor.open_part_path().is_some_and(|x| x.part_path() == path.part_path());
+                    let scope = if part_open { editor.part_scope() } else { Scope::All };
+                    let ops = targets.into_iter().map(|target| Operation::FlattenPart { target, scope }).collect();
+                    actions.push(Action::Apply(Operation::Batch(ops)));
+                }
+            });
             if eye {
                 actions.push(Action::SetHidden(path, !o.hidden));
             } else if response.clicked() {
@@ -2022,7 +2040,13 @@ fn body_row(
     // Its menu, with « Sortir du groupe » (de la pièce, at its root).
     let select = (!(open && editor.selection().contains(&b.body.id))).then(|| Action::SelectBody(path.clone(), b.body.id, false));
     let own = (!b.body.name.is_empty()).then_some(rename_own);
-    row_menu(&response, def.is_group(), rename, own, select, actions, |ui, actions| {
+    let is_group = def.is_group();
+    row_menu(&response, is_group, rename, own, select, actions, |ui, actions| {
+        if is_group && flatten_button(ui) {
+            let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
+            let scope = if part_open { editor.part_scope() } else { Scope::All };
+            actions.push(Action::Apply(Operation::FlattenBodies { target: path.clone(), bodies: with.clone(), scope }));
+        }
         let (label, to) = match b.group.split_last() {
             Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
             None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
@@ -2060,6 +2084,13 @@ fn body_row(
     } else if response.clicked() {
         actions.push(Action::SelectBody(path, b.body.id, ui.input(|i| i.modifiers.shift)));
     }
+}
+
+/// The menu's « Aplatir » (docs/model/bodies.md#flattening): clicked?
+fn flatten_button(ui: &mut egui::Ui) -> bool {
+    let button = ui.button(t!("common.flatten"));
+    crate::handles::publish(|| "outliner_menu:flatten".into(), button.rect);
+    button.clicked()
 }
 
 /// A navigator row's right-click menu: « Renommer » (the field a double-click opens, under the

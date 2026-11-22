@@ -411,6 +411,20 @@ impl Part {
         self.def(body.def)?.group.as_ref()?.refused.as_ref()
     }
 
+    /// Is the body `b` computed as it should be, all it holds too (nothing failed, no node
+    /// refused)?
+    pub(crate) fn is_sound(&self, b: &Body) -> bool {
+        fn sound(p: &Part, b: &Body, depth: usize) -> bool {
+            !p.is_failed(b.id) && depth <= crate::MAX_DEPTH && p.def_of(b).children().iter().all(|c| sound(p, c, depth + 1))
+        }
+        sound(self, b, 0)
+    }
+
+    /// Does it hold more than one plain body: several, or a group or node?
+    pub fn has_tree(&self) -> bool {
+        self.bodies.len() > 1 || self.bodies.iter().any(|b| self.def_of(b).is_group())
+    }
+
     /// How many separate lumps of material the shape holds: a part is one piece, more
     /// is an error the user has to correct (docs/model/bodies.md).
     pub fn pieces(&self) -> usize {
@@ -473,6 +487,13 @@ pub struct BodyDef {
     /// The bodies a group is made of, placed in its axes; none for a leaf.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<BodyGroup>,
+    /// A free shape flattened from a group (docs/model/bodies.md#flattening): the names its
+    /// faces had, for a node above to find its edges again; held only for the solid whose
+    /// fingerprint is `kept_faces_of` ([`BodyDef::face_map`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept_faces: skraft_kernel::names::FaceMap,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub kept_faces_of: u64,
     /// Its typed properties (docs/model/properties.md).
     #[serde(default, skip_serializing_if = "Props::is_empty")]
     pub props: Props,
@@ -489,6 +510,8 @@ impl BodyDef {
             profile: None,
             source: BodySource::Local,
             group: None,
+            kept_faces: Vec::new(),
+            kept_faces_of: 0,
             props: Props::default(),
         }
     }
@@ -507,11 +530,11 @@ impl BodyDef {
         self.group.is_some()
     }
 
-    /// Its group's face map, when it is that of its solid as it is
-    /// (docs/decisions/0042-body-nodes-operators.md).
+    /// Its group's face map, or those a flattened group kept, when it is that of its solid as
+    /// it is (docs/decisions/0042-body-nodes-operators.md).
     pub fn face_map(&self) -> Option<&skraft_kernel::names::FaceMap> {
-        let g = self.group.as_ref()?;
-        (!g.faces.is_empty() && g.faces_of == skraft_kernel::names::fingerprint(self.solid.record())).then_some(&g.faces)
+        let (faces, of) = self.group.as_ref().map_or((&self.kept_faces, self.kept_faces_of), |g| (&g.faces, g.faces_of));
+        (!faces.is_empty() && of == skraft_kernel::names::fingerprint(self.solid.record())).then_some(faces)
     }
 
     /// Its node's operation, when it is a body node (docs/decisions/0042-body-nodes-operators.md).
