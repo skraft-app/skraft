@@ -6,7 +6,7 @@ code: [crates/model/src/file.rs, crates/model/src/settings.rs, apps/skraft/src/f
 # File format
 
 What a `.skraft` file holds, how the operating systems hand one to the app, and the versioning
-policy until the first release.
+policy until version 0.1.0.
 
 ## Content
 
@@ -14,7 +14,7 @@ A **ZIP** (Deflate), whose entries are JSON — but the images:
 
 ```
 model.skraft
-├── manifest.json               {"format": "skraft", "version": 1, "content": "model", "generator": "Skraft 0.1.0"}
+├── manifest.json               {"format": "skraft", "version": 1, "content": "model", "generator": "Skraft 0.0.1"}
 ├── document.json               the document: its structure, readable
 ├── view.json                   how it was last seen (its workspace), when there is something to say
 ├── breps/<name>.json           the B-reps it is made of
@@ -126,9 +126,11 @@ handler when it will finish launching); either way it waits in a queue
 (`apps/skraft/src/opened.rs`) and opens in a tab of its own at the next frame — a
 `.skraftmat` imported into the model shown.
 
-## Version 1 until the app is published
+## Version 1 until 0.1.0
 
-The format changes without a new version and older files are not read — no converter, no
-reference files. Versioning and backward compatibility start with the first release.
+The `0.0.x` versions are test builds, x going up by one at each build sent to testers. Between
+them the format changes without a new version and older files are not read — no converter, no
+reference files; a build that breaks older files says so in its changelog entry. Version 0.1.0
+locks the format: versioning and backward compatibility start there.
 
 Decision record: [File format version 1 until the first release](../decisions/0010-file-format-v1-until-release.md).

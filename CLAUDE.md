@@ -37,7 +37,10 @@ kernel in a web worker), `apps/import` (a `.skp` or STEP file to a `.skraft` fil
   not only its algorithm.
 - **Performance is part of the design**: measure (bench, timing tests) and optimise where it
   helps.
-- **File format v1 until the first release**: no version bumps, no compatibility code.
+- **Versions**: `0.0.x` are test builds, x going up by one at each build sent to testers,
+  a number never reused. **File format v1 until `0.1.0`**, the version that locks it: no
+  format version bumps, no compatibility code; a build that breaks older files says so in
+  its changelog entry.
 - **Design docs** ([docs/](docs/README.md)): a page describes the present state; a short
   *Why* keeps the reasons that still hold; structuring decisions and their alternatives go to
   `docs/decisions/`. Code comments cite a page by its path (`docs/model/bodies.md`). A change

@@ -47,8 +47,10 @@ differently, what was broken and works now. Not how it was done.
      names or commit hashes.
    - The most important items first in each section. One line each, a second sentence only
      when needed.
-   - 0.1.0, the first release, is an overview paragraph only (already in `CHANGELOG.md`;
-     re-date it at tagging): its history is not listed.
+   - 0.0.1, the first test version, is an overview paragraph only (already in
+     `CHANGELOG.md`; re-date it at tagging): its history is not listed.
+   - A `0.0.x` test version whose file format change stops older files from opening says so
+     in its entry, under Changed. Version 0.1.0 is the one that locks the format.
 4. **Date** = the day of the tag (today unless told otherwise).
 5. **Version bump**, if the workspace version is not already `<version>`: `version` in the
    root `Cargo.toml`, then `cargo update --workspace` for `Cargo.lock`.
