@@ -7502,3 +7502,67 @@ fn move_out_takes_a_body_one_level_up_and_out_of_the_part() {
     assert_eq!(e.selection().len(), 1);
     assert_ne!(e.selection()[0], a);
 }
+
+#[test]
+fn move_starts_from_a_corner_of_the_box_of_several_parts() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 300.0, 0.0), DVec3::new(400.0, 400.0, 0.0), "50");
+    e.select(vec![a, b]);
+    e.set_tool(ToolKind::Move);
+    // A corner of their common box, in the air: on neither part.
+    let corner = DVec3::new(0.0, 400.0, 50.0);
+    e.input(ToolInput::Hover { px: px(&e, corner) });
+    let (at, kind) = e.inference().expect("inferred");
+    assert_eq!(kind, InferKind::BoxCorner);
+    assert!(close(DVec3::new(at.x, at.y, 50.0), corner), "{at}");
+    click(&mut e, corner);
+    e.input(ToolInput::Hover { px: px(&e, corner + DVec3::new(50.0, 0.0, 0.0)) });
+    e.input(ToolInput::Vcb("50".into()));
+    let (lo, _) = bounds_of(&e, &EntityPath::root(a));
+    assert!(close(lo, DVec3::new(50.0, 0.0, 0.0)), "{lo}");
+}
+
+#[test]
+fn a_grip_of_the_box_turns_about_the_face_centre_in_move() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(800.0, 400.0, 0.0), "50");
+    e.set_tool(ToolKind::Move);
+    // The grip towards +X of the top face, 28 px inside its side.
+    let center = DVec3::new(400.0, 200.0, 50.0);
+    let inset = e.camera.world_per_pixel(e.viewport_size(), center) * 28.0;
+    let grip = center + DVec3::X * (400.0 - inset);
+    let plain = e.preview().drawing.lines.len();
+    e.input(ToolInput::Hover { px: px(&e, grip) });
+    assert!(e.preview().drawing.lines.len() > plain + 40, "the grips' arrows drawn");
+    assert!(e.preview().tip.is_some(), "aimed at, on its point");
+    // Along its arrow, off its point: still the grip, its protractor shown.
+    let wpp = e.camera.world_per_pixel(e.viewport_size(), grip);
+    let on_arrow = DVec3::new(grip.x - 20.0 * wpp * (1.0 - 0.8f64.cos()), grip.y + 20.0 * wpp * 0.8f64.sin(), grip.z);
+    e.input(ToolInput::Hover { px: px(&e, on_arrow) });
+    assert!(e.preview().tip.is_some(), "aimed at, along its arrow");
+    let off = DVec3::new(on_arrow.x - 14.0 * wpp, on_arrow.y + 14.0 * wpp, on_arrow.z);
+    e.input(ToolInput::Hover { px: px(&e, off) });
+    assert!(e.preview().tip.is_none(), "not aimed at off its arrow");
+    click(&mut e, grip);
+    assert!(e.vcb().is_some_and(|v| v.1 == "0°"), "straight at the angle");
+    e.input(ToolInput::Vcb("90".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(a));
+    assert!(close(lo, DVec3::new(200.0, -200.0, 0.0)) && close(hi, DVec3::new(600.0, 600.0, 50.0)), "{lo} {hi}");
+    assert_eq!(e.tool_kind(), ToolKind::Move, "the tool stays");
+}
+
+#[test]
+fn rotate_takes_the_centre_of_a_face_of_the_box() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "50");
+    e.set_tool(ToolKind::Rotate);
+    let center = DVec3::new(100.0, 50.0, 50.0);
+    e.input(ToolInput::Hover { px: px(&e, center) });
+    assert_eq!(e.inference().map(|i| i.1), Some(InferKind::Center));
+    click(&mut e, center);
+    click(&mut e, DVec3::new(190.0, 50.0, 50.0));
+    e.input(ToolInput::Vcb("90".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(a));
+    assert!(close(lo, DVec3::new(50.0, -50.0, 0.0)) && close(hi, DVec3::new(150.0, 150.0, 50.0)), "{lo} {hi}");
+}

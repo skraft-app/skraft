@@ -53,6 +53,7 @@ fn at_px_from(e: &Editor, px: DVec2, from: DVec3, reference: Option<EdgeRef>, lo
         reference,
         lock,
         tool_line: None,
+        box_corners: &[],
     };
     infer(e.scene(), &e.camera, e.viewport_size(), px, &q).unwrap()
 }
@@ -86,6 +87,7 @@ fn at(e: &Editor, p: DVec3) -> Inference {
         reference: None,
         lock: None,
         tool_line: None,
+        box_corners: &[],
     };
     infer(e.scene(), &e.camera, e.viewport_size(), px(e, p), &q).unwrap()
 }
@@ -515,6 +517,7 @@ fn tracking(e: &Editor, p: DVec3, from: Option<DVec3>, tracked: &[DVec3]) -> Inf
         reference: None,
         lock: None,
         tool_line: None,
+        box_corners: &[],
     };
     infer(e.scene(), &e.camera, e.viewport_size(), px(e, p), &q).unwrap()
 }
@@ -683,6 +686,7 @@ fn infer_timing() {
                 reference,
                 lock: None,
                 tool_line: None,
+                box_corners: &[],
             };
             // Only the hovers over the geometry: elsewhere there is next to nothing to do.
             let mut times = Vec::new();
@@ -793,6 +797,7 @@ fn the_axes_as_drawn_are_lines() {
         reference: None,
         lock: None,
         tool_line: None,
+        box_corners: &[],
     };
     let px = px(&e, DVec3::new(-300.0, 6.0, 0.0));
     let i = infer(e.scene(), &e.camera, e.viewport_size(), px, &q(true)).unwrap();
@@ -900,6 +905,7 @@ fn at_tracked(e: &Editor, p: DVec3, tracked: &[DVec3]) -> Inference {
         reference: None,
         lock: None,
         tool_line: None,
+        box_corners: &[],
     };
     infer(e.scene(), &e.camera, e.viewport_size(), px(e, p), &q).unwrap()
 }

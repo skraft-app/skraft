@@ -134,6 +134,26 @@ screen.
 hide nearby crossings and leave little of a short edge to click on (the tape's offset from an
 edge starts there).
 
+## Selection box
+
+Move and Rotate, once what they act on is taken, infer on its box (`tools/box_grips.rs`): one
+part or body in its own axes, several in one box in the context's axes, drawn dotted.
+
+- **Its 8 corners** are points to start from (`InferKind::BoxCorner`, a green square, ranked
+  with the midpoints): Move's start point, Rotate's centre. A real endpoint there comes first.
+- **The face of the box under the cursor**, unless something else stands before it, is outlined
+  and offers **4 grips**, curved double arrows (their curve fixed on screen), on its two middle lines, `GRIP_INSET_PX` = 28 px inside its sides (at
+  most half way to its centre; those too near the centre on screen are not offered). A click on
+  a grip goes straight to the angle, in both tools: centre at the face's centre, axis along its
+  normal, reference at the grip. Move hands the rotation to a `RotateTool`, so that both turn
+  alike (angle typed, copy, arrays). An axis locked by an arrow key turns the grips off.
+- **Rotate also takes the face's centre**, its normal as the axis, then goes on as usual
+  (reference, angle).
+
+A grip is taken within `GRIP_HIT_PX` = 8 px of its arrow's curve, and shows the protractor it
+would turn with as soon as it is aimed at, its zero at the grip. A point of the geometry keeps
+the cursor unless the cursor is nearer to the arrow.
+
 ## Locks
 
 Held by the editor for every tool: arrows → / ← / ↑ = red / green / blue axis, ↓ = free;
