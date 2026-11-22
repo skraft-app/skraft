@@ -884,3 +884,55 @@ fn the_meshes_near_the_ray_are_those_a_scan_finds() {
     }
     assert!(met > 100, "{met}");
 }
+
+/// What is inferred at the world point `p` with `tracked` points.
+fn at_tracked(e: &Editor, p: DVec3, tracked: &[DVec3]) -> Inference {
+    let keep = |_: &Owner<'_>| true;
+    let q = Query {
+        keep: &keep,
+        plane: (DVec3::ZERO, DVec3::Z),
+        origin: None,
+        model_axes: false,
+        from: None,
+        tracked,
+        in_plane: false,
+        axes: [DVec3::X, DVec3::Y, DVec3::Z],
+        reference: None,
+        lock: None,
+        tool_line: None,
+    };
+    infer(e.scene(), &e.camera, e.viewport_size(), px(e, p), &q).unwrap()
+}
+
+#[test]
+fn thirds_of_a_long_edge_are_inferred() {
+    let mut e = top_editor(DVec3::ZERO);
+    add_box(&mut e, DVec3::ZERO, DVec3::new(600.0, 400.0, 100.0));
+    for x in [200.0, 400.0] {
+        let i = at_tracked(&e, DVec3::new(x + 3.0, -3.0, 100.0), &[]);
+        assert_eq!(i.kind, InferKind::Third);
+        assert!((i.point - DVec3::new(x, 0.0, 100.0)).length() < 1e-9, "{}", i.point);
+        assert!(matches!(i.edge, Some(EdgeRef::Straight(_))));
+    }
+}
+
+#[test]
+fn a_short_edge_has_no_thirds() {
+    let mut e = top_editor(DVec3::ZERO);
+    add_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 50.0));
+    let i = at_tracked(&e, DVec3::new(100.0 / 3.0, 0.0, 50.0), &[]);
+    assert_ne!(i.kind, InferKind::Third);
+}
+
+#[test]
+fn the_middle_of_two_tracked_points_is_inferred_even_inside_a_solid() {
+    let mut e = top_editor(DVec3::ZERO);
+    add_box(&mut e, DVec3::ZERO, DVec3::new(400.0, 400.0, 200.0));
+    let tracked = [DVec3::ZERO, DVec3::new(400.0, 400.0, 200.0)];
+    let i = at_tracked(&e, DVec3::new(203.0, 197.0, 200.0), &tracked);
+    assert_eq!(i.kind, InferKind::TrackedMiddle);
+    assert_eq!(i.point, DVec3::new(200.0, 200.0, 100.0));
+    assert!(!i.kind.is_trackable());
+    // One tracked point has no middle.
+    assert_eq!(at_tracked(&e, DVec3::new(203.0, 197.0, 200.0), &tracked[..1]).kind, InferKind::OnFace);
+}

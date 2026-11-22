@@ -1,7 +1,7 @@
 //! Inferences (docs/tools/inferences.md): the point a tool takes under the cursor.
 //!
 //! Candidates come from the solids' exact snap features ([`Snaps`]), placed in the world by
-//! each occurrence: endpoints, midpoints and centres; then — when the tool has a start point —
+//! each occurrence: endpoints, midpoints, thirds and centres; then — when the tool has a start point —
 //! where a line through it crosses an edge, then the lines themselves (the context's red,
 //! green and blue axes, parallel or perpendicular to the last straight edge hovered, tangent
 //! or radial to the last arc); then points on edges, then the face under the cursor, then a
@@ -9,7 +9,7 @@
 //! on screen, then the nearest to the eye; a point hidden behind the scene is skipped.
 //!
 //! A point hovered a while is **tracked**: its axes are inferred too, and where two lines of
-//! different origins cross.
+//! different origins cross. The middle of two tracked points is a point to infer.
 //!
 //! A **lock** (an arrow key, or Shift held on a line) keeps the point on one line: a feature
 //! hovered is then projected onto it ("aligned with that corner"), an edge it crosses gives
@@ -38,6 +38,10 @@ pub use edges::{EdgeHit, EdgesOn, edge_at, tangent_chain};
 
 /// How far from the cursor a feature is inferred (pixels).
 pub const APERTURE_PX: f64 = 10.0;
+
+/// How far from the cursor a third of an edge is inferred (pixels): narrower than
+/// [`APERTURE_PX`], the edge stays easy to take between its points.
+const THIRD_APERTURE_PX: f64 = 6.0;
 
 /// How close (pixels, at the point's depth) a line must pass to an edge to cross it: two lines
 /// in space seldom meet exactly.
@@ -128,6 +132,10 @@ pub enum InferKind {
     Endpoint,
     /// The middle of a straight edge or of an arc.
     Midpoint,
+    /// A point at one or two thirds of a straight edge or of an arc.
+    Third,
+    /// The middle of the two tracked points: built from them, it is not tracked itself.
+    TrackedMiddle,
     /// The centre of an arc, a circle or an ellipse.
     Center,
     /// The origin of the context being edited.
@@ -162,8 +170,9 @@ impl InferKind {
     const fn rank(self) -> usize {
         match self {
             InferKind::Endpoint => 0,
-            InferKind::Midpoint | InferKind::Center | InferKind::Origin => 1,
-            InferKind::OnEdgeAndLine(_)
+            InferKind::Midpoint | InferKind::TrackedMiddle | InferKind::Center | InferKind::Origin => 1,
+            InferKind::Third
+            | InferKind::OnEdgeAndLine(_)
             | InferKind::OnTwoLines(..)
             | InferKind::OnGuideAndLine(_)
             | InferKind::OnGuideAndEdge
@@ -175,9 +184,16 @@ impl InferKind {
         }
     }
 
-    /// A point of the geometry (endpoint, midpoint, centre, origin): what can be tracked.
+    /// A point of the geometry (endpoint, midpoint, third, centre, origin) or the middle of the
+    /// tracked points.
     pub fn is_point(self) -> bool {
-        self.rank() <= 1
+        self.rank() <= 1 || self == InferKind::Third
+    }
+
+    /// A point that can be tracked: the middle of the tracked points is not, it would replace
+    /// one of the two it stands on.
+    pub fn is_trackable(self) -> bool {
+        self.is_point() && self != InferKind::TrackedMiddle
     }
 
     /// A point the geometry or a line gives, not just somewhere on a face or a plane: what a
@@ -199,6 +215,8 @@ impl InferKind {
         match self {
             InferKind::Endpoint => t!("infer.endpoint"),
             InferKind::Midpoint => t!("infer.midpoint"),
+            InferKind::Third => t!("infer.third"),
+            InferKind::TrackedMiddle => t!("infer.tracked_middle"),
             InferKind::Center => t!("infer.center"),
             InferKind::Origin => t!("infer.origin"),
             InferKind::OnEdgeAndLine(l) => format!("{} × {}", t!("infer.edge"), l.name()),
@@ -344,11 +362,11 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
         };
         return Some(Inference::on_lines(point, InferKind::OnLine(l.kind), None, hit, &l, None));
     }
-    // Points of the geometry beat what lines give.
-    if base.as_ref().is_some_and(|b| b.kind.is_point()) {
+    // Points of the geometry beat what lines give; a third only ranks with the points they build.
+    if base.as_ref().is_some_and(|b| b.kind.is_point() && b.kind != InferKind::Third) {
         return base;
     }
-    // A point built by the geometry (a guide circle across an edge or another): as good as one built by
+    // A point built by the geometry (a third, a guide circle across an edge or another): as good as one built by
     // lines, the nearer on screen wins; better than any point on a line.
     let built = base.as_ref().filter(|b| b.kind.rank() == InferKind::OnGuideAndEdge.rank());
     let built_dist = built.and_then(|b| screen.project(b.point)).map_or(f64::INFINITY, |s| s.distance(px));

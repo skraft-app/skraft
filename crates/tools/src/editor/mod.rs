@@ -1274,7 +1274,7 @@ impl Editor {
                 self.reference = Some(edge);
             }
             // A point of the geometry under the cursor starts (or goes on) dwelling.
-            let point = inference.filter(|i| i.kind.is_point()).map(|i| i.point);
+            let point = inference.filter(|i| i.kind.is_trackable()).map(|i| i.point);
             self.dwell = match (point, self.dwell) {
                 (Some(p), Some((q, since))) if p == q => Some((q, since)),
                 (Some(p), _) => Some((p, self.now)),

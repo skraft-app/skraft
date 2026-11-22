@@ -339,10 +339,10 @@ fn axis_color(cx: &Cx<'_>, v: DVec3) -> [f32; 4] {
     }
 }
 
-/// The tooltip's lines for the edge the point `inf` lies on (on it, or at its middle): its
+/// The tooltip's lines for the edge the point `inf` lies on (on it, at its middle or a third): its
 /// length, and its radius when it is an arc of a circle.
 fn edge_tip(cx: &Cx<'_>, inf: &Inference) -> Option<String> {
-    if !matches!(inf.kind, InferKind::OnEdge | InferKind::Midpoint) {
+    if !matches!(inf.kind, InferKind::OnEdge | InferKind::Midpoint | InferKind::Third) {
         return None;
     }
     let format = |v: f64| vcb::format(v, cx.units());

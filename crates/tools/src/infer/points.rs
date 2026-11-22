@@ -6,7 +6,7 @@ use skraft_model::{EntityPath, GuideShape};
 
 use super::crossings::circle_meets_curve;
 use super::curves::{curve_ref, drawn, guide_arc, guide_arcs, guide_circle, kept_guides, on_curve};
-use super::{APERTURE_PX, CROSSING_PX, Curve, EdgeRef, InferKind, Inference, Query, RANKS, near_ray, visible};
+use super::{APERTURE_PX, CROSSING_PX, Curve, EdgeRef, InferKind, Inference, Query, RANKS, THIRD_APERTURE_PX, near_ray, visible};
 use crate::camera::{Camera, Projector, Ray};
 use crate::scene::{DisplayScene, Owner};
 
@@ -95,6 +95,11 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
             offer(p, InferKind::OnGuide, None, Some((EdgeRef::Arc { tangent, radial, center, radius }, Curve::Guide(shape))), Vec::new());
         }
     }
+    // The middle of the two tracked points, offered last: a feature at the same place keeps
+    // its edge.
+    if let [a, b] = q.tracked {
+        offer((*a + *b) * 0.5, InferKind::TrackedMiddle, None, None, Vec::new());
+    }
 
     // Best kind first; within a kind, those within a pixel of the nearest are equals (features
     // stacked on screen, as a top and a bottom corner seen from above): the nearest to the eye.
@@ -109,7 +114,8 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
     };
     cands.sort_by(|a, b| key(a).partial_cmp(&key(b)).unwrap_or(std::cmp::Ordering::Equal));
     for c in cands {
-        if visible(scene, camera, size, &screen, c.point, q) {
+        // The tracked points' middle is shown over everything: it may lie inside a solid.
+        if c.kind == InferKind::TrackedMiddle || visible(scene, camera, size, &screen, c.point, q) {
             let mut i = Inference::at(c.point, c.kind, c.path, hit, c.edge);
             i.crossed = c.crossed;
             return Some(i);
@@ -134,7 +140,7 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
 
 /// Offers the snap features of one occurrence (definition to world `t`): its vertices (with
 /// the edges ending there as the curves crossing, for a vertex near the cursor), the
-/// midpoints and centres of its edges, and the point of each edge nearest the cursor (with the
+/// midpoints, thirds and centres of its edges, and the point of each edge nearest the cursor (with the
 /// edge there, straight or arc, as the next reference).
 pub(super) fn features(
     s: &Snaps,
@@ -160,6 +166,17 @@ pub(super) fn features(
         if let Some(m) = e.curve.midpoint() {
             let m = t.transform_point3(m);
             offer(m, InferKind::Midpoint, edge_at(m), Vec::new());
+        }
+        // Thirds only where the edge is long enough on screen for each point to be aimed at.
+        if let Some(thirds) = e.curve.thirds().map(|p| p.map(|p| t.transform_point3(p)))
+            && let (Some(a), Some(b)) = (screen.project(thirds[0]), screen.project(thirds[1]))
+            && a.distance(b) >= 2.0 * APERTURE_PX
+        {
+            for (p, s) in thirds.into_iter().zip([a, b]) {
+                if s.distance(px) <= THIRD_APERTURE_PX {
+                    offer(p, InferKind::Third, edge_at(p), Vec::new());
+                }
+            }
         }
         if let Some(c) = e.curve.center() {
             offer(t.transform_point3(c), InferKind::Center, None, Vec::new());

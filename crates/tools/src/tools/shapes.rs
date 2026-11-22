@@ -172,10 +172,11 @@ fn locked_normal(cx: &Cx<'_>) -> Option<DVec3> {
     }
 }
 
-/// The direction (axes) of the straight edge `inf` is on, if any: its midpoint or a point along it.
+/// The direction (axes) of the straight edge `inf` is on, if any: its midpoint, a third or a point
+/// along it.
 fn edge_dir(cx: &Cx<'_>, inf: &Inference) -> Option<DVec3> {
     match (inf.kind, inf.edge) {
-        (InferKind::Midpoint | InferKind::OnEdge, Some(EdgeRef::Straight(d))) => Some(dir_to_axes(cx, d)),
+        (InferKind::Midpoint | InferKind::Third | InferKind::OnEdge, Some(EdgeRef::Straight(d))) => Some(dir_to_axes(cx, d)),
         _ => None,
     }
 }
@@ -237,7 +238,8 @@ struct StartAt {
 fn start_at(cx: &Cx<'_>, px: DVec2) -> Option<StartAt> {
     let mut inf = cx.infer(px, |_| true, None)?;
     // The face under it, unless the point is on an edge or a corner of it (a centre is not).
-    let inside = !matches!(inf.kind, InferKind::Endpoint | InferKind::Midpoint | InferKind::OnEdge | InferKind::OnEdgeAndLine(_));
+    let inside =
+        !matches!(inf.kind, InferKind::Endpoint | InferKind::Midpoint | InferKind::Third | InferKind::OnEdge | InferKind::OnEdgeAndLine(_));
     let face =
         inf.hit.as_ref().filter(|_| inside).and_then(|h| Face::at(cx.scene, h)).filter(|f| (inf.point - f.point).dot(f.normal).abs() < ON);
     if cx.copy_down

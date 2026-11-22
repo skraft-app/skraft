@@ -80,6 +80,17 @@ impl SnapCurve {
         }
     }
 
+    /// The points at one and two thirds, for a segment or an open arc (along its length).
+    pub fn thirds(&self) -> Option<[DVec3; 2]> {
+        match *self {
+            SnapCurve::Segment { a, b } => Some([a + (b - a) / 3.0, a + (b - a) * 2.0 / 3.0]),
+            SnapCurve::Arc { center, x, y, radius, sweep } if sweep < TAU - 1e-9 => {
+                Some([1.0, 2.0].map(|k| Self::arc_point(center, x, y, radius, sweep * k / 3.0)))
+            }
+            _ => None,
+        }
+    }
+
     /// The ends, for a segment, an open arc or an open polyline (none for a closed curve).
     pub fn ends(&self) -> Vec<DVec3> {
         match *self {

@@ -1423,6 +1423,8 @@ tool:
 infer:
   endpoint: "Extrémité"
   midpoint: "Milieu"
+  third: "Tiers"
+  tracked_middle: "Milieu des points suivis"
   center: "Centre"
   origin: "Origine"
   on_edge: "Sur l'arête"
