@@ -221,7 +221,7 @@ view_bar:
   grip: "Drag to dock the bar on the left or the right"
 titlebar:
   modified: "Modified since last saved"
-  search: "Search for a command"
+  search: "Command"
   remote:
     on: "Remote control on at %{address} — %{n} request(s)"
     failed: "Remote control unavailable: %{error}"
