@@ -1601,6 +1601,10 @@ fn paint_inference(
             ring(at, 7.0);
             painter.circle(at, 2.5, color(theme.tracked), Stroke::new(1.0, color(theme.tracked_halo)));
         }
+        InferKind::BoxCorner => {
+            let square = egui::Rect::from_center_size(at, vec2(9.0, 9.0));
+            painter.rect(square, 0.0, color(theme.endpoint), outline, egui::StrokeKind::Middle);
+        }
         InferKind::Center => {
             painter.circle(at, 5.0, color(theme.center), outline);
             cross(at, 3.0);

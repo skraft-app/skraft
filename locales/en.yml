@@ -1297,6 +1297,7 @@ infer:
   midpoint: "Midpoint"
   third: "Third"
   tracked_middle: "Middle of tracked points"
+  box_corner: "Box corner"
   center: "Center"
   origin: "Origin"
   on_edge: "On edge"

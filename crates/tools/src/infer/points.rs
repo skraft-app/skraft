@@ -95,6 +95,9 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
             offer(p, InferKind::OnGuide, None, Some((EdgeRef::Arc { tangent, radial, center, radius }, Curve::Guide(shape))), Vec::new());
         }
     }
+    for &c in q.box_corners {
+        offer(c, InferKind::BoxCorner, None, None, Vec::new());
+    }
     // The middle of the two tracked points, offered last: a feature at the same place keeps
     // its edge.
     if let [a, b] = q.tracked {

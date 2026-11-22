@@ -3,6 +3,7 @@
 
 mod blend;
 mod boolean;
+mod box_grips;
 mod copy_grid;
 mod copy_line;
 mod distribute;
@@ -982,7 +983,13 @@ impl Cx<'_> {
     /// The point inferred under `px` (docs/tools/inferences.md), on the solids `keep` accepts; `plane` (world
     /// point and normal) when nothing is under the cursor, by default the context's ground.
     pub fn infer(&self, px: DVec2, keep: impl Fn(&Owner<'_>) -> bool, plane: Option<(DVec3, DVec3)>) -> Option<Inference> {
-        self.query(px, &keep, plane, None, false, None)
+        self.query(px, &keep, plane, None, false, None, &[])
+    }
+
+    /// The same on everything, the `corners` of the box of what the tool takes among the
+    /// points (docs/tools/inferences.md#selection-box).
+    pub fn infer_on_box(&self, px: DVec2, corners: &[DVec3]) -> Option<Inference> {
+        self.query(px, &|_| true, None, None, false, None, corners)
     }
 
     /// The same, with lines inferred through the start point `from` (world), kept on `lock`.
@@ -994,14 +1001,15 @@ impl Cx<'_> {
         from: DVec3,
         lock: Option<Lock>,
     ) -> Option<Inference> {
-        self.query(px, &keep, plane, Some(from), false, lock)
+        self.query(px, &keep, plane, Some(from), false, lock, &[])
     }
 
     /// Lines through `from` that lie in `plane` only (a protractor's), never locked.
     pub fn infer_in_plane(&self, px: DVec2, keep: impl Fn(&Owner<'_>) -> bool, plane: (DVec3, DVec3), from: DVec3) -> Option<Inference> {
-        self.query(px, &keep, Some(plane), Some(from), true, None)
+        self.query(px, &keep, Some(plane), Some(from), true, None, &[])
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn query(
         &self,
         px: DVec2,
@@ -1010,6 +1018,7 @@ impl Cx<'_> {
         from: Option<DVec3>,
         in_plane: bool,
         lock: Option<Lock>,
+        box_corners: &[DVec3],
     ) -> Option<Inference> {
         let q = Query {
             keep,
@@ -1024,6 +1033,7 @@ impl Cx<'_> {
             reference: self.reference,
             lock,
             tool_line: self.tool_line.map(|(o, d)| (self.to_world(o), self.axes().matrix3.mul_vec3(d).normalize())),
+            box_corners,
         };
         infer::infer(self.scene, self.camera, self.size, px, &q)
     }

@@ -1430,6 +1430,7 @@ infer:
   midpoint: "Milieu"
   third: "Tiers"
   tracked_middle: "Milieu des points suivis"
+  box_corner: "Coin de la boîte"
   center: "Centre"
   origin: "Origine"
   on_edge: "Sur l'arête"

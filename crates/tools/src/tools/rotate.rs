@@ -7,9 +7,11 @@
 //! copying; right after a copy, `6x` makes a circular array of 6 at the same angle and `/6`
 //! spreads 6 copies over it. What turns is picked first (docs/tools/selection.md, [`Picker`]): the
 //! selection, else a click, Shift clicks or a rectangle; once turned, the selection is let go
-//! and the tool picks again.
+//! and the tool picks again. The box of what turns gives its corners, its faces' centres and
+//! four grips per face, a grip going straight to the angle (docs/tools/inferences.md#selection-box).
 
 use super::DragClicks;
+use super::box_grips::BoxGrips;
 use super::pick::Picker;
 use crate::infer::Inference;
 use crate::scene::Owner;
@@ -45,6 +47,8 @@ pub struct RotateTool {
     snap: Option<Inference>,
     /// The copy just made, which a typed count turns into an array.
     last: Option<LastCopy>,
+    /// The box of what turns.
+    grips: BoxGrips,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -84,14 +88,39 @@ pub fn rotation_about(center: DVec3, axis: DVec3, angle: f64) -> DAffine3 {
 impl RotateTool {
     /// The centre and axis the cursor gives before the first click: the point inferred, and
     /// the normal of the face under the cursor (else the context's Z), unless an axis is locked.
-    fn center_at(&self, cx: &Cx<'_>, px: DVec2) -> Option<(DVec3, DVec3, Inference)> {
-        let inf = cx.infer(px, |_| true, None)?;
-        let axis = match (cx.axis_lock, &inf.hit) {
-            (Some(k), _) => context_axis(cx, k),
-            (None, Some(h)) => h.normal,
-            (None, None) => context_axis(cx, 2),
+    fn center_at(&mut self, cx: &Cx<'_>, px: DVec2) -> Option<(DVec3, DVec3, Option<Inference>)> {
+        let (ids, deep) = (self.picker.selection(cx), self.picker.deep(cx));
+        let inf = self.grips.infer(cx, px, &ids, &deep, true);
+        if let Some((center, normal, _)) = self.grips.turn() {
+            return Some((center, normal, None));
+        }
+        let inf = inf?;
+        let axis = match (cx.axis_lock, self.grips.center(), &inf.hit) {
+            (Some(k), ..) => context_axis(cx, k),
+            (None, Some((_, normal)), _) => normal,
+            (None, None, Some(h)) => h.normal,
+            (None, None, None) => context_axis(cx, 2),
         };
-        Some((inf.point, axis, inf))
+        Some((inf.point, axis, Some(inf)))
+    }
+
+    /// Already at the angle, from the grip `at` of a face of the box (Move's grips): `center`
+    /// and `axis` are the face's.
+    pub(super) fn from_grip(
+        moving: Vec<Id>,
+        moving_paths: Vec<EntityPath>,
+        moving_guides: Vec<GuidePath>,
+        copy: bool,
+        (center, axis, at): (DVec3, DVec3, DVec3),
+    ) -> Self {
+        let r = at - center;
+        let state = State::Angle { center, axis, reference: r.normalize(), reference_reach: r.length(), angle: 0.0, reach: r.length() };
+        RotateTool { state, copy, moving, moving_paths, moving_guides, taken: true, ..Default::default() }
+    }
+
+    /// The copy just made, handed to the tool that started this rotation.
+    pub(super) fn take_last(&mut self) -> Option<LastCopy> {
+        self.last.take()
     }
 
     /// The direction from `center` to the cursor, in the protractor's plane, and how far the
@@ -184,7 +213,7 @@ impl RotateTool {
             (ToolInput::Hover { px }, State::Center) => {
                 let c = self.center_at(cx, *px);
                 self.cursor = c.as_ref().map(|(p, a, _)| (*p, *a));
-                self.snap = c.map(|(_, _, i)| i);
+                self.snap = c.and_then(|(_, _, i)| i);
             }
             (ToolInput::Hover { px }, State::Reference { center, axis, .. }) => {
                 let (dir, snap) = self.direction(cx, *px, center, axis, Self::zero(cx, axis));
@@ -206,7 +235,15 @@ impl RotateTool {
                 self.moving = self.picker.selection(cx);
                 self.moving_paths = self.picker.deep(cx);
                 self.moving_guides = self.picker.deep_guides(cx);
-                self.state = State::Reference { center, axis, dir: None };
+                self.state = match self.grips.turn() {
+                    Some((_, _, at)) => {
+                        let r = at - center;
+                        State::Angle { center, axis, reference: r.normalize(), reference_reach: r.length(), angle: 0.0, reach: r.length() }
+                    }
+                    None => State::Reference { center, axis, dir: None },
+                };
+                self.grips.clear();
+                self.snap = None;
             }
             (ToolInput::Click { .. }, State::Reference { center, axis, dir }) => {
                 let Some((reference, reach)) = dir else {
@@ -226,13 +263,39 @@ impl RotateTool {
     }
 
     fn color(&self, cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
-        [(0, RED), (1, GREEN), (2, BLUE)].into_iter().find(|(k, _)| context_axis(cx, *k).dot(axis).abs() > 0.9999).map_or(INK, |(_, c)| c)
+        axis_color(cx, axis)
     }
+}
+
+/// The colour of the context's axis `axis` runs along, else the ink.
+pub(super) fn axis_color(cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
+    [(0, RED), (1, GREEN), (2, BLUE)].into_iter().find(|(k, _)| context_axis(cx, *k).dot(axis).abs() > 0.9999).map_or(INK, |(_, c)| c)
 }
 
 /// The protractor's radius at `center`, in the world.
 fn protractor_radius(cx: &Cx<'_>, center: DVec3) -> f64 {
     cx.camera.world_per_pixel(cx.size, center) * PROTRACTOR_PX
+}
+
+/// The protractor at `center`, its graduations starting from `u`, in its plane; over everything.
+pub(super) fn protractor(d: &mut Drawer<'_>, cx: &Cx<'_>, center: DVec3, axis: DVec3, u: DVec3, color: [f32; 4]) {
+    let r = protractor_radius(cx, center);
+    let v = axis.cross(u);
+    const N: usize = 48;
+    let circle: Vec<DVec3> = (0..N)
+        .map(|i| {
+            let a = i as f64 / N as f64 * std::f64::consts::TAU;
+            center + (u * a.cos() + v * a.sin()) * r
+        })
+        .collect();
+    d.pen(Pen::new(color).over()).curve(&circle, true);
+    // Ticks every 15°.
+    d.segments((0..24).map(|k| {
+        let a = k as f64 * SNAP_STEP;
+        let dir = u * a.cos() + v * a.sin();
+        let inner = if k % 6 == 0 { 0.8 } else { 0.9 };
+        (center + dir * r * inner, center + dir * r)
+    }));
 }
 
 impl Tool for RotateTool {
@@ -251,26 +314,6 @@ impl Tool for RotateTool {
         out
     }
     fn preview(&self, cx: &Cx<'_>) -> Preview {
-        // Its graduations start from `u`, in its plane; over everything.
-        let protractor = |d: &mut Drawer<'_>, center: DVec3, axis: DVec3, u: DVec3, color: [f32; 4]| {
-            let r = protractor_radius(cx, center);
-            let v = axis.cross(u);
-            const N: usize = 48;
-            let circle: Vec<DVec3> = (0..N)
-                .map(|i| {
-                    let a = i as f64 / N as f64 * std::f64::consts::TAU;
-                    center + (u * a.cos() + v * a.sin()) * r
-                })
-                .collect();
-            d.pen(Pen::new(color).over()).curve(&circle, true);
-            // Ticks every 15°.
-            d.segments((0..24).map(|k| {
-                let a = k as f64 * SNAP_STEP;
-                let dir = u * a.cos() + v * a.sin();
-                let inner = if k % 6 == 0 { 0.8 } else { 0.9 };
-                (center + dir * r * inner, center + dir * r)
-            }));
-        };
         // A radius from the centre, a dimension's line (in the scene, translucent where hidden).
         let radius = |d: &mut Drawer<'_>, center: DVec3, to: DVec3, color: [f32; 4]| {
             d.pen(Pen::dimension(color)).line(center, to);
@@ -284,14 +327,16 @@ impl Tool for RotateTool {
                 p
             }
             State::Center => {
-                if let Some((c, a)) = self.cursor {
-                    protractor(d, c, a, Self::zero(cx, a), self.color(cx, a));
+                self.grips.draw(d, cx);
+                // On a grip, the box draws the protractor from it.
+                if let Some((c, a)) = self.cursor.filter(|_| self.grips.turn().is_none()) {
+                    protractor(d, cx, c, a, Self::zero(cx, a), self.color(cx, a));
                 }
-                Preview { drawing, inference: self.snap.clone(), ..Default::default() }
+                Preview { drawing, inference: self.snap.clone(), tip: self.grips.tip(), ..Default::default() }
             }
             // The radii from the centre. The one to the cursor is drawn last.
             State::Reference { center, axis, dir } => {
-                protractor(d, center, axis, Self::zero(cx, axis), self.color(cx, axis));
+                protractor(d, cx, center, axis, Self::zero(cx, axis), self.color(cx, axis));
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
                 if let Some((dir, reach)) = dir {
                     radius(d, center, center + dir * reach, color);
@@ -299,7 +344,7 @@ impl Tool for RotateTool {
                 Preview { drawing, inference: self.snap.clone(), ..Default::default() }
             }
             State::Angle { center, axis, reference, reference_reach, angle, reach } => {
-                protractor(d, center, axis, reference, self.color(cx, axis));
+                protractor(d, cx, center, axis, reference, self.color(cx, axis));
                 let r = protractor_radius(cx, center) * 1.4;
                 let now = DQuat::from_axis_angle(axis, angle) * reference;
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
@@ -403,6 +448,7 @@ impl Tool for RotateTool {
         self.moving_paths.clear();
         self.moving_guides.clear();
         self.snap = None;
+        self.grips = BoxGrips::default();
     }
 }
 

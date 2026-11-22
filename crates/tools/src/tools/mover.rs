@@ -7,14 +7,18 @@
 //! direction (`@/2`: half the way so far), a typed point at it (`[x;y;z]` in the context's
 //! axes, `<dx;dy;dz>` from the start). What is moved is picked first (docs/tools/selection.md, [`Picker`]):
 //! the selection, else a click, Shift clicks or a rectangle; once moved, the selection is let
-//! go and the tool picks again.
+//! go and the tool picks again. The box of what moves gives its corners as start points, and
+//! four grips on the face under the cursor that turn it instead, as Rotate does
+//! (docs/tools/inferences.md#selection-box).
 //!
 //! Paste at the cursor (docs/tools/copy-paste.md) carries what was just pasted in place with this tool, held
 //! by a corner ([`MoveTool::carrying`]): the click puts the paste, moved, in the paste's
 //! place in the history (one step), without copying.
 
 use super::DragClicks;
+use super::box_grips::BoxGrips;
 use super::pick::Picker;
+use super::rotate::RotateTool;
 use crate::scene::Owner;
 use glam::{DAffine3, DVec2, DVec3};
 use skraft_i18n::t;
@@ -46,6 +50,10 @@ pub struct MoveTool {
     pasted: Option<Box<Operation>>,
     /// A component carried from the library, the pointer off the view: not drawn.
     away: bool,
+    /// The box of what moves.
+    grips: BoxGrips,
+    /// The rotation a grip of the box started: it has the inputs until done.
+    turn: Option<Box<RotateTool>>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -144,7 +152,8 @@ impl MoveTool {
                 return out;
             }
             (ToolInput::Hover { px }, State::Start) => {
-                self.snap = cx.infer(*px, |_| true, None);
+                let (ids, deep) = (self.picker.selection(cx), self.picker.deep(cx));
+                self.snap = self.grips.infer(cx, *px, &ids, &deep, false);
                 self.cursor = self.snap.as_ref().map(|i| i.point);
             }
             (ToolInput::Hover { px }, State::Moving { from, .. }) => {
@@ -155,9 +164,19 @@ impl MoveTool {
             }
             (ToolInput::Click { px, .. }, State::Start) => {
                 self.last = None;
-                let Some(from) = cx.infer(*px, |_| true, None).map(|i| i.point) else { return vec![] };
-                self.moving = self.picker.selection(cx);
-                self.moving_paths = self.picker.deep(cx);
+                let (ids, deep) = (self.picker.selection(cx), self.picker.deep(cx));
+                let snap = self.grips.infer(cx, *px, &ids, &deep, false);
+                if let Some(grip) = self.grips.turn() {
+                    self.turn = Some(Box::new(RotateTool::from_grip(ids, deep, self.picker.deep_guides(cx), self.copy, grip)));
+                    self.grips.clear();
+                    self.snap = None;
+                    self.cursor = None;
+                    return vec![];
+                }
+                let Some(from) = snap.map(|i| i.point) else { return vec![] };
+                self.grips.clear();
+                self.moving = ids;
+                self.moving_paths = deep;
                 self.moving_guides = self.picker.deep_guides(cx);
                 self.state = State::Moving { from, to: from };
             }
@@ -185,6 +204,9 @@ impl Tool for MoveTool {
     }
 
     fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        if let Some(turn) = &self.turn {
+            return turn.cursor(cx);
+        }
         Some(if self.picking() {
             self.picker.cursor(cx, crate::tools::Cursor::SelectPart)
         } else if self.copy {
@@ -195,12 +217,25 @@ impl Tool for MoveTool {
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
+        if let Some(turn) = &mut self.turn {
+            let out = turn.input(input, cx);
+            if !turn.busy() {
+                self.last = turn.take_last();
+                self.turn = None;
+                self.copy = false;
+            }
+            self.taken = self.picker.taken(cx);
+            return out;
+        }
         let out = self.input_state(input, cx);
         self.taken = self.picker.taken(cx);
         out
     }
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
+        if let Some(turn) = &self.turn {
+            return turn.preview(cx);
+        }
         match self.state {
             State::Start if self.picking() => {
                 let mut p = Preview::default();
@@ -209,10 +244,12 @@ impl Tool for MoveTool {
             }
             State::Start => {
                 let mut drawing = Drawing::default();
+                let d = &mut cx.drawer(&mut drawing);
+                self.grips.draw(d, cx);
                 if let Some(c) = self.cursor {
-                    cx.drawer(&mut drawing).mark(c);
+                    d.mark(c);
                 }
-                Preview { drawing, inference: self.snap.clone(), ..Default::default() }
+                Preview { drawing, inference: self.snap.clone(), tip: self.grips.tip(), ..Default::default() }
             }
             State::Moving { .. } if self.away => Preview { away: true, ..Default::default() },
             // A component placed: where it goes, no distance from where it was put in place.
@@ -235,6 +272,9 @@ impl Tool for MoveTool {
     }
 
     fn status(&self) -> String {
+        if let Some(turn) = &self.turn {
+            return turn.status();
+        }
         let hint = match self.state {
             State::Start if self.last.is_some() && !self.picker.busy() => return t!("tool.move.hint.array"),
             State::Start if self.picking() => self.picker.status(t!("tool.move.hint.pick"), t!("tool.move.hint.gather")),
@@ -248,6 +288,9 @@ impl Tool for MoveTool {
     }
 
     fn vcb(&self) -> Option<Vcb> {
+        if let Some(turn) = &self.turn {
+            return turn.vcb();
+        }
         match self.state {
             // A component placed: no distance to type.
             State::Moving { .. } if self.placing() => None,
@@ -260,7 +303,7 @@ impl Tool for MoveTool {
     }
 
     fn copying(&self) -> bool {
-        self.copy
+        self.turn.as_ref().map_or(self.copy, |t| t.copying())
     }
 
     fn options(&self, _: &Cx<'_>) -> Vec<ToolOption> {
@@ -272,7 +315,7 @@ impl Tool for MoveTool {
             key: "copy",
             label: t!("tool.move.option.copy"),
             tip: t!("tool.move.option.copy_tip", copy_key = super::copy_key()),
-            value: OptionValue::Toggle(self.copy),
+            value: OptionValue::Toggle(self.copying()),
             choices: Vec::new(),
             saved: false,
             icon: None,
@@ -281,6 +324,9 @@ impl Tool for MoveTool {
     }
 
     fn set_option(&mut self, key: &str, value: &OptionValue) {
+        if let Some(turn) = &mut self.turn {
+            return turn.set_option(key, value);
+        }
         if let ("copy", OptionValue::Toggle(on)) = (key, value)
             && self.pasted.is_none()
         {
@@ -291,6 +337,9 @@ impl Tool for MoveTool {
     /// Picking, a drag draws a selection rectangle; then, it moves from the press to the
     /// release (SketchUp's).
     fn drag_clicks(&self) -> DragClicks {
+        if self.turn.is_some() {
+            return DragClicks::Release;
+        }
         match self.state {
             State::Start if self.picking() => DragClicks::No,
             State::Start => DragClicks::PressAndRelease,
@@ -299,7 +348,7 @@ impl Tool for MoveTool {
     }
 
     fn busy(&self) -> bool {
-        matches!(self.state, State::Moving { .. }) || self.picker.busy()
+        self.turn.is_some() || matches!(self.state, State::Moving { .. }) || self.picker.busy()
     }
 
     fn picks_first(&self) -> bool {
@@ -308,7 +357,7 @@ impl Tool for MoveTool {
 
     /// Picking what it moves (docs/tools/selection.md).
     fn picking(&self) -> bool {
-        matches!(self.state, State::Start) && self.pasted.is_none() && !self.taken
+        self.turn.is_none() && matches!(self.state, State::Start) && self.pasted.is_none() && !self.taken
     }
 
     fn picks_parts(&self) -> bool {
@@ -323,6 +372,10 @@ impl Tool for MoveTool {
     }
 
     fn back(&mut self) {
+        if self.turn.take().is_some() {
+            self.copy = false;
+            return;
+        }
         if !self.picker.back() {
             self.reset();
         }
@@ -339,5 +392,7 @@ impl Tool for MoveTool {
         self.snap = None;
         self.pasted = None;
         self.away = false;
+        self.grips = BoxGrips::default();
+        self.turn = None;
     }
 }

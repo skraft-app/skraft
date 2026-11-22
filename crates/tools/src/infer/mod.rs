@@ -136,6 +136,8 @@ pub enum InferKind {
     Third,
     /// The middle of the two tracked points: built from them, it is not tracked itself.
     TrackedMiddle,
+    /// A corner of the box of what the tool takes (docs/tools/inferences.md#selection-box).
+    BoxCorner,
     /// The centre of an arc, a circle or an ellipse.
     Center,
     /// The origin of the context being edited.
@@ -170,7 +172,7 @@ impl InferKind {
     const fn rank(self) -> usize {
         match self {
             InferKind::Endpoint => 0,
-            InferKind::Midpoint | InferKind::TrackedMiddle | InferKind::Center | InferKind::Origin => 1,
+            InferKind::Midpoint | InferKind::TrackedMiddle | InferKind::BoxCorner | InferKind::Center | InferKind::Origin => 1,
             InferKind::Third
             | InferKind::OnEdgeAndLine(_)
             | InferKind::OnTwoLines(..)
@@ -217,6 +219,7 @@ impl InferKind {
             InferKind::Midpoint => t!("infer.midpoint"),
             InferKind::Third => t!("infer.third"),
             InferKind::TrackedMiddle => t!("infer.tracked_middle"),
+            InferKind::BoxCorner => t!("infer.box_corner"),
             InferKind::Center => t!("infer.center"),
             InferKind::Origin => t!("infer.origin"),
             InferKind::OnEdgeAndLine(l) => format!("{} × {}", t!("infer.edge"), l.name()),
@@ -293,6 +296,11 @@ impl Inference {
         Inference { point, kind, path, hit, line: None, line2: None, edge, curve, crossed: Vec::new() }
     }
 
+    /// A point of the box of what the tool takes, `hit` being what the ray hits.
+    pub(crate) fn on_box(point: DVec3, kind: InferKind, hit: Option<Hit>) -> Self {
+        Self::at(point, kind, None, hit, None)
+    }
+
     /// A point on the line `a`, and on `b` where two lines cross (those fixed then crossed).
     fn on_lines(point: DVec3, kind: InferKind, path: Option<EntityPath>, hit: Option<Hit>, a: &Line, b: Option<&Line>) -> Self {
         let crossed = b.map_or_else(Vec::new, |b| [a, b].iter().filter_map(|l| l.as_ref()).collect());
@@ -337,6 +345,8 @@ pub struct Query<'a> {
     /// A line the tool draws itself (origin, unit direction; world): inferred on as the axes
     /// as drawn, its origin as an endpoint.
     pub tool_line: Option<(DVec3, DVec3)>,
+    /// The corners of the box of what the tool takes (world), offered as [`InferKind::BoxCorner`].
+    pub box_corners: &'a [DVec3],
 }
 
 /// The point inferred at `px`; `None` only when nothing is under the cursor and the ray
