@@ -25,7 +25,7 @@ drawing
 └─ presentations : { name, projection, props }
    └─ sheets     : { name, paper, grid, border, props }
       └─ elements: { hidden, locked, kind }
-         kind = View | Text | Line | Rect | Image | Dimension
+         kind = View | Text | Line | Rect | Circle | Image | Dimension
               | Instance { composition, place, props }
 ```
 
@@ -376,13 +376,14 @@ level open holds, but what is hidden or locked.
 
 Drawn with the ribbon's « Dessiner » group, on top of the sheet (`SheetTool`): **Texte**
 (`drawing.tool_text`: a click puts « Texte » there, picked, written in the entity info; the tool
-then back to Select), **Rectangle** and **Trait** (`drawing.tool_rect`, `drawing.tool_line`: two
-clicks — its corners, its ends — or a drag, as the 3D view's shapes; previewed from the first
+then back to Select), **Rectangle**, **Cercle** and **Trait** (`drawing.tool_rect`,
+`drawing.tool_circle`, `drawing.tool_line`: two clicks — its corners, its centre then a point of
+it, its ends — or a drag, as the 3D view's shapes; previewed from the first
 point; a second point under 0.5 mm from it waits for another; Esc drops it; the tool goes on). Every element is picked by a
 click (its box: a text's laid out words, a line's ends 3 points around), moved by a drag
 (`SetElement` once let go), deleted by « Effacer »; a hidden one is not drawn, a locked one not
-picked. Texts are drawn at their size in paper millimetres, lines and rectangles
-0.25 mm wide; images as their frame for now.
+picked. Texts are drawn at their size in paper millimetres, lines, rectangles and circles
+0.25 mm wide (a circle is a true curve in the PDF); images as their frame for now.
 
 ## Handles
 
@@ -396,9 +397,10 @@ reshapes the element, previewed, changed once let go (one `SetElement`); Esc dro
   rectangle, turned over past the opposite side; Shift on a corner keeps its proportions, the
   opposite corner fixed.
 - **Line**: its two ends.
+- **Circle**: its 4 points right, top, left and bottom give its radius, its centre kept.
 - **Base view**: its frame's corners give its scale — as far out from its centre as the
   pointer, the nearest standard scale —, its centre kept (a projected view takes its base's).
-- **Text**: its box's top right gives its height (its baseline kept; 0.1 mm steps, 0.5 to
+- **Text**: its box's top right gives its height, its top on the sheet's grid if it has one (its baseline kept; 0.1 mm steps, 0.5 to
   200 mm).
 - **Dimension**: a linear one's line middle, a radius's or diameter's text point, an angle's arc
   middle (`DimShape::grip`): moved as its drag does.
@@ -407,11 +409,11 @@ Free points (polylines, polygons) will come with a tool of their own.
 
 ## Snapping
 
-Where the pointer aims while a rectangle, a line or a text is put, or a box's or a line's handle
-dragged (`Aim`, `aim_for`), as the 3D view's inferences:
+Where the pointer aims while a rectangle, a circle, a line or a text is put, or a box's, a
+circle's or a line's handle dragged (`Aim`, `aim_for`), as the 3D view's inferences:
 
-- **on a point** within 8 points: the rectangles' and images' corners, the lines' ends, the
-  views' frame corners and their parts' vertices (`ViewData::snaps`), those in instances where
+- **on a point** within 8 points: the rectangles' and images' corners, the circles' centres and
+  their right, top, left and bottom points, the lines' ends, the views' frame corners and their parts' vertices (`ViewData::snaps`), those in instances where
   they show them; the element dragged left out; circled in orange;
 - else **aligned**, each axis apart, with the nearest such point within 8 points across it (the
   views' vertices left out: so many would align everywhere), or with where the shape started
@@ -424,8 +426,13 @@ dragged (`Aim`, `aim_for`), as the 3D view's inferences:
 - **Shift** keeps a line horizontal or vertical from where it started (the nearer); on a box's
   corner it keeps its proportions ([Handles](#handles)).
 
-Moving elements and the dimension tools (their own snapping on the views' vertices and edges)
-do not snap this way.
+**Moving the selection** snaps the same way, with its box (`Moving`, `aim_box`, its targets taken
+once when the drag starts, what moves with it left out): one of its 4 corners or its centre on a
+point, its centre on the paper's; else, each axis apart, one of its sides or its middle aligned,
+its middle alone with the paper's centre; else its low side on the grid. A projected view or a linear dimension, which go along one axis, snap along that one only
+(not at all in a turned composition). Carried over another sheet, it follows the pointer.
+
+The dimension tools have their own snapping, on the views' vertices and edges.
 
 ## Measurements
 
@@ -436,10 +443,10 @@ are **lengths on the paper in the document's unit** (a bare number; an explicit 
 whatever a view's scale. It measures (`measure_of`, `typed_kind`):
 
 - **the shape being drawn**, after its first point: a rectangle's `width;height` from that
-  corner, towards the pointer; a line's length along where it goes, or its end at `<dx;dy>`
+  corner, towards the pointer; a circle's radius; a line's length along where it goes, or its end at `<dx;dy>`
   from its start, or at `[x;y]` on the sheet;
 - **the handle being dragged**: a box's corner `width;height`, a side its one length, from what
-  stays fixed; a line's end its length, its direction kept; a view's corner its scale (`1:20`,
+  stays fixed; a line's end its length, its direction kept; a circle's point its radius; a view's corner its scale (`1:20`,
   `2:1`, `1/4`, a ratio: any, not only the standard ones); a text's height; a dimension's
   distance (a linear one's offset, a radius's text, an angle's arc);
 - **else the shape last made or the handle last let go**, as SketchUp: typed right after the

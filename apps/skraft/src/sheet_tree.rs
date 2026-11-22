@@ -203,6 +203,7 @@ fn icon_of(el: &Element) -> ImageSource<'static> {
         ElementKind::Text { .. } => icons::SHEET_TEXT,
         ElementKind::Line { .. } => icons::SHEET_LINE,
         ElementKind::Rect { .. } => icons::SHEET_RECT,
+        ElementKind::Circle { .. } => icons::SHEET_CIRCLE,
         ElementKind::Image { .. } => icons::TEXTURE,
         ElementKind::Dimension(dim) => match dim.kind {
             DimKind::Linear { .. } => icons::DIM_LINEAR,
@@ -222,6 +223,7 @@ fn name_of(d: &Drawing, el: &Element) -> String {
         ElementKind::Text { text, .. } => text.lines().next().unwrap_or_default().to_owned(),
         ElementKind::Line { .. } => t!("panel.entity_info.type_line"),
         ElementKind::Rect { .. } => t!("panel.entity_info.type_rect"),
+        ElementKind::Circle { .. } => t!("panel.entity_info.type_circle"),
         ElementKind::Image { .. } => t!("panel.entity_info.type_image"),
         ElementKind::Dimension(dim) => match dim.kind {
             DimKind::Linear { orient: Orient::Horizontal, .. } => t!("drawing.dim.horizontal"),
