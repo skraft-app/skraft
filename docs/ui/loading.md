@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/kernel/src/engine.rs, crates/kernel/src/job.rs, crates/tools/src/editor/loading.rs, apps/skraft/src/app.rs, crates/tools/src/bench.rs]
+code: [crates/kernel/src/engine.rs, crates/kernel/src/job.rs, crates/tools/src/editor/loading.rs, apps/skraft/src/app.rs, crates/tools/src/bench.rs, web/index.html, scripts/build-web.sh]
 ---
 
 # Loading a model
@@ -56,6 +56,16 @@ interrupted: the job is answered cancelled, the worker replaced at the next poll
 jobs left. A cancelled import is undone (it is one history step); a cancelled opening closes its
 tab. Esc on an operation computing cancels its job too. A document closed stops its jobs
 (`KernelHandle`'s drop).
+
+## Loading the web app
+
+`web/index.html` shows the logo, the app's name and a progress bar until both wasm have arrived
+and the UI's runs. The name is drawn as outlines of IBM Plex Sans, and nothing else is written:
+the font and the catalogs are in the wasm it waits for. The bar counts decompressed bytes against
+the sizes `scripts/build-web.sh` writes into the page, since a compressed response's
+`Content-Length` does not give them. The page fetches the kernel's wasm from the start, and the
+worker, which only spawns once the UI runs, finds it in the HTTP cache. Without WebGPU the kernel
+is not fetched: the app only says what is missing.
 
 ## Measured
 
