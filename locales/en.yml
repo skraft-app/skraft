@@ -635,6 +635,7 @@ parts_list:
     width: "Width"
     thickness: "Thickness"
     quantity: "Qty"
+    with_unit: "%{name} (%{unit})"
   empty: "No part in the model"
 
 search:

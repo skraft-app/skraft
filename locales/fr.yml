@@ -704,6 +704,7 @@ parts_list:
     width: "Largeur"
     thickness: "Épaisseur"
     quantity: "Qté"
+    with_unit: "%{name} (%{unit})"
   empty: "Aucune pièce dans le modèle"
 
 search:

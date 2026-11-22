@@ -18,7 +18,9 @@ placed, in which material, of which size, how many.
 - **Columns**: name (the part's), material (« Aucune » when none), length, width, thickness —
   the box of the part's final B-rep in its axes, largest first, as OpenCutList's (the scene's
   exact bounds, else the shape's vertices; « — » while the kernel computes it) —, quantity (its
-  occurrences in that material). Lengths in the document's units, without their symbol.
+  occurrences in that material). Lengths in the document's units; their
+  symbol, when the document shows it, is in the column's header (« Longueur (mm) »), not in each
+  cell. The columns are as wide as a number at the document's decimals.
 - **Sorted** by a column's header: a click sorts by it (names and materials ascending, numbers
   descending), a second click the other way; the chevron beside the header says which. Equal
   rows by name, case ignored; no material last. By name at first.
