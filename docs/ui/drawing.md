@@ -511,7 +511,8 @@ view shows what it measures. Its kinds (`DimKind`):
 - **Linear** between two vertices: along the sheet's x (horizontal), y (vertical) or between
   them (aligned — their distance on the view's plane), its line `offset` millimetres of paper
   off them; extension lines 1 mm off the points and 1.5 mm past the line, filled arrows
-  (2.5 × 1.2 mm), the value above the line (the document's units, without their symbol).
+  (2.5 × 1.2 mm), the value above the line (the document's units, with their symbol when the
+  document shows it).
 - **Radius** or **diameter** of a circular edge seen face on: a line from the centre (across
   for a diameter) to the text at `at` from the centre, its arrow on the circle; « R 20 »,
   « Ø 40 ».

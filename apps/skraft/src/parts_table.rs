@@ -11,7 +11,7 @@ use egui_extras::{Column as TableColumn, TableBuilder};
 use glam::DVec3;
 use skraft_i18n::t;
 use skraft_model::kernel::Solid;
-use skraft_model::{Document, EntityPath, FastMap, Id};
+use skraft_model::{Document, EntityPath, FastMap, Id, Units};
 use skraft_tools::Editor;
 
 use crate::panels::Action;
@@ -83,6 +83,16 @@ impl Column {
             Column::Width => t!("parts_list.column.width"),
             Column::Thickness => t!("parts_list.column.thickness"),
             Column::Quantity => t!("parts_list.column.quantity"),
+        }
+    }
+
+    /// Its header: a length's says the unit when the document shows it.
+    fn header(self, units: &Units) -> String {
+        match self {
+            Column::Length | Column::Width | Column::Thickness if units.symbol => {
+                t!("parts_list.column.with_unit", name = self.label(), unit = units.length.symbol())
+            }
+            _ => self.label(),
         }
     }
 
@@ -183,7 +193,13 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, action
         return;
     }
     let length = |mm: f64| units.number(mm);
-    let numbers = ui.painter().layout_no_wrap("00000,0".into(), egui::TextStyle::Body.resolve(ui.style()), egui::Color32::WHITE).size().x;
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let width = |text: String| ui.painter().layout_no_wrap(text, font.clone(), egui::Color32::WHITE).size().x;
+    // The widest number at these decimals, rounded; not measured on the rows, at every frame.
+    let numbers = width(format!("{}00000,{}", skraft_model::APPROX, "0".repeat(units.decimals.max(1) as usize)));
+    // A header's room: its text and the sort's chevron.
+    let dim_width = |c: Column| numbers.max(width(c.header(&units)) + 16.0).max(64.0) + 12.0;
+    let dim_widths = [Column::Length, Column::Width, Column::Thickness].map(dim_width);
     let mut table = TableBuilder::new(ui)
         .striped(true)
         .resizable(false)
@@ -191,8 +207,8 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, action
         .cell_layout(Layout::left_to_right(Align::Center))
         .column(TableColumn::remainder().at_least(120.0).clip(true))
         .column(TableColumn::initial(130.0).at_least(80.0).clip(true));
-    for _ in 0..3 {
-        table = table.column(TableColumn::exact(numbers.max(64.0) + 12.0));
+    for w in dim_widths {
+        table = table.column(TableColumn::exact(w));
     }
     table = table.column(TableColumn::exact(56.0));
     table
@@ -203,8 +219,9 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, action
                     ui.with_layout(layout, |ui| {
                         let shown = sort.column == c;
                         let ink = if shown { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
-                        let label =
-                            egui::Label::new(egui::RichText::new(c.label()).color(ink).strong()).sense(Sense::click()).selectable(false);
+                        let label = egui::Label::new(egui::RichText::new(c.header(&units)).color(ink).strong())
+                            .sense(Sense::click())
+                            .selectable(false);
                         let response = ui.add(label);
                         crate::handles::publish(|| format!("parts_list_header:{c:?}").to_lowercase(), response.rect);
                         if shown {
@@ -295,6 +312,15 @@ mod tests {
         assert_eq!(rows[1].quantity(), 1);
         assert_eq!(rows[1].dims, Some([700.0, 50.0, 50.0]));
         let _ = part_row(&rows, &shelf.name);
+    }
+
+    #[test]
+    fn a_length_header_says_the_unit_when_the_document_shows_it() {
+        let mut units = Units { length: skraft_model::LengthUnit::Inch, ..Default::default() };
+        assert_eq!(Column::Length.header(&units), Column::Length.label());
+        units.symbol = true;
+        assert!(Column::Length.header(&units).ends_with("(in)"));
+        assert_eq!(Column::Quantity.header(&units), Column::Quantity.label());
     }
 
     #[test]

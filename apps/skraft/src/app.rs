@@ -1792,7 +1792,7 @@ impl SkraftApp {
             ui.checkbox(&mut s.units.symbol, "").tip(t!("prefs.model.unit_symbol_tip"));
             ui.end_row();
             ui.label(t!("prefs.model.example"));
-            ui.weak(s.units.format(1234.5678));
+            ui.weak(s.units.format(1234.567891));
             ui.end_row();
         });
         if s != current {
