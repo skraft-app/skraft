@@ -220,7 +220,8 @@ Decision record: [Dashes laid on the segment](../decisions/0032-dashes-laid-on-t
   a pixel there times the tangent of the angle between the face's normal and the ray, capped
   at 50 where it is seen edge on —, and by 8 depth steps in their pipelines (`FACE_STEPS`: the
   `f32` rounding between a face and what lies on it). Measured on screen, the same at every
-  zoom, in perspective as in parallel.
+  zoom, in perspective as in parallel. In perspective the push is a share of the vertex's
+  position, so a corner behind the eye stays behind it and the near plane cuts its triangles.
   - An edge on a face draws (nearly) whole over it at any angle; what lies behind a face shows
     where it is nearer than about (7/8 + 1) half widths of the face's slope — the face recedes
     across the edge's quad too. A concealed hinge 5 mm behind a door's face is hidden at 12.7 m

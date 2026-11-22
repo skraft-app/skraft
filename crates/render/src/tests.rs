@@ -1674,6 +1674,66 @@ fn embedded_edges_stay_hidden_far_away() {
     }
 }
 
+/// A face with a corner behind the eye is cut by the near plane: pushing that corner back must
+/// not send it through the eye, where its triangles would sweep over the picture. Two blocks
+/// side by side, the second mirrored, seen from close enough that one of its corners is behind
+/// the eye: the first block's front face keeps one colour (docs/render/display.md#depth-of-lines).
+#[test]
+fn a_corner_behind_the_eye_stays_out_of_the_picture() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (l, w, h) = (738.001753150399, 395.68428108316493, 149.1658947679753);
+    let block = Solid::new_box(DVec3::ZERO, DVec3::new(l, w, h)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &block, face_paint: &[] }]);
+    let mirrored = DMat4::from_translation(DVec3::new(2.0 * l, 0.0, 0.0)) * DMat4::from_scale(DVec3::new(-1.0, 1.0, 1.0));
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY), Placement::new(mirrored)])];
+    let size = [2181, 1167];
+    let eye = DVec3::new(746.4971859874138, -156.02041675682068, 224.26223019391347);
+    let target = DVec3::new(674.9447150951199, 22.121949901864326, 79.0713674612081);
+    let view = glam::dcamera::rh::view::look_at_mat4(eye, target, DVec3::Z);
+    let near = (eye - target).length() * 1e-3;
+    let proj =
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(35f32.to_radians(), size[0] as f32 / size[1] as f32, near as f32);
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &[],
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+        model_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "corner_behind_the_eye");
+    let to_px = |p: DVec3| {
+        let c = proj.as_dmat4() * view * p.extend(1.0);
+        let n = c.truncate() / c.w;
+        (((n.x + 1.0) * 0.5 * size[0] as f64).round() as u32, ((1.0 - n.y) * 0.5 * size[1] as f64).round() as u32)
+    };
+    // Down the first block's front face (y = 0), just under its top edge to its bottom.
+    let (x, y) = to_px(DVec3::new(0.8 * l, 0.0, 0.5 * h));
+    let reference = pixel(&px, size[0], x, y);
+    for k in 1..20 {
+        let (x, y) = to_px(DVec3::new(0.8 * l, 0.0, h * (0.5 + 0.49 * k as f64 / 20.0)));
+        let c = pixel(&px, size[0], x, y);
+        let off = (0..3).map(|i| c[i].abs_diff(reference[i])).max().unwrap();
+        assert!(off <= 12, "front face at ({x}, {y}): {c:?}, not its colour {reference:?}");
+    }
+}
+
 /// Every segment of a B-rep edge is a mesh edge, with its two triangles (else it would be drawn
 /// where its own solid hides it): boxes, cylinders, a drilled box.
 #[test]

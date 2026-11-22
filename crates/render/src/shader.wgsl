@@ -464,11 +464,13 @@ fn pushed_back(p: vec3<f32>, n: vec3<f32>) -> vec4<f32> {
     let ray = select(vec3<f32>(0.0, 0.0, -1.0), normalize(p), perspective);
     let c = abs(dot(normalize(n), ray));
     let steep = min(sqrt(max(1.0 - c * c, 0.0)) / max(c, 1.0 / STEEPEST), STEEPEST);
-    // The size of a pixel there (perspective: at its depth).
-    let pixel = select(1.0, -p.z, perspective) * 2.0 / (g.proj[1][1] * g.viewport.y);
+    // The size of a pixel at unit depth (perspective) or anywhere (parallel).
+    let pixel = 2.0 / (g.proj[1][1] * g.viewport.y);
     let push = FACE_PUSH * g.viewport.z * pixel * steep;
     if (perspective) {
-        return vec4<f32>(p * (1.0 + push / max(-p.z, 1e-6)), 1.0);
+        // A share of the depth, its pixel growing with it: a point behind the eye stays behind
+        // it, for the near plane to cut its triangles.
+        return vec4<f32>(p * (1.0 + push), 1.0);
     }
     return vec4<f32>(p.xy, p.z - push, 1.0);
 }
