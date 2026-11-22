@@ -1290,6 +1290,8 @@ tool:
 infer:
   endpoint: "Endpoint"
   midpoint: "Midpoint"
+  third: "Third"
+  tracked_middle: "Middle of tracked points"
   center: "Center"
   origin: "Origin"
   on_edge: "On edge"

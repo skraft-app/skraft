@@ -5,7 +5,7 @@ code: [crates/tools/src/infer/mod.rs, crates/tools/src/infer/points.rs, crates/t
 
 # Inferences
 
-The point a tool takes under the cursor, as SketchUp infers it: endpoints, midpoints, centres,
+The point a tool takes under the cursor, as SketchUp infers it: endpoints, midpoints, thirds, centres,
 lines along the axes or an edge, their crossings, points tracked, with markers, guide lines and
 a tooltip. One engine serves every tool. This page also holds the shape tools' drawing plane,
 which is built on it.
@@ -51,8 +51,9 @@ record and left out (the mesher does not fill `seams`).
 10 px, then the nearest to the eye:
 
 1. endpoint (`Endpoint`);
-2. midpoint / centre / origin (`Midpoint`, `Center`, `Origin`);
-3. constructed point: a line × an edge (`OnEdgeAndLine`), two lines of different origins
+2. midpoint / middle of the tracked points / centre / origin (`Midpoint`, `TrackedMiddle`,
+   `Center`, `Origin`);
+3. third of an edge (`Third`) or constructed point: a line × an edge (`OnEdgeAndLine`), two lines of different origins
    (`OnTwoLines`), a line × a guide circle, a guide circle × an edge, two guide circles
    (`OnGuideAndLine`, `OnGuideAndEdge`, `OnTwoGuides`, [Tape measure and guides](tape-measure.md));
 4. on a line (`OnLine`: axes from `from` or from a tracked point, parallel / perpendicular to
@@ -62,8 +63,8 @@ record and left out (the mesher does not fill `seams`).
 6. on face (`OnFace`; projected exactly if the face is planar);
 7. fallback plane (`OnPlane`).
 
-A lock comes before everything: the point stays on its line. Points of ranks 1–2 can be
-tracked (`InferKind::is_point`); ranks 1–5 are features a tool takes as they are, even off its
+A lock comes before everything: the point stays on its line. Points of ranks 1–2 and thirds
+can be tracked (`InferKind::is_trackable`), but for the middle of the tracked points; ranks 1–5 are features a tool takes as they are, even off its
 working plane (`is_feature`).
 
 ## Occlusion
@@ -111,12 +112,27 @@ to depth, and the point kept on one line so it stays exactly on it.
 
 ## Point tracking
 
-A point of the geometry (endpoint, midpoint, centre, origin) hovered for `TRACK_AFTER` = 0.5 s
+A point of the geometry (endpoint, midpoint, third, centre, origin) hovered for `TRACK_AFTER` = 0.5 s
 becomes a **temporary reference**, with no click or key, as in SketchUp. The editor gets the
 time from the app (`Editor::tick`, called every frame; it asks for a repaint while a point is
 waiting). `MAX_TRACKED` = 2 are kept, the most recent; each stays marked on screen with a
 ring. Their axes are `LineKind::TrackedAxis(k)` lines ("From point, on red axis"), whose guides
 are dashed from the reference. Tracked points drop with the locks.
+
+With two tracked points, **their middle** is a point to infer (`TrackedMiddle`), marked by a
+small ring. It is offered even inside a solid (the centre of a box from two opposite corners)
+and is not tracked itself: it would replace one of the two points it stands on.
+
+## Thirds
+
+Straight edges and open arcs offer their points at one and two thirds of their length
+(`SnapCurve::thirds`, exact), marked by a yellow triangle. They are offered within
+`THIRD_APERTURE_PX` = 6 px, and only when the two thirds are at least `2 × APERTURE_PX` apart on
+screen.
+
+**Why:** thirds must not take the edge away: with the midpoint's rank and aperture they would
+hide nearby crossings and leave little of a short edge to click on (the tape's offset from an
+edge starts there).
 
 ## Locks
 
@@ -139,6 +155,14 @@ Guide lines (axis colour), drawn by the editor with the other lines
 ([Drawing helpers](../render/drawer.md)); markers coloured by kind and a tooltip ("Endpoint",
 "Midpoint", "On red axis"…: [Texts and languages](../ui/texts.md)) painted by egui over the
 viewport (`camera.project`, `paint_inference`): no renderer work.
+
+A marker's shape tells what the point is, and violet is kept for the temporary points:
+
+- of the geometry, filled: endpoint (green disc), midpoint (cyan disc), third (yellow triangle),
+  centre (pink disc with a small cross), origin (orange disc on a wider cross);
+- temporary, violet rings on a light edge: a tracked point (wide enough to surround the marker
+  of the point hovered there), the middle of two tracked points (a small ring; aimed at, a wide
+  ring around a dot, with a dashed line between the two points).
 
 ## Lines seen through the model
 

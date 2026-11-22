@@ -2767,7 +2767,7 @@ fn a_guide_from_a_level_edge_is_offset_level_in_the_void() {
     let area = crate::camera::ViewArea::full(e.viewport_size());
     e.camera.set_standard_view(StandardView::Iso, glam::DMat3::IDENTITY, Some((DVec3::splat(-500.0), DVec3::splat(500.0))), area);
     e.set_tool(ToolKind::Measure);
-    let on_edge = e.camera.project(DVec3::new(90.0, 0.0, 100.0), e.viewport_size()).unwrap() + DVec2::new(0.0, 1.0);
+    let on_edge = e.camera.project(DVec3::new(50.0, 0.0, 100.0), e.viewport_size()).unwrap() + DVec2::new(0.0, 1.0);
     e.input(ToolInput::Hover { px: on_edge });
     e.input(ToolInput::Click { px: on_edge, mods: Modifiers::default() });
     assert_eq!(e.vcb().map(|v| v.0), Some("Décalage".into()), "{}", e.status());

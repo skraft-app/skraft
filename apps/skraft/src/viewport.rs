@@ -1538,15 +1538,38 @@ fn paint_inference(
     use egui::{Color32, Stroke, vec2};
     let mut drawn = Vec::new();
     let mut mark = |at: egui::Pos2| drawn.push(egui::Rect::from_center_size(at, vec2(MARK_CLEAR, MARK_CLEAR)));
-    // Tracked points: a small ring each.
+    let to_screen = |p| editor.camera.project(p, editor.viewport_size()).map(|s| rect.min + vec2(s.x as f32, s.y as f32));
+    // Violet rings are the temporary points, each on a light edge.
+    let ring = |at: egui::Pos2, radius: f32| {
+        painter.circle_stroke(at, radius, Stroke::new(3.0, color(theme.tracked_halo)));
+        painter.circle_stroke(at, radius, Stroke::new(1.5, color(theme.tracked)));
+    };
+    let inference = editor.inference();
+    // The middle of the tracked points: a small ring; aimed at, the line it stands on.
+    if let [a, b] = editor.tracked() {
+        if matches!(inference, Some((_, InferKind::TrackedMiddle))) {
+            if let (Some(m), Some(a), Some(b)) = (to_screen((*a + *b) * 0.5), to_screen(*a), to_screen(*b)) {
+                // Stopped at the rings, the marker's and the two points'.
+                let stroke = Stroke::new(1.0, color(theme.tracked));
+                for end in [a, b] {
+                    if m.distance(end) > 14.0 {
+                        let u = (end - m).normalized();
+                        painter.extend(egui::Shape::dashed_line(&[m + u * 7.0, end - u * 7.0], stroke, 4.0, 3.0));
+                    }
+                }
+            }
+        } else if let Some(at) = to_screen((*a + *b) * 0.5) {
+            ring(at, 3.0);
+        }
+    }
+    // Tracked points: a ring wide enough to surround the marker of the point hovered there.
     for p in editor.tracked() {
-        if let Some(at) = editor.camera.project(*p, editor.viewport_size()) {
-            let at = rect.min + vec2(at.x as f32, at.y as f32);
-            painter.circle_stroke(at, 4.0, Stroke::new(1.5, color(theme.tracked)));
+        if let Some(at) = to_screen(*p) {
+            ring(at, 7.0);
             mark(at);
         }
     }
-    let Some((point, kind)) = editor.inference() else {
+    let Some((point, kind)) = inference else {
         // A tool's tooltip of its own (the pipette's material).
         if let Some(tip) = editor.inference_tip() {
             drawn.push(cursor_tip(painter, rect, cursor, footprint, tip, theme));
@@ -1559,6 +1582,10 @@ fn paint_inference(
         mark(at);
     }
     let outline = Stroke::new(1.0, color(theme.marker_outline));
+    let cross = |at: egui::Pos2, r: f32| {
+        painter.line_segment([at - vec2(r, 0.0), at + vec2(r, 0.0)], outline);
+        painter.line_segment([at - vec2(0.0, r), at + vec2(0.0, r)], outline);
+    };
     match kind {
         InferKind::Endpoint => {
             painter.circle(at, 5.0, color(theme.endpoint), outline);
@@ -1566,11 +1593,21 @@ fn paint_inference(
         InferKind::Midpoint => {
             painter.circle(at, 5.0, color(theme.midpoint), outline);
         }
+        InferKind::Third => {
+            let pts = vec![at + vec2(0.0, -6.0), at + vec2(5.5, 4.0), at + vec2(-5.5, 4.0)];
+            painter.add(egui::Shape::convex_polygon(pts, color(theme.third), outline));
+        }
+        InferKind::TrackedMiddle => {
+            ring(at, 7.0);
+            painter.circle(at, 2.5, color(theme.tracked), Stroke::new(1.0, color(theme.tracked_halo)));
+        }
         InferKind::Center => {
             painter.circle(at, 5.0, color(theme.center), outline);
+            cross(at, 3.0);
         }
         InferKind::Origin => {
-            painter.circle(at, 5.0, color(theme.origin), outline);
+            painter.circle(at, 4.0, color(theme.origin), outline);
+            cross(at, 8.0);
         }
         InferKind::OnTwoLines(_, second) => {
             // The first line's colour, ringed with the second's.
