@@ -19,6 +19,8 @@ serde_json.workspace = true
 zip.workspace = true
 blake3.workspace = true
 base64.workspace = true
+# The import's clock (src/import.rs), which also runs in the browser.
+web-time = "1.1"
 
 [dev-dependencies]
 skraft-kernel = { workspace = true, features = ["engine"] }
