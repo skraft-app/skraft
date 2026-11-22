@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/i18n", "crates/theme", "crates/kernel", "crates/model", "crates/render", "crates/tools", "crates/control", "apps/skraft", "apps/kernel-worker", "apps/import", "apps/skraft-mcp"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"

@@ -14,6 +14,9 @@ The format stays at version 1 until the app is published: it changes without a n
 older files are not read — no converter, no reference files. Versioning and backward
 compatibility start with the first release.
 
+The `0.0.x` test builds sent to testers don't count as that release: it is version 0.1.0, which
+locks the format (2026-11-22).
+
 ## Alternatives considered
 
 - Versioning every change with converters and reference files (the practice until then: files
