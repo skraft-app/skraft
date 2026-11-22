@@ -226,7 +226,7 @@ body, its profile with it — still editable; any other comes as a group of copi
 
 - **Union**: the tool part's root comes **as a positive sub-group** of the target, its
   structure kept, its negatives reaching that sub-group only; a through-hole meant to drill
-  the target too is had by flattening the group (« Éclater »). A target with machinings at
+  the target too is had by exploding the group (« Éclater »). A target with machinings at
   its top level first has its bodies put in **a positive group of their own**, at the
   identity (its result the part as it was: no kernel; named after the part when the user
   named it, else « Groupe#n »), so they keep off the tools: `A ∪ B`, not `(A ∪ B) − N_A`. A
@@ -291,7 +291,7 @@ Decision record: [Body definitions may be groups: a CSG tree without history](..
   cached** B-rep, computed from its children — never one of its own. A group holding a single
   positive child at the identity *is* that child (no boolean, as `Part::is_plain`).
 - **A negative's reach is its group**: it cuts the positives of its own group only.
-  Flattening a group (its children brought up one level, their placements composed) widens
+  Exploding a group (its children brought up one level, their placements composed) widens
   the reach of its negatives to the parent's. A negative group is a compound tool (a
   counterbore = two cylinders, a hinge drilling = cup ∪ screws); a negative inside a negative
   group spares material (`parent − (A − B)`).
@@ -324,8 +324,7 @@ Decision record: [Body definitions may be groups: a CSG tree without history](..
   (`stretched_def`, recursively), each one across a cutter given a definition of its own —
   inside a group, changes never go in place. **Why:** a definition shared with bodies outside
   it is not changed under them.
-- Not yet: freezing a group into a shape (« Convertir en forme libre », the group becoming a
-  free leaf); extracting a sub-group into a part of its own (« Extraire en pièce », the
+- Not yet: extracting a sub-group into a part of its own (« Extraire en pièce », the
   converse of the union).
 
 ### The interface
@@ -333,7 +332,7 @@ Decision record: [Body definitions may be groups: a CSG tree without history](..
 - « Grouper les corps » (`edit.group_bodies`, in Assembler › Composants), « Sortir du groupe »
   ([Moving bodies](#moving-bodies)); in an open part, « Créer un assemblage » (G) groups its
   bodies too. **« Éclater » (`edit.explode`) is one action whatever is selected**: it puts an
-  assembly's content in its context and, in an open part, flattens a group or a node.
+  assembly's content in its context and, in an open part, brings up the children of a group or a node.
 - **The outliner shows the bodies of every part under it**, a single one too (folded, open
   while the part is), drawn by their nature — an extrusion (`PRISM`), a revolution (`TURN`), a
   free B-rep (`SOLID`), a group (`GROUP`) — and named by their definition (« Body names »
@@ -463,6 +462,25 @@ sign of bodies, the mirror no node but a placement (decided 2026-11-20).
 - **The root is never a node**: new bodies go to the part's root and cut (or join) the node's
   result.
 
+## Flattening
+
+« Aplatir », in a navigator row's menu, keeps the final solid as a plain B-rep and drops the
+tree under it; « Éclater » does the converse, keeping the children and dropping the level.
+
+- **`Operation::FlattenBodies { target, bodies, scope }`**, on a group or a node: it becomes a
+  free shape of its result, with its name, sign and placement. Only the copies given: the
+  others of a shared group keep their tree (a definition of their own for those flattened).
+- **`Operation::FlattenPart { target, scope }`**, on a part with a tree: one positive free body,
+  unplaced, its shape as it is. The materials of single faces, by their index, still hold.
+- **Nothing computed**: the result is already there, the part's shape the same.
+- **Faces' names kept** (`BodyDef::kept_faces`, for the solid of fingerprint `kept_faces_of`):
+  a node above named its edges by the flattened group's children; the free shape answers with
+  the same names through `face_map`, so the round stays on its edges. Once its solid changes
+  (a stretch), the names no longer hold, as for any free shape.
+- **Refused when failed or empty** (`Refusal::FlattenFailed`), at any depth: the result would
+  freeze an error. **Not offered** on a plain body (a profile would only be lost) nor an
+  assembly (it would merge separate parts).
+
 ## Moving bodies
 
 A body (a leaf, a group, a node) goes from a level of its part to another — the order of the
@@ -539,7 +557,7 @@ A body definition takes a name given by the user, as a part's.
 - **`Operation::RenameBodyDef { part, def, name }`**, trimmed, empty to clear (« Renommer » in
   the history).
 - **Kept** wherever the definition goes: its shape changed (stretch, profile, a boolean's
-  result, welding), its copies (copied, arrayed, made unique, pasted), a group flattened (the
+  result, welding), its copies (copied, arrayed, made unique, pasted), a group exploded (the
   children's definitions are the same).
 - **Across a part's boundary**: a part the user named (`Component::named`) becoming a body —
   pasted into a part (`Document::parts_as_bodies`), the tool of a union or a difference

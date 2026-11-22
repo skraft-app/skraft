@@ -98,11 +98,12 @@ pub fn part_names(part: &Part) -> Option<FaceMap> {
     }
     let b = &part.bodies[0];
     let def = part.def_of(b);
-    match &def.group {
-        None => Some(skraft_kernel::names::leaf_map(def.solid.record(), def.profile.as_ref().map(|p| p.primitive()).as_ref(), b.id.0)),
-        Some(_) => {
-            def.face_map().map(|m| m.iter().map(|tags| tags.iter().map(|t| skraft_kernel::names::under(&[b.id.0], t)).collect()).collect())
+    match (def.face_map(), &def.group) {
+        (Some(m), _) => Some(m.iter().map(|tags| tags.iter().map(|t| skraft_kernel::names::under(&[b.id.0], t)).collect()).collect()),
+        (None, None) => {
+            Some(skraft_kernel::names::leaf_map(def.solid.record(), def.profile.as_ref().map(|p| p.primitive()).as_ref(), b.id.0))
         }
+        (None, Some(_)) => None,
     }
 }
 

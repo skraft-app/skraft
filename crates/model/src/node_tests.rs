@@ -535,3 +535,86 @@ fn a_node_s_operation_is_written_by_its_kind_and_read_back() {
     assert_eq!(a.def_of(a.body(node).unwrap()).op(), b.def_of(b.body(node).unwrap()).op());
     assert_eq!(b.def_of(b.body(node).unwrap()).nature(), Nature::Round);
 }
+
+#[test]
+fn a_group_flattened_under_a_node_keeps_its_edges() {
+    let mut h = History::new(Document::new());
+    let (target, part, board, drill) = drilled_board(&mut h);
+    let sharp = volume(h.document(), part);
+    let node = round_front(&mut h, &target, vec![board, drill], 3.0);
+    let inside = target.clone().in_group(vec![node]);
+    let g = h.apply(Operation::GroupBodies { target: inside.clone(), bodies: vec![board, drill], scope: Scope::All }).unwrap().bodies[0];
+    h.apply(Operation::FlattenBodies { target: inside, bodies: vec![g], scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    let leaf = p.def_of(p.def_of(p.body(node).unwrap()).children().iter().find(|b| b.id == g).unwrap());
+    assert!(!leaf.is_group() && leaf.face_map().is_some());
+    assert_eq!(p.refusal_of(node), None);
+    assert!(p.any_body(board).is_none(), "its children gone");
+    // The round computed again finds its edge on the free shape, saved and read back too.
+    let set =
+        Operation::SetBlend { target: target.clone(), body: node, blend: Blend::Round, size: 5.0, picks: Vec::new(), scope: Scope::All };
+    h.apply(set).unwrap();
+    assert!((volume(h.document(), part) - (sharp - round_off(5.0, 200.0))).abs() < 1e-2);
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), h.document().part(part).unwrap());
+    assert!(h.undo() && h.undo());
+    let p = h.document().part(part).unwrap();
+    assert!(p.any_body(board).is_some(), "undone, its children back");
+}
+
+#[test]
+fn a_node_flattened_is_its_result_and_only_the_copy_given() {
+    let mut h = History::new(Document::new());
+    let (target, part, board, drill) = drilled_board(&mut h);
+    let node = round_front(&mut h, &target, vec![board, drill], 3.0);
+    let shape = volume(h.document(), part);
+    let copy = Operation::DuplicateBodies {
+        target: target.clone(),
+        bodies: vec![node],
+        transform: DAffine3::from_translation(DVec3::Y * 100.0),
+        scope: Scope::All,
+    };
+    let other = h.apply(copy).unwrap().bodies[0];
+    let both = volume(h.document(), part);
+    assert!((both - 2.0 * shape).abs() < 1e-2, "{both}");
+    h.apply(Operation::FlattenBodies { target: target.clone(), bodies: vec![node], scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert_eq!(p.def_of(p.body(node).unwrap()).nature(), Nature::Solid);
+    assert_eq!(p.def_of(p.body(other).unwrap()).nature(), Nature::Round, "the other copy keeps its tree");
+    assert_ne!(p.body(node).unwrap().def, p.body(other).unwrap().def);
+    assert!((volume(h.document(), part) - both).abs() < 1e-6);
+}
+
+#[test]
+fn a_part_flattened_is_one_free_body_its_painted_faces_kept() {
+    let mut h = History::new(Document::new());
+    let (target, part, board, drill) = drilled_board(&mut h);
+    let sharp = volume(h.document(), part);
+    let material = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [150, 110, 60] }).unwrap().material.unwrap();
+    h.apply(Operation::PaintFaces { part, faces: vec![2], material: Some(material) }).unwrap();
+    let before = h.document().part(part).unwrap().shape().clone();
+    h.apply(Operation::FlattenPart { target: target.clone(), scope: Scope::All }).unwrap();
+    let p = h.document().part(part).unwrap();
+    assert!(!p.has_tree() && p.is_plain());
+    assert!(std::sync::Arc::ptr_eq(p.shape(), &before), "the shape as it was");
+    assert_eq!(p.faces.get(&2), Some(&material));
+    assert!(p.any_body(board).is_none() && p.any_body(drill).is_none());
+    assert!((volume(h.document(), part) - sharp).abs() < 1e-6);
+    // Nothing more to flatten.
+    let revision = h.document().part(part).unwrap().bodies[0].id;
+    h.apply(Operation::FlattenPart { target, scope: Scope::All }).unwrap();
+    assert_eq!(h.document().part(part).unwrap().bodies[0].id, revision);
+}
+
+#[test]
+fn an_empty_group_is_not_flattened() {
+    let mut h = History::new(Document::new());
+    let (target, part, board, drill) = drilled_board(&mut h);
+    let g = h.apply(Operation::GroupBodies { target: target.clone(), bodies: vec![board, drill], scope: Scope::All }).unwrap().bodies[0];
+    let inside = target.clone().in_group(vec![g]);
+    h.apply(Operation::DeleteBodies { target: inside, bodies: vec![board, drill], scope: Scope::All }).unwrap();
+    let before = h.document().part(part).unwrap().clone();
+    let refused = h.apply(Operation::FlattenBodies { target, bodies: vec![g], scope: Scope::All });
+    assert!(matches!(refused, Err(Error::Invalid(Refusal::FlattenFailed))), "{refused:?}");
+    assert_eq!(*h.document().part(part).unwrap(), before);
+}

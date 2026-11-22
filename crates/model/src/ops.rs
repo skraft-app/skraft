@@ -235,13 +235,28 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
-    /// Flattens groups among bodies of the part `target` places: each one's children brought
+    /// Explodes groups among bodies of the part `target` places: each one's children brought
     /// up into the part, their placements and signs composed with the group's — the reach of
     /// their negatives widened to the part. A negative group holding a negative is refused
     /// (it would add material).
     UngroupBodies {
         target: EntityPath,
         bodies: Vec<Id>,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Flattens groups among bodies of the part `target` places: each one becomes a free shape,
+    /// its result, without its children (docs/model/bodies.md#flattening). Only the copies
+    /// given: the others of a shared group keep their tree.
+    FlattenBodies {
+        target: EntityPath,
+        bodies: Vec<Id>,
+        #[serde(default)]
+        scope: Scope,
+    },
+    /// Flattens the part `target` places: one free shape, its result, in place of its bodies.
+    FlattenPart {
+        target: EntityPath,
         #[serde(default)]
         scope: Scope,
     },
@@ -619,6 +634,7 @@ impl Operation {
             Operation::MoveOccurrences { copy: true, .. } => t!("operation.copy_occurrences_into"),
             Operation::MoveOccurrences { .. } => t!("operation.move_occurrences_into"),
             Operation::UngroupBodies { .. } => t!("operation.ungroup"),
+            Operation::FlattenBodies { .. } | Operation::FlattenPart { .. } => t!("common.flatten"),
             Operation::SetSign { sign: Sign::Positive, .. } => t!("operation.set_sign_positive"),
             Operation::SetSign { sign: Sign::Negative, .. } => t!("operation.set_sign_negative"),
             Operation::SetSign { sign: Sign::Intersect, .. } => t!("operation.set_sign_intersect"),
@@ -678,7 +694,8 @@ impl Operation {
             | Operation::PasteBodies { target, scope, .. }
             | Operation::PasteParts { target, scope, .. }
             | Operation::GroupBodies { target, scope, .. }
-            | Operation::UngroupBodies { target, scope, .. } => Some((target, *scope)),
+            | Operation::UngroupBodies { target, scope, .. }
+            | Operation::FlattenBodies { target, scope, .. } => Some((target, *scope)),
             _ => None,
         }
     }
@@ -1607,6 +1624,31 @@ impl Document {
                 let (created, relocated) = self.ungroup_bodies(part, &bodies, solver)?;
                 Ok(Outcome { bodies: created, relocated, ..Outcome::default() })
             }
+            Operation::FlattenBodies { target, bodies, scope } => {
+                let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let flat = self.flatten_bodies(part, &bodies, solver)?;
+                Ok(Outcome { bodies: flat, ..Outcome::default() })
+            }
+            Operation::FlattenPart { target, scope } => {
+                let ids: Vec<Id> = self.resolve_part(target)?.1.bodies.iter().map(|b| b.id).collect();
+                let (part, _, _) = self.bodies_of(target, &ids, *scope)?;
+                let p = self.part(part)?;
+                if p.bodies.iter().any(|b| !p.is_sound(b)) || p.shape().is_empty() {
+                    return Err(Error::Invalid(Refusal::FlattenFailed));
+                }
+                if !p.has_tree() {
+                    return Ok(Outcome::default());
+                }
+                // The shape as it is: the materials of its faces, by their index, still hold.
+                let shape = p.shape().clone();
+                let (def, id) = (self.fresh_id(), self.fresh_id());
+                let p = self.part_mut(part)?;
+                p.defs = vec![BodyDef::new(def, shape)];
+                p.bodies = vec![Body::new(id, def, Sign::Positive, DAffine3::IDENTITY)];
+                p.shape = None;
+                p.failed.clear();
+                Ok(Outcome { bodies: vec![id], ..Outcome::default() })
+            }
             Operation::MakeBodiesUnique { target, bodies, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
                 let mut relocated = Vec::new();
@@ -2110,9 +2152,10 @@ impl Document {
         // How a child's faces are named, if they are.
         let names = |b: &Body| -> Result<Option<InputNames>> {
             let d = def(b)?;
-            Ok(match &d.group {
-                None => Some(InputNames::Recipe(d.profile.as_ref().map(|p| p.primitive()))),
-                Some(_) => d.face_map().map(|m| InputNames::Map(m.clone())),
+            Ok(match (d.face_map(), &d.group) {
+                (Some(m), _) => Some(InputNames::Map(m.clone())),
+                (None, None) => Some(InputNames::Recipe(d.profile.as_ref().map(|p| p.primitive()))),
+                (None, Some(_)) => None,
             })
         };
         if let [c] = children
@@ -2227,7 +2270,51 @@ impl Document {
         Ok(id)
     }
 
-    /// [`Operation::UngroupBodies`]: the groups among the bodies `ids` of `part` flattened in
+    /// [`Operation::FlattenBodies`]: the groups among the bodies `ids` of `part` made free
+    /// shapes of their results, their faces' names kept for the nodes above: the part's shape
+    /// is the same, nothing to compute. A definition some copy not given still uses is left to
+    /// it. Returns the bodies flattened.
+    fn flatten_bodies(&mut self, part: Id, ids: &[Id], solver: &mut dyn Solver) -> Result<Vec<Id>> {
+        let p = self.part(part)?.clone();
+        let groups: Vec<&Body> = p.bodies.iter().filter(|b| ids.contains(&b.id) && p.def_of(b).is_group()).collect();
+        if groups.iter().any(|b| !p.is_sound(b) || p.solid_of(b).is_empty()) {
+            return Err(Error::Invalid(Refusal::FlattenFailed));
+        }
+        let mut made: BTreeMap<Id, BodyDef> = BTreeMap::new();
+        for b in &groups {
+            if made.contains_key(&b.def) {
+                continue;
+            }
+            let def = p.def_of(b);
+            let group = def.group.clone().expect("a group");
+            let (solid, kept_faces, kept_faces_of) = match def.face_map() {
+                Some(map) => (def.solid.clone(), map.clone(), group.faces_of),
+                // No map yet (its solid came from elsewhere): computed, for the names.
+                None => {
+                    let (solid, group, _) = Self::computed_group(&p.defs, group, &[], solver)?;
+                    (solid, group.faces, group.faces_of)
+                }
+            };
+            let alone = p.all_bodies().filter(|x| x.def == b.def).all(|x| ids.contains(&x.id));
+            let id = if alone { b.def } else { self.fresh_id() };
+            made.insert(b.def, BodyDef { id, solid, group: None, profile: None, kept_faces, kept_faces_of, ..def.clone() });
+        }
+        let flat: Vec<Id> = groups.iter().map(|b| b.id).collect();
+        let q = self.part_mut(part)?;
+        for b in q.bodies.iter_mut().filter(|b| flat.contains(&b.id)) {
+            b.def = made[&b.def].id;
+        }
+        for def in made.into_values() {
+            match q.defs.iter_mut().find(|d| d.id == def.id) {
+                Some(d) => *d = def,
+                None => q.defs.push(def),
+            }
+        }
+        q.drop_unused_defs();
+        Ok(flat)
+    }
+
+    /// [`Operation::UngroupBodies`]: the groups among the bodies `ids` of `part` exploded in
     /// place — their children brought up, placements and signs composed (fresh ids when the
     /// group is shared); returns the bodies brought up.
     fn ungroup_bodies(&mut self, part: Id, ids: &[Id], solver: &mut dyn Solver) -> Result<(Vec<Id>, Relocated)> {
@@ -2655,8 +2742,9 @@ fn tree(defs: &[BodyDef], children: &[Body], leaves: &mut Vec<Arc<Solid>>) -> Re
         .map(|b| {
             let d = defs.iter().find(|d| d.id == b.def).ok_or(Error::NotFound(b.def))?;
             let node = match &d.group {
-                // Computed already, its faces named: as it is, not from its leaves.
-                Some(_) if d.face_map().is_some() => {
+                // Computed already, its faces named (a flattened group's too): as it is, not from
+                // its leaves.
+                _ if d.face_map().is_some() => {
                     leaves.push(d.solid.clone());
                     TreeNode::Mapped { solid: (leaves.len() - 1) as u32, faces: d.face_map().cloned().unwrap_or_default() }
                 }

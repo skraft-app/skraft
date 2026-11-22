@@ -28,6 +28,8 @@ common:
   paint: "Peindre"
   make_assembly: "Créer un assemblage"
   explode: "Éclater"
+  # Keeps only the final solid, without its tree of bodies (docs/model/bodies.md#flattening).
+  flatten: "Aplatir"
   make_unique: "Faire une pièce à part"
   preferences: "Préférences"
   command_palette: "Palette de commandes"
@@ -1669,6 +1671,7 @@ error:
     no_such_face: "pas de telle face"
     no_bodies: "aucun corps désigné"
     ungroup_negative: "un usinage composé qui épargne de la matière ne s'éclate pas"
+    flatten_failed: "une forme en échec ou vide ne s'aplatit pas : à corriger d'abord"
     # Grouping several intersections, or ungrouping an intersection group of several bodies: the shape would change.
     intersects_regrouped: "des intersections ne se groupent ni ne s'éclatent ensemble : chacune limite la pièce, la forme changerait"
     not_at_path: "seule une opération sur des exemplaires s'applique en profondeur"
