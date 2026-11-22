@@ -12,7 +12,7 @@ It is written entirely in Rust and runs natively on macOS, Windows and Linux.
 > Skraft is at an early stage. Expect rough edges, and files saved now may not open in later
 > versions.
 
-![The Parts list workspace: the parts of a fitted bookcase and desk with their materials and dimensions, beside the 3D model](docs/images/skraft-modeling.png)
+![The Modeling workspace: a fitted bookcase and desk in the 3D view, between the outliner and the materials and components panels](docs/images/skraft-modeling.png)
 
 ## Features
 
