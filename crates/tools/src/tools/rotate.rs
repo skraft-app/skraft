@@ -29,6 +29,8 @@ use crate::draw::{Drawer, Drawing, Pen};
 const SNAP_STEP: f64 = std::f64::consts::PI / 12.0;
 /// Radius of the protractor, in pixels.
 const PROTRACTOR_PX: f64 = 70.0;
+/// Width of the dotted line from a radius's end to the point off the plane, in points.
+const LINK_WIDTH: f32 = 1.0;
 
 #[derive(Default)]
 pub struct RotateTool {
@@ -67,6 +69,8 @@ enum State {
         reference: DVec3,
         /// How far from the centre the reference was clicked.
         reference_reach: f64,
+        /// The point inferred for the reference, which may lie off the plane.
+        reference_aim: Option<DVec3>,
         angle: f64,
         /// How far from the centre the cursor is.
         reach: f64,
@@ -114,7 +118,15 @@ impl RotateTool {
         (center, axis, at): (DVec3, DVec3, DVec3),
     ) -> Self {
         let r = at - center;
-        let state = State::Angle { center, axis, reference: r.normalize(), reference_reach: r.length(), angle: 0.0, reach: r.length() };
+        let state = State::Angle {
+            center,
+            axis,
+            reference: r.normalize(),
+            reference_reach: r.length(),
+            reference_aim: None,
+            angle: 0.0,
+            reach: r.length(),
+        };
         RotateTool { state, copy, moving, moving_paths, moving_guides, taken: true, ..Default::default() }
     }
 
@@ -220,12 +232,12 @@ impl RotateTool {
                 self.state = State::Reference { center, axis, dir };
                 self.snap = snap;
             }
-            (ToolInput::Hover { px }, State::Angle { center, axis, reference, reference_reach, .. }) => {
+            (ToolInput::Hover { px }, State::Angle { center, axis, reference, reference_reach, reference_aim, .. }) => {
                 // The graduations count from the reference.
                 let (dir, snap) = self.direction(cx, *px, center, axis, reference);
                 if let Some((d, reach)) = dir {
                     let angle = axis.dot(reference.cross(d)).atan2(reference.dot(d));
-                    self.state = State::Angle { center, axis, reference, reference_reach, angle, reach };
+                    self.state = State::Angle { center, axis, reference, reference_reach, reference_aim, angle, reach };
                 }
                 self.snap = snap;
             }
@@ -238,7 +250,15 @@ impl RotateTool {
                 self.state = match self.grips.turn() {
                     Some((_, _, at)) => {
                         let r = at - center;
-                        State::Angle { center, axis, reference: r.normalize(), reference_reach: r.length(), angle: 0.0, reach: r.length() }
+                        State::Angle {
+                            center,
+                            axis,
+                            reference: r.normalize(),
+                            reference_reach: r.length(),
+                            reference_aim: None,
+                            angle: 0.0,
+                            reach: r.length(),
+                        }
                     }
                     None => State::Reference { center, axis, dir: None },
                 };
@@ -249,7 +269,8 @@ impl RotateTool {
                 let Some((reference, reach)) = dir else {
                     return vec![Command::Say(t!("tool.rotate.say.too_close"))];
                 };
-                self.state = State::Angle { center, axis, reference, reference_reach: reach, angle: 0.0, reach };
+                let reference_aim = self.snap.as_ref().map(|i| i.point);
+                self.state = State::Angle { center, axis, reference, reference_reach: reach, reference_aim, angle: 0.0, reach };
             }
             (ToolInput::Click { .. }, State::Angle { center, axis, angle, .. }) => {
                 return self.finish(cx, center, axis, angle);
@@ -275,6 +296,12 @@ pub(super) fn axis_color(cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
 /// The protractor's radius at `center`, in the world.
 fn protractor_radius(cx: &Cx<'_>, center: DVec3) -> f64 {
     cx.camera.world_per_pixel(cx.size, center) * PROTRACTOR_PX
+}
+
+/// The line from a radius's end `foot` up to the point `aim` it is the projection of, when that
+/// point lies off the protractor's plane by more than `tolerance`.
+fn off_plane_link(foot: DVec3, aim: Option<DVec3>, tolerance: f64) -> Option<(DVec3, DVec3)> {
+    aim.filter(|a| a.distance(foot) > tolerance).map(|a| (foot, a))
 }
 
 /// The protractor at `center`, its graduations starting from `u`, in its plane; over everything.
@@ -318,6 +345,15 @@ impl Tool for RotateTool {
         let radius = |d: &mut Drawer<'_>, center: DVec3, to: DVec3, color: [f32; 4]| {
             d.pen(Pen::dimension(color)).line(center, to);
         };
+        // From a radius's end to the point off the plane it was projected from: fine dots, over
+        // everything, as that point is often behind what turns.
+        let link = |d: &mut Drawer<'_>, foot: DVec3, aim: Option<DVec3>, color: [f32; 4]| {
+            let tolerance = cx.camera.world_per_pixel(cx.size, foot);
+            if let Some((a, b)) = off_plane_link(foot, aim, tolerance) {
+                d.pen(Pen::new(color).width(LINK_WIDTH).dotted().over()).line(a, b);
+            }
+        };
+        let aim = self.snap.as_ref().map(|i| i.point);
         let mut drawing = Drawing::default();
         let d = &mut cx.drawer(&mut drawing);
         match self.state {
@@ -340,16 +376,19 @@ impl Tool for RotateTool {
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
                 if let Some((dir, reach)) = dir {
                     radius(d, center, center + dir * reach, color);
+                    link(d, center + dir * reach, aim, color);
                 }
                 Preview { drawing, inference: self.snap.clone(), ..Default::default() }
             }
-            State::Angle { center, axis, reference, reference_reach, angle, reach } => {
+            State::Angle { center, axis, reference, reference_reach, reference_aim, angle, reach } => {
                 protractor(d, cx, center, axis, reference, self.color(cx, axis));
                 let r = protractor_radius(cx, center) * 1.4;
                 let now = DQuat::from_axis_angle(axis, angle) * reference;
                 let color = self.snap.as_ref().map_or(INK, |i| guide_color(i.kind));
                 radius(d, center, center + reference * reference_reach, INK);
                 radius(d, center, center + now * reach, color);
+                link(d, center + reference * reference_reach, reference_aim, INK);
+                link(d, center + now * reach, aim, color);
                 // The angle, between the two radii, just past the protractor; not turned yet:
                 // only while the angle is typed.
                 let mid = DQuat::from_axis_angle(axis, angle / 2.0) * reference;
@@ -455,6 +494,15 @@ impl Tool for RotateTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_only_for_a_point_off_the_plane() {
+        let foot = DVec3::new(10.0, 0.0, 0.0);
+        let aim = foot + DVec3::Z * 5.0;
+        assert_eq!(off_plane_link(foot, Some(aim), 0.1), Some((foot, aim)));
+        assert_eq!(off_plane_link(foot, Some(foot + DVec3::Z * 0.05), 0.1), None);
+        assert_eq!(off_plane_link(foot, None, 0.1), None);
+    }
 
     #[test]
     fn rotation_keeps_the_centre() {

@@ -191,7 +191,9 @@ through what lies between — plain where they are seen, translucent dashes wher
 (`Pen::x_ray`: the scene layer with its hidden part shown, [Drawing helpers](../render/drawer.md));
 **the rotation's radii**, as every dimension's line, are dashed, translucent where hidden
 (`Pen::dimension`, [Dimensions](../render/drawer.md#dimensions)); the protractor stays over
-everything. Move writes its distance at the middle of its line,
+everything, as do the fine dotted lines joining a radius's end to the point inferred off the
+protractor's plane that it is the projection of (the reference's stays while the angle is
+chosen). Move writes its distance at the middle of its line,
 Rotate its angle on the bisector of its radii, just past the protractor (`PreviewLabel`, as
 Stretch). Move's line and the tape's are arrows, their head at the cursor (the destination,
 the point measured to, the guide's side): heads `ARROW_PX` long on screen, in the plane facing
