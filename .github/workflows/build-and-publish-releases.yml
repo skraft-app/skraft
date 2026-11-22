@@ -169,6 +169,12 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # This version's notices among its files: the « À propos » window's fallback.
+      - uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2
+        with:
+          tool: cargo-about@0.9.3
+      - name: Third-party notices
+        run: scripts/third-party-licenses.sh dist/THIRD-PARTY-LICENSES.txt
       - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
