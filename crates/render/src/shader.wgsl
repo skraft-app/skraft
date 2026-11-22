@@ -415,7 +415,10 @@ fn along_px(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) ->
     return select(0.0, screen_length(ca_in, cb_in), corner.x > 0.5) + (corner.x * 2.0 - 1.0) * half;
 }
 
-fn wide(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) -> vec4<f32> {
+// The shortest edge segment on screen, in half widths, whose quad follows its depth past its ends.
+const SHORTEST_TAPER: f32 = 4.0;
+
+fn wide(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32, follow: bool) -> vec4<f32> {
     if (ca_in.w < 1e-4 && cb_in.w < 1e-4) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0); // degenerate: nothing drawn
     }
@@ -433,8 +436,18 @@ fn wide(ca_in: vec4<f32>, cb_in: vec4<f32>, corner: vec2<f32>, half: f32) -> vec
     let along = (corner.x * 2.0 - 1.0) * half;
     let offset = (normal * corner.y * half + dir * along) / (size * 0.5);
     var p = select(ca, cb, corner.x > 0.5);
-    p = vec4<f32>(p.xy + offset * p.w, p.z, p.w);
-    return p;
+    if (!follow) {
+        return vec4<f32>(p.xy + offset * p.w, p.z, p.w);
+    }
+    // An edge: depth is linear on screen, so past its end the quad goes on along the edge's own
+    // depth, or it would be stretched over the whole segment and sink at its nearer end. Not for
+    // a segment about as short as it is wide: seen end on, its tip would rise through what hides
+    // it.
+    let za = ca.z / ca.w;
+    let zb = cb.z / cb.w;
+    let z = select(za, zb, corner.x > 0.5);
+    let past = select(0.0, (zb - za) / len * along, len > SHORTEST_TAPER * half);
+    return vec4<f32>(p.xy + offset * p.w, max(z + past, min(z, 0.0)) * p.w, p.w);
 }
 
 // A quad carries the depth of its centre line, but a pixel away from it a neighbouring face
@@ -552,7 +565,7 @@ fn band(vi: u32, inst: Instance, outline: bool, all: bool) -> EdgeOut {
     }
     let corner = vec2<f32>(f32(k & 1u), select(-1.0, 1.0, k >= 2u));
     var out: EdgeOut;
-    out.clip = wide(g.proj * pa, g.proj * pb, corner, g.viewport.z);
+    out.clip = wide(g.proj * pa, g.proj * pb, corner, g.viewport.z, true);
     out.tint = inst.tint;
     out.world = select(pa.xyz, pb.xyz, corner.x > 0.5);
     return out;
@@ -772,7 +785,7 @@ fn line_out(a: vec3<f32>, b: vec3<f32>, corner: vec3<f32>, color: vec4<f32>, pat
     var out: LineOut;
     let ca = g.proj * lifted(vec4<f32>(a, 1.0), corner.z);
     let cb = g.proj * lifted(vec4<f32>(b, 1.0), corner.z);
-    out.clip = wide(ca, cb, corner.xy, corner.z);
+    out.clip = wide(ca, cb, corner.xy, corner.z, false);
     out.color = color;
     out.pattern = pattern;
     out.reach = reach;

@@ -226,6 +226,10 @@ Decision record: [Dashes laid on the segment](../decisions/0032-dashes-laid-on-t
     where it is nearer than about (7/8 + 1) half widths of the face's slope — the face recedes
     across the edge's quad too. A concealed hinge 5 mm behind a door's face is hidden at 12.7 m
     seen 25° off the door's normal; farther, or more at a glance, it shows.
+  - An edge's quad runs half a width past each end **along the edge's own depth** (linear on
+    screen), else its depth would be stretched over the segment and its nearer end would sink
+    into the face beside it. Not for a segment under 4 half widths on screen: seen end on, its
+    tip would rise through what hides it.
   - An **edge whose two faces turn away** is not drawn: its closed solid hides it, however close
     behind its faces (drawn for a ghost, seen through) — a small part's far edges.
   - The **section caps** write their own depth, which the pipelines' steps do not reach: their

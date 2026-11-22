@@ -1734,6 +1734,60 @@ fn a_corner_behind_the_eye_stays_out_of_the_picture() {
     }
 }
 
+/// A line keeps its width up to its nearer end: two blocks side by side, the edge between them
+/// running towards the eye, the second block's front face rising beside it. Its quad runs past
+/// its ends along its own depth, else that end sinks into the face
+/// (docs/render/display.md#depth-of-lines).
+#[test]
+fn an_edge_keeps_its_width_to_its_nearer_end() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (l, w, h) = (738.0, 395.0, 149.0);
+    let block = Solid::new_box(DVec3::ZERO, DVec3::new(l, w, h)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &block, face_paint: &[] }]);
+    let second = DMat4::from_translation(DVec3::new(l, 0.0, 0.0));
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY), Placement::new(second)])];
+    let size = [4362, 2334];
+    let target = DVec3::new(675.0, 22.0, 79.0);
+    let eye = target + DVec3::new(71.5, -178.1, 145.2).normalize() * 340.0;
+    let view = glam::dcamera::rh::view::look_at_mat4(eye, target, DVec3::Z);
+    let aspect = size[0] as f32 / size[1] as f32;
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(35f32.to_radians(), aspect, 0.34);
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &[],
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 2.0,
+        model_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "edge_nearer_end");
+    for t in [0.03, 0.06, 0.1] {
+        let c = proj.as_dmat4() * view * DVec3::new(l, 0.0, h * (1.0 - t)).extend(1.0);
+        let n = c.truncate() / c.w;
+        let (x, y) = (((n.x + 1.0) * 0.5 * size[0] as f64).round() as i64, ((1.0 - n.y) * 0.5 * size[1] as f64).round() as u32);
+        let row: Vec<f64> = (-8..=8).map(|d| pixel(&px, size[0], (x + d) as u32, y)[1] as f64).collect();
+        let face = row[0].min(row[16]);
+        let ink = row.iter().map(|c| (face - c).max(0.0)).sum::<f64>() / (face - 40.0);
+        assert!(ink > 2.0, "{} % down the edge: {ink:.2} px of ink of its 3", t * 100.0);
+    }
+}
+
 /// Every segment of a B-rep edge is a mesh edge, with its two triangles (else it would be drawn
 /// where its own solid hides it): boxes, cylinders, a drilled box.
 #[test]
