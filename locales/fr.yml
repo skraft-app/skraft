@@ -909,6 +909,10 @@ panel:
 # The app's messages, in toasts at the bottom right (apps/skraft/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).
 toast:
+  drop_hint: "Déposer pour ouvrir ou importer"
+  drop_unknown: "Format non pris en charge : %{file}"
+  drop_supported: "Skraft ouvre les fichiers .skraft, .skraftmat et .skrafttpl, et importe les fichiers STEP et SKP."
+  import_busy: "Un autre fichier est en cours d'import. Réessayer une fois celui-ci terminé."
   saved: "%{file} enregistré"
   export_failed: "Impossible d'exporter les matières"
   materials_imported: "%{count} matière importée de %{file}"

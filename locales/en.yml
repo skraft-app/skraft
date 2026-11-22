@@ -822,6 +822,10 @@ panel:
     sign_intersect: "Intersection: the part keeps only what lies inside it. Click to make it a blank"
 
 toast:
+  drop_hint: "Drop to open or import"
+  drop_unknown: "Unsupported format: %{file}"
+  drop_supported: "Skraft opens .skraft, .skraftmat and .skrafttpl files, and imports STEP and SKP files."
+  import_busy: "Another file is being imported. Try again once it is done."
   saved: "%{file} saved"
   export_failed: "Could not export the materials"
   materials_imported: "%{count} material imported from %{file}"

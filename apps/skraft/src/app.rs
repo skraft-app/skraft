@@ -2807,6 +2807,14 @@ impl eframe::App for SkraftApp {
                 self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&path)), e));
             }
         }
+        // The files dropped on the window: read in the background, they come back below.
+        for file in ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files)) {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.user_acted();
+            if let Err(name) = file::drop_file(file, &self.inbox, &ctx) {
+                self.toasts.push(Note::error(t!("toast.drop_unknown", file = name), t!("toast.drop_supported")));
+            }
+        }
         // What the file dialogs ended with (they never block the event loop).
         for outcome in self.inbox.take() {
             match outcome {
@@ -2905,9 +2913,15 @@ impl eframe::App for SkraftApp {
                     if self.docs.active().is_none() {
                         self.new_document();
                     }
-                    if let Some(d) = self.docs.active_mut() {
+                    // Several dropped at once: the editor reads one at a time.
+                    if self.docs.active().is_some_and(|d| d.editor.is_importing()) {
+                        self.toasts.push(Note::error(t!("toast.open_failed", file = name), t!("toast.import_busy")));
+                    } else if let Some(d) = self.docs.active_mut() {
                         d.editor.import(name, bytes);
                     }
+                }
+                file::Outcome::ReadFailed { name, error } => {
+                    self.toasts.push(Note::error(t!("toast.open_failed", file = name), error));
                 }
             }
         }
@@ -2982,6 +2996,7 @@ impl eframe::App for SkraftApp {
         self.palette_window(&ctx, &views, &mut actions);
         self.save_prompt(&ctx);
         self.loading_window(&ctx);
+        drop_hint(&ctx);
         // A toast whose part is no more goes (undone, erased, its document closed).
         let docs = &self.docs;
         self.toasts.retain_live(|act| match act {
@@ -3031,6 +3046,21 @@ impl eframe::App for SkraftApp {
         // Last: every widget has said its cursor (docs/ui/cursors.md).
         crate::cursors::apply(&ctx);
     }
+}
+
+/// A veil over the window while files are dragged over it, saying what letting go does.
+fn drop_hint(ctx: &egui::Context) {
+    if ctx.input(|i| i.raw.hovered_files.is_empty()) {
+        return;
+    }
+    let rect = ctx.content_rect();
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("file_drop")));
+    painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(120));
+    // On a plate of its own: what is under the veil would cross it.
+    let text = painter.layout_no_wrap(t!("toast.drop_hint"), egui::FontId::proportional(20.0), egui::Color32::WHITE);
+    let plate = egui::Rect::from_center_size(rect.center(), text.size() + egui::vec2(48.0, 28.0));
+    painter.rect_filled(plate, 8.0, egui::Color32::from_black_alpha(220));
+    painter.galley(rect.center() - text.size() / 2.0, text, egui::Color32::WHITE);
 }
 
 impl SkraftApp {

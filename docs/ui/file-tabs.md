@@ -82,6 +82,12 @@ replaced. A file already open selects its tab. New (`+`, ⌘N, ⌘T) always adds
 import goes into the shown document ([STEP import](../io/step-import.md)); from the start page,
 into a new one. Recent files stay a global preference (desktop).
 
+Files dropped on the window, on the desktop and the web, take the same paths by their extension
+(`file::drop_file`): `.skraft`, `.skraftmat` and `.skrafttpl` are opened, STEP and SketchUp files
+imported; another format is refused by a toast naming what the app takes. A veil says what
+letting go does while they are over the window. The editor reads one import at a time: of several
+dropped together, the others are refused by a toast.
+
 ## Reopening
 
 Desktop: the saved documents open when the app quits are opened again at launch, the last
