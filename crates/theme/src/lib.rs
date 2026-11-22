@@ -102,7 +102,7 @@ pub struct UiTokens {
     pub text: Rgba,
     /// Secondary text (hints, disabled labels).
     pub text_dim: Rgba,
-    /// A hovered widget's fill.
+    /// A hovered widget's fill: a neutral of the palette, the accent being the selection's.
     pub hover: Rgba,
     /// The accent: selected text's outline, focused widgets.
     pub accent: Rgba,
@@ -156,7 +156,7 @@ impl UiTokens {
             border: srgb(196, 213, 237),
             text: srgb(23, 40, 65),
             text_dim: srgb(90, 107, 133),
-            hover: srgb(224, 235, 251),
+            hover: srgb(218, 225, 235),
             accent: srgb(27, 102, 197),
             accent_soft: srgb(206, 229, 255),
             radius_sm: 4,
@@ -207,7 +207,7 @@ impl UiTokens {
             border: srgb(221, 213, 200),
             text: srgb(47, 42, 36),
             text_dim: srgb(118, 108, 95),
-            hover: srgb(243, 232, 214),
+            hover: srgb(232, 228, 221),
             accent: srgb(184, 106, 30),
             accent_soft: srgb(246, 227, 203),
             title_bar: TitleBarTokens {
@@ -254,7 +254,7 @@ impl UiTokens {
             border: srgb(197, 203, 209),
             text: srgb(31, 36, 40),
             text_dim: srgb(98, 108, 118),
-            hover: srgb(220, 237, 236),
+            hover: srgb(219, 223, 227),
             accent: srgb(15, 138, 138),
             accent_soft: srgb(205, 235, 234),
             title_bar: TitleBarTokens {

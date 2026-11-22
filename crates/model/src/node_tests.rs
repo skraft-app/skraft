@@ -618,3 +618,48 @@ fn an_empty_group_is_not_flattened() {
     assert!(matches!(refused, Err(Error::Invalid(Refusal::FlattenFailed))), "{refused:?}");
     assert_eq!(*h.document().part(part).unwrap(), before);
 }
+
+#[test]
+fn the_body_under_a_stack_of_nodes_deleted_leaves_them_empty() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let primitive = Primitive::Cylinder { origin: DVec3::ZERO, radius: 20.0, height: 50.0 };
+    let add = Operation::AddPrimitive { context: root, primitive, placement: DAffine3::IDENTITY, material: None };
+    let occurrence = h.apply(add).unwrap().created[0];
+    let target = EntityPath::root(occurrence);
+    let (part, p, _) = h.document().resolve_part(&target).unwrap();
+    let mut top = p.bodies[0].id;
+    // Three chamfers stacked: the top circle, the bottom one, the circle the first one made.
+    let mut stack = Vec::new();
+    for at in [DVec3::new(0.0, 20.0, 50.0), DVec3::new(0.0, 20.0, 0.0), DVec3::new(0.0, 20.0, 48.0)] {
+        let op = Operation::Blend {
+            target: target.clone(),
+            bodies: vec![top],
+            blend: Blend::Chamfer,
+            size: 2.0,
+            picks: vec![at],
+            scope: Scope::All,
+        };
+        top = h.apply(op).unwrap().bodies[0];
+        stack.push(top);
+    }
+    // The first chamfer deleted, from inside the second one.
+    let inside = target.clone().in_group(vec![stack[2], stack[1]]);
+    h.apply(Operation::DeleteBodies { target: inside.clone(), bodies: vec![stack[0]], scope: Scope::All }).unwrap();
+
+    let p = h.document().part(part).unwrap();
+    assert!(p.shape().is_empty());
+    let (_, opened, _) = h.document().resolve_container(&inside).unwrap();
+    assert!(opened.bodies.is_empty() && opened.shape().is_empty(), "the emptied node reads as an empty part");
+    // Both nodes stay in the tree: the emptied one failed in its parent, the one above holding
+    // that failure, the part empty (its single body is its shape, not a failure of its own).
+    assert_eq!(p.pieces(), 0);
+    assert!(p.body(stack[2]).is_some());
+    let (_, outer, _) = h.document().resolve_container(&target.clone().in_group(vec![stack[2]])).unwrap();
+    assert!(outer.body(stack[1]).is_some() && outer.is_failed(stack[1]));
+    assert!(!p.is_sound(p.body(stack[2]).unwrap()));
+    let back = Document::from_json(&h.document().to_json().unwrap()).unwrap();
+    assert_eq!(back.part(part).unwrap(), h.document().part(part).unwrap());
+    assert!(h.undo());
+    assert!(h.document().part(part).unwrap().shape().volume().unwrap() > 0.0);
+}

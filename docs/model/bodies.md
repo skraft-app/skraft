@@ -167,7 +167,9 @@ Decision record: [A part may be empty](../decisions/0025-empty-parts.md).
 - A **group** without a positive child is accepted: its result is empty, so it fails in its
   parent (skipped, marked) as a group whose boolean fails — its outliner row, as any failed
   group's, with ⚠ before its name in the error colour (« Groupe vide : à corriger », « Groupe
-  en échec : à corriger »).
+  en échec : à corriger »). A **node** whose only child is deleted is such a group: it stays,
+  empty and in error, and so do the nodes above it. Deleting a node deletes its solid;
+  « Éclater » is what gives its children back.
 - The ⚠ goes up to the groups and the part holding a failed body, at any depth, their names as
   they are (« Un corps de ce groupe / cette pièce est en échec : à corriger »), and to the
   assemblies holding a part in error or holding one (« Une pièce de cet assemblage est en
