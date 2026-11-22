@@ -76,6 +76,7 @@ pub const COMMANDS: &[Command] = &[
     c("file.recent.3", || t!("menu.file.recent", n = 3), M::File, None),
     c("file.recent.4", || t!("menu.file.recent", n = 4), M::File, None),
     // In the app menu on macOS; not on the web (the page is closed instead).
+    g("app.about", || t!("menu.app.about", app = t!("start.title")), M::File, None),
     g("app.quit", || t!("menu.file.quit"), M::File, Some("Cmd+Q")),
     c("edit.undo", || t!("menu.edit.undo"), M::Edit, Some("Cmd+Z")),
     c("edit.redo", || t!("menu.edit.redo"), M::Edit, Some("Cmd+Shift+Z")),

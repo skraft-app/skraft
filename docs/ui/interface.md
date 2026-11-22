@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/app.rs, apps/skraft/src/dock.rs, apps/skraft/src/panels.rs, apps/skraft/src/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
+code: [apps/skraft/src/about.rs, apps/skraft/src/app.rs, apps/skraft/src/dock.rs, apps/skraft/src/panels.rs, apps/skraft/src/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
 ---
 
 # Application interface
@@ -227,6 +227,18 @@ be changed in the preferences. Delete (or Backspace) is not a command: the edito
 selection, unless the tool takes the key (`Tool::takes_delete`: the profile's corner under the
 cursor). Once a digit is typed (or `@ ( [ < + - * / ;`), keystrokes go to the VCB, confirmed by
 Enter. Menus and tooltips write shortcuts as the platform does ([Texts and languages](texts.md)).
+
+## About
+
+« À propos de Skraft » (`app.about`: the File menu, the palette, the app menu on macOS, in place of
+AppKit's panel) shows the version, the copyright, that it is free software without warranty, and
+the main projects it is built with (each a link, what it does here, its license), and links to
+the license, all the third-party licenses and the source of this version (its `v*` tag).
+**Why:** the GPL v3 (section 5d) asks an interactive program to show these notices. Links open in
+a new tab: on the web the page holds the unsaved work. The third-party notices are a file beside
+the app, not in its binary: `THIRD-PARTY-LICENSES.txt`, from the installer or served next to the
+web build (`scripts/third-party-licenses.sh`). A desktop build without it reads the copy among
+its GitHub release's files.
 
 ## Settings
 

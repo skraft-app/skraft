@@ -1,6 +1,7 @@
 //! Skraft, the application: egui panels around a viewport drawn by `skraft-render`,
 //! driven by the `skraft-tools` editor. Native and web (docs/ui/interface.md).
 
+mod about;
 mod app;
 mod clipboard;
 mod commands;

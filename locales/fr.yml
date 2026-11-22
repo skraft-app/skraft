@@ -317,6 +317,24 @@ save_prompt:
 
 # Shown with no document open: at launch with nothing to open again, and when the last tab
 # closes.
+about:
+  tagline: "Un modeleur 3D simple et intuitif sur de vrais solides"
+  version: "Version %{version}"
+  copyright: "© 2026 Boris Beaulant"
+  notice: "Skraft est un logiciel libre : vous pouvez le redistribuer et le modifier selon les termes de la licence publique générale GNU, version 3. Il est fourni sans aucune garantie."
+  license: "Licence (GPL v3)"
+  third_party: "Toutes les licences tierces"
+  built_with: "Construit avec"
+  inspired: "Inspiré d'OpenCutList pour les pièces et les outils"
+  role:
+    kernel: "noyau B-rep"
+    sketchup: "lecture SketchUp"
+    adapted: "code adapté"
+    interface: "interface"
+    display: "affichage"
+    font: "police"
+    symbols: "symboles"
+  source: "Code source"
 start:
   title: "Skraft"
   new: "Nouveau document"

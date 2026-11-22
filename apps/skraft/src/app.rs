@@ -62,6 +62,7 @@ pub struct SkraftApp {
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
     prefs_window: Option<PrefsTab>,
+    about_open: bool,
     /// The journal window, while open (`app.journal`).
     journal_window: Option<crate::journal_window::JournalWindow>,
     /// The side panel being dragged to another place.
@@ -332,6 +333,7 @@ impl SkraftApp {
             stored_prefs: prefs.clone(),
             prefs,
             prefs_window: None,
+            about_open: false,
             journal_window: None,
             capturing: None,
             palette: None,
@@ -830,7 +832,13 @@ impl SkraftApp {
         // Without a document (the start page): only what opens one, and the app's own.
         let Some(d) = self.docs.active() else {
             return match id {
-                "file.new" | "file.open" | "file.import" | "app.command_palette" | "app.preferences" | "view.render_stats" => true,
+                "file.new"
+                | "file.open"
+                | "file.import"
+                | "app.command_palette"
+                | "app.preferences"
+                | "app.about"
+                | "view.render_stats" => true,
                 "app.journal" => true,
                 "view.next_tab" | "view.previous_tab" => self.docs.len() > 0,
                 "app.quit" | "app.remote_control" => !cfg!(target_arch = "wasm32"),
@@ -1027,6 +1035,10 @@ impl SkraftApp {
                     Some(_) => None,
                     None => Some(Default::default()),
                 };
+                true
+            }
+            "app.about" => {
+                self.about_open = true;
                 true
             }
             "app.preferences" => {
@@ -2991,6 +3003,7 @@ impl eframe::App for SkraftApp {
             egui::CentralPanel::default().show(ui, |ui| self.start_page(ui, &mut actions));
         }
         self.preferences_window(&ctx);
+        crate::about::show(&ctx, &mut self.about_open);
         let journal = self.docs.active().map(|d| (d.name(), d.editor.journal()));
         crate::journal_window::show(&ctx, &mut self.journal_window, journal);
         self.palette_window(&ctx, &views, &mut actions);
@@ -3518,7 +3531,7 @@ fn reveal(path: &str) {
 
 /// Opens the file at `path` with the system's application for its kind.
 #[cfg(not(target_arch = "wasm32"))]
-fn open_file(path: &str) {
+pub(crate) fn open_file(path: &str) {
     let result = if cfg!(target_os = "macos") {
         std::process::Command::new("open").arg(path).spawn()
     } else if cfg!(windows) {
