@@ -118,7 +118,7 @@ pub fn shape(doc: &Document, r: &Resolved<'_>, centre: DVec2, dim: &Dimension) -
             s.text_at = (fa + fb) / 2.0 + normal * (TEXT_MM * 0.8);
             s.text_angle = angle;
             s.value = Some(value);
-            s.text = units.number(value);
+            s.text = units.format(value);
         }
         DimKind::Radius { edge, diameter, at } => {
             let circle = find(edge).and_then(|found| match found {
@@ -149,7 +149,7 @@ pub fn shape(doc: &Document, r: &Resolved<'_>, centre: DVec2, dim: &Dimension) -
             let value = if *diameter { 2.0 * radius } else { radius };
             s.value = circle.map(|_| value);
             let mark = if *diameter { "Ø" } else { "R" };
-            s.text = format!("{mark} {}", units.number(value));
+            s.text = format!("{mark} {}", units.format(value));
             s.text_at = text_at + dir.perp() * (TEXT_MM * 0.8);
             s.text_angle = readable(dir.y.atan2(dir.x));
         }
