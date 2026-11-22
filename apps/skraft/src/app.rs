@@ -2924,7 +2924,15 @@ impl eframe::App for SkraftApp {
             Some(d) => format!("{app} — {}{}", d.name(), if d.modified() { " •" } else { "" }),
             None => app,
         };
+        #[cfg(not(target_arch = "wasm32"))]
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        // eframe's web backend ignores that command, with a console warning at each frame.
+        #[cfg(target_arch = "wasm32")]
+        if let Some(page) = web_sys::window().and_then(|w| w.document()) {
+            if page.title() != title {
+                page.set_title(&title);
+            }
+        }
 
         let views = self.command_views();
         let mut actions = Vec::new();
