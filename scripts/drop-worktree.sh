@@ -56,10 +56,40 @@ if [ -n "$branch" ] && ! $unmerged && ! git -C "$main" merge-base --is-ancestor 
   echo "(--unmerged to drop it all the same)" >&2
   exit 1
 fi
-# …and nothing running from it.
-if pgrep -f "$dest/" >/dev/null; then
+# …and nothing running from it: named on its command line, or its executable or current folder
+# in it (a relative launch, `./target/debug/skraft`, names neither). Neither this script and
+# what launched it, nor an idle shell left in the folder.
+running() {
+  local real p pid skip=" "
+  real="$(cd -P "$dest" && pwd -P)"
+  p=$$
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    skip="$skip$p "
+    p="$(ps -o ppid= -p "$p" | tr -d ' ' || true)"
+  done
+  for pid in $({
+    pgrep -f "$dest/" || true
+    if command -v lsof >/dev/null; then
+      lsof -w -n -P -d cwd,txt -Fpcn 2>/dev/null | awk -v d="$real" '
+        /^p/ { pid = substr($0, 2) }
+        /^c/ { cmd = substr($0, 2); sub(/^-/, "", cmd) }
+        /^n/ {
+          path = substr($0, 2)
+          if ((path == d || index(path, d "/") == 1) && cmd !~ /^(sh|bash|zsh|fish|dash)$/) print pid
+        }' || true
+    fi
+  } | sort -un); do
+    case "$skip" in *" $pid "*) continue ;; esac
+    # Still there: not one of the subshells of this very search.
+    if kill -0 "$pid" 2>/dev/null; then echo "$pid"; fi
+  done
+}
+pids="$(running)"
+if [ -n "$pids" ]; then
   echo "processes run from $dest (stop them first):" >&2
-  pgrep -fl "$dest/" | cut -c1-160 >&2
+  for pid in $pids; do
+    ps -o pid=,command= -p "$pid" | cut -c1-160 >&2 || true
+  done
   exit 1
 fi
 
