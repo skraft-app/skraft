@@ -176,6 +176,10 @@ fn group(k: &mut Kernel, children: &[TreeBody], path: &[u64], cx: &mut Session) 
                 }
             }
         }) else {
+            // An empty child of this node fails in it, as in a recipe (docs/model/bodies.md#empty-parts).
+            if path.is_empty() && !matches!(c.node, TreeNode::Base { .. }) {
+                cx.empty.push(here);
+            }
             continue;
         };
         if !c.placement.abs_diff_eq(DAffine3::IDENTITY, 1e-12) && !matches!(c.node, TreeNode::Base { .. }) {
@@ -265,6 +269,8 @@ struct Session<'a> {
     at: Option<Vec<u64>>,
     /// The nodes inside, computed from their leaves, that were refused: by path, and why.
     inner: Vec<(Vec<u64>, NodeRefusal)>,
+    /// The node's own children left out for being empty, by path.
+    empty: Vec<Vec<u64>>,
 }
 
 /// `op` applied to `shape`, the result of the node at `path` (its names relative to it); with
@@ -483,7 +489,7 @@ pub(crate) struct NodeResult {
 pub(crate) fn node(inputs: &[&Solid], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeResult> {
     let mut skip: Vec<Vec<u64>> = Vec::new();
     loop {
-        let mut cx = Session { inputs, skip: skip.clone(), at: None, inner: Vec::new() };
+        let mut cx = Session { inputs, skip: skip.clone(), at: None, inner: Vec::new(), empty: Vec::new() };
         let r = guarded("node", || {
             let mut k = kernel();
             let Some(shape) = group(&mut k, children, &[], &mut cx)? else {
@@ -509,6 +515,7 @@ pub(crate) fn node(inputs: &[&Solid], children: &[TreeBody], op: &NodeOp, picks:
         match r {
             Ok(mut r) => {
                 r.failed = skip;
+                r.failed.append(&mut cx.empty);
                 return Ok(r);
             }
             Err(Error::Cancelled) => return Err(Error::Cancelled),
