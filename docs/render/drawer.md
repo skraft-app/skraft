@@ -64,7 +64,8 @@ lengths' helpers written on it). A primitive may draw both its outline and its f
   translucent).
 - **`Brush`** (fills): `color` (its alpha the opacity), `layer`, `cull_back` (`front_only`: a
   translucent box's back and front not adding up).
-- **Layers**: `Scene` (depth-tested, the default), `Over` (Kuix's `on_top`), and `Scene` with
+- **Layers**: `Scene` (depth-tested, the default), `Over` (Kuix's `on_top`), `Axis` (the model's
+  axes, [Depth of lines](display.md#depth-of-lines)), and `Scene` with
   its hidden part shown in its own style (`Hidden`, Kuix's `show_hidden_lines`: long dashes by
   default, its colour and width optional, its alpha scaled by `alpha`, `HIDDEN_ALPHA` 0.3 by
   default), blended over the faces that hide it. Fills take the same layers.

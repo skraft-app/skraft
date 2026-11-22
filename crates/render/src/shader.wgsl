@@ -649,6 +649,33 @@ fn vs_line(
     return line_out(a, b, corner, color, pattern, dash, 0.0);
 }
 
+// How much nearer an axis is drawn, as a share of its depth (a few depth steps in parallel
+// projection): over the edges it lies on, whatever their rounding, and still behind any face in
+// front of it (docs/render/display.md#depth-of-lines).
+const AXIS_LIFT: f32 = 1e-5;
+
+// One of the model's axes: a line at the true depth of its points, a hair nearer.
+@vertex
+fn vs_axis_line(
+    @location(0) a: vec3<f32>,
+    @location(1) b: vec3<f32>,
+    @location(2) corner: vec3<f32>,
+    @location(3) color: vec4<f32>,
+    @location(4) pattern: vec4<f32>,
+    @location(5) dash: vec4<f32>,
+) -> LineOut {
+    var out = line_out(a, b, corner, color, pattern, dash, 0.0);
+    let ca = g.proj * lifted(vec4<f32>(a, 1.0), corner.z);
+    let cb = g.proj * lifted(vec4<f32>(b, 1.0), corner.z);
+    out.clip = wide(ca, cb, corner.xy, corner.z, true);
+    if (g.proj[3][3] == 0.0) {
+        out.clip.z *= 1.0 + AXIS_LIFT;
+    } else {
+        out.clip.z += FACE_STEPS / 16777216.0 * out.clip.w;
+    }
+    return out;
+}
+
 // A box's outline (instanced): the edges of the unit cube placed by `m0..m3` (to camera
 // space), its dash `pattern` (px), `params`: half its width (px), how far from its corners its
 // edges are drawn (px, 0: whole), whether the edges of its faces turned to the eye are drawn

@@ -813,7 +813,7 @@ impl Editor {
                 let dir = frame.matrix3.col(k);
                 for (range, alpha) in [((0.0, f64::INFINITY), 1.0), ((f64::NEG_INFINITY, 0.0), AXIS_NEGATIVE_ALPHA)] {
                     if let Some((p, q)) = crate::guides::visible_line(&self.camera, self.size, frame.translation, dir, range) {
-                        d.pen(Pen::new([r, g, b, alpha])).line(p, q);
+                        d.pen(Pen::new([r, g, b, alpha]).axis()).line(p, q);
                     }
                 }
             }

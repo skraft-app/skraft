@@ -89,6 +89,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         batches: &batches,
         highlights: if highlight { &hl } else { &[] },
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -167,6 +168,7 @@ fn concave_edges_are_not_buried() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -224,6 +226,7 @@ fn a_mirrored_placement_shows_its_outside() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -264,6 +267,7 @@ fn shot(
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -309,6 +313,7 @@ fn a_still_frame_is_not_drawn_again() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -406,6 +411,7 @@ fn a_face_highlight_forces_its_colour_on_that_face_only() {
             batches: &batches,
             highlights: &highlights,
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -536,6 +542,7 @@ fn a_cap_wins_over_a_part_lying_on_it() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -653,6 +660,7 @@ fn a_ghost_shows_what_it_holds() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -697,6 +705,7 @@ fn faint_edges_are_see_through() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -752,6 +761,7 @@ fn dashed_lines_are_dashed_on_screen() {
         batches: &[],
         highlights: &[],
         lines: &[line],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -814,6 +824,7 @@ fn dashed_lines_are_laid_in_model_units() {
         batches: &[],
         highlights: &[],
         lines: &[line],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -882,6 +893,7 @@ fn box_outlines_are_dashed_from_their_corners() {
         batches: &[],
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[outline],
         overlay: &[],
@@ -931,6 +943,7 @@ fn fills_hide_behind_faces() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -986,6 +999,7 @@ fn x_ray_lines_are_dashed_behind_faces() {
         batches: &batches,
         highlights: &[],
         lines: &[line],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -1046,6 +1060,7 @@ fn faint_lines_blend_over_faces() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines,
             boxes: &[],
             overlay: &[],
@@ -1084,6 +1099,7 @@ fn flat_frame<'a>(batches: &'a [Batch], lines: &'a [Line], boxes: &'a [BoxOutlin
         batches,
         highlights: &[],
         lines,
+        axis_lines: &[],
         faint_lines: &[],
         boxes,
         overlay: &[],
@@ -1486,6 +1502,7 @@ fn a_picture_leaves_the_viewport_as_it_was() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -1581,6 +1598,7 @@ fn far_edges_behind_a_face_stay_hidden() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -1653,6 +1671,7 @@ fn embedded_edges_stay_hidden_far_away() {
                 batches,
                 highlights: &[],
                 lines: &[],
+                axis_lines: &[],
                 faint_lines: &[],
                 boxes: &[],
                 overlay: &[],
@@ -1705,6 +1724,7 @@ fn a_corner_behind_the_eye_stays_out_of_the_picture() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -1764,6 +1784,7 @@ fn an_edge_keeps_its_width_to_its_nearer_end() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -1786,6 +1807,77 @@ fn an_edge_keeps_its_width_to_its_nearer_end() {
         let ink = row.iter().map(|c| (face - c).max(0.0)).sum::<f64>() / (face - 40.0);
         assert!(ink > 2.0, "{} % down the edge: {ink:.2} px of ink of its 3", t * 100.0);
     }
+}
+
+/// An axis lying on an edge is drawn over it along its whole length, and its fainter negative
+/// half takes the colour of the face it covers instead of the background's
+/// (docs/render/display.md#depth-of-lines).
+#[test]
+fn an_axis_wins_over_its_edge_and_blends_over_a_face() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let block = Solid::new_box(DVec3::ZERO, DVec3::new(738.0, 395.0, 149.0)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &block, face_paint: &[] }]);
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
+    let size = [1600, 900];
+    let target = DVec3::new(369.0, 100.0, 40.0);
+    let eye = target + DVec3::new(-572.0, -1144.0, 924.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(eye, target, DVec3::Z);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(35f32.to_radians(), 16.0 / 9.0, 1.6);
+    let red = [0.85, 0.05, 0.05];
+    let line = |a: DVec3, b: DVec3, alpha: f32| Line { a, b, color: [red[0], red[1], red[2], alpha], dash: None, width: 1.5 };
+    // The X axis along the block's front bottom edge, and a faint line across its top face.
+    let (top_a, top_b) = (DVec3::new(100.0, 200.0, 149.0), DVec3::new(600.0, 200.0, 149.0));
+    let axes = [line(DVec3::new(-20000.0, 0.0, 0.0), DVec3::new(20000.0, 0.0, 0.0), 1.0), line(top_a, top_b, 0.35)];
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        axis_lines: &axes,
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &[],
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 2.0,
+        model_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "axis_over_edge");
+    let to_px = |p: DVec3| {
+        let c = proj.as_dmat4() * view * p.extend(1.0);
+        let n = c.truncate() / c.w;
+        (((n.x + 1.0) * 0.5 * size[0] as f64).round() as i64, ((1.0 - n.y) * 0.5 * size[1] as f64).round() as i64)
+    };
+    let around = |(x, y): (i64, i64)| {
+        let mut near = Vec::new();
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                near.push(pixel(&px, size[0], (x + dx) as u32, (y + dy) as u32));
+            }
+        }
+        near
+    };
+    for i in 1..60 {
+        let p = DVec3::new(738.0 * i as f64 / 60.0, 0.0, 0.0);
+        let reddest = around(to_px(p)).into_iter().max_by_key(|c| c[0] as i32 - c[1] as i32).unwrap();
+        let darkest = around(to_px(p)).iter().map(|c| c[0]).min().unwrap();
+        assert!(reddest[0] as i32 - reddest[1] as i32 > 120 && darkest > 100, "at {p}: {reddest:?}, red {darkest}: the edge shows");
+    }
+    let on_face = to_px(DVec3::new(350.0, 260.0, 149.0));
+    let face = pixel(&px, size[0], on_face.0 as u32, on_face.1 as u32);
+    let faint = around(to_px(top_a.lerp(top_b, 0.5))).into_iter().min_by_key(|c| c[1]).unwrap();
+    assert!(faint[0] > faint[1] + 25 && faint[1] + 15 < face[1], "{faint:?} over the face {face:?}");
 }
 
 /// Every segment of a B-rep edge is a mesh edge, with its two triangles (else it would be drawn

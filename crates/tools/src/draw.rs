@@ -100,6 +100,9 @@ pub enum Layer {
     Scene,
     /// Over everything (Kuix's `on_top`).
     Over,
+    /// The model's axes: in the scene, hidden behind faces, over the edges they lie on and blended
+    /// at their alpha (docs/render/display.md#depth-of-lines).
+    Axis,
 }
 
 /// How the part of a line in the scene hidden behind faces is drawn again (Kuix's
@@ -219,6 +222,11 @@ impl Pen {
 
     pub fn blended(self) -> Self {
         Pen { blended: true, ..self }
+    }
+
+    /// One of the model's axes ([`Layer::Axis`]).
+    pub fn axis(self) -> Self {
+        Pen { layer: Layer::Axis, ..self }
     }
 
     /// Its hidden part drawn again in `hidden`.
