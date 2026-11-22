@@ -1223,23 +1223,31 @@ pub fn outliner(
             let own = (!o.name.is_empty()).then_some(rename_occurrence);
             // « Aplatir » on a part with a tree: the parts selected with it, when it is.
             let composed = part.is_some_and(|p| p.has_tree());
-            row_menu(&response, doc.assembly(o.component).is_ok(), rename, own, select, actions, |ui, actions| {
-                if composed && flatten_button(ui) {
-                    let targets: Vec<EntityPath> = match in_selection {
-                        true => selection
-                            .iter()
-                            .map(|id| EntityPath::new(path.instances.clone(), *id))
-                            .chain(editor.deep_selection().iter().cloned())
-                            .filter(|q| doc.resolve_part(q).is_ok_and(|(_, p, _)| p.has_tree()))
-                            .collect(),
-                        false => vec![path.clone()],
-                    };
-                    let part_open = editor.open_part_path().is_some_and(|x| x.part_path() == path.part_path());
-                    let scope = if part_open { editor.part_scope() } else { Scope::All };
-                    let ops = targets.into_iter().map(|target| Operation::FlattenPart { target, scope }).collect();
-                    actions.push(Action::Apply(Operation::Batch(ops)));
-                }
-            });
+            row_menu(
+                &response,
+                doc.assembly(o.component).is_ok(),
+                (rename, own),
+                select,
+                actions,
+                |_, _| {},
+                |ui, actions| {
+                    if composed && flatten_button(ui) {
+                        let targets: Vec<EntityPath> = match in_selection {
+                            true => selection
+                                .iter()
+                                .map(|id| EntityPath::new(path.instances.clone(), *id))
+                                .chain(editor.deep_selection().iter().cloned())
+                                .filter(|q| doc.resolve_part(q).is_ok_and(|(_, p, _)| p.has_tree()))
+                                .collect(),
+                            false => vec![path.clone()],
+                        };
+                        let part_open = editor.open_part_path().is_some_and(|x| x.part_path() == path.part_path());
+                        let scope = if part_open { editor.part_scope() } else { Scope::All };
+                        let ops = targets.into_iter().map(|target| Operation::FlattenPart { target, scope }).collect();
+                        actions.push(Action::Apply(Operation::Batch(ops)));
+                    }
+                },
+            );
             if eye {
                 actions.push(Action::SetHidden(path, !o.hidden));
             } else if response.clicked() {
@@ -2037,16 +2045,12 @@ fn body_row(
         (split, _) => split.is_some(),
     };
     let key = if on_own { rename_own } else { rename };
-    // Its menu, with « Sortir du groupe » (de la pièce, at its root).
+    // Its menu, with « Sortir du groupe » (« Sortir de la pièce », at its root).
     let select = (!(open && editor.selection().contains(&b.body.id))).then(|| Action::SelectBody(path.clone(), b.body.id, false));
     let own = (!b.body.name.is_empty()).then_some(rename_own);
     let is_group = def.is_group();
-    row_menu(&response, is_group, rename, own, select, actions, |ui, actions| {
-        if is_group && flatten_button(ui) {
-            let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
-            let scope = if part_open { editor.part_scope() } else { Scope::All };
-            actions.push(Action::Apply(Operation::FlattenBodies { target: path.clone(), bodies: with.clone(), scope }));
-        }
+    let move_out = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
+        ui.separator();
         let (label, to) = match b.group.split_last() {
             Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
             None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
@@ -2058,7 +2062,15 @@ fn body_row(
             let scope = if part_open { editor.part_scope() } else { Scope::All };
             actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.clone(), to, copy: false, scope }));
         }
-    });
+    };
+    let flatten = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
+        if is_group && flatten_button(ui) {
+            let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
+            let scope = if part_open { editor.part_scope() } else { Scope::All };
+            actions.push(Action::Apply(Operation::FlattenBodies { target: path.clone(), bodies: with.clone(), scope }));
+        }
+    };
+    row_menu(&response, is_group, (rename, own), select, actions, move_out, flatten);
     let part = row.occurrence.component;
     match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
         (Some(true), Some(Some(name))) => actions.push(Action::Apply(Operation::RenameBody { part, body: b.body.id, name })),
@@ -2094,17 +2106,18 @@ fn flatten_button(ui: &mut egui::Ui) -> bool {
 }
 
 /// A navigator row's right-click menu: « Renommer » (the field a double-click opens, under the
-/// key `rename`; with an instance name, under `own`, one entry for each name), « Éclater » where the row can be (`explodable`), what `extra` adds, « Effacer ».
-/// Opening it changes nothing; the commands act on the selection when the row is in it, else on
-/// the row alone, `select` choosing it first (docs/ui/interface.md).
+/// key `rename`; with an instance name, under `own`, one entry for each name), what `move_out`
+/// adds (with its own separator), then « Aplatir » (`flatten`), « Éclater » where the row can be
+/// (`explodable`), « Effacer ». Opening it changes nothing; the commands act on the selection
+/// when the row is in it, else on the row alone, `select` choosing it first (docs/ui/interface.md).
 fn row_menu(
     response: &egui::Response,
     explodable: bool,
-    rename: egui::Id,
-    own: Option<egui::Id>,
+    (rename, own): (egui::Id, Option<egui::Id>),
     mut select: Option<Action>,
     actions: &mut Vec<Action>,
-    extra: impl FnOnce(&mut egui::Ui, &mut Vec<Action>),
+    move_out: impl FnOnce(&mut egui::Ui, &mut Vec<Action>),
+    flatten: impl FnOnce(&mut egui::Ui, &mut Vec<Action>),
 ) {
     egui::Popup::context_menu(response).style(crate::style::menu).show(|ui| {
         let names = match own {
@@ -2121,6 +2134,9 @@ fn row_menu(
                 ui.data_mut(|d| d.insert_temp(egui::Id::unique(RENAMING), key));
             }
         }
+        move_out(ui, actions);
+        ui.separator();
+        flatten(ui, actions);
         if explodable {
             let button = ui.button(t!("menu.edit.explode"));
             crate::handles::publish(|| "outliner_menu:explode".into(), button.rect);
@@ -2129,8 +2145,6 @@ fn row_menu(
                 actions.push(Action::Command("edit.explode"));
             }
         }
-        extra(ui, actions);
-        ui.separator();
         let button = ui.button(t!("menu.edit.erase"));
         crate::handles::publish(|| "outliner_menu:delete".into(), button.rect);
         if button.clicked() {
