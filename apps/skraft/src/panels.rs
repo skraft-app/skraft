@@ -906,9 +906,10 @@ pub(crate) fn hidden_color(v: &egui::Visuals, band: bool) -> egui::Color32 {
 }
 
 /// One line of the outliner across the whole list: its background — `band` that of a part's
-/// bodies, then the selection, or the hover (`lit`: hovered in the view) — painted under the
-/// widgets `add` lays in it from left to right. The response is the line's click; the buttons
-/// in it (a fold, an eye, a sign), added after, take theirs first.
+/// bodies, then the selection, or the hover (`lit`: hovered in the view; its context menu open:
+/// the row it acts on stays marked) — painted under the widgets `add` lays in it from left to
+/// right. The response is the line's click; the buttons in it (a fold, an eye, a sign), added
+/// after, take theirs first.
 pub(crate) fn tree_row<R>(
     ui: &mut egui::Ui,
     height: f32,
@@ -929,7 +930,7 @@ pub(crate) fn tree_row<R>(
     let v = ui.visuals();
     let fill = if selected {
         Some(v.selection.bg_fill)
-    } else if lit || ui.rect_contains_pointer(back) {
+    } else if lit || ui.rect_contains_pointer(back) || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response)) {
         Some(v.widgets.hovered.weak_bg_fill)
     } else if band {
         Some(band_color(v))
