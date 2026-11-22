@@ -805,6 +805,21 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
 }
 
 #[test]
+fn explode_is_one_action_by_what_is_selected() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    // A part alone: nothing to explode.
+    e.select(vec![a]);
+    assert!(!e.can_explode());
+    // An assembly: its content put back in the context.
+    e.make_assembly();
+    assert!(e.can_explode());
+    e.explode();
+    assert!(e.document().assembly(e.document().root()).unwrap().occurrences().iter().all(|o| e.document().part(o.component).is_ok()));
+    assert!(!e.can_explode());
+}
+
+#[test]
 fn hide_rest_of_model() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
@@ -4857,16 +4872,16 @@ fn a_part_pasted_into_an_open_part_becomes_a_group_of_its_bodies() {
     assert!(close((t * body.placement).translation, DVec3::ZERO), "{:?}", t * body.placement);
     assert!(e.take_notices().is_empty());
     // Grouped and ungrouped by the commands, the group selected.
-    assert!(e.can_ungroup_bodies());
-    e.ungroup_bodies();
+    assert!(e.can_explode());
+    e.explode();
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
     assert_eq!((part.positives().count(), part.negatives().count()), (2, 1));
     assert_eq!(e.selection().len(), 2);
-    assert!(!e.can_ungroup_bodies() && e.can_group_bodies());
+    assert!(!e.can_explode() && e.can_group_bodies());
     e.make_assembly();
     let (_, part, _) = e.document().resolve_part(&EntityPath::root(b)).unwrap();
     assert_eq!((part.positives().count(), part.negatives().count()), (2, 0));
-    assert!(e.can_ungroup_bodies());
+    assert!(e.can_explode());
 
     // At the cursor.
     e.paste(&clip, true);

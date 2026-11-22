@@ -109,7 +109,6 @@ menu:
     make_unique: "$t(common.make_unique)"
     # In an open part (docs/model/bodies.md#body-groups).
     group_bodies: "Grouper les corps"
-    ungroup_bodies: "Dégrouper"
     move_out: "Sortir du groupe"
     move_out_of_part: "Sortir de la pièce"
     delete_guides: "Supprimer les guides"
@@ -892,6 +891,10 @@ panel:
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"
+    # A row's right-click menu; the two names of a row with an instance name.
+    rename: "Renommer"
+    rename_instance: "Renommer l'exemplaire"
+    rename_definition: "Renommer la définition"
     # A body's sign toggle, at the right end of its row.
     sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
     sign_negative: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire une intersection"
@@ -1482,7 +1485,7 @@ operation:
   set_sign_intersect: "Changer en intersection"
   # Bodies grouped, a group flattened (docs/model/bodies.md#body-groups).
   group: "Grouper"
-  ungroup: "Dégrouper"
+  ungroup: "$t(common.explode)"
   add_guide: "Guide"
   transform: "$t(common.move)"
   duplicate: "$t(common.copy)"
@@ -1658,7 +1661,7 @@ error:
     root_renamed: "le modèle ne se renomme pas"
     name_taken: "une autre pièce ou un autre assemblage porte ce nom"
     empty_assembly: "rien à mettre dans l'assemblage"
-    not_exploded: "seul un assemblage s'éclate"
+    not_exploded: "seul un assemblage ou un groupe s'éclate"
     root_placed: "le modèle ne se place pas"
     root_deleted: "le modèle ne se supprime pas"
     self_boolean: "une pièce ne se combine pas avec elle-même"
@@ -1667,9 +1670,9 @@ error:
     nothing_reached: "aucun outil n'atteint une cible"
     no_such_face: "pas de telle face"
     no_bodies: "aucun corps désigné"
-    ungroup_negative: "un usinage composé qui épargne de la matière ne se dégroupe pas"
+    ungroup_negative: "un usinage composé qui épargne de la matière ne s'éclate pas"
     # Grouping several intersections, or ungrouping an intersection group of several bodies: the shape would change.
-    intersects_regrouped: "des intersections ne se groupent ni ne se dégroupent ensemble : chacune limite la pièce, la forme changerait"
+    intersects_regrouped: "des intersections ne se groupent ni ne s'éclatent ensemble : chacune limite la pièce, la forme changerait"
     not_at_path: "seule une opération sur des exemplaires s'applique en profondeur"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"

@@ -120,22 +120,8 @@ pub const WORKSPACES: &[Workspace] = &[
                 groups: &[group(
                     "components",
                     || t!("ribbon.group.components"),
-                    &[
-                        "edit.make_assembly",
-                        "edit.explode",
-                        "edit.make_unique",
-                        "edit.group_bodies",
-                        "edit.ungroup_bodies",
-                        "edit.move_out",
-                    ],
-                    &[
-                        "edit.make_assembly",
-                        "edit.explode",
-                        "edit.make_unique",
-                        "edit.group_bodies",
-                        "edit.ungroup_bodies",
-                        "edit.move_out",
-                    ],
+                    &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.move_out"],
+                    &["edit.make_assembly", "edit.explode", "edit.make_unique", "edit.group_bodies", "edit.move_out"],
                 )],
             },
             Tab {

@@ -89,9 +89,8 @@ pub const COMMANDS: &[Command] = &[
     g("edit.make_assembly", || t!("menu.edit.make_assembly"), M::Edit, Some("G")),
     c("edit.explode", || t!("menu.edit.explode"), M::Edit, None),
     c("edit.make_unique", || t!("menu.edit.make_unique"), M::Edit, None),
-    // In an open part: its bodies selected grouped, its groups flattened (docs/model/bodies.md#body-groups).
+    // In an open part: its bodies selected grouped (docs/model/bodies.md#body-groups).
     c("edit.group_bodies", || t!("menu.edit.group_bodies"), M::Edit, None),
-    c("edit.ungroup_bodies", || t!("menu.edit.ungroup_bodies"), M::Edit, None),
     // The bodies selected one level up, out of the part at its root (decision 0044).
     c("edit.move_out", || t!("menu.edit.move_out"), M::Edit, None),
     c("edit.delete_guides", || t!("menu.edit.delete_guides"), M::Edit, None),

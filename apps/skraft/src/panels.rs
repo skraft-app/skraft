@@ -1217,6 +1217,11 @@ pub fn outliner(
                 }
                 _ => {}
             }
+            let in_selection = (editor.open_part().is_none() && editor.context() == path.instances.as_slice() && selection.contains(&o.id))
+                || editor.deep_selection().iter().any(|p| p.instances == path.instances && p.entity == o.id);
+            let select = (!in_selection).then(|| Action::SelectPath(path.clone(), false));
+            let own = (!o.name.is_empty()).then_some(rename_occurrence);
+            row_menu(&response, doc.assembly(o.component).is_ok(), rename, own, select, actions, |_, _| {});
             if eye {
                 actions.push(Action::SetHidden(path, !o.hidden));
             } else if response.clicked() {
@@ -2008,8 +2013,16 @@ fn body_row(
         let indent = ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32;
         drop_on_row(ui, &response, indent, target, actions);
     }
-    // Its menu: « Sortir du groupe » (de la pièce, at its root).
-    egui::Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
+    let alone = selected && editor.selection().len() == 1;
+    let on_own = match (split, response.interact_pointer_pos()) {
+        (Some(split), Some(at)) if response.double_clicked() => at.x < split,
+        (split, _) => split.is_some(),
+    };
+    let key = if on_own { rename_own } else { rename };
+    // Its menu, with « Sortir du groupe » (de la pièce, at its root).
+    let select = (!(open && editor.selection().contains(&b.body.id))).then(|| Action::SelectBody(path.clone(), b.body.id, false));
+    let own = (!b.body.name.is_empty()).then_some(rename_own);
+    row_menu(&response, def.is_group(), rename, own, select, actions, |ui, actions| {
         let (label, to) = match b.group.split_last() {
             Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
             None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
@@ -2022,12 +2035,6 @@ fn body_row(
             actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.clone(), to, copy: false, scope }));
         }
     });
-    let alone = selected && editor.selection().len() == 1;
-    let on_own = match (split, response.interact_pointer_pos()) {
-        (Some(split), Some(at)) if response.double_clicked() => at.x < split,
-        (split, _) => split.is_some(),
-    };
-    let key = if on_own { rename_own } else { rename };
     let part = row.occurrence.component;
     match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
         (Some(true), Some(Some(name))) => actions.push(Action::Apply(Operation::RenameBody { part, body: b.body.id, name })),
@@ -2053,6 +2060,53 @@ fn body_row(
     } else if response.clicked() {
         actions.push(Action::SelectBody(path, b.body.id, ui.input(|i| i.modifiers.shift)));
     }
+}
+
+/// A navigator row's right-click menu: « Renommer » (the field a double-click opens, under the
+/// key `rename`; with an instance name, under `own`, one entry for each name), « Éclater » where the row can be (`explodable`), what `extra` adds, « Effacer ».
+/// Opening it changes nothing; the commands act on the selection when the row is in it, else on
+/// the row alone, `select` choosing it first (docs/ui/interface.md).
+fn row_menu(
+    response: &egui::Response,
+    explodable: bool,
+    rename: egui::Id,
+    own: Option<egui::Id>,
+    mut select: Option<Action>,
+    actions: &mut Vec<Action>,
+    extra: impl FnOnce(&mut egui::Ui, &mut Vec<Action>),
+) {
+    egui::Popup::context_menu(response).style(crate::style::menu).show(|ui| {
+        let names = match own {
+            Some(own) => vec![
+                (t!("panel.outliner.rename_instance"), own, "rename_instance"),
+                (t!("panel.outliner.rename_definition"), rename, "rename"),
+            ],
+            None => vec![(t!("panel.outliner.rename"), rename, "rename")],
+        };
+        for (label, key, handle) in names {
+            let button = ui.button(label);
+            crate::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
+            if button.clicked() {
+                ui.data_mut(|d| d.insert_temp(egui::Id::unique(RENAMING), key));
+            }
+        }
+        if explodable {
+            let button = ui.button(t!("menu.edit.explode"));
+            crate::handles::publish(|| "outliner_menu:explode".into(), button.rect);
+            if button.clicked() {
+                actions.extend(select.take());
+                actions.push(Action::Command("edit.explode"));
+            }
+        }
+        extra(ui, actions);
+        ui.separator();
+        let button = ui.button(t!("menu.edit.erase"));
+        crate::handles::publish(|| "outliner_menu:delete".into(), button.rect);
+        if button.clicked() {
+            actions.extend(select.take());
+            actions.push(Action::Command("edit.erase"));
+        }
+    });
 }
 
 /// The temporary key of the body row whose name is edited in place, if any.

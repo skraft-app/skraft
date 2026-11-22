@@ -412,13 +412,27 @@ impl Editor {
         self.selection.iter().copied().filter(|id| self.document().is_assembly_occurrence(ctx, *id)).collect()
     }
 
-    /// Explodes the assemblies selected; in an open part, flattens its groups selected.
+    /// Can the selection be exploded: an assembly among it or, in an open part, a group of
+    /// bodies?
+    pub fn can_explode(&self) -> bool {
+        if self.open_part.is_none() {
+            return !self.selected_assemblies().is_empty();
+        }
+        let Some((target, bodies)) = self.selected_bodies() else { return false };
+        let Ok((_, p, _)) = self.document().resolve_container(&target) else { return false };
+        bodies.iter().any(|id| p.body(*id).is_some_and(|b| p.def_of(b).is_group()))
+    }
+
+    /// « Éclater », by what is selected: the assemblies put in their context; in an open part,
+    /// its groups flattened, what they held then selected.
     pub fn explode(&mut self) {
         if self.busy() {
             return;
         }
         if self.open_part.is_some() {
-            return self.ungroup_bodies();
+            let Some((target, bodies)) = self.selected_bodies().filter(|(_, b)| !b.is_empty()) else { return };
+            let _ = self.start(Operation::UngroupBodies { target, bodies, scope: self.part_scope }, After::Select, false);
+            return;
         }
         let context = self.context_definition();
         self.collected.clear();
@@ -441,13 +455,6 @@ impl Editor {
         self.selected_bodies().is_some_and(|(_, b)| !b.is_empty())
     }
 
-    /// Can the selection be ungrouped: a group among the bodies selected in the open part?
-    pub fn can_ungroup_bodies(&self) -> bool {
-        let Some((target, bodies)) = self.selected_bodies() else { return false };
-        let Ok((_, p, _)) = self.document().resolve_container(&target) else { return false };
-        bodies.iter().any(|id| p.body(*id).is_some_and(|b| p.def_of(b).is_group()))
-    }
-
     /// Groups the bodies selected in the open part; the group then selected.
     pub fn group_bodies(&mut self) {
         if self.busy() {
@@ -458,15 +465,6 @@ impl Editor {
             return;
         };
         let _ = self.start(Operation::GroupBodies { target, bodies, scope: self.part_scope }, After::SelectNamed, false);
-    }
-
-    /// Flattens the groups selected in the open part; what they held then selected.
-    pub fn ungroup_bodies(&mut self) {
-        if self.busy() {
-            return;
-        }
-        let Some((target, bodies)) = self.selected_bodies().filter(|(_, b)| !b.is_empty()) else { return };
-        let _ = self.start(Operation::UngroupBodies { target, bodies, scope: self.part_scope }, After::Select, false);
     }
 
     /// Can the bodies selected go one level up: bodies selected in the open part or group
