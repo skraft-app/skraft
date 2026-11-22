@@ -41,8 +41,10 @@ tabs have pages of their own.
   rendering is submitted during `update`, before egui paints.
 - Wheel ("line" units) = zoom; trackpad scroll ("point" units) = orbit, Shift = pan (the
   navigation style's trackpad gestures, [Navigation styles](navigation-styles.md)); pinch =
-  zoom. Copy modifier: Option on macOS, Ctrl elsewhere (short tap = toggle,
-  [Interaction](../tools/interaction.md)).
+  zoom. Browsers report wheel and trackpad both in pixels: `web/wheel.js` tells them apart, by
+  `wheelDeltaY` in Chrome, by how a gesture starts in Safari (a wheel's first event is exactly
+  4 px), and hands a wheel on in lines. Copy modifier: Option on macOS, Ctrl elsewhere (short
+  tap = toggle, [Interaction](../tools/interaction.md)).
 
 ## Navigator
 

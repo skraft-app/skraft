@@ -27,25 +27,20 @@
   </div>
   <script type="module">
     import init, { skraftCall } from "./pkg/skraft.js";
+    import { wheelLines } from "./wheel.js";
 
-    // Chrome and Safari report mouse wheel notches in pixels (deltaMode 0), like trackpad
-    // scrolling: eframe then hands them as MouseWheelUnit::Point, which the viewport takes for
-    // a trackpad (orbit). Tell them apart with the non-standard wheelDeltaY: a trackpad gives
-    // wheelDeltaY == -3 * deltaY, a wheel multiples of 120. Wheel events are re-dispatched in
-    // lines (one per notch), as winit does natively, so the viewport zooms.
+    // A mouse wheel's events are re-dispatched in lines, as winit gives them natively, so the
+    // viewport zooms; a trackpad's go through (web/wheel.js).
     const canvas = document.getElementById("skraft");
-    const isWheelNotch = (e) => {
-      if (e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || e.ctrlKey) return false; // ctrl: pinch
-      const w = e.wheelDeltaY;
-      if (typeof w !== "number" || w === 0 || w % 120 !== 0 || e.deltaX !== 0) return false;
-      return Math.abs(w + 3 * e.deltaY) > 1;
-    };
+    const linesOf = wheelLines(navigator.vendor);
     window.addEventListener("wheel", (e) => {
-      if (!e.isTrusted || e.target !== canvas || !isWheelNotch(e)) return;
+      if (!e.isTrusted || e.target !== canvas) return;
+      const lines = linesOf(e);
+      if (!lines) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       canvas.dispatchEvent(new WheelEvent("wheel", {
-        deltaX: 0, deltaY: -e.wheelDeltaY / 120, deltaMode: WheelEvent.DOM_DELTA_LINE,
+        deltaX: 0, deltaY: lines, deltaMode: WheelEvent.DOM_DELTA_LINE,
         clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY,
         shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey,
         bubbles: true, cancelable: true,

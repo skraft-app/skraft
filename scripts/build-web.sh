@@ -29,7 +29,7 @@ package() {
 
 package skraft apps/skraft skraft pkg
 package skraft-kernel-worker apps/kernel-worker skraft_kernel_worker worker
-cp web/kernel-worker.js web/favicon.svg dist/web/
+cp web/kernel-worker.js web/wheel.js web/favicon.svg dist/web/
 # The loading screen's progress needs the decompressed sizes.
 sed -e "s/__UI_WASM_BYTES__/$(wc -c < dist/web/pkg/skraft_bg.wasm | tr -d ' ')/" \
     -e "s/__KERNEL_WASM_BYTES__/$(wc -c < dist/web/worker/skraft_kernel_worker_bg.wasm | tr -d ' ')/" \
