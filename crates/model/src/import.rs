@@ -8,10 +8,12 @@
 //! the rigid transform the kernel kept on them (their scale is in the geometry).
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use glam::DAffine3;
 use skraft_i18n::t;
+// Not `std::time::Instant`: this runs on the UI's thread in the browser too, where it panics.
+use web_time::Instant;
 
 use crate::Result;
 use crate::document::{Assembly, Behavior, ComponentKind, Document, Id, Material, Occurrence, StretchMask};
