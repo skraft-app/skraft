@@ -409,6 +409,9 @@ pub struct Frame<'a> {
     pub highlights: &'a [Highlight],
     /// Depth-tested lines (inferences, guides).
     pub lines: &'a [Line],
+    /// The model's axes: hidden behind faces, over the edges and lines they lie on, blended at
+    /// their alpha, no depth written (docs/render/display.md#depth-of-lines).
+    pub axis_lines: &'a [Line],
     /// Depth-tested lines blended over what they do not hide, at their alpha, no depth
     /// written (the guides outside the context being edited: the faces under them show through).
     pub faint_lines: &'a [Line],
@@ -970,6 +973,8 @@ pub struct Renderer {
     boxes_front: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
     /// The faint lines: depth tested, blended, no depth written.
+    /// The axes: depth tested a hair nearer, blended, no depth written.
+    axis_lines: wgpu::RenderPipeline,
     faint_lines: wgpu::RenderPipeline,
     /// The hidden lines: where faces are nearer, blended, no depth written.
     hidden: wgpu::RenderPipeline,
@@ -1248,6 +1253,17 @@ impl Renderer {
             None,
             unclipped,
         );
+        // Over the edges they lie on, blended over what they cover (no depth written).
+        let axis_lines = blended(
+            "axes",
+            "vs_axis_line",
+            "fs_overlay",
+            &[Some(line_layout.clone())],
+            depth(false, nearer, Default::default()),
+            all,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            unclipped,
+        );
         // Hidden behind faces, blended over what they do not hide (no depth written).
         let faint_lines = blended(
             "faint lines",
@@ -1317,6 +1333,7 @@ impl Renderer {
             boxes,
             boxes_front,
             overlay,
+            axis_lines,
             faint_lines,
             hidden,
             fills,
@@ -1669,11 +1686,15 @@ impl Renderer {
         }
         self.instances.write(device, queue, bytemuck::cast_slice(&raw));
 
-        // Lines: grid and axes, depth-tested lines, the faint lines, the hidden lines, then the
-        // overlay.
+        // Lines: the grid, depth-tested lines, the axes, the faint lines, the hidden lines, then
+        // the overlay.
         let mut lv = Vec::new();
         push_scene_lines(&mut lv, frame);
         let tested = lv.len() as u32;
+        for l in frame.axis_lines {
+            push_axis(&mut lv, frame, l);
+        }
+        let axes = lv.len() as u32;
         for l in frame.faint_lines {
             push_line(&mut lv, &frame.view, l, ppp, frame.model_per_point);
         }
@@ -1690,6 +1711,7 @@ impl Renderer {
         let max_lines = device.limits().max_buffer_size as usize / std::mem::size_of::<LineVertex>() / QUAD.len();
         lv.truncate(max_lines * QUAD.len());
         let tested = tested.min(lv.len() as u32);
+        let axes = axes.min(lv.len() as u32);
         let faint = faint.min(lv.len() as u32);
         let hidden = hidden.min(lv.len() as u32);
         self.line_vertices.write(device, queue, bytemuck::cast_slice(&lv));
@@ -1936,13 +1958,21 @@ impl Renderer {
             pass.set_vertex_buffer(0, bb.slice(..));
             pass.draw(0..BOX_VERTICES, 0..bx.len() as u32);
         }
+        // The axes over what is drawn, blended.
+        if let Some(lb) = &self.line_vertices.buffer
+            && axes > tested
+        {
+            pass.set_pipeline(&self.axis_lines);
+            pass.set_vertex_buffer(0, lb.slice(..));
+            pass.draw(tested..axes, 0..1);
+        }
         // Faint lines over what is drawn (opaque), blended.
         if let Some(lb) = &self.line_vertices.buffer
-            && faint > tested
+            && faint > axes
         {
             pass.set_pipeline(&self.faint_lines);
             pass.set_vertex_buffer(0, lb.slice(..));
-            pass.draw(tested..faint, 0..1);
+            pass.draw(axes..faint, 0..1);
         }
         // Fills in the scene over the depth-tested lines (which they tint).
         let draw_fills = |pass: &mut Counted<'_>, over: bool| {
@@ -2230,7 +2260,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
         }
         None => 0u8.hash(&mut h.0),
     };
-    for lines in [frame.lines, frame.faint_lines, frame.overlay, frame.hidden_lines] {
+    for lines in [frame.lines, frame.axis_lines, frame.faint_lines, frame.overlay, frame.hidden_lines] {
         lines.len().hash(&mut h.0);
         for l in lines {
             h.v(l.a);
@@ -2395,6 +2425,28 @@ fn push_line(out: &mut Vec<LineVertex>, view: &DMat4, l: &Line, ppp: f32, mpp: f
     };
     let (a, b) = (a.as_vec3().to_array(), b.as_vec3().to_array());
     out.extend(QUAD.map(|[end, side]| LineVertex { a, b, corner: [end, side, half], color: l.color, pattern, dash }));
+}
+
+/// An axis, cut where its depth doubles: a quad's depth is rounded to its nearest end's precision,
+/// and an axis runs from next to the eye to far away, where that would outgrow its lift over the
+/// edges it lies on (`AXIS_LIFT`, docs/render/display.md#depth-of-lines).
+fn push_axis(out: &mut Vec<LineVertex>, frame: &Frame<'_>, l: &Line) {
+    let depth = |p: DVec3| -frame.view.transform_point3(p).z;
+    let (da, db) = (depth(l.a), depth(l.b));
+    let hi = da.max(db);
+    let lo = da.min(db).max(hi * 1e-6);
+    let mut cuts = vec![0.0, 1.0];
+    if frame.proj.w_axis.w == 0.0 && hi > 0.0 && hi > 2.0 * lo {
+        let n = (hi / lo).log2().ceil() as u32;
+        for i in 1..n {
+            cuts.push((lo * (hi / lo).powf(i as f64 / n as f64) - da) / (db - da));
+        }
+        cuts.sort_by(f64::total_cmp);
+    }
+    for t in cuts.windows(2) {
+        let piece = Line { a: l.a.lerp(l.b, t[0]), b: l.a.lerp(l.b, t[1]), ..*l };
+        push_line(out, &frame.view, &piece, frame.pixels_per_point, frame.model_per_point);
+    }
 }
 
 fn push_scene_lines(out: &mut Vec<LineVertex>, frame: &Frame<'_>) {

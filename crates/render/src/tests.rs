@@ -89,6 +89,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         batches: &batches,
         highlights: if highlight { &hl } else { &[] },
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -167,6 +168,7 @@ fn concave_edges_are_not_buried() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -224,6 +226,7 @@ fn a_mirrored_placement_shows_its_outside() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -264,6 +267,7 @@ fn shot(
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -309,6 +313,7 @@ fn a_still_frame_is_not_drawn_again() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -406,6 +411,7 @@ fn a_face_highlight_forces_its_colour_on_that_face_only() {
             batches: &batches,
             highlights: &highlights,
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -536,6 +542,7 @@ fn a_cap_wins_over_a_part_lying_on_it() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -653,6 +660,7 @@ fn a_ghost_shows_what_it_holds() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -697,6 +705,7 @@ fn faint_edges_are_see_through() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -752,6 +761,7 @@ fn dashed_lines_are_dashed_on_screen() {
         batches: &[],
         highlights: &[],
         lines: &[line],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -814,6 +824,7 @@ fn dashed_lines_are_laid_in_model_units() {
         batches: &[],
         highlights: &[],
         lines: &[line],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -882,6 +893,7 @@ fn box_outlines_are_dashed_from_their_corners() {
         batches: &[],
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[outline],
         overlay: &[],
@@ -931,6 +943,7 @@ fn fills_hide_behind_faces() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -986,6 +999,7 @@ fn x_ray_lines_are_dashed_behind_faces() {
         batches: &batches,
         highlights: &[],
         lines: &[line],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -1046,6 +1060,7 @@ fn faint_lines_blend_over_faces() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines,
             boxes: &[],
             overlay: &[],
@@ -1084,6 +1099,7 @@ fn flat_frame<'a>(batches: &'a [Batch], lines: &'a [Line], boxes: &'a [BoxOutlin
         batches,
         highlights: &[],
         lines,
+        axis_lines: &[],
         faint_lines: &[],
         boxes,
         overlay: &[],
@@ -1486,6 +1502,7 @@ fn a_picture_leaves_the_viewport_as_it_was() {
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &[],
@@ -1581,6 +1598,7 @@ fn far_edges_behind_a_face_stay_hidden() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
@@ -1653,6 +1671,7 @@ fn embedded_edges_stay_hidden_far_away() {
                 batches,
                 highlights: &[],
                 lines: &[],
+                axis_lines: &[],
                 faint_lines: &[],
                 boxes: &[],
                 overlay: &[],
@@ -1672,6 +1691,193 @@ fn embedded_edges_stay_hidden_far_away() {
         let differ = with.chunks(4).zip(without.chunks(4)).filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| x.abs_diff(*y) > 8)).count();
         assert_eq!(differ, 0, "{dist} mm, {angle}°: {differ} pixels show the cup through the door");
     }
+}
+
+/// A face with a corner behind the eye is cut by the near plane: pushing that corner back must
+/// not send it through the eye, where its triangles would sweep over the picture. Two blocks
+/// side by side, the second mirrored, seen from close enough that one of its corners is behind
+/// the eye: the first block's front face keeps one colour (docs/render/display.md#depth-of-lines).
+#[test]
+fn a_corner_behind_the_eye_stays_out_of_the_picture() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (l, w, h) = (738.001753150399, 395.68428108316493, 149.1658947679753);
+    let block = Solid::new_box(DVec3::ZERO, DVec3::new(l, w, h)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &block, face_paint: &[] }]);
+    let mirrored = DMat4::from_translation(DVec3::new(2.0 * l, 0.0, 0.0)) * DMat4::from_scale(DVec3::new(-1.0, 1.0, 1.0));
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY), Placement::new(mirrored)])];
+    let size = [2181, 1167];
+    let eye = DVec3::new(746.4971859874138, -156.02041675682068, 224.26223019391347);
+    let target = DVec3::new(674.9447150951199, 22.121949901864326, 79.0713674612081);
+    let view = glam::dcamera::rh::view::look_at_mat4(eye, target, DVec3::Z);
+    let near = (eye - target).length() * 1e-3;
+    let proj =
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(35f32.to_radians(), size[0] as f32 / size[1] as f32, near as f32);
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        axis_lines: &[],
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &[],
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 1.0,
+        model_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "corner_behind_the_eye");
+    let to_px = |p: DVec3| {
+        let c = proj.as_dmat4() * view * p.extend(1.0);
+        let n = c.truncate() / c.w;
+        (((n.x + 1.0) * 0.5 * size[0] as f64).round() as u32, ((1.0 - n.y) * 0.5 * size[1] as f64).round() as u32)
+    };
+    // Down the first block's front face (y = 0), just under its top edge to its bottom.
+    let (x, y) = to_px(DVec3::new(0.8 * l, 0.0, 0.5 * h));
+    let reference = pixel(&px, size[0], x, y);
+    for k in 1..20 {
+        let (x, y) = to_px(DVec3::new(0.8 * l, 0.0, h * (0.5 + 0.49 * k as f64 / 20.0)));
+        let c = pixel(&px, size[0], x, y);
+        let off = (0..3).map(|i| c[i].abs_diff(reference[i])).max().unwrap();
+        assert!(off <= 12, "front face at ({x}, {y}): {c:?}, not its colour {reference:?}");
+    }
+}
+
+/// A line keeps its width up to its nearer end: two blocks side by side, the edge between them
+/// running towards the eye, the second block's front face rising beside it. Its quad runs past
+/// its ends along its own depth, else that end sinks into the face
+/// (docs/render/display.md#depth-of-lines).
+#[test]
+fn an_edge_keeps_its_width_to_its_nearer_end() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (l, w, h) = (738.0, 395.0, 149.0);
+    let block = Solid::new_box(DVec3::ZERO, DVec3::new(l, w, h)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &block, face_paint: &[] }]);
+    let second = DMat4::from_translation(DVec3::new(l, 0.0, 0.0));
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY), Placement::new(second)])];
+    let size = [4362, 2334];
+    let target = DVec3::new(675.0, 22.0, 79.0);
+    let eye = target + DVec3::new(71.5, -178.1, 145.2).normalize() * 340.0;
+    let view = glam::dcamera::rh::view::look_at_mat4(eye, target, DVec3::Z);
+    let aspect = size[0] as f32 / size[1] as f32;
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(35f32.to_radians(), aspect, 0.34);
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        axis_lines: &[],
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &[],
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 2.0,
+        model_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "edge_nearer_end");
+    for t in [0.03, 0.06, 0.1] {
+        let c = proj.as_dmat4() * view * DVec3::new(l, 0.0, h * (1.0 - t)).extend(1.0);
+        let n = c.truncate() / c.w;
+        let (x, y) = (((n.x + 1.0) * 0.5 * size[0] as f64).round() as i64, ((1.0 - n.y) * 0.5 * size[1] as f64).round() as u32);
+        let row: Vec<f64> = (-8..=8).map(|d| pixel(&px, size[0], (x + d) as u32, y)[1] as f64).collect();
+        let face = row[0].min(row[16]);
+        let ink = row.iter().map(|c| (face - c).max(0.0)).sum::<f64>() / (face - 40.0);
+        assert!(ink > 2.0, "{} % down the edge: {ink:.2} px of ink of its 3", t * 100.0);
+    }
+}
+
+/// An axis lying on an edge is drawn over it along its whole length, and its fainter negative
+/// half takes the colour of the face it covers instead of the background's
+/// (docs/render/display.md#depth-of-lines).
+#[test]
+fn an_axis_wins_over_its_edge_and_blends_over_a_face() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let block = Solid::new_box(DVec3::ZERO, DVec3::new(738.0, 395.0, 149.0)).unwrap().mesh().unwrap();
+    let mut r = Renderer::new(&device);
+    r.set_mesh(&device, 1, 0, &[Part { id: 1, mesh: &block, face_paint: &[] }]);
+    let batches = [Batch::new(1, vec![Placement::new(DMat4::IDENTITY)])];
+    let size = [1600, 900];
+    let target = DVec3::new(369.0, 100.0, 40.0);
+    let eye = target + DVec3::new(-572.0, -1144.0, 924.0);
+    let view = glam::dcamera::rh::view::look_at_mat4(eye, target, DVec3::Z);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(35f32.to_radians(), 16.0 / 9.0, 1.6);
+    let red = [0.85, 0.05, 0.05];
+    let line = |a: DVec3, b: DVec3, alpha: f32| Line { a, b, color: [red[0], red[1], red[2], alpha], dash: None, width: 1.5 };
+    // The X axis along the block's front bottom edge, and a faint line across its top face.
+    let (top_a, top_b) = (DVec3::new(100.0, 200.0, 149.0), DVec3::new(600.0, 200.0, 149.0));
+    let axes = [line(DVec3::new(-20000.0, 0.0, 0.0), DVec3::new(20000.0, 0.0, 0.0), 1.0), line(top_a, top_b, 0.35)];
+    let frame = Frame {
+        view,
+        proj,
+        background: [1.0, 1.0, 1.0],
+        style: Style::default(),
+        batches: &batches,
+        highlights: &[],
+        lines: &[],
+        axis_lines: &axes,
+        faint_lines: &[],
+        boxes: &[],
+        overlay: &[],
+        hidden_lines: &[],
+        fills: &[],
+        grid: None,
+        axes: false,
+        axes_frame: DMat4::IDENTITY,
+        pixels_per_point: 2.0,
+        model_per_point: 1.0,
+    };
+    let px = draw(&mut r, &device, &queue, size, &frame);
+    save(&px, size, "axis_over_edge");
+    let to_px = |p: DVec3| {
+        let c = proj.as_dmat4() * view * p.extend(1.0);
+        let n = c.truncate() / c.w;
+        (((n.x + 1.0) * 0.5 * size[0] as f64).round() as i64, ((1.0 - n.y) * 0.5 * size[1] as f64).round() as i64)
+    };
+    let around = |(x, y): (i64, i64)| {
+        let mut near = Vec::new();
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                near.push(pixel(&px, size[0], (x + dx) as u32, (y + dy) as u32));
+            }
+        }
+        near
+    };
+    for i in 1..60 {
+        let p = DVec3::new(738.0 * i as f64 / 60.0, 0.0, 0.0);
+        let reddest = around(to_px(p)).into_iter().max_by_key(|c| c[0] as i32 - c[1] as i32).unwrap();
+        let darkest = around(to_px(p)).iter().map(|c| c[0]).min().unwrap();
+        assert!(reddest[0] as i32 - reddest[1] as i32 > 120 && darkest > 100, "at {p}: {reddest:?}, red {darkest}: the edge shows");
+    }
+    let on_face = to_px(DVec3::new(350.0, 260.0, 149.0));
+    let face = pixel(&px, size[0], on_face.0 as u32, on_face.1 as u32);
+    let faint = around(to_px(top_a.lerp(top_b, 0.5))).into_iter().min_by_key(|c| c[1]).unwrap();
+    assert!(faint[0] > faint[1] + 25 && faint[1] + 15 < face[1], "{faint:?} over the face {face:?}");
 }
 
 /// Every segment of a B-rep edge is a mesh edge, with its two triangles (else it would be drawn

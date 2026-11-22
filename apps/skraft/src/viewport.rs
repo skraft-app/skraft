@@ -829,11 +829,12 @@ impl Viewport {
         // An open part always shows its axes (docs/model/opening-a-part.md): the grid leaves out its
         // lines along them.
         let axes = display.axes || editor.open_part().is_some();
-        let (mut lines, mut faint_lines, mut overlay, mut hidden_lines, mut boxes, mut fills) =
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut lines, mut axis_lines, mut faint_lines, mut overlay, mut hidden_lines, mut boxes, mut fills) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
         // Everything drawn over the model, through the drawer (docs/render/drawer.md).
         let out = Translated {
             lines: &mut lines,
+            axis_lines: &mut axis_lines,
             faint_lines: &mut faint_lines,
             overlay: &mut overlay,
             hidden_lines: &mut hidden_lines,
@@ -887,6 +888,7 @@ impl Viewport {
             batches: &batches,
             highlights: &highlights,
             lines: &lines,
+            axis_lines: &axis_lines,
             faint_lines: &faint_lines,
             boxes: &boxes,
             overlay: &overlay,
@@ -1019,6 +1021,7 @@ impl Viewport {
                 batches: &batches,
                 highlights: &[],
                 lines: &[],
+                axis_lines: &[],
                 faint_lines: &[],
                 boxes: &[],
                 overlay: &[],
@@ -1130,6 +1133,7 @@ fn draw_sheet_picture(
         batches: &batches,
         highlights: &[],
         lines: &[],
+        axis_lines: &[],
         faint_lines: &[],
         boxes: &[],
         overlay: &overlay,
@@ -1254,6 +1258,7 @@ fn theme_color(theme: &Theme, c: draw::Color) -> Rgba {
 /// The renderer's lists a [`draw::Drawing`] goes into.
 struct Translated<'a> {
     lines: &'a mut Vec<render::Line>,
+    axis_lines: &'a mut Vec<render::Line>,
     faint_lines: &'a mut Vec<render::Line>,
     overlay: &'a mut Vec<render::Line>,
     hidden_lines: &'a mut Vec<render::Line>,
@@ -1278,6 +1283,7 @@ impl Translated<'_> {
             let line = render::Line { a: l.a, b: l.b, color: color(p.color), dash: dash(p.stipple, p.lay, l.phase), width: p.width };
             match (p.layer, p.blended) {
                 (draw::Layer::Over, _) => self.overlay.push(line),
+                (draw::Layer::Axis, _) => self.axis_lines.push(line),
                 (draw::Layer::Scene, true) => self.faint_lines.push(line),
                 (draw::Layer::Scene, false) => self.lines.push(line),
             }

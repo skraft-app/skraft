@@ -220,11 +220,22 @@ Decision record: [Dashes laid on the segment](../decisions/0032-dashes-laid-on-t
   a pixel there times the tangent of the angle between the face's normal and the ray, capped
   at 50 where it is seen edge on —, and by 8 depth steps in their pipelines (`FACE_STEPS`: the
   `f32` rounding between a face and what lies on it). Measured on screen, the same at every
-  zoom, in perspective as in parallel.
+  zoom, in perspective as in parallel. In perspective the push is a share of the vertex's
+  position, so a corner behind the eye stays behind it and the near plane cuts its triangles.
   - An edge on a face draws (nearly) whole over it at any angle; what lies behind a face shows
     where it is nearer than about (7/8 + 1) half widths of the face's slope — the face recedes
     across the edge's quad too. A concealed hinge 5 mm behind a door's face is hidden at 12.7 m
     seen 25° off the door's normal; farther, or more at a glance, it shows.
+  - An edge's quad runs half a width past each end **along the edge's own depth** (linear on
+    screen), else its depth would be stretched over the segment and its nearer end would sink
+    into the face beside it. Not for a segment under 4 half widths on screen: seen end on, its
+    tip would rise through what hides it.
+  - The **model's axes** have their own pass, after the edges and the tools' lines: tested
+    against the depth a hair nearer (`AXIS_LIFT`, 10⁻⁵ of the depth), so an axis always wins over
+    an edge it lies on and stays hidden behind any face in front of it; blended at its alpha, no
+    depth written, so a negative half takes the colour of what it covers. Cut where its depth
+    doubles (`push_axis`): one quad from next to the eye to far away would round its far part
+    by more than the lift.
   - An **edge whose two faces turn away** is not drawn: its closed solid hides it, however close
     behind its faces (drawn for a ghost, seen through) — a small part's far edges.
   - The **section caps** write their own depth, which the pipelines' steps do not reach: their

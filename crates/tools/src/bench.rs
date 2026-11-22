@@ -699,6 +699,7 @@ fn bench_render_step() {
             batches: &batches,
             highlights: &[],
             lines: &[],
+            axis_lines: &[],
             faint_lines: &[],
             boxes: &[],
             overlay: &[],
