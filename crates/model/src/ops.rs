@@ -2395,15 +2395,16 @@ impl Document {
     /// no kernel. Without material (no positive, a machining swallowing it) the shape is empty
     /// (docs/model/bodies.md#empty-parts): the kernel says so.
     pub(crate) fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
-        if self.deferred == Some(part) {
-            return Ok(());
-        }
         let p = self.part(part)?;
+        // Before the deferred case: no kernel here, and a part without bodies needs its shape.
         if p.is_plain() || p.bodies.is_empty() {
             let empty = p.bodies.is_empty();
             let p = self.part_mut(part)?;
             p.shape = empty.then(|| Arc::new(Solid::empty()));
             p.failed.clear();
+            return Ok(());
+        }
+        if self.deferred == Some(part) {
             return Ok(());
         }
         let placed = |b: &Body| (p.solid_of(b).clone(), b.placement);

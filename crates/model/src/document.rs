@@ -346,7 +346,8 @@ impl Part {
     pub(crate) fn group_as_part(&self, def: &BodyDef) -> Part {
         let g = def.group.clone().unwrap_or_default();
         let mut p = Part { defs: self.defs.clone(), bodies: g.children, shape: None, failed: g.failed, faces: BTreeMap::new() };
-        if !p.bodies.is_empty() && !p.is_plain() {
+        // Only a plain part reads its shape from its body: an emptied group has none to read.
+        if !p.is_plain() {
             p.shape = Some(def.solid.clone());
         }
         p
