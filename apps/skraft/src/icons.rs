@@ -142,7 +142,6 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "edit.explode" => EXPLODE,
         "edit.make_unique" => UNIQUE,
         "edit.group_bodies" => GROUP,
-        "edit.ungroup_bodies" => EXPLODE,
         "edit.move_out" => MOVE_OUT,
         "edit.delete_guides" => GUIDES_DELETE,
         "view.section_clear" => SECTION_CLEAR,

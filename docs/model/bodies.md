@@ -226,7 +226,7 @@ body, its profile with it — still editable; any other comes as a group of copi
 
 - **Union**: the tool part's root comes **as a positive sub-group** of the target, its
   structure kept, its negatives reaching that sub-group only; a through-hole meant to drill
-  the target too is had by flattening the group (« Dégrouper »). A target with machinings at
+  the target too is had by flattening the group (« Éclater »). A target with machinings at
   its top level first has its bodies put in **a positive group of their own**, at the
   identity (its result the part as it was: no kernel; named after the part when the user
   named it, else « Groupe#n »), so they keep off the tools: `A ∪ B`, not `(A ∪ B) − N_A`. A
@@ -330,9 +330,10 @@ Decision record: [Body definitions may be groups: a CSG tree without history](..
 
 ### The interface
 
-- « Grouper les corps » / « Dégrouper » (`edit.group_bodies`, `edit.ungroup_bodies`, in
-  Assembler › Composants), « Sortir du groupe » ([Moving bodies](#moving-bodies)); in an open part, « Créer un assemblage » (G) and « Éclater » do the
-  same on its bodies.
+- « Grouper les corps » (`edit.group_bodies`, in Assembler › Composants), « Sortir du groupe »
+  ([Moving bodies](#moving-bodies)); in an open part, « Créer un assemblage » (G) groups its
+  bodies too. **« Éclater » (`edit.explode`) is one action whatever is selected**: it puts an
+  assembly's content in its context and, in an open part, flattens a group or a node.
 - **The outliner shows the bodies of every part under it**, a single one too (folded, open
   while the part is), drawn by their nature — an extrusion (`PRISM`), a revolution (`TURN`), a
   free B-rep (`SOLID`), a group (`GROUP`) — and named by their definition (« Body names »
@@ -497,7 +498,7 @@ part, at its level `path.group`).
   signs kept, all positive with no positive among them — a drill becomes a pin), then the
   bodies taken from the part.
 - `copy`: a new body of the same definition, the first one left where it was.
-- **« Sortir du groupe »** (`edit.move_out`, Assembler › Composants, after « Dégrouper »): the
+- **« Sortir du groupe »** (`edit.move_out`, Assembler › Composants, after « Grouper les corps »): the
   bodies selected one level up — out of the group or node open into its parent; at the part's
   root, out of the part —; that level then open, what moved selected (`Editor::move_out`).
 - **The navigator's drag and drop** (`panels::BodiesDrag`, its part open or not): a body's
