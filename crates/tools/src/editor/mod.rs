@@ -1610,6 +1610,12 @@ impl Editor {
                 // The tool's next step follows the cursor at once, not at its next move.
                 self.rehover();
             }
+            Command::KeepLastTracked => {
+                let older = self.tracked.len().saturating_sub(1);
+                self.tracked.drain(..older);
+                self.dwell = None;
+                self.rehover();
+            }
             Command::Replace { previous, op } => {
                 if self.history.undo_op() == Some(&*previous) && self.history.undo() {
                     self.after_change();

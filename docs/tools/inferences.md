@@ -117,7 +117,8 @@ becomes a **temporary reference**, with no click or key, as in SketchUp. The edi
 time from the app (`Editor::tick`, called every frame; it asks for a repaint while a point is
 waiting). `MAX_TRACKED` = 2 are kept, the most recent; each stays marked on screen with a
 ring. Their axes are `LineKind::TrackedAxis(k)` lines ("From point, on red axis"), whose guides
-are dashed from the reference. Tracked points drop with the locks.
+are dashed from the reference. Tracked points drop with the locks. When a rotation's preview
+starts, only the latest stays, so that the older one and their middle leave the view.
 
 With two tracked points, **their middle** is a point to infer (`TrackedMiddle`), marked by a
 small ring. It is offered even inside a solid (the centre of a box from two opposite corners)

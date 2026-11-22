@@ -264,6 +264,9 @@ impl RotateTool {
                 };
                 self.grips.clear();
                 self.snap = None;
+                if matches!(self.state, State::Angle { .. }) {
+                    return vec![Command::KeepLastTracked];
+                }
             }
             (ToolInput::Click { .. }, State::Reference { center, axis, dir }) => {
                 let Some((reference, reach)) = dir else {
@@ -271,6 +274,7 @@ impl RotateTool {
                 };
                 let reference_aim = self.snap.as_ref().map(|i| i.point);
                 self.state = State::Angle { center, axis, reference, reference_reach: reach, reference_aim, angle: 0.0, reach };
+                return vec![Command::KeepLastTracked];
             }
             (ToolInput::Click { .. }, State::Angle { center, axis, angle, .. }) => {
                 return self.finish(cx, center, axis, angle);

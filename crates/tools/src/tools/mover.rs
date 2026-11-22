@@ -171,7 +171,7 @@ impl MoveTool {
                     self.grips.clear();
                     self.snap = None;
                     self.cursor = None;
-                    return vec![];
+                    return vec![Command::KeepLastTracked];
                 }
                 let Some(from) = snap.map(|i| i.point) else { return vec![] };
                 self.grips.clear();
