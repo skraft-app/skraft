@@ -317,6 +317,24 @@ save_prompt:
 
 # Shown with no document open: at launch with nothing to open again, and when the last tab
 # closes.
+about:
+  tagline: "Un modeleur 3D simple et intuitif sur de vrais solides"
+  version: "Version %{version}"
+  copyright: "© 2026 Boris Beaulant"
+  notice: "Skraft est un logiciel libre : vous pouvez le redistribuer et le modifier selon les termes de la licence publique générale GNU, version 3. Il est fourni sans aucune garantie."
+  license: "Licence (GPL v3)"
+  third_party: "Toutes les licences tierces"
+  built_with: "Construit avec"
+  inspired: "Inspiré d'OpenCutList pour les pièces et les outils"
+  role:
+    kernel: "noyau B-rep"
+    sketchup: "lecture SketchUp"
+    adapted: "code adapté"
+    interface: "interface"
+    display: "affichage"
+    font: "police"
+    symbols: "symboles"
+  source: "Code source"
 start:
   title: "Skraft"
   new: "Nouveau document"
@@ -910,6 +928,10 @@ panel:
 # The app's messages, in toasts at the bottom right (apps/skraft/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).
 toast:
+  drop_hint: "Déposer pour ouvrir ou importer"
+  drop_unknown: "Format non pris en charge : %{file}"
+  drop_supported: "Skraft ouvre les fichiers .skraft, .skraftmat et .skrafttpl, et importe les fichiers STEP et SKP."
+  import_busy: "Un autre fichier est en cours d'import. Réessayer une fois celui-ci terminé."
   saved: "%{file} enregistré"
   export_failed: "Impossible d'exporter les matières"
   materials_imported: "%{count} matière importée de %{file}"

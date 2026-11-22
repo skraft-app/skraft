@@ -16,7 +16,7 @@
 use std::sync::mpsc::{Receiver, sync_channel};
 
 use muda::accelerator::{Accelerator, Code, Modifiers};
-use muda::{AboutMetadata, CheckMenuItem, Menu as Bar, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use muda::{CheckMenuItem, Menu as Bar, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use skraft_i18n::t;
 
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
@@ -203,9 +203,11 @@ fn build(views: &[CommandView], keymap: &Keymap) -> muda::Result<(Bar, Vec<(&'st
 
     // The app menu: macOS titles it with the app's name whatever its text.
     let app = Submenu::new(APP, true);
-    let about = AboutMetadata { name: Some(APP.to_owned()), version: Some(env!("CARGO_PKG_VERSION").to_owned()), ..Default::default() };
-    app.append(&PredefinedMenuItem::about(Some(&t!("menu.app.about", app = APP)), Some(about)))?;
-    app.append(&sep())?;
+    // The app's own window, not AppKit's panel: it holds the licenses (docs/ui/interface.md#about).
+    if let Some(v) = views.iter().find(|v| v.id == "app.about") {
+        append(&app, &item(v))?;
+        app.append(&sep())?;
+    }
     if let Some(v) = views.iter().find(|v| v.id == "app.preferences") {
         append(&app, &item(v))?;
         app.append(&sep())?;
@@ -225,8 +227,8 @@ fn build(views: &[CommandView], keymap: &Keymap) -> muda::Result<(Bar, Vec<(&'st
 
     let file = Submenu::new(Menu::File.label(), true);
     let mut first = true;
-    // Quit is in the app menu.
-    for v in views.iter().filter(|v| v.menu == Menu::File && v.id != "app.quit") {
+    // About and Quit are in the app menu.
+    for v in views.iter().filter(|v| v.menu == Menu::File && v.id != "app.quit" && v.id != "app.about") {
         if v.group && !first {
             file.append(&sep())?;
         }

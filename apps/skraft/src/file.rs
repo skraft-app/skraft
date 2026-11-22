@@ -29,6 +29,8 @@ pub enum Outcome {
     Opened { name: String, bytes: Vec<u8> },
     /// A file to import read: its name (without folders) and bytes.
     Imported { name: String, bytes: Vec<u8> },
+    /// A file dropped on the window could not be read: its name, why.
+    ReadFailed { name: String, error: String },
     /// An image picked for the texture of `material`, in document `doc`.
     TextureImage { doc: DocId, material: skraft_model::Id, bytes: Vec<u8> },
     /// A file written that is not a document's (materials exported): where.
@@ -115,6 +117,48 @@ pub fn import(inbox: &Inbox, ctx: &egui::Context) {
             ctx.request_repaint();
         }
     });
+}
+
+/// What a file dropped on the window is for, by its extension.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Dropped {
+    Open,
+    Import,
+}
+
+fn dropped_kind(path: &std::path::Path) -> Option<Dropped> {
+    let ext = path.extension()?.to_str()?;
+    let among = |list: &[&str]| list.iter().any(|e| e.eq_ignore_ascii_case(ext));
+    if among(&[EXTENSION, MATERIALS_EXTENSION, crate::templates::EXTENSION]) {
+        Some(Dropped::Open)
+    } else if among(IMPORT_EXTENSIONS) {
+        Some(Dropped::Import)
+    } else {
+        None
+    }
+}
+
+/// Reads a file dropped on the window: it arrives in `inbox` as one opened or imported from a
+/// dialog. `Err`: its name, not a file the app takes.
+pub fn drop_file(file: egui::DroppedFileHandle, inbox: &Inbox, ctx: &egui::Context) -> Result<(), String> {
+    let short = |p: &std::path::Path| p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned());
+    let Some(kind) = dropped_kind(file.path()) else { return Err(short(file.path())) };
+    let inbox = inbox.clone();
+    let ctx = ctx.clone();
+    spawn(async move {
+        #[cfg(not(target_arch = "wasm32"))]
+        let bytes = file.bytes();
+        #[cfg(target_arch = "wasm32")]
+        let bytes = file.bytes_async().await;
+        let path = file.path();
+        inbox.put(match (bytes, kind) {
+            (Ok(bytes), Dropped::Open) => Outcome::Opened { name: path.display().to_string(), bytes },
+            (Ok(bytes), Dropped::Import) => Outcome::Imported { name: short(path), bytes },
+            (Err(error), _) => Outcome::ReadFailed { name: short(path), error },
+        });
+        ctx.request_repaint();
+    });
+    Ok(())
 }
 
 /// Asks for an image for the texture of `material` (document `doc`); its bytes arrive in `inbox`.
@@ -276,4 +320,23 @@ fn download(name: &str, bytes: &[u8]) -> Result<(), wasm_bindgen::JsValue> {
     a.click();
     web_sys::Url::revoke_object_url(&url)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Dropped, dropped_kind};
+    use std::path::Path;
+
+    #[test]
+    fn a_dropped_file_is_opened_or_imported_by_its_extension() {
+        for name in ["a.skraft", "/b/c.SKRAFT", "m.skraftmat", "t.skrafttpl"] {
+            assert_eq!(dropped_kind(Path::new(name)), Some(Dropped::Open), "{name}");
+        }
+        for name in ["a.step", "b.STP", "/c/d.Step", "e.skp", "f.SKP"] {
+            assert_eq!(dropped_kind(Path::new(name)), Some(Dropped::Import), "{name}");
+        }
+        for name in ["a.png", "b", ".skraft", "c.skraft.zip"] {
+            assert_eq!(dropped_kind(Path::new(name)), None, "{name}");
+        }
+    }
 }

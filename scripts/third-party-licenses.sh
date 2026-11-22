@@ -28,6 +28,20 @@ done
 mkdir -p "$(dirname "$out")"
 cargo about generate --locked --fail -m apps/skraft/Cargo.toml about.hbs -o "$out"
 
+# SolidCore's crates that are not published: cargo-about skips those as private, like ours.
+{
+  echo "================================================================================"
+  echo "SolidCore crates not published on crates.io"
+  echo "(https://github.com/tangency-labs/solidcore), Apache License 2.0, its text above:"
+  echo
+  awk '/^name = /{ name = $3 } /^version = /{ version = $3 }
+       /^source = "git\+https:\/\/github.com\/tangency-labs\/solidcore/ { gsub(/"/, "", name); gsub(/"/, "", version); print name, version }' Cargo.lock |
+    while read -r name version; do
+      grep -q "^- $name $version " "$out" || echo "- $name $version"
+    done
+  echo
+} >> "$out"
+
 # The fonts, those with the same license text in one block.
 {
   echo "================================================================================"

@@ -8,31 +8,39 @@
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #eceef0; }
     canvas { display: block; width: 100%; height: 100%; outline: none; }
+    #loader { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 24px;
+              align-items: center; justify-content: center; background: #fbfaf6; }
+    /* The negative margin takes back the empty border of the logo's image. */
+    #loader img { width: 72px; height: 72px; margin-bottom: -7px; }
+    /* The name in IBM Plex Sans, as outlines: the app's font is in the wasm this waits for. */
+    #loader svg { height: 21px; margin: 3px 0; fill: #111; }
+    #loader div { width: 220px; height: 4px; border-radius: 2px; overflow: hidden; background: #efebe5; }
+    #loader i { display: block; width: 100%; height: 100%; background: #ee7a12;
+                transform: scaleX(0); transform-origin: left; transition: transform .15s linear; }
+    #loader.failed i { background: #c8352b; transform: scaleX(1); }
   </style>
 </head>
 <body>
   <canvas id="skraft"></canvas>
+  <div id="loader" role="progressbar" aria-label="Skraft" aria-valuemin="0" aria-valuemax="100">
+    <img src="favicon.svg" alt=""><svg viewBox="0 0 2761 752" width="77.32" height="21.06" aria-hidden="true"><path d="M260 752Q171 752 107 720Q44 688 0 636L89 550Q124 592 169 614Q214 636 268 636Q329 636 360 609Q391 582 391 538Q391 514 382 497Q374 479 353 467Q332 455 295 449L230 439Q160 428 113 402Q67 376 44 334Q21 292 21 236Q21 173 52 127Q83 81 139 56Q196 30 274 30Q353 30 412 57Q471 83 513 133L423 218Q397 186 360 166Q322 146 266 146Q211 146 182 168Q153 189 153 228Q153 255 163 272Q173 289 195 299Q216 308 250 315L315 327Q386 339 432 365Q478 391 500 432Q522 472 522 530Q522 596 491 646Q461 696 402 724Q343 752 260 752ZM646 740V0H773V340V446H779L848 352L965 218H1109L930 420L1129 740H976L843 506L773 581V740H646ZM1335 740H1208V218H1335V326H1340Q1347 298 1364 274Q1381 249 1409 233Q1438 218 1479 218H1506V339H1466Q1423 339 1394 347Q1365 356 1350 373Q1335 391 1335 420V740ZM2045 740H1974Q1945 740 1923 726Q1900 713 1888 687Q1875 661 1875 626V615L1907 650H1871Q1858 700 1818 726Q1777 752 1719 752Q1639 752 1596 710Q1553 667 1553 598Q1553 544 1579 509Q1606 474 1656 456Q1706 438 1776 438H1865V400Q1865 357 1842 332Q1819 308 1768 308Q1723 308 1695 327Q1667 347 1649 374L1573 306Q1602 261 1650 233Q1698 206 1777 206Q1882 206 1938 254Q1993 303 1993 392V638H2045V740ZM1865 515H1783Q1732 515 1708 531Q1683 548 1683 579V596Q1683 627 1704 643Q1724 659 1761 659Q1791 659 1814 651Q1837 642 1851 625Q1865 608 1865 584V515ZM2175 740V319H2098V218H2175V143Q2175 74 2212 37Q2249 0 2319 0H2410V102H2303V218H2410V319H2303V740H2175ZM2753 740H2662Q2596 740 2562 705Q2527 671 2527 607V319H2450V218H2490Q2519 218 2529 204Q2540 191 2540 164V75H2655V218H2761V319H2655V638H2753V740Z"/></svg><div><i></i></div>
+  </div>
   <script type="module">
     import init, { skraftCall } from "./pkg/skraft.js";
+    import { wheelLines } from "./wheel.js";
 
-    // Chrome and Safari report mouse wheel notches in pixels (deltaMode 0), like trackpad
-    // scrolling: eframe then hands them as MouseWheelUnit::Point, which the viewport takes for
-    // a trackpad (orbit). Tell them apart with the non-standard wheelDeltaY: a trackpad gives
-    // wheelDeltaY == -3 * deltaY, a wheel multiples of 120. Wheel events are re-dispatched in
-    // lines (one per notch), as winit does natively, so the viewport zooms.
+    // A mouse wheel's events are re-dispatched in lines, as winit gives them natively, so the
+    // viewport zooms; a trackpad's go through (web/wheel.js).
     const canvas = document.getElementById("skraft");
-    const isWheelNotch = (e) => {
-      if (e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || e.ctrlKey) return false; // ctrl: pinch
-      const w = e.wheelDeltaY;
-      if (typeof w !== "number" || w === 0 || w % 120 !== 0 || e.deltaX !== 0) return false;
-      return Math.abs(w + 3 * e.deltaY) > 1;
-    };
+    const linesOf = wheelLines(navigator.vendor);
     window.addEventListener("wheel", (e) => {
-      if (!e.isTrusted || e.target !== canvas || !isWheelNotch(e)) return;
+      if (!e.isTrusted || e.target !== canvas) return;
+      const lines = linesOf(e);
+      if (!lines) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       canvas.dispatchEvent(new WheelEvent("wheel", {
-        deltaX: 0, deltaY: -e.wheelDeltaY / 120, deltaMode: WheelEvent.DOM_DELTA_LINE,
+        deltaX: 0, deltaY: lines, deltaMode: WheelEvent.DOM_DELTA_LINE,
         clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY,
         shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey,
         bubbles: true, cancelable: true,
@@ -44,7 +52,50 @@
     // result (an Uint8Array of PNG for a screenshot), rejected with an Error.
     window.skraft = { call: (method, params) => skraftCall(method, params ?? null) };
 
-    init();
+    // The loading screen, without text but the app's name drawn: the catalogs are in the wasm
+    // it waits for. Progress
+    // counts decompressed bytes against the sizes `scripts/build-web.sh` writes here, since a
+    // compressed response's Content-Length says nothing about them.
+    const loader = document.getElementById("loader");
+    const bar = loader.querySelector("i");
+    const sizes = { ui: Number("__UI_WASM_BYTES__") };
+    const loaded = { ui: 0, kernel: 0 };
+    const paint = () => {
+      const total = Object.values(sizes).reduce((a, b) => a + b, 0);
+      const ratio = Math.min(1, (loaded.ui + loaded.kernel) / total);
+      bar.style.transform = `scaleX(${ratio})`;
+      loader.setAttribute("aria-valuenow", Math.round(ratio * 100));
+    };
+    const counted = async (url, key) => {
+      const response = await fetch(url);
+      if (!response.ok || !response.body) return response;
+      const body = response.body.pipeThrough(new TransformStream({
+        transform(chunk, out) { loaded[key] += chunk.length; paint(); out.enqueue(chunk); },
+      }));
+      // The same headers: `application/wasm` keeps the streaming compile.
+      return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+    };
+
+    // The kernel's wasm is fetched now, for the worker to find it in the HTTP cache: the worker
+    // only starts once the UI's wasm runs. Not without WebGPU, where the app only says so. A
+    // failure here is not the page's: the worker reports its own.
+    let kernel = Promise.resolve();
+    if (navigator.gpu) {
+      sizes.kernel = Number("__KERNEL_WASM_BYTES__");
+      kernel = counted("./worker/skraft_kernel_worker_bg.wasm", "kernel")
+        .then((response) => response.body?.pipeTo(new WritableStream()))
+        .catch((err) => console.error("Skraft: kernel preload failed", err));
+    }
+
+    try {
+      await init({ module_or_path: counted("./pkg/skraft_bg.wasm", "ui") });
+      await kernel;
+      await new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame)));
+      loader.remove();
+    } catch (err) {
+      console.error("Skraft failed to load", err);
+      loader.classList.add("failed");
+    }
   </script>
 </body>
 </html>

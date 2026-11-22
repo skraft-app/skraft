@@ -275,6 +275,24 @@ save_prompt:
   dont_save: "Don't Save"
   cancel: "Cancel"
 
+about:
+  tagline: "A simple, intuitive 3D modeller on real solids"
+  version: "Version %{version}"
+  copyright: "© 2026 Boris Beaulant"
+  notice: "Skraft is free software: you can redistribute it and modify it under the terms of the GNU General Public License, version 3. It comes with no warranty."
+  license: "License (GPL v3)"
+  third_party: "All third-party licenses"
+  built_with: "Built with"
+  inspired: "Inspired by OpenCutList for parts and tools"
+  role:
+    kernel: "B-rep kernel"
+    sketchup: "SketchUp reader"
+    adapted: "adapted code"
+    interface: "interface"
+    display: "display"
+    font: "font"
+    symbols: "symbols"
+  source: "Source code"
 start:
   title: "Skraft"
   new: "New Document"
@@ -823,6 +841,10 @@ panel:
     sign_intersect: "Intersection: the part keeps only what lies inside it. Click to make it a blank"
 
 toast:
+  drop_hint: "Drop to open or import"
+  drop_unknown: "Unsupported format: %{file}"
+  drop_supported: "Skraft opens .skraft, .skraftmat and .skrafttpl files, and imports STEP and SKP files."
+  import_busy: "Another file is being imported. Try again once it is done."
   saved: "%{file} saved"
   export_failed: "Could not export the materials"
   materials_imported: "%{count} material imported from %{file}"

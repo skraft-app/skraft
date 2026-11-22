@@ -29,5 +29,13 @@ package() {
 
 package skraft apps/skraft skraft pkg
 package skraft-kernel-worker apps/kernel-worker skraft_kernel_worker worker
-cp web/index.html web/kernel-worker.js web/favicon.svg dist/web/
+cp web/kernel-worker.js web/wheel.js web/favicon.svg dist/web/
+# The loading screen's progress needs the decompressed sizes.
+sed -e "s/__UI_WASM_BYTES__/$(wc -c < dist/web/pkg/skraft_bg.wasm | tr -d ' ')/" \
+    -e "s/__KERNEL_WASM_BYTES__/$(wc -c < dist/web/worker/skraft_kernel_worker_bg.wasm | tr -d ' ')/" \
+    web/index.html > dist/web/index.html
+# What the « À propos » window links to (docs/ui/interface.md#about); cargo-about is slow to run.
+if [ "$profile" != "dev" ]; then
+  scripts/third-party-licenses.sh dist/web/THIRD-PARTY-LICENSES.txt > /dev/null
+fi
 echo "dist/web prêt : python3 -m http.server 8080 -d dist/web  →  http://localhost:8080"
