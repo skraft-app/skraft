@@ -321,7 +321,7 @@ mod tests {
             e.apply(Operation::AddSheetFrom { template, sheet: None, presentation: None, name: None }).unwrap().unwrap().sheet.unwrap();
         settle(&mut e, &hold);
         let to = Container::Sheet(sheet);
-        let view = |kind| ElementKind::View(View { name: "V".into(), kind, style: ViewStyle::Lines });
+        let view = |kind| ElementKind::View(View { name: "V".into(), kind, style: ViewStyle::Lines, crop: None });
         let base =
             ViewKind::Base { subject: Subject::Model, look: Look::Standard(Direction::Front), scale: 0.1, at: DVec2::new(110.0, 110.0) };
         let front = e.apply(Operation::AddElement { to, element: view(base) }).unwrap().unwrap().element.unwrap();
@@ -431,7 +431,7 @@ mod tests {
         let look = Look::Camera { forward: glam::DVec3::new(300.0, 200.0, 150.0) - eye, up: glam::DVec3::Z, perspective: Some(lens) };
         let at = DVec2::new(210.0, 150.0);
         let kind = ViewKind::Base { subject: Subject::Model, look, scale: 1.0, at };
-        let element = ElementKind::View(View { name: "V".into(), kind, style: ViewStyle::Lines });
+        let element = ElementKind::View(View { name: "V".into(), kind, style: ViewStyle::Lines, crop: None });
         let id = e.apply(Operation::AddElement { to: Container::Sheet(sheet), element }).unwrap().unwrap().element.unwrap();
         settle(&mut e, &hold);
         let r = e.document().drawing().resolve(id).unwrap();

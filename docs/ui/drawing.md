@@ -100,14 +100,35 @@ dimension whose anchor is no longer shown becomes an orphan.
 ### Framing a view
 
 « Cadrer la vue » (`drawing.frame_view`, or a double click on a view; a projected view opens its
-base) shows the view's subject alone, large over the free area (`view_framer::ViewFramer`, decision
-0051), the part its frame will hold unmasked. A drag turns it, as the 3D view's orbit and short of
-going over the top; the right button pans, the wheel zooms; those two only move what is seen here.
-A bar puts it on a standard direction. **Valider** (Enter) changes the view in one undoable step,
-its projected views following; **Annuler** (Esc) leaves it. The 3D view's camera and selection do
-not move, and while it is open the commands that change the document are off. A direction is in
-the subject's axes: « Caméra » takes the 3D camera into a component's axes through its first
-occurrence.
+base) shows the view's subject alone over the free area (`view_framer::ViewFramer`, decisions 0051
+and 0052). **The view's frame never moves**, what lies outside it masked, and only the picture does:
+
+- a **drag turns it** about the point pressed, which stays where it is in the frame, short of going
+  over the top;
+- the **wheel** zooms gently at the pointer: in parallel the scale shown runs freely (« ≈ 1:3.7 »)
+  and settles on the nearest standard one a quarter of a second after it stops; in perspective the
+  eye moves towards the point there;
+- the **right button slides the picture**, the point of view unchanged;
+- **Shift + drag moves the point of view** across (in parallel, the same as sliding).
+
+A part of the subject always stays in the frame. A bar puts it on a standard direction, the subject
+centred. **« Tout montrer »** keeps the frame and adapts the scale (the largest standard one holding
+the subject) or the eye; **« Ajuster le cadre »** keeps the scale and sizes the frame around the
+subject. **Valider** (Enter) changes the view in one undoable step, its projected views following;
+**Annuler** (Esc) leaves it. The 3D view's camera and selection do not move, and while it is open
+the commands that change the document are off. A direction is in the subject's axes: « Caméra »
+takes the 3D camera into a component's axes through its first occurrence.
+
+**A frame is automatic or free**, as the entity info says. *Automatic* (a new view, or after
+« Ajuster le cadre » in parallel): it is the subject's box and follows the model; a view only turned
+stays so and takes its new box when validated. *Free*: it stays as placed; a view slid, zoomed or
+cropped becomes free. A perspective view's frame is always free.
+
+**A view's crop** (`View::crop`, optional) is its frame on the paper, in millimetres from `at`; a
+view without one shows its whole subject. A parallel view keeps its exact scale, so its dimensions
+stay right; they stay drawn outside the frame. The **handles** crop it: the corner moves, the
+opposite one and the picture stay. With Shift, a parallel view's handle changes its scale, which
+takes the crop along. Another direction or subject from the entity info drops the crop.
 
 ### Perspective views
 
@@ -117,8 +138,8 @@ so that the subject keeps its size. There, the right button moves the eye across
 the subject, and the standard directions stay in perspective. A view others are projected from
 stays parallel.
 
-A perspective view (`Perspective`: eye, opening, size on the paper) has **its own frame**: its
-handles crop it about its centre, what it shows keeping its size. It is marked « Sans échelle »,
+A perspective view (`Perspective`: eye, opening, and the size on the paper that opening spans) has
+**its own frame**, cropped as above. It is marked « Sans échelle »,
 takes no part in the sheet's scale field and takes **no dimension**: those it has are kept, hidden,
 counted in its entity info, and come back in parallel. Its lines come from the display meshes,
 cut at the eye and at its frame ([Lines](#lines)).

@@ -229,7 +229,8 @@ impl Document {
                         Subject::Component(c) => self.components.contains_key(c),
                         Subject::Occurrences(paths) => !paths.is_empty(),
                     };
-                    look_ok && subject_ok && scale.is_finite() && *scale > 0.0 && finite(*at)
+                    let crop_ok = v.crop.is_none_or(|c| finite(c.lo) && finite(c.hi) && c.hi.cmpgt(c.lo).all());
+                    look_ok && subject_ok && crop_ok && scale.is_finite() && *scale > 0.0 && finite(*at)
                 }
                 ViewKind::Projected { base, distance, .. } => {
                     if Some(*base) == own || own.is_some_and(|o| self.drawing.projections_of(o).contains(base)) {

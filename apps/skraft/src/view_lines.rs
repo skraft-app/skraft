@@ -46,7 +46,9 @@ impl LinesJob {
         let f = &r.frame;
         let lens = r.perspective.map(|p| {
             let t = (p.fov_y / 2.0).tan();
-            Lens { eye: p.eye, half: glam::DVec2::new(t * p.size.x / p.size.y, t) }
+            let full = glam::DVec2::new(t * p.size.x / p.size.y, t);
+            let (lo, hi) = r.crop.map_or((-full, full), |c| (c.lo / (p.size / 2.0) * full, c.hi / (p.size / 2.0) * full));
+            Lens { eye: p.eye, lo, hi }
         });
         let look = Look { right: f.right, up: f.up, forward: f.forward, lens };
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -54,7 +56,7 @@ impl LinesJob {
             v.to_array().map(f64::to_bits).hash(&mut h);
         }
         if let Some(l) = lens {
-            [l.eye.x, l.eye.y, l.eye.z, l.half.x, l.half.y].map(f64::to_bits).hash(&mut h);
+            [l.eye.x, l.eye.y, l.eye.z, l.lo.x, l.lo.y, l.hi.x, l.hi.y].map(f64::to_bits).hash(&mut h);
         }
         for (m, t) in &meshes {
             (Arc::as_ptr(m) as usize).hash(&mut h);

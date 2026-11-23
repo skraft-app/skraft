@@ -28,6 +28,7 @@ fn base(look: Look) -> ElementKind {
         name: "Face".into(),
         kind: ViewKind::Base { subject: Subject::Model, look, scale: 0.1, at: DVec2::new(100.0, 150.0) },
         style: ViewStyle::Lines,
+        crop: None,
     })
 }
 
@@ -36,7 +37,12 @@ fn front() -> ElementKind {
 }
 
 fn projected(base: Id, side: Side) -> ElementKind {
-    ElementKind::View(View { name: "P".into(), kind: ViewKind::Projected { base, side, distance: 80.0 }, style: ViewStyle::Lines })
+    ElementKind::View(View {
+        name: "P".into(),
+        kind: ViewKind::Projected { base, side, distance: 80.0 },
+        style: ViewStyle::Lines,
+        crop: None,
+    })
 }
 
 fn rect() -> ElementKind {
@@ -181,6 +187,7 @@ fn views_refuse_loops_perspective_bases_and_bad_values() {
         name: "x".into(),
         kind: ViewKind::Base { subject: Subject::Component(Id(4242)), look: Look::Standard(Direction::Top), scale: 1.0, at: DVec2::ZERO },
         style: ViewStyle::Rendered,
+        crop: None,
     });
     assert!(matches!(add(&mut h, s, gone).unwrap_err(), Error::Invalid(Refusal::BadElement)));
 }
@@ -669,6 +676,7 @@ fn a_drawing_goes_through_the_file() {
                 at: DVec2::ONE,
             },
             style: ViewStyle::Hybrid,
+            crop: None,
         }),
     )
     .unwrap();
