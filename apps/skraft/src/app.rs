@@ -449,6 +449,12 @@ impl SkraftApp {
                 }
                 if let Some(d) = self.docs.active_mut() {
                     d.workspace = workspace::find(view.workspace.as_deref());
+                    if let Some(camera) = view.camera.as_ref().and_then(skraft_tools::Camera::from_seen) {
+                        d.editor.camera = camera;
+                    }
+                    if let Some(board) = &view.board {
+                        d.sheet.restore(d.editor.document().drawing(), board);
+                    }
                 }
             }
             Err(_) => self.toasts.push(Note::info(t!("toast.too_many_documents", max = crate::docs::MAX_OPEN))),
@@ -1457,7 +1463,7 @@ impl SkraftApp {
         // The name offered: its file's, else the default one.
         let name = d.path.as_deref().map(file_name).map(|n| n.trim_end_matches(&format!(".{}", file::EXTENSION)).to_owned());
         let name = name.unwrap_or_else(|| t!("default_name.file"));
-        let view = FileView { workspace: Some(d.workspace.id.to_owned()) };
+        let view = FileView { workspace: Some(d.workspace.id.to_owned()), camera: Some(d.editor.camera.seen()), board: d.sheet.seen() };
         file::save(id, d.editor.document(), &view, d.editor.history().revision(), path.as_deref(), &name, &self.inbox, &self.ctx);
     }
 

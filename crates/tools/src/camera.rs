@@ -5,6 +5,7 @@
 //! ), and the tools a picking [`Ray`] per pixel.
 
 use glam::{DMat3, DMat4, DVec2, DVec3, Mat4};
+use skraft_model::{SeenCamera, SeenProjection};
 
 /// How close to its vanishing point an infinite line is drawn, in pixels.
 pub const VANISHING_PX: f64 = 0.25;
@@ -149,6 +150,29 @@ pub fn orthonormal_frame(m: DMat3) -> Option<DMat3> {
 }
 
 impl Camera {
+    /// What a file keeps of it (docs/io/file-format.md).
+    pub fn seen(&self) -> SeenCamera {
+        let projection = match self.projection {
+            Projection::Perspective { fov_y } => SeenProjection::Perspective { fov_y },
+            Projection::Parallel { height } => SeenProjection::Parallel { height },
+        };
+        SeenCamera { eye: self.eye, yaw: self.yaw, pitch: self.pitch, projection, focus: self.focus, frame: self.frame }
+    }
+
+    /// The camera a file kept; `None` if it cannot be one (a file is untrusted).
+    pub fn from_seen(s: &SeenCamera) -> Option<Camera> {
+        let projection = match s.projection {
+            SeenProjection::Perspective { fov_y } if fov_y > 0.0 && fov_y < std::f64::consts::PI => Projection::Perspective { fov_y },
+            SeenProjection::Parallel { height } if height > 0.0 && height.is_finite() => Projection::Parallel { height },
+            _ => return None,
+        };
+        if !s.eye.is_finite() || !s.yaw.is_finite() || !s.pitch.is_finite() || !s.focus.is_finite() || s.focus <= 0.0 {
+            return None;
+        }
+        let frame = orthonormal_frame(s.frame).filter(|f| f.is_finite())?;
+        Some(Camera { eye: s.eye, yaw: s.yaw, pitch: s.pitch.clamp(-MAX_PITCH, MAX_PITCH), projection, focus: s.focus, frame })
+    }
+
     pub fn forward(&self) -> DVec3 {
         self.frame * level_forward(self.yaw, self.pitch)
     }
@@ -702,6 +726,32 @@ mod tests {
         assert!((f.determinant() - m.determinant().signum()).abs() < 1e-12);
         assert!((f.z_axis + DVec3::Z).length() < 1e-12 && f.x_axis.dot(DVec3::X) > 0.99);
         assert!(orthonormal_frame(DMat3::ZERO).is_none());
+    }
+
+    #[test]
+    fn a_camera_comes_back_from_what_a_file_keeps() {
+        let mut c = Camera::default();
+        (c.yaw, c.pitch) = (1.25, -0.5);
+        assert_eq!(Camera::from_seen(&c.seen()), Some(c.clone()));
+        c.set_parallel(true);
+        assert_eq!(Camera::from_seen(&c.seen()), Some(c.clone()));
+    }
+
+    #[test]
+    fn a_camera_a_file_cannot_mean_is_refused() {
+        let good = Camera::default().seen();
+        for bad in [
+            SeenCamera { eye: DVec3::NAN, ..good },
+            SeenCamera { yaw: f64::INFINITY, ..good },
+            SeenCamera { focus: 0.0, ..good },
+            SeenCamera { frame: DMat3::ZERO, ..good },
+            SeenCamera { projection: SeenProjection::Perspective { fov_y: 4.0 }, ..good },
+            SeenCamera { projection: SeenProjection::Parallel { height: -1.0 }, ..good },
+        ] {
+            assert_eq!(Camera::from_seen(&bad), None);
+        }
+        let steep = Camera::from_seen(&SeenCamera { pitch: 3.0, ..good }).unwrap();
+        assert_eq!(steep.pitch, MAX_PITCH);
     }
 
     #[test]
