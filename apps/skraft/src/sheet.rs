@@ -2363,9 +2363,11 @@ impl Paperview {
 /// The least room (points, each way) the sheet is framed in.
 const MIN_FIT_ROOM: f32 = 160.0;
 /// Above the board's top when it is framed: the presentations' and the first sheets' names.
-const NAMES_PT: f32 = 44.0;
+const NAMES_PT: f32 = 54.0;
 /// A sheet's name needs this much gap above it (points).
 const SHEET_NAME_PT: f32 = 18.0;
+/// How far above its column's top a presentation's name stands, past the first sheet's name.
+const COLUMN_NAME_PT: f32 = 28.0;
 /// A sheet with less than this share of it in the room counts as off screen.
 const REVEAL_SHARE: f32 = 0.25;
 /// The active sheet's outline and what is picked.
@@ -2566,9 +2568,55 @@ fn board_name(painter: &egui::Painter, bottom: egui::Pos2, text: &str, size: f32
     painter.galley(bottom - egui::vec2(galley.size().x / 2.0, galley.size().y), galley, color);
 }
 
-/// The presentations' names on top of their columns, and the sheets' above them while their gap
-/// has room.
-fn draw_names(painter: &egui::Painter, view: Paperview, board: &Board, d: &Drawing, active: Option<Id>, ink: egui::Color32) {
+/// The height of a marked presentation's name.
+const COLUMN_PILL_PT: f32 = 22.0;
+
+/// A marked column: its name on the selection colour, where an unmarked one stands, and a dotted
+/// frame broken around it, whose sides stay within half the gap to the next column.
+fn draw_marked_column(
+    painter: &egui::Painter,
+    view: Paperview,
+    board: &Board,
+    column: &crate::sheet_board::Column,
+    name: &str,
+    above: f32,
+    room: f32,
+) {
+    let (lo, hi) = column.bounds();
+    let r = view.rect(lo, hi);
+    let zoom = view.zoom as f32;
+    let margin = (board.gap as f32 * zoom * 0.5).max(6.0).min(board.column_gap as f32 * zoom * 0.45);
+    let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), egui::FontId::proportional(14.0), egui::Color32::WHITE);
+    job.wrap = egui::text::TextWrapping::truncate_at_width((room - 16.0).max(1.0));
+    let galley = painter.layout_job(job);
+    let middle = r.top() - above - galley.size().y / 2.0;
+    let frame = egui::Rect::from_min_max(egui::pos2(r.left() - margin, middle), egui::pos2(r.right() + margin, r.bottom() + margin));
+    let pill = egui::Rect::from_center_size(egui::pos2(frame.center().x, middle), egui::vec2(galley.size().x + 16.0, COLUMN_PILL_PT));
+    let (left, right) = (pill.left().max(frame.left()), pill.right().min(frame.right()));
+    let path = [
+        egui::pos2(right, middle),
+        frame.right_top(),
+        frame.right_bottom(),
+        frame.left_bottom(),
+        frame.left_top(),
+        egui::pos2(left, middle),
+    ];
+    painter.extend(egui::Shape::dashed_line(&path, egui::Stroke::new(1.5, ACCENT), 5.0, 4.0));
+    painter.rect_filled(pill, 4.0, ACCENT);
+    painter.galley(pill.center() - galley.size() / 2.0, galley, egui::Color32::WHITE);
+}
+
+/// The presentations' names on top of their columns, the one of `marked` standing out, and the
+/// sheets' above them while their gap has room.
+fn draw_names(
+    painter: &egui::Painter,
+    view: Paperview,
+    board: &Board,
+    d: &Drawing,
+    active: Option<Id>,
+    marked: Option<Id>,
+    ink: egui::Color32,
+) {
     if view.zoom <= 0.0 {
         return;
     }
@@ -2585,9 +2633,13 @@ fn draw_names(painter: &egui::Painter, view: Paperview, board: &Board, d: &Drawi
         }
         let Some(p) = d.presentation(column.presentation) else { continue };
         let top = view.to_screen(DVec2::new(column.centre, 0.0));
-        let above = if with_sheets { SHEET_NAME_PT } else { 4.0 };
+        let above = if with_sheets { COLUMN_NAME_PT } else { 4.0 };
         let room = (column.width + board.column_gap) as f32 * zoom;
-        board_name(painter, top - egui::vec2(0.0, above), &p.name, 14.0, ink, room);
+        if Some(column.presentation) == marked {
+            draw_marked_column(painter, view, board, column, &p.name, above, room);
+        } else {
+            board_name(painter, top - egui::vec2(0.0, above), &p.name, 14.0, ink, room);
+        }
     }
 }
 
@@ -2631,6 +2683,7 @@ pub fn ui(
     let (clicked, double) = (response.clicked() && !taken, response.double_clicked() && !taken);
     let shown = st.shown(e.document().drawing()).map(|s| (s.id, s.paper));
     let painter = ui.painter().with_clip_rect(paper_room);
+    let marked = st.presentation(e.document().drawing()).map(|p| p.id);
     // What the other sheets ask for, after what the active one does.
     let mut others = Vec::new();
     if let Some((id, paper)) = shown {
@@ -3181,7 +3234,7 @@ pub fn ui(
     if st.framing.is_some() {
         ui.ctx().request_repaint();
     }
-    draw_names(&painter, Paperview::new(centre, st.pan, st.zoom), &board, e.document().drawing(), shown.map(|s| s.0), ink);
+    draw_names(&painter, Paperview::new(centre, st.pan, st.zoom), &board, e.document().drawing(), shown.map(|s| s.0), marked, ink);
     wanted
 }
 
