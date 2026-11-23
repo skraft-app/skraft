@@ -160,6 +160,8 @@ screen takes its buttons, fields and rows from there.
   hovered or pressed (the title bar, the tabs; `show_at` for a strip laid out by hand), `Bar` the
   floating bars' (the view bar, the quick tools): it senses drags even when it cannot run, so it
   is dimmed rather than disabled.
+- **`pin_row`**, a command's row and its pin, in the menus choosing what a bar shows (the
+  ribbon's groups, the ▾ of the view bar and of the quick tools).
 - **`framed_field`** (the one text field), `rename_field` and `start_rename` (a name edited in
   its row), `cut_label`.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.

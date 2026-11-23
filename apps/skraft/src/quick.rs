@@ -8,7 +8,7 @@ use skraft_i18n::t;
 use crate::icons;
 use crate::panels::{Action, CommandView};
 use crate::style::Tip;
-use crate::widgets::{IconButton, Look};
+use crate::widgets::{IconButton, Look, PinRow, pin_row};
 
 /// The commands the card can show, in its order.
 pub const COMMANDS: &[&str] =
@@ -102,35 +102,30 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
     let response = response.tip(t!("quick_tools.choose"));
     // A pin clicked leaves it open, as the ribbon's group menus; a row run closes it.
     Popup::menu(&response).style(crate::style::menu).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        let ink = ui.visuals().text_color();
         for &id in COMMANDS {
             let Some(c) = views.iter().find(|v| v.id == id) else { continue };
-            ui.horizontal(|ui| {
-                let mut b = match icons::command(id) {
-                    Some(icon) => {
-                        egui::Button::image_and_text(egui::Image::new(icon).fit_to_exact_size(vec2(16.0, 16.0)).tint(ink), &c.label)
-                    }
-                    None => egui::Button::new(&c.label),
-                };
-                // Its shortcut on the right; none, an empty one still pushes the label to the
-                // left (else centred).
-                b = b.min_size(vec2(190.0, 22.0)).shortcut_text(c.shortcut.clone().unwrap_or_default());
-                if ui.add_enabled(c.enabled, b).clicked() {
-                    actions.push(Action::QuickTool(id));
-                    ui.close();
-                }
-                let on = pinned.contains(&id);
-                let (icon, tint) = if on {
-                    (icons::PIN_FILLED, ui.visuals().selection.stroke.color)
-                } else {
-                    (icons::PIN, ui.visuals().weak_text_color().gamma_multiply(0.55))
-                };
-                let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
-                let tip = if on { t!("quick_tools.unpin") } else { t!("quick_tools.pin") };
-                if ui.add(pin).tip(tip).clicked() {
-                    actions.push(Action::QuickPin(id));
-                }
-            });
+            let on = pinned.contains(&id);
+            let (run, pin) = pin_row(
+                ui,
+                PinRow {
+                    icon: icons::command(id),
+                    check: None,
+                    label: &c.label,
+                    shortcut: c.shortcut.as_deref(),
+                    enabled: c.enabled,
+                    selected: false,
+                    width: 190.0,
+                    pinned: on,
+                    pin_tip: if on { t!("quick_tools.unpin") } else { t!("quick_tools.pin") },
+                },
+            );
+            if run.clicked() {
+                actions.push(Action::QuickTool(id));
+                ui.close();
+            }
+            if pin {
+                actions.push(Action::QuickPin(id));
+            }
         }
         // The note wraps within the rows' width instead of widening the menu.
         let width = ui.min_rect().width();
