@@ -458,13 +458,6 @@ fn kept_cutters(spans: &[Option<(f64, f64)>], moves: &[f64], lo: f64, hi: f64) -
         .collect()
 }
 
-/// The distance from `p` to the segment `a`–`b` (pixels).
-fn segment_distance(p: DVec2, a: DVec2, b: DVec2) -> f64 {
-    let ab = b - a;
-    let t = if ab.length_squared() > 0.0 { ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
-    p.distance(a + ab * t)
-}
-
 /// Is `p` inside the convex polygon `poly` (either winding; not when it is flat)?
 fn inside(p: DVec2, poly: &[DVec2]) -> bool {
     let n = poly.len();
@@ -818,7 +811,7 @@ impl StretchTool {
         self.cutters[k].iter().position(|r| {
             let corners = target.plane(k, target.at(k, *r), inflate);
             let Some(c) = corners.iter().map(|w| cx.camera.project(*w, cx.size)).collect::<Option<Vec<_>>>() else { return false };
-            inside(px, &c) || (0..4).any(|i| segment_distance(px, c[i], c[(i + 1) % 4]) <= CUTTER_PX)
+            inside(px, &c) || (0..4).any(|i| crate::segment::nearest(px, c[i], c[(i + 1) % 4]).1 <= CUTTER_PX)
         })
     }
 
@@ -852,7 +845,7 @@ impl StretchTool {
         let screen = |p: DVec3| cx.camera.project(target.world(p), cx.size);
         let (index, a, b) = self.handles(target, k).into_iter().find(|(_, a, b)| {
             let (Some(sa), Some(sb)) = (screen(*a), screen(*b)) else { return false };
-            segment_distance(px, sa, sb) <= HANDLE_PX
+            crate::segment::nearest(px, sa, sb).1 <= HANDLE_PX
         })?;
         let clamp = |mut p: DVec3| {
             let mut on = a;
