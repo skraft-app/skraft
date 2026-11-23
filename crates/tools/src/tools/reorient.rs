@@ -30,6 +30,8 @@ const ARROW_WIDTH: f32 = 2.0;
 const EDGE_WIDTH: f32 = 4.0;
 /// The axes helper's length and section (pixels).
 const AXES_PX: (f64, f64) = (90.0, 3.0);
+/// The arrows on the part as it is, OpenCutList's.
+const ARROW: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 /// What is read of the target once, while it stays as it is.
 #[derive(Clone, Debug)]
@@ -224,8 +226,8 @@ fn axes_helper(d: &mut Drawer<'_>) {
 /// dashed, and on its front, and its box dotted.
 fn draw_current(d: &mut Drawer<'_>, (lo, hi): (DVec3, DVec3)) {
     let (u, v) = (DVec3::X * (hi.x - lo.x), DVec3::Y * (hi.y - lo.y));
-    d.pen(Pen::new(INK).width(ARROW_WIDTH).stipple(Stipple::ShortDashes)).arrow(lo, u, v);
-    d.pen(Pen::new(INK).width(ARROW_WIDTH)).arrow(DVec3::new(lo.x, lo.y, hi.z), u, v);
+    d.pen(Pen::new(ARROW).width(ARROW_WIDTH).stipple(Stipple::ShortDashes)).arrow(lo, u, v);
+    d.pen(Pen::new(ARROW).width(ARROW_WIDTH)).arrow(DVec3::new(lo.x, lo.y, hi.z), u, v);
     d.pen(Pen::new(INK).stipple(Stipple::Dotted)).box_(lo, hi);
 }
 

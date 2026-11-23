@@ -20,8 +20,8 @@ The bar's « Mode », saved with the tool; Tab goes to the next.
 ## What it shows
 
 As SmartAxes, the tool shows the target **as it is**: highlighted with the other occurrences of its
-component, its axes, an arrow along its length on its back (dashed) and on its front, its box
-dotted. A tooltip gives its name, material and size, and how many occurrences the change reaches.
+component, its axes, a white arrow along its length on its back (dashed, hidden when behind) and
+on its front, its box dotted. A tooltip gives its name, material and size, and how many occurrences the change reaches.
 
 Only two modes draw what a click would give, over that, in magenta:
 
