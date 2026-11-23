@@ -73,7 +73,7 @@ impl SkraftApp {
     fn stage_table(&mut self, ctx: &egui::Context, rect: egui::Rect, area: egui::Rect, margin: f32, actions: &mut Vec<Action>) {
         let Some(d) = self.docs.active_mut() else { return };
         egui::Area::new(egui::Id::unique("stage_table")).fixed_pos(rect.min).constrain_to(area).show(ctx, |ui| {
-            let frame = egui::Frame::window(ui.style()).inner_margin(CARD_MARGIN);
+            let frame = card_frame(ui.style());
             let inner = (rect.size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
             frame.show(ui, |ui| {
                 ui.set_min_size(inner);
@@ -113,7 +113,7 @@ impl SkraftApp {
     /// above them) to the bottom of the view.
     fn side_panels(&mut self, ctx: &egui::Context, view: egui::Rect, top: f32, margin: f32, actions: &mut Vec<Action>) -> egui::Rangef {
         let style = ctx.global_style();
-        let frame = egui::Frame::window(&style).inner_margin(CARD_MARGIN).total_margin().sum();
+        let frame = card_frame(&style).total_margin().sum();
         let header = style.spacing.interact_size.y;
         let metrics = dock::Metrics { header: header + frame.y, min_height: header + frame.y + 2.0 * HEAD_PAD + 60.0, gap: margin };
         let (xs, free, max_width) = self.columns(view, margin);
@@ -211,7 +211,7 @@ impl SkraftApp {
             .fixed_pos(rect.min)
             .order(if floating { egui::Order::Foreground } else { egui::Order::Middle })
             .show(ctx, |ui| {
-                let frame = egui::Frame::window(ui.style()).inner_margin(CARD_MARGIN);
+                let frame = card_frame(ui.style());
                 let inner = rect.size() - frame.total_margin().sum();
                 frame.show(ui, |ui| {
                     ui.set_min_size(inner);
@@ -524,7 +524,7 @@ impl SkraftApp {
                 });
             }
         });
-        let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(CARD_MARGIN);
+        let card = |style: &egui::Style| card_frame(style);
         // The ribbon at the top (docs/ui/ribbon.md#layout): between the docked cards' columns,
         // which then take the view's whole height, when it fits there whole; else above them,
         // over the view's width, the columns under it.

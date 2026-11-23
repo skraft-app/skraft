@@ -21,7 +21,7 @@ use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView};
 use crate::prefs::Preferences;
 use crate::ribbon;
-use crate::style::{CARD_MARGIN, Tip, option_card};
+use crate::style::{CARD_MARGIN, Tip, card_frame, option_card};
 use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
 use crate::toasts::{Act, Note, Toasts};
