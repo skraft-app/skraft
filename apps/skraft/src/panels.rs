@@ -1983,7 +1983,7 @@ fn body_row(
                 Sign::Imprint => (icons::IMPRINT, t!("panel.outliner.sign_imprint")),
             };
             let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-            let toggled = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
+            let toggled = ui.add(egui::Button::image(img).frame(false).sense(sign_sense(b.body.sign))).tip(tip).clicked();
             let renamed = ui
                 .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     if warned {
@@ -2115,11 +2115,13 @@ fn body_row(
             // + → − → ∩ → + (docs/decisions/0045-intersection-a-third-sign.md).
             Sign::Positive => Sign::Negative,
             Sign::Negative => Sign::Intersect,
-            Sign::Intersect | Sign::Imprint => Sign::Positive,
+            Sign::Intersect => Sign::Positive,
+            // Its button takes no click (`sign_sense`).
+            Sign::Imprint => Sign::Imprint,
         };
         // Selected (in its part or group, opened): the selected siblings with it.
         let bodies = match selected {
-            true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
+            true => toggled_bodies(editor.selection(), b.siblings),
             false => vec![b.body.id],
         };
         // Its part open (here or in one of its groups): the scope it is open with.
@@ -2129,6 +2131,19 @@ fn body_row(
     } else if response.clicked() {
         actions.push(Action::SelectBody(path, b.body.id, ui.input(|i| i.modifiers.shift)));
     }
+}
+
+/// What a body's sign button takes: a click turns a sign, but an imprint only says what it is. It
+/// is made by « Imprimer », and turned into material it could not be made one again
+/// (docs/decisions/0055-linked-bodies-through-imprints.md).
+fn sign_sense(sign: Sign) -> egui::Sense {
+    if sign == Sign::Imprint { egui::Sense::hover() } else { egui::Sense::click() }
+}
+
+/// The bodies a click on a selected body's sign button turns: the selected among `siblings`,
+/// their imprints left as they are.
+fn toggled_bodies(selection: &[Id], siblings: &[skraft_model::Body]) -> Vec<Id> {
+    selection.iter().copied().filter(|id| siblings.iter().any(|s| s.id == *id && s.sign != Sign::Imprint)).collect()
 }
 
 /// A navigator menu's entry applying `op`, under the handle `outliner_menu:<handle>`.
@@ -3645,6 +3660,37 @@ mod tests {
         assert_eq!(drag.to(true, &part, vec![Id(9), Id(7)]), None, "into one of them");
         let other = EntityPath::new(Vec::new(), Id(4));
         assert_eq!(drag.to(false, &other, vec![Id(3)]), Some(BodiesTo::Part(other.clone().in_group(vec![Id(3)]))), "into another part");
+    }
+
+    #[test]
+    fn an_imprints_sign_takes_no_click_nor_turns_with_the_selection() {
+        // A press and a release on the button: clicked?
+        let clicked = |sign: Sign| {
+            let ctx = egui::Context::default();
+            let at = egui::pos2(8.0, 8.0);
+            let press = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            };
+            let mut got = false;
+            for events in [vec![egui::Event::PointerMoved(at)], vec![press(true)], vec![press(false)], vec![]] {
+                let input = egui::RawInput { events, ..Default::default() };
+                let mut output = ctx.run_ui(input, |ui| {
+                    let button = egui::Button::new("x").frame(false).sense(sign_sense(sign));
+                    got |= ui.put(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(16.0, 16.0)), button).clicked();
+                });
+                output.textures_delta.clear();
+            }
+            got
+        };
+        assert!(clicked(Sign::Positive) && clicked(Sign::Negative) && clicked(Sign::Intersect));
+        assert!(!clicked(Sign::Imprint));
+
+        let body = |id, sign| skraft_model::Body::new(Id(id), Id(100), sign, glam::DAffine3::IDENTITY);
+        let siblings = [body(1, Sign::Positive), body(2, Sign::Imprint), body(3, Sign::Negative)];
+        assert_eq!(toggled_bodies(&[Id(1), Id(2), Id(3), Id(9)], &siblings), vec![Id(1), Id(3)]);
     }
 
     /// The mark's place at `time` (seconds), heading to `to`.

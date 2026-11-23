@@ -991,7 +991,7 @@ panel:
     sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
     sign_negative: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire une intersection"
     sign_intersect: "Intersection : la pièce ne garde que ce qui est dedans. Cliquer pour en faire un brut"
-    sign_imprint: "Empreinte : sans effet sur sa pièce, elle façonne les pièces liées. Cliquer pour en faire un brut"
+    sign_imprint: "Empreinte : sans effet sur sa pièce, elle façonne les pièces liées"
 
 # The app's messages, in toasts at the bottom right (apps/skraft/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).

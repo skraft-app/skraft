@@ -113,8 +113,8 @@ written `"imprint"`.
 - **In the tree**: imprints alone group into one imprint, of positive children; among other bodies
   each stays an imprint, also when its group explodes. No body moves into or out of an imprint
   (`Refusal::ImprintLevel`). « Aplatir » and a union keep a part's imprints at its root.
-- **Shown** as a blank's ghost for now, with its own icon on its navigator row, whose sign button
-  makes it a blank.
+- **Shown** as a blank's ghost for now, with its own icon at the end of its navigator row, which
+  says what it is and takes no click: turned into material, it could not be made one again.
 - **Made of a body** (`BodyDef::imprint`, `ImprintRecipe { of, clearance }`): its solid is then a
   cache of that body grown by a `Clearance` — all around, past its end, back past its shoulder
   (the face it shares most with another positive body), by default by its own length, in the
