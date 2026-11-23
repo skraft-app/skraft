@@ -327,8 +327,6 @@ fn part(e: &Editor, pp: &PlacedPart, p: &GeometryParams, volumes: &mut HashMap<u
     out["topology"] = json!({ "faces": faces, "edges": edges, "vertices": vertices });
     if let Some(((lo, hi), source)) = local_bounds(e, pp) {
         let size = hi - lo;
-        let mut dims = size.to_array();
-        dims.sort_by(|a, b| b.total_cmp(a));
         let corners = (0..8).map(|i| {
             pp.transform.transform_point3(DVec3::new(
                 if i & 1 == 0 { lo.x } else { hi.x },
@@ -339,8 +337,8 @@ fn part(e: &Editor, pp: &PlacedPart, p: &GeometryParams, volumes: &mut HashMap<u
         let world = corners.fold((DVec3::INFINITY, DVec3::NEG_INFINITY), |(a, b), c| (a.min(c), b.max(c)));
         out["bounds"] = json!({ "local": json::bounds((lo, hi)), "world": json::bounds(world), "source": source });
         out["size"] = v3(size);
-        // OpenCutList's: length, width, thickness — the part's box, largest first.
-        out["dims"] = json!(dims);
+        // Length, width, thickness: the part's box along its red, green and blue axes.
+        out["dims"] = json!(size.to_array());
     }
     if p.volume.unwrap_or(true) {
         let key = std::sync::Arc::as_ptr(&pp.shape) as usize;

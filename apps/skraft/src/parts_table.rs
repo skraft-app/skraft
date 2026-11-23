@@ -1,6 +1,6 @@
 //! The parts list, the stage of the « Liste des pièces » workspace (docs/ui/parts-list.md): one
-//! row per part placed in the model and material, its dimensions (its final B-rep's box,
-//! largest first, as OpenCutList's) and how many are placed; sorted by a column's header; a row
+//! row per part placed in the model and material, its dimensions (its final B-rep's box along
+//! its red, green and blue axes) and how many are placed; sorted by a column's header; a row
 //! chosen selects its parts in the view, a part selected in the view lights its row.
 
 use std::cmp::Ordering;
@@ -24,7 +24,7 @@ pub struct Row {
     pub name: String,
     /// The material's name; none: no material.
     pub material_name: Option<String>,
-    /// Length, width, thickness (largest first); none while its shape is not known yet.
+    /// Length, width, thickness (along its axes); none while its shape is not known yet.
     pub dims: Option<[f64; 3]>,
     /// Its occurrences with this material, from the root, in the model's order.
     pub paths: Vec<EntityPath>,
@@ -47,11 +47,7 @@ pub fn rows(doc: &Document, bounds: impl Fn(&Arc<Solid>) -> Option<(DVec3, DVec3
         let i = *index.entry(key).or_insert_with(|| {
             let name = doc.component(pp.part).map(|c| c.name.clone()).unwrap_or_default();
             let material_name = pp.material.and_then(|m| doc.material(m).ok()).map(|m| m.name.clone());
-            let dims = bounds(&pp.shape).map(|(lo, hi)| {
-                let mut d = (hi - lo).to_array();
-                d.sort_by(|a, b| b.total_cmp(a));
-                d
-            });
+            let dims = bounds(&pp.shape).map(|(lo, hi)| (hi - lo).to_array());
             out.push(Row { part: pp.part, material: pp.material, name, material_name, dims, paths: Vec::new() });
             out.len() - 1
         });
@@ -308,9 +304,9 @@ mod tests {
         assert_eq!(rows.len(), 2, "{rows:?}");
         let shelf = &rows[0];
         assert_eq!(shelf.quantity(), 2, "the copy shares its part");
-        assert_eq!(shelf.dims, Some([600.0, 400.0, 18.0]), "largest first");
+        assert_eq!(shelf.dims, Some([18.0, 600.0, 400.0]), "along its axes");
         assert_eq!(rows[1].quantity(), 1);
-        assert_eq!(rows[1].dims, Some([700.0, 50.0, 50.0]));
+        assert_eq!(rows[1].dims, Some([50.0, 50.0, 700.0]));
         let _ = part_row(&rows, &shelf.name);
     }
 
