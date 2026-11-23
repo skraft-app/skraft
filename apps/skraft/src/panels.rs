@@ -1980,7 +1980,7 @@ fn body_row(
                 Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
                 Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
                 Sign::Intersect => (icons::INTERSECT, t!("panel.outliner.sign_intersect")),
-                Sign::Imprint => (icons::SOLID, t!("panel.outliner.sign_imprint")),
+                Sign::Imprint => (icons::IMPRINT, t!("panel.outliner.sign_imprint")),
             };
             let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
             let toggled = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
@@ -2758,6 +2758,46 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
                 actions.push(Action::EditBlend(b.id));
             }
             ui.end_row();
+        }
+        // An imprint made of a body: its clearance (docs/model/bodies.md#links).
+        if b.sign == Sign::Imprint
+            && let Some(r) = &def.imprint
+        {
+            let c = r.clearance;
+            let mut rows = vec![("around", t!("panel.entity_info.imprint_around"), c.around)];
+            if c.axis.is_some() {
+                rows.push(("deep", t!("panel.entity_info.imprint_deep"), c.deep));
+                rows.push(("back", t!("panel.entity_info.imprint_back"), c.back));
+            }
+            for (key, label, value) in rows {
+                field_label(ui, label);
+                let shown = units.format(value);
+                let exact = format!("{}{}", units.exact_number(value), units.suffix());
+                let f = Field {
+                    hint: None,
+                    tip: None,
+                    width: field,
+                    align: egui::Align2::RIGHT_CENTER,
+                    lit: false,
+                    addon: None,
+                    blur_applies: true,
+                    empty_applies: false,
+                    handle: Some(format!("info:imprint_{key}")),
+                };
+                let id = ui.make_persistent_id(("info_imprint", key, b.id));
+                if let Some(text) = ui.vertical(|ui| framed_field(ui, id, &shown, &exact, f)).inner
+                    && let Ok(v) = measure::length(&text, units, value)
+                {
+                    let (mut around, mut deep, mut back) = (c.around, c.deep, c.back);
+                    *match key {
+                        "around" => &mut around,
+                        "deep" => &mut deep,
+                        _ => &mut back,
+                    } = v;
+                    actions.push(Action::Apply(Operation::SetClearance { part, body: b.id, around, deep, back }));
+                }
+                ui.end_row();
+            }
         }
         if p.is_failed(b.id) {
             ui.label(t!("panel.entity_info.state"));

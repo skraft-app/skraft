@@ -166,7 +166,7 @@ impl Editor {
         self.after_change();
         // An assembly it emptied goes with it (docs/model/data-model.md#components-parts-and-assemblies).
         self.drop_empty_assemblies(true);
-        self.offer_links(&links_before, &outcome.links);
+        self.offer_links(&links_before, &outcome);
         match after {
             After::SelectNamed => self.offer_renaming(&named),
             After::Unique => self.made_unique.extend(named),

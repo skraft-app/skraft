@@ -7950,6 +7950,40 @@ fn a_part_losing_its_source_tells_its_machining_lost_its_link() {
 }
 
 #[test]
+fn imprinting_the_selection_cuts_the_mortise_and_says_so() {
+    use skraft_model::{Scope, Sign};
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let shift = glam::DAffine3::from_translation;
+    let add = |e: &mut Editor, size, at| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: shift(at), material: None }).unwrap().unwrap().created[0]
+    };
+    let rail = add(&mut e, DVec3::new(100.0, 20.0, 20.0), DVec3::ZERO);
+    let leg = add(&mut e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let tenon = Primitive::Box { origin: DVec3::new(100.0, 5.0, 5.0), size: DVec3::splat(10.0) };
+    let target = EntityPath::root(rail);
+    let add = Operation::AddBody { target, primitive: tenon, placement: glam::DAffine3::IDENTITY, sign: Sign::Positive, scope: Scope::All };
+    e.apply(add).unwrap().unwrap();
+    e.take_notices();
+    assert!(!e.can_imprint(), "nothing selected");
+
+    e.select(vec![rail]);
+    assert!(e.can_imprint());
+    let plan = e.imprint_plan().unwrap();
+    assert_eq!((plan.machining_count(), plan.link_count()), (1, 1));
+    e.imprint(0.1, 2.0);
+    assert!(!e.busy());
+    let notices = e.take_notices();
+    assert_eq!((notices.len(), notices[0].kind), (1, NoticeKind::Success));
+    let (_, p, _) = e.document().resolve_part(&EntityPath::root(leg)).unwrap();
+    let expected = 40.0 * 40.0 * 100.0 - 12.0 * 10.2 * 10.2;
+    assert!((p.shape().volume().unwrap() - expected).abs() < 1e-3);
+    assert!(e.link_status().off.is_empty());
+    assert_eq!(e.imprint_plan().unwrap().link_count(), 0, "done");
+}
+
+#[test]
 fn a_leg_moved_offers_to_put_its_rail_back_without_separating() {
     let mut e = top_editor(Document::new());
     let ([rail, _], [leg, _]) = linked_pair(&mut e);

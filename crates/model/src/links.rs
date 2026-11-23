@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
-use skraft_kernel::{Solid, Stretch};
+use skraft_kernel::Solid;
 
 use crate::document::{Body, BodyDef, BodySource, ComponentKind, Document, Id, Part, Sign};
 use crate::ops::{Outcome, Solver};
@@ -147,11 +147,14 @@ impl Document {
         let Ok((from, to, _)) = self.imprint_pose(assembly, &link.source, link.imprint, &link.receiver) else { return false };
         let Some((lo, hi)) = self.component_bounds(to) else { return false };
         let Some(solid) = self.part(from).ok().and_then(|p| p.body(link.imprint).map(|b| p.solid_of(b))) else { return false };
-        (0..3).all(|k| {
-            let Ok(s) = Stretch::new(DVec3::AXES[k], Vec::new(), vec![0.0]) else { return false };
-            let shift = s.axis().dot(pose.translation);
-            s.in_frame(pose).extent(solid).is_some_and(|(a, b)| a + shift < hi[k] && b + shift > lo[k])
-        })
+        crate::imprints::reaches(solid, pose, lo, hi)
+    }
+
+    /// The solid of the imprint `link` names.
+    fn imprint_solid(&self, assembly: Id, link: &Link) -> Option<std::sync::Arc<Solid>> {
+        let (from, _) = self.through(assembly, &link.source).ok()?;
+        let p = self.part(from).ok()?;
+        Some(p.solid_of(p.body(link.imprint)?).clone())
     }
 
     /// The linked bodies after an operation (`before` the document it was applied to): each
@@ -162,6 +165,9 @@ impl Document {
     pub(crate) fn follow_links(&mut self, before: &Document, solver: &mut dyn Solver) -> Result<Followed> {
         let mut asks: BTreeMap<(Id, Id), Vec<DAffine3>> = BTreeMap::new();
         let mut sources = BTreeSet::new();
+        // The linked bodies whose imprint changed shape: its solid, where it now lies, and whether
+        // it moved too.
+        let mut reshaped: BTreeMap<(Id, Id), (std::sync::Arc<Solid>, DAffine3, bool)> = BTreeMap::new();
         for (id, c) in &self.components {
             let ComponentKind::Assembly(a) = &c.kind else { continue };
             if a.links().is_empty() {
@@ -172,7 +178,20 @@ impl Document {
             for l in a.links() {
                 let Some(was) = old.get(&l.id) else { continue };
                 let Ok((_, to, pose)) = self.imprint_pose(*id, &l.source, l.imprint, &l.receiver) else { continue };
-                if pose.abs_diff_eq(was.seat, SEATED) || before.link_state(*id, was) != LinkState::Seated {
+                // Its imprint's shape changed: the same `Arc` or not, whether recorded or replayed.
+                let shape = self
+                    .imprint_solid(*id, l)
+                    .filter(|now| before.imprint_solid(*id, was).is_some_and(|old| !std::sync::Arc::ptr_eq(now, &old)));
+                let moved = !pose.abs_diff_eq(was.seat, SEATED);
+                if (!moved && shape.is_none()) || before.link_state(*id, was) != LinkState::Seated {
+                    continue;
+                }
+                if let Some(solid) = shape
+                    && self.part(to).is_ok_and(|q| q.body(l.body).is_some())
+                {
+                    reshaped.entry((to, l.body)).or_insert((solid, pose, moved));
+                }
+                if !moved {
                     continue;
                 }
                 let (Some(a0), Some(a1)) = (before.imprint_place(*id, was), self.imprint_place(*id, l)) else { continue };
@@ -196,6 +215,20 @@ impl Document {
             self.place_linked_body(part, body, &moves[0])?;
             changed.insert(part);
             followed.moved.push((part, body));
+        }
+        // A new shape, unless it moved and its body could not go with it.
+        for ((part, body), (solid, pose, moved)) in reshaped {
+            if moved && !followed.moved.contains(&(part, body)) {
+                continue;
+            }
+            let q = self.part_mut(part)?;
+            let Some(b) = q.bodies.iter_mut().find(|b| b.id == body) else { continue };
+            b.placement = pose;
+            let def = b.def;
+            if let Some(d) = q.defs.iter_mut().find(|d| d.id == def) {
+                d.solid = solid;
+            }
+            changed.insert(part);
         }
         for part in changed {
             self.recompute(part, None, solver)?;
@@ -495,7 +528,7 @@ impl Document {
     }
 
     /// Each link in the lowest assembly holding both its ends: a copy of that assembly keeps it.
-    fn settle_link_holders(&mut self) {
+    pub(crate) fn settle_link_holders(&mut self) {
         for id in self.link_holders() {
             let Ok(a) = self.assembly(id) else { continue };
             let (mut kept, mut lowered) = (Vec::with_capacity(a.links().len()), Vec::new());
@@ -646,7 +679,7 @@ fn holds_linked(p: &Part, def: Id, depth: usize) -> bool {
 /// Do the solids `a` and `b`, placed, lie in the same place: their vertices the same points,
 /// whatever the placements (a mirrored receiver sees a symmetric body through a mirror)? A solid
 /// without vertices (a sphere, a torus) only by the same placement.
-fn same_place(a: &Solid, ta: &DAffine3, b: &Solid, tb: &DAffine3) -> bool {
+pub(crate) fn same_place(a: &Solid, ta: &DAffine3, b: &Solid, tb: &DAffine3) -> bool {
     let points = |s: &Solid, t: &DAffine3| -> Vec<DVec3> {
         s.record().vertices.iter().map(|v| t.transform_point3(DVec3::from_array(v.point))).collect()
     };

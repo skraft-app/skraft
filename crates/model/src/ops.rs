@@ -116,6 +116,12 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         onto: Option<Id>,
     },
+    /// « Imprimer »: the parts the occurrences `sources` of `context` are or hold make imprints of
+    /// their bodies entering other parts (`around`, `deep`: its clearance) and link them there,
+    /// every occurrence of those parts (docs/decisions/0055-linked-bodies-through-imprints.md).
+    Imprint { context: Id, sources: Vec<Id>, around: f64, deep: f64 },
+    /// An imprint's clearance: around it, past its end, back past its shoulder.
+    SetClearance { part: Id, body: Id, around: f64, deep: f64, back: f64 },
     /// « Replacer »: each source goes back on its seats, when they agree
     /// (docs/decisions/0055-linked-bodies-through-imprints.md).
     ReseatSources { sources: Vec<crate::LinkSource> },
@@ -667,7 +673,8 @@ impl Operation {
             Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
             Operation::AddBody { sign: Sign::Intersect, .. } => t!("operation.add_intersect"),
             Operation::AddBody { sign: Sign::Imprint, .. } => t!("operation.add_imprint"),
-            Operation::AddLink { .. } => t!("operation.add_link"),
+            Operation::AddLink { .. } | Operation::Imprint { .. } => t!("operation.add_link"),
+            Operation::SetClearance { .. } => t!("operation.set_clearance"),
             Operation::ReseatSources { .. } => t!("operation.reseat_sources"),
             Operation::SeparateReceivers { .. } => t!("operation.separate_receivers"),
             Operation::BringLinkedBody { .. } => t!("operation.bring_linked_body"),
@@ -818,6 +825,8 @@ pub struct Outcome {
     pub elements: Vec<Id>,
     /// What the linked bodies did after it (docs/decisions/0055-linked-bodies-through-imprints.md).
     pub links: crate::Followed,
+    /// « Imprimer »: the machinings it added, the links it made.
+    pub imprinted: (usize, usize),
 }
 
 /// What an operation done has to say.
@@ -891,6 +900,7 @@ impl Document {
         let mut doc = self.clone();
         let mut outcome = doc.apply_in_place(op, &mut recorder)?;
         outcome.welds = doc.weld(self, &mut recorder)?;
+        doc.update_imprints(self, &mut recorder)?;
         outcome.links = doc.follow_links(self, &mut recorder)?;
         doc.drop_dead_links();
         doc.check_imprints(self)?;
@@ -978,6 +988,7 @@ impl Document {
         let mut doc = self.clone();
         let mut outcome = doc.apply_in_place(op, &mut replayer)?;
         outcome.welds = doc.weld(self, &mut replayer)?;
+        doc.update_imprints(self, &mut replayer)?;
         outcome.links = doc.follow_links(self, &mut replayer)?;
         doc.drop_dead_links();
         if replayer.outputs.next().is_some() {
@@ -1684,6 +1695,8 @@ impl Document {
             Operation::AddLink { context, source, imprint, receiver, sign, onto } => {
                 self.add_link((*context, source, *imprint, receiver), *sign, *onto, solver)
             }
+            Operation::Imprint { context, sources, around, deep } => self.imprint(*context, sources, *around, *deep, solver),
+            Operation::SetClearance { part, body, around, deep, back } => self.set_clearance(*part, *body, (*around, *deep, *back), solver),
             Operation::ReseatSources { sources } => self.reseat_sources(sources),
             Operation::SeparateReceivers { sources } => self.separate_receivers(sources, solver),
             Operation::BringLinkedBody { source } => self.bring_linked_body(*source, solver),
@@ -2204,8 +2217,9 @@ impl Document {
         let renamed: FastMap<Id, Id> = kept.iter().map(|d| (d.id, self.fresh_id())).collect();
         let mut out_defs = Vec::with_capacity(kept.len());
         for d in kept {
-            // In another part it is a shape of its own: its link stays with the body it was.
-            let mut copy = BodyDef { id: renamed[&d.id], source: crate::BodySource::Local, ..d.clone() };
+            // In another part it is a shape of its own: its link stays with the body it was, and
+            // an imprint is no longer made of a body there.
+            let mut copy = BodyDef { id: renamed[&d.id], source: crate::BodySource::Local, imprint: None, ..d.clone() };
             if let Some(g) = &mut copy.group {
                 g.children.retain(|c| renamed.contains_key(&c.def));
                 g.children.iter_mut().for_each(|c| c.def = renamed[&c.def]);
@@ -2996,6 +3010,8 @@ pub(crate) trait Solver {
     fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>>;
     /// `solid` moved by the rigid `transform`, its faces in the same order.
     fn transform(&mut self, solid: &Arc<Solid>, transform: &DAffine3) -> Result<Arc<Solid>>;
+    /// `solid`, built from `recipe` if it has one, as an imprint's tool ([`Task::Imprint`]).
+    fn imprint(&mut self, solid: &Arc<Solid>, recipe: Option<&Primitive>, clearance: &skraft_kernel::Clearance) -> Result<Arc<Solid>>;
     /// A body node: `children` (their leaves `leaves[i]`) computed, then `op` ([`Task::Node`]).
     fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome>;
 }
@@ -3075,6 +3091,11 @@ impl Solver for Recorder {
         self.task(Task::Transform { solid, transform: *transform })
     }
 
+    fn imprint(&mut self, solid: &Arc<Solid>, recipe: Option<&Primitive>, clearance: &skraft_kernel::Clearance) -> Result<Arc<Solid>> {
+        let solid = self.input(solid);
+        self.task(Task::Imprint { solid, recipe: recipe.cloned(), clearance: *clearance })
+    }
+
     fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome> {
         let inputs: Vec<u32> = leaves.iter().map(|s| self.input(s)).collect();
         let mut children = children.to_vec();
@@ -3151,6 +3172,10 @@ impl Solver for Replayer {
     }
 
     fn stretch(&mut self, _: &Arc<Solid>, _: &Stretch) -> Result<Arc<Solid>> {
+        self.next()
+    }
+
+    fn imprint(&mut self, _: &Arc<Solid>, _: Option<&Primitive>, _: &skraft_kernel::Clearance) -> Result<Arc<Solid>> {
         self.next()
     }
 

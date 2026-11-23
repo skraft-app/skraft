@@ -112,6 +112,7 @@ menu:
     make_unique: "$t(common.make_unique)"
     # In an open part (docs/model/bodies.md#body-groups).
     group_bodies: "Grouper les corps"
+    imprint: "Imprimer"
     move_out: "Sortir du groupe"
     move_out_of_part: "Sortir de la pièce"
     delete_guides: "Supprimer les guides"
@@ -838,6 +839,10 @@ panel:
     role_negative: "Usinage"
     role_intersect: "Intersection"
     role_imprint: "Empreinte"
+    # An imprint's clearance (decision 0055).
+    imprint_around: "Jeu"
+    imprint_deep: "Jeu au fond"
+    imprint_back: "Débord"
     state: "État"
     failed: "n'a pas pu être calculé, à corriger"
     # How many bodies of the part share the body's definition (its shape).
@@ -1056,9 +1061,25 @@ notice:
   link_conflict_detail: "Ses liens lui demandent deux positions différentes. Séparer donne à chaque pièce le sien."
   links_lost: "%{count} usinage a perdu son lien"
   links_lost_plural: "%{count} usinages ont perdu leur lien"
+  imprinted: "%{count} lien créé"
+  imprinted_plural: "%{count} liens créés"
   rename: "Renommer"
 
 # The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
+# « Imprimer »'s confirmation (decision 0055).
+imprint:
+  title: "Imprimer dans les pièces traversées"
+  around: "Jeu tout autour"
+  deep: "Profondeur en plus"
+  machinings: "%{count} usinage"
+  machinings_plural: "%{count} usinages"
+  links: "%{count} lien"
+  links_plural: "%{count} liens"
+  into: "Dans : %{parts}"
+  partial: "Les copies de %{parts} sans pièce en face recevront aussi ces usinages."
+  bad_value: "valeur illisible"
+  ok: "Imprimer"
+
 naming:
   title_part: "Nom de la pièce"
   title_assembly: "Nom de l'assemblage"
@@ -1617,6 +1638,7 @@ operation:
   separate_receivers: "Séparer"
   bring_linked_body: "Amener l'usinage ici"
   unlink: "Rompre le lien"
+  set_clearance: "Régler l'empreinte"
   # Bodies grouped, a group flattened (docs/model/bodies.md#body-groups).
   group: "Grouper"
   ungroup: "$t(common.explode)"
@@ -1818,6 +1840,8 @@ error:
     imprint_linked: "une empreinte ne peut pas contenir de corps lié"
     imprint_level: "un corps n'entre ni ne sort d'une empreinte"
     link_conflict: "ses liens demandent deux positions différentes pour un même usinage"
+    nothing_to_imprint: "aucun corps de cette sélection n'entre dans une autre pièce"
+    bad_clearance: "réglage d'empreinte invalide"
     not_at_path: "seule une opération sur des exemplaires s'applique en profondeur"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"

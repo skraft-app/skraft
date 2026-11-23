@@ -504,6 +504,10 @@ pub struct BodyDef {
     pub kept_faces: skraft_kernel::names::FaceMap,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub kept_faces_of: u64,
+    /// An imprint made of a body of its part, which it follows
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md): its solid is then a cache.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imprint: Option<crate::ImprintRecipe>,
     /// Its typed properties (docs/model/properties.md).
     #[serde(default, skip_serializing_if = "Props::is_empty")]
     pub props: Props,
@@ -522,6 +526,7 @@ impl BodyDef {
             group: None,
             kept_faces: Vec::new(),
             kept_faces_of: 0,
+            imprint: None,
             props: Props::default(),
         }
     }
@@ -1836,6 +1841,10 @@ impl Document {
                         b.def = defs.get(&b.def).copied().unwrap_or(b.def);
                     }
                     p.failed = p.failed.iter().filter_map(|id| bodies.get(id).copied()).collect();
+                    // An imprint follows its body under its new id.
+                    for d in &mut p.defs {
+                        d.imprint = d.imprint.take().and_then(|r| Some(crate::ImprintRecipe { of: *bodies.get(&r.of)?, ..r }));
+                    }
                     for g in p.defs.iter_mut().filter_map(|d| d.group.as_mut()) {
                         let mut own: HashMap<Id, Id> = HashMap::new();
                         for b in &mut g.children {

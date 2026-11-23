@@ -133,7 +133,7 @@ a name, not a pixel: `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<
 `naming.field`, `naming.ok`, `naming.cancel`, `toast.<i>`, `toast.<i>.action`,
 `validation:cancel`, `validation:ok` (the steps bar's buttons), `vcb`,
 `viewport`, `outliner:<occurrence>` and `outliner_body:<body>` (the navigator's rows, those
-laid out), `outliner_menu:move_out`, `:unlink`, `:reseat`, `:bring`, `:separate` (a row's menu, open). `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
+laid out), `outliner_menu:move_out`, `:unlink`, `:reseat`, `:bring`, `:separate` (a row's menu, open), `imprint.around`, `.deep`, `.ok`, `.cancel` (« Imprimer »'s confirmation), `info:imprint_around`, `_deep`, `_back` (an imprint's entity info). `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
 whole window (egui's `request_screenshot`), PNG. `ui.messages` (`clear`): the status bar's
 texts as they changed, the last 200, with their time.
 

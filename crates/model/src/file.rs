@@ -450,7 +450,7 @@ impl Document {
             match &c.kind {
                 ComponentKind::Part(p) => {
                     for d in &p.defs {
-                        if d.id.0 >= self.next_id || !here.insert(d.id) {
+                        if d.id.0 >= self.next_id || !here.insert(d.id) || d.imprint.as_ref().is_some_and(|r| !r.clearance.is_valid()) {
                             return Err(Error::File(FileError::BadBodyId(d.id)));
                         }
                     }

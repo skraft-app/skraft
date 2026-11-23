@@ -58,6 +58,8 @@ pub struct SkraftApp {
     toasts: Toasts,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
     naming: Option<crate::naming::Dialog>,
+    /// The confirmation of « Imprimer » (decision 0055).
+    imprint: Option<crate::imprint::Dialog>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
@@ -326,6 +328,7 @@ impl SkraftApp {
             last_shown: None,
             closing: None,
             naming: None,
+            imprint: None,
             quit_ok: false,
             #[cfg(target_arch = "wasm32")]
             unsaved: Default::default(),
@@ -643,6 +646,34 @@ impl SkraftApp {
         }
     }
 
+    /// « Imprimer »: its confirmation, or why there is nothing to do.
+    fn ask_imprint(&mut self) {
+        let Some(d) = self.docs.active() else { return };
+        match d.editor.imprint_plan() {
+            Some(plan) if plan.link_count() > 0 => {
+                self.imprint = Some(crate::imprint::Dialog::new(d.id, d.editor.document(), &plan));
+            }
+            _ => self.toasts.push(Note::info(t!("error.model.nothing_to_imprint"))),
+        }
+    }
+
+    fn imprint_dialog(&mut self, ctx: &egui::Context) {
+        let Some(dialog) = &mut self.imprint else { return };
+        let Some(d) = self.docs.by_id_mut(dialog.doc) else {
+            self.imprint = None;
+            return;
+        };
+        let units = d.editor.document().settings().units.clone();
+        match dialog.show(ctx, &units) {
+            crate::imprint::Answer::Open => {}
+            crate::imprint::Answer::Cancel => self.imprint = None,
+            crate::imprint::Answer::Imprint(around, deep) => {
+                d.editor.imprint(around, deep);
+                self.imprint = None;
+            }
+        }
+    }
+
     /// « Enregistrer les modifications de « X » ? », while a modified document is closing.
     fn save_prompt(&mut self, ctx: &egui::Context) {
         let Some(id) = self.closing.as_ref().and_then(|c| c.asking) else { return };
@@ -915,6 +946,7 @@ impl SkraftApp {
             "edit.make_unique" => has_sel,
             "edit.group_bodies" => e.can_group_bodies(),
             "edit.move_out" => e.can_move_out(),
+            "edit.imprint" => e.can_imprint(),
             // On a sheet, what is picked there: the 3D selection is not what is seen.
             "edit.cut" | "edit.copy" if d.workspace.stage == Stage::Sheet => !crate::sheet::selection(e, &d.sheet).is_empty(),
             "edit.paste" | "edit.paste_in_place" if d.workspace.stage == Stage::Sheet => {
@@ -1124,6 +1156,10 @@ impl SkraftApp {
             }
             "edit.paste" | "edit.paste_in_place" => {
                 self.paste(id == "edit.paste_in_place");
+                true
+            }
+            "edit.imprint" => {
+                self.ask_imprint();
                 true
             }
             _ => false,
@@ -3137,6 +3173,7 @@ impl eframe::App for SkraftApp {
             }
         }
         self.naming_dialog(&ctx);
+        self.imprint_dialog(&ctx);
         self.view_picker_dialog(&ctx);
         for a in actions {
             self.act(a);

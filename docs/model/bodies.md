@@ -113,7 +113,15 @@ written `"imprint"`.
 - **In the tree**: imprints alone group into one imprint, of positive children; among other bodies
   each stays an imprint, also when its group explodes. No body moves into or out of an imprint
   (`Refusal::ImprintLevel`). « Aplatir » and a union keep a part's imprints at its root.
-- **Shown** as a blank's ghost for now; its navigator row's sign button makes it a blank.
+- **Shown** as a blank's ghost for now, with its own icon on its navigator row, whose sign button
+  makes it a blank.
+- **Made of a body** (`BodyDef::imprint`, `ImprintRecipe { of, clearance }`): its solid is then a
+  cache of that body grown by a `Clearance` — all around, past its end, back past its shoulder
+  (the face it shares most with another positive body), by default by its own length, in the
+  source's material. A box stays a box, an extrusion along the axis is drawn again from its
+  profile, anything else has its faces offset (`Task::Imprint`, `crates/kernel/src/imprint.rs`);
+  what cannot be built is refused, never reduced. It follows that body's place and shape
+  (`Document::update_imprints`); that body gone or wrapped by a node, it stays as it is.
 
 ### Links
 
@@ -164,8 +172,18 @@ Link     { id, source: path, imprint, receiver: path, body, seat: T }
   plain body, its shape and place kept, its links gone. All from the row's menu.
 - A link whose receiver or body is gone is dropped after the operation; one whose source is gone
   stays, its body frozen in place and told.
-- Not yet: a linked body following its imprint's **shape** (changed, its links go off), a preview
-  of the body while dragging, « Imprimer », the collision check.
+- **Its shape follows**: a seated link's imprint changing shape (its clearance, its body stretched)
+  gives the linked body that shape, in every copy.
+- **« Imprimer »** (`edit.imprint`, Assembler › Composants; `Document::imprint_plan`,
+  `Operation::Imprint`): every occurrence of the parts selected is a source. A part with imprints
+  uses them; else the bodies of its own reaching strictly into another part's box each make one.
+  One place in the copies of a receiver is one linked body. A confirmation says what it cuts and
+  where, asks the clearance around and past the end, and warns when copies of a receiver would
+  show a machining with no part facing them. `Operation::SetClearance` changes it afterwards,
+  from the imprint's entity info.
+- Not yet: a preview of the body while dragging, the collision check, a clearance around a rounded
+  or chamfered node from its child (refused by `offset_faces` on a rounded end), an imprint
+  surviving its body being wrapped by a node.
 
 ## Plane welding
 

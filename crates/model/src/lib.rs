@@ -14,6 +14,7 @@ mod fast_hash;
 mod file;
 mod history;
 mod import;
+mod imprints;
 mod links;
 pub mod measure;
 mod moves;
@@ -56,6 +57,7 @@ pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
 pub use history::History;
 pub use import::ImportReport;
+pub use imprints::{ImprintPlan, ImprintRecipe};
 pub use links::{Followed, Link, LinkSource, LinkState, LinkStatus};
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, NodeRaw, Operation, Outcome, Prepared, RawAsk, Scope, Warning};
 pub use profile::BodyProfile;
@@ -186,6 +188,11 @@ pub enum Refusal {
     ImprintLevel,
     /// A source's links ask one linked body for two places.
     LinkConflict,
+    /// « Imprimer » with no body reaching into another part.
+    NothingToImprint,
+    /// A clearance not finite, run back by a negative length, or on a body that is no imprint
+    /// made of another.
+    BadClearance,
 }
 
 /// A file that cannot be opened.
@@ -306,6 +313,8 @@ impl std::fmt::Display for Refusal {
             Refusal::ImprintLinked => t!("error.model.imprint_linked"),
             Refusal::ImprintLevel => t!("error.model.imprint_level"),
             Refusal::LinkConflict => t!("error.model.link_conflict"),
+            Refusal::NothingToImprint => t!("error.model.nothing_to_imprint"),
+            Refusal::BadClearance => t!("error.model.bad_clearance"),
             Refusal::FlattenFailed => t!("error.model.flatten_failed"),
             Refusal::NotAtPath => t!("error.model.not_at_path"),
             Refusal::BadPropKey => t!("error.model.bad_prop_key"),

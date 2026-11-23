@@ -21,6 +21,7 @@ mod handles;
 mod icons;
 mod identity;
 mod images;
+mod imprint;
 mod instance_name;
 mod journal_window;
 mod language;

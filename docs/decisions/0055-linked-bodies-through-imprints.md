@@ -1,6 +1,6 @@
 # Linked bodies: a part's imprints shape the parts it enters
 
-- Status: accepted (2026-11-23; steps 1 to 3 built, the rest tried headless)
+- Status: accepted (2026-11-23; steps 1 to 4 built, the collision check tried headless)
 - Design: [Bodies](../model/bodies.md), [Data model](../model/data-model.md)
 - Builds on: [Parts, assemblies, occurrences](0005-parts-assemblies-occurrences.md),
   [Body groups](0024-body-groups.md), [Body nodes](0042-body-nodes-operators.md); takes up the
@@ -185,5 +185,6 @@ receiver, moving the receiver, finding the shoulder face automatically.
      (built 2026-11-23; the imprint's shape does not follow yet, its links go off);
   3. « Replacer », « Séparer », « Amener l'usinage ici », broken links, ⚠ in the navigator
      (built 2026-11-23);
-  4. « Imprimer », the clearance and the run back;
+  4. « Imprimer », the clearance and the run back, the imprint's shape followed (built
+     2026-11-23; a clearance around a rounded end is refused, its node's child not used yet);
   5. the collision check in the background.

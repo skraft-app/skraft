@@ -3,7 +3,7 @@
 //! off their seats and the machinings that lost their link, with what can be done about them.
 
 use skraft_i18n::{t, tp};
-use skraft_model::{Followed, LinkSource, LinkStatus, Operation};
+use skraft_model::{Id, ImprintPlan, LinkSource, LinkStatus, Operation, Outcome};
 
 use super::{Editor, Notice, NoticeAction, NoticeKind};
 
@@ -33,8 +33,12 @@ impl Editor {
     /// After an operation (`before`, the status it was applied on): the sources it left off,
     /// but those it moved itself, offered to be put back; the sources that moved offered to take
     /// their receivers apart; the machinings that lost their link told.
-    pub(super) fn offer_links(&mut self, before: &LinkStatus, followed: &Followed) {
+    pub(super) fn offer_links(&mut self, before: &LinkStatus, outcome: &Outcome) {
         self.link_offer = None;
+        let followed = &outcome.links;
+        if outcome.imprinted.1 > 0 {
+            self.notify(NoticeKind::Success, tp!("notice.imprinted", outcome.imprinted.1), None);
+        }
         let others: Vec<LinkSource> =
             self.link_status.off.iter().filter(|s| !before.off.contains(s) && !followed.sources.contains(s)).copied().collect();
         let conflict = !followed.conflicts.is_empty();
@@ -58,6 +62,35 @@ impl Editor {
             // Goes by itself: undone, it would stay wrong. The navigator keeps the ⚠.
             self.notify(NoticeKind::Info, tp!("notice.links_lost", lost), None);
         }
+    }
+
+    /// The assembly edited and the occurrences selected in it, for « Imprimer »: not with a
+    /// part open.
+    fn imprint_sources(&self) -> Option<(Id, Vec<Id>)> {
+        if self.open_part.is_some() {
+            return None;
+        }
+        let context = self.context_definition();
+        let a = self.document().assembly(context).ok()?;
+        let sources: Vec<Id> = self.selection().iter().copied().filter(|id| a.occurrence(*id).is_some()).collect();
+        (!sources.is_empty()).then_some((context, sources))
+    }
+
+    /// Can « Imprimer » be asked: occurrences selected, nothing computing?
+    pub fn can_imprint(&self) -> bool {
+        !self.busy() && self.imprint_sources().is_some()
+    }
+
+    /// What « Imprimer » would do with the selection.
+    pub fn imprint_plan(&self) -> Option<ImprintPlan> {
+        let (context, sources) = self.imprint_sources()?;
+        self.document().imprint_plan(context, &sources).ok()
+    }
+
+    /// « Imprimer » on the selection, with this clearance around the tool and past its end.
+    pub fn imprint(&mut self, around: f64, deep: f64) {
+        let Some((context, sources)) = self.imprint_sources() else { return };
+        let _ = self.apply(Operation::Imprint { context, sources, around, deep });
     }
 
     /// Can the toast's button `act` still be run: nothing changed since it was shown?
