@@ -159,6 +159,7 @@ What holds now:
 - **Stretch never touches a linked body.** It is built again from its source, at the source's new
   place, its seats with it.
 - **A linked body has one source part**, whose shape it takes; identical parts get a body each.
+  **It is not edited**: one acts on its source, or breaks the link.
 - **Each side is read without its linked bodies**, so the rule « no cycle » still holds, and **the
   kernel says which parts share material**, before the confirmation.
 

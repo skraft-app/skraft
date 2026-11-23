@@ -1676,6 +1676,7 @@ error:
     intersects_regrouped: "intersections are not grouped or exploded together: each one limits the part, the shape would change"
     # Linked bodies (decision 0055).
     bad_link: "impossible link: it joins two placed parts"
+    linked_body: "linked machining: it follows its source part. Edit that part or break the link"
     link_conflict: "its links ask for two different places for one machining"
     nothing_to_imprint: "no body of this selection enters another part"
     bad_clearance: "invalid clearance"

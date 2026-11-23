@@ -123,6 +123,10 @@ Link     { id, source: path, receiver: path, body, seat: T }
   body, of one source part.
 - **Both sides are read without their linked bodies** (`Document::own_solid`): a mortise is never
   part of what makes a tool, so two parts may imprint each other with no cycle.
+- **It follows, it is not edited.** Moving, stretching, copying, grouping, rounding it, changing
+  its sign or taking it out of its part is refused (`Refusal::LinkedBody`), and among other bodies
+  it is left where it is. What stays open: its clearance, its own name, deleting it, and
+  « Rompre le lien », which makes it a plain body.
 - **Held by the assembly** `context`, by occurrence paths relative to it: placing that assembly
   again keeps its links, and a copy into another document follows the ids drawn afresh.
 - **`seat`** is the source's axes in the receiver's, per link: several links share a body

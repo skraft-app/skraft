@@ -514,12 +514,48 @@ fn changing_axes_leaves_the_links_seated() {
 }
 
 #[test]
-fn a_mortise_moved_by_hand_is_off() {
-    let mut t = turned_table();
-    let body = t.h.document().root_assembly().links()[0].body;
-    let target = EntityPath::root(t.legs[0]);
-    t.h.apply(Operation::TransformBodies { target, bodies: vec![body], transform: moved(DVec3::Z), scope: Scope::All }).unwrap();
-    assert_eq!(t.off(), vec![0, 1, 2, 3], "its rails no longer sit in it");
+fn a_linked_body_takes_no_edit() {
+    let mut h = History::new(Document::new());
+    let (rail, leg) = rail_and_leg(&mut h);
+    let body = link(&mut h, rail, leg);
+    let leg_part = part_of(&h, leg);
+    let q = h.document().part(leg_part).unwrap();
+    let (blank, def) = (q.positives().next().unwrap().id, q.body(body).unwrap().def);
+    let target = EntityPath::root(leg);
+    let scope = Scope::All;
+    let shift = |bodies: Vec<Id>| Operation::TransformBodies { target: target.clone(), bodies, transform: moved(DVec3::Z), scope };
+    let one = vec![body];
+    for op in [
+        shift(one.clone()),
+        Operation::SetSign { target: target.clone(), bodies: one.clone(), sign: Sign::Positive, scope },
+        Operation::GroupBodies { target: target.clone(), bodies: one.clone(), scope },
+        Operation::DuplicateBodies { target: target.clone(), bodies: one.clone(), transform: moved(DVec3::Z), scope },
+        Operation::StretchBodies {
+            target: target.clone(),
+            bodies: one.clone(),
+            frame: DAffine3::IDENTITY,
+            axis: DVec3::X,
+            cuts: vec![30.0],
+            moves: vec![0.0, 5.0],
+            scope,
+        },
+        Operation::MoveBodies { from: target.clone(), bodies: one.clone(), to: BodiesTo::NewPart(Vec::new()), copy: false, scope },
+        Operation::RenameBodyDef { part: leg_part, def, name: "Autre".into() },
+    ] {
+        refused(h.apply(op), Refusal::LinkedBody);
+    }
+
+    // Among other bodies, it stays under its source.
+    let placed = h.document().part(leg_part).unwrap().body(body).unwrap().placement;
+    h.apply(shift(vec![blank, body])).unwrap();
+    let q = h.document().part(leg_part).unwrap();
+    assert_eq!(q.body(body).unwrap().placement, placed);
+    assert_eq!(q.body(blank).unwrap().placement, moved(DVec3::Z));
+    assert_eq!(states(&h), vec![LinkState::Seated]);
+
+    // It can still be taken away.
+    h.apply(Operation::DeleteBodies { target, bodies: one, scope }).unwrap();
+    assert!(root_links(&h).is_empty());
 }
 
 // ---- links through changes of structure -----------------------------------------------------

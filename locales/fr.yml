@@ -1835,6 +1835,7 @@ error:
     intersects_regrouped: "des intersections ne se groupent ni ne s'éclatent ensemble : chacune limite la pièce, la forme changerait"
     # Linked bodies (decision 0055).
     bad_link: "lien impossible : il relie deux pièces placées"
+    linked_body: "usinage lié : il suit sa pièce source. Modifiez cette pièce ou rompez le lien"
     link_conflict: "ses liens demandent deux positions différentes pour un même usinage"
     nothing_to_imprint: "aucun corps de cette sélection n'entre dans une autre pièce"
     bad_clearance: "réglage de jeu invalide"

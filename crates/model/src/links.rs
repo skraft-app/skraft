@@ -245,6 +245,18 @@ impl Document {
         status
     }
 
+    /// `bodies` of `part` without its linked ones, which follow their sources: what an edit of
+    /// their shape or place applies to. Refused when it leaves none of them.
+    pub(crate) fn editable(&self, part: Id, bodies: Vec<Id>) -> Result<Vec<Id>> {
+        let p = self.part(part)?;
+        let kept: Vec<Id> =
+            bodies.iter().copied().filter(|id| p.body(*id).is_none_or(|b| p.def_of(b).source != BodySource::Linked)).collect();
+        if kept.is_empty() && !bodies.is_empty() {
+            return Err(Error::Invalid(Refusal::LinkedBody));
+        }
+        Ok(kept)
+    }
+
     /// Takes away the links with nothing left to show: their receiver or their linked body gone.
     /// One whose source is gone stays: its body is told frozen.
     pub(crate) fn drop_dead_links(&mut self) {

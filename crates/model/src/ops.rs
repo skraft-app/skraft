@@ -1469,6 +1469,10 @@ impl Document {
             Operation::RenameBodyDef { part, def, name } => {
                 let p = self.part_mut(*part)?;
                 let d = p.defs.iter_mut().find(|d| d.id == *def).ok_or(Error::NotFound(*def))?;
+                // It follows its source.
+                if d.source == crate::BodySource::Linked {
+                    return Err(Error::Invalid(Refusal::LinkedBody));
+                }
                 let name = name.trim();
                 d.set_name((!name.is_empty()).then(|| name.to_owned()));
                 Ok(Outcome::default())
@@ -1698,11 +1702,15 @@ impl Document {
                 }
                 Ok(Outcome::default())
             }
-            Operation::MoveBodies { from, bodies, to, copy, scope } => self.move_bodies(from, bodies, to, *copy, *scope, solver),
+            Operation::MoveBodies { from, bodies, to, copy, scope } => {
+                let bodies = if *copy { bodies.clone() } else { self.editable(self.resolve_part(from)?.0, bodies.clone())? };
+                self.move_bodies(from, &bodies, to, *copy, *scope, solver)
+            }
             Operation::MoveParts { instances, occurrences, to, copy } => self.move_parts(instances, occurrences, to, *copy, solver),
             Operation::MoveOccurrences { instances, occurrences, to, copy } => self.move_occurrences(instances, occurrences, to, *copy),
             Operation::GroupBodies { target, bodies, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 if bodies.is_empty() {
                     return Err(Error::Invalid(Refusal::NoBodies));
                 }
@@ -1763,6 +1771,7 @@ impl Document {
             }
             Operation::SetSign { target, bodies, sign, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 let p = self.part(part)?;
                 let flipped: Vec<Id> = p.bodies.iter().filter(|b| bodies.contains(&b.id) && b.sign != *sign).map(|b| b.id).collect();
                 // The last positive ones too: the part is then empty (docs/model/bodies.md#empty-parts).
@@ -1782,6 +1791,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 self.move_guides(part, &guides, transform)?;
                 if !bodies.is_empty() {
                     for b in &mut self.part_mut(part)?.bodies {
@@ -1798,6 +1808,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 let mut created = self.copy_bodies(part, &bodies, &[*transform])?;
                 if !created.is_empty() {
                     self.recompute(part, Some(&created), solver)?;
@@ -1813,6 +1824,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 let steps: Vec<DAffine3> = std::iter::successors(Some(*step), |at| Some(*step * *at)).take(*count as usize).collect();
                 let mut created = self.copy_bodies(part, &bodies, &steps)?;
                 if !created.is_empty() {
@@ -1824,6 +1836,7 @@ impl Document {
             Operation::CopyBodies { target, bodies, moved, placements, scope } => {
                 check_copies(moved, placements)?;
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 let mut created = self.copy_bodies(part, &bodies, placements)?;
                 let shifted = !is_identity(moved);
                 if shifted {
@@ -1867,6 +1880,7 @@ impl Document {
                 // In the part's axes.
                 let stretch = stretch.in_frame(&frame.inverse());
                 let (part, guides, ids) = self.bodies_of(target, bodies, *scope)?;
+                let ids = self.editable(part, ids)?;
                 self.stretch_guides(part, &stretch, Some(&guides))?;
                 if !ids.is_empty() {
                     self.stretch_bodies(part, Some(&ids), &stretch, solver)?;
@@ -1897,6 +1911,7 @@ impl Document {
             }
             Operation::Blend { target, bodies, blend, size, picks, scope } => {
                 let (part, _, ids) = self.bodies_of(target, bodies, *scope)?;
+                let ids = self.editable(part, ids)?;
                 if ids.is_empty() || !(size.is_finite() && *size > 0.0) {
                     return Err(Error::Invalid(Refusal::NoBodies));
                 }

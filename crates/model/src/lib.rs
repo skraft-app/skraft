@@ -181,6 +181,8 @@ pub enum Refusal {
     /// A link needs a path to each of its parts
     /// (docs/decisions/0055-linked-bodies-through-imprints.md).
     BadLink,
+    /// A linked body edited: it follows its source.
+    LinkedBody,
     /// A source's links ask one linked body for two places.
     LinkConflict,
     /// « Imprimer » with no body reaching into another part.
@@ -304,6 +306,7 @@ impl std::fmt::Display for Refusal {
             Refusal::UngroupNegative => t!("error.model.ungroup_negative"),
             Refusal::IntersectsRegrouped => t!("error.model.intersects_regrouped"),
             Refusal::BadLink => t!("error.model.bad_link"),
+            Refusal::LinkedBody => t!("error.model.linked_body"),
             Refusal::LinkConflict => t!("error.model.link_conflict"),
             Refusal::NothingToImprint => t!("error.model.nothing_to_imprint"),
             Refusal::BadClearance => t!("error.model.bad_clearance"),
