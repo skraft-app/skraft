@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/library.rs, apps/skraft/src/search.rs, crates/tools/src/search.rs, apps/skraft/src/thumbnails.rs, apps/skraft/src/viewport.rs, crates/render/src/lib.rs, apps/skraft/src/panels.rs, apps/skraft/src/dock.rs, crates/tools/src/editor/library.rs, crates/model/src/ops.rs, crates/model/src/document.rs]
+code: [apps/skraft/src/library.rs, apps/skraft/src/search.rs, crates/tools/src/search.rs, apps/skraft/src/thumbnails.rs, apps/skraft/src/viewport.rs, crates/render/src/lib.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/dock.rs, crates/tools/src/editor/library.rs, crates/model/src/ops.rs, crates/model/src/document.rs]
 ---
 
 # Components library

@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/ribbon.rs, apps/skraft/src/icons.rs, apps/skraft/src/prefs.rs, apps/skraft/src/app.rs]
+code: [apps/skraft/src/ribbon.rs, apps/skraft/src/icons.rs, apps/skraft/src/prefs.rs, apps/skraft/src/app.rs, apps/skraft/src/app/]
 ---
 
 # Workspaces and ribbon

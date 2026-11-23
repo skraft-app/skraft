@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/commands.rs, apps/skraft/src/app.rs, apps/skraft/src/control.rs, apps/skraft/src/titlebar.rs, crates/control/src/server.rs]
+code: [apps/skraft/src/commands.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/control.rs, apps/skraft/src/titlebar.rs, crates/control/src/server.rs]
 ---
 
 # Command registry and external driving
