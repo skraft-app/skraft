@@ -62,7 +62,7 @@ jobs:
       - name: Keep only what is served
         run: |
           rm -f dist/web/*/.built-from dist/web/*/.gitignore
-          for file in index.html kernel-worker.js wheel.js favicon.svg THIRD-PARTY-LICENSES.txt \
+          for file in index.html kernel-worker.js image-worker.js wheel.js favicon.svg THIRD-PARTY-LICENSES.txt \
             pkg/skraft.js pkg/skraft_bg.wasm \
             worker/skraft_kernel_worker.js worker/skraft_kernel_worker_bg.wasm; do
             test -s "dist/web/$file" || { echo "::error::dist/web/$file is missing"; exit 1; }

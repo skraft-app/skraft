@@ -802,6 +802,20 @@ fn mip_down(rgba: &[u8], side: u32) -> Vec<u8> {
     out
 }
 
+/// Every mip level of a layer's image ([`TEXTURE_SIZE`]² sRGB RGBA), the image first: what
+/// [`Renderer::set_textures`] uploads.
+pub fn texture_levels(rgba: Vec<u8>) -> Vec<Vec<u8>> {
+    let mut levels = Vec::with_capacity(TEXTURE_MIPS as usize);
+    levels.push(rgba);
+    let mut side = TEXTURE_SIZE;
+    while side > 1 {
+        let next = mip_down(&levels[levels.len() - 1], side);
+        levels.push(next);
+        side /= 2;
+    }
+    levels
+}
+
 /// A growable buffer rewritten each frame.
 struct Dynamic {
     label: &'static str,
@@ -1530,34 +1544,29 @@ impl Renderer {
     /// The textures' images, in layers ([`texture_entry`]): each `(key, rgba)`, sRGB RGBA bytes
     /// of [`TEXTURE_SIZE`]² texels. Uploaded again, its mip levels made, only when the keys
     /// change.
-    pub fn set_textures(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, layers: &[(u64, &[u8])]) {
+    pub fn set_textures(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, layers: &[(u64, &[Vec<u8>])]) {
         let keys: Vec<u64> = layers.iter().map(|(k, _)| *k).collect();
         if keys == self.layers.keys {
             return;
         }
         let (texture, view) = TextureLayers::create(device, layers.len() as u32);
-        for (layer, (_, rgba)) in layers.iter().enumerate() {
-            if rgba.len() != (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize {
+        for (layer, (_, levels)) in layers.iter().enumerate() {
+            if levels.len() != TEXTURE_MIPS as usize || levels[0].len() != (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize {
                 continue;
             }
-            let mut level = rgba.to_vec();
-            let mut side = TEXTURE_SIZE;
-            for mip in 0..TEXTURE_MIPS {
+            for (mip, level) in levels.iter().enumerate() {
+                let side = TEXTURE_SIZE >> mip;
                 queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
                         texture: &texture,
-                        mip_level: mip,
+                        mip_level: mip as u32,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: layer as u32 },
                         aspect: wgpu::TextureAspect::All,
                     },
-                    &level,
+                    level,
                     wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(side * 4), rows_per_image: Some(side) },
                     wgpu::Extent3d { width: side, height: side, depth_or_array_layers: 1 },
                 );
-                if side > 1 {
-                    level = mip_down(&level, side);
-                    side /= 2;
-                }
             }
         }
         self.layers = TextureLayers { keys, view };

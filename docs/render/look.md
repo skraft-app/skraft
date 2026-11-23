@@ -165,10 +165,13 @@ A material may have a **texture**: an image laid on the faces at its real size.
   measured by the viewport when the mesh changes), across it on the end grain; at its real
   size, turned by its rotation, centred on the part's mesh. Back faces and section caps keep
   their colours.
-- **Rendering**: the images decoded by the app (`image`, PNG and JPEG) and resized to
-  `TEXTURE_SIZE`² (1024) texels, one layer each of a `texture_2d_array`
-  (`Renderer::set_textures`, uploaded again when the images used change), every mip level
-  made on the CPU (means of four texels in linear light); each palette entry's texture beside
+- **Rendering**: the images decoded off the interface's thread and resized to
+  `TEXTURE_SIZE`² (1024) texels (`images::Decoder`: two threads with `image` on desktop, the
+  browser's decoders in `web/image-worker.js` on the web, the UI decoding one itself if the
+  worker cannot), one layer each of a `texture_2d_array` (`Renderer::set_textures`, uploaded
+  again when the images used change), every mip level made on the CPU once per image, one image
+  per frame (`render::texture_levels`, means of four texels in linear light through tables). A
+  material shows its colour until its image is ready. Each palette entry's texture beside
   its colour (`Style::textures`: layer, inverse size, rotation). The mip level comes from the
   size of a pixel on the face — its distance and slant, as the hatches' pitch — sampled with
   `textureSampleLevel`: no derivatives, which would need a uniform control flow after the

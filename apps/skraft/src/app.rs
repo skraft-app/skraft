@@ -112,7 +112,7 @@ pub struct SkraftApp {
     tabs: Vec<egui::Event>,
     /// The documents loading, and since when (egui's time): the window comes after
     /// [`LOAD_WINDOW_AFTER`].
-    loads_seen: std::collections::HashMap<DocId, f64>,
+    loads_seen: std::collections::HashMap<DocId, (f64, LoadKind)>,
     /// The paint tool was active at the last look ([`Self::reveal_materials`]).
     painting: bool,
     /// What was copied, for every document (docs/tools/copy-paste.md), and how many
@@ -677,18 +677,27 @@ impl SkraftApp {
     /// (a small file would only flash it).
     fn loading_window(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
-        let loading: Vec<DocId> = self.docs.iter_mut().filter(|d| d.editor.loading().is_some()).map(|d| d.id).collect();
-        self.loads_seen.retain(|id, _| loading.contains(id));
-        for &id in &loading {
-            self.loads_seen.entry(id).or_insert(now);
+        let loading: Vec<(DocId, LoadKind)> = self.docs.iter().filter_map(|d| d.editor.loading().map(|l| (d.id, l.kind.clone()))).collect();
+        // The shown document's textures, prepared whatever draws it: a load waits for them too.
+        let shown = self.docs.active().map(|d| d.id);
+        let textures = match self.docs.active() {
+            Some(d) => self.viewport.textures_progress(ctx, d.editor.document()),
+            None => (0, 0),
+        };
+        let waiting = textures.0 < textures.1;
+        self.loads_seen.retain(|id, _| loading.iter().any(|(l, _)| l == id) || (waiting && shown == Some(*id)));
+        for (id, kind) in loading {
+            self.loads_seen.entry(id).or_insert((now, kind));
         }
         let Some(d) = self.docs.active() else { return };
-        let (Some(load), Some(&since)) = (d.editor.loading().cloned(), self.loads_seen.get(&d.id)) else { return };
+        let Some((since, kind)) = self.loads_seen.get(&d.id).cloned() else { return };
+        // None once the meshes are all there, the textures still coming.
+        let load = d.editor.loading().cloned();
         if now - since < LOAD_WINDOW_AFTER {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(LOAD_WINDOW_AFTER - (now - since)));
             return;
         }
-        let title = match &load.kind {
+        let title = match &kind {
             LoadKind::Open => t!("loading.open", name = d.name()),
             LoadKind::Import { name } => t!("loading.import", name = name),
         };
@@ -706,25 +715,32 @@ impl SkraftApp {
             ui.heading(title);
             ui.add_space(8.0);
             egui::Grid::new("loading_stages").num_columns(2).spacing([12.0, 8.0]).min_col_width(90.0).show(ui, |ui| {
-                match load.reading {
-                    Some(Progress::Bodies { done, total }) => row(ui, t!("loading.bodies"), done as usize, total as usize, true),
-                    Some(Progress::Reading) => {
-                        ui.label(t!("loading.reading"));
-                        ui.add(egui::Spinner::new());
-                        ui.end_row();
+                if let Some(load) = &load {
+                    match load.reading {
+                        Some(Progress::Bodies { done, total }) => row(ui, t!("loading.bodies"), done as usize, total as usize, true),
+                        Some(Progress::Reading) => {
+                            ui.label(t!("loading.reading"));
+                            ui.add(egui::Spinner::new());
+                            ui.end_row();
+                        }
+                        None => {}
                     }
-                    None => {}
+                    let (pd, pt) = load.previews;
+                    let (fd, ft) = load.finals;
+                    if load.reading.is_none() || pt > 0 {
+                        row(ui, t!("loading.previews"), pd, pt, pd < pt);
+                        row(ui, t!("loading.finals"), fd, ft, pd >= pt);
+                    }
                 }
-                let (pd, pt) = load.previews;
-                let (fd, ft) = load.finals;
-                if load.reading.is_none() || pt > 0 {
-                    row(ui, t!("loading.previews"), pd, pt, pd < pt);
-                    row(ui, t!("loading.finals"), fd, ft, pd >= pt);
+                if textures.1 > 0 {
+                    row(ui, t!("loading.textures"), textures.0, textures.1, waiting);
                 }
             });
             ui.add_space(10.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(t!("loading.cancel")).clicked() {
+                // Only textures left: the model is there, usable without them.
+                let label = if load.is_some() { t!("loading.cancel") } else { t!("loading.skip") };
+                if ui.button(label).clicked() {
                     cancel = true;
                 }
             });
@@ -734,6 +750,8 @@ impl SkraftApp {
         }
         if cancel && let Some(d) = self.docs.active_mut() {
             d.editor.cancel_loading();
+            let id = d.id;
+            self.loads_seen.remove(&id);
         }
     }
 

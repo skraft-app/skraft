@@ -1542,7 +1542,8 @@ fn a_texture_is_laid_on_the_faces_at_its_real_size() {
         let v = if (i % side) < side / 2 { 0 } else { 255 };
         px.copy_from_slice(&[v, v, v, 255]);
     }
-    r.set_textures(&device, &queue, &[(7, &stripes)]);
+    let levels = texture_levels(stripes);
+    r.set_textures(&device, &queue, &[(7, levels.as_slice())]);
     let palette = [[0.8, 0.05, 0.05, 1.0]];
     let textures = [texture_entry(0, [2.0, 2.0], 0.0)];
     let p = Placement { material: 0, ..Placement::new(DMat4::IDENTITY) };
@@ -1912,4 +1913,8 @@ fn mip_levels_average_in_linear_light_as_the_formula() {
             assert!((got - formula(a, b)).abs() <= 1, "{a} {b}: {got} against {}", formula(a, b));
         }
     }
+    let levels = texture_levels(vec![128; (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize]);
+    assert_eq!(levels.len(), TEXTURE_MIPS as usize);
+    assert_eq!(levels.last().unwrap().len(), 4);
+    assert_eq!(levels.last().unwrap()[0], 128, "a flat image stays as it is");
 }

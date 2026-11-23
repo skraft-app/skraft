@@ -2,8 +2,8 @@
 //! tiles or rows, how many parts show each, the unused ones apart. A click chooses one (what the
 //! paint tool paints with, its properties in the entity info) without changing the tool.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, mpsc};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 use skraft_i18n::{t, tp};
 use skraft_model::{Document, Id, Operation};
@@ -12,6 +12,7 @@ use skraft_tools::{Editor, ToolKind};
 
 use crate::catalog::{self, Card, Ink, LIST_ROW, Renaming, Rows, Shelf};
 use crate::icons;
+use crate::images::{Decoder, Size};
 use crate::library::natural_cmp;
 use crate::panels::{Action, NEW_COLORS};
 use crate::style::Tip;
@@ -267,104 +268,44 @@ pub(crate) fn centre_square(tex: &egui::TextureHandle) -> egui::Rect {
 
 /// A thumbnail's side (texels).
 const THUMB_SIZE: u32 = 128;
-/// How many images are decoded at once, off the interface's thread.
-#[cfg(not(target_arch = "wasm32"))]
-const DECODERS: usize = 2;
-
-type Decoded = (String, Option<egui::ColorImage>);
 
 /// The thumbnails made, by image id (the same image, the same thumbnail in every document), and
-/// those on their way.
+/// those on their way. Only the interface's thread asks for them.
+#[derive(Default)]
 struct Thumbs {
     made: HashMap<String, Option<egui::TextureHandle>>,
     asked: HashSet<String>,
-    queue: VecDeque<(String, Arc<[u8]>)>,
-    #[cfg(not(target_arch = "wasm32"))]
-    running: usize,
-    #[cfg(not(target_arch = "wasm32"))]
-    sender: mpsc::Sender<Decoded>,
-    receiver: mpsc::Receiver<Decoded>,
+    decoder: Decoder,
 }
 
-impl Default for Thumbs {
-    fn default() -> Self {
-        #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
-        let (sender, receiver) = mpsc::channel();
-        Thumbs {
-            made: HashMap::new(),
-            asked: HashSet::new(),
-            queue: VecDeque::new(),
-            #[cfg(not(target_arch = "wasm32"))]
-            running: 0,
-            #[cfg(not(target_arch = "wasm32"))]
-            sender,
-            receiver,
-        }
-    }
-}
-
-fn decode(bytes: &[u8]) -> Option<egui::ColorImage> {
-    let img = image::load_from_memory(bytes).ok()?.thumbnail(THUMB_SIZE, THUMB_SIZE).to_rgba8();
-    Some(egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw()))
-}
-
-impl Thumbs {
-    /// Takes in what was decoded, and starts what waits.
-    fn pump(&mut self, ctx: &egui::Context) {
-        while let Ok((id, image)) = self.receiver.try_recv() {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                self.running -= 1;
-            }
-            let made = image.map(|i| ctx.load_texture(format!("thumbnail {id}"), i, egui::TextureOptions::LINEAR));
-            self.asked.remove(&id);
-            self.made.insert(id, made);
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        while self.running < DECODERS {
-            let Some((id, bytes)) = self.queue.pop_front() else { break };
-            self.running += 1;
-            let (sender, ctx) = (self.sender.clone(), ctx.clone());
-            std::thread::spawn(move || {
-                let image = decode(&bytes);
-                let _ = sender.send((id, image));
-                ctx.request_repaint();
-            });
-        }
-        // No threads in the browser: one image per frame.
-        #[cfg(target_arch = "wasm32")]
-        if let Some((id, bytes)) = self.queue.pop_front() {
-            let made = decode(&bytes).map(|i| ctx.load_texture(format!("thumbnail {id}"), i, egui::TextureOptions::LINEAR));
-            self.asked.remove(&id);
-            self.made.insert(id, made);
-            ctx.request_repaint();
-        }
-    }
+thread_local! {
+    static THUMBS: RefCell<Thumbs> = RefCell::new(Thumbs::default());
 }
 
 /// The thumbnail of the image `id` of `doc`, none while it is decoded (off the interface's
 /// thread: a large JPEG takes ~100 ms) or when it does not read.
 pub(crate) fn thumbnail(ctx: &egui::Context, doc: &Document, id: &str) -> Option<egui::TextureHandle> {
-    let key = egui::Id::unique("texture_thumbnails");
-    let thumbs: Arc<Mutex<Thumbs>> = ctx.data_mut(|d| d.get_temp_mut_or_default::<Arc<Mutex<Thumbs>>>(key).clone());
-    let mut thumbs = thumbs.lock().ok()?;
-    thumbs.pump(ctx);
-    if let Some(made) = thumbs.made.get(id) {
-        return made.clone();
-    }
-    if thumbs.asked.insert(id.to_owned()) {
-        match doc.asset(id) {
-            Some(asset) => {
-                let bytes = asset.bytes.clone();
-                thumbs.queue.push_back((id.to_owned(), bytes));
-                thumbs.pump(ctx);
-            }
-            None => {
-                thumbs.asked.remove(id);
-            }
+    THUMBS.with_borrow_mut(|thumbs| {
+        for (key, image) in thumbs.decoder.take(ctx) {
+            let made = image.map(|i| {
+                let size = [i.size[0] as usize, i.size[1] as usize];
+                let image = egui::ColorImage::from_rgba_unmultiplied(size, &i.rgba);
+                ctx.load_texture(format!("thumbnail {key}"), image, egui::TextureOptions::LINEAR)
+            });
+            thumbs.asked.remove(&key);
+            thumbs.made.insert(key, made);
         }
-    }
-    None
+        if let Some(made) = thumbs.made.get(id) {
+            return made.clone();
+        }
+        if !thumbs.asked.contains(id)
+            && let Some(asset) = doc.asset(id)
+        {
+            thumbs.asked.insert(id.to_owned());
+            thumbs.decoder.ask(ctx, id.to_owned(), asset.bytes.clone(), Size::Fit(THUMB_SIZE));
+        }
+        None
+    })
 }
 
 #[cfg(test)]
