@@ -1,10 +1,10 @@
 //! « Réorienter » (OpenCutList's SmartAxes, docs/tools/reorient.md): gives the part or assembly
 //! clicked new axes, nothing moving in the world. Four modes, Tab going to the next: swap length
 //! and width, swap front and back, adapt the axes to a face and an edge, move the origin. As
-//! SmartAxes, it shows the target **as it is**: its axes, arrows and box; only « Adapter » and
-//! « Origine » draw what a click would give over it, in magenta.
+//! SmartAxes, it shows the target **as it is**: its axes, arrows and box; what a click would give
+//! is drawn over it in magenta: the turn of the two swaps, « Adapter »'s axes, « Origine »'s.
 
-use glam::{DAffine3, DMat3, DVec2, DVec3};
+use glam::{DAffine3, DMat3, DQuat, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::{Behavior, EntityPath, Id, Operation, Subject};
 
@@ -12,7 +12,7 @@ use super::face::Face;
 use super::{
     BLUE, Command, Cursor, Cx, GREEN, INK, MAGENTA, OptionChoice, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, alt_key,
 };
-use crate::draw::{Brush, Drawer, Drawing, Pen, Stipple};
+use crate::draw::{Brush, Drawer, Drawing, Ends, Pen, Stipple};
 use crate::infer::Inference;
 
 /// The saved choice: the mode.
@@ -32,6 +32,20 @@ const EDGE_WIDTH: f32 = 4.0;
 const AXES_PX: (f64, f64) = (90.0, 3.0);
 /// The arrows on the part as it is, OpenCutList's.
 const ARROW: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+/// The quarter turn's arc: its radius, its distance to the face's sides, the radius under which
+/// it no longer fits (pixels).
+const TURN_RADIUS_PX: f64 = 24.0;
+const TURN_INSET_PX: f64 = 10.0;
+const TURN_MIN_PX: f64 = 8.0;
+/// The half turn's ring: its radius (pixels), the opening left at the back of red, and where it
+/// stands along the arrow (the arrow's tip).
+const RING_RADIUS_PX: f64 = 20.0;
+const RING_GAP: f64 = 80.0 * std::f64::consts::PI / 180.0;
+const RING_ALONG: f64 = 0.9;
+/// A turn's white outline.
+const TURN_HALO_WIDTH: f32 = 4.5;
+/// A turn seen edge on is opened up to this sine, to stay readable.
+const TURN_MIN_OPENING: f64 = 0.35;
 
 /// What is read of the target once, while it stays as it is.
 #[derive(Clone, Debug)]
@@ -188,6 +202,7 @@ fn aim(px: DVec2, mode: &'static str, known: Option<&Aim>, cx: &Cx<'_>) -> Optio
     let target = target_of(component, known.filter(|k| k.component == component).map(|k| &k.target), cx)?;
     let (mut face_axes, mut inference) = (None, None);
     let axes = match mode {
+        SWAP_LENGTH_WIDTH if reversed => DAffine3::from_mat3(DMat3::from_cols(DVec3::Y, -DVec3::X, DVec3::Z)),
         SWAP_LENGTH_WIDTH => DAffine3::from_mat3(DMat3::from_cols(-DVec3::Y, DVec3::X, DVec3::Z)),
         SWAP_FRONT_BACK => DAffine3::from_mat3(DMat3::from_cols(DVec3::X, -DVec3::Y, -DVec3::Z)),
         ADAPT => {
@@ -238,6 +253,59 @@ fn draw_adapted(d: &mut Drawer<'_>, (lo, hi): (DVec3, DVec3)) {
     d.brush(Brush::new(translucent(MAGENTA, 0.35)).over()).fill_arrow(front, u, v);
     d.pen(Pen::new(MAGENTA).width(ARROW_WIDTH).over()).arrow(front, u, v);
     d.pen(Pen::new(MAGENTA).stipple(Stipple::ShortDashes)).box_(lo, hi);
+}
+
+/// The rotation tilting the plane of `normal` (facing `eye`) just enough to be seen open.
+fn opened(normal: DVec3, eye: DVec3) -> DQuat {
+    let facing = normal.dot(eye);
+    let side = (eye - normal * facing).normalize_or_zero();
+    if facing >= TURN_MIN_OPENING || side == DVec3::ZERO {
+        return DQuat::IDENTITY;
+    }
+    let s = TURN_MIN_OPENING;
+    DQuat::from_rotation_arc(normal, normal * (1.0 - s * s).sqrt() + side * s)
+}
+
+/// The curved arrow of a turn, magenta on a white outline.
+fn turn(d: &mut Drawer<'_>, center: DVec3, axis: DVec3, from: DVec3, angle: f64, ends: Ends) {
+    for pen in [Pen::new(ARROW).width(TURN_HALO_WIDTH).over(), Pen::new(MAGENTA).width(ARROW_WIDTH).over()] {
+        d.pen(pen).turn_arrow(center, axis, from, angle, ends);
+    }
+}
+
+/// The turn a swap gives, in the component's axes, on the side of the box facing the eye. A
+/// quarter turn: an arc in the corner red sweeps past, from the arrow's tip to the side it will
+/// point at. A half turn has no direction: a ring with two heads about red, at the arrow's tip.
+fn draw_turn(d: &mut Drawer<'_>, a: &Aim, (lo, hi): (DVec3, DVec3), cx: &Cx<'_>) {
+    let eye = -a.to_world.inverse().transform_vector3(cx.camera.forward()).normalize_or_zero();
+    let z = if eye.z >= 0.0 { hi.z } else { lo.z };
+    let wpp_at = |p: DVec3| cx.camera.world_per_pixel(cx.size, a.to_world.transform_point3(p));
+    match a.mode {
+        SWAP_LENGTH_WIDTH => {
+            let way = if a.reversed { 1.0 } else { -1.0 };
+            let corner = DVec3::new(hi.x, if a.reversed { hi.y } else { lo.y }, z);
+            let wpp = wpp_at(corner);
+            let radius = TURN_RADIUS_PX.min((hi.x - lo.x).min(hi.y - lo.y) / wpp - TURN_INSET_PX);
+            if radius < TURN_MIN_PX {
+                return;
+            }
+            let off = (TURN_INSET_PX + radius) * wpp;
+            let center = corner + DVec3::new(-off, -way * off, 0.0);
+            let tilt = opened(if eye.z >= 0.0 { DVec3::Z } else { -DVec3::Z }, eye);
+            turn(d, center, tilt * DVec3::Z, tilt * DVec3::X * radius * wpp, way * std::f64::consts::FRAC_PI_2, Ends::End);
+        }
+        SWAP_FRONT_BACK => {
+            let center = DVec3::new(lo.x + RING_ALONG * (hi.x - lo.x), (lo.y + hi.y) / 2.0, z);
+            let wpp = wpp_at(center);
+            let tilt = opened(if eye.x >= 0.0 { DVec3::X } else { -DVec3::X }, eye);
+            let axis = tilt * DVec3::X;
+            // The opening at the back of red: the ring's two heads on either side of it.
+            let back = (-eye).reject_from_normalized(axis).normalize_or(tilt * DVec3::Y);
+            let from = DQuat::from_axis_angle(axis, RING_GAP / 2.0) * back * RING_RADIUS_PX * wpp;
+            turn(d, center, axis, from, std::f64::consts::TAU - RING_GAP, Ends::Both);
+        }
+        _ => {}
+    }
 }
 
 fn translucent(c: [f32; 4], a: f32) -> [f32; 4] {
@@ -329,6 +397,7 @@ impl Tool for ReorientTool {
             }
             if let Some(b) = a.target.bounds {
                 draw_current(d, b);
+                draw_turn(d, &a, b, cx);
             }
         }
         // What a click would give.
@@ -386,7 +455,7 @@ impl Tool for ReorientTool {
             SWAP_FRONT_BACK => t!("tool.reorient.hint.swap_front_back"),
             ADAPT => t!("tool.reorient.hint.adapt", alt_key = alt_key()),
             ORIGIN => t!("tool.reorient.hint.origin"),
-            _ => t!("tool.reorient.hint.swap_length_width"),
+            _ => t!("tool.reorient.hint.swap_length_width", alt_key = alt_key()),
         }
     }
 

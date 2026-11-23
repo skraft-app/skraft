@@ -25,6 +25,14 @@ pub const BOLD: f32 = 3.0;
 pub const ARROW_PX: f64 = 10.0;
 const ARROW_SPREAD: f64 = 0.45;
 
+/// A curved arrow's chords (radians each), its heads' length on screen (pixels), their half width
+/// over that length, and how far back on the curve (radians) their direction is taken, so that
+/// they follow the bend.
+const TURN_STEP: f64 = 1.0 / 6.0;
+const TURN_HEAD_PX: f64 = 5.0;
+const TURN_HEAD_SPREAD: f64 = 0.65;
+const TURN_HEAD_BACK: f64 = 0.35;
+
 /// A length shorter than this (mm) is not written.
 const MIN_LENGTH: f64 = 1e-3;
 /// Nor one this short on screen (pixels): it would not fit.
@@ -186,8 +194,11 @@ impl Pen {
         self.width(if bold { BOLD } else { NORMAL })
     }
 
+    /// Short dashes come anchored: laid in model units, dashes this short fade into a line at
+    /// some zooms (their period under the shader's few pixels).
     pub fn stipple(self, stipple: Stipple) -> Self {
-        Pen { stipple, ..self }
+        let lay = if stipple == Stipple::ShortDashes { Lay::Anchored } else { self.lay };
+        Pen { stipple, lay, ..self }
     }
 
     /// A guide's: long dashes on screen, held still on it as the view pans (at the phase of each
@@ -587,6 +598,37 @@ impl<'a> Drawer<'a> {
         self.curve(&pts, false)
     }
 
+    /// A curved arrow about `axis` from `center + from` (square to `axis`), turning `angle`
+    /// (radians, counter-clockwise about `axis`), its heads at `ends`: two plain strokes lying
+    /// in the arc's plane, unlike [`Self::arrow_heads`] which face the eye, a fixed size on
+    /// screen.
+    pub fn turn_arrow(&mut self, center: DVec3, axis: DVec3, from: DVec3, angle: f64, ends: Ends) -> &mut Self {
+        let axis = axis.normalize_or(DVec3::Z);
+        let points = arc_points(center, axis, from, angle, TURN_STEP);
+        self.curve(&points, false);
+        let side = axis.cross(from);
+        let at = |t: f64| center + from * t.cos() + side * t.sin();
+        let way = angle.signum();
+        let mut heads = Vec::with_capacity(2);
+        if matches!(ends, Ends::End | Ends::Both) {
+            heads.push((at(angle), at(angle - way * TURN_HEAD_BACK)));
+        }
+        if matches!(ends, Ends::Start | Ends::Both) {
+            heads.push((at(0.0), at(way * TURN_HEAD_BACK)));
+        }
+        let pen = self.pen;
+        self.pen = Pen { stipple: Stipple::Solid, ..pen };
+        for (tip, back) in heads {
+            let along = (tip - back).normalize();
+            let head = self.px(tip, TURN_HEAD_PX);
+            let across = axis.cross(along) * head * TURN_HEAD_SPREAD;
+            self.line(tip - along * head + across, tip);
+            self.line(tip - along * head - across, tip);
+        }
+        self.pen = pen;
+        self
+    }
+
     /// The box `lo`..`hi` (current axes), Kuix's way: its front over the scene.
     pub fn box_(&mut self, lo: DVec3, hi: DVec3) -> &mut Self {
         self.box_styled(lo, hi, BoxStyle::default())
@@ -922,6 +964,31 @@ mod tests {
         assert_eq!(bold.lines.len(), 1 + 2);
         assert!(bold.lines.iter().all(|l| l.pen.width == BOLD));
         assert!(bold.lines[1..].iter().all(|l| l.pen.stipple == Stipple::Solid));
+    }
+
+    #[test]
+    fn short_dashes_come_anchored() {
+        assert_eq!(Pen::new([0.0; 4]).stipple(Stipple::ShortDashes).lay, Lay::Anchored);
+        assert_eq!(Pen::new([0.0; 4]).stipple(Stipple::Dotted).lay, Lay::Model);
+    }
+
+    #[test]
+    fn a_turn_arrow_has_its_heads_in_its_plane() {
+        let (from, angle) = (DVec3::X * 100.0, std::f64::consts::FRAC_PI_2);
+        let chords = (angle / TURN_STEP).ceil() as usize;
+        for (ends, heads) in [(Ends::None, 0), (Ends::End, 1), (Ends::Both, 2)] {
+            let d = drawn(|d| {
+                d.pen(Pen::new([0.0; 4]).dashed()).turn_arrow(DVec3::ZERO, DVec3::Z, from, angle, ends);
+            });
+            assert_eq!(d.lines.len(), chords + 2 * heads);
+            assert!(d.lines.iter().all(|l| l.a.z.abs() < 1e-9 && l.b.z.abs() < 1e-9));
+            assert!(d.lines[chords..].iter().all(|l| l.pen.stipple == Stipple::Solid));
+        }
+        // Its end's head points on along the turn, at the end of the arc.
+        let d = drawn(|d| {
+            d.turn_arrow(DVec3::ZERO, DVec3::Z, from, angle, Ends::End);
+        });
+        assert!(d.lines[chords].b.distance(DVec3::Y * 100.0) < 1e-9);
     }
 
     #[test]

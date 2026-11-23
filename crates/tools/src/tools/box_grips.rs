@@ -10,7 +10,7 @@ use skraft_model::{EntityPath, Id};
 use super::handle::{Axes, Target};
 use super::{Cx, INK};
 use crate::OrientedBox;
-use crate::draw::{Drawer, Pen};
+use crate::draw::{Drawer, Ends, Pen};
 use crate::infer::{APERTURE_PX, InferKind, Inference};
 use crate::scene::Owner;
 
@@ -21,11 +21,6 @@ const GRIP_MIN_PX: f64 = 12.0;
 /// The radius of a grip's curved arrow (pixels), and its half angle (radians).
 const GRIP_ARC_RADIUS_PX: f64 = 20.0;
 const GRIP_ARC_HALF: f64 = 1.0;
-/// A head's length (pixels), its half width over its length, and how far back on the curve
-/// (radians) its direction is taken, so that it follows the bend.
-const GRIP_HEAD_PX: f64 = 5.0;
-const GRIP_HEAD_SPREAD: f64 = 0.65;
-const GRIP_HEAD_BACK: f64 = 0.35;
 /// How far from a grip's arrow, on screen, the cursor takes it (pixels).
 const GRIP_HIT_PX: f64 = 8.0;
 /// The chords of half a grip's arc.
@@ -198,20 +193,9 @@ fn arrow_distance(cx: &Cx<'_>, f: &Face, g: DVec3, px: DVec2) -> f64 {
 /// curve fixed on screen (the face's own radius would draw it nearly straight): it reads as a
 /// turn either way.
 fn grip_arc(d: &mut Drawer<'_>, cx: &Cx<'_>, f: &Face, g: DVec3, pen: Pen) {
-    let wpp = cx.camera.world_per_pixel(cx.size, g);
-    let (points, center) = arc_points(cx, f, g);
-    let radial = g - center;
-    let at = |a: f64| center + DQuat::from_axis_angle(f.normal, a) * radial;
-    d.pen(pen).curve(&points, false);
-    // The heads lie in the face, along the curve's end.
-    let head = GRIP_HEAD_PX * wpp;
-    for way in [1.0, -1.0] {
-        let tip = at(way * GRIP_ARC_HALF);
-        let along = (tip - at(way * (GRIP_ARC_HALF - GRIP_HEAD_BACK))).normalize();
-        let across = f.normal.cross(along);
-        d.line(tip - along * head + across * head * GRIP_HEAD_SPREAD, tip);
-        d.line(tip - along * head - across * head * GRIP_HEAD_SPREAD, tip);
-    }
+    let (_, center) = arc_points(cx, f, g);
+    let from = DQuat::from_axis_angle(f.normal, -GRIP_ARC_HALF) * (g - center);
+    d.pen(pen).turn_arrow(center, f.normal, from, 2.0 * GRIP_ARC_HALF, Ends::Both);
 }
 
 /// The face of the box `b` the ray at `px` enters by, unless something else stands before it.
