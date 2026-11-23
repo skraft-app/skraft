@@ -963,6 +963,9 @@ fn nearest_scale(s: f64) -> f64 {
     SCALES.iter().copied().min_by(|a, b| (a.ln() - s.ln()).abs().total_cmp(&(b.ln() - s.ln()).abs())).unwrap_or(1.0)
 }
 
+/// The least side a perspective view's frame is cropped to (paper millimetres).
+const MIN_VIEW_MM: f64 = 5.0;
+
 /// The least radius a circle's handle leaves it (paper millimetres).
 const MIN_RADIUS: f64 = 0.01;
 
@@ -985,6 +988,13 @@ fn regrip(g: &Grip, p: DVec2, shift: bool) -> ElementKind {
         }
         // A view's scale: as far out as the pointer is from its centre, the nearest standard one.
         (ElementKind::View(v), Handle::Scale(..)) => match &v.kind {
+            // A perspective view's frame is cropped about its centre.
+            ViewKind::Base { subject, look: Look::Camera { forward, up, perspective: Some(lens) }, scale, at } => {
+                let size = ((p - *at).abs() * 2.0).max(DVec2::splat(MIN_VIEW_MM));
+                let look = Look::Camera { forward: *forward, up: *up, perspective: Some(lens.cropped(size)) };
+                let kind = ViewKind::Base { subject: subject.clone(), look, scale: *scale, at: *at };
+                ElementKind::View(View { kind, ..v.clone() })
+            }
             ViewKind::Base { subject, look, scale, at } => {
                 let half = ((g.hi - g.lo) / 2.0).max(DVec2::splat(1e-9));
                 let k = ((p.x - at.x).abs() / half.x).max((p.y - at.y).abs() / half.y);
@@ -1102,7 +1112,9 @@ fn measure_of(g: &Grip) -> Option<Measure> {
             Some(Measure::Lengths(vcb))
         }
         (ElementKind::Circle { radius, .. }, Handle::Round(..)) => lengths(t!("drawing.vcb.radius"), vec![*radius]),
-        (ElementKind::View(View { kind: ViewKind::Base { scale, .. }, .. }), Handle::Scale(..)) => Some(Measure::Scale(*scale)),
+        (ElementKind::View(View { kind: ViewKind::Base { scale, look, .. }, .. }), Handle::Scale(..)) if look.frame().1.is_none() => {
+            Some(Measure::Scale(*scale))
+        }
         (ElementKind::Text { size, .. }, Handle::Size) => lengths(t!("drawing.vcb.height"), vec![*size]),
         (ElementKind::Dimension(dim), Handle::Dim) => match &dim.kind {
             DimKind::Linear { offset, .. } => lengths(t!("drawing.vcb.distance"), vec![*offset]),
@@ -1264,7 +1276,10 @@ fn snap_points(e: &Editor, d: &Drawing, views: &mut ViewsCache, sheet: Id, open:
                 let data = views.get(e, el.id, &r);
                 let (lo, hi) = frame_of(&r, data.bx3.map(|(lo, hi)| (lo.truncate(), hi.truncate())));
                 align.extend(corners(lo, hi).map(|q| t.transform_point2(q)));
-                on.extend(data.snaps(e, &r).vertices.iter().map(|v| t.transform_point2(v.3)));
+                // Its vertices are placed as seen parallel.
+                if r.perspective.is_none() {
+                    on.extend(data.snaps(e, &r).vertices.iter().map(|v| t.transform_point2(v.3)));
+                }
             }
             _ => {}
         }
@@ -1727,6 +1742,10 @@ pub fn subject_box(e: &Editor, r: &Resolved<'_>) -> Option<(DVec2, DVec2)> {
 /// A view's frame on the sheet, in millimetres: its subject's box (`bx`, seen in its frame) at
 /// its scale, centred on where it is placed; a small square while the box is not known.
 pub fn frame_of(r: &Resolved<'_>, bx: Option<(DVec2, DVec2)>) -> (DVec2, DVec2) {
+    // A perspective view's is its own (decision 0051).
+    if let Some(p) = r.perspective {
+        return (r.at - p.size / 2.0, r.at + p.size / 2.0);
+    }
     let half = bx.map_or(DVec2::splat(10.0), |(lo, hi)| (hi - lo) * r.scale / 2.0);
     (r.at - half, r.at + half)
 }
@@ -1805,6 +1824,14 @@ const MAX_PICTURE: f64 = 4096.0;
 /// The camera seeing the box `(lo, hi)` (in `r`'s frame: x, y, depth) exactly across, parallel.
 fn picture_camera(r: &Resolved<'_>, (lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
     let f = &r.frame;
+    if let Some(p) = r.perspective {
+        // Its eye and opening, across its own frame; the near plane short of the subject.
+        let view = glam::dcamera::rh::view::look_to_mat4(p.eye, f.forward, f.up);
+        let from_eye = lo.z - p.eye.dot(f.forward);
+        let near = (from_eye * 0.9).max((hi.z - lo.z) * 1e-3).max(1e-3);
+        let aspect = p.size.x / p.size.y;
+        return (view, glam::camera::rh::proj::directx::perspective_infinite_reverse(p.fov_y as f32, aspect as f32, near as f32));
+    }
     let c = (lo + hi) / 2.0;
     let half = ((hi - lo) / 2.0).max(DVec3::splat(1e-3));
     let centre = f.right * c.x + f.up * c.y + f.forward * c.z;
@@ -1848,7 +1875,9 @@ fn wanted_picture(
     let frame_mm = (b.1.x - b.0.x).max(1e-9) * r.scale;
     let ppm = size[0] as f64 / ppp as f64 / frame_mm;
     let f = &r.frame;
-    let lines = lines.filter(|_| style != ViewStyle::Rendered).map(|l| PictureLines {
+    // A perspective view has its picture alone: its lines are computed parallel.
+    let flat = r.perspective.is_none();
+    let lines = lines.filter(|_| flat && style != ViewStyle::Rendered).map(|l| PictureLines {
         lines: l,
         axes: [f.right, f.up, f.forward],
         // In front of every part.
@@ -1858,9 +1887,10 @@ fn wanted_picture(
         hidden_width: (HIDDEN_MM * ppm).max(0.6) as f32,
         dash: [(DASH_MM[0] * ppm).max(3.0) as f32, (DASH_MM[1] * ppm).max(2.0) as f32],
     });
-    let parts = if style == ViewStyle::Lines { Vec::new() } else { data.parts.clone() };
+    let parts = if flat && style == ViewStyle::Lines { Vec::new() } else { data.parts.clone() };
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (e_key(r), size, slot.0.0, style as u8, lines.as_ref().map(|l| Arc::as_ptr(&l.lines) as usize)).hash(&mut h);
+    r.perspective.map(|p| [p.eye.x, p.eye.y, p.eye.z, p.fov_y, p.size.x, p.size.y].map(f64::to_bits)).hash(&mut h);
     data.parts.len().hash(&mut h);
     for (p, places) in &data.parts {
         p.0.hash(&mut h);
@@ -1888,7 +1918,8 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
     let placed = e.document().subject_parts(r.subject);
     let b = box_of(e, r, &placed)?;
     let frame = frame_of(r, Some((b.0.truncate(), b.1.truncate())));
-    let picture = (style != ViewStyle::Lines).then(|| {
+    let flat = r.perspective.is_none();
+    let picture = (!flat || style != ViewStyle::Lines).then(|| {
         let px = |mm: f64| (mm * dpi / 25.4).round().clamp(8.0, 8192.0) as u32;
         let mut by_part: HashMap<Id, Vec<Placed>> = HashMap::new();
         for p in &placed {
@@ -1899,7 +1930,8 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
         let size = [px(frame.1.x - frame.0.x), px(frame.1.y - frame.0.y)];
         Wanted { slot: (id, None), size, camera: picture_camera(r, b), parts, lines: None, stamp: 0 }
     });
-    let lines = if style == ViewStyle::Rendered { None } else { crate::view_lines::LinesJob::of(e, r, &placed).map(|job| job.run()) };
+    let lines =
+        if !flat || style == ViewStyle::Rendered { None } else { crate::view_lines::LinesJob::of(e, r, &placed).map(|job| job.run()) };
     Some(Printed { frame, picture, lines, centre: ((b.0 + b.1) / 2.0).truncate() })
 }
 
@@ -2102,7 +2134,7 @@ fn moved_element(kind: &ElementKind, offset: DVec2) -> ElementKind {
 /// Dimension `dim` as drawn now, its view's box computed afresh (the PDF's).
 pub fn dim_shape(e: &Editor, dim: &Dimension, projection: skraft_model::Projection) -> Option<crate::dims::DimShape> {
     let d = e.document().drawing();
-    let r = d.resolve_as(dim.view, projection)?;
+    let r = d.resolve_as(dim.view, projection).filter(|r| r.perspective.is_none())?;
     let (lo, hi) = subject_box3(e, &r)?;
     Some(crate::dims::shape(e.document(), &r, ((lo + hi) / 2.0).truncate(), dim))
 }
@@ -2160,7 +2192,7 @@ fn pick_at(
         .collect();
     let mut best: Option<(f64, Id, skraft_model::Anchor, Vec<DVec2>)> = None;
     for id in ids {
-        let Some(r) = d.resolve_as(id, projection) else { continue };
+        let Some(r) = d.resolve_as(id, projection).filter(|r| r.perspective.is_none()) else { continue };
         let data = views.get(e, id, &r);
         let snaps = data.snaps(e, &r);
         if tool == SheetTool::Linear {
@@ -2539,7 +2571,7 @@ fn fields_of<'a>(e: &'a Editor, d: &'a Drawing, id: Id, title: &'a str, placed: 
         count: d.sheet_number(id).map_or(0, |(_, c)| c),
         // The first base view it shows, through its instances.
         scale: placed.iter().find_map(|p| match &p.element.kind {
-            ElementKind::View(View { kind: ViewKind::Base { scale, .. }, .. }) => Some(*scale),
+            ElementKind::View(View { kind: ViewKind::Base { scale, look, .. }, .. }) if look.frame().1.is_none() => Some(*scale),
             _ => None,
         }),
         values: Some((e.document(), id)),
@@ -3404,7 +3436,7 @@ fn draw_elements(
                 }
                 if painter.clip_rect().intersects(rect) && asked.insert(slot) {
                     // Its lines as last computed (new ones on their way when it changed).
-                    let got = if v.style == ViewStyle::Rendered {
+                    let got = if v.style == ViewStyle::Rendered || r.perspective.is_some() {
                         None
                     } else {
                         let (got, busy) = lines.get(slot, data.lines.as_ref(), !level.printed);
@@ -3427,7 +3459,8 @@ fn draw_elements(
                     }
                     let angle = pv.angle();
                     let label = quad[0] + egui::emath::Rot2::from_angle(angle) * egui::vec2(0.0, -2.0);
-                    let name = format!("{} · {}", v.name, scale_label(r.scale));
+                    let shown_scale = if r.perspective.is_some() { t!("drawing.no_scale") } else { scale_label(r.scale) };
+                    let name = format!("{} · {}", v.name, shown_scale);
                     turned_text(painter, label, angle, name, egui::FontId::proportional(11.0), frame_ink);
                 }
                 if alone {
@@ -3437,6 +3470,10 @@ fn draw_elements(
             }
             ElementKind::Dimension(dim) => {
                 let Some(r) = d.resolve_as(dim.view, shown.projection) else { continue };
+                // Kept, not drawn: a perspective has no measure to read (decision 0051).
+                if r.perspective.is_some() {
+                    continue;
+                }
                 let Some(centre) = views.get(e, dim.view, &r).centre() else { continue };
                 let shape = crate::dims::shape(e.document(), &r, centre, dim);
                 let rect = draw_dim(painter, &pv, &shape);

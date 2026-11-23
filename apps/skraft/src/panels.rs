@@ -3247,20 +3247,39 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                         ui.separator();
                         // The 3D view's camera now, perspective or parallel.
                         if ui.selectable_label(matches!(look, Look::Camera { .. }), t!("drawing.direction.camera")).clicked() {
-                            let look = crate::view_framer::camera_look(doc, subject, &editor.camera);
+                            // A perspective keeps the frame the view has now.
+                            let size = d.resolve(id).map_or(glam::DVec2::splat(100.0), |r| {
+                                let (lo, hi) = crate::sheet::view_frame(editor, &r);
+                                (hi - lo).max(glam::DVec2::splat(10.0))
+                            });
+                            let look = crate::view_framer::camera_look(doc, subject, &editor.camera, size);
                             actions.push(set(base(look, *scale)));
                         }
                     });
                     ui.end_row();
-                    field_label(ui, t!("panel.entity_info.scale"));
-                    combo(("drawing_scale", id.0)).selected_text(crate::sheet::scale_label(*scale)).show_ui(ui, |ui| {
-                        for s in crate::sheet::SCALES {
-                            if ui.selectable_label((s - scale).abs() < 1e-12, crate::sheet::scale_label(*s)).clicked() {
-                                actions.push(set(base(look.clone(), *s)));
-                            }
+                    if look.frame().1.is_some() {
+                        ui.label(t!("panel.entity_info.scale"));
+                        ui.label(t!("drawing.no_scale"));
+                        ui.end_row();
+                        let hidden = d.container_of(id).and_then(|c| d.elements_in(c)).map_or(0, |list| {
+                            list.iter().filter(|el| matches!(&el.kind, ElementKind::Dimension(dim) if dim.view == id)).count()
+                        });
+                        if hidden > 0 {
+                            ui.label(t!("panel.entity_info.view_dimensions"));
+                            ui.label(t!("drawing.dims_hidden", count = hidden));
+                            ui.end_row();
                         }
-                    });
-                    ui.end_row();
+                    } else {
+                        field_label(ui, t!("panel.entity_info.scale"));
+                        combo(("drawing_scale", id.0)).selected_text(crate::sheet::scale_label(*scale)).show_ui(ui, |ui| {
+                            for s in crate::sheet::SCALES {
+                                if ui.selectable_label((s - scale).abs() < 1e-12, crate::sheet::scale_label(*s)).clicked() {
+                                    actions.push(set(base(look.clone(), *s)));
+                                }
+                            }
+                        });
+                        ui.end_row();
+                    }
                 }
                 ViewKind::Projected { base, side, .. } => {
                     let base_name = d

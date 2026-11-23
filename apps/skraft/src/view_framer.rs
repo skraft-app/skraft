@@ -23,6 +23,11 @@ const ORBIT_SPEED: f64 = 0.006;
 const MARGIN: f64 = 1.08;
 const ZOOM: (f64, f64) = (0.05, 20.0);
 const MAX_PICTURE: f32 = 4096.0;
+/// The film a focal length is read on (millimetres high), the focal a perspective starts at,
+/// and the range offered.
+const FILM_HEIGHT: f64 = 24.0;
+const DEFAULT_FOCAL: f64 = 50.0;
+const FOCAL: (f64, f64) = (14.0, 200.0);
 const DIRECTIONS: [(Direction, &str); 7] = [
     (Direction::Front, "front"),
     (Direction::Back, "back"),
@@ -46,6 +51,9 @@ pub struct ViewFramer {
     radius: f64,
     zoom: f64,
     pan: DVec2,
+    /// The view's scale, and whether views are projected from it (then it stays parallel).
+    scale: f64,
+    projected: bool,
     /// What the picture last asked for shows.
     stamp: Option<u64>,
 }
@@ -66,7 +74,7 @@ fn base_of(e: &Editor, mut id: Id) -> Option<Id> {
 /// Opens the framing of view `id` (a projected view's: of its base).
 pub fn open(e: &Editor, st: &mut SheetState, id: Id) -> Result<(), String> {
     let view = base_of(e, id).ok_or_else(|| t!("drawing.no_view_selected"))?;
-    let Some(ElementKind::View(View { kind: ViewKind::Base { subject, look, .. }, .. })) =
+    let Some(ElementKind::View(View { kind: ViewKind::Base { subject, look, scale, .. }, .. })) =
         e.document().drawing().element(view).map(|el| &el.kind)
     else {
         return Err(t!("drawing.no_view_selected"));
@@ -102,6 +110,8 @@ pub fn open(e: &Editor, st: &mut SheetState, id: Id) -> Result<(), String> {
         radius: ((hi - lo).length() / 2.0).max(1e-3),
         zoom: 1.0,
         pan: DVec2::ZERO,
+        scale: *scale,
+        projected: e.document().drawing().has_projected_views(view),
         stamp: None,
     });
     Ok(())
@@ -121,17 +131,17 @@ pub fn orbit(frame: Frame, delta: DVec2) -> (Frame, DQuat) {
 }
 
 /// A look along `forward`, `up`, from a camera in axes `to_subject` takes to the subject's.
-fn look_in(to_subject: DAffine3, forward: DVec3, up: DVec3, perspective: Option<(DVec3, f64)>) -> Look {
+fn look_in(to_subject: DAffine3, forward: DVec3, up: DVec3, perspective: Option<(DVec3, f64)>, size: DVec2) -> Look {
     Look::Camera {
         forward: to_subject.transform_vector3(forward).normalize(),
         up: to_subject.transform_vector3(up).normalize(),
-        perspective: perspective.map(|(eye, fov_y)| Perspective { eye: to_subject.transform_point3(eye), fov_y }),
+        perspective: perspective.map(|(eye, fov_y)| Perspective { eye: to_subject.transform_point3(eye), fov_y, size }),
     }
 }
 
 /// The 3D camera as a look at `subject`: a component's view is in its own axes, so the camera is
 /// taken there through its first occurrence.
-pub fn camera_look(doc: &Document, subject: &Subject, camera: &Camera) -> Look {
+pub fn camera_look(doc: &Document, subject: &Subject, camera: &Camera, size: DVec2) -> Look {
     let to_subject = match subject {
         Subject::Component(c) => first_path(doc, doc.root(), *c, &mut Vec::new())
             .and_then(|p| {
@@ -145,7 +155,7 @@ pub fn camera_look(doc: &Document, subject: &Subject, camera: &Camera) -> Look {
         Projection::Perspective { fov_y } => Some((camera.eye, fov_y)),
         _ => None,
     };
-    look_in(to_subject, camera.forward(), camera.up(), perspective)
+    look_in(to_subject, camera.forward(), camera.up(), perspective, size)
 }
 
 impl ViewFramer {
@@ -188,6 +198,152 @@ impl ViewFramer {
     }
 }
 
+/// What the stage shows of a look: its camera, and the view's frame on screen.
+struct Shot {
+    camera: (DMat4, glam::Mat4),
+    window: egui::Rect,
+}
+
+/// The eye seeing every one of `corners` within a frame of `aspect`, opening `fov_y`, along
+/// `frame`, centred across on their box.
+fn eye_fitting(corners: &[DVec3], frame: &Frame, fov_y: f64, aspect: f64) -> DVec3 {
+    let seen: Vec<DVec3> = corners.iter().map(|c| frame.project(*c)).collect();
+    let (lo, hi) = seen.iter().fold((DVec3::INFINITY, DVec3::NEG_INFINITY), |(a, z), q| (a.min(*q), z.max(*q)));
+    let middle = (lo + hi) / 2.0;
+    let t = (fov_y / 2.0).tan();
+    let depth =
+        seen.iter().map(|q| q.z - ((q.x - middle.x).abs() / (t * aspect)).max((q.y - middle.y).abs() / t)).fold(f64::INFINITY, f64::min);
+    frame.right * middle.x + frame.up * middle.y + frame.forward * depth
+}
+
+/// The opening of a focal length (millimetres, on a 24 mm high frame), and back.
+fn fov_of(focal: f64) -> f64 {
+    2.0 * (FILM_HEIGHT / 2.0 / focal).atan()
+}
+
+fn focal_of(fov_y: f64) -> f64 {
+    FILM_HEIGHT / 2.0 / (fov_y / 2.0).tan()
+}
+
+impl ViewFramer {
+    /// Parallel: the point at the stage's centre, the half sizes it shows, its points per unit.
+    fn parallel(&self, frame: &Frame, room: egui::Rect) -> (DVec2, DVec2, f64) {
+        let height = self.radius * MARGIN * self.zoom;
+        let half = DVec2::new(height * (room.width() / room.height().max(1.0)) as f64, height);
+        let at = self.centre.dot(frame.right) * DVec2::X + self.centre.dot(frame.up) * DVec2::Y + self.pan;
+        (at, half, room.height() as f64 / (2.0 * height))
+    }
+
+    /// The box of the subject's corners across `frame`.
+    fn extent(&self, frame: &Frame) -> (DVec2, DVec2) {
+        self.corners.iter().fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), c| {
+            let q = frame.project(*c).truncate();
+            (lo.min(q), hi.max(q))
+        })
+    }
+
+    /// A perspective's frame on the stage, as large as it fits with some room around it.
+    fn lens_window(lens: &Perspective, room: egui::Rect) -> egui::Rect {
+        let inner = room.shrink(36.0);
+        let aspect = (lens.size.x / lens.size.y) as f32;
+        let (w, h) = if inner.width() / inner.height().max(1.0) > aspect {
+            (inner.height() * aspect, inner.height())
+        } else {
+            (inner.width(), inner.width() / aspect)
+        };
+        egui::Rect::from_center_size(room.center(), egui::vec2(w, h))
+    }
+
+    fn shot(&self, room: egui::Rect) -> Shot {
+        let (frame, lens) = self.look.frame();
+        let aspect = room.width() as f64 / room.height().max(1.0) as f64;
+        if let Some(p) = lens {
+            let window = Self::lens_window(&p, room);
+            // The same picture, opened out to the whole stage around its frame.
+            let t = (p.fov_y / 2.0).tan() * room.height() as f64 / window.height().max(1.0) as f64;
+            let from_eye = (self.centre - p.eye).dot(frame.forward);
+            let near = (from_eye - self.radius * 1.05).max(from_eye.abs() * 1e-3).max(1e-3);
+            let view = glam::dcamera::rh::view::look_to_mat4(p.eye, frame.forward, frame.up);
+            let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse((2.0 * t.atan()) as f32, aspect as f32, near as f32);
+            return Shot { camera: (view, proj), window };
+        }
+        let (at, half, per_unit) = self.parallel(&frame, room);
+        let (lo, hi) = self.extent(&frame);
+        let on_screen = |q: DVec2| room.center() + egui::vec2(((q.x - at.x) * per_unit) as f32, ((at.y - q.y) * per_unit) as f32);
+        Shot { camera: self.camera(&frame, at, half), window: egui::Rect::from_two_pos(on_screen(lo), on_screen(hi)) }
+    }
+
+    fn set_lens(&mut self, lens: Perspective) {
+        if let Look::Camera { perspective, .. } = &mut self.look {
+            *perspective = Some(lens);
+        }
+    }
+
+    /// A drag of `delta` points moving what is seen.
+    fn pan_by(&mut self, delta: DVec2, room: egui::Rect) {
+        let (frame, lens) = self.look.frame();
+        match lens {
+            Some(p) => {
+                let from_eye = (self.centre - p.eye).dot(frame.forward).abs().max(1e-3);
+                let unit = 2.0 * from_eye * (p.fov_y / 2.0).tan() / Self::lens_window(&p, room).height().max(1.0) as f64;
+                self.set_lens(Perspective { eye: p.eye + (frame.up * delta.y - frame.right * delta.x) * unit, ..p });
+            }
+            None => self.pan += DVec2::new(-delta.x, delta.y) / self.parallel(&frame, room).2,
+        }
+    }
+
+    /// Closer by `k` (below 1): the eye moved in perspective, the zoom in parallel.
+    fn zoom_by(&mut self, k: f64) {
+        match self.look.frame().1 {
+            Some(p) => self.set_lens(Perspective { eye: self.centre + (p.eye - self.centre) * k, ..p }),
+            None => self.zoom = (self.zoom * k).clamp(ZOOM.0, ZOOM.1),
+        }
+    }
+
+    /// To perspective, its frame the one the view has now, the subject filling it.
+    fn to_perspective(&mut self) {
+        let (frame, lens) = self.look.frame();
+        if lens.is_some() {
+            return;
+        }
+        let (lo, hi) = self.extent(&frame);
+        let size = ((hi - lo) * self.scale).max(DVec2::splat(10.0));
+        let fov_y = fov_of(DEFAULT_FOCAL);
+        let eye = eye_fitting(&self.corners, &frame, fov_y, size.x / size.y);
+        self.look = Look::Camera { forward: frame.forward, up: frame.up, perspective: Some(Perspective { eye, fov_y, size }) };
+    }
+
+    fn to_parallel(&mut self) {
+        let frame = self.look.frame().0;
+        self.look = Look::Camera { forward: frame.forward, up: frame.up, perspective: None };
+        (self.zoom, self.pan) = (1.0, DVec2::ZERO);
+    }
+
+    /// Looking along a standard direction, in the projection it is in.
+    fn look_along(&mut self, d: Direction) {
+        match self.look.frame().1 {
+            None => {
+                self.look = Look::Standard(d);
+                (self.zoom, self.pan) = (1.0, DVec2::ZERO);
+            }
+            Some(p) => {
+                let frame = Frame::of(d);
+                let eye = eye_fitting(&self.corners, &frame, p.fov_y, p.size.x / p.size.y);
+                self.look = Look::Camera { forward: frame.forward, up: frame.up, perspective: Some(Perspective { eye, ..p }) };
+            }
+        }
+    }
+
+    /// Another focal length, the eye moved so that the subject keeps its size in the frame.
+    fn set_focal(&mut self, focal: f64) {
+        if let Some(p) = self.look.frame().1 {
+            let fov_y = fov_of(focal);
+            let k = (p.fov_y / 2.0).tan() / (fov_y / 2.0).tan();
+            self.set_lens(Perspective { eye: self.centre + (p.eye - self.centre) * k, fov_y, ..p });
+        }
+    }
+}
+
 /// The stage while a view is framed, over `room`: what it asks the renderer to draw.
 pub fn ui(
     ui: &mut egui::Ui,
@@ -202,29 +358,26 @@ pub fn ui(
     }
     let response = ui.interact(room, egui::Id::unique("view_framer"), egui::Sense::click_and_drag());
     crate::handles::publish(|| "view_framer".into(), room);
-    let frame = f.look.frame().0;
-    let height = f.radius * MARGIN * f.zoom;
-    let per_unit = room.height() as f64 / (2.0 * height);
     let drag = response.drag_delta();
     let delta = DVec2::new(drag.x as f64, drag.y as f64);
     if delta != DVec2::ZERO {
         if response.dragged_by(egui::PointerButton::Secondary) {
-            f.pan += DVec2::new(-delta.x, delta.y) / per_unit;
+            f.pan_by(delta, room);
         } else {
+            let frame = f.look.frame().0;
             f.turn(frame, delta);
         }
     }
     if response.hovered() {
         let (wheel, pinch) = ui.input(|i| (i.smooth_scroll_delta.y as f64, i.zoom_delta() as f64));
-        f.zoom = (f.zoom * 0.85f64.powf(wheel / 40.0) / pinch).clamp(ZOOM.0, ZOOM.1);
+        let k = 0.85f64.powf(wheel / 40.0) / pinch;
+        if k != 1.0 {
+            f.zoom_by(k);
+        }
         let grabbing = response.dragged();
         ui.ctx().set_cursor_icon(if grabbing { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
     }
-    let frame = f.look.frame().0;
-    let height = f.radius * MARGIN * f.zoom;
-    let per_unit = room.height() as f64 / (2.0 * height);
-    let half = DVec2::new(height * (room.width() / room.height().max(1.0)) as f64, height);
-    let at = f.centre.dot(frame.right) * DVec2::X + f.centre.dot(frame.up) * DVec2::Y + f.pan;
+    let shot = f.shot(room);
 
     // The picture.
     let ppp = ui.ctx().pixels_per_point();
@@ -232,11 +385,8 @@ pub fn ui(
     let size = [side(room.width()), side(room.height())];
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (e.history().revision(), size).hash(&mut h);
-    for v in [frame.right, frame.up, frame.forward] {
-        v.to_array().map(f64::to_bits).hash(&mut h);
-    }
-    at.to_array().map(f64::to_bits).hash(&mut h);
-    half.to_array().map(f64::to_bits).hash(&mut h);
+    shot.camera.0.to_cols_array().map(f64::to_bits).hash(&mut h);
+    shot.camera.1.to_cols_array().map(f32::to_bits).hash(&mut h);
     let stamp = h.finish();
     let painter = ui.painter().with_clip_rect(room);
     painter.rect_filled(room, 0.0, egui::Color32::WHITE);
@@ -249,17 +399,12 @@ pub fn ui(
     let mut wanted = Vec::new();
     if f.stamp != Some(stamp) || !ready.contains_key(&SLOT) {
         f.stamp = Some(stamp);
-        wanted.push(Wanted { slot: SLOT, size, camera: f.camera(&frame, at, half), parts: f.parts.clone(), lines: None, stamp });
+        wanted.push(Wanted { slot: SLOT, size, camera: shot.camera, parts: f.parts.clone(), lines: None, stamp });
         ui.ctx().request_repaint();
     }
 
     // What the view's frame will hold: the rest masked.
-    let (lo, hi) = f.corners.iter().fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), c| {
-        let q = frame.project(*c).truncate();
-        (lo.min(q), hi.max(q))
-    });
-    let on_screen = |q: DVec2| room.center() + egui::vec2(((q.x - at.x) * per_unit) as f32, ((at.y - q.y) * per_unit) as f32);
-    let window = egui::Rect::from_two_pos(on_screen(lo), on_screen(hi));
+    let window = shot.window;
     let mask = egui::Color32::from_black_alpha(46);
     for r in [
         egui::Rect::from_min_max(room.min, egui::pos2(room.max.x, window.min.y)),
@@ -282,13 +427,41 @@ pub fn ui(
         .show(ui.ctx(), |ui| {
             egui::Frame::window(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let (frame, lens) = f.look.frame();
                     for (d, key) in DIRECTIONS {
-                        let on = f.look == Look::Standard(d);
+                        let along = Frame::of(d).forward;
+                        let on = f.look == Look::Standard(d) || (lens.is_some() && (frame.forward - along).length() < 1e-6);
                         let b = ui.selectable_label(on, crate::panels::direction_label(d));
                         crate::handles::publish(|| format!("view_framer.dir:{key}"), b.rect);
                         if b.clicked() {
-                            f.look = Look::Standard(d);
-                            (f.zoom, f.pan) = (1.0, DVec2::ZERO);
+                            f.look_along(d);
+                        }
+                    }
+                    ui.separator();
+                    let parallel = ui.selectable_label(lens.is_none(), t!("drawing.framer.parallel"));
+                    crate::handles::publish(|| "view_framer.parallel".into(), parallel.rect);
+                    if parallel.clicked() {
+                        f.to_parallel();
+                    }
+                    let label = egui::Button::selectable(lens.is_some(), t!("drawing.framer.perspective"));
+                    let perspective = ui.add_enabled(!f.projected, label).on_disabled_hover_text(t!("drawing.framer.has_projections"));
+                    crate::handles::publish_enabled(|| "view_framer.perspective".into(), perspective.rect, !f.projected);
+                    if perspective.clicked() {
+                        f.to_perspective();
+                    }
+                    if let Some(p) = lens {
+                        let mut focal = focal_of(p.fov_y);
+                        ui.spacing_mut().slider_width = 84.0;
+                        // Shown rounded, never rounded itself: opening the view would change its focal length.
+                        let slider = egui::Slider::new(&mut focal, FOCAL.0..=FOCAL.1)
+                            .logarithmic(true)
+                            .suffix(" mm")
+                            .custom_formatter(|v, _| format!("{v:.0}"));
+                        let changed = ui.add(slider);
+                        crate::handles::publish(|| "view_framer.focal".into(), changed.rect);
+                        if changed.changed() {
+                            f.set_focal(focal);
                         }
                     }
                     ui.separator();
@@ -319,6 +492,44 @@ pub fn ui(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_eye_found_sees_every_corner_within_the_frame() {
+        let mut corners = Vec::new();
+        for i in 0..8 {
+            corners.push(DVec3::new(
+                if i & 1 == 0 { 0.0 } else { 900.0 },
+                if i & 2 == 0 { 0.0 } else { 300.0 },
+                if i & 4 == 0 { 0.0 } else { 500.0 },
+            ));
+        }
+        let frame = Frame::of(Direction::Iso);
+        let (fov_y, aspect) = (fov_of(50.0), 1.5);
+        let eye = eye_fitting(&corners, &frame, fov_y, aspect);
+        let t = (fov_y / 2.0).tan();
+        let mut tight = 0.0f64;
+        for c in &corners {
+            let q = frame.project(*c - eye);
+            assert!(q.z > 0.0, "in front of the eye");
+            let reach = (q.x.abs() / (q.z * t * aspect)).max(q.y.abs() / (q.z * t));
+            assert!(reach <= 1.0 + 1e-9);
+            tight = tight.max(reach);
+        }
+        assert!(tight > 0.8, "and not far off: {tight}");
+    }
+
+    #[test]
+    fn a_focal_length_reads_back() {
+        assert!((focal_of(fov_of(35.0)) - 35.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_crop_keeps_what_is_seen_the_same_size() {
+        let lens = Perspective { eye: DVec3::ZERO, fov_y: 0.6, size: DVec2::new(100.0, 80.0) };
+        let cropped = lens.cropped(DVec2::new(50.0, 40.0));
+        let per_mm = |p: Perspective| (p.fov_y / 2.0).tan() / p.size.y;
+        assert!((per_mm(lens) - per_mm(cropped)).abs() < 1e-12);
+    }
+
     use super::*;
 
     #[test]
@@ -346,7 +557,7 @@ mod tests {
         // along +X... its inverse brings the camera there.
         let placed = DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
         let Look::Camera { forward, up, perspective } =
-            look_in(placed.inverse(), DVec3::Y, DVec3::Z, Some((DVec3::new(0.0, -10.0, 0.0), 0.7)))
+            look_in(placed.inverse(), DVec3::Y, DVec3::Z, Some((DVec3::new(0.0, -10.0, 0.0), 0.7)), DVec2::new(100.0, 80.0))
         else {
             unreachable!()
         };

@@ -667,9 +667,14 @@ drawing:
   delete_sheet: "Supprimer la feuille"
   blank_sheet: "Feuille vierge"
   blank_presentation: "Présentation vierge"
+  no_scale: "Sans échelle"
+  dims_hidden: "%{count} masquée(s)"
   framer:
     ok: "Valider"
     empty: "Cette vue ne montre rien"
+    parallel: "Parallèle"
+    perspective: "Perspective"
+    has_projections: "Une vue dont d'autres sont projetées reste parallèle"
   picker:
     title_new: "Que montre la nouvelle vue ?"
     title_change: "Que montre cette vue ?"
@@ -762,6 +767,7 @@ panel:
     type_projected_view: "Vue projetée"
     type_sheet: "Feuille"
     subject: "Montre"
+    view_dimensions: "Cotes"
     direction: "Direction"
     scale: "Échelle"
     style: "Style"

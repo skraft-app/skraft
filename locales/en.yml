@@ -598,9 +598,14 @@ drawing:
   delete_sheet: "Delete Sheet"
   blank_sheet: "Blank sheet"
   blank_presentation: "Blank presentation"
+  no_scale: "No scale"
+  dims_hidden: "%{count} hidden"
   framer:
     ok: "Validate"
     empty: "This view shows nothing"
+    parallel: "Parallel"
+    perspective: "Perspective"
+    has_projections: "A view others are projected from stays parallel"
   picker:
     title_new: "What does the new view show?"
     title_change: "What does this view show?"
@@ -692,6 +697,7 @@ panel:
     type_projected_view: "Projected view"
     type_sheet: "Sheet"
     subject: "Shows"
+    view_dimensions: "Dimensions"
     direction: "Direction"
     scale: "Scale"
     style: "Style"

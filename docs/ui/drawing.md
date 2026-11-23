@@ -109,6 +109,20 @@ not move, and while it is open the commands that change the document are off. A 
 the subject's axes: « Caméra » takes the 3D camera into a component's axes through its first
 occurrence.
 
+### Perspective views
+
+In the framing bar, **Perspective** puts the eye where the subject fills the frame the view has,
+at 50 mm; its slider (14 to 200 mm, on a 24 mm high film) changes the focal length, the eye moving
+so that the subject keeps its size. There, the right button moves the eye across, the wheel towards
+the subject, and the standard directions stay in perspective. A view others are projected from
+stays parallel.
+
+A perspective view (`Perspective`: eye, opening, size on the paper) has **its own frame**: its
+handles crop it about its centre, what it shows keeping its size. It is marked « Sans échelle »,
+takes no part in the sheet's scale field and takes **no dimension**: those it has are kept, hidden,
+counted in its entity info, and come back in parallel. For now it is drawn as a picture in every
+style, in the PDF too.
+
 ## Lines
 
 A view's lines are its parts' edges and the silhouettes of their curved faces, seen parallel
@@ -154,7 +168,7 @@ redraws it past a step), 4 096 at most — its parts for the *Rendered* and *Hyb
 lines for *Lines* and *Hybrid*; a picture is drawn again when its direction, its parts and
 places, its lines or its size change, within 40 ms a frame (the others the next), shown from the
 next frame. A picture gone off screen is kept within a memory budget (256 MB, 64 on the web), the
-least recently seen freed first, so that panning back redraws nothing. A perspective view is drawn parallel for now.
+least recently seen freed first, so that panning back redraws nothing. A perspective view's picture is seen from its eye, across its own frame.
 
 ## The stage
 

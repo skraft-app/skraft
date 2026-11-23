@@ -59,11 +59,34 @@ impl Look {
     }
 }
 
-/// A perspective view's eye and opening.
+/// A perspective view's eye, its opening across its frame's height, and that frame on the paper
+/// (millimetres): the subject's box means nothing with the eye inside the model (decision 0051).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Perspective {
     pub eye: DVec3,
     pub fov_y: f64,
+    pub size: DVec2,
+}
+
+impl Perspective {
+    /// The widest opening kept when a frame grows.
+    const MAX_HALF_FOV: f64 = 1.45;
+
+    /// Its frame cropped to `size`, what it shows staying the same size on the paper.
+    pub fn cropped(self, size: DVec2) -> Perspective {
+        let half = ((self.fov_y / 2.0).tan() * size.y / self.size.y).atan().min(Self::MAX_HALF_FOV);
+        Perspective { fov_y: 2.0 * half, size, ..self }
+    }
+}
+
+impl super::Drawing {
+    /// Does a view stand projected right from view `id`?
+    pub fn has_projected_views(&self, id: Id) -> bool {
+        self.container_of(id).and_then(|c| self.elements_in(c)).is_some_and(|list| {
+            list.iter()
+                .any(|el| matches!(&el.kind, super::ElementKind::View(View { kind: ViewKind::Projected { base, .. }, .. }) if *base == id))
+        })
+    }
 }
 
 /// A standard direction, as the 3D view's standard views (Z up).

@@ -1,6 +1,6 @@
 # Drawing: a view's content and point of view chosen from the sheet
 
-- Status: accepted (2026-11-23; steps 1-2 built)
+- Status: accepted (2026-11-23; steps 1-3 built)
 - Design: [Drawing](../ui/drawing.md#views)
 - Amends [Drawing: free sheets in the document](0048-drawing-sheets-in-the-document.md), where a
   view is added from the selection and takes the 3D camera of the moment
@@ -24,7 +24,7 @@ perspective view is drawn parallel.
   panned and zoomed by the pointer, with a mask of the view's frame; a bar gives the standard views,
   parallel or perspective, the focal length, Validate and Cancel. *As built in step 2: the view's
   picture drawn large by the sheet's renderer, its subject alone, rather than the 3D view with its
-  tools; the parallel / perspective choice and the focal length come with step 3.* The camera and selection of *Modelling* are
+  tools.* The camera and selection of *Modelling* are
   left alone, and validating is one undo step.
 - **A view's direction is in its subject's axes**: the 3D camera is converted when a view of a
   component takes it.

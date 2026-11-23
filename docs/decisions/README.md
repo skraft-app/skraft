@@ -57,4 +57,4 @@ state and link the records behind it.
 | 0048 | [Drawing: free sheets in the document, for the workshop and for clients](0048-drawing-sheets-in-the-document.md) | accepted (2026-11-20; layers and templates replaced by 0049) |
 | 0049 | [Drawing: a tree of presentations, sheets and definitions, no layers](0049-drawing-a-tree-of-presentations-and-definitions.md) | accepted (2026-11-21; built) |
 | 0050 | [Drawing: every sheet on one board, one of them active](0050-drawing-every-sheet-on-one-board.md) | accepted (2026-11-21; built) |
-| 0051 | [Drawing: a view's content and point of view chosen from the sheet](0051-drawing-views-chosen-and-framed-on-the-sheet.md) | accepted (2026-11-23; steps 1-2 built) |
+| 0051 | [Drawing: a view's content and point of view chosen from the sheet](0051-drawing-views-chosen-and-framed-on-the-sheet.md) | accepted (2026-11-23; steps 1-3 built) |
