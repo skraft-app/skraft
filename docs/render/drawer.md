@@ -41,7 +41,8 @@ Decision record: [One immediate drawer for everything drawn over the model](../d
 Strokes: `line` (and `line_phased`), `edge` (arrow heads at either end, `Ends`: Kuix's px size,
 `ARROW_PX` 10), `arrow_heads` (the heads of `edge` alone), `polyline`, `segments`, `rectangle`,
 `polygon`, `curve` (sampled curves, their dashes running on from chord to chord), `circle`,
-`arc`, boxes (`box_`, `box_styled`, `oriented_box`, `oriented_boxes`: corners option, px,
+`arc`, `turn_arrow` (an arc with heads at `Ends`, lying in its plane, a fixed size on screen: a
+turn to come), boxes (`box_`, `box_styled`, `oriented_box`, `oriented_boxes`: corners option, px,
 clamped to half the edge; `shell_on_top`), `arrow`, `chevron`, `axes`, `guide` (a guide shape's
 strokes, each stipple at its phase). Fills: `fill_polygon`, `fill_triangles` (free triangles,
 Kuix's `Mesh`), `fill_rectangle`, `fill_disc`, `fill_box`, `fill_arrow`. Points and texts:
