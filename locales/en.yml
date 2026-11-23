@@ -764,6 +764,7 @@ panel:
     role_positive: "Blank"
     role_negative: "Machining"
     role_intersect: "Intersection"
+    role_imprint: "Imprint"
     state: "State"
     failed: "could not be computed, needs fixing"
     copies: "Copies"
@@ -895,6 +896,7 @@ panel:
     sign_positive: "Blank: adds material to the part. Click to make it a machining"
     sign_negative: "Machining: removes material from the part. Click to make it an intersection"
     sign_intersect: "Intersection: the part keeps only what lies inside it. Click to make it a blank"
+    sign_imprint: "Imprint: no effect on its part, it shapes the parts linked to it. Click to make it a blank"
 
 toast:
   drop_hint: "Drop to open or import"
@@ -1450,9 +1452,13 @@ operation:
   add_body: "Blank"
   # An intersection (an intersect body) added: it limits its part (decision 0045).
   add_intersect: "Intersection"
+  # An imprint added, a link made from it to another part (decision 0055).
+  add_imprint: "Imprint"
+  add_link: "Imprint"
   set_sign_positive: "Change to Blank"
   set_sign_negative: "Change to Machining"
   set_sign_intersect: "Change to Intersection"
+  set_sign_imprint: "Change to Imprint"
   group: "Group"
   ungroup: "$t(common.explode)"
   add_guide: "Guide"
@@ -1629,6 +1635,10 @@ error:
     flatten_failed: "a failed or empty shape cannot be flattened: correct it first"
     # Grouping several intersections, or ungrouping an intersection group of several bodies: the shape would change.
     intersects_regrouped: "intersections are not grouped or exploded together: each one limits the part, the shape would change"
+    # Linked bodies (decision 0055).
+    bad_link: "impossible link: it takes an imprint at the root of its part, another instance and a machining in the same place"
+    imprint_linked: "an imprint cannot hold a linked body"
+    imprint_level: "a body does not move into or out of an imprint"
     not_at_path: "only an operation on instances applies at depth"
     turned_across: "a turned body only stretches along its axis, without cutting an arc of its profile"
     bad_guide: "guide without a direction or a radius"
@@ -1670,6 +1680,7 @@ error:
     bad_occurrence_id: "invalid instance id %{id}"
     bad_guide: "invalid guide %{id}"
     bad_behavior: "component %{id}: invalid cutting planes or locked axes"
+    bad_link: "invalid link %{id}"
     misfiled: "component %{id} filed under %{key}"
     shape_out_of_step: "part %{id}: shape unrelated to its bodies"
     duplicate_occurrence: "instance %{occurrence} twice in %{assembly}"

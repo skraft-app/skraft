@@ -492,6 +492,18 @@ impl Document {
                             return Err(Error::Cycle);
                         }
                     }
+                    // A link whose path no longer leads anywhere is broken, not malformed
+                    // (docs/decisions/0055-linked-bodies-through-imprints.md).
+                    for l in a.links() {
+                        if l.id.0 >= self.next_id
+                            || !here.insert(l.id)
+                            || l.source.is_empty()
+                            || l.receiver.is_empty()
+                            || !crate::ops::is_rigid(&l.seat)
+                        {
+                            return Err(Error::File(FileError::BadLink(l.id)));
+                        }
+                    }
                 }
             }
         }

@@ -21,7 +21,7 @@ Part    { defs: Vec<BodyDef>, bodies: Vec<Body>, shape, failed, faces }
 BodyDef { id, name, named, solid, profile, source, group }   — a shape, in its own axes
           profile : Option<BodyProfile>                      — a profile (Prism tool), solid its cache
           group   : Option<BodyGroup { children, failed }>   — « Body groups » below
-Body    { id, name, def, sign: Positive | Negative, placement: T }
+Body    { id, name, def, sign: Positive | Negative | Intersect | Imprint, placement: T }
                                                              — an occurrence of a definition, placed in the part's axes
 ```
 
@@ -100,6 +100,44 @@ level — the part's root, a group — keeps only what lies inside it
   button cycles `+ → − → ∩ → +` (« Intersection : la pièce ne garde que ce qui est dedans »).
 - **Moved in the tree**, an intersection stays one ([Moving bodies](#moving-bodies)). A node
   over intersections alone is an intersection rounded (`group_sign`).
+
+## A fourth sign: the imprint
+
+A body may also be an **imprint**: it does nothing in its own part, at any level, and shapes the
+parts linked to it ([0055](../decisions/0055-linked-bodies-through-imprints.md)). `Sign::Imprint`,
+written `"imprint"`.
+
+- **No part of the shape**: the recipes and the node tasks leave it out, welding neither moves
+  it nor welds onto it. Adding, moving, copying or deleting imprints computes nothing and leaves
+  the shape as it is, its faces in the same order; a part holding one is not plain.
+- **In the tree**: imprints alone group into one imprint, of positive children; among other bodies
+  each stays an imprint, also when its group explodes. No body moves into or out of an imprint
+  (`Refusal::ImprintLevel`). « Aplatir » and a union keep a part's imprints at its root.
+- **Shown** as a blank's ghost for now; its navigator row's sign button makes it a blank.
+
+### Links
+
+```
+Assembly { occurrences, links: Vec<Link> }
+Link     { id, source: path, imprint, receiver: path, body, seat: T }
+```
+
+- **`Operation::AddLink { context, source, imprint, receiver, sign, onto }`** makes, in the
+  receiving part, a **linked body** of the imprint where it lies (`BodySource::Linked`, its solid
+  a copy of the imprint's, its sign `−`, `+` or `∩`), or with `onto` adds a link to a linked body
+  already in that place. The imprint is a body at its part's root.
+- **Held by the assembly** `context`, by occurrence paths relative to it: placing that assembly
+  again keeps its links, and a copy into another document follows the ids drawn afresh.
+- **`seat`** is the imprint's pose in the receiver's axes, per link: several links share a body
+  through mirrored or turned receivers, and each knows its own pose.
+- **State** (`Document::link_state`): seated, off (everything there, the imprint elsewhere), or
+  broken (a path, the imprint or the body gone). A file may hold a broken link; a malformed one
+  is refused.
+- **No cycle**: an imprint never holds a linked body (`Refusal::ImprintLinked`).
+- A linked body **copied into another part** is a shape of its own, without a link. Welding
+  never moves a linked body.
+- Not yet: a linked body following its source, the off and broken states shown, and links kept
+  through a change of structure: gathering or exploding their occurrences leaves them broken.
 
 ## Plane welding
 

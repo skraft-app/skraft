@@ -49,6 +49,10 @@ fn effective(p: &Part, path: &[Id]) -> Result<Sign> {
     let mut bodies: &[Body] = &p.bodies;
     for id in path {
         let b = bodies.iter().find(|b| b.id == *id).ok_or(Error::NotFound(*id))?;
+        // What an imprint holds does nothing: a body would start or stop acting by moving.
+        if b.sign == Sign::Imprint {
+            return Err(Error::Invalid(crate::Refusal::ImprintLevel));
+        }
         if b.sign == Sign::Negative {
             sign = flip(sign);
         }
@@ -64,6 +68,7 @@ fn flip(s: Sign) -> Sign {
         Sign::Positive => Sign::Negative,
         Sign::Negative => Sign::Positive,
         Sign::Intersect => Sign::Intersect,
+        Sign::Imprint => Sign::Imprint,
     }
 }
 

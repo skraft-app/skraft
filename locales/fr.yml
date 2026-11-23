@@ -837,6 +837,7 @@ panel:
     role_positive: "Brut"
     role_negative: "Usinage"
     role_intersect: "Intersection"
+    role_imprint: "Empreinte"
     state: "État"
     failed: "n'a pas pu être calculé, à corriger"
     # How many bodies of the part share the body's definition (its shape).
@@ -980,6 +981,7 @@ panel:
     sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
     sign_negative: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire une intersection"
     sign_intersect: "Intersection : la pièce ne garde que ce qui est dedans. Cliquer pour en faire un brut"
+    sign_imprint: "Empreinte : sans effet sur sa pièce, elle façonne les pièces liées. Cliquer pour en faire un brut"
 
 # The app's messages, in toasts at the bottom right (apps/skraft/src/toasts.rs): a title,
 # and for an error what went wrong under it (the system's or the kernel's words).
@@ -1590,10 +1592,14 @@ operation:
   add_body: "Brut"
   # An intersection (an intersect body) added: it limits its part (decision 0045).
   add_intersect: "Intersection"
+  # An imprint added, a link made from it to another part (decision 0055).
+  add_imprint: "Empreinte"
+  add_link: "Imprimer"
   # Bodies made blanks, or machinings (docs/model/bodies.md).
   set_sign_positive: "Changer en brut"
   set_sign_negative: "Changer en usinage"
   set_sign_intersect: "Changer en intersection"
+  set_sign_imprint: "Changer en empreinte"
   # Bodies grouped, a group flattened (docs/model/bodies.md#body-groups).
   group: "Grouper"
   ungroup: "$t(common.explode)"
@@ -1788,6 +1794,10 @@ error:
     flatten_failed: "une forme en échec ou vide ne s'aplatit pas : à corriger d'abord"
     # Grouping several intersections, or ungrouping an intersection group of several bodies: the shape would change.
     intersects_regrouped: "des intersections ne se groupent ni ne s'éclatent ensemble : chacune limite la pièce, la forme changerait"
+    # Linked bodies (decision 0055).
+    bad_link: "lien impossible : il faut une empreinte à la racine de sa pièce, un autre exemplaire et un usinage à la même place"
+    imprint_linked: "une empreinte ne peut pas contenir de corps lié"
+    imprint_level: "un corps n'entre ni ne sort d'une empreinte"
     not_at_path: "seule une opération sur des exemplaires s'applique en profondeur"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"
@@ -1830,6 +1840,7 @@ error:
     bad_occurrence_id: "identifiant d'exemplaire %{id} invalide"
     bad_guide: "guide %{id} invalide"
     bad_behavior: "composant %{id} : plans de coupe ou axes bloqués invalides"
+    bad_link: "lien %{id} invalide"
     misfiled: "composant %{id} rangé sous %{key}"
     shape_out_of_step: "pièce %{id} : forme sans rapport avec ses corps"
     duplicate_occurrence: "exemplaire %{occurrence} en double dans %{assembly}"

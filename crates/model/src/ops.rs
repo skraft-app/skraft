@@ -102,6 +102,20 @@ pub enum Operation {
     /// Gives `component` new axes, `axes` going from them to the current ones (a direct rigid
     /// transform): nothing moves in the world (docs/decisions/0054-changing-a-components-axes.md).
     ChangeAxes { component: Id, axes: DAffine3 },
+    /// Links the imprint `imprint` of the part `source` leads to, from the assembly `context`, to
+    /// the part `receiver` leads to: a new linked body of `sign` there, where the imprint lies, or
+    /// (`onto`) a linked body already in that place, shared with the links it has
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md). The receiver's definition changes,
+    /// every occurrence of it.
+    AddLink {
+        context: Id,
+        source: Vec<Id>,
+        imprint: Id,
+        receiver: Vec<Id>,
+        sign: Sign,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        onto: Option<Id>,
+    },
     /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
     /// Rigid only: a scale changes a part, not its place (docs/model/data-model.md).
     Transform { context: Id, entities: Vec<Id>, transform: DAffine3 },
@@ -642,6 +656,8 @@ impl Operation {
             Operation::AddBody { sign: Sign::Negative, .. } => t!("operation.add_machining"),
             Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
             Operation::AddBody { sign: Sign::Intersect, .. } => t!("operation.add_intersect"),
+            Operation::AddBody { sign: Sign::Imprint, .. } => t!("operation.add_imprint"),
+            Operation::AddLink { .. } => t!("operation.add_link"),
             Operation::DeleteBodies { .. } => t!("operation.delete"),
             Operation::GroupBodies { .. } => t!("operation.group"),
             Operation::MoveBodies { copy: true, .. } => t!("operation.copy_bodies_to"),
@@ -655,6 +671,7 @@ impl Operation {
             Operation::SetSign { sign: Sign::Positive, .. } => t!("operation.set_sign_positive"),
             Operation::SetSign { sign: Sign::Negative, .. } => t!("operation.set_sign_negative"),
             Operation::SetSign { sign: Sign::Intersect, .. } => t!("operation.set_sign_intersect"),
+            Operation::SetSign { sign: Sign::Imprint, .. } => t!("operation.set_sign_imprint"),
             Operation::TransformBodies { .. } => t!("operation.transform"),
             Operation::DuplicateBodies { .. } => t!("operation.duplicate"),
             Operation::ArrayBodies { .. } => t!("operation.array"),
@@ -854,6 +871,7 @@ impl Document {
         let mut doc = self.clone();
         let mut outcome = doc.apply_in_place(op, &mut recorder)?;
         outcome.welds = doc.weld(self, &mut recorder)?;
+        doc.check_imprints(self)?;
         if recorder.job.tasks.is_empty() {
             doc.settle_names(Some(self));
             doc.drop_unused_empty_assemblies();
@@ -1634,6 +1652,9 @@ impl Document {
                 self.recompute(part, Some(&[id]), solver)?;
                 Ok(Outcome { bodies: vec![id], ..Outcome::default() })
             }
+            Operation::AddLink { context, source, imprint, receiver, sign, onto } => {
+                self.add_link((*context, source, *imprint, receiver), *sign, *onto, solver)
+            }
             Operation::DeleteBodies { target, bodies, scope } => {
                 // The last positive ones too: the part is then empty, an error shown (docs/model/bodies.md
                 // « Empty parts »).
@@ -1641,9 +1662,13 @@ impl Document {
                 self.component_mut(*part)?.guides.retain(|g| !guides.contains(&g.id));
                 if !bodies.is_empty() {
                     let p = self.part_mut(*part)?;
+                    let inert = p.bodies.iter().filter(|b| bodies.contains(&b.id)).all(|b| b.sign == Sign::Imprint);
                     p.bodies.retain(|b| !bodies.contains(&b.id));
                     p.drop_unused_defs();
-                    self.recompute(*part, None, solver)?;
+                    // Imprints gone: the shape as it is, unless the part is its one body again.
+                    if !inert || p.is_plain() || p.bodies.is_empty() {
+                        self.recompute(*part, None, solver)?;
+                    }
                 }
                 Ok(Outcome::default())
             }
@@ -1681,11 +1706,16 @@ impl Document {
                 }
                 // The shape as it is: the materials of its faces, by their index, still hold.
                 let shape = p.shape().clone();
+                // Its imprints are no part of the shape: they stay, for their links.
+                let imprints: Vec<Body> = p.bodies.iter().filter(|b| b.sign == Sign::Imprint).cloned().collect();
                 let (def, id) = (self.fresh_id(), self.fresh_id());
                 let p = self.part_mut(part)?;
-                p.defs = vec![BodyDef::new(def, shape)];
+                let used = crate::document::used_defs(&p.defs, &imprints);
+                p.defs.retain(|d| used.contains(&d.id));
+                p.defs.push(BodyDef::new(def, shape.clone()));
+                p.shape = (!imprints.is_empty()).then_some(shape);
                 p.bodies = vec![Body::new(id, def, Sign::Positive, DAffine3::IDENTITY)];
-                p.shape = None;
+                p.bodies.extend(imprints);
                 p.failed.clear();
                 Ok(Outcome { bodies: vec![id], ..Outcome::default() })
             }
@@ -1733,12 +1763,16 @@ impl Document {
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
                 self.move_guides(part, &guides, transform)?;
                 if !bodies.is_empty() {
+                    let mut inert = true;
                     for b in &mut self.part_mut(part)?.bodies {
                         if bodies.contains(&b.id) {
                             b.placement = *transform * b.placement;
+                            inert &= b.sign == Sign::Imprint;
                         }
                     }
-                    self.recompute(part, None, solver)?;
+                    if !inert {
+                        self.recompute(part, None, solver)?;
+                    }
                 }
                 Ok(Outcome::default())
             }
@@ -2137,7 +2171,8 @@ impl Document {
         let renamed: FastMap<Id, Id> = kept.iter().map(|d| (d.id, self.fresh_id())).collect();
         let mut out_defs = Vec::with_capacity(kept.len());
         for d in kept {
-            let mut copy = BodyDef { id: renamed[&d.id], ..d.clone() };
+            // In another part it is a shape of its own: its link stays with the body it was.
+            let mut copy = BodyDef { id: renamed[&d.id], source: crate::BodySource::Local, ..d.clone() };
             if let Some(g) = &mut copy.group {
                 g.children.retain(|c| renamed.contains_key(&c.def));
                 g.children.iter_mut().for_each(|c| c.def = renamed[&c.def]);
@@ -2379,6 +2414,14 @@ impl Document {
         {
             return Err(Error::Invalid(Refusal::IntersectsRegrouped));
         }
+        // An imprint sparing material: its children apart would be another shape.
+        if p.bodies
+            .iter()
+            .filter(|b| is_group(b))
+            .any(|b| b.sign == Sign::Imprint && p.def_of(b).children().iter().any(|c| c.sign == Sign::Negative))
+        {
+            return Err(Error::Invalid(Refusal::ImprintLevel));
+        }
         let mut bodies = Vec::with_capacity(p.bodies.len());
         let mut created = Vec::new();
         let mut relocated = Vec::new();
@@ -2392,7 +2435,8 @@ impl Document {
                 let id = if shared { self.fresh_id() } else { c.id };
                 // A negative group holds positives only (above): each one a machining.
                 // A negative group's or an intersection's children: each what the group was.
-                let sign = if b.sign == Sign::Positive { c.sign } else { b.sign };
+                // An imprint among them stays one: it starts doing nothing else.
+                let sign = if b.sign == Sign::Positive || c.sign == Sign::Imprint { c.sign } else { b.sign };
                 bodies.push(Body {
                     id,
                     name: c.name.clone(),
@@ -2436,6 +2480,15 @@ impl Document {
     /// (docs/model/bodies.md#empty-parts): the kernel says so.
     pub(crate) fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
         let p = self.part(part)?;
+        // Only imprints added: they change nothing of the shape, nor of its faces' order.
+        if let Some(ids) = added
+            && !ids.is_empty()
+            && p.bodies.iter().filter(|b| ids.contains(&b.id)).all(|b| b.sign == Sign::Imprint)
+        {
+            let shape = p.shape().clone();
+            self.part_mut(part)?.shape = Some(shape);
+            return Ok(());
+        }
         // Before the deferred case: no kernel here, and a part without bodies needs its shape.
         if p.is_plain() || p.bodies.is_empty() {
             let empty = p.bodies.is_empty();
@@ -2449,7 +2502,7 @@ impl Document {
         }
         let placed = |b: &Body| (p.solid_of(b).clone(), b.placement);
         let is_added = |b: &Body| added.is_some_and(|ids| ids.contains(&b.id));
-        let new: Vec<&Body> = p.bodies.iter().filter(|b| is_added(b)).collect();
+        let new: Vec<&Body> = p.bodies.iter().filter(|b| is_added(b) && b.sign != Sign::Imprint).collect();
         let current = p.shape().clone();
         // The bodies each index of the task's failures names: its positives, its negatives, then
         // its intersections (docs/decisions/0045-intersection-a-third-sign.md).
@@ -2768,6 +2821,8 @@ fn group_sign(children: &mut [Body]) -> Sign {
         Sign::Negative
     } else if alone(Sign::Intersect) {
         Sign::Intersect
+    } else if alone(Sign::Imprint) {
+        Sign::Imprint
     } else {
         Sign::Positive
     };
@@ -2780,6 +2835,8 @@ fn group_sign(children: &mut [Body]) -> Sign {
 fn tree(defs: &[BodyDef], children: &[Body], leaves: &mut Vec<Arc<Solid>>) -> Result<Vec<TreeBody>> {
     children
         .iter()
+        // An imprint takes no part in its level's result.
+        .filter(|b| b.sign != Sign::Imprint)
         .map(|b| {
             let d = defs.iter().find(|d| d.id == b.def).ok_or(Error::NotFound(b.def))?;
             let node = match &d.group {

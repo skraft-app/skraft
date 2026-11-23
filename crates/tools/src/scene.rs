@@ -374,7 +374,8 @@ impl DisplayScene {
                 let key = Id(RECIPE_KEY | TOOL_KEY | b.def.0);
                 let t =
                     RecipeTool { body: b.id, key, placement: b.placement, failed: p.is_failed(b.id), intersect: b.sign == Sign::Intersect };
-                if b.sign == Sign::Positive { blanks.push(t) } else { tools.push(t) }
+                // An imprint is no machining: drawn as a blank's ghost, until it has a look of its own.
+                if matches!(b.sign, Sign::Positive | Sign::Imprint) { blanks.push(t) } else { tools.push(t) }
             }
             let mut nested = Vec::new();
             for b in p.bodies.iter().filter(|b| b.sign == Sign::Positive) {
@@ -1277,6 +1278,7 @@ fn nested_tools(p: &skraft_model::Part, group: &skraft_model::BodyDef, at: DAffi
                 intersect: b.sign == Sign::Intersect,
             }),
             Sign::Positive => nested_tools(p, p.def_of(b), placement, top, out, depth + 1),
+            Sign::Imprint => {}
         }
     }
 }

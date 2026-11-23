@@ -1958,6 +1958,7 @@ fn body_row(
                 Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
                 Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
                 Sign::Intersect => (icons::INTERSECT, t!("panel.outliner.sign_intersect")),
+                Sign::Imprint => (icons::SOLID, t!("panel.outliner.sign_imprint")),
             };
             let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
             let toggled = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
@@ -2086,7 +2087,7 @@ fn body_row(
             // + → − → ∩ → + (docs/decisions/0045-intersection-a-third-sign.md).
             Sign::Positive => Sign::Negative,
             Sign::Negative => Sign::Intersect,
-            Sign::Intersect => Sign::Positive,
+            Sign::Intersect | Sign::Imprint => Sign::Positive,
         };
         // Selected (in its part or group, opened): the selected siblings with it.
         let bodies = match selected {
@@ -2681,6 +2682,7 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             Sign::Positive => t!("panel.entity_info.role_positive"),
             Sign::Negative => t!("panel.entity_info.role_negative"),
             Sign::Intersect => t!("panel.entity_info.role_intersect"),
+            Sign::Imprint => t!("panel.entity_info.role_imprint"),
         });
         ui.end_row();
         // A body node's size, edited here (docs/tools/rounds.md).
