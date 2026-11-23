@@ -41,7 +41,9 @@ use skraft_i18n::t;
 use skraft_model::kernel::profile::{self, Corner, Side};
 use skraft_model::{BodyProfile, EntityPath, Id, Operation};
 
-use super::{Command, Cx, INK, Key, MAGENTA, OptionValue, PICK, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use super::{
+    Command, Cx, INK, Key, MAGENTA, OptionValue, PICK, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, copy_key,
+};
 use crate::draw::{Drawer, Drawing, Pen};
 use crate::infer::Inference;
 use crate::vcb::{PointRef, Vcb, VcbKind, VcbValue};
@@ -599,7 +601,7 @@ impl ProfileTool {
                 Grip::Fillet(_) => (4.0, PointShape::Round, MAGENTA),
             };
             let radius = if hot { radius + 2.0 } else { radius };
-            d.grip(at, radius, Some(if hot { PICK } else { [1.0, 1.0, 1.0, 1.0] }), Some(stroke), shape);
+            d.grip(at, radius, Some(if hot { PICK } else { WHITE }), Some(stroke), shape);
         }
         self.lengths(cx, d, &b, inset);
         let tip = self.free.then(|| t!("tool.profile.free"));

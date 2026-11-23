@@ -1582,3 +1582,8 @@ pub const BLUE: [f32; 4] = skraft_theme::AXIS_Z;
 pub const MAGENTA: [f32; 4] = skraft_theme::FREE_LINE;
 /// The highlight colour of picked things.
 pub const PICK: [f32; 4] = skraft_theme::PICK;
+// The same in either mode.
+pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+pub const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+/// What is inactive or about to go: an axis, a cutter, the legs of a distribute.
+pub const GREY: [f32; 4] = [0.45, 0.45, 0.45, 1.0];

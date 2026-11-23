@@ -56,8 +56,8 @@ use skraft_model::{Behavior, EntityPath, Id, Operation, Scope};
 use super::handle::{dotted_box, fills, square};
 use super::pick::Picker;
 use super::{
-    BLUE, Command, Cx, GREEN, Key, OptionChoice, OptionValue, PointShape, Preview, RED, StretchPreview, Tool, ToolInput, ToolKind,
-    ToolOption, alt_key, copy_key,
+    BLUE, Command, Cx, GREEN, GREY, Key, OptionChoice, OptionValue, PointShape, Preview, RED, StretchPreview, Tool, ToolInput, ToolKind,
+    ToolOption, WHITE, alt_key, copy_key,
 };
 use crate::camera::Ray;
 use crate::draw::{Brush, Drawer, Pen};
@@ -105,12 +105,9 @@ const EXACT_MIN: f64 = 1e-9;
 /// Closer than this, two cutters are one; at or past it from an end, a cutter is removed (ratio).
 const SAME_CUT: f64 = 1e-3;
 
-/// The grey of the inactive axes and of a cutter about to go.
-const GREY: [f32; 4] = [0.45, 0.45, 0.45, 1.0];
 /// The inactive axes' dashes: a dark grey half seen through, so they take the tone of what
 /// lies under them.
 const AXIS_GREY: [f32; 4] = [0.1, 0.1, 0.1, 0.45];
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 thread_local! {
     /// The cutters kept for the session, per axis: under `None`, those several occurrences share

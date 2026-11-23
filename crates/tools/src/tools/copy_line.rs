@@ -25,11 +25,9 @@ use super::handle::{
     minimums, mirror_badge, nearest_axis_on_screen, reflection, repeat_stepped,
 };
 use super::pick::Picker;
-use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, copy_key};
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
-
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 /// Where the copies go, worked out in the target's axes (OCL's `_get_move_def`): from the
 /// centre of the box, `mps`, the last copy's centre `mpe`; the measure from `dps` to `dpe`,

@@ -24,12 +24,9 @@ use super::handle::{
 };
 use super::pick::Picker;
 use super::rotate::rotation_about;
-use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use super::{BLACK, Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, copy_key};
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
-
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 /// The grid's axes in the target's (columns: its red side, its green side, the normal), for the
 /// plane normal to the target's axis `k` (OCL's `_get_handle_axes`: the red axis, or the green

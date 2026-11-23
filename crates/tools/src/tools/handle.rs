@@ -8,7 +8,7 @@ use glam::{DAffine3, DMat3, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::{Body, EntityPath, GuidePath, Id, Occurrence, Part};
 
-use super::{BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, RED, ToolInput, ToolOption, copy_key};
+use super::{BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, RED, ToolInput, ToolOption, WHITE, copy_key};
 use crate::draw::{BoxStyle, Drawer, Ends, Pen};
 use crate::vcb::Repeat;
 
@@ -352,7 +352,7 @@ pub(super) fn reflection(at: DVec3, n: DVec3) -> DAffine3 {
 /// then 40 pixels further, on `background`.
 pub(super) fn mirror_badge(d: &mut Drawer<'_>, at: DVec3, dir: DVec3, reach: f64, background: [f32; 4]) {
     let gap = d.px(at, BADGE_GAP_PX);
-    d.grip(at + dir * (reach + gap), BADGE_PX, Some(background), Some([1.0, 1.0, 1.0, 1.0]), PointShape::Mirror);
+    d.grip(at + dir * (reach + gap), BADGE_PX, Some(background), Some(WHITE), PointShape::Mirror);
 }
 
 /// The axis `k`'s colour.
