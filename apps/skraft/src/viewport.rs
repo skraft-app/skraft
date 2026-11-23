@@ -94,11 +94,13 @@ pub struct Viewport {
     sheet_frame: u64,
 }
 
-/// A view's picture on a sheet, drawn for `stamp`, last asked for at frame `seen`.
+/// A view's picture on a sheet, drawn for `stamp` with `images` of its textures ready, last asked
+/// for at frame `seen`.
 struct SheetPicture {
     picture: render::Picture,
     texture: egui::TextureId,
     stamp: u64,
+    images: usize,
     seen: u64,
 }
 
@@ -232,8 +234,10 @@ impl Viewport {
             let _ = self.sync(state, editor, theme);
             self.render_thumbnails(ctx, state, ctx.pixels_per_point(), editor, theme);
         }
-        let todo: Vec<&crate::sheet::Wanted> =
-            wanted.iter().filter(|w| self.sheet.get(&(doc, w.slot)).is_none_or(|p| p.stamp != w.stamp)).collect();
+        let todo: Vec<&crate::sheet::Wanted> = wanted
+            .iter()
+            .filter(|w| self.sheet.get(&(doc, w.slot)).is_none_or(|p| p.stamp != w.stamp || p.images != images_ready(&self.images, w)))
+            .collect();
         if todo.is_empty() {
             return;
         }
@@ -250,17 +254,19 @@ impl Viewport {
             }
             let device = &state.device;
             let key = (doc, w.slot);
+            let images = images_ready(&self.images, w);
             let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, ppp };
             match self.sheet.get_mut(&key) {
                 Some(p) if p.picture.size() == w.size => {
                     draw_sheet_picture(renderer, state, scene, &look, w, &p.picture);
                     p.stamp = w.stamp;
+                    p.images = images;
                 }
                 _ => {
                     let picture = renderer.new_picture(device, w.size);
                     draw_sheet_picture(renderer, state, scene, &look, w, &picture);
                     let texture = state.renderer.write().register_native_texture(device, picture.display_view(), wgpu::FilterMode::Linear);
-                    if let Some(old) = self.sheet.insert(key, SheetPicture { picture, texture, stamp: w.stamp, seen: now }) {
+                    if let Some(old) = self.sheet.insert(key, SheetPicture { picture, texture, stamp: w.stamp, images, seen: now }) {
                         self.sheet_freed.push(old.texture);
                     }
                 }
@@ -1056,6 +1062,11 @@ struct SheetLook<'a> {
 
 /// A sheet view's picture `w` drawn into `picture` (docs/ui/drawing.md#rendered-views): its
 /// parts, its lines over them, on the paper's white.
+/// How many of the texture images picture `w` shows are ready (they stay so once they are).
+fn images_ready(images: &crate::images::TextureImages, w: &crate::sheet::Wanted) -> usize {
+    w.images.iter().filter(|id| images.get(id).is_some()).count()
+}
+
 fn draw_sheet_picture(
     renderer: &mut render::Renderer,
     state: &egui_wgpu::RenderState,
