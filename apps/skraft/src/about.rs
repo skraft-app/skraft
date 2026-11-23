@@ -32,10 +32,10 @@ fn notices_path() -> Option<std::path::PathBuf> {
     [dir.join("../Resources").join(NAME), dir.join(NAME), dir.join("../share/doc/skraft").join(NAME)].into_iter().find(|p| p.is_file())
 }
 
-/// A link opening `url` in a new tab: on the web, the page holds the unsaved work.
+/// A link opening `url` in the browser.
 fn link(ui: &mut egui::Ui, label: String, url: String) {
     if ui.link(label).clicked() {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+        crate::app::open_url(ui.ctx(), url);
     }
 }
 
@@ -96,7 +96,7 @@ fn links_row(ui: &mut egui::Ui) {
         if ui.link(notices).clicked() {
             match notices_path() {
                 Some(path) => crate::app::open_file(&path.display().to_string()),
-                None => ui.ctx().open_url(egui::OpenUrl::new_tab(notices_url())),
+                None => crate::app::open_url(ui.ctx(), notices_url()),
             }
         }
         ui.weak(" · ");

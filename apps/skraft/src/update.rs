@@ -280,7 +280,7 @@ fn available(ui: &mut egui::Ui, release: &Release, prefs: &mut Prefs) -> bool {
     let mut done = false;
     ui.horizontal(|ui| {
         if ui.button(t!("update.download")).clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(download_url(release, &platform())));
+            crate::app::open_url(ui.ctx(), download_url(release, &platform()));
             done = true;
         }
         if ui.button(t!("update.later")).clicked() {

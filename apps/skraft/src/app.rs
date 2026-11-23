@@ -3645,6 +3645,29 @@ pub(crate) fn open_file(path: &str) {
     }
 }
 
+/// Opens `url` in the system's browser, by its own command: egui's `open_url` needs eframe's
+/// `links` feature on the desktop, and the 22 crates it brings. On Windows, no `cmd /c start`,
+/// whose shell would read the `&` of a URL.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn open_url(_ctx: &egui::Context, url: String) {
+    let result = if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(&url).spawn()
+    } else if cfg!(windows) {
+        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(&url).spawn()
+    };
+    if let Err(e) = result {
+        log::warn!("cannot open {url}: {e}");
+    }
+}
+
+/// Opens `url` in a new tab: the page holds the unsaved work.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn open_url(ctx: &egui::Context, url: String) {
+    ctx.open_url(egui::OpenUrl::new_tab(url));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
