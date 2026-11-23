@@ -145,8 +145,10 @@ Link     { id, source: path, imprint, receiver: path, body, seat: T }
   leave it where it is, and an imprint no longer reaching into the receiver's box leaves it too.
   Decided on transforms and on the solids before the operation, so the job records and replays
   alike; an occurrence moved needs the kernel only when it carries a linked body.
-- Changing the receiver's axes brings the seats along.
-- Not yet: links kept through a change of structure, the off and broken states shown, « Replacer » and « Séparer », a linked body following
+- **Changes of structure** keep the links: gathering occurrences in an assembly, exploding one,
+  moving them between assemblies rewrite the paths, each link going to the lowest assembly
+  holding both its ends. Changing the receiver's axes brings the seats along.
+- Not yet: the off and broken states shown, « Replacer » and « Séparer », a linked body following
   its imprint's **shape** (changed, its links go off), a preview of the body while dragging.
 
 ## Plane welding

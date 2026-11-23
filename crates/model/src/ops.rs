@@ -1501,14 +1501,18 @@ impl Document {
                         props: Props::default(),
                     },
                 );
+                let gathered: Vec<Id> = entities.iter().copied().collect();
+                self.links_gathered(*context, &gathered, id);
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::Explode { context, occurrence } => {
                 let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);
                 let contents = self.assembly(o.component).map_err(|_| Error::Invalid(Refusal::NotExploded))?.occurrences().to_vec();
                 let mut copies = Vec::with_capacity(contents.len());
+                let mut copied = Vec::with_capacity(contents.len());
                 for c in contents {
                     let id = self.fresh_id();
+                    copied.push((c.id, id));
                     // An assembly hidden leaves its content hidden.
                     copies.push(Occurrence { id, transform: o.transform * c.transform, hidden: c.hidden || o.hidden, ..c });
                 }
@@ -1520,6 +1524,7 @@ impl Document {
                 let ctx = self.assembly_mut(*context)?;
                 let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
                 ctx.occurrences_mut().splice(at..=at, copies);
+                self.links_exploded(*context, *occurrence, o.component, &copied)?;
                 Ok(Outcome { created, ..Outcome::default() })
             }
             Operation::At { parent, unique, op } => {

@@ -392,6 +392,9 @@ impl Document {
         }
         let created: Vec<Id> = placed.iter().map(|o| o.id).collect();
         self.assembly_mut(into)?.occurrences_mut().extend(placed);
+        if !copy {
+            self.links_moved(instances, occurrences, to)?;
+        }
         Ok(Outcome { created, ..Outcome::default() })
     }
 }

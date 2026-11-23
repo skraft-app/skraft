@@ -46,6 +46,10 @@ pub enum LinkState {
     Broken,
 }
 
+/// Rewrites a link's path: given the assembly it stands in and the rest of the path, how many
+/// occurrences to replace and by which; `None` to go on as it is.
+type RouteStep<'a> = &'a dyn Fn(Id, &[Id]) -> Option<(usize, Vec<Id>)>;
+
 /// What the linked bodies did after an operation: each by its receiving part and its id.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Followed {
@@ -194,6 +198,133 @@ impl Document {
             .filter(|(_, c)| matches!(&c.kind, ComponentKind::Assembly(a) if !a.links().is_empty()))
             .map(|(id, _)| *id)
             .collect()
+    }
+
+    /// `path`, from `holder`, through what `step` rewrites: given where it stands and the rest
+    /// of the path, how many occurrences it replaces and by which. `None` when it leads nowhere.
+    fn rerouted(&self, holder: Id, path: &[Id], step: RouteStep) -> Option<Vec<Id>> {
+        let (mut at, mut i, mut out) = (holder, 0, Vec::with_capacity(path.len() + 1));
+        while i < path.len() {
+            let (n, ids) = step(at, &path[i..]).unwrap_or_else(|| (1, vec![path[i]]));
+            for id in ids {
+                at = self.assembly(at).ok()?.occurrence(id)?.component;
+                out.push(id);
+            }
+            i += n;
+        }
+        Some(out)
+    }
+
+    /// Every link's paths through `step`, then each link in the lowest assembly holding both
+    /// its ends. A path that leads nowhere is left: the link is broken.
+    fn reroute_links(&mut self, step: RouteStep) {
+        for id in self.link_holders() {
+            let Ok(a) = self.assembly(id) else { continue };
+            let links: Vec<Link> = a
+                .links()
+                .iter()
+                .map(|l| Link {
+                    source: self.rerouted(id, &l.source, step).unwrap_or_else(|| l.source.clone()),
+                    receiver: self.rerouted(id, &l.receiver, step).unwrap_or_else(|| l.receiver.clone()),
+                    ..l.clone()
+                })
+                .collect();
+            if links != a.links()
+                && let Ok(a) = self.assembly_mut(id)
+            {
+                *a.links_mut() = links;
+            }
+        }
+        self.settle_link_holders();
+    }
+
+    /// Each link in the lowest assembly holding both its ends: a copy of that assembly keeps it.
+    fn settle_link_holders(&mut self) {
+        for id in self.link_holders() {
+            let Ok(a) = self.assembly(id) else { continue };
+            let (mut kept, mut lowered) = (Vec::with_capacity(a.links().len()), Vec::new());
+            for l in a.links() {
+                let (mut at, mut depth) = (id, 0);
+                while l.source.len() > depth + 1 && l.receiver.len() > depth + 1 && l.source[depth] == l.receiver[depth] {
+                    let Some(next) = self.assembly(at).ok().and_then(|a| a.occurrence(l.source[depth])).map(|o| o.component) else { break };
+                    (at, depth) = (next, depth + 1);
+                }
+                if depth == 0 {
+                    kept.push(l.clone());
+                } else {
+                    lowered.push((at, Link { source: l.source[depth..].to_vec(), receiver: l.receiver[depth..].to_vec(), ..l.clone() }));
+                }
+            }
+            if lowered.is_empty() {
+                continue;
+            }
+            if let Ok(a) = self.assembly_mut(id) {
+                *a.links_mut() = kept;
+            }
+            for (at, l) in lowered {
+                if let Ok(a) = self.assembly_mut(at) {
+                    a.links_mut().push(l);
+                }
+            }
+        }
+    }
+
+    /// The occurrences `entities` of `context` gathered in the assembly its occurrence `made`
+    /// places: their links go through it.
+    pub(crate) fn links_gathered(&mut self, context: Id, entities: &[Id], made: Id) {
+        self.reroute_links(&|at, rest| (at == context && entities.contains(&rest[0])).then(|| (1, vec![made, rest[0]])));
+    }
+
+    /// The occurrence `exploded` of `context`, an occurrence of `assembly`, replaced by copies
+    /// of its content (`copies`: each occurrence of `assembly`, and its copy in `context`). The
+    /// links through it go through its copies; those it held are held by `context` too.
+    pub(crate) fn links_exploded(&mut self, context: Id, exploded: Id, assembly: Id, copies: &[(Id, Id)]) -> Result<()> {
+        let copy = |id: Id| copies.iter().find(|(old, _)| *old == id).map(|(_, new)| *new);
+        self.reroute_links(&|at, rest| {
+            (at == context && rest[0] == exploded).then(|| rest.get(1).and_then(|c| copy(*c)).map(|c| (2, vec![c]))).flatten()
+        });
+        let inner: Vec<Link> = self.assembly(assembly)?.links().to_vec();
+        for l in inner {
+            let (Some(s), Some(r)) = (l.source.first().and_then(|c| copy(*c)), l.receiver.first().and_then(|c| copy(*c))) else { continue };
+            let source = std::iter::once(s).chain(l.source[1..].iter().copied()).collect();
+            let receiver = std::iter::once(r).chain(l.receiver[1..].iter().copied()).collect();
+            let link = Link { id: self.fresh_id(), source, receiver, ..l };
+            self.assembly_mut(context)?.links_mut().push(link);
+        }
+        self.settle_link_holders();
+        Ok(())
+    }
+
+    /// The occurrences `occurrences` of the assembly `instances` leads to, moved to the one
+    /// `to` leads to: the links ending in them, held on the way to the first, go by the second,
+    /// held by an assembly above both when they were held below it.
+    pub(crate) fn links_moved(&mut self, instances: &[Id], occurrences: &[Id], to: &[Id]) -> Result<()> {
+        let common = instances.iter().zip(to).take_while(|(a, b)| a == b).count();
+        for k in (0..=instances.len()).rev() {
+            let Ok(holder) = self.context_of(&instances[..k]) else { continue };
+            let tail = &instances[k..];
+            let base = k.min(common);
+            let carried = |p: &[Id]| p.len() > tail.len() && p.starts_with(tail) && occurrences.contains(&p[tail.len()]);
+            let (moved, kept): (Vec<Link>, Vec<Link>) =
+                self.assembly(holder)?.links().iter().cloned().partition(|l| carried(&l.source) || carried(&l.receiver));
+            if moved.is_empty() {
+                continue;
+            }
+            let route = |p: &[Id]| -> Vec<Id> {
+                if carried(p) {
+                    to[base..].iter().chain(&p[tail.len()..]).copied().collect()
+                } else {
+                    instances[base..k].iter().chain(p).copied().collect()
+                }
+            };
+            let routed: Vec<Link> =
+                moved.iter().map(|l| Link { source: route(&l.source), receiver: route(&l.receiver), ..l.clone() }).collect();
+            *self.assembly_mut(holder)?.links_mut() = kept;
+            let above = self.context_of(&instances[..base])?;
+            self.assembly_mut(above)?.links_mut().extend(routed);
+        }
+        self.settle_link_holders();
+        Ok(())
     }
 
     /// [`crate::Operation::AddLink`].

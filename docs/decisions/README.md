@@ -61,4 +61,4 @@ state and link the records behind it.
 | 0052 | [Drawing: a view frames what it shows](0052-drawing-a-view-frames-what-it-shows.md) | accepted (2026-11-23; built) |
 | 0053 | [The desktop app detects new versions but does not install them](0053-update-check-without-self-install.md) | accepted (2026-11-23; built) |
 | 0054 | [Changing a component's axes: one operation, dimensions read on the axes](0054-changing-a-components-axes.md) | accepted (2026-11-23; built but for « Retourner ») |
-| 0055 | [Linked bodies: a part's imprints shape the parts it enters](0055-linked-bodies-through-imprints.md) | accepted (2026-11-23; step 1 built) |
+| 0055 | [Linked bodies: a part's imprints shape the parts it enters](0055-linked-bodies-through-imprints.md) | accepted (2026-11-23; steps 1 and 2 built) |

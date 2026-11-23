@@ -757,6 +757,101 @@ fn doc_imprint(t: &Table) -> Id {
     t.h.document().root_assembly().links()[0].imprint
 }
 
+// ---- links through changes of structure -----------------------------------------------------
+
+#[test]
+fn gathering_the_two_ends_lowers_the_link_and_a_copy_follows() {
+    let mut h = History::new(Document::new());
+    let (rail, leg, imprint) = rail_and_leg(&mut h);
+    h.apply(link_op(&h, rail, imprint, leg, None)).unwrap();
+    let root = h.document().root();
+    let cabinet = h.apply(Operation::MakeAssembly { context: root, entities: vec![rail, leg], name: None }).unwrap().created[0];
+    let assembly = h.document().root_assembly().occurrence(cabinet).unwrap().component;
+    assert!(h.document().root_assembly().links().is_empty());
+    let a = h.document().assembly(assembly).unwrap();
+    assert_eq!((a.links().len(), a.links()[0].source.clone(), a.links()[0].receiver.clone()), (1, vec![rail], vec![leg]));
+    assert_eq!(h.document().link_state(assembly, &a.links()[0]), LinkState::Seated);
+
+    // Moved inside it, the body follows, in both copies of the assembly.
+    h.apply(Operation::Duplicate { context: root, entities: vec![cabinet], transform: moved(at(500.0, 0.0, 0.0)) }).unwrap();
+    let o = h.apply(Operation::Transform { context: assembly, entities: vec![rail], transform: moved(DVec3::Z * 3.0) }).unwrap();
+    assert_eq!(o.links.moved.len(), 1);
+    let a = h.document().assembly(assembly).unwrap();
+    assert_eq!(h.document().link_state(assembly, &a.links()[0]), LinkState::Seated);
+}
+
+#[test]
+fn gathering_one_end_keeps_the_link_where_it_is() {
+    let mut h = History::new(Document::new());
+    let (rail, leg, imprint) = rail_and_leg(&mut h);
+    h.apply(link_op(&h, rail, imprint, leg, None)).unwrap();
+    let root = h.document().root();
+    let made = h.apply(Operation::MakeAssembly { context: root, entities: vec![rail], name: None }).unwrap().created[0];
+    let links = root_links(&h);
+    assert_eq!((links[0].source.clone(), links[0].receiver.clone()), (vec![made, rail], vec![leg]));
+    assert_eq!(states(&h), vec![LinkState::Seated]);
+
+    // The assembly moved carries the rail, and so the mortise.
+    let o = h.apply(Operation::Transform { context: root, entities: vec![made], transform: moved(DVec3::Z * 2.0) }).unwrap();
+    assert_eq!(o.links.moved.len(), 1);
+    assert_eq!(states(&h), vec![LinkState::Seated]);
+}
+
+#[test]
+fn exploding_an_assembly_brings_its_links_up() {
+    let mut h = History::new(Document::new());
+    let (rail, leg, imprint) = rail_and_leg(&mut h);
+    h.apply(link_op(&h, rail, imprint, leg, None)).unwrap();
+    let root = h.document().root();
+    let cabinet = h.apply(Operation::MakeAssembly { context: root, entities: vec![rail, leg], name: None }).unwrap().created[0];
+    let made = h.apply(Operation::Explode { context: root, occurrence: cabinet }).unwrap().created;
+    let links = root_links(&h);
+    assert_eq!(links.len(), 1);
+    assert!(made.contains(&links[0].source[0]) && made.contains(&links[0].receiver[0]));
+    assert_eq!(states(&h), vec![LinkState::Seated]);
+
+    // Exploding the assembly holding one end only.
+    let mut h = History::new(Document::new());
+    let (rail, leg, imprint) = rail_and_leg(&mut h);
+    h.apply(link_op(&h, rail, imprint, leg, None)).unwrap();
+    let root = h.document().root();
+    let group = h.apply(Operation::MakeAssembly { context: root, entities: vec![leg], name: None }).unwrap().created[0];
+    assert_eq!(root_links(&h)[0].receiver, vec![group, leg]);
+    let made = h.apply(Operation::Explode { context: root, occurrence: group }).unwrap().created;
+    assert_eq!(root_links(&h)[0].receiver, made);
+    assert_eq!(states(&h), vec![LinkState::Seated]);
+}
+
+#[test]
+fn an_occurrence_moved_between_assemblies_keeps_its_links() {
+    let mut h = History::new(Document::new());
+    let (rail, leg, imprint) = rail_and_leg(&mut h);
+    let spare = add_part(&mut h, DVec3::splat(10.0), moved(at(500.0, 0.0, 0.0)));
+    h.apply(link_op(&h, rail, imprint, leg, None)).unwrap();
+    let root = h.document().root();
+    let group = h.apply(Operation::MakeAssembly { context: root, entities: vec![spare], name: None }).unwrap().created[0];
+
+    // Into the assembly: the path goes through it.
+    h.apply(Operation::MoveOccurrences { instances: vec![], occurrences: vec![rail], to: vec![group], copy: false }).unwrap();
+    assert_eq!(root_links(&h)[0].source, vec![group, rail]);
+    assert_eq!(states(&h), vec![LinkState::Seated]);
+
+    // The other end too: the link goes down with them.
+    h.apply(Operation::MoveOccurrences { instances: vec![], occurrences: vec![leg], to: vec![group], copy: false }).unwrap();
+    assert!(root_links(&h).is_empty());
+    let assembly = h.document().root_assembly().occurrence(group).unwrap().component;
+    let a = h.document().assembly(assembly).unwrap();
+    assert_eq!((a.links()[0].source.clone(), a.links()[0].receiver.clone()), (vec![rail], vec![leg]));
+    assert_eq!(h.document().link_state(assembly, &a.links()[0]), LinkState::Seated);
+
+    // One back out: the link comes up to the assembly above both.
+    h.apply(Operation::MoveOccurrences { instances: vec![group], occurrences: vec![rail], to: vec![], copy: false }).unwrap();
+    assert!(h.document().assembly(assembly).unwrap().links().is_empty());
+    let links = root_links(&h);
+    assert_eq!((links[0].source.clone(), links[0].receiver.clone()), (vec![rail], vec![group, leg]));
+    assert_eq!(states(&h), vec![LinkState::Seated]);
+}
+
 #[test]
 fn the_linked_table_is_saved_after_following() {
     let mut t = turned_table();
