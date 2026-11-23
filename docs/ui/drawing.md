@@ -229,7 +229,8 @@ One sheet is **active**, the one edited (`SheetState::current`): the selection, 
 handles, snapping, the entity info and paste act on it.
 
 - **It is drawn with its aids**: an accent outline, its views' frames and names, its grid, what
-  goes past its paper.
+  goes past its paper. Their colours are the palette's: the mode's accent on the board, the
+  light one on the paper, white in either mode (`Aids`).
 - **The others are drawn as printed**: what the PDF shows, clipped to their paper, without view
   frames, view names or grid. Nothing on them is picked.
 - **A click on another sheet makes it active**, the camera still, nothing picked (a composition

@@ -12,7 +12,7 @@ use skraft_model::{
     Container, DimKind, Dimension, Direction, Drawing, ElementKind, Entity, EntityPath, Found, Id, Look, Operation, Orient, Paper, Place,
     Projection, Resolved, SeenBoard, Sheet, Side, Subject, View, ViewKind, ViewStyle,
 };
-use skraft_theme::Theme;
+use skraft_theme::{Inks, Theme};
 use skraft_tools::Editor;
 
 use crate::overlay;
@@ -1573,11 +1573,11 @@ const SNAP_PT: f32 = 8.0;
 fn draw_aim(painter: &egui::Painter, pv: &Paperview, aim: &Aim) {
     let at = pv.to_screen(aim.mark);
     if aim.point {
-        painter.circle_stroke(at, 5.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(230, 120, 30)));
+        painter.circle_stroke(at, 5.0, egui::Stroke::new(2.0, viewport::color(Inks::LIGHT.pick)));
     }
-    for (q, color) in [(aim.along_x, egui::Color32::from_rgb(210, 50, 50)), (aim.along_y, egui::Color32::from_rgb(40, 160, 60))] {
+    for (q, ink) in [(aim.along_x, Inks::LIGHT.axis_x), (aim.along_y, Inks::LIGHT.axis_y)] {
         if let Some(q) = q {
-            overlay::dashed(painter, &[pv.to_screen(q), at], egui::Stroke::new(1.0, color), overlay::ALIGNMENT);
+            overlay::dashed(painter, &[pv.to_screen(q), at], egui::Stroke::new(1.0, viewport::color(ink)), overlay::ALIGNMENT);
         }
     }
 }
@@ -2421,7 +2421,7 @@ fn picks_needed(tool: SheetTool) -> usize {
 /// A dimension's shape drawn on the sheet: its lines, arrows and text (red when an orphan);
 /// its box on screen.
 fn draw_dim(painter: &egui::Painter, pv: &Paperview, s: &crate::dims::DimShape) -> egui::Rect {
-    let color = if s.orphan { egui::Color32::from_rgb(210, 40, 40) } else { egui::Color32::from_gray(25) };
+    let color = if s.orphan { PAPER_ERROR } else { egui::Color32::from_gray(25) };
     let stroke = egui::Stroke::new((0.18 * pv.zoom).max(1.0) as f32, color);
     for [a, b] in &s.lines {
         painter.line_segment([pv.to_screen(*a), pv.to_screen(*b)], stroke);
@@ -2562,10 +2562,34 @@ const SHEET_NAME_PT: f32 = 18.0;
 const COLUMN_NAME_PT: f32 = 28.0;
 /// A sheet with less than this share of it in the room counts as off screen.
 const REVEAL_SHARE: f32 = 0.25;
-/// The active sheet's outline and what is picked.
-const ACCENT: egui::Color32 = egui::Color32::from_rgb(70, 120, 200);
+/// A dimension that lost what it measures, on the paper.
+const PAPER_ERROR: egui::Color32 = egui::Color32::from_rgb(210, 40, 40);
 /// A frame showing where a click would place a view.
 const GHOST_INK: egui::Color32 = egui::Color32::from_gray(120);
+
+/// The colours of the sheet's aids, by the ground they stand on (docs/ui/drawing.md#the-board).
+#[derive(Clone, Copy)]
+struct Aids {
+    /// On the board, the view's ground of the mode: the active sheet's outline and name.
+    board: egui::Color32,
+    /// A text on a fill of `board`.
+    on_board: egui::Color32,
+    /// A text right on the board.
+    text: egui::Color32,
+    /// On the paper, white in either mode: what is picked, handles, what is being drawn.
+    paper: egui::Color32,
+}
+
+impl Aids {
+    fn of(theme: &Theme) -> Self {
+        Aids {
+            board: viewport::color(theme.ui.accent),
+            on_board: viewport::color(theme.ui.panel),
+            text: viewport::color(theme.ui.view_text),
+            paper: viewport::color(theme.ui.paper_accent),
+        }
+    }
+}
 
 /// The camera keeps the active sheet where it is on screen when the layout moves it; a sheet
 /// made active otherwise than by a click on it (a new one, the last one deleted) is brought on
@@ -2683,10 +2707,10 @@ fn activate(response: &egui::Response, st: &mut SheetState, board: &Board, centr
 }
 
 /// A sheet's white paper with its shadow, the active one outlined.
-fn draw_paper(painter: &egui::Painter, page: egui::Rect, active: bool) {
+fn draw_paper(painter: &egui::Painter, page: egui::Rect, active: Option<egui::Color32>) {
     painter.rect_filled(page.translate(egui::vec2(3.0, 4.0)), 0.0, egui::Color32::from_black_alpha(40));
     painter.rect_filled(page, 0.0, egui::Color32::WHITE);
-    let stroke = if active { egui::Stroke::new(2.0, ACCENT) } else { egui::Stroke::new(1.0, egui::Color32::from_gray(160)) };
+    let stroke = active.map_or(egui::Stroke::new(1.0, egui::Color32::from_gray(160)), |accent| egui::Stroke::new(2.0, accent));
     painter.rect_stroke(page, 0.0, stroke, egui::StrokeKind::Outside);
 }
 
@@ -2714,6 +2738,7 @@ fn draw_other_sheets(
     painter: &egui::Painter,
     view: Paperview,
     board: &Board,
+    aids: Aids,
     active: Option<Id>,
     e: &Editor,
     d: &Drawing,
@@ -2743,11 +2768,11 @@ fn draw_other_sheets(
             if Some(s.id) == active || !clip.intersects(page) {
                 continue;
             }
-            draw_paper(painter, page, false);
+            draw_paper(painter, page, None);
             let on_paper = painter.with_clip_rect(clip.intersect(page));
             let placed = d.placed(s.id);
             let fields = fields_of(e, d, s.id, title, &placed);
-            let level = Level { open: &[], place: DAffine2::IDENTITY, printed: true };
+            let level = Level { open: &[], place: DAffine2::IDENTITY, printed: true, accent: aids.paper };
             draw_elements(&on_paper, &pv, e, d, s.id, &placed, level, &[], ready, lines, views, wanted, &mut asked, fields.as_ref());
         }
     }
@@ -2770,16 +2795,16 @@ fn draw_marked_column(
     painter: &egui::Painter,
     view: Paperview,
     board: &Board,
+    aids: Aids,
     column: &crate::sheet_board::Column,
     name: &str,
-    above: f32,
-    room: f32,
+    (above, room): (f32, f32),
 ) {
     let (lo, hi) = column.bounds();
     let r = view.rect(lo, hi);
     let zoom = view.zoom as f32;
     let margin = (board.gap as f32 * zoom * 0.5).max(6.0).min(board.column_gap as f32 * zoom * 0.45);
-    let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), egui::FontId::proportional(14.0), egui::Color32::WHITE);
+    let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), egui::FontId::proportional(14.0), aids.on_board);
     job.wrap = egui::text::TextWrapping::truncate_at_width((room - 16.0).max(1.0));
     let galley = painter.layout_job(job);
     let middle = r.top() - above - galley.size().y / 2.0;
@@ -2794,22 +2819,14 @@ fn draw_marked_column(
         frame.left_top(),
         egui::pos2(left, middle),
     ];
-    overlay::dashed(painter, &path, egui::Stroke::new(1.5, ACCENT), overlay::SELECTION);
-    painter.rect_filled(pill, 4.0, ACCENT);
-    painter.galley(pill.center() - galley.size() / 2.0, galley, egui::Color32::WHITE);
+    overlay::dashed(painter, &path, egui::Stroke::new(1.5, aids.board), overlay::SELECTION);
+    painter.rect_filled(pill, 4.0, aids.board);
+    painter.galley(pill.center() - galley.size() / 2.0, galley, aids.on_board);
 }
 
 /// The presentations' names on top of their columns, the one of `marked` standing out, and the
 /// sheets' above them while their gap has room.
-fn draw_names(
-    painter: &egui::Painter,
-    view: Paperview,
-    board: &Board,
-    d: &Drawing,
-    active: Option<Id>,
-    marked: Option<Id>,
-    ink: egui::Color32,
-) {
+fn draw_names(painter: &egui::Painter, view: Paperview, board: &Board, aids: Aids, d: &Drawing, active: Option<Id>, marked: Option<Id>) {
     if view.zoom <= 0.0 {
         return;
     }
@@ -2820,7 +2837,7 @@ fn draw_names(
             for s in &column.sheets {
                 let Some(sheet) = d.sheet(s.id) else { continue };
                 let top = view.to_screen(DVec2::new(s.origin.x + s.size.x / 2.0, s.max().y));
-                let color = if Some(s.id) == active { ACCENT } else { ink.gamma_multiply(0.7) };
+                let color = if Some(s.id) == active { aids.board } else { aids.text.gamma_multiply(0.7) };
                 board_name(painter, top - egui::vec2(0.0, 3.0), &sheet.name, 11.0, color, s.size.x as f32 * zoom);
             }
         }
@@ -2829,9 +2846,9 @@ fn draw_names(
         let above = if with_sheets { COLUMN_NAME_PT } else { 4.0 };
         let room = (column.width + board.column_gap) as f32 * zoom;
         if Some(column.presentation) == marked {
-            draw_marked_column(painter, view, board, column, &p.name, above, room);
+            draw_marked_column(painter, view, board, aids, column, &p.name, (above, room));
         } else {
-            board_name(painter, top - egui::vec2(0.0, above), &p.name, 14.0, ink, room);
+            board_name(painter, top - egui::vec2(0.0, above), &p.name, 14.0, aids.text, room);
         }
     }
 }
@@ -2853,6 +2870,7 @@ pub fn ui(
 ) -> Vec<Wanted> {
     let mut wanted = Vec::new();
     let ink = viewport::color(theme.ui.view_text);
+    let aids = Aids::of(theme);
     ui.painter().rect_filled(rect, 0.0, viewport::color(theme.ui.view));
     crate::handles::publish(|| "sheet".into(), rect);
     if st.framer.is_some() {
@@ -3137,7 +3155,7 @@ pub fn ui(
             }
         }
         let page = pv.rect(DVec2::ZERO, paper.size());
-        draw_paper(&painter, page, true);
+        draw_paper(&painter, page, Some(aids.board));
         // Its grid, faint, while its lines are 6 points apart at least (not printed).
         let grid = e.document().drawing().sheet(id).map_or(0.0, |s| s.grid);
         if grid > 0.0 && grid * pv.zoom >= 6.0 {
@@ -3187,16 +3205,16 @@ pub fn ui(
         // The others as printed, under what the active sheet shows past its paper; from the
         // drawing as previewed, a composition being edited showing there too.
         let view = Paperview::new(centre, st.pan, st.zoom);
-        draw_other_sheets(&painter, view, &board, Some(id), e, drawing, title, ready, lines, &mut st.views, &mut others);
+        draw_other_sheets(&painter, view, &board, aids, Some(id), e, drawing, title, ready, lines, &mut st.views, &mut others);
         // The sheet the selection would land on.
         if let Some(s) = drop_on.filter(|_| st.moving.is_some()).and_then(|s| board.sheet(s)) {
             let target = view.at(s.origin).rect(DVec2::ZERO, s.size);
-            painter.rect_stroke(target, 0.0, egui::Stroke::new(2.0, ACCENT.gamma_multiply(0.6)), egui::StrokeKind::Outside);
+            painter.rect_stroke(target, 0.0, egui::Stroke::new(2.0, aids.board.gamma_multiply(0.6)), egui::StrokeKind::Outside);
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         let placed = drawing.placed(id);
         let fields = fields_of(e, drawing, id, title, &placed);
-        let level = Level { open: &st.open, place, printed: false };
+        let level = Level { open: &st.open, place, printed: false, accent: aids.paper };
         let mut asked = HashSet::new();
         let drawn = draw_elements(
             &painter,
@@ -3226,7 +3244,7 @@ pub fn ui(
                 }),
                 None => picked_handles(e, st).map(|(_, _, hs)| hs),
             };
-            let stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 120, 200));
+            let stroke = egui::Stroke::new(1.0, aids.paper);
             for (h, q) in shown.unwrap_or_default() {
                 let at = lv.to_screen(q);
                 overlay::square_grip(&painter, at, GRIP_SIDE, egui::Color32::WHITE, stroke);
@@ -3246,7 +3264,7 @@ pub fn ui(
         }
         // The shape being drawn.
         if let (Some(from), Some(p)) = (st.sketch, pointer) {
-            let stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(70, 120, 200));
+            let stroke = egui::Stroke::new(1.5, aids.paper);
             let end = aim.map_or_else(|| lv.to_sheet(p), |a| a.at);
             if st.tool == SheetTool::Rect {
                 painter.add(egui::Shape::closed_line(lv.quad(from, end).to_vec(), stroke));
@@ -3335,7 +3353,7 @@ pub fn ui(
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                 if let Some(p) = response.hover_pos() {
                     let at = lv.to_sheet(p);
-                    let mark = egui::Stroke::new(2.0, egui::Color32::from_rgb(230, 120, 30));
+                    let mark = egui::Stroke::new(2.0, viewport::color(Inks::LIGHT.pick));
                     if st.picks.len() < picks_needed(tool) {
                         // A vertex or an edge to pick, of the first pick's view once there is one.
                         let only = st.picks.first().map(|x| x.0);
@@ -3436,7 +3454,7 @@ pub fn ui(
         carry_composition(ui, e, st, paper_room, &board, Paperview::new(centre, st.pan, st.zoom), Some((id, to, lv)));
     } else {
         let view = Paperview::new(centre, st.pan, st.zoom);
-        draw_other_sheets(&painter, view, &board, None, e, e.document().drawing(), title, ready, lines, &mut st.views, &mut others);
+        draw_other_sheets(&painter, view, &board, aids, None, e, e.document().drawing(), title, ready, lines, &mut st.views, &mut others);
         carry_composition(ui, e, st, paper_room, &board, view, None);
         if board.columns.is_empty() {
             let at = fit.unwrap_or(rect).center();
@@ -3456,7 +3474,7 @@ pub fn ui(
     if st.framing.is_some() {
         ui.ctx().request_repaint();
     }
-    draw_names(&painter, Paperview::new(centre, st.pan, st.zoom), &board, e.document().drawing(), shown.map(|s| s.0), marked, ink);
+    draw_names(&painter, Paperview::new(centre, st.pan, st.zoom), &board, aids, e.document().drawing(), shown.map(|s| s.0), marked);
     wanted
 }
 
@@ -3511,6 +3529,8 @@ struct Level<'a> {
     place: DAffine2,
     /// A sheet drawn as printed: without its views' frames and names, nothing to pick.
     printed: bool,
+    /// Its views' frames and what is picked ([`Aids::paper`]).
+    accent: egui::Color32,
 }
 
 /// What [`draw_elements`] leaves for the pointer.
@@ -3554,7 +3574,7 @@ fn draw_elements(
     let Some(s) = d.sheet(sheet) else { return out };
     let ppp = painter.ctx().pixels_per_point();
     let paper_ink = egui::Color32::from_gray(30);
-    let frame_ink = ACCENT;
+    let frame_ink = level.accent;
     let thin = egui::Stroke::new((0.25 * pv.zoom).max(1.0) as f32, paper_ink);
     let accent = egui::Stroke::new(2.0, frame_ink);
     // Its frame, under what it holds.
@@ -3890,7 +3910,7 @@ mod tests {
             let d = e.document().drawing();
             let placed = d.placed(sheet);
             let (mut lines, mut views, mut wanted) = (Default::default(), ViewsCache::default(), Vec::new());
-            let level = Level { open: &[], place: DAffine2::IDENTITY, printed: false };
+            let level = Level { open: &[], place: DAffine2::IDENTITY, printed: false, accent: egui::Color32::BLUE };
             out = draw_elements(
                 &painter,
                 &pv,
@@ -3968,7 +3988,7 @@ mod tests {
             let pv = Paperview::new(egui::Pos2::ZERO, DVec2::ZERO, 1.0);
             let placed = d.placed(sheet);
             let (mut lines, mut views, mut wanted) = (Default::default(), ViewsCache::default(), Vec::new());
-            let level = Level { open: &[i], place, printed: false };
+            let level = Level { open: &[i], place, printed: false, accent: egui::Color32::BLUE };
             drawn = draw_elements(
                 &painter,
                 &pv,

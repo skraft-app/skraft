@@ -108,6 +108,8 @@ pub struct UiTokens {
     pub accent: Rgba,
     /// The accent as a fill: selected items, a pressed button.
     pub accent_soft: Rgba,
+    /// The accent on the drawing's paper, white in either mode: the palette's light one.
+    pub paper_accent: Rgba,
     /// Corner radii, in points: widgets, windows and menus.
     pub radius_sm: u8,
     pub radius_md: u8,
@@ -159,6 +161,7 @@ impl UiTokens {
             hover: srgb(218, 225, 235),
             accent: srgb(27, 102, 197),
             accent_soft: srgb(206, 229, 255),
+            paper_accent: srgb(27, 102, 197),
             radius_sm: 4,
             radius_md: 6,
             item_spacing: [6.0, 4.0],
@@ -187,6 +190,7 @@ impl UiTokens {
             hover: srgb(52, 62, 78),
             accent: srgb(99, 162, 250),
             accent_soft: srgb(32, 64, 108),
+            paper_accent: srgb(27, 102, 197),
             title_bar: TitleBarTokens {
                 ground: srgb(8, 23, 45),
                 border: srgb(39, 55, 79),
@@ -210,6 +214,7 @@ impl UiTokens {
             hover: srgb(232, 228, 221),
             accent: srgb(184, 106, 30),
             accent_soft: srgb(246, 227, 203),
+            paper_accent: srgb(184, 106, 30),
             title_bar: TitleBarTokens {
                 ground: srgb(58, 52, 46),
                 text: srgb(240, 233, 222),
@@ -234,6 +239,7 @@ impl UiTokens {
             hover: srgb(66, 59, 52),
             accent: srgb(224, 149, 74),
             accent_soft: srgb(90, 65, 40),
+            paper_accent: srgb(184, 106, 30),
             title_bar: TitleBarTokens {
                 ground: srgb(32, 29, 26),
                 border: srgb(62, 56, 49),
@@ -257,6 +263,7 @@ impl UiTokens {
             hover: srgb(219, 223, 227),
             accent: srgb(15, 138, 138),
             accent_soft: srgb(205, 235, 234),
+            paper_accent: srgb(15, 138, 138),
             title_bar: TitleBarTokens {
                 ground: srgb(40, 45, 49),
                 text: srgb(228, 232, 235),
@@ -281,6 +288,7 @@ impl UiTokens {
             hover: srgb(47, 54, 59),
             accent: srgb(43, 179, 177),
             accent_soft: srgb(29, 74, 74),
+            paper_accent: srgb(15, 138, 138),
             title_bar: TitleBarTokens {
                 ground: srgb(20, 22, 24),
                 border: srgb(46, 51, 56),
@@ -527,6 +535,8 @@ mod tests {
                     assert!(contrast(t.text, ground) >= 7.0, "{palette:?} {mode:?} text");
                     assert!(contrast(t.text_dim, ground) >= 3.0, "{palette:?} {mode:?} dim text");
                 }
+                assert_eq!(t.paper_accent, UiTokens::of(palette, Mode::Light).accent, "{palette:?} {mode:?} paper accent");
+                assert!(contrast(t.paper_accent, srgb(255, 255, 255)) >= 3.0, "{palette:?} {mode:?} accent on the paper");
                 let bar = t.title_bar;
                 for ground in [bar.ground, bar.lit] {
                     assert!(contrast(bar.text, ground) >= 7.0, "{palette:?} {mode:?} title bar text");
