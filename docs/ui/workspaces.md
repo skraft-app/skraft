@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/workspace.rs, apps/skraft/src/ribbon.rs, apps/skraft/src/app.rs, apps/skraft/src/docs.rs, apps/skraft/src/prefs.rs, apps/skraft/src/commands.rs, crates/model/src/file.rs]
+code: [apps/skraft/src/workspace.rs, apps/skraft/src/ribbon.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/docs.rs, apps/skraft/src/prefs.rs, apps/skraft/src/commands.rs, crates/model/src/file.rs]
 ---
 
 # Workspaces

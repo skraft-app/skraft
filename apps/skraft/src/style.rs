@@ -36,6 +36,11 @@ pub const BAR_ICON: f32 = 18.0;
 /// The margin inside a panel's card, around its content (its border just outside).
 pub const CARD_MARGIN: f32 = 6.0;
 
+/// The frame of a panel's card.
+pub fn card_frame(style: &egui::Style) -> egui::Frame {
+    egui::Frame::window(style).inner_margin(CARD_MARGIN)
+}
+
 /// The frame of the option bar's cards (docs/ui/interface.md#context-card): as tight above and
 /// below its buttons as the view bar around its own, a little more room on the sides for the
 /// groups' names.

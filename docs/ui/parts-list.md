@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/parts_table.rs, apps/skraft/src/app.rs, apps/skraft/src/workspace.rs, crates/tools/src/editor/library.rs]
+code: [apps/skraft/src/parts_table.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/workspace.rs, crates/tools/src/editor/library.rs]
 ---
 
 # Parts list

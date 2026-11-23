@@ -1,6 +1,6 @@
 ---
 status: under way
-code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/view_lines.rs, apps/skraft/src/sheet.rs, apps/skraft/src/sheet_board.rs, apps/skraft/src/sheet_tree.rs, apps/skraft/src/sheet_library.rs, apps/skraft/src/viewport.rs, apps/skraft/src/panels.rs, apps/skraft/src/templates.rs, apps/skraft/src/pdf.rs, apps/skraft/src/workspace.rs, apps/skraft/src/app.rs]
+code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/view_lines.rs, apps/skraft/src/sheet.rs, apps/skraft/src/sheet/, apps/skraft/src/sheet_board.rs, apps/skraft/src/sheet_tree.rs, apps/skraft/src/sheet_library.rs, apps/skraft/src/viewport.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/templates.rs, apps/skraft/src/pdf.rs, apps/skraft/src/workspace.rs, apps/skraft/src/app.rs, apps/skraft/src/app/]
 ---
 
 # Drawing
