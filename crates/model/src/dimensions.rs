@@ -91,9 +91,9 @@ fn chain(p: &PlacedPart) -> Vec<Id> {
 }
 
 /// The names of `part`'s faces by record index, when its shape has them: a single positive
-/// body unplaced, a leaf (named by its recipe) or a node (its map).
+/// body, a leaf (named by its recipe) or a node (its map).
 pub fn part_names(part: &Part) -> Option<FaceMap> {
-    if !part.is_plain() {
+    if !part.is_one_body() {
         return None;
     }
     let b = &part.bodies[0];

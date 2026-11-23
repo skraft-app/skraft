@@ -1531,6 +1531,8 @@ infer:
 
 # The operations, in Annuler / Rétablir and in the messages about them.
 operation:
+  # A component given new axes (decision 0053).
+  change_axes: "Changer les axes"
   # A body or group moved (copied) to another level of the tree (decision 0044).
   move_bodies_to: "Changer de niveau"
   copy_bodies_to: "Copier à un autre niveau"
@@ -1726,6 +1728,8 @@ error:
     out_of_step: "les résultats du noyau ne correspondent pas à l'opération"
     placement_not_rigid: "un placement est un déplacement et une rotation"
     not_rigid: "seuls les déplacements, rotations et symétries placent un exemplaire"
+    root_axes: "les axes du modèle ne se changent pas"
+    axes_not_direct: "de nouveaux axes sont un déplacement et une rotation, jamais une symétrie"
     array_count: "nombre de copies hors limites"
     root_renamed: "le modèle ne se renomme pas"
     name_taken: "une autre pièce ou un autre assemblage porte ce nom"

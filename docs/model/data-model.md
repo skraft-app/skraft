@@ -111,8 +111,12 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   SolidCore's tight box (its loose one should the tight one fail).
 - Tools working on a part use its axes; elsewhere, the context's.
 - The part's axes are independent of its bodies
-  ([Bodies placed in the part's axes](bodies.md#bodies-placed-in-the-parts-axes)). No operation
-  changes them yet ([decision 0053](../decisions/0053-changing-a-components-axes.md)).
+  ([Bodies placed in the part's axes](bodies.md#bodies-placed-in-the-parts-axes)).
+- **`Operation::ChangeAxes { component, axes }`** gives a part or an assembly new axes, nothing
+  moving in the world: its occurrences, bodies or children, guides, stretch settings, the views
+  of it and the dimensions on it are brought into them; `axes` is a direct rigid transform, the
+  model's root refused ([decision 0053](../decisions/0053-changing-a-components-axes.md)). An
+  assembly's parts keep their axes. No tool gives it yet.
 
 ## Machinings and the recipe
 

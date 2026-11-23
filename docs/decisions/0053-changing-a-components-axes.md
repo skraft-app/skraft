@@ -1,6 +1,6 @@
 # Changing a component's axes: one operation, dimensions read on the axes
 
-- Status: accepted (2026-11-23; not built)
+- Status: accepted (2026-11-23; the operation built)
 - Design: [A part's axes](../model/data-model.md#a-parts-axes),
   [Bodies placed in the part's axes](../model/bodies.md#bodies-placed-in-the-parts-axes)
 - Interaction after OpenCutList's SmartAxes (`ruby/tool/smart_axes_tool.rb`)
@@ -98,13 +98,12 @@ return to the default and a message says so. Undo restores them.
 
 - **A reoriented part is no longer plain** (`Part::is_plain`: a single positive body, unplaced). It
   stores a computed shape, a cost to measure on parts born oriented.
-- **Dimension anchors rely on plain parts' face names** (`part_names`). These names must also hold
-  for a single positive body that is placed, or a reoriented part's dimensions stop following a
-  stretch or become orphans. This needs a transform to keep the record's face order, which the
-  face materials (`Part::faces`, by index) need too; to be tested first.
-- **SolidCore's plane axes** can come out off square after a slanted rotation (`square_frames`,
-  upstream #3265): oblique axes are to be tested through a read-back and a boolean before relying
-  on them.
+- **A single positive body keeps its face names once placed** (`Part::is_one_body`), so dimensions
+  still follow a stretch. It relies on a rigid transform keeping the record's order of faces,
+  edges and vertices, which the face materials (`Part::faces`) need too; tested on every kind of
+  surface (`a_rigid_transform_keeps_the_record_s_order`).
+- **Oblique axes rely on `square_frames`** (SolidCore's plane axes off square after a slanted
+  rotation, upstream #3265): the same test reads the result back through a boolean.
 - **Existing files are not migrated** (format v1, [0010](0010-file-format-v1-until-release.md)):
   their parts read in the order of their axes until reoriented. The changelog entry of the build
   says so.

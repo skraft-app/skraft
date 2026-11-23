@@ -1393,6 +1393,8 @@ infer:
     tool: "On revolution axis"
 
 operation:
+  # A component given new axes (decision 0053).
+  change_axes: "Change Axes"
   # A body or group moved (copied) to another level of the tree (decision 0044).
   move_bodies_to: "Change Level"
   copy_bodies_to: "Copy to Another Level"
@@ -1567,6 +1569,8 @@ error:
     out_of_step: "the kernel's results don't match the operation"
     placement_not_rigid: "a placement is a translation and a rotation"
     not_rigid: "only translations, rotations and mirrors place an instance"
+    root_axes: "the model's axes cannot be changed"
+    axes_not_direct: "new axes are a translation and a rotation, never a mirror"
     array_count: "number of copies out of range"
     root_renamed: "the model cannot be renamed"
     name_taken: "another part or assembly has this name"

@@ -364,6 +364,12 @@ impl Part {
         matches!(&self.bodies[..], [b] if b.sign == Sign::Positive && is_identity(&b.placement))
     }
 
+    /// Is the part its single positive body, placed or not: its shape that body's, its faces
+    /// in the same order (docs/decisions/0053-changing-a-components-axes.md)?
+    pub fn is_one_body(&self) -> bool {
+        matches!(&self.bodies[..], [b] if b.sign == Sign::Positive)
+    }
+
     pub fn body(&self, id: Id) -> Option<&Body> {
         self.bodies.iter().find(|b| b.id == id)
     }

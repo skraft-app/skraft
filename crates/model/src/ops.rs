@@ -89,6 +89,9 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         material: Option<Id>,
     },
+    /// Gives `component` new axes, `axes` going from them to the current ones (a direct rigid
+    /// transform): nothing moves in the world (docs/decisions/0053-changing-a-components-axes.md).
+    ChangeAxes { component: Id, axes: DAffine3 },
     /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
     /// Rigid only: a scale changes a part, not its place (docs/model/data-model.md).
     Transform { context: Id, entities: Vec<Id>, transform: DAffine3 },
@@ -565,6 +568,7 @@ impl Operation {
     pub fn label(&self) -> String {
         match self {
             Operation::AddPrimitive { .. } => t!("operation.add_part"),
+            Operation::ChangeAxes { .. } => t!("operation.change_axes"),
             Operation::Transform { .. } => t!("operation.transform"),
             Operation::Duplicate { .. } => t!("operation.duplicate"),
             Operation::Array { .. } => t!("operation.array"),
@@ -1303,6 +1307,7 @@ impl Document {
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
+            Operation::ChangeAxes { component, axes } => self.change_axes(*component, axes, solver).map(|_| Outcome::default()),
             Operation::Transform { context, entities, transform } => {
                 if !is_rigid(transform) {
                     return Err(Error::Invalid(Refusal::NotRigid));
@@ -2575,7 +2580,7 @@ impl Document {
     /// `named`: the name of `q`'s part, given by the user, for the body's definition unless it
     /// has one.
     pub(crate) fn tool_as_body(&mut self, q: &Part, relative: &DAffine3, named: Option<String>) -> (Vec<BodyDef>, Body) {
-        if q.is_plain() {
+        if q.is_one_body() {
             let (mut defs, mut bodies) = self.copies_of_bodies(&q.defs, &q.bodies, relative);
             let body = bodies.remove(0);
             if let Some(d) = defs.iter_mut().find(|d| d.id == body.def)
@@ -2873,6 +2878,8 @@ pub(crate) trait Solver {
     ) -> Result<(Arc<Solid>, Vec<usize>, Option<FaceMap>)>;
     /// `solid` stretched.
     fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>>;
+    /// `solid` moved by the rigid `transform`, its faces in the same order.
+    fn transform(&mut self, solid: &Arc<Solid>, transform: &DAffine3) -> Result<Arc<Solid>>;
     /// A body node: `children` (their leaves `leaves[i]`) computed, then `op` ([`Task::Node`]).
     fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome>;
 }
@@ -2945,6 +2952,11 @@ impl Solver for Recorder {
         stretch.apply(solid).map_err(skraft_kernel::Error::from)?;
         let solid = self.input(solid);
         self.task(Task::Stretch { solid, stretch: stretch.clone() })
+    }
+
+    fn transform(&mut self, solid: &Arc<Solid>, transform: &DAffine3) -> Result<Arc<Solid>> {
+        let solid = self.input(solid);
+        self.task(Task::Transform { solid, transform: *transform })
     }
 
     fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome> {
@@ -3023,6 +3035,10 @@ impl Solver for Replayer {
     }
 
     fn stretch(&mut self, _: &Arc<Solid>, _: &Stretch) -> Result<Arc<Solid>> {
+        self.next()
+    }
+
+    fn transform(&mut self, _: &Arc<Solid>, _: &DAffine3) -> Result<Arc<Solid>> {
         self.next()
     }
 

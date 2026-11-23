@@ -213,7 +213,7 @@ impl Document {
                             out.defs.push(d.clone());
                         }
                     }
-                    let (def, placement) = match p.is_plain() {
+                    let (def, placement) = match p.is_one_body() {
                         true => (p.bodies[0].def, t * p.bodies[0].placement),
                         false => {
                             if !out.defs.iter().any(|d| d.id == id) {
@@ -229,7 +229,7 @@ impl Document {
                         d.set_name(named);
                     }
                     let mut body = Body::new(Id(out.bodies.len() as u64), def, Sign::Positive, placement);
-                    body.name = match (occurrence, p.is_plain()) {
+                    body.name = match (occurrence, p.is_one_body()) {
                         ("", true) => p.bodies[0].name.clone(),
                         (name, _) => name.to_owned(),
                     };

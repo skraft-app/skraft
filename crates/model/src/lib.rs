@@ -3,6 +3,7 @@
 //! format. See docs/model/data-model.md–docs/model/undo.md and docs/io/file-format.md.
 
 mod assets;
+mod axes;
 mod boolean;
 mod clipboard;
 mod dimensions;
@@ -23,6 +24,8 @@ mod step;
 mod stretch;
 mod weld;
 
+#[cfg(test)]
+mod axes_tests;
 #[cfg(test)]
 mod drawing_tests;
 #[cfg(test)]
@@ -92,6 +95,10 @@ pub enum Refusal {
     PlacementNotRigid,
     /// Only moves, rotations and mirrors place an occurrence.
     NotRigid,
+    /// The model has no axes of its own to change.
+    RootAxes,
+    /// New axes are a move and a rotation, never a mirror.
+    AxesNotDirect,
     ArrayCount,
     RootRenamed,
     /// Another part or assembly has that name.
@@ -256,6 +263,8 @@ impl std::fmt::Display for Refusal {
             Refusal::OutOfStep => t!("error.model.out_of_step"),
             Refusal::PlacementNotRigid => t!("error.model.placement_not_rigid"),
             Refusal::NotRigid => t!("error.model.not_rigid"),
+            Refusal::RootAxes => t!("error.model.root_axes"),
+            Refusal::AxesNotDirect => t!("error.model.axes_not_direct"),
             Refusal::ArrayCount => t!("error.model.array_count"),
             Refusal::RootRenamed => t!("error.model.root_renamed"),
             Refusal::NameTaken => t!("error.model.name_taken"),
