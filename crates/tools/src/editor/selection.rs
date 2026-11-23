@@ -497,6 +497,11 @@ impl Editor {
         }
     }
 
+    /// Can the selection be made unique: something selected, here or at any depth?
+    pub fn can_make_unique(&self) -> bool {
+        !self.selection.is_empty() || !self.deep.is_empty()
+    }
+
     pub fn make_unique(&mut self) {
         if self.busy() {
             return;
@@ -511,6 +516,21 @@ impl Editor {
                 self.queue.push_back((op, After::Unique));
                 self.pump();
             }
+            return;
+        }
+        // Under « Pièces »: each part on its own, the assemblies along its path made unique
+        // first, in one step (docs/tools/selection.md).
+        if !self.deep.is_empty() {
+            let ops = self
+                .deep
+                .iter()
+                .map(|p| {
+                    let op = Operation::MakeUnique { context: Id(0), occurrence: p.entity };
+                    Operation::At { parent: p.instances.clone(), unique: true, op: Box::new(op) }
+                })
+                .collect();
+            self.queue.push_back((Operation::Batch(ops), After::Unique));
+            self.pump();
             return;
         }
         let context = self.context_definition();

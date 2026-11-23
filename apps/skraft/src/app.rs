@@ -900,7 +900,6 @@ impl SkraftApp {
         {
             return false;
         }
-        let has_sel = !e.selection().is_empty();
         let section = e.document().settings().display.section.is_some();
         match id {
             "drawing.frame_view" => crate::sheet::selected_view(e, &d.sheet).is_some(),
@@ -912,7 +911,7 @@ impl SkraftApp {
             id if crate::sheet::SheetTool::of(id).is_some() => d.sheet.shown(e.document().drawing()).is_some(),
             "edit.erase" | "edit.make_assembly" => e.anything_selected(),
             "edit.explode" => e.can_explode(),
-            "edit.make_unique" => has_sel,
+            "edit.make_unique" => e.can_make_unique(),
             "edit.group_bodies" => e.can_group_bodies(),
             "edit.move_out" => e.can_move_out(),
             // On a sheet, what is picked there: the 3D selection is not what is seen.

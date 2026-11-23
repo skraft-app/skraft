@@ -6620,6 +6620,49 @@ fn a_click_on_nothing_lets_the_parts_at_any_depth_go() {
 }
 
 #[test]
+fn a_part_selected_at_any_depth_is_made_unique_alone() {
+    let (mut e, [a, b, c, g, g2]) = drawers_editor();
+    let component = |e: &Editor, parent: &[Id], id: Id| e.document().resolve(&EntityPath::new(parent.to_vec(), id)).unwrap().component;
+    let (part, assembly) = (component(&e, &[g], a), component(&e, &[], g));
+    parts_scope(&mut e);
+    click(&mut e, DVec3::new(50.0, 50.0, 50.0));
+    let path = EntityPath::new(vec![g], a);
+    assert_eq!(e.deep_selection(), [path.clone()]);
+    assert!(e.selection().is_empty() && e.can_make_unique());
+    e.take_notices();
+    let revision = e.history().revision();
+    e.make_unique();
+
+    // This instance only: its assembly and its part are its own, the other copy as it was.
+    let made = component(&e, &[g], a);
+    assert_ne!(made, part);
+    assert_ne!(component(&e, &[], g), assembly);
+    assert_eq!((component(&e, &[g2], a), component(&e, &[], g2)), (part, assembly));
+    assert_eq!(component(&e, &[g], b), component(&e, &[g2], b), "its neighbour still shared");
+    assert_eq!(e.deep_selection(), [path], "still selected");
+    // The toast names the part, not the assembly made unique on the way.
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].action, Some(NoticeAction::Rename(NameTarget::Component(made))));
+    // One step.
+    e.undo();
+    assert_eq!(e.history().revision(), revision);
+    assert_eq!((component(&e, &[g], a), component(&e, &[], g)), (part, assembly));
+
+    // The same part through both copies: each ends up with its own.
+    e.select_paths(vec![EntityPath::new(vec![g], a), EntityPath::new(vec![g2], a)]);
+    e.make_unique();
+    assert_ne!(component(&e, &[g], a), component(&e, &[g2], a));
+    e.undo();
+
+    // Already unique: nothing made, no toast.
+    e.take_notices();
+    e.select_paths(vec![EntityPath::root(c)]);
+    e.make_unique();
+    assert!(e.take_notices().is_empty());
+}
+
+#[test]
 fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
     let (mut e, [a, b, c, g, g2]) = drawers_editor();
     let none = Modifiers::default();

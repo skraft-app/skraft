@@ -7,7 +7,7 @@
 //! step when the dialog opened by itself.
 
 use skraft_i18n::t;
-use skraft_model::{Document, Id, Operation, Outcome, Prepared};
+use skraft_model::{Document, EntityPath, Id, Operation, Outcome, Prepared};
 
 use super::journal::Event;
 use super::{Editor, Notice, NoticeAction, NoticeKind};
@@ -101,6 +101,14 @@ pub(super) fn made_to_name(before: &Document, after: &Document, op: &Operation, 
                 .into_iter()
                 .collect()
         }
+        // « Rendre unique » under « Pièces »: the part selected, not the assemblies made unique
+        // on the way to it (docs/tools/selection.md).
+        Operation::At { parent, op, .. } if let Operation::MakeUnique { occurrence, .. } = **op => {
+            let path = EntityPath::new(parent.clone(), occurrence);
+            let now = after.resolve(&path).ok().map(|o| o.component);
+            now.filter(|_| now != before.resolve(&path).ok().map(|o| o.component)).map(NameTarget::Component).into_iter().collect()
+        }
+        Operation::Batch(ops) => ops.iter().flat_map(|op| made_to_name(before, after, op, outcome)).collect(),
         Operation::MakeAssembly { context, .. } => {
             outcome.created.first().and_then(|o| component_of(after, *context, *o)).map(NameTarget::Component).into_iter().collect()
         }
