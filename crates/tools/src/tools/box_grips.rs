@@ -147,7 +147,7 @@ impl BoxGrips {
             d.pen(Pen::new(INK).dotted()).oriented_box(b, Default::default());
         }
         let Some(f) = &self.face else { return };
-        let color = super::rotate::axis_color(cx, f.normal);
+        let color = super::rotate::protractor_ink(cx, f.normal);
         d.pen(Pen::new(color).dashed().over()).polygon(&f.corners);
         for &g in &f.grips {
             let aimed = self.aim == Some(Aim::Grip(g));

@@ -56,8 +56,8 @@ use skraft_model::{Behavior, EntityPath, Id, Operation, Scope};
 use super::handle::{dotted_box, fills, square};
 use super::pick::Picker;
 use super::{
-    BLUE, Command, Cx, GREEN, GREY, Key, OptionChoice, OptionValue, PointShape, Preview, RED, StretchPreview, Tool, ToolInput, ToolKind,
-    ToolOption, WHITE, alt_key, copy_key,
+    Command, Cx, GREY, Key, OptionChoice, OptionValue, PointShape, Preview, StretchPreview, Tool, ToolInput, ToolKind, ToolOption, WHITE,
+    alt_key, axis_ink, copy_key,
 };
 use crate::camera::Ray;
 use crate::draw::{Brush, Drawer, Pen};
@@ -460,10 +460,6 @@ fn inside(p: DVec2, poly: &[DVec2]) -> bool {
     let n = poly.len();
     let signs: Vec<f64> = (0..n).map(|i| (poly[(i + 1) % n] - poly[i]).perp_dot(p - poly[i])).collect();
     signs.iter().all(|s| *s > 0.0) || signs.iter().all(|s| *s < 0.0)
-}
-
-fn axis_color(k: usize) -> [f32; 4] {
-    [RED, GREEN, BLUE][k]
 }
 
 fn translucent(c: [f32; 4], a: f32) -> [f32; 4] {
@@ -1107,7 +1103,7 @@ impl StretchTool {
     /// at both ends, over everything; where it is grabbed, a diamond when magnetized; held away
     /// from it, a dashed line from the point it is taken from.
     fn preview_handle(&self, cx: &Cx<'_>, target: &Target, k: usize, h: Handle, d: &mut Drawer<'_>) {
-        let color = axis_color(k);
+        let color = axis_ink(k);
         let Some((_, a, b)) = self.handles(target, k).into_iter().find(|(i, _, _)| *i == h.index) else { return };
         let (a, b) = (target.world(a), target.world(b));
         let dir = target.dir(k);
@@ -1143,11 +1139,11 @@ impl StretchTool {
                 if self.locked(k) {
                     d.pen(Pen::dimension(AXIS_GREY)).line(a, b);
                     let hovered = self.over == Over::Padlock(k);
-                    let fill = if hovered { axis_color(k) } else { GREY };
+                    let fill = if hovered { axis_ink(k) } else { GREY };
                     d.grip(b, PADLOCK_RADIUS, Some(fill), Some(WHITE), PointShape::Padlock);
                     continue;
                 }
-                let color = if active == Some(k) { axis_color(k) } else { GREY };
+                let color = if active == Some(k) { axis_ink(k) } else { GREY };
                 d.pen(Pen::dimension(if active == Some(k) { color } else { AXIS_GREY })).line(a, b);
                 for (side, at) in [(-1.0, a), (1.0, b)] {
                     let fill = if self.over == (Over::Grip { k, side }) { color } else { WHITE };
@@ -1164,7 +1160,7 @@ impl StretchTool {
             self.preview_handle(cx, target, k, h, d);
         }
         let inflate = Self::inflate(cx, target);
-        let color = axis_color(k);
+        let color = axis_ink(k);
         let ratios: Vec<f64> = self.cutters[k].iter().copied().chain(self.adding).collect();
         for (i, r) in ratios.iter().enumerate() {
             let adding = self.adding.is_some() && i == ratios.len() - 1;
@@ -1408,7 +1404,7 @@ impl Tool for StretchTool {
                 let moves: Vec<f64> = self.shares(cuts.len() + 1, side, handle).into_iter().map(|s| s * d).collect();
                 // The measure line (OCL's lps → lpe): from the opposite face, moved when centred,
                 // for the overall dimension; from the grip (or the handle's point) for the offset.
-                let color = axis_color(k);
+                let color = axis_ink(k);
                 let grip = handle.map_or_else(|| target.grip(k, side), |h| h.at);
                 let mut end = grip;
                 end[k] += side * d;

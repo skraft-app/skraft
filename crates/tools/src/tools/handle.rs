@@ -8,7 +8,7 @@ use glam::{DAffine3, DMat3, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::{Body, EntityPath, GuidePath, Id, Occurrence, Part};
 
-use super::{BLUE, Cx, GREEN, Key, Moved, OptionChoice, OptionValue, PointShape, RED, ToolInput, ToolOption, WHITE, copy_key};
+use super::{Cx, Key, Moved, OptionChoice, OptionValue, PointShape, ToolInput, ToolOption, WHITE, axis_ink, copy_key};
 use crate::draw::{BoxStyle, Drawer, Ends, Pen};
 use crate::vcb::Repeat;
 
@@ -355,11 +355,6 @@ pub(super) fn mirror_badge(d: &mut Drawer<'_>, at: DVec3, dir: DVec3, reach: f64
     d.grip(at + dir * (reach + gap), BADGE_PX, Some(background), Some(WHITE), PointShape::Mirror);
 }
 
-/// The axis `k`'s colour.
-pub(super) fn axis_color(k: usize) -> [f32; 4] {
-    [RED, GREEN, BLUE][k]
-}
-
 /// A measure line `a`–`b`, dashed, over everything (seen through what lies between); bold
 /// while an axis is locked.
 pub(super) fn draw_measure(cx: &Cx<'_>, d: &mut Drawer<'_>, a: DVec3, b: DVec3, color: [f32; 4]) {
@@ -401,7 +396,7 @@ pub(super) fn draw_axes(d: &mut Drawer<'_>, target: &Target, skip: impl Fn(usize
     for k in (0..3).filter(|k| !skip(*k)) {
         let reach = target.half()[k] + pad;
         let (a, b) = (c - target.dir(k) * reach, c + target.dir(k) * reach);
-        let color = axis_color(k);
+        let color = axis_ink(k);
         d.pen(Pen::new(color).bold_if(locked == Some(k))).edge(a, b, Ends::Both);
     }
 }
