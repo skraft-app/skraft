@@ -18,14 +18,13 @@ use glam::{DAffine3, DMat3, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::Operation;
 
+use super::copying::{Copying, copying_tool, count, mirror_key, mirror_warning, redone};
 use super::handle::{
-    MIRROR, Measure, Memo, Target, count_step, draw_axes, draw_box, draw_measure, measure, minimums, mirror_badge, reflection,
-    repeat_stepped,
+    MIRROR, Measure, Target, count_step, draw_axes, draw_box, draw_measure, measure, minimums, mirror_badge, reflection, repeat_stepped,
 };
-use super::pick::Picker;
 use super::rotate::rotation_about;
-use super::{BLACK, Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, axis_ink, copy_key};
-use crate::infer::{InferKind, Inference};
+use super::{BLACK, Command, Cx, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, axis_ink, copy_key};
+use crate::infer::InferKind;
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
 
 /// The grid's axes in the target's (columns: its red side, its green side, the normal), for the
@@ -72,12 +71,6 @@ fn factor(r: Repeat) -> f64 {
     match r {
         Repeat::Divide(n) => n as f64,
         Repeat::Times(_) => 1.0,
-    }
-}
-
-fn count(r: Repeat) -> u32 {
-    match r {
-        Repeat::Times(n) | Repeat::Divide(n) => n,
     }
 }
 
@@ -152,30 +145,17 @@ struct Last {
 
 #[derive(Clone)]
 pub struct CopyGridTool {
-    picker: Picker,
-    memo: Memo,
+    base: Copying<Last>,
     /// The cursor's point, in the grid's axes, and the target's axis the plane is normal to.
     end: Option<(DVec3, usize)>,
-    snap: Option<Inference>,
     repeat: [Repeat; 2],
-    last: Option<Last>,
-    aimed: bool,
     /// The rectangle's sides, as the last input left them.
     size: DVec2,
 }
 
 impl Default for CopyGridTool {
     fn default() -> Self {
-        CopyGridTool {
-            picker: Picker::default(),
-            memo: Memo::default(),
-            end: None,
-            snap: None,
-            repeat: [Repeat::Divide(1); 2],
-            last: None,
-            aimed: false,
-            size: DVec2::ZERO,
-        }
+        CopyGridTool { base: Copying::default(), end: None, repeat: [Repeat::Divide(1); 2], size: DVec2::ZERO }
     }
 }
 
@@ -184,13 +164,6 @@ fn measure_of(cx: &Cx<'_>) -> Measure {
 }
 
 impl CopyGridTool {
-    fn target(&self, cx: &Cx<'_>) -> Option<Target> {
-        if !self.picker.aims() {
-            return None;
-        }
-        self.memo.target(cx)
-    }
-
     /// The plane's normal: the locked axis, else blue.
     fn normal(cx: &Cx<'_>) -> usize {
         cx.axis_lock.unwrap_or(2)
@@ -211,7 +184,7 @@ impl CopyGridTool {
         if let Some(p) = p {
             self.end = Some((handle_axes(k).transpose() * t.local(p), k));
         }
-        self.snap = on;
+        self.base.snap = on;
     }
 
     fn operation(cx: &Cx<'_>, t: &Target, k: usize, end: DVec3, r: [Repeat; 2]) -> Operation {
@@ -246,22 +219,21 @@ impl CopyGridTool {
         [0, 1].map(|i| c.get(i).copied().flatten().unwrap_or(Repeat::Times(1)))
     }
 
-    fn mirror_warning(cx: &Cx<'_>, r: [Repeat; 2]) -> Option<Command> {
-        (cx.toggle(MIRROR) && (count(r[0]) != 1 || count(r[1]) != 1)).then(|| Command::Say(t!("tool.handle.say.mirror_one")))
+    /// More than one copy along a side.
+    fn several(r: [Repeat; 2]) -> bool {
+        count(r[0]) != 1 || count(r[1]) != 1
     }
 
     fn finish(&mut self, cx: &Cx<'_>, target: Target, k: usize, end: DVec3) -> Vec<Command> {
         let op = Self::operation(cx, &target, k, end, self.repeat);
         let size = Self::size(cx, &target, k, end, self.repeat);
-        self.last = Some(Last { target, k, end, repeat: self.repeat, size, op: op.clone() });
-        self.picker.drop();
+        let last = Last { target, k, end, repeat: self.repeat, size, op: op.clone() };
         self.end = None;
-        self.snap = None;
-        vec![Command::Apply(op), Command::Select(Vec::new())]
+        self.base.made(last, op)
     }
 
     fn retype(&mut self, cx: &Cx<'_>, v: &VcbValue) -> Vec<Command> {
-        let Some(last) = &mut self.last else { return vec![] };
+        let Some(last) = &mut self.base.last else { return vec![] };
         let (end, repeat) = match v {
             VcbValue::Counts(c) => (last.end, Self::counts(c)),
             VcbValue::Lengths(l) => match Self::typed_end(cx, &last.target, last.k, last.end, last.repeat, l) {
@@ -271,11 +243,10 @@ impl CopyGridTool {
             _ => return vec![],
         };
         let op = Self::operation(cx, &last.target, last.k, end, repeat);
-        let previous = std::mem::replace(&mut last.op, op.clone());
+        let mut out = redone(&mut last.op, op);
         (last.end, last.repeat) = (end, repeat);
         last.size = Self::size(cx, &last.target, last.k, end, repeat);
-        let mut out = vec![Command::Replace { previous: Box::new(previous), op: Box::new(op) }, Command::Select(Vec::new())];
-        out.extend(Self::mirror_warning(cx, repeat));
+        out.extend(mirror_warning(cx, Self::several(repeat)));
         out
     }
 }
@@ -287,48 +258,31 @@ impl Tool for CopyGridTool {
 
     /// OCL's `STATE_SELECT` and `STATE_HANDLE` alike.
     fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
-        Some(if self.picking() {
-            self.picker.cursor(cx, crate::tools::Cursor::SelectCopyGrid)
-        } else {
-            crate::tools::Cursor::SelectCopyGrid
-        })
+        self.base.cursor(cx, crate::tools::Cursor::SelectCopyGrid, crate::tools::Cursor::SelectCopyGrid)
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        if self.picker.shift_released(cx) {
-            self.last = None;
-        }
-        if let ToolInput::Key { key: Key::Copy, .. } = input {
-            let on = !cx.toggle(MIRROR);
-            let mut out = vec![Command::SetOption { key: MIRROR, value: OptionValue::Toggle(on) }];
-            if on && (count(self.repeat[0]) != 1 || count(self.repeat[1]) != 1) {
-                out.push(Command::Say(t!("tool.handle.say.mirror_one")));
-            }
+        self.base.shift_released(cx);
+        if let Some(out) = mirror_key(input, cx, Self::several(self.repeat)) {
             return out;
         }
-        let target = self.target(cx);
-        self.aimed = target.is_some();
-        let Some(t) = target else {
+        let Some(t) = self.base.aim(cx) else {
             self.end = None;
-            self.snap = None;
+            self.base.snap = None;
             if let ToolInput::Value(v) = input {
                 return self.retype(cx, v);
             }
-            let (out, took) = self.picker.input(input, cx);
-            if took {
-                self.last = None;
-            }
-            return out;
+            return self.base.pick(input, cx);
         };
         // Shift with + / −: one copy more or fewer on both sides (OCL's), `x` or `/` kept.
         if let Some(by) = count_step(input) {
-            let one = count(self.repeat[0]) == 1 && count(self.repeat[1]) == 1;
+            let one = !Self::several(self.repeat);
             self.repeat = self.repeat.map(|r| repeat_stepped(r, by));
             if let Some((end, k)) = self.end {
                 self.size = Self::size(cx, &t, k, end, self.repeat);
             }
             // OCL warns once, from one copy per side to more.
-            return if by > 0 && one { Self::mirror_warning(cx, self.repeat).into_iter().collect() } else { vec![] };
+            return if by > 0 && one { mirror_warning(cx, Self::several(self.repeat)).into_iter().collect() } else { vec![] };
         }
         let k = self.end.map_or(Self::normal(cx), |e| e.1);
         let end = self.end.map_or_else(|| handle_axes(k).transpose() * t.center(), |e| e.0);
@@ -337,7 +291,7 @@ impl Tool for CopyGridTool {
             ToolInput::Click { .. } if self.end.is_some() => return self.finish(cx, t, k, end),
             ToolInput::Value(VcbValue::Counts(c)) => {
                 self.repeat = Self::counts(c);
-                let out = Self::mirror_warning(cx, self.repeat).into_iter().collect();
+                let out = mirror_warning(cx, Self::several(self.repeat)).into_iter().collect();
                 if let Some((end, k)) = self.end {
                     self.size = Self::size(cx, &t, k, end, self.repeat);
                 }
@@ -359,8 +313,8 @@ impl Tool for CopyGridTool {
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut p = Preview::default();
-        let Some(t) = self.target(cx) else {
-            self.picker.preview(&mut p);
+        let Some(t) = self.base.target(cx) else {
+            self.base.picker.preview(&mut p);
             return p;
         };
         let draw = &mut cx.drawer(&mut p.drawing);
@@ -408,27 +362,27 @@ impl Tool for CopyGridTool {
             }
         }
         p.copies = placements(&t, &h, &d, r, mirror);
-        p.inference = self.snap.clone();
+        p.inference = self.base.snap.clone();
         p
     }
 
     fn status(&self) -> String {
-        if self.aimed {
+        if self.base.aimed {
             return t!("tool.copy_grid.hint.place", copy_key = copy_key());
         }
-        if self.last.is_some() && !self.picker.busy() {
+        if self.base.last.is_some() && !self.base.picker.busy() {
             return t!("tool.copy_grid.hint.again");
         }
-        self.picker.status(t!("tool.copy_grid.hint.pick"), t!("tool.handle.hint.gather"))
+        self.base.picker.status(t!("tool.copy_grid.hint.pick"), t!("tool.handle.hint.gather"))
     }
 
     fn vcb(&self) -> Option<Vcb> {
         let label = t!("tool.copy_grid.vcb.size");
         let vcb = |s: DVec2| Some(Vcb::new(label.clone(), VcbKind::Lengths(vec![s.x, s.y])).counts(2));
-        if self.aimed {
+        if self.base.aimed {
             return vcb(if self.end.is_some() { self.size } else { DVec2::ZERO });
         }
-        vcb(self.last.as_ref()?.size)
+        vcb(self.base.last.as_ref()?.size)
     }
 
     fn copying(&self) -> bool {
@@ -438,15 +392,11 @@ impl Tool for CopyGridTool {
     /// Picking, a drag draws a selection rectangle; then, it places where it is released.
     /// While placing (OCL's `STATE_HANDLE`).
     fn takes_counts(&self) -> bool {
-        self.aimed
+        self.base.aimed
     }
 
     fn drag_clicks(&self) -> DragClicks {
-        if self.aimed { DragClicks::Release } else { DragClicks::No }
-    }
-
-    fn busy(&self) -> bool {
-        self.aimed || self.picker.busy() || self.last.is_some()
+        if self.base.aimed { DragClicks::Release } else { DragClicks::No }
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
@@ -456,43 +406,23 @@ impl Tool for CopyGridTool {
     fn set_option(&mut self, key: &str, _: &OptionValue) {
         if key == super::handle::AXES {
             self.end = None;
-            self.snap = None;
+            self.base.snap = None;
         }
     }
 
     fn leave(&mut self) {
         self.end = None;
-        self.snap = None;
-        self.picker.leave();
+        self.base.leave();
     }
 
-    fn picks_first(&self) -> bool {
-        true
-    }
-
-    /// Nothing aimed at: a click picks what to copy (also once copies are made).
-    fn picking(&self) -> bool {
-        !self.aimed
-    }
-
-    fn picks_parts(&self) -> bool {
-        true
-    }
-
-    fn dropped(&self) -> bool {
-        self.picker.dropped()
-    }
+    copying_tool!();
 
     fn back(&mut self) {
-        if self.picker.back() {
+        if self.base.picker.back() {
             return;
         }
-        self.picker.drop();
+        self.base.forget();
         self.end = None;
-        self.snap = None;
-        self.last = None;
-        // Nothing aimed at any more: no longer busy (a quick tool then hands back).
-        self.aimed = false;
     }
 
     fn reset(&mut self) {

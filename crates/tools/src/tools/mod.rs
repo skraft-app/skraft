@@ -6,6 +6,7 @@ mod boolean;
 mod box_grips;
 mod copy_grid;
 mod copy_line;
+mod copying;
 mod distribute;
 mod erase;
 mod face;
