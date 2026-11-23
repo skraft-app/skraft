@@ -4175,7 +4175,12 @@ fn prism_refuses_a_crossed_outline_and_too_few_corners() {
     key(&mut e, Key::Escape);
     key(&mut e, Key::Enter);
     e.input(ToolInput::Vcb("5".into()));
-    let (lo, hi) = bounds_of(&e, &EntityPath::root(drawn(&e)));
+    // Its axes lie along its hypotenuse (docs/decisions/0053-changing-a-components-axes.md): its
+    // vertices say where it stands, its box in those axes would not.
+    let parts = e.document().placed_parts();
+    let vertices = parts[0].shape.vertex_points();
+    let points = vertices.iter().map(|v| parts[0].transform.transform_point3(*v));
+    let (lo, hi) = points.fold((DVec3::MAX, DVec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
     assert!(close(lo, DVec3::ZERO) && close(hi, DVec3::new(200.0, 200.0, 5.0)), "{lo} {hi}");
 }
 

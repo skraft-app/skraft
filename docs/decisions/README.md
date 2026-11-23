@@ -59,4 +59,4 @@ state and link the records behind it.
 | 0050 | [Drawing: every sheet on one board, one of them active](0050-drawing-every-sheet-on-one-board.md) | accepted (2026-11-21; built) |
 | 0051 | [Drawing: a view's content and point of view chosen from the sheet](0051-drawing-views-chosen-and-framed-on-the-sheet.md) | accepted (2026-11-23; built) |
 | 0052 | [Drawing: a view frames what it shows](0052-drawing-a-view-frames-what-it-shows.md) | accepted (2026-11-23; built) |
-| 0053 | [Changing a component's axes: one operation, dimensions read on the axes](0053-changing-a-components-axes.md) | accepted (2026-11-23; the operation built) |
+| 0053 | [Changing a component's axes: one operation, dimensions read on the axes](0053-changing-a-components-axes.md) | accepted (2026-11-23; the operation, dimensions and born orientation built) |

@@ -89,6 +89,16 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         material: Option<Id>,
     },
+    /// A part drawn by a tool: [`Operation::AddPrimitive`], the part born oriented, its longest
+    /// dimension on red, its shortest on blue (docs/decisions/0053-changing-a-components-axes.md).
+    DrawPrimitive {
+        context: Id,
+        primitive: Primitive,
+        #[serde(default = "identity", skip_serializing_if = "is_identity")]
+        placement: DAffine3,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        material: Option<Id>,
+    },
     /// Gives `component` new axes, `axes` going from them to the current ones (a direct rigid
     /// transform): nothing moves in the world (docs/decisions/0053-changing-a-components-axes.md).
     ChangeAxes { component: Id, axes: DAffine3 },
@@ -567,7 +577,7 @@ impl Operation {
     /// A short label for menus and the undo history.
     pub fn label(&self) -> String {
         match self {
-            Operation::AddPrimitive { .. } => t!("operation.add_part"),
+            Operation::AddPrimitive { .. } | Operation::DrawPrimitive { .. } => t!("operation.add_part"),
             Operation::ChangeAxes { .. } => t!("operation.change_axes"),
             Operation::Transform { .. } => t!("operation.transform"),
             Operation::Duplicate { .. } => t!("operation.duplicate"),
@@ -677,7 +687,8 @@ impl Operation {
             | Operation::PaintOccurrences { context, .. }
             | Operation::MakeAssembly { context, .. }
             | Operation::ReplaceOccurrences { context, .. }
-            | Operation::AddPrimitive { context, .. } => Some(context),
+            | Operation::AddPrimitive { context, .. }
+            | Operation::DrawPrimitive { context, .. } => Some(context),
             _ => None,
         }
     }
@@ -1306,6 +1317,21 @@ impl Document {
                     props: Props::default(),
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
+            }
+            Operation::DrawPrimitive { context, primitive, placement, material } => {
+                let born = crate::axes::oriented(primitive);
+                let add = Operation::AddPrimitive {
+                    context: *context,
+                    primitive: born.primitive,
+                    placement: *placement * born.placed,
+                    material: *material,
+                };
+                let outcome = self.apply_in_place(&add, solver)?;
+                if let Some(axes) = born.axes {
+                    let made = self.assembly(*context)?.occurrence(outcome.created[0]).map(|o| o.component);
+                    self.change_axes(made.ok_or(Error::NotFound(outcome.created[0]))?, &axes, solver)?;
+                }
+                Ok(outcome)
             }
             Operation::ChangeAxes { component, axes } => self.change_axes(*component, axes, solver).map(|_| Outcome::default()),
             Operation::Transform { context, entities, transform } => {

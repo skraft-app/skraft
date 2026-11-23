@@ -830,7 +830,7 @@ impl Cx<'_> {
     pub fn add_primitive(&self, primitive: Primitive, placement: DAffine3) -> Operation {
         match self.open_part_path() {
             Some(target) => Operation::AddBody { target, primitive, placement, sign: self.body_sign, scope: self.part_scope },
-            None => Operation::AddPrimitive {
+            None => Operation::DrawPrimitive {
                 context: self.context_def,
                 primitive,
                 placement: self.axes_in_context * placement,
@@ -893,10 +893,12 @@ impl Cx<'_> {
                 let frame = self.doc.transform_of(parent).unwrap_or(DAffine3::IDENTITY);
                 let placement = frame.inverse() * self.context_transform * self.axes_in_context * placement;
                 let unique = self.part_scope == Scope::This && self.doc.shared_along(parent);
-                let op = Operation::AddPrimitive { context: self.context_def, primitive, placement, material };
+                let op = Operation::DrawPrimitive { context: self.context_def, primitive, placement, material };
                 Operation::At { parent: parent.to_vec(), unique, op: Box::new(op) }
             }
-            None => Operation::AddPrimitive { context: self.context_def, primitive, placement: self.axes_in_context * placement, material },
+            None => {
+                Operation::DrawPrimitive { context: self.context_def, primitive, placement: self.axes_in_context * placement, material }
+            }
         }
     }
 

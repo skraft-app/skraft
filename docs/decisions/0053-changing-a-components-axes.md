@@ -1,6 +1,6 @@
 # Changing a component's axes: one operation, dimensions read on the axes
 
-- Status: accepted (2026-11-23; the operation built)
+- Status: accepted (2026-11-23; the operation, dimensions and born orientation built)
 - Design: [A part's axes](../model/data-model.md#a-parts-axes),
   [Bodies placed in the part's axes](../model/bodies.md#bodies-placed-in-the-parts-axes)
 - Interaction after OpenCutList's SmartAxes (`ruby/tool/smart_axes_tool.rb`)
@@ -42,12 +42,18 @@ are the only statement.
 
 ### Parts are born oriented
 
-The **drawing tools** (box, prism, cylinder, turned body) and the **imports** (STEP, `.skp`) orient
-a new part: its longest dimension on red, its shortest on blue.
+The **drawing tools** (box, prism, cylinder, turned body) orient a new part by OpenCutList's rule
+(`_get_auto_orient_transformation`). **An imported file stays as it is**, in the file's axes.
 
-- Quarter turns only, never an oblique rotation. Equal dimensions keep their current order. The
-  length and thickness keep a positive direction, the width's follows from a direct frame.
-- A `.skp` part whose axes OpenCutList locked (`orientation_locked_on_axis`) keeps them.
+- **Blue** is the normal of the group of parallel faces of the largest total area, **red** the
+  group of parallel edges square to it of the longest total length: a slanted prism gets oblique
+  axes. On a tie, the first group, so a cube keeps its axes.
+- **A round shape** (cylinder, cone, turned body) has its length along its height only when the
+  height exceeds its diameter.
+- **The signs point towards the material**, the thickness first, then the length; the width
+  follows from a direct frame.
+- **Unlike OpenCutList, a box or a flat prism has its origin at its new low corner**: built in its
+  final axes it stays a plain part, while keeping the origin would place its body.
 - Copies, pastes and boolean results keep their axes. So does a part stretched past another of its
   dimensions: orientation is settled once, at birth.
 
@@ -85,6 +91,8 @@ return to the default and a message says so. Undo restores them.
 - **Always sorted**: no way to state a grain along the smaller dimension.
 - **Orienting every new part**, boolean results and pastes included: an operation would change axes
   the user expects to stay.
+- **Orienting imports** (built, then dropped on 2026-11-23 after trying it): a file should come in
+  as it is; it also cost 25 to 33 % of the import time on Cruise and Ender3.
 - **Views following the new axes**: « Dessus » stays « Dessus » but shows another face, and sheets
   change through an edit made elsewhere.
 - **Quarter turns only**: safer for the kernel, but the true dimensions of a part lying askew could
@@ -96,8 +104,11 @@ return to the default and a message says so. Undo restores them.
 
 ## Consequences
 
-- **A reoriented part is no longer plain** (`Part::is_plain`: a single positive body, unplaced). It
-  stores a computed shape, a cost to measure on parts born oriented.
+- **Being born oriented is nearly free for what is drawn**: a box, and a prism whose height is its
+  thickness, are built in their final axes and stay plain. A shape whose axis must leave blue (a
+  tall cylinder) has a placed body and stores a computed shape (`Part::is_plain` false).
+- **An imported part reads in the file's axes**, so its length may be its smallest dimension.
+  Nothing puts a whole model in order for now.
 - **A single positive body keeps its face names once placed** (`Part::is_one_body`), so dimensions
   still follow a stretch. It relies on a rigid transform keeping the record's order of faces,
   edges and vertices, which the face materials (`Part::faces`) need too; tested on every kind of

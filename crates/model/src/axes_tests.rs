@@ -263,3 +263,138 @@ fn the_root_and_mirrors_are_refused() {
     assert_eq!(refused(part, mirror), Refusal::AxesNotDirect);
     assert_eq!(refused(part, DAffine3::from_scale(DVec3::splat(2.0))), Refusal::AxesNotDirect);
 }
+
+fn drawn(h: &mut History, primitive: Primitive) -> Id {
+    let root = h.document().root();
+    let occ =
+        h.apply(Operation::DrawPrimitive { context: root, primitive, placement: DAffine3::IDENTITY, material: None }).unwrap().created[0];
+    h.document().resolve_part(&EntityPath::root(occ)).unwrap().0
+}
+
+fn exact_size(doc: &Document, part: Id) -> DVec3 {
+    let (lo, hi) = doc.part(part).unwrap().shape().bounds().unwrap();
+    hi - lo
+}
+
+fn world_box(doc: &Document) -> (DVec3, DVec3) {
+    let p = &doc.placed_parts()[0];
+    let (lo, hi) = p.shape.transformed(&p.transform).unwrap().bounds().unwrap();
+    (lo, hi)
+}
+
+#[test]
+fn a_box_is_born_oriented_and_plain_where_it_was_drawn() {
+    for size in
+        [DVec3::new(18.0, 600.0, 400.0), DVec3::new(400.0, 18.0, 600.0), DVec3::new(600.0, 400.0, 18.0), DVec3::new(18.0, 400.0, 600.0)]
+    {
+        let mut h = History::new(Document::new());
+        let origin = DVec3::new(10.0, 20.0, 30.0);
+        let part = drawn(&mut h, Primitive::Box { origin, size });
+        assert!(h.document().part(part).unwrap().is_plain(), "{size}");
+        assert!(exact_size(h.document(), part).distance(DVec3::new(600.0, 400.0, 18.0)) < 1e-6, "{size}");
+        let (lo, hi) = world_box(h.document());
+        assert!(lo.distance(origin) < 1e-6 && hi.distance(origin + size) < 1e-6, "{size}: {lo} {hi}");
+        assert!(h.document().placed_parts()[0].transform.matrix3.determinant() > 0.0, "never a mirror");
+    }
+}
+
+#[test]
+fn a_flat_prism_is_turned_in_its_plane_and_stays_plain() {
+    let mut h = History::new(Document::new());
+    let profile = vec![
+        kernel::profile::Corner::new(DVec2::ZERO),
+        kernel::profile::Corner::new(DVec2::new(100.0, 0.0)),
+        kernel::profile::Corner::arc(DVec2::new(100.0, 300.0), 0.2),
+        kernel::profile::Corner::new(DVec2::new(0.0, 300.0)),
+    ];
+    let primitive = Primitive::Prism { origin: DVec3::new(5.0, 6.0, 7.0), profile, height: 18.0 };
+    let (want_lo, want_hi) = {
+        let mut raw = History::new(Document::new());
+        let root = raw.document().root();
+        raw.apply(Operation::AddPrimitive { context: root, primitive: primitive.clone(), placement: DAffine3::IDENTITY, material: None })
+            .unwrap();
+        world_box(raw.document())
+    };
+    let part = drawn(&mut h, primitive);
+    let p = h.document().part(part).unwrap();
+    assert!(p.is_plain() && p.profile_of(&p.bodies[0]).is_some(), "plain, its profile kept");
+    let s = exact_size(h.document(), part);
+    assert!(s.x > s.y && s.y > s.z && (s.z - 18.0).abs() < 1e-6, "{s}");
+    let (lo, hi) = world_box(h.document());
+    assert!(lo.distance(want_lo) < 1e-6 && hi.distance(want_hi) < 1e-6, "{lo} {hi}");
+}
+
+#[test]
+fn a_tall_cylinder_gets_new_axes_and_keeps_its_profile() {
+    let mut h = History::new(Document::new());
+    let primitive = Primitive::Cylinder { origin: DVec3::new(1.0, 2.0, 3.0), radius: 10.0, height: 200.0 };
+    let part = drawn(&mut h, primitive);
+    let p = h.document().part(part).unwrap();
+    assert!(p.is_one_body() && !p.is_plain());
+    assert!(exact_size(h.document(), part).distance(DVec3::new(200.0, 20.0, 20.0)) < 1e-6);
+    let (lo, hi) = world_box(h.document());
+    assert!(lo.distance(DVec3::new(-9.0, -8.0, 3.0)) < 1e-6 && hi.distance(DVec3::new(11.0, 12.0, 203.0)) < 1e-6, "{lo} {hi}");
+    let mut h = History::new(Document::new());
+    let flat = drawn(&mut h, Primitive::Cylinder { origin: DVec3::ZERO, radius: 50.0, height: 18.0 });
+    assert!(h.document().part(flat).unwrap().is_plain(), "already oriented");
+}
+
+#[test]
+fn a_slanted_prism_takes_its_longest_edge_as_length_and_stays_plain() {
+    let corners = [DVec2::ZERO, DVec2::new(300.0, 100.0), DVec2::new(340.0, 200.0), DVec2::new(40.0, 100.0)];
+    let profile: Vec<_> = corners.iter().map(|p| kernel::profile::Corner::new(*p)).collect();
+    let primitive = Primitive::Prism { origin: DVec3::new(5.0, 6.0, 7.0), profile, height: 18.0 };
+    let mut raw = History::new(Document::new());
+    let root = raw.document().root();
+    raw.apply(Operation::AddPrimitive { context: root, primitive: primitive.clone(), placement: DAffine3::IDENTITY, material: None })
+        .unwrap();
+    let mut h = History::new(Document::new());
+    let part = drawn(&mut h, primitive);
+    let p = h.document().part(part).unwrap();
+    assert!(p.is_plain() && p.profile_of(&p.bodies[0]).is_some(), "plain, its profile kept");
+    same_points(&world(raw.document()), &world(h.document()));
+    let points = p.shape().vertex_points();
+    let long = 100000f64.sqrt();
+    let along_red = points
+        .iter()
+        .any(|a| points.iter().any(|b| ((*b - *a).x - long).abs() < 1e-6 && (*b - *a).y.abs() < 1e-6 && (*b - *a).z.abs() < 1e-6));
+    assert!(along_red, "its long edge on red");
+    assert!((exact_size(h.document(), part).z - 18.0).abs() < 1e-6, "its height on blue");
+}
+
+#[test]
+fn a_tall_prism_gets_new_axes_and_keeps_its_profile() {
+    let profile = kernel::profile::polygon(&[DVec2::ZERO, DVec2::new(40.0, 0.0), DVec2::new(40.0, 40.0), DVec2::new(0.0, 40.0)]);
+    let mut h = History::new(Document::new());
+    let part = drawn(&mut h, Primitive::Prism { origin: DVec3::ZERO, profile, height: 500.0 });
+    let p = h.document().part(part).unwrap();
+    assert!(p.is_one_body() && !p.is_plain() && p.profile_of(&p.bodies[0]).is_some());
+    assert!(exact_size(h.document(), part).distance(DVec3::new(500.0, 40.0, 40.0)) < 1e-6);
+    let (lo, hi) = world_box(h.document());
+    assert!(lo.distance(DVec3::ZERO) < 1e-6 && hi.distance(DVec3::new(40.0, 40.0, 500.0)) < 1e-6, "{lo} {hi}");
+}
+
+#[test]
+fn a_disc_has_no_edge_to_go_by() {
+    let profile = vec![kernel::profile::Corner::arc(DVec2::ZERO, 1.0), kernel::profile::Corner::arc(DVec2::new(100.0, 0.0), 1.0)];
+    let mut h = History::new(Document::new());
+    let part = drawn(&mut h, Primitive::Prism { origin: DVec3::ZERO, profile, height: 18.0 });
+    assert!(h.document().part(part).unwrap().is_plain());
+    assert!((exact_size(h.document(), part).z - 18.0).abs() < 1e-6);
+}
+
+#[test]
+fn the_axes_point_towards_the_material_the_thickness_first() {
+    // All on the positive side: x and z keep their sign, y follows, never a mirror.
+    let points = [DVec3::ZERO, DVec3::new(18.0, 600.0, 400.0)];
+    let m = kernel::orient::signed_axes(&points, DVec3::Y, DVec3::Z);
+    assert_eq!((m.x_axis, m.z_axis), (DVec3::Y, DVec3::Z));
+    assert_eq!(m.y_axis, -DVec3::X);
+    assert!(m.determinant() > 0.0);
+    // Below the origin: z turned towards it.
+    let points = [DVec3::new(0.0, 0.0, -18.0), DVec3::new(600.0, 400.0, 0.0)];
+    assert_eq!(kernel::orient::signed_axes(&points, DVec3::X, DVec3::Z).z_axis, -DVec3::Z);
+    // Symmetric: the directions given.
+    let points = [DVec3::splat(-1.0), DVec3::splat(1.0)];
+    assert_eq!(kernel::orient::signed_axes(&points, DVec3::X, DVec3::Z), DMat3::IDENTITY);
+}

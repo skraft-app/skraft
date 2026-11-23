@@ -28,6 +28,7 @@ mod job;
 pub mod names;
 #[cfg(feature = "engine")]
 mod node;
+pub mod orient;
 mod polyhedron;
 pub mod profile;
 mod shared;
