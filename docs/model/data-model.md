@@ -111,8 +111,15 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   SolidCore's tight box (its loose one should the tight one fail).
 - Tools working on a part use its axes; elsewhere, the context's.
 - The part's axes are independent of its bodies
-  ([Bodies placed in the part's axes](bodies.md#bodies-placed-in-the-parts-axes)). Not yet: an
-  operation changing a part's axes.
+  ([Bodies placed in the part's axes](bodies.md#bodies-placed-in-the-parts-axes)).
+- **`Operation::ChangeAxes { component, axes }`** gives a part or an assembly new axes, nothing
+  moving in the world: its occurrences, bodies or children, guides, stretch settings, the views
+  of it and the dimensions on it are brought into them; `axes` is a direct rigid transform, the
+  model's root refused ([decision 0054](../decisions/0054-changing-a-components-axes.md)). An
+  assembly's parts keep their axes. The tool: [Reorient](../tools/reorient.md).
+- **Parts a tool draws are born oriented** (`Operation::DrawPrimitive`), by OpenCutList's rule: blue
+  across their largest faces, red along their longest edges, oblique on a slanted prism (decision
+  0054). Imports, copies, pastes, booleans and stretches keep the axes they have.
 
 ## Machinings and the recipe
 

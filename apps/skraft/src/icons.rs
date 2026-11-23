@@ -39,6 +39,7 @@ icon!(SAMPLE, "sample");
 icon!(SECTION, "section");
 icon!(MEASURE, "measure");
 icon!(STRETCH, "stretch");
+icon!(REORIENT, "reorient");
 icon!(ROUND, "round");
 icon!(CHAMFER, "chamfer");
 icon!(COPY_LINE, "copy_line");
@@ -126,6 +127,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "tool.move" => MOVE,
         "tool.rotate" => ROTATE,
         "tool.stretch" => STRETCH,
+        "tool.reorient" => REORIENT,
         "tool.round" => ROUND,
         "tool.chamfer" => CHAMFER,
         "tool.copy_line" => COPY_LINE,

@@ -16,7 +16,7 @@ placed, in which material, of which size, how many.
   assembly's above it). A part placed in one material is one row; placed in two, two rows.
   Hidden occurrences count: they are in the model. Parts not placed are not listed.
 - **Columns**: name (the part's), material (« Aucune » when none), length, width, thickness —
-  the box of the part's final B-rep in its axes, largest first, as OpenCutList's (the scene's
+  the box of the part's final B-rep along its red, green and blue axes (the scene's
   exact bounds, else the shape's vertices; « — » while the kernel computes it) —, quantity (its
   occurrences in that material). Lengths in the document's units; their
   symbol, when the document shows it, is in the column's header (« Longueur (mm) »), not in each

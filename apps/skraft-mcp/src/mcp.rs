@@ -17,7 +17,7 @@ const INSTRUCTIONS: &str = "\
 Skraft: a simple direct-modelling 3D app on real solids (exact B-reps; parts with \
 OpenCutList-like cut list dimensions). Every tool is a method of its control protocol (docs/control-protocol.md \
 of the Skraft repository).
-- Units: millimetres; world Z up. A part's `dims` are its length, width, thickness (largest first).
+- Units: millimetres; world Z up. A part's `dims` are its length, width, thickness (along its red, green, blue axes).
 - Drive tools with `tool_input` at world points (`at`: exact) — e.g. the box tool: `{\"tool\": \
 \"box\"}`, two `click`s at the base's corners, then `{\"vcb\": \"18\"}` for its height.
 - The kernel computes in the background in the app: after a change, `app_wait` with \

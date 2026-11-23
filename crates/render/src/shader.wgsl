@@ -47,8 +47,11 @@ struct Instance {
     @location(10) n2: vec4<f32>,
     @location(11) tint: vec4<f32>,
     @location(12) material: u32,
-    // The axis of its mesh along its part's length (0, 1, 2: x, y, z), a texture's grain.
-    @location(14) grain: u32,
+    // From the mesh's coordinates to those of its texture's projection: columns, the
+    // translation in their `w`.
+    @location(13) t0: vec4<f32>,
+    @location(14) t1: vec4<f32>,
+    @location(15) t2: vec4<f32>,
 };
 
 // Is the camera-space point `p` cut away by the section?
@@ -71,10 +74,9 @@ struct FaceOut {
     // measures across them).
     @location(6) @interpolate(flat) hatch: f32,
     @location(7) @interpolate(flat) pitch: f32,
-    // In the mesh's own axes: a texture's projection (`textured`).
+    // In the axes of the part it shows: a texture's projection (`textured`).
     @location(8) local: vec3<f32>,
     @location(9) local_normal: vec3<f32>,
-    @location(10) @interpolate(flat) grain: u32,
 };
 
 @vertex
@@ -91,9 +93,9 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
     out.opacity = inst.n1.w;
     out.hatch = inst.n2.w;
     out.pitch = hatch_pitch(inst.m3.xyz, inst.n2.w);
-    out.local = pos;
-    out.local_normal = normal;
-    out.grain = inst.grain;
+    let texture = mat3x3<f32>(inst.t0.xyz, inst.t1.xyz, inst.t2.xyz);
+    out.local = texture * pos + vec3<f32>(inst.t0.w, inst.t1.w, inst.t2.w);
+    out.local_normal = texture * normal;
     // The face's own colour, else its placement's; the placement's when forced (no entry left
     // under the flag is the default colour).
     let forced = inst.material != NO_MATERIAL && (inst.material & FORCED) != 0u;
@@ -102,8 +104,8 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
 }
 
 // The colour of a front face of palette entry `i` with a texture: its image projected on the
-// face in the mesh's axes along the axis it most faces (a box projection), its width along the
-// part's length (`in.grain`) — across it on the end grain —, at its real size, turned by its
+// face in its part's axes along the axis it most faces (a box projection), its width along the
+// part's length, its red axis — across it on the end grain —, at its real size, turned by its
 // rotation. Its mip level from the size of a pixel on the face (distance and slant), not from
 // derivatives: they would need a uniform control flow. Without a texture, `base`.
 fn textured(in: FaceOut, base: vec3<f32>) -> vec3<f32> {
@@ -122,12 +124,11 @@ fn textured(in: FaceOut, base: vec3<f32>) -> vec3<f32> {
     } else if (a.y >= a.z) {
         facing = 1u;
     }
-    let grain = min(in.grain, 2u);
-    var u_axis = grain;
-    var v_axis = 3u - grain - facing;
-    if (facing == grain) {
-        u_axis = (grain + 1u) % 3u;
-        v_axis = (grain + 2u) % 3u;
+    var u_axis = 0u;
+    var v_axis = 3u - facing;
+    if (facing == 0u) {
+        u_axis = 1u;
+        v_axis = 2u;
     }
     let p = in.local;
     let flat_uv = vec2<f32>(p[u_axis] * t.y, p[v_axis] * t.z);

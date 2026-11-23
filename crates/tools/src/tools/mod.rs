@@ -15,6 +15,7 @@ mod mover;
 mod paint;
 mod pick;
 pub(crate) mod profile;
+mod reorient;
 mod rotate;
 mod sample;
 mod section;
@@ -32,6 +33,7 @@ pub use measure::MeasureTool;
 pub use mover::MoveTool;
 pub use paint::PaintTool;
 pub use profile::ProfileTool;
+pub use reorient::ReorientTool;
 pub use rotate::RotateTool;
 pub use sample::SampleTool;
 pub use section::SectionTool;
@@ -460,11 +462,13 @@ pub enum ToolKind {
     Round,
     /// Chamfers edges (docs/tools/rounds.md).
     Chamfer,
+    /// Gives a part or an assembly new axes (docs/tools/reorient.md).
+    Reorient,
 }
 
 impl ToolKind {
     /// Every tool.
-    pub const ALL: [ToolKind; 22] = [
+    pub const ALL: [ToolKind; 23] = [
         ToolKind::Select,
         ToolKind::Box,
         ToolKind::Cylinder,
@@ -487,6 +491,7 @@ impl ToolKind {
         ToolKind::Profile,
         ToolKind::Round,
         ToolKind::Chamfer,
+        ToolKind::Reorient,
     ];
 
     /// The tool named `id` ([`ToolKind::id`]).
@@ -519,6 +524,7 @@ impl ToolKind {
             ToolKind::Profile => "profile",
             ToolKind::Round => "round",
             ToolKind::Chamfer => "chamfer",
+            ToolKind::Reorient => "reorient",
         }
     }
 
@@ -547,6 +553,7 @@ impl ToolKind {
             ToolKind::Profile => t!("tool.profile.name"),
             ToolKind::Round => t!("tool.round.name"),
             ToolKind::Chamfer => t!("tool.chamfer.name"),
+            ToolKind::Reorient => t!("tool.reorient.name"),
         }
     }
 }
@@ -830,7 +837,7 @@ impl Cx<'_> {
     pub fn add_primitive(&self, primitive: Primitive, placement: DAffine3) -> Operation {
         match self.open_part_path() {
             Some(target) => Operation::AddBody { target, primitive, placement, sign: self.body_sign, scope: self.part_scope },
-            None => Operation::AddPrimitive {
+            None => Operation::DrawPrimitive {
                 context: self.context_def,
                 primitive,
                 placement: self.axes_in_context * placement,
@@ -893,10 +900,12 @@ impl Cx<'_> {
                 let frame = self.doc.transform_of(parent).unwrap_or(DAffine3::IDENTITY);
                 let placement = frame.inverse() * self.context_transform * self.axes_in_context * placement;
                 let unique = self.part_scope == Scope::This && self.doc.shared_along(parent);
-                let op = Operation::AddPrimitive { context: self.context_def, primitive, placement, material };
+                let op = Operation::DrawPrimitive { context: self.context_def, primitive, placement, material };
                 Operation::At { parent: parent.to_vec(), unique, op: Box::new(op) }
             }
-            None => Operation::AddPrimitive { context: self.context_def, primitive, placement: self.axes_in_context * placement, material },
+            None => {
+                Operation::DrawPrimitive { context: self.context_def, primitive, placement: self.axes_in_context * placement, material }
+            }
         }
     }
 
@@ -1533,6 +1542,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Section => Box::new(SectionTool::default()),
         ToolKind::Measure => Box::new(MeasureTool::default()),
         ToolKind::Stretch => Box::new(StretchTool::default()),
+        ToolKind::Reorient => Box::new(ReorientTool::default()),
         ToolKind::CopyLine => Box::new(CopyLineTool::default()),
         ToolKind::CopyGrid => Box::new(CopyGridTool::default()),
         ToolKind::Distribute => Box::new(DistributeTool::default()),

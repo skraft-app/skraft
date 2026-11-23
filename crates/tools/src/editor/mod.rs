@@ -1541,9 +1541,13 @@ impl Editor {
                 // What a drawing tool makes is offered the quick tools' card (docs/tools/quick-tools.md); a
                 // part made, its name asked or offered (docs/tools/quick-tools.md).
                 let after = match op {
-                    Operation::AddPrimitive { .. } => After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) },
+                    Operation::AddPrimitive { .. } | Operation::DrawPrimitive { .. } => {
+                        After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) }
+                    }
                     // A part made in another assembly (« Dessiner dans », docs/tools/draw-options.md).
-                    Operation::At { op: ref made, .. } if matches!(**made, Operation::AddPrimitive { .. }) => {
+                    Operation::At { op: ref made, .. }
+                        if matches!(**made, Operation::AddPrimitive { .. } | Operation::DrawPrimitive { .. }) =>
+                    {
                         After::Card { ask_name: Some(self.cx().toggle(tools::ASK_NAME)) }
                     }
                     Operation::AddBody { .. } => After::Card { ask_name: None },

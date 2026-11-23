@@ -53,7 +53,10 @@ Decision record: [A part is positive and negative bodies](../decisions/0018-part
   one positive body of a free shape.
 - **The part's axes are independent of its bodies.** Changing them would be correcting every
   body's placement and compensating the T of each occurrence: exact, for any rotation, no
-  kernel, the profiles never touched. Not yet: an operation changing them.
+  boolean, the profiles never touched (`Operation::ChangeAxes`,
+  [decision 0054](../decisions/0054-changing-a-components-axes.md)). The part's shape is
+  transformed, its faces in the same order: a single positive body keeps its face names once
+  placed (`Part::is_one_body`), and stays one body when pasted or used as a tool.
 
 ## A fixed formula, no history
 

@@ -383,7 +383,7 @@ impl Drawing {
             .chain(self.compositions.values().map(|b| (Container::Composition(b.id), b.elements.as_slice())))
     }
 
-    fn lists_mut(&mut self) -> impl Iterator<Item = &mut Vec<Element>> {
+    pub(crate) fn lists_mut(&mut self) -> impl Iterator<Item = &mut Vec<Element>> {
         let Drawing { presentations, compositions } = self;
         presentations
             .iter_mut()

@@ -115,7 +115,9 @@ impl Editor {
         let carried = matches!(after, After::Carry(_)).then(|| op.clone());
         // A part made in another assembly (« Dessiner dans », docs/tools/draw-options.md): its path there.
         let made_in = match &op {
-            Operation::At { parent, op, .. } if matches!(**op, Operation::AddPrimitive { .. }) => Some(parent.clone()),
+            Operation::At { parent, op, .. } if matches!(**op, Operation::AddPrimitive { .. } | Operation::DrawPrimitive { .. }) => {
+                Some(parent.clone())
+            }
             _ => None,
         };
         // « Créer un assemblage » under « Pièces »: what it made selected by its path.

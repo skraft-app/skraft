@@ -33,6 +33,11 @@ pub(super) struct Face {
 }
 
 impl Face {
+    /// Its triangles, on its plane.
+    pub fn triangles(&self) -> &[[DVec3; 3]] {
+        &self.tris
+    }
+
     /// The face `hit` is on, when planar.
     pub fn at(scene: &DisplayScene, hit: &Hit) -> Option<Face> {
         let (t, part) = scene.inferable_at(hit)?;

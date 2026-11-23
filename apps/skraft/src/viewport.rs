@@ -71,9 +71,6 @@ pub struct Viewport {
     /// while they are not shown.
     document: u64,
     parked_slots: HashMap<u64, HashMap<Id, u32>>,
-    /// Each definition's grain — the axis of its mesh along its part's length, a texture's
-    /// (docs/render/look.md#textures) — by document and definition, with the mesh's revision.
-    grains: HashMap<(u64, u64), (u64, u8)>,
     /// The textures' images, prepared off the interface's thread.
     images: crate::images::TextureImages,
     /// The size of the last frame drawn (pixels).
@@ -130,21 +127,17 @@ fn then_fade(a: render::Tint, b: render::Tint) -> render::Tint {
     [mix(0), mix(1), mix(2), k]
 }
 
-/// The axis of a definition's mesh along its part's length: its longest extent (x first on a
-/// tie).
-fn grain_of(dm: &skraft_tools::DefinitionMesh) -> u8 {
-    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
-    for p in &dm.parts {
-        let o = p.mesh.origin.as_vec3().to_array();
-        for v in &p.mesh.positions {
-            for k in 0..3 {
-                lo[k] = lo[k].min(v[k] + o[k]);
-                hi[k] = hi[k].max(v[k] + o[k]);
-            }
-        }
-    }
-    let size = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
-    (0..3).fold(0u8, |best, k| if size[k] > size[best as usize] { k as u8 } else { best })
+/// The meshes of the open part's bodies, and from the world to the coordinates its texture is
+/// projected in when it is closed (its axes, about the centre of its mesh): a body's texture
+/// stays where the part shows it (docs/render/look.md#textures).
+fn open_part_texture(editor: &Editor) -> Option<(std::collections::HashSet<u64>, DMat4)> {
+    let scene = editor.scene();
+    let recipe = scene.recipe()?;
+    let path = editor.open_part_path()?.part_path();
+    let (_, _, to_world) = editor.document().resolve_part(&path).ok()?;
+    let origin = scene.definition_mesh(recipe.part).and_then(|d| d.parts.first()).map_or(glam::DVec3::ZERO, |p| p.mesh.origin);
+    let keys = recipe.blanks.iter().chain(&recipe.tools).chain(&recipe.nested).map(|b| b.key.0).collect();
+    Some((keys, DMat4::from_translation(-origin) * DMat4::from(to_world.inverse())))
 }
 
 /// What the copy modifier is on this platform (SketchUp: Option on macOS, Ctrl elsewhere).
@@ -245,7 +238,6 @@ impl Viewport {
             return;
         }
         let (palette, textures, _) = self.sync(state, editor, theme);
-        let document = self.document;
         let Some(renderer) = self.renderer.as_mut() else { return };
         let scene = editor.scene();
         let start = web_time::Instant::now();
@@ -258,7 +250,7 @@ impl Viewport {
             }
             let device = &state.device;
             let key = (doc, w.slot);
-            let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, grains: &self.grains, document, ppp };
+            let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, ppp };
             match self.sheet.get_mut(&key) {
                 Some(p) if p.picture.size() == w.size => {
                     draw_sheet_picture(renderer, state, scene, &look, w, &p.picture);
@@ -293,9 +285,8 @@ impl Viewport {
         let state = frame.wgpu_render_state()?;
         self.show_document(doc);
         let (palette, textures, _) = self.sync(state, editor, theme);
-        let document = self.document;
         let renderer = self.renderer.as_mut()?;
-        let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, grains: &self.grains, document, ppp };
+        let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, ppp };
         let picture = renderer.new_picture(&state.device, w.size);
         draw_sheet_picture(renderer, state, editor.scene(), &look, w, &picture);
         read_texture(state, picture.texture())
@@ -687,7 +678,7 @@ impl Viewport {
 
     /// What every picture of the shown document needs, kept up to date: the palette (each
     /// material at its entry, then an open part's tools' colours, from the returned slot), the
-    /// textures' layers, the meshes uploaded, the definitions' grains.
+    /// textures' layers, the meshes uploaded.
     fn sync(&mut self, state: &egui_wgpu::RenderState, editor: &Editor, theme: &Theme) -> (Vec<[f32; 4]>, Vec<[f32; 4]>, u32) {
         let device = &state.device;
         let doc = editor.document();
@@ -748,13 +739,6 @@ impl Viewport {
         let layer_images: Vec<(u64, &[Vec<u8>])> =
             layers.iter().filter_map(|id| self.images.get(id).map(|l| (u64::from_str_radix(&id[..16], 16).unwrap_or(0), l))).collect();
         renderer.set_textures(device, &state.queue, &layer_images);
-        // The grain of each definition: its mesh's longest axis, measured again when it changes.
-        for dm in scene.definition_meshes() {
-            let key = (document, dm.definition.0);
-            if self.grains.get(&key).is_none_or(|(revision, _)| *revision != dm.revision) {
-                self.grains.insert(key, (dm.revision, grain_of(dm)));
-            }
-        }
         renderer.retain_meshes(|k| scene.definition_mesh(skraft_model::Id(k)).is_some());
         (palette, textures, tool_slot)
     }
@@ -764,10 +748,7 @@ impl Viewport {
         let doc = editor.document();
         let (palette, textures, tool_slot) = self.sync(state, editor, theme);
         let scene = editor.scene();
-        let document = self.document;
         let Some(renderer) = self.renderer.as_mut() else { return };
-        let grains = &self.grains;
-        let grain = |def: u64| grains.get(&(document, def)).map_or(0, |(_, g)| *g);
 
         let display = &doc.settings().display;
         // The palette's, not the document's (docs/render/look.md).
@@ -781,6 +762,7 @@ impl Viewport {
         let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
         // A machining's ghost, a little more opaque than a blank's.
         let machining = (theme.machining_opacity - theme.ghost_opacity).max(0.0);
+        let in_part = open_part_texture(editor);
         let batches: Vec<render::Batch> = view
             .batches
             .iter()
@@ -793,6 +775,10 @@ impl Viewport {
                         tint: if p.faded { fade } else { render::NO_TINT },
                         // Not what the eraser would take: that one as faint as any.
                         opacity: if matches!(p.look, Look::Tool | Look::Intersect) && p.ghost && !p.faint_edges { machining } else { 0.0 },
+                        texture: in_part
+                            .as_ref()
+                            .filter(|(keys, _)| keys.contains(&def.0))
+                            .map(|(_, to_part)| *to_part * DMat4::from(p.transform)),
                         material: match p.look {
                             Look::Tool => tool_slot,
                             Look::FailedTool => tool_slot + 1,
@@ -803,7 +789,6 @@ impl Viewport {
                     .collect(),
                 ghost: places.iter().any(|p| p.ghost),
                 faint_edges: places.iter().any(|p| p.faint_edges),
-                grain: grain(def.0),
             })
             .collect();
         let highlights: Vec<render::Highlight> = view
@@ -820,7 +805,10 @@ impl Viewport {
                     material: slot(h.material),
                     ghost: h.ghost,
                     face: h.face,
-                    grain: grain(h.definition.0),
+                    texture: in_part
+                        .as_ref()
+                        .filter(|(keys, _)| keys.contains(&h.definition.0))
+                        .map(|(_, to_part)| *to_part * DMat4::from(h.transform)),
                 }
             })
             .collect();
@@ -991,8 +979,7 @@ impl Viewport {
                         .iter()
                         .map(|(t, m)| render::Placement { material: slot(*m), ..render::Placement::new(DMat4::from(*t)) })
                         .collect();
-                    let grain = self.grains.get(&(self.document, p.0)).map_or(0, |(_, g)| *g);
-                    render::Batch { grain, ..render::Batch::new(p.0, placements) }
+                    render::Batch::new(p.0, placements)
                 })
                 .collect();
             if batches.is_empty() {
@@ -1058,14 +1045,12 @@ impl Viewport {
 const THUMBNAIL_EDGE_SCALE: f32 = 0.5;
 
 /// What a sheet view's picture is drawn with: the theme, the palette and textures, the
-/// materials' entries, the definitions' grains, the document shown, its points' pixels.
+/// materials' entries, its points' pixels.
 struct SheetLook<'a> {
     theme: &'a Theme,
     palette: &'a [[f32; 4]],
     textures: &'a [[f32; 4]],
     slots: &'a HashMap<Id, u32>,
-    grains: &'a HashMap<(u64, u64), (u64, u8)>,
-    document: u64,
     ppp: f32,
 }
 
@@ -1079,7 +1064,7 @@ fn draw_sheet_picture(
     w: &crate::sheet::Wanted,
     picture: &render::Picture,
 ) {
-    let (theme, palette, textures, document, ppp) = (look.theme, look.palette, look.textures, look.document, look.ppp);
+    let (theme, palette, textures, ppp) = (look.theme, look.palette, look.textures, look.ppp);
     let slot = |m: Option<Id>| m.and_then(|m| look.slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
     let rgb = |c: Rgba| [c[0], c[1], c[2]];
     let batches: Vec<render::Batch> = w
@@ -1089,8 +1074,7 @@ fn draw_sheet_picture(
         .map(|(p, places)| {
             let placements =
                 places.iter().map(|(t, m)| render::Placement { material: slot(*m), ..render::Placement::new(DMat4::from(*t)) }).collect();
-            let grain = look.grains.get(&(document, p.0)).map_or(0, |(_, g)| *g);
-            render::Batch { grain, ..render::Batch::new(p.0, placements) }
+            render::Batch::new(p.0, placements)
         })
         .collect();
     // Its lines over everything: the visible ones dark, the hidden ones grey and dashed.

@@ -185,6 +185,7 @@ pub const COMMANDS: &[Command] = &[
     c("tool.difference", || t!("tool.boolean.difference.name"), M::Solids, None),
     c("tool.intersection", || t!("tool.boolean.intersection.name"), M::Solids, None),
     c("tool.stretch", || t!("tool.stretch.name"), M::Solids, Some("S")),
+    c("tool.reorient", || t!("tool.reorient.name"), M::Solids, None),
     c("tool.round", || t!("tool.round.name"), M::Solids, None),
     c("tool.chamfer", || t!("tool.chamfer.name"), M::Solids, None),
     c("debug.crash_kernel", || t!("menu.debug.crash_kernel"), M::Debug, None),

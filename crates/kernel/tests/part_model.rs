@@ -200,3 +200,45 @@ fn slanted_rotations_leave_solids_usable() {
         }
     }
 }
+
+/// Changing a part's axes transforms its shape: what is held by index (the faces' names and
+/// materials) must still name the same faces (docs/decisions/0054-changing-a-components-axes.md).
+#[test]
+fn a_rigid_transform_keeps_the_record_s_order() {
+    let slanted = DAffine3::from_quat(DQuat::from_axis_angle(DVec3::new(1.0, 2.0, 3.0).normalize(), 0.7));
+    let moved = DAffine3::from_translation(DVec3::new(300.0, -40.0, 12.0));
+    let turns = [
+        ("quarter turn", DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2)),
+        ("half turn", DAffine3::from_rotation_x(std::f64::consts::PI)),
+        ("translation", moved),
+        ("oblique", slanted),
+        ("oblique, moved", moved * slanted),
+    ];
+    let probe = Solid::new_sphere(DVec3::ZERO, 1.0).unwrap();
+    for (name, s) in samples() {
+        for (how, t) in &turns {
+            let m = s.transformed(t).unwrap_or_else(|e| panic!("{name}, {how}: {e}"));
+            let (a, b) = (s.record(), m.record());
+            assert_eq!(a.faces.len(), b.faces.len(), "{name}, {how}: faces");
+            for (i, (fa, fb)) in a.faces.iter().zip(&b.faces).enumerate() {
+                let same = std::mem::discriminant(&fa.surface) == std::mem::discriminant(&fb.surface);
+                assert!(same, "{name}, {how}: face {i} changed kind");
+            }
+            assert_eq!(a.vertices.len(), b.vertices.len(), "{name}, {how}: vertices");
+            for (i, (va, vb)) in a.vertices.iter().zip(&b.vertices).enumerate() {
+                let want = t.transform_point3(DVec3::from_array(va.point));
+                assert!(want.distance(DVec3::from_array(vb.point)) < 1e-9, "{name}, {how}: vertex {i} moved elsewhere");
+                assert_eq!(s.vertex_faces(i as u32), m.vertex_faces(i as u32), "{name}, {how}: faces around vertex {i}");
+            }
+            assert_eq!(a.edges.len(), b.edges.len(), "{name}, {how}: edges");
+            for i in 0..a.edges.len() as u32 {
+                assert_eq!(s.edge_faces(i), m.edge_faces(i), "{name}, {how}: faces along edge {i}");
+            }
+            // There and back, as an undone change of axes followed by another operation.
+            let back = m.transformed(&t.inverse()).unwrap_or_else(|e| panic!("{name}, {how}, back: {e}"));
+            assert_eq!(back.topology_counts(), s.topology_counts(), "{name}, {how}, back");
+            m.boolean(&probe, BooleanOp::Union).unwrap_or_else(|e| panic!("{name}, {how}, boolean: {e}"));
+            back.boolean(&probe, BooleanOp::Union).unwrap_or_else(|e| panic!("{name}, {how}, boolean back: {e}"));
+        }
+    }
+}

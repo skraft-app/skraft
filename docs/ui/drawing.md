@@ -588,7 +588,7 @@ view shows what it measures. Its kinds (`DimKind`):
 
 **Anchors** (`Anchor`): a vertex or an edge of a part placed in the view's subject — its chain
 of occurrences from the subject, its part —, with **the names of the faces around it** when the
-part's shape has names (`part_names`: a single positive body unplaced, a leaf named by its
+part's shape has names (`part_names`: a single positive body, a leaf named by its
 recipe — a profile's sides and caps — or a node by its map; decision 0042) and the point
 picked, in the part's axes. Found again (`Document::find`) as the model is now: among the
 vertices or edges carrying those names (each face's tags met by one of the candidate's

@@ -79,7 +79,7 @@ fn scene(r: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, offset: D
         material: NO_MATERIAL,
         ghost: false,
         face: None,
-        grain: 0,
+        texture: None,
     }];
     let frame = Frame {
         view,
@@ -400,7 +400,7 @@ fn a_face_highlight_forces_its_colour_on_that_face_only() {
             material,
             ghost: false,
             face,
-            grain: 0,
+            texture: None,
         };
         let highlights = [hl];
         let frame = Frame {
@@ -1917,4 +1917,15 @@ fn mip_levels_average_in_linear_light_as_the_formula() {
     assert_eq!(levels.len(), TEXTURE_MIPS as usize);
     assert_eq!(levels.last().unwrap().len(), 4);
     assert_eq!(levels.last().unwrap()[0], 128, "a flat image stays as it is");
+}
+
+#[test]
+fn a_body_s_texture_is_projected_in_its_part_s_axes() {
+    assert_eq!(texture_axes(None, DVec3::new(5.0, 6.0, 7.0)), [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]]);
+    // A body turned a quarter about z, its mesh about (10, 0, 0): its mesh's x runs along the
+    // part's y, and its mesh's centre stands at (0, 10, 0).
+    let turn = DMat4::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    let [x, y, z] = texture_axes(Some(&turn), DVec3::new(10.0, 0.0, 0.0));
+    let close = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(p, q)| (p - q).abs() < 1e-5);
+    assert!(close(x, [0.0, 1.0, 0.0, 0.0]) && close(y, [-1.0, 0.0, 0.0, 10.0]) && close(z, [0.0, 0.0, 1.0, 0.0]), "{x:?} {y:?} {z:?}");
 }

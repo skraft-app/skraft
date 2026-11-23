@@ -56,6 +56,7 @@ decision replaced. What is not built yet is not described here.
 [Draw options](tools/draw-options.md) · [Stretch](tools/stretch.md) ·
 [Copy, cut and paste](tools/copy-paste.md) · [Copy arrays](tools/copy-array.md) ·
 [Solid tools](tools/solid-tools.md) · [Rounds and chamfers](tools/rounds.md) ·
+[Reorient](tools/reorient.md) ·
 [Quick tools](tools/quick-tools.md)
 
 **Interface** — [Application interface](ui/interface.md) · [Commands](ui/commands.md) ·

@@ -1096,6 +1096,29 @@ status:
 # The tools: their name (option bar, menus), the status bar hints at each step, the
 # measurements box's label, their options and what they say when they refuse.
 tool:
+  reorient:
+    name: "Réorienter"
+    # The part already has these axes.
+    already: "La pièce a déjà ces axes"
+    not_flat: "Viser une face plane"
+    more_occurrences: "%{count} exemplaires partageant la même définition seront modifiés"
+    settings_reset: "Axes obliques : les plans de coupe et blocages d'étirement sont réinitialisés"
+    hint:
+      swap_length_width: "Cliquer une pièce ou un assemblage pour permuter sa longueur et sa largeur"
+      swap_front_back: "Cliquer une pièce ou un assemblage pour permuter sa face et son dos"
+      adapt: "Viser une face et cliquer une arête pour y adapter les axes · %{alt_key} maintenu : inverser le sens"
+      origin: "Cliquer un point pour y placer l'origine"
+    option:
+      mode: "Mode"
+      mode_tip: "Ce que le clic change dans les axes (Tab : suivant)"
+      swap_length_width: "Longueur ↔ Largeur"
+      swap_length_width_tip: "Permuter la longueur et la largeur"
+      swap_front_back: "Face ↔ Dos"
+      swap_front_back_tip: "Permuter la face et le dos"
+      adapt: "Adapter"
+      adapt_tip: "Bleu sur la normale de la face, rouge sur l'arête"
+      origin: "Origine"
+      origin_tip: "Déplacer l'origine des axes"
   # Added to a hint while the tool copies.
   copying: "(copie)"
   select:
@@ -1549,6 +1572,8 @@ infer:
 
 # The operations, in Annuler / Rétablir and in the messages about them.
 operation:
+  # A component given new axes (decision 0054).
+  change_axes: "Changer les axes"
   # A body or group moved (copied) to another level of the tree (decision 0044).
   move_bodies_to: "Changer de niveau"
   copy_bodies_to: "Copier à un autre niveau"
@@ -1744,6 +1769,8 @@ error:
     out_of_step: "les résultats du noyau ne correspondent pas à l'opération"
     placement_not_rigid: "un placement est un déplacement et une rotation"
     not_rigid: "seuls les déplacements, rotations et symétries placent un exemplaire"
+    root_axes: "les axes du modèle ne se changent pas"
+    axes_not_direct: "de nouveaux axes sont un déplacement et une rotation, jamais une symétrie"
     array_count: "nombre de copies hors limites"
     root_renamed: "le modèle ne se renomme pas"
     name_taken: "une autre pièce ou un autre assemblage porte ce nom"
