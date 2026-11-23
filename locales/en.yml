@@ -266,6 +266,8 @@ loading:
   bodies: "Reading the bodies"
   previews: "Preview"
   finals: "Meshing"
+  textures: "Textures"
+  skip: "Continue Without Waiting"
   cancel: "Cancel"
 
 save_prompt:

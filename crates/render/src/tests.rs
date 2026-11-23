@@ -1542,7 +1542,8 @@ fn a_texture_is_laid_on_the_faces_at_its_real_size() {
         let v = if (i % side) < side / 2 { 0 } else { 255 };
         px.copy_from_slice(&[v, v, v, 255]);
     }
-    r.set_textures(&device, &queue, &[(7, &stripes)]);
+    let levels = texture_levels(stripes);
+    r.set_textures(&device, &queue, &[(7, levels.as_slice())]);
     let palette = [[0.8, 0.05, 0.05, 1.0]];
     let textures = [texture_entry(0, [2.0, 2.0], 0.0)];
     let p = Placement { material: 0, ..Placement::new(DMat4::IDENTITY) };
@@ -1896,4 +1897,24 @@ fn brep_edges_lie_on_their_triangles() {
         let both = s.edges.iter().filter(|e| e.n1[3] != 0.0 && e.n2[3] != 0.0).count();
         assert_eq!(both, s.edges.len(), "solid {k}: edge segments with one triangle");
     }
+}
+
+/// The tables give what the gamma formula gives, for every pair of values averaged.
+#[test]
+fn mip_levels_average_in_linear_light_as_the_formula() {
+    let formula = |a: u8, b: u8| {
+        let l = |c: u8| (c as f32 / 255.0).powf(2.2);
+        (((l(a) + l(a) + l(b) + l(b)) / 4.0).powf(1.0 / 2.2) * 255.0 + 0.5) as i32
+    };
+    for a in 0..=255u8 {
+        for b in 0..=255u8 {
+            let rgba = [a, a, a, 255, b, b, b, 255, a, a, a, 255, b, b, b, 255];
+            let got = mip_down(&rgba, 2)[0] as i32;
+            assert!((got - formula(a, b)).abs() <= 1, "{a} {b}: {got} against {}", formula(a, b));
+        }
+    }
+    let levels = texture_levels(vec![128; (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize]);
+    assert_eq!(levels.len(), TEXTURE_MIPS as usize);
+    assert_eq!(levels.last().unwrap().len(), 4);
+    assert_eq!(levels.last().unwrap()[0], 128, "a flat image stays as it is");
 }

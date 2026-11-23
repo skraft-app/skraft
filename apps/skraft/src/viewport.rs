@@ -74,9 +74,8 @@ pub struct Viewport {
     /// Each definition's grain — the axis of its mesh along its part's length, a texture's
     /// (docs/render/look.md#textures) — by document and definition, with the mesh's revision.
     grains: HashMap<(u64, u64), (u64, u8)>,
-    /// The textures' images decoded at the layers' size, by image id (none: unreadable);
-    /// an image's id is its content's hash, the same in every document.
-    images: HashMap<String, Option<Vec<u8>>>,
+    /// The textures' images, prepared off the interface's thread.
+    images: crate::images::TextureImages,
     /// The size of the last frame drawn (pixels).
     size: [u32; 2],
     /// What the render statistics overlay shows.
@@ -129,14 +128,6 @@ fn then_fade(a: render::Tint, b: render::Tint) -> render::Tint {
     }
     let mix = |i: usize| (a[i] * a[3] * (1.0 - b[3]) + b[i] * b[3]) / k;
     [mix(0), mix(1), mix(2), k]
-}
-
-/// A texture's image decoded, at the size of the renderer's layers (`render::TEXTURE_SIZE`
-/// square, sRGB RGBA): none when it does not read.
-fn decode_texture(bytes: &[u8]) -> Option<Vec<u8>> {
-    let image = image::load_from_memory(bytes).ok()?;
-    let side = render::TEXTURE_SIZE;
-    Some(image.resize_exact(side, side, image::imageops::FilterType::Triangle).to_rgba8().into_raw())
 }
 
 /// The axis of a definition's mesh along its part's length: its longest extent (x first on a
@@ -677,6 +668,16 @@ impl Viewport {
         self.gesture.is_some()
     }
 
+    /// Goes on preparing the textures of `doc`, whatever draws it or not, and says how many of
+    /// its images are done, out of all (docs/ui/loading.md).
+    pub fn textures_progress(&mut self, ctx: &egui::Context, doc: &skraft_model::Document) -> (usize, usize) {
+        let mut ids: Vec<String> = doc.materials().filter_map(|(_, m)| m.texture.as_ref().map(|t| t.image.clone())).collect();
+        ids.sort();
+        ids.dedup();
+        self.images.update(ctx, doc, ids.iter());
+        (ids.iter().filter(|id| self.images.settled(id)).count(), ids.len())
+    }
+
     /// The palette entry of `material`, given on first use (docs/render/look.md).
     fn slot(&mut self, material: Option<Id>) -> u32 {
         let Some(m) = material else { return render::NO_MATERIAL };
@@ -704,13 +705,9 @@ impl Viewport {
         let mut layers: Vec<String> = doc.materials().filter_map(|(_, m)| m.texture.as_ref().map(|t| t.image.clone())).collect();
         layers.sort();
         layers.dedup();
-        for id in &layers {
-            if !self.images.contains_key(id) {
-                let decoded = doc.asset(id).and_then(|a| decode_texture(&a.bytes));
-                self.images.insert(id.clone(), decoded);
-            }
-        }
-        layers.retain(|id| self.images.get(id).is_some_and(|i| i.is_some()));
+        // Those not ready yet ([`Viewport::textures_progress`], every frame): their material's
+        // colour meanwhile.
+        layers.retain(|id| self.images.get(id).is_some());
         let mut textures = vec![render::NO_TEXTURE; palette.len()];
         for (id, m) in doc.materials() {
             if let Some(t) = &m.texture
@@ -748,12 +745,8 @@ impl Viewport {
                 dm.parts.iter().map(|p| render::Part { id: p.solid.0, mesh: &p.mesh, face_paint: paint }).collect();
             renderer.set_mesh(device, dm.definition.0, dm.revision, &parts);
         }
-        let layer_images: Vec<(u64, &[u8])> = layers
-            .iter()
-            .filter_map(|id| {
-                self.images.get(id).and_then(|i| i.as_deref()).map(|rgba| (u64::from_str_radix(&id[..16], 16).unwrap_or(0), rgba))
-            })
-            .collect();
+        let layer_images: Vec<(u64, &[Vec<u8>])> =
+            layers.iter().filter_map(|id| self.images.get(id).map(|l| (u64::from_str_radix(&id[..16], 16).unwrap_or(0), l))).collect();
         renderer.set_textures(device, &state.queue, &layer_images);
         // The grain of each definition: its mesh's longest axis, measured again when it changes.
         for dm in scene.definition_meshes() {

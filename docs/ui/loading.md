@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/kernel/src/engine.rs, crates/kernel/src/job.rs, crates/tools/src/editor/loading.rs, apps/skraft/src/app.rs, crates/tools/src/bench.rs, web/index.html, scripts/build-web.sh]
+code: [apps/skraft/src/images.rs, web/image-worker.js, crates/render/src/lib.rs, crates/kernel/src/engine.rs, crates/kernel/src/job.rs, crates/tools/src/editor/loading.rs, apps/skraft/src/app.rs, crates/tools/src/bench.rs, web/index.html, scripts/build-web.sh]
 ---
 
 # Loading a model
@@ -44,7 +44,11 @@ final mesh: the file read (an import), previews done / asked, finals done / aske
 `apps/skraft`, `loading_window`: a modal over the active document once its load has lasted
 0.3 s (`LOAD_WINDOW_AFTER`; a small file would only flash it): its title (« Ouverture de… »,
 « Import de… »), a row per stage with its bar, « Annuler » (or Esc). It stays **until the last
-final mesh**. A document loading behind another tab shows it when brought forward.
+final mesh and the shown document's last texture**. With only textures left, the model is
+there: its button is « Continuer sans attendre » (or Esc), which closes the window and keeps
+the document, the textures still coming. A document loading behind another tab shows it when
+brought forward. **Why:** preparing textures on the interface's thread froze it for 1.4 s on a
+0.9 MB file with four textures, before this window could be drawn.
 
 ## Cancelling
 

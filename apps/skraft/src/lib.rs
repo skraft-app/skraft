@@ -20,6 +20,7 @@ mod file;
 mod handles;
 mod icons;
 mod identity;
+mod images;
 mod instance_name;
 mod journal_window;
 mod language;

@@ -306,6 +306,8 @@ loading:
   bodies: "Lecture des corps"
   previews: "Aperçu"
   finals: "Maillage"
+  textures: "Textures"
+  skip: "Continuer sans attendre"
   cancel: "Annuler"
 
 save_prompt:
