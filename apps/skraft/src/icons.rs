@@ -164,6 +164,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "drawing.make_unique" => UNIQUE,
         "drawing.add_view" => VIEW_ADD,
         "drawing.project_view" => VIEW_PROJECT,
+        "drawing.frame_view" => VIEW_ISO,
         "drawing.export_pdf" => EXPORT,
         "drawing.tool_text" => SHEET_TEXT,
         "drawing.tool_rect" => SHEET_RECT,

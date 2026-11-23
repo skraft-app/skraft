@@ -16,6 +16,7 @@ use skraft_theme::Theme;
 use skraft_tools::Editor;
 
 use crate::sheet_board::{Board, Column};
+use crate::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::viewport;
 
 /// A document's sheet shown and how it is seen (not saved).
@@ -85,6 +86,12 @@ pub struct SheetState {
     pub library: crate::sheet_library::CompositionsState,
     /// The composition being dragged from that card, placed where it is let go.
     pub carried: Option<Id>,
+    /// The dialog choosing what a view shows, while open.
+    pub picker: Option<ViewPicker>,
+    /// The view being placed by [`SheetTool::Place`].
+    placing: Option<Placing>,
+    /// The view being framed (« Cadrer la vue »), over the stage.
+    pub framer: Option<crate::view_framer::ViewFramer>,
     /// What the entity info shows while nothing is picked.
     pub info: InfoOn,
     /// What each view shows, for the document's revision and the meshes' generation.
@@ -649,7 +656,7 @@ struct ViewsCache {
     key: (u64, u64),
     /// By view and the direction it looks along: a composition's projected view looks its
     /// presentation's way (docs/ui/drawing.md#compositions).
-    views: HashMap<(Id, [u64; 9]), Arc<ViewData>>,
+    views: HashMap<(Id, [u64; 15]), Arc<ViewData>>,
 }
 
 /// What a view shows.
@@ -773,6 +780,8 @@ pub enum SheetTool {
     Project {
         base: Id,
     },
+    /// A click places the new view chosen in the dialog (« Nouvelle vue »).
+    Place,
     /// A click puts a text there (« Texte »).
     Text,
     /// A drag draws a rectangle (« Rectangle »), a circle from its centre (« Cercle »), a line
@@ -954,6 +963,9 @@ fn nearest_scale(s: f64) -> f64 {
     SCALES.iter().copied().min_by(|a, b| (a.ln() - s.ln()).abs().total_cmp(&(b.ln() - s.ln()).abs())).unwrap_or(1.0)
 }
 
+/// The least side a perspective view's frame is cropped to (paper millimetres).
+const MIN_VIEW_MM: f64 = 5.0;
+
 /// The least radius a circle's handle leaves it (paper millimetres).
 const MIN_RADIUS: f64 = 0.01;
 
@@ -976,6 +988,13 @@ fn regrip(g: &Grip, p: DVec2, shift: bool) -> ElementKind {
         }
         // A view's scale: as far out as the pointer is from its centre, the nearest standard one.
         (ElementKind::View(v), Handle::Scale(..)) => match &v.kind {
+            // A perspective view's frame is cropped about its centre.
+            ViewKind::Base { subject, look: Look::Camera { forward, up, perspective: Some(lens) }, scale, at } => {
+                let size = ((p - *at).abs() * 2.0).max(DVec2::splat(MIN_VIEW_MM));
+                let look = Look::Camera { forward: *forward, up: *up, perspective: Some(lens.cropped(size)) };
+                let kind = ViewKind::Base { subject: subject.clone(), look, scale: *scale, at: *at };
+                ElementKind::View(View { kind, ..v.clone() })
+            }
             ViewKind::Base { subject, look, scale, at } => {
                 let half = ((g.hi - g.lo) / 2.0).max(DVec2::splat(1e-9));
                 let k = ((p.x - at.x).abs() / half.x).max((p.y - at.y).abs() / half.y);
@@ -1093,7 +1112,9 @@ fn measure_of(g: &Grip) -> Option<Measure> {
             Some(Measure::Lengths(vcb))
         }
         (ElementKind::Circle { radius, .. }, Handle::Round(..)) => lengths(t!("drawing.vcb.radius"), vec![*radius]),
-        (ElementKind::View(View { kind: ViewKind::Base { scale, .. }, .. }), Handle::Scale(..)) => Some(Measure::Scale(*scale)),
+        (ElementKind::View(View { kind: ViewKind::Base { scale, look, .. }, .. }), Handle::Scale(..)) if look.frame().1.is_none() => {
+            Some(Measure::Scale(*scale))
+        }
         (ElementKind::Text { size, .. }, Handle::Size) => lengths(t!("drawing.vcb.height"), vec![*size]),
         (ElementKind::Dimension(dim), Handle::Dim) => match &dim.kind {
             DimKind::Linear { offset, .. } => lengths(t!("drawing.vcb.distance"), vec![*offset]),
@@ -1255,7 +1276,10 @@ fn snap_points(e: &Editor, d: &Drawing, views: &mut ViewsCache, sheet: Id, open:
                 let data = views.get(e, el.id, &r);
                 let (lo, hi) = frame_of(&r, data.bx3.map(|(lo, hi)| (lo.truncate(), hi.truncate())));
                 align.extend(corners(lo, hi).map(|q| t.transform_point2(q)));
-                on.extend(data.snaps(e, &r).vertices.iter().map(|v| t.transform_point2(v.3)));
+                // Its vertices are placed as seen parallel.
+                if r.perspective.is_none() {
+                    on.extend(data.snaps(e, &r).vertices.iter().map(|v| t.transform_point2(v.3)));
+                }
             }
             _ => {}
         }
@@ -1627,6 +1651,9 @@ impl SheetState {
     /// The status bar's hint on the sheet (docs/ui/drawing.md#placing-views): what the tool
     /// does at its step.
     pub fn status(&self) -> String {
+        if self.framer.is_some() {
+            return t!("drawing.hint.frame_view");
+        }
         if let Some(m) = &self.message {
             return m.clone();
         }
@@ -1641,6 +1668,7 @@ impl SheetState {
                 _ => t!("drawing.hint.select"),
             },
             SheetTool::Project { .. } => t!("drawing.hint.project"),
+            SheetTool::Place => t!("drawing.hint.place_view"),
             SheetTool::Text => t!("drawing.hint.text"),
             SheetTool::Rect if self.sketch.is_some() => t!("drawing.hint.rect_second"),
             SheetTool::Circle if self.sketch.is_some() => t!("drawing.hint.circle_second"),
@@ -1677,6 +1705,7 @@ impl SheetState {
         self.tool = tool;
         self.picks.clear();
         self.sketch = None;
+        self.placing = None;
     }
 }
 
@@ -1713,6 +1742,10 @@ pub fn subject_box(e: &Editor, r: &Resolved<'_>) -> Option<(DVec2, DVec2)> {
 /// A view's frame on the sheet, in millimetres: its subject's box (`bx`, seen in its frame) at
 /// its scale, centred on where it is placed; a small square while the box is not known.
 pub fn frame_of(r: &Resolved<'_>, bx: Option<(DVec2, DVec2)>) -> (DVec2, DVec2) {
+    // A perspective view's is its own (decision 0051).
+    if let Some(p) = r.perspective {
+        return (r.at - p.size / 2.0, r.at + p.size / 2.0);
+    }
     let half = bx.map_or(DVec2::splat(10.0), |(lo, hi)| (hi - lo) * r.scale / 2.0);
     (r.at - half, r.at + half)
 }
@@ -1773,6 +1806,8 @@ pub struct PictureLines {
     pub lines: Arc<skraft_tools::hidden_lines::ViewLines>,
     pub axes: [DVec3; 3],
     pub depth: f64,
+    /// In perspective, the eye: the lines are tangents off its axis, laid `depth` from it.
+    pub eye: Option<DVec3>,
     /// The hidden ones drawn too (*Lines*), dashed.
     pub hidden: bool,
     pub width: f32,
@@ -1788,9 +1823,22 @@ const DASH_MM: [f64; 2] = [2.0, 1.0];
 /// The largest side of a view's picture, in pixels.
 const MAX_PICTURE: f64 = 4096.0;
 
+/// A perspective view's near plane, short of its subject's box (`r`'s frame: x, y, depth).
+fn lens_near(r: &Resolved<'_>, (lo, hi): (DVec3, DVec3)) -> f64 {
+    let from_eye = r.perspective.map_or(0.0, |p| lo.z - p.eye.dot(r.frame.forward));
+    (from_eye * 0.9).max((hi.z - lo.z) * 1e-3).max(1e-3)
+}
+
 /// The camera seeing the box `(lo, hi)` (in `r`'s frame: x, y, depth) exactly across, parallel.
 fn picture_camera(r: &Resolved<'_>, (lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
     let f = &r.frame;
+    if let Some(p) = r.perspective {
+        // Its eye and opening, across its own frame; the near plane short of the subject.
+        let view = glam::dcamera::rh::view::look_to_mat4(p.eye, f.forward, f.up);
+        let near = lens_near(r, (lo, hi));
+        let aspect = p.size.x / p.size.y;
+        return (view, glam::camera::rh::proj::directx::perspective_infinite_reverse(p.fov_y as f32, aspect as f32, near as f32));
+    }
     let c = (lo + hi) / 2.0;
     let half = ((hi - lo) / 2.0).max(DVec3::splat(1e-3));
     let centre = f.right * c.x + f.up * c.y + f.forward * c.z;
@@ -1831,14 +1879,15 @@ fn wanted_picture(
     let b = data.bx3?;
     let size = [picture_side((frame.x * ppp) as f64), picture_side((frame.y * ppp) as f64)];
     // Points per paper millimetre in the picture.
-    let frame_mm = (b.1.x - b.0.x).max(1e-9) * r.scale;
+    let frame_mm = r.perspective.map_or((b.1.x - b.0.x).max(1e-9) * r.scale, |p| p.size.x);
     let ppm = size[0] as f64 / ppp as f64 / frame_mm;
     let f = &r.frame;
     let lines = lines.filter(|_| style != ViewStyle::Rendered).map(|l| PictureLines {
         lines: l,
         axes: [f.right, f.up, f.forward],
-        // In front of every part.
-        depth: b.0.z - 1.0,
+        // In front of every part; in perspective, in the middle of them, drawn over all the same.
+        depth: r.perspective.map_or(b.0.z - 1.0, |p| ((b.0.z + b.1.z) / 2.0 - p.eye.dot(f.forward)).max(lens_near(r, b) * 1.5)),
+        eye: r.perspective.map(|p| p.eye),
         hidden: style == ViewStyle::Lines,
         width: (LINE_MM * ppm).max(1.0) as f32,
         hidden_width: (HIDDEN_MM * ppm).max(0.6) as f32,
@@ -1866,6 +1915,8 @@ pub struct Printed {
     pub picture: Option<Wanted>,
     pub lines: Option<skraft_tools::hidden_lines::ViewLines>,
     pub centre: DVec2,
+    /// Paper millimetres per unit of its lines, from `centre`.
+    pub to_paper: f64,
 }
 
 /// What view `id` (`r`, drawn in `style`) puts on paper at `dpi`; none while its box is not
@@ -1886,15 +1937,24 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
         Wanted { slot: (id, None), size, camera: picture_camera(r, b), parts, lines: None, stamp: 0 }
     });
     let lines = if style == ViewStyle::Rendered { None } else { crate::view_lines::LinesJob::of(e, r, &placed).map(|job| job.run()) };
-    Some(Printed { frame, picture, lines, centre: ((b.0 + b.1) / 2.0).truncate() })
+    // A perspective's lines are tangents about its axis, on the frame's height.
+    let (centre, to_paper) = match r.perspective {
+        Some(p) => (DVec2::ZERO, p.size.y / (2.0 * (p.fov_y / 2.0).tan())),
+        None => (((b.0 + b.1) / 2.0).truncate(), r.scale),
+    };
+    Some(Printed { frame, picture, lines, centre, to_paper })
 }
 
-/// What of a view's frame changes its picture (its direction).
-fn e_key(r: &Resolved<'_>) -> [u64; 9] {
+/// What of a view's look changes its picture and lines: its direction, and a perspective's eye,
+/// opening and frame.
+fn e_key(r: &Resolved<'_>) -> [u64; 15] {
     let f = &r.frame;
-    let mut k = [0u64; 9];
+    let mut k = [0u64; 15];
     for (i, v) in [f.right, f.up, f.forward].iter().enumerate() {
         k[3 * i..3 * i + 3].copy_from_slice(&v.to_array().map(f64::to_bits));
+    }
+    if let Some(p) = r.perspective {
+        k[9..15].copy_from_slice(&[p.eye.x, p.eye.y, p.eye.z, p.fov_y, p.size.x, p.size.y].map(f64::to_bits));
     }
     k
 }
@@ -1914,11 +1974,7 @@ fn subject_of_selection(e: &Editor) -> Subject {
         return Subject::Component(part);
     }
     let paths: Vec<EntityPath> = e.selection().iter().map(|id| EntityPath::new(e.context().to_vec(), *id)).collect();
-    match paths.as_slice() {
-        [] => Subject::Model,
-        [one] => e.document().resolve(one).map_or(Subject::Model, |o| Subject::Component(o.component)),
-        _ => Subject::Occurrences(paths),
-    }
+    subject_of_paths(e.document(), &paths)
 }
 
 /// A new sheet, A3 landscape, in the presentation shown, shown.
@@ -1978,24 +2034,44 @@ pub fn new_presentation(e: &mut Editor, st: &mut SheetState) {
     }
 }
 
-/// A view from the front of what is selected (or the model), at the largest standard scale
-/// fitting half the paper, at the sheet's centre.
+/// A new view being placed: what it shows, the size of its box seen from the front (model units).
+#[derive(Clone, Debug)]
+pub struct Placing {
+    subject: Subject,
+    size: Option<DVec2>,
+}
+
+/// « Nouvelle vue »: the dialog asking what it shows, the 3D selection ticked in advance
+/// (decision 0051).
 pub fn add_view(e: &mut Editor, st: &mut SheetState) -> Result<(), String> {
-    let sheet = st.shown(e.document().drawing()).ok_or_else(|| t!("drawing.no_sheet"))?;
-    let (sheet_id, paper) = (sheet.id, sheet.paper);
-    // On the level open, at the paper's centre.
-    let d = e.document().drawing();
-    let (to, place) = d.opened(sheet_id, &st.open).unwrap_or((Container::Sheet(sheet_id), DAffine2::IDENTITY));
-    let n = d.elements_in(to).unwrap_or(&[]).iter().filter(|e| matches!(e.kind, ElementKind::View(_))).count() + 1;
+    st.shown(e.document().drawing()).ok_or_else(|| t!("drawing.no_sheet"))?;
     let subject = subject_of_selection(e);
-    let look = Look::Standard(Direction::Front);
-    let (frame, perspective) = look.frame();
-    let at = place.inverse().transform_point2(paper.size() / 2.0);
-    // Its scale from its box, seen at scale 1.
-    let probe = Resolved { subject: &subject, frame, perspective, scale: 1.0, at };
-    let scale = subject_box(e, &probe).map_or(1.0, |(lo, hi)| scale_to_fit(hi - lo, paper.size() / 2.0));
-    let view = View { name: t!("drawing.view_name", n = n), kind: ViewKind::Base { subject, look, scale, at }, style: ViewStyle::Lines };
-    e.apply(Operation::AddElement { to, element: ElementKind::View(view) }).map(|_| ())
+    st.picker = Some(ViewPicker::new(e.document(), Purpose::New, subject));
+    Ok(())
+}
+
+/// The dialog's answer: a new view to place, or view `id` showing `subject`, its scale and place
+/// kept.
+pub fn picked(e: &mut Editor, st: &mut SheetState, purpose: Purpose, subject: Subject) -> Result<(), String> {
+    match purpose {
+        Purpose::New => {
+            let (frame, perspective) = Look::Standard(Direction::Front).frame();
+            let probe = Resolved { subject: &subject, frame, perspective, scale: 1.0, at: DVec2::ZERO };
+            let size = subject_box(e, &probe).map(|(lo, hi)| hi - lo);
+            st.set_tool(SheetTool::Place);
+            st.placing = Some(Placing { subject, size });
+            Ok(())
+        }
+        Purpose::Change(id) => {
+            let Some(ElementKind::View(view)) = e.document().drawing().element(id).map(|el| el.kind.clone()) else { return Ok(()) };
+            let ViewKind::Base { subject: was, look, scale, at } = view.kind.clone() else { return Ok(()) };
+            if was == subject {
+                return Ok(());
+            }
+            let kind = ElementKind::View(View { kind: ViewKind::Base { subject, look, scale, at }, ..view });
+            e.apply(Operation::SetElement { element: id, kind }).map(|_| ())
+        }
+    }
 }
 
 /// The view picked on the sheet shown, if it is still there.
@@ -2004,6 +2080,12 @@ pub fn selected_view<'a>(e: &'a Editor, st: &SheetState) -> Option<(Id, &'a View
         ElementKind::View(v) => Some((el.id, v)),
         _ => None,
     })
+}
+
+/// « Cadrer la vue » on the view picked.
+pub fn frame_view(e: &Editor, st: &mut SheetState) -> Result<(), String> {
+    let id = selected_view(e, st).map(|(id, _)| id).ok_or_else(|| t!("drawing.no_view_selected"))?;
+    crate::view_framer::open(e, st, id)
 }
 
 /// Can a view be projected from the view picked (a parallel one)?
@@ -2066,7 +2148,7 @@ fn moved_element(kind: &ElementKind, offset: DVec2) -> ElementKind {
 /// Dimension `dim` as drawn now, its view's box computed afresh (the PDF's).
 pub fn dim_shape(e: &Editor, dim: &Dimension, projection: skraft_model::Projection) -> Option<crate::dims::DimShape> {
     let d = e.document().drawing();
-    let r = d.resolve_as(dim.view, projection)?;
+    let r = d.resolve_as(dim.view, projection).filter(|r| r.perspective.is_none())?;
     let (lo, hi) = subject_box3(e, &r)?;
     Some(crate::dims::shape(e.document(), &r, ((lo + hi) / 2.0).truncate(), dim))
 }
@@ -2124,7 +2206,7 @@ fn pick_at(
         .collect();
     let mut best: Option<(f64, Id, skraft_model::Anchor, Vec<DVec2>)> = None;
     for id in ids {
-        let Some(r) = d.resolve_as(id, projection) else { continue };
+        let Some(r) = d.resolve_as(id, projection).filter(|r| r.perspective.is_none()) else { continue };
         let data = views.get(e, id, &r);
         let snaps = data.snaps(e, &r);
         if tool == SheetTool::Linear {
@@ -2505,7 +2587,7 @@ fn fields_of<'a>(e: &'a Editor, d: &'a Drawing, id: Id, title: &'a str, placed: 
         count: d.sheet_number(id).map_or(0, |(_, c)| c),
         // The first base view it shows, through its instances.
         scale: placed.iter().find_map(|p| match &p.element.kind {
-            ElementKind::View(View { kind: ViewKind::Base { scale, .. }, .. }) => Some(*scale),
+            ElementKind::View(View { kind: ViewKind::Base { scale, look, .. }, .. }) if look.frame().1.is_none() => Some(*scale),
             _ => None,
         }),
         values: Some((e.document(), id)),
@@ -2662,6 +2744,10 @@ pub fn ui(
     let ink = viewport::color(theme.ui.view_text);
     ui.painter().rect_filled(rect, 0.0, viewport::color(theme.ui.view));
     crate::handles::publish(|| "sheet".into(), rect);
+    if st.framer.is_some() {
+        let room = fit.filter(|r| r.width() >= MIN_FIT_ROOM && r.height() >= MIN_FIT_ROOM).unwrap_or(rect);
+        return crate::view_framer::ui(ui, room, e, st, ready);
+    }
     let paper_room = rect;
     let centre = paper_room.center();
     if let Some(ask) = st.asked.take() {
@@ -2920,7 +3006,7 @@ pub fn ui(
         // Esc goes back one step of the tool: the shape or rectangle drawn dropped, the picks;
         // with Select the selection cleared; a tool stays (Space, `tool.select`, ends it), as in
         // the 3D view (docs/tools/interaction.md#selection). Not while a field is typed in.
-        let esc = ui.input(|i| i.key_pressed(egui::Key::Escape)) && ui.ctx().memory(|m| m.focused().is_none());
+        let esc = ui.input(|i| i.key_pressed(egui::Key::Escape)) && ui.ctx().memory(|m| m.focused().is_none()) && st.picker.is_none();
         if std::mem::take(&mut st.esc_eaten) {
         } else if esc {
             st.amend = None;
@@ -2928,6 +3014,8 @@ pub fn ui(
             if st.sketch.take().is_some() || st.marquee.take().is_some() || st.moving.take().is_some() || st.grip.take().is_some() {
             } else if !st.picks.is_empty() {
                 st.picks.clear();
+            } else if st.tool == SheetTool::Place {
+                st.set_tool(SheetTool::Select);
             } else if st.tool == SheetTool::Select {
                 // The selection first, then one level up.
                 if st.selected.is_empty() {
@@ -3082,6 +3170,12 @@ pub fn ui(
                     let instance = hit.filter(|v| drawing.element(*v).is_some_and(|el| el.kind.instance().is_some()));
                     match (instance, hit) {
                         (Some(i), _) => st.enter(i),
+                        // A view: its point of view (decision 0051).
+                        (None, Some(v)) if drawing.element(v).is_some_and(|el| matches!(el.kind, ElementKind::View(_))) => {
+                            if let Err(why) = crate::view_framer::open(e, st, v) {
+                                st.message = Some(why);
+                            }
+                        }
                         (None, None) if st.open.is_empty() => {
                             let on_paper =
                                 at.map(|p| pv.to_sheet(p)).is_some_and(|q| q.cmpge(DVec2::ZERO).all() && q.cmple(paper.size()).all());
@@ -3174,6 +3268,36 @@ pub fn ui(
                             }
                         }
                     }
+                }
+            }
+            SheetTool::Place => {
+                let board_view = Paperview::new(centre, st.pan, st.zoom);
+                let over = response.hover_pos().filter(|p| board.sheet_at(board_view.to_sheet(*p)) == Some(id));
+                match (st.placing.clone(), over) {
+                    (None, _) => st.tool = SheetTool::Select,
+                    (Some(placing), Some(p)) => {
+                        // Its frame where a click puts it, at the largest scale fitting half the paper.
+                        let at = lv.to_sheet(p);
+                        let scale = placing.size.map_or(1.0, |s| scale_to_fit(s, paper.size() / 2.0));
+                        let half = placing.size.map_or(DVec2::splat(10.0), |s| s * scale / 2.0);
+                        let q = lv.quad(at - half, at + half);
+                        let corners = [q[0], q[1], q[2], q[3], q[0]];
+                        painter.extend(egui::Shape::dashed_line(&corners, egui::Stroke::new(1.0, egui::Color32::from_gray(120)), 4.0, 4.0));
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                        if clicked {
+                            let n =
+                                drawing.elements_in(to).unwrap_or(&[]).iter().filter(|e| matches!(e.kind, ElementKind::View(_))).count()
+                                    + 1;
+                            let look = Look::Standard(Direction::Front);
+                            let kind = ViewKind::Base { subject: placing.subject, look, scale, at };
+                            let view = View { name: t!("drawing.view_name", n = n), kind, style: ViewStyle::Lines };
+                            if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element: ElementKind::View(view) }) {
+                                st.selected = o.element.into_iter().collect();
+                            }
+                            st.set_tool(SheetTool::Select);
+                        }
+                    }
+                    _ => {}
                 }
             }
             SheetTool::Project { base } => {
@@ -3402,7 +3526,8 @@ fn draw_elements(
                     }
                     let angle = pv.angle();
                     let label = quad[0] + egui::emath::Rot2::from_angle(angle) * egui::vec2(0.0, -2.0);
-                    let name = format!("{} · {}", v.name, scale_label(r.scale));
+                    let shown_scale = if r.perspective.is_some() { t!("drawing.no_scale") } else { scale_label(r.scale) };
+                    let name = format!("{} · {}", v.name, shown_scale);
                     turned_text(painter, label, angle, name, egui::FontId::proportional(11.0), frame_ink);
                 }
                 if alone {
@@ -3412,6 +3537,10 @@ fn draw_elements(
             }
             ElementKind::Dimension(dim) => {
                 let Some(r) = d.resolve_as(dim.view, shown.projection) else { continue };
+                // Kept, not drawn: a perspective has no measure to read (decision 0051).
+                if r.perspective.is_some() {
+                    continue;
+                }
                 let Some(centre) = views.get(e, dim.view, &r).centre() else { continue };
                 let shape = crate::dims::shape(e.document(), &r, centre, dim);
                 let rect = draw_dim(painter, &pv, &shape);

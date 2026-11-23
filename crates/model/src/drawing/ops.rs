@@ -216,9 +216,14 @@ impl Document {
                             forward.is_finite()
                                 && up.is_finite()
                                 && forward.length() > 1e-9
-                                && perspective.is_none_or(|p| p.eye.is_finite() && p.fov_y > 0.0 && p.fov_y < 3.0)
+                                && perspective.is_none_or(|p| {
+                                    p.eye.is_finite() && p.fov_y > 0.0 && p.fov_y < 3.0 && p.size.is_finite() && p.size.min_element() > 0.0
+                                })
                         }
                     };
+                    if look.frame().1.is_some() && own.is_some_and(|o| self.drawing.has_projected_views(o)) {
+                        return Err(Error::Invalid(Refusal::ProjectedFromPerspective));
+                    }
                     let subject_ok = match subject {
                         Subject::Model => true,
                         Subject::Component(c) => self.components.contains_key(c),

@@ -3140,11 +3140,18 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
             match &view.kind {
                 ViewKind::Base { subject, look, scale, at } => {
                     ui.label(t!("panel.entity_info.subject"));
-                    ui.label(match subject {
+                    let shows = match subject {
                         Subject::Model => t!("drawing.subject.model"),
                         Subject::Component(c) => doc.component(*c).map_or_else(|_| "—".into(), |c| c.name.clone()),
                         Subject::Occurrences(paths) => t!("drawing.subject.occurrences", count = paths.len()),
-                    });
+                    };
+                    // Changed in the dialog a new view is chosen in (decision 0051).
+                    let change = ui.add_sized([field, ui.spacing().interact_size.y], egui::Button::new(shows).truncate());
+                    crate::handles::publish(|| "view_subject".into(), change.rect);
+                    if change.tip(t!("drawing.picker.change_tip")).clicked() {
+                        let purpose = crate::view_picker::Purpose::Change(id);
+                        st.picker = Some(crate::view_picker::ViewPicker::new(doc, purpose, subject.clone()));
+                    }
                     ui.end_row();
                     let base = |look: Look, scale: f64| View {
                         kind: ViewKind::Base { subject: subject.clone(), look, scale, at: *at },
@@ -3172,26 +3179,39 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                         ui.separator();
                         // The 3D view's camera now, perspective or parallel.
                         if ui.selectable_label(matches!(look, Look::Camera { .. }), t!("drawing.direction.camera")).clicked() {
-                            let cam = &editor.camera;
-                            let perspective = match cam.projection {
-                                skraft_tools::camera::Projection::Perspective { fov_y } => {
-                                    Some(skraft_model::Perspective { eye: cam.eye, fov_y })
+                            // A perspective keeps the frame the view has now.
+                            let size = d.resolve(id).map_or(glam::DVec2::splat(100.0), |r| {
+                                let (lo, hi) = crate::sheet::view_frame(editor, &r);
+                                (hi - lo).max(glam::DVec2::splat(10.0))
+                            });
+                            let look = crate::view_framer::camera_look(doc, subject, &editor.camera, size);
+                            actions.push(set(base(look, *scale)));
+                        }
+                    });
+                    ui.end_row();
+                    if look.frame().1.is_some() {
+                        ui.label(t!("panel.entity_info.scale"));
+                        ui.label(t!("drawing.no_scale"));
+                        ui.end_row();
+                        let hidden = d.container_of(id).and_then(|c| d.elements_in(c)).map_or(0, |list| {
+                            list.iter().filter(|el| matches!(&el.kind, ElementKind::Dimension(dim) if dim.view == id)).count()
+                        });
+                        if hidden > 0 {
+                            ui.label(t!("panel.entity_info.view_dimensions"));
+                            ui.label(t!("drawing.dims_hidden", count = hidden));
+                            ui.end_row();
+                        }
+                    } else {
+                        field_label(ui, t!("panel.entity_info.scale"));
+                        combo(("drawing_scale", id.0)).selected_text(crate::sheet::scale_label(*scale)).show_ui(ui, |ui| {
+                            for s in crate::sheet::SCALES {
+                                if ui.selectable_label((s - scale).abs() < 1e-12, crate::sheet::scale_label(*s)).clicked() {
+                                    actions.push(set(base(look.clone(), *s)));
                                 }
-                                _ => None,
-                            };
-                            actions.push(set(base(Look::Camera { forward: cam.forward(), up: cam.up(), perspective }, *scale)));
-                        }
-                    });
-                    ui.end_row();
-                    field_label(ui, t!("panel.entity_info.scale"));
-                    combo(("drawing_scale", id.0)).selected_text(crate::sheet::scale_label(*scale)).show_ui(ui, |ui| {
-                        for s in crate::sheet::SCALES {
-                            if ui.selectable_label((s - scale).abs() < 1e-12, crate::sheet::scale_label(*s)).clicked() {
-                                actions.push(set(base(look.clone(), *s)));
                             }
-                        }
-                    });
-                    ui.end_row();
+                        });
+                        ui.end_row();
+                    }
                 }
                 ViewKind::Projected { base, side, .. } => {
                     let base_name = d
@@ -3509,7 +3529,7 @@ fn field_name(f: &str) -> String {
 }
 
 /// A standard direction's name.
-fn direction_label(d: skraft_model::Direction) -> String {
+pub(crate) fn direction_label(d: skraft_model::Direction) -> String {
     use skraft_model::Direction;
     match d {
         Direction::Front => t!("drawing.direction.front"),

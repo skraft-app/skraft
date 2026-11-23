@@ -584,6 +584,22 @@ impl SkraftApp {
         self.advance_closing();
     }
 
+    /// The dialog choosing what a view shows (decision 0051), on the shown document.
+    fn view_picker_dialog(&mut self, ctx: &egui::Context) {
+        let Some(d) = self.docs.active_mut() else { return };
+        let Some(mut picker) = d.sheet.picker.take() else { return };
+        let doc = d.id;
+        match picker.show(ctx, &d.editor, &mut self.viewport.thumbnails, doc) {
+            crate::view_picker::Answer::Open => d.sheet.picker = Some(picker),
+            crate::view_picker::Answer::Cancel => {}
+            crate::view_picker::Answer::Done(subject) => {
+                if let Err(e) = crate::sheet::picked(&mut d.editor, &mut d.sheet, picker.purpose, subject) {
+                    self.toasts.push(Note::error(t!("notice.op_failed", op = t!("operation.set_element")), e));
+                }
+            }
+        }
+    }
+
     /// The dialog naming what was just made (docs/tools/quick-tools.md): opened by an editor (its tool's
     /// « Nommage des pièces ») or by a toast's « Renommer »; gone with its document or what it names.
     fn naming_dialog(&mut self, ctx: &egui::Context) {
@@ -847,9 +863,15 @@ impl SkraftApp {
             };
         };
         let e = &d.editor;
+        // While a view is framed, nothing else changes the document or the sheet.
+        if d.workspace.stage == Stage::Sheet && d.sheet.framer.is_some() && ["drawing.", "edit.", "tool."].iter().any(|p| id.starts_with(p))
+        {
+            return false;
+        }
         let has_sel = !e.selection().is_empty();
         let section = e.document().settings().display.section.is_some();
         match id {
+            "drawing.frame_view" => crate::sheet::selected_view(e, &d.sheet).is_some(),
             "edit.undo" => e.history().can_undo(),
             "edit.redo" => e.history().can_redo(),
             // « Pièces » too (docs/tools/selection.md): its selection at any depth.
@@ -1133,6 +1155,7 @@ impl SkraftApp {
             }
             "drawing.add_view" => return crate::sheet::add_view(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.project_view" => return crate::sheet::project_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.frame_view" => return crate::sheet::frame_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.make_composition" => return crate::sheet::compose_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.explode" => return crate::sheet::explode_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.make_unique" => return crate::sheet::unique_selected(&mut doc.editor, &doc.sheet).map_err(Note::info),
@@ -1449,7 +1472,12 @@ impl SkraftApp {
     /// Do the keys go to the shown document's tool and the shortcuts ([`Self::keyboard`]), no
     /// modal dialog (closing, naming a part) taking them?
     fn keys_to_tools(&self) -> bool {
-        self.closing.as_ref().is_none_or(|c| c.asking.is_none()) && self.naming.is_none()
+        self.closing.as_ref().is_none_or(|c| c.asking.is_none())
+            && self.naming.is_none()
+            && self
+                .docs
+                .active()
+                .is_none_or(|d| d.sheet.picker.is_none() && (d.workspace.stage != Stage::Sheet || d.sheet.framer.is_none()))
     }
 
     fn keyboard(&mut self, ctx: &egui::Context) {
@@ -3047,6 +3075,7 @@ impl eframe::App for SkraftApp {
             }
         }
         self.naming_dialog(&ctx);
+        self.view_picker_dialog(&ctx);
         for a in actions {
             self.act(a);
         }

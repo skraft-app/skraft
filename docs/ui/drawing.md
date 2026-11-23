@@ -85,6 +85,44 @@ and direction (a composition's projected view looks its presentation's way) for 
 revision and the meshes' generation (`sheet::ViewsCache`): a sheet drawn again computes none of
 it.
 
+### Choosing what a view shows
+
+« Nouvelle vue » and the « Montre » field of a base view's entity info open one dialog
+(`view_picker::ViewPicker`, decision 0051): « Le modèle » above the model's tree, its occurrences
+with their thumbnails, unfolded by their chevron, a search listing the matches flat. Rows are
+ticked, several at once; a row ticked holds what is under it, shown as ticked. Nothing ticked is
+the whole model, one occurrence its component in its own axes, several the occurrences where they
+stand. For a new view the 3D selection (or the part open) comes ticked; it is then placed by a
+click, its frame following the pointer over the active sheet, at the largest standard scale
+fitting half the paper, Esc giving up. A view whose content changes keeps its scale and place; a
+dimension whose anchor is no longer shown becomes an orphan.
+
+### Framing a view
+
+« Cadrer la vue » (`drawing.frame_view`, or a double click on a view; a projected view opens its
+base) shows the view's subject alone, large over the free area (`view_framer::ViewFramer`, decision
+0051), the part its frame will hold unmasked. A drag turns it, as the 3D view's orbit and short of
+going over the top; the right button pans, the wheel zooms; those two only move what is seen here.
+A bar puts it on a standard direction. **Valider** (Enter) changes the view in one undoable step,
+its projected views following; **Annuler** (Esc) leaves it. The 3D view's camera and selection do
+not move, and while it is open the commands that change the document are off. A direction is in
+the subject's axes: « Caméra » takes the 3D camera into a component's axes through its first
+occurrence.
+
+### Perspective views
+
+In the framing bar, **Perspective** puts the eye where the subject fills the frame the view has,
+at 50 mm; its slider (14 to 200 mm, on a 24 mm high film) changes the focal length, the eye moving
+so that the subject keeps its size. There, the right button moves the eye across, the wheel towards
+the subject, and the standard directions stay in perspective. A view others are projected from
+stays parallel.
+
+A perspective view (`Perspective`: eye, opening, size on the paper) has **its own frame**: its
+handles crop it about its centre, what it shows keeping its size. It is marked « Sans échelle »,
+takes no part in the sheet's scale field and takes **no dimension**: those it has are kept, hidden,
+counted in its entity info, and come back in parallel. Its lines come from the display meshes,
+cut at the eye and at its frame ([Lines](#lines)).
+
 ## Lines
 
 A view's lines are its parts' edges and the silhouettes of their curved faces, seen parallel
@@ -111,6 +149,11 @@ shown while new ones are on their way.
   take their neighbours' look (no specks at corners). Pieces of one edge join into polylines.
   On Cruise (2 789 parts, 3.97 M triangles; `bench_hidden_lines`): 0.4 to 1.2 s a view on every
   core.
+- **In perspective, always on the meshes** (SolidCore's are orthographic): the same search on the
+  scene mapped so that the rays from the eye become parallel, (x, y, z) → (d x / z, d y / z,
+  -d² / z), d a distance within the scene. Triangles and segments are cut at a near plane first,
+  and at the frame, so that the eye may stand inside the model; the lines are the tangents of
+  their angles off the view's axis.
 
 The lines are drawn into the view's picture ([Rendered views](#rendered-views)) by the
 renderer, over everything (its overlay): the visible ones 0.35 mm wide on paper, nearly black,
@@ -130,7 +173,7 @@ redraws it past a step), 4 096 at most — its parts for the *Rendered* and *Hyb
 lines for *Lines* and *Hybrid*; a picture is drawn again when its direction, its parts and
 places, its lines or its size change, within 40 ms a frame (the others the next), shown from the
 next frame. A picture gone off screen is kept within a memory budget (256 MB, 64 on the web), the
-least recently seen freed first, so that panning back redraws nothing. A perspective view is drawn parallel for now.
+least recently seen freed first, so that panning back redraws nothing. A perspective view's picture is seen from its eye, across its own frame.
 
 ## The stage
 
@@ -601,10 +644,9 @@ Each change is one operation (`SetElement`, `SetSheet`, `SetPresentation`, `SetF
 The fixed group: Select and Erase (`edit.erase`). One tab, « Feuille ». Its group « Présentation »:
 « Nouvelle présentation » (`drawing.new_presentation`, blank; from a template, in the
 [navigator](#navigator)), « Nouvelle feuille » (`drawing.new_sheet`, A3, shown) and « Exporter en
-PDF ». Its group « Vue »: « Nouvelle vue » (`drawing.add_view`: the front of the part open, else of the
-one occurrence selected — its component in its own axes —, else of the occurrences selected,
-else of the model; at the largest standard scale (10:1 to 1:5000) fitting half the paper, at
-its centre), « Vue projetée » (`drawing.project_view`, checked while its tool runs); the groups « Dessiner »,
+PDF ». Its group « Vue »: « Nouvelle vue » (`drawing.add_view`: [the dialog](#choosing-what-a-view-shows), then
+a click places its front view, at the largest standard scale (10:1 to 1:5000) fitting half the
+paper), « Vue projetée » (`drawing.project_view`, checked while its tool runs); the groups « Dessiner »,
 « Organiser » (« Créer une composition », « Éclater », « Rendre unique »), « Coter » and
 « Style »: « Traits », « Rendu », « Hybride » (`drawing.style_lines`,
 `_rendered`, `_hybrid`: the views picked, checked when they all have it; `SetElement`, a

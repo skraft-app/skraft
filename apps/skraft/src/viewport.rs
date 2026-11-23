@@ -243,6 +243,11 @@ impl Viewport {
                 egui_renderer.free_texture(&t);
             }
         }
+        // The thumbnails of the dialog choosing a view's content: no 3D view draws them here.
+        if self.thumbnails.pending() {
+            let _ = self.sync(state, editor, theme);
+            self.render_thumbnails(ctx, state, ctx.pixels_per_point(), editor, theme);
+        }
         let todo: Vec<&crate::sheet::Wanted> =
             wanted.iter().filter(|w| self.sheet.get(&(doc, w.slot)).is_none_or(|p| p.stamp != w.stamp)).collect();
         if todo.is_empty() {
@@ -1099,7 +1104,10 @@ fn draw_sheet_picture(
     let mut overlay = Vec::new();
     if let Some(pl) = &w.lines {
         let [right, up, forward] = pl.axes;
-        let at = |p: glam::DVec2| right * p.x + up * p.y + forward * pl.depth;
+        let at = |p: glam::DVec2| match pl.eye {
+            Some(eye) => eye + (right * p.x + up * p.y + forward) * pl.depth,
+            None => right * p.x + up * p.y + forward * pl.depth,
+        };
         if pl.hidden {
             let dash = Some(render::Dash { pattern: [pl.dash[0], pl.dash[1], 0.0, 0.0], lay: render::Lay::Screen(0.0) });
             for poly in &pl.lines.hidden {

@@ -165,8 +165,10 @@ fn views_refuse_loops_perspective_bases_and_bad_values() {
     let persp = Look::Camera {
         forward: DVec3::new(1.0, 1.0, -0.5),
         up: DVec3::Z,
-        perspective: Some(Perspective { eye: DVec3::new(-1000.0, -1000.0, 800.0), fov_y: 0.6 }),
+        perspective: Some(Perspective { eye: DVec3::new(-1000.0, -1000.0, 800.0), fov_y: 0.6, size: DVec2::new(120.0, 80.0) }),
     };
+    let err = h.apply(Operation::SetElement { element: front, kind: base(persp.clone()) }).unwrap_err();
+    assert!(matches!(err, Error::Invalid(Refusal::ProjectedFromPerspective)), "a base with projected views stays parallel");
     let p = add(&mut h, s, base(persp)).unwrap();
     assert!(matches!(add(&mut h, s, projected(p, Side::Right)).unwrap_err(), Error::Invalid(Refusal::ProjectedFromPerspective)));
     assert!(matches!(add(&mut h, s, projected(Id(9999), Side::Right)).unwrap_err(), Error::NotFound(Id(9999))));
