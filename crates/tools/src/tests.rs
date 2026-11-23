@@ -7872,6 +7872,19 @@ fn reorient_adapt_reverses_red_with_the_other_modifier() {
 }
 
 #[test]
+fn reorient_quarter_turn_reverses_with_the_other_modifier() {
+    let red = |alt: bool| {
+        let (mut e, occ, _) = reorient_board("swap_length_width");
+        e.set_alt(alt);
+        click(&mut e, DVec3::new(300.0, 200.0, 18.0));
+        e.set_alt(false);
+        e.document().resolve_part(&EntityPath::root(occ)).unwrap().2.matrix3.x_axis
+    };
+    assert!(close(red(false), -DVec3::Y), "{}", red(false));
+    assert!(close(red(true), DVec3::Y), "{}", red(true));
+}
+
+#[test]
 fn reorient_adapt_refuses_a_curved_face_and_resets_settings_on_oblique_axes() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();

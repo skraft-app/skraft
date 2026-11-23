@@ -9,7 +9,8 @@ component; an assembly's parts keep their own axes.
 
 The bar's « Mode », saved with the tool; Tab goes to the next.
 
-- **Longueur ↔ Largeur**: a quarter turn about blue.
+- **Longueur ↔ Largeur**: a quarter turn about blue, clockwise seen from the front; the other
+  modifier (Command on macOS, Alt elsewhere) held turns it the other way.
 - **Face ↔ Dos**: a half turn about red.
 - **Adapter**: blue on the normal of the flat face aimed at, red on its side within 8 pixels of the
   cursor, else its longest side (the nearest to the current red on a tie), the face on green's

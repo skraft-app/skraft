@@ -188,6 +188,7 @@ fn aim(px: DVec2, mode: &'static str, known: Option<&Aim>, cx: &Cx<'_>) -> Optio
     let target = target_of(component, known.filter(|k| k.component == component).map(|k| &k.target), cx)?;
     let (mut face_axes, mut inference) = (None, None);
     let axes = match mode {
+        SWAP_LENGTH_WIDTH if reversed => DAffine3::from_mat3(DMat3::from_cols(DVec3::Y, -DVec3::X, DVec3::Z)),
         SWAP_LENGTH_WIDTH => DAffine3::from_mat3(DMat3::from_cols(-DVec3::Y, DVec3::X, DVec3::Z)),
         SWAP_FRONT_BACK => DAffine3::from_mat3(DMat3::from_cols(DVec3::X, -DVec3::Y, -DVec3::Z)),
         ADAPT => {
@@ -386,7 +387,7 @@ impl Tool for ReorientTool {
             SWAP_FRONT_BACK => t!("tool.reorient.hint.swap_front_back"),
             ADAPT => t!("tool.reorient.hint.adapt", alt_key = alt_key()),
             ORIGIN => t!("tool.reorient.hint.origin"),
-            _ => t!("tool.reorient.hint.swap_length_width"),
+            _ => t!("tool.reorient.hint.swap_length_width", alt_key = alt_key()),
         }
     }
 
