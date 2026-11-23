@@ -52,6 +52,10 @@ pub struct Preferences {
     pub show_render_stats: bool,
     /// The « Composants » card as a list, not a grid of thumbnails (docs/ui/components-library.md).
     pub components_list: bool,
+    /// The « Compositions » card as a list.
+    pub compositions_list: bool,
+    /// The « Matières » card as a list.
+    pub materials_list: bool,
     /// The last files opened or saved, the latest first (desktop: the browser gives no path to
     /// open again).
     pub recent_files: Vec<String>,
@@ -101,6 +105,8 @@ impl Default for Preferences {
             shortcuts: BTreeMap::new(),
             show_render_stats: false,
             components_list: false,
+            compositions_list: false,
+            materials_list: false,
             recent_files: Vec::new(),
             reopen_documents: true,
             open_files: Vec::new(),

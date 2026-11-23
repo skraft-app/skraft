@@ -28,6 +28,7 @@ pub struct Doc {
     pub outliner: crate::panels::OutlinerState,
     /// Its « Composants » card's rows (docs/ui/components-library.md).
     pub library: crate::library::LibraryState,
+    pub materials: crate::materials::MaterialsState,
     /// Its parts list's sort and rows (docs/ui/parts-list.md).
     pub parts_list: crate::parts_table::PartsListState,
     /// Its drawing's sheet shown and how (docs/ui/drawing.md).
@@ -151,6 +152,7 @@ impl Docs {
             vcb: String::new(),
             outliner: Default::default(),
             library: Default::default(),
+            materials: Default::default(),
             parts_list: Default::default(),
             sheet: Default::default(),
             lines: Default::default(),

@@ -10,8 +10,9 @@ use skraft_model::{Container, Drawing, Id, Operation, Projection};
 use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
-use crate::library::{LIST_ROW, LIST_THUMB, Line, Rows, TILE_GAP, TILE_LABEL, count_badge, name_job, natural_cmp, view_toggle};
-use crate::panels::{Action, rename_field, tree_row};
+use crate::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
+use crate::library::natural_cmp;
+use crate::panels::Action;
 use crate::sheet::{SheetState, Sketch, sketch_of};
 use crate::style::Tip;
 
@@ -68,25 +69,10 @@ fn instances_here(d: &Drawing, st: &SheetState, id: Id) -> Vec<Id> {
         .collect()
 }
 
-/// The colours of an item.
-struct Ink {
-    selected: bool,
-    text: egui::Color32,
-    weak: egui::Color32,
-}
-
 fn ink_of(ui: &egui::Ui, d: &Drawing, st: &SheetState, id: Id) -> Ink {
     let here = instances_here(d, st, id);
     let selected = !here.is_empty() && st.selected.len() == here.len() && here.iter().all(|i| st.selected.contains(i));
-    let v = ui.visuals();
-    let text = if selected {
-        v.selection.stroke.color
-    } else if placeable(d, st, id) {
-        v.text_color()
-    } else {
-        v.weak_text_color()
-    };
-    Ink { selected, text, weak: v.weak_text_color() }
+    Ink::new(ui, selected, !placeable(d, st, id))
 }
 
 /// The outline of `id` in `rect`, on a ground of its own.
@@ -118,7 +104,7 @@ pub fn compositions(
     }
     let salt = ui.make_persistent_id("compositions_search");
     crate::search::field(ui, salt, "compositions", &mut st.library.search, |ui, side| {
-        view_toggle(ui, side, as_list, "compositions", actions)
+        catalog::view_toggle(ui, side, as_list, Card::Compositions, actions)
     });
     ui.add_space(crate::search::GAP - ui.spacing().item_spacing.y);
     let Some((_, _, rows)) = st.library.rows.clone() else { return };
@@ -128,117 +114,56 @@ pub fn compositions(
     }
     let room = (height - (ui.cursor().top() - top)).max(0.0);
     let area = area.max_height(room).min_scrolled_height(room);
-    if as_list {
-        list(ui, editor, d, st, &rows, actions, area);
-    } else {
-        grid(ui, editor, d, st, &rows, actions, area);
+    catalog::show(ui, &mut Compositions { e: editor, d, st }, &rows, as_list, actions, area);
+}
+
+/// The card's items, for the shared presentation.
+struct Compositions<'a> {
+    e: &'a Editor,
+    d: &'a Drawing,
+    st: &'a mut SheetState,
+}
+
+impl Shelf for Compositions<'_> {
+    fn rename_salt(&self) -> &'static str {
+        "compositions_rename"
     }
-}
 
-/// The compositions as rows: an outline, the name, the count.
-fn list(ui: &mut egui::Ui, e: &Editor, d: &Drawing, st: &mut SheetState, rows: &Rows, actions: &mut Vec<Action>, area: egui::ScrollArea) {
-    let lines = rows.lines();
-    area.show_rows(ui, LIST_ROW, lines.len(), |ui, range| {
-        ui.set_min_width(ui.available_width());
-        for line in &lines[range] {
-            let (id, count) = match *line {
-                Line::Header { unused } => {
-                    header(ui, LIST_ROW, unused, actions);
-                    continue;
-                }
-                Line::Item { id, count } => (id, count),
-            };
-            let Some(c) = d.composition(id) else { continue };
-            let ink = ink_of(ui, d, st, id);
-            let rename = ui.make_persistent_id(("compositions_rename", id));
-            let renaming = is_renaming(ui, rename);
-            let (response, renamed) = tree_row(ui, LIST_ROW, ink.selected, false, false, |ui| {
-                let (square, _) = ui.allocate_exact_size(egui::Vec2::splat(LIST_THUMB), egui::Sense::hover());
-                picture(ui, e, st, id, square, &ink);
-                if renaming {
-                    return rename_field(ui, rename, &c.name);
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(n) = count {
-                        ui.add(egui::Label::new(egui::RichText::new(format!("×{n}")).color(ink.weak)).selectable(false));
-                    }
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.add(egui::Label::new(name_job(ui, &c.name, !c.named, ink.text, ink.selected)).selectable(false).truncate());
-                    });
-                });
-                None
-            });
-            item(ui, d, st, id, count, response, (rename, renaming, renamed), actions);
+    fn has(&self, id: Id) -> bool {
+        self.d.composition(id).is_some()
+    }
+
+    fn name(&self, id: Id) -> (String, bool) {
+        self.d.composition(id).map_or_else(|| (String::new(), false), |c| (c.name.clone(), !c.named))
+    }
+
+    fn ink(&mut self, ui: &egui::Ui, id: Id) -> Ink {
+        ink_of(ui, self.d, self.st, id)
+    }
+
+    fn picture(&mut self, ui: &mut egui::Ui, rect: egui::Rect, id: Id, ink: &Ink) {
+        picture(ui, self.e, self.st, id, rect, ink);
+    }
+
+    fn interact(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: Id,
+        count: Option<u64>,
+        response: egui::Response,
+        rename: Renaming,
+        actions: &mut Vec<Action>,
+    ) {
+        item(ui, self.d, self.st, id, count, response, rename, actions);
+    }
+
+    fn header(&mut self, ui: &mut egui::Ui, height: f32, unused: bool, actions: &mut Vec<Action>) {
+        let title = if unused { t!("panel.compositions.unused") } else { t!("panel.compositions.on_sheets") };
+        let purge = unused.then(|| (true, t!("panel.compositions.purge_tip"), "compositions:purge"));
+        if catalog::header(ui, height, title, purge) {
+            actions.push(Action::Apply(Operation::PurgeCompositions));
         }
-    });
-}
-
-/// The compositions as tiles, their names under them, their count over a corner.
-fn grid(ui: &mut egui::Ui, e: &Editor, d: &Drawing, st: &mut SheetState, rows: &Rows, actions: &mut Vec<Action>, area: egui::ScrollArea) {
-    let header_height = ui.spacing().interact_size.y;
-    let apart = !rows.unused.is_empty();
-    area.show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        let tile = crate::thumbnails::TILE;
-        let columns = (((ui.available_width() + TILE_GAP) / (tile + TILE_GAP)).floor() as usize).max(1);
-        let used: Vec<(Id, Option<u64>)> = rows.used.iter().map(|&(id, n)| (id, Some(n))).collect();
-        let unused: Vec<(Id, Option<u64>)> = rows.unused.iter().map(|&id| (id, None)).collect();
-        for (section, items) in [(false, used), (true, unused)] {
-            if items.is_empty() {
-                continue;
-            }
-            if apart {
-                header(ui, header_height, section, actions);
-            }
-            for chunk in items.chunks(columns) {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = TILE_GAP;
-                    for &(id, count) in chunk {
-                        let Some(c) = d.composition(id) else { continue };
-                        let (rect, response) = ui.allocate_exact_size(egui::vec2(tile, tile + TILE_LABEL), egui::Sense::click_and_drag());
-                        let rename = ui.make_persistent_id(("compositions_rename", id));
-                        let renaming = is_renaming(ui, rename);
-                        let mut renamed = None;
-                        if ui.is_rect_visible(rect) {
-                            let ink = ink_of(ui, d, st, id);
-                            let square = egui::Rect::from_min_size(rect.min, egui::Vec2::splat(tile));
-                            picture(ui, e, st, id, square, &ink);
-                            let v = ui.visuals();
-                            let stroke = if ink.selected {
-                                egui::Stroke::new(2.0, v.selection.stroke.color)
-                            } else if response.hovered() {
-                                v.widgets.hovered.bg_stroke
-                            } else {
-                                egui::Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color)
-                            };
-                            ui.painter().rect_stroke(square, 4.0, stroke, egui::StrokeKind::Inside);
-                            if let Some(n) = count {
-                                count_badge(ui, square, n, ink.weak);
-                            }
-                            let label = egui::Rect::from_min_max(egui::pos2(rect.min.x, square.max.y + 2.0), rect.max);
-                            let layout = egui::Layout::top_down(egui::Align::Center);
-                            let mut under = ui.new_child(egui::UiBuilder::new().max_rect(label).layout(layout));
-                            if renaming {
-                                renamed = rename_field(&mut under, rename, &c.name);
-                            } else {
-                                let small = egui::TextStyle::Small.resolve(under.style()).size;
-                                let mut job = name_job(&under, &c.name, !c.named, ink.text, ink.selected);
-                                job.sections.iter_mut().for_each(|s| s.format.font_id.size = small);
-                                job.wrap = egui::text::TextWrapping::truncate_at_width(label.width());
-                                under.add(egui::Label::new(job).selectable(false));
-                            }
-                        }
-                        item(ui, d, st, id, count, response, (rename, renaming, renamed), actions);
-                    }
-                });
-                ui.add_space(TILE_GAP / 2.0);
-            }
-        }
-    });
-}
-
-fn is_renaming(ui: &egui::Ui, rename: egui::Id) -> bool {
-    ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(crate::panels::RENAMING))) == Some(rename)
+    }
 }
 
 /// An item's interaction, a row's or a tile's: its tip, its rename, its click or drag, its menu.
@@ -250,7 +175,7 @@ fn item(
     id: Id,
     count: Option<u64>,
     response: egui::Response,
-    (rename, renaming, renamed): (egui::Id, bool, Option<Option<String>>),
+    rename: Renaming,
     actions: &mut Vec<Action>,
 ) {
     crate::handles::publish(|| format!("compositions:{}", id.0), response.rect);
@@ -263,16 +188,8 @@ fn item(
     let response = if response.dragged() { response } else { response.tip(format!("{name}\n{tip}")) };
     let here = instances_here(d, st, id);
     let alone = !here.is_empty() && st.selected == here;
-    let key = egui::Id::unique(crate::panels::RENAMING);
-    let f2 = || alone && ui.memory(|m| m.focused().is_none()) && ui.input(|i| i.key_pressed(egui::Key::F2));
-    if renamed.is_some() {
-        ui.data_mut(|d| d.remove::<egui::Id>(key));
-    } else if !renaming && (response.double_clicked() || f2()) {
-        ui.data_mut(|d| d.insert_temp(key, rename));
-    }
-    if let Some(Some(name)) = renamed
-        && !name.is_empty()
-    {
+    let key = rename.key;
+    if let Some(name) = rename.gesture(ui, &response, alone) {
         actions.push(Action::Apply(Operation::RenameComposition { composition: id, name }));
     }
     let can_place = placeable(d, st, id);
@@ -294,7 +211,7 @@ fn item(
         }
         ui.separator();
         if ui.button(t!("panel.components.rename")).clicked() {
-            ui.data_mut(|d| d.insert_temp(key, rename));
+            Renaming::start(ui, key);
         }
         let delete = ui.button(t!("panel.components.delete"));
         crate::handles::publish(|| "compositions:menu:delete".into(), delete.rect);
@@ -302,25 +219,6 @@ fn item(
             actions.push(Action::Apply(Operation::DeleteComposition { composition: id }));
         }
     });
-}
-
-/// A section's header: its title, and for the unused ones « Purger ».
-fn header(ui: &mut egui::Ui, height: f32, unused: bool, actions: &mut Vec<Action>) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
-    let layout = egui::Layout::left_to_right(egui::Align::Center);
-    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
-    let title = if unused { t!("panel.compositions.unused") } else { t!("panel.compositions.on_sheets") };
-    let font = crate::style::semibold(egui::TextStyle::Small.resolve(row.style()).size);
-    row.add(egui::Label::new(egui::RichText::new(title).font(font).color(row.visuals().weak_text_color())).selectable(false));
-    if unused {
-        row.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let purge = ui.add(egui::Button::new(t!("panel.components.purge")).small());
-            crate::handles::publish(|| "compositions:purge".into(), purge.rect);
-            if purge.tip(t!("panel.compositions.purge_tip")).clicked() {
-                actions.push(Action::Apply(Operation::PurgeCompositions));
-            }
-        });
-    }
 }
 
 #[cfg(test)]
