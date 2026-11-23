@@ -141,6 +141,7 @@ impl Editor {
         self.clear_selection();
         self.model_selected = true;
         self.chosen = None;
+        self.chosen_material = None;
     }
 
     /// Whether the model is what is chosen (the outliner's first row highlighted, the entity

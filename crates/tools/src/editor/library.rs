@@ -5,10 +5,53 @@ use glam::{DAffine3, DVec3};
 use skraft_i18n::t;
 use skraft_model::{Document, EntityPath, Id, Operation};
 
-use super::{After, Editor};
+use super::{After, Editor, GuidePath};
 use crate::tools::{self, Moved, OptionValue};
 
+/// A material chosen in its card, and the selection it was chosen over: the selection stays (the
+/// paint tool paints it), its change ends the choice.
+pub(super) struct ChosenMaterial {
+    id: Id,
+    selection: Vec<Id>,
+    deep: Vec<EntityPath>,
+    guides: Vec<GuidePath>,
+}
+
 impl Editor {
+    /// The material chosen in its card, its entity info shown, until anything else is chosen
+    /// or the paint tool is given another one (docs/ui/catalog.md).
+    pub fn chosen_material(&self) -> Option<Id> {
+        self.chosen_material.as_ref().map(|c| c.id).filter(|m| self.paint_material() == Some(*m))
+    }
+
+    /// Chooses `material` (none: « Aucune »): what the paint tool paints with, whatever the
+    /// tool now; a material's entity info shown. The selection is kept.
+    pub fn choose_material(&mut self, material: Option<Id>) {
+        if material.is_some_and(|m| self.document().material(m).is_err()) {
+            return;
+        }
+        self.set_paint_material(material);
+        self.chosen = None;
+        self.model_selected = false;
+        self.chosen_material = material.map(|id| ChosenMaterial {
+            id,
+            selection: self.selection.clone(),
+            deep: self.deep.clone(),
+            guides: self.deep_guides.clone(),
+        });
+    }
+
+    /// Ends the material's choice once the selection has changed.
+    pub(super) fn settle_chosen_material(&mut self) {
+        if self
+            .chosen_material
+            .as_ref()
+            .is_some_and(|c| c.selection != self.selection || c.deep != self.deep || c.guides != self.deep_guides)
+        {
+            self.chosen_material = None;
+        }
+    }
+
     /// The component chosen in the library (its entity info shown), while nothing else is:
     /// nothing selected — but the occurrence of it carried at the cursor —, no part open, the
     /// component still there.
@@ -45,6 +88,7 @@ impl Editor {
         let placed = self.start(op, After::Carry(from), false).is_ok() && self.carrying();
         if placed {
             self.chosen = Some(component);
+            self.chosen_material = None;
         }
         placed
     }
@@ -59,6 +103,7 @@ impl Editor {
         self.clear_selection();
         self.model_selected = false;
         self.chosen = Some(component);
+        self.chosen_material = None;
     }
 
     /// Is the library disabled (a part open: its bodies come from bodies, not occurrences)?

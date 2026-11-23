@@ -241,6 +241,7 @@ impl Editor {
         {
             self.chosen = None;
         }
+        self.settle_chosen_material();
         // How far the file being read is (the load's window shows it).
         let mut moved = false;
         for (id, p) in self.kernel.progress() {

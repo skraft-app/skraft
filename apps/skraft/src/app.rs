@@ -1275,7 +1275,14 @@ impl SkraftApp {
             Action::QuickPin(id) => return crate::quick::toggle(&mut self.prefs.quick_tools, id),
             Action::ViewPin(id) => return crate::view_bar::toggle(&mut self.prefs.view_bar, id),
             Action::ViewBarSide(side) => return self.prefs.view_bar_side = side,
-            Action::ComponentsList(list) => return self.prefs.components_list = list,
+            Action::CardList(card, list) => {
+                let pref = match card {
+                    crate::catalog::Card::Components => &mut self.prefs.components_list,
+                    crate::catalog::Card::Compositions => &mut self.prefs.compositions_list,
+                    crate::catalog::Card::Materials => &mut self.prefs.materials_list,
+                };
+                return *pref = list;
+            }
             Action::ViewMove(id, before) => return crate::view_bar::move_to(&mut self.prefs.view_bar, id, before),
             Action::QuickMove(id, before) => return crate::quick::move_to(&mut self.prefs.quick_tools, id, before),
             Action::QuickTool(id) => {
@@ -1298,7 +1305,7 @@ impl SkraftApp {
             | Action::ViewPin(_)
             | Action::ViewMove(..)
             | Action::ViewBarSide(_)
-            | Action::ComponentsList(_)
+            | Action::CardList(..)
             | Action::QuickMove(..)
             | Action::QuickTool(_)
             | Action::RemoteRetry => {}
@@ -1309,6 +1316,7 @@ impl SkraftApp {
             Action::SelectParts(paths) => e.select_occurrences(paths),
             Action::SelectModel => e.select_model(),
             Action::ChooseComponent(c) => e.choose_component(c),
+            Action::ChooseMaterial(m) => e.choose_material(m),
             Action::PlaceComponent(c) => {
                 doc.vcb.clear();
                 if e.place_component(c) {
@@ -1357,7 +1365,7 @@ impl SkraftApp {
                 }
             }
             Action::PaintWith(m) => {
-                e.set_paint_material(m);
+                e.choose_material(m);
                 if e.tool_kind() != ToolKind::Paint {
                     doc.vcb.clear();
                     e.set_tool(ToolKind::Paint);
@@ -2153,8 +2161,11 @@ impl SkraftApp {
                             });
                         }
                         PanelId::Materials => {
-                            let doc_id = doc.id;
-                            area.id_salt("materials").show(ui, |ui| ui.push_id(doc_id, |ui| panels::materials(ui, &doc.editor, actions)));
+                            let (doc_id, list) = (doc.id, self.prefs.materials_list);
+                            let (editor, state) = (&doc.editor, &mut doc.materials);
+                            ui.push_id(doc_id, |ui| {
+                                crate::materials::card(ui, editor, state, list, body, actions, area.id_salt("materials"))
+                            });
                         }
                         PanelId::Components => {
                             let doc_id = doc.id;
@@ -2172,7 +2183,7 @@ impl SkraftApp {
                             });
                         }
                         PanelId::Compositions => {
-                            let (doc_id, list) = (doc.id, self.prefs.components_list);
+                            let (doc_id, list) = (doc.id, self.prefs.compositions_list);
                             let (editor, st) = (&doc.editor, &mut doc.sheet);
                             ui.push_id(doc_id, |ui| {
                                 crate::sheet_library::compositions(ui, editor, st, list, body, actions, area.id_salt("compositions"))

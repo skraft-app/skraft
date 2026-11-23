@@ -141,9 +141,9 @@ symbols the code writes, and of Greek.
   tooltip names that material, its cursor is OCL's `picker`. Chosen on its own, it then starts
   the paint tool with it; held over the paint tool, each click takes, until the key is released
   (or Esc).
-- **Interface**: the **Matières** panel (list, colour, name, texture, add, delete, the current
-  material — picking one starts the paint tool; export and import of `.skraftmat`); the
-  occurrence's material in the entity info.
+- **Interface**: the **Matières** card ([Catalog cards](../ui/catalog.md#the-materials-card)):
+  the materials as tiles or rows; one chosen is what the paint tool paints with and is edited
+  in the entity info. The occurrence's material in the entity info.
   The paint tool or « Prélever » started, whatever started it, shows the panel, unfolded (closed or folded,
   it would hide what the tool paints with); it stays so when the tool ends.
 
@@ -173,12 +173,12 @@ A material may have a **texture**: an image laid on the faces at its real size.
   size of a pixel on the face — its distance and slant, as the hatches' pitch — sampled with
   `textureSampleLevel`: no derivatives, which would need a uniform control flow after the
   section's `discard`.
-- **Interface**: in the **Matières** panel, a texture button per material (an image picked,
+- **Interface**: in the entity info of the material chosen, a texture button (an image picked,
   PNG or JPEG: 600 mm wide, its height as the image's, or the size it had), showing the
-  texture's thumbnail once it has one — its middle, square; the whole image under the pointer
-  (made once per image, 128 texels, kept in egui's temporary memory by image id); a textured
-  material shows a second row — width × height, typed as lengths, its rotation in degrees, a
-  button to remove it (its colour stays).
+  texture's thumbnail once it has one — its middle, square; the whole image under the pointer;
+  a textured material shows its width, height (typed as lengths), rotation in degrees and a
+  button to remove it (its colour stays). Thumbnails: 128 texels, made once per image, decoded
+  off the interface's thread, two at a time (one per frame in the browser, without threads).
 
 ### Why
 

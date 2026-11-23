@@ -53,9 +53,8 @@ impl PanelId {
     fn default_height(self) -> f32 {
         match self {
             PanelId::EntityInfo => 280.0,
-            PanelId::Materials => 180.0,
             PanelId::Outliner => 300.0,
-            PanelId::Components | PanelId::Compositions => 240.0,
+            PanelId::Materials | PanelId::Components | PanelId::Compositions => 240.0,
         }
     }
 

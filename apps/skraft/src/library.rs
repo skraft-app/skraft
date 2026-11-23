@@ -10,8 +10,9 @@ use skraft_model::{Document, Id};
 use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
+use crate::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
 use crate::icons;
-use crate::panels::{Action, rename_field, tree_row, weak_share};
+use crate::panels::Action;
 use crate::ribbon::Corners;
 use crate::style::Tip;
 use crate::thumbnails::Thumbnails;
@@ -73,46 +74,6 @@ impl Shelves {
     }
 }
 
-/// A tab's components in their sections, each in natural order of names.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Rows {
-    /// In the model, with their count there.
-    pub used: Vec<(Id, u64)>,
-    /// Placed nowhere (named).
-    pub unused: Vec<Id>,
-}
-
-/// One line of the card.
-pub(crate) enum Line {
-    Header { unused: bool },
-    Item { id: Id, count: Option<u64> },
-}
-
-impl Rows {
-    pub fn len(&self) -> usize {
-        self.used.len() + self.unused.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// The lines shown: the headers only when there are unused ones.
-    pub fn lines(&self) -> Vec<Line> {
-        let mut lines = Vec::with_capacity(self.used.len() + self.unused.len() + 2);
-        let apart = !self.unused.is_empty();
-        if apart && !self.used.is_empty() {
-            lines.push(Line::Header { unused: false });
-        }
-        lines.extend(self.used.iter().map(|&(id, n)| Line::Item { id, count: Some(n) }));
-        if apart {
-            lines.push(Line::Header { unused: true });
-            lines.extend(self.unused.iter().map(|&id| Line::Item { id, count: None }));
-        }
-        lines
-    }
-}
-
 /// Orders names as a person reads them: runs of digits by their value, letters without regard
 /// to case, a prefix first. Names alike by that measure are told apart at their first real
 /// difference (the shorter spelling of a number, else plain `char` order), so that only
@@ -153,20 +114,6 @@ fn digit_run(s: &str) -> usize {
     s.bytes().take_while(u8::is_ascii_digit).count()
 }
 
-/// A component's name in its row: its colour `ink`, an automatic one in italics, attenuated
-/// unless the row is selected.
-pub(crate) fn name_job(ui: &egui::Ui, name: &str, auto: bool, ink: egui::Color32, selected: bool) -> egui::text::LayoutJob {
-    let size = egui::TextStyle::Body.resolve(ui.style()).size;
-    let weak = if selected { ink } else { ink.lerp_to_gamma(ui.visuals().window_fill, weak_share(ui.visuals())) };
-    let format = egui::TextFormat {
-        font_id: egui::FontId::proportional(size),
-        color: if auto { weak } else { ink },
-        italics: auto,
-        ..Default::default()
-    };
-    egui::text::LayoutJob::single_section(name.to_owned(), format)
-}
-
 /// How the card is drawn: its document (the thumbnails' key), the thumbnails, as a list or a
 /// grid, where its title bar ends.
 pub struct Look<'a> {
@@ -181,13 +128,6 @@ pub struct Look<'a> {
     pub band_top: f32,
     pub margin: f32,
 }
-
-/// A list row's height, and its thumbnail's side (points).
-pub(crate) const LIST_ROW: f32 = 30.0;
-pub(crate) const LIST_THUMB: f32 = 26.0;
-/// The room under a tile for its name (points), and between tiles.
-pub(crate) const TILE_LABEL: f32 = 18.0;
-pub(crate) const TILE_GAP: f32 = 6.0;
 
 /// The card's content, in `area`: the tabs (parts, assemblies), the search and the grid / list
 /// toggle, then the tab's components in their sections, as tiles of thumbnails or as rows (only
@@ -233,7 +173,9 @@ pub fn components(
     // The search (docs/ui/components-library.md#search): the field left of the grid / list
     // toggle, as far from it as from the tabs above and the list below (`search::GAP`).
     let salt = ui.make_persistent_id("components_search");
-    crate::search::field(ui, salt, "components", &mut state.search, |ui, side| view_toggle(ui, side, look.list, "components", actions));
+    crate::search::field(ui, salt, "components", &mut state.search, |ui, side| {
+        catalog::view_toggle(ui, side, look.list, Card::Components, actions)
+    });
     ui.add_space(gap);
     let rows = shelves.tab(state.tab);
     let disabled = editor.library_disabled();
@@ -250,30 +192,72 @@ pub fn components(
         return;
     }
     let ppp = ui.ctx().pixels_per_point();
-    let mut thumbs = Thumbs {
+    let thumbs = Thumbs {
         doc: look.doc,
         thumbnails: look.thumbnails,
         dark: ui.visuals().dark_mode,
         px: ((crate::thumbnails::TILE * ppp).round() as u32).clamp(16, 512),
     };
-    let cx = Cx { editor, chosen: editor.chosen_component(), disabled };
+    let mut shelf = Components { editor, chosen: editor.chosen_component(), disabled, thumbs };
     let height = (look.height - (ui.cursor().top() - top)).max(0.0);
     let area = area.max_height(height).min_scrolled_height(height);
-    if look.list {
-        list(ui, &cx, rows, &mut thumbs, actions, area);
-    } else {
-        grid(ui, &cx, rows, &mut thumbs, actions, area);
-    }
-    if thumbs.thumbnails.pending() {
+    catalog::show(ui, &mut shelf, rows, look.list, actions, area);
+    if shelf.thumbs.thumbnails.pending() {
         ui.ctx().request_repaint();
     }
 }
 
-/// What every item of the card is drawn with.
-struct Cx<'a> {
+/// The card's items, for the shared presentation.
+struct Components<'a> {
     editor: &'a Editor,
     chosen: Option<Id>,
     disabled: bool,
+    thumbs: Thumbs<'a>,
+}
+
+impl Shelf for Components<'_> {
+    fn rename_salt(&self) -> &'static str {
+        "components_rename"
+    }
+
+    fn has(&self, id: Id) -> bool {
+        self.editor.document().component(id).is_ok()
+    }
+
+    fn name(&self, id: Id) -> (String, bool) {
+        self.editor.document().component(id).map_or_else(|_| (String::new(), false), |c| (c.name.clone(), !c.named))
+    }
+
+    /// Greyed: the whole card while a part is open, the assemblies along the active path.
+    fn ink(&mut self, ui: &egui::Ui, id: Id) -> Ink {
+        Ink::new(ui, self.chosen == Some(id), self.disabled || self.editor.on_active_path(id))
+    }
+
+    fn picture(&mut self, ui: &mut egui::Ui, rect: egui::Rect, id: Id, ink: &Ink) {
+        let thumb = self.thumbs.get(self.editor, id);
+        let part = self.editor.document().component(id).is_ok_and(|c| c.is_part());
+        picture(ui, rect, thumb, part, ink);
+    }
+
+    fn interact(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: Id,
+        count: Option<u64>,
+        response: egui::Response,
+        rename: Renaming,
+        actions: &mut Vec<Action>,
+    ) {
+        item(ui, self, id, count, response, rename, actions);
+    }
+
+    fn header(&mut self, ui: &mut egui::Ui, height: f32, unused: bool, actions: &mut Vec<Action>) {
+        let title = if unused { t!("panel.components.unused") } else { t!("panel.components.in_model") };
+        let purge = unused.then(|| (!self.disabled, t!("panel.components.purge_tip"), "components:purge"));
+        if catalog::header(ui, height, title, purge) {
+            actions.push(Action::Command("components.purge"));
+        }
+    }
 }
 
 /// The thumbnails, as the card asks for them.
@@ -290,157 +274,10 @@ impl Thumbs<'_> {
     }
 }
 
-/// The grid / list toggle, at the right end of the search row: the option bar's segmented
-/// control, of the row's height.
-pub(crate) fn view_toggle(ui: &mut egui::Ui, side: f32, list: bool, card: &str, actions: &mut Vec<Action>) {
-    use crate::panels::Segment;
-    let segments = [
-        Segment::image(&t!("panel.components.as_grid"), "", icons::TILES, !list),
-        Segment::image(&t!("panel.components.as_list"), "", icons::LIST, list),
-    ];
-    let id = ui.make_persistent_id((card, "view"));
-    let handle = |i: usize| format!("{card}:{}", ["grid", "list"][i]);
-    if let Some(i) = crate::panels::segmented_sized(ui, id, &segments, (side, 14.0), handle) {
-        actions.push(Action::ComponentsList(i == 1));
-    }
-}
-
-/// The components as rows: a thumbnail, the name, the count.
-fn list(ui: &mut egui::Ui, cx: &Cx<'_>, rows: &Rows, thumbs: &mut Thumbs<'_>, actions: &mut Vec<Action>, area: egui::ScrollArea) {
-    let lines = rows.lines();
-    let doc = cx.editor.document();
-    area.show_rows(ui, LIST_ROW, lines.len(), |ui, range| {
-        ui.set_min_width(ui.available_width());
-        for line in &lines[range] {
-            let (id, count) = match *line {
-                Line::Header { unused } => {
-                    header(ui, LIST_ROW, unused, cx.disabled, actions);
-                    continue;
-                }
-                Line::Item { id, count } => (id, count),
-            };
-            let Ok(c) = doc.component(id) else { continue };
-            let ink = Ink::of(ui, cx, id);
-            let rename = ui.make_persistent_id(("components_rename", id));
-            let renaming = renaming(ui, rename);
-            let thumb = thumbs.get(cx.editor, id);
-            let (response, renamed) = tree_row(ui, LIST_ROW, ink.selected, false, false, |ui| {
-                picture(ui, egui::Vec2::splat(LIST_THUMB), thumb, c.is_part(), &ink);
-                if renaming {
-                    return rename_field(ui, rename, &c.name);
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(n) = count {
-                        ui.add(egui::Label::new(egui::RichText::new(format!("×{n}")).color(ink.weak)).selectable(false));
-                    }
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.add(egui::Label::new(name_job(ui, &c.name, !c.named, ink.text, ink.selected)).selectable(false).truncate());
-                    });
-                });
-                None
-            });
-            item(ui, cx, id, count, response, (rename, renaming, renamed), actions);
-        }
-    });
-}
-
-/// The components as tiles of thumbnails, their names under them, their count over a corner;
-/// the thumbnails asked for only for the tiles in view.
-fn grid(ui: &mut egui::Ui, cx: &Cx<'_>, rows: &Rows, thumbs: &mut Thumbs<'_>, actions: &mut Vec<Action>, area: egui::ScrollArea) {
-    let doc = cx.editor.document();
-    let header_height = ui.spacing().interact_size.y;
-    let apart = !rows.unused.is_empty();
-    area.show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        let tile = crate::thumbnails::TILE;
-        let columns = (((ui.available_width() + TILE_GAP) / (tile + TILE_GAP)).floor() as usize).max(1);
-        let used: Vec<(Id, Option<u64>)> = rows.used.iter().map(|&(id, n)| (id, Some(n))).collect();
-        let unused: Vec<(Id, Option<u64>)> = rows.unused.iter().map(|&id| (id, None)).collect();
-        for (section, items) in [(false, used), (true, unused)] {
-            if items.is_empty() {
-                continue;
-            }
-            if apart {
-                header(ui, header_height, section, cx.disabled, actions);
-            }
-            for chunk in items.chunks(columns) {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = TILE_GAP;
-                    for &(id, count) in chunk {
-                        let Ok(c) = doc.component(id) else { continue };
-                        let (rect, response) = ui.allocate_exact_size(egui::vec2(tile, tile + TILE_LABEL), egui::Sense::click_and_drag());
-                        let rename = ui.make_persistent_id(("components_rename", id));
-                        let renaming = renaming(ui, rename);
-                        let mut renamed = None;
-                        if ui.is_rect_visible(rect) {
-                            let ink = Ink::of(ui, cx, id);
-                            let square = egui::Rect::from_min_size(rect.min, egui::Vec2::splat(tile));
-                            let v = ui.visuals();
-                            let stroke = if ink.selected {
-                                egui::Stroke::new(2.0, v.selection.stroke.color)
-                            } else if response.hovered() {
-                                v.widgets.hovered.bg_stroke
-                            } else {
-                                egui::Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color)
-                            };
-                            let thumb = thumbs.get(cx.editor, id);
-                            let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(square));
-                            picture(&mut inner, egui::Vec2::splat(tile), thumb, c.is_part(), &ink);
-                            ui.painter().rect_stroke(square, 4.0, stroke, egui::StrokeKind::Inside);
-                            if let Some(n) = count {
-                                count_badge(ui, square, n, ink.weak);
-                            }
-                            let label = egui::Rect::from_min_max(egui::pos2(rect.min.x, square.max.y + 2.0), rect.max);
-                            let layout = egui::Layout::top_down(egui::Align::Center);
-                            let mut under = ui.new_child(egui::UiBuilder::new().max_rect(label).layout(layout));
-                            if renaming {
-                                renamed = rename_field(&mut under, rename, &c.name);
-                            } else {
-                                let small = egui::TextStyle::Small.resolve(under.style()).size;
-                                let mut job = name_job(&under, &c.name, !c.named, ink.text, ink.selected);
-                                job.sections.iter_mut().for_each(|s| s.format.font_id.size = small);
-                                job.wrap = egui::text::TextWrapping::truncate_at_width(label.width());
-                                under.add(egui::Label::new(job).selectable(false));
-                            }
-                        }
-                        item(ui, cx, id, count, response, (rename, renaming, renamed), actions);
-                    }
-                });
-                ui.add_space(TILE_GAP / 2.0);
-            }
-        }
-    });
-}
-
-/// The colours an item is drawn in.
-struct Ink {
-    selected: bool,
-    greyed: bool,
-    text: egui::Color32,
-    weak: egui::Color32,
-}
-
-impl Ink {
-    fn of(ui: &egui::Ui, cx: &Cx<'_>, id: Id) -> Ink {
-        let v = ui.visuals();
-        let selected = cx.chosen == Some(id);
-        // Greyed: the whole card while a part is open, the assemblies along the active path.
-        let greyed = cx.disabled || cx.editor.on_active_path(id);
-        let text = if selected {
-            v.selection.stroke.color
-        } else if greyed {
-            v.weak_text_color()
-        } else {
-            v.text_color()
-        };
-        Ink { selected, greyed, text, weak: v.weak_text_color() }
-    }
-}
-
-/// A thumbnail in a `size` square (rounded), else the nature's icon in its middle; faded when
+/// A thumbnail in the square `rect` (rounded), else the nature's icon in its middle; faded when
 /// greyed.
-fn picture(ui: &mut egui::Ui, size: egui::Vec2, thumb: Option<egui::TextureId>, part: bool, ink: &Ink) {
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+fn picture(ui: &mut egui::Ui, rect: egui::Rect, thumb: Option<egui::TextureId>, part: bool, ink: &Ink) {
+    let size = rect.size();
     let fade = if ink.greyed { 0.45 } else { 1.0 };
     match thumb {
         Some(t) => {
@@ -455,31 +292,15 @@ fn picture(ui: &mut egui::Ui, size: egui::Vec2, thumb: Option<egui::TextureId>, 
     }
 }
 
-/// « ×n » over a tile's top right corner, on a pill of the card's colour.
-pub(crate) fn count_badge(ui: &egui::Ui, square: egui::Rect, n: u64, weak: egui::Color32) {
-    let font = egui::TextStyle::Small.resolve(ui.style());
-    let galley = ui.painter().layout_no_wrap(format!("×{n}"), font, weak);
-    let pad = egui::vec2(4.0, 1.0);
-    let min = egui::pos2(square.max.x - galley.size().x - 2.0 * pad.x - 3.0, square.min.y + 3.0);
-    let r = egui::Rect::from_min_size(min, galley.size() + 2.0 * pad);
-    ui.painter().rect_filled(r, r.height() / 2.0, ui.visuals().window_fill.gamma_multiply(0.85));
-    ui.painter().galley(r.min + pad, galley, weak);
-}
-
-/// Is the item of key `rename` renamed in place now?
-fn renaming(ui: &egui::Ui, rename: egui::Id) -> bool {
-    ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(crate::panels::RENAMING))) == Some(rename)
-}
-
 /// An item's interaction, a row's or a tile's: its tip, its rename, its click or drag (placing
 /// it), its menu.
 fn item(
     ui: &mut egui::Ui,
-    cx: &Cx<'_>,
+    cx: &Components<'_>,
     id: Id,
     count: Option<u64>,
     response: egui::Response,
-    (rename, renaming, renamed): (egui::Id, bool, Option<Option<String>>),
+    rename: Renaming,
     actions: &mut Vec<Action>,
 ) {
     crate::handles::publish(|| format!("components:{}", id.0), response.rect);
@@ -499,16 +320,8 @@ fn item(
     // Renamed in place: from the menu, by a double-click on its row or tile (the first click
     // only chooses it), or F2 while it is the one chosen. A component's name is never
     // empty, and unique (one taken refused, the failure told).
-    let key = egui::Id::unique(crate::panels::RENAMING);
-    let f2 = || cx.chosen == Some(id) && ui.memory(|m| m.focused().is_none()) && ui.input(|i| i.key_pressed(egui::Key::F2));
-    if renamed.is_some() {
-        ui.data_mut(|d| d.remove::<egui::Id>(key));
-    } else if !renaming && (response.double_clicked() || f2()) {
-        ui.data_mut(|d| d.insert_temp(key, rename));
-    }
-    if let Some(Some(name)) = renamed
-        && !name.is_empty()
-    {
+    let key = rename.key;
+    if let Some(name) = rename.gesture(ui, &response, cx.chosen == Some(id)) {
         actions.push(Action::Apply(skraft_model::Operation::RenameComponent { component: id, name }));
     }
     // A click chooses it; a drag out of the card carries one more occurrence of it at the
@@ -523,26 +336,7 @@ fn item(
     if response.dragged_by(egui::PointerButton::Primary) && place {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
-    menu(cx.editor, &response, id, rename, actions);
-}
-
-/// A section's header: its title, and for the unused ones the « Purger » button.
-fn header(ui: &mut egui::Ui, height: f32, unused: bool, disabled: bool, actions: &mut Vec<Action>) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
-    let layout = egui::Layout::left_to_right(egui::Align::Center);
-    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
-    let title = if unused { t!("panel.components.unused") } else { t!("panel.components.in_model") };
-    let font = crate::style::semibold(egui::TextStyle::Small.resolve(row.style()).size);
-    row.add(egui::Label::new(egui::RichText::new(title).font(font).color(row.visuals().weak_text_color())).selectable(false));
-    if unused {
-        row.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let purge = ui.add_enabled(!disabled, egui::Button::new(t!("panel.components.purge")).small());
-            crate::handles::publish(|| "components:purge".into(), purge.rect);
-            if purge.tip(t!("panel.components.purge_tip")).clicked() {
-                actions.push(Action::Command("components.purge"));
-            }
-        });
-    }
+    menu(cx.editor, &response, id, key, actions);
 }
 
 /// A component's menu (right click): its occurrences selected, the selection replaced by it,
@@ -559,7 +353,7 @@ fn menu(editor: &Editor, response: &egui::Response, id: Id, rename: egui::Id, ac
         row(ui, t!("panel.components.replace"), editor.can_replace_selection(id), Action::ReplaceSelection(id));
         ui.separator();
         if ui.button(t!("panel.components.rename")).clicked() {
-            ui.data_mut(|d| d.insert_temp(egui::Id::unique(crate::panels::RENAMING), rename));
+            Renaming::start(ui, rename);
         }
         let delete = ui.add_enabled(editor.can_delete_component(id), egui::Button::new(t!("panel.components.delete")));
         if delete.tip(t!("panel.components.delete_tip")).clicked() {

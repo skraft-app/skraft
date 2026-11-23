@@ -397,6 +397,8 @@ pub enum Operation {
     EditMaterial { material: Id, name: String, color: [u8; 3] },
     /// Removes a material: what was painted with it is not any more.
     DeleteMaterial { material: Id },
+    /// Drops the materials nothing refers to (docs/ui/catalog.md).
+    PurgeMaterials,
     /// Gives `material` the texture `texture` (none: its colour alone, docs/render/look.md#textures),
     /// its image among the document's — `image` added to them first, when given.
     SetTexture {
@@ -614,6 +616,7 @@ impl Operation {
             Operation::AddMaterial { .. } => t!("operation.add_material"),
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
+            Operation::PurgeMaterials => t!("operation.purge_materials"),
             Operation::SetProps { .. } => t!("operation.set_props"),
             Operation::SetTexture { .. } => t!("operation.set_texture"),
             Operation::ImportMaterials { .. } => t!("operation.import_materials"),
@@ -1062,6 +1065,12 @@ impl Document {
             }
             Operation::SetPropDef { key, def } => {
                 self.set_prop_def(key, def.as_ref())?;
+                Ok(Outcome::default())
+            }
+            Operation::PurgeMaterials => {
+                let referenced = self.materials_referenced();
+                self.materials.retain(|id, _| referenced.contains(id));
+                self.prune_assets();
                 Ok(Outcome::default())
             }
             Operation::DeleteMaterial { material } => {

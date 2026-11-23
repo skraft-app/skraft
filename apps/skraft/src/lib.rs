@@ -3,6 +3,7 @@
 
 mod about;
 mod app;
+mod catalog;
 mod clipboard;
 mod commands;
 #[cfg(not(target_arch = "wasm32"))]
@@ -23,6 +24,7 @@ mod instance_name;
 mod journal_window;
 mod language;
 mod library;
+mod materials;
 mod naming;
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 mod native_menu;

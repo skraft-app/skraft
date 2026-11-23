@@ -56,7 +56,8 @@ Decision [0038](../decisions/0038-components-library-card.md).
   colour; laid out whole, only the tiles in view drawn and their thumbnails asked for. List:
   one row per component, 30 pt high (a thumbnail of 26 pt, the name, the count), full width as
   the navigator's rows (`tree_row`), only the rows in view laid out. The choice is a preference
-  (`components_list`, the grid by default).
+  (`components_list`, the grid by default). The presentation is shared with the other cards of
+  definitions: [Catalog cards](catalog.md).
 
 ## Thumbnails
 
