@@ -686,6 +686,7 @@ impl Operation {
             | Operation::SetHidden { context, .. }
             | Operation::PaintOccurrences { context, .. }
             | Operation::MakeAssembly { context, .. }
+            | Operation::Explode { context, .. }
             | Operation::MakeUnique { context, .. }
             | Operation::ReplaceOccurrences { context, .. }
             | Operation::AddPrimitive { context, .. }

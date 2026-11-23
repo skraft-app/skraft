@@ -6663,6 +6663,46 @@ fn a_part_selected_at_any_depth_is_made_unique_alone() {
 }
 
 #[test]
+fn an_assembly_selected_at_any_depth_explodes() {
+    let (mut e, [a, _, _, g, g2]) = drawers_editor();
+    let root = e.document().root();
+    parts_scope(&mut e);
+    // From the tree drop-up: the assembly, by its path.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 50.0, 50.0)) });
+    e.set_copy(true);
+    e.pick_tree_row(0);
+    e.set_copy(false);
+    assert_eq!(e.deep_selection(), [EntityPath::root(g)]);
+    assert!(e.can_explode());
+    e.explode();
+    let model = e.document().assembly(root).unwrap();
+    assert!(model.occurrence(g).is_none() && model.occurrence(g2).is_some());
+    assert_eq!(e.deep_selection().len(), 2, "what it held selected");
+    assert!(e.deep_selection().iter().all(|p| p.instances.is_empty() && model.occurrence(p.entity).is_some()));
+    e.undo();
+    assert!(e.document().assembly(root).unwrap().occurrence(g).is_some());
+
+    // A part selected is no assembly to explode.
+    e.select_paths(vec![EntityPath::new(vec![g], a)]);
+    assert!(!e.can_explode());
+
+    // An assembly inside one placed twice, selected through both copies, with its parent too.
+    let outer = e.apply(Operation::MakeAssembly { context: root, entities: vec![g], name: None }).unwrap().unwrap().created[0];
+    let t = glam::DAffine3::from_translation(DVec3::X * 2000.0);
+    let twin = e.apply(Operation::Duplicate { context: root, entities: vec![outer], transform: t }).unwrap().unwrap().created[0];
+    e.select_paths(vec![EntityPath::new(vec![outer], g), EntityPath::new(vec![twin], g)]);
+    e.explode();
+    let inside = e.document().context_of(&[twin]).unwrap();
+    assert!(e.document().assembly(inside).unwrap().occurrence(g).is_none(), "both copies changed, once");
+    assert_eq!(e.deep_selection().len(), 2);
+    e.undo();
+    e.select_paths(vec![EntityPath::root(outer), EntityPath::new(vec![outer], g)]);
+    e.explode();
+    assert!(e.document().assembly(root).unwrap().occurrence(outer).is_none());
+    assert!(e.deep_selection().iter().all(|p| p.instances.is_empty()));
+}
+
+#[test]
 fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
     let (mut e, [a, b, c, g, g2]) = drawers_editor();
     let none = Modifiers::default();

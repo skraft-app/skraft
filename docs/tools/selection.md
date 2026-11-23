@@ -147,6 +147,9 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   « Portée »: the assemblies along its path are made unique first, so that only this instance
   changes (`MakeUnique` taken by `At { unique: true }`, one step). The toast names the element
   selected, not the assemblies made unique on the way.
+- **« Éclater »**: the assemblies selected (the tree drop-up) put in their parent, the deepest
+  first, in one step (`Explode` taken by `At`), what they held then selected by its paths. In
+  an assembly placed several times, the « Portée » says whether all its copies change.
 - **Paint**: under « Parts », the part under the cursor — the parts selected when it is one of
   them — painted at its parent (`PaintOccurrences` taken by `At`); painting occurrences (either
   scope), a drag draws a rectangle whose take is painted when released, one step (the context's

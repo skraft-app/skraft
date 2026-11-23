@@ -19,6 +19,9 @@ pub(super) enum After {
     Select,
     /// Gather what it created; the whole gathered is selected once the queue is empty.
     Collect,
+    /// A batch at parent assemblies (« Éclater » under « Pièces », docs/tools/selection.md):
+    /// what it created and is still there selected by its paths.
+    SelectDeep,
     /// A paste done in place: select what it made, then carry it from this point (world) at
     /// the cursor (docs/tools/copy-paste.md).
     Carry(DVec3),
@@ -125,6 +128,16 @@ impl Editor {
             (Operation::At { parent, .. }, After::SelectNamed) => Some(parent.clone()),
             _ => None,
         };
+        let batch_parents: Vec<Vec<skraft_model::Id>> = match (&op, after) {
+            (Operation::Batch(ops), After::SelectDeep) => ops
+                .iter()
+                .filter_map(|o| match o {
+                    Operation::At { parent, .. } => Some(parent.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
         let named = match after {
             After::SelectNamed | After::Unique => super::naming::made_to_name(self.document(), &document, &op, &outcome),
             _ => Vec::new(),
@@ -159,6 +172,18 @@ impl Editor {
                 self.set_selection(if self.showing_machinings() { outcome.bodies.clone() } else { Vec::new() });
             }
             After::Collect => self.collected.extend(outcome.created.iter().copied()),
+            After::SelectDeep => {
+                let doc = self.document();
+                let holds = |parent: &[skraft_model::Id], id| {
+                    doc.context_of(parent).and_then(|c| doc.assembly(c)).is_ok_and(|a| a.occurrence(id).is_some())
+                };
+                let paths: Vec<EntityPath> = outcome
+                    .created
+                    .iter()
+                    .filter_map(|&id| batch_parents.iter().find(|p| holds(p, id)).map(|p| EntityPath::new(p.clone(), id)))
+                    .collect();
+                self.select_paths(paths);
+            }
             After::LetGo => self.clear_selection(),
             _ => {}
         }
