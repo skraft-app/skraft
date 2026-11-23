@@ -3153,8 +3153,11 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                         st.picker = Some(crate::view_picker::ViewPicker::new(doc, purpose, subject.clone()));
                     }
                     ui.end_row();
-                    let base = |look: Look, scale: f64| View {
-                        kind: ViewKind::Base { subject: subject.clone(), look, scale, at: *at },
+                    // Another scale shows the same part of it; another direction, the whole.
+                    let was = look;
+                    let base = |look: Look, s: f64| View {
+                        crop: if look == *was { view.crop.map(|c| c.scaled(s / *scale)) } else { None },
+                        kind: ViewKind::Base { subject: subject.clone(), look, scale: s, at: *at },
                         ..view.clone()
                     };
                     field_label(ui, t!("panel.entity_info.direction"));
@@ -3234,6 +3237,12 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                     ui.label(d.resolve(id).map_or_else(String::new, |r| crate::sheet::scale_label(r.scale)));
                     ui.end_row();
                 }
+            }
+            if let ViewKind::Base { look, .. } = &view.kind {
+                ui.label(t!("panel.entity_info.view_frame"));
+                let automatic = view.crop.is_none() && look.frame().1.is_none();
+                ui.label(if automatic { t!("drawing.frame_auto") } else { t!("drawing.frame_free") });
+                ui.end_row();
             }
             field_label(ui, t!("panel.entity_info.style"));
             let label = |s: ViewStyle| match s {

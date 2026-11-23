@@ -14,7 +14,7 @@ use glam::{DAffine2, DVec2};
 use serde::{Deserialize, Serialize};
 
 pub use ops::FieldOn;
-pub use view::{Direction, Frame, Look, Perspective, Projection, Side, Subject, View, ViewKind, ViewStyle};
+pub use view::{Crop, Direction, Frame, Look, Perspective, Projection, Side, Subject, View, ViewKind, ViewStyle};
 
 use crate::{Id, Props};
 
@@ -336,6 +336,8 @@ pub struct Resolved<'a> {
     pub scale: f64,
     /// Where the centre of the subject's box seen in `frame` is drawn in its container.
     pub at: DVec2,
+    /// Its frame around `at`, when it is not the whole subject (a base view's alone).
+    pub crop: Option<Crop>,
 }
 
 /// The most nested projections (a projected view of a projected view…).
@@ -454,11 +456,13 @@ impl Drawing {
     fn resolve_with(&self, id: Id, projection: impl FnOnce() -> Projection) -> Option<Resolved<'_>> {
         let mut chain = Vec::new();
         let mut view = self.view(id)?;
+        let crop = view.crop;
         loop {
             match &view.kind {
                 ViewKind::Base { subject, look, scale, at } => {
                     let (mut frame, perspective) = look.frame();
                     let mut at = *at;
+                    let crop = if chain.is_empty() { crop } else { None };
                     if !chain.is_empty() {
                         let projection = projection();
                         for (side, distance) in chain.into_iter().rev() {
@@ -466,7 +470,7 @@ impl Drawing {
                             at += Side::dir(side) * distance;
                         }
                     }
-                    return Some(Resolved { subject, frame, perspective, scale: *scale, at });
+                    return Some(Resolved { subject, frame, perspective, scale: *scale, at, crop });
                 }
                 ViewKind::Projected { base, side, distance } => {
                     if chain.len() >= MAX_CHAIN {

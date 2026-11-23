@@ -31,6 +31,50 @@ impl ViewLines {
         self.visible.iter().chain(&self.hidden).flatten().fold(None, |b, p| Some(b.map_or((*p, *p), |(a, z)| (a.min(*p), z.max(*p)))))
     }
 
+    /// What of them lies within `lo`–`hi`.
+    pub fn clipped(&self, lo: DVec2, hi: DVec2) -> ViewLines {
+        let cut = |lines: &[Vec<DVec2>]| {
+            let mut out: Vec<Vec<DVec2>> = Vec::new();
+            for line in lines {
+                let mut open: Option<Vec<DVec2>> = None;
+                for w in line.windows(2) {
+                    let (a, d) = (w[0], w[1] - w[0]);
+                    let (mut from, mut to) = (0.0f64, 1.0f64);
+                    let mut inside = true;
+                    for (p, r, low, high) in [(a.x, d.x, lo.x, hi.x), (a.y, d.y, lo.y, hi.y)] {
+                        for (q, s) in [(high - p, r), (p - low, -r)] {
+                            if s == 0.0 {
+                                inside &= q >= 0.0;
+                            } else if s > 0.0 {
+                                to = to.min(q / s);
+                            } else {
+                                from = from.max(q / s);
+                            }
+                        }
+                    }
+                    if !inside || from >= to {
+                        out.extend(open.take());
+                        continue;
+                    }
+                    let (p, q) = (a + d * from, a + d * to);
+                    match &mut open {
+                        Some(l) if from == 0.0 => l.push(q),
+                        _ => {
+                            out.extend(open.take());
+                            open = Some(vec![p, q]);
+                        }
+                    }
+                    if to < 1.0 {
+                        out.extend(open.take());
+                    }
+                }
+                out.extend(open);
+            }
+            out
+        };
+        ViewLines { visible: cut(&self.visible), hidden: cut(&self.hidden) }
+    }
+
     /// The segments' count.
     pub fn segments(&self) -> usize {
         self.visible.iter().chain(&self.hidden).map(|p| p.len().saturating_sub(1)).sum()
@@ -47,11 +91,12 @@ pub struct Look {
     pub lens: Option<Lens>,
 }
 
-/// A perspective's eye, and the tangents of half its frame's width and height.
+/// A perspective's eye, and its frame's corners as tangents off its axis.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Lens {
     pub eye: DVec3,
-    pub half: DVec2,
+    pub lo: DVec2,
+    pub hi: DVec2,
 }
 
 /// A perspective as the search uses it, on points in the eye's axes (x, y, distance).
@@ -60,7 +105,8 @@ struct Mapped {
     /// The distance about which lengths keep their size.
     dist: f64,
     near: f64,
-    half: DVec2,
+    lo: DVec2,
+    hi: DVec2,
 }
 
 impl Mapped {
@@ -79,7 +125,7 @@ impl Mapped {
             return None;
         }
         let near = (hi * 1e-4).max(1e-3);
-        Some(Mapped { dist: (lo.max(near) + hi) / 2.0, near, half: lens.half })
+        Some(Mapped { dist: (lo.max(near) + hi) / 2.0, near, lo: lens.lo, hi: lens.hi })
     }
 
     fn screen(&self, c: DVec3) -> DVec3 {
@@ -100,10 +146,10 @@ impl Mapped {
             (false, false) => return None,
         };
         let (a, b) = (self.screen(a), self.screen(b));
-        let edge = self.half * self.dist;
+        let (low, high) = (self.lo * self.dist, self.hi * self.dist);
         let (mut from, mut to) = (0.0f64, 1.0f64);
-        for (p, d, limit) in [(a.x, b.x - a.x, edge.x), (a.y, b.y - a.y, edge.y)] {
-            for (q, r) in [(limit - p, d), (limit + p, -d)] {
+        for (p, d, low, high) in [(a.x, b.x - a.x, low.x, high.x), (a.y, b.y - a.y, low.y, high.y)] {
+            for (q, r) in [(high - p, d), (p - low, -d)] {
                 if r == 0.0 {
                     if q < 0.0 {
                         return None;
@@ -137,9 +183,9 @@ impl Mapped {
             return;
         }
         let poly: Vec<DVec3> = poly.into_iter().map(|c| self.screen(c)).collect();
-        let edge = self.half * self.dist;
+        let (low, high) = (self.lo * self.dist, self.hi * self.dist);
         let (lo, hi) = poly.iter().fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), q| (lo.min(q.truncate()), hi.max(q.truncate())));
-        if hi.x < -edge.x || hi.y < -edge.y || lo.x > edge.x || lo.y > edge.y {
+        if hi.x < low.x || hi.y < low.y || lo.x > high.x || lo.y > high.y {
             return;
         }
         out.extend((1..poly.len() - 1).map(|k| [poly[0], poly[k], poly[k + 1]]));
@@ -273,7 +319,7 @@ pub fn hidden_lines(parts: &[(Arc<Mesh>, DAffine3)], look: &Look) -> ViewLines {
         return ViewLines::default();
     }
     if let Some(m) = mapped {
-        (lo, hi) = (-m.half * m.dist, m.half * m.dist);
+        (lo, hi) = (m.lo * m.dist, m.hi * m.dist);
     }
     // Nearest first: a cell's list, filled in this order, is sorted by depth.
     occ.sort_by(|a, b| a.near.total_cmp(&b.near));
@@ -626,7 +672,7 @@ mod tests {
 
     #[test]
     fn a_box_in_perspective_shows_its_near_face_and_hides_the_far_one() {
-        let lens = Lens { eye: DVec3::new(0.0, -30.0, 0.0), half: DVec2::splat(1.0) };
+        let lens = Lens { eye: DVec3::new(0.0, -30.0, 0.0), lo: -DVec2::ONE, hi: DVec2::ONE };
         let look = Look { lens: Some(lens), ..front() };
         let cube = cube(DVec3::new(-10.0, 0.0, -10.0), DVec3::new(10.0, 20.0, 10.0));
         let lines = hidden_lines(&[(cube, DAffine3::IDENTITY)], &look);
@@ -641,7 +687,7 @@ mod tests {
     fn a_perspective_stops_at_its_frame_and_at_the_eye() {
         // The eye inside the box: what is behind it is gone, the rest cut at the frame.
         let half = DVec2::new(1.5, 1.2);
-        let lens = Lens { eye: DVec3::ZERO, half };
+        let lens = Lens { eye: DVec3::ZERO, lo: -half, hi: half };
         let look = Look { lens: Some(lens), ..front() };
         let lines = hidden_lines(&[(cube(DVec3::splat(-10.0), DVec3::splat(10.0)), DAffine3::IDENTITY)], &look);
         let all: Vec<&DVec2> = lines.visible.iter().chain(&lines.hidden).flatten().collect();
@@ -651,7 +697,7 @@ mod tests {
 
     #[test]
     fn a_nearer_box_hides_a_farther_one_in_perspective() {
-        let lens = Lens { eye: DVec3::new(0.0, -100.0, 0.0), half: DVec2::splat(1.0) };
+        let lens = Lens { eye: DVec3::new(0.0, -100.0, 0.0), lo: -DVec2::ONE, hi: DVec2::ONE };
         let look = Look { lens: Some(lens), ..front() };
         // The far box's outline, seen through the near one's silhouette or not.
         let far = (cube(DVec3::new(-5.0, 100.0, -5.0), DVec3::new(5.0, 110.0, 5.0)), DAffine3::IDENTITY);
@@ -661,6 +707,28 @@ mod tests {
         let both = hidden_lines(&[near.clone(), far], &look);
         let near_alone = hidden_lines(&[near], &look);
         assert!((length(&both.visible) - length(&near_alone.visible)).abs() < 1e-6, "nothing of the far box seen");
+    }
+
+    #[test]
+    fn a_perspective_frame_may_be_off_its_axis() {
+        let (lo, hi) = (DVec2::new(0.1, -0.2), DVec2::new(0.5, 0.2));
+        let look = Look { lens: Some(Lens { eye: DVec3::new(0.0, -30.0, 0.0), lo, hi }), ..front() };
+        let cube = cube(DVec3::new(-10.0, 0.0, -10.0), DVec3::new(10.0, 20.0, 10.0));
+        let lines = hidden_lines(&[(cube, DAffine3::IDENTITY)], &look);
+        // Of the near face, at 1/3: its right side, across the frame's height.
+        assert!((length(&lines.visible) - 0.4).abs() < 1e-6, "{}", length(&lines.visible));
+        assert!(lines.visible.iter().chain(&lines.hidden).flatten().all(|q| q.cmpge(lo - 1e-9).all() && q.cmple(hi + 1e-9).all()));
+    }
+
+    #[test]
+    fn lines_clipped_keep_what_is_inside_in_one_piece() {
+        let lines = ViewLines {
+            visible: vec![vec![DVec2::new(-5.0, 1.0), DVec2::new(5.0, 1.0), DVec2::new(5.0, 9.0), DVec2::new(20.0, 9.0)]],
+            hidden: vec![vec![DVec2::new(20.0, 20.0), DVec2::new(30.0, 20.0)]],
+        };
+        let cut = lines.clipped(DVec2::ZERO, DVec2::splat(10.0));
+        assert_eq!(cut.visible, vec![vec![DVec2::new(0.0, 1.0), DVec2::new(5.0, 1.0), DVec2::new(5.0, 9.0), DVec2::new(10.0, 9.0)]]);
+        assert!(cut.hidden.is_empty());
     }
 
     #[test]

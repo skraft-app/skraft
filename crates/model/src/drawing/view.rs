@@ -14,6 +14,32 @@ pub struct View {
     pub kind: ViewKind,
     #[serde(default, skip_serializing_if = "is_default")]
     pub style: ViewStyle,
+    /// A base view's frame when it does not show its whole subject (decision 0052).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crop: Option<Crop>,
+}
+
+/// A view's frame on the paper, in millimetres from the point of the sheet its subject hangs on
+/// (`ViewKind::Base::at`).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Crop {
+    pub lo: DVec2,
+    pub hi: DVec2,
+}
+
+impl Crop {
+    pub fn size(self) -> DVec2 {
+        self.hi - self.lo
+    }
+
+    pub fn middle(self) -> DVec2 {
+        (self.lo + self.hi) / 2.0
+    }
+
+    /// The same part of the subject at `k` times the scale.
+    pub fn scaled(self, k: f64) -> Crop {
+        Crop { lo: self.lo * k, hi: self.hi * k }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -66,17 +92,6 @@ pub struct Perspective {
     pub eye: DVec3,
     pub fov_y: f64,
     pub size: DVec2,
-}
-
-impl Perspective {
-    /// The widest opening kept when a frame grows.
-    const MAX_HALF_FOV: f64 = 1.45;
-
-    /// Its frame cropped to `size`, what it shows staying the same size on the paper.
-    pub fn cropped(self, size: DVec2) -> Perspective {
-        let half = ((self.fov_y / 2.0).tan() * size.y / self.size.y).atan().min(Self::MAX_HALF_FOV);
-        Perspective { fov_y: 2.0 * half, size, ..self }
-    }
 }
 
 impl super::Drawing {

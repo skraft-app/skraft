@@ -810,7 +810,7 @@ fn bench_hidden_lines() {
     let half = glam::DVec2::new(t * 1.5, t);
     let iso = DVec3::new(-1.0, 1.0, -1.0).normalize();
     for (name, eye) in [("outside", centre - iso * radius / t), ("inside", centre)] {
-        let l = crate::hidden_lines::Look { lens: Some(crate::hidden_lines::Lens { eye, half }), ..look(iso, DVec3::Z) };
+        let l = crate::hidden_lines::Look { lens: Some(crate::hidden_lines::Lens { eye, lo: -half, hi: half }), ..look(iso, DVec3::Z) };
         let lines = time(&format!("hidden lines, perspective {name}"), || crate::hidden_lines::hidden_lines(&parts, &l));
         eprintln!("  {} visible polylines, {} hidden, {} segments", lines.visible.len(), lines.hidden.len(), lines.segments());
     }

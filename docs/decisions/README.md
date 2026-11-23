@@ -58,3 +58,4 @@ state and link the records behind it.
 | 0049 | [Drawing: a tree of presentations, sheets and definitions, no layers](0049-drawing-a-tree-of-presentations-and-definitions.md) | accepted (2026-11-21; built) |
 | 0050 | [Drawing: every sheet on one board, one of them active](0050-drawing-every-sheet-on-one-board.md) | accepted (2026-11-21; built) |
 | 0051 | [Drawing: a view's content and point of view chosen from the sheet](0051-drawing-views-chosen-and-framed-on-the-sheet.md) | accepted (2026-11-23; built) |
+| 0052 | [Drawing: a view frames what it shows](0052-drawing-a-view-frames-what-it-shows.md) | accepted (2026-11-23; built) |

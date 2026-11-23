@@ -656,7 +656,7 @@ struct ViewsCache {
     key: (u64, u64),
     /// By view and the direction it looks along: a composition's projected view looks its
     /// presentation's way (docs/ui/drawing.md#compositions).
-    views: HashMap<(Id, [u64; 15]), Arc<ViewData>>,
+    views: HashMap<(Id, [u64; 19]), Arc<ViewData>>,
 }
 
 /// What a view shows.
@@ -958,7 +958,7 @@ fn resized(min: DVec2, max: DVec2, sx: i8, sy: i8, p: DVec2, keep: bool) -> (DVe
 }
 
 /// The standard scale nearest `s` (as a ratio: their logarithms).
-fn nearest_scale(s: f64) -> f64 {
+pub(crate) fn nearest_scale(s: f64) -> f64 {
     let s = s.max(1e-9);
     SCALES.iter().copied().min_by(|a, b| (a.ln() - s.ln()).abs().total_cmp(&(b.ln() - s.ln()).abs())).unwrap_or(1.0)
 }
@@ -986,20 +986,21 @@ fn regrip(g: &Grip, p: DVec2, shift: bool) -> ElementKind {
         (ElementKind::Circle { center, .. }, Handle::Round(..)) => {
             ElementKind::Circle { center: *center, radius: center.distance(p).max(MIN_RADIUS) }
         }
-        // A view's scale: as far out as the pointer is from its centre, the nearest standard one.
-        (ElementKind::View(v), Handle::Scale(..)) => match &v.kind {
-            // A perspective view's frame is cropped about its centre.
-            ViewKind::Base { subject, look: Look::Camera { forward, up, perspective: Some(lens) }, scale, at } => {
-                let size = ((p - *at).abs() * 2.0).max(DVec2::splat(MIN_VIEW_MM));
-                let look = Look::Camera { forward: *forward, up: *up, perspective: Some(lens.cropped(size)) };
-                let kind = ViewKind::Base { subject: subject.clone(), look, scale: *scale, at: *at };
-                ElementKind::View(View { kind, ..v.clone() })
+        // With Shift, a parallel view's scale: as far out as the pointer is from its middle, the
+        // nearest standard one.
+        (ElementKind::View(v), Handle::Scale(sx, sy)) => match &v.kind {
+            ViewKind::Base { subject, look, scale, at } if shift && look.frame().1.is_none() => {
+                let (half, middle) = (((g.hi - g.lo) / 2.0).max(DVec2::splat(1e-9)), (g.lo + g.hi) / 2.0);
+                let k = ((p.x - middle.x).abs() / half.x).max((p.y - middle.y).abs() / half.y);
+                let new = nearest_scale(scale * k);
+                let kind = ViewKind::Base { subject: subject.clone(), look: look.clone(), scale: new, at: *at };
+                ElementKind::View(View { kind, crop: v.crop.map(|c| c.scaled(new / scale)), ..v.clone() })
             }
-            ViewKind::Base { subject, look, scale, at } => {
-                let half = ((g.hi - g.lo) / 2.0).max(DVec2::splat(1e-9));
-                let k = ((p.x - at.x).abs() / half.x).max((p.y - at.y).abs() / half.y);
-                let kind = ViewKind::Base { subject: subject.clone(), look: look.clone(), scale: nearest_scale(scale * k), at: *at };
-                ElementKind::View(View { kind, ..v.clone() })
+            // Its frame: this corner moved, the opposite one and the picture still (decision 0052).
+            ViewKind::Base { at, .. } => {
+                let (lo, hi) = resized(g.lo, g.hi, sx, sy, p, false);
+                let hi = hi.max(lo + DVec2::splat(MIN_VIEW_MM));
+                ElementKind::View(View { crop: Some(skraft_model::Crop { lo: lo - *at, hi: hi - *at }), ..v.clone() })
             }
             ViewKind::Projected { .. } => g.kind.clone(),
         },
@@ -1190,10 +1191,10 @@ fn typed_kind(g: &Grip, text: &str, units: &skraft_model::Units) -> Result<Eleme
             Ok(ElementKind::Circle { center: *center, radius })
         }
         (ElementKind::View(v), Handle::Scale(..), None) => match &v.kind {
-            ViewKind::Base { subject, look, at, .. } => {
+            ViewKind::Base { subject, look, at, scale: old } => {
                 let scale = parse_scale(text).ok_or_else(refused)?;
                 let kind = ViewKind::Base { subject: subject.clone(), look: look.clone(), scale, at: *at };
-                Ok(ElementKind::View(View { kind, ..v.clone() }))
+                Ok(ElementKind::View(View { kind, crop: v.crop.map(|c| c.scaled(scale / old)), ..v.clone() }))
             }
             ViewKind::Projected { .. } => Err(refused()),
         },
@@ -1742,6 +1743,9 @@ pub fn subject_box(e: &Editor, r: &Resolved<'_>) -> Option<(DVec2, DVec2)> {
 /// A view's frame on the sheet, in millimetres: its subject's box (`bx`, seen in its frame) at
 /// its scale, centred on where it is placed; a small square while the box is not known.
 pub fn frame_of(r: &Resolved<'_>, bx: Option<(DVec2, DVec2)>) -> (DVec2, DVec2) {
+    if let Some(c) = r.crop {
+        return (r.at + c.lo, r.at + c.hi);
+    }
     // A perspective view's is its own (decision 0051).
     if let Some(p) = r.perspective {
         return (r.at - p.size / 2.0, r.at + p.size / 2.0);
@@ -1837,7 +1841,8 @@ fn picture_camera(r: &Resolved<'_>, (lo, hi): (DVec3, DVec3)) -> (DMat4, glam::M
         let view = glam::dcamera::rh::view::look_to_mat4(p.eye, f.forward, f.up);
         let near = lens_near(r, (lo, hi));
         let aspect = p.size.x / p.size.y;
-        return (view, glam::camera::rh::proj::directx::perspective_infinite_reverse(p.fov_y as f32, aspect as f32, near as f32));
+        let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(p.fov_y as f32, aspect as f32, near as f32);
+        return (view, cropped_proj(r.crop, proj, p.size / 2.0));
     }
     let c = (lo + hi) / 2.0;
     let half = ((hi - lo) / 2.0).max(DVec3::splat(1e-3));
@@ -1855,7 +1860,24 @@ fn picture_camera(r: &Resolved<'_>, (lo, hi): (DVec3, DVec3)) -> (DMat4, glam::M
         far as f32,
         near as f32,
     );
-    (view, proj)
+    (view, cropped_proj(r.crop, proj, half.truncate() * r.scale))
+}
+
+/// What takes clip space's window `lo`–`hi` (x, y from -1 to 1) to the whole of it.
+pub fn window_matrix(lo: DVec2, hi: DVec2) -> glam::Mat4 {
+    let size = hi - lo;
+    let (scale, shift) = (DVec2::splat(2.0) / size, -(hi + lo) / size);
+    glam::Mat4::from_cols(
+        glam::Vec4::new(scale.x as f32, 0.0, 0.0, 0.0),
+        glam::Vec4::new(0.0, scale.y as f32, 0.0, 0.0),
+        glam::Vec4::Z,
+        glam::Vec4::new(shift.x as f32, shift.y as f32, 0.0, 1.0),
+    )
+}
+
+/// `proj`, whose picture is `half` wide and high about its centre on the paper, seeing `crop` alone.
+fn cropped_proj(crop: Option<skraft_model::Crop>, proj: glam::Mat4, half: DVec2) -> glam::Mat4 {
+    crop.map_or(proj, |c| window_matrix(c.lo / half, c.hi / half) * proj)
 }
 
 /// A side of a picture in pixels, in steps of a fifth (a zoom redraws it only past a step).
@@ -1879,7 +1901,8 @@ fn wanted_picture(
     let b = data.bx3?;
     let size = [picture_side((frame.x * ppp) as f64), picture_side((frame.y * ppp) as f64)];
     // Points per paper millimetre in the picture.
-    let frame_mm = r.perspective.map_or((b.1.x - b.0.x).max(1e-9) * r.scale, |p| p.size.x);
+    let on_paper = frame_of(r, Some((b.0.truncate(), b.1.truncate())));
+    let frame_mm = (on_paper.1.x - on_paper.0.x).max(1e-9);
     let ppm = size[0] as f64 / ppp as f64 / frame_mm;
     let f = &r.frame;
     let lines = lines.filter(|_| style != ViewStyle::Rendered).map(|l| PictureLines {
@@ -1942,19 +1965,27 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
         Some(p) => (DVec2::ZERO, p.size.y / (2.0 * (p.fov_y / 2.0).tan())),
         None => (((b.0 + b.1) / 2.0).truncate(), r.scale),
     };
+    // A parallel view's lines are the whole subject's: on paper, what its frame holds.
+    let lines = match (r.crop, r.perspective) {
+        (Some(c), None) => lines.map(|l| l.clipped(centre + c.lo / r.scale, centre + c.hi / r.scale)),
+        _ => lines,
+    };
     Some(Printed { frame, picture, lines, centre, to_paper })
 }
 
 /// What of a view's look changes its picture and lines: its direction, and a perspective's eye,
 /// opening and frame.
-fn e_key(r: &Resolved<'_>) -> [u64; 15] {
+fn e_key(r: &Resolved<'_>) -> [u64; 19] {
     let f = &r.frame;
-    let mut k = [0u64; 15];
+    let mut k = [0u64; 19];
     for (i, v) in [f.right, f.up, f.forward].iter().enumerate() {
         k[3 * i..3 * i + 3].copy_from_slice(&v.to_array().map(f64::to_bits));
     }
     if let Some(p) = r.perspective {
         k[9..15].copy_from_slice(&[p.eye.x, p.eye.y, p.eye.z, p.fov_y, p.size.x, p.size.y].map(f64::to_bits));
+    }
+    if let Some(c) = r.crop {
+        k[15..19].copy_from_slice(&[c.lo.x, c.lo.y, c.hi.x, c.hi.y].map(f64::to_bits));
     }
     k
 }
@@ -2056,7 +2087,7 @@ pub fn picked(e: &mut Editor, st: &mut SheetState, purpose: Purpose, subject: Su
     match purpose {
         Purpose::New => {
             let (frame, perspective) = Look::Standard(Direction::Front).frame();
-            let probe = Resolved { subject: &subject, frame, perspective, scale: 1.0, at: DVec2::ZERO };
+            let probe = Resolved { subject: &subject, frame, perspective, scale: 1.0, at: DVec2::ZERO, crop: None };
             let size = subject_box(e, &probe).map(|(lo, hi)| hi - lo);
             st.set_tool(SheetTool::Place);
             st.placing = Some(Placing { subject, size });
@@ -2068,7 +2099,7 @@ pub fn picked(e: &mut Editor, st: &mut SheetState, purpose: Purpose, subject: Su
             if was == subject {
                 return Ok(());
             }
-            let kind = ElementKind::View(View { kind: ViewKind::Base { subject, look, scale, at }, ..view });
+            let kind = ElementKind::View(View { kind: ViewKind::Base { subject, look, scale, at }, crop: None, ..view });
             e.apply(Operation::SetElement { element: id, kind }).map(|_| ())
         }
     }
@@ -3290,7 +3321,7 @@ pub fn ui(
                                     + 1;
                             let look = Look::Standard(Direction::Front);
                             let kind = ViewKind::Base { subject: placing.subject, look, scale, at };
-                            let view = View { name: t!("drawing.view_name", n = n), kind, style: ViewStyle::Lines };
+                            let view = View { name: t!("drawing.view_name", n = n), kind, style: ViewStyle::Lines, crop: None };
                             if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element: ElementKind::View(view) }) {
                                 st.selected = o.element.into_iter().collect();
                             }
@@ -3308,7 +3339,8 @@ pub fn ui(
                 {
                     // Its frame where a click puts it.
                     let r = drawing.resolve_as(base, projection).unwrap();
-                    let ghost = Resolved { frame: r.frame.projected(side, projection), at: r.at + side.dir() * distance, ..r.clone() };
+                    let ghost =
+                        Resolved { frame: r.frame.projected(side, projection), at: r.at + side.dir() * distance, crop: None, ..r.clone() };
                     let (lo, hi) = view_frame(e, &ghost);
                     let q = lv.quad(lo, hi);
                     let corners = [q[0], q[1], q[2], q[3], q[0]];
@@ -3327,6 +3359,7 @@ pub fn ui(
                                     _ => None,
                                 })
                                 .unwrap_or_default(),
+                            crop: None,
                         };
                         if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element: ElementKind::View(view) }) {
                             st.selected = o.element.into_iter().collect();
@@ -3898,7 +3931,7 @@ mod tests {
     #[test]
     fn a_projected_view_is_kept_per_projection_and_a_base_view_once() {
         let id = Id(5);
-        let view = |kind| View { name: String::new(), kind, style: ViewStyle::Lines };
+        let view = |kind| View { name: String::new(), kind, style: ViewStyle::Lines, crop: None };
         let projected = view(ViewKind::Projected { base: Id(4), side: Side::Left, distance: 10.0 });
         assert_ne!(slot_of(id, &projected, Projection::FirstAngle), slot_of(id, &projected, Projection::ThirdAngle));
         let base = view(ViewKind::Base { subject: Subject::Model, look: Look::Standard(Direction::Front), scale: 1.0, at: DVec2::ZERO });
@@ -3948,10 +3981,15 @@ mod tests {
             name: "Base".into(),
             kind: ViewKind::Base { subject: Subject::Model, look: Look::Standard(Direction::Front), scale: 1.0, at: DVec2::ZERO },
             style: ViewStyle::Lines,
+            crop: None,
         };
         let base = e.apply(Operation::AddElement { to, element: ElementKind::View(base) }).unwrap().unwrap().element.unwrap();
-        let side =
-            View { name: "Side".into(), kind: ViewKind::Projected { base, side: Side::Right, distance: 100.0 }, style: ViewStyle::Lines };
+        let side = View {
+            name: "Side".into(),
+            kind: ViewKind::Projected { base, side: Side::Right, distance: 100.0 },
+            style: ViewStyle::Lines,
+            crop: None,
+        };
         let side = e.apply(Operation::AddElement { to, element: ElementKind::View(side) }).unwrap().unwrap().element.unwrap();
         let d = e.document().drawing();
         assert!(!can_leave_sheet(d, &[]));

@@ -42,8 +42,9 @@ pub use document::{
     Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache, RawCell, Sign, StretchMask, Texture, name_base,
 };
 pub use drawing::{
-    Border, Composition, Container, Corner, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Instance, Look, Paper, Perspective,
-    Place, Placed, Presentation, Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle, field_key, text_fields,
+    Border, Composition, Container, Corner, Crop, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Instance, Look, Paper,
+    Perspective, Place, Placed, Presentation, Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle, field_key,
+    text_fields,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, VERSION};
