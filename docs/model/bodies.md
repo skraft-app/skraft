@@ -53,7 +53,8 @@ Decision record: [A part is positive and negative bodies](../decisions/0018-part
   one positive body of a free shape.
 - **The part's axes are independent of its bodies.** Changing them would be correcting every
   body's placement and compensating the T of each occurrence: exact, for any rotation, no
-  kernel, the profiles never touched. Not yet: an operation changing them.
+  boolean, the profiles never touched. No operation changes them yet
+  ([decision 0053](../decisions/0053-changing-a-components-axes.md)).
 
 ## A fixed formula, no history
 

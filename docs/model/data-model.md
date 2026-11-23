@@ -111,8 +111,8 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   SolidCore's tight box (its loose one should the tight one fail).
 - Tools working on a part use its axes; elsewhere, the context's.
 - The part's axes are independent of its bodies
-  ([Bodies placed in the part's axes](bodies.md#bodies-placed-in-the-parts-axes)). Not yet: an
-  operation changing a part's axes.
+  ([Bodies placed in the part's axes](bodies.md#bodies-placed-in-the-parts-axes)). No operation
+  changes them yet ([decision 0053](../decisions/0053-changing-a-components-axes.md)).
 
 ## Machinings and the recipe
 
