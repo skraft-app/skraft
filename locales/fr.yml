@@ -132,6 +132,7 @@ menu:
     edit_composition: "Modifier la composition"
     add_view: "Nouvelle vue"
     project_view: "Vue projetée"
+    frame_view: "Cadrer la vue"
     tool_text: "Texte"
     tool_rect: "Rectangle"
     tool_circle: "Cercle"
@@ -612,6 +613,7 @@ drawing:
     grip: "Relâcher pour finir · Maj : garder les proportions · Échap : annuler"
     project: "Cliquer d'un côté de la vue de base pour poser la vue projetée · Espace : terminer"
     place_view: "Cliquer sur la feuille pour poser la vue · Échap : annuler"
+    frame_view: "Glisser : tourner · Bouton droit : déplacer · Molette : zoomer · Entrée : valider · Échap : annuler"
     text: "Cliquer pour poser un texte, à écrire dans les infos sur l'entité · Espace : terminer"
     rect: "Cliquer le premier coin du rectangle (ou glisser) · Espace : terminer"
     rect_second: "Cliquer le coin opposé, ou taper ses dimensions · Échap : annuler"
@@ -665,6 +667,9 @@ drawing:
   delete_sheet: "Supprimer la feuille"
   blank_sheet: "Feuille vierge"
   blank_presentation: "Présentation vierge"
+  framer:
+    ok: "Valider"
+    empty: "Cette vue ne montre rien"
   picker:
     title_new: "Que montre la nouvelle vue ?"
     title_change: "Que montre cette vue ?"

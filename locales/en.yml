@@ -111,6 +111,7 @@ menu:
     edit_composition: "Edit Composition"
     add_view: "New View"
     project_view: "Projected View"
+    frame_view: "Frame View"
     tool_text: "Text"
     tool_rect: "Rectangle"
     tool_circle: "Circle"
@@ -543,6 +544,7 @@ drawing:
     grip: "Release to finish · Shift: keep the proportions · Esc: cancel"
     project: "Click on a side of the base view to place the projected view · Space: done"
     place_view: "Click on the sheet to place the view · Esc: cancel"
+    frame_view: "Drag: turn · Right button: pan · Wheel: zoom · Enter: validate · Esc: cancel"
     text: "Click to place a text, to write in the entity info · Space: done"
     rect: "Click the rectangle's first corner (or drag) · Space: done"
     rect_second: "Click the opposite corner, or type its size · Esc: cancel"
@@ -596,6 +598,9 @@ drawing:
   delete_sheet: "Delete Sheet"
   blank_sheet: "Blank sheet"
   blank_presentation: "Blank presentation"
+  framer:
+    ok: "Validate"
+    empty: "This view shows nothing"
   picker:
     title_new: "What does the new view show?"
     title_change: "What does this view show?"

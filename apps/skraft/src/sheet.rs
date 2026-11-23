@@ -90,6 +90,8 @@ pub struct SheetState {
     pub picker: Option<ViewPicker>,
     /// The view being placed by [`SheetTool::Place`].
     placing: Option<Placing>,
+    /// The view being framed (« Cadrer la vue »), over the stage.
+    pub framer: Option<crate::view_framer::ViewFramer>,
     /// What the entity info shows while nothing is picked.
     pub info: InfoOn,
     /// What each view shows, for the document's revision and the meshes' generation.
@@ -1634,6 +1636,9 @@ impl SheetState {
     /// The status bar's hint on the sheet (docs/ui/drawing.md#placing-views): what the tool
     /// does at its step.
     pub fn status(&self) -> String {
+        if self.framer.is_some() {
+            return t!("drawing.hint.frame_view");
+        }
         if let Some(m) = &self.message {
             return m.clone();
         }
@@ -2029,6 +2034,12 @@ pub fn selected_view<'a>(e: &'a Editor, st: &SheetState) -> Option<(Id, &'a View
         ElementKind::View(v) => Some((el.id, v)),
         _ => None,
     })
+}
+
+/// « Cadrer la vue » on the view picked.
+pub fn frame_view(e: &Editor, st: &mut SheetState) -> Result<(), String> {
+    let id = selected_view(e, st).map(|(id, _)| id).ok_or_else(|| t!("drawing.no_view_selected"))?;
+    crate::view_framer::open(e, st, id)
 }
 
 /// Can a view be projected from the view picked (a parallel one)?
@@ -2635,6 +2646,10 @@ pub fn ui(
     let ink = viewport::color(theme.ui.view_text);
     ui.painter().rect_filled(rect, 0.0, viewport::color(theme.ui.view));
     crate::handles::publish(|| "sheet".into(), rect);
+    if st.framer.is_some() {
+        let room = fit.filter(|r| r.width() >= MIN_FIT_ROOM && r.height() >= MIN_FIT_ROOM).unwrap_or(rect);
+        return crate::view_framer::ui(ui, room, e, st, ready);
+    }
     let paper_room = rect;
     let centre = paper_room.center();
     if let Some(ask) = st.asked.take() {
@@ -3056,6 +3071,12 @@ pub fn ui(
                     let instance = hit.filter(|v| drawing.element(*v).is_some_and(|el| el.kind.instance().is_some()));
                     match (instance, hit) {
                         (Some(i), _) => st.enter(i),
+                        // A view: its point of view (decision 0051).
+                        (None, Some(v)) if drawing.element(v).is_some_and(|el| matches!(el.kind, ElementKind::View(_))) => {
+                            if let Err(why) = crate::view_framer::open(e, st, v) {
+                                st.message = Some(why);
+                            }
+                        }
                         (None, None) if st.open.is_empty() => {
                             let on_paper =
                                 at.map(|p| pv.to_sheet(p)).is_some_and(|q| q.cmpge(DVec2::ZERO).all() && q.cmple(paper.size()).all());

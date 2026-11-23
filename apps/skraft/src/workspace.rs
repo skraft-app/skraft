@@ -177,8 +177,8 @@ pub const WORKSPACES: &[Workspace] = &[
                 group(
                     "views",
                     || t!("ribbon.group.view"),
-                    &["drawing.add_view", "drawing.project_view"],
-                    &["drawing.add_view", "drawing.project_view"],
+                    &["drawing.add_view", "drawing.project_view", "drawing.frame_view"],
+                    &["drawing.add_view", "drawing.project_view", "drawing.frame_view"],
                 ),
                 group(
                     "draw",

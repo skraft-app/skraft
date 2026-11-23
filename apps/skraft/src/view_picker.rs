@@ -72,7 +72,7 @@ fn chain(p: &EntityPath) -> Vec<Id> {
 }
 
 /// The first place component `target` stands under `component`.
-fn first_path(doc: &Document, component: Id, target: Id, prefix: &mut Vec<Id>) -> Option<EntityPath> {
+pub(crate) fn first_path(doc: &Document, component: Id, target: Id, prefix: &mut Vec<Id>) -> Option<EntityPath> {
     if prefix.len() >= MAX_DEPTH {
         return None;
     }

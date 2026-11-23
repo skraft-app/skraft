@@ -863,9 +863,15 @@ impl SkraftApp {
             };
         };
         let e = &d.editor;
+        // While a view is framed, nothing else changes the document or the sheet.
+        if d.workspace.stage == Stage::Sheet && d.sheet.framer.is_some() && ["drawing.", "edit.", "tool."].iter().any(|p| id.starts_with(p))
+        {
+            return false;
+        }
         let has_sel = !e.selection().is_empty();
         let section = e.document().settings().display.section.is_some();
         match id {
+            "drawing.frame_view" => crate::sheet::selected_view(e, &d.sheet).is_some(),
             "edit.undo" => e.history().can_undo(),
             "edit.redo" => e.history().can_redo(),
             // « Pièces » too (docs/tools/selection.md): its selection at any depth.
@@ -1149,6 +1155,7 @@ impl SkraftApp {
             }
             "drawing.add_view" => return crate::sheet::add_view(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.project_view" => return crate::sheet::project_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.frame_view" => return crate::sheet::frame_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.make_composition" => return crate::sheet::compose_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.explode" => return crate::sheet::explode_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.make_unique" => return crate::sheet::unique_selected(&mut doc.editor, &doc.sheet).map_err(Note::info),
@@ -1459,7 +1466,10 @@ impl SkraftApp {
     fn keys_to_tools(&self) -> bool {
         self.closing.as_ref().is_none_or(|c| c.asking.is_none())
             && self.naming.is_none()
-            && self.docs.active().is_none_or(|d| d.sheet.picker.is_none())
+            && self
+                .docs
+                .active()
+                .is_none_or(|d| d.sheet.picker.is_none() && (d.workspace.stage != Stage::Sheet || d.sheet.framer.is_none()))
     }
 
     fn keyboard(&mut self, ctx: &egui::Context) {

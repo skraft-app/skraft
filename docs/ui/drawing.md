@@ -97,6 +97,18 @@ click, its frame following the pointer over the active sheet, at the largest sta
 fitting half the paper, Esc giving up. A view whose content changes keeps its scale and place; a
 dimension whose anchor is no longer shown becomes an orphan.
 
+### Framing a view
+
+« Cadrer la vue » (`drawing.frame_view`, or a double click on a view; a projected view opens its
+base) shows the view's subject alone, large over the free area (`view_framer::ViewFramer`, decision
+0051), the part its frame will hold unmasked. A drag turns it, as the 3D view's orbit and short of
+going over the top; the right button pans, the wheel zooms; those two only move what is seen here.
+A bar puts it on a standard direction. **Valider** (Enter) changes the view in one undoable step,
+its projected views following; **Annuler** (Esc) leaves it. The 3D view's camera and selection do
+not move, and while it is open the commands that change the document are off. A direction is in
+the subject's axes: « Caméra » takes the 3D camera into a component's axes through its first
+occurrence.
+
 ## Lines
 
 A view's lines are its parts' edges and the silhouettes of their curved faces, seen parallel

@@ -3247,14 +3247,8 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
                         ui.separator();
                         // The 3D view's camera now, perspective or parallel.
                         if ui.selectable_label(matches!(look, Look::Camera { .. }), t!("drawing.direction.camera")).clicked() {
-                            let cam = &editor.camera;
-                            let perspective = match cam.projection {
-                                skraft_tools::camera::Projection::Perspective { fov_y } => {
-                                    Some(skraft_model::Perspective { eye: cam.eye, fov_y })
-                                }
-                                _ => None,
-                            };
-                            actions.push(set(base(Look::Camera { forward: cam.forward(), up: cam.up(), perspective }, *scale)));
+                            let look = crate::view_framer::camera_look(doc, subject, &editor.camera);
+                            actions.push(set(base(look, *scale)));
                         }
                     });
                     ui.end_row();
@@ -3584,7 +3578,7 @@ fn field_name(f: &str) -> String {
 }
 
 /// A standard direction's name.
-fn direction_label(d: skraft_model::Direction) -> String {
+pub(crate) fn direction_label(d: skraft_model::Direction) -> String {
     use skraft_model::Direction;
     match d {
         Direction::Front => t!("drawing.direction.front"),
