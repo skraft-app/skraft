@@ -26,6 +26,11 @@ until the final mesh replaces it; a preview coming after the final is dropped; a
 refused leaves the preview drawn. Outside a load (the meshes an operation's job brings), final
 meshes only.
 
+A preview does not compute the solid's exact box: its scale comes from SolidCore's loose box,
+its bounds from its own mesh widened by the mesh's tolerance, within that loose box. Only the
+final mesh brings the exact box dimensions are read on. **Why:** the exact box was 83 % of a
+mesh's time on a body of curved faces (`ZeRotor`), so a preview cost as much as the final.
+
 ## Progress
 
 `kernel::Progress`: a job reports it as it runs (`run_with` and its `Context`); the services keep
