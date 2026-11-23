@@ -1897,3 +1897,19 @@ fn brep_edges_lie_on_their_triangles() {
         assert_eq!(both, s.edges.len(), "solid {k}: edge segments with one triangle");
     }
 }
+
+/// The tables give what the gamma formula gives, for every pair of values averaged.
+#[test]
+fn mip_levels_average_in_linear_light_as_the_formula() {
+    let formula = |a: u8, b: u8| {
+        let l = |c: u8| (c as f32 / 255.0).powf(2.2);
+        (((l(a) + l(a) + l(b) + l(b)) / 4.0).powf(1.0 / 2.2) * 255.0 + 0.5) as i32
+    };
+    for a in 0..=255u8 {
+        for b in 0..=255u8 {
+            let rgba = [a, a, a, 255, b, b, b, 255, a, a, a, 255, b, b, b, 255];
+            let got = mip_down(&rgba, 2)[0] as i32;
+            assert!((got - formula(a, b)).abs() <= 1, "{a} {b}: {got} against {}", formula(a, b));
+        }
+    }
+}

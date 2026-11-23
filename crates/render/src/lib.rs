@@ -764,12 +764,21 @@ impl TextureLayers {
     }
 }
 
+/// sRGB (gamma 2.2) to linear light, by value; and the linear value from which each sRGB value
+/// from 1 up is the nearest: `powf` per channel took most of a load on the web, where it is
+/// done in software (docs/ui/loading.md).
+fn gamma_tables() -> &'static ([f32; 256], [f32; 255]) {
+    static TABLES: std::sync::OnceLock<([f32; 256], [f32; 255])> = std::sync::OnceLock::new();
+    TABLES.get_or_init(|| {
+        (std::array::from_fn(|c| (c as f32 / 255.0).powf(2.2)), std::array::from_fn(|k| ((k as f32 + 0.5) / 255.0).powf(2.2)))
+    })
+}
+
 /// The next mip level of a square sRGB image `side` texels wide: each texel the mean of four,
 /// averaged in linear light.
 fn mip_down(rgba: &[u8], side: u32) -> Vec<u8> {
     let half = (side / 2).max(1);
-    let to_linear = |c: u8| (c as f32 / 255.0).powf(2.2);
-    let to_srgb = |l: f32| (l.max(0.0).powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+    let (to_linear, from_linear) = gamma_tables();
     let mut out = vec![0u8; (half * half * 4) as usize];
     for y in 0..half {
         for x in 0..half {
@@ -781,8 +790,11 @@ fn mip_down(rgba: &[u8], side: u32) -> Vec<u8> {
                 let px = [at(0, 0), at(1, 0), at(0, 1), at(1, 1)];
                 out[((y * half + x) * 4 + c) as usize] = if c == 3 {
                     (px.iter().map(|v| *v as u32).sum::<u32>() / 4) as u8
+                } else if px[1] == px[0] && px[2] == px[0] && px[3] == px[0] {
+                    px[0]
                 } else {
-                    to_srgb(px.iter().map(|v| to_linear(*v)).sum::<f32>() / 4.0)
+                    let linear = px.iter().map(|v| to_linear[*v as usize]).sum::<f32>() / 4.0;
+                    from_linear.partition_point(|t| *t <= linear) as u8
                 };
             }
         }
