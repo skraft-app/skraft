@@ -161,8 +161,7 @@ A material may have a **texture**: an image laid on the faces at its real size.
   panel's swatch.
 - **Mapping**: nothing per face nor per vertex — a **box projection in the part's axes**, in
   the shader (`textured`): a face takes the image on the plane of the two axes it least faces,
-  the image's width along the part's **length** (its mesh's longest axis, `Batch::grain`,
-  measured by the viewport when the mesh changes), across it on the end grain; at its real
+  the image's width along the part's **length** (its red axis), across it on the end grain; at its real
   size, turned by its rotation, centred on the part's mesh. Back faces and section caps keep
   their colours.
 - **Rendering**: the images decoded off the interface's thread and resized to

@@ -96,14 +96,11 @@ pub struct Batch {
     pub ghost: bool,
     /// Edges and silhouettes see-through too, drawn with the ghosts' faces.
     pub faint_edges: bool,
-    /// The axis of the mesh along its part's length (0, 1, 2: x, y, z): a texture's grain
-    /// (docs/render/look.md#textures).
-    pub grain: u8,
 }
 
 impl Batch {
     pub fn new(key: u64, placements: Vec<Placement>) -> Self {
-        Batch { key, placements, ghost: false, faint_edges: false, grain: 0 }
+        Batch { key, placements, ghost: false, faint_edges: false }
     }
 }
 
@@ -142,8 +139,6 @@ pub struct Highlight {
     /// Only this B-rep face of the part (its index in the record), in `material` over its own
     /// paint, without its edges: the face the paint tool would paint (docs/render/look.md).
     pub face: Option<u32>,
-    /// Its batch's [`Batch::grain`].
-    pub grain: u8,
 }
 
 /// A world-space segment, coloured (`rgb` linear; `a` mixed over the background, or, in the
@@ -567,14 +562,13 @@ struct InstanceRaw {
     normal: [[f32; 4]; 3],
     tint: [f32; 4],
     material: u32,
-    grain: u32,
 }
 
 impl InstanceRaw {
     /// `model_view`: from the mesh's (recentred) coordinates to the camera's, in `f64`;
     /// `opacity`: a ghost's, over the ghosts' (carried in the normal matrix's spare `w`);
     /// `key`: its mesh's, which chooses its section caps' hatch ([`hatch_of`]).
-    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32, key: u64, grain: u8) -> Self {
+    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32, key: u64) -> Self {
         let linear = DMat3::from_mat4(*model_view);
         let n = linear.inverse().transpose();
         let c = |v: DVec3, w: f64| [v.x as f32, v.y as f32, v.z as f32, w as f32];
@@ -585,7 +579,6 @@ impl InstanceRaw {
             normal: [c(n.x_axis, mirrored), c(n.y_axis, opacity as f64), c(n.z_axis, hatch_of(key))],
             tint,
             material,
-            grain: grain as u32,
         }
     }
 }
@@ -898,10 +891,10 @@ fn create_pipeline(
     })
 }
 
-const INSTANCE_ATTRS: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
+const INSTANCE_ATTRS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
     4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4,
     8 => Float32x4, 9 => Float32x4, 10 => Float32x4, 11 => Float32x4,
-    12 => Uint32, 14 => Uint32
+    12 => Uint32
 ];
 
 /// A placement of a part's mesh ([`InstanceRaw`]), stepped per instance.
@@ -1672,9 +1665,7 @@ impl Renderer {
         for b in frame.batches {
             let start = raw.len() as u32;
             raw.extend(
-                b.placements
-                    .iter()
-                    .map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material, p.opacity, b.key, b.grain)),
+                b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material, p.opacity, b.key)),
             );
             batch_ranges.push(start..raw.len() as u32);
         }
@@ -1693,9 +1684,9 @@ impl Renderer {
                 Some(_) if h.material == NO_MATERIAL => FORCED | (NO_MATERIAL >> 2),
                 Some(_) => FORCED | h.material,
             };
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, face_material(h), 0.0, h.key, h.grain)));
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, face_material(h), 0.0, h.key)));
             let edges = raw.len() as u32;
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key, h.grain)));
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key)));
             runs.push(HighlightRun {
                 key: chunk[0].key,
                 part: chunk[0].part,
