@@ -9,7 +9,7 @@ use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
 use crate::catalog::{LIST_ROW, LIST_THUMB};
-use crate::panels::tree_row;
+use crate::widgets::tree_row;
 
 /// The list's height and the dialog's width (points); a level's indent.
 const LIST_HEIGHT: f32 = 340.0;

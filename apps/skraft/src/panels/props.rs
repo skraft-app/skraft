@@ -7,9 +7,10 @@ use std::collections::BTreeSet;
 use skraft_i18n::t;
 use skraft_model::{Document, EntityKind, Operation, PropDef, PropTarget, Units, Value, ValueKind};
 
-use super::{Action, Field, OPTION_HEIGHT, cut_label, framed_field};
+use super::Action;
 use crate::icons;
 use crate::style::Tip;
+use crate::widgets::{Field, IconButton, Look, OPTION_HEIGHT, cut_label, framed_field};
 
 /// The kinds a definition offers, in its menu.
 const KINDS: [fn() -> ValueKind; 14] = [
@@ -81,9 +82,7 @@ fn key_name(key: &str) -> &str {
 
 /// A square button with an icon, as high as the fields: true when clicked.
 fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: &str) -> bool {
-    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ui.visuals().text_color());
-    let h = OPTION_HEIGHT;
-    ui.add(egui::Button::image(img).min_size(egui::vec2(h, h))).tip(tip).clicked()
+    IconButton::new(icon, OPTION_HEIGHT, 12.0).look(Look::Framed).show(ui).tip(tip).clicked()
 }
 
 /// A text field, `width` wide, applied by a click away too, emptied too: the text, when applied.

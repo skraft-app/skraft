@@ -11,6 +11,7 @@ use skraft_i18n::t;
 
 use crate::icons;
 use crate::style::Tip;
+use crate::widgets::IconButton;
 
 /// What the app tells the strip about one open document, anew each frame.
 pub struct Tab {
@@ -237,7 +238,7 @@ pub fn show(
         let cut = galley.elided;
         ui.painter().galley(egui::pos2(r.left() + 10.0, r.center().y - galley.size().y / 2.0), galley, color);
         if show_close && !carrying {
-            let x = small_button(ui, close, id.with(("close", i)), icons::CLOSE, 12.0, ink);
+            let x = IconButton::new(icons::CLOSE, close.width(), 12.0).ink(ink).show_at(ui, close, id.with(("close", i)));
             crate::handles::publish(|| format!("tab_close:{i}"), close);
             if x.tip(t!("tabs.close_tip")).clicked() {
                 out.push(TabAction::Close(i));
@@ -302,7 +303,10 @@ pub fn show(
     if count < n {
         let r = button(x);
         let mut chosen = None;
-        let more = small_button(ui, r, id.with("more"), icons::MORE, 14.0, visuals.text_color()).tip(t!("tabs.more_tip"));
+        let more = IconButton::new(icons::MORE, r.width(), 14.0)
+            .ink(visuals.text_color())
+            .show_at(ui, r, id.with("more"))
+            .tip(t!("tabs.more_tip"));
         egui::Popup::menu(&more).style(crate::style::menu).show(|ui| {
             for (i, tab) in tabs.iter().enumerate() {
                 let label = format!("{}{}", tab.name, if tab.modified { " •" } else { "" });
@@ -317,31 +321,16 @@ pub fn show(
         x += BUTTON;
     }
     crate::handles::publish(|| "tab_new".into(), button(x).shrink(1.0));
-    if small_button(ui, button(x).shrink(1.0), id.with("new"), icons::ADD, 16.0, visuals.text_color()).tip(t!("tabs.new_tip")).clicked() {
+    let new = button(x).shrink(1.0);
+    if IconButton::new(icons::ADD, new.width(), 16.0)
+        .ink(visuals.text_color())
+        .show_at(ui, new, id.with("new"))
+        .tip(t!("tabs.new_tip"))
+        .clicked()
+    {
         out.push(TabAction::New);
     }
     out
-}
-
-/// A frameless button's corner radius.
-pub const VEIL_RADIUS: f32 = 5.0;
-
-/// A frameless button's background: a veil of the text's colour when hovered, darker when
-/// pressed — seen on any ground, in either theme. None at rest.
-pub fn veil(ui: &egui::Ui, resp: &egui::Response) -> Option<egui::Color32> {
-    veil_of(ui.visuals().text_color(), resp)
-}
-
-/// A [`veil`] of `ink`.
-fn veil_of(ink: egui::Color32, resp: &egui::Response) -> Option<egui::Color32> {
-    let alpha = if resp.is_pointer_button_down_on() {
-        0.22
-    } else if resp.hovered() {
-        0.12
-    } else {
-        return None;
-    };
-    Some(ink.gamma_multiply(alpha))
 }
 
 /// The shown tab, `rect` down to the bar's edge, filled with `fill`: rounded at the top, and
@@ -399,24 +388,6 @@ pub fn open_tab_outline(rect: egui::Rect, left: f32, right: f32, inset: f32) -> 
     out.extend(quarter(egui::pos2(rr + r, y - r), FRAC_PI_2, r).into_iter().rev());
     out.push(egui::pos2(right, y));
     out
-}
-
-/// A frameless button of the strip (×, +, »), its `icon` drawn in `ink`: its [`veil`]. `size`:
-/// its icon's.
-fn small_button(
-    ui: &mut egui::Ui,
-    rect: egui::Rect,
-    id: egui::Id,
-    icon: egui::ImageSource<'static>,
-    size: f32,
-    ink: egui::Color32,
-) -> egui::Response {
-    let resp = ui.interact(rect, id, egui::Sense::click());
-    if let Some(fill) = veil_of(ink, &resp) {
-        ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
-    }
-    egui::Image::new(icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::vec2(size, size)));
-    resp
 }
 
 #[cfg(test)]
