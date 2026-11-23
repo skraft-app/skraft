@@ -669,6 +669,8 @@ struct ViewData {
     lines: Option<Arc<crate::view_lines::LinesJob>>,
     /// The parts it shows, placed in its subject's axes.
     placed: Vec<skraft_model::PlacedPart>,
+    /// Stands for how its parts look: their meshes, faces' paint and materials.
+    looks: u64,
     /// Its vertices and edges on the sheet, made when a dimension's tool asks.
     snaps: std::sync::OnceLock<Snaps>,
 }
@@ -761,6 +763,7 @@ impl ViewsCache {
                 parts.sort_by_key(|(p, _)| *p);
                 Arc::new(ViewData {
                     bx3: box_of(e, r, &placed),
+                    looks: looks_of(e, &parts),
                     parts,
                     lines: crate::view_lines::LinesJob::of(e, r, &placed).map(Arc::new),
                     placed,
@@ -769,6 +772,35 @@ impl ViewsCache {
             })
             .clone()
     }
+}
+
+/// A hash of how `parts` look: each one's mesh revision (its shape, its faces' paint) and the
+/// materials they use, so that editing another material redraws nothing.
+fn looks_of(e: &Editor, parts: &[(Id, Vec<Placed>)]) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for (part, _) in parts {
+        e.scene().definition_mesh(*part).map(|dm| dm.revision).hash(&mut h);
+    }
+    let used = materials_of(e, parts);
+    for (id, m) in e.document().materials().filter(|(id, _)| used.contains(id)) {
+        (id.0, m.color).hash(&mut h);
+        if let Some(t) = &m.texture {
+            (&t.image, t.size.map(f64::to_bits), t.rotation.to_bits()).hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
+/// The materials `parts` show: those of their placements and of their painted faces.
+fn materials_of(e: &Editor, parts: &[(Id, Vec<Placed>)]) -> std::collections::BTreeSet<Id> {
+    let mut used = std::collections::BTreeSet::new();
+    for (part, places) in parts {
+        used.extend(places.iter().filter_map(|(_, m)| *m));
+        if let Some(dm) = e.scene().definition_mesh(*part) {
+            used.extend(dm.faces.values().copied());
+        }
+    }
+    used
 }
 
 /// What a click on the sheet does.
@@ -1938,8 +1970,14 @@ fn wanted_picture(
         dash: [(DASH_MM[0] * ppm).max(3.0) as f32, (DASH_MM[1] * ppm).max(2.0) as f32],
     });
     let parts = if style == ViewStyle::Lines { Vec::new() } else { data.parts.clone() };
+    let camera = picture_camera(r, b);
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (e_key(r), size, slot.0.0, style as u8, lines.as_ref().map(|l| Arc::as_ptr(&l.lines) as usize)).hash(&mut h);
+    // Its box moves the camera; a picture of lines alone does not show the parts' look.
+    (camera.0.to_cols_array().map(f64::to_bits), camera.1.to_cols_array().map(f32::to_bits)).hash(&mut h);
+    if style != ViewStyle::Lines {
+        data.looks.hash(&mut h);
+    }
     data.parts.len().hash(&mut h);
     for (p, places) in &data.parts {
         p.0.hash(&mut h);
@@ -1948,7 +1986,7 @@ fn wanted_picture(
             m.map(|m| m.0).hash(&mut h);
         }
     }
-    Some(Wanted { slot, size, camera: picture_camera(r, b), parts, lines, stamp: h.finish() })
+    Some(Wanted { slot, size, camera, parts, lines, stamp: h.finish() })
 }
 
 /// What a view puts on paper (the PDF's, docs/ui/drawing.md#pdf): its frame (sheet
@@ -3728,6 +3766,90 @@ mod tests {
         let kind = ElementKind::Instance(Instance { composition, place, props: Default::default() });
         e.apply(Operation::SetElement { element: i, kind }).unwrap();
         (e, sheet, i)
+    }
+
+    /// Holds the kernel's jobs; [`settle`] runs them.
+    #[derive(Clone, Default)]
+    struct Hold {
+        jobs: std::rc::Rc<std::cell::RefCell<Vec<(JobId, Job)>>>,
+        ready: std::rc::Rc<std::cell::RefCell<Vec<(JobId, JobResult)>>>,
+    }
+    impl KernelService for Hold {
+        fn submit(&mut self, id: JobId, job: Job) {
+            self.jobs.borrow_mut().push((id, job));
+        }
+        fn poll(&mut self) -> Vec<(JobId, JobResult)> {
+            std::mem::take(&mut *self.ready.borrow_mut())
+        }
+    }
+    fn settle(e: &mut Editor, hold: &Hold) {
+        loop {
+            let jobs: Vec<(JobId, Job)> = std::mem::take(&mut *hold.jobs.borrow_mut());
+            if jobs.is_empty() {
+                break;
+            }
+            let results = skraft_kernel::parallel_map(&jobs, |(id, job)| (*id, skraft_kernel::run(job)));
+            hold.ready.borrow_mut().extend(results);
+            e.poll();
+        }
+    }
+
+    /// The stamp of view `id`'s picture in `style`, at a fixed size: what changes it is the model.
+    fn picture_stamp(e: &Editor, id: Id, style: ViewStyle) -> u64 {
+        let r = e.document().drawing().resolve(id).unwrap();
+        let data = ViewsCache::default().get(e, id, &r);
+        wanted_picture((id, None), style, &r, &data, None, egui::vec2(400.0, 300.0), 2.0).unwrap().stamp
+    }
+
+    #[test]
+    fn a_view_picture_is_drawn_again_when_the_model_changes() {
+        let mut h = skraft_model::History::new(Document::new());
+        let root = h.document().root();
+        let material = h.apply(Operation::AddMaterial { name: "M".into(), color: [200, 40, 40] }).unwrap().material.unwrap();
+        let other = h.apply(Operation::AddMaterial { name: "O".into(), color: [10, 10, 10] }).unwrap().material.unwrap();
+        let primitive = skraft_model::Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(1000.0, 500.0, 300.0) };
+        let made =
+            h.apply(Operation::AddPrimitive { context: root, primitive, placement: DAffine3::IDENTITY, material: Some(material) }).unwrap();
+        let occurrence = made.created[0];
+        let hold = Hold::default();
+        let mut e = Editor::new(h.document().clone(), Box::new(hold.clone()));
+        settle(&mut e, &hold);
+        let sheet = e.apply(Operation::AddPresentation { name: None, paper: Some(Paper::A3) }).unwrap().unwrap().sheet.unwrap();
+        let look = skraft_model::Look::Camera { forward: DVec3::Y, up: DVec3::Z, perspective: None };
+        let kind = ViewKind::Base { subject: skraft_model::Subject::Model, look, scale: 0.2, at: DVec2::new(200.0, 150.0) };
+        let element = ElementKind::View(View { name: "V".into(), kind, style: ViewStyle::Rendered, crop: None });
+        let id = e.apply(Operation::AddElement { to: Container::Sheet(sheet), element }).unwrap().unwrap().element.unwrap();
+        settle(&mut e, &hold);
+        let rendered = picture_stamp(&e, id, ViewStyle::Rendered);
+        let lines = picture_stamp(&e, id, ViewStyle::Lines);
+
+        // A material it does not use: nothing to draw again.
+        e.apply(Operation::EditMaterial { material: other, name: "O".into(), color: [20, 20, 20] }).unwrap();
+        settle(&mut e, &hold);
+        assert_eq!(picture_stamp(&e, id, ViewStyle::Rendered), rendered);
+
+        // The one it uses: its picture, not a picture of lines alone.
+        e.apply(Operation::EditMaterial { material, name: "M".into(), color: [40, 200, 40] }).unwrap();
+        settle(&mut e, &hold);
+        let recoloured = picture_stamp(&e, id, ViewStyle::Rendered);
+        assert_ne!(recoloured, rendered);
+        assert_eq!(picture_stamp(&e, id, ViewStyle::Lines), lines);
+
+        // Its shape, the part keeping its id and place.
+        e.apply(Operation::Stretch {
+            context: vec![],
+            occurrences: vec![occurrence],
+            frame: DAffine3::IDENTITY,
+            axis: DVec3::X,
+            cuts: vec![500.0],
+            moves: vec![0.0, 20.0],
+            scope: Default::default(),
+            cutters: None,
+        })
+        .unwrap();
+        settle(&mut e, &hold);
+        assert_ne!(picture_stamp(&e, id, ViewStyle::Rendered), recoloured);
+        assert_ne!(picture_stamp(&e, id, ViewStyle::Lines), lines, "its frame moved");
     }
 
     /// What a press lands on, the sheet drawn at a point per millimetre about the screen's origin.
