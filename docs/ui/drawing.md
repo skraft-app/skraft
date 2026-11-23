@@ -192,7 +192,7 @@ for the pictures of the views on screen (`sheet::Wanted`), the active sheet's fi
 and, for a projected view, per projection, each the size of its frame on screen in pixels, by steps of a fifth (a zoom
 redraws it past a step), 4 096 at most — its parts for the *Rendered* and *Hybrid* styles, its
 lines for *Lines* and *Hybrid*; a picture is drawn again when its direction, its box, its parts
-and places, their meshes and the materials they use, its lines or its size change, within 40 ms a frame (the others the next), shown from the
+and places, their meshes and the materials they use, its lines or its size change, or one more of its texture images gets ready, within 40 ms a frame (the others the next), shown from the
 next frame. A picture gone off screen is kept within a memory budget (256 MB, 64 on the web), the
 least recently seen freed first, so that panning back redraws nothing. A perspective view's picture is seen from its eye, across its own frame.
 

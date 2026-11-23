@@ -671,6 +671,8 @@ struct ViewData {
     placed: Vec<skraft_model::PlacedPart>,
     /// Stands for how its parts look: their meshes, faces' paint and materials.
     looks: u64,
+    /// The texture images its parts show.
+    images: Arc<[String]>,
     /// Its vertices and edges on the sheet, made when a dimension's tool asks.
     snaps: std::sync::OnceLock<Snaps>,
 }
@@ -764,6 +766,7 @@ impl ViewsCache {
                 Arc::new(ViewData {
                     bx3: box_of(e, r, &placed),
                     looks: looks_of(e, &parts),
+                    images: images_of(e, &parts),
                     parts,
                     lines: crate::view_lines::LinesJob::of(e, r, &placed).map(Arc::new),
                     placed,
@@ -801,6 +804,20 @@ fn materials_of(e: &Editor, parts: &[(Id, Vec<Placed>)]) -> std::collections::BT
         }
     }
     used
+}
+
+/// The texture images `parts` show, each once: a picture is drawn again as they get ready.
+pub fn images_of(e: &Editor, parts: &[(Id, Vec<Placed>)]) -> Arc<[String]> {
+    let used = materials_of(e, parts);
+    let mut images: Vec<String> = e
+        .document()
+        .materials()
+        .filter(|(id, _)| used.contains(id))
+        .filter_map(|(_, m)| m.texture.as_ref().map(|t| t.image.clone()))
+        .collect();
+    images.sort();
+    images.dedup();
+    images.into()
 }
 
 /// What a click on the sheet does.
@@ -1854,6 +1871,8 @@ pub struct Wanted {
     /// Per part (its definition): its placements in the subject's axes and their materials.
     pub parts: Vec<(Id, Vec<Placed>)>,
     pub lines: Option<PictureLines>,
+    /// The texture images it shows: it is drawn again when one more of them is ready.
+    pub images: Arc<[String]>,
     pub stamp: u64,
 }
 
@@ -1969,7 +1988,7 @@ fn wanted_picture(
         hidden_width: (HIDDEN_MM * ppm).max(0.6) as f32,
         dash: [(DASH_MM[0] * ppm).max(3.0) as f32, (DASH_MM[1] * ppm).max(2.0) as f32],
     });
-    let parts = if style == ViewStyle::Lines { Vec::new() } else { data.parts.clone() };
+    let (parts, images) = if style == ViewStyle::Lines { (Vec::new(), Arc::default()) } else { (data.parts.clone(), data.images.clone()) };
     let camera = picture_camera(r, b);
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (e_key(r), size, slot.0.0, style as u8, lines.as_ref().map(|l| Arc::as_ptr(&l.lines) as usize)).hash(&mut h);
@@ -1986,7 +2005,7 @@ fn wanted_picture(
             m.map(|m| m.0).hash(&mut h);
         }
     }
-    Some(Wanted { slot, size, camera, parts, lines, stamp: h.finish() })
+    Some(Wanted { slot, size, camera, parts, lines, images, stamp: h.finish() })
 }
 
 /// What a view puts on paper (the PDF's, docs/ui/drawing.md#pdf): its frame (sheet
@@ -2016,7 +2035,7 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
         let mut parts: Vec<_> = by_part.into_iter().collect();
         parts.sort_by_key(|(p, _)| *p);
         let size = [px(frame.1.x - frame.0.x), px(frame.1.y - frame.0.y)];
-        Wanted { slot: (id, None), size, camera: picture_camera(r, b), parts, lines: None, stamp: 0 }
+        Wanted { slot: (id, None), size, camera: picture_camera(r, b), parts, lines: None, images: Arc::default(), stamp: 0 }
     });
     let lines = if style == ViewStyle::Rendered { None } else { crate::view_lines::LinesJob::of(e, r, &placed).map(|job| job.run()) };
     // A perspective's lines are tangents about its axis, on the frame's height.
@@ -3850,6 +3869,30 @@ mod tests {
         settle(&mut e, &hold);
         assert_ne!(picture_stamp(&e, id, ViewStyle::Rendered), recoloured);
         assert_ne!(picture_stamp(&e, id, ViewStyle::Lines), lines, "its frame moved");
+    }
+
+    #[test]
+    fn a_view_lists_the_texture_images_it_shows() {
+        let mut h = skraft_model::History::new(Document::new());
+        let root = h.document().root();
+        let textured = |h: &mut skraft_model::History, byte: u8| {
+            let material = h.apply(Operation::AddMaterial { name: format!("M{byte}"), color: [9, 9, 9] }).unwrap().material.unwrap();
+            let image = skraft_model::Asset::new([&b"\x89PNG\r\n\x1a\n"[..], &[byte]].concat()).unwrap();
+            let texture = skraft_model::Texture { image: image.id(), size: [100.0, 100.0], rotation: 0.0 };
+            let id = texture.image.clone();
+            h.apply(Operation::SetTexture { material, texture: Some(texture), image: Some(image) }).unwrap();
+            (material, id)
+        };
+        let (shown, image) = textured(&mut h, 1);
+        textured(&mut h, 2);
+        let primitive = skraft_model::Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(100.0) };
+        h.apply(Operation::AddPrimitive { context: root, primitive, placement: DAffine3::IDENTITY, material: Some(shown) }).unwrap();
+        let hold = Hold::default();
+        let mut e = Editor::new(h.document().clone(), Box::new(hold.clone()));
+        settle(&mut e, &hold);
+        let placed = e.document().subject_parts(&skraft_model::Subject::Model);
+        let parts: Vec<(Id, Vec<Placed>)> = placed.iter().map(|p| (p.part, vec![(p.transform, p.material)])).collect();
+        assert_eq!(&*images_of(&e, &parts), &[image], "the material it shows, not the other");
     }
 
     /// What a press lands on, the sheet drawn at a point per millimetre about the screen's origin.

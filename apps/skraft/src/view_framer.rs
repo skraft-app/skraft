@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use glam::{DAffine3, DMat4, DQuat, DVec2, DVec3};
 use skraft_i18n::t;
@@ -49,6 +50,8 @@ pub struct ViewFramer {
     look: Look,
     /// Its subject's parts, by definition, and the corners of their boxes, in its axes.
     parts: Vec<(Id, Vec<Placed>)>,
+    /// The texture images they show.
+    images: Arc<[String]>,
     corners: Vec<DVec3>,
     centre: DVec3,
     radius: f64,
@@ -116,10 +119,12 @@ pub fn open(e: &Editor, st: &mut SheetState, id: Id) -> Result<(), String> {
     };
     let mut parts: Vec<_> = by_part.into_iter().collect();
     parts.sort_by_key(|(p, _)| *p);
+    let images = crate::sheet::images_of(e, &parts);
     let mut f = ViewFramer {
         view,
         look: look.clone(),
         parts,
+        images,
         corners,
         centre: (lo + hi) / 2.0,
         radius: ((hi - lo).length() / 2.0).max(1e-3),
@@ -682,10 +687,10 @@ pub fn ui(
         let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         painter.image(*texture, room, uv, egui::Color32::WHITE);
     }
-    let mut wanted = Vec::new();
+    // Asked for at every frame: the viewport draws it when its stamp changes or a texture comes.
+    let wanted = vec![Wanted { slot: SLOT, size, camera, parts: f.parts.clone(), lines: None, images: f.images.clone(), stamp }];
     if f.stamp != Some(stamp) || !ready.contains_key(&SLOT) {
         f.stamp = Some(stamp);
-        wanted.push(Wanted { slot: SLOT, size, camera, parts: f.parts.clone(), lines: None, stamp });
         ui.ctx().request_repaint();
     }
 
@@ -813,6 +818,7 @@ mod tests {
             view: Id(1),
             look,
             parts: Vec::new(),
+            images: Default::default(),
             corners,
             centre: DVec3::new(450.0, 150.0, 250.0),
             radius: 550.0,
