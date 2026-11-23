@@ -153,6 +153,8 @@ camera are a view state (`SheetState`). None of it is saved.
   largest paper side, so that an A0 among A4s leaves room: a tenth of it between sheets, three
   tenths between columns, which read apart without a rule.
   The names keep their size on screen; a sheet's is left out when its gap has no room for it.
+- **The active sheet's column stands out**: its presentation's name on the selection colour, a
+  dotted frame around the column, broken by the name. The sheet's own outline stays solid.
 - **When the layout changes** (a sheet added, a format changed), the camera follows the active
   sheet, which stays where it is on screen.
 
