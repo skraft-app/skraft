@@ -225,6 +225,28 @@ impl BlendTool {
         let op = Operation::Blend { target: target.clone(), bodies, blend: self.blend, size: Self::size(cx), picks, scope: cx.part_scope };
         Some(BlendPreview { op, path: target, body, world })
     }
+
+    /// What validating the node open applies. No edge picked, its edges known: the user let go
+    /// of its last one, the node is undone (every copy); its edges not known (its children's
+    /// result still to come, names no longer matching), only a size typed is applied.
+    fn node_validated(&self, cx: &Cx<'_>) -> Result<Option<Operation>, String> {
+        if !self.picks.is_empty() {
+            return Ok(self.operation(cx).map(|p| p.op));
+        }
+        let Some((target, body, now)) = Self::node(cx) else { return Ok(None) };
+        if !Self::load(cx, &now).is_empty() {
+            cx.doc.check_dissolve_node(&target, body).map_err(|e| e.to_string())?;
+            return Ok(Some(Operation::DissolveNode { target, body, scope: cx.part_scope }));
+        }
+        Ok(self.size_typed.then(|| Operation::SetBlend {
+            target,
+            body,
+            blend: self.blend,
+            size: self.size,
+            picks: Vec::new(),
+            scope: cx.part_scope,
+        }))
+    }
 }
 
 impl Tool for BlendTool {
@@ -289,12 +311,20 @@ impl Tool for BlendTool {
                     if !self.changed {
                         return Vec::new();
                     }
-                    let Some(p) = self.operation(cx) else { return Vec::new() };
+                    let op = match self.node_validated(cx) {
+                        Ok(Some(op)) => op,
+                        Ok(None) => return Vec::new(),
+                        Err(refused) => return vec![Command::Say(refused)],
+                    };
                     self.picks.clear();
                     self.loaded = None;
                     self.changed = false;
                     self.size_typed = false;
-                    return vec![Command::Apply(p.op), Command::Exit, Command::Start(ToolKind::Select)];
+                    // Undone, it is closed first: what it held is selected, not the node gone.
+                    if matches!(op, Operation::DissolveNode { .. }) {
+                        return vec![Command::Exit, Command::Start(ToolKind::Select), Command::Apply(op)];
+                    }
+                    return vec![Command::Apply(op), Command::Exit, Command::Start(ToolKind::Select)];
                 }
                 if let Some(p) = self.operation(cx) {
                     self.picks.clear();

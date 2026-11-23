@@ -221,6 +221,42 @@ fn round_front(h: &mut History, target: &EntityPath, bodies: Vec<Id>, size: f64)
 }
 
 #[test]
+fn dissolving_a_node_undoes_its_copies_at_every_level() {
+    let mut h = History::new(Document::new());
+    let (target, part, board, drill) = drilled_board(&mut h);
+    let sharp = volume(h.document(), part);
+    let node = round_front(&mut h, &target, vec![board, drill], 3.0);
+    let dx = DAffine3::from_translation(DVec3::X * 500.0);
+    let copy = h
+        .apply(Operation::DuplicateBodies { target: target.clone(), bodies: vec![node], transform: dx, scope: Scope::All })
+        .unwrap()
+        .bodies[0];
+    // The copy one level down, in a group.
+    h.apply(Operation::GroupBodies { target: target.clone(), bodies: vec![copy], scope: Scope::All }).unwrap();
+    let out = h.apply(Operation::DissolveNode { target: target.clone(), body: node, scope: Scope::All }).unwrap();
+    assert_eq!(out.created.len(), 2, "the children brought up at the node's level");
+    let p = h.document().part(part).unwrap();
+    assert!(p.defs.iter().all(|d| d.op().is_none()), "no copy of the node left");
+    let mut ids: Vec<Id> = p.all_bodies().map(|b| b.id).collect();
+    let n = ids.len();
+    ids.sort_by_key(|i| i.0);
+    ids.dedup();
+    assert_eq!(ids.len(), n, "ids stay unique in the part");
+    assert!((volume(h.document(), part) - 2.0 * sharp).abs() < 1e-2);
+}
+
+#[test]
+fn a_node_that_cannot_be_exploded_is_not_dissolved() {
+    let mut h = History::new(Document::new());
+    let (target, part, board, drill) = drilled_board(&mut h);
+    let node = round_front(&mut h, &target, vec![board, drill], 3.0);
+    h.apply(Operation::SetSign { target: target.clone(), bodies: vec![node], sign: Sign::Negative, scope: Scope::All }).unwrap();
+    let before = h.document().part(part).unwrap().bodies.len();
+    assert!(h.apply(Operation::DissolveNode { target: target.clone(), body: node, scope: Scope::All }).is_err());
+    assert_eq!(h.document().part(part).unwrap().bodies.len(), before);
+}
+
+#[test]
 fn grouping_or_ungrouping_inside_a_node_keeps_its_edges() {
     let mut h = History::new(Document::new());
     let (target, part, board, drill) = drilled_board(&mut h);

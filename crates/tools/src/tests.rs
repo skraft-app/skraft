@@ -7284,6 +7284,43 @@ fn round_tool_picks_a_node_s_edges_again_in_it() {
 }
 
 #[test]
+fn letting_go_of_a_node_s_last_edge_undoes_it() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
+    let path = EntityPath::root(a);
+    let volume = |e: &Editor| e.document().resolve_part(&path).unwrap().1.shape().volume().unwrap();
+    let sharp = volume(&e);
+    e.select(Vec::new());
+    e.set_tool(ToolKind::Chamfer);
+    click(&mut e, DVec3::new(100.0, 0.0, 20.0));
+    e.input(ToolInput::Vcb("5".into()));
+    key(&mut e, Key::Enter);
+    e.poll();
+    let chamfered = volume(&e);
+    assert!(chamfered < sharp);
+    e.set_tool(ToolKind::Select);
+    e.enter(a);
+    let node = e.document().resolve_part(&path).unwrap().1.bodies[0].id;
+    e.edit_blend(node);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 50.0, 20.0)) });
+    // Its only edge let go: ✓ is offered, and takes the node away.
+    click(&mut e, DVec3::new(100.0, 0.0, 20.0));
+    assert!(e.tool_awaits_validation());
+    key(&mut e, Key::Enter);
+    e.poll();
+    assert!(e.open_group().is_empty());
+    assert_eq!(e.tool_kind(), ToolKind::Select);
+    let (_, part, _) = e.document().resolve_part(&path).unwrap();
+    assert!(part.bodies.iter().all(|b| part.def_of(b).op().is_none()), "the node gone");
+    assert_eq!(e.selection(), &[part.bodies[0].id], "what it held selected");
+    assert!((volume(&e) - sharp).abs() < 1e-2, "{} vs {sharp}: {}", volume(&e), e.status());
+    // One step to undo.
+    e.undo();
+    e.poll();
+    assert!((volume(&e) - chamfered).abs() < 1e-2);
+}
+
+#[test]
 fn a_node_opened_shows_its_children_raw_and_the_bodies_around_it_faded() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(200.0, 100.0, 0.0), "20");
