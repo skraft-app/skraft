@@ -1416,7 +1416,7 @@ infer:
     tool: "On revolution axis"
 
 operation:
-  # A component given new axes (decision 0053).
+  # A component given new axes (decision 0054).
   change_axes: "Change Axes"
   # A body or group moved (copied) to another level of the tree (decision 0044).
   move_bodies_to: "Change Level"

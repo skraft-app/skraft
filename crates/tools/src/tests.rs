@@ -4175,7 +4175,7 @@ fn prism_refuses_a_crossed_outline_and_too_few_corners() {
     key(&mut e, Key::Escape);
     key(&mut e, Key::Enter);
     e.input(ToolInput::Vcb("5".into()));
-    // Its axes lie along its hypotenuse (docs/decisions/0053-changing-a-components-axes.md): its
+    // Its axes lie along its hypotenuse (docs/decisions/0054-changing-a-components-axes.md): its
     // vertices say where it stands, its box in those axes would not.
     let parts = e.document().placed_parts();
     let vertices = parts[0].shape.vertex_points();

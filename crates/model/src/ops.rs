@@ -90,7 +90,7 @@ pub enum Operation {
         material: Option<Id>,
     },
     /// A part drawn by a tool: [`Operation::AddPrimitive`], the part born oriented, its longest
-    /// dimension on red, its shortest on blue (docs/decisions/0053-changing-a-components-axes.md).
+    /// dimension on red, its shortest on blue (docs/decisions/0054-changing-a-components-axes.md).
     DrawPrimitive {
         context: Id,
         primitive: Primitive,
@@ -100,7 +100,7 @@ pub enum Operation {
         material: Option<Id>,
     },
     /// Gives `component` new axes, `axes` going from them to the current ones (a direct rigid
-    /// transform): nothing moves in the world (docs/decisions/0053-changing-a-components-axes.md).
+    /// transform): nothing moves in the world (docs/decisions/0054-changing-a-components-axes.md).
     ChangeAxes { component: Id, axes: DAffine3 },
     /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
     /// Rigid only: a scale changes a part, not its place (docs/model/data-model.md).

@@ -1,7 +1,7 @@
 # Reorient
 
 « Réorienter » gives the part or assembly clicked new axes, after OpenCutList's SmartAxes. Nothing
-moves in the world ([decision 0053](../decisions/0053-changing-a-components-axes.md),
+moves in the world ([decision 0054](../decisions/0054-changing-a-components-axes.md),
 [A part's axes](../model/data-model.md#a-parts-axes)). The change reaches every occurrence of the
 component; an assembly's parts keep their own axes.
 

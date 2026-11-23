@@ -1,4 +1,4 @@
-//! Changing a component's axes (docs/decisions/0053-changing-a-components-axes.md).
+//! Changing a component's axes (docs/decisions/0054-changing-a-components-axes.md).
 
 use glam::{DAffine3, DMat3, DQuat, DVec2, DVec3};
 

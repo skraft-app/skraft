@@ -365,7 +365,7 @@ impl Part {
     }
 
     /// Is the part its single positive body, placed or not: its shape that body's, its faces
-    /// in the same order (docs/decisions/0053-changing-a-components-axes.md)?
+    /// in the same order (docs/decisions/0054-changing-a-components-axes.md)?
     pub fn is_one_body(&self) -> bool {
         matches!(&self.bodies[..], [b] if b.sign == Sign::Positive)
     }

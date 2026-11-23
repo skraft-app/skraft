@@ -115,11 +115,11 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
 - **`Operation::ChangeAxes { component, axes }`** gives a part or an assembly new axes, nothing
   moving in the world: its occurrences, bodies or children, guides, stretch settings, the views
   of it and the dimensions on it are brought into them; `axes` is a direct rigid transform, the
-  model's root refused ([decision 0053](../decisions/0053-changing-a-components-axes.md)). An
+  model's root refused ([decision 0054](../decisions/0054-changing-a-components-axes.md)). An
   assembly's parts keep their axes. The tool: [Reorient](../tools/reorient.md).
 - **Parts a tool draws are born oriented** (`Operation::DrawPrimitive`), by OpenCutList's rule: blue
   across their largest faces, red along their longest edges, oblique on a slanted prism (decision
-  0053). Imports, copies, pastes, booleans and stretches keep the axes they have.
+  0054). Imports, copies, pastes, booleans and stretches keep the axes they have.
 
 ## Machinings and the recipe
 

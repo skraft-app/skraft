@@ -1,4 +1,4 @@
-//! Parts born oriented (docs/decisions/0053-changing-a-components-axes.md), after OpenCutList's
+//! Parts born oriented (docs/decisions/0054-changing-a-components-axes.md), after OpenCutList's
 //! `_get_auto_orient_transformation`: blue across the part's largest faces, red along its longest
 //! edges, each axis pointing towards its material.
 

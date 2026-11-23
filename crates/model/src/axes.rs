@@ -1,4 +1,4 @@
-//! Changing a component's axes (docs/decisions/0053-changing-a-components-axes.md): nothing moves
+//! Changing a component's axes (docs/decisions/0054-changing-a-components-axes.md): nothing moves
 //! in the world, what is stored in those axes is brought into the new ones.
 
 use glam::{DAffine3, DMat3, DVec3};

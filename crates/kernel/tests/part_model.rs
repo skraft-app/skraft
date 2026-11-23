@@ -202,7 +202,7 @@ fn slanted_rotations_leave_solids_usable() {
 }
 
 /// Changing a part's axes transforms its shape: what is held by index (the faces' names and
-/// materials) must still name the same faces (docs/decisions/0053-changing-a-components-axes.md).
+/// materials) must still name the same faces (docs/decisions/0054-changing-a-components-axes.md).
 #[test]
 fn a_rigid_transform_keeps_the_record_s_order() {
     let slanted = DAffine3::from_quat(DQuat::from_axis_angle(DVec3::new(1.0, 2.0, 3.0).normalize(), 0.7));
