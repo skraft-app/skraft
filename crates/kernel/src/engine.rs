@@ -369,6 +369,7 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
                 Output::Recipe { solid: shape, display, failed, faces }
             }
             Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
+            Task::Imprint { solid: i, recipe, clearance } => solid(input(*i)?.imprinted(recipe.as_ref(), clearance)?),
             Task::Node { children, op, picks } => {
                 // The leaves' solids (inputs, or earlier tasks' outputs), indexed afresh.
                 let mut children = children.clone();

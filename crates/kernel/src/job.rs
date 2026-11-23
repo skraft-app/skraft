@@ -57,6 +57,14 @@ pub enum Task {
     },
     /// `inputs[solid]` stretched (docs/tools/stretch.md), read back by the kernel.
     Stretch { solid: u32, stretch: Stretch },
+    /// `inputs[solid]` as an imprint's tool: grown by `clearance`, from the primitive `recipe`
+    /// when it has one (docs/decisions/0055-linked-bodies-through-imprints.md).
+    Imprint {
+        solid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recipe: Option<Primitive>,
+        clearance: crate::Clearance,
+    },
     /// A body node (docs/decisions/0042-body-nodes-operators.md): its `children` computed from
     /// their leaves in one session, then `op` applied to the edges its names match — or, with
     /// `picks` (points in the node's axes, the tool's), to the edges nearest them, named.

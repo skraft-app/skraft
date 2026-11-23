@@ -24,6 +24,7 @@ use solidcore_record::brep::Brep as Record;
 pub mod drawing;
 #[cfg(feature = "engine")]
 mod engine;
+mod imprint;
 mod job;
 pub mod names;
 #[cfg(feature = "engine")]
@@ -47,6 +48,7 @@ pub use engine::{Context, Inline, parallel_map, run, run_with};
 /// The stack every thread running SolidCore gets: it recurses legitimately, and a stack
 /// overflow aborts (it is no panic).
 pub const KERNEL_STACK: usize = 256 << 20;
+pub use imprint::{Clearance, PlanarFace};
 pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Progress, Quality, Task, Waker, decode, encode};
 pub use polyhedron::{PolyFace, Polyhedron};
 pub use shared::{KernelHandle, SharedKernel};
