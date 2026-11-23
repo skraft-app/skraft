@@ -52,6 +52,7 @@ mod toasts;
 mod tree;
 mod view_bar;
 mod view_lines;
+mod view_picker;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;

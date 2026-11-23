@@ -85,6 +85,18 @@ and direction (a composition's projected view looks its presentation's way) for 
 revision and the meshes' generation (`sheet::ViewsCache`): a sheet drawn again computes none of
 it.
 
+### Choosing what a view shows
+
+« Nouvelle vue » and the « Montre » field of a base view's entity info open one dialog
+(`view_picker::ViewPicker`, decision 0051): « Le modèle » above the model's tree, its occurrences
+with their thumbnails, unfolded by their chevron, a search listing the matches flat. Rows are
+ticked, several at once; a row ticked holds what is under it, shown as ticked. Nothing ticked is
+the whole model, one occurrence its component in its own axes, several the occurrences where they
+stand. For a new view the 3D selection (or the part open) comes ticked; it is then placed by a
+click, its frame following the pointer over the active sheet, at the largest standard scale
+fitting half the paper, Esc giving up. A view whose content changes keeps its scale and place; a
+dimension whose anchor is no longer shown becomes an orphan.
+
 ## Lines
 
 A view's lines are its parts' edges and the silhouettes of their curved faces, seen parallel
@@ -599,10 +611,9 @@ Each change is one operation (`SetElement`, `SetSheet`, `SetPresentation`, `SetF
 The fixed group: Select and Erase (`edit.erase`). One tab, « Feuille ». Its group « Présentation »:
 « Nouvelle présentation » (`drawing.new_presentation`, blank; from a template, in the
 [navigator](#navigator)), « Nouvelle feuille » (`drawing.new_sheet`, A3, shown) and « Exporter en
-PDF ». Its group « Vue »: « Nouvelle vue » (`drawing.add_view`: the front of the part open, else of the
-one occurrence selected — its component in its own axes —, else of the occurrences selected,
-else of the model; at the largest standard scale (10:1 to 1:5000) fitting half the paper, at
-its centre), « Vue projetée » (`drawing.project_view`, checked while its tool runs); the groups « Dessiner »,
+PDF ». Its group « Vue »: « Nouvelle vue » (`drawing.add_view`: [the dialog](#choosing-what-a-view-shows), then
+a click places its front view, at the largest standard scale (10:1 to 1:5000) fitting half the
+paper), « Vue projetée » (`drawing.project_view`, checked while its tool runs); the groups « Dessiner »,
 « Organiser » (« Créer une composition », « Éclater », « Rendre unique »), « Coter » and
 « Style »: « Traits », « Rendu », « Hybride » (`drawing.style_lines`,
 `_rendered`, `_hybrid`: the views picked, checked when they all have it; `SetElement`, a

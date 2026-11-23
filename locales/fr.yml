@@ -611,6 +611,7 @@ drawing:
     moving: "Relâcher pour poser la sélection · Échap : annuler"
     grip: "Relâcher pour finir · Maj : garder les proportions · Échap : annuler"
     project: "Cliquer d'un côté de la vue de base pour poser la vue projetée · Espace : terminer"
+    place_view: "Cliquer sur la feuille pour poser la vue · Échap : annuler"
     text: "Cliquer pour poser un texte, à écrire dans les infos sur l'entité · Espace : terminer"
     rect: "Cliquer le premier coin du rectangle (ou glisser) · Espace : terminer"
     rect_second: "Cliquer le coin opposé, ou taper ses dimensions · Échap : annuler"
@@ -664,6 +665,12 @@ drawing:
   delete_sheet: "Supprimer la feuille"
   blank_sheet: "Feuille vierge"
   blank_presentation: "Présentation vierge"
+  picker:
+    title_new: "Que montre la nouvelle vue ?"
+    title_change: "Que montre cette vue ?"
+    place: "Placer"
+    apply: "Appliquer"
+    change_tip: "Choisir ce que montre la vue"
   subject:
     model: "Le modèle"
     occurrences: "%{count} occurrences"

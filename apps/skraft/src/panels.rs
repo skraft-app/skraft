@@ -3208,11 +3208,18 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
             match &view.kind {
                 ViewKind::Base { subject, look, scale, at } => {
                     ui.label(t!("panel.entity_info.subject"));
-                    ui.label(match subject {
+                    let shows = match subject {
                         Subject::Model => t!("drawing.subject.model"),
                         Subject::Component(c) => doc.component(*c).map_or_else(|_| "—".into(), |c| c.name.clone()),
                         Subject::Occurrences(paths) => t!("drawing.subject.occurrences", count = paths.len()),
-                    });
+                    };
+                    // Changed in the dialog a new view is chosen in (decision 0051).
+                    let change = ui.add_sized([field, ui.spacing().interact_size.y], egui::Button::new(shows).truncate());
+                    crate::handles::publish(|| "view_subject".into(), change.rect);
+                    if change.tip(t!("drawing.picker.change_tip")).clicked() {
+                        let purpose = crate::view_picker::Purpose::Change(id);
+                        st.picker = Some(crate::view_picker::ViewPicker::new(doc, purpose, subject.clone()));
+                    }
                     ui.end_row();
                     let base = |look: Look, scale: f64| View {
                         kind: ViewKind::Base { subject: subject.clone(), look, scale, at: *at },

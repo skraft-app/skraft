@@ -16,6 +16,7 @@ use skraft_theme::Theme;
 use skraft_tools::Editor;
 
 use crate::sheet_board::{Board, Column};
+use crate::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::viewport;
 
 /// A document's sheet shown and how it is seen (not saved).
@@ -85,6 +86,10 @@ pub struct SheetState {
     pub library: crate::sheet_library::CompositionsState,
     /// The composition being dragged from that card, placed where it is let go.
     pub carried: Option<Id>,
+    /// The dialog choosing what a view shows, while open.
+    pub picker: Option<ViewPicker>,
+    /// The view being placed by [`SheetTool::Place`].
+    placing: Option<Placing>,
     /// What the entity info shows while nothing is picked.
     pub info: InfoOn,
     /// What each view shows, for the document's revision and the meshes' generation.
@@ -773,6 +778,8 @@ pub enum SheetTool {
     Project {
         base: Id,
     },
+    /// A click places the new view chosen in the dialog (« Nouvelle vue »).
+    Place,
     /// A click puts a text there (« Texte »).
     Text,
     /// A drag draws a rectangle (« Rectangle »), a circle from its centre (« Cercle »), a line
@@ -1641,6 +1648,7 @@ impl SheetState {
                 _ => t!("drawing.hint.select"),
             },
             SheetTool::Project { .. } => t!("drawing.hint.project"),
+            SheetTool::Place => t!("drawing.hint.place_view"),
             SheetTool::Text => t!("drawing.hint.text"),
             SheetTool::Rect if self.sketch.is_some() => t!("drawing.hint.rect_second"),
             SheetTool::Circle if self.sketch.is_some() => t!("drawing.hint.circle_second"),
@@ -1677,6 +1685,7 @@ impl SheetState {
         self.tool = tool;
         self.picks.clear();
         self.sketch = None;
+        self.placing = None;
     }
 }
 
@@ -1914,11 +1923,7 @@ fn subject_of_selection(e: &Editor) -> Subject {
         return Subject::Component(part);
     }
     let paths: Vec<EntityPath> = e.selection().iter().map(|id| EntityPath::new(e.context().to_vec(), *id)).collect();
-    match paths.as_slice() {
-        [] => Subject::Model,
-        [one] => e.document().resolve(one).map_or(Subject::Model, |o| Subject::Component(o.component)),
-        _ => Subject::Occurrences(paths),
-    }
+    subject_of_paths(e.document(), &paths)
 }
 
 /// A new sheet, A3 landscape, in the presentation shown, shown.
@@ -1978,24 +1983,44 @@ pub fn new_presentation(e: &mut Editor, st: &mut SheetState) {
     }
 }
 
-/// A view from the front of what is selected (or the model), at the largest standard scale
-/// fitting half the paper, at the sheet's centre.
+/// A new view being placed: what it shows, the size of its box seen from the front (model units).
+#[derive(Clone, Debug)]
+pub struct Placing {
+    subject: Subject,
+    size: Option<DVec2>,
+}
+
+/// « Nouvelle vue »: the dialog asking what it shows, the 3D selection ticked in advance
+/// (decision 0051).
 pub fn add_view(e: &mut Editor, st: &mut SheetState) -> Result<(), String> {
-    let sheet = st.shown(e.document().drawing()).ok_or_else(|| t!("drawing.no_sheet"))?;
-    let (sheet_id, paper) = (sheet.id, sheet.paper);
-    // On the level open, at the paper's centre.
-    let d = e.document().drawing();
-    let (to, place) = d.opened(sheet_id, &st.open).unwrap_or((Container::Sheet(sheet_id), DAffine2::IDENTITY));
-    let n = d.elements_in(to).unwrap_or(&[]).iter().filter(|e| matches!(e.kind, ElementKind::View(_))).count() + 1;
+    st.shown(e.document().drawing()).ok_or_else(|| t!("drawing.no_sheet"))?;
     let subject = subject_of_selection(e);
-    let look = Look::Standard(Direction::Front);
-    let (frame, perspective) = look.frame();
-    let at = place.inverse().transform_point2(paper.size() / 2.0);
-    // Its scale from its box, seen at scale 1.
-    let probe = Resolved { subject: &subject, frame, perspective, scale: 1.0, at };
-    let scale = subject_box(e, &probe).map_or(1.0, |(lo, hi)| scale_to_fit(hi - lo, paper.size() / 2.0));
-    let view = View { name: t!("drawing.view_name", n = n), kind: ViewKind::Base { subject, look, scale, at }, style: ViewStyle::Lines };
-    e.apply(Operation::AddElement { to, element: ElementKind::View(view) }).map(|_| ())
+    st.picker = Some(ViewPicker::new(e.document(), Purpose::New, subject));
+    Ok(())
+}
+
+/// The dialog's answer: a new view to place, or view `id` showing `subject`, its scale and place
+/// kept.
+pub fn picked(e: &mut Editor, st: &mut SheetState, purpose: Purpose, subject: Subject) -> Result<(), String> {
+    match purpose {
+        Purpose::New => {
+            let (frame, perspective) = Look::Standard(Direction::Front).frame();
+            let probe = Resolved { subject: &subject, frame, perspective, scale: 1.0, at: DVec2::ZERO };
+            let size = subject_box(e, &probe).map(|(lo, hi)| hi - lo);
+            st.set_tool(SheetTool::Place);
+            st.placing = Some(Placing { subject, size });
+            Ok(())
+        }
+        Purpose::Change(id) => {
+            let Some(ElementKind::View(view)) = e.document().drawing().element(id).map(|el| el.kind.clone()) else { return Ok(()) };
+            let ViewKind::Base { subject: was, look, scale, at } = view.kind.clone() else { return Ok(()) };
+            if was == subject {
+                return Ok(());
+            }
+            let kind = ElementKind::View(View { kind: ViewKind::Base { subject, look, scale, at }, ..view });
+            e.apply(Operation::SetElement { element: id, kind }).map(|_| ())
+        }
+    }
 }
 
 /// The view picked on the sheet shown, if it is still there.
@@ -2867,7 +2892,7 @@ pub fn ui(
         // Esc goes back one step of the tool: the shape or rectangle drawn dropped, the picks;
         // with Select the selection cleared; a tool stays (Space, `tool.select`, ends it), as in
         // the 3D view (docs/tools/interaction.md#selection). Not while a field is typed in.
-        let esc = ui.input(|i| i.key_pressed(egui::Key::Escape)) && ui.ctx().memory(|m| m.focused().is_none());
+        let esc = ui.input(|i| i.key_pressed(egui::Key::Escape)) && ui.ctx().memory(|m| m.focused().is_none()) && st.picker.is_none();
         if std::mem::take(&mut st.esc_eaten) {
         } else if esc {
             st.amend = None;
@@ -2875,6 +2900,8 @@ pub fn ui(
             if st.sketch.take().is_some() || st.marquee.take().is_some() || st.moving.take().is_some() || st.grip.take().is_some() {
             } else if !st.picks.is_empty() {
                 st.picks.clear();
+            } else if st.tool == SheetTool::Place {
+                st.set_tool(SheetTool::Select);
             } else if st.tool == SheetTool::Select {
                 // The selection first, then one level up.
                 if st.selected.is_empty() {
@@ -3121,6 +3148,36 @@ pub fn ui(
                             }
                         }
                     }
+                }
+            }
+            SheetTool::Place => {
+                let board_view = Paperview::new(centre, st.pan, st.zoom);
+                let over = response.hover_pos().filter(|p| board.sheet_at(board_view.to_sheet(*p)) == Some(id));
+                match (st.placing.clone(), over) {
+                    (None, _) => st.tool = SheetTool::Select,
+                    (Some(placing), Some(p)) => {
+                        // Its frame where a click puts it, at the largest scale fitting half the paper.
+                        let at = lv.to_sheet(p);
+                        let scale = placing.size.map_or(1.0, |s| scale_to_fit(s, paper.size() / 2.0));
+                        let half = placing.size.map_or(DVec2::splat(10.0), |s| s * scale / 2.0);
+                        let q = lv.quad(at - half, at + half);
+                        let corners = [q[0], q[1], q[2], q[3], q[0]];
+                        painter.extend(egui::Shape::dashed_line(&corners, egui::Stroke::new(1.0, egui::Color32::from_gray(120)), 4.0, 4.0));
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                        if clicked {
+                            let n =
+                                drawing.elements_in(to).unwrap_or(&[]).iter().filter(|e| matches!(e.kind, ElementKind::View(_))).count()
+                                    + 1;
+                            let look = Look::Standard(Direction::Front);
+                            let kind = ViewKind::Base { subject: placing.subject, look, scale, at };
+                            let view = View { name: t!("drawing.view_name", n = n), kind, style: ViewStyle::Lines };
+                            if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element: ElementKind::View(view) }) {
+                                st.selected = o.element.into_iter().collect();
+                            }
+                            st.set_tool(SheetTool::Select);
+                        }
+                    }
+                    _ => {}
                 }
             }
             SheetTool::Project { base } => {

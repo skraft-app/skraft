@@ -542,6 +542,7 @@ drawing:
     moving: "Release to drop the selection · Esc: cancel"
     grip: "Release to finish · Shift: keep the proportions · Esc: cancel"
     project: "Click on a side of the base view to place the projected view · Space: done"
+    place_view: "Click on the sheet to place the view · Esc: cancel"
     text: "Click to place a text, to write in the entity info · Space: done"
     rect: "Click the rectangle's first corner (or drag) · Space: done"
     rect_second: "Click the opposite corner, or type its size · Esc: cancel"
@@ -595,6 +596,12 @@ drawing:
   delete_sheet: "Delete Sheet"
   blank_sheet: "Blank sheet"
   blank_presentation: "Blank presentation"
+  picker:
+    title_new: "What does the new view show?"
+    title_change: "What does this view show?"
+    place: "Place"
+    apply: "Apply"
+    change_tip: "Choose what the view shows"
   subject:
     model: "The model"
     occurrences: "%{count} occurrences"

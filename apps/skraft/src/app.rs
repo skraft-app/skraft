@@ -584,6 +584,22 @@ impl SkraftApp {
         self.advance_closing();
     }
 
+    /// The dialog choosing what a view shows (decision 0051), on the shown document.
+    fn view_picker_dialog(&mut self, ctx: &egui::Context) {
+        let Some(d) = self.docs.active_mut() else { return };
+        let Some(mut picker) = d.sheet.picker.take() else { return };
+        let doc = d.id;
+        match picker.show(ctx, &d.editor, &mut self.viewport.thumbnails, doc) {
+            crate::view_picker::Answer::Open => d.sheet.picker = Some(picker),
+            crate::view_picker::Answer::Cancel => {}
+            crate::view_picker::Answer::Done(subject) => {
+                if let Err(e) = crate::sheet::picked(&mut d.editor, &mut d.sheet, picker.purpose, subject) {
+                    self.toasts.push(Note::error(t!("notice.op_failed", op = t!("operation.set_element")), e));
+                }
+            }
+        }
+    }
+
     /// The dialog naming what was just made (docs/tools/quick-tools.md): opened by an editor (its tool's
     /// « Nommage des pièces ») or by a toast's « Renommer »; gone with its document or what it names.
     fn naming_dialog(&mut self, ctx: &egui::Context) {
@@ -1441,7 +1457,9 @@ impl SkraftApp {
     /// Do the keys go to the shown document's tool and the shortcuts ([`Self::keyboard`]), no
     /// modal dialog (closing, naming a part) taking them?
     fn keys_to_tools(&self) -> bool {
-        self.closing.as_ref().is_none_or(|c| c.asking.is_none()) && self.naming.is_none()
+        self.closing.as_ref().is_none_or(|c| c.asking.is_none())
+            && self.naming.is_none()
+            && self.docs.active().is_none_or(|d| d.sheet.picker.is_none())
     }
 
     fn keyboard(&mut self, ctx: &egui::Context) {
@@ -3036,6 +3054,7 @@ impl eframe::App for SkraftApp {
             }
         }
         self.naming_dialog(&ctx);
+        self.view_picker_dialog(&ctx);
         for a in actions {
             self.act(a);
         }
