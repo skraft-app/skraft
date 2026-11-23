@@ -15,6 +15,7 @@ use skraft_model::{
 use skraft_theme::Theme;
 use skraft_tools::Editor;
 
+use crate::overlay;
 use crate::sheet_board::{Board, Column};
 use crate::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::viewport;
@@ -1576,7 +1577,7 @@ fn draw_aim(painter: &egui::Painter, pv: &Paperview, aim: &Aim) {
     }
     for (q, color) in [(aim.along_x, egui::Color32::from_rgb(210, 50, 50)), (aim.along_y, egui::Color32::from_rgb(40, 160, 60))] {
         if let Some(q) = q {
-            painter.extend(egui::Shape::dashed_line(&[pv.to_screen(q), at], egui::Stroke::new(1.0, color), 3.0, 3.0));
+            overlay::dashed(painter, &[pv.to_screen(q), at], egui::Stroke::new(1.0, color), overlay::ALIGNMENT);
         }
     }
 }
@@ -2563,6 +2564,8 @@ const COLUMN_NAME_PT: f32 = 28.0;
 const REVEAL_SHARE: f32 = 0.25;
 /// The active sheet's outline and what is picked.
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(70, 120, 200);
+/// A frame showing where a click would place a view.
+const GHOST_INK: egui::Color32 = egui::Color32::from_gray(120);
 
 /// The camera keeps the active sheet where it is on screen when the layout moves it; a sheet
 /// made active otherwise than by a click on it (a new one, the last one deleted) is brought on
@@ -2726,9 +2729,8 @@ fn draw_other_sheets(
         if column.sheets.is_empty() {
             let (lo, hi) = column.bounds();
             let r = view.rect(lo, hi);
-            let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
             let ink = egui::Color32::from_gray(140);
-            painter.extend(egui::Shape::dashed_line(&corners, egui::Stroke::new(1.0, ink), 6.0, 4.0));
+            overlay::dashed_rect(painter, r, egui::Stroke::new(1.0, ink), overlay::FRAME);
             if r.width() >= 120.0 && r.height() >= 60.0 {
                 let galley = painter.layout(t!("drawing.no_sheet_hint"), egui::FontId::proportional(12.0), ink, r.width() - 24.0);
                 painter.galley(r.center() - galley.size() / 2.0, galley, ink);
@@ -2792,7 +2794,7 @@ fn draw_marked_column(
         frame.left_top(),
         egui::pos2(left, middle),
     ];
-    painter.extend(egui::Shape::dashed_line(&path, egui::Stroke::new(1.5, ACCENT), 5.0, 4.0));
+    overlay::dashed(painter, &path, egui::Stroke::new(1.5, ACCENT), overlay::SELECTION);
     painter.rect_filled(pill, 4.0, ACCENT);
     painter.galley(pill.center() - galley.size() / 2.0, galley, egui::Color32::WHITE);
 }
@@ -3227,13 +3229,7 @@ pub fn ui(
             let stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 120, 200));
             for (h, q) in shown.unwrap_or_default() {
                 let at = lv.to_screen(q);
-                painter.rect(
-                    egui::Rect::from_center_size(at, egui::vec2(GRIP_SIDE, GRIP_SIDE)),
-                    0.0,
-                    egui::Color32::WHITE,
-                    stroke,
-                    egui::StrokeKind::Middle,
-                );
+                overlay::square_grip(&painter, at, GRIP_SIDE, egui::Color32::WHITE, stroke);
                 let over = st.grip.as_ref().map(|g| g.handle == h).unwrap_or_else(|| pointer.is_some_and(|p| p.distance(at) <= GRIP_PT));
                 if over {
                     ui.ctx().set_cursor_icon(h.cursor());
@@ -3242,14 +3238,7 @@ pub fn ui(
         }
         // The selection rectangle being drawn: solid left to right, dashed right to left.
         if let (Some(from), Some(p)) = (st.marquee, pointer) {
-            let stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 120, 200));
-            let r = egui::Rect::from_two_pos(from, p);
-            if p.x >= from.x {
-                painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Middle);
-            } else {
-                let c = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-                painter.extend(egui::Shape::dashed_line(&c, stroke, 5.0, 4.0));
-            }
+            overlay::marquee(&painter, egui::Rect::from_two_pos(from, p), p.x < from.x, theme);
         }
         // What the pointer snaps on.
         if let Some(a) = aim.as_ref().or(move_aim.as_ref()) {
@@ -3264,7 +3253,7 @@ pub fn ui(
             } else if st.tool == SheetTool::Circle {
                 let (c, q) = (lv.to_screen(from), lv.to_screen(end));
                 painter.circle_stroke(c, c.distance(q), stroke);
-                painter.extend(egui::Shape::dashed_line(&[c, q], egui::Stroke::new(1.0, stroke.color), 3.0, 3.0));
+                overlay::dashed(&painter, &[c, q], egui::Stroke::new(1.0, stroke.color), overlay::ALIGNMENT);
             } else {
                 painter.line_segment([lv.to_screen(from), lv.to_screen(end)], stroke);
             }
@@ -3390,8 +3379,7 @@ pub fn ui(
                         let scale = placing.size.map_or(1.0, |s| scale_to_fit(s, paper.size() / 2.0));
                         let half = placing.size.map_or(DVec2::splat(10.0), |s| s * scale / 2.0);
                         let q = lv.quad(at - half, at + half);
-                        let corners = [q[0], q[1], q[2], q[3], q[0]];
-                        painter.extend(egui::Shape::dashed_line(&corners, egui::Stroke::new(1.0, egui::Color32::from_gray(120)), 4.0, 4.0));
+                        overlay::dashed_quad(&painter, q, egui::Stroke::new(1.0, GHOST_INK), overlay::GHOST);
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                         if clicked {
                             let n =
@@ -3421,8 +3409,7 @@ pub fn ui(
                         Resolved { frame: r.frame.projected(side, projection), at: r.at + side.dir() * distance, crop: None, ..r.clone() };
                     let (lo, hi) = view_frame(e, &ghost);
                     let q = lv.quad(lo, hi);
-                    let corners = [q[0], q[1], q[2], q[3], q[0]];
-                    painter.extend(egui::Shape::dashed_line(&corners, egui::Stroke::new(1.0, egui::Color32::from_gray(120)), 4.0, 4.0));
+                    overlay::dashed_quad(&painter, q, egui::Stroke::new(1.0, GHOST_INK), overlay::GHOST);
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                     if clicked {
                         let n =
@@ -3632,8 +3619,7 @@ fn draw_elements(
                     if picked {
                         stroke_box(painter, &pv, quad, egui::Stroke::new(2.0, frame_ink));
                     } else {
-                        let closed = [quad[0], quad[1], quad[2], quad[3], quad[0]];
-                        painter.extend(egui::Shape::dashed_line(&closed, egui::Stroke::new(1.0, frame_ink), 6.0, 4.0));
+                        overlay::dashed_quad(painter, quad, egui::Stroke::new(1.0, frame_ink), overlay::FRAME);
                     }
                     let angle = pv.angle();
                     let label = quad[0] + egui::emath::Rot2::from_angle(angle) * egui::vec2(0.0, -2.0);
@@ -3738,8 +3724,7 @@ fn draw_elements(
         let m = DVec2::splat(LEVEL_MARGIN);
         out.level_box = Some((lo - m, hi + m));
         let q = pv.placed(level.place).quad(lo - m, hi + m);
-        let closed = [q[0], q[1], q[2], q[3], q[0]];
-        painter.extend(egui::Shape::dashed_line(&closed, egui::Stroke::new(1.0, egui::Color32::from_gray(130)), 5.0, 3.0));
+        overlay::dashed_quad(painter, q, egui::Stroke::new(1.0, egui::Color32::from_gray(130)), overlay::LEVEL);
     }
     // A locked one is drawn, not picked.
     boxes.retain(|(id, _)| tops.get(id).is_some_and(|el| !el.locked));

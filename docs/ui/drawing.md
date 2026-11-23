@@ -260,7 +260,7 @@ the sheet is off screen.
 - **Selecting** (the sheet's Select tool, as the 3D view's, docs/tools/interaction.md#selection),
   on the active sheet: a click on an element picks it (the last drawn under the pointer),
   elsewhere none; Shift+click adds or removes it; a drag off the elements draws a **selection
-  rectangle** — left to right (solid) the elements it holds whole, right to left (dashed)
+  rectangle** (the 3D view's, `overlay::marquee`) — left to right (solid) the elements it holds whole, right to left (dashed)
   those it touches, Shift adding or removing them; Esc clears the selection
   (`SheetState::selected`, not saved). A view's frame picked is solid, another element's box
   outlined. « Effacer » (`edit.erase`: the ribbon's Selection group, the Edit menu, Delete or
