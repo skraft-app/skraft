@@ -47,6 +47,8 @@ pub struct Bar<'a> {
     pub ground: Option<(egui::Color32, egui::Color32)>,
     /// The control channel, while it is on (desktop).
     pub remote: Option<RemoteMark>,
+    /// The newer version to announce (docs/ui/updates.md; desktop).
+    pub update: Option<String>,
     /// This app, when a dev build (desktop): its badge after the name says which build it is,
     /// several running at once.
     pub instance: Option<&'a skraft_control::instances::Instance>,
@@ -72,6 +74,9 @@ pub struct RemoteMark {
 
 /// The running channel's mark: a green readable on the bar's dark ground, whatever the palette.
 pub const ACTIVE: egui::Color32 = egui::Color32::from_rgb(88, 204, 112);
+/// The badge of a newer version: magenta, its text white.
+const UPDATE: egui::Color32 = egui::Color32::from_rgb(0xe8, 0x4f, 0xa9);
+const UPDATE_HOVERED: egui::Color32 = egui::Color32::from_rgb(0xf0, 0x6e, 0xbb);
 /// The failed channel's mark: a red readable on the bar's dark ground.
 const ALERT: egui::Color32 = egui::Color32::from_rgb(240, 96, 88);
 
@@ -122,6 +127,9 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
     if let Some(i) = bar.instance {
         instance_badge(ui, i, bar.session.as_deref());
     }
+    if let Some(version) = &bar.update {
+        update_badge(ui, version, actions);
+    }
     ui.separator();
     file_menu(ui, views, actions);
     for id in ["edit.undo", "edit.redo"] {
@@ -160,6 +168,21 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
     let window_moves = bar.integrated;
     for a in tabs::show(ui, room, bar.tabs, bar.shown, ground, window_moves, bar.reveal) {
         actions.push(Action::Tab(a));
+    }
+}
+
+/// The badge of a newer version, after the app's own: opens its window.
+fn update_badge(ui: &mut egui::Ui, version: &str, actions: &mut Vec<Action>) {
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(t!("update.mark", version = version), font, egui::Color32::WHITE);
+    let pad = egui::vec2(6.0, 2.0);
+    let (rect, r) = ui.allocate_exact_size(galley.size() + 2.0 * pad, egui::Sense::click());
+    let fill = if r.hovered() { UPDATE_HOVERED } else { UPDATE };
+    ui.painter().rect_filled(rect, 4.0, fill);
+    ui.painter().galley(rect.min + pad, galley, egui::Color32::PLACEHOLDER);
+    crate::handles::publish(|| "titlebar:app.updates".to_owned(), r.rect);
+    if r.tip(t!("update.toast", version = version)).clicked() {
+        actions.push(Action::Command("app.updates"));
     }
 }
 

@@ -68,6 +68,7 @@ menu:
   # The macOS app menu, titled with the app's name (%{app}).
   app:
     about: "À propos de %{app}"
+    updates: "Rechercher des mises à jour"
     services: "Services"
     hide: "Masquer %{app}"
     hide_others: "Masquer les autres"
@@ -321,6 +322,7 @@ save_prompt:
 # Shown with no document open: at launch with nothing to open again, and when the last tab
 # closes.
 about:
+  check_updates: "Rechercher des mises à jour"
   tagline: "Un modeleur 3D simple et intuitif sur de vrais solides"
   version: "Version %{version}"
   copyright: "© 2026 Boris Beaulant"
@@ -338,6 +340,20 @@ about:
     font: "police"
     symbols: "symboles"
   source: "Code source"
+# The check for a new version (docs/ui/updates.md).
+update:
+  title: "Mise à jour"
+  mark: "%{version} disponible"
+  toast: "Skraft %{version} est disponible"
+  show: "Voir"
+  available: "Skraft %{version} est disponible"
+  current: "Version installée : %{version}"
+  download: "Télécharger"
+  later: "Plus tard"
+  skip: "Ignorer cette version"
+  checking: "Recherche de mises à jour"
+  up_to_date: "Skraft %{version} est à jour."
+  failed: "Impossible de vérifier les mises à jour."
 start:
   title: "Skraft"
   new: "Nouveau document"
@@ -484,6 +500,8 @@ prefs:
     shortcuts: "Raccourcis"
     debug: "$t(menu.debug.title)"
   general:
+    check_updates: "Vérifier les mises à jour"
+    check_updates_tip: "Au lancement, au plus une fois par jour, Skraft demande à GitHub le numéro de la dernière version. Aucune donnée personnelle ni document n'est envoyé."
     language: "Langue"
     # The language menu's first entry: the system's language, then its catalog's name
     # (src/language.rs).

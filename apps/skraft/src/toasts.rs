@@ -53,6 +53,9 @@ pub enum Act {
     /// Opens the naming dialog on what was just made (a part, an assembly, a body definition),
     /// of this document.
     Rename { doc: DocId, target: skraft_tools::NameTarget },
+    /// Opens the window of the new version (docs/ui/updates.md).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    ShowUpdate,
 }
 
 /// A message for the user: a title, and what went wrong or more about it (the system's or the

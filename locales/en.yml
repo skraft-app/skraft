@@ -56,6 +56,7 @@ window:
 menu:
   app:
     about: "About %{app}"
+    updates: "Check for updates"
     services: "Services"
     hide: "Hide %{app}"
     hide_others: "Hide Others"
@@ -279,6 +280,7 @@ save_prompt:
   cancel: "Cancel"
 
 about:
+  check_updates: "Check for updates"
   tagline: "A simple, intuitive 3D modeller on real solids"
   version: "Version %{version}"
   copyright: "© 2026 Boris Beaulant"
@@ -296,6 +298,20 @@ about:
     font: "font"
     symbols: "symbols"
   source: "Source code"
+# The check for a new version (docs/ui/updates.md).
+update:
+  title: "Update"
+  mark: "%{version} available"
+  toast: "Skraft %{version} is available"
+  show: "View"
+  available: "Skraft %{version} is available"
+  current: "Installed version: %{version}"
+  download: "Download"
+  later: "Later"
+  skip: "Skip this version"
+  checking: "Checking for updates"
+  up_to_date: "Skraft %{version} is up to date."
+  failed: "Could not check for updates."
 start:
   title: "Skraft"
   new: "New Document"
@@ -426,6 +442,8 @@ prefs:
     shortcuts: "Shortcuts"
     debug: "$t(menu.debug.title)"
   general:
+    check_updates: "Check for updates"
+    check_updates_tip: "At launch, at most once a day, Skraft asks GitHub for the latest version number. No personal data or document is sent."
     language: "Language"
     language_system: "System (%{language})"
     reopen: "Reopen documents at launch"

@@ -63,6 +63,9 @@ pub struct SkraftApp {
     stored_prefs: Preferences,
     prefs_window: Option<PrefsTab>,
     about_open: bool,
+    /// The check for a new version (docs/ui/updates.md).
+    #[cfg(not(target_arch = "wasm32"))]
+    updates: crate::update::Updates,
     /// The journal window, while open (`app.journal`).
     journal_window: Option<crate::journal_window::JournalWindow>,
     /// The side panel being dragged to another place.
@@ -334,6 +337,8 @@ impl SkraftApp {
             prefs,
             prefs_window: None,
             about_open: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            updates: crate::update::Updates::new(&cc.egui_ctx),
             journal_window: None,
             capturing: None,
             palette: None,
@@ -371,6 +376,8 @@ impl SkraftApp {
         crate::app_drags_window(cc);
         #[cfg(not(target_arch = "wasm32"))]
         app.reopen_documents();
+        #[cfg(not(target_arch = "wasm32"))]
+        app.updates.start(&app.prefs.updates);
         #[cfg(not(target_arch = "wasm32"))]
         crate::opened::set_context(&cc.egui_ctx);
         #[cfg(target_arch = "wasm32")]
@@ -881,7 +888,7 @@ impl SkraftApp {
                 | "view.render_stats" => true,
                 "app.journal" => true,
                 "view.next_tab" | "view.previous_tab" => self.docs.len() > 0,
-                "app.quit" | "app.remote_control" => !cfg!(target_arch = "wasm32"),
+                "app.quit" | "app.remote_control" | "app.updates" => !cfg!(target_arch = "wasm32"),
                 _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
                 _ => PanelId::from_command(id).is_some(),
             };
@@ -932,7 +939,7 @@ impl SkraftApp {
             "debug.crash_kernel" => self.debug_menu,
             "view.next_tab" | "view.previous_tab" => self.docs.len() > 1,
             "view.home" => true,
-            "app.quit" | "app.remote_control" => !cfg!(target_arch = "wasm32"),
+            "app.quit" | "app.remote_control" | "app.updates" => !cfg!(target_arch = "wasm32"),
             _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
             _ => commands::find(id).is_some(),
         }
@@ -1085,6 +1092,11 @@ impl SkraftApp {
             }
             "app.about" => {
                 self.about_open = true;
+                true
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            "app.updates" => {
+                self.updates.open(&self.prefs.updates);
                 true
             }
             "app.preferences" => {
@@ -3032,6 +3044,10 @@ impl eframe::App for SkraftApp {
                 self.native_command(id, &mut actions);
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(note) = self.updates.poll(&mut self.prefs.updates) {
+            self.toasts.push(note);
+        }
         let tabs = self.tabs();
         let bar = titlebar::Bar {
             tabs: &tabs,
@@ -3040,6 +3056,10 @@ impl eframe::App for SkraftApp {
             integrated: crate::INTEGRATED_TITLEBAR,
             ground: self.docs.active().map(|_| (viewport::color(self.theme.ui.view), viewport::color(self.theme.ui.view_text))),
             remote: self.remote_mark(&ctx),
+            #[cfg(not(target_arch = "wasm32"))]
+            update: self.prefs.updates.announce().map(str::to_owned),
+            #[cfg(target_arch = "wasm32")]
+            update: None,
             #[cfg(not(target_arch = "wasm32"))]
             instance: self.registration.as_ref().map(|r| r.info()).filter(|i| i.build.is_some()),
             #[cfg(target_arch = "wasm32")]
@@ -3066,7 +3086,16 @@ impl eframe::App for SkraftApp {
             egui::CentralPanel::default().show(ui, |ui| self.start_page(ui, &mut actions));
         }
         self.preferences_window(&ctx);
-        crate::about::show(&ctx, &mut self.about_open);
+        let check_updates = crate::about::show(&ctx, &mut self.about_open);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if check_updates {
+                self.updates.open(&self.prefs.updates);
+            }
+            self.updates.show(&ctx, &mut self.prefs.updates);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = check_updates;
         let journal = self.docs.active().map(|d| (d.name(), d.editor.journal()));
         crate::journal_window::show(&ctx, &mut self.journal_window, journal);
         self.palette_window(&ctx, &views, &mut actions);
@@ -3079,7 +3108,7 @@ impl eframe::App for SkraftApp {
             Act::Rename { doc, target } => {
                 docs.index_of(*doc).and_then(|i| docs.get(i)).is_some_and(|d| d.editor.naming_of(*target).is_some())
             }
-            Act::Reveal(_) | Act::Open(_) => true,
+            Act::Reveal(_) | Act::Open(_) | Act::ShowUpdate => true,
         });
         for act in self.toasts.show(&ctx, self.steps_top.unwrap_or(status_top)) {
             match act {
@@ -3088,7 +3117,9 @@ impl eframe::App for SkraftApp {
                 #[cfg(not(target_arch = "wasm32"))]
                 Act::Open(path) => open_file(&path),
                 #[cfg(target_arch = "wasm32")]
-                Act::Reveal(_) | Act::Open(_) => {}
+                Act::Reveal(_) | Act::Open(_) | Act::ShowUpdate => {}
+                #[cfg(not(target_arch = "wasm32"))]
+                Act::ShowUpdate => self.updates.open(&self.prefs.updates),
                 Act::Rename { doc, target } => {
                     if self.naming.is_none()
                         && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(target))
@@ -3408,6 +3439,12 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
         if !cfg!(target_arch = "wasm32") {
             ui.label(t!("prefs.general.reopen"));
             ui.checkbox(&mut prefs.reopen_documents, "");
+            ui.end_row();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            ui.label(t!("prefs.general.check_updates")).tip(t!("prefs.general.check_updates_tip"));
+            ui.checkbox(&mut prefs.updates.check, "");
             ui.end_row();
         }
         ui.label(t!("prefs.general.history_memory")).tip(t!("prefs.general.history_memory_tip"));

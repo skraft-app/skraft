@@ -90,6 +90,9 @@ pub struct Preferences {
     /// states' B-reps and meshes, besides the current documents): beyond, their oldest steps
     /// are forgotten (docs/model/undo.md#memory-cap).
     pub history_memory: u32,
+    /// The check for a new version and what it found (docs/ui/updates.md; desktop).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub updates: crate::update::Prefs,
 }
 
 impl Default for Preferences {
@@ -121,6 +124,8 @@ impl Default for Preferences {
             remote_control: false,
             remote_port: DEFAULT_REMOTE_PORT,
             history_memory: DEFAULT_HISTORY_MEMORY,
+            #[cfg(not(target_arch = "wasm32"))]
+            updates: crate::update::Prefs::default(),
         }
     }
 }
