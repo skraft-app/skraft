@@ -115,11 +115,14 @@ pub struct Placement {
     /// In a ghost batch: how much more opaque than [`Style::ghost_opacity`] its faces are (an
     /// open part's machining, a little more than its blanks).
     pub opacity: f32,
+    /// From the definition's coordinates to those its texture is projected in, when they are
+    /// not its own: an open part's body takes the part's (docs/render/look.md#textures).
+    pub texture: Option<DMat4>,
 }
 
 impl Placement {
     pub fn new(transform: DMat4) -> Self {
-        Placement { transform, tint: NO_TINT, material: NO_MATERIAL, opacity: 0.0 }
+        Placement { transform, tint: NO_TINT, material: NO_MATERIAL, opacity: 0.0, texture: None }
     }
 }
 
@@ -139,6 +142,8 @@ pub struct Highlight {
     /// Only this B-rep face of the part (its index in the record), in `material` over its own
     /// paint, without its edges: the face the paint tool would paint (docs/render/look.md).
     pub face: Option<u32>,
+    /// As [`Placement::texture`].
+    pub texture: Option<DMat4>,
 }
 
 /// A world-space segment, coloured (`rgb` linear; `a` mixed over the background, or, in the
@@ -562,13 +567,28 @@ struct InstanceRaw {
     normal: [[f32; 4]; 3],
     tint: [f32; 4],
     material: u32,
+    /// From the mesh's (recentred) coordinates to those of its texture's projection
+    /// ([`texture_axes`]).
+    texture: [[f32; 4]; 3],
+}
+
+/// The columns of the transform from a mesh's recentred coordinates (about `origin`) to those
+/// its texture is projected in, each with its translation's coordinate in `w`; without
+/// `texture`, those same coordinates.
+fn texture_axes(texture: Option<&DMat4>, origin: DVec3) -> [[f32; 4]; 3] {
+    let Some(t) = texture else {
+        return [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]];
+    };
+    let m = *t * DMat4::from_translation(origin);
+    let c = |v: glam::DVec4, w: f64| [v.x as f32, v.y as f32, v.z as f32, w as f32];
+    [c(m.x_axis, m.w_axis.x), c(m.y_axis, m.w_axis.y), c(m.z_axis, m.w_axis.z)]
 }
 
 impl InstanceRaw {
     /// `model_view`: from the mesh's (recentred) coordinates to the camera's, in `f64`;
     /// `opacity`: a ghost's, over the ghosts' (carried in the normal matrix's spare `w`);
     /// `key`: its mesh's, which chooses its section caps' hatch ([`hatch_of`]).
-    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32, key: u64) -> Self {
+    fn new(model_view: &DMat4, tint: Tint, material: u32, opacity: f32, key: u64, texture: [[f32; 4]; 3]) -> Self {
         let linear = DMat3::from_mat4(*model_view);
         let n = linear.inverse().transpose();
         let c = |v: DVec3, w: f64| [v.x as f32, v.y as f32, v.z as f32, w as f32];
@@ -579,6 +599,7 @@ impl InstanceRaw {
             normal: [c(n.x_axis, mirrored), c(n.y_axis, opacity as f64), c(n.z_axis, hatch_of(key))],
             tint,
             material,
+            texture,
         }
     }
 }
@@ -891,10 +912,10 @@ fn create_pipeline(
     })
 }
 
-const INSTANCE_ATTRS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
+const INSTANCE_ATTRS: [wgpu::VertexAttribute; 12] = wgpu::vertex_attr_array![
     4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4,
     8 => Float32x4, 9 => Float32x4, 10 => Float32x4, 11 => Float32x4,
-    12 => Uint32
+    12 => Uint32, 13 => Float32x4, 14 => Float32x4, 15 => Float32x4
 ];
 
 /// A placement of a part's mesh ([`InstanceRaw`]), stepped per instance.
@@ -1664,9 +1685,16 @@ impl Renderer {
         let mut batch_ranges = Vec::with_capacity(frame.batches.len());
         for b in frame.batches {
             let start = raw.len() as u32;
-            raw.extend(
-                b.placements.iter().map(|p| InstanceRaw::new(&model_view(&p.transform, b.key), p.tint, p.material, p.opacity, b.key)),
-            );
+            raw.extend(b.placements.iter().map(|p| {
+                InstanceRaw::new(
+                    &model_view(&p.transform, b.key),
+                    p.tint,
+                    p.material,
+                    p.opacity,
+                    b.key,
+                    texture_axes(p.texture.as_ref(), origin(b.key)),
+                )
+            }));
             batch_ranges.push(start..raw.len() as u32);
         }
         // Highlights by runs of the same part, each run drawn in one call (a selection can
@@ -1684,9 +1712,15 @@ impl Renderer {
                 Some(_) if h.material == NO_MATERIAL => FORCED | (NO_MATERIAL >> 2),
                 Some(_) => FORCED | h.material,
             };
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.face_tint, face_material(h), 0.0, h.key)));
+            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| {
+                InstanceRaw::new(mv, h.face_tint, face_material(h), 0.0, h.key, texture_axes(h.texture.as_ref(), origin(h.key)))
+            }));
             let edges = raw.len() as u32;
-            raw.extend(chunk.iter().zip(&mvs).map(|(h, mv)| InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key)));
+            raw.extend(
+                chunk.iter().zip(&mvs).map(|(h, mv)| {
+                    InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key, texture_axes(h.texture.as_ref(), origin(h.key)))
+                }),
+            );
             runs.push(HighlightRun {
                 key: chunk[0].key,
                 part: chunk[0].part,

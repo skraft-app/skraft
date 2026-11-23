@@ -127,6 +127,19 @@ fn then_fade(a: render::Tint, b: render::Tint) -> render::Tint {
     [mix(0), mix(1), mix(2), k]
 }
 
+/// The meshes of the open part's bodies, and from the world to the coordinates its texture is
+/// projected in when it is closed (its axes, about the centre of its mesh): a body's texture
+/// stays where the part shows it (docs/render/look.md#textures).
+fn open_part_texture(editor: &Editor) -> Option<(std::collections::HashSet<u64>, DMat4)> {
+    let scene = editor.scene();
+    let recipe = scene.recipe()?;
+    let path = editor.open_part_path()?.part_path();
+    let (_, _, to_world) = editor.document().resolve_part(&path).ok()?;
+    let origin = scene.definition_mesh(recipe.part).and_then(|d| d.parts.first()).map_or(glam::DVec3::ZERO, |p| p.mesh.origin);
+    let keys = recipe.blanks.iter().chain(&recipe.tools).chain(&recipe.nested).map(|b| b.key.0).collect();
+    Some((keys, DMat4::from_translation(-origin) * DMat4::from(to_world.inverse())))
+}
+
 /// What the copy modifier is on this platform (SketchUp: Option on macOS, Ctrl elsewhere).
 pub fn modifiers(ctx: &egui::Context, m: egui::Modifiers) -> Modifiers {
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
@@ -749,6 +762,7 @@ impl Viewport {
         let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
         // A machining's ghost, a little more opaque than a blank's.
         let machining = (theme.machining_opacity - theme.ghost_opacity).max(0.0);
+        let in_part = open_part_texture(editor);
         let batches: Vec<render::Batch> = view
             .batches
             .iter()
@@ -761,6 +775,10 @@ impl Viewport {
                         tint: if p.faded { fade } else { render::NO_TINT },
                         // Not what the eraser would take: that one as faint as any.
                         opacity: if matches!(p.look, Look::Tool | Look::Intersect) && p.ghost && !p.faint_edges { machining } else { 0.0 },
+                        texture: in_part
+                            .as_ref()
+                            .filter(|(keys, _)| keys.contains(&def.0))
+                            .map(|(_, to_part)| *to_part * DMat4::from(p.transform)),
                         material: match p.look {
                             Look::Tool => tool_slot,
                             Look::FailedTool => tool_slot + 1,
@@ -787,6 +805,10 @@ impl Viewport {
                     material: slot(h.material),
                     ghost: h.ghost,
                     face: h.face,
+                    texture: in_part
+                        .as_ref()
+                        .filter(|(keys, _)| keys.contains(&h.definition.0))
+                        .map(|(_, to_part)| *to_part * DMat4::from(h.transform)),
                 }
             })
             .collect();

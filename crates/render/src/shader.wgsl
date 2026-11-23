@@ -47,6 +47,11 @@ struct Instance {
     @location(10) n2: vec4<f32>,
     @location(11) tint: vec4<f32>,
     @location(12) material: u32,
+    // From the mesh's coordinates to those of its texture's projection: columns, the
+    // translation in their `w`.
+    @location(13) t0: vec4<f32>,
+    @location(14) t1: vec4<f32>,
+    @location(15) t2: vec4<f32>,
 };
 
 // Is the camera-space point `p` cut away by the section?
@@ -69,7 +74,7 @@ struct FaceOut {
     // measures across them).
     @location(6) @interpolate(flat) hatch: f32,
     @location(7) @interpolate(flat) pitch: f32,
-    // In the mesh's own axes: a texture's projection (`textured`).
+    // In the axes of the part it shows: a texture's projection (`textured`).
     @location(8) local: vec3<f32>,
     @location(9) local_normal: vec3<f32>,
 };
@@ -88,8 +93,9 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
     out.opacity = inst.n1.w;
     out.hatch = inst.n2.w;
     out.pitch = hatch_pitch(inst.m3.xyz, inst.n2.w);
-    out.local = pos;
-    out.local_normal = normal;
+    let texture = mat3x3<f32>(inst.t0.xyz, inst.t1.xyz, inst.t2.xyz);
+    out.local = texture * pos + vec3<f32>(inst.t0.w, inst.t1.w, inst.t2.w);
+    out.local_normal = texture * normal;
     // The face's own colour, else its placement's; the placement's when forced (no entry left
     // under the flag is the default colour).
     let forced = inst.material != NO_MATERIAL && (inst.material & FORCED) != 0u;
@@ -98,7 +104,7 @@ fn vs_face(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @locatio
 }
 
 // The colour of a front face of palette entry `i` with a texture: its image projected on the
-// face in the mesh's axes along the axis it most faces (a box projection), its width along the
+// face in its part's axes along the axis it most faces (a box projection), its width along the
 // part's length, its red axis — across it on the end grain —, at its real size, turned by its
 // rotation. Its mip level from the size of a pixel on the face (distance and slant), not from
 // derivatives: they would need a uniform control flow. Without a texture, `base`.
