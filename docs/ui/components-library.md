@@ -49,7 +49,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
 - Each row publishes its handle `components:<id>`, the purge button `components:purge`
   ([Control protocol](../control-protocol.md)).
 - **Grid or list**: at the right of the search row, the option bar's segmented control
-  (`panels::segmented_sized`, at the row's height, the mark sliding to the value chosen;
+  (`widgets::segmented_sized`, at the row's height, the mark sliding to the value chosen;
   `icons::TILES`, `icons::LIST`; handles `components:grid`, `components:list`). Grid: square tiles of
   thumbnails (`thumbnails::TILE`, 64 pt) wrapped in rows, the name under each (small, elided),
   « ×n » on a pill over the top right corner, the chosen one outlined in the selection's
@@ -155,7 +155,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
     unused stay, in « Inutilisés ».
   - « Renommer » (also F2 on the chosen component, and a double-click on its row or tile):
     the name edited in place, as the navigator's (`Operation::RenameComponent`,
-    `panels::rename_field`; in the grid, under the tile).
+    `widgets::rename_field`; in the grid, under the tile).
   - « Supprimer »: the component and **all its occurrences**, at any depth
     (`Operation::DeleteComponent`, one step; the root refused, `Refusal::RootDeleted`); what
     it held stays, unused when placed nowhere else; the assemblies left empty go

@@ -19,9 +19,10 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use crate::commands::Menu;
 use crate::icons;
-use crate::panels::{self, Action, CommandView};
+use crate::panels::{Action, CommandView};
 use crate::style::Tip;
 use crate::tabs::{self, Tab};
+use crate::widgets::{command_item, is_toggle};
 
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;
@@ -372,14 +373,14 @@ fn file_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>
 fn menu_items<'a>(ui: &mut egui::Ui, items: impl Iterator<Item = &'a CommandView>, actions: &mut Vec<Action>) {
     let items: Vec<&CommandView> = items.collect();
     // A check box among them: every label after their column.
-    let column = items.iter().any(|v| panels::is_toggle(v));
+    let column = items.iter().any(|v| is_toggle(v));
     let mut first = true;
     for v in items {
         if v.group && !first {
             ui.separator();
         }
         first = false;
-        if panels::command_item(ui, v, column) {
+        if command_item(ui, v, column) {
             actions.push(Action::Command(v.id));
         }
     }

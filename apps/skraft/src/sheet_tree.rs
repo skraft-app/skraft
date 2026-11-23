@@ -9,9 +9,10 @@ use skraft_model::{DimKind, Drawing, Element, ElementKind, FastSet, Id, Operatio
 use skraft_tools::Editor;
 
 use crate::icons;
-use crate::panels::{self, Action, Fold};
+use crate::panels::Action;
 use crate::sheet::{InfoOn, SheetAsk, SheetState};
 use crate::style::Tip;
+use crate::widgets::{self, Fold};
 
 /// The side of a row's small buttons.
 const BUTTON: f32 = 18.0;
@@ -267,13 +268,13 @@ fn line<R>(
     (salt, folds): (egui::Id, &mut FastSet<egui::Id>),
     right: impl FnOnce(&mut egui::Ui, bool) -> R,
 ) -> (egui::Response, Option<Option<String>>, R) {
-    let renaming = l.rename.is_some_and(|k| ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(panels::RENAMING))) == Some(k));
-    let (response, (renamed, extra)) = panels::tree_row(ui, height, l.selected, false, false, |ui| {
+    let renaming = l.rename.is_some_and(|k| ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(widgets::RENAMING))) == Some(k));
+    let (response, (renamed, extra)) = widgets::tree_row(ui, height, l.selected, false, false, |ui| {
         let spacing = ui.spacing().item_spacing.x;
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.add_space(ui.spacing().indent * l.depth as f32);
         match l.fold {
-            Some(f) => panels::fold_toggle(ui, salt, f.into(), folds),
+            Some(f) => widgets::fold_toggle(ui, salt, f.into(), folds),
             None => ui.add_space(ui.spacing().indent),
         }
         ui.spacing_mut().item_spacing.x = spacing;
@@ -286,7 +287,7 @@ fn line<R>(
             let renamed = ui
                 .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     if renaming {
-                        return panels::rename_field(ui, l.rename.expect("renaming"), l.name);
+                        return widgets::rename_field(ui, l.rename.expect("renaming"), l.name);
                     }
                     let mut text = egui::RichText::new(l.name).color(l.tint);
                     if l.strong {
@@ -301,7 +302,7 @@ fn line<R>(
         .inner
     });
     let renamed = match l.rename {
-        Some(k) => panels::start_rename(ui, &response, renaming, l.alone, k, renamed),
+        Some(k) => widgets::start_rename(ui, &response, renaming, l.alone, k, renamed),
         None => None,
     };
     (response, renamed, extra)
@@ -370,7 +371,7 @@ pub fn navigator(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title:
             }
         }
     });
-    panels::paint_drag_ghost(ui.ctx());
+    widgets::paint_drag_ghost(ui.ctx());
     // The stage frames what a row asked for at its next frame.
     if st.framing_asked() {
         ui.ctx().request_repaint();
@@ -382,7 +383,7 @@ pub fn navigator(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title:
 fn document_row(ui: &mut egui::Ui, height: f32, st: &mut SheetState, title: &str) {
     let selected = st.info == InfoOn::Document && st.selected.is_empty() && st.open.is_empty();
     let tint = if selected { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
-    let (response, ()) = panels::tree_row(ui, height, selected, false, false, |ui| {
+    let (response, ()) = widgets::tree_row(ui, height, selected, false, false, |ui| {
         ui.add(egui::Image::new(icons::MODEL).fit_to_exact_size(egui::vec2(ICON, ICON)).tint(tint));
         let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size);
         ui.add(egui::Label::new(egui::RichText::new(title).font(font).color(tint)).selectable(false).truncate());
@@ -546,7 +547,7 @@ fn sheet_row(
     // Dragged by its row, it goes elsewhere in the order.
     let response = response.interact(egui::Sense::click_and_drag());
     if response.drag_started() {
-        panels::set_drag_ghost(ui.ctx(), icons::SHEET, s.name.clone(), 1);
+        widgets::set_drag_ghost(ui.ctx(), icons::SHEET, s.name.clone(), 1);
     }
     response.dnd_set_drag_payload(SheetOrderDrag { sheet: s.id });
     if response.dragged() {
@@ -644,7 +645,7 @@ fn element_row(
     let tint = if selected || entered {
         on
     } else if el.hidden || row.hidden_above {
-        panels::hidden_color(v, false)
+        widgets::hidden_color(v, false)
     } else if editable {
         v.text_color()
     } else {
@@ -702,7 +703,7 @@ fn element_row(
         let response = response.interact(egui::Sense::click_and_drag());
         let elements = if selected { st.selected.clone() } else { vec![el.id] };
         if response.drag_started() {
-            panels::set_drag_ghost(ui.ctx(), icon_of(el), name.clone(), elements.len());
+            widgets::set_drag_ghost(ui.ctx(), icon_of(el), name.clone(), elements.len());
         }
         response.dnd_set_drag_payload(SheetDrag { sheet: row.sheet, elements });
         response

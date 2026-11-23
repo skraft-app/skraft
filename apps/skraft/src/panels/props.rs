@@ -7,9 +7,10 @@ use std::collections::BTreeSet;
 use skraft_i18n::t;
 use skraft_model::{Document, EntityKind, Operation, PropDef, PropTarget, Units, Value, ValueKind};
 
-use super::{Action, Field, OPTION_HEIGHT, cut_label, framed_field};
+use super::Action;
 use crate::icons;
 use crate::style::Tip;
+use crate::widgets::{Field, OPTION_HEIGHT, cut_label, framed_field};
 
 /// The kinds a definition offers, in its menu.
 const KINDS: [fn() -> ValueKind; 14] = [

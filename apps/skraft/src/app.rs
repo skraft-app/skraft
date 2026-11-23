@@ -21,7 +21,7 @@ use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView};
 use crate::prefs::Preferences;
 use crate::ribbon;
-use crate::style::Tip;
+use crate::style::{CARD_MARGIN, Tip, option_card};
 use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
 use crate::toasts::{Act, Note, Toasts};
@@ -1989,7 +1989,7 @@ impl SkraftApp {
                         ui.horizontal(|ui| {
                             ui.label(text);
                             if conflict {
-                                ui.add(crate::panels::warning(ui));
+                                ui.add(crate::widgets::warning(ui));
                             }
                         });
                     }
@@ -2059,7 +2059,7 @@ impl SkraftApp {
     fn stage_table(&mut self, ctx: &egui::Context, rect: egui::Rect, area: egui::Rect, margin: f32, actions: &mut Vec<Action>) {
         let Some(d) = self.docs.active_mut() else { return };
         egui::Area::new(egui::Id::unique("stage_table")).fixed_pos(rect.min).constrain_to(area).show(ctx, |ui| {
-            let frame = egui::Frame::window(ui.style()).inner_margin(panels::CARD_MARGIN);
+            let frame = egui::Frame::window(ui.style()).inner_margin(CARD_MARGIN);
             let inner = (rect.size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
             frame.show(ui, |ui| {
                 ui.set_min_size(inner);
@@ -2099,7 +2099,7 @@ impl SkraftApp {
     /// above them) to the bottom of the view.
     fn side_panels(&mut self, ctx: &egui::Context, view: egui::Rect, top: f32, margin: f32, actions: &mut Vec<Action>) -> egui::Rangef {
         let style = ctx.global_style();
-        let frame = egui::Frame::window(&style).inner_margin(panels::CARD_MARGIN).total_margin().sum();
+        let frame = egui::Frame::window(&style).inner_margin(CARD_MARGIN).total_margin().sum();
         let header = style.spacing.interact_size.y;
         let metrics = dock::Metrics { header: header + frame.y, min_height: header + frame.y + 2.0 * HEAD_PAD + 60.0, gap: margin };
         let (xs, free, max_width) = self.columns(view, margin);
@@ -2197,7 +2197,7 @@ impl SkraftApp {
             .fixed_pos(rect.min)
             .order(if floating { egui::Order::Foreground } else { egui::Order::Middle })
             .show(ctx, |ui| {
-                let frame = egui::Frame::window(ui.style()).inner_margin(panels::CARD_MARGIN);
+                let frame = egui::Frame::window(ui.style()).inner_margin(CARD_MARGIN);
                 let inner = rect.size() - frame.total_margin().sum();
                 frame.show(ui, |ui| {
                     ui.set_min_size(inner);
@@ -2245,8 +2245,8 @@ impl SkraftApp {
                     // border, and no wider than that margin once hovered: over the content it hid
                     // the rows' right end (the navigator's eyes, signs).
                     let scroll = &mut ui.spacing_mut().scroll;
-                    scroll.bar_outer_margin = -(panels::CARD_MARGIN - 1.0);
-                    scroll.bar_width = panels::CARD_MARGIN;
+                    scroll.bar_outer_margin = -(CARD_MARGIN - 1.0);
+                    scroll.bar_width = CARD_MARGIN;
                     let area = egui::ScrollArea::vertical().auto_shrink(false).max_height(body).min_scrolled_height(body);
                     match id {
                         PanelId::EntityInfo => {
@@ -2281,7 +2281,7 @@ impl SkraftApp {
                                 list: self.prefs.components_list,
                                 height: body,
                                 band_top: head_rect.bottom() + HEAD_PAD,
-                                margin: panels::CARD_MARGIN,
+                                margin: CARD_MARGIN,
                             };
                             ui.push_id(doc_id, |ui| {
                                 crate::library::components(ui, editor, state, look, actions, area.id_salt("components"))
@@ -3305,7 +3305,7 @@ impl SkraftApp {
                 });
             }
         });
-        let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(panels::CARD_MARGIN);
+        let card = |style: &egui::Style| egui::Frame::window(style).inner_margin(CARD_MARGIN);
         // The ribbon at the top (docs/ui/ribbon.md#layout): between the docked cards' columns,
         // which then take the view's whole height, when it fits there whole; else above them,
         // over the view's width, the columns under it.
@@ -3388,17 +3388,15 @@ impl SkraftApp {
                         ui.spacing_mut().item_spacing.x = margin;
                         let mut drawn = widths;
                         if has_context {
-                            let shown =
-                                crate::style::hover_card(ui, panels::option_card(ui.style()), options_id.with("context_hovered"), |ui| {
-                                    panels::context_options(ui, &doc.editor, actions)
-                                });
+                            let shown = crate::style::hover_card(ui, option_card(ui.style()), options_id.with("context_hovered"), |ui| {
+                                panels::context_options(ui, &doc.editor, actions)
+                            });
                             drawn[0] = shown.response.rect.width();
                         }
                         if has_tool {
-                            let shown =
-                                crate::style::hover_card(ui, panels::option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
-                                    panels::tool_options(ui, &doc.editor, actions)
-                                });
+                            let shown = crate::style::hover_card(ui, option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
+                                panels::tool_options(ui, &doc.editor, actions)
+                            });
                             drawn[1] = shown.response.rect.width();
                         }
                         if drawn != widths {

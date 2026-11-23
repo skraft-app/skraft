@@ -62,6 +62,7 @@ mod view_picker;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;
+mod widgets;
 #[cfg(target_arch = "wasm32")]
 mod worker;
 mod workspace;
