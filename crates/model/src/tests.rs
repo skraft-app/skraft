@@ -4132,3 +4132,27 @@ fn materials_files_export_and_import() {
     let doc = other.document();
     assert_eq!(Document::from_file(&doc.to_file().unwrap()).unwrap(), *doc);
 }
+
+#[test]
+fn materials_are_counted_per_placed_part_and_purged_when_nothing_refers_to_them() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let add = |h: &mut History, name: &str| {
+        h.apply(Operation::AddMaterial { name: name.into(), color: [1, 2, 3] }).unwrap();
+        h.document().materials().find(|(_, m)| m.name == name).unwrap().0
+    };
+    let (oak, ash, free) = (add(&mut h, "oak"), add(&mut h, "ash"), add(&mut h, "free"));
+    let primitive = Primitive::Box { origin: DVec3::ZERO, size: DVec3::splat(10.0) };
+    let part =
+        h.apply(Operation::AddPrimitive { context: root, primitive, placement: DAffine3::IDENTITY, material: Some(oak) }).unwrap().created
+            [0];
+    let assembly = h.apply(Operation::MakeAssembly { context: root, entities: vec![part], name: Some("A".into()) }).unwrap().created[0];
+    let definition = h.document().root_assembly().occurrence(assembly).unwrap().component;
+    h.apply(Operation::PlaceOccurrence { context: root, component: definition, transform: DAffine3::IDENTITY }).unwrap();
+    let counts = h.document().material_counts();
+    assert_eq!(counts.get(&oak), Some(&2), "one part, through two assemblies");
+    assert!(!counts.contains_key(&ash) && !counts.contains_key(&free));
+    h.apply(Operation::PurgeMaterials).unwrap();
+    assert!(h.document().material(oak).is_ok(), "referred to: kept");
+    assert!(h.document().material(ash).is_err() && h.document().material(free).is_err());
+}

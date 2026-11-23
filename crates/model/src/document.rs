@@ -1255,6 +1255,74 @@ impl Document {
         counts
     }
 
+    /// How many placed parts of the model show each material (docs/render/look.md): on one of
+    /// their faces, or through their occurrence, its own material or the nearest assembly's. A
+    /// part counts once per placement, whatever the number of its faces painted; hidden ones
+    /// count, as in [`Document::counts_in_model`]. Only the materials shown are in the map.
+    pub fn material_counts(&self) -> FastMap<Id, u64> {
+        fn walk(doc: &Document, c: Id, seen: &mut FastSet<Id>, order: &mut Vec<Id>) {
+            if !seen.insert(c) {
+                return;
+            }
+            if let Ok(a) = doc.assembly(c) {
+                for o in a.occurrences() {
+                    walk(doc, o.component, seen, order);
+                }
+            }
+            order.push(c);
+        }
+        let (mut seen, mut order) = (FastSet::default(), Vec::new());
+        walk(self, self.root, &mut seen, &mut order);
+        // Each component, after all that hold it: how many times it is reached, by the material
+        // it inherits there.
+        let mut reached: FastMap<Id, BTreeMap<Option<Id>, u64>> = FastMap::default();
+        reached.entry(self.root).or_default().insert(None, 1);
+        let mut counts: FastMap<Id, u64> = FastMap::default();
+        for &c in order.iter().rev() {
+            let Some(inherited) = reached.remove(&c) else { continue };
+            let Ok(component) = self.component(c) else { continue };
+            match &component.kind {
+                ComponentKind::Assembly(a) => {
+                    for o in a.occurrences() {
+                        let below = reached.entry(o.component).or_default();
+                        for (&m, &n) in &inherited {
+                            let k = below.entry(o.material.or(m)).or_insert(0);
+                            *k = k.saturating_add(n);
+                        }
+                    }
+                }
+                ComponentKind::Part(p) => {
+                    let faces: FastSet<Id> = p.faces.values().copied().collect();
+                    let all = inherited.values().fold(0u64, |t, &n| t.saturating_add(n));
+                    for &m in &faces {
+                        let k = counts.entry(m).or_insert(0);
+                        *k = k.saturating_add(all);
+                    }
+                    for (&m, &n) in &inherited {
+                        if let Some(m) = m.filter(|m| !faces.contains(m)) {
+                            let k = counts.entry(m).or_insert(0);
+                            *k = k.saturating_add(n);
+                        }
+                    }
+                }
+            }
+        }
+        counts
+    }
+
+    /// The materials something refers to: an occurrence or a face of any component, placed in
+    /// the model or not.
+    pub fn materials_referenced(&self) -> FastSet<Id> {
+        let mut out = FastSet::default();
+        for c in self.components.values() {
+            match &c.kind {
+                ComponentKind::Part(p) => out.extend(p.faces.values().copied()),
+                ComponentKind::Assembly(a) => out.extend(a.occurrences().iter().filter_map(|o| o.material)),
+            }
+        }
+        out
+    }
+
     /// Does the occurrence path `instances` go through an assembly placed more than once — a
     /// change in the assembly it leads into then reaches other copies (outermost first: a copy
     /// of an assembly above makes those below it shared too)?
