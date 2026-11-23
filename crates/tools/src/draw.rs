@@ -194,8 +194,11 @@ impl Pen {
         self.width(if bold { BOLD } else { NORMAL })
     }
 
+    /// Short dashes come anchored: laid in model units, dashes this short fade into a line at
+    /// some zooms (their period under the shader's few pixels).
     pub fn stipple(self, stipple: Stipple) -> Self {
-        Pen { stipple, ..self }
+        let lay = if stipple == Stipple::ShortDashes { Lay::Anchored } else { self.lay };
+        Pen { stipple, lay, ..self }
     }
 
     /// A guide's: long dashes on screen, held still on it as the view pans (at the phase of each
@@ -961,6 +964,12 @@ mod tests {
         assert_eq!(bold.lines.len(), 1 + 2);
         assert!(bold.lines.iter().all(|l| l.pen.width == BOLD));
         assert!(bold.lines[1..].iter().all(|l| l.pen.stipple == Stipple::Solid));
+    }
+
+    #[test]
+    fn short_dashes_come_anchored() {
+        assert_eq!(Pen::new([0.0; 4]).stipple(Stipple::ShortDashes).lay, Lay::Anchored);
+        assert_eq!(Pen::new([0.0; 4]).stipple(Stipple::Dotted).lay, Lay::Model);
     }
 
     #[test]

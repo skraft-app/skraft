@@ -75,7 +75,9 @@ lengths' helpers written on it). A primitive may draw both its outline and its f
   four lengths, on / off, in points). They lie on the line (`Lay`) anchored (a dash at both
   ends, the period adjusted a little on screen), in model units at a phase (one period for the
   picture, set at the view's focus), or on screen at a phase (the guides'), [Display](display.md).
-  No dashes are cut on the CPU.
+  `Pen::stipple` anchors `ShortDashes`: in model units a period this short falls under the
+  shader's fade at some zooms and reads as a plain line (`curve` still lays its dashes in model
+  units). No dashes are cut on the CPU.
 
 ## Dimensions
 
