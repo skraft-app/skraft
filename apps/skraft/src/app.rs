@@ -81,9 +81,9 @@ pub struct SkraftApp {
     /// The ribbon's bottom when last drawn, kept across frames: a sheet is framed below it
     /// (the stage is drawn before the ribbon).
     ribbon_last_bottom: Option<f32>,
-    /// « Exporter en PDF » asked for: done at the next frame, where the GPU is at hand
-    /// (docs/ui/drawing.md#pdf).
-    pdf_asked: bool,
+    /// « Exporter en PDF » asked for, by which document and when: done at a next frame, where
+    /// the GPU is at hand, once its textures are ready (docs/ui/drawing.md#pdf).
+    pdf_asked: Option<(DocId, f64)>,
     /// The top of the steps bar and the validation this frame, if shown: the toasts stand above.
     steps_top: Option<f32>,
     theme: Theme,
@@ -345,7 +345,7 @@ impl SkraftApp {
             palette: None,
             ribbon_bottom: None,
             ribbon_last_bottom: None,
-            pdf_asked: false,
+            pdf_asked: None,
             steps_top: None,
             theme: Theme::light(),
             styled: None,
@@ -842,6 +842,47 @@ impl SkraftApp {
 
     // ---- commands ------------------------------------------------------------------------------
 
+    /// The PDF asked for, written once its document's textures are ready, or they would print
+    /// as their materials' colours: meanwhile a window shows how far they are, « Annuler » (or
+    /// Esc) giving up, as does leaving the document.
+    fn export_pdf_when_ready(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let Some((doc, since)) = self.pdf_asked else { return };
+        let Some(d) = self.docs.active().filter(|d| d.id == doc) else {
+            self.pdf_asked = None;
+            return;
+        };
+        let (ready, total) = self.viewport.textures_progress(ctx, d.editor.document());
+        if ready >= total {
+            self.pdf_asked = None;
+            self.export_pdf(frame);
+            return;
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        // The loading window, while there, already shows them.
+        if self.loads_seen.contains_key(&doc) || ctx.input(|i| i.time) - since < LOAD_WINDOW_AFTER {
+            return;
+        }
+        let mut cancel = false;
+        let modal = egui::Modal::new(egui::Id::unique("pdf_waiting")).frame(modal_frame(ctx)).show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
+            ui.heading(t!("loading.pdf"));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(t!("loading.textures"));
+                let fraction = ready as f32 / total as f32;
+                ui.add(egui::ProgressBar::new(fraction).text(format!("{ready} / {total}")).animate(true));
+            });
+            ui.add_space(10.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                cancel = ui.button(t!("loading.cancel")).clicked();
+            });
+        });
+        if cancel || modal.should_close() || ui_key(ctx, egui::Key::Escape) {
+            self.pdf_asked = None;
+        }
+    }
+
     /// The presentation shown of the shown document written as a PDF (docs/ui/drawing.md#pdf),
     /// then saved where the user says (a download on the web): named after the document, and
     /// after the presentation when it has several.
@@ -1153,7 +1194,7 @@ impl SkraftApp {
             if doc.sheet.shown(doc.editor.document().drawing()).is_none() {
                 return Err(Note::info(t!("drawing.no_sheet")));
             }
-            self.pdf_asked = true;
+            self.pdf_asked = Some((doc.id, self.ctx.input(|i| i.time)));
             return Ok(());
         }
         // The presentation shown as a template in the library (docs/ui/drawing.md#templates).
@@ -3078,9 +3119,7 @@ impl eframe::App for SkraftApp {
         };
         self.ribbon_bottom = None;
         self.steps_top = None;
-        if std::mem::take(&mut self.pdf_asked) {
-            self.export_pdf(frame);
-        }
+        self.export_pdf_when_ready(&ctx, frame);
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);
         } else {
