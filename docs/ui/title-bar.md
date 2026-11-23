@@ -17,7 +17,8 @@ Decision record: [A title bar instead of a menu strip](../decisions/0006-title-b
 - `apps/skraft/src/titlebar.rs`, 34 pt (`titlebar::HEIGHT`): the app's mark
   (`assets/app-icon.svg`), name and version (the workspace's, smaller and weak) — while a
   document is shown, one button to the start page (`view.home`,
-  [Several documents: file tabs](file-tabs.md)), else a place that moves the window —, the
+  [Several documents: file tabs](file-tabs.md)), else a place that moves the window —, the badge
+  of a newer version ([Updates](updates.md)), the
   **File** menu (a text button: the registry's File commands), Undo / Redo, the file tabs
   ([Several documents: file tabs](file-tabs.md)), and at the right the command search (opens
   the palette, shows its shortcut; only its icon when the window is narrow), between two

@@ -182,3 +182,11 @@ jobs:
           name: Skraft ${{ steps.version.outputs.tag }}
           files: dist/*
           body_path: ${{ runner.temp }}/release-notes.md
+      # Last: the app finds a new version here (docs/ui/updates.md), its installers already there.
+      - name: Update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          scripts/update-manifest.sh dist > "$RUNNER_TEMP/latest.json"
+          gh release upload "$TAG" "$RUNNER_TEMP/latest.json" --clobber

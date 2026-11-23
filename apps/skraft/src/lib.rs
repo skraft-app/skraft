@@ -53,6 +53,8 @@ mod thumbnails;
 mod titlebar;
 mod toasts;
 mod tree;
+#[cfg(not(target_arch = "wasm32"))]
+mod update;
 mod view_bar;
 mod view_framer;
 mod view_lines;

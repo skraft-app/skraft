@@ -104,10 +104,11 @@ fn links_row(ui: &mut egui::Ui) {
     });
 }
 
-/// The window, while `open`.
-pub fn show(ctx: &egui::Context, open: &mut bool) {
+/// The window, while `open`. Whether the user asks to look for a new version.
+pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
+    let mut check_updates = false;
     if !*open {
-        return;
+        return check_updates;
     }
     egui::Window::new(t!("menu.app.about", app = t!("start.title")))
         .id(egui::Id::unique("about"))
@@ -131,6 +132,10 @@ pub fn show(ctx: &egui::Context, open: &mut bool) {
                 ui.add_space(10.0);
                 ui.heading(egui::RichText::new(t!("start.title")).size(22.0).strong());
                 ui.weak(t!("about.version", version = VERSION));
+                #[cfg(not(target_arch = "wasm32"))]
+                if ui.link(t!("about.check_updates")).clicked() {
+                    check_updates = true;
+                }
                 ui.add_space(8.0);
                 ui.label(t!("about.tagline"));
                 ui.add_space(12.0);
@@ -148,6 +153,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) {
                 ui.add_space(6.0);
             });
         });
+    check_updates
 }
 
 #[cfg(test)]
