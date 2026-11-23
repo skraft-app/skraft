@@ -228,7 +228,7 @@ impl BlendTool {
 
     /// What validating the node open applies. No edge picked, its edges known: the user let go
     /// of its last one, the node is undone (every copy); its edges not known (its children's
-    /// result still to come, names no longer matching), nothing is.
+    /// result still to come, names no longer matching), only a size typed is applied.
     fn node_validated(&self, cx: &Cx<'_>) -> Result<Option<Operation>, String> {
         if !self.picks.is_empty() {
             return Ok(self.operation(cx).map(|p| p.op));
@@ -238,7 +238,14 @@ impl BlendTool {
             cx.doc.check_dissolve_node(&target, body).map_err(|e| e.to_string())?;
             return Ok(Some(Operation::DissolveNode { target, body, scope: cx.part_scope }));
         }
-        Ok(None)
+        Ok(self.size_typed.then(|| Operation::SetBlend {
+            target,
+            body,
+            blend: self.blend,
+            size: self.size,
+            picks: Vec::new(),
+            scope: cx.part_scope,
+        }))
     }
 }
 
