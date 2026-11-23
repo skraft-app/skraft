@@ -7805,3 +7805,52 @@ fn reorient_shows_the_part_as_it_is_and_says_what_it_reaches() {
     assert!(tip.contains("600") && tip.find("600") < tip.find("400"), "{tip}");
     assert!(tip.contains("2 exemplaires"), "{tip}");
 }
+
+#[test]
+fn the_move_tool_carries_a_linked_body_in_one_step() {
+    use skraft_model::{LinkState, Scope, Sign};
+
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let part = |e: &mut Editor, size: DVec3, at: DVec3| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        let placement = glam::DAffine3::from_translation(at);
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement, material: None }).unwrap().unwrap().created[0]
+    };
+    let rail = part(&mut e, DVec3::new(100.0, 20.0, 20.0), DVec3::ZERO);
+    let leg = part(&mut e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let primitive = Primitive::Box { origin: DVec3::new(100.0, 5.0, 5.0), size: DVec3::splat(10.0) };
+    let add = Operation::AddBody {
+        target: EntityPath::root(rail),
+        primitive,
+        placement: glam::DAffine3::IDENTITY,
+        sign: Sign::Imprint,
+        scope: Scope::All,
+    };
+    let imprint = e.apply(add).unwrap().unwrap().bodies[0];
+    let link = Operation::AddLink { context: root, source: vec![rail], imprint, receiver: vec![leg], sign: Sign::Negative, onto: None };
+    let body = e.apply(link).unwrap().unwrap().bodies[0];
+    let mortise = |e: &Editor| {
+        let (_, p, _) = e.document().resolve_part(&EntityPath::root(leg)).unwrap();
+        (p.body(body).unwrap().placement.translation, p.shape().volume().unwrap())
+    };
+    let (before, volume) = mortise(&e);
+
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(50.0, 10.0, 20.0));
+    assert_eq!(e.selection(), [rail]);
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(50.0, 10.0, 20.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 40.0, 20.0)) });
+    e.input(ToolInput::Vcb("5".into()));
+    assert!(!e.busy());
+
+    let (after, carved) = mortise(&e);
+    assert!(close(after, before + DVec3::Y * 5.0), "{before} → {after}");
+    assert!((carved - volume).abs() < 1e-3, "the mortise moved whole");
+    let doc = e.document();
+    assert_eq!(doc.link_state(root, &doc.root_assembly().links()[0]), LinkState::Seated);
+
+    e.undo();
+    assert!(close(mortise(&e).0, before), "one undo takes the rail and its mortise");
+}

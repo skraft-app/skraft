@@ -56,7 +56,7 @@ pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
 pub use history::History;
 pub use import::ImportReport;
-pub use links::{Link, LinkState};
+pub use links::{Followed, Link, LinkState};
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, NodeRaw, Operation, Outcome, Prepared, RawAsk, Scope, Warning};
 pub use profile::BodyProfile;
 pub use props::{EntityKind, PropDef, PropTarget, Props, Value, ValueKind};

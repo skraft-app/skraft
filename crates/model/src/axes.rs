@@ -68,6 +68,10 @@ impl Document {
                 }
             }
         }
+        // Linked bodies moved with the rest: their seats are in these axes too.
+        if self.part(component).is_ok() {
+            self.map_seats(component, None, &into);
+        }
         let drawing = std::sync::Arc::make_mut(&mut self.drawing);
         for list in drawing.lists_mut() {
             for e in list.iter_mut() {

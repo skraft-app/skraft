@@ -363,11 +363,7 @@ fn a_link_is_seated_off_or_broken() {
     let root = h.document().root();
     let shift = |id, v| Operation::Transform { context: root, entities: vec![id], transform: moved(v) };
 
-    // The source moved, then the receiver: off, seated again once back.
-    h.apply(shift(rail, DVec3::Z)).unwrap();
-    assert_eq!(states(&h), vec![LinkState::Off]);
-    h.apply(shift(rail, -DVec3::Z)).unwrap();
-    assert_eq!(states(&h), vec![LinkState::Seated]);
+    // The receiver moved: off, seated again once the source lands there.
     h.apply(shift(leg, DVec3::X)).unwrap();
     assert_eq!(states(&h), vec![LinkState::Off]);
     h.apply(shift(rail, DVec3::X)).unwrap();
@@ -469,4 +465,305 @@ fn a_linked_body_copied_to_another_part_is_a_shape_of_its_own() {
     let p = h.document().part(part_of(&h, made)).unwrap();
     assert!(p.bodies.iter().all(|b| p.def_of(b).source == BodySource::Local));
     assert_eq!(states(&h), vec![LinkState::Seated], "the link stays with the body it was");
+}
+
+// ---- following: a table of four legs of one definition, four rails with two imprints ------
+
+const LEG: f64 = 60.0;
+const RAIL_W: f64 = 22.0;
+const RAIL_H: f64 = 100.0;
+const RAIL_Z: f64 = 590.0;
+/// How far an imprint enters the leg, how far it runs back into the rail.
+const DEPTH: f64 = 24.0;
+const BACK: f64 = 30.0;
+const SECTION: (f64, f64) = (10.2, 70.2);
+
+fn full_leg() -> f64 {
+    LEG * LEG * 700.0 - 2.0 * DEPTH * SECTION.0 * SECTION.1
+}
+
+struct Table {
+    h: History,
+    legs: Vec<Id>,
+    rails: Vec<Id>,
+    leg_part: Id,
+}
+
+/// One link per `(rail, end, leg, slot)`, each slot's first link making its body.
+fn table(legs: Vec<DAffine3>, kinds: &[f64], rails: &[(usize, DAffine3)], seats: &[(usize, usize, usize, usize)]) -> Table {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let leg_ids: Vec<Id> = {
+        let first = add_part(&mut h, at(LEG, LEG, 700.0), legs[0]);
+        let part = part_of(&h, first);
+        let mut ids = vec![first];
+        for t in &legs[1..] {
+            ids.push(h.apply(Operation::PlaceOccurrence { context: root, component: part, transform: *t }).unwrap().created[0]);
+        }
+        ids
+    };
+    let leg_part = part_of(&h, leg_ids[0]);
+    let mut made: Vec<Option<(Id, [Id; 2])>> = vec![None; kinds.len()];
+    let mut rail_ids = Vec::new();
+    let mut imprints = Vec::new();
+    for &(kind, t) in rails {
+        let length = kinds[kind];
+        let id = match made[kind] {
+            Some((part, ends)) => {
+                imprints.push(ends);
+                h.apply(Operation::PlaceOccurrence { context: root, component: part, transform: t }).unwrap().created[0]
+            }
+            None => {
+                let occ = add_part(&mut h, at(length, RAIL_W, RAIL_H), t);
+                let (y, z) = ((RAIL_W - SECTION.0) / 2.0, (RAIL_H - SECTION.1) / 2.0);
+                let size = at(DEPTH + BACK, SECTION.0, SECTION.1);
+                let (a, _) = add_body(&mut h, occ, at(-DEPTH, y, z), size, Sign::Imprint);
+                let (b, _) = add_body(&mut h, occ, at(length - BACK, y, z), size, Sign::Imprint);
+                made[kind] = Some((part_of(&h, occ), [a, b]));
+                imprints.push([a, b]);
+                occ
+            }
+        };
+        rail_ids.push(id);
+    }
+    let mut slots: [Option<Id>; 2] = [None; 2];
+    for &(r, end, l, slot) in seats {
+        let op = link_op(&h, rail_ids[r], imprints[r][end], leg_ids[l], slots[slot]);
+        slots[slot] = Some(h.apply(op).unwrap().bodies[0]);
+    }
+    Table { h, legs: leg_ids, rails: rail_ids, leg_part }
+}
+
+/// Four legs, each the last one turned a quarter about the table's centre.
+fn turned_table() -> Table {
+    let turn = |k: usize| DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2 * k as f64);
+    let legs = (0..4).map(|k| turn(k) * moved(at(-360.0, -360.0, 0.0))).collect();
+    let rails: Vec<_> = (0..4).map(|k| (0, turn(k) * moved(at(-300.0, -341.0, RAIL_Z)))).collect();
+    let seats: Vec<_> = (0..4).flat_map(|k| [(k, 0, k, 0), (k, 1, (k + 1) % 4, 1)]).collect();
+    table(legs, &[600.0], &rails, &seats)
+}
+
+/// A rectangular table, its legs mirrored across its axes, two long and two short rails.
+fn mirrored_table() -> Table {
+    let (a, b) = (460.0, 310.0);
+    let (mx, my) = (DAffine3::from_scale(at(-1.0, 1.0, 1.0)), DAffine3::from_scale(at(1.0, -1.0, 1.0)));
+    let leg = moved(at(-a, -b, 0.0));
+    let half = DAffine3::from_rotation_z(std::f64::consts::PI);
+    let front = moved(at(-a + LEG, -b + (LEG - RAIL_W) / 2.0, RAIL_Z));
+    let left = moved(at(-a + (LEG + RAIL_W) / 2.0, -b + LEG, RAIL_Z)) * DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+    let rails = [(0, front), (1, half * left), (0, half * front), (1, left)];
+    let seats = [(0, 0, 0, 0), (0, 1, 1, 0), (2, 0, 2, 0), (2, 1, 3, 0), (3, 0, 0, 1), (3, 1, 3, 1), (1, 0, 2, 1), (1, 1, 1, 1)];
+    table(vec![leg, mx * leg, mx * my * leg, my * leg], &[800.0, 500.0], &rails, &seats)
+}
+
+impl Table {
+    fn shift(&mut self, rails: &[usize], v: DVec3) -> Followed {
+        let context = self.h.document().root();
+        let entities = rails.iter().map(|k| self.rails[*k]).collect();
+        self.h.apply(Operation::Transform { context, entities, transform: moved(v) }).unwrap().links
+    }
+
+    /// The rails with a link off.
+    fn off(&self) -> Vec<usize> {
+        let doc = self.h.document();
+        let links = doc.root_assembly().links();
+        (0..self.rails.len())
+            .filter(|k| links.iter().any(|l| l.source == [self.rails[*k]] && doc.link_state(doc.root(), l) != LinkState::Seated))
+            .collect()
+    }
+
+    fn mortises(&self) -> Vec<DAffine3> {
+        self.h.document().part(self.leg_part).unwrap().negatives().map(|b| b.placement).collect()
+    }
+
+    fn leg_volume(&self) -> f64 {
+        volume(&self.h, self.leg_part)
+    }
+}
+
+#[test]
+fn a_table_of_shared_legs_is_seated() {
+    for t in [turned_table(), mirrored_table()] {
+        assert!(t.off().is_empty());
+        assert_eq!(t.h.document().root_assembly().links().len(), 8);
+        assert_eq!(t.mortises().len(), 2, "one body per mortise, in the one definition");
+        assert!(close(t.leg_volume(), full_leg()), "{}", t.leg_volume());
+    }
+}
+
+#[test]
+fn a_rail_moved_carries_its_mortises_in_every_leg() {
+    let mut t = turned_table();
+    let before = t.mortises();
+    let steps = t.h.journal().count();
+    let followed = t.shift(&[0], DVec3::Z * 10.0);
+    assert_eq!((followed.moved.len(), followed.conflicts.len()), (2, 0));
+    assert_eq!(t.h.journal().count(), steps + 1, "one step");
+    assert_eq!(t.off(), vec![1, 2, 3], "the other rails are told, not moved");
+    let after = t.mortises();
+    assert!(before.iter().zip(&after).all(|(a, b)| (b.translation - a.translation - DVec3::Z * 10.0).length() < 1e-9));
+    assert!(close(t.leg_volume(), full_leg()));
+    let parts: std::collections::BTreeSet<Id> = t.legs.iter().map(|l| part_of(&t.h, *l)).collect();
+    assert_eq!(parts.len(), 1, "the legs stay one definition");
+
+    // By hand, each lands on its seat; the last one back, all are seated.
+    for k in 1..4 {
+        assert!(t.shift(&[k], DVec3::Z * 10.0).moved.is_empty(), "a rail off drives nothing");
+    }
+    assert!(t.off().is_empty());
+
+    // One undo takes one step: the last rail, then back to the move that carried the mortises.
+    for _ in 0..4 {
+        assert!(t.h.undo());
+    }
+    assert_eq!(t.mortises(), before);
+    assert!(t.off().is_empty());
+}
+
+#[test]
+fn a_rail_off_placed_roughly_leaves_the_mortise_under_the_others() {
+    let mut t = turned_table();
+    t.shift(&[0], DVec3::Z * 10.0);
+    let mortises = t.mortises();
+    assert!(t.shift(&[1], DVec3::Z * 3.0).moved.is_empty());
+    assert_eq!(t.mortises(), mortises);
+    assert!(!t.off().contains(&0));
+    assert!(t.off().contains(&1));
+    t.shift(&[1], DVec3::Z * 7.0);
+    assert!(!t.off().contains(&1));
+}
+
+#[test]
+fn every_rail_moved_alike_stays_seated() {
+    let mut t = turned_table();
+    let followed = t.shift(&[0, 1, 2, 3], DVec3::Z * -25.0);
+    assert_eq!((followed.moved.len(), followed.conflicts.len()), (2, 0));
+    assert!(t.off().is_empty());
+    assert!(close(t.leg_volume(), full_leg()));
+}
+
+#[test]
+fn one_vector_across_turned_legs_asks_a_mortise_two_moves() {
+    let mut t = turned_table();
+    let before = t.mortises();
+    let followed = t.shift(&[0, 1, 2, 3], DVec3::X * 5.0);
+    assert_eq!((followed.moved.len(), followed.conflicts.len()), (0, 2));
+    assert_eq!(t.mortises(), before);
+    assert_eq!(t.off(), vec![0, 1, 2, 3]);
+}
+
+#[test]
+fn mirrored_legs_a_rail_raised_moves_its_own_mortise() {
+    let mut t = mirrored_table();
+    let followed = t.shift(&[0], DVec3::Z * 10.0);
+    assert_eq!((followed.moved.len(), followed.conflicts.len()), (1, 0));
+    assert_eq!(t.off(), vec![2], "the other long rail; the short ones keep their mortise");
+    assert!(close(t.leg_volume(), full_leg()));
+}
+
+#[test]
+fn mirrored_legs_a_rail_slid_along_itself_is_a_conflict() {
+    let mut t = mirrored_table();
+    let before = t.mortises();
+    let followed = t.shift(&[0], DVec3::X * 5.0);
+    assert_eq!((followed.moved.len(), followed.conflicts.len()), (0, 1));
+    assert_eq!(t.mortises(), before);
+    assert_eq!(t.off(), vec![0]);
+
+    // One leg made a part of its own: each end has its mortise.
+    let mut t = mirrored_table();
+    let root = t.h.document().root();
+    t.h.apply(Operation::MakeUnique { context: root, occurrence: t.legs[1] }).unwrap();
+    let followed = t.shift(&[0], DVec3::X * 5.0);
+    assert_eq!((followed.moved.len(), followed.conflicts.len()), (2, 0));
+    assert!(!t.off().contains(&0));
+    assert_ne!(part_of(&t.h, t.legs[0]), part_of(&t.h, t.legs[1]));
+}
+
+#[test]
+fn a_rail_pulled_out_leaves_the_mortises() {
+    let mut t = turned_table();
+    let before = t.mortises();
+    let followed = t.shift(&[0], DVec3::Y * -200.0);
+    assert!(followed.moved.is_empty() && followed.conflicts.is_empty());
+    assert_eq!(t.mortises(), before);
+    assert_eq!(t.off(), vec![0]);
+    t.shift(&[0], DVec3::Y * 200.0);
+    assert!(t.off().is_empty());
+}
+
+#[test]
+fn a_leg_moved_keeps_its_mortises_and_drives_nothing() {
+    let mut t = turned_table();
+    let before = t.mortises();
+    let root = t.h.document().root();
+    let op = Operation::Transform { context: root, entities: vec![t.legs[0]], transform: moved(DVec3::Z * 10.0) };
+    assert!(matches!(t.h.document().prepare(&op).unwrap(), Prepared::Done(_)), "no kernel");
+    let followed = t.h.apply(op).unwrap().links;
+    assert!(followed.moved.is_empty());
+    assert_eq!(t.mortises(), before);
+    assert_eq!(t.off(), vec![0, 3], "the two rails entering it");
+}
+
+#[test]
+fn an_imprint_moved_in_its_part_carries_the_mortises() {
+    let mut t = turned_table();
+    let imprint = t.h.document().root_assembly().links()[0].imprint;
+    let before = t.mortises();
+    let target = EntityPath::root(t.rails[0]);
+    let o =
+        t.h.apply(Operation::TransformBodies { target, bodies: vec![imprint], transform: moved(DVec3::Z * 4.0), scope: Scope::All })
+            .unwrap();
+    assert_eq!((o.links.moved.len(), o.links.conflicts.len()), (1, 0), "every rail's, one change");
+    assert!(t.off().is_empty());
+    assert_ne!(t.mortises(), before);
+    assert!(close(t.leg_volume(), full_leg()));
+}
+
+#[test]
+fn changing_axes_leaves_the_links_seated() {
+    for moved_part in [false, true] {
+        let mut t = turned_table();
+        let component = if moved_part { part_of(&t.h, t.rails[0]) } else { t.leg_part };
+        let axes = moved(at(5.0, -3.0, 7.0)) * DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2);
+        let o = t.h.apply(Operation::ChangeAxes { component, axes }).unwrap();
+        assert!(o.links.moved.is_empty());
+        assert!(t.off().is_empty(), "axes of the {}", if moved_part { "source" } else { "receiver" });
+        assert!(close(t.leg_volume(), full_leg()));
+    }
+}
+
+#[test]
+fn a_body_or_an_imprint_changed_is_off() {
+    let mut t = turned_table();
+    let body = t.h.document().root_assembly().links()[0].body;
+    let target = EntityPath::root(t.legs[0]);
+    t.h.apply(Operation::TransformBodies { target, bodies: vec![body], transform: moved(DVec3::Z), scope: Scope::All }).unwrap();
+    assert_eq!(t.off(), vec![0, 1, 2, 3], "the mortise moved by hand: its rails no longer sit in it");
+
+    let t = turned_table();
+    let (doc, imprint) = (t.h.document(), doc_imprint(&t));
+    let mut doc = doc.clone();
+    let rail = part_of(&t.h, t.rails[0]);
+    let other = Arc::new(cuboid(DVec3::ZERO, at(DEPTH + BACK + 1.0, SECTION.0, SECTION.1)).build().unwrap());
+    let p = doc.part_mut(rail).unwrap();
+    let def = p.body(imprint).unwrap().def;
+    p.defs.iter_mut().find(|d| d.id == def).unwrap().solid = other;
+    let root = doc.root();
+    assert_eq!(doc.link_state(root, &doc.root_assembly().links()[0]), LinkState::Off, "its shape does not follow yet");
+}
+
+fn doc_imprint(t: &Table) -> Id {
+    t.h.document().root_assembly().links()[0].imprint
+}
+
+#[test]
+fn the_linked_table_is_saved_after_following() {
+    let mut t = turned_table();
+    t.shift(&[0], DVec3::Z * 10.0);
+    let read = Document::from_file(&t.h.document().to_file().unwrap()).unwrap();
+    let root = read.root();
+    let states: Vec<LinkState> = read.root_assembly().links().iter().map(|l| read.link_state(root, l)).collect();
+    assert_eq!(states.iter().filter(|s| **s == LinkState::Seated).count(), 2);
+    assert_eq!(states.iter().filter(|s| **s == LinkState::Off).count(), 6);
 }

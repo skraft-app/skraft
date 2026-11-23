@@ -802,6 +802,8 @@ pub struct Outcome {
     pub composition: Option<Id>,
     /// The elements an instance exploded into.
     pub elements: Vec<Id>,
+    /// What the linked bodies did after it (docs/decisions/0055-linked-bodies-through-imprints.md).
+    pub links: crate::Followed,
 }
 
 /// What an operation done has to say.
@@ -871,6 +873,7 @@ impl Document {
         let mut doc = self.clone();
         let mut outcome = doc.apply_in_place(op, &mut recorder)?;
         outcome.welds = doc.weld(self, &mut recorder)?;
+        outcome.links = doc.follow_links(self, &mut recorder)?;
         doc.check_imprints(self)?;
         if recorder.job.tasks.is_empty() {
             doc.settle_names(Some(self));
@@ -956,6 +959,7 @@ impl Document {
         let mut doc = self.clone();
         let mut outcome = doc.apply_in_place(op, &mut replayer)?;
         outcome.welds = doc.weld(self, &mut replayer)?;
+        outcome.links = doc.follow_links(self, &mut replayer)?;
         if replayer.outputs.next().is_some() {
             return Err(Error::Invalid(Refusal::OutOfStep));
         }

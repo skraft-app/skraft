@@ -130,14 +130,24 @@ Link     { id, source: path, imprint, receiver: path, body, seat: T }
   again keeps its links, and a copy into another document follows the ids drawn afresh.
 - **`seat`** is the imprint's pose in the receiver's axes, per link: several links share a body
   through mirrored or turned receivers, and each knows its own pose.
-- **State** (`Document::link_state`): seated, off (everything there, the imprint elsewhere), or
-  broken (a path, the imprint or the body gone). A file may hold a broken link; a malformed one
-  is refused.
+- **State** (`Document::link_state`): seated, off (everything there, but the imprint elsewhere
+  or the body no longer its shape in that place), or broken (a path, the imprint or the body
+  gone). A file may hold a broken link; a malformed one is refused.
 - **No cycle**: an imprint never holds a linked body (`Refusal::ImprintLinked`).
 - A linked body **copied into another part** is a shape of its own, without a link. Welding
   never moves a linked body.
-- Not yet: a linked body following its source, the off and broken states shown, and links kept
-  through a change of structure: gathering or exploding their occurrences leaves them broken.
+- **Following** (`Document::follow_links`, after welding, in the operation's job: one step of
+  undo; what it did in `Outcome::links`). A seated source that moves, or whose imprint moves in
+  its part, carries the linked body in every copy of the receiver, and the seats of all the links
+  of that body. Nothing else moves: the other sources are off. **Only a source drives**: a receiver
+  moved keeps its body, its sources off. A source off drives nothing, and is seated again when it
+  lands on its seat. Different moves asked of one body (a rail slid between two mirrored legs)
+  leave it where it is, and an imprint no longer reaching into the receiver's box leaves it too.
+  Decided on transforms and on the solids before the operation, so the job records and replays
+  alike; an occurrence moved needs the kernel only when it carries a linked body.
+- Changing the receiver's axes brings the seats along.
+- Not yet: links kept through a change of structure, the off and broken states shown, « Replacer » and « Séparer », a linked body following
+  its imprint's **shape** (changed, its links go off), a preview of the body while dragging.
 
 ## Plane welding
 
