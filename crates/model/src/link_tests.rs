@@ -1311,3 +1311,25 @@ fn an_imprint_is_saved_with_how_it_is_made() {
     let p = copy.as_part().unwrap();
     assert!(p.defs.iter().filter_map(|d| d.imprint.as_ref()).all(|r| p.body(r.of).is_some()));
 }
+
+#[test]
+fn the_machinings_left_by_their_last_source_can_be_taken_away() {
+    let mut h = History::new(Document::new());
+    let (rail, leg, imprint) = rail_and_leg(&mut h);
+    let body = h.apply(link_op(&h, rail, imprint, leg, None)).unwrap().bodies[0];
+    let root = h.document().root();
+    let leg_part = part_of(&h, leg);
+    h.apply(Operation::Delete { context: root, entities: vec![rail] }).unwrap();
+    assert!(close(volume(&h, leg_part), LEG_VOLUME - IMPRINT_VOLUME));
+
+    // A body that is not linked is left alone, whatever it is asked.
+    let (plain, _) = add_body(&mut h, leg, at(5.0, 5.0, 5.0), DVec3::splat(5.0), Sign::Negative);
+    h.apply(Operation::RemoveLinked { bodies: vec![(leg_part, body), (leg_part, plain)] }).unwrap();
+    let q = h.document().part(leg_part).unwrap();
+    assert!(q.body(body).is_none() && q.body(plain).is_some());
+    assert!(root_links(&h).is_empty(), "its link went with it");
+    assert_eq!(h.document().link_status(), LinkStatus::default());
+    assert!(close(volume(&h, leg_part), LEG_VOLUME - 125.0));
+    assert!(h.undo());
+    assert_eq!(h.document().link_status().broken.len(), 1);
+}

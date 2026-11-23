@@ -111,6 +111,8 @@ impl Note {
                 let label = match act {
                     skraft_tools::LinkAct::Replace => t!("operation.reseat_sources"),
                     skraft_tools::LinkAct::Separate => t!("operation.separate_receivers"),
+                    skraft_tools::LinkAct::RemoveLost => t!("notice.link_remove"),
+                    skraft_tools::LinkAct::KeepLost => t!("notice.link_keep"),
                 };
                 (label, Act::Link { doc, act })
             }

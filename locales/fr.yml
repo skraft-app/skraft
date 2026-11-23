@@ -1061,6 +1061,8 @@ notice:
   link_conflict_detail: "Ses liens lui demandent deux positions différentes. Séparer donne à chaque pièce le sien."
   links_lost: "%{count} usinage a perdu son lien"
   links_lost_plural: "%{count} usinages ont perdu leur lien"
+  link_remove: "Retirer"
+  link_keep: "Garder"
   imprinted: "%{count} lien créé"
   imprinted_plural: "%{count} liens créés"
   rename: "Renommer"
@@ -1638,6 +1640,7 @@ operation:
   separate_receivers: "Séparer"
   bring_linked_body: "Amener l'usinage ici"
   unlink: "Rompre le lien"
+  remove_linked: "Retirer les usinages"
   set_clearance: "Régler l'empreinte"
   # Bodies grouped, a group flattened (docs/model/bodies.md#body-groups).
   group: "Grouper"

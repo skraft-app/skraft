@@ -173,8 +173,9 @@ the status bar keeping the tools' hints.
   ([Naming what was just made](../tools/quick-tools.md#naming-what-was-just-made)), the toast
   dropped once what it names is gone. `Act::Reveal`
   (show a file in the Finder or the Explorer) exists but no toast offers it. It may carry a
-  second one: « Replacer » and « Séparer » after a linked body moved
-  ([Links](../model/bodies.md#links)), dropped once the document has changed.
+  second one: « Replacer » and « Séparer » after a linked body moved, « Retirer » and « Garder »
+  after a machining lost its last source ([Links](../model/bodies.md#links)), dropped once the
+  document has changed.
 - The same message again counts (×2); six at most, the oldest timed one dropped first.
   `app.state` lists them (`toasts`); handles `toast.<i>`, `toast.<i>.action` and `toast.<i>.also`. An editor
   nobody takes notices from (headless) keeps its last 32.

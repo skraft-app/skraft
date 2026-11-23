@@ -7944,9 +7944,33 @@ fn a_part_losing_its_source_tells_its_machining_lost_its_link() {
     assert!(e.take_notices().is_empty(), "the other rail still holds the mortise");
     e.apply(Operation::Delete { context: root, entities: vec![other] }).unwrap().unwrap();
     let notices = e.take_notices();
-    assert_eq!((notices.len(), notices[0].kind, notices[0].action), (1, NoticeKind::Info, None));
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].kind, NoticeKind::Warning, "it stays until answered");
+    assert_eq!(notices[0].action, Some(NoticeAction::Link(LinkAct::RemoveLost)));
+    assert_eq!(notices[0].also, Some(NoticeAction::Link(LinkAct::KeepLost)));
     let leg_part = e.document().resolve(&EntityPath::root(leg)).unwrap().component;
     assert!(e.link_status().holds(leg_part) && e.link_status().holds(root));
+    let machinings = |e: &Editor| e.document().part(leg_part).unwrap().negatives().count();
+    assert_eq!(machinings(&e), 1, "nothing removed before a click");
+
+    // « Retirer »: the machining goes, in one step of undo.
+    e.run_link_act(LinkAct::RemoveLost);
+    assert_eq!(machinings(&e), 0);
+    assert_eq!(*e.link_status(), skraft_model::LinkStatus::default());
+    assert!(e.document().root_assembly().links().is_empty());
+    e.undo();
+    assert_eq!(machinings(&e), 1);
+    assert!(!e.link_act_live(LinkAct::RemoveLost), "undone: the toast acts on nothing");
+
+    // « Garder »: a plain machining, nothing more to say.
+    e.undo();
+    e.apply(Operation::Delete { context: root, entities: vec![other] }).unwrap().unwrap();
+    e.take_notices();
+    e.run_link_act(LinkAct::KeepLost);
+    assert_eq!(machinings(&e), 1);
+    assert_eq!(*e.link_status(), skraft_model::LinkStatus::default());
+    let p = e.document().part(leg_part).unwrap();
+    assert!(p.negatives().all(|b| p.def_of(b).source == skraft_model::BodySource::Local));
 }
 
 #[test]

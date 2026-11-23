@@ -439,6 +439,29 @@ impl Document {
         Ok(())
     }
 
+    /// [`crate::Operation::RemoveLinked`]: these linked bodies, each by its part and id, taken
+    /// away from their parts; their links go with them.
+    pub(crate) fn remove_linked(&mut self, bodies: &[(Id, Id)], solver: &mut dyn Solver) -> Result<Outcome> {
+        let parts: BTreeSet<Id> = bodies.iter().map(|(part, _)| *part).collect();
+        for part in parts {
+            let q = self.part(part)?;
+            let gone: Vec<Id> = q
+                .bodies
+                .iter()
+                .filter(|b| bodies.contains(&(part, b.id)) && q.def_of(b).source == BodySource::Linked)
+                .map(|b| b.id)
+                .collect();
+            if gone.is_empty() {
+                continue;
+            }
+            let q = self.part_mut(part)?;
+            q.bodies.retain(|b| !gone.contains(&b.id));
+            q.drop_unused_defs();
+            self.recompute(part, None, solver)?;
+        }
+        Ok(Outcome::default())
+    }
+
     /// [`crate::Operation::Unlink`]: the bodies `bodies` of `part` become plain bodies, their
     /// shape and place as they are, their links gone.
     pub(crate) fn unlink_bodies(&mut self, part: Id, bodies: &[Id]) -> Result<Outcome> {

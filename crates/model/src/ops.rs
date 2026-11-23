@@ -132,6 +132,8 @@ pub enum Operation {
     BringLinkedBody { source: crate::LinkSource },
     /// « Rompre le lien »: the linked bodies `bodies` of `part` become plain bodies.
     Unlink { part: Id, bodies: Vec<Id> },
+    /// « Retirer »: these linked bodies, each by its part and id, taken away with their links.
+    RemoveLinked { bodies: Vec<(Id, Id)> },
     /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
     /// Rigid only: a scale changes a part, not its place (docs/model/data-model.md).
     Transform { context: Id, entities: Vec<Id>, transform: DAffine3 },
@@ -679,6 +681,7 @@ impl Operation {
             Operation::SeparateReceivers { .. } => t!("operation.separate_receivers"),
             Operation::BringLinkedBody { .. } => t!("operation.bring_linked_body"),
             Operation::Unlink { .. } => t!("operation.unlink"),
+            Operation::RemoveLinked { .. } => t!("operation.remove_linked"),
             Operation::DeleteBodies { .. } => t!("operation.delete"),
             Operation::GroupBodies { .. } => t!("operation.group"),
             Operation::MoveBodies { copy: true, .. } => t!("operation.copy_bodies_to"),
@@ -1701,6 +1704,7 @@ impl Document {
             Operation::SeparateReceivers { sources } => self.separate_receivers(sources, solver),
             Operation::BringLinkedBody { source } => self.bring_linked_body(*source, solver),
             Operation::Unlink { part, bodies } => self.unlink_bodies(*part, bodies),
+            Operation::RemoveLinked { bodies } => self.remove_linked(bodies, solver),
             Operation::DeleteBodies { target, bodies, scope } => {
                 // The last positive ones too: the part is then empty, an error shown (docs/model/bodies.md
                 // « Empty parts »).

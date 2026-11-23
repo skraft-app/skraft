@@ -161,7 +161,10 @@ Link     { id, source: path, imprint, receiver: path, body, seat: T }
   on the source's row, the frozen body's, and the parts and assemblies above them.
 - **After an operation** a toast says how many other sources it left off, with « Replacer » and,
   when a linked body moved or could not, « Séparer »; its buttons hold while nothing has changed
-  since. Bodies losing their link are told by a toast that goes by itself.
+  since. Bodies losing their last source are told by a toast that stays, with **« Retirer »**
+  (`Operation::RemoveLinked`: taken away with their links, one step of undo) and **« Garder »**
+  (plain bodies, as « Rompre le lien »); nothing is removed before a click, and closed without an
+  answer the body stays frozen, ⚠.
 - **`Operation::ReseatSources`** (« Replacer »): each source goes where its seats say, computed in
   its receivers' axes. When they disagree it is not moved, and the warning gives the gap.
 - **`Operation::SeparateReceivers`** (« Séparer »): the parts these sources enter become parts of

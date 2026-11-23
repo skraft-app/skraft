@@ -120,7 +120,9 @@ background after a move, on the links it touched: it must not hold the interface
 - **« Imprimer »**: from the part carrying the imprints, applied to the parts it enters, after a
   confirmation.
 - **A broken link** (source deleted, part copied out of its assembly) leaves the linked body in
-  place, **frozen as a local body, ⚠**. A machining is never deleted by losing its link.
+  place, **frozen as a local body, ⚠**. A machining is never deleted by losing its link: a toast
+  offers « Retirer » or « Garder », and nothing happens before a click (amended 2026-11-23, after
+  trying it: a notification alone left the user nothing to do).
 
 ### One pass, no cycle
 

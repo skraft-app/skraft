@@ -14,6 +14,10 @@ pub enum LinkAct {
     Replace,
     /// « Séparer »: the parts the moved sources enter made parts of their own.
     Separate,
+    /// « Retirer »: the machinings that just lost their last source taken away.
+    RemoveLost,
+    /// « Garder »: they stay, as plain machinings.
+    KeepLost,
 }
 
 /// What the toast's buttons act on, for the state it was shown in.
@@ -22,6 +26,8 @@ pub(super) struct LinkOffer {
     revision: u64,
     replace: Vec<LinkSource>,
     separate: Vec<LinkSource>,
+    /// The machinings that lost their last source, by part and id.
+    lost: Vec<(Id, Id)>,
 }
 
 impl Editor {
@@ -32,7 +38,8 @@ impl Editor {
 
     /// After an operation (`before`, the status it was applied on): the sources it left off,
     /// but those it moved itself, offered to be put back; the sources that moved offered to take
-    /// their receivers apart; the machinings that lost their link told.
+    /// their receivers apart; the machinings that lost their last source offered to be taken
+    /// away or kept. Nothing is done before a click.
     pub(super) fn offer_links(&mut self, before: &LinkStatus, outcome: &Outcome) {
         self.link_offer = None;
         let followed = &outcome.links;
@@ -41,7 +48,16 @@ impl Editor {
         }
         let others: Vec<LinkSource> =
             self.link_status.off.iter().filter(|s| !before.off.contains(s) && !followed.sources.contains(s)).copied().collect();
+        let lost: Vec<(Id, Id)> = self.link_status.broken.difference(&before.broken).copied().collect();
         let conflict = !followed.conflicts.is_empty();
+        if conflict || !others.is_empty() || !lost.is_empty() {
+            self.link_offer = Some(LinkOffer {
+                revision: self.history.revision(),
+                replace: others.clone(),
+                separate: followed.sources.clone(),
+                lost: lost.clone(),
+            });
+        }
         if conflict || !others.is_empty() {
             let separable = conflict || !followed.moved.is_empty();
             let (title, detail) = if conflict {
@@ -54,13 +70,18 @@ impl Editor {
                 (false, false) => (Some(NoticeAction::Link(LinkAct::Replace)), None),
                 (true, _) => (Some(NoticeAction::Link(LinkAct::Separate)), None),
             };
-            self.link_offer = Some(LinkOffer { revision: self.history.revision(), replace: others, separate: followed.sources.clone() });
             self.push_notice(Notice { kind: NoticeKind::Warning, title, detail, action, also });
         }
-        let lost = self.link_status.broken.difference(&before.broken).count();
-        if lost > 0 {
-            // Goes by itself: undone, it would stay wrong. The navigator keeps the ⚠.
-            self.notify(NoticeKind::Info, tp!("notice.links_lost", lost), None);
+        if !lost.is_empty() {
+            // It stays until answered, and goes once the document changes (undone, it would be
+            // wrong). Closed without an answer, the navigator keeps the ⚠.
+            self.push_notice(Notice {
+                kind: NoticeKind::Warning,
+                title: tp!("notice.links_lost", lost.len()),
+                detail: None,
+                action: Some(NoticeAction::Link(LinkAct::RemoveLost)),
+                also: Some(NoticeAction::Link(LinkAct::KeepLost)),
+            });
         }
     }
 
@@ -104,6 +125,14 @@ impl Editor {
         let op = match act {
             LinkAct::Replace => Operation::ReseatSources { sources: offer.replace },
             LinkAct::Separate => Operation::SeparateReceivers { sources: offer.separate },
+            LinkAct::RemoveLost => Operation::RemoveLinked { bodies: offer.lost },
+            LinkAct::KeepLost => {
+                let mut parts: std::collections::BTreeMap<Id, Vec<Id>> = Default::default();
+                for (part, body) in offer.lost {
+                    parts.entry(part).or_default().push(body);
+                }
+                Operation::Batch(parts.into_iter().map(|(part, bodies)| Operation::Unlink { part, bodies }).collect())
+            }
         };
         let _ = self.apply(op);
     }
