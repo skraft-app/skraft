@@ -192,6 +192,16 @@ impl Solid {
     /// only of its vertices — a cylinder has a vertex per circle): SolidCore's tight box, its
     /// loose one (which always holds the solid, larger once turned) should the tight one fail.
     pub fn bounds(&self) -> Result<(DVec3, DVec3)> {
+        self.box_of(true)
+    }
+
+    /// SolidCore's loose box: it always holds the solid, up to a few times larger, for a
+    /// fraction of the exact one's cost on curved faces (docs/ui/loading.md#preview-then-final).
+    fn loose_bounds(&self) -> Result<(DVec3, DVec3)> {
+        self.box_of(false)
+    }
+
+    fn box_of(&self, tight: bool) -> Result<(DVec3, DVec3)> {
         guarded("bounds", || {
             use solidcore::query::api_queries::brep_bounding_box;
             let mut k = kernel();
@@ -202,6 +212,9 @@ impl Solid {
             let loose = brep_bounding_box(&k, &b, false).map_err(|e| kernel_err("bounds", e))?;
             if !loose.is_defined() {
                 return Err(Error::Empty("bounds".into()));
+            }
+            if !tight {
+                return Ok(corners(loose));
             }
             Ok(brep_bounding_box(&k, &b, true).ok().filter(|t| t.is_defined()).map_or_else(|| corners(loose), corners))
         })
@@ -219,13 +232,17 @@ impl Solid {
     }
 
     /// [`Solid::display`] at `quality`: a preview is meshed at a hundredth of the body
-    /// (`solidcore_tess::preview`), in a fraction of the time.
+    /// (`solidcore_tess::preview`), in a fraction of the time. Its bounds are its mesh's, widened
+    /// by that tolerance within the loose box: the exact box took most of a curved body's time.
     pub fn display_at(&self, quality: Quality) -> Result<Display> {
         // Nothing to draw nor to infer on (an empty part, docs/model/bodies.md).
         if self.is_empty() {
             return Ok(Display::default());
         }
-        let bounds = self.bounds().ok();
+        let bounds = match quality {
+            Quality::Preview => self.loose_bounds().ok(),
+            Quality::Final => self.bounds().ok(),
+        };
         let size = bounds.or_else(|| self.vertex_bounds()).map(|(lo, hi)| (hi - lo).length()).filter(|s| *s > 1e-6).unwrap_or(100.0);
         guarded("mesh", || {
             let tol = match quality {
@@ -236,9 +253,23 @@ impl Solid {
             let (m, _refused) = plan.evaluate();
             let visible: Vec<bool> = (0..m.edges.len()).map(|i| edge_drawn(&self.record, &m, i)).collect();
             let polylines: Vec<Vec<DVec3>> = m.edges.iter().map(|e| e.iter().map(|p| DVec3::new(p.x, p.y, p.z)).collect()).collect();
+            let bounds = match quality {
+                Quality::Preview => preview_bounds(m.positions.iter().map(|p| DVec3::new(p.x, p.y, p.z)), tol.chord, bounds),
+                Quality::Final => bounds,
+            };
             Ok(Display { mesh: Mesh::from_tess(&m, &visible), snaps: Snaps::build(&self.record, &polylines, &visible), bounds })
         })
     }
+}
+
+/// A preview's box: its mesh's, widened by the mesh's tolerance (the faces lie that far from it
+/// at most), kept within `loose`, the box holding the solid; `loose` without a mesh.
+fn preview_bounds(points: impl Iterator<Item = DVec3>, chord: f64, loose: Option<(DVec3, DVec3)>) -> Option<(DVec3, DVec3)> {
+    let Some((lo, hi)) = points.fold(None, |b: Option<(DVec3, DVec3)>, p| Some(b.map_or((p, p), |(lo, hi)| (lo.min(p), hi.max(p))))) else {
+        return loose;
+    };
+    let (lo, hi) = (lo - DVec3::splat(chord), hi + DVec3::splat(chord));
+    Some(loose.map_or((lo, hi), |(l, h)| (lo.max(l), hi.min(h))))
 }
 
 // ---- jobs -----------------------------------------------------------------------------------
@@ -1000,6 +1031,31 @@ mod tests {
 
     use super::*;
     use crate::{SnapCurve, decode, encode};
+
+    /// A preview's box, made without the exact one, holds its mesh and stays close to the exact
+    /// box; the final mesh brings the exact box.
+    #[test]
+    fn a_preview_box_holds_its_mesh_near_the_exact_box() {
+        let solids = [
+            Solid::new_sphere(DVec3::new(5.0, -3.0, 2.0), 40.0).unwrap(),
+            Solid::new_torus(DVec3::ZERO, 60.0, 12.0).unwrap(),
+            Solid::new_cylinder(DVec3::new(0.0, 0.0, 10.0), 500.0, 2.0).unwrap(),
+        ];
+        for solid in &solids {
+            let exact = solid.bounds().unwrap();
+            let diagonal = (exact.1 - exact.0).length();
+            let preview = solid.display_at(Quality::Preview).unwrap();
+            let (lo, hi) = preview.bounds.unwrap();
+            assert!((lo - exact.0).abs().max_element() < 0.03 * diagonal, "{lo} against {}", exact.0);
+            assert!((hi - exact.1).abs().max_element() < 0.03 * diagonal, "{hi} against {}", exact.1);
+            let origin = preview.mesh.origin;
+            for v in &preview.mesh.positions {
+                let p = origin + DVec3::new(v[0] as f64, v[1] as f64, v[2] as f64);
+                assert!(p.cmpge(lo - DVec3::splat(1e-3)).all() && p.cmple(hi + DVec3::splat(1e-3)).all(), "{p} out of its box");
+            }
+            assert_eq!(solid.display_at(Quality::Final).unwrap().bounds, Some(exact));
+        }
+    }
 
     #[test]
     fn box_meshes() {
