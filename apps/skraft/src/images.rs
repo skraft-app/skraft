@@ -265,6 +265,8 @@ impl TextureImages {
             self.pass = pass;
             self.asked.remove(&id);
             self.levels.insert(id, image.map(|i| render::texture_levels(i.rgba)));
+            // Taken in after this frame's pictures: the next one draws them with it.
+            ctx.request_repaint();
         }
         if !self.arrived.is_empty() {
             ctx.request_repaint();

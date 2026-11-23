@@ -303,6 +303,7 @@ tabs:
 loading:
   open: "Ouverture de « %{name} »"
   import: "Import de « %{name} »"
+  pdf: "Export du PDF"
   reading: "Lecture du fichier"
   bodies: "Lecture des corps"
   previews: "Aperçu"

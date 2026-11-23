@@ -263,6 +263,7 @@ tabs:
 loading:
   open: "Opening “%{name}”"
   import: "Importing “%{name}”"
+  pdf: "Exporting the PDF"
   reading: "Reading the file"
   bodies: "Reading the bodies"
   previews: "Preview"

@@ -618,7 +618,9 @@ writes **the active sheet's presentation** as a PDF (`pdf::drawing_pdf`, with `k
 save it (a download on the web), named after the document, and after the presentation when the
 document has several (« Table - Client.pdf »). A field without a value would be printed as it is
 written: a warning names them (`pdf::missing_fields`). It is done at the next frame, where
-the GPU is at hand (`App::pdf_asked`). Once written, its toast offers « Ouvrir »: the system's
+the GPU is at hand (`App::pdf_asked`), or once the document's textures are ready, so that a
+picture never prints a material's plain colour in their place: past 0.3 s a window shows how far
+they are, « Annuler » (or Esc) giving up the export, as does leaving the document. Once written, its toast offers « Ouvrir »: the system's
 application for PDFs opens it (`Act::Open`: `open`, `explorer`, `xdg-open`; desktop only).
 
 - **A page per sheet** of the presentation, at its paper's size (points: 72 a
