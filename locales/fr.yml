@@ -835,6 +835,7 @@ panel:
     occurrences: "Exemplaires"
     # A body: blank (adds material) or machining (takes it away), toggled in the navigator.
     role: "Rôle"
+    linked_to: "Lié à"
     role_positive: "Brut"
     role_negative: "Usinage"
     role_intersect: "Intersection"
@@ -978,6 +979,8 @@ panel:
     link_lost: "Cet usinage a perdu son lien : il reste tel quel. Clic droit pour rompre le lien"
     link_lost_in_part: "Un usinage de cette pièce a perdu son lien"
     link_inside_assembly: "Une pièce de cet assemblage a un lien à revoir"
+    linked: "Usinage lié à %{source} : il suit sa forme et sa place. Pour le changer, modifiez %{source} ou rompez le lien (clic droit)"
+    imprints_in: "Imprime sa forme dans : %{parts}"
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"

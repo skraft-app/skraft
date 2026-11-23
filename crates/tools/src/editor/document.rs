@@ -625,6 +625,7 @@ impl Editor {
     /// Keeps the context, the open part and the selection valid, and the scene in step.
     pub(super) fn after_change(&mut self) {
         self.link_status = self.history.document().link_status();
+        self.link_map = self.history.document().link_map();
         let doc = self.history.document();
         while !self.context.is_empty() && doc.context_of(&self.context).is_err() {
             self.context.pop();

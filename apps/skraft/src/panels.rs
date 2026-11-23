@@ -172,6 +172,12 @@ pub fn warning(ui: &egui::Ui) -> egui::Image<'static> {
     egui::Image::new(icons::WARNING).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().error_fg_color)
 }
 
+/// The mark of a part shaping others through links.
+fn linked_mark(ui: &egui::Ui) -> egui::Image<'static> {
+    let side = ui.text_style_height(&egui::TextStyle::Body) - 2.0;
+    egui::Image::new(icons::LINKED).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().weak_text_color())
+}
+
 /// Whether a command is shown in a menu as a check box (a display toggle).
 pub fn is_toggle(v: &CommandView) -> bool {
     v.checked.is_some() && v.id.starts_with("view.")
@@ -887,8 +893,10 @@ impl BodyRow<'_> {
         body_label(self.part, self.body)
     }
 
+    /// Its nature's; a linked body's says where it comes from: « Imprimer ».
     fn icon(&self) -> egui::ImageSource<'static> {
-        nature_icon(self.part.def_of(self.body).nature())
+        let def = self.part.def_of(self.body);
+        if def.source == skraft_model::BodySource::Linked { icons::IMPRINT } else { nature_icon(def.nature()) }
     }
 }
 
@@ -1088,6 +1096,11 @@ pub fn outliner(
             let here = doc.context_of(&row.path).unwrap_or(doc.root());
             let link_off = editor.link_status().is_off(here, o.id);
             let link_below = editor.link_status().holds(o.component);
+            // The parts it shapes, told on its row.
+            let shapes = editor
+                .link_map()
+                .receivers_of(o.component)
+                .map(|parts| parts.iter().filter_map(|p| doc.component(*p).ok().map(|c| c.name.as_str())).collect::<Vec<_>>().join(", "));
             // A name edited in place, from a double-click, or F2 while it is the one occurrence
             // selected: the occurrence's own, shown first, where it has one and the double-click
             // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
@@ -1129,6 +1142,9 @@ pub fn outliner(
                             if broken || inner || link_off || link_below {
                                 ui.add(warning(ui));
                             }
+                            if shapes.is_some() {
+                                ui.add(linked_mark(ui));
+                            }
                             let color = if broken { ui.visuals().error_fg_color } else { tint };
                             // The name edited alone in its field, the whole row's width.
                             match renaming {
@@ -1159,6 +1175,7 @@ pub fn outliner(
                 (_, true, false) => Some(t!("panel.outliner.link_inside_assembly")),
                 _ => None,
             });
+            let tip = tip.or_else(|| shapes.as_ref().map(|parts| t!("panel.outliner.imprints_in", parts = parts)));
             let response = match tip {
                 Some(tip) => response.tip(tip),
                 None => response,
@@ -1951,6 +1968,10 @@ fn body_row(
     // A linked body that lost its link stays as it is, told (docs/model/bodies.md#links).
     let link_lost = editor.link_status().broken.contains(&(row.occurrence.component, b.body.id));
     let warned = (failed && def.is_group()) || inner || link_lost;
+    // A linked body follows its source: told, and neither its sign nor its name are its own.
+    let linked = def.source == skraft_model::BodySource::Linked;
+    let source = editor.link_map().source_of(row.occurrence.component, b.body.id);
+    let source = source.and_then(|s| editor.document().component(s).ok()).map(|c| c.name.clone());
     // A name edited in place (docs/model/bodies.md#body-names), from a double-click, or F2 while it is the
     // one body selected: the body's own, shown first, where it has one and the double-click is
     // on it (F2: where it has one), else its definition's (« Haut <Trou#1> »), as an
@@ -1982,7 +2003,8 @@ fn body_row(
                 Sign::Intersect => (icons::INTERSECT, t!("panel.outliner.sign_intersect")),
             };
             let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-            let toggled = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
+            let sense = if linked { egui::Sense::hover() } else { egui::Sense::click() };
+            let toggled = ui.add(egui::Button::image(img).frame(false).sense(sense)).tip(tip).clicked();
             let renamed = ui
                 .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     if warned {
@@ -2024,6 +2046,8 @@ fn body_row(
             (false, false) => t!("panel.outliner.failed_group"),
         };
         response.tip(tip)
+    } else if let Some(source) = &source {
+        response.tip(t!("panel.outliner.linked", source = source))
     } else {
         response
     };
@@ -2072,25 +2096,28 @@ fn body_row(
         (Some(split), Some(at)) if response.double_clicked() => at.x < split,
         (split, _) => split.is_some(),
     };
-    let key = if on_own { rename_own } else { rename };
+    let key = if on_own || linked { rename_own } else { rename };
     // Its menu, with « Sortir du groupe » (« Sortir de la pièce », at its root).
     let select = (!(open && editor.selection().contains(&b.body.id))).then(|| Action::SelectBody(path.clone(), b.body.id, false));
-    let own = (!b.body.name.is_empty()).then_some(rename_own);
+    // A linked body's name is its source's: only its own can be edited.
+    let own = (!linked && !b.body.name.is_empty()).then_some(rename_own);
     let is_group = def.is_group();
     let move_out = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
         ui.separator();
-        let (label, to) = match b.group.split_last() {
-            Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
-            None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
-        };
-        let button = ui.button(label);
-        crate::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
-        if button.clicked() {
-            let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
-            let scope = if part_open { editor.part_scope() } else { Scope::All };
-            actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.clone(), to, copy: false, scope }));
+        if !linked {
+            let (label, to) = match b.group.split_last() {
+                Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
+                None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
+            };
+            let button = ui.button(label);
+            crate::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
+            if button.clicked() {
+                let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
+                let scope = if part_open { editor.part_scope() } else { Scope::All };
+                actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.clone(), to, copy: false, scope }));
+            }
         }
-        if def.source == skraft_model::BodySource::Linked && b.group.is_empty() {
+        if linked && b.group.is_empty() {
             let unlink = Operation::Unlink { part: row.occurrence.component, bodies: vec![b.body.id] };
             menu_op(ui, "unlink", t!("operation.unlink"), unlink, actions);
         }
@@ -2102,7 +2129,8 @@ fn body_row(
             actions.push(Action::Apply(Operation::FlattenBodies { target: path.clone(), bodies: with.clone(), scope }));
         }
     };
-    row_menu(&response, is_group, (rename, own), select, actions, move_out, flatten);
+    let named = if linked { rename_own } else { rename };
+    row_menu(&response, is_group, (named, own), select, actions, move_out, flatten);
     let part = row.occurrence.component;
     match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
         (Some(true), Some(Some(name))) => actions.push(Action::Apply(Operation::RenameBody { part, body: b.body.id, name })),
@@ -2313,6 +2341,7 @@ fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.body",
         "panel.entity_info.corners",
         "panel.entity_info.role",
+        "panel.entity_info.linked_to",
         "panel.entity_info.state",
         "panel.entity_info.copies",
         "tool.round.vcb",
@@ -2701,10 +2730,21 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             _ => t!("panel.entity_info.type_body"),
         });
         ui.end_row();
-        // Its definition's: every copy shows it; emptied, it is named by its nature again.
-        field_label(ui, t!("panel.entity_info.name"));
-        if let Some(name) = name_field(ui, (def.id, 2), &body_label(p, b), field, true) {
-            actions.push(Action::Apply(Operation::RenameBodyDef { part, def: def.id, name }));
+        // What it follows, whose name it bears (docs/model/bodies.md#links); one that lost its
+        // source keeps that name. Else its definition's: every copy shows it; emptied, it is named
+        // by its nature again.
+        let source = editor.link_map().source_of(part, b.id).and_then(|s| editor.document().component(s).ok());
+        if let Some(c) = source {
+            ui.label(t!("panel.entity_info.linked_to"));
+            cut_label(ui, egui::RichText::new(&c.name), field);
+        } else if def.source == skraft_model::BodySource::Linked {
+            ui.label(t!("panel.entity_info.name"));
+            cut_label(ui, egui::RichText::new(body_label(p, b)), field);
+        } else {
+            field_label(ui, t!("panel.entity_info.name"));
+            if let Some(name) = name_field(ui, (def.id, 2), &body_label(p, b), field, true) {
+                actions.push(Action::Apply(Operation::RenameBodyDef { part, def: def.id, name }));
+            }
         }
         ui.end_row();
         // Its own, as an occurrence's: emptied, cleared.
@@ -2758,7 +2798,7 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             ui.end_row();
         }
         // A linked body made by « Imprimer »: its clearance (docs/model/bodies.md#links).
-        if let Some(r) = &def.imprint {
+        if let Some(r) = def.imprint.as_ref().filter(|_| source.is_some()) {
             let c = r.clearance;
             let rows =
                 [("around", t!("panel.entity_info.imprint_around"), c.around), ("deep", t!("panel.entity_info.imprint_deep"), c.deep)];

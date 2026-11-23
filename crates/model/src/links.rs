@@ -89,6 +89,27 @@ impl LinkStatus {
     }
 }
 
+/// Who shapes whom through the document's links, for the interface to say so.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LinkMap {
+    /// Each linked body with a source, by part and id: the part it takes its shape from.
+    sources: BTreeMap<(Id, Id), Id>,
+    /// Each part imprinting: the parts it shapes.
+    receivers: BTreeMap<Id, BTreeSet<Id>>,
+}
+
+impl LinkMap {
+    /// The part the linked body `body` of `part` takes its shape from.
+    pub fn source_of(&self, part: Id, body: Id) -> Option<Id> {
+        self.sources.get(&(part, body)).copied()
+    }
+
+    /// The parts `part` shapes.
+    pub fn receivers_of(&self, part: Id) -> Option<&BTreeSet<Id>> {
+        self.receivers.get(&part)
+    }
+}
+
 impl Document {
     /// The part `path` leads to from the assembly `assembly`, and its axes in that assembly's.
     pub(crate) fn through(&self, assembly: Id, path: &[Id]) -> Result<(Id, DAffine3)> {
@@ -243,6 +264,22 @@ impl Document {
             status.holding.extend(above);
         }
         status
+    }
+
+    /// Who shapes whom: the links whose two parts and linked body are there.
+    pub fn link_map(&self) -> LinkMap {
+        let mut map = LinkMap::default();
+        for holder in self.link_holders() {
+            let Ok(a) = self.assembly(holder) else { continue };
+            for l in a.links() {
+                let Ok((from, to, _)) = self.link_pose(holder, l) else { continue };
+                if self.part(to).is_ok_and(|q| q.body(l.body).is_some_and(|b| q.def_of(b).source == BodySource::Linked)) {
+                    map.sources.entry((to, l.body)).or_insert(from);
+                    map.receivers.entry(from).or_default().insert(to);
+                }
+            }
+        }
+        map
     }
 
     /// `bodies` of `part` without its linked ones, which follow their sources: what an edit of

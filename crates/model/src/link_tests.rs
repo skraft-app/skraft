@@ -581,6 +581,22 @@ fn a_linked_body_is_named_after_its_source() {
     assert_eq!(name(&h), "Traverse", "its source gone, it keeps the last name");
 }
 
+#[test]
+fn the_link_map_says_who_shapes_whom() {
+    let mut h = History::new(Document::new());
+    let (rail, leg) = rail_and_leg(&mut h);
+    let body = link(&mut h, rail, leg);
+    let (rail_part, leg_part) = (part_of(&h, rail), part_of(&h, leg));
+    let map = h.document().link_map();
+    assert_eq!(map.source_of(leg_part, body), Some(rail_part));
+    assert_eq!(map.receivers_of(rail_part).unwrap().iter().copied().collect::<Vec<_>>(), vec![leg_part]);
+    assert!(map.receivers_of(leg_part).is_none());
+
+    let root = h.document().root();
+    h.apply(Operation::Delete { context: root, entities: vec![rail] }).unwrap();
+    assert_eq!(h.document().link_map(), LinkMap::default());
+}
+
 // ---- links through changes of structure -----------------------------------------------------
 
 #[test]

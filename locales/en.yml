@@ -762,6 +762,7 @@ panel:
     occurrence: "Instance"
     occurrences: "Instances"
     role: "Role"
+    linked_to: "Linked to"
     role_positive: "Blank"
     role_negative: "Machining"
     role_intersect: "Intersection"
@@ -895,6 +896,8 @@ panel:
     link_lost: "This machining lost its link: it stays as it is. Right-click to break the link"
     link_lost_in_part: "A machining of this part lost its link"
     link_inside_assembly: "A part of this assembly has a link to review"
+    linked: "Machining linked to %{source}: it follows its shape and place. To change it, edit %{source} or break the link (right-click)"
+    imprints_in: "Imprints its shape in: %{parts}"
     profile: "Profile"
     profile_tip: "Click to edit the profile"
     # A row's right-click menu; the two names of a row with an instance name.

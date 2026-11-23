@@ -87,6 +87,8 @@ const NOTICES: usize = 32;
 pub struct Editor {
     /// What the links need the user to see, as of the current document.
     link_status: skraft_model::LinkStatus,
+    /// Who shapes whom through the links, as of the current document.
+    link_map: skraft_model::LinkMap,
     /// What the last toast about linked bodies offers.
     link_offer: Option<links::LinkOffer>,
     /// « Imprimer » waiting for the kernel's answer, and its plan once answered.
@@ -269,6 +271,7 @@ impl Editor {
     pub fn new(doc: Document, kernel: Box<dyn KernelService>) -> Self {
         let mut e = Editor {
             link_status: doc.link_status(),
+            link_map: doc.link_map(),
             link_offer: None,
             imprint_ask: None,
             imprint_ready: None,

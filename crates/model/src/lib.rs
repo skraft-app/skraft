@@ -58,7 +58,7 @@ pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection,
 pub use history::History;
 pub use import::ImportReport;
 pub use imprints::{ImprintPair, ImprintPlan, ImprintProbe, ImprintRecipe};
-pub use links::{Followed, Link, LinkSource, LinkState, LinkStatus};
+pub use links::{Followed, Link, LinkMap, LinkSource, LinkState, LinkStatus};
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, NodeRaw, Operation, Outcome, Prepared, RawAsk, Scope, Warning};
 pub use profile::BodyProfile;
 pub use props::{EntityKind, PropDef, PropTarget, Props, Value, ValueKind};

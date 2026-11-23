@@ -4,7 +4,7 @@
 
 use skraft_i18n::{t, tp};
 use skraft_model::kernel::{JobResult, Output};
-use skraft_model::{Id, ImprintPlan, ImprintProbe, LinkSource, LinkStatus, Operation, Outcome};
+use skraft_model::{Id, ImprintPlan, ImprintProbe, LinkMap, LinkSource, LinkStatus, Operation, Outcome};
 
 use super::{Editor, JobId, Notice, NoticeAction, NoticeKind};
 
@@ -42,6 +42,11 @@ impl Editor {
     /// What the links need the user to see, as of the current document.
     pub fn link_status(&self) -> &LinkStatus {
         &self.link_status
+    }
+
+    /// Who shapes whom through the links, as of the current document.
+    pub fn link_map(&self) -> &LinkMap {
+        &self.link_map
     }
 
     /// After an operation (`before`, the status it was applied on): the sources it left off,
