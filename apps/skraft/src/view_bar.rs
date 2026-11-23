@@ -9,6 +9,7 @@ use crate::dock::Dock;
 use crate::icons;
 use crate::panels::{Action, CommandView};
 use crate::style::Tip;
+use crate::widgets::{IconButton, Look};
 
 /// The standard views' button: not a command of the registry, it opens their menu.
 pub const VIEWS: &str = "view.views";
@@ -171,20 +172,8 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
 
 /// A button's rect and response, its background when hovered or `lit`, its icon.
 fn icon_button(ui: &mut egui::Ui, handle: &str, icon: egui::ImageSource<'static>, lit: bool, enabled: bool) -> egui::Response {
-    // Dragged even when it cannot run: a drag moves it.
-    let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click_and_drag());
-    crate::handles::publish_enabled(|| format!("view_bar:{handle}"), rect, enabled);
-    let visuals = ui.style().interact(&response);
-    if lit {
-        ui.painter().rect_filled(rect, visuals.corner_radius, ui.visuals().selection.bg_fill);
-    } else if enabled && response.hovered() {
-        ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
-    }
-    let mut ink = if lit { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
-    if !enabled {
-        ink = ink.gamma_multiply(0.35);
-    }
-    egui::Image::new(icon).tint(ink).paint_at(ui, Rect::from_center_size(rect.center(), vec2(ICON, ICON)));
+    let response = IconButton::new(icon, BUTTON, ICON).look(Look::Bar).lit(lit).enabled(enabled).show(ui);
+    crate::handles::publish_enabled(|| format!("view_bar:{handle}"), response.rect, enabled);
     response
 }
 

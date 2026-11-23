@@ -498,8 +498,8 @@ pub fn tab_strip(
             continue;
         }
         let response = ui.interact(rect, ids[k], Sense::click());
-        if let Some(fill) = crate::tabs::veil(ui, &response) {
-            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::tabs::VEIL_RADIUS, fill);
+        if let Some(fill) = crate::widgets::veil(ui, &response) {
+            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::widgets::VEIL_RADIUS, fill);
         }
         let ink = if response.hovered() { visuals.text_color() } else { visuals.weak_text_color() };
         ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);

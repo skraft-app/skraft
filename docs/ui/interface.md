@@ -155,6 +155,11 @@ relayout.
 What several screens draw alike lives in `apps/skraft/src/widgets.rs`, not in one of them; a
 screen takes its buttons, fields and rows from there.
 
+- **`IconButton`**, the one icon button: a size, an icon and a `Look`. `Plain` has no frame (a
+  navigator row's), `Framed` egui's frame (the entity info's), `Veil` a veil of its ink when
+  hovered or pressed (the title bar, the tabs; `show_at` for a strip laid out by hand), `Bar` the
+  floating bars' (the view bar, the quick tools): it senses drags even when it cannot run, so it
+  is dimmed rather than disabled.
 - **`framed_field`** (the one text field), `rename_field` and `start_rename` (a name edited in
   its row), `cut_label`.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.

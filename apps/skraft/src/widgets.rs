@@ -9,7 +9,7 @@ mod menu;
 mod segmented;
 mod tree;
 
-pub(crate) use button::{OPTION_HEIGHT, option_button};
+pub(crate) use button::{IconButton, Look, OPTION_HEIGHT, VEIL_RADIUS, backed, option_button, unframed, veil};
 pub(crate) use field::{Field, cut_label, field_stroke, framed_field, rename_field};
 pub(crate) use menu::{command_item, is_toggle};
 pub(crate) use segmented::{Segment, segmented, segmented_sized};

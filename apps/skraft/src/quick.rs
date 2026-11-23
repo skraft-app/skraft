@@ -8,6 +8,7 @@ use skraft_i18n::t;
 use crate::icons;
 use crate::panels::{Action, CommandView};
 use crate::style::Tip;
+use crate::widgets::{IconButton, Look};
 
 /// The commands the card can show, in its order.
 pub const COMMANDS: &[&str] =
@@ -74,17 +75,9 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
 /// A command's button: its icon, its name in the tip; right click unpins it, a drag moves it.
 fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Option<crate::pins::Item> {
     let icon = icons::command(c.id)?;
-    let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click_and_drag());
+    let response = IconButton::new(icon.clone(), BUTTON, ICON).look(Look::Bar).enabled(c.enabled).show(ui);
+    let rect = response.rect;
     crate::handles::publish_enabled(|| format!("quick:{}", c.id), rect, c.enabled);
-    let visuals = ui.style().interact(&response);
-    if c.enabled && response.hovered() {
-        ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
-    }
-    let mut ink = ui.visuals().text_color();
-    if !c.enabled {
-        ink = ink.gamma_multiply(0.35);
-    }
-    egui::Image::new(icon.clone()).tint(ink).paint_at(ui, Rect::from_center_size(rect.center(), vec2(ICON, ICON)));
     let response = response.tip(&c.label);
     if response.clicked() && c.enabled {
         actions.push(Action::QuickTool(c.id));

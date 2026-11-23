@@ -12,7 +12,7 @@ use crate::icons;
 use crate::panels::Action;
 use crate::sheet::{InfoOn, SheetAsk, SheetState};
 use crate::style::Tip;
-use crate::widgets::{self, Fold};
+use crate::widgets::{self, Fold, IconButton};
 
 /// The side of a row's small buttons.
 const BUTTON: f32 = 18.0;
@@ -240,8 +240,7 @@ fn name_of(d: &Drawing, el: &Element) -> String {
 
 /// A row's small button, frameless.
 fn small_button(ui: &mut egui::Ui, icon: ImageSource<'static>, tint: egui::Color32, enabled: bool, tip: String) -> egui::Response {
-    let image = egui::Image::new(icon).fit_to_exact_size(egui::vec2(ICON, ICON)).tint(tint);
-    ui.add_enabled(enabled, egui::Button::image(image).frame(false).min_size(egui::vec2(BUTTON, BUTTON))).tip(tip)
+    IconButton::new(icon, BUTTON, ICON).ink(tint).enabled(enabled).show(ui).tip(tip)
 }
 
 /// What a line shows.

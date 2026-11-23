@@ -3,6 +3,156 @@
 use crate::icons;
 use crate::style::Tip;
 
+/// A frameless button's corner radius.
+pub const VEIL_RADIUS: f32 = 5.0;
+
+/// A frameless button's background: a veil of the text's colour when hovered, darker when
+/// pressed — seen on any ground, in either theme. None at rest.
+pub fn veil(ui: &egui::Ui, resp: &egui::Response) -> Option<egui::Color32> {
+    veil_of(ui.visuals().text_color(), resp)
+}
+
+/// A [`veil`] of `ink`.
+fn veil_of(ink: egui::Color32, resp: &egui::Response) -> Option<egui::Color32> {
+    let alpha = if resp.is_pointer_button_down_on() {
+        0.22
+    } else if resp.hovered() {
+        0.12
+    } else {
+        return None;
+    };
+    Some(ink.gamma_multiply(alpha))
+}
+
+/// A button whose frame is not drawn ([`backed`] draws its background) but keeps its margins.
+pub(crate) fn unframed(button: egui::Button) -> egui::Button {
+    button.fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE)
+}
+
+/// Draws a frameless button with `add`, and behind it the tabs' + button's background: none
+/// at rest, the [`veil`] when hovered or pressed, the selection's when `lit` (asked once
+/// the button is drawn: a menu's button is lit while its menu is open).
+pub(crate) fn backed(
+    ui: &mut egui::Ui,
+    lit: impl FnOnce(&egui::Response) -> bool,
+    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
+    let behind = ui.painter().add(egui::Shape::Noop);
+    let r = add(ui);
+    let fill = if lit(&r) { Some(ui.visuals().selection.bg_fill) } else { veil(ui, &r) };
+    if let Some(fill) = fill {
+        ui.painter().set(behind, egui::Shape::rect_filled(r.rect, VEIL_RADIUS, fill));
+    }
+    r
+}
+
+/// How an [`IconButton`] shows itself.
+#[derive(Clone, Copy)]
+pub(crate) enum Look {
+    /// No frame at all (a navigator row's).
+    Plain,
+    /// egui's button frame (the entity info's).
+    Framed,
+    /// A [`veil`] when hovered or pressed, the selection's fill when lit (the title bar, the tabs).
+    Veil,
+    /// A floating bar's: the widgets' frame when hovered, the selection's fill when lit. It
+    /// senses drags even when it cannot run (a drag moves it), so it is dimmed, not disabled.
+    Bar,
+}
+
+/// The one icon button of the interface: `side` points square, its icon `glyph` wide.
+pub(crate) struct IconButton {
+    icon: egui::ImageSource<'static>,
+    side: f32,
+    glyph: f32,
+    look: Look,
+    ink: Option<egui::Color32>,
+    lit: bool,
+    enabled: bool,
+}
+
+impl IconButton {
+    pub(crate) fn new(icon: egui::ImageSource<'static>, side: f32, glyph: f32) -> Self {
+        IconButton { icon, side, glyph, look: Look::Plain, ink: None, lit: false, enabled: true }
+    }
+
+    pub(crate) fn look(mut self, look: Look) -> Self {
+        self.look = look;
+        self
+    }
+
+    /// Its icon's colour; by default the text's.
+    pub(crate) fn ink(mut self, ink: egui::Color32) -> Self {
+        self.ink = Some(ink);
+        self
+    }
+
+    pub(crate) fn lit(mut self, lit: bool) -> Self {
+        self.lit = lit;
+        self
+    }
+
+    pub(crate) fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Laid out in `ui`.
+    pub(crate) fn show(self, ui: &mut egui::Ui) -> egui::Response {
+        let (lit, enabled) = (self.lit, self.enabled);
+        match self.look {
+            Look::Plain => {
+                let button = self.button(ui).frame(false);
+                ui.add_enabled(enabled, button)
+            }
+            Look::Framed => {
+                let button = self.button(ui);
+                ui.add_enabled(enabled, button)
+            }
+            Look::Veil => {
+                let button = unframed(self.button(ui));
+                backed(ui, |_| lit, |ui| ui.add_enabled(enabled, button))
+            }
+            Look::Bar => self.bar(ui),
+        }
+    }
+
+    /// At `rect`, under the key `id`, with a [`veil`] of its ink: a button of a strip laid out by
+    /// hand (the tabs'), which keeps its key as the others move.
+    pub(crate) fn show_at(self, ui: &mut egui::Ui, rect: egui::Rect, id: egui::Id) -> egui::Response {
+        let response = ui.interact(rect, id, egui::Sense::click());
+        let ink = self.ink.unwrap_or_else(|| ui.visuals().text_color());
+        if let Some(fill) = veil_of(ink, &response) {
+            ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
+        }
+        egui::Image::new(self.icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(self.glyph)));
+        response
+    }
+
+    /// As an egui button, its margins kept.
+    fn button(self, ui: &egui::Ui) -> egui::Button<'static> {
+        let ink = self.ink.unwrap_or_else(|| ui.visuals().text_color());
+        let image = egui::Image::new(self.icon).fit_to_exact_size(egui::Vec2::splat(self.glyph)).tint(ink);
+        egui::Button::image(image).min_size(egui::Vec2::splat(self.side))
+    }
+
+    fn bar(self, ui: &mut egui::Ui) -> egui::Response {
+        let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(self.side), egui::Sense::click_and_drag());
+        let visuals = ui.style().interact(&response);
+        if self.lit {
+            ui.painter().rect_filled(rect, visuals.corner_radius, ui.visuals().selection.bg_fill);
+        } else if self.enabled && response.hovered() {
+            ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, egui::StrokeKind::Inside);
+        }
+        let mut ink = self.ink.unwrap_or_else(|| if self.lit { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() });
+        if !self.enabled {
+            ink = ink.gamma_multiply(0.35);
+        }
+        egui::Image::new(self.icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(self.glyph)));
+        response
+    }
+}
+
 /// The height of the option bar's buttons; an icon's button is a square of it.
 pub(crate) const OPTION_HEIGHT: f32 = crate::style::BAR_BUTTON;
 pub(crate) const OPTION_ICON: f32 = crate::style::BAR_ICON;
