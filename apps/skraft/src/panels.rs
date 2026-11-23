@@ -2403,8 +2403,7 @@ pub fn drawing_info(ui: &mut egui::Ui, editor: &Editor, st: &mut crate::sheet::S
             {
                 ui.label(t!("panel.entity_info.value"));
                 if s.orphan {
-                    ui.colored_label(egui::Color32::from_rgb(210, 40, 40), t!("drawing.dim.orphan"))
-                        .on_hover_text(t!("drawing.dim.orphan_tip"));
+                    ui.colored_label(ui.visuals().error_fg_color, t!("drawing.dim.orphan")).on_hover_text(t!("drawing.dim.orphan_tip"));
                 } else {
                     ui.label(&s.text);
                 }

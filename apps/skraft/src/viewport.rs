@@ -12,6 +12,7 @@ use skraft_tools::draw;
 use skraft_tools::navigation::{Button, Mods, NavAction, Trigger};
 use skraft_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput};
 
+use crate::overlay;
 use crate::prefs::Navigation;
 
 /// A token as an egui colour (sRGB, unmultiplied alpha).
@@ -377,13 +378,13 @@ impl Viewport {
             clear.extend(paint_inference(ui.painter(), rect, cursor, footprint, editor, theme));
         }
         if let Some(m) = editor.marquee() {
-            paint_marquee(ui.painter(), rect, &m, theme);
+            let at = |p: DVec2| rect.min + egui::vec2(p.x as f32, p.y as f32);
+            overlay::marquee(ui.painter(), egui::Rect::from_two_pos(at(m.from), at(m.to)), m.crossing, theme);
         }
         // The zoom window's rectangle, dashed.
         if let Some(g) = self.gesture.as_ref().filter(|g| g.action == Some(NavAction::ZoomWindow)) {
             let r = egui::Rect::from_two_pos(g.from, g.at);
-            let path = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-            ui.painter().extend(egui::Shape::dashed_line(&path, egui::Stroke::new(1.0, color(theme.marquee_stroke)), 5.0, 4.0));
+            overlay::dashed_rect(ui.painter(), r, egui::Stroke::new(1.0, color(theme.marquee_stroke)), overlay::SELECTION);
         }
         // Last: the lengths stay above everything (markers, tooltip, marquee), placed clear of
         // the cursor, the markers, the tooltip and the crosses.
@@ -1345,22 +1346,6 @@ pub(crate) fn bytes(n: u64) -> String {
     }
 }
 
-/// The selection rectangle: solid when it takes what it encloses (drawn left to right),
-/// dashed when it takes what it touches (right to left), as in SketchUp.
-fn paint_marquee(painter: &egui::Painter, rect: egui::Rect, m: &skraft_tools::Marquee, theme: &Theme) {
-    use egui::Stroke;
-    let at = |p: DVec2| rect.min + egui::vec2(p.x as f32, p.y as f32);
-    let r = egui::Rect::from_two_pos(at(m.from), at(m.to));
-    painter.rect_filled(r, 0.0, color(theme.marquee_fill));
-    let stroke = Stroke::new(1.0, color(theme.marquee_stroke));
-    if m.crossing {
-        let path = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-        painter.extend(egui::Shape::dashed_line(&path, stroke, 5.0, 4.0));
-    } else {
-        painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Inside);
-    }
-}
-
 /// How much longer than wide a bar point is, each way (points).
 const BAR_LENGTHEN: f32 = 4.0;
 
@@ -1383,7 +1368,7 @@ fn paint_overlay_points(painter: &egui::Painter, rect: egui::Rect, editor: &Edit
                 painter.circle(at, r, fill, stroke);
             }
             PointShape::Square => {
-                painter.rect(egui::Rect::from_center_size(at, egui::vec2(2.0 * r, 2.0 * r)), 0.0, fill, stroke, egui::StrokeKind::Middle);
+                overlay::square_grip(painter, at, 2.0 * r, fill, stroke);
             }
             PointShape::Bar { along } => {
                 // The direction on the screen: from the point to a little further along.
@@ -1449,8 +1434,7 @@ fn paint_marks(painter: &egui::Painter, rect: egui::Rect, editor: &Editor, theme
     for p in editor.marks() {
         let Some(at) = editor.camera.project(p, editor.viewport_size()) else { continue };
         let at = rect.min + egui::vec2(at.x as f32, at.y as f32);
-        painter.line_segment([at - egui::vec2(MARK_ARM, 0.0), at + egui::vec2(MARK_ARM, 0.0)], stroke);
-        painter.line_segment([at - egui::vec2(0.0, MARK_ARM), at + egui::vec2(0.0, MARK_ARM)], stroke);
+        overlay::cross(painter, at, MARK_ARM, stroke);
     }
 }
 
@@ -1556,7 +1540,7 @@ fn paint_inference(
                 for end in [a, b] {
                     if m.distance(end) > 14.0 {
                         let u = (end - m).normalized();
-                        painter.extend(egui::Shape::dashed_line(&[m + u * 7.0, end - u * 7.0], stroke, 4.0, 3.0));
+                        overlay::dashed(painter, &[m + u * 7.0, end - u * 7.0], stroke, overlay::TRACKED);
                     }
                 }
             }
@@ -1584,10 +1568,6 @@ fn paint_inference(
         mark(at);
     }
     let outline = Stroke::new(1.0, color(theme.marker_outline));
-    let cross = |at: egui::Pos2, r: f32| {
-        painter.line_segment([at - vec2(r, 0.0), at + vec2(r, 0.0)], outline);
-        painter.line_segment([at - vec2(0.0, r), at + vec2(0.0, r)], outline);
-    };
     match kind {
         InferKind::Endpoint => {
             painter.circle(at, 5.0, color(theme.endpoint), outline);
@@ -1604,16 +1584,15 @@ fn paint_inference(
             painter.circle(at, 2.5, color(theme.tracked), Stroke::new(1.0, color(theme.tracked_halo)));
         }
         InferKind::BoxCorner => {
-            let square = egui::Rect::from_center_size(at, vec2(9.0, 9.0));
-            painter.rect(square, 0.0, color(theme.endpoint), outline, egui::StrokeKind::Middle);
+            overlay::square_grip(painter, at, 9.0, color(theme.endpoint), outline);
         }
         InferKind::Center => {
             painter.circle(at, 5.0, color(theme.center), outline);
-            cross(at, 3.0);
+            overlay::cross(painter, at, 3.0, outline);
         }
         InferKind::Origin => {
             painter.circle(at, 4.0, color(theme.origin), outline);
-            cross(at, 8.0);
+            overlay::cross(painter, at, 8.0, outline);
         }
         InferKind::OnTwoLines(_, second) => {
             // The first line's colour, ringed with the second's.
@@ -1627,12 +1606,10 @@ fn paint_inference(
         InferKind::OnEdgeAndLine(_) | InferKind::OnGuideAndLine(_) | InferKind::OnGuideAndEdge | InferKind::OnTwoGuides => {
             // The edge's square, in the line's colour.
             let [r, g, b, _] = skraft_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
-            let square = egui::Rect::from_center_size(at, vec2(9.0, 9.0));
-            painter.rect(square, 0.0, Color32::from_rgb(r, g, b), outline, egui::StrokeKind::Middle);
+            overlay::square_grip(painter, at, 9.0, Color32::from_rgb(r, g, b), outline);
         }
         InferKind::OnEdge => {
-            let square = egui::Rect::from_center_size(at, vec2(8.0, 8.0));
-            painter.rect(square, 0.0, color(theme.on_edge), outline, egui::StrokeKind::Middle);
+            overlay::square_grip(painter, at, 8.0, color(theme.on_edge), outline);
         }
         InferKind::OnFace => {
             let d = 5.0;

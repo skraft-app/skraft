@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/draw.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/view.rs, crates/tools/src/guides.rs, apps/skraft/src/viewport.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl]
+code: [crates/tools/src/draw.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/view.rs, crates/tools/src/guides.rs, apps/skraft/src/viewport.rs, apps/skraft/src/overlay.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl]
 ---
 
 # Drawing helpers
@@ -117,6 +117,15 @@ cost.
 - `Frame.hidden_lines`: lines drawn only where faces hide them, in their own style; the app puts
   their visible part with the depth-tested lines.
 - Named theme colours are resolved by the app (`viewport.rs`, `theme_color`).
+
+## Screen overlays
+
+What is drawn in points on the screen rather than in the model goes through egui's painter, the
+3D view's as the drawing sheet's, with the shapes of `apps/skraft/src/overlay.rs`: the dash
+patterns named by what they mean (`SELECTION`, `FRAME`, `GHOST`, `ALIGNMENT`, `TRACKED`, `LEVEL`),
+the selection rectangle (`marquee`), the square grip, the cross.
+
+*Why:* the two stages had their own copies, and their selection rectangles had drifted apart.
 
 ## What draws through it
 

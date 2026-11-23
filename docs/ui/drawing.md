@@ -229,7 +229,8 @@ One sheet is **active**, the one edited (`SheetState::current`): the selection, 
 handles, snapping, the entity info and paste act on it.
 
 - **It is drawn with its aids**: an accent outline, its views' frames and names, its grid, what
-  goes past its paper.
+  goes past its paper. Their colours are the palette's: the mode's accent on the board, the
+  light one on the paper, white in either mode (`Aids`).
 - **The others are drawn as printed**: what the PDF shows, clipped to their paper, without view
   frames, view names or grid. Nothing on them is picked.
 - **A click on another sheet makes it active**, the camera still, nothing picked (a composition
@@ -260,7 +261,7 @@ the sheet is off screen.
 - **Selecting** (the sheet's Select tool, as the 3D view's, docs/tools/interaction.md#selection),
   on the active sheet: a click on an element picks it (the last drawn under the pointer),
   elsewhere none; Shift+click adds or removes it; a drag off the elements draws a **selection
-  rectangle** — left to right (solid) the elements it holds whole, right to left (dashed)
+  rectangle** (the 3D view's, `overlay::marquee`) — left to right (solid) the elements it holds whole, right to left (dashed)
   those it touches, Shift adding or removing them; Esc clears the selection
   (`SheetState::selected`, not saved). A view's frame picked is solid, another element's box
   outlined. « Effacer » (`edit.erase`: the ribbon's Selection group, the Edit menu, Delete or
