@@ -12,8 +12,7 @@ use skraft_i18n::t;
 use skraft_model::{GuideShape, Operation};
 
 use super::{
-    BLUE, Command, Cx, GREEN, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, alt_key,
-    copy_key,
+    ALONG, Command, Cx, INK, Key, MAGENTA, OptionChoice, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption, alt_key, copy_key,
 };
 use crate::draw::{Drawer, Drawing, Ends, Pen};
 use crate::guides;
@@ -329,16 +328,6 @@ fn offset_plane(cx: &Cx<'_>, inf: &Inference, dir: DVec3) -> Option<(DVec3, DVec
 }
 
 /// The colour of the axis (of the axes tools draw in) `v` runs along, else ink.
-fn axis_color(cx: &Cx<'_>, v: DVec3) -> [f32; 4] {
-    let Some(v) = v.try_normalize() else { return INK };
-    match (0..3).find(|k| cx.axis(*k).dot(v).abs() > 1.0 - 1e-9) {
-        Some(0) => RED,
-        Some(1) => GREEN,
-        Some(_) => BLUE,
-        None => INK,
-    }
-}
-
 /// The tooltip's lines for the edge the point `inf` lies on (on it, at its middle or a third): its
 /// length, and its radius when it is an arc of a circle.
 fn edge_tip(cx: &Cx<'_>, inf: &Inference) -> Option<String> {
@@ -476,7 +465,7 @@ impl Tool for MeasureTool {
             Some(Curve::Axis { origin, dir }) => {
                 let range = (f64::NEG_INFINITY, f64::INFINITY);
                 if let Some((a, b)) = guides::visible_line(cx.camera, cx.size, origin, dir, range) {
-                    d.pen(Pen::new(axis_color(cx, dir)).bold()).line(a, b);
+                    d.pen(Pen::new(cx.ink_along(dir, ALONG).unwrap_or(INK)).bold()).line(a, b);
                 }
             }
             None => {}
@@ -498,7 +487,7 @@ impl Tool for MeasureTool {
                         d.pen(Pen::guide(INK)).guide(&shape);
                     }
                     // The offset in the colour of the axis it runs along, else ink.
-                    let color = axis_color(cx, b - a);
+                    let color = cx.ink_along(b - a, ALONG).unwrap_or(INK);
                     measure(d, a, b, color);
                 }
                 d.mark(at);

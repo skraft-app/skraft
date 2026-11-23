@@ -987,6 +987,11 @@ impl Cx<'_> {
         self.axes().matrix3.col(k).normalize()
     }
 
+    /// The ink of the axis (of the axes) the world direction `d` runs along ([`ink_along`]).
+    pub(crate) fn ink_along(&self, d: DVec3, tolerance: f64) -> Option<[f32; 4]> {
+        ink_along([self.axis(0), self.axis(1), self.axis(2)], d, tolerance)
+    }
+
     /// The ground of the axes: their origin and Z axis, in the world.
     pub fn ground(&self) -> (DVec3, DVec3) {
         (self.to_world(DVec3::ZERO), self.axis(2))
@@ -1582,3 +1587,22 @@ pub const BLUE: [f32; 4] = skraft_theme::AXIS_Z;
 pub const MAGENTA: [f32; 4] = skraft_theme::FREE_LINE;
 /// The highlight colour of picked things.
 pub const PICK: [f32; 4] = skraft_theme::PICK;
+// The same in either mode.
+pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+pub const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+/// What is inactive or about to go: an axis, a cutter, the legs of a distribute.
+pub const GREY: [f32; 4] = [0.45, 0.45, 0.45, 1.0];
+/// How far from 1 the cosine of a direction and an axis it runs along exactly may be.
+pub(crate) const ALONG: f64 = 1e-9;
+
+/// The ink of the axis `k` (0 red X, 1 green Y, 2 blue Z).
+pub fn axis_ink(k: usize) -> [f32; 4] {
+    [RED, GREEN, BLUE][k]
+}
+
+/// The ink of the one of `axes` (unit) that `d` runs along, either way, within `tolerance` of
+/// the cosine; none along no axis, or for no direction.
+pub(crate) fn ink_along(axes: [DVec3; 3], d: DVec3, tolerance: f64) -> Option<[f32; 4]> {
+    let d = d.try_normalize()?;
+    (0..3).find(|&k| axes[k].dot(d).abs() > 1.0 - tolerance).map(axis_ink)
+}

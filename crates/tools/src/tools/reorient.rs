@@ -10,7 +10,8 @@ use skraft_model::{Behavior, EntityPath, Id, Operation, Subject};
 
 use super::face::Face;
 use super::{
-    BLUE, Command, Cursor, Cx, GREEN, INK, MAGENTA, OptionChoice, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, alt_key,
+    BLUE, Command, Cursor, Cx, GREEN, INK, MAGENTA, OptionChoice, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, WHITE,
+    alt_key,
 };
 use crate::draw::{Brush, Drawer, Drawing, Ends, Pen, Stipple};
 use crate::infer::Inference;
@@ -31,7 +32,7 @@ const EDGE_WIDTH: f32 = 4.0;
 /// The axes helper's length and section (pixels).
 const AXES_PX: (f64, f64) = (90.0, 3.0);
 /// The arrows on the part as it is, OpenCutList's.
-const ARROW: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const ARROW: [f32; 4] = WHITE;
 /// The quarter turn's arc: its radius, its distance to the face's sides, the radius under which
 /// it no longer fits (pixels).
 const TURN_RADIUS_PX: f64 = 24.0;

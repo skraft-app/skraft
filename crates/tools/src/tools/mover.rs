@@ -62,11 +62,6 @@ enum State {
     },
 }
 
-/// The axes' axis `k`, in the world.
-fn axis(cx: &Cx<'_>, k: usize) -> DVec3 {
-    cx.axis(k)
-}
-
 impl MoveTool {
     /// Carries `entities`, just pasted by `pasted`, from `from`: already moving.
     pub fn carrying(entities: Vec<Id>, from: DVec3, pasted: Operation) -> Self {
@@ -94,7 +89,7 @@ impl MoveTool {
                     || cx.is_moving_deep(o, &self.moving_paths)
                     || cx.is_moving_guide(o, &self.moving_guides))
         };
-        match cx.infer_from(px, keep, Some((from, axis(cx, 2))), from, cx.lock()) {
+        match cx.infer_from(px, keep, Some((from, cx.axis(2))), from, cx.lock()) {
             Some(i) => (i.point, Some(i)),
             None => (from, None),
         }
@@ -176,7 +171,7 @@ impl MoveTool {
                 let dir = match cx.lock().map(|l| l.dir) {
                     Some(d) if (to - from).dot(d) < 0.0 => -d,
                     Some(d) => d,
-                    None => (to - from).try_normalize().unwrap_or(axis(cx, 0)),
+                    None => (to - from).try_normalize().unwrap_or(cx.axis(0)),
                 };
                 return self.finish(cx, from, from + dir * d);
             }

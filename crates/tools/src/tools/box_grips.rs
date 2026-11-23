@@ -8,7 +8,7 @@ use skraft_i18n::t;
 use skraft_model::{EntityPath, Id};
 
 use super::handle::{Axes, Target};
-use super::{Cx, INK};
+use super::{Cx, INK, WHITE};
 use crate::OrientedBox;
 use crate::draw::{Drawer, Ends, Pen};
 use crate::infer::{APERTURE_PX, InferKind, Inference};
@@ -27,7 +27,6 @@ const GRIP_HIT_PX: f64 = 8.0;
 const GRIP_ARC_STEPS: i32 = 6;
 /// The light edge under a grip, readable on any face (points).
 const GRIP_HALO_WIDTH: f32 = 4.5;
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 /// The face of the box under the cursor (world).
 #[derive(Clone, Debug)]
@@ -148,7 +147,7 @@ impl BoxGrips {
             d.pen(Pen::new(INK).dotted()).oriented_box(b, Default::default());
         }
         let Some(f) = &self.face else { return };
-        let color = super::rotate::axis_color(cx, f.normal);
+        let color = super::rotate::protractor_ink(cx, f.normal);
         d.pen(Pen::new(color).dashed().over()).polygon(&f.corners);
         for &g in &f.grips {
             let aimed = self.aim == Some(Aim::Grip(g));

@@ -23,19 +23,15 @@ use skraft_i18n::t;
 use skraft_model::Operation;
 
 use super::handle::{
-    Measure, Memo, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, measure, nearest_axis_on_screen,
-    stepped,
+    Measure, Memo, Target, count_step, draw_axes, draw_boxes, draw_measure, half_along, measure, nearest_axis_on_screen, stepped,
 };
 use super::pick::Picker;
-use super::{Command, Cx, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use super::{Command, Cx, GREY, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, axis_ink, copy_key};
 use crate::camera::Ray;
 use crate::draw::{Ends, Pen};
 use crate::infer::{InferKind, Inference};
 use crate::scene::Owner;
 use crate::vcb::{Repeat, Vcb, VcbKind, VcbValue};
-
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const GREY: [f32; 4] = [0.35, 0.35, 0.35, 1.0];
 
 /// A distribute, in the target's axes: from `start` to `end` (on a line along an axis),
 /// `number` pieces, the first `spacings` set (OCL's `@spacings`, `None` an empty slot).
@@ -385,7 +381,7 @@ impl Tool for DistributeTool {
         let Some((end, k)) = self.cursor else { return p };
         let params = self.params(start, end);
         let Some(s) = slots(&t, &params, measure_of(cx)) else { return p };
-        let color = axis_color(k);
+        let color = axis_ink(k);
         let moves: Vec<DAffine3> = s.centers.iter().map(|m| t.translation(*m - t.center())).collect();
         draw_axes(draw, &t, |j| j == k, None);
         draw_boxes(draw, &t, &moves);

@@ -2280,9 +2280,7 @@ fn on_sheet(r: &Resolved<'_>, centre: DVec2, p: DVec3) -> DVec2 {
 fn near_polyline(line: &[DVec2], p: DVec2) -> (f64, usize, f64) {
     let mut best = (f64::MAX, 0, 0.0);
     for (i, w) in line.windows(2).enumerate() {
-        let ab = w[1] - w[0];
-        let t = ((p - w[0]).dot(ab) / ab.length_squared().max(1e-300)).clamp(0.0, 1.0);
-        let d = (w[0] + ab * t).distance(p);
+        let (t, d) = skraft_tools::segment::nearest(p, w[0], w[1]);
         if d < best.0 {
             best = (d, i, t);
         }

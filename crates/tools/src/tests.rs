@@ -7938,3 +7938,17 @@ fn reorient_shows_the_part_as_it_is_and_says_what_it_reaches() {
     assert!(tip.contains("600") && tip.find("600") < tip.find("400"), "{tip}");
     assert!(tip.contains("2 exemplaires"), "{tip}");
 }
+
+#[test]
+fn a_direction_takes_the_ink_of_the_axis_it_runs_along() {
+    use crate::tools::{BLUE, GREEN, RED, ink_along};
+    let axes = [glam::DVec3::X, glam::DVec3::Y, glam::DVec3::Z];
+    assert_eq!(ink_along(axes, glam::DVec3::new(-3.0, 0.0, 0.0), 1e-9), Some(RED), "either way, of any length");
+    assert_eq!(ink_along(axes, glam::DVec3::Y, 1e-9), Some(GREEN));
+    assert_eq!(ink_along(axes, glam::DVec3::Z, 1e-9), Some(BLUE));
+    assert_eq!(ink_along(axes, glam::DVec3::new(1.0, 1.0, 0.0), 1e-9), None, "along no axis");
+    assert_eq!(ink_along(axes, glam::DVec3::ZERO, 1e-9), None, "no direction");
+    let nearly = glam::DVec3::new(1.0, 0.01, 0.0);
+    assert_eq!(ink_along(axes, nearly, 1e-9), None);
+    assert_eq!(ink_along(axes, nearly, 1e-3), Some(RED), "within a wider tolerance");
+}

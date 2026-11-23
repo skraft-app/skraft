@@ -21,15 +21,13 @@ use skraft_i18n::t;
 use skraft_model::Operation;
 
 use super::handle::{
-    MIRROR, Measure, Memo, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure,
-    minimums, mirror_badge, nearest_axis_on_screen, reflection, repeat_stepped,
+    MIRROR, Measure, Memo, Target, count_step, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure, minimums,
+    mirror_badge, nearest_axis_on_screen, reflection, repeat_stepped,
 };
 use super::pick::Picker;
-use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, axis_ink, copy_key};
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
-
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 /// Where the copies go, worked out in the target's axes (OCL's `_get_move_def`): from the
 /// centre of the box, `mps`, the last copy's centre `mpe`; the measure from `dps` to `dpe`,
@@ -323,7 +321,7 @@ impl Tool for CopyLineTool {
         };
         let d = line_def(&t, end, self.repeat, measure(cx, Measure::Outside));
         let copies = placements(&t, &d, self.repeat, cx.toggle(MIRROR));
-        let color = axis_color(k);
+        let color = axis_ink(k);
         draw_axes(draw, &t, |j| j == k, None);
         draw_boxes(draw, &t, &copies);
         // The measure, dashed, seen through what lies between, its length at its middle.

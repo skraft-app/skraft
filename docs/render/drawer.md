@@ -79,6 +79,10 @@ lengths' helpers written on it). A primitive may draw both its outline and its f
   shader's fade at some zooms and reads as a plain line (`curve` still lays its dashes in model
   units). No dashes are cut on the CPU.
 
+The tools' colours are in one place, `crates/tools/src/tools/mod.rs`: the inks (`INK`, `RED`,
+`GREEN`, `BLUE`, `MAGENTA`, `PICK`, which take the mode's), `WHITE`, `BLACK`, `GREY`; `axis_ink`
+gives an axis' ink, `ink_along` that of the axis a direction runs along.
+
 ## Dimensions
 
 Every line that gives or leads to a dimension draws with one pen, `Pen::dimension(color)`: long

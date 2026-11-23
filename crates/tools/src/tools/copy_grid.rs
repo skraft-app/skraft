@@ -19,17 +19,14 @@ use skraft_i18n::t;
 use skraft_model::Operation;
 
 use super::handle::{
-    MIRROR, Measure, Memo, Target, axis_color, count_step, draw_axes, draw_box, draw_measure, measure, minimums, mirror_badge, reflection,
+    MIRROR, Measure, Memo, Target, count_step, draw_axes, draw_box, draw_measure, measure, minimums, mirror_badge, reflection,
     repeat_stepped,
 };
 use super::pick::Picker;
 use super::rotate::rotation_about;
-use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use super::{BLACK, Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, axis_ink, copy_key};
 use crate::infer::{InferKind, Inference};
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
-
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 /// The grid's axes in the target's (columns: its red side, its green side, the normal), for the
 /// plane normal to the target's axis `k` (OCL's `_get_handle_axes`: the red axis, or the green
@@ -376,7 +373,7 @@ impl Tool for CopyGridTool {
         let r = self.repeat;
         let mirror = cx.toggle(MIRROR);
         let d = grid_def(&t, &h, end, r, measure_of(cx));
-        let color = axis_color(k);
+        let color = axis_ink(k);
         let world = |q: DVec3| t.world(h * q);
         // The measure rectangle, dashed, seen through what lies between.
         let (a, b) = (d.dps, d.dpe);
@@ -400,7 +397,7 @@ impl Tool for CopyGridTool {
         let lo = a.min(b);
         let hi = a.max(b);
         for (i, (from, to)) in [(lo, DVec3::new(hi.x, lo.y, lo.z)), (lo, DVec3::new(lo.x, hi.y, lo.z))].into_iter().enumerate() {
-            let color = axis_color(axis_of(h.col(i)));
+            let color = axis_ink(axis_of(h.col(i)));
             draw.length_always(world(from), world(to), color, Some(i));
         }
         // The mirror's badge past the corner copy (OCL's), in black.
