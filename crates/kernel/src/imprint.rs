@@ -1,203 +1,220 @@
-//! The tool an imprint cuts (docs/decisions/0055-linked-bodies-through-imprints.md): a body grown
-//! by a clearance around it, deeper at its end, run back past its shoulder. From the cheapest
-//! way that holds: a box stays a box, an extrusion along the axis is drawn again from its profile
-//! offset, anything else has its faces offset by SolidCore.
+//! The tool an imprint cuts (docs/decisions/0055-linked-bodies-through-imprints.md): the source's
+//! whole final solid, however it was built. Only its faces standing as walls inside the receiver
+//! are moved: the one facing an opening is the **bottom**, made deeper; the others are **cheeks**,
+//! given the clearance. Everything else of the source cuts nothing where it is.
 
-use glam::DVec3;
 use serde::{Deserialize, Serialize};
 
-use crate::Solid;
-use crate::snaps::{Plane, plane_of};
-
-/// How an imprint differs from the body it is made of (mm).
+/// How an imprint's tool differs from its source inside the receiver (mm).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Clearance {
-    /// From the shoulder to the end, in the body's axes; none for a body joined to nothing,
-    /// which has neither.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub axis: Option<DVec3>,
-    /// All around, the end and the shoulder apart.
+    /// On its cheeks.
     pub around: f64,
-    /// Past the end.
+    /// On its bottom.
     pub deep: f64,
-    /// Back past the shoulder.
-    pub back: f64,
 }
 
 impl Clearance {
-    /// Finite, a unit axis, and not run back by a negative length.
     pub fn is_valid(&self) -> bool {
-        self.around.is_finite()
-            && self.deep.is_finite()
-            && self.back.is_finite()
-            && self.back >= 0.0
-            && self.axis.is_none_or(|a| a.is_finite() && (a.length_squared() - 1.0).abs() < 1e-9)
-    }
-}
-
-/// A planar face of a solid: its plane, and the vertices of its boundary.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PlanarFace {
-    pub plane: Plane,
-    pub vertices: Vec<DVec3>,
-}
-
-impl Solid {
-    /// Its planar faces, read from the record (no kernel).
-    pub fn planar_faces(&self) -> Vec<PlanarFace> {
-        use solidcore_record::brep::Loop;
-        let r = self.record();
-        r.faces
-            .iter()
-            .filter_map(|f| {
-                let plane = plane_of(&f.surface)?;
-                let mut ids: Vec<u32> = f
-                    .loops
-                    .iter()
-                    .flat_map(|l| match l {
-                        Loop::Edges { edges } => edges.iter().flat_map(|e| r.edges[e.edge as usize].vertices).collect::<Vec<_>>(),
-                        Loop::Vertex { vertex } => vec![*vertex],
-                    })
-                    .collect();
-                ids.sort_unstable();
-                ids.dedup();
-                Some(PlanarFace { plane, vertices: ids.iter().map(|v| DVec3::from_array(r.vertices[*v as usize].point)).collect() })
-            })
-            .collect()
+        self.around.is_finite() && self.deep.is_finite()
     }
 }
 
 #[cfg(feature = "engine")]
 mod build {
-    use glam::{DAffine3, DQuat, DVec3};
+    use glam::{DAffine3, DVec3};
+    use solidcore_ops::{Body, PointClass};
 
     use super::Clearance;
     use crate::engine::{guarded, kernel};
-    use crate::{Error, Primitive, Result, Solid, profile};
+    use crate::{BooleanOp, Error, Primitive, Result, Solid};
 
     const CALL: &str = "imprint";
-    /// How far from a unit axis a direction may be and still lie along it; how flat a face is.
-    const ALONG: f64 = 1e-9;
-    const FLAT: f64 = 1e-3;
+    /// How far off a face a point is taken to tell what lies beyond it (mm).
+    const STEP: f64 = 0.01;
+    /// Less material than this in common is no contact (mm³): faces merely touching.
+    const NO_CONTACT: f64 = 1e-6;
 
     fn refused(message: impl ToString) -> Error {
         Error::Kernel { call: CALL.into(), message: message.to_string() }
     }
 
+    /// What a wall of the contact is.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Kind {
+        Bottom,
+        Cheek,
+    }
+
+    /// A wall: a point on it, its outward normal there, what it is.
+    #[derive(Clone, Copy, Debug)]
+    struct Wall {
+        at: DVec3,
+        normal: DVec3,
+        kind: Kind,
+    }
+
     impl Solid {
-        /// This body as the tool of an imprint. `recipe`: the primitive it is built from, if
-        /// any. Refused rather than reduced when the clearance cannot be built.
-        pub fn imprinted(&self, recipe: Option<&Primitive>, c: &Clearance) -> Result<Solid> {
-            if c.around == 0.0 && (c.axis.is_none() || (c.deep == 0.0 && c.back == 0.0)) {
-                return Ok(self.clone());
+        /// What `source`, placed by `placed` in this solid's axes, has in common with it: empty
+        /// when they only touch or do not meet.
+        fn contact_of(&self, source: &Solid, placed: &DAffine3) -> Result<Solid> {
+            if self.is_empty() || source.is_empty() {
+                return Ok(Solid::empty());
             }
-            if let Some(tool) = as_box(self, c) {
-                return tool.build();
-            }
-            if let Some(tool) = from_profile(recipe, c)? {
-                return tool.build();
-            }
-            by_faces(self, c)
-        }
-    }
-
-    /// A body filling its box, its axis along one of the box's: the box grown.
-    fn as_box(s: &Solid, c: &Clearance) -> Option<Primitive> {
-        if !s.fills_its_box() {
-            return None;
-        }
-        let (mut lo, mut hi) = s.vertex_bounds()?;
-        let along = match c.axis {
-            Some(a) => Some((0..3).find(|k| (a[*k].abs() - 1.0).abs() < ALONG).map(|k| (k, a[k] > 0.0))?),
-            None => None,
-        };
-        for k in 0..3 {
-            let (down, up) = match along {
-                Some((axis, true)) if axis == k => (c.back, c.deep),
-                Some((axis, false)) if axis == k => (c.deep, c.back),
-                _ => (c.around, c.around),
+            let common = match self.boolean(&source.transformed(placed)?, BooleanOp::Intersection) {
+                Ok(common) => common,
+                Err(Error::Empty(_)) => return Ok(Solid::empty()),
+                Err(e) => return Err(e),
             };
-            (lo[k], hi[k]) = (lo[k] - down, hi[k] + up);
+            Ok(if common.is_empty() || common.volume()? <= NO_CONTACT { Solid::empty() } else { common })
         }
-        (hi - lo).min_element().gt(&0.0).then_some(Primitive::Box { origin: lo, size: hi - lo })
+
+        /// Does `source`, placed by `placed` in this solid's axes, share material with it?
+        pub fn has_contact(&self, source: &Solid, placed: &DAffine3) -> Result<bool> {
+            Ok(!self.contact_of(source, placed)?.is_empty())
+        }
+
+        /// The tool `source` (placed by `placed` in this receiver's axes) cuts in this receiver,
+        /// in the source's axes. No contact: `previous`, as it was, or a refusal. A clearance
+        /// that cannot be built is refused, never reduced.
+        pub fn imprint_tool(&self, source: &Solid, placed: &DAffine3, clearance: &Clearance, previous: Option<&Solid>) -> Result<Solid> {
+            let contact = self.contact_of(source, placed)?;
+            if contact.is_empty() {
+                return previous.cloned().ok_or_else(|| refused("the parts share no material"));
+            }
+            grown(source, &contact, self, placed, clearance)
+        }
     }
 
-    /// An extrusion along the axis: its profile offset, its height grown.
-    fn from_profile(recipe: Option<&Primitive>, c: &Clearance) -> Result<Option<Primitive>> {
-        let (Some(Primitive::Prism { origin, profile: outline, height }), Some(axis)) = (recipe, c.axis) else { return Ok(None) };
-        if (axis.z.abs() - 1.0).abs() >= ALONG {
-            return Ok(None);
+    /// The walls of `contact`: its faces with `receiver`'s material past them, each lying on the
+    /// source. One whose way across the contact ends on an opening is the bottom.
+    fn walls_of(contact: &Solid, receiver: &Solid) -> Result<Vec<Wall>> {
+        let (body, order) = Body::from_record(contact.record(), true).map_err(refused)?;
+        let mesh = contact.mesh()?;
+        let count = contact.record().faces.len();
+        // On each face, its largest triangle's centre and normal: a point well inside it.
+        let mut best: Vec<Option<(f64, DVec3, DVec3)>> = vec![None; count];
+        for (tri, &f) in mesh.indices.chunks_exact(3).zip(&mesh.tri_face) {
+            let at = |k: usize| mesh.origin + DVec3::from_array(mesh.positions[tri[k] as usize].map(f64::from));
+            let normal = |k: usize| DVec3::from_array(mesh.normals[tri[k] as usize].map(f64::from));
+            let (a, b, c) = (at(0), at(1), at(2));
+            let area = (b - a).cross(c - a).length();
+            if best[f as usize].is_none_or(|(most, ..)| area > most) {
+                let n = (normal(0) + normal(1) + normal(2)).normalize_or_zero();
+                best[f as usize] = Some((area, (a + b + c) / 3.0, n));
+            }
         }
-        let outline = match c.around {
-            0.0 => outline.clone(),
-            d => profile::offset(&profile::rounded(outline), d).map_err(|e| refused(format!("{e:?}")))?,
-        };
-        let (below, above) = if axis.z > 0.0 { (c.back, c.deep) } else { (c.deep, c.back) };
-        let height = height + below + above;
-        if height <= 0.0 {
-            return Err(refused("nothing left of the height"));
+        let hit = |origin: DVec3, along: DVec3| body.face_hit_by_ray(&order, origin.to_array(), along.to_array()).map_err(refused);
+        // The exact point of each face, from just inside it: the mesh's lies on a chord.
+        let mut samples = Vec::with_capacity(count);
+        for (i, b) in best.iter().enumerate() {
+            let (_, p, n) = b.ok_or_else(|| refused(format!("face {i} has no mesh")))?;
+            if n == DVec3::ZERO {
+                return Err(refused(format!("face {i} has no normal")));
+            }
+            let from = p - n * STEP;
+            let on = hit(from, n)?.filter(|h| h.face == i).map_or(p, |h| DVec3::from_array(h.point));
+            samples.push((on, n));
         }
-        Ok(Some(Primitive::Prism { origin: *origin - DVec3::Z * below, profile: outline, height }))
+        let (other, _) = Body::from_record(receiver.record(), true).map_err(refused)?;
+        let past: Vec<[f64; 3]> = samples.iter().map(|(p, n)| (*p + *n * STEP).to_array()).collect();
+        let classes = other.classify_points(&past).map_err(refused)?;
+        let inside: Vec<bool> = classes.into_iter().map(|c| matches!(c, Ok(PointClass::Inside))).collect();
+        let mut walls = Vec::new();
+        for (&(at, normal), _) in samples.iter().zip(&inside).filter(|(_, wall)| **wall) {
+            let kind = match hit(at - normal * STEP, -normal)? {
+                Some(across) if across.face < inside.len() && !inside[across.face] => Kind::Bottom,
+                _ => Kind::Cheek,
+            };
+            walls.push(Wall { at, normal, kind });
+        }
+        Ok(walls)
     }
 
-    /// Each face's box, by its record index, read on the display mesh.
-    fn face_boxes(s: &Solid) -> Result<Vec<(DVec3, DVec3)>> {
-        let m = s.mesh()?;
-        let n = m.tri_face.iter().max().map_or(0, |f| *f as usize + 1);
-        let mut out = vec![(DVec3::INFINITY, DVec3::NEG_INFINITY); n];
-        for (tri, &f) in m.indices.chunks_exact(3).zip(&m.tri_face) {
-            for &i in tri {
-                let p = m.origin + DVec3::from_array(m.positions[i as usize].map(f64::from));
-                let b = &mut out[f as usize];
-                *b = (b.0.min(p), b.1.max(p));
+    /// `walls`, in the source's axes, one per face of `source` (its bottom first: a face that is
+    /// both is moved once).
+    fn on_source(source: &Solid, walls: &[Wall], placed: &DAffine3) -> Result<Vec<Wall>> {
+        let (body, order) = Body::from_record(source.record(), true).map_err(refused)?;
+        let back = placed.inverse();
+        let mut ordered: Vec<Wall> = walls
+            .iter()
+            .map(|w| Wall { at: back.transform_point3(w.at), normal: back.transform_vector3(w.normal).normalize(), kind: w.kind })
+            .collect();
+        ordered.sort_by_key(|w| w.kind != Kind::Bottom);
+        let mut seen = Vec::with_capacity(ordered.len());
+        let mut out = Vec::with_capacity(ordered.len());
+        for w in ordered {
+            let origin = w.at - w.normal * STEP;
+            let found = body.face_hit_by_ray(&order, origin.to_array(), w.normal.to_array()).map_err(refused)?;
+            let face = found.ok_or_else(|| refused("a wall of the contact is not on the source"))?.face;
+            if !seen.contains(&face) {
+                seen.push(face);
+                out.push(w);
             }
         }
         Ok(out)
     }
 
-    fn offset(s: &Solid, faces: &[usize], d: f64) -> Result<Solid> {
+    /// A source that is a box square to its axes, its walls moved side by side: exact.
+    fn as_box(source: &Solid, walls: &[Wall], c: &Clearance) -> Option<Primitive> {
+        if !source.fills_its_box() {
+            return None;
+        }
+        let (mut lo, mut hi) = source.vertex_bounds()?;
+        for w in walls {
+            let k = w.normal.abs().max_position();
+            if (w.normal[k].abs() - 1.0).abs() > 1e-6 {
+                return None;
+            }
+            let d = if w.kind == Kind::Bottom { c.deep } else { c.around };
+            if w.normal[k] > 0.0 {
+                hi[k] += d;
+            } else {
+                lo[k] -= d;
+            }
+        }
+        (hi - lo).min_element().gt(&0.0).then_some(Primitive::Box { origin: lo, size: hi - lo })
+    }
+
+    /// `source` with its walls moved kind by kind, in `steps`' order. A move makes the body anew,
+    /// so each face is found again by its point, moved with it.
+    fn moved_walls(source: &Solid, walls: &[Wall], steps: [(Kind, f64); 2]) -> Result<Solid> {
+        let (body, _) = Body::from_record(source.record(), true).map_err(refused)?;
+        let mut walls = walls.to_vec();
+        for (kind, d) in steps {
+            if d == 0.0 || !walls.iter().any(|w| w.kind == kind) {
+                continue;
+            }
+            let (_, order) = body.to_record().map_err(refused)?;
+            let mut list = Vec::new();
+            for w in walls.iter().filter(|w| w.kind == kind) {
+                let origin = w.at - w.normal * STEP;
+                let found = body.face_hit_by_ray(&order, origin.to_array(), w.normal.to_array()).map_err(refused)?;
+                list.push(found.ok_or_else(|| refused("a wall of the source was lost"))?.face);
+            }
+            list.sort_unstable();
+            list.dedup();
+            solidcore_ops::offset_faces(&body, &order, &list, d).map_err(refused)?;
+            walls.iter_mut().filter(|w| w.kind == kind).for_each(|w| w.at += w.normal * d);
+        }
+        let (record, _) = body.to_record().map_err(refused)?;
+        Ok(Solid::from_record(record))
+    }
+
+    fn grown(source: &Solid, contact: &Solid, receiver: &Solid, placed: &DAffine3, c: &Clearance) -> Result<Solid> {
+        if c.around == 0.0 && c.deep == 0.0 {
+            return Ok(source.clone());
+        }
         // SolidCore's fixes are switched on with its first kernel.
         drop(kernel());
         guarded(CALL, || {
-            let (body, order) = solidcore_ops::Body::from_record(s.record(), true).map_err(refused)?;
-            solidcore_ops::offset_faces(&body, &order, faces, d).map_err(refused)?;
-            let (record, _) = body.to_record().map_err(refused)?;
-            Ok(Solid::from_record(record))
-        })
-    }
-
-    fn flat_at(b: &(DVec3, DVec3), z: f64) -> bool {
-        (b.0.z - z).abs() < FLAT && (b.1.z - z).abs() < FLAT
-    }
-
-    /// The faces at the height `z`, flat there.
-    fn faces_at(s: &Solid, z: f64) -> Result<Vec<usize>> {
-        Ok(face_boxes(s)?.iter().enumerate().filter(|(_, b)| flat_at(b, z)).map(|(i, _)| i).collect())
-    }
-
-    /// Any other body: its faces offset, in axes where the imprint's axis is +Z.
-    fn by_faces(s: &Solid, c: &Clearance) -> Result<Solid> {
-        let Some(axis) = c.axis else {
-            let all: Vec<usize> = (0..s.record().faces.len()).collect();
-            return offset(s, &all, c.around);
-        };
-        let to_z = DAffine3::from_quat(DQuat::from_rotation_arc(axis, DVec3::Z));
-        let mut tool = s.transformed(&to_z)?;
-        let (lo, hi) = tool.bounds()?;
-        if c.around != 0.0 {
-            let sides: Vec<usize> =
-                face_boxes(&tool)?.iter().enumerate().filter(|(_, b)| !flat_at(b, lo.z) && !flat_at(b, hi.z)).map(|(i, _)| i).collect();
-            tool = offset(&tool, &sides, c.around)?;
-        }
-        for (z, d, what) in [(hi.z, c.deep, "no flat end"), (lo.z, c.back, "no flat shoulder")] {
-            if d != 0.0 {
-                let faces = faces_at(&tool, z)?;
-                if faces.is_empty() {
-                    return Err(refused(what));
-                }
-                tool = offset(&tool, &faces, d)?;
+            let walls = on_source(source, &walls_of(contact, receiver)?, placed)?;
+            if let Some(tool) = as_box(source, &walls, c) {
+                return tool.build();
             }
-        }
-        tool.transformed(&to_z.inverse())
+            let (bottom, cheek) = ((Kind::Bottom, c.deep), (Kind::Cheek, c.around));
+            // SolidCore takes one order or the other, depending on how the faces meet.
+            moved_walls(source, &walls, [bottom, cheek]).or_else(|_| moved_walls(source, &walls, [cheek, bottom]))
+        })
     }
 }

@@ -3,9 +3,10 @@
 //! off their seats and the machinings that lost their link, with what can be done about them.
 
 use skraft_i18n::{t, tp};
-use skraft_model::{Id, ImprintPlan, LinkSource, LinkStatus, Operation, Outcome};
+use skraft_model::kernel::{JobResult, Output};
+use skraft_model::{Id, ImprintPlan, ImprintProbe, LinkSource, LinkStatus, Operation, Outcome};
 
-use super::{Editor, Notice, NoticeAction, NoticeKind};
+use super::{Editor, JobId, Notice, NoticeAction, NoticeKind};
 
 /// A button of the toast about linked bodies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,6 +29,13 @@ pub(super) struct LinkOffer {
     separate: Vec<LinkSource>,
     /// The machinings that lost their last source, by part and id.
     lost: Vec<(Id, Id)>,
+}
+
+/// « Imprimer » asked of the kernel: which of the parts share material.
+pub(super) struct ImprintAsk {
+    pub(super) job: JobId,
+    probe: ImprintProbe,
+    revision: u64,
 }
 
 impl Editor {
@@ -99,19 +107,54 @@ impl Editor {
 
     /// Can « Imprimer » be asked: occurrences selected, nothing computing?
     pub fn can_imprint(&self) -> bool {
-        !self.busy() && self.imprint_sources().is_some()
+        !self.busy() && self.imprint_ask.is_none() && self.imprint_sources().is_some()
     }
 
-    /// What « Imprimer » would do with the selection.
-    pub fn imprint_plan(&self) -> Option<ImprintPlan> {
-        let (context, sources) = self.imprint_sources()?;
-        self.document().imprint_plan(context, &sources).ok()
-    }
-
-    /// « Imprimer » on the selection, with this clearance around the tool and past its end.
-    pub fn imprint(&mut self, around: f64, deep: f64) {
+    /// Asks the kernel what the selection enters; the plan comes by [`Editor::take_imprint_plan`].
+    pub fn ask_imprint(&mut self) {
+        if !self.can_imprint() {
+            return;
+        }
         let Some((context, sources)) = self.imprint_sources() else { return };
-        let _ = self.apply(Operation::Imprint { context, sources, around, deep });
+        let probe = match self.document().imprint_probe(context, &sources) {
+            Ok(probe) => probe,
+            Err(e) => {
+                self.notify(NoticeKind::Error, t!("notice.op_failed", op = t!("operation.add_link")), Some(e.to_string()));
+                return;
+            }
+        };
+        if probe.job.tasks.is_empty() {
+            self.imprint_ready = self.document().imprint_plan(&probe, &[]).ok();
+            return;
+        }
+        let id = self.job_id();
+        let job = probe.job.clone();
+        self.imprint_ask = Some(ImprintAsk { job: id, probe, revision: self.history.revision() });
+        self.kernel.submit(id, job);
+        // A kernel run inline has answered already.
+        self.poll();
+    }
+
+    /// The kernel's answer to [`Editor::ask_imprint`]: the plan, unless the document changed.
+    pub(super) fn imprint_answered(&mut self, result: JobResult) {
+        let Some(ask) = self.imprint_ask.take().filter(|a| a.revision == self.history.revision()) else { return };
+        let plan = result
+            .map_err(|e| e.to_string())
+            .and_then(|outputs: Vec<Output>| self.document().imprint_plan(&ask.probe, &outputs).map_err(|e| e.to_string()));
+        match plan {
+            Ok(plan) => self.imprint_ready = Some(plan),
+            Err(e) => self.notify(NoticeKind::Error, t!("notice.op_failed", op = t!("operation.add_link")), Some(e)),
+        }
+    }
+
+    /// The plan the kernel answered with, once: the confirmation to show.
+    pub fn take_imprint_plan(&mut self) -> Option<ImprintPlan> {
+        self.imprint_ready.take()
+    }
+
+    /// « Imprimer » as `plan` says, with this clearance on the cheeks and on the bottom.
+    pub fn imprint(&mut self, plan: &ImprintPlan, around: f64, deep: f64) {
+        let _ = self.apply(plan.operation(around, deep));
     }
 
     /// Can the toast's button `act` still be run: nothing changed since it was shown?

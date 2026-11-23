@@ -1,6 +1,7 @@
-# Linked bodies: a part's imprints shape the parts it enters
+# Linked bodies: a part imprints its final solid in the parts it enters
 
-- Status: accepted (2026-11-23; steps 1 to 4 built, the collision check tried headless)
+- Status: accepted (2026-11-23; steps 1 to 4 built; the tool amended below prevails over the
+  imprint body and the run back described first)
 - Design: [Bodies](../model/bodies.md), [Data model](../model/data-model.md)
 - Builds on: [Parts, assemblies, occurrences](0005-parts-assemblies-occurrences.md),
   [Body groups](0024-body-groups.md), [Body nodes](0042-body-nodes-operators.md); takes up the
@@ -131,6 +132,36 @@ which depend on nothing incoming: A may imprint B and B imprint A, and one pass 
 everything, with no dependency graph. It runs in the operation's job, after welding: one step of
 undo.
 
+### Amended: the tool is the source's whole final solid
+
+Decided on 2026-11-23, after trying it on real joints. **This section prevails** wherever the
+others speak of an imprint body, its sign, its run back, or of collisions between a source and its
+receiver. Two versions came before:
+
+- an imprint made of the source's **positive bodies**: a tenon left by a machining is no body, and
+  on a notched upright astride a plank, the plank lost twice what it should;
+- the **contact** of the final solid, run back past its openings by an estimate: a tool 400 mm
+  tall for a 172 mm plank, held by the source as a body, which Stretch then moved inside the rail
+  (507 mm away from its mortise, in the user's model). And it still assumed a tenon, where a part
+  may be its own.
+
+What holds now:
+
+- **The source carries nothing.** `Sign` keeps its three values, and
+  `Link { id, source, receiver, body, seat }`, `seat` being the source's axes in the receiver's.
+- **The tool is the source's whole final solid**, in its axes, held by the linked body. What lies
+  outside the receiver cuts nothing, so nothing has to be run back.
+- **Only its walls inside the receiver move**: the one facing an opening is the bottom (`deep`),
+  the others the cheeks (`around`). **The clearance belongs to the machining.**
+- **A source pushed further bites further, whatever its shape** (the user's decision): its
+  shoulder cuts too, with no alert. The tool stays rigid on a move, so what newly enters has no
+  clearance until the next change of shape.
+- **Stretch never touches a linked body.** It is built again from its source, at the source's new
+  place, its seats with it.
+- **A linked body has one source part**, whose shape it takes; identical parts get a body each.
+- **Each side is read without its linked bodies**, so the rule « no cycle » still holds, and **the
+  kernel says which parts share material**, before the confirmation.
+
 ## Alternatives considered
 
 - **Linking the mortise to the tenon, adjustments on the link**: the depth set again for each
@@ -146,6 +177,9 @@ undo.
   modelling.
 - **Joint types** (tenon, dowel, hinge…) as the base: too narrow. They can come later as
   generators of imprints.
+- **Keeping the contact, run back past its openings**: it kept a pushed source's shoulder out of
+  the receiver, at the price of a tool of a guessed length, a body in the source for Stretch to
+  move, and a tenon assumed.
 
 ## Trial (2026-11-23, headless)
 
@@ -173,8 +207,6 @@ receiver, moving the receiver, finding the shoulder face automatically.
 
 ## Consequences
 
-- `Sign` gains a variant: its matches in the model, the tools and the interface must each say
-  what an imprint does (about 50 mentions of the other signs outside tests).
 - `BodySource` gets its `Linked` case, and assemblies their links. No format version bump
   ([0010](0010-file-format-v1-until-release.md)).
 - **Moving an occurrence may now need the kernel**, which it never did: only when it is the source
@@ -187,6 +219,6 @@ receiver, moving the receiver, finding the shoulder face automatically.
      (built 2026-11-23; the imprint's shape does not follow yet, its links go off);
   3. « Replacer », « Séparer », « Amener l'usinage ici », broken links, ⚠ in the navigator
      (built 2026-11-23);
-  4. « Imprimer », the clearance and the run back, the imprint's shape followed (built
-     2026-11-23; a clearance around a rounded end is refused, its node's child not used yet);
-  5. the collision check in the background.
+  4. « Imprimer », the clearance, the source's shape followed (built 2026-11-23, amended above;
+     a clearance around a fully rounded end is refused);
+  5. a collision check, to decide again: a source can no longer collide with its own receiver.

@@ -23,7 +23,7 @@ use glam::{DAffine3, DVec2, DVec3};
 use skraft_kernel::Stretch;
 use skraft_kernel::profile::{self, Side};
 
-use crate::document::{Body, BodyDef, BodySource, ComponentKind, Document, Id, Part, Sign};
+use crate::document::{Body, BodyDef, BodySource, ComponentKind, Document, Id, Part};
 use crate::ops::Solver;
 use crate::{BodyProfile, Result};
 
@@ -202,10 +202,6 @@ fn leaves(p: &Part) -> Vec<Leaf> {
             return;
         }
         for b in bodies {
-            // An imprint is no material: neither welded nor welded onto.
-            if b.sign == Sign::Imprint {
-                continue;
-            }
             let placement = at * b.placement;
             path.push(b.id);
             match p.def(b.def) {

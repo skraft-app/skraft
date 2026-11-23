@@ -14,6 +14,8 @@ const DEEP: f64 = 2.0;
 /// The dialog open, on a plan of a document's editor.
 pub struct Dialog {
     pub doc: DocId,
+    /// What it will do.
+    pub plan: ImprintPlan,
     summary: String,
     into: String,
     /// Copies of a part that would show a machining with nothing in it.
@@ -35,17 +37,18 @@ fn names(doc: &Document, parts: &[skraft_model::Id]) -> String {
 }
 
 impl Dialog {
-    pub fn new(id: DocId, doc: &Document, plan: &ImprintPlan) -> Dialog {
+    pub fn new(id: DocId, doc: &Document, plan: ImprintPlan) -> Dialog {
         let units = &doc.settings().units;
         let summary = format!("{} · {}", tp!("imprint.machinings", plan.machining_count()), tp!("imprint.links", plan.link_count()));
         let partial = (!plan.partial.is_empty()).then(|| t!("imprint.partial", parts = names(doc, &plan.partial)));
         Dialog {
             doc: id,
             summary,
-            into: t!("imprint.into", parts = names(doc, &plan.receivers())),
+            into: t!("imprint.into", parts = names(doc, plan.receivers())),
             partial,
             around: units.format(0.0),
             deep: units.format(DEEP),
+            plan,
         }
     }
 

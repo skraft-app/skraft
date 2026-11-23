@@ -259,8 +259,7 @@ impl Document {
         let named = self.component(part).ok().filter(|c| c.named).map(|c| c.name.clone());
         let (group, body) = (self.fresh_id(), self.fresh_id());
         let p = self.part_mut(part)?;
-        // Its imprints stay at its root, where their links name them.
-        let (imprints, children): (Vec<Body>, Vec<Body>) = std::mem::take(&mut p.bodies).into_iter().partition(|b| b.sign == Sign::Imprint);
+        let children = std::mem::take(&mut p.bodies);
         let failed = std::mem::take(&mut p.failed);
         let mut def = BodyDef::group(group, shape.clone(), children, failed);
         if named.is_some() {
@@ -269,8 +268,7 @@ impl Document {
         p.defs.push(def);
         p.bodies.push(Body::new(body, group, Sign::Positive, DAffine3::IDENTITY));
         // Its group alone at the identity, the part is plain: its shape is the group's.
-        p.shape = (!imprints.is_empty()).then_some(shape);
-        p.bodies.extend(imprints);
+        p.shape = None;
         Ok(())
     }
 

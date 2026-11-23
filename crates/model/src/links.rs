@@ -1,7 +1,6 @@
-//! Linked bodies (docs/decisions/0055-linked-bodies-through-imprints.md): a part's imprint, a body
-//! with no effect on its own part, makes a linked body in another part. The link between them
-//! is held by an assembly holding both occurrences, by paths relative to it: a copy of that
-//! assembly keeps its links.
+//! Linked bodies (docs/decisions/0055-linked-bodies-through-imprints.md): a part imprints its final
+//! solid in another, as a linked body of that part. The link between them is held by an assembly
+//! holding both occurrences, by paths relative to it: a copy of that assembly keeps its links.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,40 +8,38 @@ use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
 use skraft_kernel::Solid;
 
-use crate::document::{Body, BodyDef, BodySource, ComponentKind, Document, Id, Part, Sign};
+use crate::document::{BodySource, ComponentKind, Document, Id};
 use crate::ops::{Outcome, Solver};
 use crate::{Error, FastMap, FastSet, Refusal, Result, Warning};
 
-/// How far (each term of the transform, mm for its translation) an imprint may lie from its
-/// seat and still sit in it.
+/// How far (each term of the transform, mm for its translation) a source may lie from its seat
+/// and still sit in it.
 const SEATED: f64 = 1e-6;
 
-/// An imprint of one occurrence seated in a linked body of another. Several links may share one
-/// body: the rails entering the legs of one definition, each by a link of its own.
+/// An occurrence seated in a linked body of another. Several links may share one body: the rails
+/// entering the legs of one definition, each by a link of its own.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Link {
     pub id: Id,
     /// The occurrences leading from the assembly holding the link to the source part.
     pub source: Vec<Id>,
-    /// The imprint: a body at the root of the source part.
-    pub imprint: Id,
     /// The occurrences leading from that assembly to the receiving part.
     pub receiver: Vec<Id>,
     /// The linked body: a body at the root of the receiving part.
     pub body: Id,
-    /// The imprint's pose in the receiver's axes when it sits in `body`. Per link: read back
-    /// from a body shared by mirrored receivers, it would give a mirrored source.
+    /// The source's axes in the receiver's when it sits in `body`. Per link: read back from a
+    /// body shared by mirrored receivers, it would give a mirrored source.
     pub seat: DAffine3,
 }
 
 /// Where a link stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkState {
-    /// The imprint lies on its seat.
+    /// The source lies on its seat.
     Seated,
-    /// Everything is there, the imprint elsewhere.
+    /// Everything is there, the source elsewhere.
     Off,
-    /// A path, the imprint or the linked body is gone.
+    /// A path or the linked body is gone.
     Broken,
 }
 
@@ -61,7 +58,7 @@ pub struct Followed {
     pub sources: Vec<LinkSource>,
 }
 
-/// A link's source: the occurrence carrying the imprint, in the assembly it lies in. Links held
+/// A link's source: the occurrence imprinting, in the assembly it lies in. Links held
 /// at different levels name the same source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct LinkSource {
@@ -94,7 +91,7 @@ impl LinkStatus {
 
 impl Document {
     /// The part `path` leads to from the assembly `assembly`, and its axes in that assembly's.
-    fn through(&self, assembly: Id, path: &[Id]) -> Result<(Id, DAffine3)> {
+    pub(crate) fn through(&self, assembly: Id, path: &[Id]) -> Result<(Id, DAffine3)> {
         if path.is_empty() {
             return Err(Error::Invalid(Refusal::BadLink));
         }
@@ -108,66 +105,45 @@ impl Document {
         Ok((at, t))
     }
 
-    /// The source part, the receiving part and the imprint's pose in the receiver's axes.
-    fn imprint_pose(&self, assembly: Id, source: &[Id], imprint: Id, receiver: &[Id]) -> Result<(Id, Id, DAffine3)> {
-        let (from, from_t) = self.through(assembly, source)?;
-        let (to, to_t) = self.through(assembly, receiver)?;
-        let b = self.part(from)?.body(imprint).filter(|b| b.sign == Sign::Imprint).ok_or(Error::Invalid(Refusal::BadLink))?;
-        Ok((from, to, to_t.inverse() * from_t * b.placement))
+    /// The source part, the receiving part and the source's axes in the receiver's.
+    pub(crate) fn link_pose(&self, assembly: Id, link: &Link) -> Result<(Id, Id, DAffine3)> {
+        let (from, from_t) = self.through(assembly, &link.source)?;
+        let (to, to_t) = self.through(assembly, &link.receiver)?;
+        Ok((from, to, to_t.inverse() * from_t))
     }
 
     /// Where `link`, held by the assembly `assembly`, stands.
     pub fn link_state(&self, assembly: Id, link: &Link) -> LinkState {
-        let Ok((_, to, pose)) = self.imprint_pose(assembly, &link.source, link.imprint, &link.receiver) else {
-            return LinkState::Broken;
-        };
-        let (Ok(q), Ok((from, _))) = (self.part(to), self.through(assembly, &link.source)) else { return LinkState::Broken };
+        let Ok((from, to, pose)) = self.link_pose(assembly, link) else { return LinkState::Broken };
+        let (Ok(p), Ok(q)) = (self.part(from), self.part(to)) else { return LinkState::Broken };
         let Some(b) = q.body(link.body).filter(|b| q.def_of(b).source == BodySource::Linked) else { return LinkState::Broken };
-        let Some(imprint) = self.part(from).ok().and_then(|p| p.body(link.imprint).map(|i| p.solid_of(i))) else {
-            return LinkState::Broken;
-        };
-        // On its seat, and the body still its shape, there (it may have been moved or the
-        // imprint changed: its shape does not follow yet).
-        if pose.abs_diff_eq(link.seat, SEATED) && same_place(imprint, &pose, q.solid_of(b), &b.placement) {
-            LinkState::Seated
-        } else {
-            LinkState::Off
-        }
+        // On its seat, the body there: made at this pose, or shared from another showing the
+        // source in the same place (a mirrored receiver).
+        let there = b.placement.abs_diff_eq(pose, SEATED) || same_place(p.shape(), &pose, p.shape(), &b.placement);
+        if pose.abs_diff_eq(link.seat, SEATED) && there { LinkState::Seated } else { LinkState::Off }
     }
 
-    /// The imprint of `link` in the axes of the assembly holding it.
-    fn imprint_place(&self, assembly: Id, link: &Link) -> Option<DAffine3> {
-        let (from, t) = self.through(assembly, &link.source).ok()?;
-        Some(t * self.part(from).ok()?.body(link.imprint)?.placement)
+    /// The source of `link` in the axes of the assembly holding it.
+    fn source_place(&self, assembly: Id, link: &Link) -> Option<DAffine3> {
+        self.through(assembly, &link.source).ok().map(|(_, t)| t)
     }
 
-    /// Does the imprint of `link`, at `pose` in the receiver's axes, still reach into the
+    /// Does the source of `link`, at `pose` in the receiver's axes, still reach into the
     /// receiver's box? Read from the record, no kernel: conservative on curved faces.
-    fn imprint_enters(&self, assembly: Id, link: &Link, pose: &DAffine3) -> bool {
-        let Ok((from, to, _)) = self.imprint_pose(assembly, &link.source, link.imprint, &link.receiver) else { return false };
+    pub(crate) fn source_enters(&self, assembly: Id, link: &Link, pose: &DAffine3) -> bool {
+        let Ok((from, to, _)) = self.link_pose(assembly, link) else { return false };
         let Some((lo, hi)) = self.component_bounds(to) else { return false };
-        let Some(solid) = self.part(from).ok().and_then(|p| p.body(link.imprint).map(|b| p.solid_of(b))) else { return false };
-        crate::imprints::reaches(solid, pose, lo, hi)
-    }
-
-    /// The solid of the imprint `link` names.
-    fn imprint_solid(&self, assembly: Id, link: &Link) -> Option<std::sync::Arc<Solid>> {
-        let (from, _) = self.through(assembly, &link.source).ok()?;
-        let p = self.part(from).ok()?;
-        Some(p.solid_of(p.body(link.imprint)?).clone())
+        self.part(from).is_ok_and(|p| crate::imprints::reaches(p.shape(), pose, lo, hi))
     }
 
     /// The linked bodies after an operation (`before` the document it was applied to): each
     /// goes with the sources that were seated in it and moved, in every copy of its part, its
-    /// links' seats with it. A receiver moved drives nothing; an imprint leaving its receiver
+    /// links' seats with it. A receiver moved drives nothing; a source leaving its receiver
     /// leaves the body; different moves asked of one body leave it where it is. Decided on
     /// transforms and on `before`'s solids alone: the same when the job is recorded and replayed.
     pub(crate) fn follow_links(&mut self, before: &Document, solver: &mut dyn Solver) -> Result<Followed> {
         let mut asks: BTreeMap<(Id, Id), Vec<DAffine3>> = BTreeMap::new();
         let mut sources = BTreeSet::new();
-        // The linked bodies whose imprint changed shape: its solid, where it now lies, and whether
-        // it moved too.
-        let mut reshaped: BTreeMap<(Id, Id), (std::sync::Arc<Solid>, DAffine3, bool)> = BTreeMap::new();
         for (id, c) in &self.components {
             let ComponentKind::Assembly(a) = &c.kind else { continue };
             if a.links().is_empty() {
@@ -177,31 +153,18 @@ impl Document {
             let old: FastMap<Id, &Link> = old.links().iter().map(|l| (l.id, l)).collect();
             for l in a.links() {
                 let Some(was) = old.get(&l.id) else { continue };
-                let Ok((_, to, pose)) = self.imprint_pose(*id, &l.source, l.imprint, &l.receiver) else { continue };
-                // Its imprint's shape changed: the same `Arc` or not, whether recorded or replayed.
-                let shape = self
-                    .imprint_solid(*id, l)
-                    .filter(|now| before.imprint_solid(*id, was).is_some_and(|old| !std::sync::Arc::ptr_eq(now, &old)));
-                let moved = !pose.abs_diff_eq(was.seat, SEATED);
-                if (!moved && shape.is_none()) || before.link_state(*id, was) != LinkState::Seated {
+                let Ok((_, to, pose)) = self.link_pose(*id, l) else { continue };
+                if pose.abs_diff_eq(l.seat, SEATED) || before.link_state(*id, was) != LinkState::Seated {
                     continue;
                 }
-                if let Some(solid) = shape
-                    && self.part(to).is_ok_and(|q| q.body(l.body).is_some())
-                {
-                    reshaped.entry((to, l.body)).or_insert((solid, pose, moved));
-                }
-                if !moved {
-                    continue;
-                }
-                let (Some(a0), Some(a1)) = (before.imprint_place(*id, was), self.imprint_place(*id, l)) else { continue };
+                let (Some(a0), Some(a1)) = (before.source_place(*id, was), self.source_place(*id, l)) else { continue };
                 if a0.abs_diff_eq(a1, SEATED) {
                     continue;
                 }
                 sources.extend(self.link_source(*id, l));
                 let there = self.part(to).is_ok_and(|q| q.body(l.body).is_some());
-                if there && before.imprint_enters(*id, was, &pose) {
-                    asks.entry((to, l.body)).or_default().push(pose * was.seat.inverse());
+                if there && before.source_enters(*id, was, &pose) {
+                    asks.entry((to, l.body)).or_default().push(pose * l.seat.inverse());
                 }
             }
         }
@@ -215,20 +178,6 @@ impl Document {
             self.place_linked_body(part, body, &moves[0])?;
             changed.insert(part);
             followed.moved.push((part, body));
-        }
-        // A new shape, unless it moved and its body could not go with it.
-        for ((part, body), (solid, pose, moved)) in reshaped {
-            if moved && !followed.moved.contains(&(part, body)) {
-                continue;
-            }
-            let q = self.part_mut(part)?;
-            let Some(b) = q.bodies.iter_mut().find(|b| b.id == body) else { continue };
-            b.placement = pose;
-            let def = b.def;
-            if let Some(d) = q.defs.iter_mut().find(|d| d.id == def) {
-                d.solid = solid;
-            }
-            changed.insert(part);
         }
         for part in changed {
             self.recompute(part, None, solver)?;
@@ -319,9 +268,8 @@ impl Document {
             let Ok(a) = self.assembly(holder) else { continue };
             for l in a.links().iter().filter(|l| self.link_source(holder, l) == Some(source)) {
                 let Some((_, above)) = l.source.split_last().and_then(|(_, up)| self.assembly_through(holder, up)) else { continue };
-                let (Ok((from, _)), Ok((_, to_t))) = (self.through(holder, &l.source), self.through(holder, &l.receiver)) else { continue };
-                let Some(imprint) = self.part(from).ok().and_then(|p| p.body(l.imprint)) else { continue };
-                out.push(above.inverse() * to_t * l.seat * imprint.placement.inverse());
+                let Ok((_, to_t)) = self.through(holder, &l.receiver) else { continue };
+                out.push(above.inverse() * to_t * l.seat);
             }
         }
         out
@@ -378,7 +326,7 @@ impl Document {
         for holder in self.link_holders() {
             let a = self.assembly(holder)?;
             for l in a.links() {
-                let Ok((_, to, pose)) = self.imprint_pose(holder, &l.source, l.imprint, &l.receiver) else { continue };
+                let Ok((_, to, pose)) = self.link_pose(holder, l) else { continue };
                 if !touched.contains(&to) {
                     continue;
                 }
@@ -412,7 +360,7 @@ impl Document {
                 if self.link_state(holder, l) != LinkState::Off {
                     continue;
                 }
-                let (_, to, pose) = self.imprint_pose(holder, &l.source, l.imprint, &l.receiver)?;
+                let (_, to, pose) = self.link_pose(holder, l)?;
                 asks.entry((to, l.body)).or_default().push(pose * l.seat.inverse());
             }
         }
@@ -503,8 +451,43 @@ impl Document {
         }
     }
 
+    /// The axes of the source part `part` changed by `axes` (what its occurrences' transforms were
+    /// multiplied by): its links' seats, and their linked bodies, kept in its axes. Nothing moves.
+    pub(crate) fn map_source_axes(&mut self, part: Id, axes: &DAffine3, solver: &mut dyn Solver) -> Result<()> {
+        let mut bodies = BTreeSet::new();
+        for id in self.link_holders() {
+            let a = self.assembly(id)?;
+            let reached: Vec<usize> =
+                (0..a.links().len()).filter(|&k| self.through(id, &a.links()[k].source).is_ok_and(|(from, _)| from == part)).collect();
+            for &k in &reached {
+                if let Ok((to, _)) = self.through(id, &a.links()[k].receiver) {
+                    bodies.insert((to, a.links()[k].body));
+                }
+            }
+            let a = self.assembly_mut(id)?;
+            for k in reached {
+                a.links_mut()[k].seat *= *axes;
+            }
+        }
+        let into = axes.inverse();
+        for (to, body) in bodies {
+            let q = self.part(to)?;
+            let Some(b) = q.body(body) else { continue };
+            let (def, solid) = (b.def, q.solid_of(b).clone());
+            let solid = solver.transform(&solid, &into)?;
+            let q = self.part_mut(to)?;
+            if let Some(d) = q.defs.iter_mut().find(|d| d.id == def) {
+                d.solid = solid;
+            }
+            if let Some(b) = q.bodies.iter_mut().find(|b| b.id == body) {
+                b.placement *= *axes;
+            }
+        }
+        Ok(())
+    }
+
     /// The assemblies holding links.
-    fn link_holders(&self) -> Vec<Id> {
+    pub(crate) fn link_holders(&self) -> Vec<Id> {
         self.components
             .iter()
             .filter(|(_, c)| matches!(&c.kind, ComponentKind::Assembly(a) if !a.links().is_empty()))
@@ -638,65 +621,6 @@ impl Document {
         self.settle_link_holders();
         Ok(())
     }
-
-    /// [`crate::Operation::AddLink`].
-    pub(crate) fn add_link(
-        &mut self,
-        (context, source, imprint, receiver): (Id, &[Id], Id, &[Id]),
-        sign: Sign,
-        onto: Option<Id>,
-        solver: &mut dyn Solver,
-    ) -> Result<Outcome> {
-        if sign == Sign::Imprint || source == receiver {
-            return Err(Error::Invalid(Refusal::BadLink));
-        }
-        let (from, to, seat) = self.imprint_pose(context, source, imprint, receiver)?;
-        let p = self.part(from)?;
-        let solid = p.body(imprint).map(|b| p.solid_of(b).clone()).ok_or(Error::NotFound(imprint))?;
-        let body = match onto {
-            Some(id) => {
-                let q = self.part(to)?;
-                let there = q.body(id).filter(|b| b.sign == sign && q.def_of(b).source == BodySource::Linked);
-                if !there.is_some_and(|b| same_place(&solid, &seat, q.solid_of(b), &b.placement)) {
-                    return Err(Error::Invalid(Refusal::BadLink));
-                }
-                id
-            }
-            None => {
-                let (def, id) = (self.fresh_id(), self.fresh_id());
-                let q = self.part_mut(to)?;
-                q.defs.push(BodyDef { source: BodySource::Linked, ..BodyDef::new(def, solid) });
-                q.bodies.push(Body::new(id, def, sign, seat));
-                self.recompute(to, Some(&[id]), solver)?;
-                id
-            }
-        };
-        let link = Link { id: self.fresh_id(), source: source.to_vec(), imprint, receiver: receiver.to_vec(), body, seat };
-        self.assembly_mut(context)?.links_mut().push(link);
-        Ok(Outcome { bodies: vec![body], ..Outcome::default() })
-    }
-
-    /// Refuses an imprint holding a linked body, in the parts changed since `before`: linked
-    /// bodies depend on imprints only, so one pass updates them, with no cycle.
-    pub(crate) fn check_imprints(&self, before: &Document) -> Result<()> {
-        for (id, c) in &self.components {
-            let ComponentKind::Part(p) = &c.kind else { continue };
-            if before.components.get(id).is_some_and(|b| std::sync::Arc::ptr_eq(b, c))
-                || !p.defs.iter().any(|d| d.source == BodySource::Linked)
-            {
-                continue;
-            }
-            if p.all_bodies().any(|b| b.sign == Sign::Imprint && holds_linked(p, b.def, 0)) {
-                return Err(Error::Invalid(Refusal::ImprintLinked));
-            }
-        }
-        Ok(())
-    }
-}
-
-fn holds_linked(p: &Part, def: Id, depth: usize) -> bool {
-    let Some(d) = p.def(def).filter(|_| depth <= crate::MAX_DEPTH) else { return false };
-    d.source == BodySource::Linked || d.children().iter().any(|c| holds_linked(p, c.def, depth + 1))
 }
 
 /// Do the solids `a` and `b`, placed, lie in the same place: their vertices the same points,

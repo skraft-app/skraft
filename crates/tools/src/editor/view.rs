@@ -546,7 +546,7 @@ impl Editor {
             // Around a node open: the bodies of the levels above, faded, each where it is.
             for (key, transform, sign) in around_node.iter().flatten() {
                 let look = match sign {
-                    skraft_model::Sign::Positive | skraft_model::Sign::Imprint => Look::Blank,
+                    skraft_model::Sign::Positive => Look::Blank,
                     skraft_model::Sign::Negative => Look::Tool,
                     skraft_model::Sign::Intersect => Look::Intersect,
                 };

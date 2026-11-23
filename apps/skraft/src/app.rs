@@ -646,18 +646,23 @@ impl SkraftApp {
         }
     }
 
-    /// « Imprimer »: its confirmation, or why there is nothing to do.
+    /// « Imprimer »: the kernel asked what the selection enters; its answer opens the
+    /// confirmation (`imprint_dialog`).
     fn ask_imprint(&mut self) {
-        let Some(d) = self.docs.active() else { return };
-        match d.editor.imprint_plan() {
-            Some(plan) if plan.link_count() > 0 => {
-                self.imprint = Some(crate::imprint::Dialog::new(d.id, d.editor.document(), &plan));
-            }
-            _ => self.toasts.push(Note::info(t!("error.model.nothing_to_imprint"))),
+        if let Some(d) = self.docs.active_mut() {
+            d.editor.ask_imprint();
         }
     }
 
     fn imprint_dialog(&mut self, ctx: &egui::Context) {
+        for d in self.docs.iter_mut() {
+            let Some(plan) = d.editor.take_imprint_plan() else { continue };
+            if plan.link_count() == 0 {
+                self.toasts.push(Note::info(t!("error.model.nothing_to_imprint")));
+            } else if self.imprint.is_none() {
+                self.imprint = Some(crate::imprint::Dialog::new(d.id, d.editor.document(), plan));
+            }
+        }
         let Some(dialog) = &mut self.imprint else { return };
         let Some(d) = self.docs.by_id_mut(dialog.doc) else {
             self.imprint = None;
@@ -668,7 +673,7 @@ impl SkraftApp {
             crate::imprint::Answer::Open => {}
             crate::imprint::Answer::Cancel => self.imprint = None,
             crate::imprint::Answer::Imprint(around, deep) => {
-                d.editor.imprint(around, deep);
+                d.editor.imprint(&dialog.plan, around, deep);
                 self.imprint = None;
             }
         }

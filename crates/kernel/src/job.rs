@@ -57,14 +57,20 @@ pub enum Task {
     },
     /// `inputs[solid]` stretched (docs/tools/stretch.md), read back by the kernel.
     Stretch { solid: u32, stretch: Stretch },
-    /// `inputs[solid]` as an imprint's tool: grown by `clearance`, from the primitive `recipe`
-    /// when it has one (docs/decisions/0055-linked-bodies-through-imprints.md).
+    /// The tool `inputs[source]`, placed by `placed` in the axes of `inputs[receiver]`, cuts in it:
+    /// the whole source, in its axes, its walls inside the receiver moved by `clearance`;
+    /// `inputs[previous]` when they no longer meet
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
     Imprint {
-        solid: u32,
+        source: u32,
+        receiver: u32,
+        placed: DAffine3,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        recipe: Option<Primitive>,
+        previous: Option<u32>,
         clearance: crate::Clearance,
     },
+    /// Do `inputs[source]`, placed by `placed`, and `inputs[receiver]` share material?
+    Contact { source: u32, receiver: u32, placed: DAffine3 },
     /// A body node (docs/decisions/0042-body-nodes-operators.md): its `children` computed from
     /// their leaves in one session, then `op` applied to the edges its names match — or, with
     /// `picks` (points in the node's axes, the tool's), to the edges nearest them, named.
@@ -168,6 +174,8 @@ pub enum Output {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         raw: Option<(Solid, crate::names::FaceMap)>,
     },
+    /// Whether two solids share material ([`Task::Contact`]).
+    Contact(bool),
     /// A STEP file read (boxed: far larger than the others).
     Step(Box<crate::StepImport>),
     /// A SketchUp file read (boxed: far larger than the others).

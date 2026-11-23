@@ -160,7 +160,7 @@ A machining is a negative body of its part ([Bodies](bodies.md)):
   (hole, groove, mortise…) generating that tool from their parameters (a proposal:
   [Procedural parts](../decisions/0007-procedural-parts.md)).
 - **Links**: each body definition has a `source` (`BodySource`): `Local`, or `Linked` to the
-  imprint of another part, by a link its assembly holds ([Links](bodies.md#links)).
+  final solid of another part, by a link its assembly holds ([Links](bodies.md#links)).
 
 ## Copies and propagation
 

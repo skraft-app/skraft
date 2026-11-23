@@ -102,26 +102,12 @@ pub enum Operation {
     /// Gives `component` new axes, `axes` going from them to the current ones (a direct rigid
     /// transform): nothing moves in the world (docs/decisions/0054-changing-a-components-axes.md).
     ChangeAxes { component: Id, axes: DAffine3 },
-    /// Links the imprint `imprint` of the part `source` leads to, from the assembly `context`, to
-    /// the part `receiver` leads to: a new linked body of `sign` there, where the imprint lies, or
-    /// (`onto`) a linked body already in that place, shared with the links it has
-    /// (docs/decisions/0055-linked-bodies-through-imprints.md). The receiver's definition changes,
-    /// every occurrence of it.
-    AddLink {
-        context: Id,
-        source: Vec<Id>,
-        imprint: Id,
-        receiver: Vec<Id>,
-        sign: Sign,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        onto: Option<Id>,
-    },
-    /// « Imprimer »: the parts the occurrences `sources` of `context` are or hold make imprints of
-    /// their bodies entering other parts (`around`, `deep`: its clearance) and link them there,
-    /// every occurrence of those parts (docs/decisions/0055-linked-bodies-through-imprints.md).
-    Imprint { context: Id, sources: Vec<Id>, around: f64, deep: f64 },
-    /// An imprint's clearance: around it, past its end, back past its shoulder.
-    SetClearance { part: Id, body: Id, around: f64, deep: f64, back: f64 },
+    /// « Imprimer »: each source of `pairs` (from `context`) cuts its final solid in its receiver,
+    /// its walls there moved by `around` (cheeks) and `deep` (bottom); the pairs are those the
+    /// kernel found sharing material (docs/decisions/0055-linked-bodies-through-imprints.md).
+    Imprint { context: Id, pairs: Vec<crate::ImprintPair>, around: f64, deep: f64 },
+    /// A linked body's clearance: on its cheeks, on its bottom.
+    SetClearance { part: Id, body: Id, around: f64, deep: f64 },
     /// « Replacer »: each source goes back on its seats, when they agree
     /// (docs/decisions/0055-linked-bodies-through-imprints.md).
     ReseatSources { sources: Vec<crate::LinkSource> },
@@ -674,8 +660,7 @@ impl Operation {
             Operation::AddBody { sign: Sign::Negative, .. } => t!("operation.add_machining"),
             Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
             Operation::AddBody { sign: Sign::Intersect, .. } => t!("operation.add_intersect"),
-            Operation::AddBody { sign: Sign::Imprint, .. } => t!("operation.add_imprint"),
-            Operation::AddLink { .. } | Operation::Imprint { .. } => t!("operation.add_link"),
+            Operation::Imprint { .. } => t!("operation.add_link"),
             Operation::SetClearance { .. } => t!("operation.set_clearance"),
             Operation::ReseatSources { .. } => t!("operation.reseat_sources"),
             Operation::SeparateReceivers { .. } => t!("operation.separate_receivers"),
@@ -695,7 +680,6 @@ impl Operation {
             Operation::SetSign { sign: Sign::Positive, .. } => t!("operation.set_sign_positive"),
             Operation::SetSign { sign: Sign::Negative, .. } => t!("operation.set_sign_negative"),
             Operation::SetSign { sign: Sign::Intersect, .. } => t!("operation.set_sign_intersect"),
-            Operation::SetSign { sign: Sign::Imprint, .. } => t!("operation.set_sign_imprint"),
             Operation::TransformBodies { .. } => t!("operation.transform"),
             Operation::DuplicateBodies { .. } => t!("operation.duplicate"),
             Operation::ArrayBodies { .. } => t!("operation.array"),
@@ -906,7 +890,6 @@ impl Document {
         doc.update_imprints(self, &mut recorder)?;
         outcome.links = doc.follow_links(self, &mut recorder)?;
         doc.drop_dead_links();
-        doc.check_imprints(self)?;
         if recorder.job.tasks.is_empty() {
             doc.settle_names(Some(self));
             doc.drop_unused_empty_assemblies();
@@ -1695,11 +1678,8 @@ impl Document {
                 self.recompute(part, Some(&[id]), solver)?;
                 Ok(Outcome { bodies: vec![id], ..Outcome::default() })
             }
-            Operation::AddLink { context, source, imprint, receiver, sign, onto } => {
-                self.add_link((*context, source, *imprint, receiver), *sign, *onto, solver)
-            }
-            Operation::Imprint { context, sources, around, deep } => self.imprint(*context, sources, *around, *deep, solver),
-            Operation::SetClearance { part, body, around, deep, back } => self.set_clearance(*part, *body, (*around, *deep, *back), solver),
+            Operation::Imprint { context, pairs, around, deep } => self.imprint(*context, pairs, *around, *deep, solver),
+            Operation::SetClearance { part, body, around, deep } => self.set_clearance(*part, *body, (*around, *deep), solver),
             Operation::ReseatSources { sources } => self.reseat_sources(sources),
             Operation::SeparateReceivers { sources } => self.separate_receivers(sources, solver),
             Operation::BringLinkedBody { source } => self.bring_linked_body(*source, solver),
@@ -1712,13 +1692,9 @@ impl Document {
                 self.component_mut(*part)?.guides.retain(|g| !guides.contains(&g.id));
                 if !bodies.is_empty() {
                     let p = self.part_mut(*part)?;
-                    let inert = p.bodies.iter().filter(|b| bodies.contains(&b.id)).all(|b| b.sign == Sign::Imprint);
                     p.bodies.retain(|b| !bodies.contains(&b.id));
                     p.drop_unused_defs();
-                    // Imprints gone: the shape as it is, unless the part is its one body again.
-                    if !inert || p.is_plain() || p.bodies.is_empty() {
-                        self.recompute(*part, None, solver)?;
-                    }
+                    self.recompute(*part, None, solver)?;
                 }
                 Ok(Outcome::default())
             }
@@ -1756,16 +1732,11 @@ impl Document {
                 }
                 // The shape as it is: the materials of its faces, by their index, still hold.
                 let shape = p.shape().clone();
-                // Its imprints are no part of the shape: they stay, for their links.
-                let imprints: Vec<Body> = p.bodies.iter().filter(|b| b.sign == Sign::Imprint).cloned().collect();
                 let (def, id) = (self.fresh_id(), self.fresh_id());
                 let p = self.part_mut(part)?;
-                let used = crate::document::used_defs(&p.defs, &imprints);
-                p.defs.retain(|d| used.contains(&d.id));
-                p.defs.push(BodyDef::new(def, shape.clone()));
-                p.shape = (!imprints.is_empty()).then_some(shape);
+                p.defs = vec![BodyDef::new(def, shape)];
                 p.bodies = vec![Body::new(id, def, Sign::Positive, DAffine3::IDENTITY)];
-                p.bodies.extend(imprints);
+                p.shape = None;
                 p.failed.clear();
                 Ok(Outcome { bodies: vec![id], ..Outcome::default() })
             }
@@ -1813,16 +1784,12 @@ impl Document {
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
                 self.move_guides(part, &guides, transform)?;
                 if !bodies.is_empty() {
-                    let mut inert = true;
                     for b in &mut self.part_mut(part)?.bodies {
                         if bodies.contains(&b.id) {
                             b.placement = *transform * b.placement;
-                            inert &= b.sign == Sign::Imprint;
                         }
                     }
-                    if !inert {
-                        self.recompute(part, None, solver)?;
-                    }
+                    self.recompute(part, None, solver)?;
                 }
                 Ok(Outcome::default())
             }
@@ -2465,14 +2432,6 @@ impl Document {
         {
             return Err(Error::Invalid(Refusal::IntersectsRegrouped));
         }
-        // An imprint sparing material: its children apart would be another shape.
-        if p.bodies
-            .iter()
-            .filter(|b| is_group(b))
-            .any(|b| b.sign == Sign::Imprint && p.def_of(b).children().iter().any(|c| c.sign == Sign::Negative))
-        {
-            return Err(Error::Invalid(Refusal::ImprintLevel));
-        }
         let mut bodies = Vec::with_capacity(p.bodies.len());
         let mut created = Vec::new();
         let mut relocated = Vec::new();
@@ -2486,8 +2445,7 @@ impl Document {
                 let id = if shared { self.fresh_id() } else { c.id };
                 // A negative group holds positives only (above): each one a machining.
                 // A negative group's or an intersection's children: each what the group was.
-                // An imprint among them stays one: it starts doing nothing else.
-                let sign = if b.sign == Sign::Positive || c.sign == Sign::Imprint { c.sign } else { b.sign };
+                let sign = if b.sign == Sign::Positive { c.sign } else { b.sign };
                 bodies.push(Body {
                     id,
                     name: c.name.clone(),
@@ -2531,15 +2489,6 @@ impl Document {
     /// (docs/model/bodies.md#empty-parts): the kernel says so.
     pub(crate) fn recompute(&mut self, part: Id, added: Option<&[Id]>, solver: &mut dyn Solver) -> Result<()> {
         let p = self.part(part)?;
-        // Only imprints added: they change nothing of the shape, nor of its faces' order.
-        if let Some(ids) = added
-            && !ids.is_empty()
-            && p.bodies.iter().filter(|b| ids.contains(&b.id)).all(|b| b.sign == Sign::Imprint)
-        {
-            let shape = p.shape().clone();
-            self.part_mut(part)?.shape = Some(shape);
-            return Ok(());
-        }
         // Before the deferred case: no kernel here, and a part without bodies needs its shape.
         if p.is_plain() || p.bodies.is_empty() {
             let empty = p.bodies.is_empty();
@@ -2553,7 +2502,7 @@ impl Document {
         }
         let placed = |b: &Body| (p.solid_of(b).clone(), b.placement);
         let is_added = |b: &Body| added.is_some_and(|ids| ids.contains(&b.id));
-        let new: Vec<&Body> = p.bodies.iter().filter(|b| is_added(b) && b.sign != Sign::Imprint).collect();
+        let new: Vec<&Body> = p.bodies.iter().filter(|b| is_added(b)).collect();
         let current = p.shape().clone();
         // The bodies each index of the task's failures names: its positives, its negatives, then
         // its intersections (docs/decisions/0045-intersection-a-third-sign.md).
@@ -2872,8 +2821,6 @@ fn group_sign(children: &mut [Body]) -> Sign {
         Sign::Negative
     } else if alone(Sign::Intersect) {
         Sign::Intersect
-    } else if alone(Sign::Imprint) {
-        Sign::Imprint
     } else {
         Sign::Positive
     };
@@ -2886,8 +2833,6 @@ fn group_sign(children: &mut [Body]) -> Sign {
 fn tree(defs: &[BodyDef], children: &[Body], leaves: &mut Vec<Arc<Solid>>) -> Result<Vec<TreeBody>> {
     children
         .iter()
-        // An imprint takes no part in its level's result.
-        .filter(|b| b.sign != Sign::Imprint)
         .map(|b| {
             let d = defs.iter().find(|d| d.id == b.def).ok_or(Error::NotFound(b.def))?;
             let node = match &d.group {
@@ -3014,8 +2959,16 @@ pub(crate) trait Solver {
     fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>>;
     /// `solid` moved by the rigid `transform`, its faces in the same order.
     fn transform(&mut self, solid: &Arc<Solid>, transform: &DAffine3) -> Result<Arc<Solid>>;
-    /// `solid`, built from `recipe` if it has one, as an imprint's tool ([`Task::Imprint`]).
-    fn imprint(&mut self, solid: &Arc<Solid>, recipe: Option<&Primitive>, clearance: &skraft_kernel::Clearance) -> Result<Arc<Solid>>;
+    /// The tool `source`, placed by `placed` in `receiver`'s axes, cuts in it, in the axes `frame`
+    /// takes them to; `previous` when they no longer meet ([`Task::Imprint`]).
+    fn imprint(
+        &mut self,
+        source: &Arc<Solid>,
+        receiver: &Arc<Solid>,
+        placed: &DAffine3,
+        previous: Option<&Arc<Solid>>,
+        clearance: &skraft_kernel::Clearance,
+    ) -> Result<Arc<Solid>>;
     /// A body node: `children` (their leaves `leaves[i]`) computed, then `op` ([`Task::Node`]).
     fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome>;
 }
@@ -3023,7 +2976,7 @@ pub(crate) trait Solver {
 /// Records the calls into a job and answers with stand-ins (the operation only stores them,
 /// or hands them to a later call: they then name that task's output, [`EARLIER`]).
 #[derive(Default)]
-struct Recorder {
+pub(crate) struct Recorder {
     job: Job,
     /// Inputs already in the job, and the stand-ins handed out (as `EARLIER | task`), by
     /// `Arc` address.
@@ -3033,6 +2986,19 @@ struct Recorder {
 }
 
 impl Recorder {
+    /// Asks whether `source`, placed by `placed`, and `receiver` share material: the index of
+    /// the task answering ([`Task::Contact`]).
+    pub(crate) fn contact(&mut self, source: &Arc<Solid>, receiver: &Arc<Solid>, placed: DAffine3) -> usize {
+        let (source, receiver) = (self.input(source), self.input(receiver));
+        self.job.tasks.push(Task::Contact { source, receiver, placed });
+        self.job.tasks.len() - 1
+    }
+
+    /// The job recorded.
+    pub(crate) fn into_job(self) -> Job {
+        self.job
+    }
+
     fn input(&mut self, s: &Arc<Solid>) -> u32 {
         *self.inputs.entry(Arc::as_ptr(s)).or_insert_with(|| {
             self.job.inputs.push(s.clone());
@@ -3095,9 +3061,17 @@ impl Solver for Recorder {
         self.task(Task::Transform { solid, transform: *transform })
     }
 
-    fn imprint(&mut self, solid: &Arc<Solid>, recipe: Option<&Primitive>, clearance: &skraft_kernel::Clearance) -> Result<Arc<Solid>> {
-        let solid = self.input(solid);
-        self.task(Task::Imprint { solid, recipe: recipe.cloned(), clearance: *clearance })
+    fn imprint(
+        &mut self,
+        source: &Arc<Solid>,
+        receiver: &Arc<Solid>,
+        placed: &DAffine3,
+        previous: Option<&Arc<Solid>>,
+        clearance: &skraft_kernel::Clearance,
+    ) -> Result<Arc<Solid>> {
+        let (source, receiver) = (self.input(source), self.input(receiver));
+        let previous = previous.map(|p| self.input(p));
+        self.task(Task::Imprint { source, receiver, placed: *placed, previous, clearance: *clearance })
     }
 
     fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome> {
@@ -3179,7 +3153,14 @@ impl Solver for Replayer {
         self.next()
     }
 
-    fn imprint(&mut self, _: &Arc<Solid>, _: Option<&Primitive>, _: &skraft_kernel::Clearance) -> Result<Arc<Solid>> {
+    fn imprint(
+        &mut self,
+        _: &Arc<Solid>,
+        _: &Arc<Solid>,
+        _: &DAffine3,
+        _: Option<&Arc<Solid>>,
+        _: &skraft_kernel::Clearance,
+    ) -> Result<Arc<Solid>> {
         self.next()
     }
 

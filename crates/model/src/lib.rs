@@ -57,7 +57,7 @@ pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
 pub use history::History;
 pub use import::ImportReport;
-pub use imprints::{ImprintPlan, ImprintRecipe};
+pub use imprints::{ImprintPair, ImprintPlan, ImprintProbe, ImprintRecipe};
 pub use links::{Followed, Link, LinkSource, LinkState, LinkStatus};
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, NodeRaw, Operation, Outcome, Prepared, RawAsk, Scope, Warning};
 pub use profile::BodyProfile;
@@ -178,20 +178,14 @@ pub enum Refusal {
     SplitView,
     /// An instance turned, exploded over what has no rotation of its own.
     TurnedInstance,
-    /// A link needs an imprint at the root of its part, another occurrence, a sign that acts, and
-    /// (onto a linked body) that body in the same place
+    /// A link needs a path to each of its parts
     /// (docs/decisions/0055-linked-bodies-through-imprints.md).
     BadLink,
-    /// An imprint holding a linked body: linked bodies depend on imprints alone.
-    ImprintLinked,
-    /// A body moved into or out of an imprint, or an imprint sparing material exploded.
-    ImprintLevel,
     /// A source's links ask one linked body for two places.
     LinkConflict,
     /// « Imprimer » with no body reaching into another part.
     NothingToImprint,
-    /// A clearance not finite, run back by a negative length, or on a body that is no imprint
-    /// made of another.
+    /// A clearance not finite, or on a body that is not imprinted by a source seated in it.
     BadClearance,
 }
 
@@ -310,8 +304,6 @@ impl std::fmt::Display for Refusal {
             Refusal::UngroupNegative => t!("error.model.ungroup_negative"),
             Refusal::IntersectsRegrouped => t!("error.model.intersects_regrouped"),
             Refusal::BadLink => t!("error.model.bad_link"),
-            Refusal::ImprintLinked => t!("error.model.imprint_linked"),
-            Refusal::ImprintLevel => t!("error.model.imprint_level"),
             Refusal::LinkConflict => t!("error.model.link_conflict"),
             Refusal::NothingToImprint => t!("error.model.nothing_to_imprint"),
             Refusal::BadClearance => t!("error.model.bad_clearance"),

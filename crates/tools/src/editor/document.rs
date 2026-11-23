@@ -264,6 +264,8 @@ impl Editor {
         for (id, result) in results {
             if let Some(name) = self.importing.remove(&id) {
                 self.imported(&name, result);
+            } else if self.imprint_ask.as_ref().is_some_and(|a| a.job == id) {
+                self.imprint_answered(result);
             } else if let Some(probe) = self.probes.remove(&id) {
                 self.probe_report.push(match (probe, &result) {
                     (Probe::Crash, Err(e)) => t!("status.debug.crashed", error = e),
@@ -504,7 +506,7 @@ impl Editor {
 
     /// Are meshes asked of the kernel still on their way (or meshes missing, not asked yet)?
     pub fn meshing(&self) -> bool {
-        !self.meshing.is_empty() || self.scene.has_missing() || self.node_raw_job.is_some()
+        !self.meshing.is_empty() || self.scene.has_missing() || self.node_raw_job.is_some() || self.imprint_ask.is_some()
     }
 
     /// Asks the kernel for the meshes the scene lacks, one job per solid. During a load, a

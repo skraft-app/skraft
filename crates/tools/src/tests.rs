@@ -7824,12 +7824,13 @@ fn the_move_tool_carries_a_linked_body_in_one_step() {
         target: EntityPath::root(rail),
         primitive,
         placement: glam::DAffine3::IDENTITY,
-        sign: Sign::Imprint,
+        sign: Sign::Positive,
         scope: Scope::All,
     };
-    let imprint = e.apply(add).unwrap().unwrap().bodies[0];
-    let link = Operation::AddLink { context: root, source: vec![rail], imprint, receiver: vec![leg], sign: Sign::Negative, onto: None };
-    let body = e.apply(link).unwrap().unwrap().bodies[0];
+    e.apply(add).unwrap().unwrap();
+    let pairs = vec![skraft_model::ImprintPair { source: vec![rail], receiver: vec![leg] }];
+    e.apply(Operation::Imprint { context: root, pairs, around: 0.0, deep: 0.0 }).unwrap().unwrap();
+    let body = e.document().root_assembly().links()[0].body;
     let mortise = |e: &Editor| {
         let (_, p, _) = e.document().resolve_part(&EntityPath::root(leg)).unwrap();
         (p.body(body).unwrap().placement.translation, p.shape().volume().unwrap())
@@ -7855,7 +7856,7 @@ fn the_move_tool_carries_a_linked_body_in_one_step() {
     assert!(close(mortise(&e).0, before), "one undo takes the rail and its mortise");
 }
 
-/// Two legs of one part, a rail in each, an imprint linking each to its leg's one mortise:
+/// Two legs of one part, a rail with its tenon in each, each linked to its leg's one mortise:
 /// `(rails, legs)`.
 fn linked_pair(e: &mut Editor) -> ([Id; 2], [Id; 2]) {
     use skraft_model::{Scope, Sign};
@@ -7883,20 +7884,13 @@ fn linked_pair(e: &mut Editor) -> ([Id; 2], [Id; 2]) {
         target: EntityPath::root(rail),
         primitive,
         placement: glam::DAffine3::IDENTITY,
-        sign: Sign::Imprint,
+        sign: Sign::Positive,
         scope: Scope::All,
     };
-    let imprint = e.apply(add).unwrap().unwrap().bodies[0];
-    let link = |source, receiver, onto| Operation::AddLink {
-        context: root,
-        source: vec![source],
-        imprint,
-        receiver: vec![receiver],
-        sign: Sign::Negative,
-        onto,
-    };
-    let body = e.apply(link(rail, leg, None)).unwrap().unwrap().bodies[0];
-    e.apply(link(rail2, leg2, Some(body))).unwrap().unwrap();
+    e.apply(add).unwrap().unwrap();
+    let pair = |source, receiver| skraft_model::ImprintPair { source: vec![source], receiver: vec![receiver] };
+    let pairs = vec![pair(rail, leg), pair(rail2, leg2)];
+    e.apply(Operation::Imprint { context: root, pairs, around: 0.0, deep: 0.0 }).unwrap().unwrap();
     e.take_notices();
     ([rail, rail2], [leg, leg2])
 }
@@ -7994,9 +7988,10 @@ fn imprinting_the_selection_cuts_the_mortise_and_says_so() {
 
     e.select(vec![rail]);
     assert!(e.can_imprint());
-    let plan = e.imprint_plan().unwrap();
+    e.ask_imprint();
+    let plan = e.take_imprint_plan().unwrap();
     assert_eq!((plan.machining_count(), plan.link_count()), (1, 1));
-    e.imprint(0.1, 2.0);
+    e.imprint(&plan, 0.1, 2.0);
     assert!(!e.busy());
     let notices = e.take_notices();
     assert_eq!((notices.len(), notices[0].kind), (1, NoticeKind::Success));
@@ -8004,7 +7999,8 @@ fn imprinting_the_selection_cuts_the_mortise_and_says_so() {
     let expected = 40.0 * 40.0 * 100.0 - 12.0 * 10.2 * 10.2;
     assert!((p.shape().volume().unwrap() - expected).abs() < 1e-3);
     assert!(e.link_status().off.is_empty());
-    assert_eq!(e.imprint_plan().unwrap().link_count(), 0, "done");
+    e.ask_imprint();
+    assert_eq!(e.take_imprint_plan().unwrap().link_count(), 0, "done");
 }
 
 #[test]

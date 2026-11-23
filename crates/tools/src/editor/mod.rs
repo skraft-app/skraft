@@ -89,6 +89,9 @@ pub struct Editor {
     link_status: skraft_model::LinkStatus,
     /// What the last toast about linked bodies offers.
     link_offer: Option<links::LinkOffer>,
+    /// « Imprimer » waiting for the kernel's answer, and its plan once answered.
+    imprint_ask: Option<links::ImprintAsk>,
+    imprint_ready: Option<skraft_model::ImprintPlan>,
     history: History,
     kernel: Box<dyn KernelService>,
     next_job: JobId,
@@ -267,6 +270,8 @@ impl Editor {
         let mut e = Editor {
             link_status: doc.link_status(),
             link_offer: None,
+            imprint_ask: None,
+            imprint_ready: None,
             history: History::new(doc),
             kernel,
             next_job: 1,

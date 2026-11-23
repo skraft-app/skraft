@@ -765,11 +765,9 @@ panel:
     role_positive: "Blank"
     role_negative: "Machining"
     role_intersect: "Intersection"
-    role_imprint: "Imprint"
-    # An imprint's clearance (decision 0055).
+    # A linked machining's clearance (decision 0055).
     imprint_around: "Clearance"
     imprint_deep: "End gap"
-    imprint_back: "Run-back"
     state: "State"
     failed: "could not be computed, needs fixing"
     copies: "Copies"
@@ -906,7 +904,6 @@ panel:
     sign_positive: "Blank: adds material to the part. Click to make it a machining"
     sign_negative: "Machining: removes material from the part. Click to make it an intersection"
     sign_intersect: "Intersection: the part keeps only what lies inside it. Click to make it a blank"
-    sign_imprint: "Imprint: no effect on its part, it shapes the parts linked to it"
 
 toast:
   drop_hint: "Drop to open or import"
@@ -1487,13 +1484,11 @@ operation:
   add_body: "Blank"
   # An intersection (an intersect body) added: it limits its part (decision 0045).
   add_intersect: "Intersection"
-  # An imprint added, a link made from it to another part (decision 0055).
-  add_imprint: "Imprint"
+  # A part imprinted in another, by a link (decision 0055).
   add_link: "Imprint"
   set_sign_positive: "Change to Blank"
   set_sign_negative: "Change to Machining"
   set_sign_intersect: "Change to Intersection"
-  set_sign_imprint: "Change to Imprint"
   # What is done on linked bodies (decision 0055).
   reseat_sources: "Put Back"
   separate_receivers: "Separate"
@@ -1680,12 +1675,10 @@ error:
     # Grouping several intersections, or ungrouping an intersection group of several bodies: the shape would change.
     intersects_regrouped: "intersections are not grouped or exploded together: each one limits the part, the shape would change"
     # Linked bodies (decision 0055).
-    bad_link: "impossible link: it takes an imprint at the root of its part, another instance and a machining in the same place"
-    imprint_linked: "an imprint cannot hold a linked body"
-    imprint_level: "a body does not move into or out of an imprint"
+    bad_link: "impossible link: it joins two placed parts"
     link_conflict: "its links ask for two different places for one machining"
     nothing_to_imprint: "no body of this selection enters another part"
-    bad_clearance: "invalid imprint setting"
+    bad_clearance: "invalid clearance"
     not_at_path: "only an operation on instances applies at depth"
     turned_across: "a turned body only stretches along its axis, without cutting an arc of its profile"
     bad_guide: "guide without a direction or a radius"

@@ -466,9 +466,6 @@ pub enum Sign {
     Positive,
     Negative,
     Intersect,
-    /// An imprint: nothing in its own part's shape nor cut list, at any level; what it shapes
-    /// is the parts linked to it (docs/decisions/0055-linked-bodies-through-imprints.md).
-    Imprint,
 }
 
 /// The shape of bodies of a part (docs/model/bodies.md): `solid`, in its own axes — a body's. A leaf holds its
@@ -504,7 +501,7 @@ pub struct BodyDef {
     pub kept_faces: skraft_kernel::names::FaceMap,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub kept_faces_of: u64,
-    /// An imprint made of a body of its part, which it follows
+    /// A linked body made by « Imprimer », from its source's final solid
     /// (docs/decisions/0055-linked-bodies-through-imprints.md): its solid is then a cache.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imprint: Option<crate::ImprintRecipe>,
@@ -1841,10 +1838,6 @@ impl Document {
                         b.def = defs.get(&b.def).copied().unwrap_or(b.def);
                     }
                     p.failed = p.failed.iter().filter_map(|id| bodies.get(id).copied()).collect();
-                    // An imprint follows its body under its new id.
-                    for d in &mut p.defs {
-                        d.imprint = d.imprint.take().and_then(|r| Some(crate::ImprintRecipe { of: *bodies.get(&r.of)?, ..r }));
-                    }
                     for g in p.defs.iter_mut().filter_map(|d| d.group.as_mut()) {
                         let mut own: HashMap<Id, Id> = HashMap::new();
                         for b in &mut g.children {
@@ -1894,10 +1887,11 @@ impl Document {
                 let copied = (|| {
                     let (source, from) = walk(self, &l.source)?;
                     let (receiver, to) = walk(self, &l.receiver)?;
-                    Some((source, body(self, from, l.imprint)?, receiver, body(self, to, l.body)?))
+                    self.part(from).ok()?;
+                    Some((source, receiver, body(self, to, l.body)?))
                 })();
-                if let Some((source, imprint, receiver, linked)) = copied {
-                    links.push(crate::Link { id: self.fresh_id(), source, imprint, receiver, body: linked, seat: l.seat });
+                if let Some((source, receiver, linked)) = copied {
+                    links.push(crate::Link { id: self.fresh_id(), source, receiver, body: linked, seat: l.seat });
                 }
             }
             self.assembly_mut(components[old])?.links = links;

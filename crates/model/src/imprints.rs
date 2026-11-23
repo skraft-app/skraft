@@ -1,24 +1,79 @@
-//! « Imprimer » (docs/decisions/0055-linked-bodies-through-imprints.md): the parts chosen make
-//! imprints of the bodies that enter other parts — the tenon grown by a clearance, deeper, run
-//! back past its shoulder — and link them to those parts. An imprint made of a body follows it.
+//! « Imprimer » (docs/decisions/0055-linked-bodies-through-imprints.md): the parts chosen cut their
+//! **final solid** in the parts it enters, however it was built. The tool is that whole solid, its
+//! walls inside the receiver moved by a clearance, computed by the kernel; a linked body of the
+//! receiver holds it. Both sides are read without their own linked bodies: a mortise is never part
+//! of what makes a tool, so parts may imprint each other with no cycle.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
-use skraft_kernel::{Clearance, Solid, Stretch};
+use skraft_kernel::{Clearance, Job, Output, Solid, Stretch};
 
 use crate::document::{Body, BodyDef, BodySource, ComponentKind, Document, Id, MAX_DEPTH, Part, Sign};
-use crate::links::{Link, same_place};
-use crate::ops::{Outcome, Solver};
-use crate::{Error, FastMap, FastSet, Refusal, Result};
+use crate::links::{Link, LinkState, same_place};
+use crate::ops::{Operation, Outcome, Recorder, Solver};
+use crate::{Error, FastSet, Refusal, Result};
 
-/// How an imprint is made of the body `of` of its part: it follows that body's place and shape.
+/// How far two poses may differ and be one.
+const SAME: f64 = 1e-6;
+
+/// How a linked body differs from its source, inside the receiver.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImprintRecipe {
-    pub of: Id,
     pub clearance: Clearance,
+}
+
+/// A source and a part it enters, by their occurrences from the assembly imprinting.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImprintPair {
+    pub source: Vec<Id>,
+    pub receiver: Vec<Id>,
+}
+
+/// The kernel's question before « Imprimer »: which of these pairs share material? Boxes say which
+/// may; only the solids can say which do.
+#[derive(Clone, Debug)]
+pub struct ImprintProbe {
+    context: Id,
+    /// What to run; nothing to ask when it holds no task.
+    pub job: Job,
+    /// Each pair, and the task answering for it (pairs placed alike share one).
+    tests: Vec<(ImprintPair, usize)>,
+}
+
+/// What « Imprimer » would do, for its confirmation.
+#[derive(Clone, Debug)]
+pub struct ImprintPlan {
+    context: Id,
+    pairs: Vec<ImprintPair>,
+    machinings: usize,
+    receivers: Vec<Id>,
+    /// The receiving parts with a machining that some of their copies have no source for.
+    pub partial: Vec<Id>,
+}
+
+impl ImprintPlan {
+    /// How many links it makes.
+    pub fn link_count(&self) -> usize {
+        self.pairs.len()
+    }
+
+    /// How many machinings it adds to the receiving parts.
+    pub fn machining_count(&self) -> usize {
+        self.machinings
+    }
+
+    /// The parts receiving a machining.
+    pub fn receivers(&self) -> &[Id] {
+        &self.receivers
+    }
+
+    /// The operation doing it, with this clearance on the cheeks and on the bottom.
+    pub fn operation(&self, around: f64, deep: f64) -> Operation {
+        Operation::Imprint { context: self.context, pairs: self.pairs.clone(), around, deep }
+    }
 }
 
 /// A part placed under the assembly a plan looks in.
@@ -30,56 +85,30 @@ struct Placed {
     world: Option<(DVec3, DVec3)>,
 }
 
-/// One link « Imprimer » would make.
-#[derive(Clone, Debug)]
-struct PlannedLink {
-    source: Vec<Id>,
-    part: Id,
-    /// The imprint, or (`exists` false) the body to make one of.
-    body: Id,
-    exists: bool,
-    receiver: Vec<Id>,
+/// A pair, with its parts and the source's axes in the receiver's.
+struct Resolved {
+    pair: ImprintPair,
+    from: Id,
+    to: Id,
     pose: DAffine3,
-    slot: usize,
 }
 
-/// One machining of a receiving part: the links sharing it.
-#[derive(Clone, Debug)]
+/// A link seated: its parts, the source's axes in the receiver's.
+struct Live {
+    from: Id,
+    to: Id,
+    pose: DAffine3,
+    body: Id,
+}
+
+/// One machining of a receiver: the pairs sharing it.
 struct Slot {
     to: Id,
-    solid: Arc<Solid>,
-    pose: DAffine3,
-    /// Which way its imprint enters, in the receiver's axes.
-    axis: Option<DVec3>,
+    /// The pair it was first seen for.
+    first: usize,
     /// A linked body already there.
     body: Option<Id>,
     reached: BTreeSet<Vec<Id>>,
-}
-
-/// What « Imprimer » would do, for its confirmation.
-#[derive(Clone, Debug, Default)]
-pub struct ImprintPlan {
-    links: Vec<PlannedLink>,
-    slots: Vec<Slot>,
-    /// The receiving parts with a machining that some of their copies have no source for.
-    pub partial: Vec<Id>,
-}
-
-impl ImprintPlan {
-    /// How many links it makes.
-    pub fn link_count(&self) -> usize {
-        self.links.len()
-    }
-
-    /// How many machinings it adds to the receiving parts.
-    pub fn machining_count(&self) -> usize {
-        self.slots.iter().filter(|s| s.body.is_none()).count()
-    }
-
-    /// The parts receiving a machining.
-    pub fn receivers(&self) -> Vec<Id> {
-        self.slots.iter().map(|s| s.to).collect::<BTreeSet<_>>().into_iter().collect()
-    }
 }
 
 /// Does `solid`, at `pose`, reach strictly into the box `lo..hi`? From the record, no kernel:
@@ -106,56 +135,13 @@ fn boxes_meet(a: &(DVec3, DVec3), b: &(DVec3, DVec3)) -> bool {
     (0..3).all(|k| a.0[k] < b.1[k] && a.1[k] > b.0[k])
 }
 
-/// From the face where `b` joins the rest of its part towards its other end, in `b`'s axes:
-/// the face it shares most with another positive body. None when it touches none.
-pub(crate) fn shoulder_axis(p: &Part, b: &Body) -> Option<DVec3> {
-    const ON: f64 = 1e-6;
-    let solid = p.solid_of(b);
-    let points = &solid.record().vertices;
-    if points.is_empty() {
-        return None;
-    }
-    let centre = points.iter().fold(DVec3::ZERO, |c, v| c + DVec3::from_array(v.point)) / points.len() as f64;
-    let faces = solid.planar_faces();
-    let mut best: Option<(f64, DVec3)> = None;
-    for o in p.positives().filter(|o| o.id != b.id) {
-        let t = b.placement.inverse() * o.placement;
-        for other in p.solid_of(o).planar_faces() {
-            let normal = t.transform_vector3(other.plane.normal);
-            let at = t.transform_point3(other.plane.point);
-            let there: Vec<DVec3> = other.vertices.iter().map(|v| t.transform_point3(*v)).collect();
-            for f in &faces {
-                if f.plane.normal.dot(normal).abs() < 1.0 - 1e-9 || (at - f.plane.point).dot(f.plane.normal).abs() > ON {
-                    continue;
-                }
-                let bound = |list: &[DVec3]| list.iter().fold((DVec3::INFINITY, DVec3::NEG_INFINITY), |(a, c), v| (a.min(*v), c.max(*v)));
-                let (a, c) = (bound(&f.vertices), bound(&there));
-                let d = a.1.min(c.1) - a.0.max(c.0);
-                if d.min_element() < -ON {
-                    continue;
-                }
-                // The two largest extents of what they share, in a plane.
-                let area = d.x * d.y + d.y * d.z + d.z * d.x;
-                if area > ON && best.is_none_or(|(most, _)| area > most) {
-                    let mid = f.vertices.iter().fold(DVec3::ZERO, |m, v| m + *v) / f.vertices.len().max(1) as f64;
-                    let outward = if (mid - centre).dot(f.plane.normal) >= 0.0 { f.plane.normal } else { -f.plane.normal };
-                    best = Some((area, -outward));
-                }
-            }
-        }
-    }
-    best.map(|(_, axis)| axis.normalize())
-}
-
-/// The clearance of an imprint of `b`: run back by its own length from its shoulder; without a
-/// shoulder, around it alone.
-fn clearance_of(p: &Part, b: &Body, around: f64, deep: f64) -> Clearance {
-    let axis = shoulder_axis(p, b);
-    let back = axis
-        .and_then(|a| Stretch::new(a, Vec::new(), vec![0.0]).ok())
-        .and_then(|s| s.extent(p.solid_of(b)))
-        .map_or(0.0, |(lo, hi)| hi - lo);
-    Clearance { axis, around, deep: if axis.is_some() { deep } else { 0.0 }, back }
+/// What a part's tools are made of, to tell whether it changed: its bodies but its linked ones.
+fn own_bodies(p: &Part) -> Vec<(Id, Sign, DAffine3, *const Solid)> {
+    p.bodies
+        .iter()
+        .filter(|b| p.def_of(b).source != BodySource::Linked)
+        .map(|b| (b.id, b.sign, b.placement, Arc::as_ptr(p.solid_of(b))))
+        .collect()
 }
 
 impl Document {
@@ -197,11 +183,32 @@ impl Document {
         }
     }
 
-    /// What « Imprimer » would do for the occurrences `selected` of `context`: every occurrence
-    /// of the parts they are or hold is a source. Its imprints if it has some, else its bodies
-    /// that reach into another part, each linked to the parts it reaches. Shared machinings:
-    /// the same place in copies of one part is one body.
-    pub fn imprint_plan(&self, context: Id, selected: &[Id]) -> Result<ImprintPlan> {
+    /// The solid of `part` without its linked bodies: what it is by itself.
+    fn own_solid(&self, part: Id, cache: &mut BTreeMap<Id, Arc<Solid>>, solver: &mut dyn Solver) -> Result<Arc<Solid>> {
+        if let Some(s) = cache.get(&part) {
+            return Ok(s.clone());
+        }
+        let p = self.part(part)?;
+        let solid = if p.bodies.iter().any(|b| p.def_of(b).source == BodySource::Linked) {
+            let list = |sign: Sign| -> Vec<(Arc<Solid>, DAffine3)> {
+                p.bodies
+                    .iter()
+                    .filter(|b| b.sign == sign && p.def_of(b).source != BodySource::Linked)
+                    .map(|b| (p.solid_of(b).clone(), b.placement))
+                    .collect()
+            };
+            solver.recipe(None, &list(Sign::Positive), &list(Sign::Negative), &list(Sign::Intersect))?.0
+        } else {
+            p.shape().clone()
+        };
+        cache.insert(part, solid.clone());
+        Ok(solid)
+    }
+
+    /// The kernel's question before « Imprimer », for the occurrences `selected` of `context`:
+    /// every occurrence of the parts they are or hold is a source, against every other part
+    /// whose box it meets and it is not linked to yet.
+    pub fn imprint_probe(&self, context: Id, selected: &[Id]) -> Result<ImprintProbe> {
         let a = self.assembly(context)?;
         let mut chosen = BTreeSet::new();
         for id in selected {
@@ -209,235 +216,300 @@ impl Document {
             self.parts_in(o.component, &mut chosen, 0);
         }
         let placed = self.placed_under(context);
-        // What is linked already: not linked again.
-        let mut linked: FastSet<(Id, Id, Id)> = FastSet::default();
+        let mut linked: FastSet<(Id, Id)> = FastSet::default();
         // The model's own links too: `components()` leaves it out.
         for c in self.components.values() {
             if let ComponentKind::Assembly(h) = &c.kind {
                 for l in h.links() {
                     if let (Some(s), Some(r)) = (l.source.last(), l.receiver.last()) {
-                        linked.insert((*s, l.imprint, *r));
+                        linked.insert((*s, *r));
                     }
                 }
             }
         }
-        let mut axes: FastMap<(Id, Id), Option<DVec3>> = FastMap::default();
-        let mut plan = ImprintPlan::default();
+        let mut recorder = Recorder::default();
+        let mut own = BTreeMap::new();
+        let mut asked: Vec<(Id, Id, DAffine3, usize)> = Vec::new();
+        let mut tests = Vec::new();
         for s in placed.iter().filter(|s| chosen.contains(&s.part)) {
-            let p = self.part(s.part)?;
-            let imprints: Vec<&Body> = p.bodies.iter().filter(|b| b.sign == Sign::Imprint).collect();
-            let exists = !imprints.is_empty();
-            let bodies: Vec<&Body> =
-                if exists { imprints } else { p.positives().filter(|b| p.def_of(b).source == BodySource::Local).collect() };
-            for b in bodies {
-                let solid = p.solid_of(b);
-                let Some(extent) = solid_box(solid) else { continue };
-                let body_box = placed_box(&(s.t * b.placement), extent);
-                let axis = *axes.entry((s.part, b.id)).or_insert_with(|| match (exists, &p.def_of(b).imprint) {
-                    (true, Some(r)) => r.clearance.axis,
-                    (true, None) => None,
-                    (false, _) => shoulder_axis(p, b),
-                });
-                for r in &placed {
-                    if r.path == s.path || !r.world.as_ref().is_some_and(|w| boxes_meet(&body_box, w)) {
-                        continue;
-                    }
-                    let Some((lo, hi)) = self.component_bounds(r.part) else { continue };
-                    let pose = r.t.inverse() * s.t * b.placement;
-                    if !reaches(solid, &pose, lo, hi) {
-                        continue;
-                    }
-                    if exists && linked.contains(&(*s.path.last().expect("a path"), b.id, *r.path.last().expect("a path"))) {
-                        continue;
-                    }
-                    let along = axis.map(|x| pose.transform_vector3(x));
-                    let same_way = |o: Option<DVec3>| match (o, along) {
-                        (Some(x), Some(y)) => x.distance(y) < 1e-6,
-                        (None, None) => true,
-                        _ => false,
-                    };
-                    let slot = plan
-                        .slots
-                        .iter()
-                        .position(|sl| sl.to == r.part && same_way(sl.axis) && same_place(solid, &pose, &sl.solid, &sl.pose))
-                        .unwrap_or_else(|| {
-                            // An imprint already there may have its body in this place.
-                            let q = self.part(r.part).ok();
-                            let body = q.filter(|_| exists).and_then(|q| {
-                                q.negatives()
-                                    .find(|x| {
-                                        q.def_of(x).source == BodySource::Linked && same_place(solid, &pose, q.solid_of(x), &x.placement)
-                                    })
-                                    .map(|x| x.id)
-                            });
-                            plan.slots.push(Slot { to: r.part, solid: solid.clone(), pose, axis: along, body, reached: BTreeSet::new() });
-                            plan.slots.len() - 1
-                        });
-                    plan.slots[slot].reached.insert(r.path.clone());
-                    plan.links.push(PlannedLink {
-                        source: s.path.clone(),
-                        part: s.part,
-                        body: b.id,
-                        exists,
-                        receiver: r.path.clone(),
-                        pose,
-                        slot,
-                    });
+            let Some(from) = &s.world else { continue };
+            for r in &placed {
+                // A part does not cut its own copies.
+                if r.part == s.part || !r.world.as_ref().is_some_and(|w| boxes_meet(from, w)) {
+                    continue;
                 }
+                let (Some(si), Some(ri)) = (s.path.last(), r.path.last()) else { continue };
+                if linked.contains(&(*si, *ri)) {
+                    continue;
+                }
+                let pose = r.t.inverse() * s.t;
+                let known = asked.iter().find(|(f, t, p, _)| *f == s.part && *t == r.part && p.abs_diff_eq(pose, SAME)).map(|a| a.3);
+                let task = match known {
+                    Some(task) => task,
+                    None => {
+                        let source = self.own_solid(s.part, &mut own, &mut recorder)?;
+                        let receiver = self.own_solid(r.part, &mut own, &mut recorder)?;
+                        let task = recorder.contact(&source, &receiver, pose);
+                        asked.push((s.part, r.part, pose, task));
+                        task
+                    }
+                };
+                tests.push((ImprintPair { source: s.path.clone(), receiver: r.path.clone() }, task));
             }
         }
-        let partial: BTreeSet<Id> =
-            plan.slots.iter().filter(|sl| placed.iter().filter(|x| x.part == sl.to).count() > sl.reached.len()).map(|sl| sl.to).collect();
-        plan.partial = partial.into_iter().collect();
-        Ok(plan)
+        Ok(ImprintProbe { context, job: recorder.into_job(), tests })
     }
 
-    /// [`crate::Operation::Imprint`].
-    pub(crate) fn imprint(&mut self, context: Id, sources: &[Id], around: f64, deep: f64, solver: &mut dyn Solver) -> Result<Outcome> {
-        if !around.is_finite() || !deep.is_finite() {
+    /// What « Imprimer » would do, from the kernel's `outputs` for `probe`.
+    pub fn imprint_plan(&self, probe: &ImprintProbe, outputs: &[Output]) -> Result<ImprintPlan> {
+        let pairs: Vec<ImprintPair> =
+            probe.tests.iter().filter(|(_, t)| matches!(outputs.get(*t), Some(Output::Contact(true)))).map(|(p, _)| p.clone()).collect();
+        let resolved = self.resolved(probe.context, &pairs)?;
+        let (slots, _) = self.slots_of(&resolved, &self.live_links());
+        let placed = self.placed_under(probe.context);
+        let partial: BTreeSet<Id> =
+            slots.iter().filter(|s| placed.iter().filter(|x| x.part == s.to).count() > s.reached.len()).map(|s| s.to).collect();
+        Ok(ImprintPlan {
+            context: probe.context,
+            machinings: slots.iter().filter(|s| s.body.is_none()).count(),
+            receivers: slots.iter().map(|s| s.to).collect::<BTreeSet<_>>().into_iter().collect(),
+            partial: partial.into_iter().collect(),
+            pairs,
+        })
+    }
+
+    fn resolved(&self, context: Id, pairs: &[ImprintPair]) -> Result<Vec<Resolved>> {
+        pairs
+            .iter()
+            .map(|pair| {
+                let (from, from_t) = self.through(context, &pair.source)?;
+                let (to, to_t) = self.through(context, &pair.receiver)?;
+                Ok(Resolved { pair: pair.clone(), from, to, pose: to_t.inverse() * from_t })
+            })
+            .collect()
+    }
+
+    /// The links seated, anywhere.
+    fn live_links(&self) -> Vec<Live> {
+        let mut out = Vec::new();
+        for holder in self.link_holders() {
+            let Ok(a) = self.assembly(holder) else { continue };
+            for l in a.links() {
+                if self.link_state(holder, l) != LinkState::Seated {
+                    continue;
+                }
+                let (Ok((from, from_t)), Ok((to, to_t))) = (self.through(holder, &l.source), self.through(holder, &l.receiver)) else {
+                    continue;
+                };
+                out.push(Live { from, to, pose: to_t.inverse() * from_t, body: l.body });
+            }
+        }
+        out
+    }
+
+    /// The machinings `pairs` make, and the one of each: one part in the same place of a
+    /// receiver's copies is one body, on one already there if it is seated so. A body has one
+    /// source part: it takes that part's shape.
+    fn slots_of(&self, pairs: &[Resolved], live: &[Live]) -> (Vec<Slot>, Vec<usize>) {
+        let shape = |part: Id| self.part(part).ok().map(|p| p.shape().clone());
+        let mut slots: Vec<Slot> = Vec::new();
+        let mut of = Vec::with_capacity(pairs.len());
+        for (i, r) in pairs.iter().enumerate() {
+            let at = slots.iter().position(|s| {
+                let first = &pairs[s.first];
+                s.to == r.to && r.from == first.from && shape(r.from).is_some_and(|a| same_place(&a, &r.pose, &a, &first.pose))
+            });
+            let at = at.unwrap_or_else(|| {
+                let body = live.iter().find(|l| l.from == r.from && l.to == r.to && l.pose.abs_diff_eq(r.pose, SAME)).map(|l| l.body);
+                slots.push(Slot { to: r.to, first: i, body, reached: BTreeSet::new() });
+                slots.len() - 1
+            });
+            slots[at].reached.insert(r.pair.receiver.clone());
+            of.push(at);
+        }
+        (slots, of)
+    }
+
+    /// [`Operation::Imprint`].
+    pub(crate) fn imprint(
+        &mut self,
+        context: Id,
+        pairs: &[ImprintPair],
+        around: f64,
+        deep: f64,
+        solver: &mut dyn Solver,
+    ) -> Result<Outcome> {
+        let clearance = Clearance { around, deep };
+        if !clearance.is_valid() {
             return Err(Error::Invalid(Refusal::BadClearance));
         }
-        let plan = self.imprint_plan(context, sources)?;
-        if plan.links.is_empty() {
+        if pairs.is_empty() {
             return Err(Error::Invalid(Refusal::NothingToImprint));
         }
-        // The imprints to make, each once for its part.
-        let mut made: BTreeMap<(Id, Id), (Id, Arc<Solid>)> = BTreeMap::new();
-        for l in plan.links.iter().filter(|l| !l.exists) {
-            if made.contains_key(&(l.part, l.body)) {
-                continue;
-            }
-            let p = self.part(l.part)?;
-            let b = p.body(l.body).ok_or(Error::NotFound(l.body))?.clone();
-            let clearance = clearance_of(p, &b, around, deep);
-            let (of_solid, recipe) = (p.solid_of(&b).clone(), p.def_of(&b).profile.as_ref().map(|f| f.primitive()));
-            let solid = solver.imprint(&of_solid, recipe.as_ref(), &clearance)?;
-            let (def, id) = (self.fresh_id(), self.fresh_id());
-            let d = BodyDef { imprint: Some(ImprintRecipe { of: b.id, clearance }), ..BodyDef::new(def, solid.clone()) };
-            let q = self.part_mut(l.part)?;
-            q.defs.push(d);
-            q.bodies.push(Body::new(id, def, Sign::Imprint, b.placement));
-            self.recompute(l.part, Some(&[id]), solver)?;
-            made.insert((l.part, l.body), (id, solid));
+        let resolved = self.resolved(context, pairs)?;
+        let live = self.live_links();
+        let (slots, slot_of) = self.slots_of(&resolved, &live);
+        // The tools first, from the parts as they are; then what is added to them.
+        let mut own = BTreeMap::new();
+        let mut tools = Vec::with_capacity(slots.len());
+        for s in &slots {
+            let first = &resolved[s.first];
+            tools.push(match s.body {
+                Some(_) => None,
+                None => {
+                    let source = self.own_solid(first.from, &mut own, solver)?;
+                    let receiver = self.own_solid(s.to, &mut own, solver)?;
+                    Some(solver.imprint(&source, &receiver, &first.pose, None, &clearance)?)
+                }
+            });
         }
-        // The machinings, one per slot, and a link for each.
-        let mut bodies: Vec<Option<Id>> = plan.slots.iter().map(|s| s.body).collect();
+        let mut bodies: Vec<Option<Id>> = slots.iter().map(|s| s.body).collect();
         let mut added: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
-        let mut links = Vec::with_capacity(plan.links.len());
-        for l in &plan.links {
-            let (imprint, solid) = match made.get(&(l.part, l.body)) {
-                Some((id, solid)) => (*id, solid.clone()),
-                None => {
-                    let p = self.part(l.part)?;
-                    (l.body, p.solid_of(p.body(l.body).ok_or(Error::NotFound(l.body))?).clone())
-                }
-            };
-            let body = match bodies[l.slot] {
-                Some(b) => b,
-                None => {
-                    let to = plan.slots[l.slot].to;
-                    let (def, id) = (self.fresh_id(), self.fresh_id());
-                    let q = self.part_mut(to)?;
-                    q.defs.push(BodyDef { source: BodySource::Linked, ..BodyDef::new(def, solid) });
-                    q.bodies.push(Body::new(id, def, Sign::Negative, l.pose));
-                    added.entry(to).or_default().push(id);
-                    bodies[l.slot] = Some(id);
-                    id
-                }
-            };
-            links.push(Link { id: self.fresh_id(), source: l.source.clone(), imprint, receiver: l.receiver.clone(), body, seat: l.pose });
+        for (k, (s, tool)) in slots.iter().zip(tools).enumerate() {
+            let Some(tool) = tool else { continue };
+            let (def, id) = (self.fresh_id(), self.fresh_id());
+            let d = BodyDef { source: BodySource::Linked, imprint: Some(ImprintRecipe { clearance }), ..BodyDef::new(def, tool) };
+            let q = self.part_mut(s.to)?;
+            q.defs.push(d);
+            q.bodies.push(Body::new(id, def, Sign::Negative, resolved[s.first].pose));
+            added.entry(s.to).or_default().push(id);
+            bodies[k] = Some(id);
         }
+        let mut links = Vec::with_capacity(resolved.len());
+        for (r, slot) in resolved.iter().zip(&slot_of) {
+            let body = bodies[*slot].ok_or(Error::NotFound(r.to))?;
+            links.push(Link { id: self.fresh_id(), source: r.pair.source.clone(), receiver: r.pair.receiver.clone(), body, seat: r.pose });
+        }
+        let machinings = added.values().map(Vec::len).sum();
         for (part, ids) in added {
             self.recompute(part, Some(&ids), solver)?;
         }
         let count = links.len();
         self.assembly_mut(context)?.links_mut().extend(links);
         self.settle_link_holders();
-        Ok(Outcome { imprinted: (plan.machining_count(), count), ..Outcome::default() })
+        Ok(Outcome { imprinted: (machinings, count), ..Outcome::default() })
     }
 
-    /// [`crate::Operation::SetClearance`]: the imprint's clearance changed, its tool built
-    /// again from the body it is made of.
-    pub(crate) fn set_clearance(
+    /// The tool of the linked body `body` of `to` built again from `from`, whose axes are `pose`
+    /// in the receiver's, with `clearance` if given; the body placed there. No contact left: the
+    /// tool as it was, where it was in the receiver.
+    fn rebuild_tool(
         &mut self,
-        part: Id,
-        body: Id,
-        (around, deep, back): (f64, f64, f64),
+        (from, to, body): (Id, Id, Id),
+        pose: &DAffine3,
+        clearance: Option<Clearance>,
+        own: &mut BTreeMap<Id, Arc<Solid>>,
         solver: &mut dyn Solver,
-    ) -> Result<Outcome> {
-        let p = self.part(part)?;
-        let b = p.body(body).filter(|b| b.sign == Sign::Imprint).ok_or(Error::Invalid(Refusal::BadClearance))?;
-        let def = b.def;
-        let recipe = p.def_of(b).imprint.clone().ok_or(Error::Invalid(Refusal::BadClearance))?;
-        let of = p.body(recipe.of).ok_or(Error::Invalid(Refusal::BadClearance))?;
-        let clearance = Clearance { around, deep, back, ..recipe.clearance };
+    ) -> Result<()> {
+        let q = self.part(to)?;
+        let b = q.body(body).ok_or(Error::NotFound(body))?;
+        let Some(recipe) = q.def_of(b).imprint.clone() else { return Ok(()) };
+        let (def, previous, placed) = (b.def, q.solid_of(b).clone(), b.placement);
+        let previous = if placed.abs_diff_eq(*pose, SAME) { previous } else { solver.transform(&previous, &(pose.inverse() * placed))? };
+        let clearance = clearance.unwrap_or(recipe.clearance);
+        let source = self.own_solid(from, own, solver)?;
+        let receiver = self.own_solid(to, own, solver)?;
+        let tool = solver.imprint(&source, &receiver, pose, Some(&previous), &clearance)?;
+        let q = self.part_mut(to)?;
+        if let Some(d) = q.defs.iter_mut().find(|d| d.id == def) {
+            d.solid = tool;
+            d.imprint = Some(ImprintRecipe { clearance });
+        }
+        if let Some(b) = q.bodies.iter_mut().find(|b| b.id == body) {
+            b.placement = *pose;
+        }
+        Ok(())
+    }
+
+    /// [`Operation::SetClearance`]: on this linked body, its tool built again.
+    pub(crate) fn set_clearance(&mut self, part: Id, body: Id, (around, deep): (f64, f64), solver: &mut dyn Solver) -> Result<Outcome> {
+        let q = self.part(part)?;
+        let b = q.body(body).filter(|b| q.def_of(b).source == BodySource::Linked).ok_or(Error::Invalid(Refusal::BadClearance))?;
+        let recipe = q.def_of(b).imprint.clone().ok_or(Error::Invalid(Refusal::BadClearance))?;
+        let clearance = Clearance { around, deep };
         if !clearance.is_valid() {
             return Err(Error::Invalid(Refusal::BadClearance));
         }
         if clearance == recipe.clearance {
             return Ok(Outcome::default());
         }
-        let (of_solid, primitive) = (p.solid_of(of).clone(), p.def_of(of).profile.as_ref().map(|f| f.primitive()));
-        let solid = solver.imprint(&of_solid, primitive.as_ref(), &clearance)?;
-        if let Some(d) = self.part_mut(part)?.defs.iter_mut().find(|d| d.id == def) {
-            d.solid = solid;
-            d.imprint = Some(ImprintRecipe { clearance, ..recipe });
-        }
+        let placement = b.placement;
+        let live = self.live_links();
+        let seated: Vec<&Live> = live.iter().filter(|l| l.to == part && l.body == body).collect();
+        let from = seated.iter().find(|l| l.pose.abs_diff_eq(placement, SAME)).or(seated.first());
+        let (from, pose) = from.map(|l| (l.from, l.pose)).ok_or(Error::Invalid(Refusal::BadClearance))?;
+        self.rebuild_tool((from, part, body), &pose, Some(clearance), &mut BTreeMap::new(), solver)?;
+        self.recompute(part, None, solver)?;
         Ok(Outcome::default())
     }
 
-    /// The imprints after an operation (`before` the document it was applied to): each goes
-    /// with the body it is made of, and is built again when that body's shape changed. One whose
-    /// body is gone stays as it is, made of nothing any more.
+    /// The linked bodies after an operation (`before` the document it was applied to): those
+    /// seated between parts whose own bodies changed take the source's shape as it now is, where
+    /// it now is, their links' seats with them (a stretch moves a receiver and reshapes its source
+    /// at once). A source only moved out of its receiver leaves the body.
     pub(crate) fn update_imprints(&mut self, before: &Document, solver: &mut dyn Solver) -> Result<()> {
-        let parts: Vec<Id> = self
+        let changed: BTreeSet<Id> = self
             .components
             .iter()
-            .filter(|(id, c)| {
-                before.components.get(*id).is_none_or(|b| !Arc::ptr_eq(b, c))
-                    && matches!(&c.kind, ComponentKind::Part(p) if p.defs.iter().any(|d| d.imprint.is_some()))
-            })
-            .map(|(id, _)| *id)
-            .collect();
-        for id in parts {
-            let Ok(old) = before.part(id) else { continue };
-            let p = self.part(id)?.clone();
-            let mut rebuilt = BTreeSet::new();
-            for b in p.bodies.iter().filter(|b| b.sign == Sign::Imprint) {
-                let Some(recipe) = p.def_of(b).imprint.clone() else { continue };
-                let Some(of) = p.body(recipe.of) else {
-                    if let Some(d) = self.part_mut(id)?.defs.iter_mut().find(|d| d.id == b.def) {
-                        d.imprint = None;
-                    }
-                    continue;
-                };
-                let Some(was) = old.body(recipe.of) else { continue };
-                // Moved with it, unless the operation moved the imprint itself.
-                if old.body(b.id).is_some_and(|x| x.placement == b.placement) && of.placement != was.placement {
-                    let moved = of.placement * was.placement.inverse();
-                    if let Some(x) = self.part_mut(id)?.bodies.iter_mut().find(|x| x.id == b.id) {
-                        x.placement = moved * x.placement;
-                    }
+            .filter_map(|(id, c)| {
+                let ComponentKind::Part(p) = &c.kind else { return None };
+                if before.components.get(id).is_none_or(|b| Arc::ptr_eq(b, c)) {
+                    return None;
                 }
-                if !Arc::ptr_eq(p.solid_of(of), old.solid_of(was)) && rebuilt.insert(b.def) {
-                    let primitive = p.def_of(of).profile.as_ref().map(|f| f.primitive());
-                    let solid = solver.imprint(p.solid_of(of), primitive.as_ref(), &recipe.clearance)?;
-                    if let Some(d) = self.part_mut(id)?.defs.iter_mut().find(|d| d.id == b.def) {
-                        d.solid = solid;
+                let old = before.part(*id).ok()?;
+                (own_bodies(p) != own_bodies(old)).then_some(*id)
+            })
+            .collect();
+        if changed.is_empty() {
+            return Ok(());
+        }
+        /// The link a machining is built from.
+        struct Target {
+            from: Id,
+            pose: DAffine3,
+            seat: DAffine3,
+            /// It is the one the body was placed by.
+            on_body: bool,
+        }
+        let mut targets: BTreeMap<(Id, Id), Target> = BTreeMap::new();
+        for holder in self.link_holders() {
+            let (Ok(a), Ok(old)) = (self.assembly(holder), before.assembly(holder)) else { continue };
+            for l in a.links() {
+                let Some(was) = old.links().iter().find(|o| o.id == l.id) else { continue };
+                let Ok((from, to, pose)) = self.link_pose(holder, l) else { continue };
+                if !(changed.contains(&from) || changed.contains(&to))
+                    || before.link_state(holder, was) != LinkState::Seated
+                    || self.part(to).map_or(true, |q| q.body(l.body).is_none())
+                    || (!changed.contains(&from) && !pose.abs_diff_eq(l.seat, SAME) && !before.source_enters(holder, was, &pose))
+                {
+                    continue;
+                }
+                let placed = before.link_pose(holder, was).ok().and_then(|(_, t, _)| Some(before.part(t).ok()?.body(was.body)?.placement));
+                let on_body = placed.is_some_and(|p| p.abs_diff_eq(was.seat, SAME));
+                let target = Target { from, pose, seat: l.seat, on_body };
+                match targets.entry((to, l.body)) {
+                    std::collections::btree_map::Entry::Vacant(e) => {
+                        e.insert(target);
                     }
+                    std::collections::btree_map::Entry::Occupied(mut e) if on_body && !e.get().on_body => {
+                        e.insert(target);
+                    }
+                    _ => {}
                 }
             }
         }
+        let mut own = BTreeMap::new();
+        let mut reshaped = BTreeSet::new();
+        for ((to, body), t) in targets {
+            self.rebuild_tool((t.from, to, body), &t.pose, None, &mut own, solver)?;
+            if !t.pose.abs_diff_eq(t.seat, SAME) {
+                self.map_seats(to, Some(body), &(t.pose * t.seat.inverse()));
+            }
+            reshaped.insert(to);
+        }
+        for part in reshaped {
+            self.recompute(part, None, solver)?;
+        }
         Ok(())
     }
-}
-
-/// The solid's box, from the record.
-fn solid_box(s: &Solid) -> Option<(DVec3, DVec3)> {
-    let mut out = (DVec3::ZERO, DVec3::ZERO);
-    for k in 0..3 {
-        let axis = Stretch::new(DVec3::AXES[k], Vec::new(), vec![0.0]).ok()?;
-        (out.0[k], out.1[k]) = axis.extent(s)?;
-    }
-    Some(out)
 }

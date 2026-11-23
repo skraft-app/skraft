@@ -1,120 +1,182 @@
-//! An imprint's tool (docs/decisions/0055-linked-bodies-through-imprints.md): a body grown by a
-//! clearance, deeper at its end, run back past its shoulder, each checked against the volume it
-//! should have.
-
-use std::sync::Arc;
+//! An imprint's tool (docs/decisions/0055-linked-bodies-through-imprints.md): the source's whole
+//! final solid, its walls inside the receiver moved. Each case is checked by what it leaves of the
+//! receiver.
 
 use glam::{DAffine3, DVec2, DVec3};
-use skraft_kernel::names::{Blend, NodeOp, TreeBody, TreeNode};
 use skraft_kernel::profile;
-use skraft_kernel::{Clearance, Job, Output, Primitive, Solid, Task, run};
+use skraft_kernel::{BooleanOp, Clearance, Primitive, Solid};
 
-const L: f64 = 40.0;
-const W: f64 = 10.0;
-const H: f64 = 22.0;
-
-fn clearance(axis: Option<DVec3>, around: f64, deep: f64, back: f64) -> Clearance {
-    Clearance { axis, around, deep, back }
+fn cuboid(origin: [f64; 3], size: [f64; 3]) -> Solid {
+    Primitive::Box { origin: DVec3::from_array(origin), size: DVec3::from_array(size) }.build().unwrap()
 }
 
-fn rectangle() -> Vec<profile::Corner> {
-    let mut p = profile::polygon(&[DVec2::ZERO, DVec2::new(L, 0.0), DVec2::new(L, W), DVec2::new(0.0, W)]);
-    profile::settle_ids(&mut p);
-    p
+fn clearance(around: f64, deep: f64) -> Clearance {
+    Clearance { around, deep }
 }
 
-fn close(s: &Solid, expected: f64) {
-    let v = s.volume().unwrap();
+fn close(v: f64, expected: f64) {
     assert!((v - expected).abs() < 1e-3, "{v} against {expected}");
 }
 
-#[test]
-fn a_box_stays_a_box_along_any_of_its_axes() {
-    let b = Primitive::Box { origin: DVec3::new(1.0, 2.0, 3.0), size: DVec3::new(L, W, H) }.build().unwrap();
-    for (axis, along) in [(DVec3::X, L), (-DVec3::X, L), (DVec3::Y, W), (-DVec3::Y, W), (DVec3::Z, H), (-DVec3::Z, H)] {
-        let tool = b.imprinted(None, &clearance(Some(axis), 0.1, 2.0, 30.0)).unwrap();
-        let k = axis.abs().max_position();
-        let size = DVec3::new(L, W, H);
-        let across: f64 = (0..3).filter(|i| *i != k).map(|i| size[i] + 0.2).product();
-        close(&tool, across * (along + 32.0));
-        let (lo, hi) = tool.vertex_bounds().unwrap();
-        let (b_lo, b_hi) = b.vertex_bounds().unwrap();
-        let (end, shoulder) = if axis[k] > 0.0 { (hi[k] - b_hi[k], b_lo[k] - lo[k]) } else { (b_lo[k] - lo[k], hi[k] - b_hi[k]) };
-        assert!((end - 2.0).abs() < 1e-9 && (shoulder - 30.0).abs() < 1e-9, "{axis}: {end} {shoulder}");
+/// What the tool, in the source's axes placed by `placed`, takes off the receiver.
+fn removed_at(receiver: &Solid, tool: &Solid, placed: &DAffine3) -> f64 {
+    let tool = tool.transformed(placed).unwrap();
+    receiver.volume().unwrap() - receiver.boolean(&tool, BooleanOp::Difference).unwrap().volume().unwrap()
+}
+
+fn removed(receiver: &Solid, tool: &Solid) -> f64 {
+    removed_at(receiver, tool, &ID)
+}
+
+/// The source against the receiver once cut.
+fn left_in_common(receiver: &Solid, tool: &Solid, source: &Solid) -> f64 {
+    let cut = receiver.boolean(tool, BooleanOp::Difference).unwrap();
+    match cut.boolean(source, BooleanOp::Intersection) {
+        Ok(c) => c.volume().unwrap(),
+        Err(skraft_kernel::Error::Empty(_)) => 0.0,
+        Err(e) => panic!("{e}"),
     }
 }
 
+const ID: DAffine3 = DAffine3::IDENTITY;
+
 #[test]
-fn no_clearance_is_the_body_itself() {
-    let b = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(L, W, H) }.build().unwrap();
-    assert_eq!(b.imprinted(None, &clearance(Some(DVec3::X), 0.0, 0.0, 0.0)).unwrap(), b);
-    assert_eq!(b.imprinted(None, &clearance(None, 0.0, 2.0, 5.0)).unwrap(), b, "no axis: only around it");
+fn a_blind_tenon_has_a_bottom_and_four_cheeks() {
+    let block = cuboid([0.0, 0.0, 0.0], [100.0, 100.0, 60.0]);
+    // Coming down from the top, 22 deep.
+    let tenon = cuboid([30.0, 40.0, 38.0], [40.0, 10.0, 60.0]);
+    let tool = block.imprint_tool(&tenon, &ID, &clearance(0.1, 2.0), None).unwrap();
+    close(removed(&block, &tool), 40.2 * 10.2 * 24.0);
+    assert!(left_in_common(&block, &tool, &tenon) < 1e-6);
+    let (lo, hi) = tool.vertex_bounds().unwrap();
+    assert!((lo.z - 36.0).abs() < 1e-9 && (hi.z - 98.0).abs() < 1e-9, "the bottom +2, the far end as it is: {lo} {hi}");
 }
 
 #[test]
-fn an_extrusion_is_drawn_again_from_its_profile() {
-    let mut p = rectangle();
-    p.iter_mut().for_each(|c| c.fillet = 3.0);
-    let recipe = Primitive::Prism { origin: DVec3::ZERO, profile: p.clone(), height: H };
-    let solid = recipe.build().unwrap();
-    let offset = profile::offset(&profile::rounded(&p), 0.1).unwrap();
+fn without_clearance_the_tool_is_the_source() {
+    let block = cuboid([0.0, 0.0, 0.0], [100.0, 100.0, 60.0]);
+    let tenon = cuboid([30.0, 40.0, 38.0], [40.0, 10.0, 60.0]);
+    assert_eq!(block.imprint_tool(&tenon, &ID, &clearance(0.0, 0.0), None).unwrap(), tenon);
+}
+
+#[test]
+fn a_part_that_is_its_own_tenon_is_cut_through_a_notch() {
+    // The source's notch, across a plank, open on three sides: the case that started this.
+    let plank = cuboid([0.0, 0.0, 0.0], [900.0, 275.0, 176.0]);
+    let upright = cuboid([300.0, -10.0, 70.0], [124.0, 295.0, 500.0]);
+    let tool = plank.imprint_tool(&upright, &ID, &clearance(0.1, 2.0), None).unwrap();
+    close(removed(&plank, &tool), 124.2 * 275.0 * (176.0 - 68.0));
+    assert!(left_in_common(&plank, &tool, &upright) < 1e-6);
+}
+
+#[test]
+fn a_rail_flush_with_a_plank_has_a_bottom_past_its_width() {
+    let plank = cuboid([224.64, 285.95, 0.0], [1103.38, 357.35, 172.17]);
+    let rail = cuboid([753.6, 285.95, 0.0], [186.41, 146.92, 939.35]);
+    let tool = plank.imprint_tool(&rail, &ID, &clearance(0.1, 2.0), None).unwrap();
+    close(removed(&plank, &tool), 186.61 * 148.92 * 172.17);
+    assert!(left_in_common(&plank, &tool, &rail) < 1e-6);
+}
+
+#[test]
+fn a_shoulder_on_the_receiver_is_not_moved() {
+    let block = cuboid([0.0, 0.0, 0.0], [100.0, 100.0, 60.0]);
+    let rail = cuboid([20.0, 30.0, 60.0], [60.0, 40.0, 200.0]);
+    let tenon = rail.boolean(&cuboid([30.0, 45.0, 38.0], [40.0, 10.0, 22.0]), BooleanOp::Union).unwrap();
+    let tool = block.imprint_tool(&tenon, &ID, &clearance(0.1, 2.0), None).unwrap();
+    close(removed(&block, &tool), 40.2 * 10.2 * 24.0);
+    assert!(left_in_common(&block, &tool, &tenon) < 1e-6);
+}
+
+#[test]
+fn a_tenon_made_by_a_machining_is_cut_as_it_is() {
+    let block = cuboid([0.0, 0.0, 0.0], [100.0, 100.0, 60.0]);
+    let blank = cuboid([30.0, 40.0, 38.0], [40.0, 30.0, 60.0]);
+    // A rebate through the blank: its section is an L inside the block.
+    let rebate = cuboid([50.0, 55.0, 30.0], [30.0, 20.0, 80.0]);
+    let tenon = blank.boolean(&rebate, BooleanOp::Difference).unwrap();
+    let section = 40.0 * 30.0 - 20.0 * 15.0;
+    let tool = block.imprint_tool(&tenon, &ID, &clearance(0.0, 0.0), None).unwrap();
+    close(removed(&block, &tool), 22.0 * section);
+    let tool = block.imprint_tool(&tenon, &ID, &clearance(0.0, 2.0), None).unwrap();
+    close(removed(&block, &tool), 24.0 * section);
+    assert!(left_in_common(&block, &tool, &tenon) < 1e-6);
+}
+
+#[test]
+fn a_filleted_tenon_keeps_its_rounded_cheeks() {
+    let block = cuboid([-30.0, -30.0, 0.0], [100.0, 70.0, 60.0]);
+    let mut outline = profile::polygon(&[DVec2::ZERO, DVec2::new(40.0, 0.0), DVec2::new(40.0, 10.0), DVec2::new(0.0, 10.0)]);
+    profile::settle_ids(&mut outline);
+    outline.iter_mut().for_each(|c| c.fillet = 3.0);
+    let tenon = Primitive::Prism { origin: DVec3::new(0.0, 0.0, 38.0), profile: outline.clone(), height: 60.0 }.build().unwrap();
+    let offset = profile::offset(&profile::rounded(&outline), 0.1).unwrap();
     let area = Primitive::Prism { origin: DVec3::ZERO, profile: offset, height: 1.0 }.build().unwrap().volume().unwrap();
-    for axis in [DVec3::Z, -DVec3::Z] {
-        let tool = solid.imprinted(Some(&recipe), &clearance(Some(axis), 0.1, 2.0, 30.0)).unwrap();
-        close(&tool, area * (H + 32.0));
-        let (lo, hi) = tool.bounds().unwrap();
-        let (a, b) = if axis.z > 0.0 { (-30.0, H + 2.0) } else { (-2.0, H + 30.0) };
-        assert!((lo.z - a).abs() < 1e-6 && (hi.z - b).abs() < 1e-6, "{lo} {hi}");
+    let tool = block.imprint_tool(&tenon, &ID, &clearance(0.1, 2.0), None).unwrap();
+    close(removed(&block, &tool), area * 24.0);
+    assert!(left_in_common(&block, &tool, &tenon) < 1e-6);
+}
+
+#[test]
+fn a_dowel_has_one_round_cheek() {
+    let block = cuboid([-30.0, -30.0, 0.0], [60.0, 60.0, 40.0]);
+    let dowel = Primitive::Cylinder { origin: DVec3::new(0.0, 0.0, 18.0), radius: 4.0, height: 50.0 }.build().unwrap();
+    let tool = block.imprint_tool(&dowel, &ID, &clearance(0.1, 2.0), None).unwrap();
+    close(removed(&block, &tool), std::f64::consts::PI * 4.1 * 4.1 * 24.0);
+}
+
+#[test]
+fn a_slanted_tenon_is_grown_through_its_faces() {
+    let block = cuboid([-100.0, -100.0, 0.0], [200.0, 200.0, 60.0]);
+    let turn = DAffine3::from_rotation_z(0.5);
+    let tenon = cuboid([-20.0, -5.0, 38.0], [40.0, 10.0, 60.0]).transformed(&turn).unwrap();
+    let tool = block.imprint_tool(&tenon, &ID, &clearance(0.1, 2.0), None).unwrap();
+    close(removed(&block, &tool), 40.2 * 10.2 * 24.0);
+    assert!(left_in_common(&block, &tool, &tenon) < 1e-6);
+}
+
+#[test]
+fn the_tool_comes_in_the_axes_of_its_source() {
+    let block = cuboid([0.0, 0.0, 0.0], [100.0, 100.0, 60.0]);
+    let tenon = cuboid([0.0, 0.0, 0.0], [40.0, 10.0, 60.0]);
+    for placed in [
+        DAffine3::from_translation(DVec3::new(30.0, 40.0, 38.0)),
+        DAffine3::from_translation(DVec3::new(70.0, 40.0, 38.0)) * DAffine3::from_scale(DVec3::new(-1.0, 1.0, 1.0)),
+    ] {
+        let tool = block.imprint_tool(&tenon, &placed, &clearance(0.0, 2.0), None).unwrap();
+        let (lo, hi) = tool.vertex_bounds().unwrap();
+        assert!((lo - DVec3::new(0.0, 0.0, -2.0)).length() < 1e-9 && (hi - DVec3::new(40.0, 10.0, 60.0)).length() < 1e-9, "{lo} {hi}");
+        close(removed_at(&block, &tool, &placed), 40.0 * 10.0 * 24.0);
     }
 }
 
 #[test]
-fn a_dowel_has_its_faces_offset() {
-    let dowel = Primitive::Cylinder { origin: DVec3::ZERO, radius: 4.0, height: H }.build().unwrap();
-    let tool = dowel.imprinted(None, &clearance(Some(DVec3::Z), 0.1, 2.0, 30.0)).unwrap();
-    close(&tool, std::f64::consts::PI * 4.1 * 4.1 * (H + 32.0));
-    let tool = dowel.imprinted(None, &clearance(Some(-DVec3::Z), 0.1, 2.0, 0.0)).unwrap();
-    let (lo, hi) = tool.bounds().unwrap();
-    assert!((lo.z + 2.0).abs() < 1e-3 && (hi.z - H).abs() < 1e-3, "the end is at the bottom: {lo} {hi}");
+fn faces_merely_touching_are_no_contact() {
+    let a = cuboid([0.0, 0.0, 0.0], [10.0, 10.0, 10.0]);
+    assert!(a.has_contact(&cuboid([5.0, 5.0, 5.0], [10.0, 10.0, 10.0]), &ID).unwrap());
+    assert!(!a.has_contact(&cuboid([10.0, 0.0, 0.0], [10.0, 10.0, 10.0]), &ID).unwrap(), "a face");
+    assert!(!a.has_contact(&cuboid([10.0, 10.0, 0.0], [10.0, 10.0, 10.0]), &ID).unwrap(), "an edge");
+    assert!(!a.has_contact(&cuboid([50.0, 0.0, 0.0], [10.0, 10.0, 10.0]), &ID).unwrap(), "apart");
+    // Boxes overlapping, the solids apart: an L around a block.
+    let l = cuboid([0.0, 0.0, 0.0], [30.0, 30.0, 10.0])
+        .boolean(&cuboid([10.0, 10.0, -1.0], [30.0, 30.0, 12.0]), BooleanOp::Difference)
+        .unwrap();
+    assert!(!l.has_contact(&cuboid([15.0, 15.0, 0.0], [10.0, 10.0, 10.0]), &ID).unwrap());
 }
 
 #[test]
-fn a_body_along_a_slanted_axis_goes_through_its_faces() {
-    let dowel = Primitive::Cylinder { origin: DVec3::ZERO, radius: 4.0, height: H }.build().unwrap();
-    let turn = DAffine3::from_axis_angle(DVec3::new(1.0, 1.0, 0.0).normalize(), 0.7);
-    let slanted = dowel.transformed(&turn).unwrap();
-    let axis = turn.transform_vector3(DVec3::Z).normalize();
-    let tool = slanted.imprinted(None, &clearance(Some(axis), 0.0, 2.0, 5.0)).unwrap();
-    close(&tool, std::f64::consts::PI * 16.0 * (H + 7.0));
+fn without_contact_the_tool_stays_as_it_was() {
+    let block = cuboid([0.0, 0.0, 0.0], [10.0, 10.0, 10.0]);
+    let away = cuboid([50.0, 0.0, 0.0], [10.0, 10.0, 10.0]);
+    let previous = cuboid([1.0, 1.0, 1.0], [2.0, 2.0, 2.0]);
+    let c = clearance(0.1, 2.0);
+    assert_eq!(block.imprint_tool(&away, &ID, &c, Some(&previous)).unwrap(), previous);
+    assert!(block.imprint_tool(&away, &ID, &c, None).is_err());
 }
 
 #[test]
-fn a_rounded_end_too_tight_to_offset_is_refused_never_reduced() {
-    let b = Primitive::Prism { origin: DVec3::ZERO, profile: rectangle(), height: H };
-    let solid = Arc::new(b.build().unwrap());
-    let picks = vec![[L / 2.0, 0.0, H], [L, W / 2.0, H], [L / 2.0, W, H], [0.0, W / 2.0, H]];
-    let leaf = TreeBody {
-        id: 1,
-        negative: false,
-        intersect: false,
-        placement: DAffine3::IDENTITY,
-        node: TreeNode::Leaf { solid: 0, recipe: Some(b) },
-    };
-    let op = NodeOp::blend_of(Blend::Round, 2.0, Vec::new());
-    let job = Job { inputs: vec![solid], tasks: vec![Task::Node { children: vec![leaf], op, picks }] };
-    let Some(Output::Node { solid: rounded, refusal: None, .. }) = run(&job).unwrap().pop() else { panic!() };
-    // Only deeper: the round follows its end.
-    let v = rounded.volume().unwrap();
-    close(&rounded.imprinted(None, &clearance(Some(DVec3::Z), 0.0, 2.0, 0.0)).unwrap(), v + 2.0 * L * W);
-    // Around it too: SolidCore refuses (no certified bound).
-    assert!(rounded.imprinted(None, &clearance(Some(DVec3::Z), 0.1, 2.0, 0.0)).is_err());
-}
-
-#[test]
-fn a_clearance_is_valid_when_finite_with_a_unit_axis() {
-    assert!(clearance(Some(DVec3::X), -0.1, 2.0, 0.0).is_valid());
-    assert!(clearance(None, 0.0, 0.0, 0.0).is_valid());
-    assert!(!clearance(Some(DVec3::X * 2.0), 0.0, 0.0, 0.0).is_valid());
-    assert!(!clearance(Some(DVec3::X), f64::NAN, 0.0, 0.0).is_valid());
-    assert!(!clearance(Some(DVec3::X), 0.0, 0.0, -1.0).is_valid());
+fn a_clearance_is_valid_when_finite() {
+    assert!(clearance(-0.1, 2.0).is_valid());
+    assert!(!clearance(f64::NAN, 0.0).is_valid());
+    assert!(!clearance(0.0, f64::INFINITY).is_valid());
 }
