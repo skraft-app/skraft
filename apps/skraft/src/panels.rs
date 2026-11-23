@@ -1083,6 +1083,11 @@ pub fn outliner(
             let pieces = part.map_or(1, |p| p.pieces());
             let broken = pieces != 1;
             let inner = !broken && in_error(doc, o.component, &mut errors, 0);
+            // A link to look at (docs/model/bodies.md#links): this source off its seat, or a
+            // linked body broken or a source off below it.
+            let here = doc.context_of(&row.path).unwrap_or(doc.root());
+            let link_off = editor.link_status().is_off(here, o.id);
+            let link_below = editor.link_status().holds(o.component);
             // A name edited in place, from a double-click, or F2 while it is the one occurrence
             // selected: the occurrence's own, shown first, where it has one and the double-click
             // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
@@ -1121,7 +1126,7 @@ pub fn outliner(
                     }
                     let renamed = ui
                         .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            if broken || inner {
+                            if broken || inner || link_off || link_below {
                                 ui.add(warning(ui));
                             }
                             let color = if broken { ui.visuals().error_fg_color } else { tint };
@@ -1148,6 +1153,12 @@ pub fn outliner(
                 1 => None,
                 _ => Some(t!("panel.outliner.pieces", count = pieces)),
             };
+            let tip = tip.or_else(|| match (link_off, link_below, part.is_some()) {
+                (true, ..) => Some(t!("panel.outliner.link_off")),
+                (_, true, true) => Some(t!("panel.outliner.link_lost_in_part")),
+                (_, true, false) => Some(t!("panel.outliner.link_inside_assembly")),
+                _ => None,
+            });
             let response = match tip {
                 Some(tip) => response.tip(tip),
                 None => response,
@@ -1233,7 +1244,16 @@ pub fn outliner(
                 (rename, own),
                 select,
                 actions,
-                |_, _| {},
+                |ui, actions| {
+                    if link_off {
+                        let source = skraft_model::LinkSource { assembly: here, occurrence: o.id };
+                        ui.separator();
+                        menu_op(ui, "reseat", t!("operation.reseat_sources"), Operation::ReseatSources { sources: vec![source] }, actions);
+                        menu_op(ui, "bring", t!("operation.bring_linked_body"), Operation::BringLinkedBody { source }, actions);
+                        let separate = Operation::SeparateReceivers { sources: vec![source] };
+                        menu_op(ui, "separate", t!("operation.separate_receivers"), separate, actions);
+                    }
+                },
                 |ui, actions| {
                     if composed && flatten_button(ui) {
                         let targets: Vec<EntityPath> = match in_selection {
@@ -1928,7 +1948,9 @@ fn body_row(
     // (docs/model/bodies.md#empty-parts); one holding a body failed, at any depth: ⚠ too, its name as it is.
     let def = b.part.def_of(b.body);
     let inner = def.is_group() && !failed && holds_failure(b.part, def.children(), 0);
-    let warned = (failed && def.is_group()) || inner;
+    // A linked body that lost its link stays as it is, told (docs/model/bodies.md#links).
+    let link_lost = editor.link_status().broken.contains(&(row.occurrence.component, b.body.id));
+    let warned = (failed && def.is_group()) || inner || link_lost;
     // A name edited in place (docs/model/bodies.md#body-names), from a double-click, or F2 while it is the
     // one body selected: the body's own, shown first, where it has one and the double-click is
     // on it (F2: where it has one), else its definition's (« Haut <Trou#1> »), as an
@@ -1994,6 +2016,8 @@ fn body_row(
     });
     let response = if let Some(r) = b.part.refusal_of(b.body.id) {
         response.tip(skraft_model::blend_refusal(r))
+    } else if link_lost {
+        response.tip(t!("panel.outliner.link_lost"))
     } else if warned {
         let tip = match (inner, def.solid.is_empty()) {
             (true, _) => t!("panel.outliner.failed_inside_group"),
@@ -2067,6 +2091,10 @@ fn body_row(
             let scope = if part_open { editor.part_scope() } else { Scope::All };
             actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.clone(), to, copy: false, scope }));
         }
+        if def.source == skraft_model::BodySource::Linked && b.group.is_empty() {
+            let unlink = Operation::Unlink { part: row.occurrence.component, bodies: vec![b.body.id] };
+            menu_op(ui, "unlink", t!("operation.unlink"), unlink, actions);
+        }
     };
     let flatten = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
         if is_group && flatten_button(ui) {
@@ -2100,6 +2128,15 @@ fn body_row(
         actions.push(Action::Apply(Operation::SetSign { target: path, bodies, sign, scope }));
     } else if response.clicked() {
         actions.push(Action::SelectBody(path, b.body.id, ui.input(|i| i.modifiers.shift)));
+    }
+}
+
+/// A navigator menu's entry applying `op`, under the handle `outliner_menu:<handle>`.
+fn menu_op(ui: &mut egui::Ui, handle: &str, label: String, op: Operation, actions: &mut Vec<Action>) {
+    let button = ui.button(label);
+    crate::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
+    if button.clicked() {
+        actions.push(Action::Apply(op));
     }
 }
 

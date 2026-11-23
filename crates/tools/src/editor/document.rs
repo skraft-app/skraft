@@ -130,6 +130,7 @@ impl Editor {
             _ => Vec::new(),
         };
         let label = op.label();
+        let links_before = self.link_status.clone();
         self.history.push(document, op);
         self.journal.log(Event::Applied { op: label, revision: self.history.revision() });
         for w in &outcome.welds {
@@ -165,6 +166,7 @@ impl Editor {
         self.after_change();
         // An assembly it emptied goes with it (docs/model/data-model.md#components-parts-and-assemblies).
         self.drop_empty_assemblies(true);
+        self.offer_links(&links_before, &outcome.links);
         match after {
             After::SelectNamed => self.offer_renaming(&named),
             After::Unique => self.made_unique.extend(named),
@@ -620,6 +622,7 @@ impl Editor {
 
     /// Keeps the context, the open part and the selection valid, and the scene in step.
     pub(super) fn after_change(&mut self) {
+        self.link_status = self.history.document().link_status();
         let doc = self.history.document();
         while !self.context.is_empty() && doc.context_of(&self.context).is_err() {
             self.context.pop();

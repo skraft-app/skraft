@@ -887,6 +887,11 @@ panel:
     failed_inside_part: "A body of this part failed: needs fixing"
     failed_inside_group: "A body of this group failed: needs fixing"
     error_inside_assembly: "A part of this assembly has an error: needs fixing"
+    # Linked bodies (decision 0055): a source off its seat, a machining that lost its link.
+    link_off: "This part is no longer in its linked machining. Right-click to put it back"
+    link_lost: "This machining lost its link: it stays as it is. Right-click to break the link"
+    link_lost_in_part: "A machining of this part lost its link"
+    link_inside_assembly: "A part of this assembly has a link to review"
     profile: "Profile"
     profile_tip: "Click to edit the profile"
     # A row's right-click menu; the two names of a row with an instance name.
@@ -948,6 +953,13 @@ notice:
   group_made_unique: "Group made unique: %{name}"
   body_made_unique: "Body made unique: %{name}"
   many_made_unique: "%{count} items made unique"
+  # Linked bodies after an operation (decision 0055).
+  links_off: "%{count} part is no longer in its machining"
+  links_off_plural: "%{count} parts are no longer in their machining"
+  link_conflict: "This shared machining cannot follow"
+  link_conflict_detail: "Its links ask it for two different places. Separate gives each part its own."
+  links_lost: "%{count} machining lost its link"
+  links_lost_plural: "%{count} machinings lost their link"
   rename: "Rename"
 
 naming:

@@ -970,6 +970,11 @@ panel:
     failed_inside_part: "Un corps de cette pièce est en échec : à corriger"
     failed_inside_group: "Un corps de ce groupe est en échec : à corriger"
     error_inside_assembly: "Une pièce de cet assemblage est en erreur : à corriger"
+    # Linked bodies (decision 0055): a source off its seat, a machining that lost its link.
+    link_off: "Cette pièce n'est plus dans son usinage lié. Clic droit pour la replacer"
+    link_lost: "Cet usinage a perdu son lien : il reste tel quel. Clic droit pour rompre le lien"
+    link_lost_in_part: "Un usinage de cette pièce a perdu son lien"
+    link_inside_assembly: "Une pièce de cet assemblage a un lien à revoir"
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"
@@ -1044,6 +1049,13 @@ notice:
   body_made_unique: "Corps rendu unique : %{name}"
   # Several made unique at once: no button.
   many_made_unique: "%{count} éléments rendus uniques"
+  # Linked bodies after an operation (decision 0055).
+  links_off: "%{count} pièce n'est plus dans son usinage"
+  links_off_plural: "%{count} pièces ne sont plus dans leur usinage"
+  link_conflict: "Cet usinage partagé ne peut pas suivre"
+  link_conflict_detail: "Ses liens lui demandent deux positions différentes. Séparer donne à chaque pièce le sien."
+  links_lost: "%{count} usinage a perdu son lien"
+  links_lost_plural: "%{count} usinages ont perdu leur lien"
   rename: "Renommer"
 
 # The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).

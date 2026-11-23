@@ -7854,3 +7854,110 @@ fn the_move_tool_carries_a_linked_body_in_one_step() {
     e.undo();
     assert!(close(mortise(&e).0, before), "one undo takes the rail and its mortise");
 }
+
+/// Two legs of one part, a rail in each, an imprint linking each to its leg's one mortise:
+/// `(rails, legs)`.
+fn linked_pair(e: &mut Editor) -> ([Id; 2], [Id; 2]) {
+    use skraft_model::{Scope, Sign};
+    let root = e.document().root();
+    let shift = glam::DAffine3::from_translation;
+    let box_at = |size: DVec3| Primitive::Box { origin: DVec3::ZERO, size };
+    let add = |e: &mut Editor, size, at| {
+        e.apply(Operation::AddPrimitive { context: root, primitive: box_at(size), placement: shift(at), material: None })
+            .unwrap()
+            .unwrap()
+            .created[0]
+    };
+    let rail = add(e, DVec3::new(100.0, 20.0, 20.0), DVec3::ZERO);
+    let leg = add(e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let component = |e: &Editor, id| e.document().resolve(&EntityPath::root(id)).unwrap().component;
+    let (rail_part, leg_part) = (component(e, rail), component(e, leg));
+    let away = DVec3::Y * 300.0;
+    let place = |e: &mut Editor, component, at| {
+        e.apply(Operation::PlaceOccurrence { context: root, component, transform: shift(at) }).unwrap().unwrap().created[0]
+    };
+    let rail2 = place(e, rail_part, away);
+    let leg2 = place(e, leg_part, DVec3::new(100.0, -10.0, -40.0) + away);
+    let primitive = Primitive::Box { origin: DVec3::new(100.0, 5.0, 5.0), size: DVec3::splat(10.0) };
+    let add = Operation::AddBody {
+        target: EntityPath::root(rail),
+        primitive,
+        placement: glam::DAffine3::IDENTITY,
+        sign: Sign::Imprint,
+        scope: Scope::All,
+    };
+    let imprint = e.apply(add).unwrap().unwrap().bodies[0];
+    let link = |source, receiver, onto| Operation::AddLink {
+        context: root,
+        source: vec![source],
+        imprint,
+        receiver: vec![receiver],
+        sign: Sign::Negative,
+        onto,
+    };
+    let body = e.apply(link(rail, leg, None)).unwrap().unwrap().bodies[0];
+    e.apply(link(rail2, leg2, Some(body))).unwrap().unwrap();
+    e.take_notices();
+    ([rail, rail2], [leg, leg2])
+}
+
+#[test]
+fn a_rail_moved_offers_to_put_the_others_back_or_to_separate() {
+    let mut e = top_editor(Document::new());
+    let ([rail, other], [leg, leg2]) = linked_pair(&mut e);
+    let root = e.document().root();
+    let lift = Operation::Transform { context: root, entities: vec![rail], transform: glam::DAffine3::from_translation(DVec3::Z * 5.0) };
+    e.apply(lift.clone()).unwrap().unwrap();
+    assert!(e.link_status().is_off(root, other) && !e.link_status().is_off(root, rail));
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].kind, NoticeKind::Warning);
+    assert_eq!(notices[0].action, Some(NoticeAction::Link(LinkAct::Replace)));
+    assert_eq!(notices[0].also, Some(NoticeAction::Link(LinkAct::Separate)));
+    assert!(e.link_act_live(LinkAct::Replace));
+
+    e.run_link_act(LinkAct::Replace);
+    assert!(e.link_status().off.is_empty());
+    assert!(!e.link_act_live(LinkAct::Replace), "used");
+    assert!(e.take_notices().is_empty());
+    let placed = |e: &Editor, id| e.document().resolve(&EntityPath::root(id)).unwrap().transform.translation;
+    assert!(close(placed(&e, other), DVec3::new(0.0, 300.0, 5.0)));
+
+    // Undone, the toast's buttons act on nothing any more.
+    e.undo();
+    assert!(!e.link_act_live(LinkAct::Replace));
+    e.undo();
+    e.apply(lift).unwrap().unwrap();
+    e.take_notices();
+    e.run_link_act(LinkAct::Separate);
+    assert!(e.link_status().off.is_empty());
+    let part = |e: &Editor, id| e.document().resolve(&EntityPath::root(id)).unwrap().component;
+    assert_ne!(part(&e, leg), part(&e, leg2), "the moved rail's leg is a part of its own");
+}
+
+#[test]
+fn a_part_losing_its_source_tells_its_machining_lost_its_link() {
+    let mut e = top_editor(Document::new());
+    let ([rail, other], [leg, _]) = linked_pair(&mut e);
+    let root = e.document().root();
+    e.apply(Operation::Delete { context: root, entities: vec![rail] }).unwrap().unwrap();
+    assert!(e.take_notices().is_empty(), "the other rail still holds the mortise");
+    e.apply(Operation::Delete { context: root, entities: vec![other] }).unwrap().unwrap();
+    let notices = e.take_notices();
+    assert_eq!((notices.len(), notices[0].kind, notices[0].action), (1, NoticeKind::Info, None));
+    let leg_part = e.document().resolve(&EntityPath::root(leg)).unwrap().component;
+    assert!(e.link_status().holds(leg_part) && e.link_status().holds(root));
+}
+
+#[test]
+fn a_leg_moved_offers_to_put_its_rail_back_without_separating() {
+    let mut e = top_editor(Document::new());
+    let ([rail, _], [leg, _]) = linked_pair(&mut e);
+    let root = e.document().root();
+    e.apply(Operation::Transform { context: root, entities: vec![leg], transform: glam::DAffine3::from_translation(DVec3::Z) })
+        .unwrap()
+        .unwrap();
+    assert!(e.link_status().is_off(root, rail));
+    let notices = e.take_notices();
+    assert_eq!((notices[0].action, notices[0].also), (Some(NoticeAction::Link(LinkAct::Replace)), None));
+}

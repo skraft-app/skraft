@@ -3109,6 +3109,7 @@ impl eframe::App for SkraftApp {
             Act::Rename { doc, target } => {
                 docs.index_of(*doc).and_then(|i| docs.get(i)).is_some_and(|d| d.editor.naming_of(*target).is_some())
             }
+            Act::Link { doc, act } => docs.index_of(*doc).and_then(|i| docs.get(i)).is_some_and(|d| d.editor.link_act_live(*act)),
             Act::Reveal(_) | Act::Open(_) | Act::ShowUpdate => true,
         });
         for act in self.toasts.show(&ctx, self.steps_top.unwrap_or(status_top)) {
@@ -3121,6 +3122,11 @@ impl eframe::App for SkraftApp {
                 Act::Reveal(_) | Act::Open(_) | Act::ShowUpdate => {}
                 #[cfg(not(target_arch = "wasm32"))]
                 Act::ShowUpdate => self.updates.open(&self.prefs.updates),
+                Act::Link { doc, act } => {
+                    if let Some(d) = self.docs.by_id_mut(doc) {
+                        d.editor.run_link_act(act);
+                    }
+                }
                 Act::Rename { doc, target } => {
                     if self.naming.is_none()
                         && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(target))

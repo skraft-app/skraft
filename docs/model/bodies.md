@@ -148,8 +148,24 @@ Link     { id, source: path, imprint, receiver: path, body, seat: T }
 - **Changes of structure** keep the links: gathering occurrences in an assembly, exploding one,
   moving them between assemblies rewrite the paths, each link going to the lowest assembly
   holding both its ends. Changing the receiver's axes brings the seats along.
-- Not yet: the off and broken states shown, « Replacer » and « Séparer », a linked body following
-  its imprint's **shape** (changed, its links go off), a preview of the body while dragging.
+- **What is told** (`Document::link_status`, kept by the editor for the current document): the
+  sources off, and the linked bodies with a link broken and none left alive. In the navigator, ⚠
+  on the source's row, the frozen body's, and the parts and assemblies above them.
+- **After an operation** a toast says how many other sources it left off, with « Replacer » and,
+  when a linked body moved or could not, « Séparer »; its buttons hold while nothing has changed
+  since. Bodies losing their link are told by a toast that goes by itself.
+- **`Operation::ReseatSources`** (« Replacer »): each source goes where its seats say, computed in
+  its receivers' axes. When they disagree it is not moved, and the warning gives the gap.
+- **`Operation::SeparateReceivers`** (« Séparer »): the parts these sources enter become parts of
+  their own; in them and in the copies left, a linked body in which no source is seated goes back
+  under its sources, when they agree.
+- **`Operation::BringLinkedBody`** (« Amener l'usinage ici »): the body comes under this source,
+  in every copy; the other sources are then off. **`Operation::Unlink`** (« Rompre le lien »): a
+  plain body, its shape and place kept, its links gone. All from the row's menu.
+- A link whose receiver or body is gone is dropped after the operation; one whose source is gone
+  stays, its body frozen in place and told.
+- Not yet: a linked body following its imprint's **shape** (changed, its links go off), a preview
+  of the body while dragging, « Imprimer », the collision check.
 
 ## Plane welding
 

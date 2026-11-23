@@ -53,6 +53,9 @@ pub enum Act {
     /// Opens the naming dialog on what was just made (a part, an assembly, a body definition),
     /// of this document.
     Rename { doc: DocId, target: skraft_tools::NameTarget },
+    /// Acts on what an operation left of linked bodies, in this document
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
+    Link { doc: DocId, act: skraft_tools::LinkAct },
     /// Opens the window of the new version (docs/ui/updates.md).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     ShowUpdate,
@@ -67,11 +70,13 @@ pub struct Note {
     pub detail: Option<String>,
     /// A button: its label, what it does.
     pub action: Option<(String, Act)>,
+    /// A second button, after it (boxed: a note travels in `Result`s).
+    pub also: Option<Box<(String, Act)>>,
 }
 
 impl Note {
     pub fn new(level: Level, title: impl Into<String>, detail: Option<String>) -> Note {
-        Note { level, title: title.into(), detail, action: None }
+        Note { level, title: title.into(), detail, action: None, also: None }
     }
 
     pub fn info(title: impl Into<String>) -> Note {
@@ -100,11 +105,17 @@ impl Note {
             K::Warning => Level::Warning,
             K::Error => Level::Error,
         };
-        let note = Note::new(level, n.title, n.detail);
-        match n.action {
-            Some(skraft_tools::NoticeAction::Rename(target)) => note.with_action(t!("notice.rename"), Act::Rename { doc, target }),
-            None => note,
-        }
+        let button = |a: skraft_tools::NoticeAction| match a {
+            skraft_tools::NoticeAction::Rename(target) => (t!("notice.rename"), Act::Rename { doc, target }),
+            skraft_tools::NoticeAction::Link(act) => {
+                let label = match act {
+                    skraft_tools::LinkAct::Replace => t!("operation.reseat_sources"),
+                    skraft_tools::LinkAct::Separate => t!("operation.separate_receivers"),
+                };
+                (label, Act::Link { doc, act })
+            }
+        };
+        Note { action: n.action.map(button), also: n.also.map(|a| Box::new(button(a))), ..Note::new(level, n.title, n.detail) }
     }
 }
 
@@ -182,6 +193,7 @@ impl Toasts {
                     "title": t.note.title,
                     "detail": t.note.detail,
                     "action": t.note.action.as_ref().map(|(label, _)| label),
+                    "also": t.note.also.as_ref().map(|b| &b.0),
                     "count": t.count,
                 })
             })
@@ -219,20 +231,23 @@ impl Toasts {
                         .inner_margin(egui::Margin { left: 12, right: 10, top: 8, bottom: 10 });
                     let r = frame.show(ui, |ui| {
                         ui.set_width(WIDTH);
-                        // One row: the text, then the button at the right end, both centered on
-                        // the row's height (the button's at least).
-                        let label =
-                            t.note.action.as_ref().map(|(label, _)| {
-                                ui.painter().layout_no_wrap(label.clone(), egui::TextStyle::Button.resolve(ui.style()), ink)
-                            });
-                        let button = label
-                            .as_ref()
-                            .map(|l| (l.size() + 2.0 * ui.spacing().button_padding).max(egui::vec2(0.0, ui.spacing().interact_size.y)));
+                        // One row: the text, then its buttons at the right end, all centered on
+                        // the row's height (the buttons' at least).
+                        let buttons: Vec<_> = [(t.note.action.as_ref(), "action"), (t.note.also.as_deref(), "also")]
+                            .into_iter()
+                            .filter_map(|(button, handle)| {
+                                let (label, act) = button?;
+                                let label = ui.painter().layout_no_wrap(label.clone(), egui::TextStyle::Button.resolve(ui.style()), ink);
+                                let size =
+                                    (label.size() + 2.0 * ui.spacing().button_padding).max(egui::vec2(0.0, ui.spacing().interact_size.y));
+                                Some((label, size, act.clone(), handle))
+                            })
+                            .collect();
                         let gap = 2.0 * ui.spacing().item_spacing.x;
                         // A warning's sign at the left, as high as a line of the title.
                         let sign = ui.text_style_height(&egui::TextStyle::Body);
                         let indent = if t.note.level == Level::Warning { sign + gap } else { 0.0 };
-                        let room = WIDTH - indent - button.map_or(0.0, |b| b.x + gap);
+                        let room = WIDTH - indent - buttons.iter().map(|b| b.1.x + gap).sum::<f32>();
                         // The text laid out first, to center it on the row.
                         let title = if t.count > 1 { format!("{} (×{})", t.note.title, t.count) } else { t.note.title.clone() };
                         let title = ui.painter().layout(title, egui::TextStyle::Body.resolve(ui.style()), ink, room);
@@ -242,7 +257,7 @@ impl Toasts {
                             .as_ref()
                             .map(|d| ui.painter().layout(d.clone(), egui::TextStyle::Small.resolve(ui.style()), body, room));
                         let text_h = title.size().y + detail.as_ref().map_or(0.0, |d| LINE_GAP + d.size().y);
-                        let row_h = text_h.max(button.map_or(0.0, |b| b.y));
+                        let row_h = buttons.iter().fold(text_h, |h, b| h.max(b.1.y));
                         let (row, _) = ui.allocate_exact_size(egui::vec2(WIDTH, row_h), egui::Sense::hover());
                         let mut y = row.top() + (row_h - text_h) / 2.0;
                         if indent > 0.0 {
@@ -255,11 +270,13 @@ impl Toasts {
                         if let Some(d) = detail {
                             ui.painter().galley(egui::pos2(left, y), d, body);
                         }
-                        if let (Some((_, act)), Some(size), Some(label)) = (&t.note.action, button, label) {
+                        let mut right = row.right();
+                        for (label, size, act, handle) in buttons.into_iter().rev() {
                             // Drawn here, not an egui button: egui's restyles a hovered button
                             // (margins, stroke, swelling) and the toast moved with it.
-                            let at = egui::Rect::from_center_size(egui::pos2(row.right() - size.x / 2.0, row.center().y), size);
-                            let b = ui.interact(at, egui::Id::unique(("toast.action", i)), egui::Sense::click());
+                            let at = egui::Rect::from_center_size(egui::pos2(right - size.x / 2.0, row.center().y), size);
+                            right -= size.x + gap;
+                            let b = ui.interact(at, egui::Id::unique(("toast.action", i, handle)), egui::Sense::click());
                             // Off the wash: the window's plain fill, framed and written in the
                             // toast's colour; tinted under the pointer.
                             let plain = ui.visuals().window_fill;
@@ -270,9 +287,9 @@ impl Toasts {
                             if b.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
-                            crate::handles::publish(|| format!("toast.{i}.action"), at);
+                            crate::handles::publish(|| format!("toast.{i}.{handle}"), at);
                             if b.clicked() {
-                                acts.push(act.clone());
+                                acts.push(act);
                                 closed.push(i);
                             }
                         }
@@ -365,12 +382,25 @@ mod tests {
     #[test]
     fn a_notice_of_the_editor_is_a_toast() {
         use skraft_tools::{NameTarget, Notice, NoticeAction, NoticeKind};
-        let n = Notice { kind: NoticeKind::Error, title: "t".into(), detail: Some("d".into()), action: None };
+        let n = Notice { kind: NoticeKind::Error, title: "t".into(), detail: Some("d".into()), action: None, also: None };
         assert_eq!(Note::of_notice(n, 1), Note::error("t", "d"));
         let target = NameTarget::Component(skraft_model::Id(7));
-        let n = Notice { kind: NoticeKind::Success, title: "p".into(), detail: None, action: Some(NoticeAction::Rename(target)) };
+        let n =
+            Notice { kind: NoticeKind::Success, title: "p".into(), detail: None, action: Some(NoticeAction::Rename(target)), also: None };
         let note = Note::of_notice(n, 2);
         assert_eq!(note.action, Some(("Renommer".into(), Act::Rename { doc: 2, target })));
+        // Two buttons, about linked bodies.
+        let (replace, separate) = (skraft_tools::LinkAct::Replace, skraft_tools::LinkAct::Separate);
+        let links = Notice {
+            kind: NoticeKind::Warning,
+            title: "l".into(),
+            detail: None,
+            action: Some(NoticeAction::Link(replace)),
+            also: Some(NoticeAction::Link(separate)),
+        };
+        let shown = Note::of_notice(links, 3);
+        assert_eq!(shown.action, Some(("Replacer".into(), Act::Link { doc: 3, act: replace })));
+        assert_eq!(shown.also, Some(Box::new(("Séparer".into(), Act::Link { doc: 3, act: separate }))));
         // Gone with its part.
         let mut t = Toasts::default();
         t.push(note);
