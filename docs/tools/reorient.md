@@ -24,8 +24,13 @@ As SmartAxes, the tool shows the target **as it is**: highlighted with the other
 component, its axes, a white arrow along its length on its back (dashed, hidden when behind) and
 on its front, its box dotted. A tooltip gives its name, material and size, and how many occurrences the change reaches.
 
-Only two modes draw what a click would give, over that, in magenta:
+What a click would give is drawn over that, in magenta:
 
+- **Longueur ↔ Largeur**: a small curved arrow in the corner of the face towards the eye, from
+  the side the arrow points at to the side it will point at. It leaves the corner when the face
+  is too small on screen to hold it.
+- **Face ↔ Dos**: a ring about red at the arrow's tip, with two heads: a half turn has no
+  direction.
 - **Adapter**: the face and the edge aimed at, the new front arrow filled, the new box dashed and
   the new axes. The current axes are left out, as in OpenCutList.
 - **Origine**: the axes at the point aimed at.
@@ -34,4 +39,6 @@ Only two modes draw what a click would give, over that, in magenta:
 
 - **The other modifier reverses red**, where OpenCutList uses Ctrl / Option: that key already holds
   the tree's parent level ([Selection](selection.md)).
+- **A turn seen edge on is opened a little**: true to the axes it would flatten into a line, in
+  the top view above all for the ring.
 - **Axes already right are a message**, not an empty step in the history.
