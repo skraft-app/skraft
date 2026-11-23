@@ -1,0 +1,36 @@
+# Reorient
+
+« Réorienter » gives the part or assembly clicked new axes, after OpenCutList's SmartAxes. Nothing
+moves in the world ([decision 0053](../decisions/0053-changing-a-components-axes.md),
+[A part's axes](../model/data-model.md#a-parts-axes)). The change reaches every occurrence of the
+component; an assembly's parts keep their own axes.
+
+## Modes
+
+The bar's « Mode », saved with the tool; Tab goes to the next.
+
+- **Longueur ↔ Largeur**: a quarter turn about blue.
+- **Face ↔ Dos**: a half turn about red.
+- **Adapter**: blue on the normal of the flat face aimed at, red on its side within 8 pixels of the
+  cursor, else its longest side (the nearest to the current red on a tie), the face on green's
+  side. The other modifier (Command on macOS, Alt elsewhere) held reverses red. The origin stays. A
+  slanted face gives oblique axes; a curved one is refused.
+- **Origine**: the point inferred under the cursor becomes the origin, an outline's corner included.
+
+## What it shows
+
+As SmartAxes, the tool shows the target **as it is**: highlighted with the other occurrences of its
+component, its axes, an arrow along its length on its back (dashed) and on its front, its box
+dotted. A tooltip gives its name, material and size, and how many occurrences the change reaches.
+
+Only two modes draw what a click would give, over that, in magenta:
+
+- **Adapter**: the face and the edge aimed at, the new front arrow filled, the new box dashed and
+  the new axes. The current axes are left out, as in OpenCutList.
+- **Origine**: the axes at the point aimed at.
+
+## Why
+
+- **The other modifier reverses red**, where OpenCutList uses Ctrl / Option: that key already holds
+  the tree's parent level ([Selection](selection.md)).
+- **Axes already right are a message**, not an empty step in the history.

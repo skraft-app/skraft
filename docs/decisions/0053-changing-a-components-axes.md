@@ -1,6 +1,6 @@
 # Changing a component's axes: one operation, dimensions read on the axes
 
-- Status: accepted (2026-11-23; the operation, dimensions and born orientation built)
+- Status: accepted (2026-11-23; built but for « Retourner »)
 - Design: [A part's axes](../model/data-model.md#a-parts-axes),
   [Bodies placed in the part's axes](../model/bodies.md#bodies-placed-in-the-parts-axes)
 - Interaction after OpenCutList's SmartAxes (`ruby/tool/smart_axes_tool.rb`)
@@ -76,7 +76,7 @@ return to the default and a message says so. Undo restores them.
   - *Permuter Longueur ↔ Largeur*;
   - *Permuter Face ↔ Dos*;
   - *Adapter les axes*: a face gives blue, an edge in it gives red (its longest outer edge by
-    default), the modifier key reversing it; the origin stays. A slanted face gives oblique axes;
+    default), the other modifier (Command on macOS, Alt elsewhere) reversing it; the origin stays. A slanted face gives oblique axes;
   - *Déplacer l'origine*: a point picked becomes the origin.
 - **« Retourner »**, along the length, width or thickness: **mirrors one occurrence** about its
   box's centre. It changes that occurrence's `T` and not the component's axes.

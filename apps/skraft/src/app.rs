@@ -225,6 +225,7 @@ pub(crate) fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.section" => ToolKind::Section,
         "tool.measure" => ToolKind::Measure,
         "tool.stretch" => ToolKind::Stretch,
+        "tool.reorient" => ToolKind::Reorient,
         "tool.round" => ToolKind::Round,
         "tool.chamfer" => ToolKind::Chamfer,
         "tool.copy_line" => ToolKind::CopyLine,

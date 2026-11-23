@@ -7605,3 +7605,183 @@ fn rotate_takes_the_centre_of_a_face_of_the_box() {
     let (lo, hi) = bounds_of(&e, &EntityPath::root(a));
     assert!(close(lo, DVec3::new(50.0, -50.0, 0.0)) && close(hi, DVec3::new(150.0, 150.0, 50.0)), "{lo} {hi}");
 }
+
+/// A board 600 × 400 × 18 on the ground, the tool « Réorienter » in `mode`: the editor, its
+/// occurrence and its part.
+fn reorient_board(mode: &str) -> (Editor, Id, Id) {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let primitive = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(600.0, 400.0, 18.0) };
+    let occ = e
+        .apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let part = e.document().resolve_part(&EntityPath::root(occ)).unwrap().0;
+    e.set_tool(ToolKind::Reorient);
+    e.set_tool_option("mode", OptionValue::Choice(mode.into()));
+    (e, occ, part)
+}
+
+fn part_size(e: &Editor, part: Id) -> DVec3 {
+    let (lo, hi) = e.document().part(part).unwrap().shape().vertex_bounds().unwrap();
+    hi - lo
+}
+
+fn world_points(e: &Editor) -> Vec<DVec3> {
+    let parts = e.document().placed_parts();
+    parts.iter().flat_map(|p| p.shape.vertex_points().into_iter().map(|v| p.transform.transform_point3(v)).collect::<Vec<_>>()).collect()
+}
+
+fn same_world(a: &[DVec3], b: &[DVec3]) {
+    assert_eq!(a.len(), b.len());
+    assert!(a.iter().all(|p| b.iter().any(|q| close(*p, *q))), "the part moved");
+}
+
+#[test]
+fn reorient_swaps_length_and_width_where_it_stands() {
+    let (mut e, _, part) = reorient_board("swap_length_width");
+    let before = world_points(&e);
+    click(&mut e, DVec3::new(300.0, 200.0, 18.0));
+    assert!(close(part_size(&e, part), DVec3::new(400.0, 600.0, 18.0)), "{}", part_size(&e, part));
+    same_world(&before, &world_points(&e));
+    e.undo();
+    assert!(close(part_size(&e, part), DVec3::new(600.0, 400.0, 18.0)));
+}
+
+#[test]
+fn reorient_swaps_front_and_back() {
+    let (mut e, occ, part) = reorient_board("swap_front_back");
+    let before = world_points(&e);
+    click(&mut e, DVec3::new(300.0, 200.0, 18.0));
+    same_world(&before, &world_points(&e));
+    let (_, _, t) = e.document().resolve_part(&EntityPath::root(occ)).unwrap();
+    assert!(close(t.matrix3.z_axis, -DVec3::Z) && t.matrix3.determinant() > 0.0, "{t:?}");
+    assert!(close(part_size(&e, part), DVec3::new(600.0, 400.0, 18.0)));
+}
+
+#[test]
+fn reorient_adapts_the_axes_to_a_face_and_its_nearest_edge() {
+    let (mut e, occ, part) = reorient_board("adapt");
+    let before = world_points(&e);
+    // Next to the short side at x = 600: red along it, blue on the face seen.
+    click(&mut e, DVec3::new(599.0, 200.0, 18.0));
+    same_world(&before, &world_points(&e));
+    assert!(close(part_size(&e, part), DVec3::new(400.0, 600.0, 18.0)), "{}", part_size(&e, part));
+    let (_, _, t) = e.document().resolve_part(&EntityPath::root(occ)).unwrap();
+    assert!(close(t.matrix3.z_axis, DVec3::Z), "{t:?}");
+    assert!(t.matrix3.x_axis.y.abs() > 0.999, "{t:?}");
+    // The part lies on green's side of the edge.
+    let (lo, hi) = e.document().part(part).unwrap().shape().vertex_bounds().unwrap();
+    let origin_side = t.transform_point3((lo + hi) / 2.0);
+    let on_green = (origin_side - DVec3::new(600.0, 200.0, 18.0)).dot(t.matrix3.y_axis);
+    assert!(on_green > 0.0, "{on_green}");
+}
+
+#[test]
+fn reorient_moves_the_origin_to_the_point_clicked() {
+    let (mut e, occ, part) = reorient_board("origin");
+    let before = world_points(&e);
+    let corner = DVec3::new(600.0, 400.0, 18.0);
+    click(&mut e, corner);
+    same_world(&before, &world_points(&e));
+    let (_, _, t) = e.document().resolve_part(&EntityPath::root(occ)).unwrap();
+    assert!(close(t.translation, corner), "{t:?}");
+    assert!(close(part_size(&e, part), DVec3::new(600.0, 400.0, 18.0)));
+}
+
+#[test]
+fn reorient_on_an_assembly_leaves_its_parts_axes() {
+    let (mut e, occ, part) = reorient_board("swap_length_width");
+    let root = e.document().root();
+    let made = e.apply(Operation::MakeAssembly { context: root, entities: vec![occ], name: None }).unwrap().unwrap().created[0];
+    let assembly = e.document().resolve(&EntityPath::root(made)).unwrap().component;
+    let before = e.document().resolve(&EntityPath::root(made)).unwrap().transform;
+    let world = world_points(&e);
+    e.set_tool(ToolKind::Reorient);
+    click(&mut e, DVec3::new(300.0, 200.0, 18.0));
+    assert_ne!(e.document().resolve(&EntityPath::root(made)).unwrap().transform, before, "the assembly's axes changed");
+    assert!(e.document().component(assembly).unwrap().as_assembly().is_some());
+    assert!(close(part_size(&e, part), DVec3::new(600.0, 400.0, 18.0)), "its part keeps its axes");
+    same_world(&world, &world_points(&e));
+}
+
+#[test]
+fn reorient_tab_goes_to_the_next_mode() {
+    let (mut e, _, _) = reorient_board("swap_length_width");
+    key(&mut e, Key::Tab);
+    assert!(e.status().contains("face et son dos"), "{}", e.status());
+    key(&mut e, Key::Tab);
+    assert!(e.status().contains("adapter"), "{}", e.status());
+    key(&mut e, Key::Tab);
+    assert!(e.status().contains("origine"), "{}", e.status());
+}
+
+#[test]
+fn reorient_adapt_reverses_red_with_the_other_modifier() {
+    let aimed = |alt: bool| {
+        let (mut e, occ, _) = reorient_board("adapt");
+        e.set_alt(alt);
+        click(&mut e, DVec3::new(300.0, 1.0, 18.0));
+        e.set_alt(false);
+        e.document().resolve_part(&EntityPath::root(occ)).unwrap().2.matrix3.x_axis
+    };
+    let (plain, reversed) = (aimed(false), aimed(true));
+    assert!(plain.x.abs() > 0.999, "along the side clicked: {plain}");
+    assert!(close(plain, -reversed), "{plain} {reversed}");
+}
+
+#[test]
+fn reorient_adapt_refuses_a_curved_face_and_resets_settings_on_oblique_axes() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let primitive = Primitive::Sphere { center: DVec3::ZERO, radius: 200.0 };
+    e.apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None }).unwrap();
+    let revision = e.document().placed_parts()[0].transform;
+    e.set_tool(ToolKind::Reorient);
+    e.set_tool_option("mode", OptionValue::Choice("adapt".into()));
+    click(&mut e, DVec3::new(10.0, 10.0, 200.0));
+    assert_eq!(e.document().placed_parts()[0].transform, revision, "nothing to adapt to");
+
+    // A board with a slanted side: red along it, its stretch settings dropped.
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let profile = skraft_kernel::profile::polygon(&[
+        glam::DVec2::ZERO,
+        glam::DVec2::new(600.0, 200.0),
+        glam::DVec2::new(600.0, 400.0),
+        glam::DVec2::new(0.0, 400.0),
+    ]);
+    let primitive = Primitive::Prism { origin: DVec3::ZERO, profile, height: 18.0 };
+    let occ = e
+        .apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let part = e.document().resolve_part(&EntityPath::root(occ)).unwrap().0;
+    let behavior = skraft_model::Behavior { no_stretch: skraft_model::StretchMask(0b001), cutters: None };
+    e.apply(Operation::SetBehavior { component: part, behavior }).unwrap();
+    let before = world_points(&e);
+    e.set_tool(ToolKind::Reorient);
+    e.set_tool_option("mode", OptionValue::Choice("adapt".into()));
+    click(&mut e, DVec3::new(300.0, 101.0, 18.0));
+    same_world(&before, &world_points(&e));
+    let x = e.document().resolve_part(&EntityPath::root(occ)).unwrap().2.matrix3.x_axis;
+    assert!(x.cross(DVec3::new(3.0, 1.0, 0.0).normalize()).length() < 1e-6, "{x}");
+    assert_eq!(e.document().component(part).unwrap().behavior, skraft_model::Behavior::default());
+}
+
+#[test]
+fn reorient_shows_the_part_as_it_is_and_says_what_it_reaches() {
+    let (mut e, occ, _) = reorient_board("swap_length_width");
+    let root = e.document().root();
+    let by = glam::DAffine3::from_translation(DVec3::Y * 1000.0);
+    e.apply(Operation::Duplicate { context: root, entities: vec![occ], transform: by }).unwrap();
+    e.set_tool(ToolKind::Reorient);
+    let at = px(&e, DVec3::new(300.0, 200.0, 18.0));
+    e.input(ToolInput::Hover { px: at });
+    let tip = e.preview().tip.unwrap();
+    // Its size as it is, not as a click would make it.
+    assert!(tip.contains("600") && tip.find("600") < tip.find("400"), "{tip}");
+    assert!(tip.contains("2 exemplaires"), "{tip}");
+}

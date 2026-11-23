@@ -969,6 +969,29 @@ status:
     next_failed: "the next task failed: %{error}"
 
 tool:
+  reorient:
+    name: "Reorient"
+    # The part already has these axes.
+    already: "The part already has these axes"
+    not_flat: "Aim at a flat face"
+    more_occurrences: "%{count} instances sharing the same definition will be modified"
+    settings_reset: "Oblique axes: stretch cutters and locks are reset"
+    hint:
+      swap_length_width: "Click a part or assembly to swap its length and width"
+      swap_front_back: "Click a part or assembly to swap its front and back"
+      adapt: "Aim at a face and click an edge to adapt the axes to it · hold %{alt_key}: reverse the direction"
+      origin: "Click a point to place the origin there"
+    option:
+      mode: "Mode"
+      mode_tip: "What a click changes in the axes (Tab: next)"
+      swap_length_width: "Length ↔ Width"
+      swap_length_width_tip: "Swap the length and the width"
+      swap_front_back: "Front ↔ Back"
+      swap_front_back_tip: "Swap the front and the back"
+      adapt: "Adapt"
+      adapt_tip: "Blue on the face's normal, red on the edge"
+      origin: "Origin"
+      origin_tip: "Move the origin of the axes"
   copying: "(copy)"
   select:
     name: "Select"
