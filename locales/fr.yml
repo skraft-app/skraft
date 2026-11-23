@@ -1600,6 +1600,11 @@ operation:
   set_sign_negative: "Changer en usinage"
   set_sign_intersect: "Changer en intersection"
   set_sign_imprint: "Changer en empreinte"
+  # What is done on linked bodies (decision 0055).
+  reseat_sources: "Replacer"
+  separate_receivers: "Séparer"
+  bring_linked_body: "Amener l'usinage ici"
+  unlink: "Rompre le lien"
   # Bodies grouped, a group flattened (docs/model/bodies.md#body-groups).
   group: "Grouper"
   ungroup: "$t(common.explode)"
@@ -1747,6 +1752,8 @@ warning:
   made_unique: "rendu unique : %{names}"
   # … and the body nodes whose edges were on a body that left them (now in error).
   nodes_lost_edges: "arêtes perdues : %{names}"
+  # Parts not put back in their linked machinings: their ends ask for places %{gap} apart.
+  not_reseated: "non replacé : %{names}, ses liens demandent deux positions distantes de %{gap}"
 
 error:
   # A typed value that cannot be read (the measurements box, the entity info).
@@ -1798,6 +1805,7 @@ error:
     bad_link: "lien impossible : il faut une empreinte à la racine de sa pièce, un autre exemplaire et un usinage à la même place"
     imprint_linked: "une empreinte ne peut pas contenir de corps lié"
     imprint_level: "un corps n'entre ni ne sort d'une empreinte"
+    link_conflict: "ses liens demandent deux positions différentes pour un même usinage"
     not_at_path: "seule une opération sur des exemplaires s'applique en profondeur"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"

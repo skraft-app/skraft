@@ -1459,6 +1459,11 @@ operation:
   set_sign_negative: "Change to Machining"
   set_sign_intersect: "Change to Intersection"
   set_sign_imprint: "Change to Imprint"
+  # What is done on linked bodies (decision 0055).
+  reseat_sources: "Put Back"
+  separate_receivers: "Separate"
+  bring_linked_body: "Bring the Machining Here"
+  unlink: "Break the Link"
   group: "Group"
   ungroup: "$t(common.explode)"
   add_guide: "Guide"
@@ -1591,6 +1596,8 @@ warning:
   made_unique: "made unique: %{names}"
   # … and the body nodes whose edges were on a body that left them (now in error).
   nodes_lost_edges: "edges lost: %{names}"
+  # Parts not put back in their linked machinings: their ends ask for places %{gap} apart.
+  not_reseated: "not put back: %{names}, its links ask for two places %{gap} apart"
 
 error:
   expr:
@@ -1639,6 +1646,7 @@ error:
     bad_link: "impossible link: it takes an imprint at the root of its part, another instance and a machining in the same place"
     imprint_linked: "an imprint cannot hold a linked body"
     imprint_level: "a body does not move into or out of an imprint"
+    link_conflict: "its links ask for two different places for one machining"
     not_at_path: "only an operation on instances applies at depth"
     turned_across: "a turned body only stretches along its axis, without cutting an arc of its profile"
     bad_guide: "guide without a direction or a radius"

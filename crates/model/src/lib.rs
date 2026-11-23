@@ -56,7 +56,7 @@ pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
 pub use history::History;
 pub use import::ImportReport;
-pub use links::{Followed, Link, LinkState};
+pub use links::{Followed, Link, LinkSource, LinkState, LinkStatus};
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, NodeRaw, Operation, Outcome, Prepared, RawAsk, Scope, Warning};
 pub use profile::BodyProfile;
 pub use props::{EntityKind, PropDef, PropTarget, Props, Value, ValueKind};
@@ -184,6 +184,8 @@ pub enum Refusal {
     ImprintLinked,
     /// A body moved into or out of an imprint, or an imprint sparing material exploded.
     ImprintLevel,
+    /// A source's links ask one linked body for two places.
+    LinkConflict,
 }
 
 /// A file that cannot be opened.
@@ -303,6 +305,7 @@ impl std::fmt::Display for Refusal {
             Refusal::BadLink => t!("error.model.bad_link"),
             Refusal::ImprintLinked => t!("error.model.imprint_linked"),
             Refusal::ImprintLevel => t!("error.model.imprint_level"),
+            Refusal::LinkConflict => t!("error.model.link_conflict"),
             Refusal::FlattenFailed => t!("error.model.flatten_failed"),
             Refusal::NotAtPath => t!("error.model.not_at_path"),
             Refusal::BadPropKey => t!("error.model.bad_prop_key"),

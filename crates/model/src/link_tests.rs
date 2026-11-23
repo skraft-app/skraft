@@ -369,16 +369,25 @@ fn a_link_is_seated_off_or_broken() {
     h.apply(shift(rail, DVec3::X)).unwrap();
     assert_eq!(states(&h), vec![LinkState::Seated], "both moved alike");
 
-    let deleted = |h: &mut History, op| {
+    // Its source gone: broken, and its body told frozen.
+    let source_gone = |h: &mut History, op| {
         h.apply(op).unwrap();
         assert_eq!(states(h), vec![LinkState::Broken]);
+        assert_eq!(h.document().link_status().broken.len(), 1);
         assert!(h.undo());
     };
-    deleted(&mut h, Operation::DeleteBodies { target: EntityPath::root(rail), bodies: vec![imprint], scope: Scope::All });
+    source_gone(&mut h, Operation::DeleteBodies { target: EntityPath::root(rail), bodies: vec![imprint], scope: Scope::All });
+    source_gone(&mut h, Operation::Delete { context: root, entities: vec![rail] });
+
+    // Its body or its receiver gone: nothing left to show, the link goes.
     let body = root_links(&h)[0].body;
-    deleted(&mut h, Operation::DeleteBodies { target: EntityPath::root(leg), bodies: vec![body], scope: Scope::All });
-    deleted(&mut h, Operation::Delete { context: root, entities: vec![rail] });
-    deleted(&mut h, Operation::Delete { context: root, entities: vec![leg] });
+    let receiver_gone = |h: &mut History, op| {
+        h.apply(op).unwrap();
+        assert!(root_links(h).is_empty());
+        assert!(h.undo());
+    };
+    receiver_gone(&mut h, Operation::DeleteBodies { target: EntityPath::root(leg), bodies: vec![body], scope: Scope::All });
+    receiver_gone(&mut h, Operation::Delete { context: root, entities: vec![leg] });
     assert_eq!(states(&h), vec![LinkState::Seated]);
 }
 
@@ -861,4 +870,170 @@ fn the_linked_table_is_saved_after_following() {
     let states: Vec<LinkState> = read.root_assembly().links().iter().map(|l| read.link_state(root, l)).collect();
     assert_eq!(states.iter().filter(|s| **s == LinkState::Seated).count(), 2);
     assert_eq!(states.iter().filter(|s| **s == LinkState::Off).count(), 6);
+}
+
+// ---- what is done about links off and broken ------------------------------------------------
+
+impl Table {
+    fn source(&self, rail: usize) -> LinkSource {
+        LinkSource { assembly: self.h.document().root(), occurrence: self.rails[rail] }
+    }
+
+    fn sources(&self, rails: &[usize]) -> Vec<LinkSource> {
+        rails.iter().map(|k| self.source(*k)).collect()
+    }
+
+    fn legs_parts(&self) -> usize {
+        self.legs.iter().map(|l| part_of(&self.h, *l)).collect::<std::collections::BTreeSet<_>>().len()
+    }
+
+    fn clear_of_every_leg(&self) -> bool {
+        let doc = self.h.document();
+        self.rails.iter().all(|r| {
+            let (_, rail, tr) = doc.resolve_part(&EntityPath::root(*r)).unwrap();
+            self.legs.iter().all(|l| {
+                let (_, leg, tl) = doc.resolve_part(&EntityPath::root(*l)).unwrap();
+                let placed = rail.shape().transformed(&(tl.inverse() * tr)).unwrap();
+                match leg.shape().boolean(&placed, skraft_kernel::BooleanOp::Intersection) {
+                    Ok(common) => common.volume().unwrap() < 1e-6,
+                    Err(skraft_kernel::Error::Empty(_)) => true,
+                    Err(e) => panic!("{e}"),
+                }
+            })
+        })
+    }
+}
+
+#[test]
+fn the_status_tells_the_sources_off_up_the_tree() {
+    let mut h = History::new(Document::new());
+    let (rail, leg, imprint) = rail_and_leg(&mut h);
+    h.apply(link_op(&h, rail, imprint, leg, None)).unwrap();
+    let root = h.document().root();
+    assert_eq!(h.document().link_status(), LinkStatus::default());
+    let group = h.apply(Operation::MakeAssembly { context: root, entities: vec![leg], name: None }).unwrap().created[0];
+    let outer = h.apply(Operation::MakeAssembly { context: root, entities: vec![group], name: None }).unwrap().created[0];
+    let outer_part = part_of(&h, outer);
+    let inner = h.document().assembly(outer_part).unwrap().occurrence(group).unwrap().component;
+
+    // The leg moved in its assembly: the rail, at the root, is off.
+    h.apply(Operation::Transform { context: inner, entities: vec![leg], transform: moved(DVec3::Z) }).unwrap();
+    let status = h.document().link_status();
+    assert!(status.is_off(root, rail));
+    assert!(!status.is_off(inner, leg));
+    assert!(status.holds(root));
+    assert!(!status.holds(inner), "nothing off in the leg's assembly");
+}
+
+#[test]
+fn a_broken_link_is_told_only_when_no_other_holds_the_body() {
+    let mut t = turned_table();
+    let root = t.h.document().root();
+    t.h.apply(Operation::Delete { context: root, entities: vec![t.rails[0]] }).unwrap();
+    assert!(t.h.document().link_status().broken.is_empty(), "the other rails still hold both mortises");
+
+    let mut h = History::new(Document::new());
+    let (rail, leg, imprint) = rail_and_leg(&mut h);
+    let body = h.apply(link_op(&h, rail, imprint, leg, None)).unwrap().bodies[0];
+    let root = h.document().root();
+    h.apply(Operation::Delete { context: root, entities: vec![rail] }).unwrap();
+    let status = h.document().link_status();
+    let leg_part = part_of(&h, leg);
+    assert_eq!(status.broken.iter().copied().collect::<Vec<_>>(), vec![(leg_part, body)]);
+    assert!(status.holds(leg_part) && status.holds(root));
+    assert!(close(volume(&h, leg_part), LEG_VOLUME - IMPRINT_VOLUME), "the machining stays");
+
+    // « Rompre le lien »: a plain body, nothing more to say.
+    h.apply(Operation::Unlink { part: leg_part, bodies: vec![body] }).unwrap();
+    assert!(root_links(&h).is_empty());
+    assert_eq!(h.document().link_status(), LinkStatus::default());
+    let q = h.document().part(leg_part).unwrap();
+    assert_eq!(q.def_of(q.body(body).unwrap()).source, BodySource::Local);
+    assert!(close(volume(&h, leg_part), LEG_VOLUME - IMPRINT_VOLUME));
+    assert!(h.undo());
+    assert_eq!(h.document().link_status().broken.len(), 1);
+}
+
+#[test]
+fn replacing_puts_the_other_rails_on_their_seats() {
+    let mut t = turned_table();
+    t.shift(&[0], DVec3::Z * 10.0);
+    assert_eq!(t.off(), vec![1, 2, 3]);
+    let sources = t.sources(&[1, 2, 3]);
+    let o = t.h.apply(Operation::ReseatSources { sources }).unwrap();
+    assert!(o.warning.is_none());
+    assert!(t.off().is_empty());
+    assert_eq!(t.legs_parts(), 1);
+    assert!(t.clear_of_every_leg());
+    assert!(close(t.leg_volume(), full_leg()));
+    assert!(t.h.undo());
+    assert_eq!(t.off(), vec![1, 2, 3]);
+}
+
+#[test]
+fn replacing_a_rail_whose_ends_disagree_leaves_it_and_says_by_how_much() {
+    let mut t = turned_table();
+    let root = t.h.document().root();
+    t.h.apply(Operation::MakeUnique { context: root, occurrence: t.legs[0] }).unwrap();
+    t.shift(&[0], DVec3::Z * 10.0);
+    assert_eq!(t.off(), vec![1, 2]);
+    let before: Vec<DAffine3> = t.rails.iter().map(|r| t.h.document().resolve(&EntityPath::root(*r)).unwrap().transform).collect();
+    let o = t.h.apply(Operation::ReseatSources { sources: t.sources(&[1, 2]) }).unwrap();
+    let Some(Warning::NotReseated { names, gap }) = o.warning else { panic!("{:?}", o.warning) };
+    assert_eq!(names.len(), 2);
+    assert!(gap.starts_with("10"), "{gap}");
+    let after: Vec<DAffine3> = t.rails.iter().map(|r| t.h.document().resolve(&EntityPath::root(*r)).unwrap().transform).collect();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn separating_gives_the_moved_rail_its_legs_and_the_others_their_mortises_back() {
+    let mut t = turned_table();
+    let before = t.mortises();
+    t.shift(&[0], DVec3::Z * 10.0);
+    assert_eq!(t.off(), vec![1, 2, 3]);
+    let steps = t.h.journal().count();
+    t.h.apply(Operation::SeparateReceivers { sources: t.sources(&[0]) }).unwrap();
+    assert_eq!(t.h.journal().count(), steps + 1);
+    assert!(t.off().is_empty(), "every rail seated: {:?}", t.off());
+    assert_eq!(t.legs_parts(), 3, "its two legs apart, the other two still one");
+    assert_eq!(t.mortises().len(), 2);
+    let shared = part_of(&t.h, t.legs[2]);
+    assert_eq!(part_of(&t.h, t.legs[3]), shared);
+    let left: Vec<DAffine3> = t.h.document().part(shared).unwrap().negatives().map(|b| b.placement).collect();
+    assert!(left.iter().zip(&before).all(|(a, b)| a.abs_diff_eq(*b, 1e-9)), "the others keep their mortises as they were");
+    assert!(t.clear_of_every_leg());
+}
+
+#[test]
+fn separating_resolves_a_conflict_between_mirrored_legs() {
+    let mut t = mirrored_table();
+    assert_eq!(t.shift(&[0], DVec3::X * 5.0).conflicts.len(), 1);
+    assert_eq!(t.off(), vec![0]);
+    t.h.apply(Operation::SeparateReceivers { sources: t.sources(&[0]) }).unwrap();
+    assert!(t.off().is_empty(), "{:?}", t.off());
+    assert_eq!(t.legs_parts(), 3);
+}
+
+#[test]
+fn bringing_the_mortise_to_a_rail_leaves_the_others_off() {
+    let mut t = turned_table();
+    let before = t.mortises();
+    t.shift(&[0], DVec3::Y * -200.0);
+    assert_eq!(t.off(), vec![0]);
+    t.shift(&[0], at(0.0, 200.0, 7.0));
+    assert_eq!(t.off(), vec![0], "back in the leg, not on its seat");
+    t.h.apply(Operation::BringLinkedBody { source: t.source(0) }).unwrap();
+    assert_eq!(t.off(), vec![1, 2, 3]);
+    let after = t.mortises();
+    assert!(before.iter().zip(&after).all(|(a, b)| (b.translation - a.translation - DVec3::Z * 7.0).length() < 1e-9));
+    assert!(close(t.leg_volume(), full_leg()));
+}
+
+#[test]
+fn the_followed_outcome_names_the_sources_moved() {
+    let mut t = turned_table();
+    let followed = t.shift(&[0], DVec3::Y * -200.0);
+    assert_eq!(followed.sources, t.sources(&[0]), "pulled out: moved, nothing followed");
+    assert!(t.shift(&[1], DVec3::Z).sources.len() == 1);
 }

@@ -116,6 +116,16 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         onto: Option<Id>,
     },
+    /// « Replacer »: each source goes back on its seats, when they agree
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
+    ReseatSources { sources: Vec<crate::LinkSource> },
+    /// « Séparer »: the parts receiving these sources become parts of their own, each linked
+    /// body then back under the sources it has left.
+    SeparateReceivers { sources: Vec<crate::LinkSource> },
+    /// « Amener l'usinage ici »: the linked bodies of this source's links off, brought under it.
+    BringLinkedBody { source: crate::LinkSource },
+    /// « Rompre le lien »: the linked bodies `bodies` of `part` become plain bodies.
+    Unlink { part: Id, bodies: Vec<Id> },
     /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
     /// Rigid only: a scale changes a part, not its place (docs/model/data-model.md).
     Transform { context: Id, entities: Vec<Id>, transform: DAffine3 },
@@ -658,6 +668,10 @@ impl Operation {
             Operation::AddBody { sign: Sign::Intersect, .. } => t!("operation.add_intersect"),
             Operation::AddBody { sign: Sign::Imprint, .. } => t!("operation.add_imprint"),
             Operation::AddLink { .. } => t!("operation.add_link"),
+            Operation::ReseatSources { .. } => t!("operation.reseat_sources"),
+            Operation::SeparateReceivers { .. } => t!("operation.separate_receivers"),
+            Operation::BringLinkedBody { .. } => t!("operation.bring_linked_body"),
+            Operation::Unlink { .. } => t!("operation.unlink"),
             Operation::DeleteBodies { .. } => t!("operation.delete"),
             Operation::GroupBodies { .. } => t!("operation.group"),
             Operation::MoveBodies { copy: true, .. } => t!("operation.copy_bodies_to"),
@@ -815,6 +829,9 @@ pub enum Warning {
     /// Bodies moved in the tree (decision 0044): the shared groups made unique on the way, the
     /// nodes left in error (their edges on a body gone), by name.
     Moved { made_unique: Vec<String>, in_error: Vec<String> },
+    /// Sources not put back: their links ask for places `gap` apart
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
+    NotReseated { names: Vec<String>, gap: String },
 }
 
 impl Warning {
@@ -841,6 +858,7 @@ impl std::fmt::Display for Warning {
                 }
                 f.write_str(&said.join(" · "))
             }
+            Warning::NotReseated { names, gap } => f.write_str(&t!("warning.not_reseated", names = names.join(", "), gap = gap)),
         }
     }
 }
@@ -874,6 +892,7 @@ impl Document {
         let mut outcome = doc.apply_in_place(op, &mut recorder)?;
         outcome.welds = doc.weld(self, &mut recorder)?;
         outcome.links = doc.follow_links(self, &mut recorder)?;
+        doc.drop_dead_links();
         doc.check_imprints(self)?;
         if recorder.job.tasks.is_empty() {
             doc.settle_names(Some(self));
@@ -960,6 +979,7 @@ impl Document {
         let mut outcome = doc.apply_in_place(op, &mut replayer)?;
         outcome.welds = doc.weld(self, &mut replayer)?;
         outcome.links = doc.follow_links(self, &mut replayer)?;
+        doc.drop_dead_links();
         if replayer.outputs.next().is_some() {
             return Err(Error::Invalid(Refusal::OutOfStep));
         }
@@ -1664,6 +1684,10 @@ impl Document {
             Operation::AddLink { context, source, imprint, receiver, sign, onto } => {
                 self.add_link((*context, source, *imprint, receiver), *sign, *onto, solver)
             }
+            Operation::ReseatSources { sources } => self.reseat_sources(sources),
+            Operation::SeparateReceivers { sources } => self.separate_receivers(sources, solver),
+            Operation::BringLinkedBody { source } => self.bring_linked_body(*source, solver),
+            Operation::Unlink { part, bodies } => self.unlink_bodies(*part, bodies),
             Operation::DeleteBodies { target, bodies, scope } => {
                 // The last positive ones too: the part is then empty, an error shown (docs/model/bodies.md
                 // « Empty parts »).

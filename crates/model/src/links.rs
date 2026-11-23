@@ -11,7 +11,7 @@ use skraft_kernel::{Solid, Stretch};
 
 use crate::document::{Body, BodyDef, BodySource, ComponentKind, Document, Id, Part, Sign};
 use crate::ops::{Outcome, Solver};
-use crate::{Error, FastMap, Refusal, Result};
+use crate::{Error, FastMap, FastSet, Refusal, Result, Warning};
 
 /// How far (each term of the transform, mm for its translation) an imprint may lie from its
 /// seat and still sit in it.
@@ -57,6 +57,39 @@ pub struct Followed {
     pub moved: Vec<(Id, Id)>,
     /// Asked different moves by their sources: left where they are.
     pub conflicts: Vec<(Id, Id)>,
+    /// The sources, seated before it, that the operation moved.
+    pub sources: Vec<LinkSource>,
+}
+
+/// A link's source: the occurrence carrying the imprint, in the assembly it lies in. Links held
+/// at different levels name the same source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct LinkSource {
+    pub assembly: Id,
+    pub occurrence: Id,
+}
+
+/// What the document's links need the user to see.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LinkStatus {
+    /// The sources with a link off.
+    pub off: BTreeSet<LinkSource>,
+    /// The linked bodies, by part and id, with a link broken and none left alive: frozen.
+    pub broken: BTreeSet<(Id, Id)>,
+    /// The components holding one or the other, at any depth.
+    holding: FastSet<Id>,
+}
+
+impl LinkStatus {
+    /// Is the occurrence `occurrence` of `assembly` a source off?
+    pub fn is_off(&self, assembly: Id, occurrence: Id) -> bool {
+        self.off.contains(&LinkSource { assembly, occurrence })
+    }
+
+    /// Does `component` hold a source off or a linked body broken, at any depth?
+    pub fn holds(&self, component: Id) -> bool {
+        self.holding.contains(&component)
+    }
 }
 
 impl Document {
@@ -128,6 +161,7 @@ impl Document {
     /// transforms and on `before`'s solids alone: the same when the job is recorded and replayed.
     pub(crate) fn follow_links(&mut self, before: &Document, solver: &mut dyn Solver) -> Result<Followed> {
         let mut asks: BTreeMap<(Id, Id), Vec<DAffine3>> = BTreeMap::new();
+        let mut sources = BTreeSet::new();
         for (id, c) in &self.components {
             let ComponentKind::Assembly(a) = &c.kind else { continue };
             if a.links().is_empty() {
@@ -142,24 +176,24 @@ impl Document {
                     continue;
                 }
                 let (Some(a0), Some(a1)) = (before.imprint_place(*id, was), self.imprint_place(*id, l)) else { continue };
-                let there = self.part(to).is_ok_and(|q| q.body(l.body).is_some());
-                if a0.abs_diff_eq(a1, SEATED) || !there || !before.imprint_enters(*id, was, &pose) {
+                if a0.abs_diff_eq(a1, SEATED) {
                     continue;
                 }
-                asks.entry((to, l.body)).or_default().push(pose * was.seat.inverse());
+                sources.extend(self.link_source(*id, l));
+                let there = self.part(to).is_ok_and(|q| q.body(l.body).is_some());
+                if there && before.imprint_enters(*id, was, &pose) {
+                    asks.entry((to, l.body)).or_default().push(pose * was.seat.inverse());
+                }
             }
         }
-        let mut followed = Followed::default();
+        let mut followed = Followed { sources: sources.into_iter().collect(), ..Followed::default() };
         let mut changed = BTreeSet::new();
         for ((part, body), moves) in asks {
             if !moves.iter().all(|d| d.abs_diff_eq(moves[0], SEATED)) {
                 followed.conflicts.push((part, body));
                 continue;
             }
-            if let Some(b) = self.part_mut(part)?.bodies.iter_mut().find(|b| b.id == body) {
-                b.placement = moves[0] * b.placement;
-            }
-            self.map_seats(part, Some(body), &moves[0]);
+            self.place_linked_body(part, body, &moves[0])?;
             changed.insert(part);
             followed.moved.push((part, body));
         }
@@ -167,6 +201,228 @@ impl Document {
             self.recompute(part, None, solver)?;
         }
         Ok(followed)
+    }
+
+    /// The source of `link`, held by `holder`: the last occurrence of its path, where it lies.
+    fn link_source(&self, holder: Id, link: &Link) -> Option<LinkSource> {
+        let (last, above) = link.source.split_last()?;
+        let (assembly, _) = self.assembly_through(holder, above)?;
+        self.assembly(assembly).ok()?.occurrence(*last)?;
+        Some(LinkSource { assembly, occurrence: *last })
+    }
+
+    /// The assembly `path` leads to from `holder`, and its axes in `holder`'s.
+    fn assembly_through(&self, holder: Id, path: &[Id]) -> Option<(Id, DAffine3)> {
+        let (mut at, mut t) = (holder, DAffine3::IDENTITY);
+        for &i in path {
+            let o = self.assembly(at).ok()?.occurrence(i)?;
+            t *= o.transform;
+            at = o.component;
+        }
+        self.assembly(at).ok()?;
+        Some((at, t))
+    }
+
+    /// What the links need the user to see (docs/model/bodies.md#links).
+    pub fn link_status(&self) -> LinkStatus {
+        let mut status = LinkStatus::default();
+        let (mut alive, mut lost) = (FastSet::default(), Vec::new());
+        for holder in self.link_holders() {
+            let Ok(a) = self.assembly(holder) else { continue };
+            for l in a.links() {
+                let Ok((to, _)) = self.through(holder, &l.receiver) else { continue };
+                match self.link_state(holder, l) {
+                    LinkState::Broken => lost.push((to, l.body)),
+                    state => {
+                        alive.insert((to, l.body));
+                        if state == LinkState::Off {
+                            status.off.extend(self.link_source(holder, l));
+                        }
+                    }
+                }
+            }
+        }
+        status.broken = lost.into_iter().filter(|k| !alive.contains(k) && self.part(k.0).is_ok_and(|q| q.body(k.1).is_some())).collect();
+        status.holding = status.off.iter().map(|s| s.assembly).chain(status.broken.iter().map(|b| b.0)).collect();
+        // Up to the model: each pass reaches one assembly higher.
+        for _ in 0..crate::MAX_DEPTH {
+            let above: Vec<Id> = self
+                .components
+                .iter()
+                .filter(|(id, c)| {
+                    !status.holding.contains(*id)
+                        && matches!(&c.kind, ComponentKind::Assembly(a) if a.occurrences().iter().any(|o| status.holding.contains(&o.component)))
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            if above.is_empty() {
+                break;
+            }
+            status.holding.extend(above);
+        }
+        status
+    }
+
+    /// Takes away the links with nothing left to show: their receiver or their linked body gone.
+    /// One whose source is gone stays: its body is told frozen.
+    pub(crate) fn drop_dead_links(&mut self) {
+        for id in self.link_holders() {
+            let Ok(a) = self.assembly(id) else { continue };
+            let live = |l: &Link| self.through(id, &l.receiver).is_ok_and(|(to, _)| self.part(to).is_ok_and(|q| q.body(l.body).is_some()));
+            let kept: Vec<Link> = a.links().iter().filter(|l| live(l)).cloned().collect();
+            if kept.len() != a.links().len()
+                && let Ok(a) = self.assembly_mut(id)
+            {
+                *a.links_mut() = kept;
+            }
+        }
+    }
+
+    /// Where each link of the source `source` wants it, in the axes of the assembly it lies
+    /// in, from the seat in its receiver.
+    fn seat_targets(&self, source: LinkSource) -> Vec<DAffine3> {
+        let mut out = Vec::new();
+        for holder in self.link_holders() {
+            let Ok(a) = self.assembly(holder) else { continue };
+            for l in a.links().iter().filter(|l| self.link_source(holder, l) == Some(source)) {
+                let Some((_, above)) = l.source.split_last().and_then(|(_, up)| self.assembly_through(holder, up)) else { continue };
+                let (Ok((from, _)), Ok((_, to_t))) = (self.through(holder, &l.source), self.through(holder, &l.receiver)) else { continue };
+                let Some(imprint) = self.part(from).ok().and_then(|p| p.body(l.imprint)) else { continue };
+                out.push(above.inverse() * to_t * l.seat * imprint.placement.inverse());
+            }
+        }
+        out
+    }
+
+    /// [`crate::Operation::ReseatSources`]: each source goes where its seats say, when they all
+    /// agree; the others stay where they are, and the warning says by how much they disagree.
+    pub(crate) fn reseat_sources(&mut self, sources: &[LinkSource]) -> Result<Outcome> {
+        let (mut moves, mut names, mut gap) = (Vec::new(), Vec::new(), 0.0_f64);
+        for s in sources {
+            let targets = self.seat_targets(*s);
+            let Some(first) = targets.first() else { continue };
+            if targets.iter().all(|t| t.abs_diff_eq(*first, SEATED)) {
+                moves.push((*s, *first));
+            } else {
+                gap = targets.iter().fold(gap, |g, t| g.max(t.translation.distance(first.translation)));
+                let o = self.assembly(s.assembly)?.occurrence(s.occurrence).ok_or(Error::NotFound(s.occurrence))?;
+                names.push(self.component(o.component)?.name.clone());
+            }
+        }
+        for (s, t) in moves {
+            if let Some(o) = self.assembly_mut(s.assembly)?.occurrence_mut(s.occurrence) {
+                o.transform = t;
+            }
+        }
+        let warning = (!names.is_empty()).then(|| Warning::NotReseated { names, gap: self.settings.units.format(gap) });
+        Ok(Outcome { warning, ..Outcome::default() })
+    }
+
+    /// [`crate::Operation::SeparateReceivers`]: each part receiving these sources made a part of
+    /// its own; then, in it and in the copies left, each linked body goes back under its sources
+    /// when none is seated in it and they agree.
+    pub(crate) fn separate_receivers(&mut self, sources: &[LinkSource], solver: &mut dyn Solver) -> Result<Outcome> {
+        let mut routes = BTreeSet::new();
+        for holder in self.link_holders() {
+            let a = self.assembly(holder)?;
+            for l in a.links() {
+                if self.link_source(holder, l).is_some_and(|s| sources.contains(&s)) && self.link_state(holder, l) != LinkState::Broken {
+                    routes.insert((holder, l.receiver.clone()));
+                }
+            }
+        }
+        let mut touched = BTreeSet::new();
+        for (holder, path) in routes {
+            let Ok((old, _)) = self.through(holder, &path) else { continue };
+            let mut at = holder;
+            for &occurrence in &path {
+                self.apply_in_place(&crate::Operation::MakeUnique { context: at, occurrence }, solver)?;
+                at = self.assembly(at)?.occurrence(occurrence).ok_or(Error::NotFound(occurrence))?.component;
+            }
+            touched.extend([old, at]);
+        }
+        let mut asks: BTreeMap<(Id, Id), (bool, Vec<DAffine3>)> = BTreeMap::new();
+        for holder in self.link_holders() {
+            let a = self.assembly(holder)?;
+            for l in a.links() {
+                let Ok((_, to, pose)) = self.imprint_pose(holder, &l.source, l.imprint, &l.receiver) else { continue };
+                if !touched.contains(&to) {
+                    continue;
+                }
+                let ask = asks.entry((to, l.body)).or_default();
+                match self.link_state(holder, l) {
+                    LinkState::Seated => ask.0 = true,
+                    LinkState::Off => ask.1.push(pose * l.seat.inverse()),
+                    LinkState::Broken => {}
+                }
+            }
+        }
+        let mut changed = BTreeSet::new();
+        for ((part, body), (seated, moves)) in asks {
+            let Some(d) = moves.first().copied().filter(|d| !seated && moves.iter().all(|m| m.abs_diff_eq(*d, SEATED))) else { continue };
+            self.place_linked_body(part, body, &d)?;
+            changed.insert(part);
+        }
+        for part in changed {
+            self.recompute(part, None, solver)?;
+        }
+        Ok(Outcome::default())
+    }
+
+    /// [`crate::Operation::BringLinkedBody`]: the linked bodies of the source's links off, each
+    /// brought under it, in every copy of its part; its other sources are then off.
+    pub(crate) fn bring_linked_body(&mut self, source: LinkSource, solver: &mut dyn Solver) -> Result<Outcome> {
+        let mut asks: BTreeMap<(Id, Id), Vec<DAffine3>> = BTreeMap::new();
+        for holder in self.link_holders() {
+            let a = self.assembly(holder)?;
+            for l in a.links().iter().filter(|l| self.link_source(holder, l) == Some(source)) {
+                if self.link_state(holder, l) != LinkState::Off {
+                    continue;
+                }
+                let (_, to, pose) = self.imprint_pose(holder, &l.source, l.imprint, &l.receiver)?;
+                asks.entry((to, l.body)).or_default().push(pose * l.seat.inverse());
+            }
+        }
+        if asks.values().any(|m| !m.iter().all(|d| d.abs_diff_eq(m[0], SEATED))) {
+            return Err(Error::Invalid(Refusal::LinkConflict));
+        }
+        let mut changed = BTreeSet::new();
+        for ((part, body), moves) in asks {
+            self.place_linked_body(part, body, &moves[0])?;
+            changed.insert(part);
+        }
+        for part in changed {
+            self.recompute(part, None, solver)?;
+        }
+        Ok(Outcome::default())
+    }
+
+    /// The linked body `body` of `part` moved by `d`, in the part's axes, its links' seats with it.
+    fn place_linked_body(&mut self, part: Id, body: Id, d: &DAffine3) -> Result<()> {
+        if let Some(b) = self.part_mut(part)?.bodies.iter_mut().find(|b| b.id == body) {
+            b.placement = *d * b.placement;
+        }
+        self.map_seats(part, Some(body), d);
+        Ok(())
+    }
+
+    /// [`crate::Operation::Unlink`]: the bodies `bodies` of `part` become plain bodies, their
+    /// shape and place as they are, their links gone.
+    pub(crate) fn unlink_bodies(&mut self, part: Id, bodies: &[Id]) -> Result<Outcome> {
+        let q = self.part_mut(part)?;
+        let defs: Vec<Id> = q.bodies.iter().filter(|b| bodies.contains(&b.id)).map(|b| b.def).collect();
+        for d in q.defs.iter_mut().filter(|d| defs.contains(&d.id)) {
+            d.source = BodySource::Local;
+        }
+        for holder in self.link_holders() {
+            let a = self.assembly(holder)?;
+            let goes = |l: &Link| bodies.contains(&l.body) && self.through(holder, &l.receiver).is_ok_and(|(to, _)| to == part);
+            let kept: Vec<Link> = a.links().iter().filter(|l| !goes(l)).cloned().collect();
+            if kept.len() != a.links().len() {
+                *self.assembly_mut(holder)?.links_mut() = kept;
+            }
+        }
+        Ok(Outcome::default())
     }
 
     /// The seats of the links into the part `part` (of its body `body` alone, if given), each
