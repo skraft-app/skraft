@@ -7563,10 +7563,30 @@ fn move_starts_from_a_corner_of_the_box_of_several_parts() {
 }
 
 #[test]
-fn a_grip_of_the_box_turns_about_the_face_centre_in_move() {
+fn move_offers_no_grip_on_the_box() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(800.0, 400.0, 0.0), "50");
+    e.select(vec![a]);
     e.set_tool(ToolKind::Move);
+    // Where Rotate has its grip towards +X of the top face: a plain start point here.
+    let center = DVec3::new(400.0, 200.0, 50.0);
+    let inset = e.camera.world_per_pixel(e.viewport_size(), center) * 28.0;
+    let grip = center + DVec3::X * (400.0 - inset);
+    e.input(ToolInput::Hover { px: px(&e, grip) });
+    assert!(e.preview().tip.is_none(), "no grip to aim at");
+    click(&mut e, grip);
+    e.input(ToolInput::Hover { px: px(&e, grip + DVec3::X * 100.0) });
+    e.input(ToolInput::Vcb("50".into()));
+    let (lo, hi) = bounds_of(&e, &EntityPath::root(a));
+    assert!(close(lo, DVec3::new(50.0, 0.0, 0.0)) && close(hi, DVec3::new(850.0, 400.0, 50.0)), "moved, not turned: {lo} {hi}");
+}
+
+#[test]
+fn a_grip_of_the_box_turns_about_the_face_centre_in_rotate() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(800.0, 400.0, 0.0), "50");
+    e.select(vec![a]);
+    e.set_tool(ToolKind::Rotate);
     // The grip towards +X of the top face, 28 px inside its side.
     let center = DVec3::new(400.0, 200.0, 50.0);
     let inset = e.camera.world_per_pixel(e.viewport_size(), center) * 28.0;
@@ -7588,7 +7608,7 @@ fn a_grip_of_the_box_turns_about_the_face_centre_in_move() {
     e.input(ToolInput::Vcb("90".into()));
     let (lo, hi) = bounds_of(&e, &EntityPath::root(a));
     assert!(close(lo, DVec3::new(200.0, -200.0, 0.0)) && close(hi, DVec3::new(600.0, 600.0, 50.0)), "{lo} {hi}");
-    assert_eq!(e.tool_kind(), ToolKind::Move, "the tool stays");
+    assert_eq!(e.tool_kind(), ToolKind::Rotate, "the tool stays");
 }
 
 #[test]

@@ -94,7 +94,7 @@ impl RotateTool {
     /// the normal of the face under the cursor (else the context's Z), unless an axis is locked.
     fn center_at(&mut self, cx: &Cx<'_>, px: DVec2) -> Option<(DVec3, DVec3, Option<Inference>)> {
         let (ids, deep) = (self.picker.selection(cx), self.picker.deep(cx));
-        let inf = self.grips.infer(cx, px, &ids, &deep, true);
+        let inf = self.grips.infer(cx, px, &ids, &deep);
         if let Some((center, normal, _)) = self.grips.turn() {
             return Some((center, normal, None));
         }
@@ -106,33 +106,6 @@ impl RotateTool {
             (None, None, None) => context_axis(cx, 2),
         };
         Some((inf.point, axis, Some(inf)))
-    }
-
-    /// Already at the angle, from the grip `at` of a face of the box (Move's grips): `center`
-    /// and `axis` are the face's.
-    pub(super) fn from_grip(
-        moving: Vec<Id>,
-        moving_paths: Vec<EntityPath>,
-        moving_guides: Vec<GuidePath>,
-        copy: bool,
-        (center, axis, at): (DVec3, DVec3, DVec3),
-    ) -> Self {
-        let r = at - center;
-        let state = State::Angle {
-            center,
-            axis,
-            reference: r.normalize(),
-            reference_reach: r.length(),
-            reference_aim: None,
-            angle: 0.0,
-            reach: r.length(),
-        };
-        RotateTool { state, copy, moving, moving_paths, moving_guides, taken: true, ..Default::default() }
-    }
-
-    /// The copy just made, handed to the tool that started this rotation.
-    pub(super) fn take_last(&mut self) -> Option<LastCopy> {
-        self.last.take()
     }
 
     /// The direction from `center` to the cursor, in the protractor's plane, and how far the

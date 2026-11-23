@@ -1,7 +1,7 @@
 //! The box of what Move and Rotate take (docs/tools/inferences.md#selection-box): its eight
-//! corners are points to infer on, and the face of it under the cursor offers four grips, which
-//! start a rotation about the axis through the face's centre, along its normal. One part keeps
-//! its own axes; several share one box in the context's.
+//! corners are points to infer on and, for Rotate, the face of it under the cursor offers four
+//! grips, which start a rotation about the axis through the face's centre, along its normal.
+//! One part keeps its own axes; several share one box in the context's.
 
 use glam::{DQuat, DVec2, DVec3};
 use skraft_i18n::t;
@@ -79,9 +79,16 @@ impl BoxGrips {
         self.key = Some(key);
     }
 
-    /// The point inferred under `px`, the box's corners among the candidates; `None` on a grip
-    /// (or where nothing is inferred). `center`: the face's centre is a point to take too.
-    pub fn infer(&mut self, cx: &Cx<'_>, px: DVec2, ids: &[Id], deep: &[EntityPath], center: bool) -> Option<Inference> {
+    /// The point inferred under `px`, the box's corners among the candidates (Move): no face,
+    /// no grip.
+    pub fn infer_corners(&mut self, cx: &Cx<'_>, px: DVec2, ids: &[Id], deep: &[EntityPath]) -> Option<Inference> {
+        self.sync(cx, ids, deep);
+        cx.infer_on_box(px, &self.corners)
+    }
+
+    /// The point inferred under `px`, the box's corners and the centre of the face under the
+    /// cursor among the candidates (Rotate); `None` on a grip (or where nothing is inferred).
+    pub fn infer(&mut self, cx: &Cx<'_>, px: DVec2, ids: &[Id], deep: &[EntityPath]) -> Option<Inference> {
         self.sync(cx, ids, deep);
         let inf = cx.infer_on_box(px, &self.corners);
         self.face = self.target.as_ref().and_then(|b| face_at(cx, b, px, ids, deep));
@@ -91,7 +98,7 @@ impl BoxGrips {
         // A point of the geometry keeps the cursor unless it is nearer to an arrow.
         let point = inf.as_ref().filter(|i| i.kind.is_point()).map(|i| cx.camera.project(i.point, cx.size).map_or(0.0, |s| s.distance(px)));
         let mut best = point.unwrap_or(f64::INFINITY);
-        if center && point.is_none() && screen.distance(px) <= APERTURE_PX {
+        if point.is_none() && screen.distance(px) <= APERTURE_PX {
             best = screen.distance(px);
             self.aim = Some(Aim::Center);
         }
