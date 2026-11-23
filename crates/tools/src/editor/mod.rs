@@ -136,6 +136,8 @@ pub struct Editor {
     /// The component chosen in the library (docs/ui/components-library.md#managing), until
     /// anything else is: [`Editor::chosen_component`].
     chosen: Option<Id>,
+    /// The material chosen in its card (its entity info shown): [`Editor::chosen_material`].
+    chosen_material: Option<library::ChosenMaterial>,
     /// The occurrence hovered in the outliner (drawn hovered in the view).
     outliner_hover: Option<EntityPath>,
     /// The stretch the scene's preview mesh was made for, and the revisions handed out.
@@ -277,6 +279,7 @@ impl Editor {
             listed_hover: None,
             model_selected: false,
             chosen: None,
+            chosen_material: None,
             deep: Vec::new(),
             deep_guides: Vec::new(),
             tree: None,
@@ -1119,6 +1122,10 @@ impl Editor {
         ) {
             self.model_selected = false;
             self.chosen = None;
+            // The paint tool's clicks keep it: what they paint with stays shown.
+            if self.tool.kind() != ToolKind::Paint || matches!(input, ToolInput::Key { .. }) {
+                self.chosen_material = None;
+            }
         }
         self.note(journal::Event::Input { input: input.clone(), count: 1 }, Some(journal::Step::Input(input.clone())));
         self.inside(|e| {
