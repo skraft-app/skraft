@@ -101,7 +101,7 @@ pub fn drawing_pdf(
                             surface.pop();
                         }
                         if let Some(lines) = &p.lines {
-                            let on_sheet = |q: &DVec2| at(r.at + (*q - p.centre) * r.scale);
+                            let on_sheet = |q: &DVec2| at(r.at + (*q - p.centre) * p.to_paper);
                             if v.style == ViewStyle::Lines {
                                 polylines(&mut surface, &lines.hidden, on_sheet, stroke(HIDDEN_MM, 90, Some(DASH_MM)));
                             }
@@ -408,6 +408,45 @@ mod tests {
         let value = Some(Value::Text("Martin".into()));
         e.apply(Operation::SetField { on: FieldOn::Presentation(p), key: "user.client".into(), value }).unwrap();
         assert_eq!(super::missing_fields(&e, p), ["indice"]);
+    }
+
+    #[test]
+    fn a_perspective_view_prints_its_lines_within_its_frame() {
+        let mut h = skraft_model::History::new(Document::new());
+        let root = h.document().root();
+        h.apply(Operation::AddPrimitive {
+            context: root,
+            primitive: skraft_model::Primitive::Box { origin: glam::DVec3::ZERO, size: glam::DVec3::new(600.0, 400.0, 300.0) },
+            placement: glam::DAffine3::IDENTITY,
+            material: None,
+        })
+        .unwrap();
+        let hold = Hold::default();
+        let mut e = Editor::new(h.document().clone(), Box::new(hold.clone()));
+        settle(&mut e, &hold);
+        let sheet =
+            e.apply(Operation::AddPresentation { name: None, paper: Some(skraft_model::Paper::A3) }).unwrap().unwrap().sheet.unwrap();
+        let eye = glam::DVec3::new(-700.0, -900.0, 600.0);
+        let lens = skraft_model::Perspective { eye, fov_y: 0.5, size: DVec2::new(160.0, 100.0) };
+        let look = Look::Camera { forward: glam::DVec3::new(300.0, 200.0, 150.0) - eye, up: glam::DVec3::Z, perspective: Some(lens) };
+        let at = DVec2::new(210.0, 150.0);
+        let kind = ViewKind::Base { subject: Subject::Model, look, scale: 1.0, at };
+        let element = ElementKind::View(View { name: "V".into(), kind, style: ViewStyle::Lines });
+        let id = e.apply(Operation::AddElement { to: Container::Sheet(sheet), element }).unwrap().unwrap().element.unwrap();
+        settle(&mut e, &hold);
+        let r = e.document().drawing().resolve(id).unwrap();
+        let p = crate::sheet::printed(&e, id, ViewStyle::Lines, &r, super::DPI).unwrap();
+        let lines = p.lines.as_ref().unwrap();
+        let on_paper: Vec<DVec2> = lines.visible.iter().flatten().map(|q| r.at + (*q - p.centre) * p.to_paper).collect();
+        assert!(on_paper.len() >= 9, "a box's seen edges");
+        let (lo, hi) = on_paper.iter().fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(a, z), q| (a.min(*q), z.max(*q)));
+        assert!(lo.cmpge(p.frame.0 - 1e-6).all() && hi.cmple(p.frame.1 + 1e-6).all(), "{lo} {hi} in {:?}", p.frame);
+        assert!((hi - lo).max_element() > 40.0, "and it fills a good part of it: {lo} {hi}");
+        if let Ok(out) = std::env::var("DRAW_OUT") {
+            let presentation = e.document().drawing().presentations[0].id;
+            let bytes = super::drawing_pdf(&e, "Test.skraft", presentation, |_| None).unwrap();
+            std::fs::write(std::path::Path::new(&out).join("perspective.pdf"), bytes).unwrap();
+        }
     }
 
     /// The drawing of a model (`DRAW_MODEL`) written to `DRAW_OUT/drawing.pdf`, to look at.

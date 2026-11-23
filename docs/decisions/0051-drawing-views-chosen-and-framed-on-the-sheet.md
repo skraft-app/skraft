@@ -1,6 +1,6 @@
 # Drawing: a view's content and point of view chosen from the sheet
 
-- Status: accepted (2026-11-23; steps 1-3 built)
+- Status: accepted (2026-11-23; built)
 - Design: [Drawing](../ui/drawing.md#views)
 - Amends [Drawing: free sheets in the document](0048-drawing-sheets-in-the-document.md), where a
   view is added from the selection and takes the 3D camera of the moment

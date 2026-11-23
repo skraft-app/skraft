@@ -5,6 +5,10 @@
 //! The front-facing triangles are the occluders, sorted from the nearest, in a grid over the
 //! sheet; each segment is tested against the occluders of the cells it crosses, nearest first,
 //! and stops as soon as it is hidden whole or the next occluder lies behind it.
+//!
+//! In perspective the same search runs on the scene mapped by (x, y, z) → (d x / z, d y / z,
+//! -d² / z), d a distance within it: straight lines and planes stay so, the rays from the eye become
+//! parallel, and about d lengths and depths keep their size, so that the tolerances still hold.
 
 use std::sync::Arc;
 
@@ -13,7 +17,8 @@ use skraft_kernel::Mesh;
 
 use skraft_model::FastMap;
 
-/// A view's lines in its frame (sheet x, y in model units): polylines, visible and hidden.
+/// A view's lines in its frame (sheet x, y in model units; in perspective, the tangents of their
+/// angles off its axis, within its frame): polylines, visible and hidden.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ViewLines {
     pub visible: Vec<Vec<DVec2>>,
@@ -38,6 +43,133 @@ pub struct Look {
     pub right: DVec3,
     pub up: DVec3,
     pub forward: DVec3,
+    /// Seen in perspective, else parallel.
+    pub lens: Option<Lens>,
+}
+
+/// A perspective's eye, and the tangents of half its frame's width and height.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lens {
+    pub eye: DVec3,
+    pub half: DVec2,
+}
+
+/// A perspective as the search uses it, on points in the eye's axes (x, y, distance).
+#[derive(Clone, Copy)]
+struct Mapped {
+    /// The distance about which lengths keep their size.
+    dist: f64,
+    near: f64,
+    half: DVec2,
+}
+
+impl Mapped {
+    /// From the distances the parts stand at; none when they are all behind the eye.
+    fn of(parts: &[(Arc<Mesh>, DAffine3)], look: &Look, lens: Lens) -> Option<Mapped> {
+        let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+        for (mesh, place) in parts {
+            let t = *place * DAffine3::from_translation(mesh.origin);
+            for p in &mesh.positions {
+                let z = (t.transform_point3(DVec3::from(p.map(f64::from))) - lens.eye).dot(look.forward);
+                lo = lo.min(z);
+                hi = hi.max(z);
+            }
+        }
+        if hi <= 0.0 {
+            return None;
+        }
+        let near = (hi * 1e-4).max(1e-3);
+        Some(Mapped { dist: (lo.max(near) + hi) / 2.0, near, half: lens.half })
+    }
+
+    fn screen(&self, c: DVec3) -> DVec3 {
+        DVec3::new(self.dist * c.x / c.z, self.dist * c.y / c.z, -self.dist * self.dist / c.z)
+    }
+
+    /// Where `a`–`b` crosses the near plane.
+    fn cut(&self, a: DVec3, b: DVec3) -> DVec3 {
+        a.lerp(b, (self.near - a.z) / (b.z - a.z))
+    }
+
+    /// The segment `a`–`b` past the near plane and within the frame, mapped.
+    fn segment(&self, a: DVec3, b: DVec3) -> Option<(DVec3, DVec3)> {
+        let (a, b) = match (a.z >= self.near, b.z >= self.near) {
+            (true, true) => (a, b),
+            (true, false) => (a, self.cut(a, b)),
+            (false, true) => (self.cut(a, b), b),
+            (false, false) => return None,
+        };
+        let (a, b) = (self.screen(a), self.screen(b));
+        let edge = self.half * self.dist;
+        let (mut from, mut to) = (0.0f64, 1.0f64);
+        for (p, d, limit) in [(a.x, b.x - a.x, edge.x), (a.y, b.y - a.y, edge.y)] {
+            for (q, r) in [(limit - p, d), (limit + p, -d)] {
+                if r == 0.0 {
+                    if q < 0.0 {
+                        return None;
+                    }
+                } else if r > 0.0 {
+                    to = to.min(q / r);
+                } else {
+                    from = from.max(q / r);
+                }
+            }
+        }
+        // The depth mapped is linear along the segment on the sheet.
+        (from < to).then(|| (a.lerp(b, from), a.lerp(b, to)))
+    }
+
+    /// The triangle past the near plane, mapped, in one or two triangles; those off the frame left
+    /// out.
+    fn triangles(&self, tri: [DVec3; 3], out: &mut Vec<[DVec3; 3]>) {
+        out.clear();
+        let mut poly: Vec<DVec3> = Vec::with_capacity(4);
+        for k in 0..3 {
+            let (a, b) = (tri[k], tri[(k + 1) % 3]);
+            if a.z >= self.near {
+                poly.push(a);
+            }
+            if (a.z >= self.near) != (b.z >= self.near) {
+                poly.push(self.cut(a, b));
+            }
+        }
+        if poly.len() < 3 {
+            return;
+        }
+        let poly: Vec<DVec3> = poly.into_iter().map(|c| self.screen(c)).collect();
+        let edge = self.half * self.dist;
+        let (lo, hi) = poly.iter().fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), q| (lo.min(q.truncate()), hi.max(q.truncate())));
+        if hi.x < -edge.x || hi.y < -edge.y || lo.x > edge.x || lo.y > edge.y {
+            return;
+        }
+        out.extend((1..poly.len() - 1).map(|k| [poly[0], poly[k], poly[k + 1]]));
+    }
+}
+
+/// The occluder of a front-facing triangle; none when it covers nothing on the sheet.
+fn occluder(a: DVec3, b: DVec3, c: DVec3) -> Option<Occluder> {
+    let (e1, e2) = (b - a, c - a);
+    let den = e1.x * e2.y - e2.x * e1.y;
+    if den.abs() < 1e-18 {
+        return None;
+    }
+    let gx = (e1.z * e2.y - e2.z * e1.y) / den;
+    let gy = (e2.z * e1.x - e1.z * e2.x) / den;
+    let g = DVec3::new(gx, gy, a.z - gx * a.x - gy * a.y);
+    let p = if den > 0.0 { [a.truncate(), b.truncate(), c.truncate()] } else { [a.truncate(), c.truncate(), b.truncate()] };
+    Some(Occluder { p, g, near: a.z.min(b.z).min(c.z) })
+}
+
+/// Segment `a`–`b` (in the eye's axes) added, what of it the look shows.
+fn add_segment(segs: &mut Vec<Seg>, mapped: Option<Mapped>, a: DVec3, b: DVec3, chain: u32) {
+    match mapped {
+        None => segs.push(Seg { a, b, chain }),
+        Some(m) => {
+            if let Some((a, b)) = m.segment(a, b) {
+                segs.push(Seg { a, b, chain });
+            }
+        }
+    }
 }
 
 impl Look {
@@ -63,6 +195,15 @@ struct Seg {
 
 /// The lines of `parts` (each mesh, part to world), seen along `look`.
 pub fn hidden_lines(parts: &[(Arc<Mesh>, DAffine3)], look: &Look) -> ViewLines {
+    let eye = look.lens.map_or(DVec3::ZERO, |l| l.eye);
+    let mapped = match look.lens {
+        Some(lens) => match Mapped::of(parts, look, lens) {
+            Some(m) => Some(m),
+            None => return ViewLines::default(),
+        },
+        None => None,
+    };
+    let mut clipped = Vec::new();
     let mut occ = Vec::new();
     let mut segs = Vec::new();
     let mut chain = 0u32;
@@ -72,10 +213,12 @@ pub fn hidden_lines(parts: &[(Arc<Mesh>, DAffine3)], look: &Look) -> ViewLines {
         let m = &**mesh;
         let t = *place * DAffine3::from_translation(m.origin);
         let flip = t.matrix3.determinant() < 0.0;
-        let pts: Vec<DVec3> = m.positions.iter().map(|p| look.project(t.transform_point3(DVec3::from(p.map(f64::from))))).collect();
-        for p in &pts {
-            lo = lo.min(p.truncate());
-            hi = hi.max(p.truncate());
+        let pts: Vec<DVec3> = m.positions.iter().map(|p| look.project(t.transform_point3(DVec3::from(p.map(f64::from))) - eye)).collect();
+        if mapped.is_none() {
+            for p in &pts {
+                lo = lo.min(p.truncate());
+                hi = hi.max(p.truncate());
+            }
         }
         // The cosine of each triangle's normal to the eye: counterclockwise on the sheet (as the
         // eye sees it) is front.
@@ -84,9 +227,15 @@ pub fn hidden_lines(parts: &[(Arc<Mesh>, DAffine3)], look: &Look) -> ViewLines {
             .chunks_exact(3)
             .map(|tri| {
                 let [a, b, c] = [pts[tri[0] as usize], pts[tri[1] as usize], pts[tri[2] as usize]];
-                let area = (b - a).truncate().perp_dot((c - a).truncate());
-                let area3 = (b - a).cross(c - a).length().max(1e-300);
-                if flip { -area / area3 } else { area / area3 }
+                let cos = if mapped.is_some() {
+                    // Towards the eye, wherever the triangle stands (its corners may be behind it).
+                    let n = (b - a).cross(c - a);
+                    a.dot(n) / (a.length() * n.length()).max(1e-300)
+                } else {
+                    let area = (b - a).truncate().perp_dot((c - a).truncate());
+                    area / (b - a).cross(c - a).length().max(1e-300)
+                };
+                if flip { -cos } else { cos }
             })
             .collect();
         for (tri, &cos) in m.indices.chunks_exact(3).zip(&facing) {
@@ -95,22 +244,19 @@ pub fn hidden_lines(parts: &[(Arc<Mesh>, DAffine3)], look: &Look) -> ViewLines {
                 continue;
             }
             let [a, b, c] = [pts[tri[0] as usize], pts[tri[1] as usize], pts[tri[2] as usize]];
-            let (e1, e2) = (b - a, c - a);
-            let den = e1.x * e2.y - e2.x * e1.y;
-            if den.abs() < 1e-18 {
-                continue;
+            match mapped {
+                None => occ.extend(occluder(a, b, c)),
+                Some(v) => {
+                    v.triangles([a, b, c], &mut clipped);
+                    occ.extend(clipped.iter().filter_map(|q| occluder(q[0], q[1], q[2])));
+                }
             }
-            let gx = (e1.z * e2.y - e2.z * e1.y) / den;
-            let gy = (e2.z * e1.x - e1.z * e2.x) / den;
-            let g = DVec3::new(gx, gy, a.z - gx * a.x - gy * a.y);
-            let p = if den > 0.0 { [a.truncate(), b.truncate(), c.truncate()] } else { [a.truncate(), c.truncate(), b.truncate()] };
-            occ.push(Occluder { p, g, near: a.z.min(b.z).min(c.z) });
         }
         // The part's edges, one chain each.
         for poly in &m.edges {
             for w in poly.windows(2) {
-                let p = |v: [f32; 3]| look.project(t.transform_point3(DVec3::from(v.map(f64::from))));
-                segs.push(Seg { a: p(w[0]), b: p(w[1]), chain });
+                let p = |v: [f32; 3]| look.project(t.transform_point3(DVec3::from(v.map(f64::from))) - eye);
+                add_segment(&mut segs, mapped, p(w[0]), p(w[1]), chain);
             }
             chain += 1;
         }
@@ -118,13 +264,16 @@ pub fn hidden_lines(parts: &[(Arc<Mesh>, DAffine3)], look: &Look) -> ViewLines {
         let edges = inner.entry(Arc::as_ptr(mesh)).or_insert_with(|| inner_edges(m));
         for &(t0, t1, i, j) in edges.iter() {
             if (facing[t0 as usize] > 0.0) != (facing[t1 as usize] > 0.0) {
-                segs.push(Seg { a: pts[i as usize], b: pts[j as usize], chain });
+                add_segment(&mut segs, mapped, pts[i as usize], pts[j as usize], chain);
                 chain += 1;
             }
         }
     }
     if segs.is_empty() {
         return ViewLines::default();
+    }
+    if let Some(m) = mapped {
+        (lo, hi) = (-m.half * m.dist, m.half * m.dist);
     }
     // Nearest first: a cell's list, filled in this order, is sorted by depth.
     occ.sort_by(|a, b| a.near.total_cmp(&b.near));
@@ -209,6 +358,10 @@ pub fn hidden_lines(parts: &[(Arc<Mesh>, DAffine3)], look: &Look) -> ViewLines {
     for p in parts {
         lines.visible.extend(p.visible);
         lines.hidden.extend(p.hidden);
+    }
+    // In perspective, back to tangents.
+    if let Some(m) = mapped {
+        lines.visible.iter_mut().chain(&mut lines.hidden).flatten().for_each(|q| *q /= m.dist);
     }
     lines
 }
@@ -442,7 +595,7 @@ mod tests {
     }
 
     fn front() -> Look {
-        Look { right: DVec3::X, up: DVec3::Z, forward: DVec3::Y }
+        Look { right: DVec3::X, up: DVec3::Z, forward: DVec3::Y, lens: None }
     }
 
     fn length(lines: &[Vec<DVec2>]) -> f64 {
@@ -472,11 +625,50 @@ mod tests {
     }
 
     #[test]
+    fn a_box_in_perspective_shows_its_near_face_and_hides_the_far_one() {
+        let lens = Lens { eye: DVec3::new(0.0, -30.0, 0.0), half: DVec2::splat(1.0) };
+        let look = Look { lens: Some(lens), ..front() };
+        let cube = cube(DVec3::new(-10.0, 0.0, -10.0), DVec3::new(10.0, 20.0, 10.0));
+        let lines = hidden_lines(&[(cube, DAffine3::IDENTITY)], &look);
+        // The near face, 30 from the eye: 4 sides of 20 / 30.
+        assert!((length(&lines.visible) - 4.0 * 20.0 / 30.0).abs() < 1e-6, "{}", length(&lines.visible));
+        // The far face, 50 from it, and the four edges going to it, from (1/3, 1/3) to (1/5, 1/5).
+        let spokes = 4.0 * (2.0f64).sqrt() * (1.0 / 3.0 - 1.0 / 5.0);
+        assert!((length(&lines.hidden) - (4.0 * 20.0 / 50.0 + spokes)).abs() < 1e-6, "{}", length(&lines.hidden));
+    }
+
+    #[test]
+    fn a_perspective_stops_at_its_frame_and_at_the_eye() {
+        // The eye inside the box: what is behind it is gone, the rest cut at the frame.
+        let half = DVec2::new(1.5, 1.2);
+        let lens = Lens { eye: DVec3::ZERO, half };
+        let look = Look { lens: Some(lens), ..front() };
+        let lines = hidden_lines(&[(cube(DVec3::splat(-10.0), DVec3::splat(10.0)), DAffine3::IDENTITY)], &look);
+        let all: Vec<&DVec2> = lines.visible.iter().chain(&lines.hidden).flatten().collect();
+        assert!(!all.is_empty());
+        assert!(all.iter().all(|q| q.x.abs() <= half.x + 1e-9 && q.y.abs() <= half.y + 1e-9));
+    }
+
+    #[test]
+    fn a_nearer_box_hides_a_farther_one_in_perspective() {
+        let lens = Lens { eye: DVec3::new(0.0, -100.0, 0.0), half: DVec2::splat(1.0) };
+        let look = Look { lens: Some(lens), ..front() };
+        // The far box's outline, seen through the near one's silhouette or not.
+        let far = (cube(DVec3::new(-5.0, 100.0, -5.0), DVec3::new(5.0, 110.0, 5.0)), DAffine3::IDENTITY);
+        let alone = hidden_lines(std::slice::from_ref(&far), &look);
+        assert!(length(&alone.visible) > 0.0);
+        let near = (cube(DVec3::new(-20.0, 0.0, -20.0), DVec3::new(20.0, 10.0, 20.0)), DAffine3::IDENTITY);
+        let both = hidden_lines(&[near.clone(), far], &look);
+        let near_alone = hidden_lines(&[near], &look);
+        assert!((length(&both.visible) - length(&near_alone.visible)).abs() < 1e-6, "nothing of the far box seen");
+    }
+
+    #[test]
     fn an_iso_view_joins_pieces_into_polylines() {
         let iso = {
             let f = DVec3::new(-1.0, 1.0, -1.0).normalize();
             let r = f.cross(DVec3::Z).normalize();
-            Look { right: r, up: r.cross(f), forward: f }
+            Look { right: r, up: r.cross(f), forward: f, lens: None }
         };
         let lines = hidden_lines(&[(cube(DVec3::ZERO, DVec3::splat(10.0)), DAffine3::IDENTITY)], &iso);
         // A cube seen iso: 9 edges seen, 3 hidden (meeting at the far corner).

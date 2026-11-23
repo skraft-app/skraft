@@ -15,7 +15,7 @@ use glam::DAffine3;
 use skraft_model::kernel::{Mesh, Solid};
 use skraft_model::{Id, Resolved};
 use skraft_tools::Editor;
-use skraft_tools::hidden_lines::{Look, ViewLines};
+use skraft_tools::hidden_lines::{Lens, Look, ViewLines};
 
 use crate::sheet::ViewSlot;
 
@@ -44,10 +44,17 @@ impl LinesJob {
             _ => None,
         };
         let f = &r.frame;
-        let look = Look { right: f.right, up: f.up, forward: f.forward };
+        let lens = r.perspective.map(|p| {
+            let t = (p.fov_y / 2.0).tan();
+            Lens { eye: p.eye, half: glam::DVec2::new(t * p.size.x / p.size.y, t) }
+        });
+        let look = Look { right: f.right, up: f.up, forward: f.forward, lens };
         let mut h = std::collections::hash_map::DefaultHasher::new();
         for v in [f.right, f.up, f.forward] {
             v.to_array().map(f64::to_bits).hash(&mut h);
+        }
+        if let Some(l) = lens {
+            [l.eye.x, l.eye.y, l.eye.z, l.half.x, l.half.y].map(f64::to_bits).hash(&mut h);
         }
         for (m, t) in &meshes {
             (Arc::as_ptr(m) as usize).hash(&mut h);
@@ -62,7 +69,7 @@ impl LinesJob {
     /// The lines: exact for one part when SolidCore draws it, else from the meshes.
     pub fn run(&self) -> ViewLines {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some((solid, place)) = &self.part {
+        if let Some((solid, place)) = self.part.as_ref().filter(|_| self.look.lens.is_none()) {
             let l = &self.look;
             let exact = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 skraft_kernel::drawing::part_lines(solid, place, l.right, l.up, l.forward)
@@ -216,7 +223,7 @@ mod tests {
     use super::*;
 
     fn job(stamp: u64) -> Arc<LinesJob> {
-        let look = Look { right: DVec3::X, up: DVec3::Y, forward: DVec3::Z };
+        let look = Look { right: DVec3::X, up: DVec3::Y, forward: DVec3::Z, lens: None };
         Arc::new(LinesJob { look, meshes: Vec::new(), part: None, stamp })
     }
 

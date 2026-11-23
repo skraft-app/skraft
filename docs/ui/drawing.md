@@ -120,8 +120,8 @@ stays parallel.
 A perspective view (`Perspective`: eye, opening, size on the paper) has **its own frame**: its
 handles crop it about its centre, what it shows keeping its size. It is marked « Sans échelle »,
 takes no part in the sheet's scale field and takes **no dimension**: those it has are kept, hidden,
-counted in its entity info, and come back in parallel. For now it is drawn as a picture in every
-style, in the PDF too.
+counted in its entity info, and come back in parallel. Its lines come from the display meshes,
+cut at the eye and at its frame ([Lines](#lines)).
 
 ## Lines
 
@@ -149,6 +149,11 @@ shown while new ones are on their way.
   take their neighbours' look (no specks at corners). Pieces of one edge join into polylines.
   On Cruise (2 789 parts, 3.97 M triangles; `bench_hidden_lines`): 0.4 to 1.2 s a view on every
   core.
+- **In perspective, always on the meshes** (SolidCore's are orthographic): the same search on the
+  scene mapped so that the rays from the eye become parallel, (x, y, z) → (d x / z, d y / z,
+  -d² / z), d a distance within the scene. Triangles and segments are cut at a near plane first,
+  and at the frame, so that the eye may stand inside the model; the lines are the tangents of
+  their angles off the view's axis.
 
 The lines are drawn into the view's picture ([Rendered views](#rendered-views)) by the
 renderer, over everything (its overlay): the visible ones 0.35 mm wide on paper, nearly black,

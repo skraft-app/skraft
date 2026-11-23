@@ -785,7 +785,7 @@ fn bench_hidden_lines() {
     let look = |forward: DVec3, up: DVec3| {
         let forward = forward.normalize();
         let right = forward.cross(up).normalize();
-        crate::hidden_lines::Look { right, up: right.cross(forward), forward }
+        crate::hidden_lines::Look { right, up: right.cross(forward), forward, lens: None }
     };
     for (name, l) in [
         ("front", look(DVec3::Y, DVec3::Z)),
@@ -794,6 +794,24 @@ fn bench_hidden_lines() {
         ("iso", look(DVec3::new(-1.0, 1.0, -1.0), DVec3::Z)),
     ] {
         let lines = time(&format!("hidden lines, {name}"), || crate::hidden_lines::hidden_lines(&parts, &l));
+        eprintln!("  {} visible polylines, {} hidden, {} segments", lines.visible.len(), lines.hidden.len(), lines.segments());
+    }
+    // In perspective (50 mm, 3:2): from outside, the whole model in the frame, and from its middle.
+    let (mut lo, mut hi) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
+    for (m, t) in &parts {
+        let t = *t * glam::DAffine3::from_translation(m.origin);
+        for p in &m.positions {
+            let q = t.transform_point3(DVec3::from(p.map(f64::from)));
+            (lo, hi) = (lo.min(q), hi.max(q));
+        }
+    }
+    let (centre, radius) = ((lo + hi) / 2.0, (hi - lo).length() / 2.0);
+    let t = 12.0 / 50.0;
+    let half = glam::DVec2::new(t * 1.5, t);
+    let iso = DVec3::new(-1.0, 1.0, -1.0).normalize();
+    for (name, eye) in [("outside", centre - iso * radius / t), ("inside", centre)] {
+        let l = crate::hidden_lines::Look { lens: Some(crate::hidden_lines::Lens { eye, half }), ..look(iso, DVec3::Z) };
+        let lines = time(&format!("hidden lines, perspective {name}"), || crate::hidden_lines::hidden_lines(&parts, &l));
         eprintln!("  {} visible polylines, {} hidden, {} segments", lines.visible.len(), lines.hidden.len(), lines.segments());
     }
 }

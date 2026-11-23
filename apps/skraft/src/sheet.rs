@@ -656,7 +656,7 @@ struct ViewsCache {
     key: (u64, u64),
     /// By view and the direction it looks along: a composition's projected view looks its
     /// presentation's way (docs/ui/drawing.md#compositions).
-    views: HashMap<(Id, [u64; 9]), Arc<ViewData>>,
+    views: HashMap<(Id, [u64; 15]), Arc<ViewData>>,
 }
 
 /// What a view shows.
@@ -1806,6 +1806,8 @@ pub struct PictureLines {
     pub lines: Arc<skraft_tools::hidden_lines::ViewLines>,
     pub axes: [DVec3; 3],
     pub depth: f64,
+    /// In perspective, the eye: the lines are tangents off its axis, laid `depth` from it.
+    pub eye: Option<DVec3>,
     /// The hidden ones drawn too (*Lines*), dashed.
     pub hidden: bool,
     pub width: f32,
@@ -1821,14 +1823,19 @@ const DASH_MM: [f64; 2] = [2.0, 1.0];
 /// The largest side of a view's picture, in pixels.
 const MAX_PICTURE: f64 = 4096.0;
 
+/// A perspective view's near plane, short of its subject's box (`r`'s frame: x, y, depth).
+fn lens_near(r: &Resolved<'_>, (lo, hi): (DVec3, DVec3)) -> f64 {
+    let from_eye = r.perspective.map_or(0.0, |p| lo.z - p.eye.dot(r.frame.forward));
+    (from_eye * 0.9).max((hi.z - lo.z) * 1e-3).max(1e-3)
+}
+
 /// The camera seeing the box `(lo, hi)` (in `r`'s frame: x, y, depth) exactly across, parallel.
 fn picture_camera(r: &Resolved<'_>, (lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
     let f = &r.frame;
     if let Some(p) = r.perspective {
         // Its eye and opening, across its own frame; the near plane short of the subject.
         let view = glam::dcamera::rh::view::look_to_mat4(p.eye, f.forward, f.up);
-        let from_eye = lo.z - p.eye.dot(f.forward);
-        let near = (from_eye * 0.9).max((hi.z - lo.z) * 1e-3).max(1e-3);
+        let near = lens_near(r, (lo, hi));
         let aspect = p.size.x / p.size.y;
         return (view, glam::camera::rh::proj::directx::perspective_infinite_reverse(p.fov_y as f32, aspect as f32, near as f32));
     }
@@ -1872,25 +1879,23 @@ fn wanted_picture(
     let b = data.bx3?;
     let size = [picture_side((frame.x * ppp) as f64), picture_side((frame.y * ppp) as f64)];
     // Points per paper millimetre in the picture.
-    let frame_mm = (b.1.x - b.0.x).max(1e-9) * r.scale;
+    let frame_mm = r.perspective.map_or((b.1.x - b.0.x).max(1e-9) * r.scale, |p| p.size.x);
     let ppm = size[0] as f64 / ppp as f64 / frame_mm;
     let f = &r.frame;
-    // A perspective view has its picture alone: its lines are computed parallel.
-    let flat = r.perspective.is_none();
-    let lines = lines.filter(|_| flat && style != ViewStyle::Rendered).map(|l| PictureLines {
+    let lines = lines.filter(|_| style != ViewStyle::Rendered).map(|l| PictureLines {
         lines: l,
         axes: [f.right, f.up, f.forward],
-        // In front of every part.
-        depth: b.0.z - 1.0,
+        // In front of every part; in perspective, in the middle of them, drawn over all the same.
+        depth: r.perspective.map_or(b.0.z - 1.0, |p| ((b.0.z + b.1.z) / 2.0 - p.eye.dot(f.forward)).max(lens_near(r, b) * 1.5)),
+        eye: r.perspective.map(|p| p.eye),
         hidden: style == ViewStyle::Lines,
         width: (LINE_MM * ppm).max(1.0) as f32,
         hidden_width: (HIDDEN_MM * ppm).max(0.6) as f32,
         dash: [(DASH_MM[0] * ppm).max(3.0) as f32, (DASH_MM[1] * ppm).max(2.0) as f32],
     });
-    let parts = if flat && style == ViewStyle::Lines { Vec::new() } else { data.parts.clone() };
+    let parts = if style == ViewStyle::Lines { Vec::new() } else { data.parts.clone() };
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (e_key(r), size, slot.0.0, style as u8, lines.as_ref().map(|l| Arc::as_ptr(&l.lines) as usize)).hash(&mut h);
-    r.perspective.map(|p| [p.eye.x, p.eye.y, p.eye.z, p.fov_y, p.size.x, p.size.y].map(f64::to_bits)).hash(&mut h);
     data.parts.len().hash(&mut h);
     for (p, places) in &data.parts {
         p.0.hash(&mut h);
@@ -1910,6 +1915,8 @@ pub struct Printed {
     pub picture: Option<Wanted>,
     pub lines: Option<skraft_tools::hidden_lines::ViewLines>,
     pub centre: DVec2,
+    /// Paper millimetres per unit of its lines, from `centre`.
+    pub to_paper: f64,
 }
 
 /// What view `id` (`r`, drawn in `style`) puts on paper at `dpi`; none while its box is not
@@ -1918,8 +1925,7 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
     let placed = e.document().subject_parts(r.subject);
     let b = box_of(e, r, &placed)?;
     let frame = frame_of(r, Some((b.0.truncate(), b.1.truncate())));
-    let flat = r.perspective.is_none();
-    let picture = (!flat || style != ViewStyle::Lines).then(|| {
+    let picture = (style != ViewStyle::Lines).then(|| {
         let px = |mm: f64| (mm * dpi / 25.4).round().clamp(8.0, 8192.0) as u32;
         let mut by_part: HashMap<Id, Vec<Placed>> = HashMap::new();
         for p in &placed {
@@ -1930,17 +1936,25 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
         let size = [px(frame.1.x - frame.0.x), px(frame.1.y - frame.0.y)];
         Wanted { slot: (id, None), size, camera: picture_camera(r, b), parts, lines: None, stamp: 0 }
     });
-    let lines =
-        if !flat || style == ViewStyle::Rendered { None } else { crate::view_lines::LinesJob::of(e, r, &placed).map(|job| job.run()) };
-    Some(Printed { frame, picture, lines, centre: ((b.0 + b.1) / 2.0).truncate() })
+    let lines = if style == ViewStyle::Rendered { None } else { crate::view_lines::LinesJob::of(e, r, &placed).map(|job| job.run()) };
+    // A perspective's lines are tangents about its axis, on the frame's height.
+    let (centre, to_paper) = match r.perspective {
+        Some(p) => (DVec2::ZERO, p.size.y / (2.0 * (p.fov_y / 2.0).tan())),
+        None => (((b.0 + b.1) / 2.0).truncate(), r.scale),
+    };
+    Some(Printed { frame, picture, lines, centre, to_paper })
 }
 
-/// What of a view's frame changes its picture (its direction).
-fn e_key(r: &Resolved<'_>) -> [u64; 9] {
+/// What of a view's look changes its picture and lines: its direction, and a perspective's eye,
+/// opening and frame.
+fn e_key(r: &Resolved<'_>) -> [u64; 15] {
     let f = &r.frame;
-    let mut k = [0u64; 9];
+    let mut k = [0u64; 15];
     for (i, v) in [f.right, f.up, f.forward].iter().enumerate() {
         k[3 * i..3 * i + 3].copy_from_slice(&v.to_array().map(f64::to_bits));
+    }
+    if let Some(p) = r.perspective {
+        k[9..15].copy_from_slice(&[p.eye.x, p.eye.y, p.eye.z, p.fov_y, p.size.x, p.size.y].map(f64::to_bits));
     }
     k
 }
@@ -3436,7 +3450,7 @@ fn draw_elements(
                 }
                 if painter.clip_rect().intersects(rect) && asked.insert(slot) {
                     // Its lines as last computed (new ones on their way when it changed).
-                    let got = if v.style == ViewStyle::Rendered || r.perspective.is_some() {
+                    let got = if v.style == ViewStyle::Rendered {
                         None
                     } else {
                         let (got, busy) = lines.get(slot, data.lines.as_ref(), !level.printed);

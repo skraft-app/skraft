@@ -1104,7 +1104,10 @@ fn draw_sheet_picture(
     let mut overlay = Vec::new();
     if let Some(pl) = &w.lines {
         let [right, up, forward] = pl.axes;
-        let at = |p: glam::DVec2| right * p.x + up * p.y + forward * pl.depth;
+        let at = |p: glam::DVec2| match pl.eye {
+            Some(eye) => eye + (right * p.x + up * p.y + forward) * pl.depth,
+            None => right * p.x + up * p.y + forward * pl.depth,
+        };
         if pl.hidden {
             let dash = Some(render::Dash { pattern: [pl.dash[0], pl.dash[1], 0.0, 0.0], lay: render::Lay::Screen(0.0) });
             for poly in &pl.lines.hidden {
