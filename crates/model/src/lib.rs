@@ -47,7 +47,7 @@ pub use drawing::{
     text_fields,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
-pub use file::{Content, FORMAT, FileView, VERSION};
+pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
 pub use history::History;
 pub use import::ImportReport;
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, NodeRaw, Operation, Outcome, Prepared, RawAsk, Scope, Warning};

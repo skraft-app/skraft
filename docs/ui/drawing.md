@@ -204,7 +204,8 @@ their sizes and orientations compare at a glance. The tools' cards, the view bar
 belongs to the 3D view are not shown; the ribbon and the panels are (the entity info, the
 [navigator](#navigator) and the [compositions](#the-compositions-card) at first). A document
 without a sheet says how to make one. The board's layout is computed; the active sheet and the
-camera are a view state (`SheetState`). None of it is saved.
+camera are a view state (`SheetState`): not in the document, kept in the file's `view.json` at
+each save ([File format](../io/file-format.md)).
 
 ### The board
 

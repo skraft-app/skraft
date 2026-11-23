@@ -423,7 +423,16 @@ fn a_file_keeps_how_it_was_seen_beside_the_document() {
     assert!(!unzip(&doc.to_file().unwrap()).contains_key("view.json"));
     assert_eq!(Document::file_view(&doc.to_file().unwrap()), FileView::default());
 
-    let seen = FileView { workspace: Some("cut_list".into()) };
+    let camera = SeenCamera {
+        eye: DVec3::new(1.5, -2.25, 3.0),
+        yaw: 0.5,
+        pitch: -0.25,
+        projection: SeenProjection::Parallel { height: 420.0 },
+        focus: 12.0,
+        frame: glam::DMat3::IDENTITY,
+    };
+    let board = SeenBoard { sheet: Some(Id(7)), presentation: Some(Id(3)), pan: glam::DVec2::new(10.0, -20.0), zoom: 1.5 };
+    let seen = FileView { workspace: Some("cut_list".into()), camera: Some(camera), board: Some(board) };
     let file = doc.to_file_seen(&seen).unwrap();
     assert_eq!(Document::file_view(&file), seen);
     // The document reads as without it.

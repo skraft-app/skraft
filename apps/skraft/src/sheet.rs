@@ -10,7 +10,7 @@ use glam::{DAffine2, DAffine3, DMat4, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::{
     Container, DimKind, Dimension, Direction, Drawing, ElementKind, Entity, EntityPath, Found, Id, Look, Operation, Orient, Paper, Place,
-    Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle,
+    Projection, Resolved, SeenBoard, Sheet, Side, Subject, View, ViewKind, ViewStyle,
 };
 use skraft_theme::Theme;
 use skraft_tools::Editor;
@@ -19,7 +19,8 @@ use crate::sheet_board::{Board, Column};
 use crate::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::viewport;
 
-/// A document's sheet shown and how it is seen (not saved).
+/// A document's sheet shown and how it is seen (the sheet and the camera kept in its file,
+/// [`skraft_model::SeenBoard`]).
 #[derive(Clone, Debug, Default)]
 pub struct SheetState {
     /// The sheet shown: none, the first of the presentation shown.
@@ -1626,6 +1627,26 @@ impl SheetState {
     /// Is the camera still to frame something?
     pub fn framing_asked(&self) -> bool {
         self.framing.is_some()
+    }
+
+    /// What a file keeps of it; none while the board was never shown.
+    pub fn seen(&self) -> Option<SeenBoard> {
+        (self.zoom > 0.0).then_some(SeenBoard { sheet: self.current, presentation: self.presentation, pan: self.pan, zoom: self.zoom })
+    }
+
+    /// Back to what a file kept (it is untrusted): a sheet or presentation gone is left out, a
+    /// camera that cannot be one leaves the board to be framed.
+    pub fn restore(&mut self, d: &Drawing, seen: &SeenBoard) {
+        if !seen.pan.is_finite() || !seen.zoom.is_finite() || seen.zoom <= 0.0 {
+            return;
+        }
+        self.current = seen.sheet.filter(|id| d.sheet(*id).is_some());
+        self.presentation = seen.presentation.filter(|id| d.presentation(*id).is_some());
+        self.pan = seen.pan;
+        self.zoom = seen.zoom.clamp(0.01, 200.0);
+        // Already followed: else it would be brought on screen, the view kept lost.
+        let board = Board::of(d);
+        self.follow = self.shown(d).and_then(|s| board.sheet(s.id)).map(|s| (s.id, s.origin));
     }
 
     /// Frames the whole board at the next frame.
@@ -3856,6 +3877,28 @@ mod tests {
         place_composition(&mut e, &mut st, composition);
         let p = e.document().drawing().element(st.selected[0]).unwrap().kind.instance().unwrap().place;
         assert_eq!(p.at, DVec2::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn the_board_comes_back_from_what_a_file_keeps() {
+        let (e, sheet, _) = sheet_with_a_composition();
+        let d = e.document().drawing();
+        assert_eq!(SheetState::default().seen(), None, "never shown: nothing to keep");
+        let seen =
+            SeenBoard { sheet: Some(sheet), presentation: d.presentation_of(sheet).map(|p| p.id), pan: DVec2::new(12.0, -3.0), zoom: 2.5 };
+        let mut st = SheetState::default();
+        st.restore(d, &seen);
+        assert_eq!(st.seen(), Some(seen));
+        // Kept as it is: the first frame does not bring the sheet back on screen.
+        follow_active(&mut st, &Board::of(d), Some(sheet));
+        assert_eq!((st.framing, st.pan), (None, seen.pan));
+
+        let mut gone = SheetState::default();
+        gone.restore(d, &SeenBoard { sheet: Some(Id(999_999)), presentation: Some(Id(999_998)), ..seen });
+        assert_eq!((gone.current, gone.presentation), (None, None));
+        let mut bad = SheetState::default();
+        bad.restore(d, &SeenBoard { zoom: f64::NAN, ..seen });
+        assert_eq!(bad.seen(), None, "left to be framed");
     }
 
     /// A real click at `at` at time `t` (seconds), through egui: was it taken from the tools?

@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 use std::sync::Arc;
 
+use glam::{DMat3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 use skraft_kernel::Solid;
 use zip::write::SimpleFileOptions;
@@ -65,13 +66,53 @@ pub(crate) fn read_entry(entry: impl Read, declared: u64, left: &mut u64) -> std
 
 /// How a file was last seen, not part of the document: written beside it, never in its
 /// history — changing it neither modifies the document nor is undone (docs/io/file-format.md).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FileView {
     /// The workspace shown (an id of the app's; none, or one the app does not list: its first,
     /// decision 0047).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
+    /// The 3D view's camera; none: the whole model framed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera: Option<SeenCamera>,
+    /// The drawing's board; none: every sheet framed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub board: Option<SeenBoard>,
+}
+
+/// The 3D camera as a file keeps it. The file is untrusted: the editor checks it when it takes it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SeenCamera {
+    pub eye: DVec3,
+    pub yaw: f64,
+    pub pitch: f64,
+    pub projection: SeenProjection,
+    pub focus: f64,
+    pub frame: DMat3,
+}
+
+/// A [`SeenCamera`]'s projection.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeenProjection {
+    /// Vertical field of view, radians.
+    Perspective { fov_y: f64 },
+    /// Visible height of the view, mm.
+    Parallel { height: f64 },
+}
+
+/// The drawing's board as a file keeps it: the sheet active and how the board is seen.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SeenBoard {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<Id>,
+    /// The board point at the stage's centre, mm.
+    pub pan: DVec2,
+    /// Points per millimetre of paper.
+    pub zoom: f64,
 }
 
 #[derive(Serialize, Deserialize)]
