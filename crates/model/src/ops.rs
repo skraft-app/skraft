@@ -258,6 +258,15 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
+    /// Undoes the body node `body` of the level `target` names, its last edge let go
+    /// (docs/tools/rounds.md): every copy of it in the part, at any level, gives way to its
+    /// children, as [`Operation::UngroupBodies`] brings them up. Refused whole if one cannot be.
+    DissolveNode {
+        target: EntityPath,
+        body: Id,
+        #[serde(default)]
+        scope: Scope,
+    },
     /// Flattens groups among bodies of the part `target` places: each one becomes a free shape,
     /// its result, without its children (docs/model/bodies.md#flattening). Only the copies
     /// given: the others of a shared group keep their tree.
@@ -650,7 +659,7 @@ impl Operation {
             Operation::MoveParts { .. } => t!("operation.move_parts_into"),
             Operation::MoveOccurrences { copy: true, .. } => t!("operation.copy_occurrences_into"),
             Operation::MoveOccurrences { .. } => t!("operation.move_occurrences_into"),
-            Operation::UngroupBodies { .. } => t!("operation.ungroup"),
+            Operation::UngroupBodies { .. } | Operation::DissolveNode { .. } => t!("operation.ungroup"),
             Operation::FlattenBodies { .. } | Operation::FlattenPart { .. } => t!("common.flatten"),
             Operation::SetSign { sign: Sign::Positive, .. } => t!("operation.set_sign_positive"),
             Operation::SetSign { sign: Sign::Negative, .. } => t!("operation.set_sign_negative"),
@@ -1666,6 +1675,20 @@ impl Document {
                 let (created, relocated) = self.ungroup_bodies(part, &bodies, solver)?;
                 Ok(Outcome { bodies: created, relocated, ..Outcome::default() })
             }
+            Operation::DissolveNode { target, body, scope } => {
+                self.check_dissolve_node(target, *body)?;
+                let def = self.resolve_container(target)?.1.body(*body).ok_or(Error::NotFound(*body))?.def;
+                let whole = EntityPath { group: Vec::new(), ..target.clone() };
+                if *scope == Scope::This {
+                    self.separate(&whole)?;
+                }
+                let part = self.resolve_part(&whole)?.0;
+                let level = target.group.last().map(|_| self.resolve_part(&whole).and_then(|(_, p, _)| p.group_chain(&target.group)));
+                let level = level.transpose()?.and_then(|(chain, _)| chain.last().copied());
+                let moves = self.dissolve_node(part, def, solver)?;
+                let created = moves.get(&level).into_iter().flatten().filter(|(old, _)| old[0] == *body).map(|(_, new)| new[0]).collect();
+                Ok(Outcome { created, ..Outcome::default() })
+            }
             Operation::FlattenBodies { target, bodies, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
                 let flat = self.flatten_bodies(part, &bodies, solver)?;
@@ -2365,21 +2388,8 @@ impl Document {
         if !p.bodies.iter().any(is_group) {
             return Ok((Vec::new(), Vec::new()));
         }
-        // `parent − (P − N)`: no body of the parent's takes away P but leaves N.
-        if p.bodies
-            .iter()
-            .filter(|b| is_group(b))
-            .any(|b| b.sign == Sign::Negative && p.def_of(b).children().iter().any(|c| c.sign == Sign::Negative))
-        {
-            return Err(Error::Invalid(Refusal::UngroupNegative));
-        }
-        // An intersection of several bodies: each would limit, not their union.
-        if p.bodies
-            .iter()
-            .filter(|b| is_group(b))
-            .any(|b| b.sign == Sign::Intersect && !matches!(p.def_of(b).children(), [c] if c.sign == Sign::Positive))
-        {
-            return Err(Error::Invalid(Refusal::IntersectsRegrouped));
+        if let Some(r) = p.bodies.iter().filter(|b| is_group(b)).find_map(|b| ungroup_refusal(&p, b)) {
+            return Err(Error::Invalid(r));
         }
         let mut bodies = Vec::with_capacity(p.bodies.len());
         let mut created = Vec::new();
@@ -2392,17 +2402,7 @@ impl Document {
             let shared = p.copies_of(b.def) > 1;
             for c in p.def_of(b).children() {
                 let id = if shared { self.fresh_id() } else { c.id };
-                // A negative group holds positives only (above): each one a machining.
-                // A negative group's or an intersection's children: each what the group was.
-                let sign = if b.sign == Sign::Positive { c.sign } else { b.sign };
-                bodies.push(Body {
-                    id,
-                    name: c.name.clone(),
-                    def: c.def,
-                    sign,
-                    placement: b.placement * c.placement,
-                    props: c.props.clone(),
-                });
+                bodies.push(brought_up(b, c, id));
                 created.push(id);
                 relocated.push((vec![b.id, c.id], vec![id]));
             }
@@ -2412,6 +2412,88 @@ impl Document {
         p.drop_unused_defs();
         self.recompute(part, None, solver)?;
         Ok((created, relocated))
+    }
+
+    /// Can the node `body` of the level `target` names be undone, every copy of it in the part?
+    pub fn check_dissolve_node(&self, target: &EntityPath, body: Id) -> Result<()> {
+        let def = self.resolve_container(target)?.1.body(body).ok_or(Error::NotFound(body))?.def;
+        let (_, p, _) = self.resolve_part(target)?;
+        if p.def(def).and_then(|d| d.op()).is_none() {
+            return Err(Error::Invalid(Refusal::NotANode));
+        }
+        match p.all_bodies().filter(|b| b.def == def).find_map(|b| ungroup_refusal(p, b)) {
+            Some(r) => Err(Error::Invalid(r)),
+            None => Ok(()),
+        }
+    }
+
+    /// [`Operation::DissolveNode`]: every body of definition `def`, at every level of `part`,
+    /// replaced by its children; the names of the nodes above follow them, the groups that
+    /// held it computed again from the inside out. Returns the moves by level (`None`: the
+    /// part's own bodies, else the group definition).
+    fn dissolve_node(&mut self, part: Id, def: Id, solver: &mut dyn Solver) -> Result<FastMap<Option<Id>, Relocated>> {
+        let mut p = self.part(part)?.clone();
+        let before = p.defs.clone();
+        let children = p.children_of(def).to_vec();
+        // One copy keeps its children's ids; several take fresh ones, ids being unique in a part.
+        let shared = p.copies_of(def) > 1;
+        let mut moves: FastMap<Option<Id>, Relocated> = FastMap::default();
+        let (bodies, moved) = self.bodies_brought_up(&p.bodies, def, &children, shared);
+        p.bodies = bodies;
+        moves.insert(None, moved);
+        for d in p.defs.iter_mut().filter(|d| d.id != def) {
+            let Some(g) = d.group.as_mut() else { continue };
+            if g.children.iter().any(|b| b.def == def) {
+                let (bodies, moved) = self.bodies_brought_up(&g.children, def, &children, shared);
+                g.children = bodies;
+                moves.insert(Some(d.id), moved);
+            }
+        }
+        for d in p.defs.iter_mut().filter(|d| d.id != def) {
+            if let Some(g) = d.group.as_mut() {
+                follow_moves(&before, d.id, &mut Vec::new(), &moves, g);
+            }
+        }
+        p.drop_unused_defs();
+        // The groups that held it, each after those inside it.
+        let mut order = Vec::new();
+        for d in &before {
+            held_first(&before, d.id, &mut order);
+        }
+        for id in order {
+            let held = before.iter().find(|d| d.id == id).is_some_and(|d| crate::document::used_defs(&before, d.children()).contains(&def));
+            if id == def || !held {
+                continue;
+            }
+            let Some(group) = p.def(id).and_then(|d| d.group.clone()) else { continue };
+            let (solid, group, inner) = Self::computed_group(&p.defs, group, &[], solver)?;
+            note_refused(&mut p.defs, inner);
+            if let Some(d) = p.defs.iter_mut().find(|d| d.id == id) {
+                d.solid = solid;
+                d.group = Some(group);
+            }
+        }
+        *self.part_mut(part)? = p;
+        self.recompute(part, None, solver)?;
+        Ok(moves)
+    }
+
+    /// `bodies`, those of definition `def` replaced by `children` brought up, with the moves.
+    fn bodies_brought_up(&mut self, bodies: &[Body], def: Id, children: &[Body], shared: bool) -> (Vec<Body>, Relocated) {
+        let mut out = Vec::with_capacity(bodies.len() + children.len());
+        let mut moved = Vec::new();
+        for b in bodies {
+            if b.def != def {
+                out.push(b.clone());
+                continue;
+            }
+            for c in children {
+                let id = if shared { self.fresh_id() } else { c.id };
+                out.push(brought_up(b, c, id));
+                moved.push((vec![b.id, c.id], vec![id]));
+            }
+        }
+        (out, moved)
     }
 
     /// Adds to `part`, for each transform of `steps`, a copy of its bodies `ids` moved by it (in
@@ -2727,6 +2809,58 @@ pub(crate) fn is_rigid(t: &DAffine3) -> bool {
 }
 
 // ---- the kernel calls of an operation -------------------------------------------------------
+
+/// Why the group body `b` of `p` cannot be exploded, if so.
+fn ungroup_refusal(p: &Part, b: &Body) -> Option<Refusal> {
+    let children = p.def_of(b).children();
+    // `parent − (P − N)`: no body of the parent's takes away P but leaves N.
+    if b.sign == Sign::Negative && children.iter().any(|c| c.sign == Sign::Negative) {
+        return Some(Refusal::UngroupNegative);
+    }
+    // An intersection of several bodies: each would limit, not their union.
+    if b.sign == Sign::Intersect && !matches!(children, [c] if c.sign == Sign::Positive) {
+        return Some(Refusal::IntersectsRegrouped);
+    }
+    None
+}
+
+/// The child `c` of the group body `b` brought up to `b`'s level under the id `id`: placement
+/// composed; a negative group's or an intersection's children each what the group was.
+fn brought_up(b: &Body, c: &Body, id: Id) -> Body {
+    let sign = if b.sign == Sign::Positive { c.sign } else { b.sign };
+    Body { id, name: c.name.clone(), def: c.def, sign, placement: b.placement * c.placement, props: c.props.clone() }
+}
+
+/// [`relocate`] of `group` for the moves of every level under it, reached through the tree as
+/// it was (`defs`): `prefix` is the way from `group` to the level `at`.
+fn follow_moves(defs: &[BodyDef], at: Id, prefix: &mut Vec<Id>, moves: &FastMap<Option<Id>, Relocated>, group: &mut crate::BodyGroup) {
+    if let Some(m) = moves.get(&Some(at)) {
+        relocate(group, prefix, m);
+    }
+    let Some(d) = defs.iter().find(|d| d.id == at) else { return };
+    for c in d.children() {
+        if defs.iter().any(|x| x.id == c.def && x.is_group()) {
+            prefix.push(c.id);
+            follow_moves(defs, c.def, prefix, moves, group);
+            prefix.pop();
+        }
+    }
+}
+
+/// Pushes `id` onto `order` after the group definitions it holds, each once.
+fn held_first(defs: &[BodyDef], id: Id, order: &mut Vec<Id>) {
+    if order.contains(&id) {
+        return;
+    }
+    if let Some(d) = defs.iter().find(|d| d.id == id) {
+        for c in d.children() {
+            held_first(defs, c.def, order);
+        }
+        if d.is_group() {
+            order.push(id);
+        }
+    }
+}
 
 /// The names of `group`'s node and its face map following bodies moved in the tree under it
 /// (docs/decisions/0042-body-nodes-operators.md): `moves`, old path → new path, from the bodies
