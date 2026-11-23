@@ -558,6 +558,29 @@ fn a_linked_body_takes_no_edit() {
     assert!(root_links(&h).is_empty());
 }
 
+#[test]
+fn a_linked_body_is_named_after_its_source() {
+    let mut h = History::new(Document::new());
+    let (rail, leg) = rail_and_leg(&mut h);
+    let body = link(&mut h, rail, leg);
+    let (rail_part, leg_part) = (part_of(&h, rail), part_of(&h, leg));
+    let name = |h: &History| {
+        let q = h.document().part(leg_part).unwrap();
+        q.def_of(q.body(body).unwrap()).name.clone()
+    };
+    assert_eq!(name(&h), h.document().component(rail_part).unwrap().name);
+
+    h.apply(Operation::RenameComponent { component: rail_part, name: "Traverse".into() }).unwrap();
+    assert_eq!(name(&h), "Traverse");
+    let read = Document::from_file(&h.document().to_file().unwrap()).unwrap();
+    let q = read.part(leg_part).unwrap();
+    assert_eq!(q.def_of(q.body(body).unwrap()).name, "Traverse");
+
+    let root = h.document().root();
+    h.apply(Operation::Delete { context: root, entities: vec![rail] }).unwrap();
+    assert_eq!(name(&h), "Traverse", "its source gone, it keeps the last name");
+}
+
 // ---- links through changes of structure -----------------------------------------------------
 
 #[test]

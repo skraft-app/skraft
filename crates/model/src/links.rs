@@ -257,6 +257,28 @@ impl Document {
         Ok(kept)
     }
 
+    /// Each linked body named after its source part. One that lost its source keeps the last.
+    pub(crate) fn settle_link_names(&mut self) {
+        let mut names: BTreeMap<(Id, Id), String> = BTreeMap::new();
+        for holder in self.link_holders() {
+            let Ok(a) = self.assembly(holder) else { continue };
+            for l in a.links() {
+                let Ok((from, to, _)) = self.link_pose(holder, l) else { continue };
+                let (Ok(c), Ok(q)) = (self.component(from), self.part(to)) else { continue };
+                let Some(b) = q.body(l.body).filter(|b| q.def_of(b).source == BodySource::Linked) else { continue };
+                let d = q.def_of(b);
+                if !d.named || d.name != c.name {
+                    names.entry((to, d.id)).or_insert_with(|| c.name.clone());
+                }
+            }
+        }
+        for ((part, def), name) in names {
+            if let Some(d) = self.part_mut(part).ok().and_then(|q| q.defs.iter_mut().find(|d| d.id == def)) {
+                d.set_name(Some(name));
+            }
+        }
+    }
+
     /// Takes away the links with nothing left to show: their receiver or their linked body gone.
     /// One whose source is gone stays: its body is told frozen.
     pub(crate) fn drop_dead_links(&mut self) {

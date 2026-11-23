@@ -127,6 +127,8 @@ Link     { id, source: path, receiver: path, body, seat: T }
   its sign or taking it out of its part is refused (`Refusal::LinkedBody`), and among other bodies
   it is left where it is. What stays open: its clearance, its own name, deleting it, and
   « Rompre le lien », which makes it a plain body.
+- **Named after its source** (`Document::settle_link_names`, after each operation and on reading a
+  file): renaming the part renames it; a body that lost its source keeps the last name.
 - **Held by the assembly** `context`, by occurrence paths relative to it: placing that assembly
   again keeps its links, and a copy into another document follows the ids drawn afresh.
 - **`seat`** is the source's axes in the receiver's, per link: several links share a body

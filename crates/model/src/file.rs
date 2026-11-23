@@ -347,6 +347,7 @@ impl Document {
     fn settled(mut self) -> Result<Document> {
         self.check()?;
         self.check_props()?;
+        self.settle_link_names();
         self.settle_names(None);
         Ok(self)
     }

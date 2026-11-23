@@ -890,6 +890,7 @@ impl Document {
         doc.update_imprints(self, &mut recorder)?;
         outcome.links = doc.follow_links(self, &mut recorder)?;
         doc.drop_dead_links();
+        doc.settle_link_names();
         if recorder.job.tasks.is_empty() {
             doc.settle_names(Some(self));
             doc.drop_unused_empty_assemblies();
@@ -977,6 +978,7 @@ impl Document {
         doc.update_imprints(self, &mut replayer)?;
         outcome.links = doc.follow_links(self, &mut replayer)?;
         doc.drop_dead_links();
+        doc.settle_link_names();
         if replayer.outputs.next().is_some() {
             return Err(Error::Invalid(Refusal::OutOfStep));
         }
@@ -1469,7 +1471,7 @@ impl Document {
             Operation::RenameBodyDef { part, def, name } => {
                 let p = self.part_mut(*part)?;
                 let d = p.defs.iter_mut().find(|d| d.id == *def).ok_or(Error::NotFound(*def))?;
-                // It follows its source.
+                // Named after its source.
                 if d.source == crate::BodySource::Linked {
                     return Err(Error::Invalid(Refusal::LinkedBody));
                 }
