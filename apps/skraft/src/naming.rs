@@ -9,7 +9,7 @@ use skraft_i18n::t;
 use skraft_tools::Naming;
 
 use crate::docs::DocId;
-use crate::widgets::{Confirm, confirm_buttons};
+use crate::widgets::{Confirm, FieldLook, confirm_buttons, live_field};
 
 /// The dialog open: on what a document's editor names.
 pub struct Dialog {
@@ -46,10 +46,16 @@ impl Dialog {
         let why = refusal(&self.text);
         let modal = crate::app::modal(ctx, egui::Id::unique("naming"), 340.0, self.naming.title.clone(), |ui| {
             let id = egui::Id::unique("naming.field");
-            // Its own margin: not the modal's roomy button padding, which it would take.
-            let edit = egui::TextEdit::singleline(&mut self.text).id(id).desired_width(f32::INFINITY).margin(egui::vec2(6.0, 5.0));
-            let field = ui.add(edit);
-            crate::handles::publish(|| "naming.field".into(), field.rect);
+            let look = FieldLook {
+                hint: None,
+                tip: None,
+                width: ui.available_width(),
+                align: egui::Align2::LEFT_CENTER,
+                lit: false,
+                addon: None,
+                handle: Some("naming.field".into()),
+            };
+            let field = live_field(ui, id, &mut self.text, look);
             if !self.selected {
                 // The whole name selected, typing replaces it (OCL's inputbox): once the field
                 // has the focus (egui places the cursor when it takes it). The memory's focus,
