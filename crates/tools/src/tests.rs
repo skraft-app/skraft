@@ -996,6 +996,29 @@ fn hidden_occurrences() {
 }
 
 #[test]
+fn hidden_leave_the_deep_selection() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    e.select(vec![a, b]);
+    e.make_assembly();
+    let g = e.selection()[0];
+    let selected = |e: &Editor| e.view().highlights.into_iter().filter(|h| h.mark == Mark::Selected).count();
+
+    // A part selected at any depth (« Parts »), hidden: out of the selection, no longer marked.
+    e.select_paths(vec![EntityPath::new(vec![g], a), EntityPath::new(vec![g], b)]);
+    assert_eq!(selected(&e), 2);
+    e.set_hidden(&EntityPath::new(vec![g], a), true);
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![g], b)]);
+    assert_eq!(selected(&e), 1);
+
+    // Its assembly hidden: the parts selected under it with it.
+    e.set_hidden(&EntityPath::root(g), true);
+    assert!(e.deep_selection().is_empty());
+    assert_eq!(selected(&e), 0);
+}
+
+#[test]
 fn groups_enter_fade_exit() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");

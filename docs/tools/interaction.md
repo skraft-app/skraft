@@ -95,8 +95,8 @@ occurrence of the assembly (its definition is shared).
 - A hidden occurrence, and everything under it, is neither drawn, picked (click or
   rectangle), inferred on, framed by zoom extents nor taken by select all; its guides go with
   it; the navigator greys its row and those below, and hovering them there marks nothing.
-  Hiding it takes it out of the selection; the navigator still selects it (its selection mark
-  then shows where it is).
+  Hiding it takes it out of the selection, with what is selected under it at any depth
+  (« Parts »); the navigator still selects it (its selection mark then shows where it is).
 - **What is being edited shows**: the occurrences hidden along the active path (the
   assemblies entered, the part open) count as shown, what is hidden below them stays hidden
   (`PlacedPart::hidden_at`, the deepest hidden occurrence of the path, compared with the
