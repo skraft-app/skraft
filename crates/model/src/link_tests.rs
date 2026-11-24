@@ -1554,3 +1554,25 @@ fn a_shelf_made_unique_by_a_stretch_reshapes_its_mortise() {
     assert_eq!(states(&h), vec![LinkState::Seated; 4]);
     assert!(close(volume(&h, leg_part), full - 10.0 * 50.0 * 10.0 - 10.0 * 80.0 * 10.0), "{}", volume(&h, leg_part));
 }
+
+#[test]
+fn a_stretch_moving_the_shelf_across_mirrored_legs_records_what_it_applies() {
+    let mut h = History::new(Document::new());
+    let (leg, leg2, shelf) = shelf_between_mirrored_legs(&mut h);
+    let leg_part = part_of(&h, leg);
+
+    // The left side brought 30 closer: the shelf shortened and moved, the legs one each way.
+    h.apply(Operation::Stretch {
+        context: vec![],
+        occurrences: vec![leg, leg2, shelf],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::X,
+        cuts: vec![70.0],
+        moves: vec![30.0, 0.0],
+        scope: Scope::All,
+        cutters: None,
+    })
+    .unwrap();
+    assert_eq!(states(&h), vec![LinkState::Seated, LinkState::Seated]);
+    assert!(close(volume(&h, leg_part), 20.0 * 100.0 * 100.0 - 10.0 * 80.0 * 10.0), "{}", volume(&h, leg_part));
+}
