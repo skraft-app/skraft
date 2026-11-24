@@ -1,7 +1,6 @@
 //! Skraft, the application: egui panels around a viewport drawn by `skraft-render`,
 //! driven by the `skraft-tools` editor. Native and web (docs/ui/interface.md).
 
-mod about;
 mod app;
 mod cards;
 mod clipboard;
@@ -11,26 +10,21 @@ mod control;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crash;
 mod dates;
+mod dialogs;
 mod docs;
 mod drawing;
 mod driving;
 mod file;
 mod identity;
 mod images;
-mod imprint;
 mod instance_name;
-mod journal_window;
 mod kit;
 mod language;
-mod naming;
-mod nav_prefs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opened;
 mod prefs;
 mod separators;
 mod thumbnails;
-#[cfg(not(target_arch = "wasm32"))]
-mod update;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;

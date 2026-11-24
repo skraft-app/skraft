@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/control/src/lib.rs, crates/control/src/params.rs, crates/control/src/editor.rs, crates/control/src/json.rs, crates/control/src/server.rs, crates/control/src/instances.rs, crates/control/src/record.rs, crates/tools/src/editor/journal.rs, apps/skraft/src/control.rs, apps/skraft/src/driving.rs, apps/skraft/src/kit/handles.rs, apps/skraft/src/web.rs, apps/skraft/src/identity.rs, apps/skraft/src/journal_window.rs, apps/skraft/build.rs, apps/skraft-mcp/src/main.rs, apps/skraft-mcp/src/mcp.rs, apps/skraft-mcp/src/backend.rs, scripts/control.sh]
+code: [crates/control/src/lib.rs, crates/control/src/params.rs, crates/control/src/editor.rs, crates/control/src/json.rs, crates/control/src/server.rs, crates/control/src/instances.rs, crates/control/src/record.rs, crates/tools/src/editor/journal.rs, apps/skraft/src/control.rs, apps/skraft/src/driving.rs, apps/skraft/src/kit/handles.rs, apps/skraft/src/web.rs, apps/skraft/src/identity.rs, apps/skraft/src/dialogs/journal_window.rs, apps/skraft/build.rs, apps/skraft-mcp/src/main.rs, apps/skraft-mcp/src/mcp.rs, apps/skraft-mcp/src/backend.rs, scripts/control.sh]
 ---
 
 # Control protocol
@@ -99,7 +99,7 @@ and tasks, serialisable): an operation's job that failed, a recipe that skipped 
   the kernel inline, the view set, each input after a `poll` (a frame), the revision and the
   parts reached checked. Not recorded: what panels do besides (the outliner's selection,
   entering a component from it).
-- **Journal window** (`apps/skraft/src/journal_window.rs`, command `app.journal`: the control
+- **Journal window** (`apps/skraft/src/dialogs/journal_window.rs`, command `app.journal`: the control
   channel's mark's menu, the command palette): reads the shown tab's journal directly, channel
   on or off — its events (filtered by kind — inputs, hovers, left out at first, tools,
   operations, jobs — and by origin — Tous / Utilisateur / Pilote —, following the last; failed

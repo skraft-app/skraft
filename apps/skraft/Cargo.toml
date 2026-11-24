@@ -55,7 +55,7 @@ rfd.workspace = true
 pollster.workspace = true
 env_logger = "0.11"
 dirs = "7"
-# The check for a new version (src/update.rs): HTTPS with the system's certificates.
+# The check for a new version (src/dialogs/update.rs): HTTPS with the system's certificates.
 ureq = { version = "3.5", default-features = false, features = ["rustls-no-provider"] }
 rustls-native-certs = "0.8"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

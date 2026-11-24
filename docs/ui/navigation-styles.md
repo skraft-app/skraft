@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/navigation.rs, crates/tools/src/editor/navigation.rs, crates/tools/src/camera.rs, apps/skraft/src/viewport.rs, apps/skraft/src/nav_prefs.rs, apps/skraft/src/prefs.rs]
+code: [crates/tools/src/navigation.rs, crates/tools/src/editor/navigation.rs, crates/tools/src/camera.rs, apps/skraft/src/viewport.rs, apps/skraft/src/dialogs/nav_prefs.rs, apps/skraft/src/prefs.rs]
 ---
 
 # Navigation styles
@@ -127,7 +127,7 @@ pub enum NavAction { Orbit, Pan, ZoomDrag, ZoomWindow, Recentre, ZoomExtents, Pr
 
 ## Interface
 
-The Preferences' *Navigation* tab (`apps/skraft/src/nav_prefs.rs`): one column of labels, the same width (170 pt) in every
+The Preferences' *Navigation* tab (`apps/skraft/src/dialogs/nav_prefs.rs`): one column of labels, the same width (170 pt) in every
 section, each section a semibold title and a thin line (`style::settings_section`,
 `settings_grid`, the Model tab's too); the tab scrolls down to the screen's bottom.
 

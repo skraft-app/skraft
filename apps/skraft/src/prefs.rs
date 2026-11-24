@@ -92,7 +92,7 @@ pub struct Preferences {
     pub history_memory: u32,
     /// The check for a new version and what it found (docs/ui/updates.md; desktop).
     #[cfg(not(target_arch = "wasm32"))]
-    pub updates: crate::update::Prefs,
+    pub updates: crate::dialogs::update::Prefs,
 }
 
 impl Default for Preferences {
@@ -125,7 +125,7 @@ impl Default for Preferences {
             remote_port: DEFAULT_REMOTE_PORT,
             history_memory: DEFAULT_HISTORY_MEMORY,
             #[cfg(not(target_arch = "wasm32"))]
-            updates: crate::update::Prefs::default(),
+            updates: crate::dialogs::update::Prefs::default(),
         }
     }
 }

@@ -69,7 +69,7 @@ impl SkraftApp {
                     #[cfg(target_arch = "wasm32")]
                     PrefsTab::Debug => {}
                     PrefsTab::Model => self.model_settings(ui),
-                    PrefsTab::Navigation => crate::nav_prefs::navigation_settings(ui, &mut self.prefs.navigation),
+                    PrefsTab::Navigation => crate::dialogs::nav_prefs::navigation_settings(ui, &mut self.prefs.navigation),
                     PrefsTab::Interface => interface_settings(ui, &mut self.prefs, workspace),
                     PrefsTab::Shortcuts => self.shortcut_settings(ui),
                 }

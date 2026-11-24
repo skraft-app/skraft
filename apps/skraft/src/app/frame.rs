@@ -217,7 +217,7 @@ impl SkraftApp {
     /// The windows over the document: preferences, about, updates, journal, palette, prompts.
     pub(super) fn secondary_windows(&mut self, ctx: &egui::Context, views: &[CommandView], actions: &mut Vec<Action>) {
         self.preferences_window(ctx);
-        let check_updates = crate::about::show(ctx, &mut self.about_open);
+        let check_updates = crate::dialogs::about::show(ctx, &mut self.about_open);
         #[cfg(not(target_arch = "wasm32"))]
         {
             if check_updates {
@@ -228,7 +228,7 @@ impl SkraftApp {
         #[cfg(target_arch = "wasm32")]
         let _ = check_updates;
         let journal = self.docs.active().map(|d| (d.name(), d.editor.journal()));
-        crate::journal_window::show(ctx, &mut self.journal_window, journal);
+        crate::dialogs::journal_window::show(ctx, &mut self.journal_window, journal);
         self.palette_window(ctx, views, actions);
         self.save_prompt(ctx);
         self.loading_window(ctx);
@@ -263,7 +263,7 @@ impl SkraftApp {
                     if self.naming.is_none()
                         && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(target))
                     {
-                        self.naming = Some(crate::naming::Dialog::new(doc, n));
+                        self.naming = Some(crate::dialogs::naming::Dialog::new(doc, n));
                     }
                 }
             }

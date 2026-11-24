@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/window/dock.rs, apps/skraft/src/cards/panels.rs, apps/skraft/src/cards/panels/, apps/skraft/src/kit/widgets.rs, apps/skraft/src/kit/widgets/, apps/skraft/src/kit/style.rs, apps/skraft/src/window/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/kit/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
+code: [apps/skraft/src/dialogs/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/window/dock.rs, apps/skraft/src/cards/panels.rs, apps/skraft/src/cards/panels/, apps/skraft/src/kit/widgets.rs, apps/skraft/src/kit/widgets/, apps/skraft/src/kit/style.rs, apps/skraft/src/window/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/kit/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
 ---
 
 # Application interface

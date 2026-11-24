@@ -48,9 +48,9 @@ pub struct SkraftApp {
     /// tools' hints.
     toasts: Toasts,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
-    naming: Option<crate::naming::Dialog>,
+    naming: Option<crate::dialogs::naming::Dialog>,
     /// The confirmation of « Imprimer » (decision 0055).
-    imprint: Option<crate::imprint::Dialog>,
+    imprint: Option<crate::dialogs::imprint::Dialog>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
@@ -58,9 +58,9 @@ pub struct SkraftApp {
     about_open: bool,
     /// The check for a new version (docs/ui/updates.md).
     #[cfg(not(target_arch = "wasm32"))]
-    updates: crate::update::Updates,
+    updates: crate::dialogs::update::Updates,
     /// The journal window, while open (`app.journal`).
-    journal_window: Option<crate::journal_window::JournalWindow>,
+    journal_window: Option<crate::dialogs::journal_window::JournalWindow>,
     /// The side panel being dragged to another place.
     panel_drag: Option<PanelDrag>,
     /// The shortcuts in use (the defaults with the user's changes).
@@ -234,7 +234,7 @@ fn prefs_window_id() -> egui::Id {
 /// preferences, the journal). The other areas of the app are placed every frame.
 fn prune_egui_memory(ctx: &egui::Context) {
     ctx.data_mut(|d| d.remove_by_type::<egui::text_edit::TextEditState>());
-    let windows: Vec<_> = [prefs_window_id(), crate::journal_window::window_id()]
+    let windows: Vec<_> = [prefs_window_id(), crate::dialogs::journal_window::window_id()]
         .into_iter()
         .filter_map(|id| egui::AreaState::load(ctx, id).map(|s| (id, s)))
         .collect();
@@ -310,7 +310,7 @@ impl SkraftApp {
             prefs_window: None,
             about_open: false,
             #[cfg(not(target_arch = "wasm32"))]
-            updates: crate::update::Updates::new(&cc.egui_ctx),
+            updates: crate::dialogs::update::Updates::new(&cc.egui_ctx),
             journal_window: None,
             capturing: None,
             palette: None,
