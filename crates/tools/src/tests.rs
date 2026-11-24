@@ -7940,6 +7940,255 @@ fn reorient_shows_the_part_as_it_is_and_says_what_it_reaches() {
 }
 
 #[test]
+fn the_move_tool_carries_a_linked_body_in_one_step() {
+    use skraft_model::{LinkState, Scope, Sign};
+
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let part = |e: &mut Editor, size: DVec3, at: DVec3| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        let placement = glam::DAffine3::from_translation(at);
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement, material: None }).unwrap().unwrap().created[0]
+    };
+    let rail = part(&mut e, DVec3::new(100.0, 20.0, 20.0), DVec3::ZERO);
+    let leg = part(&mut e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let primitive = Primitive::Box { origin: DVec3::new(100.0, 5.0, 5.0), size: DVec3::splat(10.0) };
+    let add = Operation::AddBody {
+        target: EntityPath::root(rail),
+        primitive,
+        placement: glam::DAffine3::IDENTITY,
+        sign: Sign::Positive,
+        scope: Scope::All,
+    };
+    e.apply(add).unwrap().unwrap();
+    let pairs = vec![skraft_model::ImprintPair { source: vec![rail], receiver: vec![leg] }];
+    e.apply(Operation::Imprint { context: root, pairs, around: 0.0, deep: 0.0 }).unwrap().unwrap();
+    let body = e.document().root_assembly().links()[0].body;
+    let mortise = |e: &Editor| {
+        let (_, p, _) = e.document().resolve_part(&EntityPath::root(leg)).unwrap();
+        (p.body(body).unwrap().placement.translation, p.shape().volume().unwrap())
+    };
+    let (before, volume) = mortise(&e);
+
+    e.set_tool(ToolKind::Select);
+    click(&mut e, DVec3::new(50.0, 10.0, 20.0));
+    assert_eq!(e.selection(), [rail]);
+    e.set_tool(ToolKind::Move);
+    click(&mut e, DVec3::new(50.0, 10.0, 20.0));
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 40.0, 20.0)) });
+    e.input(ToolInput::Vcb("5".into()));
+    assert!(!e.busy());
+
+    let (after, carved) = mortise(&e);
+    assert!(close(after, before + DVec3::Y * 5.0), "{before} → {after}");
+    assert!((carved - volume).abs() < 1e-3, "the mortise moved whole");
+    let doc = e.document();
+    assert_eq!(doc.link_state(root, &doc.root_assembly().links()[0]), LinkState::Seated);
+
+    e.undo();
+    assert!(close(mortise(&e).0, before), "one undo takes the rail and its mortise");
+}
+
+#[test]
+fn two_parts_overlapping_in_one_part_get_a_toast_once_checked() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let part = |e: &mut Editor, size: DVec3, at: DVec3| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        let placement = glam::DAffine3::from_translation(at);
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement, material: None }).unwrap().unwrap().created[0]
+    };
+    let settle = |e: &mut Editor| {
+        while e.meshing() {
+            e.poll();
+        }
+    };
+    let rail = DVec3::new(120.0, 20.0, 20.0);
+    let first = part(&mut e, rail, DVec3::ZERO);
+    let second = part(&mut e, rail, DVec3::new(110.0, 0.0, 0.0));
+    let leg = part(&mut e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let pair = |source| skraft_model::ImprintPair { source: vec![source], receiver: vec![leg] };
+    let pairs = vec![pair(first), pair(second)];
+    e.apply(Operation::Imprint { context: root, pairs, around: 0.0, deep: 0.0 }).unwrap().unwrap();
+    assert!(e.meshing(), "asked in the background");
+    assert!(!e.busy(), "without holding the interface");
+    settle(&mut e);
+    assert_eq!(e.link_overlaps().pairs().len(), 1);
+    assert!(e.take_notices().iter().any(|n| n.title.contains("chevauchent")));
+
+    // Read from a file: shown, with no toast.
+    let read = Document::from_json(&e.document().to_json().unwrap()).unwrap();
+    let mut opened = top_editor(read);
+    settle(&mut opened);
+    assert_eq!(opened.link_overlaps().pairs().len(), 1);
+    assert!(!opened.take_notices().iter().any(|n| n.title.contains("chevauchent")));
+
+    e.undo();
+    settle(&mut e);
+    assert!(e.link_overlaps().pairs().is_empty());
+}
+
+/// Two legs of one part, a rail with its tenon in each, each linked to its leg's one mortise:
+/// `(rails, legs)`.
+fn linked_pair(e: &mut Editor) -> ([Id; 2], [Id; 2]) {
+    use skraft_model::{Scope, Sign};
+    let root = e.document().root();
+    let shift = glam::DAffine3::from_translation;
+    let box_at = |size: DVec3| Primitive::Box { origin: DVec3::ZERO, size };
+    let add = |e: &mut Editor, size, at| {
+        e.apply(Operation::AddPrimitive { context: root, primitive: box_at(size), placement: shift(at), material: None })
+            .unwrap()
+            .unwrap()
+            .created[0]
+    };
+    let rail = add(e, DVec3::new(100.0, 20.0, 20.0), DVec3::ZERO);
+    let leg = add(e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let component = |e: &Editor, id| e.document().resolve(&EntityPath::root(id)).unwrap().component;
+    let (rail_part, leg_part) = (component(e, rail), component(e, leg));
+    let away = DVec3::Y * 300.0;
+    let place = |e: &mut Editor, component, at| {
+        e.apply(Operation::PlaceOccurrence { context: root, component, transform: shift(at) }).unwrap().unwrap().created[0]
+    };
+    let rail2 = place(e, rail_part, away);
+    let leg2 = place(e, leg_part, DVec3::new(100.0, -10.0, -40.0) + away);
+    let primitive = Primitive::Box { origin: DVec3::new(100.0, 5.0, 5.0), size: DVec3::splat(10.0) };
+    let add = Operation::AddBody {
+        target: EntityPath::root(rail),
+        primitive,
+        placement: glam::DAffine3::IDENTITY,
+        sign: Sign::Positive,
+        scope: Scope::All,
+    };
+    e.apply(add).unwrap().unwrap();
+    let pair = |source, receiver| skraft_model::ImprintPair { source: vec![source], receiver: vec![receiver] };
+    let pairs = vec![pair(rail, leg), pair(rail2, leg2)];
+    e.apply(Operation::Imprint { context: root, pairs, around: 0.0, deep: 0.0 }).unwrap().unwrap();
+    e.take_notices();
+    ([rail, rail2], [leg, leg2])
+}
+
+#[test]
+fn a_rail_moved_offers_to_put_the_others_back_or_to_separate() {
+    let mut e = top_editor(Document::new());
+    let ([rail, other], [leg, leg2]) = linked_pair(&mut e);
+    let root = e.document().root();
+    let lift = Operation::Transform { context: root, entities: vec![rail], transform: glam::DAffine3::from_translation(DVec3::Z * 5.0) };
+    e.apply(lift.clone()).unwrap().unwrap();
+    assert!(e.link_status().is_off(root, other) && !e.link_status().is_off(root, rail));
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].kind, NoticeKind::Warning);
+    assert_eq!(notices[0].action, Some(NoticeAction::Link(LinkAct::Replace)));
+    assert_eq!(notices[0].also, Some(NoticeAction::Link(LinkAct::Separate)));
+    assert!(e.link_act_live(LinkAct::Replace));
+
+    e.run_link_act(LinkAct::Replace);
+    assert!(e.link_status().off.is_empty());
+    assert!(!e.link_act_live(LinkAct::Replace), "used");
+    assert!(e.take_notices().is_empty());
+    let placed = |e: &Editor, id| e.document().resolve(&EntityPath::root(id)).unwrap().transform.translation;
+    assert!(close(placed(&e, other), DVec3::new(0.0, 300.0, 5.0)));
+
+    // Undone, the toast's buttons act on nothing any more.
+    e.undo();
+    assert!(!e.link_act_live(LinkAct::Replace));
+    e.undo();
+    e.apply(lift).unwrap().unwrap();
+    e.take_notices();
+    e.run_link_act(LinkAct::Separate);
+    assert!(e.link_status().off.is_empty());
+    let part = |e: &Editor, id| e.document().resolve(&EntityPath::root(id)).unwrap().component;
+    assert_ne!(part(&e, leg), part(&e, leg2), "the moved rail's leg is a part of its own");
+}
+
+#[test]
+fn a_part_losing_its_source_tells_its_machining_lost_its_link() {
+    let mut e = top_editor(Document::new());
+    let ([rail, other], [leg, _]) = linked_pair(&mut e);
+    let root = e.document().root();
+    e.apply(Operation::Delete { context: root, entities: vec![rail] }).unwrap().unwrap();
+    assert!(e.take_notices().is_empty(), "the other rail still holds the mortise");
+    e.apply(Operation::Delete { context: root, entities: vec![other] }).unwrap().unwrap();
+    let notices = e.take_notices();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].kind, NoticeKind::Warning, "it stays until answered");
+    assert_eq!(notices[0].action, Some(NoticeAction::Link(LinkAct::RemoveLost)));
+    assert_eq!(notices[0].also, Some(NoticeAction::Link(LinkAct::KeepLost)));
+    let leg_part = e.document().resolve(&EntityPath::root(leg)).unwrap().component;
+    assert!(e.link_status().holds(leg_part) && e.link_status().holds(root));
+    let machinings = |e: &Editor| e.document().part(leg_part).unwrap().negatives().count();
+    assert_eq!(machinings(&e), 1, "nothing removed before a click");
+
+    // « Retirer »: the machining goes, in one step of undo.
+    e.run_link_act(LinkAct::RemoveLost);
+    assert_eq!(machinings(&e), 0);
+    assert_eq!(*e.link_status(), skraft_model::LinkStatus::default());
+    assert!(e.document().root_assembly().links().is_empty());
+    e.undo();
+    assert_eq!(machinings(&e), 1);
+    assert!(!e.link_act_live(LinkAct::RemoveLost), "undone: the toast acts on nothing");
+
+    // « Garder »: a plain machining, nothing more to say.
+    e.undo();
+    e.apply(Operation::Delete { context: root, entities: vec![other] }).unwrap().unwrap();
+    e.take_notices();
+    e.run_link_act(LinkAct::KeepLost);
+    assert_eq!(machinings(&e), 1);
+    assert_eq!(*e.link_status(), skraft_model::LinkStatus::default());
+    let p = e.document().part(leg_part).unwrap();
+    assert!(p.negatives().all(|b| p.def_of(b).source == skraft_model::BodySource::Local));
+}
+
+#[test]
+fn imprinting_the_selection_cuts_the_mortise_and_says_so() {
+    use skraft_model::{Scope, Sign};
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let shift = glam::DAffine3::from_translation;
+    let add = |e: &mut Editor, size, at| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: shift(at), material: None }).unwrap().unwrap().created[0]
+    };
+    let rail = add(&mut e, DVec3::new(100.0, 20.0, 20.0), DVec3::ZERO);
+    let leg = add(&mut e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let tenon = Primitive::Box { origin: DVec3::new(100.0, 5.0, 5.0), size: DVec3::splat(10.0) };
+    let target = EntityPath::root(rail);
+    let add = Operation::AddBody { target, primitive: tenon, placement: glam::DAffine3::IDENTITY, sign: Sign::Positive, scope: Scope::All };
+    e.apply(add).unwrap().unwrap();
+    e.take_notices();
+    assert!(!e.can_imprint(), "nothing selected");
+
+    e.select(vec![rail]);
+    assert!(e.can_imprint());
+    e.ask_imprint();
+    let plan = e.take_imprint_plan().unwrap();
+    assert_eq!((plan.machining_count(), plan.link_count()), (1, 1));
+    e.imprint(&plan, 0.1, 2.0);
+    assert!(!e.busy());
+    let notices = e.take_notices();
+    assert_eq!((notices.len(), notices[0].kind), (1, NoticeKind::Success));
+    let (_, p, _) = e.document().resolve_part(&EntityPath::root(leg)).unwrap();
+    let expected = 40.0 * 40.0 * 100.0 - 12.0 * 10.2 * 10.2;
+    assert!((p.shape().volume().unwrap() - expected).abs() < 1e-3);
+    assert!(e.link_status().off.is_empty());
+    e.ask_imprint();
+    assert_eq!(e.take_imprint_plan().unwrap().link_count(), 0, "done");
+}
+
+#[test]
+fn a_leg_moved_offers_to_put_its_rail_back_without_separating() {
+    let mut e = top_editor(Document::new());
+    let ([rail, _], [leg, _]) = linked_pair(&mut e);
+    let root = e.document().root();
+    e.apply(Operation::Transform { context: root, entities: vec![leg], transform: glam::DAffine3::from_translation(DVec3::Z) })
+        .unwrap()
+        .unwrap();
+    assert!(e.link_status().is_off(root, rail));
+    let notices = e.take_notices();
+    assert_eq!((notices[0].action, notices[0].also), (Some(NoticeAction::Link(LinkAct::Replace)), None));
+}
+
+#[test]
 fn a_direction_takes_the_ink_of_the_axis_it_runs_along() {
     use crate::tools::{BLUE, GREEN, RED, ink_along};
     let axes = [glam::DVec3::X, glam::DVec3::Y, glam::DVec3::Z];

@@ -54,7 +54,7 @@ tabs have pages of their own.
 - **A row dragged** carries a translucent copy of itself under the pointer, in the model's tree as
   in the drawing's (`widgets::paint_drag_ghost`): its icon, its name, « +n » for what goes with it.
 - **A right-click on a navigator row opens its menu**: « Renommer » (the field a double-click
-  opens; on a row with an instance name, « Renommer l'exemplaire » and « Renommer la définition »); on a body, « Sortir du groupe » (« Sortir de la pièce » at the part's root); then « Aplatir » on a group or a part with a tree, « Éclater » on an assembly or a group, « Effacer ». Separators set these groups apart.
+  opens; on a row with an instance name, « Renommer l'exemplaire » and « Renommer la définition »); on a body, « Sortir du groupe » (« Sortir de la pièce » at the part's root), « Rompre le lien » on a linked one; on a part off its linked machining, « Replacer », « Amener l'usinage ici », « Séparer » ([Links](../model/bodies.md#links)); then « Aplatir » on a group or a part with a tree, « Éclater » on an assembly or a group, « Effacer ». Separators set these groups apart.
   Opening it changes nothing; its row stays highlighted while it is open. Its commands act on the whole selection when the row is in it,
   else on the row alone, chosen as a click would.
 - **The outliner is titled « Navigateur »** (the code keeps `outliner`, its `PanelId` being in
@@ -170,6 +170,8 @@ In `apps/skraft/src/widgets.rs`:
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
 - **`tree_row`**, `fold_toggle` and the drag ghost, the rows of the navigators and the lists.
 - **`warning`**, the ⚠ before an error to correct.
+- **`linked_mark`**, the chain at both ends of a link: a part shaping others, a body shaped by
+  one ([Links](../model/bodies.md#links)).
 
 Elsewhere:
 
@@ -211,9 +213,12 @@ the status bar keeping the tools' hints.
   assemblage créé », « Nouveau groupe créé », « … rendu unique »
   ([Naming what was just made](../tools/quick-tools.md#naming-what-was-just-made)), the toast
   dropped once what it names is gone. `Act::Reveal`
-  (show a file in the Finder or the Explorer) exists but no toast offers it.
+  (show a file in the Finder or the Explorer) exists but no toast offers it. It may carry a
+  second one: « Replacer » and « Séparer » after a linked body moved, « Retirer » and « Garder »
+  after a machining lost its last source ([Links](../model/bodies.md#links)), dropped once the
+  document has changed.
 - The same message again counts (×2); six at most, the oldest timed one dropped first.
-  `app.state` lists them (`toasts`); handles `toast.<i>` and `toast.<i>.action`. An editor
+  `app.state` lists them (`toasts`); handles `toast.<i>`, `toast.<i>.action` and `toast.<i>.also`. An editor
   nobody takes notices from (headless) keeps its last 32.
 
 ## Steps bar

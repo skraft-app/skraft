@@ -76,6 +76,7 @@ impl SkraftApp {
             "edit.make_unique" => e.can_make_unique(),
             "edit.group_bodies" => e.can_group_bodies(),
             "edit.move_out" => e.can_move_out(),
+            "edit.imprint" => e.can_imprint(),
             // On a sheet, what is picked there: the 3D selection is not what is seen.
             "edit.cut" | "edit.copy" if d.workspace.stage == Stage::Sheet => !crate::sheet::selection(e, &d.sheet).is_empty(),
             "edit.paste" | "edit.paste_in_place" if d.workspace.stage == Stage::Sheet => {
@@ -292,6 +293,10 @@ impl SkraftApp {
             }
             "edit.paste" | "edit.paste_in_place" => {
                 self.paste(id == "edit.paste_in_place");
+                true
+            }
+            "edit.imprint" => {
+                self.ask_imprint();
                 true
             }
             _ => false,

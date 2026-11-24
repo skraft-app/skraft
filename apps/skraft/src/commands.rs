@@ -96,6 +96,8 @@ pub const COMMANDS: &[Command] = &[
     c("edit.group_bodies", || t!("menu.edit.group_bodies"), M::Edit, None),
     // The bodies selected one level up, out of the part at its root (decision 0044).
     c("edit.move_out", || t!("menu.edit.move_out"), M::Edit, None),
+    // The parts selected cut what they enter, linked (decision 0055).
+    c("edit.imprint", || t!("menu.edit.imprint"), M::Edit, None),
     c("edit.delete_guides", || t!("menu.edit.delete_guides"), M::Edit, None),
     // The « Composants » card's « Purger » (docs/ui/components-library.md#managing).
     c("components.purge", || t!("menu.edit.purge_unused"), M::Edit, None),

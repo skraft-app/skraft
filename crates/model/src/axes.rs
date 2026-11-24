@@ -68,6 +68,12 @@ impl Document {
                 }
             }
         }
+        // Linked bodies moved with the rest: their seats are in these axes too. The bodies it
+        // imprints elsewhere are in its axes: they stay where they are, in the new ones.
+        if self.part(component).is_ok() {
+            self.map_seats(component, None, &into);
+            self.map_source_axes(component, axes, solver)?;
+        }
         let drawing = std::sync::Arc::make_mut(&mut self.drawing);
         for list in drawing.lists_mut() {
             for e in list.iter_mut() {

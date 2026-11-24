@@ -112,6 +112,7 @@ menu:
     make_unique: "$t(common.make_unique)"
     # In an open part (docs/model/bodies.md#body-groups).
     group_bodies: "Grouper les corps"
+    imprint: "Imprimer"
     move_out: "Sortir du groupe"
     move_out_of_part: "Sortir de la pièce"
     delete_guides: "Supprimer les guides"
@@ -835,9 +836,13 @@ panel:
     occurrences: "Exemplaires"
     # A body: blank (adds material) or machining (takes it away), toggled in the navigator.
     role: "Rôle"
+    linked_to: "Lié à"
     role_positive: "Brut"
     role_negative: "Usinage"
     role_intersect: "Intersection"
+    # A linked machining's clearance (decision 0055).
+    imprint_around: "Jeu"
+    imprint_deep: "Jeu au fond"
     state: "État"
     failed: "n'a pas pu être calculé, à corriger"
     # How many bodies of the part share the body's definition (its shape).
@@ -970,6 +975,14 @@ panel:
     failed_inside_part: "Un corps de cette pièce est en échec : à corriger"
     failed_inside_group: "Un corps de ce groupe est en échec : à corriger"
     error_inside_assembly: "Une pièce de cet assemblage est en erreur : à corriger"
+    # Linked bodies (decision 0055): a source off its seat, a machining that lost its link.
+    link_off: "Cette pièce n'est plus dans son usinage lié. Clic droit pour la replacer"
+    link_lost: "Cet usinage a perdu son lien : il reste tel quel. Clic droit pour rompre le lien"
+    link_lost_in_part: "Un usinage de cette pièce a perdu son lien"
+    link_inside_assembly: "Une pièce de cet assemblage a un lien à revoir"
+    link_overlap: "Chevauche %{parts} dans %{receivers}"
+    linked: "Usinage lié à %{source} : il suit sa forme et sa place. Pour le changer, modifiez %{source} ou rompez le lien (clic droit)"
+    imprints_in: "Imprime sa forme dans : %{parts}"
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"
@@ -1043,9 +1056,37 @@ notice:
   body_made_unique: "Corps rendu unique : %{name}"
   # Several made unique at once: no button.
   many_made_unique: "%{count} éléments rendus uniques"
+  # Linked bodies after an operation (decision 0055).
+  links_off: "%{count} pièce n'est plus dans son usinage"
+  links_off_plural: "%{count} pièces ne sont plus dans leur usinage"
+  link_conflict: "Cet usinage partagé ne peut pas suivre"
+  link_conflict_detail: "Ses liens lui demandent deux positions différentes. Séparer donne à chaque pièce le sien."
+  links_lost: "%{count} usinage a perdu son lien"
+  links_lost_plural: "%{count} usinages ont perdu leur lien"
+  link_overlap: "%{first} et %{second} se chevauchent dans %{receiver}"
+  link_overlaps: "%{count} chevauchements entre des pièces liées"
+  link_overlap_unchecked: "Le chevauchement des pièces liées n'a pas pu être vérifié"
+  link_remove: "Retirer"
+  link_keep: "Garder"
+  imprinted: "%{count} lien créé"
+  imprinted_plural: "%{count} liens créés"
   rename: "Renommer"
 
 # The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
+# « Imprimer »'s confirmation (decision 0055).
+imprint:
+  title: "Imprimer dans les pièces traversées"
+  around: "Jeu tout autour"
+  deep: "Profondeur en plus"
+  machinings: "%{count} usinage"
+  machinings_plural: "%{count} usinages"
+  links: "%{count} lien"
+  links_plural: "%{count} liens"
+  into: "Dans : %{parts}"
+  partial: "Les copies de %{parts} sans pièce en face recevront aussi ces usinages."
+  bad_value: "valeur illisible"
+  ok: "Imprimer"
+
 naming:
   title_part: "Nom de la pièce"
   title_assembly: "Nom de l'assemblage"
@@ -1591,10 +1632,19 @@ operation:
   add_body: "Brut"
   # An intersection (an intersect body) added: it limits its part (decision 0045).
   add_intersect: "Intersection"
+  # A part imprinted in another, by a link (decision 0055).
+  add_link: "Imprimer"
   # Bodies made blanks, or machinings (docs/model/bodies.md).
   set_sign_positive: "Changer en brut"
   set_sign_negative: "Changer en usinage"
   set_sign_intersect: "Changer en intersection"
+  # What is done on linked bodies (decision 0055).
+  reseat_sources: "Replacer"
+  separate_receivers: "Séparer"
+  bring_linked_body: "Amener l'usinage ici"
+  unlink: "Rompre le lien"
+  remove_linked: "Retirer les usinages"
+  set_clearance: "Régler l'empreinte"
   # Bodies grouped, a group flattened (docs/model/bodies.md#body-groups).
   group: "Grouper"
   ungroup: "$t(common.explode)"
@@ -1742,6 +1792,8 @@ warning:
   made_unique: "rendu unique : %{names}"
   # … and the body nodes whose edges were on a body that left them (now in error).
   nodes_lost_edges: "arêtes perdues : %{names}"
+  # Parts not put back in their linked machinings: their ends ask for places %{gap} apart.
+  not_reseated: "non replacé : %{names}, ses liens demandent deux positions distantes de %{gap}"
 
 error:
   # A typed value that cannot be read (the measurements box, the entity info).
@@ -1789,6 +1841,12 @@ error:
     flatten_failed: "une forme en échec ou vide ne s'aplatit pas : à corriger d'abord"
     # Grouping several intersections, or ungrouping an intersection group of several bodies: the shape would change.
     intersects_regrouped: "des intersections ne se groupent ni ne s'éclatent ensemble : chacune limite la pièce, la forme changerait"
+    # Linked bodies (decision 0055).
+    bad_link: "lien impossible : il relie deux pièces placées"
+    linked_body: "usinage lié : il suit sa pièce source. Modifiez cette pièce ou rompez le lien"
+    link_conflict: "ses liens demandent deux positions différentes pour un même usinage"
+    nothing_to_imprint: "aucun corps de cette sélection n'entre dans une autre pièce"
+    bad_clearance: "réglage de jeu invalide"
     not_at_path: "seule une opération sur des exemplaires s'applique en profondeur"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"
     bad_guide: "guide sans direction ou sans rayon"
@@ -1831,6 +1889,7 @@ error:
     bad_occurrence_id: "identifiant d'exemplaire %{id} invalide"
     bad_guide: "guide %{id} invalide"
     bad_behavior: "composant %{id} : plans de coupe ou axes bloqués invalides"
+    bad_link: "lien %{id} invalide"
     misfiled: "composant %{id} rangé sous %{key}"
     shape_out_of_step: "pièce %{id} : forme sans rapport avec ses corps"
     duplicate_occurrence: "exemplaire %{occurrence} en double dans %{assembly}"

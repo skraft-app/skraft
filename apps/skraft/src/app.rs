@@ -49,6 +49,8 @@ pub struct SkraftApp {
     toasts: Toasts,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
     naming: Option<crate::naming::Dialog>,
+    /// The confirmation of « Imprimer » (decision 0055).
+    imprint: Option<crate::imprint::Dialog>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
@@ -294,6 +296,7 @@ impl SkraftApp {
             last_shown: None,
             closing: None,
             naming: None,
+            imprint: None,
             quit_ok: false,
             #[cfg(target_arch = "wasm32")]
             unsaved: Default::default(),
@@ -466,6 +469,7 @@ impl eframe::App for SkraftApp {
         drop_hint(&ctx);
         self.show_toasts(&ctx, status_top);
         self.naming_dialog(&ctx);
+        self.imprint_dialog(&ctx);
         self.view_picker_dialog(&ctx);
         for a in actions {
             self.act(a);

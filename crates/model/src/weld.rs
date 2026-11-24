@@ -23,7 +23,7 @@ use glam::{DAffine3, DVec2, DVec3};
 use skraft_kernel::Stretch;
 use skraft_kernel::profile::{self, Side};
 
-use crate::document::{Body, BodyDef, ComponentKind, Document, Id, Part};
+use crate::document::{Body, BodyDef, BodySource, ComponentKind, Document, Id, Part};
 use crate::ops::Solver;
 use crate::{BodyProfile, Result};
 
@@ -125,6 +125,10 @@ impl Document {
                 continue;
             }
             let Some(def) = p.def(l.body.def) else { continue };
+            // A linked body's place is its link's (docs/decisions/0055-linked-bodies-through-imprints.md).
+            if def.source == BodySource::Linked {
+                continue;
+            }
             let Some(mut profile) = def.profile.clone().filter(|f| f.extrusion().is_some()) else { continue };
             let mut solid = def.solid.clone();
             let mut done = Vec::new();

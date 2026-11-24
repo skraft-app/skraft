@@ -14,6 +14,9 @@ mod fast_hash;
 mod file;
 mod history;
 mod import;
+mod imprints;
+mod link_overlaps;
+mod links;
 pub mod measure;
 mod moves;
 mod ops;
@@ -30,6 +33,8 @@ mod axes_tests;
 mod drawing_tests;
 #[cfg(test)]
 mod intersect_tests;
+#[cfg(test)]
+mod link_tests;
 #[cfg(test)]
 mod moves_tests;
 #[cfg(test)]
@@ -53,6 +58,9 @@ pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
 pub use history::History;
 pub use import::ImportReport;
+pub use imprints::{ImprintPair, ImprintPlan, ImprintProbe, ImprintRecipe};
+pub use link_overlaps::{LinkOverlap, LinkOverlaps, OverlapMemo, OverlapProbe};
+pub use links::{Followed, Link, LinkMap, LinkSource, LinkState, LinkStatus};
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, NodeRaw, Operation, Outcome, Prepared, RawAsk, Scope, Warning};
 pub use profile::BodyProfile;
 pub use props::{EntityKind, PropDef, PropTarget, Props, Value, ValueKind};
@@ -172,6 +180,17 @@ pub enum Refusal {
     SplitView,
     /// An instance turned, exploded over what has no rotation of its own.
     TurnedInstance,
+    /// A link needs a path to each of its parts
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
+    BadLink,
+    /// A linked body edited: it follows its source.
+    LinkedBody,
+    /// A source's links ask one linked body for two places.
+    LinkConflict,
+    /// « Imprimer » with no body reaching into another part.
+    NothingToImprint,
+    /// A clearance not finite, or on a body that is not imprinted by a source seated in it.
+    BadClearance,
 }
 
 /// A file that cannot be opened.
@@ -210,6 +229,8 @@ pub enum FileError {
     UnknownMaterial(Id),
     /// A component's behavior not well formed.
     BadBehavior(Id),
+    /// A link with an id taken or past the counter, a path empty, or a seat not rigid.
+    BadLink(Id),
     /// A property, or its definition, not well formed, or a value not as its definition says
     /// (its key).
     BadProp(String),
@@ -286,6 +307,11 @@ impl std::fmt::Display for Refusal {
             Refusal::TurnedAcross => t!("error.model.turned_across"),
             Refusal::UngroupNegative => t!("error.model.ungroup_negative"),
             Refusal::IntersectsRegrouped => t!("error.model.intersects_regrouped"),
+            Refusal::BadLink => t!("error.model.bad_link"),
+            Refusal::LinkedBody => t!("error.model.linked_body"),
+            Refusal::LinkConflict => t!("error.model.link_conflict"),
+            Refusal::NothingToImprint => t!("error.model.nothing_to_imprint"),
+            Refusal::BadClearance => t!("error.model.bad_clearance"),
             Refusal::FlattenFailed => t!("error.model.flatten_failed"),
             Refusal::NotAtPath => t!("error.model.not_at_path"),
             Refusal::BadPropKey => t!("error.model.bad_prop_key"),
@@ -325,6 +351,7 @@ impl std::fmt::Display for FileError {
             FileError::BadMaterialId(id) => t!("error.file.bad_material_id", id = id),
             FileError::UnknownMaterial(id) => t!("error.file.unknown_material", id = id),
             FileError::BadBehavior(id) => t!("error.file.bad_behavior", id = id),
+            FileError::BadLink(id) => t!("error.file.bad_link", id = id),
             FileError::BadProp(key) => t!("error.file.bad_prop", key = key),
             FileError::BadTexture(id) => t!("error.file.bad_texture", id = id),
             FileError::BadDrawing(id) => t!("error.file.bad_drawing", id = id),

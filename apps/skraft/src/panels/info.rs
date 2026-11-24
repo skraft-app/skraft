@@ -52,6 +52,7 @@ pub(super) fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.body",
         "panel.entity_info.corners",
         "panel.entity_info.role",
+        "panel.entity_info.linked_to",
         "panel.entity_info.state",
         "panel.entity_info.copies",
         "tool.round.vcb",
@@ -440,10 +441,21 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             _ => t!("panel.entity_info.type_body"),
         });
         ui.end_row();
-        // Its definition's: every copy shows it; emptied, it is named by its nature again.
-        field_label(ui, t!("panel.entity_info.name"));
-        if let Some(name) = name_field(ui, (def.id, 2), &body_label(p, b), field, true) {
-            actions.push(Action::Apply(Operation::RenameBodyDef { part, def: def.id, name }));
+        // What it follows, whose name it bears (docs/model/bodies.md#links); one that lost its
+        // source keeps that name. Else its definition's: every copy shows it; emptied, it is named
+        // by its nature again.
+        let source = editor.link_map().source_of(part, b.id).and_then(|s| editor.document().component(s).ok());
+        if let Some(c) = source {
+            ui.label(t!("panel.entity_info.linked_to"));
+            cut_label(ui, egui::RichText::new(&c.name), field);
+        } else if def.source == skraft_model::BodySource::Linked {
+            ui.label(t!("panel.entity_info.name"));
+            cut_label(ui, egui::RichText::new(body_label(p, b)), field);
+        } else {
+            field_label(ui, t!("panel.entity_info.name"));
+            if let Some(name) = name_field(ui, (def.id, 2), &body_label(p, b), field, true) {
+                actions.push(Action::Apply(Operation::RenameBodyDef { part, def: def.id, name }));
+            }
         }
         ui.end_row();
         // Its own, as an occurrence's: emptied, cleared.
@@ -495,6 +507,36 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
                 actions.push(Action::EditBlend(b.id));
             }
             ui.end_row();
+        }
+        // A linked body made by « Imprimer »: its clearance (docs/model/bodies.md#links).
+        if let Some(r) = def.imprint.as_ref().filter(|_| source.is_some()) {
+            let c = r.clearance;
+            let rows =
+                [("around", t!("panel.entity_info.imprint_around"), c.around), ("deep", t!("panel.entity_info.imprint_deep"), c.deep)];
+            for (key, label, value) in rows {
+                field_label(ui, label);
+                let shown = units.format(value);
+                let exact = format!("{}{}", units.exact_number(value), units.suffix());
+                let f = Field {
+                    hint: None,
+                    tip: None,
+                    width: field,
+                    align: egui::Align2::RIGHT_CENTER,
+                    lit: false,
+                    addon: None,
+                    blur_applies: true,
+                    empty_applies: false,
+                    handle: Some(format!("info:imprint_{key}")),
+                };
+                let id = ui.make_persistent_id(("info_imprint", key, b.id));
+                if let Some(text) = ui.vertical(|ui| framed_field(ui, id, &shown, &exact, f)).inner
+                    && let Ok(v) = measure::length(&text, units, value)
+                {
+                    let (around, deep) = if key == "around" { (v, c.deep) } else { (c.around, v) };
+                    actions.push(Action::Apply(Operation::SetClearance { part, body: b.id, around, deep }));
+                }
+                ui.end_row();
+            }
         }
         if p.is_failed(b.id) {
             ui.label(t!("panel.entity_info.state"));

@@ -369,6 +369,11 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
                 Output::Recipe { solid: shape, display, failed, faces }
             }
             Task::Stretch { solid: i, stretch } => solid(input(*i)?.stretched(stretch)?),
+            Task::Imprint { source, receiver, placed, previous, clearance } => {
+                let previous = previous.map(input).transpose()?;
+                solid(input(*receiver)?.imprint_tool(input(*source)?, placed, clearance, previous)?)
+            }
+            Task::Contact { source, receiver, placed } => Output::Contact(input(*receiver)?.has_contact(input(*source)?, placed)?),
             Task::Node { children, op, picks } => {
                 // The leaves' solids (inputs, or earlier tasks' outputs), indexed afresh.
                 let mut children = children.clone();

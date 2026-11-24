@@ -71,6 +71,21 @@ pub fn state(e: &Editor) -> Value {
         "busy": e.busy(),
         "idle": idle(e),
         "revision": e.history().revision(),
+        "links": links(e),
+    })
+}
+
+/// What the links need the user to see (docs/model/bodies.md#links).
+fn links(e: &Editor) -> Value {
+    let status = e.link_status();
+    json!({
+        "off": status.off.iter().map(|s| json!({ "assembly": s.assembly.0, "occurrence": s.occurrence.0 })).collect::<Vec<_>>(),
+        "broken": status.broken.iter().map(|(part, body)| json!({ "part": part.0, "body": body.0 })).collect::<Vec<_>>(),
+        "overlaps": e.link_overlaps().pairs().iter().map(|o| json!({
+            "first": { "assembly": o.first.assembly.0, "occurrence": o.first.occurrence.0 },
+            "second": { "assembly": o.second.assembly.0, "occurrence": o.second.occurrence.0 },
+            "receiver": o.receiver.0,
+        })).collect::<Vec<_>>(),
     })
 }
 
@@ -360,6 +375,7 @@ fn part(e: &Editor, pp: &PlacedPart, p: &GeometryParams, volumes: &mut HashMap<u
                         "placement": json::affine(&b.placement),
                         "profiled": d.profile.is_some(),
                         "failed": part.is_failed(b.id),
+                        "linked": d.source == skraft_model::BodySource::Linked,
                     });
                     // A group's children (opened by `context.open`); a node's operation, and why
                     // it is in error (docs/model/bodies.md#body-nodes).

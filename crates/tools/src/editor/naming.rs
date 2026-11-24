@@ -154,7 +154,13 @@ impl Editor {
             self.naming = Some(Naming { revision: Some(self.history.revision()), ..naming });
         } else {
             let title = t!("notice.part_created", name = naming.name);
-            self.push_notice(Notice { kind: NoticeKind::Success, title, detail: None, action: Some(NoticeAction::Rename(target)) });
+            self.push_notice(Notice {
+                kind: NoticeKind::Success,
+                title,
+                detail: None,
+                action: Some(NoticeAction::Rename(target)),
+                also: None,
+            });
         }
     }
 
@@ -167,7 +173,7 @@ impl Editor {
             Nature::Assembly => t!("notice.assembly_created", name = name),
             _ => t!("notice.group_created", name = name),
         };
-        self.push_notice(Notice { kind: NoticeKind::Success, title, detail: None, action: Some(NoticeAction::Rename(target)) });
+        self.push_notice(Notice { kind: NoticeKind::Success, title, detail: None, action: Some(NoticeAction::Rename(target)), also: None });
     }
 
     /// Once « Rendre unique » is done (all its operations): the one made unique offered to be
@@ -180,7 +186,13 @@ impl Editor {
             [] => {}
             [(target, name, nature)] => {
                 let title = nature.made_unique(name);
-                self.push_notice(Notice { kind: NoticeKind::Success, title, detail: None, action: Some(NoticeAction::Rename(*target)) });
+                self.push_notice(Notice {
+                    kind: NoticeKind::Success,
+                    title,
+                    detail: None,
+                    action: Some(NoticeAction::Rename(*target)),
+                    also: None,
+                });
             }
             many => self.notify(NoticeKind::Success, t!("notice.many_made_unique", count = many.len()), None),
         }

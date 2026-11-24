@@ -26,7 +26,7 @@ Component { id, name, named, kind, guides, behavior, props }
   guides   : construction lines and circles in the component's axes (Tape measure and guides)
   behavior : how it is stretched — its cutters and locked axes (Stretch)
   kind     = Part     { defs, bodies, shape, failed, faces }             — a part (Bodies)
-           | Assembly { occurrences: Vec<Occurrence> }                   — an assembly
+           | Assembly { occurrences: Vec<Occurrence>, links: Vec<Link> } — an assembly
 Occurrence { id, name, component: Id, transform: T, material, hidden, props }  — an occurrence
 ```
 
@@ -159,8 +159,8 @@ A machining is a negative body of its part ([Bodies](bodies.md)):
 - Low level: the tool is **any B-rep**, placed in the part's frame. Not yet: machining types
   (hole, groove, mortise…) generating that tool from their parameters (a proposal:
   [Procedural parts](../decisions/0007-procedural-parts.md)).
-- **Links**: each body definition has a `source` (`BodySource`), always `Local` for now; the
-  format has the field for machinings linked to hardware (not yet).
+- **Links**: each body definition has a `source` (`BodySource`): `Local`, or `Linked` to the
+  final solid of another part, by a link its assembly holds ([Links](bodies.md#links)).
 
 ## Copies and propagation
 

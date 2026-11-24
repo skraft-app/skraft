@@ -21,3 +21,9 @@ pub fn warning(ui: &egui::Ui) -> egui::Image<'static> {
     let side = ui.text_style_height(&egui::TextStyle::Body);
     egui::Image::new(icons::WARNING).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().error_fg_color)
 }
+
+/// The mark of the two ends of a link: a part shaping others, a body shaped by one.
+pub fn linked_mark(ui: &egui::Ui) -> egui::Image<'static> {
+    let side = ui.text_style_height(&egui::TextStyle::Body) - 2.0;
+    egui::Image::new(icons::LINKED).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().weak_text_color())
+}

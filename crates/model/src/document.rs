@@ -501,6 +501,10 @@ pub struct BodyDef {
     pub kept_faces: skraft_kernel::names::FaceMap,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub kept_faces_of: u64,
+    /// A linked body made by « Imprimer », from its source's final solid
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md): its solid is then a cache.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imprint: Option<crate::ImprintRecipe>,
     /// Its typed properties (docs/model/properties.md).
     #[serde(default, skip_serializing_if = "Props::is_empty")]
     pub props: Props,
@@ -519,6 +523,7 @@ impl BodyDef {
             group: None,
             kept_faces: Vec::new(),
             kept_faces_of: 0,
+            imprint: None,
             props: Props::default(),
         }
     }
@@ -734,13 +739,14 @@ impl Body {
     }
 }
 
-/// Where a body comes from. Only local ones for now; linked ones (machinings of fixed
-/// hardware) will come (docs/model/data-model.md).
+/// Where a body's shape comes from: its own, or the imprint of another part, its solid then a
+/// cache (docs/decisions/0055-linked-bodies-through-imprints.md).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BodySource {
     #[default]
     Local,
+    Linked,
 }
 
 /// An assembly: occurrences of other components.
@@ -752,6 +758,10 @@ pub enum BodySource {
 #[derive(Default, Serialize, Deserialize)]
 pub struct Assembly {
     occurrences: Vec<Occurrence>,
+    /// The links between occurrences it holds, at any depth
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    links: Vec<crate::Link>,
     #[serde(skip)]
     index: OnceLock<FastMap<Id, u32>>,
     /// Searches by scanning since the index was dropped.
@@ -766,11 +776,20 @@ const SCANS_BEFORE_INDEX: u32 = 4;
 
 impl Assembly {
     pub fn new(occurrences: Vec<Occurrence>) -> Self {
-        Assembly { occurrences, index: OnceLock::new(), scans: AtomicU32::new(0) }
+        Assembly { occurrences, links: Vec::new(), index: OnceLock::new(), scans: AtomicU32::new(0) }
     }
 
     pub fn occurrences(&self) -> &[Occurrence] {
         &self.occurrences
+    }
+
+    /// The links it holds (docs/decisions/0055-linked-bodies-through-imprints.md).
+    pub fn links(&self) -> &[crate::Link] {
+        &self.links
+    }
+
+    pub(crate) fn links_mut(&mut self) -> &mut Vec<crate::Link> {
+        &mut self.links
     }
 
     /// The list, to change: the index is dropped.
@@ -812,6 +831,7 @@ impl Clone for Assembly {
     fn clone(&self) -> Self {
         Assembly {
             occurrences: self.occurrences.clone(),
+            links: self.links.clone(),
             index: self.index.clone(),
             scans: AtomicU32::new(self.scans.load(Ordering::Relaxed)),
         }
@@ -820,13 +840,13 @@ impl Clone for Assembly {
 
 impl PartialEq for Assembly {
     fn eq(&self, other: &Self) -> bool {
-        self.occurrences == other.occurrences
+        self.occurrences == other.occurrences && self.links == other.links
     }
 }
 
 impl std::fmt::Debug for Assembly {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Assembly").field("occurrences", &self.occurrences).finish()
+        f.debug_struct("Assembly").field("occurrences", &self.occurrences).field("links", &self.links).finish()
     }
 }
 
@@ -1837,6 +1857,44 @@ impl Document {
                 *new,
                 Arc::new(Component { id: *new, name, named: c.named, kind, guides, behavior: c.behavior.clone(), props: c.props.clone() }),
             );
+        }
+        // The links of the assemblies copied, through the ids drawn afresh: their occurrences
+        // and bodies stand at the same positions (docs/decisions/0055-linked-bodies-through-imprints.md).
+        for (old, c) in fragment.components.iter().filter(|(id, _)| **id != fragment.root && !kept.contains(*id)) {
+            let ComponentKind::Assembly(a) = &c.kind else { continue };
+            if a.links.is_empty() {
+                continue;
+            }
+            let walk = |doc: &Document, path: &[Id]| -> Option<(Vec<Id>, Id)> {
+                let (mut at, mut out) = (*old, Vec::with_capacity(path.len()));
+                for &i in path {
+                    let from = fragment.assembly(at).ok()?;
+                    let k = from.position(i)?;
+                    out.push(if kept.contains(&at) { i } else { doc.assembly(components[&at]).ok()?.occurrences[k].id });
+                    at = from.occurrences[k].component;
+                }
+                Some((out, at))
+            };
+            let body = |doc: &Document, part: Id, id: Id| -> Option<Id> {
+                if kept.contains(&part) {
+                    return Some(id);
+                }
+                let k = fragment.part(part).ok()?.bodies.iter().position(|b| b.id == id)?;
+                Some(doc.part(components[&part]).ok()?.bodies.get(k)?.id)
+            };
+            let mut links = Vec::with_capacity(a.links.len());
+            for l in &a.links {
+                let copied = (|| {
+                    let (source, from) = walk(self, &l.source)?;
+                    let (receiver, to) = walk(self, &l.receiver)?;
+                    self.part(from).ok()?;
+                    Some((source, receiver, body(self, to, l.body)?))
+                })();
+                if let Some((source, receiver, linked)) = copied {
+                    links.push(crate::Link { id: self.fresh_id(), source, receiver, body: linked, seat: l.seat });
+                }
+            }
+            self.assembly_mut(components[old])?.links = links;
         }
         Ok((occurrences(self, &fragment.root_assembly().occurrences)?, renamed))
     }

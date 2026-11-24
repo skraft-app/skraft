@@ -347,6 +347,7 @@ impl Document {
     fn settled(mut self) -> Result<Document> {
         self.check()?;
         self.check_props()?;
+        self.settle_link_names();
         self.settle_names(None);
         Ok(self)
     }
@@ -450,7 +451,7 @@ impl Document {
             match &c.kind {
                 ComponentKind::Part(p) => {
                     for d in &p.defs {
-                        if d.id.0 >= self.next_id || !here.insert(d.id) {
+                        if d.id.0 >= self.next_id || !here.insert(d.id) || d.imprint.as_ref().is_some_and(|r| !r.clearance.is_valid()) {
                             return Err(Error::File(FileError::BadBodyId(d.id)));
                         }
                     }
@@ -490,6 +491,18 @@ impl Document {
                         self.component(o.component)?;
                         if o.component == self.root || self.contains_component(o.component, c.id) {
                             return Err(Error::Cycle);
+                        }
+                    }
+                    // A link whose path no longer leads anywhere is broken, not malformed
+                    // (docs/decisions/0055-linked-bodies-through-imprints.md).
+                    for l in a.links() {
+                        if l.id.0 >= self.next_id
+                            || !here.insert(l.id)
+                            || l.source.is_empty()
+                            || l.receiver.is_empty()
+                            || !crate::ops::is_rigid(&l.seat)
+                        {
+                            return Err(Error::File(FileError::BadLink(l.id)));
                         }
                     }
                 }

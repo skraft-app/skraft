@@ -28,6 +28,7 @@ mod clipboard;
 mod document;
 pub mod journal;
 mod library;
+mod links;
 mod loading;
 mod naming;
 mod navigation;
@@ -40,6 +41,7 @@ mod view;
 pub use clipboard::{Clip, Content};
 pub use document::cap_histories;
 use document::{After, Pending, Probe};
+pub use links::LinkAct;
 pub use loading::{LoadEnd, LoadKind, Loading};
 pub use naming::{NameTarget, Naming};
 pub use tree::{Tree, TreeRow};
@@ -55,6 +57,8 @@ pub struct Notice {
     pub detail: Option<String>,
     /// What the toast's button does, if it has one.
     pub action: Option<NoticeAction>,
+    /// A second button, after it.
+    pub also: Option<NoticeAction>,
 }
 
 /// A notice's button.
@@ -63,6 +67,9 @@ pub enum NoticeAction {
     /// Opens the naming dialog on this part, assembly or body definition, just made
     /// (docs/tools/quick-tools.md#naming-what-was-just-made, [`Editor::naming_of`]).
     Rename(NameTarget),
+    /// Acts on what an operation left of linked bodies
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
+    Link(LinkAct),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +85,23 @@ pub enum NoticeKind {
 const NOTICES: usize = 32;
 
 pub struct Editor {
+    /// What the links need the user to see, as of the current document.
+    link_status: skraft_model::LinkStatus,
+    /// Who shapes whom through the links, as of the current document.
+    link_map: skraft_model::LinkMap,
+    /// What the last toast about linked bodies offers.
+    link_offer: Option<links::LinkOffer>,
+    /// « Imprimer » waiting for the kernel's answer, and its plan once answered.
+    imprint_ask: Option<links::ImprintAsk>,
+    imprint_ready: Option<skraft_model::ImprintPlan>,
+    /// The parts seated in one part that overlap, as the kernel last answered.
+    link_overlaps: skraft_model::LinkOverlaps,
+    overlap_memo: skraft_model::OverlapMemo,
+    overlap_ask: Option<links::OverlapAsk>,
+    /// An operation is waiting for the check: what it makes overlap gets a toast.
+    overlap_tell: bool,
+    /// The last check failed, and said so.
+    overlap_failed: bool,
     history: History,
     kernel: Box<dyn KernelService>,
     next_job: JobId,
@@ -254,6 +278,16 @@ impl Editor {
     /// An editor of `doc`, its kernel run by `kernel`.
     pub fn new(doc: Document, kernel: Box<dyn KernelService>) -> Self {
         let mut e = Editor {
+            link_status: doc.link_status(),
+            link_map: doc.link_map(),
+            link_offer: None,
+            imprint_ask: None,
+            imprint_ready: None,
+            link_overlaps: Default::default(),
+            overlap_memo: Default::default(),
+            overlap_ask: None,
+            overlap_tell: false,
+            overlap_failed: false,
             history: History::new(doc),
             kernel,
             next_job: 1,
@@ -607,7 +641,7 @@ impl Editor {
     }
 
     pub(super) fn notify(&mut self, kind: NoticeKind, title: String, detail: Option<String>) {
-        self.push_notice(Notice { kind, title, detail, action: None });
+        self.push_notice(Notice { kind, title, detail, action: None, also: None });
     }
 
     pub(super) fn push_notice(&mut self, notice: Notice) {

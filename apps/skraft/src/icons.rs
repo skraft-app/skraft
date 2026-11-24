@@ -19,6 +19,8 @@ icon!(SOLID, "solid");
 icon!(PROFILE, "profile");
 icon!(MOVE, "move");
 icon!(ROTATE, "rotate");
+icon!(IMPRINT, "imprint");
+icon!(LINKED, "linked");
 icon!(UNION, "union");
 icon!(SUBTRACT, "subtract");
 icon!(INTERSECT, "intersect");
@@ -145,6 +147,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "edit.explode" => EXPLODE,
         "edit.make_unique" => UNIQUE,
         "edit.group_bodies" => GROUP,
+        "edit.imprint" => IMPRINT,
         "edit.move_out" => MOVE_OUT,
         "edit.delete_guides" => GUIDES_DELETE,
         "view.section_clear" => SECTION_CLEAR,

@@ -107,8 +107,10 @@ impl BodyRow<'_> {
         body_label(self.part, self.body)
     }
 
+    /// Its nature's; a linked body's says where it comes from: « Imprimer ».
     pub(super) fn icon(&self) -> egui::ImageSource<'static> {
-        nature_icon(self.part.def_of(self.body).nature())
+        let def = self.part.def_of(self.body);
+        if def.source == skraft_model::BodySource::Linked { icons::IMPRINT } else { nature_icon(def.nature()) }
     }
 }
 
@@ -256,10 +258,41 @@ struct OccurrenceLook {
     pieces: usize,
     broken: bool,
     inner: bool,
+    /// A link to look at (docs/model/bodies.md#links): this source off its seat (`here`, the
+    /// assembly it lies in), or a linked body broken or a source off or overlapping below it.
+    here: Id,
+    link_off: bool,
+    link_below: bool,
     rename: egui::Id,
     rename_occurrence: egui::Id,
     /// Its name edited: the occurrence's own (true) or its component's.
     renaming: Option<bool>,
+}
+
+/// What the links tell on an occurrence's row: what it overlaps inside a part they both enter,
+/// and the parts it shapes.
+struct OccurrenceLinks {
+    overlap_tip: Option<String>,
+    shapes: Option<String>,
+}
+
+fn occurrence_links(editor: &Editor, doc: &Document, here: Id, o: &Occurrence) -> OccurrenceLinks {
+    let source = skraft_model::LinkSource { assembly: here, occurrence: o.id };
+    let list: Vec<_> = editor.link_overlaps().of(source).collect();
+    let overlap_tip = (!list.is_empty()).then(|| {
+        let mut parts: Vec<String> = list.iter().map(|(s, _)| doc.link_source_name(*s)).collect();
+        let mut receivers: Vec<String> = list.iter().filter_map(|(_, r)| doc.component(*r).ok().map(|c| c.name.clone())).collect();
+        parts.sort();
+        parts.dedup();
+        receivers.sort();
+        receivers.dedup();
+        t!("panel.outliner.link_overlap", parts = parts.join(", "), receivers = receivers.join(", "))
+    });
+    let shapes = editor
+        .link_map()
+        .receivers_of(o.component)
+        .map(|parts| parts.iter().filter_map(|p| doc.component(*p).ok().map(|c| c.name.as_str())).collect::<Vec<_>>().join(", "));
+    OccurrenceLinks { overlap_tip, shapes }
 }
 
 fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &OutlinerRow<'_>, errors: &mut FastMap<Id, bool>) -> OccurrenceLook {
@@ -292,6 +325,9 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &OutlinerRow<'_>, errors:
     let pieces = part.map_or(1, |p| p.pieces());
     let broken = pieces != 1;
     let inner = !broken && in_error(doc, o.component, errors, 0);
+    let here = doc.context_of(&row.path).unwrap_or(doc.root());
+    let link_off = editor.link_status().is_off(here, o.id);
+    let link_below = editor.link_status().holds(o.component) || editor.link_overlaps().holds(o.component);
     // A name edited in place, from a double-click, or F2 while it is the one occurrence
     // selected: the occurrence's own, shown first, where it has one and the double-click
     // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
@@ -302,7 +338,7 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &OutlinerRow<'_>, errors:
         Some(id) if id == rename_occurrence => Some(true),
         _ => None,
     };
-    OccurrenceLook { selected, tint, greyed, pieces, broken, inner, rename, rename_occurrence, renaming }
+    OccurrenceLook { selected, tint, greyed, pieces, broken, inner, here, link_off, link_below, rename, rename_occurrence, renaming }
 }
 
 /// The line of an occurrence: its fold, icon, name (or the field editing it), material and eye.
@@ -313,10 +349,11 @@ fn occurrence_line(
     row: &OutlinerRow<'_>,
     look: &OccurrenceLook,
     name: &str,
+    links: &OccurrenceLinks,
     folds: &mut FastSet<egui::Id>,
 ) -> (egui::Response, LineOutcome) {
     let TreeCx { doc, height, salt, weak, .. } = cx;
-    let OccurrenceLook { selected, tint, greyed, broken, inner, rename, rename_occurrence, renaming, .. } = *look;
+    let OccurrenceLook { selected, tint, greyed, broken, inner, link_off, link_below, rename, rename_occurrence, renaming, .. } = *look;
     let o = row.occurrence;
     tree_row(ui, height, selected, false, false, |ui| {
         // The toggle button (or, for a part, its room) one indent per level, so all
@@ -344,8 +381,11 @@ fn occurrence_line(
             }
             let renamed = ui
                 .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    if broken || inner {
+                    if broken || inner || link_off || link_below || links.overlap_tip.is_some() {
                         ui.add(warning(ui));
+                    }
+                    if links.shapes.is_some() {
+                        ui.add(linked_mark(ui));
                     }
                     let color = if broken { ui.visuals().error_fg_color } else { tint };
                     // The name edited alone in its field, the whole row's width.
@@ -416,6 +456,9 @@ fn occurrence_menu(
     actions: &mut Vec<Action>,
 ) {
     let doc = editor.document();
+    // A source off its seat (docs/model/bodies.md#links): put back from here.
+    let here = doc.context_of(&path.instances).unwrap_or(doc.root());
+    let off = editor.link_status().is_off(here, o.id).then_some(skraft_model::LinkSource { assembly: here, occurrence: o.id });
     let part = doc.part(o.component).ok();
     let in_selection = (editor.open_part().is_none() && editor.context() == path.instances.as_slice() && selection.contains(&o.id))
         || editor.deep_selection().iter().any(|p| p.instances == path.instances && p.entity == o.id);
@@ -429,7 +472,15 @@ fn occurrence_menu(
         (rename, own),
         select,
         actions,
-        |_, _| {},
+        |ui, actions| {
+            if let Some(source) = off {
+                ui.separator();
+                menu_op(ui, "reseat", t!("operation.reseat_sources"), Operation::ReseatSources { sources: vec![source] }, actions);
+                menu_op(ui, "bring", t!("operation.bring_linked_body"), Operation::BringLinkedBody { source }, actions);
+                let separate = Operation::SeparateReceivers { sources: vec![source] };
+                menu_op(ui, "separate", t!("operation.separate_receivers"), separate, actions);
+            }
+        },
         |ui, actions| {
             if composed && flatten_button(ui) {
                 let targets: Vec<EntityPath> = match in_selection {
@@ -462,10 +513,11 @@ fn occurrence_row(
     let TreeCx { editor, doc, selection, .. } = cx;
     let o = row.occurrence;
     let look = occurrence_look(ui, cx, &row, errors);
-    let OccurrenceLook { selected, pieces, inner, rename, rename_occurrence, renaming, .. } = look;
+    let OccurrenceLook { selected, pieces, inner, here, link_off, link_below, rename, rename_occurrence, renaming, .. } = look;
     let part = doc.part(o.component).ok();
     let name = doc.component(o.component).map(|c| c.name.clone()).unwrap_or_default();
-    let (response, (eye, renamed, split)) = occurrence_line(ui, cx, &row, &look, &name, folds);
+    let links = occurrence_links(editor, doc, here, o);
+    let (response, (eye, renamed, split)) = occurrence_line(ui, cx, &row, &look, &name, &links, folds);
     let tip = match pieces {
         0 => Some(t!("panel.outliner.empty_part")),
         1 if inner && part.is_some() => Some(t!("panel.outliner.failed_inside_part")),
@@ -473,6 +525,15 @@ fn occurrence_row(
         1 => None,
         _ => Some(t!("panel.outliner.pieces", count = pieces)),
     };
+    let OccurrenceLinks { overlap_tip, shapes } = links;
+    let tip = tip.or(if link_off { None } else { overlap_tip });
+    let tip = tip.or_else(|| match (link_off, link_below, part.is_some()) {
+        (true, ..) => Some(t!("panel.outliner.link_off")),
+        (_, true, true) => Some(t!("panel.outliner.link_lost_in_part")),
+        (_, true, false) => Some(t!("panel.outliner.link_inside_assembly")),
+        _ => None,
+    });
+    let tip = tip.or_else(|| shapes.map(|parts| t!("panel.outliner.imprints_in", parts = parts)));
     let response = match tip {
         Some(tip) => response.tip(tip),
         None => response,
@@ -1134,6 +1195,12 @@ struct BodyLook<'d> {
     failed_inside: bool,
     /// ⚠ before its name.
     warned: bool,
+    /// A linked body that lost its link, staying as it is (docs/model/bodies.md#links).
+    link_lost: bool,
+    /// A linked body: it follows its source, neither its sign nor its name are its own.
+    linked: bool,
+    /// The name of the part it takes its shape from, while its link holds.
+    source: Option<String>,
     rename: egui::Id,
     rename_own: egui::Id,
     /// Its name edited: the body's own (true) or its definition's.
@@ -1170,7 +1237,11 @@ fn body_look<'d>(ui: &egui::Ui, editor: &Editor, row: &OutlinerRow<'d>, b: &Body
     // (docs/model/bodies.md#empty-parts); one holding a body failed, at any depth: ⚠ too, its name as it is.
     let def = b.part.def_of(b.body);
     let inner = def.is_group() && !failed && holds_failure(b.part, def.children(), 0);
-    let warned = (failed && def.is_group()) || inner;
+    let link_lost = editor.link_status().broken.contains(&(row.occurrence.component, b.body.id));
+    let warned = (failed && def.is_group()) || inner || link_lost;
+    let linked = def.source == skraft_model::BodySource::Linked;
+    let source = editor.link_map().source_of(row.occurrence.component, b.body.id);
+    let source = source.and_then(|s| editor.document().component(s).ok()).map(|c| c.name.clone());
     // A name edited in place (docs/model/bodies.md#body-names), from a double-click, or F2 while it is the
     // one body selected: the body's own, shown first, where it has one and the double-click is
     // on it (F2: where it has one), else its definition's (« Haut <Trou#1> »), as an
@@ -1182,7 +1253,25 @@ fn body_look<'d>(ui: &egui::Ui, editor: &Editor, row: &OutlinerRow<'d>, b: &Body
         Some(id) if id == rename_own => Some(true),
         _ => None,
     };
-    BodyLook { path, def, open, shown, selected, lit, tint, weak, failed, failed_inside: inner, warned, rename, rename_own, renaming }
+    BodyLook {
+        path,
+        def,
+        open,
+        shown,
+        selected,
+        lit,
+        tint,
+        weak,
+        failed,
+        failed_inside: inner,
+        warned,
+        link_lost,
+        linked,
+        source,
+        rename,
+        rename_own,
+        renaming,
+    }
 }
 
 /// Draws a body's line: its fold, icon, sign toggle, name (or its field) and node size.
@@ -1195,7 +1284,7 @@ fn body_line(
     height: f32,
     folds: (egui::Id, &mut FastSet<egui::Id>),
 ) -> (egui::Response, LineOutcome) {
-    let BodyLook { def, selected, lit, tint, weak, failed, warned, rename, rename_own, renaming, .. } = *look;
+    let BodyLook { def, selected, lit, tint, weak, failed, warned, linked, rename, rename_own, renaming, .. } = *look;
     tree_row(ui, height, selected, lit, true, |ui| {
         let spacing = ui.spacing().item_spacing.x;
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -1216,11 +1305,16 @@ fn body_line(
                 Sign::Intersect => (icons::INTERSECT, t!("panel.outliner.sign_intersect")),
             };
             let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-            let toggled = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
+            let sense = if linked { egui::Sense::hover() } else { egui::Sense::click() };
+            let toggled = ui.add(egui::Button::image(img).frame(false).sense(sense)).tip(tip).clicked();
             let renamed = ui
                 .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     if warned {
                         ui.add(warning(ui));
+                    }
+                    // Tied to its source, as the source's row is to it.
+                    if look.source.is_some() {
+                        ui.add(linked_mark(ui));
                     }
                     match renaming {
                         Some(true) => return (rename_field(ui, rename_own, &b.body.name), None),
@@ -1254,6 +1348,8 @@ fn body_tip(response: egui::Response, b: &BodyRow<'_>, look: &BodyLook<'_>) -> e
     let (inner, warned, def) = (look.failed_inside, look.warned, look.def);
     if let Some(r) = b.part.refusal_of(b.body.id) {
         response.tip(skraft_model::blend_refusal(r))
+    } else if look.link_lost {
+        response.tip(t!("panel.outliner.link_lost"))
     } else if warned {
         let tip = match (inner, def.solid.is_empty()) {
             (true, _) => t!("panel.outliner.failed_inside_group"),
@@ -1261,6 +1357,8 @@ fn body_tip(response: egui::Response, b: &BodyRow<'_>, look: &BodyLook<'_>) -> e
             (false, false) => t!("panel.outliner.failed_group"),
         };
         response.tip(tip)
+    } else if let Some(source) = &look.source {
+        response.tip(t!("panel.outliner.linked", source = source))
     } else {
         response
     }
@@ -1307,23 +1405,39 @@ fn drop_on_body(
 
 /// A body's row's menu, with « Sortir du groupe » (« Sortir de la pièce », at its root), acting
 /// on the bodies `with`.
-fn body_menu(editor: &Editor, b: &BodyRow<'_>, look: &BodyLook<'_>, response: &egui::Response, with: &[Id], actions: &mut Vec<Action>) {
+fn body_menu(
+    editor: &Editor,
+    b: &BodyRow<'_>,
+    look: &BodyLook<'_>,
+    response: &egui::Response,
+    with: &[Id],
+    part: Id,
+    actions: &mut Vec<Action>,
+) {
     let path = &look.path;
     let (def, open, rename, rename_own) = (look.def, look.open, look.rename, look.rename_own);
     let select = (!(open && editor.selection().contains(&b.body.id))).then(|| Action::SelectBody(path.clone(), b.body.id, false));
-    let own = (!b.body.name.is_empty()).then_some(rename_own);
+    // A linked body's name is its source's: only its own can be edited.
+    let linked = look.linked;
+    let own = (!linked && !b.body.name.is_empty()).then_some(rename_own);
     let is_group = def.is_group();
     let move_out = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
         ui.separator();
-        let (label, to) = match b.group.split_last() {
-            Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
-            None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
-        };
-        let button = ui.button(label);
-        crate::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
-        if button.clicked() {
-            let scope = scope_in(editor, path);
-            actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.to_vec(), to, copy: false, scope }));
+        if !linked {
+            let (label, to) = match b.group.split_last() {
+                Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
+                None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
+            };
+            let button = ui.button(label);
+            crate::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
+            if button.clicked() {
+                let scope = scope_in(editor, path);
+                actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.to_vec(), to, copy: false, scope }));
+            }
+        }
+        if linked && b.group.is_empty() {
+            let unlink = Operation::Unlink { part, bodies: vec![b.body.id] };
+            menu_op(ui, "unlink", t!("operation.unlink"), unlink, actions);
         }
     };
     let flatten = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
@@ -1332,7 +1446,8 @@ fn body_menu(editor: &Editor, b: &BodyRow<'_>, look: &BodyLook<'_>, response: &e
             actions.push(Action::Apply(Operation::FlattenBodies { target: path.clone(), bodies: with.to_vec(), scope }));
         }
     };
-    row_menu(response, is_group, (rename, own), select, actions, move_out, flatten);
+    let named = if linked { rename_own } else { rename };
+    row_menu(response, is_group, (named, own), select, actions, move_out, flatten);
 }
 
 fn body_row(
@@ -1370,8 +1485,8 @@ fn body_row(
         (Some(split), Some(at)) if response.double_clicked() => at.x < split,
         (split, _) => split.is_some(),
     };
-    let key = if on_own { rename_own } else { rename };
-    body_menu(editor, b, &look, &response, &with, actions);
+    let key = if on_own || look.linked { rename_own } else { rename };
+    body_menu(editor, b, &look, &response, &with, row.occurrence.component, actions);
     let part = row.occurrence.component;
     match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
         (Some(true), Some(Some(name))) => actions.push(Action::Apply(Operation::RenameBody { part, body: b.body.id, name })),
@@ -1390,6 +1505,15 @@ fn body_row(
         actions.push(Action::Apply(Operation::SetSign { target: look.path, bodies: with, sign, scope }));
     } else if response.clicked() {
         actions.push(Action::SelectBody(look.path, b.body.id, ui.input(|i| i.modifiers.shift)));
+    }
+}
+
+/// A navigator menu's entry applying `op`, under the handle `outliner_menu:<handle>`.
+fn menu_op(ui: &mut egui::Ui, handle: &str, label: String, op: Operation, actions: &mut Vec<Action>) {
+    let button = ui.button(label);
+    crate::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
+    if button.clicked() {
+        actions.push(Action::Apply(op));
     }
 }
 

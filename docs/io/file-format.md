@@ -26,6 +26,7 @@ model.skraft
   `FileError::TooNew`), what the file holds (`content`: `model`, or `materials` for a
   [`.skraftmat`](#materials-alone-skraftmat)) and the app that wrote it, for information.
 - **`document.json`**: the serde serialisation of the `Document` — components, occurrences,
+  the assemblies' [links](../model/bodies.md#links),
   the parts' bodies and body definitions with their profiles and `source`, the components' guides
   ([Tape measure and guides](../tools/tape-measure.md)), the drawing's presentations, sheets and compositions
   ([Drawing](../ui/drawing.md)), the materials, the settings

@@ -48,6 +48,39 @@ impl SkraftApp {
         }
     }
 
+    /// « Imprimer »: the kernel asked what the selection enters; its answer opens the
+    /// confirmation (`imprint_dialog`).
+    pub(super) fn ask_imprint(&mut self) {
+        if let Some(d) = self.docs.active_mut() {
+            d.editor.ask_imprint();
+        }
+    }
+
+    pub(super) fn imprint_dialog(&mut self, ctx: &egui::Context) {
+        for d in self.docs.iter_mut() {
+            let Some(plan) = d.editor.take_imprint_plan() else { continue };
+            if plan.link_count() == 0 {
+                self.toasts.push(Note::info(t!("error.model.nothing_to_imprint")));
+            } else if self.imprint.is_none() {
+                self.imprint = Some(crate::imprint::Dialog::new(d.id, d.editor.document(), plan));
+            }
+        }
+        let Some(dialog) = &mut self.imprint else { return };
+        let Some(d) = self.docs.by_id_mut(dialog.doc) else {
+            self.imprint = None;
+            return;
+        };
+        let units = d.editor.document().settings().units.clone();
+        match dialog.show(ctx, &units) {
+            crate::imprint::Answer::Open => {}
+            crate::imprint::Answer::Cancel => self.imprint = None,
+            crate::imprint::Answer::Imprint(around, deep) => {
+                d.editor.imprint(&dialog.plan, around, deep);
+                self.imprint = None;
+            }
+        }
+    }
+
     /// « Enregistrer les modifications de « X » ? », while a modified document is closing.
     pub(super) fn save_prompt(&mut self, ctx: &egui::Context) {
         let Some(id) = self.closing.as_ref().and_then(|c| c.asking) else { return };

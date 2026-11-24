@@ -132,6 +132,9 @@ placement); different changes make separate components ([Data model](../model/da
   copy whenever its component is placed elsewhere too (counted over every path of the
   document). Copies keep their ids ([Data model](../model/data-model.md)), so paths stay valid.
 
+A **linked body** is its source's: Stretch neither moves nor stretches it and leaves it out of
+its measures. It is then built again from its source ([Links](../model/bodies.md#links)).
+
 ### Blocks and refusals
 
 - A component below the target that is locked along the axis is a block (« Behavior » below),

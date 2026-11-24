@@ -102,6 +102,24 @@ pub enum Operation {
     /// Gives `component` new axes, `axes` going from them to the current ones (a direct rigid
     /// transform): nothing moves in the world (docs/decisions/0054-changing-a-components-axes.md).
     ChangeAxes { component: Id, axes: DAffine3 },
+    /// « Imprimer »: each source of `pairs` (from `context`) cuts its final solid in its receiver,
+    /// its walls there moved by `around` (cheeks) and `deep` (bottom); the pairs are those the
+    /// kernel found sharing material (docs/decisions/0055-linked-bodies-through-imprints.md).
+    Imprint { context: Id, pairs: Vec<crate::ImprintPair>, around: f64, deep: f64 },
+    /// A linked body's clearance: on its cheeks, on its bottom.
+    SetClearance { part: Id, body: Id, around: f64, deep: f64 },
+    /// « Replacer »: each source goes back on its seats, when they agree
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
+    ReseatSources { sources: Vec<crate::LinkSource> },
+    /// « Séparer »: the parts receiving these sources become parts of their own, each linked
+    /// body then back under the sources it has left.
+    SeparateReceivers { sources: Vec<crate::LinkSource> },
+    /// « Amener l'usinage ici »: the linked bodies of this source's links off, brought under it.
+    BringLinkedBody { source: crate::LinkSource },
+    /// « Rompre le lien »: the linked bodies `bodies` of `part` become plain bodies.
+    Unlink { part: Id, bodies: Vec<Id> },
+    /// « Retirer »: these linked bodies, each by its part and id, taken away with their links.
+    RemoveLinked { bodies: Vec<(Id, Id)> },
     /// Moves (rotates, mirrors) occurrences of `context` by `transform`, in `context`'s axes.
     /// Rigid only: a scale changes a part, not its place (docs/model/data-model.md).
     Transform { context: Id, entities: Vec<Id>, transform: DAffine3 },
@@ -651,6 +669,13 @@ impl Operation {
             Operation::AddBody { sign: Sign::Negative, .. } => t!("operation.add_machining"),
             Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
             Operation::AddBody { sign: Sign::Intersect, .. } => t!("operation.add_intersect"),
+            Operation::Imprint { .. } => t!("operation.add_link"),
+            Operation::SetClearance { .. } => t!("operation.set_clearance"),
+            Operation::ReseatSources { .. } => t!("operation.reseat_sources"),
+            Operation::SeparateReceivers { .. } => t!("operation.separate_receivers"),
+            Operation::BringLinkedBody { .. } => t!("operation.bring_linked_body"),
+            Operation::Unlink { .. } => t!("operation.unlink"),
+            Operation::RemoveLinked { .. } => t!("operation.remove_linked"),
             Operation::DeleteBodies { .. } => t!("operation.delete"),
             Operation::GroupBodies { .. } => t!("operation.group"),
             Operation::MoveBodies { copy: true, .. } => t!("operation.copy_bodies_to"),
@@ -796,6 +821,10 @@ pub struct Outcome {
     pub composition: Option<Id>,
     /// The elements an instance exploded into.
     pub elements: Vec<Id>,
+    /// What the linked bodies did after it (docs/decisions/0055-linked-bodies-through-imprints.md).
+    pub links: crate::Followed,
+    /// « Imprimer »: the machinings it added, the links it made.
+    pub imprinted: (usize, usize),
 }
 
 /// What an operation done has to say.
@@ -807,6 +836,9 @@ pub enum Warning {
     /// Bodies moved in the tree (decision 0044): the shared groups made unique on the way, the
     /// nodes left in error (their edges on a body gone), by name.
     Moved { made_unique: Vec<String>, in_error: Vec<String> },
+    /// Sources not put back: their links ask for places `gap` apart
+    /// (docs/decisions/0055-linked-bodies-through-imprints.md).
+    NotReseated { names: Vec<String>, gap: String },
 }
 
 impl Warning {
@@ -833,6 +865,7 @@ impl std::fmt::Display for Warning {
                 }
                 f.write_str(&said.join(" · "))
             }
+            Warning::NotReseated { names, gap } => f.write_str(&t!("warning.not_reseated", names = names.join(", "), gap = gap)),
         }
     }
 }
@@ -865,6 +898,10 @@ impl Document {
         let mut doc = self.clone();
         let mut outcome = doc.apply_in_place(op, &mut recorder)?;
         outcome.welds = doc.weld(self, &mut recorder)?;
+        doc.update_imprints(self, &mut recorder)?;
+        outcome.links = doc.follow_links(self, &mut recorder)?;
+        doc.drop_dead_links();
+        doc.settle_link_names();
         if recorder.job.tasks.is_empty() {
             doc.settle_names(Some(self));
             doc.drop_unused_empty_assemblies();
@@ -949,6 +986,10 @@ impl Document {
         let mut doc = self.clone();
         let mut outcome = doc.apply_in_place(op, &mut replayer)?;
         outcome.welds = doc.weld(self, &mut replayer)?;
+        doc.update_imprints(self, &mut replayer)?;
+        outcome.links = doc.follow_links(self, &mut replayer)?;
+        doc.drop_dead_links();
+        doc.settle_link_names();
         if replayer.outputs.next().is_some() {
             return Err(Error::Invalid(Refusal::OutOfStep));
         }
@@ -1441,6 +1482,10 @@ impl Document {
             Operation::RenameBodyDef { part, def, name } => {
                 let p = self.part_mut(*part)?;
                 let d = p.defs.iter_mut().find(|d| d.id == *def).ok_or(Error::NotFound(*def))?;
+                // Named after its source.
+                if d.source == crate::BodySource::Linked {
+                    return Err(Error::Invalid(Refusal::LinkedBody));
+                }
                 let name = name.trim();
                 d.set_name((!name.is_empty()).then(|| name.to_owned()));
                 Ok(Outcome::default())
@@ -1490,14 +1535,18 @@ impl Document {
                         props: Props::default(),
                     },
                 );
+                let gathered: Vec<Id> = entities.iter().copied().collect();
+                self.links_gathered(*context, &gathered, id);
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
             }
             Operation::Explode { context, occurrence } => {
                 let o = self.occurrences_of(*context, &[*occurrence])?.remove(0);
                 let contents = self.assembly(o.component).map_err(|_| Error::Invalid(Refusal::NotExploded))?.occurrences().to_vec();
                 let mut copies = Vec::with_capacity(contents.len());
+                let mut copied = Vec::with_capacity(contents.len());
                 for c in contents {
                     let id = self.fresh_id();
+                    copied.push((c.id, id));
                     // An assembly hidden leaves its content hidden.
                     copies.push(Occurrence { id, transform: o.transform * c.transform, hidden: c.hidden || o.hidden, ..c });
                 }
@@ -1509,6 +1558,7 @@ impl Document {
                 let ctx = self.assembly_mut(*context)?;
                 let at = ctx.position(*occurrence).ok_or(Error::NotFound(*occurrence))?;
                 ctx.occurrences_mut().splice(at..=at, copies);
+                self.links_exploded(*context, *occurrence, o.component, &copied)?;
                 Ok(Outcome { created, ..Outcome::default() })
             }
             Operation::At { parent, unique, op } => {
@@ -1645,6 +1695,13 @@ impl Document {
                 self.recompute(part, Some(&[id]), solver)?;
                 Ok(Outcome { bodies: vec![id], ..Outcome::default() })
             }
+            Operation::Imprint { context, pairs, around, deep } => self.imprint(*context, pairs, *around, *deep, solver),
+            Operation::SetClearance { part, body, around, deep } => self.set_clearance(*part, *body, (*around, *deep), solver),
+            Operation::ReseatSources { sources } => self.reseat_sources(sources),
+            Operation::SeparateReceivers { sources } => self.separate_receivers(sources, solver),
+            Operation::BringLinkedBody { source } => self.bring_linked_body(*source, solver),
+            Operation::Unlink { part, bodies } => self.unlink_bodies(*part, bodies),
+            Operation::RemoveLinked { bodies } => self.remove_linked(bodies, solver),
             Operation::DeleteBodies { target, bodies, scope } => {
                 // The last positive ones too: the part is then empty, an error shown (docs/model/bodies.md
                 // « Empty parts »).
@@ -1658,11 +1715,15 @@ impl Document {
                 }
                 Ok(Outcome::default())
             }
-            Operation::MoveBodies { from, bodies, to, copy, scope } => self.move_bodies(from, bodies, to, *copy, *scope, solver),
+            Operation::MoveBodies { from, bodies, to, copy, scope } => {
+                let bodies = if *copy { bodies.clone() } else { self.editable(self.resolve_part(from)?.0, bodies.clone())? };
+                self.move_bodies(from, &bodies, to, *copy, *scope, solver)
+            }
             Operation::MoveParts { instances, occurrences, to, copy } => self.move_parts(instances, occurrences, to, *copy, solver),
             Operation::MoveOccurrences { instances, occurrences, to, copy } => self.move_occurrences(instances, occurrences, to, *copy),
             Operation::GroupBodies { target, bodies, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 if bodies.is_empty() {
                     return Err(Error::Invalid(Refusal::NoBodies));
                 }
@@ -1737,6 +1798,7 @@ impl Document {
             }
             Operation::SetSign { target, bodies, sign, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 let p = self.part(part)?;
                 let flipped: Vec<Id> = p.bodies.iter().filter(|b| bodies.contains(&b.id) && b.sign != *sign).map(|b| b.id).collect();
                 // The last positive ones too: the part is then empty (docs/model/bodies.md#empty-parts).
@@ -1756,6 +1818,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 self.move_guides(part, &guides, transform)?;
                 if !bodies.is_empty() {
                     for b in &mut self.part_mut(part)?.bodies {
@@ -1772,6 +1835,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 let mut created = self.copy_bodies(part, &bodies, &[*transform])?;
                 if !created.is_empty() {
                     self.recompute(part, Some(&created), solver)?;
@@ -1787,6 +1851,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::NotRigid));
                 }
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 let steps: Vec<DAffine3> = std::iter::successors(Some(*step), |at| Some(*step * *at)).take(*count as usize).collect();
                 let mut created = self.copy_bodies(part, &bodies, &steps)?;
                 if !created.is_empty() {
@@ -1798,6 +1863,7 @@ impl Document {
             Operation::CopyBodies { target, bodies, moved, placements, scope } => {
                 check_copies(moved, placements)?;
                 let (part, guides, bodies) = self.bodies_of(target, bodies, *scope)?;
+                let bodies = self.editable(part, bodies)?;
                 let mut created = self.copy_bodies(part, &bodies, placements)?;
                 let shifted = !is_identity(moved);
                 if shifted {
@@ -1841,6 +1907,7 @@ impl Document {
                 // In the part's axes.
                 let stretch = stretch.in_frame(&frame.inverse());
                 let (part, guides, ids) = self.bodies_of(target, bodies, *scope)?;
+                let ids = self.editable(part, ids)?;
                 self.stretch_guides(part, &stretch, Some(&guides))?;
                 if !ids.is_empty() {
                     self.stretch_bodies(part, Some(&ids), &stretch, solver)?;
@@ -1871,6 +1938,7 @@ impl Document {
             }
             Operation::Blend { target, bodies, blend, size, picks, scope } => {
                 let (part, _, ids) = self.bodies_of(target, bodies, *scope)?;
+                let ids = self.editable(part, ids)?;
                 if ids.is_empty() || !(size.is_finite() && *size > 0.0) {
                     return Err(Error::Invalid(Refusal::NoBodies));
                 }
@@ -2162,7 +2230,9 @@ impl Document {
         let renamed: FastMap<Id, Id> = kept.iter().map(|d| (d.id, self.fresh_id())).collect();
         let mut out_defs = Vec::with_capacity(kept.len());
         for d in kept {
-            let mut copy = BodyDef { id: renamed[&d.id], ..d.clone() };
+            // In another part it is a shape of its own: its link stays with the body it was, and
+            // an imprint is no longer made of a body there.
+            let mut copy = BodyDef { id: renamed[&d.id], source: crate::BodySource::Local, imprint: None, ..d.clone() };
             if let Some(g) = &mut copy.group {
                 g.children.retain(|c| renamed.contains_key(&c.def));
                 g.children.iter_mut().for_each(|c| c.def = renamed[&c.def]);
@@ -3042,6 +3112,16 @@ pub(crate) trait Solver {
     fn stretch(&mut self, solid: &Arc<Solid>, stretch: &Stretch) -> Result<Arc<Solid>>;
     /// `solid` moved by the rigid `transform`, its faces in the same order.
     fn transform(&mut self, solid: &Arc<Solid>, transform: &DAffine3) -> Result<Arc<Solid>>;
+    /// The tool `source`, placed by `placed` in `receiver`'s axes, cuts in it, in the axes `frame`
+    /// takes them to; `previous` when they no longer meet ([`Task::Imprint`]).
+    fn imprint(
+        &mut self,
+        source: &Arc<Solid>,
+        receiver: &Arc<Solid>,
+        placed: &DAffine3,
+        previous: Option<&Arc<Solid>>,
+        clearance: &skraft_kernel::Clearance,
+    ) -> Result<Arc<Solid>>;
     /// A body node: `children` (their leaves `leaves[i]`) computed, then `op` ([`Task::Node`]).
     fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome>;
 }
@@ -3049,7 +3129,7 @@ pub(crate) trait Solver {
 /// Records the calls into a job and answers with stand-ins (the operation only stores them,
 /// or hands them to a later call: they then name that task's output, [`EARLIER`]).
 #[derive(Default)]
-struct Recorder {
+pub(crate) struct Recorder {
     job: Job,
     /// Inputs already in the job, and the stand-ins handed out (as `EARLIER | task`), by
     /// `Arc` address.
@@ -3059,6 +3139,19 @@ struct Recorder {
 }
 
 impl Recorder {
+    /// Asks whether `source`, placed by `placed`, and `receiver` share material: the index of
+    /// the task answering ([`Task::Contact`]).
+    pub(crate) fn contact(&mut self, source: &Arc<Solid>, receiver: &Arc<Solid>, placed: DAffine3) -> usize {
+        let (source, receiver) = (self.input(source), self.input(receiver));
+        self.job.tasks.push(Task::Contact { source, receiver, placed });
+        self.job.tasks.len() - 1
+    }
+
+    /// The job recorded.
+    pub(crate) fn into_job(self) -> Job {
+        self.job
+    }
+
     fn input(&mut self, s: &Arc<Solid>) -> u32 {
         *self.inputs.entry(Arc::as_ptr(s)).or_insert_with(|| {
             self.job.inputs.push(s.clone());
@@ -3119,6 +3212,19 @@ impl Solver for Recorder {
     fn transform(&mut self, solid: &Arc<Solid>, transform: &DAffine3) -> Result<Arc<Solid>> {
         let solid = self.input(solid);
         self.task(Task::Transform { solid, transform: *transform })
+    }
+
+    fn imprint(
+        &mut self,
+        source: &Arc<Solid>,
+        receiver: &Arc<Solid>,
+        placed: &DAffine3,
+        previous: Option<&Arc<Solid>>,
+        clearance: &skraft_kernel::Clearance,
+    ) -> Result<Arc<Solid>> {
+        let (source, receiver) = (self.input(source), self.input(receiver));
+        let previous = previous.map(|p| self.input(p));
+        self.task(Task::Imprint { source, receiver, placed: *placed, previous, clearance: *clearance })
     }
 
     fn node(&mut self, leaves: &[Arc<Solid>], children: &[TreeBody], op: &NodeOp, picks: &[[f64; 3]]) -> Result<NodeOutcome> {
@@ -3197,6 +3303,17 @@ impl Solver for Replayer {
     }
 
     fn stretch(&mut self, _: &Arc<Solid>, _: &Stretch) -> Result<Arc<Solid>> {
+        self.next()
+    }
+
+    fn imprint(
+        &mut self,
+        _: &Arc<Solid>,
+        _: &Arc<Solid>,
+        _: &DAffine3,
+        _: Option<&Arc<Solid>>,
+        _: &skraft_kernel::Clearance,
+    ) -> Result<Arc<Solid>> {
         self.next()
     }
 

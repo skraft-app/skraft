@@ -93,6 +93,7 @@ menu:
     explode: "$t(common.explode)"
     make_unique: "$t(common.make_unique)"
     group_bodies: "Group Bodies"
+    imprint: "Imprint"
     move_out: "Move Out of Group"
     move_out_of_part: "Move Out of Part"
     delete_guides: "Delete Guides"
@@ -762,9 +763,13 @@ panel:
     occurrence: "Instance"
     occurrences: "Instances"
     role: "Role"
+    linked_to: "Linked to"
     role_positive: "Blank"
     role_negative: "Machining"
     role_intersect: "Intersection"
+    # A linked machining's clearance (decision 0055).
+    imprint_around: "Clearance"
+    imprint_deep: "End gap"
     state: "State"
     failed: "could not be computed, needs fixing"
     copies: "Copies"
@@ -887,6 +892,14 @@ panel:
     failed_inside_part: "A body of this part failed: needs fixing"
     failed_inside_group: "A body of this group failed: needs fixing"
     error_inside_assembly: "A part of this assembly has an error: needs fixing"
+    # Linked bodies (decision 0055): a source off its seat, a machining that lost its link.
+    link_off: "This part is no longer in its linked machining. Right-click to put it back"
+    link_lost: "This machining lost its link: it stays as it is. Right-click to break the link"
+    link_lost_in_part: "A machining of this part lost its link"
+    link_inside_assembly: "A part of this assembly has a link to review"
+    link_overlap: "Overlaps %{parts} inside %{receivers}"
+    linked: "Machining linked to %{source}: it follows its shape and place. To change it, edit %{source} or break the link (right-click)"
+    imprints_in: "Imprints its shape in: %{parts}"
     profile: "Profile"
     profile_tip: "Click to edit the profile"
     # A row's right-click menu; the two names of a row with an instance name.
@@ -947,7 +960,35 @@ notice:
   group_made_unique: "Group made unique: %{name}"
   body_made_unique: "Body made unique: %{name}"
   many_made_unique: "%{count} items made unique"
+  # Linked bodies after an operation (decision 0055).
+  links_off: "%{count} part is no longer in its machining"
+  links_off_plural: "%{count} parts are no longer in their machining"
+  link_conflict: "This shared machining cannot follow"
+  link_conflict_detail: "Its links ask it for two different places. Separate gives each part its own."
+  links_lost: "%{count} machining lost its link"
+  links_lost_plural: "%{count} machinings lost their link"
+  link_overlap: "%{first} and %{second} overlap inside %{receiver}"
+  link_overlaps: "%{count} overlaps between linked parts"
+  link_overlap_unchecked: "Could not check whether linked parts overlap"
+  link_remove: "Remove"
+  link_keep: "Keep"
+  imprinted: "%{count} link made"
+  imprinted_plural: "%{count} links made"
   rename: "Rename"
+
+# « Imprimer »'s confirmation (decision 0055).
+imprint:
+  title: "Imprint Into the Parts It Enters"
+  around: "Clearance all around"
+  deep: "Extra depth"
+  machinings: "%{count} machining"
+  machinings_plural: "%{count} machinings"
+  links: "%{count} link"
+  links_plural: "%{count} links"
+  into: "Into: %{parts}"
+  partial: "The copies of %{parts} with no part facing them will get these machinings too."
+  bad_value: "unreadable value"
+  ok: "Imprint"
 
 naming:
   title_part: "Part Name"
@@ -1451,9 +1492,18 @@ operation:
   add_body: "Blank"
   # An intersection (an intersect body) added: it limits its part (decision 0045).
   add_intersect: "Intersection"
+  # A part imprinted in another, by a link (decision 0055).
+  add_link: "Imprint"
   set_sign_positive: "Change to Blank"
   set_sign_negative: "Change to Machining"
   set_sign_intersect: "Change to Intersection"
+  # What is done on linked bodies (decision 0055).
+  reseat_sources: "Put Back"
+  separate_receivers: "Separate"
+  bring_linked_body: "Bring the Machining Here"
+  unlink: "Break the Link"
+  remove_linked: "Remove the Machinings"
+  set_clearance: "Set the Imprint"
   group: "Group"
   ungroup: "$t(common.explode)"
   add_guide: "Guide"
@@ -1586,6 +1636,8 @@ warning:
   made_unique: "made unique: %{names}"
   # … and the body nodes whose edges were on a body that left them (now in error).
   nodes_lost_edges: "edges lost: %{names}"
+  # Parts not put back in their linked machinings: their ends ask for places %{gap} apart.
+  not_reseated: "not put back: %{names}, its links ask for two places %{gap} apart"
 
 error:
   expr:
@@ -1630,6 +1682,12 @@ error:
     flatten_failed: "a failed or empty shape cannot be flattened: correct it first"
     # Grouping several intersections, or ungrouping an intersection group of several bodies: the shape would change.
     intersects_regrouped: "intersections are not grouped or exploded together: each one limits the part, the shape would change"
+    # Linked bodies (decision 0055).
+    bad_link: "impossible link: it joins two placed parts"
+    linked_body: "linked machining: it follows its source part. Edit that part or break the link"
+    link_conflict: "its links ask for two different places for one machining"
+    nothing_to_imprint: "no body of this selection enters another part"
+    bad_clearance: "invalid clearance"
     not_at_path: "only an operation on instances applies at depth"
     turned_across: "a turned body only stretches along its axis, without cutting an arc of its profile"
     bad_guide: "guide without a direction or a radius"
@@ -1671,6 +1729,7 @@ error:
     bad_occurrence_id: "invalid instance id %{id}"
     bad_guide: "invalid guide %{id}"
     bad_behavior: "component %{id}: invalid cutting planes or locked axes"
+    bad_link: "invalid link %{id}"
     misfiled: "component %{id} filed under %{key}"
     shape_out_of_step: "part %{id}: shape unrelated to its bodies"
     duplicate_occurrence: "instance %{occurrence} twice in %{assembly}"

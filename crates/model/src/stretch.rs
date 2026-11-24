@@ -227,7 +227,7 @@ impl Document {
         let (_, p, _) = self.resolve_container(target)?;
         let s = Stretch::new(axis, cuts.to_vec(), vec![0.0; cuts.len() + 1]).map_err(skraft_kernel::Error::from)?;
         let mut spans = vec![None; cuts.len() + 1];
-        for b in p.bodies.iter().filter(|b| bodies.contains(&b.id)) {
+        for b in p.bodies.iter().filter(|b| bodies.contains(&b.id) && p.def_of(b).source != crate::BodySource::Linked) {
             let t = frame.inverse() * b.placement;
             for (i, span) in s.in_frame(&t).section_spans(p.solid_of(b)).into_iter().enumerate() {
                 if let Some(span) = span {
@@ -415,7 +415,8 @@ impl Document {
         }
         match &component.kind {
             ComponentKind::Part(p) => {
-                for b in &p.bodies {
+                // A linked body is its source's: never stretched (docs/model/bodies.md#links).
+                for b in p.bodies.iter().filter(|b| p.def_of(b).source != crate::BodySource::Linked) {
                     out.extend(s.in_frame(&b.placement).piece_moves(p.solid_of(b)));
                 }
             }
@@ -707,6 +708,10 @@ pub(crate) fn bodies_stretch(defs: &[crate::BodyDef], bodies: &[crate::Body], id
     let mut keys: Vec<Vec<i64>> = Vec::new();
     let mut kept: FastSet<Id> = FastSet::default();
     for b in bodies.iter().filter(|b| ids.is_none_or(|ids| ids.contains(&b.id))) {
+        // A linked body is its source's: never stretched (docs/model/bodies.md#links).
+        if defs.iter().any(|d| d.id == b.def && d.source == crate::BodySource::Linked) {
+            continue;
+        }
         let local = stretch.in_frame(&b.placement);
         let Some(solid) = solid_of(b) else { continue };
         match local.extent(&solid).map_or(Some(0.0), |(lo, hi)| local.rigid_move(lo, hi)) {

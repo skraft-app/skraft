@@ -21,7 +21,7 @@ Part    { defs: Vec<BodyDef>, bodies: Vec<Body>, shape, failed, faces }
 BodyDef { id, name, named, solid, profile, source, group }   — a shape, in its own axes
           profile : Option<BodyProfile>                      — a profile (Prism tool), solid its cache
           group   : Option<BodyGroup { children, failed }>   — « Body groups » below
-Body    { id, name, def, sign: Positive | Negative, placement: T }
+Body    { id, name, def, sign: Positive | Negative | Intersect | Imprint, placement: T }
                                                              — an occurrence of a definition, placed in the part's axes
 ```
 
@@ -100,6 +100,102 @@ level — the part's root, a group — keeps only what lies inside it
   button cycles `+ → − → ∩ → +` (« Intersection : la pièce ne garde que ce qui est dedans »).
 - **Moved in the tree**, an intersection stays one ([Moving bodies](#moving-bodies)). A node
   over intersections alone is an intersection rounded (`group_sign`).
+
+## Links
+
+A part can **imprint** its final solid in the parts it enters: each receives a **linked body**
+that follows it ([0055](../decisions/0055-linked-bodies-through-imprints.md)). The source carries
+nothing for it.
+
+```
+Assembly { occurrences, links: Vec<Link> }
+Link     { id, source: path, receiver: path, body, seat: T }
+```
+
+- **The tool is the source's whole final solid**, however it was built (`Task::Imprint`,
+  `crates/kernel/src/imprint.rs`), in the source's axes: a part may be its own tenon. Only its
+  faces standing as **walls** inside the receiver are moved: the one whose way across the contact
+  ends on an opening is the **bottom** (`deep`), the others are **cheeks** (`around`). A box stays
+  a box, anything else has those faces offset; a clearance that cannot be built is refused,
+  never reduced. Without clearance the tool is the source's solid.
+- **The linked body** (`BodySource::Linked`, sign `−`) holds that tool as a cache, with its
+  `ImprintRecipe { clearance }` (`BodyDef::imprint`). One place in the copies of a receiver is one
+  body, of one source part.
+- **Both sides are read without their linked bodies** (`Document::own_solid`): a mortise is never
+  part of what makes a tool, so two parts may imprint each other with no cycle.
+- **It follows, it is not edited.** Moving, stretching, copying, grouping, rounding it, changing
+  its sign or taking it out of its part is refused (`Refusal::LinkedBody`), and among other bodies
+  it is left where it is. What stays open: its clearance, its own name, deleting it, and
+  « Rompre le lien », which makes it a plain body.
+- **Named after its source** (`Document::settle_link_names`, after each operation and on reading a
+  file): renaming the part renames it; a body that lost its source keeps the last name.
+- **Told in the navigator** (`Document::link_map`): the icon of « Imprimer » and a chain on its
+  row, whose tip names the source and says how to change it (no chain once its link is broken); a
+  chain on the source's row, whose tip names the
+  parts it shapes. The
+  entity info gives « Lié à » in place of its name.
+- **Held by the assembly** `context`, by occurrence paths relative to it: placing that assembly
+  again keeps its links, and a copy into another document follows the ids drawn afresh.
+- **`seat`** is the source's axes in the receiver's, per link: several links share a body
+  through mirrored or turned receivers, and each knows its own pose.
+- **State** (`Document::link_state`): seated, off (everything there, but the source elsewhere
+  or the body no longer showing it in that place), or broken (a path or the body gone). A file
+  may hold a broken link; a malformed one is refused.
+- **Two parts seated in one part that overlap are told** (`Document::overlap_probe`): ⚠ on both
+  rows, whose tip names the other and the part they enter, and a toast when an operation makes it.
+  Their final solids are compared, so a joint each has cut in the other is no overlap. The kernel
+  answers in the background, only for pairs whose boxes meet and that changed; nothing is moved.
+- A linked body **copied into another part** is a shape of its own, without a link. Welding
+  never moves a linked body.
+- **Following** (`Document::follow_links`, after welding, in the operation's job: one step of
+  undo; what it did in `Outcome::links`). A seated source that moves carries the linked body in
+  every copy of the receiver, and the seats of all the links of that body. **Pushed further, it
+  bites further**: the tool is its whole shape, so its shoulder cuts too, with no alert. Nothing else moves: the other sources are off. **Only a source drives**: a receiver
+  moved keeps its body, its sources off. A source off drives nothing, and is seated again when it
+  lands on its seat. Different moves asked of one body (a rail slid between two mirrored legs)
+  leave it where it is, and a source no longer reaching into the receiver's box leaves it too.
+  Decided on transforms and on the solids before the operation, so the job records and replays
+  alike; an occurrence moved needs the kernel only when it carries a linked body.
+- **Changes of structure** keep the links: gathering occurrences in an assembly, exploding one,
+  moving them between assemblies rewrite the paths, each link going to the lowest assembly
+  holding both its ends. Changing a source's or a receiver's axes brings the seats along.
+- **What is told** (`Document::link_status`, kept by the editor for the current document): the
+  sources off, and the linked bodies with a link broken and none left alive. In the navigator, ⚠
+  on the source's row, the frozen body's, and the parts and assemblies above them.
+- **After an operation** a toast says how many other sources it left off, with « Replacer » and,
+  when a linked body moved or could not, « Séparer »; its buttons hold while nothing has changed
+  since. Bodies losing their last source are told by a toast that stays, with **« Retirer »**
+  (`Operation::RemoveLinked`: taken away with their links, one step of undo) and **« Garder »**
+  (plain bodies, as « Rompre le lien »); nothing is removed before a click, and closed without an
+  answer the body stays frozen, ⚠.
+- **`Operation::ReseatSources`** (« Replacer »): each source goes where its seats say, computed in
+  its receivers' axes. When they disagree it is not moved, and the warning gives the gap.
+- **`Operation::SeparateReceivers`** (« Séparer »): the parts these sources enter become parts of
+  their own; in them and in the copies left, a linked body in which no source is seated goes back
+  under its sources, when they agree.
+- **`Operation::BringLinkedBody`** (« Amener l'usinage ici »): the body comes under this source,
+  in every copy; the other sources are then off. **`Operation::Unlink`** (« Rompre le lien »): a
+  plain body, its shape and place kept, its links gone. All from the row's menu.
+- A link whose receiver or body is gone is dropped after the operation; one whose source is gone
+  stays, its body frozen in place and told.
+- **Its shape follows** (`Document::update_imprints`): when the own bodies of a source or a
+  receiver change, the tools of its seated links are built again from the source as it now is,
+  where it now is, in every copy, their seats with them. No contact left: the tool stays as it
+  was, where it was. A move alone keeps the tool rigid: what newly enters the receiver has no
+  clearance until the next change of shape.
+- **Stretch never touches a linked body**: neither moved nor stretched, nor counted in what it
+  measures. It is built again from its source, so a stretch carrying a receiver and lengthening
+  its source leaves the mortise around the tenon.
+- **« Imprimer »** (`edit.imprint`, Assembler › Composants): every occurrence of the parts selected
+  is a source, against every other part. Boxes say which may meet; the kernel says which share
+  material (`Document::imprint_probe`, `Task::Contact`, then `imprint_plan`), before anything
+  changes. One place in the copies of a receiver is one linked body. A confirmation says what it
+  cuts and where, asks the clearance on the cheeks and the bottom, and warns when copies of a
+  receiver would show a machining with no part facing them; `Operation::Imprint` takes the pairs
+  found. `Operation::SetClearance` changes it afterwards, from the linked body's entity info, for
+  that machining.
+- Not yet: a preview of the body while dragging, a clearance on the cheeks of a fully rounded end
+  (refused by `offset_faces`).
 
 ## Plane welding
 
