@@ -29,8 +29,8 @@ impl Card {
     /// Its handles' prefix (docs/control-protocol.md).
     fn handle(self) -> &'static str {
         match self {
-            Card::Components => "components",
-            Card::Compositions => "compositions",
+            // One card, the library, whichever it shows.
+            Card::Components | Card::Compositions => "library",
             Card::Materials => "materials",
         }
     }

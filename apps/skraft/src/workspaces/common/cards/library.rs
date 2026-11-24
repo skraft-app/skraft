@@ -159,7 +159,7 @@ pub fn components(
         Tab::Parts => 0,
         Tab::Assemblies => 1,
     };
-    let handles = ["components:parts", "components:assemblies"];
+    let handles = ["library:parts", "library:assemblies"];
     match crate::window::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &handles) {
         Some(0) => state.tab = Tab::Parts,
         Some(_) => state.tab = Tab::Assemblies,
@@ -170,7 +170,7 @@ pub fn components(
     // The search (docs/ui/components-library.md#search): the field left of the grid / list
     // toggle, as far from it as from the tabs above and the list below (`search::GAP`).
     let salt = ui.make_persistent_id("components_search");
-    crate::kit::search::field(ui, salt, "components", &mut state.search, |ui, side| {
+    crate::kit::search::field(ui, salt, "library", &mut state.search, |ui, side| {
         catalog::view_toggle(ui, side, look.list, Card::Components, actions)
     });
     ui.add_space(gap);
@@ -249,7 +249,7 @@ impl Shelf for Components<'_> {
 
     fn header(&mut self, ui: &mut egui::Ui, height: f32, unused: bool, actions: &mut Vec<Action>) {
         let title = if unused { t!("panel.components.unused") } else { t!("panel.components.in_model") };
-        let purge = unused.then(|| (!self.disabled, t!("panel.components.purge_tip"), "components:purge"));
+        let purge = unused.then(|| (!self.disabled, t!("panel.components.purge_tip"), "library:purge"));
         if catalog::header(ui, height, title, purge) {
             actions.push(Action::Command("components.purge"));
         }
@@ -299,7 +299,7 @@ fn item(
     rename: Renaming,
     actions: &mut Vec<Action>,
 ) {
-    crate::kit::handles::publish(|| format!("components:{}", id.0), response.rect);
+    crate::kit::handles::publish(|| format!("library:{}", id.0), response.rect);
     let name = cx.editor.document().component(id).map(|c| c.name.clone()).unwrap_or_default();
     let tip = match count {
         Some(n) => tp!("panel.components.count_tip", n as usize),

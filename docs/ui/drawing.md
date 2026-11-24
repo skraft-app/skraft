@@ -689,7 +689,7 @@ presentation's « + ») and its menu's `navigator:menu:blank_sheet`, `navigator:
 menu's `navigator:menu:new_presentation`, `navigator:menu:presentation_template:<n>`; the navigator's
 `navigator:document`, `:presentation:<id>`, `:sheet:<id>`, `:element:<id>`, and on an
 element's row `:eye:<id>`, `:lock:<id>`, `:up:<id>`, `:down:<id>` (the last three under the
-pointer), in an open menu `:menu:<command>`, `:menu:copy`, `:menu:save_template`; in the library `compositions:<id>`, `:search`, `:grid`,
+pointer), in an open menu `:menu:<command>`, `:menu:copy`, `:menu:save_template`; in the library `library:<id>`, `:search`, `:grid`,
 `:list`, `:purge`, and in an open menu `:menu:place`, `:menu:delete`; in the entity info
 `drawing_border`, `drawing_value:<id>:<n>`, `drawing_field_value:<name>`, `drawing_new_field`;
 `drawing_insert_field`

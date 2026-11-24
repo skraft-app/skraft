@@ -42,7 +42,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
   parts a title bar from the other cards' content, then the search row; each tab's
   count is what it shows (under a search, what the search lets through, so a match in the
   other tab is seen). The tab shown is the document's (`LibraryState.tab`, never on disk), the
-  parts' at first. Handles `components:parts`, `components:assemblies`. « Aucune pièce »,
+  parts' at first. Handles `library:parts`, `library:assemblies`. « Aucune pièce »,
   « Aucun assemblage » in a tab with nothing. **Why:** a part and an assembly are not looked
   for the same way, and toggles filtering by nature did the same with more clicks (asked on
   2026-11-19).
@@ -50,11 +50,11 @@ Decision [0038](../decisions/0038-components-library-card.md).
   `library::natural_cmp`). The rows are made again only when
   the document changes (its history's revision, `library::LibraryState`, kept in the
   document), and only those in view are laid out.
-- Each row publishes its handle `components:<id>`, the purge button `components:purge`
+- Each row publishes its handle `library:<id>`, the purge button `library:purge`
   ([Control protocol](../control-protocol.md)).
 - **Grid or list**: at the right of the search row, the option bar's segmented control
   (`widgets::segmented_sized`, at the row's height, the mark sliding to the value chosen;
-  `icons::TILES`, `icons::LIST`; handles `components:grid`, `components:list`). Grid: square tiles of
+  `icons::TILES`, `icons::LIST`; handles `library:grid`, `library:list`). Grid: square tiles of
   thumbnails (`thumbnails::TILE`, 64 pt) wrapped in rows, the name under each (small, elided),
   « ×n » on a pill over the top right corner, the chosen one outlined in the selection's
   colour; laid out whole, only the tiles in view drawn and their thumbnails asked for. List:
@@ -180,7 +180,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
   `search::GAP` apart (6 pt), the field as far from what is above it (the navigator's title
   bar line, the card's tabs) and from the list under it. In the navigator, over the whole
   width; in the
-  library, left of the grid / list toggle. Handles `components:search`, `navigator:search`.
+  library, left of the grid / list toggle. Handles `library:search`, `navigator:search`.
 - **Name**: a substring of the name, case and diacritics ignored (« etag » finds
   « Étagère#2 »): both folded to lower case, the diacritics of Latin letters dropped by a table
   (`search::fold`, no Unicode normalisation crate), the ligatures spelt out (« œ » → « oe »),
