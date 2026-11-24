@@ -486,7 +486,6 @@ impl SkraftApp {
         // (docs/ui/workspaces.md#stage): the 3D view over all of it, or a table on the left and
         // the view on the right. The ribbon, the tools' cards and the side panels float over
         // it, so opening or resizing them never resizes the view.
-        let theme = self.theme;
         let Some(i) = self.docs.active_index() else { return };
         let margin = 8.0;
         let area = ui.available_rect_before_wrap();
@@ -498,75 +497,8 @@ impl SkraftApp {
         // The 3D view's rect: what overlays on the view (quick card, drop-up, steps bar, view
         // bar) and what zoom extents frames are placed in.
         let view = split.map_or(area, |s| egui::Rect::from_min_max(egui::pos2(s.view, area.top()), area.max));
-        // A sheet is framed in what the ribbon (as last drawn) and the side columns leave.
-        let sheet_room = self.ribbon_last_bottom.map(|b| {
-            let (_, free, _) = self.columns(view, margin);
-            egui::Rect::from_x_y_ranges(free, (b + margin).clamp(area.top(), area.bottom())..=area.bottom())
-        });
-        let (viewport, docs, prefs) = (&mut self.viewport, &mut self.docs, &self.prefs);
-        egui::CentralPanel::no_frame().show(ui, |ui| {
-            // Beside the view, the stage's ground is the view's (the table's card over it).
-            if view != area {
-                ui.painter().rect_filled(area, 0.0, viewport::color(theme.ui.view));
-            }
-            if let Some(d) = docs.iter_mut().nth(i) {
-                ui.scope_builder(egui::UiBuilder::new().max_rect(view), |ui| {
-                    if stage == Stage::Sheet {
-                        // A sheet of the drawing instead of the 3D view (docs/ui/drawing.md).
-                        let ready = viewport.sheet_textures(d.id);
-                        let title = d.name();
-                        let wanted =
-                            crate::sheet::ui(ui, view, sheet_room, &mut d.editor, &mut d.sheet, &mut d.lines, &theme, &ready, &title);
-                        viewport.sheet_pictures(ui.ctx(), frame, d.id, &d.editor, &theme, &wanted);
-                    } else {
-                        viewport.ui(ui, frame, d.id, &mut d.editor, &d.vcb, &prefs.navigation, &theme, prefs.show_render_stats);
-                    }
-                });
-            }
-        });
-        let card = |style: &egui::Style| card_frame(style);
-        // The ribbon at the top (docs/ui/ribbon.md#layout): between the docked cards' columns,
-        // which then take the view's whole height, when it fits there whole; else above them,
-        // over the view's width, the columns under it.
-        let ribbon_view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views };
-        let frame_x = card(&ctx.global_style()).total_margin().sum().x;
-        let natural = ribbon::natural_width(ctx, &ribbon_view);
-        let (_, free, _) = self.columns(area, margin);
-        let inside = |x: f32| x > area.left() && x < area.right();
-        // A split stage's table counts as a column: the ribbon between it and the right one.
-        let between = egui::Rangef::new(
-            match split {
-                Some(s) => s.view,
-                None if inside(free.min) => free.min,
-                None => area.left() + margin,
-            },
-            if inside(free.max) { free.max } else { area.right() - margin },
-        );
-        let above = natural + frame_x > between.span();
-        let span = if above { egui::Rangef::new(area.left() + margin, area.right() - margin) } else { between };
-        // As wide as its content, centered within its span (on the area, or between a split
-        // stage's table and the right column): a window narrower than that narrows it
-        // ([`ribbon::arrange`] then gives way).
-        let center = if split.is_some() && !above { span.center() } else { area.center().x };
-        let ribbon_width = natural.min((span.span() - frame_x).max(0.0));
-        let ribbon_left = (center - (ribbon_width + frame_x) / 2.0).min(span.max - ribbon_width - frame_x).max(span.min);
-        let ribbon_area = egui::Area::new(egui::Id::unique("ribbon"))
-            .fixed_pos(egui::pos2(ribbon_left, area.top() + margin))
-            .constrain_to(area)
-            .sense(egui::Sense::click())
-            .show(ctx, |ui| {
-                let card = card(ui.style());
-                let inset = card.inner_margin;
-                card.show(ui, |ui| ribbon::ribbon(ui, &ribbon_view, ribbon_width, inset, actions))
-            });
-        egui::Popup::context_menu(&ribbon_area.response)
-            .style(crate::style::menu)
-            .show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, actions));
-        let ribbon_rect = ribbon_area.response.rect;
-        let below_ribbon = ribbon_rect.bottom() + margin;
-        self.ribbon_bottom = Some(ribbon_rect.bottom());
-        self.ribbon_last_bottom = self.ribbon_bottom;
-
+        self.stage_ui(ui, frame, i, area, view, margin);
+        let (above, below_ribbon) = self.ribbon_ui(ctx, area, split, margin, views, actions);
         let columns_top = if above { below_ribbon } else { area.top() + margin };
         let free = self.side_panels(ctx, area, columns_top, margin, actions);
         // A split stage's table, from the left column to the view: the area's whole height, as
@@ -577,20 +509,27 @@ impl SkraftApp {
         }
         // Beside a split stage's table, what is left free is the view's.
         let (free_left, free_right) = (free.min.max(view.left()), free.max);
-        // Over the view under the ribbon, centered together between the columns: the context card
-        // (what a pick takes, which copies a change reaches), then the active tool's card
-        // (docs/ui/interface.md#context-card), each translucent but under the pointer or typed
-        // in; no option, no card. The row's widths are known
-        // before drawing it (as last measured: a pass whose widths changed is discarded, so the
-        // cards are never shown misplaced while they settle).
         // What follows belongs to the 3D view and its tools, which a sheet's stage does not show.
         if stage == Stage::Sheet {
             return;
         }
+        let room = Room { view, margin, below_ribbon, free: (free_left, free_right) };
+        let free_top = self.option_cards(ctx, room, actions);
+        self.view_overlays(ctx, room, free_top, views, actions);
+    }
+
+    /// Over the view under the ribbon, centered together between the columns: the context card
+    /// (what a pick takes, which copies a change reaches), then the active tool's card
+    /// (docs/ui/interface.md#context-card), each translucent but under the pointer or typed
+    /// in; no option, no card. The row's widths are known before drawing it (as last measured:
+    /// a pass whose widths changed is discarded, so the cards are never shown misplaced while
+    /// they settle). Gives where what is under them starts.
+    fn option_cards(&mut self, ctx: &egui::Context, room: Room, actions: &mut Vec<Action>) -> f32 {
+        let Room { view, margin, below_ribbon, free: (free_left, free_right) } = room;
         let options_id = egui::Id::unique("tool_options");
         let widths_id = options_id.with("widths");
         let mut free_top = below_ribbon;
-        let Some(doc) = self.docs.active_mut() else { return };
+        let Some(doc) = self.docs.active_mut() else { return free_top };
         let (has_context, has_tool) = (panels::has_context_options(&doc.editor), panels::has_tool_options(&doc.editor));
         if has_context || has_tool {
             let widths = ctx.data(|d| d.get_temp::<[f32; 2]>(widths_id)).unwrap_or_default();
@@ -630,6 +569,14 @@ impl SkraftApp {
                 .rect;
             free_top = options.bottom() + margin;
         }
+        free_top
+    }
+
+    /// What floats over the 3D view: the view bar, the tree drop-up, the steps bar, the quick
+    /// tools' card; then what zoom extents frames, from `free_top` down.
+    fn view_overlays(&mut self, ctx: &egui::Context, room: Room, free_top: f32, views: &[CommandView], actions: &mut Vec<Action>) {
+        let Room { view, margin, below_ribbon, free: (free_left, free_right) } = room;
+        let Some(doc) = self.docs.active_mut() else { return };
         // The view bar (docs/ui/view-bar.md): over the left or right edge, beside that side's
         // column, centered on the view's height but never over the ribbon; what zoom extents
         // frames stops at it.
@@ -668,6 +615,105 @@ impl SkraftApp {
         doc.editor
             .set_free_area(glam::DVec2::new(free_min.x as f64, free_min.y as f64), glam::DVec2::new(free_max.x as f64, free_max.y as f64));
     }
+
+    /// The stage: the shown document's 3D view or sheet in `view`, the view's ground beside it
+    /// over the rest of `area`.
+    fn stage_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, i: usize, area: egui::Rect, view: egui::Rect, margin: f32) {
+        let theme = self.theme;
+        let stage = self.workspace().stage;
+        // A sheet is framed in what the ribbon (as last drawn) and the side columns leave.
+        let sheet_room = self.ribbon_last_bottom.map(|b| {
+            let (_, free, _) = self.columns(view, margin);
+            egui::Rect::from_x_y_ranges(free, (b + margin).clamp(area.top(), area.bottom())..=area.bottom())
+        });
+        let (viewport, docs, prefs) = (&mut self.viewport, &mut self.docs, &self.prefs);
+        egui::CentralPanel::no_frame().show(ui, |ui| {
+            // Beside the view, the stage's ground is the view's (the table's card over it).
+            if view != area {
+                ui.painter().rect_filled(area, 0.0, viewport::color(theme.ui.view));
+            }
+            if let Some(d) = docs.iter_mut().nth(i) {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(view), |ui| {
+                    if stage == Stage::Sheet {
+                        // A sheet of the drawing instead of the 3D view (docs/ui/drawing.md).
+                        let ready = viewport.sheet_textures(d.id);
+                        let title = d.name();
+                        let wanted =
+                            crate::sheet::ui(ui, view, sheet_room, &mut d.editor, &mut d.sheet, &mut d.lines, &theme, &ready, &title);
+                        viewport.sheet_pictures(ui.ctx(), frame, d.id, &d.editor, &theme, &wanted);
+                    } else {
+                        viewport.ui(ui, frame, d.id, &mut d.editor, &d.vcb, &prefs.navigation, &theme, prefs.show_render_stats);
+                    }
+                });
+            }
+        });
+    }
+
+    /// The ribbon at the top (docs/ui/ribbon.md#layout): between the docked cards' columns,
+    /// which then take the view's whole height, when it fits there whole; else above them,
+    /// over the view's width, the columns under it. Gives whether it is above them, and where
+    /// what is under it starts.
+    fn ribbon_ui(
+        &mut self,
+        ctx: &egui::Context,
+        area: egui::Rect,
+        split: Option<Split>,
+        margin: f32,
+        views: &[CommandView],
+        actions: &mut Vec<Action>,
+    ) -> (bool, f32) {
+        let card = |style: &egui::Style| card_frame(style);
+        let ribbon_view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views };
+        let frame_x = card(&ctx.global_style()).total_margin().sum().x;
+        let natural = ribbon::natural_width(ctx, &ribbon_view);
+        let (_, free, _) = self.columns(area, margin);
+        let inside = |x: f32| x > area.left() && x < area.right();
+        // A split stage's table counts as a column: the ribbon between it and the right one.
+        let between = egui::Rangef::new(
+            match split {
+                Some(s) => s.view,
+                None if inside(free.min) => free.min,
+                None => area.left() + margin,
+            },
+            if inside(free.max) { free.max } else { area.right() - margin },
+        );
+        let above = natural + frame_x > between.span();
+        let span = if above { egui::Rangef::new(area.left() + margin, area.right() - margin) } else { between };
+        // As wide as its content, centered within its span (on the area, or between a split
+        // stage's table and the right column): a window narrower than that narrows it
+        // ([`ribbon::arrange`] then gives way).
+        let center = if split.is_some() && !above { span.center() } else { area.center().x };
+        let ribbon_width = natural.min((span.span() - frame_x).max(0.0));
+        let ribbon_left = (center - (ribbon_width + frame_x) / 2.0).min(span.max - ribbon_width - frame_x).max(span.min);
+        let ribbon_area = egui::Area::new(egui::Id::unique("ribbon"))
+            .fixed_pos(egui::pos2(ribbon_left, area.top() + margin))
+            .constrain_to(area)
+            .sense(egui::Sense::click())
+            .show(ctx, |ui| {
+                let card = card(ui.style());
+                let inset = card.inner_margin;
+                card.show(ui, |ui| ribbon::ribbon(ui, &ribbon_view, ribbon_width, inset, actions))
+            });
+        egui::Popup::context_menu(&ribbon_area.response)
+            .style(crate::style::menu)
+            .show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, actions));
+        let ribbon_rect = ribbon_area.response.rect;
+        self.ribbon_bottom = Some(ribbon_rect.bottom());
+        self.ribbon_last_bottom = self.ribbon_bottom;
+        (above, ribbon_rect.bottom() + margin)
+    }
+}
+
+/// Where the 3D view lies among what floats over it.
+#[derive(Clone, Copy)]
+struct Room {
+    view: egui::Rect,
+    /// Between the floating cards, and around them.
+    margin: f32,
+    /// Where what is under the ribbon starts.
+    below_ribbon: f32,
+    /// The xs the side columns leave free over the view.
+    free: (f32, f32),
 }
 
 /// The edges of a side panel that can be dragged.

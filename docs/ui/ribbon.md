@@ -120,7 +120,7 @@ the Matière picker, combo boxes (`icons::combo_chevron`).
 
 - `apps/skraft/src/ribbon.rs` (description, `Prefs`, `arrange`, drawing, tests); `ribbon::tab_strip`
   also draws the Preferences', the journal window's and the « Composants » card's tabs, its
-  band's top corners following the card's or not (`Corners`); `App::document_ui` places the
+  band's top corners following the card's or not (`Corners`); `App::ribbon_ui` places the
   card (`App::columns` gives the columns' span).
 - Texts: `ribbon.*` keys of the catalog (workspaces, tabs, groups, menus' notes), without
   ellipsis ([Texts and languages](texts.md)).
