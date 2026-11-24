@@ -206,8 +206,15 @@ impl SkraftApp {
         if let Some(k) = commands::recent_slot(id) {
             return self.open_recent(k);
         }
-        // What needs no document.
-        let done = match id {
+        if self.app_command(id) {
+            return Ok(());
+        }
+        self.document_command(id)
+    }
+
+    /// Runs the command `id` if it needs no document: done?
+    fn app_command(&mut self, id: &str) -> bool {
+        match id {
             "file.new" => {
                 self.new_document();
                 true
@@ -288,10 +295,12 @@ impl SkraftApp {
                 true
             }
             _ => false,
-        };
-        if done {
-            return Ok(());
         }
+    }
+
+    /// Runs the command `id` on the shown document: its tools and views, then the drawing's
+    /// commands, then the model's.
+    fn document_command(&mut self, id: &str) -> Result<(), Note> {
         let Some(doc) = self.docs.active_mut() else {
             return Err(Note::info(t!("toast.command_unavailable", id = id)));
         };
@@ -317,6 +326,14 @@ impl SkraftApp {
             self.pdf_asked = Some((doc.id, self.ctx.input(|i| i.time)));
             return Ok(());
         }
+        self.drawing_command(id)
+    }
+
+    /// Runs the command `id` if it is the drawing's (docs/ui/drawing.md), else the model's.
+    fn drawing_command(&mut self, id: &str) -> Result<(), Note> {
+        let Some(doc) = self.docs.active_mut() else {
+            return Err(Note::info(t!("toast.command_unavailable", id = id)));
+        };
         // The presentation shown as a template in the library (docs/ui/drawing.md#templates).
         if id == "drawing.save_template" {
             let d = doc.editor.document();
@@ -374,6 +391,14 @@ impl SkraftApp {
             }
             _ => {}
         }
+        self.model_command(id)
+    }
+
+    /// Runs the command `id` on the model.
+    fn model_command(&mut self, id: &str) -> Result<(), Note> {
+        let Some(doc) = self.docs.active_mut() else {
+            return Err(Note::info(t!("toast.command_unavailable", id = id)));
+        };
         let mut s = doc.editor.document().settings().clone();
         let e = &mut doc.editor;
         match id {
