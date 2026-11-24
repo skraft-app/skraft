@@ -181,6 +181,8 @@ pub struct RecipeTool {
     pub failed: bool,
     /// An intersection (∩), not a machining.
     pub intersect: bool,
+    /// A linked body (docs/model/bodies.md#links), its edges dashed.
+    pub linked: bool,
 }
 
 /// The meshes of the recipe shown, in the axes of what is open — the part, or a group of its
@@ -372,8 +374,14 @@ impl DisplayScene {
             let (mut blanks, mut tools) = (Vec::new(), Vec::with_capacity(p.bodies.len()));
             for b in &p.bodies {
                 let key = Id(RECIPE_KEY | TOOL_KEY | b.def.0);
-                let t =
-                    RecipeTool { body: b.id, key, placement: b.placement, failed: p.is_failed(b.id), intersect: b.sign == Sign::Intersect };
+                let t = RecipeTool {
+                    body: b.id,
+                    key,
+                    placement: b.placement,
+                    failed: p.is_failed(b.id),
+                    intersect: b.sign == Sign::Intersect,
+                    linked: p.def_of(b).source == skraft_model::BodySource::Linked,
+                };
                 if b.sign == Sign::Positive { blanks.push(t) } else { tools.push(t) }
             }
             let mut nested = Vec::new();
@@ -1275,6 +1283,7 @@ fn nested_tools(p: &skraft_model::Part, group: &skraft_model::BodyDef, at: DAffi
                 placement,
                 failed: p.is_failed(b.id),
                 intersect: b.sign == Sign::Intersect,
+                linked: false,
             }),
             Sign::Positive => nested_tools(p, p.def_of(b), placement, top, out, depth + 1),
         }

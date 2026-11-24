@@ -787,13 +787,17 @@ impl Viewport {
                         transform: DMat4::from(p.transform),
                         tint: if p.faded { fade } else { render::NO_TINT },
                         // Not what the eraser would take: that one as faint as any.
-                        opacity: if matches!(p.look, Look::Tool | Look::Intersect) && p.ghost && !p.faint_edges { machining } else { 0.0 },
+                        opacity: if matches!(p.look, Look::Tool | Look::LinkedTool | Look::Intersect) && p.ghost && !p.faint_edges {
+                            machining
+                        } else {
+                            0.0
+                        },
                         texture: in_part
                             .as_ref()
                             .filter(|(keys, _)| keys.contains(&def.0))
                             .map(|(_, to_part)| *to_part * DMat4::from(p.transform)),
                         material: match p.look {
-                            Look::Tool => tool_slot,
+                            Look::Tool | Look::LinkedTool => tool_slot,
                             Look::FailedTool => tool_slot + 1,
                             Look::Intersect => tool_slot + 2,
                             Look::Shape | Look::Blank => slot(p.material),
@@ -802,6 +806,7 @@ impl Viewport {
                     .collect(),
                 ghost: places.iter().any(|p| p.ghost),
                 faint_edges: places.iter().any(|p| p.faint_edges),
+                dashed_edges: places.iter().any(|p| p.look == Look::LinkedTool && !p.faint_edges),
             })
             .collect();
         let highlights: Vec<render::Highlight> = view

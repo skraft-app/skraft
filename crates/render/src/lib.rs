@@ -96,11 +96,14 @@ pub struct Batch {
     pub ghost: bool,
     /// Edges and silhouettes see-through too, drawn with the ghosts' faces.
     pub faint_edges: bool,
+    /// Edges and silhouettes dashed (a linked body, docs/model/bodies.md#links); not with
+    /// `faint_edges`.
+    pub dashed_edges: bool,
 }
 
 impl Batch {
     pub fn new(key: u64, placements: Vec<Placement>) -> Self {
-        Batch { key, placements, ghost: false, faint_edges: false }
+        Batch { key, placements, ghost: false, faint_edges: false, dashed_edges: false }
     }
 }
 
@@ -1007,6 +1010,9 @@ pub struct Renderer {
     /// The same for [`Batch::faint_edges`]: blended, no depth written.
     edges_faint: wgpu::RenderPipeline,
     silhouettes_faint: wgpu::RenderPipeline,
+    /// The same for [`Batch::dashed_edges`], seen through as a ghost's.
+    edges_dashed: wgpu::RenderPipeline,
+    silhouettes_dashed: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     boxes: wgpu::RenderPipeline,
     /// The boxes' edges drawn over the scene ([`BoxOutline::shell_on_top`], `over`).
@@ -1259,6 +1265,9 @@ impl Renderer {
         let edges_faint = edge_pipeline("edges (faint)", "vs_edge_all", "fs_edge_faint", depth(false, nearer, Default::default()), alpha);
         let silhouettes_faint =
             edge_pipeline("silhouettes (faint)", "vs_silhouette", "fs_edge_faint", depth(false, nearer, Default::default()), alpha);
+        let edges_dashed = edge_pipeline("edges (dashed)", "vs_edge_all", "fs_edge_dashed", depth(true, nearer, Default::default()), None);
+        let silhouettes_dashed =
+            edge_pipeline("silhouettes (dashed)", "vs_silhouette", "fs_edge_dashed", depth(true, nearer, Default::default()), None);
         // Infinite lines (here and in the overlay) reach past the parallel projection's depth
         // range: clamped to it, where the device can.
         let unclipped = device.features().contains(wgpu::Features::DEPTH_CLIP_CONTROL);
@@ -1369,6 +1378,8 @@ impl Renderer {
             silhouettes,
             edges_faint,
             silhouettes_faint,
+            edges_dashed,
+            silhouettes_dashed,
             lines,
             boxes,
             boxes_front,
@@ -1895,14 +1906,22 @@ impl Renderer {
             if let Some(ei) = &self.segment_indices.buffer {
                 pass.set_index_buffer(ei.slice(..), wgpu::IndexFormat::Uint32);
                 for ghost in [false, true] {
-                    pass.set_pipeline(if ghost { &self.edges_all } else { &self.edges });
-                    for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.faint_edges && b.ghost == ghost) {
-                        let Some(m) = self.meshes.get(&b.key) else { continue };
-                        if let Some(e) = &m.edges {
-                            pass.set_bind_group(1, &e.group, &[]);
-                            pass.draw_indexed(self.segment_indices.of(0..e.count), 0, r.clone());
+                    for dashed in [false, true] {
+                        pass.set_pipeline(match (dashed, ghost) {
+                            (true, _) => &self.edges_dashed,
+                            (false, true) => &self.edges_all,
+                            (false, false) => &self.edges,
+                        });
+                        let drawn = |b: &&Batch| !b.faint_edges && b.ghost == ghost && b.dashed_edges == dashed;
+                        for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| drawn(b)) {
+                            let Some(m) = self.meshes.get(&b.key) else { continue };
+                            if let Some(e) = &m.edges {
+                                pass.set_bind_group(1, &e.group, &[]);
+                                pass.draw_indexed(self.segment_indices.of(0..e.count), 0, r.clone());
+                            }
                         }
                     }
+                    pass.set_pipeline(if ghost { &self.edges_all } else { &self.edges });
                     for run in runs.iter().filter(|r| r.face.is_none() && r.ghost == ghost) {
                         let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                         if let Some(e) = &m.edges {
@@ -1916,14 +1935,17 @@ impl Renderer {
                 && let Some(oi) = &self.segment_indices.buffer
             {
                 pass.set_index_buffer(oi.slice(..), wgpu::IndexFormat::Uint32);
-                pass.set_pipeline(&self.silhouettes);
-                for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.faint_edges) {
-                    let Some(m) = self.meshes.get(&b.key) else { continue };
-                    if let Some(s) = &m.silhouettes {
-                        pass.set_bind_group(1, &s.group, &[]);
-                        pass.draw_indexed(self.segment_indices.of(0..s.count), 0, r.clone());
+                for dashed in [false, true] {
+                    pass.set_pipeline(if dashed { &self.silhouettes_dashed } else { &self.silhouettes });
+                    for (b, r) in frame.batches.iter().zip(&batch_ranges).filter(|(b, _)| !b.faint_edges && b.dashed_edges == dashed) {
+                        let Some(m) = self.meshes.get(&b.key) else { continue };
+                        if let Some(s) = &m.silhouettes {
+                            pass.set_bind_group(1, &s.group, &[]);
+                            pass.draw_indexed(self.segment_indices.of(0..s.count), 0, r.clone());
+                        }
                     }
                 }
+                pass.set_pipeline(&self.silhouettes);
                 for run in runs.iter().filter(|r| r.face.is_none()) {
                     let Some((m, part)) = part_of(&self.meshes, run.key, run.part) else { continue };
                     if let Some(s) = &m.silhouettes {
@@ -2280,7 +2302,7 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     }
     frame.batches.len().hash(&mut h.0);
     for b in frame.batches {
-        (b.key, b.placements.len(), b.ghost, b.faint_edges).hash(&mut h.0);
+        (b.key, b.placements.len(), b.ghost, b.faint_edges, b.dashed_edges).hash(&mut h.0);
         for p in &b.placements {
             h.m(&p.transform);
             h.fs(&p.tint);
@@ -2410,8 +2432,15 @@ fn mesh_segments(m: &Mesh) -> MeshSegments {
     let mut out = MeshSegments::default();
     let mut brep = std::collections::HashSet::new();
     for poly in &m.edges {
+        // How far along its edge each end lies (model units, `w`): where a dashed edge's dashes
+        // fall, unbroken from one segment to the next.
+        let mut along = 0.0;
         for w in poly.windows(2) {
             let (a, b) = (Vec3::from_array(w[0]), Vec3::from_array(w[1]));
+            let (from, to) = (along, along + a.distance(b));
+            along = to;
+            let segment =
+                |a: Vec3, b: Vec3, tris: &[Vec3]| Segment { a: [a.x, a.y, a.z, from], b: [b.x, b.y, b.z, to], ..segment(a, b, tris) };
             let found = match (weld.get(&key(&w[0])), weld.get(&key(&w[1]))) {
                 (Some(&i), Some(&j)) => sides.get(&pair(i, j)).map(|(tris, _)| (pair(i, j), tris)),
                 _ => None,
