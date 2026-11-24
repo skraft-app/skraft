@@ -1530,8 +1530,10 @@ fn paint_inference(
         painter.circle_stroke(at, radius, Stroke::new(3.0, color(theme.tracked_halo)));
         painter.circle_stroke(at, radius, Stroke::new(1.5, color(theme.tracked)));
     };
+    // A violet dot on a light edge: the middle of the tracked points.
+    let dot = |at: egui::Pos2| painter.circle(at, 2.5, color(theme.tracked), Stroke::new(1.0, color(theme.tracked_halo)));
     let inference = editor.inference();
-    // The middle of the tracked points: a small ring; aimed at, the line it stands on.
+    // The middle of the tracked points: a small dot; aimed at, the line it stands on.
     if let [a, b] = editor.tracked() {
         if matches!(inference, Some((_, InferKind::TrackedMiddle))) {
             if let (Some(m), Some(a), Some(b)) = (to_screen((*a + *b) * 0.5), to_screen(*a), to_screen(*b)) {
@@ -1545,7 +1547,7 @@ fn paint_inference(
                 }
             }
         } else if let Some(at) = to_screen((*a + *b) * 0.5) {
-            ring(at, 3.0);
+            dot(at);
         }
     }
     // Tracked points: a ring wide enough to surround the marker of the point hovered there.
@@ -1581,7 +1583,7 @@ fn paint_inference(
         }
         InferKind::TrackedMiddle => {
             ring(at, 7.0);
-            painter.circle(at, 2.5, color(theme.tracked), Stroke::new(1.0, color(theme.tracked_halo)));
+            dot(at);
         }
         InferKind::BoxCorner => {
             overlay::square_grip(painter, at, 9.0, color(theme.endpoint), outline);

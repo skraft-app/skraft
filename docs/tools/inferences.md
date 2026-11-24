@@ -121,7 +121,7 @@ are dashed from the reference. Tracked points drop with the locks. When a rotati
 starts, only the latest stays, so that the older one and their middle leave the view.
 
 With two tracked points, **their middle** is a point to infer (`TrackedMiddle`), marked by a
-small ring. It is offered even inside a solid (the centre of a box from two opposite corners)
+small violet dot. It is offered even inside a solid (the centre of a box from two opposite corners)
 and is not tracked itself: it would replace one of the two points it stands on.
 
 ## Thirds
@@ -180,9 +180,9 @@ A marker's shape tells what the point is, and violet is kept for the temporary p
 
 - of the geometry, filled: endpoint (green disc), midpoint (cyan disc), third (yellow triangle),
   centre (pink disc with a small cross), origin (orange disc on a wider cross);
-- temporary, violet rings on a light edge: a tracked point (wide enough to surround the marker
-  of the point hovered there), the middle of two tracked points (a small ring; aimed at, a wide
-  ring around a dot, with a dashed line between the two points).
+- temporary, violet on a light edge: a ring for a tracked point (wide enough to surround the marker
+  of the point hovered there), the middle of two tracked points (a small dot; aimed at, a wide
+  ring around the dot, with a dashed line between the two points).
 
 ## Lines seen through the model
 
