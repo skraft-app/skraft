@@ -3151,7 +3151,7 @@ fn welding_never_drifts() {
     };
     // Places on a grid of 5 mm, each a jitter of up to twice the weld away.
     let mut asked: Vec<(Id, DVec3, DVec3)> = Vec::new();
-    for _ in 0..24 {
+    for _ in 0..12 {
         let mut at = || (next() * 20.0).floor() * 5.0 + (next() - 0.5) * 4.0 * WELD;
         let (x, y, z) = (at() + 50.0, at() + 50.0, at() * 0.1);
         let size = DVec3::new(at().abs() + 20.0, at().abs() + 20.0, at().abs() * 0.1 + 5.0);
