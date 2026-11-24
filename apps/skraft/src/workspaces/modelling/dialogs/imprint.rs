@@ -9,9 +9,6 @@ use skraft_model::{Document, ImprintPlan, Units};
 use crate::docs::DocId;
 use crate::kit::widgets::{Confirm, FieldLook, confirm_buttons, live_field};
 
-/// The depth a mortise takes past its tenon, by default (mm).
-const DEEP: f64 = 2.0;
-
 /// The dialog open, on a plan of a document's editor.
 pub struct Dialog {
     pub doc: DocId,
@@ -51,7 +48,7 @@ impl Dialog {
             into: t!("imprint.into", parts = names(doc, plan.receivers())),
             partial,
             around: units.format(0.0),
-            deep: units.format(DEEP),
+            deep: units.format(0.0),
             plan,
         }
     }
@@ -59,7 +56,7 @@ impl Dialog {
     pub fn show(&mut self, ctx: &egui::Context, units: &Units) -> Answer {
         let mut answer = Answer::Open;
         let read = |text: &str, current: f64| measure::length(text, units, current).ok().filter(|v| v.is_finite());
-        let values = read(&self.around, 0.0).zip(read(&self.deep, DEEP));
+        let values = read(&self.around, 0.0).zip(read(&self.deep, 0.0));
         let modal = crate::app::modal(ctx, egui::Id::unique("imprint"), 380.0, t!("imprint.title"), |ui| {
             ui.label(egui::RichText::new(&self.summary).strong());
             ui.label(&self.into);

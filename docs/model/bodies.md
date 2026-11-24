@@ -207,7 +207,7 @@ Link     { id, source: path, receiver: path, body, seat: T }
   the point clicked, kept while the confirmation is open (`Editor::end_imprint`). A
   confirmation says how many
   links come by the copies, what it
-  cuts and where, asks the clearance on the cheeks and the bottom, and warns when copies of a
+  cuts and where, asks the clearance on the cheeks and the bottom (none by default), and warns when copies of a
   receiver would show a machining with no part facing them; `Operation::Imprint` takes the pairs
   found. `Operation::SetClearance` changes it afterwards, from the linked body's entity info, for
   that machining.
