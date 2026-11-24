@@ -60,5 +60,5 @@ state and link the records behind it.
 | 0051 | [Drawing: a view's content and point of view chosen from the sheet](0051-drawing-views-chosen-and-framed-on-the-sheet.md) | accepted (2026-11-23; built) |
 | 0052 | [Drawing: a view frames what it shows](0052-drawing-a-view-frames-what-it-shows.md) | accepted (2026-11-23; built) |
 | 0053 | [The desktop app detects new versions but does not install them](0053-update-check-without-self-install.md) | accepted (2026-11-23; built) |
-| 0054 | [Changing a component's axes: one operation, dimensions read on the axes](0054-changing-a-components-axes.md) | accepted (2026-11-23; built but for « Retourner ») |
+| 0054 | [Changing a component's axes: one operation, dimensions read on the axes](0054-changing-a-components-axes.md) | accepted (2026-11-23; « Retourner » dropped as designed, 2026-11-24) |
 | 0055 | [Linked bodies: a part imprints its final solid in the parts it enters](0055-linked-bodies-through-imprints.md) | accepted (2026-11-23; steps 1 to 4 built) |
