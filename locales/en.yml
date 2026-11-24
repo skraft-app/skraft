@@ -771,8 +771,8 @@ panel:
     role_negative: "Machining"
     role_intersect: "Intersection"
     # A linked machining's clearance (decision 0055).
-    imprint_around: "Clearance"
-    imprint_deep: "End gap"
+    imprint_around: "Opening clearance"
+    imprint_deep: "Depth clearance"
     state: "State"
     failed: "could not be computed, needs fixing"
     copies: "Copies"
@@ -984,8 +984,8 @@ notice:
 # « Empreindre »'s confirmation (decision 0055).
 imprint:
   title: "Imprint Into the Parts It Enters"
-  around: "Clearance all around"
-  deep: "Extra depth"
+  around: "Opening clearance"
+  deep: "Depth clearance"
   machinings: "%{count} machining"
   machinings_plural: "%{count} machinings"
   links: "%{count} link"
