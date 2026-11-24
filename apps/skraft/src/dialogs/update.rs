@@ -150,6 +150,9 @@ enum Status {
     Failed(String),
 }
 
+/// The window's id.
+const WINDOW_ID: &str = "update_window";
+
 /// The checks of this run, and their window.
 pub struct Updates {
     ctx: egui::Context,
@@ -175,6 +178,8 @@ impl Updates {
     /// The user asks: the window, and a check unless a newer version is already known.
     pub fn open(&mut self, prefs: &Prefs) {
         self.window = true;
+        // Over the window it was asked from (« À propos »).
+        self.ctx.move_to_top(egui::LayerId::new(egui::Order::Middle, egui::Id::unique(WINDOW_ID)));
         if prefs.newer().is_some() {
             return;
         }
@@ -238,7 +243,7 @@ impl Updates {
         let mut open = true;
         let mut close = false;
         egui::Window::new(t!("update.title"))
-            .id(egui::Id::unique("update_window"))
+            .id(egui::Id::unique(WINDOW_ID))
             .title_frame(crate::kit::style::window_title_frame(ctx))
             .open(&mut open)
             .collapsible(false)
