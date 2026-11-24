@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/tree.rs, apps/skraft/src/instance_name.rs]
+code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/cards/panels.rs, apps/skraft/src/cards/panels/, apps/skraft/src/window/drop_up.rs, apps/skraft/src/instance_name.rs]
 ---
 
 # Select first, and a selection scope
@@ -171,7 +171,7 @@ level).
 
 ### The tree drop-up
 
-OCL's (`editor/tree.rs`, `apps/skraft/src/tree.rs`): under « Parts », while the tool picks
+OCL's (`editor/tree.rs`, `apps/skraft/src/window/drop_up.rs`): under « Parts », while the tool picks
 (Select, Erase, Paint always; the others with nothing taken), the copy modifier (Option on
 macOS) pressed over a part of an assembly lists its path — the list's bottom right corner on
 the cursor —, the model's level first, the levels above the active context disabled; a row

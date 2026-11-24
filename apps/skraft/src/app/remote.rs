@@ -19,15 +19,15 @@ impl SkraftApp {
     pub(super) fn serve_control(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         // Desktop: the loopback server's requests.
         #[cfg(not(target_arch = "wasm32"))]
-        let askers: Vec<crate::driving::Asker> = {
-            crate::handles::set_enabled(self.remote.is_on());
+        let askers: Vec<crate::system::driving::Asker> = {
+            crate::kit::handles::set_enabled(self.remote.is_on());
             match self.remote.control() {
                 Some(c) => c
                     .take()
                     .into_iter()
                     .map(|p| {
                         let call = p.call.clone();
-                        crate::driving::Asker::new(call, move |o| p.answer(o))
+                        crate::system::driving::Asker::new(call, move |o| p.answer(o))
                     })
                     .collect(),
                 None => Vec::new(),
@@ -36,8 +36,8 @@ impl SkraftApp {
         // Web: the page's calls (`window.skraft`).
         #[cfg(target_arch = "wasm32")]
         let askers = {
-            crate::handles::set_enabled(crate::web::used());
-            crate::web::take()
+            crate::kit::handles::set_enabled(crate::system::web::used());
+            crate::system::web::take()
         };
         // What a call does is its client's (the journal says so), whatever this frame's input.
         let origin = self.driving.origin();
@@ -70,7 +70,7 @@ impl SkraftApp {
     }
 
     /// Takes one request: answered now, or once a later frame has what it waits for.
-    fn serve(&mut self, asker: crate::driving::Asker, ctx: &egui::Context, frame: &eframe::Frame) {
+    fn serve(&mut self, asker: crate::system::driving::Asker, ctx: &egui::Context, frame: &eframe::Frame) {
         use skraft_control::Error;
         use skraft_control::params::{UiDragParams, UiKeyParams, UiPointerParams, UiScrollParams, UiTextParams, WaitParams};
         let call = &asker.call;
@@ -78,7 +78,7 @@ impl SkraftApp {
             "app.wait" => match call.params::<WaitParams>() {
                 Ok(params) => {
                     let deadline = web_time::Instant::now() + params.timeout();
-                    self.driving.waiting.push(crate::driving::Waiting { asker, params, deadline });
+                    self.driving.waiting.push(crate::system::driving::Waiting { asker, params, deadline });
                     return;
                 }
                 Err(e) => Err(e),
@@ -95,20 +95,26 @@ impl SkraftApp {
             }
             "ui.click" | "ui.move" => call.params::<UiPointerParams>().and_then(|p| {
                 let pos = self.ui_where(&p.at)?;
-                let mods = crate::driving::modifiers(&p.mods);
+                let mods = crate::system::driving::modifiers(&p.mods);
                 Ok(match call.method.as_str() {
-                    "ui.click" => crate::driving::click(pos, p.button, p.double, mods),
+                    "ui.click" => crate::system::driving::click(pos, p.button, p.double, mods),
                     _ => vec![(vec![egui::Event::PointerMoved(pos)], mods)],
                 })
             }),
             "ui.drag" => call.params::<UiDragParams>().and_then(|p| {
                 let (from, to) = (self.ui_where(&p.from)?, self.ui_where(&p.to)?);
-                Ok(crate::driving::drag(from, to, p.steps.unwrap_or(8).clamp(1, 1000), p.button, crate::driving::modifiers(&p.mods)))
+                Ok(crate::system::driving::drag(
+                    from,
+                    to,
+                    p.steps.unwrap_or(8).clamp(1, 1000),
+                    p.button,
+                    crate::system::driving::modifiers(&p.mods),
+                ))
             }),
             "ui.key" => call.params::<UiKeyParams>().and_then(|p| {
                 let key = egui::Key::from_name(&p.key)
                     .ok_or_else(|| Error::BadParams(format!("no key {:?} (egui's names: Escape, Enter, ArrowUp, A…)", p.key)))?;
-                let mods = crate::driving::modifiers(&p.mods);
+                let mods = crate::system::driving::modifiers(&p.mods);
                 let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: mods };
                 Ok(match p.pressed {
                     Some(pressed) => vec![(vec![event(pressed)], mods)],
@@ -118,7 +124,7 @@ impl SkraftApp {
             "ui.text" => call.params::<UiTextParams>().map(|p| vec![(vec![egui::Event::Text(p.text)], egui::Modifiers::NONE)]),
             "ui.scroll" => call.params::<UiScrollParams>().and_then(|p| {
                 let pos = self.ui_where(&p.at)?;
-                let mods = crate::driving::modifiers(&p.mods);
+                let mods = crate::system::driving::modifiers(&p.mods);
                 let wheel = egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(p.delta[0], p.delta[1]),
@@ -146,11 +152,11 @@ impl SkraftApp {
         use skraft_control::Error;
         match (w.pos, &w.handle, w.at) {
             (Some([x, y]), None, None) => Ok(egui::pos2(x, y)),
-            (None, Some(name), None) => crate::handles::find(name)
+            (None, Some(name), None) => crate::kit::handles::find(name)
                 .map(|h| h.rect.center())
                 .ok_or_else(|| Error::Failed(format!("no handle {name:?} drawn (ui.handles lists them)"))),
             (None, None, Some(at)) => {
-                let view = crate::handles::find("viewport").ok_or_else(|| Error::Failed("no viewport drawn".into()))?;
+                let view = crate::kit::handles::find("viewport").ok_or_else(|| Error::Failed("no viewport drawn".into()))?;
                 let d = self.docs.active().ok_or_else(|| Error::Failed("no document open".into()))?;
                 let px = d
                     .editor
@@ -192,7 +198,7 @@ impl SkraftApp {
         }
         if let Some((image, askers)) = self.driving.screenshot_taken() {
             let rgba: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_srgba_unmultiplied()).collect();
-            let png = crate::driving::png(image.size[0] as u32, image.size[1] as u32, &rgba);
+            let png = crate::system::driving::png(image.size[0] as u32, image.size[1] as u32, &rgba);
             for a in askers {
                 a.answer(png.clone().map(Answer::Png).map_err(skraft_control::Error::Failed));
             }
@@ -333,7 +339,7 @@ impl SkraftApp {
             "app.screenshot" => {
                 call.params::<NoParams>()?;
                 let shot = frame.wgpu_render_state().and_then(|s| self.viewport.capture(s));
-                match shot.map(|(w, h, px)| crate::driving::png(w, h, &px)) {
+                match shot.map(|(w, h, px)| crate::system::driving::png(w, h, &px)) {
                     Some(Ok(png)) => Ok(Answer::Png(png)),
                     Some(Err(e)) => Err(Error::Failed(e)),
                     None => Err(Error::Unavailable("nothing drawn yet".into())),
@@ -341,7 +347,7 @@ impl SkraftApp {
             }
             "ui.handles" => {
                 let p: skraft_control::params::UiHandlesParams = call.params()?;
-                let list: Vec<_> = crate::handles::last(&p.prefix)
+                let list: Vec<_> = crate::kit::handles::last(&p.prefix)
                     .into_iter()
                     .map(|h| {
                         json!({
@@ -380,7 +386,7 @@ impl SkraftApp {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            use crate::control::Status;
+            use crate::system::control::Status;
             let status = self.remote.status();
             if let Some(r) = &mut self.registration
                 && let Err(e) = r.set_port(match &status {

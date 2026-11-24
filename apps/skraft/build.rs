@@ -10,7 +10,7 @@
 //!   no icon.
 //! - Dev builds (the `dev` profile): what they were built from — the git worktree, branch,
 //!   commit, whether changes not committed went in, when — for the title bar's badge and the
-//!   registry of running apps (src/identity.rs). Built again whenever HEAD, the index or a
+//!   registry of running apps (src/system/identity.rs). Built again whenever HEAD, the index or a
 //!   source changes.
 
 use std::{env, fs, path::PathBuf, process::Command};

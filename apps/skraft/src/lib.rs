@@ -1,72 +1,18 @@
 //! Skraft, the application: egui panels around a viewport drawn by `skraft-render`,
 //! driven by the `skraft-tools` editor. Native and web (docs/ui/interface.md).
 
-mod about;
 mod app;
-mod catalog;
-mod clipboard;
+mod cards;
 mod commands;
-#[cfg(not(target_arch = "wasm32"))]
-mod control;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod crash;
-mod cursors;
-mod dates;
-mod dims;
-mod dock;
+mod dialogs;
 mod docs;
-mod driving;
-mod file;
-mod handles;
-mod icons;
-mod identity;
-mod images;
-mod imprint;
+mod drawing;
 mod instance_name;
-mod journal_window;
-mod language;
-mod library;
-mod materials;
-mod naming;
-#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
-mod native_menu;
-mod nav_prefs;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod opened;
-mod overlay;
-mod panels;
-mod parts_table;
-mod pdf;
-mod pins;
+mod kit;
 mod prefs;
-mod quick;
-mod ribbon;
-mod search;
-mod separators;
-mod sheet;
-mod sheet_board;
-mod sheet_library;
-mod sheet_tree;
-mod steps;
-mod style;
-mod tabs;
-mod templates;
-mod thumbnails;
-mod titlebar;
-mod toasts;
-mod tree;
-#[cfg(not(target_arch = "wasm32"))]
-mod update;
-mod view_bar;
-mod view_framer;
-mod view_lines;
-mod view_picker;
+pub mod system;
 mod viewport;
-#[cfg(target_arch = "wasm32")]
-mod web;
-mod widgets;
-#[cfg(target_arch = "wasm32")]
-mod worker;
+mod window;
 mod workspace;
 
 pub use app::SkraftApp;
@@ -147,7 +93,7 @@ pub fn start() {
         // of the app. The preferences are not read yet: the texts in the system's language.
         if !has_webgpu() {
             log::error!("Skraft needs WebGPU: navigator.gpu is missing");
-            language::apply(None);
+            system::language::apply(None);
             show_failure(&canvas, &skraft_i18n::t!("error.web.webgpu"));
             return;
         }
@@ -155,7 +101,7 @@ pub fn start() {
         let result = eframe::WebRunner::new().start(canvas.clone(), options, Box::new(|cc| Ok(Box::new(SkraftApp::new(cc))))).await;
         if let Err(e) = result {
             log::error!("Skraft failed to start: {e:?}");
-            language::apply(None);
+            system::language::apply(None);
             show_failure(&canvas, &skraft_i18n::t!("error.web.start", error = format!("{e:?}")));
         }
     });

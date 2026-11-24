@@ -11,21 +11,21 @@ use skraft_model::{Boolean, Document, FileView, LengthUnit, Operation, Settings}
 use skraft_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use skraft_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, ToolKind};
 
-use crate::clipboard::{Clipboard, Copied};
+use crate::cards::panels::{self, Action, CommandView};
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
-use crate::dock::{self, Dock, PanelId};
 use crate::docs::{DocId, Docs, file_name};
-use crate::file::{self, Inbox};
-#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
-use crate::native_menu::NativeMenu;
-use crate::panels::{self, Action, CommandView};
+use crate::kit::style::{CARD_MARGIN, Tip, card_frame, option_card};
 use crate::prefs::Preferences;
-use crate::ribbon;
-use crate::style::{CARD_MARGIN, Tip, card_frame, option_card};
-use crate::tabs::{MenuRow, Tab, TabAction};
-use crate::titlebar;
-use crate::toasts::{Act, Note, Toasts};
+use crate::system::clipboard::{Clipboard, Copied};
+use crate::system::file::{self, Inbox};
 use crate::viewport::{self, Viewport};
+use crate::window::dock::{self, Dock, PanelId};
+#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+use crate::window::native_menu::NativeMenu;
+use crate::window::ribbon;
+use crate::window::tabs::{MenuRow, Tab, TabAction};
+use crate::window::titlebar;
+use crate::window::toasts::{Act, Note, Toasts};
 use crate::workspace::{self, Stage, Workspace};
 
 pub struct SkraftApp {
@@ -48,9 +48,9 @@ pub struct SkraftApp {
     /// tools' hints.
     toasts: Toasts,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
-    naming: Option<crate::naming::Dialog>,
+    naming: Option<crate::dialogs::naming::Dialog>,
     /// The confirmation of « Imprimer » (decision 0055).
-    imprint: Option<crate::imprint::Dialog>,
+    imprint: Option<crate::dialogs::imprint::Dialog>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
@@ -58,9 +58,9 @@ pub struct SkraftApp {
     about_open: bool,
     /// The check for a new version (docs/ui/updates.md).
     #[cfg(not(target_arch = "wasm32"))]
-    updates: crate::update::Updates,
+    updates: crate::dialogs::update::Updates,
     /// The journal window, while open (`app.journal`).
-    journal_window: Option<crate::journal_window::JournalWindow>,
+    journal_window: Option<crate::dialogs::journal_window::JournalWindow>,
     /// The side panel being dragged to another place.
     panel_drag: Option<PanelDrag>,
     /// The shortcuts in use (the defaults with the user's changes).
@@ -88,17 +88,17 @@ pub struct SkraftApp {
     /// Shows the Débogage menu ([`debug_menu_wanted`]).
     debug_menu: bool,
     /// The control protocol's requests waiting for a frame, real inputs, messages (docs/control-protocol.md).
-    driving: crate::driving::Driving,
+    driving: crate::system::driving::Driving,
     /// The control channel, switched on and off while the app runs (desktop).
     #[cfg(not(target_arch = "wasm32"))]
-    remote: crate::control::Remote,
+    remote: crate::system::control::Remote,
     /// This app in the registry of running apps, its channel's port kept up to date (desktop;
     /// none if it could not be written).
     #[cfg(not(target_arch = "wasm32"))]
     registration: Option<skraft_control::instances::Registration>,
     /// The Claude Code session that launched this dev build, watched for its name (desktop).
     #[cfg(not(target_arch = "wasm32"))]
-    session: Option<crate::identity::Session>,
+    session: Option<crate::system::identity::Session>,
     /// The macOS menu bar (`None` if it could not be built: the ☰ menu then).
     #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
     native_menu: Option<NativeMenu>,
@@ -178,7 +178,7 @@ fn kernel_service(ctx: &egui::Context) -> Box<dyn KernelService> {
     #[cfg(target_arch = "wasm32")]
     {
         let ctx = ctx.clone();
-        Box::new(crate::worker::WebKernel::new(std::rc::Rc::new(move || ctx.request_repaint())))
+        Box::new(crate::system::worker::WebKernel::new(std::rc::Rc::new(move || ctx.request_repaint())))
     }
 }
 
@@ -234,7 +234,7 @@ fn prefs_window_id() -> egui::Id {
 /// preferences, the journal). The other areas of the app are placed every frame.
 fn prune_egui_memory(ctx: &egui::Context) {
     ctx.data_mut(|d| d.remove_by_type::<egui::text_edit::TextEditState>());
-    let windows: Vec<_> = [prefs_window_id(), crate::journal_window::window_id()]
+    let windows: Vec<_> = [prefs_window_id(), crate::dialogs::journal_window::window_id()]
         .into_iter()
         .filter_map(|id| egui::AreaState::load(ctx, id).map(|s| (id, s)))
         .collect();
@@ -250,16 +250,16 @@ fn prune_egui_memory(ctx: &egui::Context) {
 impl SkraftApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
-        crate::style::install_fonts(&cc.egui_ctx);
+        crate::kit::style::install_fonts(&cc.egui_ctx);
         prune_egui_memory(&cc.egui_ctx);
         // The page's command API asks for a frame when called (docs/control-protocol.md).
         #[cfg(target_arch = "wasm32")]
-        crate::web::set_context(cc.egui_ctx.clone());
+        crate::system::web::set_context(cc.egui_ctx.clone());
         let (prefs, error) = Preferences::load();
         // The texts name keys as the platform does (in the browser too).
         skraft_i18n::set_mac(cc.egui_ctx.os() == egui::os::OperatingSystem::Mac);
-        crate::separators::read();
-        crate::language::apply(prefs.locale.as_deref());
+        crate::system::separators::read();
+        crate::system::language::apply(prefs.locale.as_deref());
         let docs = Docs::new(SharedKernel::new(kernel_service(&cc.egui_ctx)));
         let mut toasts = Toasts::default();
         if let Some(e) = error {
@@ -268,13 +268,13 @@ impl SkraftApp {
         #[cfg(not(target_arch = "wasm32"))]
         let remote = {
             let ctx = cc.egui_ctx.clone();
-            let mut remote = crate::control::Remote::new(
-                crate::control::env_port().unwrap_or(prefs.remote_port),
+            let mut remote = crate::system::control::Remote::new(
+                crate::system::control::env_port().unwrap_or(prefs.remote_port),
                 skraft_control::server::default_dir(),
                 move || ctx.request_repaint(),
             );
             // The preference, or the environment for this launch only.
-            if (prefs.remote_control || crate::control::env_wanted())
+            if (prefs.remote_control || crate::system::control::env_wanted())
                 && let Err(e) = remote.set(true)
             {
                 toasts.push(Note::error(t!("toast.control_failed"), e));
@@ -283,7 +283,7 @@ impl SkraftApp {
         };
         #[cfg(not(target_arch = "wasm32"))]
         let registration = skraft_control::server::default_dir().and_then(|dir| {
-            let here = skraft_control::instances::Instance::here(env!("CARGO_PKG_VERSION"), crate::identity::build());
+            let here = skraft_control::instances::Instance::here(env!("CARGO_PKG_VERSION"), crate::system::identity::build());
             skraft_control::instances::Registration::register(&dir, here)
                 .inspect_err(|e| log::warn!("not in the registry of running apps: {e}"))
                 .ok()
@@ -310,7 +310,7 @@ impl SkraftApp {
             prefs_window: None,
             about_open: false,
             #[cfg(not(target_arch = "wasm32"))]
-            updates: crate::update::Updates::new(&cc.egui_ctx),
+            updates: crate::dialogs::update::Updates::new(&cc.egui_ctx),
             journal_window: None,
             capturing: None,
             palette: None,
@@ -328,7 +328,7 @@ impl SkraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             registration,
             #[cfg(not(target_arch = "wasm32"))]
-            session: crate::identity::Session::watch(cc.egui_ctx.clone()),
+            session: crate::system::identity::Session::watch(cc.egui_ctx.clone()),
             #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
             native_menu: None,
             pending_keys: Vec::new(),
@@ -351,7 +351,7 @@ impl SkraftApp {
         #[cfg(not(target_arch = "wasm32"))]
         app.updates.start(&app.prefs.updates);
         #[cfg(not(target_arch = "wasm32"))]
-        crate::opened::set_context(&cc.egui_ctx);
+        crate::system::opened::set_context(&cc.egui_ctx);
         #[cfg(target_arch = "wasm32")]
         app.ask_before_leaving();
         app
@@ -374,7 +374,7 @@ impl SkraftApp {
         });
         // egui's two styles come from the palette's tokens, installed when it changes.
         if self.styled != Some(self.prefs.palette) {
-            crate::style::install_palette(ctx, self.prefs.palette);
+            crate::kit::style::install_palette(ctx, self.prefs.palette);
             self.styled = Some(self.prefs.palette);
         }
         let mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
@@ -416,7 +416,7 @@ impl eframe::App for SkraftApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        crate::handles::frame_start();
+        crate::kit::handles::frame_start();
         self.driving.frame_start();
         // This frame's input: the user's, or a client's real events (`ui.*`).
         let origin = self.driving.origin();
@@ -483,7 +483,7 @@ impl eframe::App for SkraftApp {
         self.follow_documents();
         self.store_preferences(&ctx);
         // Last: every widget has said its cursor (docs/ui/cursors.md).
-        crate::cursors::apply(&ctx);
+        crate::kit::cursors::apply(&ctx);
     }
 }
 

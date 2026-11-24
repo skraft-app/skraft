@@ -2,7 +2,7 @@
 //! bar and the keyboard, by a stable id (`edit.undo`, `tool.move`, `view.top`…), with its
 //! label, its menu and its default shortcut. The app says whether a command is enabled (or
 //! checked) and runs it ([`crate::app`]); the command palette, the shortcut preferences and
-//! the control channel ([`crate::control`]) go through the same ids.
+//! the control channel ([`crate::system::control`]) go through the same ids.
 //!
 //! The keys of the active tool (Esc, arrows, Tab, Delete, typed values) are not commands: the
 //! editor reads them.

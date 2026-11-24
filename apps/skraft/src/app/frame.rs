@@ -33,7 +33,7 @@ impl SkraftApp {
         // The files the system asked to open (a double click, the command line): read now, opened
         // just below with the dialogs'.
         #[cfg(not(target_arch = "wasm32"))]
-        for path in crate::opened::take() {
+        for path in crate::system::opened::take() {
             self.user_acted();
             if let Err(e) = file::open_path(&path, &self.inbox) {
                 self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&path)), e));
@@ -120,7 +120,7 @@ impl SkraftApp {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     let stem = std::path::Path::new(&name).file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-                    let _ = crate::templates::install(&stem, &bytes);
+                    let _ = crate::drawing::templates::install(&stem, &bytes);
                 }
                 if self.docs.active().is_none() {
                     self.new_document();
@@ -129,9 +129,9 @@ impl SkraftApp {
                     let several = template.drawing().sheets().count() > 1;
                     let template = std::sync::Arc::new(template);
                     let added = if several {
-                        crate::sheet::presentation_from(&mut d.editor, &mut d.sheet, template)
+                        crate::drawing::sheet::presentation_from(&mut d.editor, &mut d.sheet, template)
                     } else {
-                        crate::sheet::sheet_from(&mut d.editor, &mut d.sheet, template, None, None)
+                        crate::drawing::sheet::sheet_from(&mut d.editor, &mut d.sheet, template, None, None)
                     };
                     if added {
                         let key = if several {
@@ -173,7 +173,7 @@ impl SkraftApp {
     pub(super) fn show_window_title(&self, ctx: &egui::Context) {
         // Still the window's title where the OS shows it (Window menu, Mission Control).
         // A dev build says which (several may run, one per worktree).
-        let app = crate::identity::build().map_or_else(|| "Skraft".to_owned(), |b| format!("Skraft [{}]", b.label()));
+        let app = crate::system::identity::build().map_or_else(|| "Skraft".to_owned(), |b| format!("Skraft [{}]", b.label()));
         let title = match self.docs.active() {
             Some(d) => format!("{app} — {}{}", d.name(), if d.modified() { " •" } else { "" }),
             None => app,
@@ -207,7 +207,7 @@ impl SkraftApp {
             #[cfg(target_arch = "wasm32")]
             instance: None,
             #[cfg(not(target_arch = "wasm32"))]
-            session: self.session.as_ref().and_then(crate::identity::Session::name),
+            session: self.session.as_ref().and_then(crate::system::identity::Session::name),
             #[cfg(target_arch = "wasm32")]
             session: None,
         };
@@ -217,7 +217,7 @@ impl SkraftApp {
     /// The windows over the document: preferences, about, updates, journal, palette, prompts.
     pub(super) fn secondary_windows(&mut self, ctx: &egui::Context, views: &[CommandView], actions: &mut Vec<Action>) {
         self.preferences_window(ctx);
-        let check_updates = crate::about::show(ctx, &mut self.about_open);
+        let check_updates = crate::dialogs::about::show(ctx, &mut self.about_open);
         #[cfg(not(target_arch = "wasm32"))]
         {
             if check_updates {
@@ -228,7 +228,7 @@ impl SkraftApp {
         #[cfg(target_arch = "wasm32")]
         let _ = check_updates;
         let journal = self.docs.active().map(|d| (d.name(), d.editor.journal()));
-        crate::journal_window::show(ctx, &mut self.journal_window, journal);
+        crate::dialogs::journal_window::show(ctx, &mut self.journal_window, journal);
         self.palette_window(ctx, views, actions);
         self.save_prompt(ctx);
         self.loading_window(ctx);
@@ -263,7 +263,7 @@ impl SkraftApp {
                     if self.naming.is_none()
                         && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(target))
                     {
-                        self.naming = Some(crate::naming::Dialog::new(doc, n));
+                        self.naming = Some(crate::dialogs::naming::Dialog::new(doc, n));
                     }
                 }
             }

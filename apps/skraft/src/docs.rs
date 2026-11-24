@@ -25,16 +25,16 @@ pub struct Doc {
     /// What is being typed into the measurements box.
     pub vcb: String,
     /// Its outliner's rows unfolded, and what they are kept by.
-    pub outliner: crate::panels::OutlinerState,
+    pub outliner: crate::cards::panels::OutlinerState,
     /// Its « Composants » card's rows (docs/ui/components-library.md).
-    pub library: crate::library::LibraryState,
-    pub materials: crate::materials::MaterialsState,
+    pub library: crate::cards::library::LibraryState,
+    pub materials: crate::cards::materials::MaterialsState,
     /// Its parts list's sort and rows (docs/ui/parts-list.md).
-    pub parts_list: crate::parts_table::PartsListState,
+    pub parts_list: crate::cards::parts_table::PartsListState,
     /// Its drawing's sheet shown and how (docs/ui/drawing.md).
-    pub sheet: crate::sheet::SheetState,
+    pub sheet: crate::drawing::sheet::SheetState,
     /// Its drawing's views' lines, computed off the UI thread (docs/ui/drawing.md#lines).
-    pub lines: crate::view_lines::LinesCache,
+    pub lines: crate::drawing::view_lines::LinesCache,
     /// The workspace it is shown in (decision 0047): kept in its file ([`skraft_model::FileView`]).
     pub workspace: &'static crate::workspace::Workspace,
     /// When it was last shown ([`Docs::cap_histories`]'s tick).

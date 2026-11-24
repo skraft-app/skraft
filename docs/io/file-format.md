@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/model/src/file.rs, crates/model/src/settings.rs, apps/skraft/src/file.rs, apps/skraft/src/opened.rs, packaging/]
+code: [crates/model/src/file.rs, crates/model/src/settings.rs, apps/skraft/src/system/file.rs, apps/skraft/src/system/opened.rs, packaging/]
 ---
 
 # File format
@@ -127,7 +127,7 @@ shared-mime-info type each and the `.desktop` entry's `MimeType` on Linux. A fil
 reaches the app as an argument (Windows, Linux: a new instance) or as an Apple Event « open
 documents » (macOS, launched or running: winit does not handle it, the app installs its own
 handler when it will finish launching); either way it waits in a queue
-(`apps/skraft/src/opened.rs`) and opens in a tab of its own at the next frame — a
+(`apps/skraft/src/system/opened.rs`) and opens in a tab of its own at the next frame — a
 `.skraftmat` imported into the model shown.
 
 ## Version 1 until 0.1.0

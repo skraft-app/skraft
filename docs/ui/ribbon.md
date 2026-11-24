@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/ribbon.rs, apps/skraft/src/icons.rs, apps/skraft/src/prefs.rs, apps/skraft/src/app.rs, apps/skraft/src/app/]
+code: [apps/skraft/src/window/ribbon.rs, apps/skraft/src/kit/icons.rs, apps/skraft/src/prefs.rs, apps/skraft/src/app.rs, apps/skraft/src/app/]
 ---
 
 # Workspaces and ribbon
@@ -118,7 +118,7 @@ the Matière picker, combo boxes (`icons::combo_chevron`).
 
 ## Code and texts
 
-- `apps/skraft/src/ribbon.rs` (description, `Prefs`, `arrange`, drawing, tests); `ribbon::tab_strip`
+- `apps/skraft/src/window/ribbon.rs` (description, `Prefs`, `arrange`, drawing, tests); `ribbon::tab_strip`
   also draws the Preferences', the journal window's and the « Composants » card's tabs, its
   band's top corners following the card's or not (`Corners`); `App::ribbon_ui` places the
   card (`App::columns` gives the columns' span).

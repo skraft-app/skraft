@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/draw.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/view.rs, crates/tools/src/guides.rs, apps/skraft/src/viewport.rs, apps/skraft/src/overlay.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl]
+code: [crates/tools/src/draw.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/view.rs, crates/tools/src/guides.rs, apps/skraft/src/viewport.rs, apps/skraft/src/kit/overlay.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl]
 ---
 
 # Drawing helpers
@@ -125,7 +125,7 @@ cost.
 ## Screen overlays
 
 What is drawn in points on the screen rather than in the model goes through egui's painter, the
-3D view's as the drawing sheet's, with the shapes of `apps/skraft/src/overlay.rs`: the dash
+3D view's as the drawing sheet's, with the shapes of `apps/skraft/src/kit/overlay.rs`: the dash
 patterns named by what they mean (`SELECTION`, `FRAME`, `GHOST`, `ALIGNMENT`, `TRACKED`, `LEVEL`),
 the selection rectangle (`marquee`), the square grip, the cross, a text turned about its corner
 (`turned_text`).

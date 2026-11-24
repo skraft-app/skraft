@@ -6,13 +6,13 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
-    skraft::crash::install();
+    skraft::system::crash::install();
     env_logger::init();
-    skraft::opened::install();
+    skraft::system::opened::install();
     let run = eframe::run_native("Skraft", skraft::native_options(), Box::new(|cc| Ok(Box::new(skraft::SkraftApp::new(cc)))));
     // Without a console nobody would see why it ends.
     if let Err(error) = &run {
-        skraft::crash::fatal(error);
+        skraft::system::crash::fatal(error);
     }
     run
 }

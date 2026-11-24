@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/kernel/src/engine.rs, crates/kernel/src/job.rs, crates/kernel/src/lib.rs, crates/model/src/ops.rs, apps/kernel-worker/src/lib.rs, apps/skraft/src/worker.rs, web/kernel-worker.js]
+code: [crates/kernel/src/engine.rs, crates/kernel/src/job.rs, crates/kernel/src/lib.rs, crates/model/src/ops.rs, apps/kernel-worker/src/lib.rs, apps/skraft/src/system/worker.rs, web/kernel-worker.js]
 ---
 
 # The kernel: the SolidCore record, booleans, asynchronous jobs

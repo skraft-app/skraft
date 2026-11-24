@@ -9,10 +9,10 @@ impl SkraftApp {
         let Some(mut picker) = d.sheet.picker.take() else { return };
         let doc = d.id;
         match picker.show(ctx, &d.editor, &mut self.viewport.thumbnails, doc) {
-            crate::view_picker::Answer::Open => d.sheet.picker = Some(picker),
-            crate::view_picker::Answer::Cancel => {}
-            crate::view_picker::Answer::Done(subject) => {
-                if let Err(e) = crate::sheet::picked(&mut d.editor, &mut d.sheet, picker.purpose, subject) {
+            crate::drawing::view_picker::Answer::Open => d.sheet.picker = Some(picker),
+            crate::drawing::view_picker::Answer::Cancel => {}
+            crate::drawing::view_picker::Answer::Done(subject) => {
+                if let Err(e) = crate::drawing::sheet::picked(&mut d.editor, &mut d.sheet, picker.purpose, subject) {
                     self.toasts.push(Note::error(t!("notice.op_failed", op = t!("operation.set_element")), e));
                 }
             }
@@ -26,7 +26,7 @@ impl SkraftApp {
             if let Some(n) = d.editor.take_naming()
                 && self.naming.is_none()
             {
-                self.naming = Some(crate::naming::Dialog::new(d.id, n));
+                self.naming = Some(crate::dialogs::naming::Dialog::new(d.id, n));
             }
         }
         let Some(dialog) = &mut self.naming else { return };
@@ -37,9 +37,9 @@ impl SkraftApp {
         let editor = &mut d.editor;
         let naming = dialog.naming.clone();
         match dialog.show(ctx, |name| editor.name_refusal(&naming, name)) {
-            crate::naming::Answer::Open => {}
-            crate::naming::Answer::Cancel => self.naming = None,
-            crate::naming::Answer::Name(name) => {
+            crate::dialogs::naming::Answer::Open => {}
+            crate::dialogs::naming::Answer::Cancel => self.naming = None,
+            crate::dialogs::naming::Answer::Name(name) => {
                 if let Err(e) = editor.give_name(&naming, &name) {
                     self.toasts.push(Note::error(t!("notice.op_failed", op = t!("operation.rename")), e));
                 }
@@ -62,7 +62,7 @@ impl SkraftApp {
             if plan.link_count() == 0 {
                 self.toasts.push(Note::info(t!("error.model.nothing_to_imprint")));
             } else if self.imprint.is_none() {
-                self.imprint = Some(crate::imprint::Dialog::new(d.id, d.editor.document(), plan));
+                self.imprint = Some(crate::dialogs::imprint::Dialog::new(d.id, d.editor.document(), plan));
             }
         }
         let Some(dialog) = &mut self.imprint else { return };
@@ -72,9 +72,9 @@ impl SkraftApp {
         };
         let units = d.editor.document().settings().units.clone();
         match dialog.show(ctx, &units) {
-            crate::imprint::Answer::Open => {}
-            crate::imprint::Answer::Cancel => self.imprint = None,
-            crate::imprint::Answer::Imprint(around, deep) => {
+            crate::dialogs::imprint::Answer::Open => {}
+            crate::dialogs::imprint::Answer::Cancel => self.imprint = None,
+            crate::dialogs::imprint::Answer::Imprint(around, deep) => {
                 d.editor.imprint(&dialog.plan, around, deep);
                 self.imprint = None;
             }
@@ -97,9 +97,9 @@ impl SkraftApp {
                 if ui.button(t!("save_prompt.dont_save")).clicked() {
                     chosen = Some(Answer::DontSave);
                 }
-                match crate::widgets::confirm_buttons(ui, "save_prompt", t!("save_prompt.save"), true, t!("save_prompt.cancel")) {
-                    Some(crate::widgets::Confirm::Ok) => chosen = Some(Answer::Save),
-                    Some(crate::widgets::Confirm::Cancel) => chosen = Some(Answer::Cancel),
+                match crate::kit::widgets::confirm_buttons(ui, "save_prompt", t!("save_prompt.save"), true, t!("save_prompt.cancel")) {
+                    Some(crate::kit::widgets::Confirm::Ok) => chosen = Some(Answer::Save),
+                    Some(crate::kit::widgets::Confirm::Cancel) => chosen = Some(Answer::Cancel),
                     None => {}
                 }
             });

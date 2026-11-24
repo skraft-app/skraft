@@ -23,7 +23,7 @@ impl SkraftApp {
         // A fixed id: the title changes with the language.
         egui::Window::new(t!("prefs.title"))
             .id(prefs_window_id())
-            .title_frame(crate::style::window_title_frame(ctx))
+            .title_frame(crate::kit::style::window_title_frame(ctx))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -55,8 +55,10 @@ impl SkraftApp {
                 let m = ui.style().spacing.window_margin;
                 let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
                 // The window as wide as its tabs at least (it takes its content's width).
-                let width = ui.available_width().max(crate::ribbon::tab_strip_width(ui.painter(), &labels));
-                if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, crate::ribbon::Corners::Square, &[]) {
+                let width = ui.available_width().max(crate::window::ribbon::tab_strip_width(ui.painter(), &labels));
+                if let Some(k) =
+                    crate::window::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, crate::window::ribbon::Corners::Square, &[])
+                {
                     tab = tabs[k].0;
                 }
                 ui.add_space(4.0);
@@ -67,7 +69,7 @@ impl SkraftApp {
                     #[cfg(target_arch = "wasm32")]
                     PrefsTab::Debug => {}
                     PrefsTab::Model => self.model_settings(ui),
-                    PrefsTab::Navigation => crate::nav_prefs::navigation_settings(ui, &mut self.prefs.navigation),
+                    PrefsTab::Navigation => crate::dialogs::nav_prefs::navigation_settings(ui, &mut self.prefs.navigation),
                     PrefsTab::Interface => interface_settings(ui, &mut self.prefs, workspace),
                     PrefsTab::Shortcuts => self.shortcut_settings(ui),
                 }
@@ -110,8 +112,8 @@ impl SkraftApp {
         ui.weak(t!("prefs.model.intro"));
         ui.add_space(4.0);
         // The settings window's sections: a semibold title over a line, the same labels' column.
-        crate::style::settings_section(ui, &t!("prefs.model.display"));
-        crate::style::settings_grid(ui, "model_display", |ui| {
+        crate::kit::style::settings_section(ui, &t!("prefs.model.display"));
+        crate::kit::style::settings_grid(ui, "model_display", |ui| {
             ui.label(t!("prefs.model.grid"));
             ui.checkbox(&mut s.display.grid, "");
             ui.end_row();
@@ -128,17 +130,17 @@ impl SkraftApp {
             ui.checkbox(&mut s.display.hide_rest_of_model, "").tip(t!("prefs.model.hide_rest_of_model_tip"));
             ui.end_row();
         });
-        crate::style::settings_section(ui, &t!("prefs.model.units"));
-        crate::style::settings_grid(ui, "model_units", |ui| {
+        crate::kit::style::settings_section(ui, &t!("prefs.model.units"));
+        crate::kit::style::settings_grid(ui, "model_units", |ui| {
             ui.label(t!("prefs.model.lengths"));
-            egui::ComboBox::from_id_salt("length_unit").icon(crate::icons::combo_chevron).selected_text(s.units.length.name()).show_ui(
-                ui,
-                |ui| {
+            egui::ComboBox::from_id_salt("length_unit")
+                .icon(crate::kit::icons::combo_chevron)
+                .selected_text(s.units.length.name())
+                .show_ui(ui, |ui| {
                     for u in LengthUnit::ALL {
                         ui.selectable_value(&mut s.units.length, u, u.name());
                     }
-                },
-            );
+                });
             ui.end_row();
             ui.label(t!("prefs.model.decimals"));
             ui.add(egui::Slider::new(&mut s.units.decimals, 0..=6));
@@ -219,7 +221,7 @@ impl SkraftApp {
                         ui.horizontal(|ui| {
                             ui.label(text);
                             if conflict {
-                                ui.add(crate::widgets::warning(ui));
+                                ui.add(crate::kit::widgets::warning(ui));
                             }
                         });
                     }
@@ -247,9 +249,9 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
     egui::Grid::new("general").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.general.language"));
         let before = prefs.locale.clone();
-        let system = t!("prefs.general.language_system", language = skraft_i18n::locale_name(crate::language::system()));
+        let system = t!("prefs.general.language_system", language = skraft_i18n::locale_name(crate::system::language::system()));
         egui::ComboBox::from_id_salt("locale")
-            .icon(crate::icons::combo_chevron)
+            .icon(crate::kit::icons::combo_chevron)
             .selected_text(prefs.locale.as_deref().map_or_else(|| system.clone(), skraft_i18n::locale_name))
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut prefs.locale, None, system);
@@ -260,7 +262,7 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
                 }
             });
         if prefs.locale != before {
-            crate::language::apply(prefs.locale.as_deref());
+            crate::system::language::apply(prefs.locale.as_deref());
         }
         ui.end_row();
         if !cfg!(target_arch = "wasm32") {
@@ -356,7 +358,7 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &st
             ui.spacing_mut().item_spacing.x = 12.0;
             for palette in UiPalette::ALL {
                 let name = palette_name(palette);
-                if crate::style::palette_card(ui, palette, mode, &name, prefs.palette == palette).clicked() {
+                if crate::kit::style::palette_card(ui, palette, mode, &name, prefs.palette == palette).clicked() {
                     prefs.palette = palette;
                 }
             }

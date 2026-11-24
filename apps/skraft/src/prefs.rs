@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dock::Layout;
+use crate::window::dock::Layout;
 use skraft_i18n::t;
 use skraft_model::Settings;
 use skraft_theme::{Choice, Palette};
@@ -40,7 +40,7 @@ pub struct Preferences {
     /// The tools' settings from their option bar (the booleans' scope…), by tool id.
     pub tool_options: BTreeMap<String, OptionValues>,
     /// The language of the app, a locale of /locales (`fr`); none: the system's
-    /// (src/language.rs).
+    /// (src/system/language.rs).
     pub locale: Option<String>,
     /// The interface's theme (docs/render/look.md): the system's, light or dark.
     pub theme: Choice,
@@ -74,14 +74,14 @@ pub struct Preferences {
     /// the rest (docs/ui/workspaces.md#stage).
     pub table_share: f32,
     /// The workspace and tab shown, the ribbon's pins and labels (docs/ui/ribbon.md).
-    pub ribbon: crate::ribbon::Prefs,
+    pub ribbon: crate::window::ribbon::Prefs,
     /// The commands the quick tools' card shows (docs/tools/quick-tools.md); absent: the
     /// defaults.
     pub quick_tools: Option<Vec<String>>,
     /// The commands the view bar shows (docs/ui/view-bar.md); absent: the defaults.
     pub view_bar: Option<Vec<String>>,
     /// The side of the view the view bar is docked to.
-    pub view_bar_side: crate::dock::Dock,
+    pub view_bar_side: crate::window::dock::Dock,
     /// The control channel (docs/ui/commands.md) is on at launch (desktop).
     pub remote_control: bool,
     /// Its port, on 127.0.0.1.
@@ -92,7 +92,7 @@ pub struct Preferences {
     pub history_memory: u32,
     /// The check for a new version and what it found (docs/ui/updates.md; desktop).
     #[cfg(not(target_arch = "wasm32"))]
-    pub updates: crate::update::Prefs,
+    pub updates: crate::dialogs::update::Prefs,
 }
 
 impl Default for Preferences {
@@ -117,15 +117,15 @@ impl Default for Preferences {
             panels: Layout::default(),
             workspace_panels: BTreeMap::new(),
             table_share: 0.5,
-            ribbon: crate::ribbon::Prefs::default(),
+            ribbon: crate::window::ribbon::Prefs::default(),
             quick_tools: None,
             view_bar: None,
-            view_bar_side: crate::dock::Dock::Left,
+            view_bar_side: crate::window::dock::Dock::Left,
             remote_control: false,
             remote_port: DEFAULT_REMOTE_PORT,
             history_memory: DEFAULT_HISTORY_MEMORY,
             #[cfg(not(target_arch = "wasm32"))]
-            updates: crate::update::Prefs::default(),
+            updates: crate::dialogs::update::Prefs::default(),
         }
     }
 }
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn each_workspace_arranges_its_panels_from_the_first_ones() {
-        use crate::dock::PanelId;
+        use crate::window::dock::PanelId;
         let mut p = Preferences::default();
         let first = crate::workspace::WORKSPACES[0].id;
         p.layout_mut(first).toggle(PanelId::Materials);

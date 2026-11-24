@@ -28,7 +28,7 @@ pub fn job(own: &str, def: &str, auto: bool, ink: NameInk) -> LayoutJob {
     let faint = ink.weak.gamma_multiply(FAINT);
     let mut job = LayoutJob::default();
     if !own.is_empty() {
-        job.append(own, 0.0, TextFormat { font_id: crate::style::semibold(ink.size), ..regular(ink.ink) });
+        job.append(own, 0.0, TextFormat { font_id: crate::kit::style::semibold(ink.size), ..regular(ink.ink) });
         job.append(" ", 0.0, regular(ink.ink));
     }
     job.append("<", 0.0, regular(faint));
@@ -41,7 +41,7 @@ pub fn job(own: &str, def: &str, auto: bool, ink: NameInk) -> LayoutJob {
 /// Where, from the name's left, its own name `own` ends and its definition's starts: halfway
 /// across the space between them (a rename edits the one under the pointer).
 pub fn split(ui: &egui::Ui, own: &str, size: f32) -> f32 {
-    let font = crate::style::semibold(size);
+    let font = crate::kit::style::semibold(size);
     let width = |t: String| ui.fonts_mut(|f| f.layout_no_wrap(t, font.clone(), Color32::WHITE).size().x);
     let space = ui.fonts_mut(|f| f.layout_no_wrap(" ".into(), egui::FontId::proportional(size), Color32::WHITE).size().x);
     width(own.to_owned()) + space / 2.0

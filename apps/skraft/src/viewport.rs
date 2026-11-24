@@ -12,7 +12,7 @@ use skraft_tools::draw;
 use skraft_tools::navigation::{Button, Mods, NavAction, Trigger};
 use skraft_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput};
 
-use crate::overlay;
+use crate::kit::overlay;
 use crate::prefs::Navigation;
 
 /// A token as an egui colour (sRGB, unmultiplied alpha).
@@ -73,7 +73,7 @@ pub struct Viewport {
     document: u64,
     parked_slots: HashMap<u64, HashMap<Id, u32>>,
     /// The textures' images, prepared off the interface's thread.
-    images: crate::images::TextureImages,
+    images: crate::system::images::TextureImages,
     /// The size of the last frame drawn (pixels).
     size: [u32; 2],
     /// What the render statistics overlay shows.
@@ -83,13 +83,13 @@ pub struct Viewport {
     /// button is released.
     pub dragged_in: bool,
     /// The components' thumbnails (docs/ui/components-library.md#thumbnails), drawn by its renderer.
-    pub thumbnails: crate::thumbnails::Thumbnails,
+    pub thumbnails: crate::system::thumbnails::Thumbnails,
     /// The palette of the last frame and its entries' textures, the thumbnails' too.
     palette: Vec<[f32; 4]>,
     textures: Vec<[f32; 4]>,
     /// The pictures of the drawing's views (docs/ui/drawing.md#rendered-views), by document
     /// and view slot, and the textures of those dropped, freed at the next frame.
-    sheet: HashMap<(u64, crate::sheet::ViewSlot), SheetPicture>,
+    sheet: HashMap<(u64, crate::drawing::sheet::ViewSlot), SheetPicture>,
     sheet_freed: Vec<egui::TextureId>,
     /// Counts the frames a sheet asked for pictures: how recently each was seen.
     sheet_frame: u64,
@@ -189,7 +189,7 @@ impl Viewport {
     }
 
     /// The views' pictures of document `doc` drawn so far, by view slot.
-    pub fn sheet_textures(&self, doc: u64) -> HashMap<crate::sheet::ViewSlot, egui::TextureId> {
+    pub fn sheet_textures(&self, doc: u64) -> HashMap<crate::drawing::sheet::ViewSlot, egui::TextureId> {
         self.sheet.iter().filter(|((d, _), _)| *d == doc).map(|((_, v), p)| (*v, p.texture)).collect()
     }
 
@@ -204,7 +204,7 @@ impl Viewport {
         doc: u64,
         editor: &Editor,
         theme: &Theme,
-        wanted: &[crate::sheet::Wanted],
+        wanted: &[crate::drawing::sheet::Wanted],
     ) {
         let Some(state) = frame.wgpu_render_state() else { return };
         self.show_document(doc);
@@ -219,7 +219,7 @@ impl Viewport {
             let [w, h] = p.picture.size();
             (*k, w as u64 * h as u64 * 4, p.seen)
         });
-        for k in crate::sheet::over_budget(sizes, now, SHEET_KEPT_BYTES) {
+        for k in crate::drawing::sheet::over_budget(sizes, now, SHEET_KEPT_BYTES) {
             if let Some(p) = self.sheet.remove(&k) {
                 self.sheet_freed.push(p.texture);
             }
@@ -235,7 +235,7 @@ impl Viewport {
             let _ = self.sync(state, editor, theme);
             self.render_thumbnails(ctx, state, ctx.pixels_per_point(), editor, theme);
         }
-        let todo: Vec<&crate::sheet::Wanted> = wanted
+        let todo: Vec<&crate::drawing::sheet::Wanted> = wanted
             .iter()
             .filter(|w| self.sheet.get(&(doc, w.slot)).is_none_or(|p| p.stamp != w.stamp || p.images != images_ready(&self.images, w)))
             .collect();
@@ -286,7 +286,7 @@ impl Viewport {
         doc: u64,
         editor: &Editor,
         theme: &Theme,
-        w: &crate::sheet::Wanted,
+        w: &crate::drawing::sheet::Wanted,
         ppp: f32,
     ) -> Option<(u32, u32, Vec<u8>)> {
         let state = frame.wgpu_render_state()?;
@@ -316,7 +316,7 @@ impl Viewport {
         self.show_document(doc);
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
-        crate::handles::publish(|| "viewport".into(), rect);
+        crate::kit::handles::publish(|| "viewport".into(), rect);
         editor.set_viewport_size(DVec2::new(rect.width() as f64, rect.height() as f64));
         self.input(ui, &response, rect, editor, nav);
 
@@ -342,13 +342,13 @@ impl Viewport {
             // Navigating: the system's hand or magnifier.
             shown = own.filter(|_| navigating.is_none());
             if let Some(own) = shown {
-                crate::cursors::ask(ui.ctx(), own);
+                crate::kit::cursors::ask(ui.ctx(), own);
             }
             ui.ctx().set_cursor_icon(navigating.unwrap_or(cursor));
         }
         // What it draws about the pointer: the system's, a square about its hotspot.
         let footprint =
-            shown.map_or(egui::Rect::from_center_size(egui::Pos2::ZERO, egui::Vec2::splat(CURSOR_CLEAR)), crate::cursors::footprint);
+            shown.map_or(egui::Rect::from_center_size(egui::Pos2::ZERO, egui::Vec2::splat(CURSOR_CLEAR)), crate::kit::cursors::footprint);
 
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
@@ -424,7 +424,7 @@ impl Viewport {
         let visuals = ui.visuals();
         let font = egui::FontId::monospace(11.0);
         let galley = ui.painter().layout_no_wrap(text.join("\n"), font, visuals.text_color());
-        let margin = crate::style::FLOAT_GAP;
+        let margin = crate::kit::style::FLOAT_GAP;
         let pad = egui::vec2(8.0, 6.0);
         let size = galley.size() + 2.0 * pad;
         // Under the ribbon, beside the docked cards (as the last frame left them).
@@ -941,7 +941,7 @@ impl Viewport {
             return;
         }
         let Some(renderer) = self.renderer.as_mut() else { return };
-        let side = ((crate::thumbnails::TILE * ppp).round() as u32).clamp(16, 512);
+        let side = ((crate::system::thumbnails::TILE * ppp).round() as u32).clamp(16, 512);
         let size = [side, side];
         let scene = editor.scene();
         let start = web_time::Instant::now();
@@ -1064,7 +1064,7 @@ struct SheetLook<'a> {
 /// A sheet view's picture `w` drawn into `picture` (docs/ui/drawing.md#rendered-views): its
 /// parts, its lines over them, on the paper's white.
 /// How many of the texture images picture `w` shows are ready (they stay so once they are).
-fn images_ready(images: &crate::images::TextureImages, w: &crate::sheet::Wanted) -> usize {
+fn images_ready(images: &crate::system::images::TextureImages, w: &crate::drawing::sheet::Wanted) -> usize {
     w.images.iter().filter(|id| images.get(id).is_some()).count()
 }
 
@@ -1073,7 +1073,7 @@ fn draw_sheet_picture(
     state: &egui_wgpu::RenderState,
     scene: &skraft_tools::DisplayScene,
     look: &SheetLook<'_>,
-    w: &crate::sheet::Wanted,
+    w: &crate::drawing::sheet::Wanted,
     picture: &render::Picture,
 ) {
     let (theme, palette, textures, ppp) = (look.theme, look.palette, look.textures, look.ppp);

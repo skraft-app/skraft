@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/model/src/document.rs, crates/model/src/ops.rs, crates/model/src/weld.rs, crates/model/src/stretch.rs, crates/model/src/clipboard.rs, crates/kernel/src/engine.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/scene.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/]
+code: [crates/model/src/document.rs, crates/model/src/ops.rs, crates/model/src/weld.rs, crates/model/src/stretch.rs, crates/model/src/clipboard.rs, crates/kernel/src/engine.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/scene.rs, apps/skraft/src/cards/panels.rs, apps/skraft/src/cards/panels/]
 ---
 
 # Bodies: a part as positive and negative solids

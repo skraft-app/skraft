@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/cursors.rs, apps/skraft/src/viewport.rs, apps/skraft/assets/cursors, crates/tools/src/tools/mod.rs, crates/tools/src/tools/pick.rs, crates/tools/src/editor/mod.rs, crates/control/src/editor.rs, Cargo.toml]
+code: [apps/skraft/src/kit/cursors.rs, apps/skraft/src/viewport.rs, apps/skraft/assets/cursors, crates/tools/src/tools/mod.rs, crates/tools/src/tools/pick.rs, crates/tools/src/editor/mod.rs, crates/control/src/editor.rs, Cargo.toml]
 ---
 
 # Mouse cursors
