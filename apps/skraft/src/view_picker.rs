@@ -184,14 +184,11 @@ impl ViewPicker {
         let typing = ctx.memory(|m| m.focused().is_some());
         let revision = e.history().revision();
         let mut answer = Answer::Open;
-        let modal = egui::Modal::new(egui::Id::unique("view_picker")).frame(crate::app::modal_frame(ctx)).show(ctx, |ui| {
-            ui.set_width(WIDTH);
-            ui.spacing_mut().button_padding = crate::app::MODAL_BUTTON_PADDING;
-            ui.heading(match self.purpose {
-                Purpose::New => t!("drawing.picker.title_new"),
-                Purpose::Change(_) => t!("drawing.picker.title_change"),
-            });
-            ui.add_space(8.0);
+        let title = match self.purpose {
+            Purpose::New => t!("drawing.picker.title_new"),
+            Purpose::Change(_) => t!("drawing.picker.title_change"),
+        };
+        let modal = crate::app::modal(ctx, egui::Id::unique("view_picker"), WIDTH, title, |ui| {
             let salt = ui.make_persistent_id("view_picker_search");
             crate::search::field(ui, salt, "view_picker", &mut self.search, |_, _| {});
             ui.add_space(6.0);

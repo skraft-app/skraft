@@ -56,11 +56,7 @@ impl SkraftApp {
             return;
         };
         let mut chosen = None;
-        let modal = egui::Modal::new(egui::Id::unique("save_prompt")).frame(modal_frame(ctx)).show(ctx, |ui| {
-            ui.set_width(360.0);
-            ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
-            ui.heading(t!("save_prompt.title"));
-            ui.add_space(6.0);
+        let modal = modal(ctx, egui::Id::unique("save_prompt"), 360.0, t!("save_prompt.title"), |ui| {
             ui.label(t!("save_prompt.question", name = name));
             ui.weak(t!("save_prompt.note"));
             ui.add_space(10.0);
@@ -128,11 +124,7 @@ impl SkraftApp {
             ui.end_row();
         };
         let mut cancel = false;
-        let modal = egui::Modal::new(egui::Id::unique("loading")).frame(modal_frame(ctx)).show(ctx, |ui| {
-            ui.set_width(380.0);
-            ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
-            ui.heading(title);
-            ui.add_space(8.0);
+        let modal = modal(ctx, egui::Id::unique("loading"), 380.0, title, |ui| {
             egui::Grid::new("loading_stages").num_columns(2).spacing([12.0, 8.0]).min_col_width(90.0).show(ui, |ui| {
                 if let Some(load) = &load {
                     match load.reading {
@@ -273,13 +265,31 @@ impl SkraftApp {
     }
 }
 
-/// The frame of the app's modal boxes: egui's popup frame, with room around the content.
-pub(crate) fn modal_frame(ctx: &egui::Context) -> egui::Frame {
-    egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(MODAL_MARGIN))
+/// One of the app's modal boxes, under `id`, `width` wide: egui's popup frame with room around
+/// the content, buttons roomier than the app's compact ones, its title and the room under it,
+/// then `body`.
+pub(crate) fn modal<R>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    width: f32,
+    title: impl Into<egui::RichText>,
+    body: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::ModalResponse<R> {
+    let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(MODAL_MARGIN));
+    egui::Modal::new(id).frame(frame).show(ctx, |ui| {
+        ui.set_width(width);
+        ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
+        ui.heading(title);
+        ui.add_space(MODAL_TITLE_GAP);
+        body(ui)
+    })
 }
 
 /// The room between a modal box's border and its content (points).
 const MODAL_MARGIN: i8 = 20;
 
-/// The padding of a modal box's buttons (points): roomier than the app's compact buttons.
-pub(crate) const MODAL_BUTTON_PADDING: egui::Vec2 = egui::vec2(14.0, 5.0);
+/// The padding of a modal box's buttons (points).
+const MODAL_BUTTON_PADDING: egui::Vec2 = egui::vec2(14.0, 5.0);
+
+/// The room under a modal box's title (points).
+const MODAL_TITLE_GAP: f32 = 8.0;
