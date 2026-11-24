@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/window/view_bar.rs, apps/skraft/src/window/pins.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/kit/icons.rs, crates/tools/src/editor/mod.rs]
+code: [apps/skraft/src/workspaces/common/viewport/view_bar.rs, apps/skraft/src/workspaces/common/viewport/pins.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/kit/icons.rs, crates/tools/src/editor/mod.rs]
 ---
 
 # View bar
@@ -61,7 +61,7 @@ other display settings. `Editor::set_xray` applies a `SetSettings`; the scene ta
 
 ## As built
 
-`apps/skraft/src/window/view_bar.rs`: an `egui::Area` at (`free_left` or the view's left margin, its
+`apps/skraft/src/workspaces/common/viewport/view_bar.rs`: an `egui::Area` at (`free_left` or the view's left margin, its
 top from the height last drawn so that it is centered: `view_bar::Place`, a frame whose height
 changed discarded), a window frame at 35 % / 92 % (`style::translucent`: the hover of the last
 frame, or one of its menus open), buttons 26 pt (icon 18), as the option bar's and the quick tools' card's (`style::BAR_BUTTON`), the selection's fill behind a lit one; the

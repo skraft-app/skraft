@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/model/src/document.rs, crates/model/src/ops.rs, crates/model/src/weld.rs, crates/model/src/stretch.rs, crates/model/src/clipboard.rs, crates/kernel/src/engine.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/scene.rs, apps/skraft/src/cards/panels.rs, apps/skraft/src/cards/panels/]
+code: [crates/model/src/document.rs, crates/model/src/ops.rs, crates/model/src/weld.rs, crates/model/src/stretch.rs, crates/model/src/clipboard.rs, crates/kernel/src/engine.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/scene.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/]
 ---
 
 # Bodies: a part as positive and negative solids
@@ -234,7 +234,7 @@ of its body**, it carries nothing for the cut list.
 
 The final must be a single lump. It is not when a positive touches no other, or when negatives
 split the part (a groove right through). The part is then **in error**:
-- marked in the outliner: ⚠ and its name in the error colour (« Pièce en N morceaux : à
+- marked in the navigator: ⚠ and its name in the error colour (« Pièce en N morceaux : à
   corriger »), and shown whole so the problem can be seen;
 - **no cut-list dimensions** while it is in error: the entity info says « en N morceaux, à
   corriger » instead;
@@ -250,9 +250,9 @@ cheaply); a split made by negatives would blame no body, only the part.
 A part may be left without material — its last blank made a machining or deleted (every body,
 even), or a machining swallowing it. Nothing is refused: the part is **empty**, its shape
 `Solid::empty()` (`Solid::is_empty`, no face), **0 pieces**, the same error as « in N
-pieces »: ⚠ and its name in the error colour in the outliner (« Pièce vide : à corriger »),
+pieces »: ⚠ and its name in the error colour in the navigator (« Pièce vide : à corriger »),
 « vide, à corriger » instead of its dimensions and in the open part's info. Closed, nothing of
-it is drawn (the outliner reaches it); open, its bodies are, so a blank can be given back.
+it is drawn (the navigator reaches it); open, its bodies are, so a blank can be given back.
 
 Decision record: [A part may be empty](../decisions/0025-empty-parts.md).
 
@@ -264,7 +264,7 @@ Decision record: [A part may be empty](../decisions/0025-empty-parts.md).
   empty solid is moved as it is and displayed as nothing. An intersection with nothing in
   common still fails.
 - A **group** without a positive child is accepted: its result is empty, so it fails in its
-  parent (skipped, marked) as a group whose boolean fails — its outliner row, as any failed
+  parent (skipped, marked) as a group whose boolean fails — its navigator row, as any failed
   group's, with ⚠ before its name in the error colour (« Groupe vide : à corriger », « Groupe
   en échec : à corriger »). A **node** whose only child is deleted is such a group: it stays,
   empty and in error, and so do the nodes above it. Deleting a node deletes its solid;
@@ -289,7 +289,7 @@ Decision record: [A part may be empty](../decisions/0025-empty-parts.md).
   `Piece::Tool(id)`). A body hovered or selected stays see-through: its highlight washes its
   faces with the mark's tint over the ghost's own (`Highlight::ghost`, `fs_face_ghost_mark`),
   its edges as any highlight's.
-- **The sign**: a toggle on the body's outliner row ([The interface](#the-interface)) flips
+- **The sign**: a toggle on the body's navigator row ([The interface](#the-interface)) flips
   it — the selected bodies' too when it is one of them
   (`Operation::SetSign { target, bodies, sign, scope }`, the last positive too, leaving the part
   empty), the part computed again.
@@ -434,7 +434,7 @@ Decision record: [Body definitions may be groups: a CSG tree without history](..
   ([Moving bodies](#moving-bodies)); in an open part, « Créer un assemblage » (G) groups its
   bodies too. **« Éclater » (`edit.explode`) is one action whatever is selected**: it puts an
   assembly's content in its context and, in an open part, brings up the children of a group or a node.
-- **The outliner shows the bodies of every part under it**, a single one too (folded, open
+- **The navigator shows the bodies of every part under it**, a single one too (folded, open
   while the part is), drawn by their nature — an extrusion (`PRISM`), a revolution (`TURN`), a
   free B-rep (`SOLID`), a group (`GROUP`) — and named by their definition (« Body names »
   below), in their order of creation, a group's children under it. Their sign is a toggle at
@@ -620,7 +620,7 @@ part, at its level `path.group`).
 - **« Sortir du groupe »** (`edit.move_out`, Assembler › Composants, after « Grouper les corps »): the
   bodies selected one level up — out of the group or node open into its parent; at the part's
   root, out of the part —; that level then open, what moved selected (`Editor::move_out`).
-- **The navigator's drag and drop** (`panels::BodiesDrag`, its part open or not): a body's
+- **The navigator's drag and drop** (`cards::BodiesDrag`, its part open or not): a body's
   row dragged — the selected siblings with it when it is selected —, dropped on a group's or
   node's row (its middle half) goes into it; on its edges, or on a leaf's row, beside it, in
   its level (a line above or under the row); on its part's row, to its root (the row framed).

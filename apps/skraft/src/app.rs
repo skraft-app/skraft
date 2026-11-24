@@ -1,6 +1,6 @@
 //! The application window: title bar (top), workspace card and ribbon across the top of the
 //! view (docs/ui/ribbon.md), the tool option bar centered under them, entity info, materials and
-//! outliner (cards docked left or right, under the ribbon), status bar with the measurements
+//! navigator (cards docked left or right, under the ribbon), status bar with the measurements
 //! box (bottom), viewport (centre). Every action goes through the command registry (docs/ui/commands.md):
 //! the native menu (macOS, File only), title bar, ribbon, view bar, keyboard (SketchUp's shortcuts,
 //! changeable), the command palette and the control channel.
@@ -11,14 +11,13 @@ use skraft_model::{Boolean, Document, FileView, LengthUnit, Operation, Settings}
 use skraft_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use skraft_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, ToolKind};
 
-use crate::cards::panels::{self, Action, CommandView};
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
+use crate::commands::{Action, CommandView};
 use crate::docs::{DocId, Docs, file_name};
 use crate::kit::style::{CARD_MARGIN, Tip, card_frame, option_card};
 use crate::prefs::Preferences;
 use crate::system::clipboard::{Clipboard, Copied};
 use crate::system::file::{self, Inbox};
-use crate::viewport::{self, Viewport};
 use crate::window::dock::{self, Dock, PanelId};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::window::native_menu::NativeMenu;
@@ -26,7 +25,10 @@ use crate::window::ribbon;
 use crate::window::tabs::{MenuRow, Tab, TabAction};
 use crate::window::titlebar;
 use crate::window::toasts::{Act, Note, Toasts};
-use crate::workspace::{self, Stage, Workspace};
+use crate::workspaces::common::cards;
+use crate::workspaces::common::viewport::options;
+use crate::workspaces::common::viewport::{self, Viewport};
+use crate::workspaces::{self, Stage, Workspace};
 
 pub struct SkraftApp {
     ctx: egui::Context,
@@ -48,9 +50,9 @@ pub struct SkraftApp {
     /// tools' hints.
     toasts: Toasts,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
-    naming: Option<crate::dialogs::naming::Dialog>,
+    naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
     /// The confirmation of « Imprimer » (decision 0055).
-    imprint: Option<crate::dialogs::imprint::Dialog>,
+    imprint: Option<crate::workspaces::modelling::dialogs::imprint::Dialog>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,

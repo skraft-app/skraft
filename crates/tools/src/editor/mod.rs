@@ -154,7 +154,7 @@ pub struct Editor {
     /// The tree drop-up was opened since the copy modifier was pressed: the tap its release
     /// makes is not the tool's.
     tree_tap: bool,
-    /// The model chosen (the outliner's first row clicked), until anything else is: selected,
+    /// The model chosen (the navigator's first row clicked), until anything else is: selected,
     /// entered, opened, or a click in the view.
     model_selected: bool,
     /// The component chosen in the library (docs/ui/components-library.md#managing), until
@@ -162,8 +162,8 @@ pub struct Editor {
     chosen: Option<Id>,
     /// The material chosen in its card (its entity info shown): [`Editor::chosen_material`].
     chosen_material: Option<library::ChosenMaterial>,
-    /// The occurrence hovered in the outliner (drawn hovered in the view).
-    outliner_hover: Option<EntityPath>,
+    /// The occurrence hovered in the navigator (drawn hovered in the view).
+    navigator_hover: Option<EntityPath>,
     /// The stretch the scene's preview mesh was made for, and the revisions handed out.
     stretch_meshed: Option<tools::StretchPreview>,
     preview_revision: u64,
@@ -318,7 +318,7 @@ impl Editor {
             deep_guides: Vec::new(),
             tree: None,
             tree_tap: false,
-            outliner_hover: None,
+            navigator_hover: None,
             stretch_meshed: None,
             preview_revision: 0,
             held: None,
@@ -458,11 +458,11 @@ impl Editor {
         self.listed_hover = machining;
     }
 
-    /// The occurrence hovered in the outliner, if any: drawn as if hovered in the view. Did it
+    /// The occurrence hovered in the navigator, if any: drawn as if hovered in the view. Did it
     /// change (the view to draw again)?
-    pub fn set_outliner_hover(&mut self, path: Option<EntityPath>) -> bool {
-        let changed = self.outliner_hover != path;
-        self.outliner_hover = path;
+    pub fn set_navigator_hover(&mut self, path: Option<EntityPath>) -> bool {
+        let changed = self.navigator_hover != path;
+        self.navigator_hover = path;
         changed
     }
 

@@ -165,7 +165,7 @@ A machining is a negative body of its part ([Bodies](bodies.md)):
 ## Copies and propagation
 
 - **Copying an occurrence creates an occurrence of the same part**: "Leg ×4" (the count is in
-  the entity info, not in the outliner), counted without guessing anything, without thinking of "making a component" before copying.
+  the entity info, not in the navigator), counted without guessing anything, without thinking of "making a component" before copying.
 - A **change to the part** (geometry, bodies, properties) affects **all its occurrences**
   or **only this one**: the **scope** (`Scope::All` / `Scope::This`), an option of the tool
   (option bar, [Application interface](../ui/interface.md)), "all occurrences" by default,

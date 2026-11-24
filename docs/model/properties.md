@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/model/src/props.rs, apps/skraft/src/cards/panels/props.rs, crates/model/src/ops.rs, crates/model/src/document.rs, crates/model/src/clipboard.rs]
+code: [crates/model/src/props.rs, apps/skraft/src/workspaces/common/cards/props.rs, crates/model/src/ops.rs, crates/model/src/document.rs, crates/model/src/clipboard.rs]
 ---
 
 # Properties

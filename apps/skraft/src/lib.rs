@@ -2,18 +2,14 @@
 //! driven by the `skraft-tools` editor. Native and web (docs/ui/interface.md).
 
 mod app;
-mod cards;
 mod commands;
 mod dialogs;
 mod docs;
-mod drawing;
-mod instance_name;
 mod kit;
 mod prefs;
 pub mod system;
-mod viewport;
 mod window;
-mod workspace;
+mod workspaces;
 
 pub use app::SkraftApp;
 

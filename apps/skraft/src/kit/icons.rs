@@ -105,7 +105,7 @@ icon!(LIST, "list");
 icon!(HIDE_REST, "hide_rest");
 
 /// The chevron (pointing down, turned by `angle` clockwise) `side` wide centered on `at`: the
-/// one fold and drop-down mark of the app (panels' title bars, outliner rows, menus, combo boxes).
+/// one fold and drop-down mark of the app (panels' title bars, navigator rows, menus, combo boxes).
 pub fn chevron(ui: &egui::Ui, at: egui::Pos2, side: f32, ink: egui::Color32, angle: f32) {
     let rect = egui::Rect::from_center_size(at, egui::Vec2::splat(side));
     egui::Image::new(CHEVRON_DOWN).tint(ink).rotate(angle, egui::Vec2::splat(0.5)).paint_at(ui, rect);

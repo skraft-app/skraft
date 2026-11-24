@@ -892,7 +892,7 @@ fn select_model_leaves_every_context() {
 }
 
 #[test]
-fn outliner_hover_marks_in_view() {
+fn navigator_hover_marks_in_view() {
     let mut e = top_editor(Document::new());
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
     let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
@@ -905,26 +905,26 @@ fn outliner_hover_marks_in_view() {
     let hovered = |e: &Editor| e.view().highlights.into_iter().filter(|h| h.mark == Mark::Hover).count();
     assert_eq!(hovered(&e), 0);
     // An occurrence of the context: its solid, as if hovered in the view; changed once.
-    assert!(e.set_outliner_hover(Some(EntityPath::new(vec![], b))));
-    assert!(!e.set_outliner_hover(Some(EntityPath::new(vec![], b))));
+    assert!(e.set_navigator_hover(Some(EntityPath::new(vec![], b))));
+    assert!(!e.set_navigator_hover(Some(EntityPath::new(vec![], b))));
     assert_eq!(hovered(&e), 1);
     // One inside an assembly not entered, too.
-    e.set_outliner_hover(Some(EntityPath::new(vec![g], a)));
+    e.set_navigator_hover(Some(EntityPath::new(vec![g], a)));
     assert_eq!(hovered(&e), 1);
     // Selected: marked so only.
     e.select(vec![g]);
-    e.set_outliner_hover(Some(EntityPath::new(vec![], g)));
+    e.set_navigator_hover(Some(EntityPath::new(vec![], g)));
     assert_eq!(hovered(&e), 0);
-    assert!(e.set_outliner_hover(None));
+    assert!(e.set_navigator_hover(None));
     assert_eq!(hovered(&e), 0);
     // Inside `g`: `b`, outside it, hovered but still faded; `a`, inside, plainly hovered.
     e.enter(g);
     let marks = |e: &Editor| {
         e.view().highlights.into_iter().map(|h| h.mark).filter(|m| matches!(m, Mark::Hover | Mark::HoverFaded)).collect::<Vec<_>>()
     };
-    e.set_outliner_hover(Some(EntityPath::new(vec![], b)));
+    e.set_navigator_hover(Some(EntityPath::new(vec![], b)));
     assert_eq!(marks(&e), [Mark::HoverFaded]);
-    e.set_outliner_hover(Some(EntityPath::new(vec![g], a)));
+    e.set_navigator_hover(Some(EntityPath::new(vec![g], a)));
     assert_eq!(marks(&e), [Mark::Hover]);
 }
 
@@ -953,24 +953,24 @@ fn hidden_occurrences() {
     e.select_all();
     assert_eq!(e.selection(), [a]);
 
-    // Hovered in the outliner, it or its part: not marked.
+    // Hovered in the navigator, it or its part: not marked.
     e.select(vec![]);
     let hovered = |e: &Editor| e.view().highlights.into_iter().filter(|h| matches!(h.mark, Mark::Hover | Mark::HoverFaded)).count();
-    e.set_outliner_hover(Some(EntityPath::root(g)));
+    e.set_navigator_hover(Some(EntityPath::root(g)));
     assert_eq!(hovered(&e), 0);
-    e.set_outliner_hover(Some(EntityPath::new(vec![g], b)));
+    e.set_navigator_hover(Some(EntityPath::new(vec![g], b)));
     assert_eq!(hovered(&e), 0);
-    e.set_outliner_hover(Some(EntityPath::root(a)));
+    e.set_navigator_hover(Some(EntityPath::root(a)));
     assert_eq!(hovered(&e), 1);
-    e.set_outliner_hover(None);
+    e.set_navigator_hover(None);
 
     // Edited, it shows (its part inside, not hidden itself); back out, hidden again.
     e.enter(g);
     assert_eq!((drawn(&e), faded(&e)), (2, 1));
     assert!(e.scene().pick(&ray(&e), |_| true).is_some());
-    e.set_outliner_hover(Some(EntityPath::new(vec![g], b)));
+    e.set_navigator_hover(Some(EntityPath::new(vec![g], b)));
     assert_eq!(hovered(&e), 1);
-    e.set_outliner_hover(None);
+    e.set_navigator_hover(None);
     e.exit();
     assert_eq!(drawn(&e), 1);
 
@@ -5234,7 +5234,7 @@ fn stretch_tool_stretches_the_bodies_selected_alone() {
 }
 
 #[test]
-fn a_click_in_the_outliner_selects_or_deselects() {
+fn a_click_in_the_navigator_selects_or_deselects() {
     let mut e = top_editor(Document::new());
     two_boxes(&mut e);
     let ids: Vec<Id> = e.document().root_assembly().occurrences().iter().map(|o| o.id).collect();

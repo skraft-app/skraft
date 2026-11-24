@@ -67,7 +67,7 @@ impl SkraftApp {
                     self.viewport.drop_document(replaced);
                 }
                 if let Some(d) = self.docs.active_mut() {
-                    d.workspace = workspace::find(view.workspace.as_deref());
+                    d.workspace = workspaces::find(view.workspace.as_deref());
                     if let Some(camera) = view.camera.as_ref().and_then(skraft_tools::Camera::from_seen) {
                         d.editor.camera = camera;
                     }
@@ -82,14 +82,14 @@ impl SkraftApp {
 
     /// The shown document's workspace; the first one on the start page.
     pub(super) fn workspace(&self) -> &'static Workspace {
-        self.docs.active().map_or_else(|| workspace::find(None), |d| d.workspace)
+        self.docs.active().map_or_else(|| workspaces::find(None), |d| d.workspace)
     }
 
     /// Shows the shown document in workspace `id` (decision 0047): the running tool cancelled,
     /// the selection and the level open kept. Not a change of the document: nothing modified,
     /// nothing to undo; its file keeps it at the next save.
     pub(super) fn set_workspace(&mut self, id: &str) -> Result<(), String> {
-        let w = workspace::listed().find(|w| w.id == id).ok_or_else(|| format!("no workspace {id}"))?;
+        let w = workspaces::listed().find(|w| w.id == id).ok_or_else(|| format!("no workspace {id}"))?;
         let Some(d) = self.docs.active_mut() else { return Err("no document".into()) };
         if d.workspace.id != w.id {
             d.vcb.clear();
@@ -292,10 +292,10 @@ impl SkraftApp {
         let Some(d) = docs.active() else { return };
         let title = d.name();
         // The pictures' lines and edges about as wide as on screen at their resolution.
-        let ppp = (crate::drawing::pdf::DPI / 150.0) as f32;
+        let ppp = (crate::workspaces::drawing::pdf::DPI / 150.0) as f32;
         let drawing = d.editor.document().drawing();
         let Some(presentation) = d.sheet.presentation(drawing) else { return };
-        let bytes = crate::drawing::pdf::drawing_pdf(&d.editor, &title, presentation.id, |w| {
+        let bytes = crate::workspaces::drawing::pdf::drawing_pdf(&d.editor, &title, presentation.id, |w| {
             viewport.picture_rgba(frame, d.id, &d.editor, &theme, w, ppp)
         });
         match bytes {
@@ -307,7 +307,7 @@ impl SkraftApp {
                 };
                 file::export_file(bytes, &name, "PDF", "pdf", &self.inbox, &self.ctx);
                 // What would go out as `{client}` is said (docs/ui/drawing.md#pdf).
-                let missing = crate::drawing::pdf::missing_fields(&d.editor, presentation.id);
+                let missing = crate::workspaces::drawing::pdf::missing_fields(&d.editor, presentation.id);
                 if !missing.is_empty() {
                     let fields = missing.iter().map(|f| format!("{{{f}}}")).collect::<Vec<_>>().join(", ");
                     self.toasts.push(Note::new(crate::window::toasts::Level::Warning, t!("toast.pdf_missing_fields"), Some(fields)));

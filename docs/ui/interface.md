@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/dialogs/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/window/dock.rs, apps/skraft/src/cards/panels.rs, apps/skraft/src/cards/panels/, apps/skraft/src/kit/widgets.rs, apps/skraft/src/kit/widgets/, apps/skraft/src/kit/style.rs, apps/skraft/src/window/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/kit/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
+code: [apps/skraft/src/dialogs/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/window/dock.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/, apps/skraft/src/kit/widgets.rs, apps/skraft/src/kit/widgets/, apps/skraft/src/kit/style.rs, apps/skraft/src/window/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/kit/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
 ---
 
 # Application interface
@@ -19,18 +19,18 @@ tabs have pages of their own.
   fit there ([Workspaces and ribbon](ribbon.md#layout)), the context card and the tool option bar
   under the ribbon ([Context card](#context-card)), the view bar along the left or right edge,
   centered on the view's height ([View bar](view-bar.md));
-  **Entity info**, **Materials**, **Outliner** and **Components**
+  **Entity info**, **Materials**, **Navigator** and **Components**
   ([Components library](components-library.md), closed at first) are four cards docked in two columns, one
   per edge of the view (`dock.rs`), over the view's whole height — under the ribbon when it is
   above them. A card's header (a title bar in the
   headers' fill, a line under it, its title semibold, its chevron at the right end) folds it
   (click) or moves it (drag: it follows the pointer and drops into the column of the nearer
   edge, where a bar shows the insertion point); the commands `view.entity_info`,
-  `view.materials`, `view.outliner` (on a sheet, the drawing's tree:
+  `view.materials`, `view.navigator` (on a sheet, the drawing's tree:
   docs/ui/drawing.md#navigator), `view.components` and, in a workspace of sheets,
   `view.compositions` (command palette, shortcuts) close or show each one
   (`PanelId::command`). A card keeps the height given by dragging its bottom edge, except the
-  last unfolded list of its column (Materials, Outliner, Components or Compositions; never Entity info, which would only
+  last unfolded list of its column (Materials, Navigator, Components or Compositions; never Entity info, which would only
   grow empty: `PanelId::fills`), which fills the height left; the inner edge sets the column's
   width (`dock::COLUMN_WIDTH` 270 pt by default, `COLUMN_MIN_WIDTH` 200 at least; double click:
   default). Order, columns, sizes, folded and closed cards are kept in the preferences
@@ -57,8 +57,8 @@ tabs have pages of their own.
   opens; on a row with an instance name, « Renommer l'exemplaire » and « Renommer la définition »); on a body, « Sortir du groupe » (« Sortir de la pièce » at the part's root), « Rompre le lien » on a linked one; on a part off its linked machining, « Replacer », « Amener l'usinage ici », « Séparer » ([Links](../model/bodies.md#links)); then « Aplatir » on a group or a part with a tree, « Éclater » on an assembly or a group, « Effacer ». Separators set these groups apart.
   Opening it changes nothing; its row stays highlighted while it is open. Its commands act on the whole selection when the row is in it,
   else on the row alone, chosen as a click would.
-- **The outliner is titled « Navigateur »** (the code keeps `outliner`, its `PanelId` being in
-  the preferences and `model.outliner` in the control protocol). Its rows span the whole list
+- **The navigator** (« Navigateur », `PanelId::Navigator`; `outliner` read in layouts saved
+  before) shows the workspace's tree: the model's here, the drawing's on a sheet. Its rows span the whole list
   (`tree_row`): the hover and the selection fill the line edge to edge, indent and buttons
   included, a click anywhere on it but on its buttons (fold, eye, sign) choosing it; a part's
   bodies lie on a band of their own (`band_color`: the card's colour a shade towards the text;
@@ -108,7 +108,7 @@ stay, to look into an assembly or a part without entering it.
   salted with their births, nothing salted while no undo gave an id back. A step redone opens
   folded as well.
 - **The folds are the document's**: the rows unfolded, the births and the active path last seen
-  are kept in the document (`panels::OutlinerState`, in `docs::Doc`), dropped with it, never on
+  are kept in the document (`cards::NavigatorState`, in `docs::Doc`), dropped with it, never on
   disk. A row's fold is written only when it changes (its chevron clicked, the active path
   reaching or leaving it); a frame reads one hash set per row.
   **Why:** every document numbers its things from 1, so fold states keyed by ids alone and
@@ -132,7 +132,7 @@ gives the topology.
 ### Properties
 
 Under those rows, the entity's **properties** ([Properties](../model/properties.md),
-`panels/props.rs`): « Propriétés » for a part or an assembly, a body's definition, a guide, the
+`cards/props.rs`): « Propriétés » for a part or an assembly, a body's definition, a guide, the
 model; « Propriétés de l'exemplaire » for the occurrence, or the body, selected. A row per
 definition applying to the entity, in its keys' order — its value, else its default greyed —,
 then the values without a definition, their key greyed (the tooltip says so); a value set has a
@@ -149,6 +149,31 @@ checked: all), its key (read only) — and a delete button (the values stay). «
 propriété » adds `user.property_<n>`, a text. Rows are laid at widths fixed from the card's
 room (`Rows`), not in a `Grid`: a label wider than planned would widen the card at every
 relayout.
+
+## The app's code
+
+`apps/skraft/src` holds two layers.
+
+- **The app's**, which knows no workspace: `kit/` (the parts every screen builds with, knowing
+  nothing of the document: [Widgets](#widgets)), `window/` (the window's frame: title bar, file
+  tabs, ribbon, toasts, the docked columns), `dialogs/` (the app's own boxes: About, updates,
+  the journal, the navigation preferences), `system/` (files, the platform, the process), and
+  at the root the app itself (`app/`), its commands and actions (`commands.rs`), the documents
+  open (`docs.rs`), the preferences.
+- **The workspaces'**: `workspaces.rs` (their definitions) and `workspaces/`, holding `common/`,
+  what every workspace may show, and one folder per workspace (`modelling/`, `parts/`,
+  `drawing/`). Every one of these folders, `common/` included, has the same shape: `cards/`,
+  `dialogs/`, then its stage's own files (`common/viewport`, the 3D view and what floats over
+  it; `drawing/sheet`).
+
+An element goes to the most specific folder covering all its users, and moves down to
+`common/` when a second workspace needs it. What belongs to the document (the materials, the
+components, the model's tree, a part's properties) is in `common/`, whatever workspace shows it
+today. A workspace depends on `common/` and on the app's layer, never on another workspace; a
+workspace's folder is born when it has code of its own.
+
+*Why:* workspaces will come that share cards (the parts list may need the materials); one shape
+at every level tells where a card or a box lives.
 
 ## Widgets
 
@@ -189,11 +214,13 @@ Elsewhere:
   (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`), the settings'
   sections and grids, the hover texts (`Tip`).
 - **`app::modal`**: a modal box (its frame, its buttons' padding, its title).
+- **The shared slots**: the « Navigateur » and « Infos sur l'entité » cards take their content
+  from the workspace shown (`workspaces::common::cards`, `workspaces::drawing::cards`).
 - **`ribbon::tab_strip`**: a band of tabs (the ribbon's, the Preferences', the journal's, the
   « Composants » card's).
 - **`search::field`** and **`search::listed`**: a search line, and what it lets through as
-  last listed; **`catalog`**: the cards listing definitions as tiles or rows
-  ([Catalog cards](catalog.md)).
+  last listed; **`workspaces::common::cards::catalog`**: the cards listing definitions as
+  tiles or rows ([Catalog cards](catalog.md)).
 - **`overlay.rs`**: what is drawn over the 3D view and the sheet, dashes, the selection
   rectangle, grips ([Screen overlays](../render/drawer.md#screen-overlays)).
 
@@ -347,7 +374,7 @@ scope](../tools/selection.md#selection-scope), the tools that pick parts, no par
 **« Portée »**, which copies a change reaches (the open part's scope, [Opening a
 part](../model/opening-a-part.md), or the parts selected at any depth through a shared
 assembly). The two cards are centered together under the ribbon, between the dock's columns
-(`App` lays them out, `panels::context_options` and `panels::tool_options` fill them, in `style::option_card`: 3 pt
+(`App` lays them out, `viewport::options::context_options` and `tool_options` fill them, in `style::option_card`: 3 pt
 above and below the buttons, as the view bar, 6 on the sides), each translucent at rest and
 nearly opaque under the pointer or while a field of it is typed in, as the view bar
 (`style::hover_card`). The open

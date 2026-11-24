@@ -84,7 +84,7 @@ impl SkraftApp {
                 let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
                 title_bar(ui, rect, head_rect, &t!("parts_list.title"), false, true);
                 ui.add_space(2.0 * HEAD_PAD);
-                crate::cards::parts_table::ui(ui, &d.editor, &mut d.parts_list, actions);
+                crate::workspaces::parts::table::ui(ui, &d.editor, &mut d.parts_list, actions);
             });
         });
         let grip = egui::Rect::from_x_y_ranges(rect.right()..=rect.right() + margin, rect.y_range());
@@ -121,7 +121,7 @@ impl SkraftApp {
         let dragged = self.panel_drag.map(|d| d.id);
         let room = view.bottom() - margin - top;
         let mut event = None;
-        let mut outliner_shown = false;
+        let mut navigator_shown = false;
         let mut columns = Vec::new();
         for (side, (x, width)) in [Dock::Left, Dock::Right].into_iter().zip(xs) {
             let placed = dock::place_with(self.prefs.layout(self.workspace().id).column(side), top, room, metrics, dragged, PanelId::fills);
@@ -129,7 +129,7 @@ impl SkraftApp {
                 let rect = egui::Rect::from_min_size(egui::pos2(x, p.top), egui::vec2(width, p.height));
                 // Every card but the one filling the column has a bottom edge to drag.
                 let edges = Edges { side: Some(side), bottom: !p.fills, max_width, min_height: metrics.min_height };
-                if let Some(e) = self.panel_card(ctx, p.id, rect, header, edges, &mut outliner_shown, actions) {
+                if let Some(e) = self.panel_card(ctx, p.id, rect, header, edges, &mut navigator_shown, actions) {
                     event = Some(e);
                 }
             }
@@ -138,12 +138,12 @@ impl SkraftApp {
         if let (Some(d), Some(p)) = (self.panel_drag, pointer) {
             let rect = egui::Rect::from_min_size(p - d.offset, d.size);
             let edges = Edges { side: None, bottom: false, max_width, min_height: metrics.min_height };
-            if let Some(e) = self.panel_card(ctx, d.id, rect, header, edges, &mut outliner_shown, actions) {
+            if let Some(e) = self.panel_card(ctx, d.id, rect, header, edges, &mut navigator_shown, actions) {
                 event = Some(e);
             }
         }
-        if !outliner_shown {
-            actions.push(Action::HoverOutliner(None));
+        if !navigator_shown {
+            actions.push(Action::HoverNavigator(None));
             actions.push(Action::HoverMachining(None));
         }
         // Where a dragged card goes: the column of the nearer edge, above the first card whose
@@ -197,7 +197,7 @@ impl SkraftApp {
         rect: egui::Rect,
         header: f32,
         edges: Edges,
-        outliner_shown: &mut bool,
+        navigator_shown: &mut bool,
         actions: &mut Vec<Action>,
     ) -> Option<CardEvent> {
         let workspace = self.workspace().id;
@@ -249,8 +249,8 @@ impl SkraftApp {
                     }
                     let Some(doc) = docs.iter_mut().nth(i) else { return };
                     // The navigator's rows close under the title bar (their backgrounds have
-                    // their own room, `panels::outliner`); the other cards' content further down.
-                    let pad = if id == PanelId::Outliner { HEAD_PAD / 2.0 } else { 2.0 * HEAD_PAD };
+                    // their own room, `cards::navigator`); the other cards' content further down.
+                    let pad = if id == PanelId::Navigator { HEAD_PAD / 2.0 } else { 2.0 * HEAD_PAD };
                     ui.add_space(pad);
                     let body = (inner.y - header - pad - 2.0 * ui.spacing().item_spacing.y).max(0.0);
                     // The bottom of the line under the title bar.
@@ -272,9 +272,15 @@ impl SkraftApp {
                             area.id_salt("entity_info").show(ui, |ui| {
                                 ui.push_id(doc_id, |ui| {
                                     if sheet {
-                                        panels::drawing_info(ui, &doc.editor, &mut doc.sheet, &name, actions)
+                                        crate::workspaces::drawing::cards::info::drawing_info(
+                                            ui,
+                                            &doc.editor,
+                                            &mut doc.sheet,
+                                            &name,
+                                            actions,
+                                        )
                                     } else {
-                                        panels::info(ui, &doc.editor, &name, actions)
+                                        cards::info(ui, &doc.editor, &name, actions)
                                     }
                                 })
                             });
@@ -283,13 +289,21 @@ impl SkraftApp {
                             let (doc_id, list) = (doc.id, self.prefs.materials_list);
                             let (editor, state) = (&doc.editor, &mut doc.materials);
                             ui.push_id(doc_id, |ui| {
-                                crate::cards::materials::card(ui, editor, state, list, body, actions, area.id_salt("materials"))
+                                crate::workspaces::common::cards::materials::card(
+                                    ui,
+                                    editor,
+                                    state,
+                                    list,
+                                    body,
+                                    actions,
+                                    area.id_salt("materials"),
+                                )
                             });
                         }
                         PanelId::Components => {
                             let doc_id = doc.id;
                             let (editor, state) = (&doc.editor, &mut doc.library);
-                            let look = crate::cards::library::Look {
+                            let look = crate::workspaces::common::cards::library::Look {
                                 doc: doc_id,
                                 thumbnails: &mut self.viewport.thumbnails,
                                 list: self.prefs.components_list,
@@ -298,14 +312,21 @@ impl SkraftApp {
                                 margin: CARD_MARGIN,
                             };
                             ui.push_id(doc_id, |ui| {
-                                crate::cards::library::components(ui, editor, state, look, actions, area.id_salt("components"))
+                                crate::workspaces::common::cards::library::components(
+                                    ui,
+                                    editor,
+                                    state,
+                                    look,
+                                    actions,
+                                    area.id_salt("components"),
+                                )
                             });
                         }
                         PanelId::Compositions => {
                             let (doc_id, list) = (doc.id, self.prefs.compositions_list);
                             let (editor, st) = (&doc.editor, &mut doc.sheet);
                             ui.push_id(doc_id, |ui| {
-                                crate::drawing::sheet_library::compositions(
+                                crate::workspaces::drawing::cards::library::compositions(
                                     ui,
                                     editor,
                                     st,
@@ -317,20 +338,27 @@ impl SkraftApp {
                             });
                         }
                         // On a sheet, the drawing's tree (docs/ui/drawing.md#navigator).
-                        PanelId::Outliner if doc.workspace.stage == Stage::Sheet => {
+                        PanelId::Navigator if doc.workspace.stage == Stage::Sheet => {
                             let (doc_id, name) = (doc.id, doc.name());
                             let (editor, st) = (&doc.editor, &mut doc.sheet);
                             ui.push_id(doc_id, |ui| {
-                                crate::drawing::sheet_tree::navigator(ui, editor, st, &name, actions, area.id_salt("sheet_tree"))
+                                crate::workspaces::drawing::cards::navigator::show(
+                                    ui,
+                                    editor,
+                                    st,
+                                    &name,
+                                    actions,
+                                    area.id_salt("drawing_navigator"),
+                                )
                             });
                         }
-                        PanelId::Outliner => {
-                            *outliner_shown = true;
+                        PanelId::Navigator => {
+                            *navigator_shown = true;
                             // Salted by the document: its rows' clicks apart from another's.
                             let (doc_id, name) = (doc.id, doc.name());
-                            let (editor, state) = (&doc.editor, &mut doc.outliner);
+                            let (editor, state) = (&doc.editor, &mut doc.navigator);
                             ui.push_id(doc_id, |ui| {
-                                panels::outliner(ui, editor, state, &name, actions, area.id_salt("outliner"), (body, title_line))
+                                cards::navigator(ui, editor, state, &name, actions, area.id_salt("navigator"), (body, title_line))
                             });
                         }
                     }
@@ -539,7 +567,7 @@ impl SkraftApp {
         let widths_id = options_id.with("widths");
         let mut free_top = below_ribbon;
         let Some(doc) = self.docs.active_mut() else { return free_top };
-        let (has_context, has_tool) = (panels::has_context_options(&doc.editor), panels::has_tool_options(&doc.editor));
+        let (has_context, has_tool) = (options::has_context_options(&doc.editor), options::has_tool_options(&doc.editor));
         if has_context || has_tool {
             let widths = ctx.data(|d| d.get_temp::<[f32; 2]>(widths_id)).unwrap_or_default();
             let context_width = if has_context { widths[0] } else { 0.0 };
@@ -557,13 +585,13 @@ impl SkraftApp {
                         if has_context {
                             let shown =
                                 crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("context_hovered"), |ui| {
-                                    panels::context_options(ui, &doc.editor, actions)
+                                    options::context_options(ui, &doc.editor, actions)
                                 });
                             drawn[0] = shown.response.rect.width();
                         }
                         if has_tool {
                             let shown = crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
-                                panels::tool_options(ui, &doc.editor, actions)
+                                options::tool_options(ui, &doc.editor, actions)
                             });
                             drawn[1] = shown.response.rect.width();
                         }
@@ -590,13 +618,13 @@ impl SkraftApp {
         // The view bar (docs/ui/view-bar.md): over the left or right edge, beside that side's
         // column, centered on the view's height but never over the ribbon; what zoom extents
         // frames stops at it.
-        let bar_width = crate::window::view_bar::width(&ctx.global_style());
+        let bar_width = crate::workspaces::common::viewport::view_bar::width(&ctx.global_style());
         let left_x = if free_left > view.left() { free_left } else { view.left() + margin };
         let right_x = if free_right < view.right() { free_right } else { view.right() - margin } - bar_width;
         let side = self.prefs.view_bar_side;
         let heights = egui::Rangef::new(below_ribbon, view.bottom() - margin);
-        let place = crate::window::view_bar::Place { side, xs: [left_x, right_x], heights, center: view.center().y };
-        crate::window::view_bar::bar(ctx, view, &place, &self.prefs.view_bar, views, actions);
+        let place = crate::workspaces::common::viewport::view_bar::Place { side, xs: [left_x, right_x], heights, center: view.center().y };
+        crate::workspaces::common::viewport::view_bar::bar(ctx, view, &place, &self.prefs.view_bar, views, actions);
         let (free_left, free_right) = match side {
             crate::window::dock::Dock::Left => (left_x + bar_width + margin, free_right),
             crate::window::dock::Dock::Right => (free_left, right_x - margin),
@@ -604,19 +632,20 @@ impl SkraftApp {
         // OCL's tree drop-up, at the cursor where it was opened (docs/tools/selection.md).
         if let Some(tree) = doc.editor.tree() {
             let at = view.min + egui::vec2(tree.at.x as f32, tree.at.y as f32);
-            crate::window::drop_up::show(ctx, view, at, tree, actions);
+            crate::workspaces::common::viewport::drop_up::show(ctx, view, at, tree, actions);
         }
         // The steps bar at the bottom centre of the view, the validation at the top under the
         // tool's options (docs/ui/interface.md#steps-bar).
         let steps = doc.editor.tool_steps();
-        self.steps_top = crate::window::steps::bar(ctx, view.center().x, (free_left, free_right), view.bottom(), steps.as_ref());
+        self.steps_top =
+            crate::workspaces::common::viewport::steps::bar(ctx, view.center().x, (free_left, free_right), view.bottom(), steps.as_ref());
         if doc.editor.tool_awaits_validation() {
-            crate::window::steps::validation(ctx, view.center().x, free_top, actions);
+            crate::workspaces::common::viewport::steps::validation(ctx, view.center().x, free_top, actions);
         }
         // The quick tools' card, at the centre of what was just made (docs/tools/quick-tools.md).
         if let Some(at) = doc.editor.quick_card() {
             let at = view.min + egui::vec2(at.x as f32, at.y as f32);
-            crate::window::quick::card(ctx, view, at, &self.prefs.quick_tools, views, actions);
+            crate::workspaces::modelling::quick::card(ctx, view, at, &self.prefs.quick_tools, views, actions);
         }
         // What zoom extents frames: below the ribbon (and the options), beside the side panels,
         // in viewport pixels.
@@ -648,7 +677,7 @@ impl SkraftApp {
                         // A sheet of the drawing instead of the 3D view (docs/ui/drawing.md).
                         let ready = viewport.sheet_textures(d.id);
                         let title = d.name();
-                        let wanted = crate::drawing::sheet::ui(
+                        let wanted = crate::workspaces::drawing::sheet::ui(
                             ui,
                             view,
                             sheet_room,
@@ -782,7 +811,7 @@ pub(super) fn panel_title(id: PanelId) -> String {
     match id {
         PanelId::EntityInfo => t!("panel.entity_info.title"),
         PanelId::Materials => t!("panel.materials.title"),
-        PanelId::Outliner => t!("panel.outliner.title"),
+        PanelId::Navigator => t!("panel.navigator.title"),
         PanelId::Components => t!("panel.components.title"),
         PanelId::Compositions => t!("panel.compositions.title"),
     }

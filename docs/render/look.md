@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/assets.rs, crates/theme/src/lib.rs, apps/skraft/src/kit/style.rs, apps/skraft/src/viewport.rs, crates/tools/src/section_cut.rs, crates/tools/src/tools/paint.rs, crates/tools/src/tools/sample.rs, crates/tools/src/editor/view.rs, crates/tools/src/tools/section.rs, crates/model/src/settings.rs]
+code: [crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/assets.rs, crates/theme/src/lib.rs, apps/skraft/src/kit/style.rs, apps/skraft/src/workspaces/common/viewport.rs, crates/tools/src/section_cut.rs, crates/tools/src/tools/paint.rs, crates/tools/src/tools/sample.rs, crates/tools/src/editor/view.rs, crates/tools/src/tools/section.rs, crates/model/src/settings.rs]
 ---
 
 # Rendering and look

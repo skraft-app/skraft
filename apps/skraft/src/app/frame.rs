@@ -120,7 +120,7 @@ impl SkraftApp {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     let stem = std::path::Path::new(&name).file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-                    let _ = crate::drawing::templates::install(&stem, &bytes);
+                    let _ = crate::workspaces::drawing::templates::install(&stem, &bytes);
                 }
                 if self.docs.active().is_none() {
                     self.new_document();
@@ -129,9 +129,9 @@ impl SkraftApp {
                     let several = template.drawing().sheets().count() > 1;
                     let template = std::sync::Arc::new(template);
                     let added = if several {
-                        crate::drawing::sheet::presentation_from(&mut d.editor, &mut d.sheet, template)
+                        crate::workspaces::drawing::sheet::presentation_from(&mut d.editor, &mut d.sheet, template)
                     } else {
-                        crate::drawing::sheet::sheet_from(&mut d.editor, &mut d.sheet, template, None, None)
+                        crate::workspaces::drawing::sheet::sheet_from(&mut d.editor, &mut d.sheet, template, None, None)
                     };
                     if added {
                         let key = if several {
@@ -263,7 +263,7 @@ impl SkraftApp {
                     if self.naming.is_none()
                         && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(target))
                     {
-                        self.naming = Some(crate::dialogs::naming::Dialog::new(doc, n));
+                        self.naming = Some(crate::workspaces::common::dialogs::naming::Dialog::new(doc, n));
                     }
                 }
             }

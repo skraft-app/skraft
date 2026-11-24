@@ -104,7 +104,7 @@ impl Editor {
         self.document().component(self.guide_component()).map(|c| c.guides.iter().map(|g| g.id).collect()).unwrap_or_default()
     }
 
-    /// Selects the entity `path` names, editing the context it is in (the outliner's click).
+    /// Selects the entity `path` names, editing the context it is in (the navigator's click).
     pub fn select_path(&mut self, path: &EntityPath) {
         if self.document().resolve(path).is_err() {
             return;
@@ -122,7 +122,7 @@ impl Editor {
         }
     }
 
-    /// The model chosen (the outliner's first row clicked): every assembly left and the part
+    /// The model chosen (the navigator's first row clicked): every assembly left and the part
     /// closed (its profile's editing with it), nothing selected — the model is, until anything
     /// else is.
     pub fn select_model(&mut self) {
@@ -144,7 +144,7 @@ impl Editor {
         self.chosen_material = None;
     }
 
-    /// Whether the model is what is chosen (the outliner's first row highlighted, the entity
+    /// Whether the model is what is chosen (the navigator's first row highlighted, the entity
     /// info showing the model): its row clicked, nothing chosen since.
     pub fn model_chosen(&self) -> bool {
         self.model_selected && self.at_model_level_with_nothing_selected()
@@ -154,7 +154,7 @@ impl Editor {
         self.context.is_empty() && self.open_part.is_none() && !self.anything_selected()
     }
 
-    /// The outliner's click on the occurrence `path` leads to: selected already (in the active
+    /// The navigator's click on the occurrence `path` leads to: selected already (in the active
     /// context, no part open), it is taken out of the selection; else selected as
     /// [`Editor::select_path`] does — added to the selection with `add` (Shift) when it lies in
     /// the active context.
@@ -169,7 +169,7 @@ impl Editor {
         }
     }
 
-    /// The outliner's click on the body `body` of the part — or group of bodies — `path`
+    /// The navigator's click on the body `body` of the part — or group of bodies — `path`
     /// leads to (docs/model/bodies.md#body-groups): the part, then the group, opened first when they are
     /// not; the body then taken out of the selection when selected, else selected alone — added
     /// to it with `add` (Shift).
@@ -187,7 +187,7 @@ impl Editor {
     }
 
     /// Edits the profile of the body `body` of the part or group `path` leads into (the
-    /// outliner's « Profil » row): opened as for a click on the body's row, the tool « Profil »
+    /// navigator's « Profil » row): opened as for a click on the body's row, the tool « Profil »
     /// started on it.
     pub fn edit_body_profile(&mut self, path: &EntityPath, body: Id) {
         if self.open_container(path, body) {
@@ -320,7 +320,7 @@ impl Editor {
         let _ = self.start(op, After::Nothing, false);
     }
 
-    /// Hides the occurrence `path` names, or shows it again (the outliner's eye). Hidden, it
+    /// Hides the occurrence `path` names, or shows it again (the navigator's eye). Hidden, it
     /// leaves the selection, unless the hidden are shown.
     pub fn set_hidden(&mut self, path: &EntityPath, hidden: bool) {
         if self.busy() {

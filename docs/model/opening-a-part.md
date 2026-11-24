@@ -16,7 +16,7 @@ and [Body groups](bodies.md#body-groups).
 - **Double-clicking a part's occurrence opens the part**, as double-clicking an assembly's
   enters it: the editor keeps the assembly context and adds the occurrence open in it
   (`Editor::open_part`). Esc (Select, nothing selected), a click off its grey box or a click in
-  the outliner close it, the occurrence left selected; an undo that removes it closes it.
+  the navigator close it, the occurrence left selected; an undo that removes it closes it.
   While it is open nothing else is selectable.
 - **The navigator marks the level open**: the part's row while it is the level open (nothing
   selected in it); a group (or a body node) open in it, that group's row, the part and the
@@ -76,7 +76,7 @@ and [Body groups](bodies.md#body-groups).
   for a part placed more than once (`Editor::open_part_copies`, hidden occurrences and copies
   of assemblies counted): for one alone both choices are the same (`Document::separate` copies
   nothing), the scope stays « all ».
-- **The outliner lists every part's bodies** under its row ([Body groups](bodies.md#body-groups)):
+- **The navigator lists every part's bodies** under its row ([Body groups](bodies.md#body-groups)):
   hovering a row draws its body hovered, hovering a body in the view lights its row; a click
   opens the part and selects the body (Shift adds or removes). The entity info shows what is
   selected, a body too ([Bodies](bodies.md)).

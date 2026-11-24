@@ -19,7 +19,7 @@ use muda::accelerator::{Accelerator, Code, Modifiers};
 use muda::{CheckMenuItem, Menu as Bar, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use skraft_i18n::t;
 
-use crate::cards::panels::CommandView;
+use crate::commands::CommandView;
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
 
 const APP: &str = "Skraft";

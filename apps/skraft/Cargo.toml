@@ -39,7 +39,7 @@ skraft-control.workspace = true
 web-time = "1.1"
 # Screenshots of the control protocol (src/system/driving.rs), on the web too.
 png = "0.18"
-# A drawing written as a PDF, its texts in the app's font (src/drawing/pdf.rs).
+# A drawing written as a PDF, its texts in the app's font (src/workspaces/drawing/pdf.rs).
 krilla.workspace = true
 # The system's preferred languages, for the texts when the preferences leave the language to
 # it (src/system/language.rs).

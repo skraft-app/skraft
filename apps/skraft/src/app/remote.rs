@@ -291,7 +291,7 @@ impl SkraftApp {
                 if let Some(id) = &p.id {
                     self.set_workspace(id).map_err(Error::Failed)?;
                 }
-                let list: Vec<_> = workspace::listed()
+                let list: Vec<_> = workspaces::listed()
                     .map(|w| json!({ "id": w.id, "label": (w.label)(), "under_way": w.under_way, "stage": w.stage.id() }))
                     .collect();
                 ok(json!({ "workspaces": list, "shown": self.docs.active().map(|d| d.workspace.id) }))

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use egui::{CornerRadius, FontData, FontDefinitions, FontFamily, Shadow, Stroke, TextStyle};
 use skraft_theme::{Mode, Palette, TitleBarTokens, UiTokens};
 
-use crate::viewport::color;
+use crate::workspaces::common::viewport::color;
 
 /// IBM Plex Sans (variable, SIL Open Font License: `assets/fonts/ibm-plex-sans/OFL.txt`).
 pub const PLEX_SANS: &[u8] = include_bytes!("../../assets/fonts/ibm-plex-sans/IBMPlexSans-Variable.ttf");

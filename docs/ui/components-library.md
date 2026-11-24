@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/cards/library.rs, apps/skraft/src/kit/search.rs, crates/tools/src/search.rs, apps/skraft/src/system/thumbnails.rs, apps/skraft/src/viewport.rs, crates/render/src/lib.rs, apps/skraft/src/cards/panels.rs, apps/skraft/src/cards/panels/, apps/skraft/src/window/dock.rs, crates/tools/src/editor/library.rs, crates/model/src/ops.rs, crates/model/src/document.rs]
+code: [apps/skraft/src/workspaces/common/cards/library.rs, apps/skraft/src/kit/search.rs, crates/tools/src/search.rs, apps/skraft/src/system/thumbnails.rs, apps/skraft/src/workspaces/common/viewport.rs, crates/render/src/lib.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/, apps/skraft/src/window/dock.rs, crates/tools/src/editor/library.rs, crates/model/src/ops.rs, crates/model/src/document.rs]
 ---
 
 # Components library
@@ -177,7 +177,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
   bar line, the card's tabs) and from the list under it. In the navigator, over the whole
   width; in the
   « Composants » card, left of the grid / list toggle. Handles `components:search`,
-  `outliner:search`.
+  `navigator:search`.
 - **Name**: a substring of the name, case and diacritics ignored (« etag » finds
   « Étagère#2 »): both folded to lower case, the diacritics of Latin letters dropped by a table
   (`search::fold`, no Unicode normalisation crate), the ligatures spelt out (« œ » → « oe »),
@@ -186,17 +186,17 @@ Decision [0038](../decisions/0038-components-library-card.md).
 - **What the search does**: the « Composants » card shows only what matches, in both tabs
   (the sections kept; the tabs' counts those it lets through; « Rien ne correspond » in a tab
   where nothing does), its rows made again when the document or the search changes. The
-  navigator shows the rows that match and the rows above them (`panels::Filtered`): those that
+  navigator shows the rows that match and the rows above them (`cards::Filtered`): those that
   do not match themselves attenuated; no fold arrows meanwhile — what holds a match is shown
   open, the rest closed —, the folds left as they are ([Folds](interface.md#folds)), the
   active path not restricting the rows. Whether a definition holds a match is found once per
-  definition, kept for the document's revision and the search (`OutlinerState`), so a search
+  definition, kept for the document's revision and the search (`NavigatorState`), so a search
   costs the definitions, not the placements. Emptied, everything is as before.
 - **No material criterion**: a component has no material of its own — its occurrences carry
   them, inherited down the assemblies, a part's faces others —, so « what is in oak » is not a
   question about definitions (asked on 2026-11-19, the card's material menu dropped).
 - **The searches are the document's**: kept per card in the document (`LibraryState.search`,
-  `OutlinerState.search`, in `docs::Doc`), never on disk.
+  `NavigatorState.search`, in `docs::Doc`), never on disk.
 
 ## Commands and driving
 

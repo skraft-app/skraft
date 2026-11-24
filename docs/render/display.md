@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/scene.rs, crates/tools/src/bvh.rs, crates/tools/src/editor/view.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/fast_hash.rs, apps/skraft/src/viewport.rs, apps/skraft/src/lib.rs]
+code: [crates/tools/src/scene.rs, crates/tools/src/bvh.rs, crates/tools/src/editor/view.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/fast_hash.rs, apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/lib.rs]
 ---
 
 # Display
@@ -52,7 +52,7 @@ shows the same box in grey (`ThemeColor::ContextBox`), a little larger.
 What is drawn or listed per occurrence costs one GPU instance, never draw calls or CPU-built
 geometry. Runs of highlights of the same part are drawn in one instanced call; a box outline is
 one instance of the unit cube (`Frame::boxes`), its edges dashed by the shader from every corner
-(each half edge anchored, its dashes laid on it); the outliner only lays out the rows in view.
+(each half edge anchored, its dashes laid on it); the navigator only lays out the rows in view.
 Lookups over a selection or an assembly go through sets or an index (`ContextIndex`), never a
 search per occurrence. The renderer keeps every buffer within the device's limit (what does not
 fit is dropped, the device is not lost).

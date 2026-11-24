@@ -1,6 +1,6 @@
 //! The rows of the menus (docs/ui/interface.md#widgets).
 
-use crate::cards::panels::CommandView;
+use crate::commands::CommandView;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 
