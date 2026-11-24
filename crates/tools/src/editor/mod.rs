@@ -91,7 +91,7 @@ pub struct Editor {
     link_map: skraft_model::LinkMap,
     /// What the last toast about linked bodies offers.
     link_offer: Option<links::LinkOffer>,
-    /// « Imprimer » waiting for the kernel's answer, and its plan once answered.
+    /// « Empreindre » waiting for the kernel's answer, and its plan once answered.
     imprint_ask: Option<links::ImprintAsk>,
     imprint_ready: Option<skraft_model::ImprintPlan>,
     /// The parts seated in one part that overlap, as the kernel last answered.
@@ -1639,6 +1639,7 @@ impl Editor {
                 _ => self.clear_selection(),
             },
             Command::Say(s) => self.message = Some(s),
+            Command::Imprint { sources, receivers } => self.ask_imprint(sources, receivers),
             Command::PaintWith(m) => self.paint = m,
             Command::Hold(kind) => {
                 self.push_tool(kind, stack::Over::Held);

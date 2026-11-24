@@ -169,6 +169,27 @@ What holds now:
 - **Each side is read without its linked bodies**, so the rule « no cycle » still holds, and **the
   kernel says which parts share material**, before the confirmation.
 
+### Amended: « Empreindre » is pointed, copies included
+
+Decided on 2026-11-24, on a frame of one rail placed four times, turned by quarters, each end
+lapped into the next. « Imprimer » searched itself for the parts the selection entered, and left
+out copies of one part: the frame could not be linked at all.
+
+- **Renamed « Empreindre »**: « Imprimer » read as printing on paper.
+- **The user points the sources, then the parts they go into**: a tool picking as the solid
+  tools do, several sources at once (the dowels of a shelf). **Why:** the material two copies
+  share is the same both ways, and a rail is a tenon in one neighbour and a housing for the
+  other; nothing in the geometry tells them apart, and both ways at once cut the lap away as well
+  as the housing. Pointing says the way, and asks the kernel about the pairs pointed only.
+- **Every pair of copies placed as a pair pointed is comes along**, so a table is two clicks, not
+  eight, and the confirmation says how many came so. A way that is its own inverse is made once
+  per two copies.
+- **A part may imprint its copies**, never itself. The linked body lies in the source's own
+  definition, read without its linked bodies, so one pass still updates everything.
+- Alternatives considered: the selection's order giving the way, the search kept (tried, but one
+  selection could not say which parts are sources); choosing the way in the confirmation, heavier
+  to draw; leaving copies out, which keeps identical frames from being linked.
+
 ## Alternatives considered
 
 - **Linking the mortise to the tenon, adjustments on the link**: the depth set again for each

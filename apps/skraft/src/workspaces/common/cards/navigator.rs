@@ -112,7 +112,7 @@ impl BodyRow<'_> {
         body_label(self.part, self.body)
     }
 
-    /// Its nature's; a linked body's says where it comes from: « Imprimer ».
+    /// Its nature's; a linked body's says where it comes from: « Empreindre ».
     pub(super) fn icon(&self) -> egui::ImageSource<'static> {
         let def = self.part.def_of(self.body);
         if def.source == skraft_model::BodySource::Linked { icons::IMPRINT } else { nature_icon(def.nature()) }

@@ -187,7 +187,7 @@ pub enum Refusal {
     LinkedBody,
     /// A source's links ask one linked body for two places.
     LinkConflict,
-    /// « Imprimer » with no body reaching into another part.
+    /// « Empreindre » with no body reaching into another part.
     NothingToImprint,
     /// A clearance not finite, or on a body that is not imprinted by a source seated in it.
     BadClearance,

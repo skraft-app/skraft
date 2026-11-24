@@ -501,7 +501,7 @@ pub struct BodyDef {
     pub kept_faces: skraft_kernel::names::FaceMap,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub kept_faces_of: u64,
-    /// A linked body made by « Imprimer », from its source's final solid
+    /// A linked body made by « Empreindre », from its source's final solid
     /// (docs/decisions/0055-linked-bodies-through-imprints.md): its solid is then a cache.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imprint: Option<crate::ImprintRecipe>,

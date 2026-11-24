@@ -11,6 +11,7 @@ mod distribute;
 mod erase;
 mod face;
 pub(crate) mod handle;
+pub mod imprint;
 mod measure;
 mod mover;
 mod paint;
@@ -177,6 +178,12 @@ pub enum Command {
     Replace {
         previous: Box<Operation>,
         op: Box<Operation>,
+    },
+    /// Asks the kernel what `sources` imprint in `receivers` and the copies placed alike (paths
+    /// of occurrences from the model): « Empreindre »'s confirmation.
+    Imprint {
+        sources: Vec<Vec<Id>>,
+        receivers: Vec<Vec<Id>>,
     },
 }
 
@@ -465,11 +472,13 @@ pub enum ToolKind {
     Chamfer,
     /// Gives a part or an assembly new axes (docs/tools/reorient.md).
     Reorient,
+    /// Imprints a part in the parts it goes into (docs/decisions/0055-linked-bodies-through-imprints.md).
+    Imprint,
 }
 
 impl ToolKind {
     /// Every tool.
-    pub const ALL: [ToolKind; 23] = [
+    pub const ALL: [ToolKind; 24] = [
         ToolKind::Select,
         ToolKind::Box,
         ToolKind::Cylinder,
@@ -493,6 +502,7 @@ impl ToolKind {
         ToolKind::Round,
         ToolKind::Chamfer,
         ToolKind::Reorient,
+        ToolKind::Imprint,
     ];
 
     /// The tool named `id` ([`ToolKind::id`]).
@@ -526,6 +536,7 @@ impl ToolKind {
             ToolKind::Round => "round",
             ToolKind::Chamfer => "chamfer",
             ToolKind::Reorient => "reorient",
+            ToolKind::Imprint => "imprint",
         }
     }
 
@@ -555,6 +566,7 @@ impl ToolKind {
             ToolKind::Round => t!("tool.round.name"),
             ToolKind::Chamfer => t!("tool.chamfer.name"),
             ToolKind::Reorient => t!("tool.reorient.name"),
+            ToolKind::Imprint => t!("tool.imprint.name"),
         }
     }
 }
@@ -1549,6 +1561,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Measure => Box::new(MeasureTool::default()),
         ToolKind::Stretch => Box::new(StretchTool::default()),
         ToolKind::Reorient => Box::new(ReorientTool::default()),
+        ToolKind::Imprint => Box::new(imprint::ImprintTool::default()),
         ToolKind::CopyLine => Box::new(CopyLineTool::default()),
         ToolKind::CopyGrid => Box::new(CopyGridTool::default()),
         ToolKind::Distribute => Box::new(DistributeTool::default()),

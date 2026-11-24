@@ -112,7 +112,7 @@ menu:
     make_unique: "$t(common.make_unique)"
     # In an open part (docs/model/bodies.md#body-groups).
     group_bodies: "Grouper les corps"
-    imprint: "Imprimer"
+    imprint: "Empreindre"
     move_out: "Sortir du groupe"
     move_out_of_part: "Sortir de la pièce"
     delete_guides: "Supprimer les guides"
@@ -983,7 +983,7 @@ panel:
     link_inside_assembly: "Une pièce de cet assemblage a un lien à revoir"
     link_overlap: "Chevauche %{parts} dans %{receivers}"
     linked: "Usinage lié à %{source} : il suit sa forme et sa place. Pour le changer, modifiez %{source} ou rompez le lien (clic droit)"
-    imprints_in: "Imprime sa forme dans : %{parts}"
+    imprints_in: "Empreint sa forme dans : %{parts}"
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"
@@ -1074,19 +1074,21 @@ notice:
   rename: "Renommer"
 
 # The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
-# « Imprimer »'s confirmation (decision 0055).
+# « Empreindre »'s confirmation (decision 0055).
 imprint:
-  title: "Imprimer dans les pièces traversées"
+  title: "Empreindre dans les pièces traversées"
   around: "Jeu tout autour"
   deep: "Profondeur en plus"
   machinings: "%{count} usinage"
   machinings_plural: "%{count} usinages"
   links: "%{count} lien"
   links_plural: "%{count} liens"
+  by_copies: "dont %{count} par une copie placée de même"
+  by_copies_plural: "dont %{count} par les copies placées de même"
   into: "Dans : %{parts}"
   partial: "Les copies de %{parts} sans pièce en face recevront aussi ces usinages."
   bad_value: "valeur illisible"
-  ok: "Imprimer"
+  ok: "Empreindre"
 
 naming:
   title_part: "Nom de la pièce"
@@ -1139,6 +1141,20 @@ status:
 # The tools: their name (option bar, menus), the status bar hints at each step, the
 # measurements box's label, their options and what they say when they refuse.
 tool:
+  imprint:
+    name: "Empreindre"
+    out_of_reach: "Cette pièce est hors de portée de la source"
+    hint:
+      sources: "Cliquer la pièce qui empreint sa forme · Maj : en choisir plusieurs"
+      sources_gather: "Sélection multiple : cliquer une pièce source pour l'ajouter ou la retirer · Entrée : choisir où elles vont"
+      receivers: "Cliquer une pièce traversée · Maj : en ajouter plusieurs"
+      receivers_gather: "Sélection multiple : cliquer une pièce traversée pour l'ajouter ou la retirer · Entrée : empreindre"
+    step:
+      sources: "Pièces sources"
+      receivers: "Pièces traversées"
+    say:
+      validate_sources: "Valider (Entrée) pour choisir les pièces traversées"
+      validate: "Valider (Entrée) pour empreindre"
   reorient:
     name: "Réorienter"
     # The part already has these axes.
@@ -1634,7 +1650,7 @@ operation:
   # An intersection (an intersect body) added: it limits its part (decision 0045).
   add_intersect: "Intersection"
   # A part imprinted in another, by a link (decision 0055).
-  add_link: "Imprimer"
+  add_link: "Empreindre"
   # Bodies made blanks, or machinings (docs/model/bodies.md).
   set_sign_positive: "Changer en brut"
   set_sign_negative: "Changer en usinage"
@@ -1846,7 +1862,7 @@ error:
     bad_link: "lien impossible : il relie deux pièces placées"
     linked_body: "usinage lié : il suit sa pièce source. Modifiez cette pièce ou rompez le lien"
     link_conflict: "ses liens demandent deux positions différentes pour un même usinage"
-    nothing_to_imprint: "aucun corps de cette sélection n'entre dans une autre pièce"
+    nothing_to_imprint: "la source ne partage de matière avec aucune de ces pièces"
     bad_clearance: "réglage de jeu invalide"
     not_at_path: "seule une opération sur des exemplaires s'applique en profondeur"
     turned_across: "un corps tourné ne s'étire que le long de son axe, sans couper un arc de son profil"

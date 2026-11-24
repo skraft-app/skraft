@@ -986,6 +986,8 @@ imprint:
   machinings_plural: "%{count} machinings"
   links: "%{count} link"
   links_plural: "%{count} links"
+  by_copies: "%{count} of them by a copy placed alike"
+  by_copies_plural: "%{count} of them by the copies placed alike"
   into: "Into: %{parts}"
   partial: "The copies of %{parts} with no part facing them will get these machinings too."
   bad_value: "unreadable value"
@@ -1030,6 +1032,20 @@ status:
     next_failed: "the next task failed: %{error}"
 
 tool:
+  imprint:
+    name: "Imprint"
+    out_of_reach: "This part is out of the source's reach"
+    hint:
+      sources: "Click the part that imprints its shape · Shift: choose several"
+      sources_gather: "Multiple selection: click a source part to add or remove it · Enter: choose where they go"
+      receivers: "Click a part gone through · Shift: add several"
+      receivers_gather: "Multiple selection: click a part it goes through to add or remove it · Enter: imprint"
+    step:
+      sources: "Source parts"
+      receivers: "Parts gone through"
+    say:
+      validate_sources: "Confirm (Enter) to choose the parts gone through"
+      validate: "Confirm (Enter) to imprint"
   reorient:
     name: "Reorient"
     # The part already has these axes.
@@ -1687,7 +1703,7 @@ error:
     bad_link: "impossible link: it joins two placed parts"
     linked_body: "linked machining: it follows its source part. Edit that part or break the link"
     link_conflict: "its links ask for two different places for one machining"
-    nothing_to_imprint: "no body of this selection enters another part"
+    nothing_to_imprint: "the source shares no material with any of these parts"
     bad_clearance: "invalid clearance"
     not_at_path: "only an operation on instances applies at depth"
     turned_across: "a turned body only stretches along its axis, without cutting an arc of its profile"

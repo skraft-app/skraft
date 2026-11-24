@@ -129,7 +129,7 @@ Link     { id, source: path, receiver: path, body, seat: T }
   « Rompre le lien », which makes it a plain body.
 - **Named after its source** (`Document::settle_link_names`, after each operation and on reading a
   file): renaming the part renames it; a body that lost its source keeps the last name.
-- **Told in the navigator** (`Document::link_map`): the icon of « Imprimer » and a chain on its
+- **Told in the navigator** (`Document::link_map`): the icon of « Empreindre » and a chain on its
   row, whose tip names the source and says how to change it (no chain once its link is broken); a
   chain on the source's row, whose tip names the
   parts it shapes. The
@@ -186,10 +186,18 @@ Link     { id, source: path, receiver: path, body, seat: T }
 - **Stretch never touches a linked body**: neither moved nor stretched, nor counted in what it
   measures. It is built again from its source, so a stretch carrying a receiver and lengthening
   its source leaves the mortise around the tenon.
-- **« Imprimer »** (`edit.imprint`, Assembler › Composants): every occurrence of the parts selected
-  is a source, against every other part. Boxes say which may meet; the kernel says which share
+- **« Empreindre »** (`edit.imprint`, Assembler › Composants; `ToolKind::Imprint`,
+  `crates/tools/src/tools/imprint.rs`): a tool picking **the sources, then the parts they go
+  into**, as the solid tools pick theirs: a click takes one part and goes on, Shift gathers
+  several, Enter goes on. Started with parts selected, they are the sources. A destination is
+  taken only within a source's box (`Document::may_imprint`). Each source is tried against each
+  destination, and **every pair of copies placed as a pair pointed is** comes along (the rails of
+  a table in their legs, every copy of a shelf with its dowels); the kernel says which share
   material (`Document::imprint_probe`, `Task::Contact`, then `imprint_plan`), before anything
-  changes. One place in the copies of a receiver is one linked body. A confirmation says what it
+  changes. A part may go into its own copies, the way pointed (a frame of one rail turned by
+  quarters: one rail then the next, four links, one linked body); two copies are paired one way
+  only. One place in the copies of a receiver is one linked body. A confirmation says how many
+  links come by the copies, what it
   cuts and where, asks the clearance on the cheeks and the bottom, and warns when copies of a
   receiver would show a machining with no part facing them; `Operation::Imprint` takes the pairs
   found. `Operation::SetClearance` changes it afterwards, from the linked body's entity info, for
