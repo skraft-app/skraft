@@ -156,6 +156,8 @@ impl SkraftApp {
             "view.hide_rest_of_model" => Some(d.hide_rest_of_model),
             "view.show_hidden" => Some(d.show_hidden),
             "view.section" => Some(d.section_active),
+            // A tool, though started as a command of its own (the selection its sources).
+            "edit.imprint" => Some(editor.tool_kind() == skraft_tools::ToolKind::Imprint),
             _ => tool_of(id).map(|k| editor.tool_kind() == k),
         }
     }
