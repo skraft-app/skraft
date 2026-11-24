@@ -216,7 +216,8 @@ In `apps/skraft/src/kit/widgets.rs`:
   through a row above it: egui's indeterminate mark).
 - **`warning`**, the ⚠ before an error to correct.
 - **`linked_mark`**, the chain at both ends of a link: a part shaping others, a body shaped by
-  one ([Links](../model/bodies.md#links)).
+  one ([Links](../model/bodies.md#links)): in the navigator, left of a part's eye, in its ink;
+  **`linked_badge`**, the same chain small on the corner of a linked body's sign.
 
 Elsewhere:
 

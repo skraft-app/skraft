@@ -364,12 +364,18 @@ fn occurrence_line(
     let line = TreeLine { height, selected, lit: false, band: false, depth: row.path.len(), fold: row.fold, icon };
     // The eye first, at the right end (open while shown, struck through once hidden), then the
     // name in the room left, truncated with "…" so a long name never pushes the eye out.
+    let mark = if selected { tint } else { weak };
     let eye = |ui: &mut egui::Ui, _| {
         let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.navigator.show")) } else { (icons::EYE, t!("panel.navigator.hide")) };
-        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
+        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(mark);
         let eye = ui.add(egui::Button::image(img).frame(false));
         crate::kit::handles::publish(|| format!("navigator:eye:{}", o.id.0), eye.rect);
         let eye = eye.tip(tip).clicked();
+        // A part shaping others: the chain left of the eye, in the column of the bodies' marks,
+        // its tip naming them.
+        if let Some(parts) = &links.shapes {
+            ui.add(linked_mark(ui, mark)).tip(t!("panel.navigator.imprints_in", parts = parts));
+        }
         // Its own material, if any: a dot of its colour left of the eye, a column of its own so
         // the names stay aligned.
         if let Some(m) = o.material.and_then(|m| doc.material(m).ok()) {
@@ -380,9 +386,6 @@ fn occurrence_line(
     let label = |ui: &mut egui::Ui| {
         if broken || inner || link_off || link_below || links.overlap_tip.is_some() {
             ui.add(warning(ui));
-        }
-        if links.shapes.is_some() {
-            ui.add(linked_mark(ui));
         }
         let color = if broken { ui.visuals().error_fg_color } else { tint };
         // The name edited alone in its field, the whole row's width.
@@ -519,7 +522,7 @@ fn occurrence_row(
         1 => None,
         _ => Some(t!("panel.navigator.pieces", count = pieces)),
     };
-    let OccurrenceLinks { overlap_tip, shapes } = links;
+    let OccurrenceLinks { overlap_tip, .. } = links;
     let tip = tip.or(if link_off { None } else { overlap_tip });
     let tip = tip.or_else(|| match (link_off, link_below, part.is_some()) {
         (true, ..) => Some(t!("panel.navigator.link_off")),
@@ -527,7 +530,6 @@ fn occurrence_row(
         (_, true, false) => Some(t!("panel.navigator.link_inside_assembly")),
         _ => None,
     });
-    let tip = tip.or_else(|| shapes.map(|parts| t!("panel.navigator.imprints_in", parts = parts)));
     let response = match tip {
         Some(tip) => response.tip(tip),
         None => response,
@@ -1285,25 +1287,35 @@ fn body_line(
     let line = TreeLine { height, selected, lit, band: true, depth, fold: row.fold, icon };
     // The sign toggle first, at the right end where a part's row has its eye, then the name in
     // the room left.
-    let sign = |ui: &mut egui::Ui, _| {
+    let sign = |ui: &mut egui::Ui, over: bool| {
         let (icon, tip) = match b.body.sign {
             Sign::Positive => (icons::UNION, t!("panel.navigator.sign_positive")),
             Sign::Negative => (icons::SUBTRACT, t!("panel.navigator.sign_negative")),
             Sign::Intersect => (icons::INTERSECT, t!("panel.navigator.sign_intersect")),
         };
-        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
+        let mark = if selected { tint } else { weak };
+        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(mark);
         let sense = if linked { egui::Sense::hover() } else { egui::Sense::click() };
         let sign = ui.add(egui::Button::image(img).frame(false).sense(sense));
         crate::kit::handles::publish(|| format!("navigator:sign:{}", b.body.id.0), sign.rect);
+        // A linked body is a machining by its link (docs/model/bodies.md#links): its sign is not
+        // clicked, a chain on its corner, its tip naming the source. Tied to it as the source's
+        // row is to it.
+        if let Some(source) = &look.source {
+            let v = ui.visuals();
+            let ground = match (selected, over || lit) {
+                (true, _) => v.selection.bg_fill,
+                (false, true) => v.widgets.hovered.weak_bg_fill,
+                (false, false) => band_color(v),
+            };
+            linked_badge(ui, egui::Rect::from_center_size(sign.rect.center(), egui::vec2(14.0, 14.0)), mark, ground);
+            return sign.tip(t!("panel.navigator.linked", source = source)).clicked();
+        }
         sign.tip(tip).clicked()
     };
     let label = |ui: &mut egui::Ui| {
         if warned {
             ui.add(warning(ui));
-        }
-        // Tied to its source, as the source's row is to it.
-        if look.source.is_some() {
-            ui.add(linked_mark(ui));
         }
         match renaming {
             Some(true) => return (rename_field(ui, rename_own, &b.body.name), None),
@@ -1343,8 +1355,6 @@ fn body_tip(response: egui::Response, b: &BodyRow<'_>, look: &BodyLook<'_>) -> e
             (false, false) => t!("panel.navigator.failed_group"),
         };
         response.tip(tip)
-    } else if let Some(source) = &look.source {
-        response.tip(t!("panel.navigator.linked", source = source))
     } else {
         response
     }

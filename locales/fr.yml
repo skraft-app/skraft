@@ -995,7 +995,7 @@ panel:
     rename: "Renommer"
     rename_instance: "Renommer l'exemplaire"
     rename_definition: "Renommer la définition"
-    # A body's sign toggle, at the right end of its row.
+    # A body's sign toggle, at the right end of its row (a linked body's tip is `linked`).
     sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
     sign_negative: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire une intersection"
     sign_intersect: "Intersection : la pièce ne garde que ce qui est dedans. Cliquer pour en faire un brut"
