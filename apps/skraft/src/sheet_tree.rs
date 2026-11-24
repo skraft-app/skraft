@@ -255,38 +255,28 @@ fn line<R>(
     right: impl FnOnce(&mut egui::Ui, bool) -> R,
 ) -> (egui::Response, Option<Option<String>>, R) {
     let renaming = l.rename.is_some_and(|k| ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(widgets::RENAMING))) == Some(k));
-    let (response, (renamed, extra)) = widgets::tree_row(ui, height, l.selected, false, false, |ui| {
+    let icon = egui::Image::new(l.icon).fit_to_exact_size(egui::vec2(ICON, ICON)).tint(l.tint);
+    let line = widgets::TreeLine { height, selected: l.selected, lit: false, band: false, depth: l.depth, fold: l.fold, icon };
+    // Its buttons close together.
+    let buttons = |ui: &mut egui::Ui, over: bool| {
         let spacing = ui.spacing().item_spacing.x;
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add_space(ui.spacing().indent * l.depth as f32);
-        match l.fold {
-            Some(f) => widgets::fold_toggle(ui, salt, f, folds),
-            None => ui.add_space(ui.spacing().indent),
-        }
+        let extra = right(ui, over);
         ui.spacing_mut().item_spacing.x = spacing;
-        ui.add(egui::Image::new(l.icon).fit_to_exact_size(egui::vec2(ICON, ICON)).tint(l.tint));
-        let over = ui.rect_contains_pointer(ui.max_rect());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            let extra = right(ui, over);
-            ui.spacing_mut().item_spacing.x = spacing;
-            let renamed = ui
-                .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    if renaming {
-                        return widgets::rename_field(ui, l.rename.expect("renaming"), l.name);
-                    }
-                    let mut text = egui::RichText::new(l.name).color(l.tint);
-                    if l.strong {
-                        text = text.strong();
-                    }
-                    ui.add(egui::Label::new(text).truncate().selectable(false));
-                    None
-                })
-                .inner;
-            (renamed, extra)
-        })
-        .inner
-    });
+        extra
+    };
+    let label = |ui: &mut egui::Ui| {
+        if renaming {
+            return widgets::rename_field(ui, l.rename.expect("renaming"), l.name);
+        }
+        let mut text = egui::RichText::new(l.name).color(l.tint);
+        if l.strong {
+            text = text.strong();
+        }
+        ui.add(egui::Label::new(text).truncate().selectable(false));
+        None
+    };
+    let (response, (extra, renamed)) = widgets::tree_line(ui, line, (salt, folds), buttons, label);
     let renamed = match l.rename {
         Some(k) => widgets::start_rename(ui, &response, renaming, l.alone, k, renamed),
         None => None,
