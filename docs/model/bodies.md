@@ -190,7 +190,9 @@ Link     { id, source: path, receiver: path, body, seat: T }
   clearance until the next change of shape.
 - **Stretch never touches a linked body**: neither moved nor stretched, nor counted in what it
   measures. It is built again from its source, so a stretch carrying a receiver and lengthening
-  its source leaves the mortise around the tenon.
+  its source leaves the mortise around the tenon. Each link showing the source where the body
+  now lies takes its own pose as its seat: through a mirrored receiver, one stretch of the
+  source is another change in that receiver's axes.
 - **« Empreindre »** (`edit.imprint`, Assembler › Composants; `ToolKind::Imprint`,
   `crates/tools/src/tools/imprint.rs`): a tool picking **the sources, then the parts they go
   into**, as the solid tools pick theirs: a click takes one part and goes on, Shift gathers

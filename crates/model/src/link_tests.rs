@@ -1461,3 +1461,39 @@ fn copy_clash(h: &History, rails: &[Id]) -> f64 {
     }
     most
 }
+
+/// A shelf between two legs of one part, the second mirrored, imprinted in both: one body in the
+/// legs' definition, a link per leg.
+fn shelf_between_mirrored_legs(h: &mut History) -> (Id, Id, Id) {
+    let root = h.document().root();
+    let leg = add_part(h, at(20.0, 100.0, 100.0), DAffine3::IDENTITY);
+    let mirror = moved(at(140.0, 0.0, 0.0)) * DAffine3::from_scale(at(-1.0, 1.0, 1.0));
+    let leg2 = h.apply(Operation::PlaceOccurrence { context: root, component: part_of(h, leg), transform: mirror }).unwrap().created[0];
+    let shelf = add_part(h, at(120.0, 80.0, 10.0), moved(at(10.0, 10.0, 40.0)));
+    h.apply(Operation::Imprint { context: root, pairs: vec![pair(shelf, leg), pair(shelf, leg2)], around: 0.0, deep: 0.0 }).unwrap();
+    (leg, leg2, shelf)
+}
+
+#[test]
+fn a_stretch_across_mirrored_legs_keeps_each_link_seated() {
+    let mut h = History::new(Document::new());
+    let (leg, leg2, shelf) = shelf_between_mirrored_legs(&mut h);
+    assert_eq!(states(&h), vec![LinkState::Seated, LinkState::Seated]);
+    let leg_part = part_of(&h, leg);
+    assert_eq!(h.document().part(leg_part).unwrap().negatives().count(), 1, "one body for both legs");
+
+    // The legs brought 30 closer, the shelf shortened with them.
+    h.apply(Operation::Stretch {
+        context: vec![],
+        occurrences: vec![leg, leg2, shelf],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::X,
+        cuts: vec![70.0],
+        moves: vec![0.0, -30.0],
+        scope: Scope::All,
+        cutters: None,
+    })
+    .unwrap();
+    assert_eq!(states(&h), vec![LinkState::Seated, LinkState::Seated]);
+    assert!(close(volume(&h, leg_part), 20.0 * 100.0 * 100.0 - 10.0 * 80.0 * 10.0), "{}", volume(&h, leg_part));
+}

@@ -462,8 +462,10 @@ impl Document {
 
     /// The linked bodies after an operation (`before` the document it was applied to): those
     /// seated between parts whose own bodies changed take the source's shape as it now is, where
-    /// it now is, their links' seats with them (a stretch moves a receiver and reshapes its source
-    /// at once). A source only moved out of its receiver leaves the body.
+    /// it now is (a stretch moves a receiver and reshapes its source at once). Each link showing
+    /// the source where the body now lies takes its own pose as its seat: through a mirrored
+    /// receiver, one change of the source is another change in its axes. A source only moved
+    /// out of its receiver leaves the body.
     pub(crate) fn update_imprints(&mut self, before: &Document, solver: &mut dyn Solver) -> Result<()> {
         let changed: BTreeSet<Id> = self
             .components
@@ -484,11 +486,18 @@ impl Document {
         struct Target {
             from: Id,
             pose: DAffine3,
-            seat: DAffine3,
             /// It is the one the body was placed by.
             on_body: bool,
         }
         let mut targets: BTreeMap<(Id, Id), Target> = BTreeMap::new();
+        /// A link a body is rebuilt for, the source where it now is in the receiver's axes.
+        struct Seated {
+            holder: Id,
+            link: Id,
+            from: Id,
+            pose: DAffine3,
+        }
+        let mut seated: BTreeMap<(Id, Id), Vec<Seated>> = BTreeMap::new();
         for holder in self.link_holders() {
             let (Ok(a), Ok(old)) = (self.assembly(holder), before.assembly(holder)) else { continue };
             for l in a.links() {
@@ -503,7 +512,8 @@ impl Document {
                 }
                 let placed = before.link_pose(holder, was).ok().and_then(|(_, t, _)| Some(before.part(t).ok()?.body(was.body)?.placement));
                 let on_body = placed.is_some_and(|p| p.abs_diff_eq(was.seat, SAME));
-                let target = Target { from, pose, seat: l.seat, on_body };
+                seated.entry((to, l.body)).or_default().push(Seated { holder, link: l.id, from, pose });
+                let target = Target { from, pose, on_body };
                 match targets.entry((to, l.body)) {
                     std::collections::btree_map::Entry::Vacant(e) => {
                         e.insert(target);
@@ -519,8 +529,12 @@ impl Document {
         let mut reshaped = BTreeSet::new();
         for ((to, body), t) in targets {
             self.rebuild_tool((t.from, to, body), &t.pose, None, &mut own, solver)?;
-            if !t.pose.abs_diff_eq(t.seat, SAME) {
-                self.map_seats(to, Some(body), &(t.pose * t.seat.inverse()));
+            for Seated { holder, link, from, pose } in seated.remove(&(to, body)).unwrap_or_default() {
+                let there = pose.abs_diff_eq(t.pose, SAME)
+                    || (from == t.from && self.part(from).is_ok_and(|p| same_place(p.shape(), &pose, p.shape(), &t.pose)));
+                if there && let Some(l) = self.assembly_mut(holder)?.links_mut().iter_mut().find(|l| l.id == link) {
+                    l.seat = pose;
+                }
             }
             reshaped.insert(to);
         }
