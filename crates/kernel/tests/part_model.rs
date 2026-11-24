@@ -103,8 +103,21 @@ fn holes(n: usize) -> Vec<Solid> {
 
 #[test]
 fn blank_minus_many_tools() {
+    cut_many(&[5]);
+}
+
+/// The same with more holes, timed: a bench, not a check (`cargo test --workspace --test
+/// part_model -- --ignored --nocapture`).
+#[test]
+#[ignore = "a bench: seconds"]
+fn blank_minus_many_tools_timed() {
+    cut_many(&[5, 20, 50]);
+}
+
+/// The board less `n` holes, one by one and as one union: the same solid either way.
+fn cut_many(counts: &[usize]) {
     let hole_volume = std::f64::consts::PI * 16.0 * 12.0;
-    for n in [5, 20, 50] {
+    for &n in counts {
         let tools = holes(n);
         let expected = 600.0 * 300.0 * 18.0 - n as f64 * hole_volume;
 

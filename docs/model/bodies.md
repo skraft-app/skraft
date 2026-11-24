@@ -116,8 +116,11 @@ Link     { id, source: path, receiver: path, body, seat: T }
   `crates/kernel/src/imprint.rs`), in the source's axes: a part may be its own tenon. Only its
   faces standing as **walls** inside the receiver are moved: the one whose way across the contact
   ends on an opening is the **bottom** (`deep`), the others are **cheeks** (`around`). A box stays
-  a box, anything else has those faces offset; a clearance that cannot be built is refused,
-  never reduced. Without clearance the tool is the source's solid.
+  a box; a right prism whose sides are all cheeks (a dowel, a filleted tenon) is its end's
+  outline offset by the profile and extruded again, the bottom end deeper; anything else has
+  those faces offset by SolidCore (`offset_faces`, seconds on round faces where the profile takes
+  milliseconds). A clearance that cannot be built is refused, never reduced. Without clearance
+  the tool is the source's solid.
 - **The linked body** (`BodySource::Linked`, sign `−`) holds that tool as a cache, with its
   `ImprintRecipe { clearance }` (`BodyDef::imprint`). One place in the copies of a receiver is one
   body, of one source part.
