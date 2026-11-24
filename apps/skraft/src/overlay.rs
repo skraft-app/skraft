@@ -1,6 +1,6 @@
 //! What the 2D stages draw on screen over their content, the 3D view's and the drawing sheet's
 //! alike (docs/render/drawer.md#screen-overlays): the dashes by what they mean, the selection
-//! rectangle, the square grip, the cross.
+//! rectangle, the square grip, the cross, a turned text.
 
 use skraft_theme::Theme;
 
@@ -62,4 +62,27 @@ pub fn square_grip(painter: &egui::Painter, at: egui::Pos2, side: f32, fill: egu
 pub fn cross(painter: &egui::Painter, at: egui::Pos2, arm: f32, stroke: egui::Stroke) {
     painter.line_segment([at - egui::vec2(arm, 0.0), at + egui::vec2(arm, 0.0)], stroke);
     painter.line_segment([at - egui::vec2(0.0, arm), at + egui::vec2(0.0, arm)], stroke);
+}
+
+/// `text` from its bottom left corner `at`, turned about it by `angle` (on screen); what it
+/// covers on screen, and its size before it is turned.
+pub fn turned_text(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    angle: f32,
+    text: String,
+    font: egui::FontId,
+    color: egui::Color32,
+) -> (egui::Rect, egui::Vec2) {
+    if angle == 0.0 {
+        let r = painter.text(at, egui::Align2::LEFT_BOTTOM, text, font, color);
+        return (r, r.size());
+    }
+    let galley = painter.layout_no_wrap(text, font, color);
+    let size = galley.size();
+    let rot = egui::emath::Rot2::from_angle(angle);
+    let top_left = at + rot * egui::vec2(0.0, -size.y);
+    let corners = [top_left, top_left + rot * egui::vec2(size.x, 0.0), top_left + rot * size, top_left + rot * egui::vec2(0.0, size.y)];
+    painter.add(egui::epaint::TextShape::new(top_left, galley, color).with_angle(angle));
+    (egui::Rect::from_points(&corners), size)
 }

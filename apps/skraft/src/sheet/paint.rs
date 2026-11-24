@@ -224,29 +224,6 @@ pub(super) fn draw_names(
     }
 }
 
-/// `text` from its bottom left corner `at`, turned about it by `angle` (on screen); what it
-/// covers on screen, and its size before it is turned.
-fn turned_text(
-    painter: &egui::Painter,
-    at: egui::Pos2,
-    angle: f32,
-    text: String,
-    font: egui::FontId,
-    color: egui::Color32,
-) -> (egui::Rect, egui::Vec2) {
-    if angle == 0.0 {
-        let r = painter.text(at, egui::Align2::LEFT_BOTTOM, text, font, color);
-        return (r, r.size());
-    }
-    let galley = painter.layout_no_wrap(text, font, color);
-    let size = galley.size();
-    let rot = egui::emath::Rot2::from_angle(angle);
-    let top_left = at + rot * egui::vec2(0.0, -size.y);
-    let corners = [top_left, top_left + rot * egui::vec2(size.x, 0.0), top_left + rot * size, top_left + rot * egui::vec2(0.0, size.y)];
-    painter.add(egui::epaint::TextShape::new(top_left, galley, color).with_angle(angle));
-    (egui::Rect::from_points(&corners), size)
-}
-
 /// The outline of the box on `quad`, turned or not.
 fn stroke_box(painter: &egui::Painter, pv: &Paperview, quad: [egui::Pos2; 4], stroke: egui::Stroke) {
     if pv.turned() {
@@ -480,7 +457,7 @@ fn draw_view(
         let label = quad[0] + egui::emath::Rot2::from_angle(angle) * egui::vec2(0.0, -2.0);
         let shown_scale = if r.perspective.is_some() { t!("drawing.no_scale") } else { scale_label(r.scale) };
         let name = format!("{} · {}", v.name, shown_scale);
-        turned_text(painter, label, angle, name, egui::FontId::proportional(11.0), frame_ink);
+        overlay::turned_text(painter, label, angle, name, egui::FontId::proportional(11.0), frame_ink);
     }
     if alone {
         crate::handles::publish(|| format!("sheet_view:{}", el.id.0), rect);
@@ -530,7 +507,7 @@ fn draw_figure(
         ElementKind::Text { at, text, size } => {
             let words = fields.map_or_else(|| text.clone(), |f| f.fill(text, &shown.path));
             let font = egui::FontId::proportional((size * pv.zoom).max(1.0) as f32);
-            let (r, on_screen) = turned_text(painter, pv.to_screen(*at), pv.angle(), words, font, paper_ink);
+            let (r, on_screen) = overlay::turned_text(painter, pv.to_screen(*at), pv.angle(), words, font, paper_ink);
             (r, (*at, *at + DVec2::new(on_screen.x as f64, on_screen.y as f64) / pv.zoom))
         }
         ElementKind::Line { from, to } => {
