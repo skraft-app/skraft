@@ -23,7 +23,9 @@ it ([Selection scope « Parts » as paths](0029-selection-scope-parts-as-paths.m
   picking brought onto it, shaped so that the scope plugs in (the scope it picks with, a state
   for the tree drop-up).
 - Move and Rotate pick first, then take the base point or centre; once done the selection is
-  let go. Erase and Paint keep the click that acts; booleans ignore the selection; the shape
+  let go. *Amended on 2026-11-24: once moved or turned, the selection is kept and taken again
+  (Esc lets it go); only a copy lets it go ([Select first](../tools/selection.md#select-first)).*
+  Erase and Paint keep the click that acts; booleans ignore the selection; the shape
   tools, Measure, Section and Profile are not concerned.
 
 ## Alternatives considered

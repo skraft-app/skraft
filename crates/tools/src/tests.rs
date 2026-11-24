@@ -169,8 +169,8 @@ fn typed_expressions_lists_and_points() {
     e.input(ToolInput::Vcb("[10;20;100]".into()));
     let (lo, _) = bounds_of(&e, &EntityPath::root(id));
     assert!(close(lo, DVec3::new(10.0, 20.0, 0.0)), "{lo}");
-    // Moved, let go (docs/tools/selection.md): picked again, then the start.
-    click(&mut e, DVec3::new(10.0, 20.0, 100.0));
+    // Moved, kept and taken again (docs/tools/selection.md): the next click is the start.
+    assert_eq!(e.selection(), &[id]);
     click(&mut e, DVec3::new(10.0, 20.0, 100.0));
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(40.0, 20.0, 100.0)) });
     e.input(ToolInput::Vcb("<-10;;@-100>".into()));
@@ -763,12 +763,9 @@ fn move_with_axis_lock_and_typed_distance_then_copy() {
     tap(&mut e);
     tap(&mut e);
     assert!(!e.tool_copying());
-    // Moved, the selection is let go (docs/tools/selection.md): a click picks, the next starts.
-    assert!(e.selection().is_empty());
-    let at = px(&e, DVec3::new(300.0, 50.0, 50.0));
-    e.input(ToolInput::Hover { px: at });
-    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
+    // Moved, the selection is kept and taken again (docs/tools/selection.md): a click starts.
     assert_eq!(e.selection(), &[a]);
+    let at = px(&e, DVec3::new(300.0, 50.0, 50.0));
     e.input(ToolInput::Hover { px: at });
     e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
     tap(&mut e);
@@ -1208,9 +1205,7 @@ fn rotate_tool_by_clicks_and_typed_angle() {
     let at = px(&e, DVec3::new(-50.0, 100.0, 50.0));
     e.input(ToolInput::Hover { px: at });
     e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
-    assert!(e.selection().is_empty(), "turned, the selection is let go");
-    e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
-    e.input(ToolInput::Hover { px: at });
+    assert_eq!(e.selection(), &[a], "turned, the selection is kept");
     e.input(ToolInput::Click { px: at, mods: Modifiers::default() });
     click(&mut e, DVec3::new(-50.0 + 100.0, 100.0, 50.0));
     click(&mut e, DVec3::new(-50.0 + 100.0, 200.0, 50.0));
@@ -2113,11 +2108,10 @@ fn machinings_are_picked_moved_copied_arrayed_and_erased_in_the_open_part() {
     assert!(!v.batches.iter().flat_map(|(_, p)| p).any(|p| p.look == Look::Tool));
     e.input(ToolInput::Vcb("100".into()));
     assert!(close(machinings(&e, board)[0].placement.translation, DVec3::new(150.0, 100.0, -5.0)));
-    assert!(e.selection().is_empty(), "moved, let go");
+    assert_eq!(e.selection(), &[hole], "moved, kept");
 
     // A copy 50 further, then `3x`: an array of three, every occurrence shows them.
     e.input(ToolInput::Key { key: Key::Copy, mods: Modifiers::default() });
-    click(&mut e, DVec3::new(150.0, 100.0, 25.0));
     click(&mut e, DVec3::new(150.0, 100.0, 25.0));
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(300.0, 100.0, 25.0)) });
@@ -6269,7 +6263,8 @@ fn move_picks_first_by_a_click_a_rectangle_or_shift_clicks() {
     assert!(e.selection().is_empty());
     assert_eq!(e.tool_kind(), ToolKind::Move);
 
-    // A rectangle around the first two, left to right: taken; moved 50 along red, let go.
+    // A rectangle around the first two, left to right: taken; moved 50 along red, kept; Esc
+    // lets it go.
     drag(&mut e, DVec3::new(-10.0, -10.0, 0.0), DVec3::new(210.0, 160.0, 0.0), none);
     assert_eq!(e.selection(), [b1, b2]);
     click(&mut e, DVec3::new(0.0, 0.0, 18.0));
@@ -6277,6 +6272,8 @@ fn move_picks_first_by_a_click_a_rectangle_or_shift_clicks() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 0.0, 18.0)) });
     e.input(ToolInput::Vcb("50".into()));
     assert_eq!((x(&e, b1).round(), x(&e, b2).round(), x(&e, b3).round()), (50.0, 50.0, 0.0));
+    assert_eq!(e.selection(), [b1, b2]);
+    e.input(ToolInput::Key { key: Key::Escape, mods: none });
     assert!(e.selection().is_empty());
 
     // Shift held, two clicked: gathered, taken once Shift is released.
@@ -6487,7 +6484,9 @@ fn parts_at_any_depth_move_in_their_assembly_all_copies_or_this_one() {
     e.input(ToolInput::Vcb("100".into()));
     assert_eq!(x(&e, EntityPath::new(vec![g], a)).round(), 100.0);
     assert_eq!(x(&e, EntityPath::new(vec![g2], a)).round(), 100.0);
-    assert!(e.deep_selection().is_empty(), "moved, let go");
+    assert_eq!(e.deep_selection(), [EntityPath::new(vec![g], a)], "moved, kept");
+    e.input(ToolInput::Key { key: Key::Escape, mods: none });
+    assert!(e.deep_selection().is_empty(), "Esc lets it go");
     e.undo();
 
     // « Only this one »: the copy reached made unique, the other stays; one undo step.

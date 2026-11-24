@@ -6,8 +6,8 @@
 //! typed in degrees (`360/7`, `@/2`: half the angle so far). A tap of the copy modifier (Option on macOS, Ctrl elsewhere) toggles
 //! copying; right after a copy, `6x` makes a circular array of 6 at the same angle and `/6`
 //! spreads 6 copies over it. What turns is picked first (docs/tools/selection.md, [`Picker`]): the
-//! selection, else a click, Shift clicks or a rectangle; once turned, the selection is let go
-//! and the tool picks again. The box of what turns gives its corners, its faces' centres and
+//! selection, else a click, Shift clicks or a rectangle; once turned, the selection is kept and
+//! taken again (Esc lets it go), once copied, it is let go and the tool picks again. The box of what turns gives its corners, its faces' centres and
 //! four grips per face, a grip going straight to the angle (docs/tools/inferences.md#selection-box).
 
 use super::DragClicks;
@@ -165,8 +165,9 @@ impl RotateTool {
         } else {
             moved.transform(entities, world)
         };
-        // Turned, the selection is let go: the tool picks again (OCL's restart).
-        vec![Command::Apply(op), Command::Select(Vec::new())]
+        // Turned, the selection is kept, taken again: the next click starts another turn; copied,
+        // it is let go and the tool picks again (OCL's restart), docs/tools/selection.md.
+        if copy { vec![Command::Apply(op), Command::Select(Vec::new())] } else { vec![Command::Apply(op)] }
     }
 
     fn input_state(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {

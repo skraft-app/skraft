@@ -6,8 +6,8 @@
 //! copies over the same distance. A typed distance finishes the move along the current
 //! direction (`@/2`: half the way so far), a typed point at it (`[x;y;z]` in the context's
 //! axes, `<dx;dy;dz>` from the start). What is moved is picked first (docs/tools/selection.md, [`Picker`]):
-//! the selection, else a click, Shift clicks or a rectangle; once moved, the selection is let
-//! go and the tool picks again. The box of what moves gives its corners as start points
+//! the selection, else a click, Shift clicks or a rectangle; once moved, the selection is kept
+//! and taken again (Esc lets it go), once copied, it is let go and the tool picks again. The box of what moves gives its corners as start points
 //! (docs/tools/inferences.md#selection-box).
 //!
 //! Paste at the cursor (docs/tools/copy-paste.md) carries what was just pasted in place with this tool, held
@@ -106,8 +106,10 @@ impl MoveTool {
             let op = cx.moved().paste(&pasted, DAffine3::from_translation(to - from));
             return vec![Command::Replace { previous: pasted, op: Box::new(op) }];
         }
-        // Moved, the selection is let go: the tool picks again (OCL's restart).
-        let op = if self.copy {
+        // Moved, the selection is kept, taken again: the next click starts another move; copied,
+        // it is let go and the tool picks again (OCL's restart), docs/tools/selection.md.
+        let copy = self.copy;
+        let op = if copy {
             let last = LastCopy::new(moved, entities, Motion::Translate(to - from));
             let op = last.op.clone();
             self.last = Some(last);
@@ -117,7 +119,7 @@ impl MoveTool {
         };
         self.copy = false;
         self.snap = None;
-        vec![Command::Apply(op), Command::Select(Vec::new())]
+        if copy { vec![Command::Apply(op), Command::Select(Vec::new())] } else { vec![Command::Apply(op)] }
     }
 }
 
