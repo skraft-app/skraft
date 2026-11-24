@@ -1,4 +1,4 @@
-//! « Imprimer » (docs/decisions/0055-linked-bodies-through-imprints.md): the parts chosen cut their
+//! « Empreindre » (docs/decisions/0055-linked-bodies-through-imprints.md): the parts chosen cut their
 //! **final solid** in the parts it enters, however it was built. The tool is that whole solid, its
 //! walls inside the receiver moved by a clearance, computed by the kernel; a linked body of the
 //! receiver holds it. Both sides are read without their own linked bodies: a mortise is never part
@@ -32,18 +32,19 @@ pub struct ImprintPair {
     pub receiver: Vec<Id>,
 }
 
-/// The kernel's question before « Imprimer »: which of these pairs share material? Boxes say which
+/// The kernel's question before « Empreindre »: which of these pairs share material? Boxes say which
 /// may; only the solids can say which do.
 #[derive(Clone, Debug)]
 pub struct ImprintProbe {
     context: Id,
     /// What to run; nothing to ask when it holds no task.
     pub job: Job,
-    /// Each pair, and the task answering for it (pairs placed alike share one).
-    tests: Vec<(ImprintPair, usize)>,
+    /// Each pair, the task answering for it (pairs placed alike share one), and whether it was
+    /// pointed (else it comes by the copies).
+    tests: Vec<(ImprintPair, usize, bool)>,
 }
 
-/// What « Imprimer » would do, for its confirmation.
+/// What « Empreindre » would do, for its confirmation.
 #[derive(Clone, Debug)]
 pub struct ImprintPlan {
     context: Id,
@@ -52,12 +53,19 @@ pub struct ImprintPlan {
     receivers: Vec<Id>,
     /// The receiving parts with a machining that some of their copies have no source for.
     pub partial: Vec<Id>,
+    /// The links between the occurrences pointed; the others come by the copies.
+    pointed: usize,
 }
 
 impl ImprintPlan {
     /// How many links it makes.
     pub fn link_count(&self) -> usize {
         self.pairs.len()
+    }
+
+    /// How many of its links come by the copies placed as the parts pointed are.
+    pub fn by_copies(&self) -> usize {
+        self.pairs.len() - self.pointed
     }
 
     /// How many machinings it adds to the receiving parts.
@@ -81,8 +89,6 @@ struct Placed {
     path: Vec<Id>,
     part: Id,
     t: DAffine3,
-    /// Its box in that assembly's axes.
-    world: Option<(DVec3, DVec3)>,
 }
 
 /// A pair, with its parts and the source's axes in the receiver's.
@@ -156,8 +162,7 @@ impl Document {
                 let placed = t * o.transform;
                 path.push(o.id);
                 if doc.part(o.component).is_ok() {
-                    let world = doc.component_bounds(o.component).map(|b| placed_box(&placed, b));
-                    out.push(Placed { path: path.clone(), part: o.component, t: placed, world });
+                    out.push(Placed { path: path.clone(), part: o.component, t: placed });
                 } else {
                     walk(doc, o.component, path, placed, out);
                 }
@@ -167,20 +172,6 @@ impl Document {
         let mut out = Vec::new();
         walk(self, context, &mut Vec::new(), DAffine3::IDENTITY, &mut out);
         out
-    }
-
-    /// The parts `component` is or holds.
-    fn parts_in(&self, component: Id, out: &mut BTreeSet<Id>, depth: usize) {
-        if depth > MAX_DEPTH {
-            return;
-        }
-        match self.component(component).map(|c| &c.kind) {
-            Ok(ComponentKind::Part(_)) => {
-                out.insert(component);
-            }
-            Ok(ComponentKind::Assembly(a)) => a.occurrences().iter().for_each(|o| self.parts_in(o.component, out, depth + 1)),
-            Err(_) => {}
-        }
     }
 
     /// The solid of `part` without its linked bodies: what it is by itself.
@@ -205,17 +196,38 @@ impl Document {
         Ok(solid)
     }
 
-    /// The kernel's question before « Imprimer », for the occurrences `selected` of `context`:
-    /// every occurrence of the parts they are or hold is a source, against every other part
-    /// whose box it meets and it is not linked to yet.
-    pub fn imprint_probe(&self, context: Id, selected: &[Id]) -> Result<ImprintProbe> {
-        let a = self.assembly(context)?;
-        let mut chosen = BTreeSet::new();
-        for id in selected {
-            let o = a.occurrence(*id).ok_or(Error::NotFound(*id))?;
-            self.parts_in(o.component, &mut chosen, 0);
-        }
+    /// Can `source` reach into `receiver` (paths of occurrences from the model), by their boxes:
+    /// what « Empreindre » lets the cursor take before the kernel is asked.
+    pub fn may_imprint(&self, source: &[Id], receiver: &[Id]) -> bool {
+        let root = self.root();
+        let boxed = |path: &[Id]| {
+            let (part, t) = self.through(root, path).ok()?;
+            self.part(part).ok()?;
+            Some(placed_box(&t, self.component_bounds(part)?))
+        };
+        source != receiver && boxed(source).zip(boxed(receiver)).is_some_and(|(a, b)| boxes_meet(&a, &b))
+    }
+
+    /// The kernel's question before « Empreindre »: `sources` pointed, then `receivers`, paths
+    /// of occurrences from the model. Each source against each receiver counts, and so does every
+    /// pair of copies placed as one of them is (the rails of a table in their legs, a frame of one
+    /// rail in its copies); the kernel says which share material. Two copies of one part are
+    /// paired one way.
+    pub fn imprint_probe(&self, sources: &[Vec<Id>], receivers: &[Vec<Id>]) -> Result<ImprintProbe> {
+        let context = self.root();
         let placed = self.placed_under(context);
+        let find = |path: &[Id]| placed.iter().find(|p| p.path == path).ok_or(Error::NotFound(path.last().copied().unwrap_or(context)));
+        let mut ways: Vec<(Id, Id, DAffine3)> = Vec::new();
+        for s in sources {
+            let s = find(s)?;
+            for r in receivers {
+                let r = find(r)?;
+                let pose = r.t.inverse() * s.t;
+                if r.path != s.path && !ways.iter().any(|(f, t, p)| *f == s.part && *t == r.part && p.abs_diff_eq(pose, SAME)) {
+                    ways.push((s.part, r.part, pose));
+                }
+            }
+        }
         let mut linked: FastSet<(Id, Id)> = FastSet::default();
         // The model's own links too: `components()` leaves it out.
         for c in self.components.values() {
@@ -229,41 +241,45 @@ impl Document {
         }
         let mut recorder = Recorder::default();
         let mut own = BTreeMap::new();
-        let mut asked: Vec<(Id, Id, DAffine3, usize)> = Vec::new();
         let mut tests = Vec::new();
-        for s in placed.iter().filter(|s| chosen.contains(&s.part)) {
-            let Some(from) = &s.world else { continue };
-            for r in &placed {
-                // A part does not cut its own copies.
-                if r.part == s.part || !r.world.as_ref().is_some_and(|w| boxes_meet(from, w)) {
-                    continue;
-                }
-                let (Some(si), Some(ri)) = (s.path.last(), r.path.last()) else { continue };
-                if linked.contains(&(*si, *ri)) {
-                    continue;
-                }
-                let pose = r.t.inverse() * s.t;
-                let known = asked.iter().find(|(f, t, p, _)| *f == s.part && *t == r.part && p.abs_diff_eq(pose, SAME)).map(|a| a.3);
-                let task = match known {
-                    Some(task) => task,
-                    None => {
-                        let source = self.own_solid(s.part, &mut own, &mut recorder)?;
-                        let receiver = self.own_solid(r.part, &mut own, &mut recorder)?;
-                        let task = recorder.contact(&source, &receiver, pose);
-                        asked.push((s.part, r.part, pose, task));
-                        task
+        let mut seen: FastSet<(&[Id], &[Id])> = FastSet::default();
+        for &(from, to, pose) in &ways {
+            let mut task = None;
+            for a in placed.iter().filter(|a| a.part == from) {
+                for b in placed.iter().filter(|b| b.part == to && b.path != a.path) {
+                    if !(b.t.inverse() * a.t).abs_diff_eq(pose, SAME) {
+                        continue;
                     }
-                };
-                tests.push((ImprintPair { source: s.path.clone(), receiver: r.path.clone() }, task));
+                    let (Some(ai), Some(bi)) = (a.path.last(), b.path.last()) else { continue };
+                    // Linked already, or the two copies paired the other way.
+                    if linked.contains(&(*ai, *bi)) || (from == to && linked.contains(&(*bi, *ai))) || seen.contains(&(&b.path, &a.path)) {
+                        continue;
+                    }
+                    if !seen.insert((&a.path, &b.path)) {
+                        continue;
+                    }
+                    let t = match task {
+                        Some(t) => t,
+                        None => {
+                            let source = self.own_solid(from, &mut own, &mut recorder)?;
+                            let receiver = self.own_solid(to, &mut own, &mut recorder)?;
+                            *task.insert(recorder.contact(&source, &receiver, pose))
+                        }
+                    };
+                    let pointed = sources.contains(&a.path) && receivers.contains(&b.path);
+                    tests.push((ImprintPair { source: a.path.clone(), receiver: b.path.clone() }, t, pointed));
+                }
             }
         }
         Ok(ImprintProbe { context, job: recorder.into_job(), tests })
     }
 
-    /// What « Imprimer » would do, from the kernel's `outputs` for `probe`.
+    /// What « Empreindre » would do, from the kernel's `outputs` for `probe`.
     pub fn imprint_plan(&self, probe: &ImprintProbe, outputs: &[Output]) -> Result<ImprintPlan> {
-        let pairs: Vec<ImprintPair> =
-            probe.tests.iter().filter(|(_, t)| matches!(outputs.get(*t), Some(Output::Contact(true)))).map(|(p, _)| p.clone()).collect();
+        let touching: Vec<&(ImprintPair, usize, bool)> =
+            probe.tests.iter().filter(|(_, t, _)| matches!(outputs.get(*t), Some(Output::Contact(true)))).collect();
+        let pointed = touching.iter().filter(|(_, _, p)| *p).count();
+        let pairs: Vec<ImprintPair> = touching.into_iter().map(|(p, _, _)| p.clone()).collect();
         let resolved = self.resolved(probe.context, &pairs)?;
         let (slots, _) = self.slots_of(&resolved, &self.live_links());
         let placed = self.placed_under(probe.context);
@@ -274,6 +290,7 @@ impl Document {
             machinings: slots.iter().filter(|s| s.body.is_none()).count(),
             receivers: slots.iter().map(|s| s.to).collect::<BTreeSet<_>>().into_iter().collect(),
             partial: partial.into_iter().collect(),
+            pointed,
             pairs,
         })
     }

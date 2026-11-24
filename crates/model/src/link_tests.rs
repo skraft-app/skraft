@@ -869,7 +869,7 @@ fn the_followed_outcome_names_the_sources_moved() {
     assert!(t.shift(&[1], DVec3::Z).sources.len() == 1);
 }
 
-// ---- « Imprimer »: a tenon makes its mortise ------------------------------------------------
+// ---- « Empreindre »: a tenon makes its mortise ------------------------------------------------
 
 const TENON: (f64, f64, f64) = (22.0, 10.0, 70.0);
 
@@ -997,20 +997,22 @@ fn what_the_kernel_answered_is_not_asked_again() {
     assert_eq!(h.document().overlap_probe(&memo).job.tasks.len(), 1, "moved: asked again");
 }
 
-/// What « Imprimer » would do for `selected`, the kernel asked.
-fn imprint_plan(h: &History, selected: &[Id]) -> ImprintPlan {
+/// What « Empreindre » would do for `source` pointed, then `receivers` (occurrences of the
+/// model), the kernel asked.
+fn imprint_plan(h: &History, source: Id, receivers: &[Id]) -> ImprintPlan {
     let doc = h.document();
-    let probe = doc.imprint_probe(doc.root(), selected).unwrap();
+    let receivers: Vec<Vec<Id>> = receivers.iter().map(|r| vec![*r]).collect();
+    let probe = doc.imprint_probe(&[vec![source]], &receivers).unwrap();
     let outputs = if probe.job.tasks.is_empty() { Vec::new() } else { skraft_kernel::run(&probe.job).unwrap() };
     doc.imprint_plan(&probe, &outputs).unwrap()
 }
 
-fn imprint(h: &mut History, selected: &[Id], around: f64, deep: f64) -> Outcome {
-    let op = imprint_plan(h, selected).operation(around, deep);
+fn imprint(h: &mut History, source: Id, receivers: &[Id], around: f64, deep: f64) -> Outcome {
+    let op = imprint_plan(h, source, receivers).operation(around, deep);
     h.apply(op).unwrap()
 }
 
-/// The linked bodies of `part` made by « Imprimer », with their clearance.
+/// The linked bodies of `part` made by « Empreindre », with their clearance.
 fn machinings_of(h: &History, part: Id) -> Vec<(Id, Clearance)> {
     let p = h.document().part(part).unwrap();
     p.bodies.iter().filter_map(|b| p.def_of(b).imprint.as_ref().map(|r| (b.id, r.clearance))).collect()
@@ -1026,7 +1028,7 @@ fn imprinting_one_rail_cuts_every_mortise_of_the_shared_legs() {
     assert!(clashes(&h, &rails, &legs) > 1000.0, "the tenons run into the legs");
 
     // The rails' boxes overlap at the corners, their solids do not: only the legs are entered.
-    let plan = imprint_plan(&h, &[rails[0]]);
+    let plan = imprint_plan(&h, rails[0], &[legs[0], legs[1]]);
     assert_eq!((plan.link_count(), plan.machining_count()), (8, 2), "every rail, each end");
     assert_eq!(plan.receivers(), [leg_part]);
     assert!(plan.partial.is_empty());
@@ -1044,7 +1046,7 @@ fn imprinting_one_rail_cuts_every_mortise_of_the_shared_legs() {
     assert!(legs.iter().all(|l| part_of(&h, *l) == leg_part), "the legs stay one part");
 
     // Done: nothing more to imprint.
-    assert_eq!(imprint_plan(&h, &[rails[0]]).link_count(), 0);
+    assert_eq!(imprint_plan(&h, rails[0], &[legs[0], legs[1]]).link_count(), 0);
     refused(h.apply(Operation::Imprint { context: root, pairs: Vec::new(), around: 0.1, deep: 2.0 }), Refusal::NothingToImprint);
     assert!(h.undo());
     assert!(root_links(&h).is_empty());
@@ -1062,7 +1064,7 @@ fn a_tenon_made_by_a_machining_cuts_its_final_shape() {
     let (plank_part, upright_part) = (part_of(&h, plank), part_of(&h, upright));
     let (whole, own) = (volume(&h, plank_part), volume(&h, upright_part));
 
-    let o = imprint(&mut h, &[upright], 0.1, 2.0);
+    let o = imprint(&mut h, upright, &[plank], 0.1, 2.0);
     assert_eq!(o.imprinted, (1, 1));
     let cut = 124.2 * 275.0 * 108.0;
     assert!(close(whole - volume(&h, plank_part), cut), "{} against {cut}", whole - volume(&h, plank_part));
@@ -1074,7 +1076,7 @@ fn a_tenon_made_by_a_machining_cuts_its_final_shape() {
 #[test]
 fn the_tool_is_the_whole_source() {
     let (mut h, rails, legs) = tenoned_table();
-    imprint(&mut h, &[rails[0]], 0.0, 2.0);
+    imprint(&mut h, rails[0], &[legs[0], legs[1]], 0.0, 2.0);
     let p = h.document().part(part_of(&h, legs[0])).unwrap();
     for b in p.negatives() {
         let (lo, hi) = p.solid_of(b).vertex_bounds().unwrap();
@@ -1140,7 +1142,7 @@ fn a_stretch_reshapes_the_mortise_and_never_stretches_it() {
 fn a_rail_moved_carries_its_clearance_cut_mortises() {
     let (mut h, rails, legs) = tenoned_table();
     let root = h.document().root();
-    imprint(&mut h, &[rails[0]], 0.1, 2.0);
+    imprint(&mut h, rails[0], &[legs[0], legs[1]], 0.1, 2.0);
     let o = h.apply(Operation::Transform { context: root, entities: vec![rails[0]], transform: moved(DVec3::Z * 10.0) }).unwrap();
     assert_eq!(o.links.moved.len(), 2);
     let off = h.document().link_status().off;
@@ -1154,7 +1156,7 @@ fn a_rail_moved_carries_its_clearance_cut_mortises() {
 fn changing_the_clearance_reshapes_the_mortises() {
     let (mut h, rails, legs) = tenoned_table();
     let leg_part = part_of(&h, legs[0]);
-    imprint(&mut h, &[rails[0]], 0.1, 2.0);
+    imprint(&mut h, rails[0], &[legs[0], legs[1]], 0.1, 2.0);
     for (body, _) in machinings_of(&h, leg_part) {
         h.apply(Operation::SetClearance { part: leg_part, body, around: 0.2, deep: 2.5 }).unwrap();
     }
@@ -1172,7 +1174,7 @@ fn changing_the_clearance_reshapes_the_mortises() {
 fn a_tenon_moved_in_its_part_reshapes_its_mortise() {
     let (mut h, rails, legs) = tenoned_table();
     let (rail_part, leg_part) = (part_of(&h, rails[0]), part_of(&h, legs[0]));
-    imprint(&mut h, &[rails[0]], 0.1, 2.0);
+    imprint(&mut h, rails[0], &[legs[0], legs[1]], 0.1, 2.0);
     let tenon = h.document().part(rail_part).unwrap().positives().nth(1).unwrap().id;
     h.apply(Operation::TransformBodies {
         target: EntityPath::root(rails[0]),
@@ -1190,7 +1192,7 @@ fn a_tenon_moved_in_its_part_reshapes_its_mortise() {
 fn a_tenon_changing_shape_reshapes_its_mortises() {
     let (mut h, rails, legs) = tenoned_table();
     let (rail_part, leg_part) = (part_of(&h, rails[0]), part_of(&h, legs[0]));
-    imprint(&mut h, &[rails[0]], 0.0, 2.0);
+    imprint(&mut h, rails[0], &[legs[0], legs[1]], 0.0, 2.0);
     // One tenon made 4 mm thicker, by its definition: every rail shows it.
     let tenon = h.document().part(rail_part).unwrap().positives().nth(1).unwrap().id;
     let middle = (RAIL_W - TENON.1) / 2.0 + TENON.1 / 2.0;
@@ -1216,7 +1218,7 @@ fn a_tenon_changing_shape_reshapes_its_mortises() {
 fn a_tenon_deleted_leaves_its_mortise_as_it_was() {
     let (mut h, rails, legs) = tenoned_table();
     let (rail_part, leg_part) = (part_of(&h, rails[0]), part_of(&h, legs[0]));
-    imprint(&mut h, &[rails[0]], 0.1, 2.0);
+    imprint(&mut h, rails[0], &[legs[0], legs[1]], 0.1, 2.0);
     let before = volume(&h, leg_part);
     let tenon = h.document().part(rail_part).unwrap().positives().nth(1).unwrap().id;
     h.apply(Operation::DeleteBodies { target: EntityPath::root(rails[0]), bodies: vec![tenon], scope: Scope::All }).unwrap();
@@ -1235,10 +1237,41 @@ fn a_dowel_has_a_bottom_and_a_round_cheek() {
             .created[0]
     };
     let block = add_part(&mut h, at(40.0, 40.0, 100.0), DAffine3::IDENTITY);
-    imprint(&mut h, &[dowel], 0.1, 2.0);
+    imprint(&mut h, dowel, &[block], 0.1, 2.0);
     let hole = std::f64::consts::PI * 4.1 * 4.1 * 22.0;
     let v = volume(&h, part_of(&h, block));
     assert!((v - (LEG_VOLUME - hole)).abs() < 1e-2, "{v} against {}", LEG_VOLUME - hole);
+}
+
+#[test]
+fn several_sources_go_into_the_parts_pointed() {
+    // Two dowels of one part, in a shelf and an upright: one gesture, four links, the copies
+    // placed elsewhere a machining each.
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let shelf = add_part(&mut h, at(200.0, 100.0, 20.0), DAffine3::IDENTITY);
+    let upright = add_part(&mut h, at(20.0, 100.0, 300.0), moved(at(200.0, 0.0, -100.0)));
+    let turned = DAffine3::from_rotation_y(std::f64::consts::FRAC_PI_2);
+    let dowel = {
+        let primitive = Primitive::Cylinder { origin: DVec3::ZERO, radius: 4.0, height: 30.0 };
+        let placement = moved(at(185.0, 30.0, 10.0)) * turned;
+        h.apply(Operation::AddPrimitive { context: root, primitive, placement, material: None }).unwrap().created[0]
+    };
+    let other = {
+        let component = part_of(&h, dowel);
+        let transform = moved(at(185.0, 70.0, 10.0)) * turned;
+        h.apply(Operation::PlaceOccurrence { context: root, component, transform }).unwrap().created[0]
+    };
+    let doc = h.document();
+    let probe = doc.imprint_probe(&[vec![dowel], vec![other]], &[vec![shelf], vec![upright]]).unwrap();
+    let plan = doc.imprint_plan(&probe, &skraft_kernel::run(&probe.job).unwrap()).unwrap();
+    assert_eq!((plan.link_count(), plan.machining_count(), plan.by_copies()), (4, 4, 0));
+    h.apply(plan.operation(0.0, 0.0)).unwrap();
+    assert!(all_seated(&h));
+    let hole = std::f64::consts::PI * 16.0;
+    let (shelf_hole, upright_hole) = (15.0 * hole, 15.0 * hole);
+    assert!((volume(&h, part_of(&h, shelf)) - (200.0 * 100.0 * 20.0 - 2.0 * shelf_hole)).abs() < 1e-2);
+    assert!((volume(&h, part_of(&h, upright)) - (20.0 * 100.0 * 300.0 - 2.0 * upright_hole)).abs() < 1e-2);
 }
 
 #[test]
@@ -1249,10 +1282,10 @@ fn two_parts_imprint_each_other_from_their_own_solids() {
     let (pa, pb) = (part_of(&h, a), part_of(&h, b));
     let (va, vb) = (volume(&h, pa), volume(&h, pb));
     let common = 20.0 * 20.0 * 10.0;
-    imprint(&mut h, &[a], 0.0, 0.0);
+    imprint(&mut h, a, &[b], 0.0, 0.0);
     assert!(close(vb - volume(&h, pb), common));
     // B's mortise is no part of what it imprints: it still has that volume to cut in A.
-    imprint(&mut h, &[b], 0.0, 0.0);
+    imprint(&mut h, b, &[a], 0.0, 0.0);
     assert!(close(va - volume(&h, pa), common));
     assert!(all_seated(&h));
     let (body, c) = machinings_of(&h, pb)[0];
@@ -1270,7 +1303,7 @@ fn a_machining_reaching_only_some_copies_is_told() {
     let root = h.document().root();
     let leg_part = part_of(&h, leg);
     h.apply(Operation::PlaceOccurrence { context: root, component: leg_part, transform: moved(at(500.0, 0.0, 0.0)) }).unwrap();
-    let plan = imprint_plan(&h, &[rail]);
+    let plan = imprint_plan(&h, rail, &[leg]);
     assert_eq!(plan.link_count(), 1);
     assert_eq!(plan.partial, vec![leg_part], "its other copy would show a mortise with no tenon");
 }
@@ -1279,7 +1312,7 @@ fn a_machining_reaching_only_some_copies_is_told() {
 fn an_imprint_is_saved_with_how_it_is_made() {
     let (mut h, rails, legs) = tenoned_table();
     let root = h.document().root();
-    imprint(&mut h, &[rails[0]], 0.1, 2.0);
+    imprint(&mut h, rails[0], &[legs[0], legs[1]], 0.1, 2.0);
     let read = Document::from_file(&h.document().to_file().unwrap()).unwrap();
     let p = read.part(part_of(&h, legs[0])).unwrap();
     assert_eq!(p.defs.iter().filter(|d| d.imprint.is_some()).count(), 2);
@@ -1307,4 +1340,124 @@ fn the_machinings_left_by_their_last_source_can_be_taken_away() {
     assert!(close(volume(&h, leg_part), LEG_VOLUME - 125.0));
     assert!(h.undo());
     assert_eq!(h.document().link_status().broken.len(), 1);
+}
+
+// ---- a part imprinted in its own copies -----------------------------------------------------
+
+const FRAME_RAIL: f64 = 450.0 * 40.0 * 20.0 + 50.0 * 40.0 * 10.0;
+const FRAME_LAP: f64 = 40.0 * 40.0 * 10.0;
+
+/// The `ZeCadre` frame: one rail 450 × 40 × 20 with a lap 50 × 40 × 10 past its start, placed
+/// four times, each turned a quarter, each lap in the next rail's end: `(h, rails)`.
+fn frame() -> (History, Vec<Id>) {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let turn = |k: usize| DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_2 * k as f64);
+    let place = |k: usize| turn(k) * moved(at(-200.0, 200.0, 0.0));
+    let first = add_part(&mut h, at(450.0, 40.0, 20.0), place(0));
+    add_body(&mut h, first, at(-50.0, 0.0, 0.0), at(50.0, 40.0, 10.0), Sign::Positive);
+    let part = part_of(&h, first);
+    let mut rails = vec![first];
+    for k in 1..4 {
+        rails.push(h.apply(Operation::PlaceOccurrence { context: root, component: part, transform: place(k) }).unwrap().created[0]);
+    }
+    (h, rails)
+}
+
+#[test]
+fn a_part_imprints_its_copies_the_way_pointed() {
+    let (mut h, rails) = frame();
+    let part = part_of(&h, rails[0]);
+    assert!(close(volume(&h, part), FRAME_RAIL));
+    assert!(copy_clash(&h, &rails) > 1000.0, "each lap runs into the next rail");
+
+    // A rail, then the one it enters: every copy placed alike follows, the other way left out.
+    let plan = imprint_plan(&h, rails[0], &[rails[1]]);
+    assert_eq!((plan.link_count(), plan.machining_count()), (4, 1));
+    assert_eq!(plan.by_copies(), 3);
+    assert_eq!(plan.receivers(), [part]);
+    assert!(plan.partial.is_empty());
+    let o = h.apply(plan.operation(0.0, 0.0)).unwrap();
+    assert_eq!(o.imprinted, (1, 4));
+    assert!(all_seated(&h));
+    assert!(rails.iter().all(|r| part_of(&h, *r) == part), "still one part");
+    assert!(close(volume(&h, part), FRAME_RAIL - FRAME_LAP), "{}", volume(&h, part));
+    assert!(copy_clash(&h, &rails) < 1e-6, "every lap in its housing");
+    let housing = h.document().part(part).unwrap().negatives().next().unwrap().placement;
+    assert!((housing.translation - at(400.0, 0.0, 0.0)).length() < 1e-9, "at the far end: {housing:?}");
+
+    // Done, both ways.
+    assert_eq!(imprint_plan(&h, rails[0], &[rails[1]]).link_count(), 0);
+    assert_eq!(imprint_plan(&h, rails[1], &[rails[0]]).link_count(), 0);
+
+    // The other order is the other way: the next rail cuts the lap.
+    assert!(h.undo());
+    let plan = imprint_plan(&h, rails[1], &[rails[0]]);
+    assert_eq!((plan.link_count(), plan.machining_count()), (4, 1));
+    h.apply(plan.operation(0.0, 0.0)).unwrap();
+    let cut = h.document().part(part).unwrap().negatives().next().unwrap().placement;
+    assert!(!cut.abs_diff_eq(housing, 1e-6));
+}
+
+#[test]
+fn one_copy_of_a_self_imprinted_frame_moved_cannot_be_replaced() {
+    let (mut h, rails) = frame();
+    let root = h.document().root();
+    imprint(&mut h, rails[0], &[rails[1]], 0.0, 0.0);
+
+    // Every rail moved alike: nothing follows, nothing off.
+    let o = h.apply(Operation::Transform { context: root, entities: rails.clone(), transform: moved(DVec3::Z * 5.0) }).unwrap();
+    assert!(o.links.moved.is_empty());
+    assert!(h.document().link_status().off.is_empty());
+    assert!(copy_clash(&h, &rails) < 1e-6);
+
+    // One alone: the housing follows in every copy, its own too, so the three others are off.
+    // No place seats them all (the cycle never closes): « Replacer » moves those it seats and
+    // tells the others, left where they were.
+    let o = h.apply(Operation::Transform { context: root, entities: vec![rails[0]], transform: moved(DVec3::Z * 5.0) }).unwrap();
+    assert_eq!(o.links.moved.len(), 1);
+    let off = h.document().link_status().off;
+    assert_eq!(off.len(), 3);
+    let before: Vec<DAffine3> = rails.iter().map(|r| h.document().resolve(&EntityPath::root(*r)).unwrap().transform).collect();
+    let o = h.apply(Operation::ReseatSources { sources: off.into_iter().collect() }).unwrap();
+    let Some(Warning::NotReseated { names, .. }) = o.warning else { panic!("{:?}", o.warning) };
+    let off = h.document().link_status().off;
+    assert_eq!(names.len(), off.len(), "each source still off is told");
+    for (k, r) in rails.iter().enumerate() {
+        let t = h.document().resolve(&EntityPath::root(*r)).unwrap().transform;
+        let told = off.iter().any(|s| s.occurrence == *r);
+        assert!(!told || t == before[k], "a source told stays where it was");
+    }
+}
+
+#[test]
+fn one_copy_of_a_self_imprinted_frame_moved_in_its_plane_brings_the_others_round() {
+    let (mut h, rails) = frame();
+    let root = h.document().root();
+    imprint(&mut h, rails[0], &[rails[1]], 0.0, 0.0);
+    let o = h.apply(Operation::Transform { context: root, entities: vec![rails[0]], transform: moved(at(0.0, -30.0, 0.0)) }).unwrap();
+    assert_eq!(o.links.moved.len(), 1);
+    let off = h.document().link_status().off;
+    assert_eq!(off.len(), 3);
+
+    // Each placed once the rail it enters is where it stays: the frame closes, smaller.
+    let o = h.apply(Operation::ReseatSources { sources: off.into_iter().collect() }).unwrap();
+    assert!(o.warning.is_none(), "{:?}", o.warning);
+    assert!(all_seated(&h));
+    assert!(copy_clash(&h, &rails) < 1e-6);
+    let first = h.document().resolve(&EntityPath::root(rails[0])).unwrap().transform;
+    assert_eq!(first.translation, at(-200.0, 170.0, 0.0), "the rail moved stays");
+    assert!(h.undo());
+    assert_eq!(h.document().link_status().off.len(), 3);
+}
+
+/// The most material two different rails share.
+fn copy_clash(h: &History, rails: &[Id]) -> f64 {
+    let mut most: f64 = 0.0;
+    for (i, a) in rails.iter().enumerate() {
+        for b in &rails[i + 1..] {
+            most = most.max(clashes(h, &[*a], &[*b]));
+        }
+    }
+    most
 }

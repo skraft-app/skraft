@@ -102,7 +102,7 @@ pub enum Operation {
     /// Gives `component` new axes, `axes` going from them to the current ones (a direct rigid
     /// transform): nothing moves in the world (docs/decisions/0054-changing-a-components-axes.md).
     ChangeAxes { component: Id, axes: DAffine3 },
-    /// « Imprimer »: each source of `pairs` (from `context`) cuts its final solid in its receiver,
+    /// « Empreindre »: each source of `pairs` (from `context`) cuts its final solid in its receiver,
     /// its walls there moved by `around` (cheeks) and `deep` (bottom); the pairs are those the
     /// kernel found sharing material (docs/decisions/0055-linked-bodies-through-imprints.md).
     Imprint { context: Id, pairs: Vec<crate::ImprintPair>, around: f64, deep: f64 },
@@ -823,7 +823,7 @@ pub struct Outcome {
     pub elements: Vec<Id>,
     /// What the linked bodies did after it (docs/decisions/0055-linked-bodies-through-imprints.md).
     pub links: crate::Followed,
-    /// « Imprimer »: the machinings it added, the links it made.
+    /// « Empreindre »: the machinings it added, the links it made.
     pub imprinted: (usize, usize),
 }
 

@@ -302,7 +302,7 @@ impl SkraftApp {
                 true
             }
             "edit.imprint" => {
-                self.ask_imprint();
+                self.start_imprint();
                 true
             }
             _ => false,

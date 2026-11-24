@@ -9,6 +9,7 @@ use skraft_model::{
 };
 
 use super::{Editor, JobId, Notice, NoticeAction, NoticeKind};
+use crate::ToolKind;
 
 /// A button of the toast about linked bodies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,7 +34,7 @@ pub(super) struct LinkOffer {
     lost: Vec<(Id, Id)>,
 }
 
-/// « Imprimer » asked of the kernel: which of the parts share material.
+/// « Empreindre » asked of the kernel: which of the parts share material.
 pub(super) struct ImprintAsk {
     pub(super) job: JobId,
     probe: ImprintProbe,
@@ -171,30 +172,26 @@ impl Editor {
         }
     }
 
-    /// The assembly edited and the occurrences selected in it, for « Imprimer »: not with a
-    /// part open.
-    fn imprint_sources(&self) -> Option<(Id, Vec<Id>)> {
-        if self.open_part.is_some() {
-            return None;
-        }
-        let context = self.context_definition();
-        let a = self.document().assembly(context).ok()?;
-        let sources: Vec<Id> = self.selection().iter().copied().filter(|id| a.occurrence(*id).is_some()).collect();
-        (!sources.is_empty()).then_some((context, sources))
-    }
-
-    /// Can « Imprimer » be asked: occurrences selected, nothing computing?
+    /// Can « Empreindre » start: no part open, nothing computing?
     pub fn can_imprint(&self) -> bool {
-        !self.busy() && self.imprint_ask.is_none() && self.imprint_sources().is_some()
+        !self.busy() && self.imprint_ask.is_none() && self.open_part.is_none()
     }
 
-    /// Asks the kernel what the selection enters; the plan comes by [`Editor::take_imprint_plan`].
-    pub fn ask_imprint(&mut self) {
+    /// « Empreindre »: the tool, the parts selected as its sources (it then waits for where they
+    /// go).
+    pub fn start_imprint(&mut self) {
+        if self.can_imprint() {
+            self.set_tool(ToolKind::Imprint);
+        }
+    }
+
+    /// Asks the kernel what `sources` imprint in `receivers` and the copies placed alike (paths of
+    /// occurrences from the model); the plan comes by [`Editor::take_imprint_plan`].
+    pub fn ask_imprint(&mut self, sources: Vec<Vec<Id>>, receivers: Vec<Vec<Id>>) {
         if !self.can_imprint() {
             return;
         }
-        let Some((context, sources)) = self.imprint_sources() else { return };
-        let probe = match self.document().imprint_probe(context, &sources) {
+        let probe = match self.document().imprint_probe(&sources, &receivers) {
             Ok(probe) => probe,
             Err(e) => {
                 self.notify(NoticeKind::Error, t!("notice.op_failed", op = t!("operation.add_link")), Some(e.to_string()));
@@ -230,7 +227,7 @@ impl Editor {
         self.imprint_ready.take()
     }
 
-    /// « Imprimer » as `plan` says, with this clearance on the cheeks and on the bottom.
+    /// « Empreindre » as `plan` says, with this clearance on the cheeks and on the bottom.
     pub fn imprint(&mut self, plan: &ImprintPlan, around: f64, deep: f64) {
         let _ = self.apply(plan.operation(around, deep));
     }

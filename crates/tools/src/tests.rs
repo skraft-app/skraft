@@ -8140,7 +8140,7 @@ fn a_part_losing_its_source_tells_its_machining_lost_its_link() {
 }
 
 #[test]
-fn imprinting_the_selection_cuts_the_mortise_and_says_so() {
+fn imprinting_from_the_selection_cuts_the_mortise_and_says_so() {
     use skraft_model::{Scope, Sign};
     let mut e = top_editor(Document::new());
     let root = e.document().root();
@@ -8156,11 +8156,16 @@ fn imprinting_the_selection_cuts_the_mortise_and_says_so() {
     let add = Operation::AddBody { target, primitive: tenon, placement: glam::DAffine3::IDENTITY, sign: Sign::Positive, scope: Scope::All };
     e.apply(add).unwrap().unwrap();
     e.take_notices();
-    assert!(!e.can_imprint(), "nothing selected");
-
+    // A part selected: the tool, that part its source, waiting for where it goes.
     e.select(vec![rail]);
     assert!(e.can_imprint());
-    e.ask_imprint();
+    e.start_imprint();
+    assert_eq!(e.tool_kind(), ToolKind::Imprint);
+    assert!(e.take_imprint_plan().is_none(), "nothing asked yet");
+
+    // The source, then where it goes (what the tool's last step sends).
+    e.set_tool(ToolKind::Select);
+    e.ask_imprint(vec![vec![rail]], vec![vec![leg]]);
     let plan = e.take_imprint_plan().unwrap();
     assert_eq!((plan.machining_count(), plan.link_count()), (1, 1));
     e.imprint(&plan, 0.1, 2.0);
@@ -8171,7 +8176,7 @@ fn imprinting_the_selection_cuts_the_mortise_and_says_so() {
     let expected = 40.0 * 40.0 * 100.0 - 12.0 * 10.2 * 10.2;
     assert!((p.shape().volume().unwrap() - expected).abs() < 1e-3);
     assert!(e.link_status().off.is_empty());
-    e.ask_imprint();
+    e.ask_imprint(vec![vec![rail]], vec![vec![leg]]);
     assert_eq!(e.take_imprint_plan().unwrap().link_count(), 0, "done");
 }
 

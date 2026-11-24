@@ -48,11 +48,11 @@ impl SkraftApp {
         }
     }
 
-    /// « Imprimer »: the kernel asked what the selection enters; its answer opens the
-    /// confirmation (`imprint_dialog`).
-    pub(super) fn ask_imprint(&mut self) {
+    /// « Empreindre »: the selection imprinted at once, else the tool; the kernel's answer opens
+    /// the confirmation (`imprint_dialog`).
+    pub(super) fn start_imprint(&mut self) {
         if let Some(d) = self.docs.active_mut() {
-            d.editor.ask_imprint();
+            d.editor.start_imprint();
         }
     }
 

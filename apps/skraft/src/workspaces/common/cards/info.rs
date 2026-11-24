@@ -508,7 +508,7 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             }
             ui.end_row();
         }
-        // A linked body made by « Imprimer »: its clearance (docs/model/bodies.md#links).
+        // A linked body made by « Empreindre »: its clearance (docs/model/bodies.md#links).
         if let Some(r) = def.imprint.as_ref().filter(|_| source.is_some()) {
             let c = r.clearance;
             let rows =

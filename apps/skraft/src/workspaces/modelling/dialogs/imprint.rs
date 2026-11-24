@@ -1,4 +1,4 @@
-//! The confirmation of « Imprimer » (docs/decisions/0055-linked-bodies-through-imprints.md): what
+//! The confirmation of « Empreindre » (docs/decisions/0055-linked-bodies-through-imprints.md): what
 //! it will cut and where, with the clearance around the tool and how much deeper it goes. Enter
 //! or the button imprints, Esc or Cancel changes nothing.
 
@@ -40,7 +40,10 @@ fn names(doc: &Document, parts: &[skraft_model::Id]) -> String {
 impl Dialog {
     pub fn new(id: DocId, doc: &Document, plan: ImprintPlan) -> Dialog {
         let units = &doc.settings().units;
-        let summary = format!("{} · {}", tp!("imprint.machinings", plan.machining_count()), tp!("imprint.links", plan.link_count()));
+        let mut summary = format!("{} · {}", tp!("imprint.machinings", plan.machining_count()), tp!("imprint.links", plan.link_count()));
+        if plan.by_copies() > 0 {
+            summary = format!("{summary}, {}", tp!("imprint.by_copies", plan.by_copies()));
+        }
         let partial = (!plan.partial.is_empty()).then(|| t!("imprint.partial", parts = names(doc, &plan.partial)));
         Dialog {
             doc: id,

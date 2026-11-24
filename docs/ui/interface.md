@@ -193,7 +193,7 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **The one text field**, framed, its outline telling its state, typed two ways:
   **`framed_field`** applies a value once typed (Enter or a click away; Esc puts it back: the
   entity info, the tool options), **`live_field`** keeps each keystroke for a modal box that
-  checks what is typed as it comes (« Imprimer »'s lengths, a name). Apart, `rename_field` and
+  checks what is typed as it comes (« Empreindre »'s lengths, a name). Apart, `rename_field` and
   `start_rename` (a name edited in its row, as the row draws it), `cut_label`.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
 - **`confirm_buttons`**, the buttons closing a modal box: its main one, filled, then the one

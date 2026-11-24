@@ -351,9 +351,59 @@ impl Document {
         out
     }
 
+    /// The occurrences `source` is seated in, as sources are named.
+    fn seat_receivers(&self, source: LinkSource) -> Vec<LinkSource> {
+        let mut out = Vec::new();
+        for holder in self.link_holders() {
+            let Ok(a) = self.assembly(holder) else { continue };
+            for l in a.links().iter().filter(|l| self.link_source(holder, l) == Some(source)) {
+                let Some((last, above)) = l.receiver.split_last() else { continue };
+                if let Some((assembly, _)) = self.assembly_through(holder, above) {
+                    out.push(LinkSource { assembly, occurrence: *last });
+                }
+            }
+        }
+        out
+    }
+
+    /// « Replacer » as a chain: each source placed once the parts it enters are where they stay,
+    /// so that a source entering another one replaced lands on that one's new place (a frame of
+    /// copies, one rail moved in its plane: the others follow round). `None`, nothing changed,
+    /// when some cannot be placed so (seats disagreeing, a closed cycle) or when it would leave
+    /// a source off that was not.
+    fn reseat_in_chain(&self, sources: &[LinkSource]) -> Option<Document> {
+        let mut doc = self.clone();
+        let off_before = self.link_status().off;
+        let mut pending: Vec<LinkSource> = sources.to_vec();
+        while !pending.is_empty() {
+            let ready: Vec<LinkSource> =
+                pending.iter().copied().filter(|s| doc.seat_receivers(*s).iter().all(|r| !pending.contains(r))).collect();
+            if ready.is_empty() {
+                return None;
+            }
+            for s in ready {
+                let targets = doc.seat_targets(s);
+                let first = *targets.first()?;
+                if !targets.iter().all(|t| t.abs_diff_eq(first, SEATED)) {
+                    return None;
+                }
+                doc.assembly_mut(s.assembly).ok()?.occurrence_mut(s.occurrence)?.transform = first;
+                pending.retain(|p| *p != s);
+            }
+        }
+        let off = doc.link_status().off;
+        let fine = off.iter().all(|s| off_before.contains(s) && !sources.contains(s));
+        fine.then_some(doc)
+    }
+
     /// [`crate::Operation::ReseatSources`]: each source goes where its seats say, when they all
     /// agree; the others stay where they are, and the warning says by how much they disagree.
+    /// Sources entering each other are placed in a chain when that seats them all.
     pub(crate) fn reseat_sources(&mut self, sources: &[LinkSource]) -> Result<Outcome> {
+        if let Some(doc) = self.reseat_in_chain(sources) {
+            *self = doc;
+            return Ok(Outcome::default());
+        }
         let (mut moves, mut names, mut gap) = (Vec::new(), Vec::new(), 0.0_f64);
         for s in sources {
             let targets = self.seat_targets(*s);
@@ -366,9 +416,36 @@ impl Document {
                 names.push(self.component(o.component)?.name.clone());
             }
         }
-        for (s, t) in moves {
-            if let Some(o) = self.assembly_mut(s.assembly)?.occurrence_mut(s.occurrence) {
-                o.transform = t;
+        // A source may be another's receiver: moved, it changes that one's seat. Each placed
+        // where it is not seated after all (a closed cycle of copies) goes back and is told.
+        let mut was = Vec::with_capacity(moves.len());
+        for (s, t) in &moves {
+            let o = self.assembly_mut(s.assembly)?.occurrence_mut(s.occurrence).ok_or(Error::NotFound(s.occurrence))?;
+            was.push(std::mem::replace(&mut o.transform, *t));
+        }
+        let mut kept = vec![true; moves.len()];
+        loop {
+            let stuck: Vec<(usize, f64)> = (0..moves.len())
+                .filter(|&k| kept[k])
+                .filter_map(|k| {
+                    let far =
+                        self.seat_targets(moves[k].0).iter().map(|t| t.translation.distance(moves[k].1.translation)).fold(0.0, f64::max);
+                    let off = self.seat_targets(moves[k].0).iter().any(|t| !t.abs_diff_eq(moves[k].1, SEATED));
+                    off.then_some((k, far))
+                })
+                .collect();
+            if stuck.is_empty() {
+                break;
+            }
+            for (k, far) in stuck {
+                kept[k] = false;
+                gap = gap.max(far);
+                let s = moves[k].0;
+                if let Some(o) = self.assembly_mut(s.assembly)?.occurrence_mut(s.occurrence) {
+                    o.transform = was[k];
+                }
+                let o = self.assembly(s.assembly)?.occurrence(s.occurrence).ok_or(Error::NotFound(s.occurrence))?;
+                names.push(self.component(o.component)?.name.clone());
             }
         }
         let warning = (!names.is_empty()).then(|| Warning::NotReseated { names, gap: self.settings.units.format(gap) });
