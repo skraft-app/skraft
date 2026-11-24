@@ -84,7 +84,7 @@ impl SkraftApp {
                 let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
                 title_bar(ui, rect, head_rect, &t!("parts_list.title"), false, true);
                 ui.add_space(2.0 * HEAD_PAD);
-                crate::cards::parts_table::ui(ui, &d.editor, &mut d.parts_list, actions);
+                crate::workspaces::parts::table::ui(ui, &d.editor, &mut d.parts_list, actions);
             });
         });
         let grip = egui::Rect::from_x_y_ranges(rect.right()..=rect.right() + margin, rect.y_range());

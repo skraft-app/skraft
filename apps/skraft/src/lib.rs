@@ -2,7 +2,6 @@
 //! driven by the `skraft-tools` editor. Native and web (docs/ui/interface.md).
 
 mod app;
-mod cards;
 mod commands;
 mod dialogs;
 mod docs;

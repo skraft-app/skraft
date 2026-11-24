@@ -30,7 +30,7 @@ pub struct Doc {
     pub library: crate::workspaces::common::cards::library::LibraryState,
     pub materials: crate::workspaces::common::cards::materials::MaterialsState,
     /// Its parts list's sort and rows (docs/ui/parts-list.md).
-    pub parts_list: crate::cards::parts_table::PartsListState,
+    pub parts_list: crate::workspaces::parts::table::PartsListState,
     /// Its drawing's sheet shown and how (docs/ui/drawing.md).
     pub sheet: crate::drawing::sheet::SheetState,
     /// Its drawing's views' lines, computed off the UI thread (docs/ui/drawing.md#lines).
