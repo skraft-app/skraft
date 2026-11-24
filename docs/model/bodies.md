@@ -192,20 +192,19 @@ Link     { id, source: path, receiver: path, body, seat: T }
   measures. It is built again from its source, so a stretch carrying a receiver and lengthening
   its source leaves the mortise around the tenon.
 - **« Empreindre »** (`edit.imprint`, Assembler › Composants; `ToolKind::Imprint`,
-  `crates/tools/src/tools/imprint.rs`): a tool picking **the sources, then the parts they go
-  into**, as the solid tools pick theirs: a click takes one part and goes on, Shift gathers
-  several, Enter goes on. Started with parts selected, they are the sources. A destination is
-  taken only within a source's box (`Document::may_imprint`). Each source is tried against each
+  `crates/tools/src/tools/imprint.rs`): a tool picking, as « Soustraire » does, **A the parts
+  gone through, then B the sources** that go into them: a click takes one part and goes on,
+  Shift gathers several, Enter goes on. The selection is ignored: the tool always starts at A. A
+  source is taken only when a part A lies within its box (`Document::may_imprint`). Each source is tried against each
   destination, and **every pair of copies placed as a pair pointed is** comes along (the rails of
   a table in their legs, every copy of a shelf with its dowels); the kernel says which share
   material (`Document::imprint_probe`, `Task::Contact`, then `imprint_plan`), before anything
   changes. A part may go into its own copies, the way pointed (a frame of one rail turned by
   quarters: one rail then the next, four links, one linked body); two copies are paired one way
   only. One place in the copies of a receiver is one linked body. The marks are the solid
-  tools' by role ([Solid tools](../tools/solid-tools.md#interaction)): the sources, which act,
-  as machinings' red ghosts, the destinations as a selection, each with the badge of its step
-  (① the sources, ② the destinations) at the point clicked, a source taken from the selection at
-  its box's centre. A confirmation says how many
+  tools' ([Solid tools](../tools/solid-tools.md#interaction)): the parts gone through as a
+  selection, the sources as machinings' red ghosts, each with the badge of its step (A, B) at
+  the point clicked. A confirmation says how many
   links come by the copies, what it
   cuts and where, asks the clearance on the cheeks and the bottom, and warns when copies of a
   receiver would show a machining with no part facing them; `Operation::Imprint` takes the pairs

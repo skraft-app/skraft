@@ -177,8 +177,8 @@ impl Editor {
         !self.busy() && self.imprint_ask.is_none() && self.open_part.is_none()
     }
 
-    /// « Empreindre »: the tool, the parts selected as its sources (it then waits for where they
-    /// go).
+    /// « Empreindre »: the tool, at its first step whatever is selected (it picks as
+    /// « Soustraire », docs/model/bodies.md).
     pub fn start_imprint(&mut self) {
         if self.can_imprint() {
             self.set_tool(ToolKind::Imprint);

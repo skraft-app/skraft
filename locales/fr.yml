@@ -199,6 +199,10 @@ toolbar:
 steps:
   cancel: "Annuler (Échap)"
   validate: "Valider (Entrée)"
+  # The steps' names of the tools picking as the solid tools, in the steps bar and on the parts
+  # picked: A what the change is made to, B what makes it.
+  a: "A"
+  b: "B"
 
 # The workspace card and the ribbon (docs/ui/ribbon.md).
 ribbon:
@@ -1143,18 +1147,18 @@ status:
 tool:
   imprint:
     name: "Empreindre"
-    out_of_reach: "Cette pièce est hors de portée de la source"
+    out_of_reach: "Cette pièce n'atteint aucune pièce A"
     hint:
-      sources: "Cliquer la pièce qui empreint sa forme · Maj : en choisir plusieurs"
-      sources_gather: "Sélection multiple : cliquer une pièce source pour l'ajouter ou la retirer · Entrée : choisir où elles vont"
-      receivers: "Cliquer une pièce traversée · Maj : en ajouter plusieurs"
-      receivers_gather: "Sélection multiple : cliquer une pièce traversée pour l'ajouter ou la retirer · Entrée : empreindre"
+      receivers: "Cliquer la pièce A traversée · Maj : sélection multiple"
+      receivers_gather: "Sélection multiple : cliquer une pièce A pour l'ajouter ou la retirer · Entrée : valider"
+      sources: "Cliquer la pièce source B qui empreint sa forme · Maj : sélection multiple"
+      sources_gather: "Sélection multiple : cliquer une pièce source B pour l'ajouter ou la retirer · Entrée : empreindre"
     step:
-      sources: "Pièces sources"
-      receivers: "Pièces traversées"
+      receivers: "Choisir les pièces A traversées"
+      sources: "Choisir les pièces sources B"
     say:
-      validate_sources: "Valider (Entrée) pour choisir les pièces traversées"
-      validate: "Valider (Entrée) pour empreindre"
+      validate_a: "Valider (Entrée) pour passer à la sélection de B"
+      validate_b: "Valider (Entrée) pour empreindre"
   reorient:
     name: "Réorienter"
     # The part already has these axes.
@@ -1349,9 +1353,6 @@ tool:
       tools_gather: "Sélection multiple : cliquer une pièce outil B pour l'ajouter ou la retirer · Entrée : %{verb}"
     # The steps bar's sentence of each step (docs/ui/interface.md#steps-bar).
     step:
-      # The steps' names, in the steps bar and on the parts picked.
-      a: "A"
-      b: "B"
       target: "Choisir la pièce A à modifier"
       targets: "Choisir les pièces A à modifier"
       tools: "Choisir les pièces outils B"

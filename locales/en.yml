@@ -171,6 +171,10 @@ toolbar:
 steps:
   cancel: "Cancel (Esc)"
   validate: "Confirm (Enter)"
+  # The steps' names of the tools picking as the solid tools, in the steps bar and on the parts
+  # picked: A what the change is made to, B what makes it.
+  a: "A"
+  b: "B"
 
 ribbon:
   workspace:
@@ -1034,18 +1038,18 @@ status:
 tool:
   imprint:
     name: "Imprint"
-    out_of_reach: "This part is out of the source's reach"
+    out_of_reach: "This part reaches no part A"
     hint:
-      sources: "Click the part that imprints its shape · Shift: choose several"
-      sources_gather: "Multiple selection: click a source part to add or remove it · Enter: choose where they go"
-      receivers: "Click a part gone through · Shift: add several"
-      receivers_gather: "Multiple selection: click a part it goes through to add or remove it · Enter: imprint"
+      receivers: "Click the part A gone through · Shift: multiple selection"
+      receivers_gather: "Multiple selection: click a part A to add or remove it · Enter: confirm"
+      sources: "Click the source part B that imprints its shape · Shift: multiple selection"
+      sources_gather: "Multiple selection: click a source part B to add or remove it · Enter: imprint"
     step:
-      sources: "Source parts"
-      receivers: "Parts gone through"
+      receivers: "Choose the parts A gone through"
+      sources: "Choose the source parts B"
     say:
-      validate_sources: "Confirm (Enter) to choose the parts gone through"
-      validate: "Confirm (Enter) to imprint"
+      validate_a: "Confirm (Enter) to go on to choosing B"
+      validate_b: "Confirm (Enter) to imprint"
   reorient:
     name: "Reorient"
     # The part already has these axes.
@@ -1235,9 +1239,6 @@ tool:
       tools_gather: "Multiple selection: click a tool part B to add or remove it · Enter: %{verb}"
     # The steps bar's sentence of each step (docs/ui/interface.md#steps-bar).
     step:
-      # The steps' names, in the steps bar and on the parts picked.
-      a: "A"
-      b: "B"
       target: "Choose the part A to change"
       targets: "Choose the parts A to change"
       tools: "Choose the tool parts B"

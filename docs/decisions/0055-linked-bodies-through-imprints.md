@@ -176,7 +176,8 @@ lapped into the next. « Imprimer » searched itself for the parts the selection
 out copies of one part: the frame could not be linked at all.
 
 - **Renamed « Empreindre »**: « Imprimer » read as printing on paper.
-- **The user points the sources, then the parts they go into**: a tool picking as the solid
+- **The user points the sources and the parts they go into** (in that order at first, turned
+  round [below](#amended-empreindre-picks-as-soustraire)): a tool picking as the solid
   tools do, several sources at once (the dowels of a shelf). **Why:** the material two copies
   share is the same both ways, and a rail is a tenon in one neighbour and a housing for the
   other; nothing in the geometry tells them apart, and both ways at once cut the lap away as well
@@ -194,6 +195,17 @@ out copies of one part: the frame could not be linked at all.
 - Alternatives considered: the selection's order giving the way, the search kept (tried, but one
   selection could not say which parts are sources); choosing the way in the confirmation, heavier
   to draw; leaving copies out, which keeps identical frames from being linked.
+
+### Amended: « Empreindre » picks as « Soustraire »
+
+Decided on 2026-11-24. « Empreindre » is a subtraction that keeps its tool and stays linked to
+it, yet it picked the other way round: the sources (the tools) first, then the parts they go
+into. It now picks as « Soustraire »: **A the parts gone through, then B the sources**, named A
+and B in the steps bar, on the parts picked and in its texts, A and B meaning what they mean in
+the solid tools (A receives the change, B makes it). **The selection is ignored**, as by the
+solid tools: with the parts gone through first, « the selection, then the tool » no longer said
+which way. The reach filter turns round with it: a source is offered when a part A lies within
+its box. The way pointed, and why it is pointed, are unchanged.
 
 ## Alternatives considered
 

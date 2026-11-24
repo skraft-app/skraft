@@ -170,11 +170,7 @@ impl Tool for BooleanTool {
                 Boolean::Difference => Sign::Negative,
                 Boolean::Intersection => Sign::Intersect,
             }),
-            badges: self
-                .a
-                .badges(t!("tool.boolean.step.a"))
-                .chain(self.b.iter().flat_map(|b| b.badges(t!("tool.boolean.step.b"))))
-                .collect(),
+            badges: self.a.badges(t!("steps.a")).chain(self.b.iter().flat_map(|b| b.badges(t!("steps.b")))).collect(),
             propagate,
             ..Default::default()
         }
@@ -250,7 +246,7 @@ impl Tool for BooleanTool {
             Some(_) => t!("tool.boolean.step.tools"),
         };
         // Named as the texts and options call them (« Conserver A »).
-        let names = vec![t!("tool.boolean.step.a"), t!("tool.boolean.step.b")];
+        let names = vec![t!("steps.a"), t!("steps.b")];
         Some(Steps { count: 2, index: usize::from(self.b.is_some()), text, names })
     }
 

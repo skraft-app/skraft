@@ -8145,7 +8145,7 @@ fn a_part_losing_its_source_tells_its_machining_lost_its_link() {
 }
 
 #[test]
-fn imprinting_from_the_selection_cuts_the_mortise_and_says_so() {
+fn imprinting_picks_as_subtract_cuts_the_mortise_and_says_so() {
     use skraft_model::{Scope, Sign};
     let mut e = top_editor(Document::new());
     let root = e.document().root();
@@ -8161,16 +8161,19 @@ fn imprinting_from_the_selection_cuts_the_mortise_and_says_so() {
     let add = Operation::AddBody { target, primitive: tenon, placement: glam::DAffine3::IDENTITY, sign: Sign::Positive, scope: Scope::All };
     e.apply(add).unwrap().unwrap();
     e.take_notices();
-    // A part selected: the tool, that part its source, waiting for where it goes.
+    // The selection ignored: the tool starts at A, as « Soustraire ».
     e.select(vec![rail]);
     assert!(e.can_imprint());
     e.start_imprint();
     assert_eq!(e.tool_kind(), ToolKind::Imprint);
+    assert_eq!(e.tool_steps().map(|s| (s.index, s.name(0), s.name(1))), Some((0, "A".into(), "B".into())));
     assert!(e.take_imprint_plan().is_none(), "nothing asked yet");
 
-    // The source, then where it goes (what the tool's last step sends).
-    e.set_tool(ToolKind::Select);
-    e.ask_imprint(vec![vec![rail]], vec![vec![leg]]);
+    // A the leg gone through, then B the rail that goes into it: the kernel asked.
+    click(&mut e, DVec3::new(130.0, 20.0, 60.0));
+    assert_eq!(e.tool_steps().map(|s| s.index), Some(1));
+    assert_eq!(e.badges().iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["A"]);
+    click(&mut e, DVec3::new(50.0, 10.0, 20.0));
     let plan = e.take_imprint_plan().unwrap();
     assert_eq!((plan.machining_count(), plan.link_count()), (1, 1));
     e.imprint(&plan, 0.1, 2.0);
