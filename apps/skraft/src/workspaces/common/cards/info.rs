@@ -53,6 +53,8 @@ pub(crate) fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.corners",
         "panel.entity_info.role",
         "panel.entity_info.linked_to",
+        "panel.entity_info.imprint_around",
+        "panel.entity_info.imprint_deep",
         "panel.entity_info.state",
         "panel.entity_info.copies",
         "tool.round.vcb",
