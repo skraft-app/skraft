@@ -297,7 +297,7 @@ an A3 sheet, in one step, and shows it. Its PDF is a file of its own ([PDF](#pdf
 
 ## Navigator
 
-The « Navigateur » card (`PanelId::Outliner`, `view.outliner`): on a sheet it shows the drawing's
+The « Navigateur » card (`PanelId::Navigator`, `view.navigator`): on a sheet it shows the drawing's
 tree instead of the model's (`drawing::cards::navigator`), as the entity info shows the sheet's; each
 workspace keeps its own place for it. The cards are placed as in Modelling: the entity info keeps its height, the navigator fills the
 column. Rows, unfolded by their

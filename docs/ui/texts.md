@@ -22,7 +22,7 @@ rust-i18n's starts in English.
 
 - **Keys** are paths that follow where the text shows: `menu.*`, `toolbar.*`, `ribbon.*`,
   `titlebar.*`, `tabs.*`, `start.*`, `option_bar.*`, `prefs.*`, `panel.entity_info.*`,
-  `panel.outliner.*`, `toast.*`, `notice.*`, `status.*`, then per tool
+  `panel.navigator.*`, `toast.*`, `notice.*`, `status.*`, then per tool
   `tool.<tool>.{name, hint.*, vcb.*, option.*, say.*}`, `infer.*`, `operation.*` (Undo /
   Redo), `unit.*`, `default_name.*` and `error.{expr, model, file, kernel, worker,
   preferences}.*`. A text shown in two places has two keys — which may share their words

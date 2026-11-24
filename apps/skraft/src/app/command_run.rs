@@ -583,7 +583,7 @@ impl SkraftApp {
             | Action::QuickMove(..)
             | Action::QuickTool(_)
             | Action::RemoteRetry => {}
-            // A body chosen in the outliner: its part opened.
+            // A body chosen in the navigator: its part opened.
             Action::SelectBody(path, body, add) => e.toggle_body(&path, body, add),
             Action::EditBlend(node) => e.edit_blend(node),
             Action::SelectPath(p, add) => e.toggle_path(&p, add),
@@ -614,8 +614,8 @@ impl SkraftApp {
             Action::BodySign(s) => e.set_body_sign(s),
             Action::HoverMachining(m) => e.set_listed_hover(m),
             // The view is drawn before the panels: again, for the hover to show this frame.
-            Action::HoverOutliner(p) => {
-                if e.set_outliner_hover(p) {
+            Action::HoverNavigator(p) => {
+                if e.set_navigator_hover(p) {
                     self.ctx.request_repaint();
                 }
             }

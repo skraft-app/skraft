@@ -19,18 +19,18 @@ tabs have pages of their own.
   fit there ([Workspaces and ribbon](ribbon.md#layout)), the context card and the tool option bar
   under the ribbon ([Context card](#context-card)), the view bar along the left or right edge,
   centered on the view's height ([View bar](view-bar.md));
-  **Entity info**, **Materials**, **Outliner** and **Components**
+  **Entity info**, **Materials**, **Navigator** and **Components**
   ([Components library](components-library.md), closed at first) are four cards docked in two columns, one
   per edge of the view (`dock.rs`), over the view's whole height — under the ribbon when it is
   above them. A card's header (a title bar in the
   headers' fill, a line under it, its title semibold, its chevron at the right end) folds it
   (click) or moves it (drag: it follows the pointer and drops into the column of the nearer
   edge, where a bar shows the insertion point); the commands `view.entity_info`,
-  `view.materials`, `view.outliner` (on a sheet, the drawing's tree:
+  `view.materials`, `view.navigator` (on a sheet, the drawing's tree:
   docs/ui/drawing.md#navigator), `view.components` and, in a workspace of sheets,
   `view.compositions` (command palette, shortcuts) close or show each one
   (`PanelId::command`). A card keeps the height given by dragging its bottom edge, except the
-  last unfolded list of its column (Materials, Outliner, Components or Compositions; never Entity info, which would only
+  last unfolded list of its column (Materials, Navigator, Components or Compositions; never Entity info, which would only
   grow empty: `PanelId::fills`), which fills the height left; the inner edge sets the column's
   width (`dock::COLUMN_WIDTH` 270 pt by default, `COLUMN_MIN_WIDTH` 200 at least; double click:
   default). Order, columns, sizes, folded and closed cards are kept in the preferences
@@ -57,8 +57,8 @@ tabs have pages of their own.
   opens; on a row with an instance name, « Renommer l'exemplaire » and « Renommer la définition »); on a body, « Sortir du groupe » (« Sortir de la pièce » at the part's root), « Rompre le lien » on a linked one; on a part off its linked machining, « Replacer », « Amener l'usinage ici », « Séparer » ([Links](../model/bodies.md#links)); then « Aplatir » on a group or a part with a tree, « Éclater » on an assembly or a group, « Effacer ». Separators set these groups apart.
   Opening it changes nothing; its row stays highlighted while it is open. Its commands act on the whole selection when the row is in it,
   else on the row alone, chosen as a click would.
-- **The outliner is titled « Navigateur »** (the code keeps `outliner`, its `PanelId` being in
-  the preferences and `model.outliner` in the control protocol). Its rows span the whole list
+- **The navigator** (« Navigateur », `PanelId::Navigator`; `outliner` read in layouts saved
+  before) shows the workspace's tree: the model's here, the drawing's on a sheet. Its rows span the whole list
   (`tree_row`): the hover and the selection fill the line edge to edge, indent and buttons
   included, a click anywhere on it but on its buttons (fold, eye, sign) choosing it; a part's
   bodies lie on a band of their own (`band_color`: the card's colour a shade towards the text;
@@ -108,7 +108,7 @@ stay, to look into an assembly or a part without entering it.
   salted with their births, nothing salted while no undo gave an id back. A step redone opens
   folded as well.
 - **The folds are the document's**: the rows unfolded, the births and the active path last seen
-  are kept in the document (`cards::OutlinerState`, in `docs::Doc`), dropped with it, never on
+  are kept in the document (`cards::NavigatorState`, in `docs::Doc`), dropped with it, never on
   disk. A row's fold is written only when it changes (its chevron clicked, the active path
   reaching or leaving it); a frame reads one hash set per row.
   **Why:** every document numbers its things from 1, so fold states keyed by ids alone and

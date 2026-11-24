@@ -190,13 +190,13 @@ Decision [0038](../decisions/0038-components-library-card.md).
   do not match themselves attenuated; no fold arrows meanwhile — what holds a match is shown
   open, the rest closed —, the folds left as they are ([Folds](interface.md#folds)), the
   active path not restricting the rows. Whether a definition holds a match is found once per
-  definition, kept for the document's revision and the search (`OutlinerState`), so a search
+  definition, kept for the document's revision and the search (`NavigatorState`), so a search
   costs the definitions, not the placements. Emptied, everything is as before.
 - **No material criterion**: a component has no material of its own — its occurrences carry
   them, inherited down the assemblies, a part's faces others —, so « what is in oak » is not a
   question about definitions (asked on 2026-11-19, the card's material menu dropped).
 - **The searches are the document's**: kept per card in the document (`LibraryState.search`,
-  `OutlinerState.search`, in `docs::Doc`), never on disk.
+  `NavigatorState.search`, in `docs::Doc`), never on disk.
 
 ## Commands and driving
 

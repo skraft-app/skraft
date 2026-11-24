@@ -89,8 +89,8 @@ pub fn context_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Act
             option_group(ui, &mut first, &name, &t!("option_bar.node_open_tip"));
             let size = editor.document().settings().units.format(op.size);
             let size = match op.kind {
-                skraft_model::kernel::names::Blend::Round => t!("panel.outliner.round_size", size = size),
-                skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
+                skraft_model::kernel::names::Blend::Round => t!("panel.navigator.round_size", size = size),
+                skraft_model::kernel::names::Blend::Chamfer => t!("panel.navigator.chamfer_size", size = size),
             };
             ui.label(size);
             if ui.button(t!("option_bar.node_edit")).tip(t!("option_bar.node_edit_tip")).clicked() {

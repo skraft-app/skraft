@@ -16,10 +16,11 @@ pub const COLUMN_MIN_WIDTH: f32 = 200.0;
 pub enum PanelId {
     EntityInfo,
     Materials,
-    /// The navigator: the model's tree, on a sheet the drawing's (docs/ui/drawing.md#navigator).
-    /// `layers`: the drawing's former panel, in layouts already saved.
-    #[serde(alias = "layers")]
-    Outliner,
+    /// The navigator: the workspace's tree, the model's or, on a sheet, the drawing's
+    /// (docs/ui/drawing.md#navigator). `outliner`: its former name, `layers`: the drawing's former
+    /// panel, in layouts already saved.
+    #[serde(alias = "outliner", alias = "layers")]
+    Navigator,
     /// The document's parts and assemblies (docs/ui/components-library.md).
     Components,
     /// The drawing's compositions (docs/ui/drawing.md#the-compositions-card).
@@ -27,14 +28,14 @@ pub enum PanelId {
 }
 
 impl PanelId {
-    pub const ALL: [PanelId; 5] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Outliner, PanelId::Components, PanelId::Compositions];
+    pub const ALL: [PanelId; 5] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Navigator, PanelId::Components, PanelId::Compositions];
 
     /// Its command (`view.*`), which shows or closes it.
     pub fn command(self) -> &'static str {
         match self {
             PanelId::EntityInfo => "view.entity_info",
             PanelId::Materials => "view.materials",
-            PanelId::Outliner => "view.outliner",
+            PanelId::Navigator => "view.navigator",
             PanelId::Components => "view.components",
             PanelId::Compositions => "view.compositions",
         }
@@ -53,7 +54,7 @@ impl PanelId {
     fn default_height(self) -> f32 {
         match self {
             PanelId::EntityInfo => 280.0,
-            PanelId::Outliner => 300.0,
+            PanelId::Navigator => 300.0,
             PanelId::Materials | PanelId::Components | PanelId::Compositions => 240.0,
         }
     }
@@ -321,17 +322,17 @@ mod tests {
 
     #[test]
     fn the_last_unfolded_card_fills_the_column() {
-        let col = Column { width: 270.0, cards: vec![card(PanelId::EntityInfo, 200.0), card(PanelId::Outliner, 100.0)] };
+        let col = Column { width: 270.0, cards: vec![card(PanelId::EntityInfo, 200.0), card(PanelId::Navigator, 100.0)] };
         let p = place(&col, 10.0, 600.0, M, None);
         assert_eq!(p[0], Placed { id: PanelId::EntityInfo, top: 10.0, height: 200.0, fills: false });
-        assert_eq!(p[1], Placed { id: PanelId::Outliner, top: 218.0, height: 392.0, fills: true });
+        assert_eq!(p[1], Placed { id: PanelId::Navigator, top: 218.0, height: 392.0, fills: true });
     }
 
     #[test]
     fn folded_cards_below_the_filler_stay_at_the_bottom() {
         let mut last = card(PanelId::Materials, 150.0);
         last.folded = true;
-        let col = Column { width: 270.0, cards: vec![card(PanelId::EntityInfo, 200.0), card(PanelId::Outliner, 100.0), last] };
+        let col = Column { width: 270.0, cards: vec![card(PanelId::EntityInfo, 200.0), card(PanelId::Navigator, 100.0), last] };
         let p = place(&col, 0.0, 600.0, M, None);
         assert!(p[1].fills);
         assert_eq!(p[2].height, 30.0);
@@ -342,7 +343,7 @@ mod tests {
     fn a_short_column_shrinks_the_cards_above_the_filler() {
         let col = Column {
             width: 270.0,
-            cards: vec![card(PanelId::EntityInfo, 300.0), card(PanelId::Materials, 300.0), card(PanelId::Outliner, 100.0)],
+            cards: vec![card(PanelId::EntityInfo, 300.0), card(PanelId::Materials, 300.0), card(PanelId::Navigator, 100.0)],
         };
         let p = place(&col, 0.0, 500.0, M, None);
         // The nearest card above the filler gives first.
@@ -355,8 +356,8 @@ mod tests {
     fn hidden_and_dragged_cards_take_no_room() {
         let mut hidden = card(PanelId::EntityInfo, 150.0);
         hidden.shown = false;
-        let col = Column { width: 270.0, cards: vec![hidden, card(PanelId::Materials, 200.0), card(PanelId::Outliner, 100.0)] };
-        let p = place(&col, 0.0, 600.0, M, Some(PanelId::Outliner));
+        let col = Column { width: 270.0, cards: vec![hidden, card(PanelId::Materials, 200.0), card(PanelId::Navigator, 100.0)] };
+        let p = place(&col, 0.0, 600.0, M, Some(PanelId::Navigator));
         assert_eq!(p.len(), 1);
         assert!(p[0].fills);
         assert_eq!(p[0].height, 600.0);
@@ -364,7 +365,7 @@ mod tests {
 
     #[test]
     fn the_entity_info_never_fills() {
-        let col = Column { width: 270.0, cards: vec![card(PanelId::Outliner, 100.0), card(PanelId::EntityInfo, 200.0)] };
+        let col = Column { width: 270.0, cards: vec![card(PanelId::Navigator, 100.0), card(PanelId::EntityInfo, 200.0)] };
         let p = place(&col, 0.0, 600.0, M, None);
         assert!(p[0].fills);
         assert_eq!((p[0].height, p[1].height), (392.0, 200.0));
@@ -384,34 +385,34 @@ mod tests {
         let mut l = Layout::default();
         l.move_card(PanelId::Materials, Dock::Right, None);
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials]);
-        l.move_card(PanelId::Outliner, Dock::Right, Some(PanelId::Materials));
-        assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Outliner, PanelId::Materials]);
+        l.move_card(PanelId::Navigator, Dock::Right, Some(PanelId::Materials));
+        assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Navigator, PanelId::Materials]);
         assert_eq!(
             l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(),
             [PanelId::EntityInfo, PanelId::Components, PanelId::Compositions]
         );
         // Within its column, above another one.
-        l.move_card(PanelId::Materials, Dock::Right, Some(PanelId::Outliner));
-        assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials, PanelId::Outliner]);
+        l.move_card(PanelId::Materials, Dock::Right, Some(PanelId::Navigator));
+        assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials, PanelId::Navigator]);
     }
 
     #[test]
     fn normalize_keeps_every_panel_once() {
         let mut l = Layout {
-            left: Column { width: 270.0, cards: vec![card(PanelId::Outliner, 1.0)] },
-            right: Column { width: 270.0, cards: vec![card(PanelId::Outliner, 2.0)] },
+            left: Column { width: 270.0, cards: vec![card(PanelId::Navigator, 1.0)] },
+            right: Column { width: 270.0, cards: vec![card(PanelId::Navigator, 2.0)] },
         };
         l.normalize();
         assert_eq!(l.right.cards.len(), 0);
         let ids: Vec<_> = l.left.cards.iter().map(|c| c.id).collect();
-        assert_eq!(ids, [PanelId::Outliner, PanelId::EntityInfo, PanelId::Materials, PanelId::Components, PanelId::Compositions]);
+        assert_eq!(ids, [PanelId::Navigator, PanelId::EntityInfo, PanelId::Materials, PanelId::Components, PanelId::Compositions]);
         // The components library added closed, as in a first layout.
         assert!(!l.is_shown(PanelId::Components) && !Layout::default().is_shown(PanelId::Components));
         assert!(l.is_shown(PanelId::EntityInfo));
         // A workspace's own first panels: the navigator added shown in « Mise en plan ».
         let mut l = Layout { left: Column { width: 270.0, cards: vec![card(PanelId::EntityInfo, 1.0)] }, right: Column::default() };
-        l.normalize_with(Some(&[PanelId::EntityInfo, PanelId::Outliner]));
-        assert!(l.is_shown(PanelId::Outliner) && !l.is_shown(PanelId::Materials));
+        l.normalize_with(Some(&[PanelId::EntityInfo, PanelId::Navigator]));
+        assert!(l.is_shown(PanelId::Navigator) && !l.is_shown(PanelId::Materials));
     }
 
     #[test]
@@ -422,7 +423,7 @@ mod tests {
             {"id":"layers","height":150.0,"shown":true,"folded":false}]},"right":{"width":270.0,"cards":[]}}"#;
         let mut l: Layout = serde_json::from_str(saved).unwrap();
         l.normalize();
-        assert_eq!(l.left.cards.iter().filter(|c| c.id == PanelId::Outliner).count(), 1);
-        assert!(l.is_shown(PanelId::Outliner));
+        assert_eq!(l.left.cards.iter().filter(|c| c.id == PanelId::Navigator).count(), 1);
+        assert!(l.is_shown(PanelId::Navigator));
     }
 }

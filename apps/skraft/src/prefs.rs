@@ -189,6 +189,10 @@ impl Preferences {
             Ok(None) => (Preferences::default(), None),
             Ok(Some(text)) => match serde_json::from_str::<Preferences>(&text) {
                 Ok(mut p) if p.version <= VERSION => {
+                    // The navigator's command was `view.outliner`: its shortcut kept.
+                    if let Some(keys) = p.shortcuts.remove("view.outliner") {
+                        p.shortcuts.entry("view.navigator".to_owned()).or_insert(keys);
+                    }
                     p.panels.normalize();
                     // A panel new to a workspace's layout shown if the workspace shows it at first.
                     for (id, l) in p.workspace_panels.iter_mut() {

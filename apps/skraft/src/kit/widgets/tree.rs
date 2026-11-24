@@ -6,16 +6,16 @@ use skraft_model::FastSet;
 use crate::kit::icons;
 use crate::kit::style::CARD_MARGIN;
 
-/// A row's fold: its key in its document's [`OutlinerState`](crate::workspaces::common::cards::OutlinerState), open or not.
+/// A row's fold: its key in its document's [`NavigatorState`](crate::workspaces::common::cards::NavigatorState), open or not.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Fold {
     pub(crate) key: egui::Id,
     pub(crate) open: bool,
 }
 
-/// An outliner row's fold toggle, one indent wide: the panels' chevron (as in their title bars),
+/// A navigator row's fold toggle, one indent wide: the panels' chevron (as in their title bars),
 /// turning from right (folded) to down (open) as it opens; a click folds or unfolds the row (in
-/// `folds`, its document's). `salt` (the document's outliner) keeps its click and turn apart
+/// `folds`, its document's). `salt` (the document's navigator) keeps its click and turn apart
 /// from another document's row of the same ids.
 pub(crate) fn fold_toggle(ui: &mut egui::Ui, salt: egui::Id, fold: Fold, folds: &mut FastSet<egui::Id>) {
     let (_, rect) = ui.allocate_space(egui::vec2(ui.spacing().indent, ui.spacing().icon_width));
@@ -37,7 +37,7 @@ pub(crate) fn fold_toggle(ui: &mut egui::Ui, salt: egui::Id, fold: Fold, folds: 
     icons::chevron(ui, center, 14.0, color, -(1.0 - openness) * std::f32::consts::FRAC_PI_2);
 }
 
-/// The background of a part's bodies in the outliner: white in the light theme, in the dark one
+/// The background of a part's bodies in the navigator: white in the light theme, in the dark one
 /// the card's a shade towards the text.
 pub(crate) fn band_color(v: &egui::Visuals) -> egui::Color32 {
     if v.dark_mode { v.window_fill.lerp_to_gamma(v.text_color(), 0.07) } else { egui::Color32::WHITE }
@@ -50,7 +50,7 @@ pub(crate) fn hidden_color(v: &egui::Visuals, band: bool) -> egui::Color32 {
     v.weak_text_color().lerp_to_gamma(back, 0.5)
 }
 
-/// One line of the outliner across the whole list: its background — `band` that of a part's
+/// One line of the navigator across the whole list: its background — `band` that of a part's
 /// bodies, then the selection, or the hover (`lit`: hovered in the view; its context menu open:
 /// the row it acts on stays marked) — painted under the widgets `add` lays in it from left to
 /// right. The response is the line's click; the buttons in it (a fold, an eye, a sign), added
@@ -197,7 +197,7 @@ pub(crate) fn paint_drag_ghost(ctx: &egui::Context) {
 }
 
 /// The temporary key of the body row whose name is edited in place, if any.
-pub(crate) const RENAMING: &str = "outliner_renaming";
+pub(crate) const RENAMING: &str = "navigator_renaming";
 
 /// A navigator row's name edited in place, under the key `rename` (`renaming`: it is): a
 /// double-click on the row (`response`), or F2 while it is the one thing selected (`alone`),

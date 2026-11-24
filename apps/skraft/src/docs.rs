@@ -24,8 +24,8 @@ pub struct Doc {
     pub saved_at: u64,
     /// What is being typed into the measurements box.
     pub vcb: String,
-    /// Its outliner's rows unfolded, and what they are kept by.
-    pub outliner: crate::workspaces::common::cards::OutlinerState,
+    /// Its navigator's rows unfolded, and what they are kept by.
+    pub navigator: crate::workspaces::common::cards::NavigatorState,
     /// Its « Composants » card's rows (docs/ui/components-library.md).
     pub library: crate::workspaces::common::cards::library::LibraryState,
     pub materials: crate::workspaces::common::cards::materials::MaterialsState,
@@ -150,7 +150,7 @@ impl Docs {
             path,
             saved_at: 0,
             vcb: String::new(),
-            outliner: Default::default(),
+            navigator: Default::default(),
             library: Default::default(),
             materials: Default::default(),
             parts_list: Default::default(),

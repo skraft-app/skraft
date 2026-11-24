@@ -1,6 +1,6 @@
 //! The application window: title bar (top), workspace card and ribbon across the top of the
 //! view (docs/ui/ribbon.md), the tool option bar centered under them, entity info, materials and
-//! outliner (cards docked left or right, under the ribbon), status bar with the measurements
+//! navigator (cards docked left or right, under the ribbon), status bar with the measurements
 //! box (bottom), viewport (centre). Every action goes through the command registry (docs/ui/commands.md):
 //! the native menu (macOS, File only), title bar, ribbon, view bar, keyboard (SketchUp's shortcuts,
 //! changeable), the command palette and the control channel.

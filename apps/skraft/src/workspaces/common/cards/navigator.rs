@@ -33,10 +33,10 @@ fn instance_label(
     (r, split)
 }
 
-/// What the outliner keeps of a document between frames, in the document itself (closed with
+/// What the navigator keeps of a document between frames, in the document itself (closed with
 /// it, never written to disk): the rows unfolded, the ids reborn, the active path last seen.
 #[derive(Default)]
-pub struct OutlinerState {
+pub struct NavigatorState {
     /// The keys of the rows unfolded (a row missing: folded).
     pub(super) open: FastSet<egui::Id>,
     births: Births,
@@ -51,9 +51,9 @@ pub struct OutlinerState {
 /// Whether a definition holds a row a search lets through, by definition.
 pub(super) type Holds = FastMap<Id, bool>;
 
-/// One line of the outliner: an occurrence at some depth of the tree, or a body of the part it
+/// One line of the navigator: an occurrence at some depth of the tree, or a body of the part it
 /// places.
-pub(super) struct OutlinerRow<'d> {
+pub(super) struct NavigatorRow<'d> {
     /// The occurrences above it.
     pub(super) path: Vec<Id>,
     pub(super) occurrence: &'d Occurrence,
@@ -67,7 +67,7 @@ pub(super) struct OutlinerRow<'d> {
     pub(super) dim: bool,
 }
 
-/// A body in the outliner, under its part (docs/model/bodies.md#body-groups).
+/// A body in the navigator, under its part (docs/model/bodies.md#body-groups).
 pub(super) struct BodyRow<'d> {
     pub(super) part: &'d skraft_model::Part,
     pub(super) body: &'d skraft_model::Body,
@@ -119,14 +119,14 @@ impl BodyRow<'_> {
     }
 }
 
-/// The outliner, in `area`: the search field `search::GAP` under `line` (the bottom of the
+/// The navigator, in `area`: the search field `search::GAP` under `line` (the bottom of the
 /// card's title bar line), the model (named `name`, its file's) on the first row, then the
 /// tree; only the rows in view are laid out (a model can hold tens of thousands of
 /// occurrences).
-pub fn outliner(
+pub fn navigator(
     ui: &mut egui::Ui,
     editor: &Editor,
-    state: &mut OutlinerState,
+    state: &mut NavigatorState,
     name: &str,
     actions: &mut Vec<Action>,
     area: egui::ScrollArea,
@@ -139,7 +139,7 @@ pub fn outliner(
     // area's top margin below).
     let top = ui.cursor().top();
     ui.add_space((line + crate::kit::search::GAP - ui.cursor().top()).max(0.0));
-    let salt = ui.make_persistent_id("outliner_search");
+    let salt = ui.make_persistent_id("navigator_search");
     crate::kit::search::field(ui, salt, "outliner", &mut state.search, |_, _| {});
     let left = (body - (ui.cursor().top() - top)).max(0.0);
     let area = area.max_height(left).min_scrolled_height(left);
@@ -196,7 +196,7 @@ pub fn outliner(
         return;
     }
     let folds = &mut state.open;
-    let salt = ui.make_persistent_id("outliner_folds");
+    let salt = ui.make_persistent_id("navigator_folds");
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
     let text = ui.visuals().text_color();
     let weak = ui.visuals().weak_text_color();
@@ -230,11 +230,11 @@ pub fn outliner(
         }
     });
     paint_drag_ghost(ui.ctx());
-    actions.push(Action::HoverOutliner(over));
+    actions.push(Action::HoverNavigator(over));
     actions.push(Action::HoverMachining(over_body));
 }
 
-/// What the rows of the outliner's tree read.
+/// What the rows of the navigator's tree read.
 #[derive(Clone, Copy)]
 struct TreeCx<'a> {
     editor: &'a Editor,
@@ -291,7 +291,7 @@ fn occurrence_links(editor: &Editor, doc: &Document, here: Id, o: &Occurrence) -
         parts.dedup();
         receivers.sort();
         receivers.dedup();
-        t!("panel.outliner.link_overlap", parts = parts.join(", "), receivers = receivers.join(", "))
+        t!("panel.navigator.link_overlap", parts = parts.join(", "), receivers = receivers.join(", "))
     });
     let shapes = editor
         .link_map()
@@ -300,7 +300,7 @@ fn occurrence_links(editor: &Editor, doc: &Document, here: Id, o: &Occurrence) -
     OccurrenceLinks { overlap_tip, shapes }
 }
 
-fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &OutlinerRow<'_>, errors: &mut FastMap<Id, bool>) -> OccurrenceLook {
+fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &NavigatorRow<'_>, errors: &mut FastMap<Id, bool>) -> OccurrenceLook {
     let TreeCx { editor, doc, selection, text, weak, on_selection, editing, .. } = cx;
     let o = row.occurrence;
     // The part open: selected while none of its bodies is (a body selected is marked on
@@ -336,7 +336,7 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &OutlinerRow<'_>, errors:
     // A name edited in place, from a double-click, or F2 while it is the one occurrence
     // selected: the occurrence's own, shown first, where it has one and the double-click
     // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
-    let rename = ui.make_persistent_id(("outliner_rename", &row.path, o.id));
+    let rename = ui.make_persistent_id(("navigator_rename", &row.path, o.id));
     let rename_occurrence = rename.with("occurrence");
     let renaming = match ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) {
         Some(id) if id == rename => Some(false),
@@ -351,7 +351,7 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &OutlinerRow<'_>, errors:
 fn occurrence_line(
     ui: &mut egui::Ui,
     cx: TreeCx<'_>,
-    row: &OutlinerRow<'_>,
+    row: &NavigatorRow<'_>,
     look: &OccurrenceLook,
     name: &str,
     links: &OccurrenceLinks,
@@ -365,7 +365,7 @@ fn occurrence_line(
     // The eye first, at the right end (open while shown, struck through once hidden), then the
     // name in the room left, truncated with "…" so a long name never pushes the eye out.
     let eye = |ui: &mut egui::Ui, _| {
-        let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
+        let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.navigator.show")) } else { (icons::EYE, t!("panel.navigator.hide")) };
         let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
         let eye = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
         // Its own material, if any: a dot of its colour left of the eye, a column of its own so
@@ -496,7 +496,7 @@ fn occurrence_menu(
 fn occurrence_row(
     ui: &mut egui::Ui,
     cx: TreeCx<'_>,
-    row: OutlinerRow<'_>,
+    row: NavigatorRow<'_>,
     folds: &mut FastSet<egui::Id>,
     errors: &mut FastMap<Id, bool>,
     over: &mut Option<EntityPath>,
@@ -511,21 +511,21 @@ fn occurrence_row(
     let links = occurrence_links(editor, doc, here, o);
     let (response, (eye, renamed, split)) = occurrence_line(ui, cx, &row, &look, &name, &links, folds);
     let tip = match pieces {
-        0 => Some(t!("panel.outliner.empty_part")),
-        1 if inner && part.is_some() => Some(t!("panel.outliner.failed_inside_part")),
-        1 if inner => Some(t!("panel.outliner.error_inside_assembly")),
+        0 => Some(t!("panel.navigator.empty_part")),
+        1 if inner && part.is_some() => Some(t!("panel.navigator.failed_inside_part")),
+        1 if inner => Some(t!("panel.navigator.error_inside_assembly")),
         1 => None,
-        _ => Some(t!("panel.outliner.pieces", count = pieces)),
+        _ => Some(t!("panel.navigator.pieces", count = pieces)),
     };
     let OccurrenceLinks { overlap_tip, shapes } = links;
     let tip = tip.or(if link_off { None } else { overlap_tip });
     let tip = tip.or_else(|| match (link_off, link_below, part.is_some()) {
-        (true, ..) => Some(t!("panel.outliner.link_off")),
-        (_, true, true) => Some(t!("panel.outliner.link_lost_in_part")),
-        (_, true, false) => Some(t!("panel.outliner.link_inside_assembly")),
+        (true, ..) => Some(t!("panel.navigator.link_off")),
+        (_, true, true) => Some(t!("panel.navigator.link_lost_in_part")),
+        (_, true, false) => Some(t!("panel.navigator.link_inside_assembly")),
         _ => None,
     });
-    let tip = tip.or_else(|| shapes.map(|parts| t!("panel.outliner.imprints_in", parts = parts)));
+    let tip = tip.or_else(|| shapes.map(|parts| t!("panel.navigator.imprints_in", parts = parts)));
     let response = match tip {
         Some(tip) => response.tip(tip),
         None => response,
@@ -594,7 +594,7 @@ fn material_dot(ui: &mut egui::Ui, m: &skraft_model::Material, greyed: bool) {
     response.tip(&m.name);
 }
 
-/// The model, the outliner's first row, at the list's left edge (no indent, no fold nor eye):
+/// The model, the navigator's first row, at the list's left edge (no indent, no fold nor eye):
 /// a click chooses it (`Editor::model_chosen`), highlighted then, the entity info showing it.
 fn model_row(ui: &mut egui::Ui, editor: &Editor, name: &str, height: f32, actions: &mut Vec<Action>) {
     let selected = editor.model_chosen();
@@ -617,12 +617,12 @@ fn model_row(ui: &mut egui::Ui, editor: &Editor, name: &str, height: f32, action
             .map(|_| (Mark::Into, Box::new(move |copy| drag.onto_assembly(doc, Vec::new(), copy).expect("checked")) as DropOperation<'_>));
         drop_on_row(ui, &response, 0.0, target, actions);
     }
-    if response.tip(t!("panel.outliner.model_tip")).clicked() {
+    if response.tip(t!("panel.navigator.model_tip")).clicked() {
         actions.push(Action::SelectModel);
     }
 }
 
-/// Where the editing is (the outliner's active path): the assemblies edited and the part open,
+/// Where the editing is (the navigator's active path): the assemblies edited and the part open,
 /// the groups open in it, the body whose profile is edited.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct ActivePath {
@@ -696,13 +696,13 @@ impl Births {
 
     /// The fold of the occurrence `id` under the occurrences `path`.
     fn occurrence_fold(&self, path: &[Id], id: Id) -> egui::Id {
-        egui::Id::unique(("outliner", path, id, self.salt(path.iter().chain([&id]))))
+        egui::Id::unique(("navigator", path, id, self.salt(path.iter().chain([&id]))))
     }
 
     /// The fold of the body `id` in the groups `group` of the part of the occurrence `at`.
     fn body_fold(&self, at: (&[Id], Id), group: &[Id], id: Id) -> egui::Id {
         let salt = self.salt(at.0.iter().chain([&at.1]).chain(group).chain([&id]));
-        egui::Id::unique(("outliner_body", at.0, at.1, group, id, salt))
+        egui::Id::unique(("navigator_body", at.0, at.1, group, id, salt))
     }
 }
 
@@ -717,7 +717,7 @@ fn flatten<'d>(
     assembly: Id,
     active: &[Id],
     path: &mut Vec<Id>,
-    out: &mut Vec<OutlinerRow<'d>>,
+    out: &mut Vec<NavigatorRow<'d>>,
     hidden_above: bool,
     depth: usize,
 ) {
@@ -736,7 +736,7 @@ fn flatten<'d>(
             let key = births.occurrence_fold(path, o.id);
             // Open while the part is.
             let open = unfold(folds, key, editor.context() == path.as_slice() && editor.open_part() == Some(o.id));
-            out.push(OutlinerRow {
+            out.push(NavigatorRow {
                 path: path.clone(),
                 occurrence: o,
                 fold: Some(Fold { key, open }),
@@ -746,7 +746,7 @@ fn flatten<'d>(
             });
             if open {
                 let open_group = (editor.context() == path.as_slice() && editor.open_part() == Some(o.id)).then(|| editor.open_group());
-                let row = |fold, group, body, siblings, profile| OutlinerRow {
+                let row = |fold, group, body, siblings, profile| NavigatorRow {
                     path: path.clone(),
                     occurrence: o,
                     fold,
@@ -764,14 +764,14 @@ fn flatten<'d>(
             continue;
         }
         if doc.assembly(o.component).is_err() {
-            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None, dim: false });
+            out.push(NavigatorRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None, dim: false });
             continue;
         }
         let key = births.occurrence_fold(path, o.id);
         // Open along the context being edited.
         let along = editor.context().len() > path.len() && editor.context().starts_with(path) && editor.context()[path.len()] == o.id;
         let open = unfold(folds, key, along);
-        out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None, dim: false });
+        out.push(NavigatorRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None, dim: false });
         if open {
             path.push(o.id);
             flatten(births, folds, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
@@ -825,7 +825,7 @@ impl<'d> Filtered<'_, 'd> {
     }
 
     /// The rows of the assembly `assembly` under `path`.
-    pub(super) fn rows(&mut self, assembly: Id, path: &mut Vec<Id>, out: &mut Vec<OutlinerRow<'d>>, hidden_above: bool, depth: usize) {
+    pub(super) fn rows(&mut self, assembly: Id, path: &mut Vec<Id>, out: &mut Vec<NavigatorRow<'d>>, hidden_above: bool, depth: usize) {
         let doc = self.doc;
         let Ok(a) = doc.assembly(assembly) else { return };
         if depth > skraft_model::MAX_DEPTH {
@@ -837,7 +837,7 @@ impl<'d> Filtered<'_, 'd> {
             if !me && !below {
                 continue;
             }
-            out.push(OutlinerRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None, dim: !me });
+            out.push(NavigatorRow { path: path.clone(), occurrence: o, fold: None, hidden_above, body: None, dim: !me });
             if !below {
                 continue;
             }
@@ -862,7 +862,7 @@ impl<'d> Filtered<'_, 'd> {
         path: &[Id],
         o: &'d Occurrence,
         hidden_above: bool,
-        out: &mut Vec<OutlinerRow<'d>>,
+        out: &mut Vec<NavigatorRow<'d>>,
     ) {
         if group.len() > skraft_model::MAX_DEPTH {
             return;
@@ -875,7 +875,7 @@ impl<'d> Filtered<'_, 'd> {
                 continue;
             }
             let body = Some(BodyRow { part: p, body: b, group: group.clone(), siblings: bodies, profile: false });
-            out.push(OutlinerRow { path: path.to_vec(), occurrence: o, fold: None, hidden_above, body, dim: !me });
+            out.push(NavigatorRow { path: path.to_vec(), occurrence: o, fold: None, hidden_above, body, dim: !me });
             if below {
                 group.push(b.id);
                 self.body_rows(p, children, group, path, o, hidden_above, out);
@@ -988,7 +988,7 @@ fn body_rows<'d>(
 /// A body's « Profil » line, under it on the band of its part's bodies: selected while it is
 /// edited (`editing`, in the part or group open), a click editing it (its part and group
 /// opened).
-fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &OutlinerRow, height: f32, editing: Option<Id>, actions: &mut Vec<Action>) {
+fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &NavigatorRow, height: f32, editing: Option<Id>, actions: &mut Vec<Action>) {
     let Some(b) = &row.body else { return };
     let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
     let selected = editor.open_part_path().as_ref() == Some(&path) && editing == Some(b.body.id);
@@ -1007,15 +1007,15 @@ fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &OutlinerRow, height: f3
         ui.add_space(ui.spacing().indent * (row.path.len() + 3 + b.group.len()) as f32);
         ui.spacing_mut().item_spacing.x = spacing;
         ui.add(egui::Image::new(icons::PROFILE).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-        let label = egui::RichText::new(t!("panel.outliner.profile")).color(tint);
+        let label = egui::RichText::new(t!("panel.navigator.profile")).color(tint);
         ui.add(egui::Label::new(label).selectable(false).truncate());
     });
-    if response.tip(t!("panel.outliner.profile_tip")).clicked() && !selected {
+    if response.tip(t!("panel.navigator.profile_tip")).clicked() && !selected {
         actions.push(Action::EditProfile(path, b.body.id));
     }
 }
 
-/// One body's line of the outliner, on the band of its part's bodies: its fold for a group, its
+/// One body's line of the navigator, on the band of its part's bodies: its fold for a group, its
 /// nature's icon and name, its sign toggle at the right end; a click opens its part and selects
 /// the part's own body it lies in (Shift: added). Its part open on its siblings, it is hovered
 /// and selected with the view (`over`: the body hovered here). The toggle
@@ -1199,7 +1199,7 @@ struct BodyLook<'d> {
     renaming: Option<bool>,
 }
 
-fn body_look<'d>(ui: &egui::Ui, editor: &Editor, row: &OutlinerRow<'d>, b: &BodyRow<'d>) -> BodyLook<'d> {
+fn body_look<'d>(ui: &egui::Ui, editor: &Editor, row: &NavigatorRow<'d>, b: &BodyRow<'d>) -> BodyLook<'d> {
     let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
     let open = editor.open_part_path().as_ref() == Some(&path);
     let shown = open && editor.showing_machinings();
@@ -1238,7 +1238,7 @@ fn body_look<'d>(ui: &egui::Ui, editor: &Editor, row: &OutlinerRow<'d>, b: &Body
     // one body selected: the body's own, shown first, where it has one and the double-click is
     // on it (F2: where it has one), else its definition's (« Haut <Trou#1> »), as an
     // occurrence's row.
-    let rename = ui.make_persistent_id(("outliner_rename", &row.path, row.occurrence.id, &b.group, b.body.id));
+    let rename = ui.make_persistent_id(("navigator_rename", &row.path, row.occurrence.id, &b.group, b.body.id));
     let rename_own = rename.with("own");
     let renaming = match ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) {
         Some(id) if id == rename => Some(false),
@@ -1270,7 +1270,7 @@ fn body_look<'d>(ui: &egui::Ui, editor: &Editor, row: &OutlinerRow<'d>, b: &Body
 fn body_line(
     ui: &mut egui::Ui,
     editor: &Editor,
-    row: &OutlinerRow<'_>,
+    row: &NavigatorRow<'_>,
     b: &BodyRow<'_>,
     look: &BodyLook<'_>,
     height: f32,
@@ -1285,9 +1285,9 @@ fn body_line(
     // the room left.
     let sign = |ui: &mut egui::Ui, _| {
         let (icon, tip) = match b.body.sign {
-            Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
-            Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
-            Sign::Intersect => (icons::INTERSECT, t!("panel.outliner.sign_intersect")),
+            Sign::Positive => (icons::UNION, t!("panel.navigator.sign_positive")),
+            Sign::Negative => (icons::SUBTRACT, t!("panel.navigator.sign_negative")),
+            Sign::Intersect => (icons::INTERSECT, t!("panel.navigator.sign_intersect")),
         };
         let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
         let sense = if linked { egui::Sense::hover() } else { egui::Sense::click() };
@@ -1313,8 +1313,8 @@ fn body_line(
         if let Some(op) = def.op().and_then(|o| o.blend()) {
             let size = editor.document().settings().units.format(op.size);
             let text = match op.kind {
-                skraft_model::kernel::names::Blend::Round => t!("panel.outliner.round_size", size = size),
-                skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
+                skraft_model::kernel::names::Blend::Round => t!("panel.navigator.round_size", size = size),
+                skraft_model::kernel::names::Blend::Chamfer => t!("panel.navigator.chamfer_size", size = size),
             };
             ui.add_space(6.0);
             ui.label(egui::RichText::new(text).color(weak));
@@ -1331,16 +1331,16 @@ fn body_tip(response: egui::Response, b: &BodyRow<'_>, look: &BodyLook<'_>) -> e
     if let Some(r) = b.part.refusal_of(b.body.id) {
         response.tip(skraft_model::blend_refusal(r))
     } else if look.link_lost {
-        response.tip(t!("panel.outliner.link_lost"))
+        response.tip(t!("panel.navigator.link_lost"))
     } else if warned {
         let tip = match (inner, def.solid.is_empty()) {
-            (true, _) => t!("panel.outliner.failed_inside_group"),
-            (false, true) => t!("panel.outliner.empty_group"),
-            (false, false) => t!("panel.outliner.failed_group"),
+            (true, _) => t!("panel.navigator.failed_inside_group"),
+            (false, true) => t!("panel.navigator.empty_group"),
+            (false, false) => t!("panel.navigator.failed_group"),
         };
         response.tip(tip)
     } else if let Some(source) = &look.source {
-        response.tip(t!("panel.outliner.linked", source = source))
+        response.tip(t!("panel.navigator.linked", source = source))
     } else {
         response
     }
@@ -1352,7 +1352,7 @@ fn body_tip(response: egui::Response, b: &BodyRow<'_>, look: &BodyLook<'_>) -> e
 fn drop_on_body(
     ui: &egui::Ui,
     editor: &Editor,
-    row: &OutlinerRow<'_>,
+    row: &NavigatorRow<'_>,
     b: &BodyRow<'_>,
     look: &BodyLook<'_>,
     response: &egui::Response,
@@ -1435,7 +1435,7 @@ fn body_menu(
 fn body_row(
     ui: &mut egui::Ui,
     editor: &Editor,
-    row: OutlinerRow,
+    row: NavigatorRow,
     height: f32,
     folds: (egui::Id, &mut FastSet<egui::Id>),
     actions: &mut Vec<Action>,
@@ -1490,7 +1490,7 @@ fn body_row(
     }
 }
 
-/// A navigator menu's entry applying `op`, under the handle `outliner_menu:<handle>`.
+/// A navigator menu's entry applying `op`, under the handle `navigator_menu:<handle>`.
 fn menu_op(ui: &mut egui::Ui, handle: &str, label: String, op: Operation, actions: &mut Vec<Action>) {
     let button = ui.button(label);
     crate::kit::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
@@ -1523,10 +1523,10 @@ fn row_menu(
     egui::Popup::context_menu(response).style(crate::kit::style::menu).show(|ui| {
         let names = match own {
             Some(own) => vec![
-                (t!("panel.outliner.rename_instance"), own, "rename_instance"),
-                (t!("panel.outliner.rename_definition"), rename, "rename"),
+                (t!("panel.navigator.rename_instance"), own, "rename_instance"),
+                (t!("panel.navigator.rename_definition"), rename, "rename"),
             ],
-            None => vec![(t!("panel.outliner.rename"), rename, "rename")],
+            None => vec![(t!("panel.navigator.rename"), rename, "rename")],
         };
         for (label, key, handle) in names {
             let button = ui.button(label);

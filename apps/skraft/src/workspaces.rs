@@ -180,7 +180,7 @@ pub const WORKSPACES: &[Workspace] = &[
         // compositions to place.
         panels: Some(&[
             crate::window::dock::PanelId::EntityInfo,
-            crate::window::dock::PanelId::Outliner,
+            crate::window::dock::PanelId::Navigator,
             crate::window::dock::PanelId::Compositions,
         ]),
         fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "edit.erase"], &["tool.select", "edit.erase"]),

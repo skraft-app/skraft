@@ -97,7 +97,7 @@ and tasks, serialisable): an operation's job that failed, a recipe that skipped 
   goes back to), so playing them again does not do it twice. `stop` writes a test of
   `crates/tools/tests/<name>.rs` (the document beside it as `<name>.skraft`): the editor with
   the kernel inline, the view set, each input after a `poll` (a frame), the revision and the
-  parts reached checked. Not recorded: what panels do besides (the outliner's selection,
+  parts reached checked. Not recorded: what panels do besides (the navigator's selection,
   entering a component from it).
 - **Journal window** (`apps/skraft/src/dialogs/journal_window.rs`, command `app.journal`: the control
   channel's mark's menu, the command palette): reads the shown tab's journal directly, channel

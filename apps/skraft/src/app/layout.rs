@@ -121,7 +121,7 @@ impl SkraftApp {
         let dragged = self.panel_drag.map(|d| d.id);
         let room = view.bottom() - margin - top;
         let mut event = None;
-        let mut outliner_shown = false;
+        let mut navigator_shown = false;
         let mut columns = Vec::new();
         for (side, (x, width)) in [Dock::Left, Dock::Right].into_iter().zip(xs) {
             let placed = dock::place_with(self.prefs.layout(self.workspace().id).column(side), top, room, metrics, dragged, PanelId::fills);
@@ -129,7 +129,7 @@ impl SkraftApp {
                 let rect = egui::Rect::from_min_size(egui::pos2(x, p.top), egui::vec2(width, p.height));
                 // Every card but the one filling the column has a bottom edge to drag.
                 let edges = Edges { side: Some(side), bottom: !p.fills, max_width, min_height: metrics.min_height };
-                if let Some(e) = self.panel_card(ctx, p.id, rect, header, edges, &mut outliner_shown, actions) {
+                if let Some(e) = self.panel_card(ctx, p.id, rect, header, edges, &mut navigator_shown, actions) {
                     event = Some(e);
                 }
             }
@@ -138,12 +138,12 @@ impl SkraftApp {
         if let (Some(d), Some(p)) = (self.panel_drag, pointer) {
             let rect = egui::Rect::from_min_size(p - d.offset, d.size);
             let edges = Edges { side: None, bottom: false, max_width, min_height: metrics.min_height };
-            if let Some(e) = self.panel_card(ctx, d.id, rect, header, edges, &mut outliner_shown, actions) {
+            if let Some(e) = self.panel_card(ctx, d.id, rect, header, edges, &mut navigator_shown, actions) {
                 event = Some(e);
             }
         }
-        if !outliner_shown {
-            actions.push(Action::HoverOutliner(None));
+        if !navigator_shown {
+            actions.push(Action::HoverNavigator(None));
             actions.push(Action::HoverMachining(None));
         }
         // Where a dragged card goes: the column of the nearer edge, above the first card whose
@@ -197,7 +197,7 @@ impl SkraftApp {
         rect: egui::Rect,
         header: f32,
         edges: Edges,
-        outliner_shown: &mut bool,
+        navigator_shown: &mut bool,
         actions: &mut Vec<Action>,
     ) -> Option<CardEvent> {
         let workspace = self.workspace().id;
@@ -249,8 +249,8 @@ impl SkraftApp {
                     }
                     let Some(doc) = docs.iter_mut().nth(i) else { return };
                     // The navigator's rows close under the title bar (their backgrounds have
-                    // their own room, `cards::outliner`); the other cards' content further down.
-                    let pad = if id == PanelId::Outliner { HEAD_PAD / 2.0 } else { 2.0 * HEAD_PAD };
+                    // their own room, `cards::navigator`); the other cards' content further down.
+                    let pad = if id == PanelId::Navigator { HEAD_PAD / 2.0 } else { 2.0 * HEAD_PAD };
                     ui.add_space(pad);
                     let body = (inner.y - header - pad - 2.0 * ui.spacing().item_spacing.y).max(0.0);
                     // The bottom of the line under the title bar.
@@ -338,11 +338,11 @@ impl SkraftApp {
                             });
                         }
                         // On a sheet, the drawing's tree (docs/ui/drawing.md#navigator).
-                        PanelId::Outliner if doc.workspace.stage == Stage::Sheet => {
+                        PanelId::Navigator if doc.workspace.stage == Stage::Sheet => {
                             let (doc_id, name) = (doc.id, doc.name());
                             let (editor, st) = (&doc.editor, &mut doc.sheet);
                             ui.push_id(doc_id, |ui| {
-                                crate::workspaces::drawing::cards::navigator::navigator(
+                                crate::workspaces::drawing::cards::navigator::show(
                                     ui,
                                     editor,
                                     st,
@@ -352,13 +352,13 @@ impl SkraftApp {
                                 )
                             });
                         }
-                        PanelId::Outliner => {
-                            *outliner_shown = true;
+                        PanelId::Navigator => {
+                            *navigator_shown = true;
                             // Salted by the document: its rows' clicks apart from another's.
                             let (doc_id, name) = (doc.id, doc.name());
-                            let (editor, state) = (&doc.editor, &mut doc.outliner);
+                            let (editor, state) = (&doc.editor, &mut doc.navigator);
                             ui.push_id(doc_id, |ui| {
-                                cards::outliner(ui, editor, state, &name, actions, area.id_salt("outliner"), (body, title_line))
+                                cards::navigator(ui, editor, state, &name, actions, area.id_salt("navigator"), (body, title_line))
                             });
                         }
                     }
@@ -811,7 +811,7 @@ pub(super) fn panel_title(id: PanelId) -> String {
     match id {
         PanelId::EntityInfo => t!("panel.entity_info.title"),
         PanelId::Materials => t!("panel.materials.title"),
-        PanelId::Outliner => t!("panel.outliner.title"),
+        PanelId::Navigator => t!("panel.navigator.title"),
         PanelId::Components => t!("panel.components.title"),
         PanelId::Compositions => t!("panel.compositions.title"),
     }

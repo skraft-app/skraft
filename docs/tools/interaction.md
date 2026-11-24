@@ -88,14 +88,14 @@ drag.
 
 After SketchUp's `hidden`: an occurrence carries `hidden` (saved,
 `Operation::SetHidden { context, entities, hidden }`, undoable; « Masquer » / « Afficher »),
-toggled by the eye at the right end of each outliner row. One flag per occurrence, not per
+toggled by the eye at the right end of each navigator row. One flag per occurrence, not per
 component: a leg of four is hidden alone; an occurrence inside an assembly is hidden in every
 occurrence of the assembly (its definition is shared).
 
 - A hidden occurrence, and everything under it, is neither drawn, picked (click or
   rectangle), inferred on, framed by zoom extents nor taken by select all; its guides go with
-  it; the outliner greys its row and those below, and hovering them there marks nothing.
-  Hiding it takes it out of the selection; the outliner still selects it (its selection mark
+  it; the navigator greys its row and those below, and hovering them there marks nothing.
+  Hiding it takes it out of the selection; the navigator still selects it (its selection mark
   then shows where it is).
 - **What is being edited shows**: the occurrences hidden along the active path (the
   assemblies entered, the part open) count as shown, what is hidden below them stays hidden

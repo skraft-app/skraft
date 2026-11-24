@@ -142,7 +142,7 @@ menu:
     section_clear: "Remove Section Cut"
     entity_info: "$t(panel.entity_info.title) Panel"
     materials: "$t(common.materials) Panel"
-    outliner: "$t(panel.outliner.title) Panel"
+    navigator: "$t(panel.navigator.title) Panel"
     components: "$t(panel.components.title) Panel"
     compositions: "$t(panel.compositions.title) Panel"
     render_stats: "Render Statistics"
@@ -877,11 +877,11 @@ panel:
     export_tip: "Export all materials (.skraftmat)"
     import_tip: "Import materials (.skraftmat)"
     export_name: "Materials %{model}"
-  outliner:
+  navigator:
     # A round's radius and a chamfer's distance after their name (docs/tools/rounds.md).
     round_size: "r %{size}"
     chamfer_size: "%{size}"
-    title: "Outliner"
+    title: "Navigator"
     model_tip: "Click to go back to the model's level"
     hide: "$t(common.hide)"
     show: "$t(common.show)"

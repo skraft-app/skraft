@@ -166,7 +166,7 @@ menu:
     section_clear: "Supprimer la coupe"
     entity_info: "Panneau $t(panel.entity_info.title)"
     materials: "Panneau $t(common.materials)"
-    outliner: "Panneau $t(panel.outliner.title)"
+    navigator: "Panneau $t(panel.navigator.title)"
     components: "Panneau $t(panel.components.title)"
     compositions: "Panneau $t(panel.compositions.title)"
     render_stats: "Statistiques de rendu"
@@ -954,7 +954,7 @@ panel:
     export_tip: "Exporter toutes les matières (.skraftmat)"
     import_tip: "Importer des matières (.skraftmat)"
     export_name: "Matières %{model}"
-  outliner:
+  navigator:
     # A round's radius and a chamfer's distance after their name (docs/tools/rounds.md).
     round_size: "r %{size}"
     chamfer_size: "%{size}"

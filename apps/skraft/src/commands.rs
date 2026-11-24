@@ -154,7 +154,7 @@ pub const COMMANDS: &[Command] = &[
     c("view.section_clear", || t!("menu.view.section_clear"), M::View, None),
     g("view.entity_info", || t!("menu.view.entity_info"), M::View, None),
     c("view.materials", || t!("menu.view.materials"), M::View, None),
-    c("view.outliner", || t!("menu.view.outliner"), M::View, None),
+    c("view.navigator", || t!("menu.view.navigator"), M::View, None),
     c("view.components", || t!("menu.view.components"), M::View, None),
     c("view.compositions", || t!("menu.view.compositions"), M::View, None),
     c("view.render_stats", || t!("menu.view.render_stats"), M::View, None),
@@ -347,12 +347,12 @@ pub enum Action {
     Command(&'static str),
     /// The control channel failed to start: try again (the title bar's mark).
     RemoteRetry,
-    /// An outliner's click: selects or deselects, Shift (`true`) adding to the selection.
+    /// A navigator's click: selects or deselects, Shift (`true`) adding to the selection.
     SelectPath(EntityPath, bool),
     /// A row of the tree drop-up hovered (none: left), or clicked (docs/tools/selection.md).
     TreeHover(Option<usize>),
     TreePick(usize),
-    /// The outliner's first row, the model, clicked: every assembly and part edited left,
+    /// The navigator's first row, the model, clicked: every assembly and part edited left,
     /// nothing selected.
     SelectModel,
     /// A component chosen in the library (docs/ui/components-library.md).
@@ -389,21 +389,21 @@ pub enum Action {
     PartScope(Scope),
     /// Whether shapes drawn in the open part add material or take it away (docs/model/bodies.md).
     BodySign(Sign),
-    /// The body of the open part hovered in the outliner, if any (its part open on it, the
+    /// The body of the open part hovered in the navigator, if any (its part open on it, the
     /// bodies shown).
     HoverMachining(Option<Id>),
-    /// A body of a part chosen in the outliner (docs/model/bodies.md#body-groups): the part, and the group
+    /// A body of a part chosen in the navigator (docs/model/bodies.md#body-groups): the part, and the group
     /// the path names, opened; the body selected or deselected, Shift (`true`) adding it.
     SelectBody(EntityPath, Id, bool),
     /// The body node `Id` of the part (or group) open: opened, its tool started on its edges
     /// (docs/tools/rounds.md).
     EditBlend(Id),
-    /// A body's « Profil » row chosen in the outliner: its part (and group) opened, its profile
+    /// A body's « Profil » row chosen in the navigator: its part (and group) opened, its profile
     /// edited.
     EditProfile(EntityPath, Id),
-    /// The occurrence hovered in the outliner, if any.
-    HoverOutliner(Option<EntityPath>),
-    /// Hide the occurrence (true) or show it again: the outliner's eye.
+    /// The occurrence hovered in the navigator, if any.
+    HoverNavigator(Option<EntityPath>),
+    /// Hide the occurrence (true) or show it again: the navigator's eye.
     SetHidden(EntityPath, bool),
     /// The ribbon's own state: tab, pins, labels (docs/ui/ribbon.md).
     Ribbon(crate::window::ribbon::Change),

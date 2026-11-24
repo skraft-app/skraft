@@ -144,7 +144,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
     let Ok(asm) = doc.assembly(context) else { return };
     if let Some(open) = editor.open_part().and_then(|id| asm.occurrence(id)) {
         let Some((part, p, _)) = editor.open_part_path().and_then(|path| doc.resolve_container(&path).ok()) else { return };
-        // A body's profile edited: it is what is chosen (the outliner's « Profil » row).
+        // A body's profile edited: it is what is chosen (the navigator's « Profil » row).
         let edited = editor.profile_body().and_then(|id| p.bodies.iter().position(|b| b.id == id));
         match sel {
             [] => match edited {
@@ -424,8 +424,8 @@ fn profile_info(ui: &mut egui::Ui, p: &skraft_model::Part, k: usize) {
 }
 
 /// The body `k` of `p` (the open part, or the group open in it, docs/model/bodies.md): a body or a group, its
-/// name as the outliner gives it — its definition's, edited here —, blank or machining (its
-/// sign toggled in the outliner), failed or not, its solid's size, how many bodies share its
+/// name as the navigator gives it — its definition's, edited here —, blank or machining (its
+/// sign toggled in the navigator), failed or not, its solid's size, how many bodies share its
 /// definition.
 fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Part, k: usize, actions: &mut Vec<Action>) {
     let units = &editor.document().settings().units;

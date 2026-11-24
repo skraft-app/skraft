@@ -15,7 +15,7 @@ use crate::tools::{self, Marquee};
 pub enum Mark {
     Selected,
     Hover,
-    /// Hovered (in the outliner) outside the context being edited: hovered, still faded.
+    /// Hovered (in the navigator) outside the context being edited: hovered, still faded.
     HoverFaded,
     /// Picked by a tool (the solid tools' targets).
     Picked,
@@ -704,9 +704,9 @@ impl Editor {
         if let Some(h) = listed.or(preview.hover).filter(|h| !selected.contains(h)) {
             mark(&mut v.highlights, &self.context, h, Mark::Hover, DAffine3::IDENTITY);
         }
-        // The occurrence hovered in the outliner, in any context, as if hovered in the view —
+        // The occurrence hovered in the navigator, in any context, as if hovered in the view —
         // unless selected or open (already marked so) —, still faded outside the active path.
-        if let Some(p) = &self.outliner_hover
+        if let Some(p) = &self.navigator_hover
             && open.as_ref() != Some(p)
             && !(p.instances == self.context && selected.contains(&p.entity))
             && let hovered = p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>()

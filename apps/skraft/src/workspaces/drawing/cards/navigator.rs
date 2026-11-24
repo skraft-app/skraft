@@ -285,7 +285,7 @@ fn line<R>(
 }
 
 /// The navigator on a sheet, in `area`.
-pub fn navigator(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title: &str, actions: &mut Vec<Action>, area: egui::ScrollArea) {
+pub fn show(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title: &str, actions: &mut Vec<Action>, area: egui::ScrollArea) {
     let d = editor.document().drawing();
     // Another sheet shown: its presentation and itself unfolded.
     let shown = st.shown(d).map(|s| s.id);
@@ -648,7 +648,7 @@ fn element_row(
         if !editable {
             return None;
         }
-        let (icon, tip) = if el.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
+        let (icon, tip) = if el.hidden { (icons::EYE_OFF, t!("panel.navigator.show")) } else { (icons::EYE, t!("panel.navigator.hide")) };
         let eye = small_button(ui, icon, button, true, tip);
         crate::kit::handles::publish(|| format!("sheet_tree:eye:{}", el.id.0), eye.rect);
         // The padlock while locked, or under the pointer; its room kept, the names aligned.
