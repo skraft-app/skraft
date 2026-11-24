@@ -11,10 +11,10 @@ use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
 use crate::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
+use crate::kit::style::Tip;
 use crate::library::natural_cmp;
 use crate::panels::Action;
 use crate::sheet::{SheetState, Sketch, sketch_of};
-use crate::style::Tip;
 
 /// What the card keeps of a document between frames (never on disk): its search, its rows and
 /// the compositions' outlines, made again when the document or what they depend on changes.
@@ -99,12 +99,12 @@ pub fn compositions(
     let top = ui.cursor().top();
     let matcher = Matcher::new(&st.library.search);
     let library = &mut st.library;
-    let rows = crate::search::listed(&mut library.rows, editor.history().revision(), &library.search, || rows_of(d, &matcher)).clone();
+    let rows = crate::kit::search::listed(&mut library.rows, editor.history().revision(), &library.search, || rows_of(d, &matcher)).clone();
     let salt = ui.make_persistent_id("compositions_search");
-    crate::search::field(ui, salt, "compositions", &mut st.library.search, |ui, side| {
+    crate::kit::search::field(ui, salt, "compositions", &mut st.library.search, |ui, side| {
         catalog::view_toggle(ui, side, as_list, Card::Compositions, actions)
     });
-    ui.add_space(crate::search::GAP - ui.spacing().item_spacing.y);
+    ui.add_space(crate::kit::search::GAP - ui.spacing().item_spacing.y);
     if rows.is_empty() {
         ui.weak(if matcher.is_active() { t!("search.no_match") } else { t!("panel.compositions.none") });
         return;
@@ -174,7 +174,7 @@ fn item(
     rename: Renaming,
     actions: &mut Vec<Action>,
 ) {
-    crate::handles::publish(|| format!("compositions:{}", id.0), response.rect);
+    crate::kit::handles::publish(|| format!("compositions:{}", id.0), response.rect);
     let name = d.composition(id).map_or_else(String::new, |c| c.name.clone());
     let tip = match count {
         Some(n) => tp!("panel.compositions.count_tip", n as usize),
@@ -199,9 +199,9 @@ fn item(
     if response.dragged_by(egui::PointerButton::Primary) && can_carry {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
-    egui::Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
+    egui::Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
         let place = ui.add_enabled(can_place, egui::Button::new(t!("drawing.tree.place")));
-        crate::handles::publish(|| "compositions:menu:place".into(), place.rect);
+        crate::kit::handles::publish(|| "compositions:menu:place".into(), place.rect);
         if place.clicked() {
             st.place_composition = Some(id);
         }
@@ -210,7 +210,7 @@ fn item(
             Renaming::start(ui, key);
         }
         let delete = ui.button(t!("panel.components.delete"));
-        crate::handles::publish(|| "compositions:menu:delete".into(), delete.rect);
+        crate::kit::handles::publish(|| "compositions:menu:delete".into(), delete.rect);
         if delete.tip(t!("panel.compositions.delete_tip")).clicked() {
             actions.push(Action::Apply(Operation::DeleteComposition { composition: id }));
         }

@@ -9,7 +9,7 @@ use skraft_i18n::t;
 use skraft_tools::Naming;
 
 use crate::docs::DocId;
-use crate::widgets::{Confirm, FieldLook, confirm_buttons, live_field};
+use crate::kit::widgets::{Confirm, FieldLook, confirm_buttons, live_field};
 
 /// The dialog open: on what a document's editor names.
 pub struct Dialog {

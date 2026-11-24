@@ -8,8 +8,8 @@ use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use skraft_i18n::t;
 use skraft_tools::{Key, Steps};
 
+use crate::kit::style::Tip;
 use crate::panels::Action;
-use crate::style::Tip;
 use crate::toasts::Level;
 
 /// A step number's square, and the link between two.
@@ -99,7 +99,7 @@ fn stepper(ui: &mut egui::Ui, s: &Steps) {
             std::cmp::Ordering::Greater => (ground, dim, dim),
         };
         painter.rect(square, 3.0, fill, Stroke::new(1.5, line), StrokeKind::Inside);
-        let font = if i == s.index { crate::style::semibold(13.0) } else { font.clone() };
+        let font = if i == s.index { crate::kit::style::semibold(13.0) } else { font.clone() };
         painter.text(square.center(), Align2::CENTER_CENTER, (i + 1).to_string(), font, text);
     }
 }
@@ -115,7 +115,7 @@ fn buttons(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         (ok, Level::Success, Key::Enter, "validation:ok", t!("steps.validate")),
     ] {
         let response = ui.interact(r, ui.scope_id().with(name), Sense::click()).tip(tip);
-        crate::handles::publish(|| name.into(), r);
+        crate::kit::handles::publish(|| name.into(), r);
         let dark = ui.visuals().dark_mode;
         let (hue, fill, _) = crate::toasts::colors(ui.visuals(), level, dark);
         // Hovered, the colours swap (OCL's `:hover` style).

@@ -133,9 +133,9 @@ pub fn outliner(
     // height left under it, its first row as far again (the item spacing and the scroll
     // area's top margin below).
     let top = ui.cursor().top();
-    ui.add_space((line + crate::search::GAP - ui.cursor().top()).max(0.0));
+    ui.add_space((line + crate::kit::search::GAP - ui.cursor().top()).max(0.0));
     let salt = ui.make_persistent_id("outliner_search");
-    crate::search::field(ui, salt, "outliner", &mut state.search, |_, _| {});
+    crate::kit::search::field(ui, salt, "outliner", &mut state.search, |_, _| {});
     let left = (body - (ui.cursor().top() - top)).max(0.0);
     let area = area.max_height(left).min_scrolled_height(left);
     let height = ui.spacing().interact_size.y;
@@ -530,7 +530,7 @@ fn occurrence_row(
     if ui.rect_contains_pointer(response.rect) {
         *over = Some(path.clone());
     }
-    crate::handles::publish(|| format!("outliner:{}", o.id.0), response.rect);
+    crate::kit::handles::publish(|| format!("outliner:{}", o.id.0), response.rect);
     // Bodies dragged onto their part's row: to its root (decision 0044).
     // Dragged (decision 0044): the selected occurrences of its assembly with it when it
     // is selected. Dropped on: a part takes bodies or parts in, at its root; an assembly
@@ -596,7 +596,7 @@ fn model_row(ui: &mut egui::Ui, editor: &Editor, name: &str, height: f32, action
     let tint = if selected { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
     let (response, ()) = tree_row(ui, height, selected, false, false, |ui| {
         ui.add(egui::Image::new(icons::MODEL).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-        let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size);
+        let font = crate::kit::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size);
         ui.add(egui::Label::new(egui::RichText::new(name).font(font).color(tint)).selectable(false).truncate());
     });
     // Bodies dropped on the model: a part of them at its root (decision 0044).
@@ -1406,7 +1406,7 @@ fn body_menu(
                 None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
             };
             let button = ui.button(label);
-            crate::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
+            crate::kit::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
             if button.clicked() {
                 let scope = scope_in(editor, path);
                 actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.to_vec(), to, copy: false, scope }));
@@ -1445,7 +1445,7 @@ fn body_row(
         *over = Some(b.body.id);
     }
     // Dragged (decision 0044): the selected siblings with it when it is selected.
-    crate::handles::publish(|| format!("outliner_body:{}", b.body.id.0), response.rect);
+    crate::kit::handles::publish(|| format!("outliner_body:{}", b.body.id.0), response.rect);
     let response = response.interact(egui::Sense::click_and_drag());
     let with: Vec<Id> = match selected {
         true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
@@ -1488,7 +1488,7 @@ fn body_row(
 /// A navigator menu's entry applying `op`, under the handle `outliner_menu:<handle>`.
 fn menu_op(ui: &mut egui::Ui, handle: &str, label: String, op: Operation, actions: &mut Vec<Action>) {
     let button = ui.button(label);
-    crate::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
+    crate::kit::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
     if button.clicked() {
         actions.push(Action::Apply(op));
     }
@@ -1497,7 +1497,7 @@ fn menu_op(ui: &mut egui::Ui, handle: &str, label: String, op: Operation, action
 /// The menu's « Aplatir » (docs/model/bodies.md#flattening): clicked?
 fn flatten_button(ui: &mut egui::Ui) -> bool {
     let button = ui.button(t!("common.flatten"));
-    crate::handles::publish(|| "outliner_menu:flatten".into(), button.rect);
+    crate::kit::handles::publish(|| "outliner_menu:flatten".into(), button.rect);
     button.clicked()
 }
 
@@ -1515,7 +1515,7 @@ fn row_menu(
     move_out: impl FnOnce(&mut egui::Ui, &mut Vec<Action>),
     flatten: impl FnOnce(&mut egui::Ui, &mut Vec<Action>),
 ) {
-    egui::Popup::context_menu(response).style(crate::style::menu).show(|ui| {
+    egui::Popup::context_menu(response).style(crate::kit::style::menu).show(|ui| {
         let names = match own {
             Some(own) => vec![
                 (t!("panel.outliner.rename_instance"), own, "rename_instance"),
@@ -1525,7 +1525,7 @@ fn row_menu(
         };
         for (label, key, handle) in names {
             let button = ui.button(label);
-            crate::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
+            crate::kit::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
             if button.clicked() {
                 ui.data_mut(|d| d.insert_temp(egui::Id::unique(RENAMING), key));
             }
@@ -1535,14 +1535,14 @@ fn row_menu(
         flatten(ui, actions);
         if explodable {
             let button = ui.button(t!("menu.edit.explode"));
-            crate::handles::publish(|| "outliner_menu:explode".into(), button.rect);
+            crate::kit::handles::publish(|| "outliner_menu:explode".into(), button.rect);
             if button.clicked() {
                 actions.extend(select.take());
                 actions.push(Action::Command("edit.explode"));
             }
         }
         let button = ui.button(t!("menu.edit.erase"));
-        crate::handles::publish(|| "outliner_menu:delete".into(), button.rect);
+        crate::kit::handles::publish(|| "outliner_menu:delete".into(), button.rect);
         if button.clicked() {
             actions.extend(select.take());
             actions.push(Action::Command("edit.erase"));

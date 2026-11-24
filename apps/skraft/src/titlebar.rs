@@ -18,11 +18,11 @@ const APP_NAME: &str = "Skraft";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use crate::commands::Menu;
-use crate::icons;
+use crate::kit::icons;
+use crate::kit::style::{BAR_BUTTON, BAR_ICON, Tip};
+use crate::kit::widgets::{IconButton, Look, VEIL_RADIUS, backed, command_item, is_toggle, unframed, veil};
 use crate::panels::{Action, CommandView};
-use crate::style::{BAR_BUTTON, BAR_ICON, Tip};
 use crate::tabs::{self, Tab};
-use crate::widgets::{IconButton, Look, VEIL_RADIUS, backed, command_item, is_toggle, unframed, veil};
 
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;
@@ -84,7 +84,7 @@ const ALERT: egui::Color32 = egui::Color32::from_rgb(240, 96, 88);
 /// The bar's panel, at the top of the window.
 pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) {
     let mut style = ui.style().as_ref().clone();
-    crate::style::title_bar(ui.ctx(), &mut style);
+    crate::kit::style::title_bar(ui.ctx(), &mut style);
     let frame = egui::Frame::side_top_panel(&style).inner_margin(egui::Margin::symmetric(8, 0));
     // The line along the bar's bottom edge is drawn by the bar, under the shown tab, which
     // opens through it onto the view.
@@ -181,7 +181,7 @@ fn update_badge(ui: &mut egui::Ui, version: &str, actions: &mut Vec<Action>) {
     let fill = if r.hovered() { UPDATE_HOVERED } else { UPDATE };
     ui.painter().rect_filled(rect, 4.0, fill);
     ui.painter().galley(rect.min + pad, galley, egui::Color32::PLACEHOLDER);
-    crate::handles::publish(|| "titlebar:app.updates".to_owned(), r.rect);
+    crate::kit::handles::publish(|| "titlebar:app.updates".to_owned(), r.rect);
     if r.tip(t!("update.toast", version = version)).clicked() {
         actions.push(Action::Command("app.updates"));
     }
@@ -204,11 +204,11 @@ fn bar_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, lit: bool, en
 fn menu_button(ui: &mut egui::Ui, handle: &str, button: egui::Button, tip: Option<String>, content: impl FnOnce(&mut egui::Ui)) {
     let r = backed(ui, menu_open, |ui| {
         egui::containers::menu::MenuButton::from_button(unframed(button))
-            .config(egui::containers::menu::MenuConfig::new().style(crate::style::menu))
+            .config(egui::containers::menu::MenuConfig::new().style(crate::kit::style::menu))
             .ui(ui, |ui| content(ui))
             .0
     });
-    crate::handles::publish(|| handle.to_owned(), r.rect);
+    crate::kit::handles::publish(|| handle.to_owned(), r.rect);
     if let Some(tip) = tip {
         r.tip(tip);
     }
@@ -221,7 +221,7 @@ fn menu_open(r: &egui::Response) -> bool {
 
 fn command_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, v: &CommandView, lit: bool, tip: &str, actions: &mut Vec<Action>) {
     let r = bar_button(ui, icon, lit, v.enabled, tip);
-    crate::handles::publish_enabled(|| format!("titlebar:{}", v.id), r.rect, v.enabled);
+    crate::kit::handles::publish_enabled(|| format!("titlebar:{}", v.id), r.rect, v.enabled);
     if r.clicked() {
         actions.push(Action::Command(v.id));
     }
@@ -267,7 +267,7 @@ fn brand(ui: &mut egui::Ui, home: Option<&CommandView>, actions: &mut Vec<Action
     if let Some(fill) = veil(ui, &r) {
         ui.painter().set(behind, egui::Shape::rect_filled(rect, VEIL_RADIUS, fill));
     }
-    crate::handles::publish(|| format!("titlebar:{}", v.id), rect);
+    crate::kit::handles::publish(|| format!("titlebar:{}", v.id), rect);
     if r.tip(v.tip()).clicked() {
         actions.push(Action::Command(v.id));
     }
@@ -362,7 +362,7 @@ fn menu_items<'a>(ui: &mut egui::Ui, items: impl Iterator<Item = &'a CommandView
 /// clicked.
 fn search(ui: &mut egui::Ui, v: &CommandView, width: f32) -> bool {
     let (rect, r) = ui.allocate_exact_size(egui::vec2(width, 26.0), egui::Sense::click());
-    crate::handles::publish(|| format!("titlebar:{}", v.id), rect);
+    crate::kit::handles::publish(|| format!("titlebar:{}", v.id), rect);
     if let Some(fill) = veil(ui, &r) {
         ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
     }
@@ -404,7 +404,7 @@ fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) 
     let button = egui::Button::image(img).min_size(egui::vec2(26.0, 26.0));
     let r = backed(ui, menu_open, |ui| {
         egui::containers::menu::MenuButton::from_button(unframed(button))
-            .config(egui::containers::menu::MenuConfig::new().style(crate::style::menu))
+            .config(egui::containers::menu::MenuConfig::new().style(crate::kit::style::menu))
             .ui(ui, |ui| {
                 ui.weak(&tip);
                 ui.separator();

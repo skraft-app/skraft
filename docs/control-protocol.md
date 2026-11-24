@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/control/src/lib.rs, crates/control/src/params.rs, crates/control/src/editor.rs, crates/control/src/json.rs, crates/control/src/server.rs, crates/control/src/instances.rs, crates/control/src/record.rs, crates/tools/src/editor/journal.rs, apps/skraft/src/control.rs, apps/skraft/src/driving.rs, apps/skraft/src/handles.rs, apps/skraft/src/web.rs, apps/skraft/src/identity.rs, apps/skraft/src/journal_window.rs, apps/skraft/build.rs, apps/skraft-mcp/src/main.rs, apps/skraft-mcp/src/mcp.rs, apps/skraft-mcp/src/backend.rs, scripts/control.sh]
+code: [crates/control/src/lib.rs, crates/control/src/params.rs, crates/control/src/editor.rs, crates/control/src/json.rs, crates/control/src/server.rs, crates/control/src/instances.rs, crates/control/src/record.rs, crates/tools/src/editor/journal.rs, apps/skraft/src/control.rs, apps/skraft/src/driving.rs, apps/skraft/src/kit/handles.rs, apps/skraft/src/web.rs, apps/skraft/src/identity.rs, apps/skraft/src/journal_window.rs, apps/skraft/build.rs, apps/skraft-mcp/src/main.rs, apps/skraft-mcp/src/mcp.rs, apps/skraft-mcp/src/backend.rs, scripts/control.sh]
 ---
 
 # Control protocol
@@ -122,7 +122,7 @@ window need not have the focus. They test the real interface — ribbon, panels,
 of egui events into `ToolInput`s. Being egui points (`f32`), a box clicked this way measures
 599.99993: `tool.input` stays the exact path, `ui.*` the real interface's.
 
-**Named handles** (`apps/skraft/src/handles.rs`, after SolidCraft's `ui-registry`): widgets
+**Named handles** (`apps/skraft/src/kit/handles.rs`, after SolidCraft's `ui-registry`): widgets
 publish their rect per frame under a stable name, with whether they are enabled,
 double-buffered, kept only while the channel is on (nothing made otherwise), so a script clicks
 a name, not a pixel: `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<group>`, `ribbon_workspace` (the workspace cell), `ribbon_workspace:<id>` (a row of its menu, open), `parts_list`, `parts_list_header:<column>`, `parts_list_row:<part>[:<material>]`, `stage_split` ([Parts list](ui/parts-list.md)), `sheet`, `sheet_paper:<id>`, `sheet_view:<id>`, `sheet_element:<id>`, `compositions:<id>`, `sheet_add`, `sheet_add:blank`, `sheet_add:<n>`, `drawing_insert_field`, `drawing_field:<field>` ([Drawing](ui/drawing.md)),

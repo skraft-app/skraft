@@ -10,7 +10,7 @@
 use egui::ImageSource;
 use skraft_i18n::t;
 
-use crate::icons;
+use crate::kit::icons;
 use crate::ribbon::{Group, Tab, group};
 
 /// A workspace: a profile of the editor.

@@ -12,7 +12,7 @@ use skraft_tools::draw;
 use skraft_tools::navigation::{Button, Mods, NavAction, Trigger};
 use skraft_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput};
 
-use crate::overlay;
+use crate::kit::overlay;
 use crate::prefs::Navigation;
 
 /// A token as an egui colour (sRGB, unmultiplied alpha).
@@ -316,7 +316,7 @@ impl Viewport {
         self.show_document(doc);
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
-        crate::handles::publish(|| "viewport".into(), rect);
+        crate::kit::handles::publish(|| "viewport".into(), rect);
         editor.set_viewport_size(DVec2::new(rect.width() as f64, rect.height() as f64));
         self.input(ui, &response, rect, editor, nav);
 
@@ -342,13 +342,13 @@ impl Viewport {
             // Navigating: the system's hand or magnifier.
             shown = own.filter(|_| navigating.is_none());
             if let Some(own) = shown {
-                crate::cursors::ask(ui.ctx(), own);
+                crate::kit::cursors::ask(ui.ctx(), own);
             }
             ui.ctx().set_cursor_icon(navigating.unwrap_or(cursor));
         }
         // What it draws about the pointer: the system's, a square about its hotspot.
         let footprint =
-            shown.map_or(egui::Rect::from_center_size(egui::Pos2::ZERO, egui::Vec2::splat(CURSOR_CLEAR)), crate::cursors::footprint);
+            shown.map_or(egui::Rect::from_center_size(egui::Pos2::ZERO, egui::Vec2::splat(CURSOR_CLEAR)), crate::kit::cursors::footprint);
 
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
@@ -424,7 +424,7 @@ impl Viewport {
         let visuals = ui.visuals();
         let font = egui::FontId::monospace(11.0);
         let galley = ui.painter().layout_no_wrap(text.join("\n"), font, visuals.text_color());
-        let margin = crate::style::FLOAT_GAP;
+        let margin = crate::kit::style::FLOAT_GAP;
         let pad = egui::vec2(8.0, 6.0);
         let size = galley.size() + 2.0 * pad;
         // Under the ribbon, beside the docked cards (as the last frame left them).

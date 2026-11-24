@@ -239,7 +239,7 @@ impl Updates {
         let mut close = false;
         egui::Window::new(t!("update.title"))
             .id(egui::Id::unique("update_window"))
-            .title_frame(crate::style::window_title_frame(ctx))
+            .title_frame(crate::kit::style::window_title_frame(ctx))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)

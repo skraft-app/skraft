@@ -11,10 +11,10 @@ use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
 use crate::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
-use crate::icons;
+use crate::kit::icons;
+use crate::kit::style::Tip;
 use crate::panels::Action;
 use crate::ribbon::Corners;
-use crate::style::Tip;
 use crate::thumbnails::Thumbnails;
 
 /// What the card keeps of a document between frames, in the document itself (never on disk):
@@ -144,7 +144,7 @@ pub fn components(
     let doc = editor.document();
     let top = ui.cursor().top();
     let matcher = Matcher::new(&state.search);
-    let shelves = crate::search::listed(&mut state.rows, editor.history().revision(), &state.search, || Shelves::of(doc, &matcher));
+    let shelves = crate::kit::search::listed(&mut state.rows, editor.history().revision(), &state.search, || Shelves::of(doc, &matcher));
     // The tabs, the ribbon's, their band from the title bar's line across the card; each with
     // what the search lets through, so a match in the other is seen.
     let labels = [
@@ -164,12 +164,12 @@ pub fn components(
         Some(_) => state.tab = Tab::Assemblies,
         None => {}
     }
-    let gap = crate::search::GAP - ui.spacing().item_spacing.y;
+    let gap = crate::kit::search::GAP - ui.spacing().item_spacing.y;
     ui.add_space(gap);
     // The search (docs/ui/components-library.md#search): the field left of the grid / list
     // toggle, as far from it as from the tabs above and the list below (`search::GAP`).
     let salt = ui.make_persistent_id("components_search");
-    crate::search::field(ui, salt, "components", &mut state.search, |ui, side| {
+    crate::kit::search::field(ui, salt, "components", &mut state.search, |ui, side| {
         catalog::view_toggle(ui, side, look.list, Card::Components, actions)
     });
     ui.add_space(gap);
@@ -298,7 +298,7 @@ fn item(
     rename: Renaming,
     actions: &mut Vec<Action>,
 ) {
-    crate::handles::publish(|| format!("components:{}", id.0), response.rect);
+    crate::kit::handles::publish(|| format!("components:{}", id.0), response.rect);
     let name = cx.editor.document().component(id).map(|c| c.name.clone()).unwrap_or_default();
     let tip = match count {
         Some(n) => tp!("panel.components.count_tip", n as usize),
@@ -337,7 +337,7 @@ fn item(
 /// A component's menu (right click): its occurrences selected, the selection replaced by it,
 /// renamed, deleted. The selection is kept: it is what « Remplacer la sélection » takes.
 fn menu(editor: &Editor, response: &egui::Response, id: Id, rename: egui::Id, actions: &mut Vec<Action>) {
-    egui::Popup::context_menu(response).style(crate::style::menu).show(|ui| {
+    egui::Popup::context_menu(response).style(crate::kit::style::menu).show(|ui| {
         let mut row = |ui: &mut egui::Ui, label: String, enabled: bool, action: Action| {
             if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
                 actions.push(action);

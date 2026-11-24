@@ -11,13 +11,13 @@ use skraft_theme::{Mode, Palette, TitleBarTokens, UiTokens};
 use crate::viewport::color;
 
 /// IBM Plex Sans (variable, SIL Open Font License: `assets/fonts/ibm-plex-sans/OFL.txt`).
-pub const PLEX_SANS: &[u8] = include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-Variable.ttf");
+pub const PLEX_SANS: &[u8] = include_bytes!("../../assets/fonts/ibm-plex-sans/IBMPlexSans-Variable.ttf");
 /// IBM Plex Mono regular (SIL Open Font License: `assets/fonts/ibm-plex-mono/OFL.txt`).
-const PLEX_MONO: &[u8] = include_bytes!("../assets/fonts/ibm-plex-mono/IBMPlexMono-Regular.ttf");
+const PLEX_MONO: &[u8] = include_bytes!("../../assets/fonts/ibm-plex-mono/IBMPlexMono-Regular.ttf");
 /// The arrows and the technical symbols (U+2190–21FF, U+2300–23FF) of DejaVu Sans
 /// (Bitstream Vera licence: `assets/fonts/dejavu-sans/LICENSE`): the macOS key symbols
 /// (⌘ ⌥ ⌃ ⌫ ⌦ ⏎ ⇥) that Plex lacks.
-const KEY_SYMBOLS: &[u8] = include_bytes!("../assets/fonts/dejavu-sans/DejaVuSans-KeySymbols.ttf");
+const KEY_SYMBOLS: &[u8] = include_bytes!("../../assets/fonts/dejavu-sans/DejaVuSans-KeySymbols.ttf");
 /// The family headings are written in.
 const SEMIBOLD: &str = "plex-sans-semibold";
 
@@ -442,7 +442,7 @@ mod tests {
         let ctx = egui::Context::default();
         install_fonts(&ctx);
         ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
-        let catalog = include_str!("../../../locales/fr.yml");
+        let catalog = include_str!("../../../../locales/fr.yml");
         let code = "«»°µ·×—–•…−‹›′″’€";
         let greek = "αβγδεθλμπστφω";
         let families = [FontFamily::Proportional, FontFamily::Monospace, FontFamily::Name(SEMIBOLD.into())];

@@ -3,8 +3,8 @@
 
 use skraft_model::FastSet;
 
-use crate::icons;
-use crate::style::CARD_MARGIN;
+use crate::kit::icons;
+use crate::kit::style::CARD_MARGIN;
 
 /// A row's fold: its key in its document's [`OutlinerState`](crate::panels::OutlinerState), open or not.
 #[derive(Clone, Copy, Debug, PartialEq)]

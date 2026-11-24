@@ -6,10 +6,10 @@ use egui::{Popup, Rect, RectAlign, Sense, StrokeKind, vec2};
 use skraft_i18n::t;
 
 use crate::dock::Dock;
-use crate::icons;
+use crate::kit::icons;
+use crate::kit::style::Tip;
+use crate::kit::widgets::{IconButton, Look, PinRow, pin_row};
 use crate::panels::{Action, CommandView};
-use crate::style::Tip;
-use crate::widgets::{IconButton, Look, PinRow, pin_row};
 
 /// The standard views' button: not a command of the registry, it opens their menu.
 pub const VIEWS: &str = "view.views";
@@ -35,8 +35,8 @@ pub const COMMANDS: &[&str] = &[
 pub const DEFAULT: &[&str] = &[VIEWS, "view.zoom_extents", "view.parallel", "view.xray", "view.hide_rest_of_model", "view.section"];
 
 /// A button's side and its icon's: the floating bars' (the option bar's, the quick tools' card's).
-pub const BUTTON: f32 = crate::style::BAR_BUTTON;
-pub const ICON: f32 = crate::style::BAR_ICON;
+pub const BUTTON: f32 = crate::kit::style::BAR_BUTTON;
+pub const ICON: f32 = crate::kit::style::BAR_ICON;
 /// The ▾ button's height.
 const MORE: f32 = 16.0;
 /// The grip's height, at the bar's head.
@@ -123,7 +123,7 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
     let hovered = ctx.data(|d| d.get_temp::<bool>(hovered_id)).unwrap_or(false);
     let mut menu_open = false;
     let response = egui::Area::new(egui::Id::unique("view_bar")).fixed_pos(at).constrain_to(view).show(ctx, |ui| {
-        crate::style::translucent(frame(ui.style()), hovered).show(ui, |ui| {
+        crate::kit::style::translucent(frame(ui.style()), hovered).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.vertical(|ui| {
                 let g = grip(ui);
@@ -173,7 +173,7 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
 /// A button's rect and response, its background when hovered or `lit`, its icon.
 fn icon_button(ui: &mut egui::Ui, handle: &str, icon: egui::ImageSource<'static>, lit: bool, enabled: bool) -> egui::Response {
     let response = IconButton::new(icon, BUTTON, ICON).look(Look::Bar).lit(lit).enabled(enabled).show(ui);
-    crate::handles::publish_enabled(|| format!("view_bar:{handle}"), response.rect, enabled);
+    crate::kit::handles::publish_enabled(|| format!("view_bar:{handle}"), response.rect, enabled);
     response
 }
 
@@ -198,7 +198,7 @@ fn lit(c: &CommandView) -> bool {
 
 /// Right click on a button: Unpin.
 fn unpin_menu(response: &egui::Response, id: &'static str, actions: &mut Vec<Action>) {
-    Popup::context_menu(response).style(crate::style::menu).show(|ui| {
+    Popup::context_menu(response).style(crate::kit::style::menu).show(|ui| {
         if ui.button(t!("view_bar.unpin")).clicked() {
             actions.push(Action::ViewPin(id));
         }
@@ -208,7 +208,7 @@ fn unpin_menu(response: &egui::Response, id: &'static str, actions: &mut Vec<Act
 /// The grip at the bar's head: dragged, it moves the bar to the other side.
 fn grip(ui: &mut egui::Ui) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, GRIP), Sense::drag());
-    crate::handles::publish(|| "view_bar:grip".into(), rect);
+    crate::kit::handles::publish(|| "view_bar:grip".into(), rect);
     let ink = if response.hovered() || response.dragged() { ui.visuals().text_color() } else { ui.visuals().weak_text_color() };
     // Two rows of three dots.
     for row in [-1.5, 1.5] {
@@ -233,7 +233,7 @@ fn views_button(ui: &mut egui::Ui, side: Dock, views: &[CommandView], actions: &
     let open = Popup::is_id_open(ui.ctx(), egui::Id::unique("view_bar_views_menu"));
     let response = icon_button(ui, VIEWS, icons::VIEWS, open, true);
     let response = if open { response } else { response.tip(t!("view_bar.views")) };
-    Popup::menu(&response).id(egui::Id::unique("view_bar_views_menu")).align(inward(side)).style(crate::style::menu).show(|ui| {
+    Popup::menu(&response).id(egui::Id::unique("view_bar_views_menu")).align(inward(side)).style(crate::kit::style::menu).show(|ui| {
         // Each view with its icon, as the ▾ menu's rows.
         let ink = ui.visuals().text_color();
         for v in views.iter().filter(|v| STANDARD_VIEWS.contains(&v.id)) {
@@ -245,7 +245,7 @@ fn views_button(ui: &mut egui::Ui, side: Dock, views: &[CommandView], actions: &
                 b = b.shortcut_text(s.as_str());
             }
             let r = ui.add_enabled(v.enabled, b);
-            crate::handles::publish_enabled(|| format!("menu:{}", v.id), r.rect, v.enabled);
+            crate::kit::handles::publish_enabled(|| format!("menu:{}", v.id), r.rect, v.enabled);
             if r.clicked() {
                 actions.push(Action::Command(v.id));
             }
@@ -268,7 +268,7 @@ fn row(id: &str, views: &[CommandView]) -> Option<(String, bool, Option<bool>, O
 /// The ▾ button: every command the bar can show, each with its pin. True while it is open.
 fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[CommandView], actions: &mut Vec<Action>) -> bool {
     let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, MORE), Sense::click());
-    crate::handles::publish(|| "view_bar:more".into(), rect);
+    crate::kit::handles::publish(|| "view_bar:more".into(), rect);
     let visuals = ui.style().interact(&response);
     if response.hovered() {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
@@ -281,7 +281,7 @@ fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[Command
     Popup::menu(&response)
         .id(id)
         .align(inward(side))
-        .style(crate::style::menu)
+        .style(crate::kit::style::menu)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
             for &id in COMMANDS {

@@ -11,9 +11,9 @@ use skraft_model::{
 use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
 
 use crate::commands::Menu;
-use crate::icons;
-use crate::style::Tip;
-use crate::widgets::{
+use crate::kit::icons;
+use crate::kit::style::Tip;
+use crate::kit::widgets::{
     Field, Fold, OPTION_HEIGHT, RENAMING, Segment, TreeLine, band_color, cut_label, field_stroke, framed_field, hidden_color, linked_mark,
     option_button, paint_drag_ghost, rename_field, segmented, set_drag_ghost, start_rename, tree_line, tree_row, warning,
 };
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn the_rename_field_keeps_the_name_where_the_row_had_it() {
         let ctx = egui::Context::default();
-        crate::style::install_fonts(&ctx);
+        crate::kit::style::install_fonts(&ctx);
         let label = text_top(&ctx, false);
         assert!(label > 0.0, "the row's name centred in it: {label}");
         assert_eq!(text_top(&ctx, true), label);

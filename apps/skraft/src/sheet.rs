@@ -15,7 +15,7 @@ use skraft_model::{
 use skraft_theme::{Inks, Theme};
 use skraft_tools::Editor;
 
-use crate::overlay;
+use crate::kit::overlay;
 use crate::sheet_board::{Board, Column};
 use crate::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::viewport;

@@ -40,7 +40,7 @@ pub fn drawing_pdf(
     if sheets.is_empty() {
         return Err(skraft_i18n::t!("drawing.no_sheet"));
     }
-    let font = Font::new(Data::from(crate::style::PLEX_SANS.to_vec()), 0).ok_or("font")?;
+    let font = Font::new(Data::from(crate::kit::style::PLEX_SANS.to_vec()), 0).ok_or("font")?;
     let mut document = Document::new();
     for sheet in sheets {
         let (w, h) = (sheet.paper.width, sheet.paper.height);

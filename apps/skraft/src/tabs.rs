@@ -9,9 +9,9 @@
 
 use skraft_i18n::t;
 
-use crate::icons;
-use crate::style::Tip;
-use crate::widgets::IconButton;
+use crate::kit::icons;
+use crate::kit::style::Tip;
+use crate::kit::widgets::IconButton;
 
 /// What the app tells the strip about one open document, anew each frame.
 pub struct Tab {
@@ -226,7 +226,7 @@ fn end_buttons(ui: &mut egui::Ui, s: &Strip<'_>, mut x: f32, y: f32, more: bool,
             .ink(visuals.text_color())
             .show_at(ui, r, id.with("more"))
             .tip(t!("tabs.more_tip"));
-        egui::Popup::menu(&more).style(crate::style::menu).show(|ui| {
+        egui::Popup::menu(&more).style(crate::kit::style::menu).show(|ui| {
             for (i, tab) in tabs.iter().enumerate() {
                 if ui.selectable_label(shown == Some(i), tab.title()).clicked() {
                     chosen = Some(i);
@@ -238,7 +238,7 @@ fn end_buttons(ui: &mut egui::Ui, s: &Strip<'_>, mut x: f32, y: f32, more: bool,
         }
         x += BUTTON;
     }
-    crate::handles::publish(|| "tab_new".into(), button(x).shrink(1.0));
+    crate::kit::handles::publish(|| "tab_new".into(), button(x).shrink(1.0));
     let new = button(x).shrink(1.0);
     if IconButton::new(icons::ADD, new.width(), 16.0)
         .ink(visuals.text_color())
@@ -283,7 +283,7 @@ fn draw_tab(ui: &mut egui::Ui, s: &Strip<'_>, i: usize, r: egui::Rect, dragged: 
     let Strip { id, tabs, shown, ground, carrying, visuals, .. } = *s;
     let tab = &tabs[i];
     let resp = ui.interact(r, id.with(("tab", i)), egui::Sense::click_and_drag());
-    crate::handles::publish(|| format!("tab:{i}"), r);
+    crate::kit::handles::publish(|| format!("tab:{i}"), r);
     let active = shown == Some(i);
     let hovered = resp.hovered();
     let ink = match ground {
@@ -314,7 +314,7 @@ fn draw_tab(ui: &mut egui::Ui, s: &Strip<'_>, i: usize, r: egui::Rect, dragged: 
     ui.painter().galley(egui::pos2(r.left() + 10.0, r.center().y - galley.size().y / 2.0), galley, color);
     if show_close && !carrying {
         let x = IconButton::new(icons::CLOSE, close.width(), 12.0).ink(ink).show_at(ui, close, id.with(("close", i)));
-        crate::handles::publish(|| format!("tab_close:{i}"), close);
+        crate::kit::handles::publish(|| format!("tab_close:{i}"), close);
         if x.tip(t!("tabs.close_tip")).clicked() {
             out.push(TabAction::Close(i));
         }
@@ -358,7 +358,7 @@ fn tab_ground(ui: &egui::Ui, s: &Strip<'_>, r: egui::Rect, active: bool, hovered
 /// The tab `i`'s right-click menu.
 fn tab_menu(resp: &egui::Response, s: &Strip<'_>, i: usize, out: &mut Vec<TabAction>) {
     let tab = &s.tabs[i];
-    egui::Popup::context_menu(resp).style(crate::style::menu).show(|ui| {
+    egui::Popup::context_menu(resp).style(crate::kit::style::menu).show(|ui| {
         let mut row = |ui: &mut egui::Ui, row: MenuRow, label: String, enabled: bool| {
             if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
                 out.push(TabAction::Menu(i, row));

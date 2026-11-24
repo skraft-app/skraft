@@ -20,7 +20,7 @@ struct DrawingCx<'a> {
 
 /// A choice of the entity info, `field` wide.
 fn info_combo(field: f32, salt: (&str, u64)) -> egui::ComboBox<'_> {
-    egui::ComboBox::from_id_salt(salt).icon(crate::icons::combo_chevron).width(field)
+    egui::ComboBox::from_id_salt(salt).icon(crate::kit::icons::combo_chevron).width(field)
 }
 
 /// The entity info in « Mise en plan »: the view picked on the sheet shown — its name, what it
@@ -150,15 +150,15 @@ fn text_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, id: Id, (at, text, size): (&g
 /// new one; `append` what that makes of the text.
 fn field_menu(ui: &mut egui::Ui, d: &Drawing, id: Id, append: &dyn Fn(&str) -> Action, actions: &mut Vec<Action>) {
     let button = ui.button(t!("drawing.insert_field"));
-    crate::handles::publish(|| "drawing_insert_field".into(), button.rect);
-    let menu = egui::Popup::menu(&button).style(crate::style::menu);
+    crate::kit::handles::publish(|| "drawing_insert_field".into(), button.rect);
+    let menu = egui::Popup::menu(&button).style(crate::kit::style::menu);
     menu.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         // Skraft's own, those the drawing's texts already name, a new one.
         let custom = crate::sheet::custom_fields(d.all_field_names());
         let own = crate::sheet::FIELDS.iter().map(|f| (*f, field_name(f)));
         for (f, label) in own.chain(custom.iter().map(|f| (f.as_str(), f.clone()))) {
-            let item = ui.add(crate::style::menu_item(label, None, false));
-            crate::handles::publish(|| format!("drawing_field:{f}"), item.rect);
+            let item = ui.add(crate::kit::style::menu_item(label, None, false));
+            crate::kit::handles::publish(|| format!("drawing_field:{f}"), item.rect);
             if item.clicked() {
                 actions.push(append(f));
                 ui.close();
@@ -168,7 +168,7 @@ fn field_menu(ui: &mut egui::Ui, d: &Drawing, id: Id, append: &dyn Fn(&str) -> A
         let key = ui.make_persistent_id(("drawing_new_field", id.0));
         let mut name = ui.data(|m| m.get_temp::<String>(key)).unwrap_or_default();
         let edit = ui.add(egui::TextEdit::singleline(&mut name).hint_text(t!("drawing.new_field")).desired_width(150.0));
-        crate::handles::publish(|| "drawing_new_field".into(), edit.rect);
+        crate::kit::handles::publish(|| "drawing_new_field".into(), edit.rect);
         let entered = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let clean = name.replace(['{', '}', '.'], " ").trim().to_owned();
         ui.data_mut(|m| m.insert_temp(key, name));
@@ -281,7 +281,7 @@ fn view_subject_row(ui: &mut egui::Ui, doc: &Document, st: &mut crate::sheet::Sh
     };
     // Changed in the dialog a new view is chosen in (decision 0051).
     let change = ui.add_sized([field, ui.spacing().interact_size.y], egui::Button::new(shows).truncate());
-    crate::handles::publish(|| "view_subject".into(), change.rect);
+    crate::kit::handles::publish(|| "view_subject".into(), change.rect);
     if change.tip(t!("drawing.picker.change_tip")).clicked() {
         let purpose = crate::view_picker::Purpose::Change(id);
         st.picker = Some(crate::view_picker::ViewPicker::new(doc, purpose, subject.clone()));
@@ -458,7 +458,7 @@ fn sheet_border_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, sheet: &Sheet, action
     field_label(ui, t!("panel.entity_info.border"));
     let mut on = sheet.border.is_some();
     let check = ui.checkbox(&mut on, "");
-    crate::handles::publish(|| "drawing_border".into(), check.rect);
+    crate::kit::handles::publish(|| "drawing_border".into(), check.rect);
     if check.changed() {
         actions.push(set_border(on.then_some(Border { margin: 10.0, width: 0.25 })));
     }
@@ -635,7 +635,7 @@ fn presentation_info(ui: &mut egui::Ui, doc: &Document, p: &skraft_model::Presen
             Projection::ThirdAngle => t!("drawing.projection.third_angle"),
         };
         egui::ComboBox::from_id_salt(("drawing_projection", p.id.0))
-            .icon(crate::icons::combo_chevron)
+            .icon(crate::kit::icons::combo_chevron)
             .width(field)
             .selected_text(label(p.projection))
             .show_ui(ui, |ui| {

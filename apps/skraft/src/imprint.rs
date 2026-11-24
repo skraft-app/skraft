@@ -7,7 +7,7 @@ use skraft_model::measure;
 use skraft_model::{Document, ImprintPlan, Units};
 
 use crate::docs::DocId;
-use crate::widgets::{Confirm, FieldLook, confirm_buttons, live_field};
+use crate::kit::widgets::{Confirm, FieldLook, confirm_buttons, live_field};
 
 /// The depth a mortise takes past its tenon, by default (mm).
 const DEEP: f64 = 2.0;
@@ -85,7 +85,7 @@ impl Dialog {
             ui.label(egui::RichText::new(bad).small().color(ui.visuals().error_fg_color));
             if let Some(partial) = &self.partial {
                 ui.horizontal_top(|ui| {
-                    ui.add(crate::widgets::warning(ui));
+                    ui.add(crate::kit::widgets::warning(ui));
                     ui.add(egui::Label::new(partial).wrap());
                 });
             }

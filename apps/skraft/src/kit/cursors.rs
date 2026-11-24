@@ -17,7 +17,7 @@ const SIZE: u32 = 32;
 fn source(cursor: Cursor) -> (&'static [u8], &'static str, [u32; 2]) {
     macro_rules! svg {
         ($name:literal, $x:literal, $y:literal) => {
-            (include_bytes!(concat!("../assets/cursors/", $name, ".svg")), $name, [$x, $y])
+            (include_bytes!(concat!("../../assets/cursors/", $name, ".svg")), $name, [$x, $y])
         };
     }
     match cursor {

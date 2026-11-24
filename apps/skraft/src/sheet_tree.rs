@@ -8,11 +8,11 @@ use skraft_i18n::t;
 use skraft_model::{DimKind, Drawing, Element, ElementKind, FastSet, Id, Operation, Orient, Presentation, Sheet, View, ViewKind};
 use skraft_tools::Editor;
 
-use crate::icons;
+use crate::kit::icons;
+use crate::kit::style::Tip;
+use crate::kit::widgets::{self, Fold, IconButton};
 use crate::panels::Action;
 use crate::sheet::{InfoOn, SheetAsk, SheetState};
-use crate::style::Tip;
-use crate::widgets::{self, Fold, IconButton};
 
 /// The side of a row's small buttons.
 const BUTTON: f32 = 18.0;
@@ -341,7 +341,7 @@ pub fn navigator(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title:
                         alone: false,
                     };
                     let (response, _, ()) = line(ui, height, l, (salt, &mut st.tree_open), |_, _| ());
-                    crate::handles::publish(|| "sheet_tree:add".into(), response.rect);
+                    crate::kit::handles::publish(|| "sheet_tree:add".into(), response.rect);
                     presentation_menu(&response, st, actions);
                 }
             }
@@ -361,10 +361,10 @@ fn document_row(ui: &mut egui::Ui, height: f32, st: &mut SheetState, title: &str
     let tint = if selected { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
     let (response, ()) = widgets::tree_row(ui, height, selected, false, false, |ui| {
         ui.add(egui::Image::new(icons::MODEL).fit_to_exact_size(egui::vec2(ICON, ICON)).tint(tint));
-        let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size);
+        let font = crate::kit::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size);
         ui.add(egui::Label::new(egui::RichText::new(title).font(font).color(tint)).selectable(false).truncate());
     });
-    crate::handles::publish(|| "sheet_tree:document".into(), response.rect);
+    crate::kit::handles::publish(|| "sheet_tree:document".into(), response.rect);
     if response.clicked() {
         st.open.clear();
         st.selected.clear();
@@ -374,17 +374,17 @@ fn document_row(ui: &mut egui::Ui, height: f32, st: &mut SheetState, title: &str
 
 /// The menu of « Nouvelle présentation »: a blank one, or one from each template.
 fn presentation_menu(button: &egui::Response, st: &mut SheetState, actions: &mut Vec<Action>) {
-    egui::Popup::menu(button).style(crate::style::menu).show(|ui| {
-        let blank = ui.add(crate::style::menu_item(t!("drawing.blank_presentation"), None, false));
-        crate::handles::publish(|| "sheet_presentation:new".into(), blank.rect);
+    egui::Popup::menu(button).style(crate::kit::style::menu).show(|ui| {
+        let blank = ui.add(crate::kit::style::menu_item(t!("drawing.blank_presentation"), None, false));
+        crate::kit::handles::publish(|| "sheet_presentation:new".into(), blank.rect);
         if blank.clicked() {
             actions.push(Action::Command("drawing.new_presentation"));
             ui.close();
         }
         ui.separator();
         for (k, tpl) in crate::templates::all().into_iter().enumerate() {
-            let item = ui.add(crate::style::menu_item(&tpl.name, None, false));
-            crate::handles::publish(|| format!("sheet_presentation:template:{k}"), item.rect);
+            let item = ui.add(crate::kit::style::menu_item(&tpl.name, None, false));
+            crate::kit::handles::publish(|| format!("sheet_presentation:template:{k}"), item.rect);
             if item.clicked() {
                 st.asked = Some(SheetAsk::PresentationFrom(tpl.document));
                 ui.close();
@@ -396,9 +396,9 @@ fn presentation_menu(button: &egui::Response, st: &mut SheetState, actions: &mut
 /// The menu of a presentation's « + »: a blank sheet, or one from a template, a template of
 /// several offering each (docs/ui/drawing.md#templates).
 fn sheet_menu(button: &egui::Response, st: &mut SheetState, presentation: Id) {
-    egui::Popup::menu(button).style(crate::style::menu).show(|ui| {
-        let blank = ui.add(crate::style::menu_item(t!("drawing.blank_sheet"), None, false));
-        crate::handles::publish(|| "sheet_add:blank".into(), blank.rect);
+    egui::Popup::menu(button).style(crate::kit::style::menu).show(|ui| {
+        let blank = ui.add(crate::kit::style::menu_item(t!("drawing.blank_sheet"), None, false));
+        crate::kit::handles::publish(|| "sheet_add:blank".into(), blank.rect);
         if blank.clicked() {
             st.asked = Some(SheetAsk::NewSheet(presentation));
             ui.close();
@@ -409,8 +409,8 @@ fn sheet_menu(button: &egui::Response, st: &mut SheetState, presentation: Id) {
             if of.len() > 1 {
                 let sub = ui.menu_button(&tpl.name, |ui| {
                     for (j, (sheet, name)) in of.iter().enumerate() {
-                        let item = ui.add(crate::style::menu_item(name, None, false));
-                        crate::handles::publish(|| format!("sheet_add:{k}:{j}"), item.rect);
+                        let item = ui.add(crate::kit::style::menu_item(name, None, false));
+                        crate::kit::handles::publish(|| format!("sheet_add:{k}:{j}"), item.rect);
                         if item.clicked() {
                             st.asked = Some(SheetAsk::SheetFrom {
                                 template: tpl.document.clone(),
@@ -422,10 +422,10 @@ fn sheet_menu(button: &egui::Response, st: &mut SheetState, presentation: Id) {
                         }
                     }
                 });
-                crate::handles::publish(|| format!("sheet_add:{k}"), sub.response.rect);
+                crate::kit::handles::publish(|| format!("sheet_add:{k}"), sub.response.rect);
             } else {
-                let item = ui.add(crate::style::menu_item(&tpl.name, None, false));
-                crate::handles::publish(|| format!("sheet_add:{k}"), item.rect);
+                let item = ui.add(crate::kit::style::menu_item(&tpl.name, None, false));
+                crate::kit::handles::publish(|| format!("sheet_add:{k}"), item.rect);
                 if item.clicked() {
                     st.asked = Some(SheetAsk::SheetFrom { template: tpl.document.clone(), sheet: None, name: None, presentation });
                     ui.close();
@@ -466,9 +466,9 @@ fn presentation_row(
     let weak = ui.visuals().weak_text_color();
     let (response, renamed, add) =
         line(ui, height, l, (salt, &mut st.tree_open), |ui, _| small_button(ui, icons::ADD, weak, true, t!("menu.drawing.new_sheet")));
-    crate::handles::publish(|| format!("sheet_tree:add_sheet:{}", p.id.0), add.rect);
+    crate::kit::handles::publish(|| format!("sheet_tree:add_sheet:{}", p.id.0), add.rect);
     sheet_menu(&add, st, p.id);
-    crate::handles::publish(|| format!("sheet_tree:presentation:{}", p.id.0), response.rect);
+    crate::kit::handles::publish(|| format!("sheet_tree:presentation:{}", p.id.0), response.rect);
     if let Some(Some(name)) = renamed
         && !name.is_empty()
     {
@@ -488,7 +488,7 @@ fn presentation_row(
     }
     response.context_menu(|ui| {
         let save = ui.button(t!("menu.drawing.save_template"));
-        crate::handles::publish(|| "sheet_tree:menu:save_template".into(), save.rect);
+        crate::kit::handles::publish(|| "sheet_tree:menu:save_template".into(), save.rect);
         if save.clicked() {
             st.show_presentation(d, p.id);
             actions.push(Action::Command("drawing.save_template"));
@@ -519,7 +519,7 @@ fn sheet_row(
     let rename = ui.make_persistent_id(("sheet_tree_rename", "sheet", s.id.0));
     let l = Line { depth: 1, fold, icon: icons::SHEET, name: &s.name, strong: false, tint, selected, rename: Some(rename), alone: false };
     let (response, renamed, ()) = line(ui, height, l, (salt, &mut st.tree_open), |_, _| ());
-    crate::handles::publish(|| format!("sheet_tree:sheet:{}", s.id.0), response.rect);
+    crate::kit::handles::publish(|| format!("sheet_tree:sheet:{}", s.id.0), response.rect);
     // Dragged by its row, it goes elsewhere in the order.
     let response = response.interact(egui::Sense::click_and_drag());
     if response.drag_started() {
@@ -650,12 +650,12 @@ fn element_row(
         }
         let (icon, tip) = if el.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
         let eye = small_button(ui, icon, button, true, tip);
-        crate::handles::publish(|| format!("sheet_tree:eye:{}", el.id.0), eye.rect);
+        crate::kit::handles::publish(|| format!("sheet_tree:eye:{}", el.id.0), eye.rect);
         // The padlock while locked, or under the pointer; its room kept, the names aligned.
         let lock = if el.locked || over {
             let (icon, tip) = if el.locked { (icons::LOCK, t!("drawing.tree.unlock")) } else { (icons::UNLOCK, t!("drawing.tree.lock")) };
             let r = small_button(ui, icon, button, true, tip);
-            crate::handles::publish(|| format!("sheet_tree:lock:{}", el.id.0), r.rect);
+            crate::kit::handles::publish(|| format!("sheet_tree:lock:{}", el.id.0), r.rect);
             r.clicked()
         } else {
             ui.allocate_space(egui::vec2(BUTTON, BUTTON));
@@ -665,15 +665,15 @@ fn element_row(
         if over {
             // Listed topmost first: « up » is over the next one in the container's order.
             let r = small_button(ui, icons::ARROW_DOWN, button, row.index > 0, t!("drawing.tree.down"));
-            crate::handles::publish(|| format!("sheet_tree:down:{}", el.id.0), r.rect);
+            crate::kit::handles::publish(|| format!("sheet_tree:down:{}", el.id.0), r.rect);
             down = r.clicked();
             let r = small_button(ui, icons::ARROW_UP, button, row.index + 1 < row.count, t!("drawing.tree.up"));
-            crate::handles::publish(|| format!("sheet_tree:up:{}", el.id.0), r.rect);
+            crate::kit::handles::publish(|| format!("sheet_tree:up:{}", el.id.0), r.rect);
             up = r.clicked();
         }
         Some((eye.clicked(), lock, up, down))
     });
-    crate::handles::publish(|| format!("sheet_tree:element:{}", el.id.0), response.rect);
+    crate::kit::handles::publish(|| format!("sheet_tree:element:{}", el.id.0), response.rect);
     // Right on a sheet and free: dragged onto another sheet, with what is picked when it is.
     let response = if row.path.is_empty() && !el.locked {
         let response = response.interact(egui::Sense::click_and_drag());
@@ -721,7 +721,7 @@ fn element_row(
                 (t!("menu.drawing.make_unique"), "drawing.make_unique"),
             ] {
                 let item = ui.button(label);
-                crate::handles::publish(|| format!("sheet_tree:menu:{command}"), item.rect);
+                crate::kit::handles::publish(|| format!("sheet_tree:menu:{command}"), item.rect);
                 if item.clicked() {
                     st.show_sheet(row.sheet);
                     st.selected = vec![el.id];
@@ -731,7 +731,7 @@ fn element_row(
             }
             // One more instance of its composition, a little aside.
             let copy = ui.button(t!("drawing.tree.copy"));
-            crate::handles::publish(|| "sheet_tree:menu:copy".into(), copy.rect);
+            crate::kit::handles::publish(|| "sheet_tree:menu:copy".into(), copy.rect);
             if copy.clicked() {
                 st.show_sheet(row.sheet);
                 st.place_composition = el.kind.instance().map(|i| i.composition);

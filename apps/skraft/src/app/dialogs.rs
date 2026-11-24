@@ -97,9 +97,9 @@ impl SkraftApp {
                 if ui.button(t!("save_prompt.dont_save")).clicked() {
                     chosen = Some(Answer::DontSave);
                 }
-                match crate::widgets::confirm_buttons(ui, "save_prompt", t!("save_prompt.save"), true, t!("save_prompt.cancel")) {
-                    Some(crate::widgets::Confirm::Ok) => chosen = Some(Answer::Save),
-                    Some(crate::widgets::Confirm::Cancel) => chosen = Some(Answer::Cancel),
+                match crate::kit::widgets::confirm_buttons(ui, "save_prompt", t!("save_prompt.save"), true, t!("save_prompt.cancel")) {
+                    Some(crate::kit::widgets::Confirm::Ok) => chosen = Some(Answer::Save),
+                    Some(crate::kit::widgets::Confirm::Cancel) => chosen = Some(Answer::Cancel),
                     None => {}
                 }
             });

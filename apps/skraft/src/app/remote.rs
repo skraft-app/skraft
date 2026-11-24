@@ -20,7 +20,7 @@ impl SkraftApp {
         // Desktop: the loopback server's requests.
         #[cfg(not(target_arch = "wasm32"))]
         let askers: Vec<crate::driving::Asker> = {
-            crate::handles::set_enabled(self.remote.is_on());
+            crate::kit::handles::set_enabled(self.remote.is_on());
             match self.remote.control() {
                 Some(c) => c
                     .take()
@@ -36,7 +36,7 @@ impl SkraftApp {
         // Web: the page's calls (`window.skraft`).
         #[cfg(target_arch = "wasm32")]
         let askers = {
-            crate::handles::set_enabled(crate::web::used());
+            crate::kit::handles::set_enabled(crate::web::used());
             crate::web::take()
         };
         // What a call does is its client's (the journal says so), whatever this frame's input.
@@ -146,11 +146,11 @@ impl SkraftApp {
         use skraft_control::Error;
         match (w.pos, &w.handle, w.at) {
             (Some([x, y]), None, None) => Ok(egui::pos2(x, y)),
-            (None, Some(name), None) => crate::handles::find(name)
+            (None, Some(name), None) => crate::kit::handles::find(name)
                 .map(|h| h.rect.center())
                 .ok_or_else(|| Error::Failed(format!("no handle {name:?} drawn (ui.handles lists them)"))),
             (None, None, Some(at)) => {
-                let view = crate::handles::find("viewport").ok_or_else(|| Error::Failed("no viewport drawn".into()))?;
+                let view = crate::kit::handles::find("viewport").ok_or_else(|| Error::Failed("no viewport drawn".into()))?;
                 let d = self.docs.active().ok_or_else(|| Error::Failed("no document open".into()))?;
                 let px = d
                     .editor
@@ -341,7 +341,7 @@ impl SkraftApp {
             }
             "ui.handles" => {
                 let p: skraft_control::params::UiHandlesParams = call.params()?;
-                let list: Vec<_> = crate::handles::last(&p.prefix)
+                let list: Vec<_> = crate::kit::handles::last(&p.prefix)
                     .into_iter()
                     .map(|h| {
                         json!({

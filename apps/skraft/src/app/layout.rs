@@ -78,7 +78,7 @@ impl SkraftApp {
             frame.show(ui, |ui| {
                 ui.set_min_size(inner);
                 ui.set_max_size(inner);
-                crate::handles::publish(|| "parts_list".into(), rect);
+                crate::kit::handles::publish(|| "parts_list".into(), rect);
                 // A title bar as the side panels' (neither folded nor moved: no chevron).
                 let header = ui.spacing().interact_size.y;
                 let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
@@ -91,7 +91,7 @@ impl SkraftApp {
         let split = self.split(area, margin);
         egui::Area::new(egui::Id::unique("stage_split")).fixed_pos(grip.min).show(ctx, |ui| {
             let (_, edge) = ui.allocate_exact_size(grip.size(), egui::Sense::click_and_drag());
-            crate::handles::publish(|| "stage_split".into(), grip);
+            crate::kit::handles::publish(|| "stage_split".into(), grip);
             if edge.hovered() || edge.dragged() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
             }
@@ -225,7 +225,7 @@ impl SkraftApp {
                     let color = ui.visuals().strong_text_color();
                     // The fold chevron at the right end: down when open, right when folded.
                     let angle = if folded { -std::f32::consts::FRAC_PI_2 } else { 0.0 };
-                    crate::icons::chevron(ui, egui::pos2(head_rect.right() - 8.0, head_rect.center().y), 14.0, color, angle);
+                    crate::kit::icons::chevron(ui, egui::pos2(head_rect.right() - 8.0, head_rect.center().y), 14.0, color, angle);
                     if head.dragged() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                     } else if head.hovered() {
@@ -382,7 +382,7 @@ impl SkraftApp {
                 }
                 let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
                 let r = ui.add_enabled(takes, egui::TextEdit::singleline(&mut text).desired_width(160.0));
-                crate::handles::publish_enabled(|| "vcb".into(), r.rect, takes);
+                crate::kit::handles::publish_enabled(|| "vcb".into(), r.rect, takes);
                 if r.changed() {
                     d.vcb = text.clone();
                 }
@@ -402,7 +402,7 @@ impl SkraftApp {
             let (label, value) = d.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
             let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
             let r = ui.add_enabled(d.editor.takes_typing(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
-            crate::handles::publish_enabled(|| "vcb".into(), r.rect, d.editor.takes_typing());
+            crate::kit::handles::publish_enabled(|| "vcb".into(), r.rect, d.editor.takes_typing());
             if r.changed() {
                 d.vcb = text.clone();
             }
@@ -427,7 +427,8 @@ impl SkraftApp {
             const MARK: f32 = 72.0;
             const TILE: f32 = 824.0 / 1024.0;
             let (rect, _) = ui.allocate_exact_size(egui::vec2(MARK, MARK), egui::Sense::hover());
-            egui::Image::new(crate::icons::APP).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
+            egui::Image::new(crate::kit::icons::APP)
+                .paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
             ui.add_space(16.0);
             ui.heading(egui::RichText::new(t!("start.title")).size(28.0).strong());
             ui.add_space(20.0);
@@ -487,7 +488,7 @@ impl SkraftApp {
         // the view on the right. The ribbon, the tools' cards and the side panels float over
         // it, so opening or resizing them never resizes the view.
         let Some(i) = self.docs.active_index() else { return };
-        let margin = crate::style::FLOAT_GAP;
+        let margin = crate::kit::style::FLOAT_GAP;
         let area = ui.available_rect_before_wrap();
         let stage = self.workspace().stage;
         let split = match stage {
@@ -546,13 +547,14 @@ impl SkraftApp {
                         ui.spacing_mut().item_spacing.x = margin;
                         let mut drawn = widths;
                         if has_context {
-                            let shown = crate::style::hover_card(ui, option_card(ui.style()), options_id.with("context_hovered"), |ui| {
-                                panels::context_options(ui, &doc.editor, actions)
-                            });
+                            let shown =
+                                crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("context_hovered"), |ui| {
+                                    panels::context_options(ui, &doc.editor, actions)
+                                });
                             drawn[0] = shown.response.rect.width();
                         }
                         if has_tool {
-                            let shown = crate::style::hover_card(ui, option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
+                            let shown = crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
                                 panels::tool_options(ui, &doc.editor, actions)
                             });
                             drawn[1] = shown.response.rect.width();
@@ -695,7 +697,7 @@ impl SkraftApp {
                 card.show(ui, |ui| ribbon::ribbon(ui, &ribbon_view, ribbon_width, inset, actions))
             });
         egui::Popup::context_menu(&ribbon_area.response)
-            .style(crate::style::menu)
+            .style(crate::kit::style::menu)
             .show(|ui| ribbon::ribbon_menu(ui, &self.prefs.ribbon, actions));
         let ribbon_rect = ribbon_area.response.rect;
         self.ribbon_bottom = Some(ribbon_rect.bottom());
@@ -746,7 +748,7 @@ pub(super) fn title_bar(ui: &egui::Ui, rect: egui::Rect, head: egui::Rect, title
     if !folded && line {
         painter.hline(band.x_range(), band.bottom(), stroke);
     }
-    let font = crate::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size + 1.0);
+    let font = crate::kit::style::semibold(egui::TextStyle::Body.resolve(ui.style()).size + 1.0);
     painter.text(egui::pos2(head.left() + 4.0, head.center().y), egui::Align2::LEFT_CENTER, title, font, ui.visuals().strong_text_color());
     band
 }

@@ -9,7 +9,7 @@ use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
 use crate::catalog::{LIST_ROW, LIST_THUMB};
-use crate::widgets::{Confirm, Tick, confirm_buttons, tick, tree_row};
+use crate::kit::widgets::{Confirm, Tick, confirm_buttons, tick, tree_row};
 
 /// The list's height and the dialog's width (points); a level's indent.
 const LIST_HEIGHT: f32 = 340.0;
@@ -181,9 +181,9 @@ impl ViewPicker {
         };
         let modal = crate::app::modal(ctx, egui::Id::unique("view_picker"), WIDTH, title, |ui| {
             let salt = ui.make_persistent_id("view_picker_search");
-            crate::search::field(ui, salt, "view_picker", &mut self.search, |_, _| {});
+            crate::kit::search::field(ui, salt, "view_picker", &mut self.search, |_, _| {});
             ui.add_space(6.0);
-            let rows = crate::search::listed(&mut self.rows, revision, &self.search, || {
+            let rows = crate::kit::search::listed(&mut self.rows, revision, &self.search, || {
                 let mut rows = Vec::new();
                 walk(doc, doc.root(), &self.unfolded, &Matcher::new(&self.search), &mut Vec::new(), &mut rows);
                 rows
@@ -196,7 +196,7 @@ impl ViewPicker {
                 ui.add(egui::Label::new(t!("drawing.subject.model")).selectable(false));
                 ticked
             });
-            crate::handles::publish(|| "view_picker.model".into(), whole.rect);
+            crate::kit::handles::publish(|| "view_picker.model".into(), whole.rect);
             if whole.clicked() || ticked {
                 self.whole_model();
             }
@@ -221,7 +221,7 @@ impl ViewPicker {
                             let (square, chevron) = ui.allocate_exact_size(egui::Vec2::splat(14.0), egui::Sense::click());
                             if row.folder && !searching {
                                 let angle = if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 };
-                                crate::icons::chevron(ui, square.center(), 12.0, ui.visuals().weak_text_color(), angle);
+                                crate::kit::icons::chevron(ui, square.center(), 12.0, ui.visuals().weak_text_color(), angle);
                             }
                             let ticked = tick(ui, ticks).clicked();
                             let (thumb, _) = ui.allocate_exact_size(egui::Vec2::splat(LIST_THUMB), egui::Sense::hover());
@@ -232,7 +232,7 @@ impl ViewPicker {
                             ui.add(egui::Label::new(&row.name).selectable(false).truncate());
                             (row.folder && !searching && chevron.clicked(), ticked)
                         });
-                        crate::handles::publish(|| format!("view_picker.row:{}", row.path.entity.0), response.rect);
+                        crate::kit::handles::publish(|| format!("view_picker.row:{}", row.path.entity.0), response.rect);
                         if fold {
                             folded = Some(key);
                         } else if response.clicked() || ticked {

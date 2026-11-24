@@ -5,9 +5,9 @@
 use skraft_i18n::t;
 use skraft_model::Id;
 
-use crate::icons;
+use crate::kit::icons;
+use crate::kit::widgets::{rename_field, tree_row};
 use crate::panels::{Action, weak_share};
-use crate::widgets::{rename_field, tree_row};
 
 /// A list row's height, and its picture's side (points).
 pub(crate) const LIST_ROW: f32 = 30.0;
@@ -114,19 +114,19 @@ pub(crate) struct Renaming {
 impl Renaming {
     fn of(ui: &egui::Ui, salt: &'static str, id: Id) -> Renaming {
         let key = ui.make_persistent_id((salt, id));
-        let active = ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(crate::widgets::RENAMING))) == Some(key);
+        let active = ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(crate::kit::widgets::RENAMING))) == Some(key);
         Renaming { key, active, renamed: None }
     }
 
     /// Starts it (a menu's « Renommer »).
     pub fn start(ui: &egui::Ui, key: egui::Id) {
-        ui.data_mut(|d| d.insert_temp(egui::Id::unique(crate::widgets::RENAMING), key));
+        ui.data_mut(|d| d.insert_temp(egui::Id::unique(crate::kit::widgets::RENAMING), key));
     }
 
     /// Its gestures: ended by its field, started by a double-click or by F2 when `f2` (the item
     /// alone chosen). The name to apply, when one was typed (never empty).
     pub fn gesture(self, ui: &egui::Ui, response: &egui::Response, f2: bool) -> Option<String> {
-        let key = egui::Id::unique(crate::widgets::RENAMING);
+        let key = egui::Id::unique(crate::kit::widgets::RENAMING);
         let f2 = || f2 && ui.memory(|m| m.focused().is_none()) && ui.input(|i| i.key_pressed(egui::Key::F2));
         if self.renamed.is_some() {
             ui.data_mut(|d| d.remove::<egui::Id>(key));
@@ -391,7 +391,7 @@ fn count_badge(ui: &egui::Ui, square: egui::Rect, n: u64, weak: egui::Color32) {
 /// The grid / list toggle, at the right end of the search row: the option bar's segmented
 /// control, of the row's height.
 pub(crate) fn view_toggle(ui: &mut egui::Ui, side: f32, list: bool, card: Card, actions: &mut Vec<Action>) {
-    use crate::widgets::Segment;
+    use crate::kit::widgets::Segment;
     let segments = [
         Segment::image(&t!("panel.components.as_grid"), "", icons::TILES, !list),
         Segment::image(&t!("panel.components.as_list"), "", icons::LIST, list),
@@ -399,7 +399,7 @@ pub(crate) fn view_toggle(ui: &mut egui::Ui, side: f32, list: bool, card: Card, 
     let handle = card.handle();
     let id = ui.make_persistent_id((handle, "view"));
     let name = |i: usize| format!("{handle}:{}", ["grid", "list"][i]);
-    if let Some(i) = crate::widgets::segmented_sized(ui, id, &segments, (side, 14.0), name) {
+    if let Some(i) = crate::kit::widgets::segmented_sized(ui, id, &segments, (side, 14.0), name) {
         actions.push(Action::CardList(card, i == 1));
     }
 }
@@ -407,16 +407,16 @@ pub(crate) fn view_toggle(ui: &mut egui::Ui, side: f32, list: bool, card: Card, 
 /// A section's header: its `title`, and `purge`'s button (enabled, its tip, its handle) when it
 /// has one. Whether the button was clicked.
 pub(crate) fn header(ui: &mut egui::Ui, height: f32, title: String, purge: Option<(bool, String, &'static str)>) -> bool {
-    use crate::style::Tip;
+    use crate::kit::style::Tip;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
-    let font = crate::style::semibold(egui::TextStyle::Small.resolve(row.style()).size);
+    let font = crate::kit::style::semibold(egui::TextStyle::Small.resolve(row.style()).size);
     row.add(egui::Label::new(egui::RichText::new(title).font(font).color(row.visuals().weak_text_color())).selectable(false));
     let Some((enabled, tip, handle)) = purge else { return false };
     row.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let button = ui.add_enabled(enabled, egui::Button::new(t!("panel.components.purge")).small());
-        crate::handles::publish(|| handle.into(), button.rect);
+        crate::kit::handles::publish(|| handle.into(), button.rect);
         button.tip(tip).clicked()
     })
     .inner

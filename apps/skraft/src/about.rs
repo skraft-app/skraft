@@ -112,7 +112,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
     }
     egui::Window::new(t!("menu.app.about", app = t!("start.title")))
         .id(egui::Id::unique("about"))
-        .title_frame(crate::style::window_title_frame(ctx))
+        .title_frame(crate::kit::style::window_title_frame(ctx))
         .open(open)
         .collapsible(false)
         .resizable(false)
@@ -127,7 +127,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 const MARK: f32 = 60.0;
                 const TILE: f32 = 824.0 / 1024.0;
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(MARK, MARK), egui::Sense::hover());
-                egui::Image::new(crate::icons::APP)
+                egui::Image::new(crate::kit::icons::APP)
                     .paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
                 ui.add_space(10.0);
                 ui.heading(egui::RichText::new(t!("start.title")).size(22.0).strong());

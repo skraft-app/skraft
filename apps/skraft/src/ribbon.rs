@@ -14,12 +14,12 @@ use egui::{Align2, Color32, FontId, Popup, PopupCloseBehavior, Rect, Sense, Stro
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 
-use crate::widgets::{PinRow, pin_row};
+use crate::kit::widgets::{PinRow, pin_row};
 
-use crate::icons;
+use crate::kit::icons;
+use crate::kit::style::Tip;
+use crate::kit::style::menu_item;
 use crate::panels::{Action, CommandView};
-use crate::style::Tip;
-use crate::style::menu_item;
 use crate::workspace::{self, Workspace};
 
 // ---- the description -------------------------------------------------------------------------
@@ -334,7 +334,7 @@ fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, inset: egui::Margin, 
     let current = v.workspace;
     let full = Rect::from_min_max(pos2(rect.left() - inset.leftf(), rect.top() - inset.topf()), pos2(sep, rect.bottom() + inset.bottomf()));
     let response = ui.interact(full, egui::Id::unique("ribbon_workspace"), Sense::click());
-    crate::handles::publish(|| "ribbon_workspace".into(), full);
+    crate::kit::handles::publish(|| "ribbon_workspace".into(), full);
     let hovered = response.hovered() || response.is_pointer_button_down_on();
     if hovered {
         // The card's corners on its left, square along the separator.
@@ -355,7 +355,7 @@ fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, inset: egui::Margin, 
     let chevron_ink = if hovered { ink } else { ui.visuals().weak_text_color() };
     chevron(ui, pos2(full.center().x, line + GROUP_LABEL_HEIGHT / 2.0), chevron_ink);
     let response = response.tip(t!("ribbon.workspace.tip"));
-    Popup::menu(&response).style(crate::style::menu).show(|ui| {
+    Popup::menu(&response).style(crate::kit::style::menu).show(|ui| {
         let rows: Vec<_> = workspace::listed().map(|w| WorkspaceRow::new(ui, w)).collect();
         let width = rows.iter().map(WorkspaceRow::width).fold(WORKSPACE_ROW_MIN_WIDTH, f32::max);
         for row in rows {
@@ -398,7 +398,7 @@ impl WorkspaceRow {
     /// Drawn `width` wide, filled when `selected` (the workspace shown) or hovered.
     fn show(self, ui: &mut egui::Ui, width: f32, selected: bool) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(vec2(width, WORKSPACE_ROW_HEIGHT), Sense::click());
-        crate::handles::publish(|| format!("ribbon_workspace:{}", self.workspace.id), rect);
+        crate::kit::handles::publish(|| format!("ribbon_workspace:{}", self.workspace.id), rect);
         let visuals = ui.style().interact_selectable(&response, selected);
         if selected || response.hovered() {
             ui.painter().rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
@@ -493,15 +493,15 @@ pub fn tab_strip(
         let rect = Rect::from_min_size(pos2(x, row.top() - TAB_RISE), vec2(galley.size().x + 2.0 * TAB_PAD, TAB_ROW_HEIGHT + TAB_RISE));
         x = rect.right() + TAB_GAP;
         if let Some(&name) = handles.get(k) {
-            crate::handles::publish(|| name.into(), rect);
+            crate::kit::handles::publish(|| name.into(), rect);
         }
         if shown == Some(k) {
             open = Some((label, rect));
             continue;
         }
         let response = ui.interact(rect, ids[k], Sense::click());
-        if let Some(fill) = crate::widgets::veil(ui, &response) {
-            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::widgets::VEIL_RADIUS, fill);
+        if let Some(fill) = crate::kit::widgets::veil(ui, &response) {
+            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::kit::widgets::VEIL_RADIUS, fill);
         }
         let ink = if response.hovered() { visuals.text_color() } else { visuals.weak_text_color() };
         ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
@@ -686,7 +686,7 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
             None => label,
         };
         Popup::menu(&response)
-            .style(crate::style::menu)
+            .style(crate::kit::style::menu)
             .id(egui::Id::unique(("ribbon_menu", &l.key)))
             .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| group_menu(ui, v, &l.key, l.group, actions));
@@ -703,7 +703,7 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
         }
         egui::Image::new(icons::MORE).tint(visuals.text_color()).paint_at(ui, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)));
         let response = response.tip(t!("ribbon.more"));
-        Popup::menu(&response).style(crate::style::menu).show(|ui| {
+        Popup::menu(&response).style(crate::kit::style::menu).show(|ui| {
             for l in laid.iter().filter(|l| l.place == Placement::Overflow) {
                 ui.menu_button((l.group.label)(), |ui| group_menu(ui, v, &l.key, l.group, actions));
             }
@@ -712,7 +712,7 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
 }
 
 /// The ribbon's own menu (right click on its empty space or on a button).
-/// Its items after the check boxes' column (see [`crate::style::menu_item`]), as the items
+/// Its items after the check boxes' column (see [`crate::kit::style::menu_item`]), as the items
 /// put before them.
 pub fn ribbon_menu(ui: &mut egui::Ui, prefs: &Prefs, actions: &mut Vec<Action>) {
     if ui.add(menu_item(t!("ribbon.reset_tab"), None, true)).clicked() {
@@ -748,7 +748,7 @@ fn command_button(
     let Some(c) = v.command(id) else { return };
     let selected = c.checked == Some(true);
     let response = ui.interact(rect, egui::Id::unique(("ribbon_button", key, id)), if c.enabled { Sense::click() } else { Sense::hover() });
-    crate::handles::publish_enabled(|| format!("ribbon:{id}"), rect, c.enabled);
+    crate::kit::handles::publish_enabled(|| format!("ribbon:{id}"), rect, c.enabled);
     let visuals = ui.style().interact_selectable(&response, selected);
     if selected || (c.enabled && response.hovered()) {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
@@ -773,7 +773,7 @@ fn command_button(
     if response.clicked() {
         actions.push(Action::Command(id));
     }
-    Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
+    Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
         if ui.add(menu_item(t!("ribbon.unpin"), None, true)).clicked() {
             actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
         }
@@ -785,7 +785,7 @@ fn command_button(
 /// A collapsed group's button: the icon of its first command; a click opens its menu.
 fn collapsed_button(ui: &mut egui::Ui, l: &Laid, rect: Rect, labels: bool) -> egui::Response {
     let response = ui.interact(rect, egui::Id::unique(("ribbon_collapsed", &l.key)), Sense::click());
-    crate::handles::publish(|| format!("ribbon_group:{}", l.key), rect);
+    crate::kit::handles::publish(|| format!("ribbon_group:{}", l.key), rect);
     let visuals = ui.style().interact(&response);
     if response.hovered() {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
@@ -802,7 +802,7 @@ fn collapsed_button(ui: &mut egui::Ui, l: &Laid, rect: Rect, labels: bool) -> eg
 /// A group's label under its buttons, with the chevron of its menu.
 fn group_label(ui: &mut egui::Ui, l: &Laid, rect: Rect, lit: bool) -> egui::Response {
     let response = ui.interact(rect, egui::Id::unique(("ribbon_label", &l.key)), Sense::click());
-    crate::handles::publish(|| format!("ribbon_label:{}", l.key), rect);
+    crate::kit::handles::publish(|| format!("ribbon_label:{}", l.key), rect);
     let visuals = ui.style().interact(&response);
     if response.hovered() {
         ui.painter().rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
@@ -871,7 +871,7 @@ const CHEVRON_AFTER: f32 = 15.0;
 
 /// The chevron of a menu, centered on `at`.
 pub(crate) fn chevron(ui: &egui::Ui, at: egui::Pos2, ink: Color32) {
-    crate::icons::chevron(ui, at, 12.0, ink, 0.0);
+    crate::kit::icons::chevron(ui, at, 12.0, ink, 0.0);
 }
 
 #[cfg(test)]

@@ -151,7 +151,7 @@ pub fn ui(
     let ink = viewport::color(theme.ui.view_text);
     let aids = Aids::of(theme);
     ui.painter().rect_filled(rect, 0.0, viewport::color(theme.ui.view));
-    crate::handles::publish(|| "sheet".into(), rect);
+    crate::kit::handles::publish(|| "sheet".into(), rect);
     if st.framer.is_some() {
         let room = fit.filter(|r| r.width() >= MIN_FIT_ROOM && r.height() >= MIN_FIT_ROOM).unwrap_or(rect);
         return crate::view_framer::ui(ui, room, e, st, ready);

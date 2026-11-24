@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/dock.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/widgets.rs, apps/skraft/src/widgets/, apps/skraft/src/style.rs, apps/skraft/src/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
+code: [apps/skraft/src/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/dock.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/kit/widgets.rs, apps/skraft/src/kit/widgets/, apps/skraft/src/kit/style.rs, apps/skraft/src/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/kit/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
 ---
 
 # Application interface
@@ -156,7 +156,7 @@ An element of the interface is built once, where every screen finds it: a screen
 buttons, fields, rows, cards and boxes from the modules below, and what two screens draw alike
 moves there rather than being copied. Before drawing something new, look here first.
 
-In `apps/skraft/src/widgets.rs`:
+In `apps/skraft/src/kit/widgets.rs`:
 
 - **`IconButton`**, the one icon button: a size, an icon and a `Look`. `Plain` has no frame (a
   navigator row's), `Framed` egui's frame (the entity info's), `Veil` a veil of its ink when

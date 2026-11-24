@@ -4,8 +4,8 @@
 
 use skraft_i18n::t;
 
-use crate::icons;
-use crate::style::Tip;
+use crate::kit::icons;
+use crate::kit::style::Tip;
 
 /// The search field on a line of its own, under the key `salt`, its handle `<handle>:search`: a
 /// magnifier, the field over the width left by `trailing` (buttons laid at the line's right end,
@@ -33,7 +33,7 @@ pub fn field(ui: &mut egui::Ui, salt: egui::Id, handle: &'static str, text: &mut
                 .min_size(egui::vec2(0.0, height))
                 .desired_width(ui.available_width().max(40.0));
             let r = ui.add(edit);
-            crate::handles::publish(|| format!("{handle}:search"), r.rect);
+            crate::kit::handles::publish(|| format!("{handle}:search"), r.rect);
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 text.clear();
             }

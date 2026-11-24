@@ -1,7 +1,7 @@
 //! The buttons of the interface (docs/ui/interface.md#widgets).
 
-use crate::icons;
-use crate::style::Tip;
+use crate::kit::icons;
+use crate::kit::style::Tip;
 
 /// A frameless button's corner radius.
 pub const VEIL_RADIUS: f32 = 5.0;
@@ -38,9 +38,9 @@ pub(crate) fn confirm_buttons(ui: &mut egui::Ui, handle: &str, ok: String, enabl
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let fill = ui.visuals().selection.bg_fill;
         let ok = ui.add_enabled(enabled, egui::Button::new(ok).fill(fill));
-        crate::handles::publish_enabled(|| format!("{handle}.ok"), ok.rect, enabled);
+        crate::kit::handles::publish_enabled(|| format!("{handle}.ok"), ok.rect, enabled);
         let cancel = ui.button(cancel);
-        crate::handles::publish(|| format!("{handle}.cancel"), cancel.rect);
+        crate::kit::handles::publish(|| format!("{handle}.cancel"), cancel.rect);
         if ok.clicked() {
             Some(Confirm::Ok)
         } else if cancel.clicked() {
@@ -182,8 +182,8 @@ impl IconButton {
 }
 
 /// The height of the option bar's buttons; an icon's button is a square of it.
-pub(crate) const OPTION_HEIGHT: f32 = crate::style::BAR_BUTTON;
-pub(crate) const OPTION_ICON: f32 = crate::style::BAR_ICON;
+pub(crate) const OPTION_HEIGHT: f32 = crate::kit::style::BAR_BUTTON;
+pub(crate) const OPTION_ICON: f32 = crate::kit::style::BAR_ICON;
 /// The side margins of a text button.
 const OPTION_PAD: f32 = 8.0;
 
@@ -246,10 +246,10 @@ pub(crate) fn option_button(
 ) -> bool {
     let face = Face::new(ui, label, icon.and_then(icons::option));
     let (rect, response) = ui.allocate_exact_size(egui::vec2(face.width(OPTION_HEIGHT), OPTION_HEIGHT), egui::Sense::click());
-    crate::handles::publish(|| handle.to_owned(), rect);
+    crate::kit::handles::publish(|| handle.to_owned(), rect);
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
     let visuals = ui.style().interact_selectable(&response, selected);
-    let alpha = crate::style::fill_alpha(ui);
+    let alpha = crate::kit::style::fill_alpha(ui);
     let stroke = faded(visuals.bg_stroke, alpha);
     // On, filled with its colour (« Pipette »'s material, docs/tools/draw-options.md), as OCL's
     // button: the toggle's value, not faded.

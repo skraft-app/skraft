@@ -23,7 +23,7 @@ impl SkraftApp {
         // A fixed id: the title changes with the language.
         egui::Window::new(t!("prefs.title"))
             .id(prefs_window_id())
-            .title_frame(crate::style::window_title_frame(ctx))
+            .title_frame(crate::kit::style::window_title_frame(ctx))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -110,8 +110,8 @@ impl SkraftApp {
         ui.weak(t!("prefs.model.intro"));
         ui.add_space(4.0);
         // The settings window's sections: a semibold title over a line, the same labels' column.
-        crate::style::settings_section(ui, &t!("prefs.model.display"));
-        crate::style::settings_grid(ui, "model_display", |ui| {
+        crate::kit::style::settings_section(ui, &t!("prefs.model.display"));
+        crate::kit::style::settings_grid(ui, "model_display", |ui| {
             ui.label(t!("prefs.model.grid"));
             ui.checkbox(&mut s.display.grid, "");
             ui.end_row();
@@ -128,17 +128,17 @@ impl SkraftApp {
             ui.checkbox(&mut s.display.hide_rest_of_model, "").tip(t!("prefs.model.hide_rest_of_model_tip"));
             ui.end_row();
         });
-        crate::style::settings_section(ui, &t!("prefs.model.units"));
-        crate::style::settings_grid(ui, "model_units", |ui| {
+        crate::kit::style::settings_section(ui, &t!("prefs.model.units"));
+        crate::kit::style::settings_grid(ui, "model_units", |ui| {
             ui.label(t!("prefs.model.lengths"));
-            egui::ComboBox::from_id_salt("length_unit").icon(crate::icons::combo_chevron).selected_text(s.units.length.name()).show_ui(
-                ui,
-                |ui| {
+            egui::ComboBox::from_id_salt("length_unit")
+                .icon(crate::kit::icons::combo_chevron)
+                .selected_text(s.units.length.name())
+                .show_ui(ui, |ui| {
                     for u in LengthUnit::ALL {
                         ui.selectable_value(&mut s.units.length, u, u.name());
                     }
-                },
-            );
+                });
             ui.end_row();
             ui.label(t!("prefs.model.decimals"));
             ui.add(egui::Slider::new(&mut s.units.decimals, 0..=6));
@@ -219,7 +219,7 @@ impl SkraftApp {
                         ui.horizontal(|ui| {
                             ui.label(text);
                             if conflict {
-                                ui.add(crate::widgets::warning(ui));
+                                ui.add(crate::kit::widgets::warning(ui));
                             }
                         });
                     }
@@ -249,7 +249,7 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
         let before = prefs.locale.clone();
         let system = t!("prefs.general.language_system", language = skraft_i18n::locale_name(crate::language::system()));
         egui::ComboBox::from_id_salt("locale")
-            .icon(crate::icons::combo_chevron)
+            .icon(crate::kit::icons::combo_chevron)
             .selected_text(prefs.locale.as_deref().map_or_else(|| system.clone(), skraft_i18n::locale_name))
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut prefs.locale, None, system);
@@ -356,7 +356,7 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &st
             ui.spacing_mut().item_spacing.x = 12.0;
             for palette in UiPalette::ALL {
                 let name = palette_name(palette);
-                if crate::style::palette_card(ui, palette, mode, &name, prefs.palette == palette).clicked() {
+                if crate::kit::style::palette_card(ui, palette, mode, &name, prefs.palette == palette).clicked() {
                     prefs.palette = palette;
                 }
             }

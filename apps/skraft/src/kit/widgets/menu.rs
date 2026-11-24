@@ -1,8 +1,8 @@
 //! The rows of the menus (docs/ui/interface.md#widgets).
 
-use crate::icons;
+use crate::kit::icons;
+use crate::kit::style::Tip;
 use crate::panels::CommandView;
-use crate::style::Tip;
 
 /// Whether a command is shown in a menu as a check box (a display toggle).
 pub fn is_toggle(v: &CommandView) -> bool {
@@ -13,15 +13,15 @@ pub fn is_toggle(v: &CommandView) -> bool {
 /// `column` when the menu has check boxes: the label after their column. True when clicked.
 pub fn command_item(ui: &mut egui::Ui, v: &CommandView, column: bool) -> bool {
     let mut button = if is_toggle(v) {
-        crate::style::menu_item(&v.label, v.checked, column)
+        crate::kit::style::menu_item(&v.label, v.checked, column)
     } else {
-        crate::style::menu_item(&v.label, None, column).selected(v.checked == Some(true))
+        crate::kit::style::menu_item(&v.label, None, column).selected(v.checked == Some(true))
     };
     if let Some(s) = &v.shortcut {
         button = button.shortcut_text(s);
     }
     let r = ui.add_enabled(v.enabled, button);
-    crate::handles::publish_enabled(|| format!("menu:{}", v.id), r.rect, v.enabled);
+    crate::kit::handles::publish_enabled(|| format!("menu:{}", v.id), r.rect, v.enabled);
     r.clicked()
 }
 
@@ -47,8 +47,8 @@ pub(crate) fn pin_row(ui: &mut egui::Ui, row: PinRow<'_>) -> (egui::Response, bo
         let ink = ui.visuals().text_color();
         let image = row.icon.map(|icon| egui::Image::new(icon).fit_to_exact_size(egui::vec2(16.0, 16.0)).tint(ink));
         let button = match (row.check, image) {
-            (Some(check), Some(image)) => egui::Button::new((crate::style::menu_check(check), image, row.label)),
-            (Some(check), None) => egui::Button::new((crate::style::menu_check(check), row.label)),
+            (Some(check), Some(image)) => egui::Button::new((crate::kit::style::menu_check(check), image, row.label)),
+            (Some(check), None) => egui::Button::new((crate::kit::style::menu_check(check), row.label)),
             (None, Some(image)) => egui::Button::image_and_text(image, row.label),
             (None, None) => egui::Button::new(row.label),
         };

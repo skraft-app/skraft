@@ -4,7 +4,7 @@ use egui::ImageSource;
 
 macro_rules! icon {
     ($name:ident, $file:literal) => {
-        pub const $name: ImageSource<'static> = egui::include_image!(concat!("../assets/icons/", $file, ".svg"));
+        pub const $name: ImageSource<'static> = egui::include_image!(concat!("../../assets/icons/", $file, ".svg"));
     };
 }
 
@@ -205,7 +205,7 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
     macro_rules! options {
         ($($file:literal),* $(,)?) => {
             match name {
-                $($file => Some(egui::include_image!(concat!("../assets/icons/options/", $file, ".svg"))),)*
+                $($file => Some(egui::include_image!(concat!("../../assets/icons/options/", $file, ".svg"))),)*
                 _ => None,
             }
         };
@@ -241,4 +241,4 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
 }
 
 /// The app's icon, in its colours (not tinted): the title bar's mark.
-pub const APP: ImageSource<'static> = egui::include_image!("../assets/app-icon.svg");
+pub const APP: ImageSource<'static> = egui::include_image!("../../assets/app-icon.svg");

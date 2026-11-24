@@ -13,9 +13,9 @@ use skraft_model::{Crop, Direction, Document, ElementKind, Frame, Id, Look, Oper
 use skraft_tools::Editor;
 use skraft_tools::camera::{Camera, Projection};
 
+use crate::kit::widgets::{Confirm, confirm_buttons};
 use crate::sheet::{Placed, SCALES, SheetState, ViewSlot, Wanted, nearest_scale, scale_label, window_matrix};
 use crate::view_picker::first_path;
-use crate::widgets::{Confirm, confirm_buttons};
 
 /// The picture's slot: no view has this id, so the view's own picture stays as it is.
 const SLOT: ViewSlot = (Id(u64::MAX), None);
@@ -637,7 +637,7 @@ pub fn ui(
         return Vec::new();
     }
     let response = ui.interact(room, egui::Id::unique("view_framer"), egui::Sense::click_and_drag());
-    crate::handles::publish(|| "view_framer".into(), room);
+    crate::kit::handles::publish(|| "view_framer".into(), room);
     let stage = Stage::of(f.crop, room);
     if response.drag_started() {
         f.pivot = ui.input(|i| i.pointer.press_origin()).map(|p| f.point_at(e, &stage, p));
@@ -725,32 +725,32 @@ pub fn ui(
                         let along = Frame::of(d).forward;
                         let on = f.look == Look::Standard(d) || (lens.is_some() && (frame.forward - along).length() < 1e-6);
                         let b = ui.selectable_label(on, crate::panels::direction_label(d));
-                        crate::handles::publish(|| format!("view_framer.dir:{key}"), b.rect);
+                        crate::kit::handles::publish(|| format!("view_framer.dir:{key}"), b.rect);
                         if b.clicked() {
                             f.look_along(d);
                         }
                     }
                     ui.separator();
                     let parallel = ui.selectable_label(lens.is_none(), t!("drawing.framer.parallel"));
-                    crate::handles::publish(|| "view_framer.parallel".into(), parallel.rect);
+                    crate::kit::handles::publish(|| "view_framer.parallel".into(), parallel.rect);
                     if parallel.clicked() && lens.is_some() {
                         f.switch_to_parallel();
                     }
                     let label = egui::Button::selectable(lens.is_some(), t!("drawing.framer.perspective"));
                     let perspective = ui.add_enabled(!f.projected, label).on_disabled_hover_text(t!("drawing.framer.has_projections"));
-                    crate::handles::publish_enabled(|| "view_framer.perspective".into(), perspective.rect, !f.projected);
+                    crate::kit::handles::publish_enabled(|| "view_framer.perspective".into(), perspective.rect, !f.projected);
                     if perspective.clicked() {
                         f.switch_to_perspective();
                     }
                 });
                 ui.horizontal(|ui| {
                     let all = ui.button(t!("drawing.framer.show_all"));
-                    crate::handles::publish(|| "view_framer.show_all".into(), all.rect);
+                    crate::kit::handles::publish(|| "view_framer.show_all".into(), all.rect);
                     if all.clicked() {
                         f.show_all();
                     }
                     let fit = ui.button(t!("drawing.framer.fit_frame"));
-                    crate::handles::publish(|| "view_framer.fit_frame".into(), fit.rect);
+                    crate::kit::handles::publish(|| "view_framer.fit_frame".into(), fit.rect);
                     if fit.clicked() {
                         f.fit_frame();
                     }
@@ -764,7 +764,7 @@ pub fn ui(
                             .suffix(" mm")
                             .custom_formatter(|v, _| format!("{v:.0}"));
                         let changed = ui.add(slider);
-                        crate::handles::publish(|| "view_framer.focal".into(), changed.rect);
+                        crate::kit::handles::publish(|| "view_framer.focal".into(), changed.rect);
                         if changed.changed() {
                             f.set_focal(focal);
                         }

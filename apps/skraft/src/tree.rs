@@ -43,7 +43,7 @@ pub fn drop_up(ctx: &egui::Context, view: Rect, at: egui::Pos2, tree: &Tree, act
                 for (k, (row, galley)) in tree.rows.iter().zip(galleys).enumerate() {
                     let sense = if row.enabled { egui::Sense::click() } else { egui::Sense::hover() };
                     let (rect, response) = ui.allocate_exact_size(vec2(width, ROW_HEIGHT), sense);
-                    crate::handles::publish_enabled(|| format!("tree:{k}"), rect, row.enabled);
+                    crate::kit::handles::publish_enabled(|| format!("tree:{k}"), rect, row.enabled);
                     let lit = row.enabled && (response.hovered() || tree.hovered == Some(k));
                     if lit {
                         let w = &ui.visuals().widgets.hovered;

@@ -1,7 +1,7 @@
 //! The text fields of the interface (docs/ui/interface.md#widgets).
 
 use super::button::{OPTION_HEIGHT, faded};
-use crate::style::Tip;
+use crate::kit::style::Tip;
 
 /// A value of the entity info cut short (…) at `width` rather than widening the panel; whole
 /// in its tool tip (egui's, when cut).
@@ -81,7 +81,7 @@ fn draw_field(ui: &mut egui::Ui, field_id: egui::Id, text: &mut String, f: Field
     let visuals = ui.visuals();
     // Faded with its card while it is translucent (the option bar's, docs/ui/interface.md#look),
     // its text not.
-    let alpha = crate::style::fill_alpha(ui);
+    let alpha = crate::kit::style::fill_alpha(ui);
     let border = faded(visuals.widgets.noninteractive.bg_stroke, alpha);
     let stroke = faded(field_stroke(visuals, focused, f.lit, hovered), alpha);
     let radius = visuals.widgets.inactive.corner_radius;
@@ -133,7 +133,7 @@ fn draw_field(ui: &mut egui::Ui, field_id: egui::Id, text: &mut String, f: Field
         })
         .inner;
     if let Some(name) = f.handle {
-        crate::handles::publish(|| name, r.rect);
+        crate::kit::handles::publish(|| name, r.rect);
     }
     r
 }

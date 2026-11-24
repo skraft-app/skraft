@@ -1,8 +1,8 @@
 //! The segmented control (docs/ui/interface.md#widgets).
 
 use super::button::{Face, OPTION_HEIGHT, OPTION_ICON, face_tip, faded};
-use crate::icons;
-use crate::style::Tip;
+use crate::kit::icons;
+use crate::kit::style::Tip;
 
 /// How long a segmented control's mark takes to slide to the value chosen, in seconds.
 const SLIDE_TIME: f64 = 0.18;
@@ -49,7 +49,7 @@ pub fn segmented_sized(
     let (row, _) = ui.allocate_exact_size(egui::vec2(widths.iter().sum(), height), egui::Sense::hover());
     let radius = ui.visuals().widgets.inactive.corner_radius;
     // The marks faded with their card while it is translucent (docs/ui/interface.md#look).
-    let alpha = crate::style::fill_alpha(ui);
+    let alpha = crate::kit::style::fill_alpha(ui);
 
     // The segments' places along the row, from its left.
     let lefts: Vec<f32> = widths.iter().scan(0.0, |x, w| Some(std::mem::replace(x, *x + w))).collect();
@@ -60,7 +60,7 @@ pub fn segmented_sized(
         .enumerate()
         .map(|(i, s)| {
             let response = ui.interact(place(i), id.with(i), egui::Sense::click());
-            crate::handles::publish(|| handle(i), place(i));
+            crate::kit::handles::publish(|| handle(i), place(i));
             response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, s.selected, &s.label));
             if response.hovered() && !s.selected {
                 let visuals = ui.style().interact(&response);

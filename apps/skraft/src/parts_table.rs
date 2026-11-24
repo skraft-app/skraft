@@ -219,12 +219,12 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, action
                             .sense(Sense::click())
                             .selectable(false);
                         let response = ui.add(label);
-                        crate::handles::publish(|| format!("parts_list_header:{c:?}").to_lowercase(), response.rect);
+                        crate::kit::handles::publish(|| format!("parts_list_header:{c:?}").to_lowercase(), response.rect);
                         if shown {
                             let (rect, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
                             // Up: ascending.
                             let angle = if sort.ascending { std::f32::consts::PI } else { 0.0 };
-                            crate::icons::chevron(ui, rect.center(), 10.0, ink, angle);
+                            crate::kit::icons::chevron(ui, rect.center(), 10.0, ink, angle);
                         }
                         if response.clicked() {
                             sort = if shown {
@@ -261,7 +261,7 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, action
                 row.col(|ui| right(ui, dim(2)));
                 row.col(|ui| right(ui, r.quantity().to_string()));
                 let response = row.response();
-                crate::handles::publish(
+                crate::kit::handles::publish(
                     || match r.material {
                         Some(m) => format!("parts_list_row:{}:{}", r.part.0, m.0),
                         None => format!("parts_list_row:{}", r.part.0),

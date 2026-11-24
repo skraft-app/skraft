@@ -11,11 +11,11 @@ use skraft_tools::search::Matcher;
 use skraft_tools::{Editor, ToolKind};
 
 use crate::catalog::{self, Card, Ink, LIST_ROW, Renaming, Rows, Shelf};
-use crate::icons;
 use crate::images::{Decoder, Size};
+use crate::kit::icons;
+use crate::kit::style::Tip;
 use crate::library::natural_cmp;
 use crate::panels::{Action, NEW_COLORS};
-use crate::style::Tip;
 
 /// What the card keeps of a document between frames (never on disk): its search, its rows, made
 /// again when the document or the search changes.
@@ -58,13 +58,13 @@ pub fn card(
     let doc = editor.document();
     let top = ui.cursor().top();
     let matcher = Matcher::new(&state.search);
-    let rows = crate::search::listed(&mut state.rows, editor.history().revision(), &state.search, || rows_of(doc, &matcher));
+    let rows = crate::kit::search::listed(&mut state.rows, editor.history().revision(), &state.search, || rows_of(doc, &matcher));
     let salt = ui.make_persistent_id("materials_search");
-    crate::search::field(ui, salt, "materials", &mut state.search, |ui, side| {
+    crate::kit::search::field(ui, salt, "materials", &mut state.search, |ui, side| {
         catalog::view_toggle(ui, side, as_list, Card::Materials, actions);
         buttons(ui, doc, side, actions);
     });
-    ui.add_space(crate::search::GAP - ui.spacing().item_spacing.y);
+    ui.add_space(crate::kit::search::GAP - ui.spacing().item_spacing.y);
     if rows.is_empty() && matcher.is_active() {
         ui.weak(t!("search.no_match"));
         return;
@@ -86,7 +86,7 @@ fn buttons(ui: &mut egui::Ui, doc: &Document, side: f32, actions: &mut Vec<Actio
     let button = |ui: &mut egui::Ui, enabled: bool, icon: egui::ImageSource<'static>, tip: String, handle: &'static str| {
         let image = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink);
         let r = ui.add_enabled(enabled, egui::Button::image(image).min_size(egui::Vec2::splat(side)));
-        crate::handles::publish_enabled(|| handle.into(), r.rect, enabled);
+        crate::kit::handles::publish_enabled(|| handle.into(), r.rect, enabled);
         r.tip(tip).clicked()
     };
     if button(ui, true, icons::IMPORT, t!("panel.materials.import_tip"), "materials:import") {
@@ -149,7 +149,7 @@ impl Shelf for Materials<'_> {
         rename: Renaming,
         actions: &mut Vec<Action>,
     ) {
-        crate::handles::publish(|| format!("materials:{}", id.0), response.rect);
+        crate::kit::handles::publish(|| format!("materials:{}", id.0), response.rect);
         let name = self.name(id).0;
         let tip = match count {
             Some(0) => t!("panel.materials.only_unused_tip"),
@@ -174,7 +174,7 @@ impl Shelf for Materials<'_> {
                 actions.push(Action::PaintWith(Some(id)));
             }
         }
-        egui::Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
+        egui::Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
             if ui.button(t!("panel.materials.paint")).clicked() {
                 actions.push(Action::PaintWith(Some(id)));
             }
@@ -215,7 +215,7 @@ impl Shelf for Materials<'_> {
     }
 
     fn lead_interact(&mut self, ui: &mut egui::Ui, response: egui::Response, actions: &mut Vec<Action>) {
-        crate::handles::publish(|| "materials:none".into(), response.rect);
+        crate::kit::handles::publish(|| "materials:none".into(), response.rect);
         let response = response.tip(t!("panel.materials.unpaint_tip"));
         if response.clicked() {
             actions.push(Action::ChooseMaterial(None));
@@ -237,7 +237,7 @@ fn brush(ui: &mut egui::Ui, item: &egui::Response, on: bool, tip: &str, handle: 
     let dy = if rect.height() > LIST_ROW + 1.0 { 3.0 } else { (rect.height() - SIDE) / 2.0 };
     let at = egui::Rect::from_min_size(rect.min + egui::vec2(3.0, dy), egui::Vec2::splat(SIDE));
     let r = ui.interact(at, item.id.with("paint"), egui::Sense::click());
-    crate::handles::publish(|| handle.to_owned(), at);
+    crate::kit::handles::publish(|| handle.to_owned(), at);
     let v = ui.visuals();
     let fill = if on {
         v.selection.bg_fill

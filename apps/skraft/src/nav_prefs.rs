@@ -7,10 +7,10 @@ use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, Str
 use skraft_i18n::t;
 use skraft_tools::navigation::{Binding, BindingError, Button, Mods, NavAction, NavStyle, Pivot, Preset, Trigger};
 
+use crate::kit::style::Tip;
+use crate::kit::style::{settings_grid as grid, settings_section as section};
 use crate::prefs::Navigation;
 use crate::ribbon::Corners;
-use crate::style::Tip;
-use crate::style::{settings_grid as grid, settings_section as section};
 
 /// The mouse drawn: its size, and its buttons' line (points from its top).
 const MOUSE: Vec2 = vec2(84.0, 136.0);
@@ -45,7 +45,7 @@ fn settings(ui: &mut egui::Ui, nav: &mut Navigation) {
             let style = &mut nav.style;
             let shown =
                 if style.custom { t!("prefs.navigation.style.custom", name = style.preset.name()) } else { style.preset.name().to_owned() };
-            egui::ComboBox::from_id_salt("nav_preset").icon(crate::icons::combo_chevron).width(200.0).selected_text(shown).show_ui(
+            egui::ComboBox::from_id_salt("nav_preset").icon(crate::kit::icons::combo_chevron).width(200.0).selected_text(shown).show_ui(
                 ui,
                 |ui| {
                     for p in Preset::ALL {
@@ -62,7 +62,7 @@ fn settings(ui: &mut egui::Ui, nav: &mut Navigation) {
         ui.end_row();
         ui.label(t!("prefs.navigation.style.pivot"));
         egui::ComboBox::from_id_salt("nav_pivot")
-            .icon(crate::icons::combo_chevron)
+            .icon(crate::kit::icons::combo_chevron)
             .width(200.0)
             .selected_text(pivot_name(nav.style.pivot))
             .show_ui(ui, |ui| {
@@ -178,7 +178,7 @@ fn mouse_drawing(ui: &mut egui::Ui, style: &NavStyle, picked: &mut Button, mac: 
     let text_width =
         |text: &str, size: f32| ui.painter().layout_no_wrap(text.to_owned(), FontId::proportional(size), Color32::WHITE).size().x;
     // A title as wide as it is in semibold (the picked one's).
-    let title_width = |text: &str| ui.painter().layout_no_wrap(text.to_owned(), crate::style::semibold(13.5), Color32::WHITE).size().x;
+    let title_width = |text: &str| ui.painter().layout_no_wrap(text.to_owned(), crate::kit::style::semibold(13.5), Color32::WHITE).size().x;
     let column_width = |blocks: &[Block]| {
         blocks
             .iter()
@@ -328,7 +328,7 @@ fn mouse_drawing(ui: &mut egui::Ui, style: &NavStyle, picked: &mut Button, mac: 
         let (align, x) = if *on_right { (Align2::LEFT_CENTER, r.left()) } else { (Align2::RIGHT_CENTER, r.right()) };
         // The picked button's title in semibold, in its line's colour.
         let (title_font, title_color) =
-            if *picked == block.button { (crate::style::semibold(13.5), accent_ink) } else { (FontId::proportional(13.5), ink) };
+            if *picked == block.button { (crate::kit::style::semibold(13.5), accent_ink) } else { (FontId::proportional(13.5), ink) };
         painter.text(pos2(x, title_y), align, &block.title, title_font, title_color);
         if block.lines.is_empty() {
             painter.text(pos2(x, title_y + LINE_HEIGHT), align, "—", font.clone(), visuals.weak_text_color());
@@ -378,7 +378,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
                 }
                 ui.add_space(10.0);
                 egui::ComboBox::from_id_salt(("nav_trigger", i))
-                    .icon(crate::icons::combo_chevron)
+                    .icon(crate::kit::icons::combo_chevron)
                     .width(120.0)
                     .selected_text(trigger_name(b.trigger))
                     .show_ui(ui, |ui| {
@@ -397,14 +397,14 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
                 ui.add_space(4.0);
                 let actions = if b.trigger.is_drag() { NavAction::DRAG } else { NavAction::CLICK };
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let x = egui::Image::new(crate::icons::CLOSE).fit_to_exact_size(vec2(12.0, 12.0)).tint(ui.visuals().text_color());
+                    let x = egui::Image::new(crate::kit::icons::CLOSE).fit_to_exact_size(vec2(12.0, 12.0)).tint(ui.visuals().text_color());
                     if ui.add(egui::Button::image(x).min_size(vec2(h, h))).tip(t!("prefs.navigation.gestures.delete_tip")).clicked() {
                         delete = Some(i);
                     }
                     ui.add_space(6.0);
                     let width = ui.available_width();
                     egui::ComboBox::from_id_salt(("nav_action", i))
-                        .icon(crate::icons::combo_chevron)
+                        .icon(crate::kit::icons::combo_chevron)
                         .width(width)
                         .selected_text(action_name(b.action))
                         .show_ui(ui, |ui| {
@@ -422,7 +422,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
         if let Some(i) = delete {
             style.bindings.remove(i);
         }
-        let add = egui::Image::new(crate::icons::ADD).fit_to_exact_size(vec2(14.0, 14.0)).tint(ui.visuals().text_color());
+        let add = egui::Image::new(crate::kit::icons::ADD).fit_to_exact_size(vec2(14.0, 14.0)).tint(ui.visuals().text_color());
         if ui.add(egui::Button::image_and_text(add, t!("prefs.navigation.gestures.add"))).clicked() {
             style.bindings.push(new_binding(style, button));
         }
@@ -479,11 +479,14 @@ fn error_text(e: BindingError) -> String {
 }
 
 fn trackpad_combo(ui: &mut egui::Ui, id: &str, action: &mut NavAction) {
-    egui::ComboBox::from_id_salt(id).icon(crate::icons::combo_chevron).width(200.0).selected_text(action_name(*action)).show_ui(ui, |ui| {
-        for a in [NavAction::Orbit, NavAction::Pan] {
-            ui.selectable_value(action, a, action_name(a));
-        }
-    });
+    egui::ComboBox::from_id_salt(id).icon(crate::kit::icons::combo_chevron).width(200.0).selected_text(action_name(*action)).show_ui(
+        ui,
+        |ui| {
+            for a in [NavAction::Orbit, NavAction::Pan] {
+                ui.selectable_value(action, a, action_name(a));
+            }
+        },
+    );
 }
 
 fn trigger_name(t: Trigger) -> String {

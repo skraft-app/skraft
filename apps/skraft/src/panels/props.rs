@@ -8,9 +8,9 @@ use skraft_i18n::t;
 use skraft_model::{Document, EntityKind, Operation, PropDef, PropTarget, Units, Value, ValueKind};
 
 use super::Action;
-use crate::icons;
-use crate::style::Tip;
-use crate::widgets::{Field, IconButton, Look, OPTION_HEIGHT, cut_label, framed_field};
+use crate::kit::icons;
+use crate::kit::style::Tip;
+use crate::kit::widgets::{Field, IconButton, Look, OPTION_HEIGHT, cut_label, framed_field};
 
 /// The kinds a definition offers, in its menu.
 const KINDS: [fn() -> ValueKind; 14] = [
@@ -161,7 +161,7 @@ fn choice_field(ui: &mut egui::Ui, id: egui::Id, current: Option<&str>, options:
         let clip = inner.with_max_x(icon.left() - 4.0);
         ui.painter_at(clip).galley(egui::pos2(inner.left(), inner.center().y - text.size().y / 2.0), text, ink);
         let mut picked = None;
-        egui::Popup::menu(&response).id(id).width(width).style(crate::style::menu).show(|ui| {
+        egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
             ui.set_min_width(ui.available_width());
             for o in options {
                 if ui.selectable_label(current == Some(o.as_str()), o).clicked() && current != Some(o.as_str()) {

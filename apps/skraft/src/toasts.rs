@@ -264,7 +264,7 @@ impl Toasts {
                         let mut y = row.top() + (row_h - text_h) / 2.0;
                         if indent > 0.0 {
                             let at = egui::Rect::from_min_size(egui::pos2(row.left(), row.center().y - sign / 2.0), egui::vec2(sign, sign));
-                            egui::Image::new(crate::icons::WARNING).tint(ink).paint_at(ui, at);
+                            egui::Image::new(crate::kit::icons::WARNING).tint(ink).paint_at(ui, at);
                         }
                         let left = row.left() + indent;
                         ui.painter().galley(egui::pos2(left, y), title.clone(), ink);
@@ -289,7 +289,7 @@ impl Toasts {
                             if b.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
-                            crate::handles::publish(|| format!("toast.{i}.{handle}"), at);
+                            crate::kit::handles::publish(|| format!("toast.{i}.{handle}"), at);
                             if b.clicked() {
                                 acts.push(act);
                                 closed.push(i);
@@ -298,7 +298,7 @@ impl Toasts {
                     });
                     let rect = r.response.rect;
                     t.rect = Some(rect);
-                    crate::handles::publish(|| format!("toast.{i}"), rect);
+                    crate::kit::handles::publish(|| format!("toast.{i}"), rect);
                     if whole.is_some_and(|w| w.clicked()) && !closed.contains(&i) {
                         closed.push(i);
                     }

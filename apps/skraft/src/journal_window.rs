@@ -9,8 +9,8 @@ use skraft_i18n::{t, tp};
 use skraft_tools::journal::{Entry, Event, Failure, JobKind, Journal, Origin};
 use skraft_tools::{Modifiers, ToolInput};
 
+use crate::kit::style::Tip;
 use crate::ribbon::Corners;
-use crate::style::Tip;
 
 /// The width of the entries' kind column (« Début de glisser » fits).
 const KIND_WIDTH: f32 = 120.0;
@@ -113,7 +113,7 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
     };
     egui::Window::new(title)
         .id(window_id())
-        .title_frame(crate::style::window_title_frame(ctx))
+        .title_frame(crate::kit::style::window_title_frame(ctx))
         .open(&mut open)
         .collapsible(false)
         .resizable(true)
@@ -219,7 +219,7 @@ fn pilot_mark(ui: &mut egui::Ui, origin: &Origin, height: f32) {
     if !origin.is_control() {
         return;
     }
-    let img = egui::Image::new(crate::icons::REMOTE).tint(crate::titlebar::ACTIVE);
+    let img = egui::Image::new(crate::kit::icons::REMOTE).tint(crate::titlebar::ACTIVE);
     img.paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK)));
     r.tip(match origin.client() {
         Some(c) => t!("journal.origin.pilot_named", client = c),

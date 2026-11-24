@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/titlebar.rs, apps/skraft/src/native_menu.rs, apps/skraft/src/style.rs, apps/skraft/src/tabs.rs, apps/skraft/src/lib.rs]
+code: [apps/skraft/src/titlebar.rs, apps/skraft/src/native_menu.rs, apps/skraft/src/kit/style.rs, apps/skraft/src/tabs.rs, apps/skraft/src/lib.rs]
 ---
 
 # Title bar and native menus

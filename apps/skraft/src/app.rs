@@ -16,12 +16,12 @@ use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
 use crate::dock::{self, Dock, PanelId};
 use crate::docs::{DocId, Docs, file_name};
 use crate::file::{self, Inbox};
+use crate::kit::style::{CARD_MARGIN, Tip, card_frame, option_card};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView};
 use crate::prefs::Preferences;
 use crate::ribbon;
-use crate::style::{CARD_MARGIN, Tip, card_frame, option_card};
 use crate::tabs::{MenuRow, Tab, TabAction};
 use crate::titlebar;
 use crate::toasts::{Act, Note, Toasts};
@@ -250,7 +250,7 @@ fn prune_egui_memory(ctx: &egui::Context) {
 impl SkraftApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
-        crate::style::install_fonts(&cc.egui_ctx);
+        crate::kit::style::install_fonts(&cc.egui_ctx);
         prune_egui_memory(&cc.egui_ctx);
         // The page's command API asks for a frame when called (docs/control-protocol.md).
         #[cfg(target_arch = "wasm32")]
@@ -374,7 +374,7 @@ impl SkraftApp {
         });
         // egui's two styles come from the palette's tokens, installed when it changes.
         if self.styled != Some(self.prefs.palette) {
-            crate::style::install_palette(ctx, self.prefs.palette);
+            crate::kit::style::install_palette(ctx, self.prefs.palette);
             self.styled = Some(self.prefs.palette);
         }
         let mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
@@ -416,7 +416,7 @@ impl eframe::App for SkraftApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        crate::handles::frame_start();
+        crate::kit::handles::frame_start();
         self.driving.frame_start();
         // This frame's input: the user's, or a client's real events (`ui.*`).
         let origin = self.driving.origin();
@@ -483,7 +483,7 @@ impl eframe::App for SkraftApp {
         self.follow_documents();
         self.store_preferences(&ctx);
         // Last: every widget has said its cursor (docs/ui/cursors.md).
-        crate::cursors::apply(&ctx);
+        crate::kit::cursors::apply(&ctx);
     }
 }
 

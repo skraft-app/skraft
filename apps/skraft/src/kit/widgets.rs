@@ -1,7 +1,7 @@
 //! The widgets the interface's screens share (docs/ui/interface.md#widgets): a screen draws
 //! its buttons, fields and rows with these rather than its own.
 
-use crate::icons;
+use crate::kit::icons;
 
 mod button;
 mod field;

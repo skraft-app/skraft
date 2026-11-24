@@ -27,7 +27,7 @@ eframe.workspace = true
 egui-wgpu.workspace = true
 egui_extras.workspace = true
 image.workspace = true
-# The app's cursors, SVG rasterised (src/cursors.rs); egui_extras' own, for its SVG icons.
+# The app's cursors, SVG rasterised (src/kit/cursors.rs); egui_extras' own, for its SVG icons.
 resvg = { version = "0.45", default-features = false }
 wgpu.workspace = true
 log.workspace = true

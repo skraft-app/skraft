@@ -5,10 +5,10 @@
 use egui::{Popup, Rect, Sense, StrokeKind, vec2};
 use skraft_i18n::t;
 
-use crate::icons;
+use crate::kit::icons;
+use crate::kit::style::Tip;
+use crate::kit::widgets::{IconButton, Look, PinRow, pin_row};
 use crate::panels::{Action, CommandView};
-use crate::style::Tip;
-use crate::widgets::{IconButton, Look, PinRow, pin_row};
 
 /// The commands the card can show, in its order.
 pub const COMMANDS: &[&str] =
@@ -52,7 +52,7 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
         .show(ctx, |ui| {
             // Translucent, as OCL's: the part stays visible behind it; nearly opaque under the
             // pointer, to read and click.
-            crate::style::translucent(crate::view_bar::frame(ui.style()), hovered).show(ui, |ui| {
+            crate::kit::style::translucent(crate::view_bar::frame(ui.style()), hovered).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 ui.horizontal(|ui| {
                     let items: Vec<_> =
@@ -77,12 +77,12 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Opti
     let icon = icons::command(c.id)?;
     let response = IconButton::new(icon.clone(), BUTTON, ICON).look(Look::Bar).enabled(c.enabled).show(ui);
     let rect = response.rect;
-    crate::handles::publish_enabled(|| format!("quick:{}", c.id), rect, c.enabled);
+    crate::kit::handles::publish_enabled(|| format!("quick:{}", c.id), rect, c.enabled);
     let response = response.tip(&c.label);
     if response.clicked() && c.enabled {
         actions.push(Action::QuickTool(c.id));
     }
-    Popup::context_menu(&response).style(crate::style::menu).show(|ui| {
+    Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
         if ui.button(t!("quick_tools.unpin")).clicked() {
             actions.push(Action::QuickPin(c.id));
         }
@@ -93,7 +93,7 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Opti
 /// The ▾ button: every command the card can show, each with its pin.
 fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actions: &mut Vec<Action>) {
     let (rect, response) = ui.allocate_exact_size(vec2(MORE, BUTTON), Sense::click());
-    crate::handles::publish(|| "quick:more".into(), rect);
+    crate::kit::handles::publish(|| "quick:more".into(), rect);
     let visuals = ui.style().interact(&response);
     if response.hovered() {
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
@@ -101,7 +101,7 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
     crate::ribbon::chevron(ui, rect.center(), ui.visuals().text_color());
     let response = response.tip(t!("quick_tools.choose"));
     // A pin clicked leaves it open, as the ribbon's group menus; a row run closes it.
-    Popup::menu(&response).style(crate::style::menu).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+    Popup::menu(&response).style(crate::kit::style::menu).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         for &id in COMMANDS {
             let Some(c) = views.iter().find(|v| v.id == id) else { continue };
             let on = pinned.contains(&id);

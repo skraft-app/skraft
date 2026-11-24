@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/assets.rs, crates/theme/src/lib.rs, apps/skraft/src/style.rs, apps/skraft/src/viewport.rs, crates/tools/src/section_cut.rs, crates/tools/src/tools/paint.rs, crates/tools/src/tools/sample.rs, crates/tools/src/editor/view.rs, crates/tools/src/tools/section.rs, crates/model/src/settings.rs]
+code: [crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/assets.rs, crates/theme/src/lib.rs, apps/skraft/src/kit/style.rs, apps/skraft/src/viewport.rs, crates/tools/src/section_cut.rs, crates/tools/src/tools/paint.rs, crates/tools/src/tools/sample.rs, crates/tools/src/editor/view.rs, crates/tools/src/tools/section.rs, crates/model/src/settings.rs]
 ---
 
 # Rendering and look
@@ -77,7 +77,7 @@ where they are drawn covers them all.
   greys, blue accent), *Warm* (warm greys, amber, the default), *Graphite* (cool, deeper
   greys, teal). A palette changes the interface only: the model's and the overlays' tokens stay
   the theme's. A test holds every variant to text ≥ 7:1 and dim text ≥ 3:1 on its grounds.
-- `apps/skraft/src/style.rs` turns a palette's tokens into egui's visuals and spacing for
+- `apps/skraft/src/kit/style.rs` turns a palette's tokens into egui's visuals and spacing for
   **both** egui styles (light and dark) when it is chosen (at start-up, then on a change); egui
   switches with its theme, nothing is restyled per frame. *Preferences › Interface* shows each
   palette as a card drawn in its colours (the variant shown now); a click applies it at once.

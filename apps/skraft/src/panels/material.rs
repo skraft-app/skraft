@@ -49,7 +49,7 @@ pub(super) fn material_choice(ui: &mut egui::Ui, doc: &Document, salt: (&str, Id
         ui.painter_at(clip).galley(egui::pos2(inner.left(), inner.center().y - text.size().y / 2.0), text, ink);
 
         let mut picked = current;
-        egui::Popup::menu(&response).id(id).width(width).style(crate::style::menu).show(|ui| {
+        egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
             ui.set_min_width(ui.available_width());
             ui.selectable_value(&mut picked, None, t!("panel.materials.none"));
             for (id, m) in doc.materials() {

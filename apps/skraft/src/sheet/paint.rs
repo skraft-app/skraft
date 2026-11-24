@@ -127,7 +127,7 @@ pub(super) fn draw_other_sheets(
         for s in &column.sheets {
             let pv = view.at(s.origin);
             let page = pv.rect(DVec2::ZERO, s.size);
-            crate::handles::publish(|| format!("sheet_paper:{}", s.id.0), page);
+            crate::kit::handles::publish(|| format!("sheet_paper:{}", s.id.0), page);
             if Some(s.id) == active || !clip.intersects(page) {
                 continue;
             }
@@ -363,7 +363,7 @@ fn close_level(
             if selected.contains(id) {
                 painter.rect_stroke(*r, 0.0, accent, egui::StrokeKind::Middle);
             }
-            crate::handles::publish(|| format!("sheet_element:{}", id.0), *r);
+            crate::kit::handles::publish(|| format!("sheet_element:{}", id.0), *r);
         }
     }
     if level.open.is_empty() {
@@ -460,7 +460,7 @@ fn draw_view(
         overlay::turned_text(painter, label, angle, name, egui::FontId::proportional(11.0), frame_ink);
     }
     if alone {
-        crate::handles::publish(|| format!("sheet_view:{}", el.id.0), rect);
+        crate::kit::handles::publish(|| format!("sheet_view:{}", el.id.0), rect);
     }
     Some((rect, (lo, hi)))
 }
@@ -488,7 +488,7 @@ fn draw_dimension(
         painter.rect_stroke(rect, 0.0, accent, egui::StrokeKind::Middle);
     }
     if alone {
-        crate::handles::publish(|| format!("sheet_element:{}", el.id.0), rect);
+        crate::kit::handles::publish(|| format!("sheet_element:{}", el.id.0), rect);
     }
     Some((rect, shape.bounds()))
 }
@@ -539,7 +539,7 @@ fn draw_figure(
         stroke_box(painter, pv, pv.quad(b.0, b.1), accent);
     }
     if alone {
-        crate::handles::publish(|| format!("sheet_element:{}", shown.element.id.0), r);
+        crate::kit::handles::publish(|| format!("sheet_element:{}", shown.element.id.0), r);
     }
     (r, b)
 }
