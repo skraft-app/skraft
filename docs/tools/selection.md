@@ -23,8 +23,12 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   action.
 - **Move and Rotate**: picking first, then the base point (Move) or the centre (Rotate) — one
   click more than SketchUp's « the first click takes the entity and starts ». Once moved or
-  rotated, **the selection is let go** and the tool goes back to picking (the copy tools' OCL
-  restart). **Why:** a kept selection would be taken again at once.
+  rotated, **the selection is kept, taken again**: the next click is another base point or
+  centre (SketchUp's chained moves); Esc lets it go and the tool picks again. Once copied
+  (the copy modifier), the selection is let go, as the copy tools' (OCL's restart).
+  **Why:** a part is often moved or turned in several goes (two quarter turns, a position
+  adjusted); a tool that makes entities lets them go, its count typed after (`5x`) changing
+  the last copy, and neither the source nor the copies being the obvious one to keep.
 - **Erase and Paint keep the click that acts** (eraser, bucket): Erase lets the selection go
   when it starts (it never erases it; Delete does), then erases what it clicks; Paint still
   paints the whole selection when the click is in it.
@@ -52,8 +56,8 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   and the tool picks again; while busy, one step back, the selection let go only when that step
   dropped the target (`Tool::dropped`). A quick tool hands back
   ([Quick tools](quick-tools.md)).
-- **Let go after an operation**: `Command::Select([])` right after an operation still computed
-  by the kernel (a body moved in an open part) turns its `After::Select` into `After::LetGo`:
+- **Let go after an operation** (a copy): `Command::Select([])` right after an operation still
+  computed by the kernel (a body copied in an open part) turns its `After::Select` into `After::LetGo`:
   the selection kept until it lands (its ghost held), then cleared.
 - **The tool sees what it took at once**: after an input that changed the selection, a tool
   that picks first is given the cursor again (a hover, not journaled) — its status, preview and
