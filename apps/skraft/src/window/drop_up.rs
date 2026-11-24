@@ -6,7 +6,7 @@
 use egui::{Rect, vec2};
 use skraft_tools::{Tree, TreeRow};
 
-use crate::cards::panels::Action;
+use crate::commands::Action;
 use crate::instance_name::{self, NameInk};
 
 /// The indent per level of the path (points).

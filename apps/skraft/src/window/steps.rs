@@ -8,7 +8,7 @@ use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use skraft_i18n::t;
 use skraft_tools::{Key, Steps};
 
-use crate::cards::panels::Action;
+use crate::commands::Action;
 use crate::kit::style::Tip;
 use crate::window::toasts::Level;
 

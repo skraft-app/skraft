@@ -8,7 +8,7 @@ use skraft_i18n::t;
 use skraft_model::{DimKind, Drawing, Element, ElementKind, FastSet, Id, Operation, Orient, Presentation, Sheet, View, ViewKind};
 use skraft_tools::Editor;
 
-use crate::cards::panels::Action;
+use crate::commands::Action;
 use crate::drawing::sheet::{InfoOn, SheetAsk, SheetState};
 use crate::kit::icons;
 use crate::kit::style::Tip;

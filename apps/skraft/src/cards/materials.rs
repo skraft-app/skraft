@@ -12,7 +12,8 @@ use skraft_tools::{Editor, ToolKind};
 
 use crate::cards::catalog::{self, Card, Ink, LIST_ROW, Renaming, Rows, Shelf};
 use crate::cards::library::natural_cmp;
-use crate::cards::panels::{Action, NEW_COLORS};
+use crate::cards::panels::NEW_COLORS;
+use crate::commands::Action;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::system::images::{Decoder, Size};

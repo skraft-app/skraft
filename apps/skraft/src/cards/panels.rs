@@ -10,7 +10,6 @@ use skraft_model::{
 };
 use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
 
-use crate::commands::Menu;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::widgets::{
@@ -20,122 +19,7 @@ use crate::kit::widgets::{
 
 mod props;
 
-/// What a panel asks the app to do (applied after drawing, so the panels only read).
-pub enum Action {
-    /// A command of the registry, by id.
-    Command(&'static str),
-    /// The control channel failed to start: try again (the title bar's mark).
-    RemoteRetry,
-    /// An outliner's click: selects or deselects, Shift (`true`) adding to the selection.
-    SelectPath(EntityPath, bool),
-    /// A row of the tree drop-up hovered (none: left), or clicked (docs/tools/selection.md).
-    TreeHover(Option<usize>),
-    TreePick(usize),
-    /// The outliner's first row, the model, clicked: every assembly and part edited left,
-    /// nothing selected.
-    SelectModel,
-    /// A component chosen in the library (docs/ui/components-library.md).
-    ChooseComponent(Id),
-    /// One more occurrence of a component carried at the cursor, dragged out of its row (the
-    /// view follows the drag, docs/ui/components-library.md#placing).
-    PlaceComponent(Id),
-    /// A card of definitions as a list (true) or a grid (docs/ui/catalog.md).
-    CardList(crate::cards::catalog::Card, bool),
-    /// The library's menu: its occurrences selected, the selection replaced by it, deleted.
-    SelectOccurrences(Id),
-    ReplaceSelection(Id),
-    DeleteComponent(Id),
-    Apply(Operation),
-    /// A key for the active tool, from a button (the validation's ✓ Enter, ✗ Esc,
-    /// docs/ui/interface.md#steps-bar).
-    ToolKey(skraft_tools::Key),
-    /// An option of the active tool changed in its bar.
-    ToolOption(&'static str, OptionValue),
-    /// A length option of the active tool typed in its field of the bar.
-    ToolLength(&'static str, String),
-    /// A material chosen in its card (none: « Aucune »): what the paint tool paints with, the
-    /// tool left as it is (docs/ui/catalog.md).
-    ChooseMaterial(Option<Id>),
-    /// Paint with this material (none: remove paint): the paint tool starts.
-    PaintWith(Option<Id>),
-    /// Pick an image for this material's texture (docs/render/look.md#textures).
-    PickTexture(Id),
-    /// Export the document's materials (`.skraftmat`): one, or all (`None`); import some
-    /// (docs/io/file-format.md).
-    ExportMaterials(Option<Id>),
-    ImportMaterials,
-    /// What changes to the open part reach (docs/model/data-model.md).
-    PartScope(Scope),
-    /// Whether shapes drawn in the open part add material or take it away (docs/model/bodies.md).
-    BodySign(Sign),
-    /// The body of the open part hovered in the outliner, if any (its part open on it, the
-    /// bodies shown).
-    HoverMachining(Option<Id>),
-    /// A body of a part chosen in the outliner (docs/model/bodies.md#body-groups): the part, and the group
-    /// the path names, opened; the body selected or deselected, Shift (`true`) adding it.
-    SelectBody(EntityPath, Id, bool),
-    /// The body node `Id` of the part (or group) open: opened, its tool started on its edges
-    /// (docs/tools/rounds.md).
-    EditBlend(Id),
-    /// A body's « Profil » row chosen in the outliner: its part (and group) opened, its profile
-    /// edited.
-    EditProfile(EntityPath, Id),
-    /// The occurrence hovered in the outliner, if any.
-    HoverOutliner(Option<EntityPath>),
-    /// Hide the occurrence (true) or show it again: the outliner's eye.
-    SetHidden(EntityPath, bool),
-    /// The ribbon's own state: tab, pins, labels (docs/ui/ribbon.md).
-    Ribbon(crate::window::ribbon::Change),
-    /// The shown document into workspace `id` (decision 0047).
-    Workspace(&'static str),
-    /// The parts `paths` (from the root) selected: a row of the parts list (docs/ui/parts-list.md).
-    SelectParts(Vec<EntityPath>),
-    /// A tool started from the quick tools' card, on what was just made (docs/tools/quick-tools.md).
-    QuickTool(&'static str),
-    /// A command of the quick tools' card pinned, or unpinned.
-    QuickPin(&'static str),
-    /// A command of the view bar pinned, or unpinned (docs/ui/view-bar.md).
-    ViewPin(&'static str),
-    /// A pinned command dragged before another (none: at the end), in the view bar or in the
-    /// quick tools' card.
-    ViewMove(&'static str, Option<&'static str>),
-    /// The view bar's grip dragged to the other side.
-    ViewBarSide(crate::window::dock::Dock),
-    QuickMove(&'static str, Option<&'static str>),
-    /// On the file tabs (docs/ui/file-tabs.md).
-    Tab(crate::window::tabs::TabAction),
-}
-
-/// A command as shown now: its label, whether it can run, its state, its shortcut.
-#[derive(Clone, Debug)]
-pub struct CommandView {
-    pub id: &'static str,
-    pub label: String,
-    pub menu: Menu,
-    pub group: bool,
-    pub enabled: bool,
-    /// A toggle's state, or whether a tool is the active one.
-    pub checked: Option<bool>,
-    /// A tool waiting under the active one, which hands back to it (the tool stack).
-    pub waiting: bool,
-    /// As shown on this platform.
-    pub shortcut: Option<String>,
-}
-
-impl CommandView {
-    /// Its tool tip: the label and the shortcut.
-    pub fn tip(&self) -> String {
-        match &self.shortcut {
-            Some(s) => t!("toolbar.with_shortcut", label = self.label, shortcut = s),
-            None => self.label.clone(),
-        }
-    }
-}
-
-/// The delete key's name (Backspace works too).
-pub fn delete_key() -> String {
-    if skraft_i18n::mac() { "⌫".to_owned() } else { t!("key.delete") }
-}
+use crate::commands::Action;
 
 #[cfg(test)]
 mod tests {

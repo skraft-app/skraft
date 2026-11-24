@@ -12,7 +12,7 @@ use skraft_tools::search::Matcher;
 
 use crate::cards::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
 use crate::cards::library::natural_cmp;
-use crate::cards::panels::Action;
+use crate::commands::Action;
 use crate::drawing::sheet::{SheetState, Sketch, sketch_of};
 use crate::kit::style::Tip;
 

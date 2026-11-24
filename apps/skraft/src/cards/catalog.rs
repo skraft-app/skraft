@@ -5,7 +5,8 @@
 use skraft_i18n::t;
 use skraft_model::Id;
 
-use crate::cards::panels::{Action, weak_share};
+use crate::cards::panels::weak_share;
+use crate::commands::Action;
 use crate::kit::icons;
 use crate::kit::widgets::{rename_field, tree_row};
 

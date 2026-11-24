@@ -17,8 +17,8 @@ const APP_NAME: &str = "Skraft";
 /// The app's version (the workspace's, Cargo.toml), shown after its name.
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-use crate::cards::panels::{Action, CommandView};
 use crate::commands::Menu;
+use crate::commands::{Action, CommandView};
 use crate::kit::icons;
 use crate::kit::style::{BAR_BUTTON, BAR_ICON, Tip};
 use crate::kit::widgets::{IconButton, Look, VEIL_RADIUS, backed, command_item, is_toggle, unframed, veil};

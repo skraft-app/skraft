@@ -11,7 +11,7 @@ use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
 use crate::cards::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
-use crate::cards::panels::Action;
+use crate::commands::Action;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::system::thumbnails::Thumbnails;
