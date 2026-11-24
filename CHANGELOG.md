@@ -7,6 +7,27 @@ What changes in Skraft from one release to the next, for its users. The format f
 An entry is written when a version is tagged (`/changelog` in Claude Code, from
 `scripts/changelog.sh`); the release workflow publishes it as the GitHub Release's text.
 
+## [0.0.4] - 2026-11-24
+
+### Added
+- **Imprint** is pointed: pick the parts to go through, then the parts that imprint them, as with **Subtract**, several at once. Copies of a part placed alike come along, so a frame of one rail placed four times is linked in two clicks, and a part may imprint its own copies.
+- The solid tools and **Imprint** mark each part picked by its role, with an A or B badge at the point clicked: what receives the change is drawn selected, what makes it see-through as the body it becomes.
+- The middle of two tracked points is shown as a violet dot, to snap on.
+
+### Changed
+- **Imprint** is much faster on dowels and straight or filleted tenons: milliseconds instead of seconds.
+- **Imprint**: the clearances are named by opening and depth, with no extra depth by default, and the confirmation is laid out around a figure.
+- Linked bodies are drawn with dashed edges and marked in the navigator. Moving, turning, copying or rounding one is refused with a tip naming its source, and a double-click on it selects that source.
+- **Move** and **Rotate** keep the selection once done, so a part can be moved or turned in several goes; Esc lets it go.
+- Hovering tints the faces only, and a selection rectangle shows the selection it will leave as it is drawn, Shift included.
+- **Check for updates** moved from the **File** menu to a button in the About window.
+
+### Fixed
+- **Put Back** places copies that enter each other in a chain, which closes a frame round a rail moved in its plane.
+- Stretching mirrored or taller parts, or only one copy of a part, keeps their mortises and grooves following their sources.
+- The navigator tells for each copy whether it imprints, and hiding a part drops it from the selection.
+- Right after a copy, typing x5 in the measurements box sets the count.
+
 ## [0.0.3] - 2026-11-24
 
 ### Added
