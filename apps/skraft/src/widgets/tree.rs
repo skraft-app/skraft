@@ -137,6 +137,22 @@ pub(crate) fn tree_line<T, L>(
     })
 }
 
+/// A check box's state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Tick {
+    No,
+    Yes,
+    /// Through something above it (a row above, ticked): egui's indeterminate mark.
+    Covered,
+}
+
+/// The app's check box, egui's, without text, showing `tick`: its response (a click on it acts
+/// as one on its row).
+pub(crate) fn tick(ui: &mut egui::Ui, tick: Tick) -> egui::Response {
+    let mut on = tick == Tick::Yes;
+    ui.add(egui::Checkbox::without_text(&mut on).indeterminate(tick == Tick::Covered))
+}
+
 /// What follows the pointer while a navigator's row is dragged (docs/ui/interface.md#navigator):
 /// its icon and name, how many go with it.
 #[derive(Clone)]

@@ -14,7 +14,7 @@ pub(crate) use field::{Field, FieldLook, cut_label, field_stroke, framed_field, 
 pub(crate) use menu::{PinRow, command_item, is_toggle, pin_row};
 pub(crate) use segmented::{Segment, segmented, segmented_sized};
 pub(crate) use tree::{
-    Fold, RENAMING, TreeLine, band_color, hidden_color, paint_drag_ghost, set_drag_ghost, start_rename, tree_line, tree_row,
+    Fold, RENAMING, Tick, TreeLine, band_color, hidden_color, paint_drag_ghost, set_drag_ghost, start_rename, tick, tree_line, tree_row,
 };
 
 /// The warning sign before an error to correct (a part in several pieces, a shortcut's
